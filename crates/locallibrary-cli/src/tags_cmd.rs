@@ -2,7 +2,7 @@
 
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::api::{self, DriveRef, TagAction, TagsEdit};
@@ -17,7 +17,7 @@ use crate::output::{Outcome, Output, dim, ok, warn};
 pub struct TagsArgs {
     #[command(subcommand)]
     command: Option<TagsCommand>,
-    /// Drive whose My Tags to list (same as `tags list`)
+    /// Drive whose My Tags to list (same as `tags list`) [default: every mounted rekordbox drive]
     drive: Option<String>,
     /// Also list the tracks carrying each tag
     #[arg(long)]
@@ -28,8 +28,8 @@ pub struct TagsArgs {
 enum TagsCommand {
     /// Categories and tags, how many tracks carry each, and where the two databases disagree
     List {
-        #[arg(help = crate::DRIVE_HELP)]
-        drive: String,
+        #[arg(help = crate::DEFAULT_DRIVE_HELP)]
+        drive: Option<String>,
         /// Also list the tracks carrying each tag
         #[arg(long)]
         tracks: bool,
@@ -87,9 +87,10 @@ enum TagsCommand {
 pub fn run(args: TagsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let (drive, action, dry_run) = match args.command {
         None => {
-            let Some(drive) = args.drive else { bail!("give a drive: locallibrary tags <drive>") };
-            crate::help::check_drive_word("tags", &drive)?;
-            return list(drive, args.tracks, out);
+            if let Some(drive) = &args.drive {
+                crate::help::check_drive_word("tags", drive)?;
+            }
+            return list(args.drive, args.tracks, out);
         }
         Some(TagsCommand::List { drive, tracks }) => return list(drive, tracks, out),
         Some(TagsCommand::Add { drive, tag, select, dry_run }) => {
@@ -121,10 +122,10 @@ pub fn run(args: TagsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     Ok(out.applied(&plan, &report, Outcome::Applied, || render_report(&report, &req.drive)))
 }
 
-fn list(drive: String, tracks: bool, out: Output) -> Result<ExitCode> {
-    let tags = api::tags_list(&DriveRef { drive })?;
-    out.emit_paged(&tags, |t| render_list(t, tracks));
-    Ok(ExitCode::SUCCESS)
+fn list(drive: Option<String>, tracks: bool, out: Output) -> Result<ExitCode> {
+    let reads = crate::each_drive::read(drive, |drive| api::tags_list(&DriveRef { drive }))?;
+    out.page();
+    Ok(reads.emit(out, |t| render_list(t, tracks)).exit())
 }
 
 fn files(sources: &[Source]) -> String {

@@ -63,12 +63,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   per-drive overrides. `settings publish` puts the profile's base on your Atmosphere account, and
   `settings import --from-account` (or `--from-handle`, for someone else's) adds published
   settings to yours; `--replace` makes them the whole base.
-- **Cover art** on drives and in audio files, and rekordbox XML export (`xml`) to take a drive's
-  library back into rekordbox.
+- **Cover art** on drives and in audio files (`art auto` given no drive fills in every mounted
+  drive's, with one question), and rekordbox XML export (`xml`) to take a drive's library back into
+  rekordbox.
 - **Mixes.** `mix` finds which of a drive's tracks a recorded set plays, when, at what speed and
   in what key (marking the matches it's unsure of), and writes an interactive report. The report
   and `--export` (the same as data, for showing elsewhere) hold only what they show: no file
-  paths, drive name or size, and tracks your profile hides read "ID - ID".
+  paths, drive name or size, and tracks your profile hides read "ID - ID". The player's Mixes view
+  lists the drive's recordings next to folders of sets opened from the computer.
 - **DJ profile.** `profile` sums up how you play from your sets, collection and settings (with no
   drives named, the mounted drives the store knows), with a rounded public view; `account` signs
   in with an Atmosphere (AT Protocol) account, and `profile publish`, `plays publish` and
@@ -96,11 +98,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   the CLI, which prints them as hints. The mix report lives in the library: `mix.identify` can
   answer each play's waveform, cues and phrases and keep the report in the store, and
   `mix.reports.list`, `.get` and `.html` find kept reports and write their pages.
-- **The drive you mean.** Commands that read one drive take the only mounted one, or the
-  primary of the one library whose drives are mounted, when given none; when that can't be told,
-  the error lists the mounted drives (name, mount path, role, library) and exits with status 2. A
-  name that matches no mounted drive lists the ones that are, and says when it's a drive you own
-  that isn't plugged in, and when it was last seen.
+- **The drive you mean.** Commands that read a drive (`tracks`, `playlist ls`, `drive info`,
+  `doctor`, `tags`, `plays lists`...) read every mounted one when given none, each under its name
+  (with `--json`, a list, one entry per drive), and a drive that can't be read doesn't stop the
+  others. `xml` and `doctor --fix-orphans` take the only mounted drive, or the primary of the one
+  library whose drives are mounted; when that can't be told, the error lists the mounted drives
+  (name, mount path, role, library) and exits with status 2. A name that matches no mounted drive
+  lists the ones that are, and says when it's a drive you own that isn't plugged in, and when it
+  was last seen.
 - **After an export.** `refresh [DRIVE]` (with none, the drive rekordbox exported over recorded
   edits on) puts back what rekordbox's export replaced, in one plan with each step only when
   needed: demo samples out, recorded edits made again, rule-based playlists filled, the name and

@@ -298,7 +298,7 @@ pub static KEYMAP: &[Binding] = &[
     // The Library view
     // -----------------------------------------------------------------------------------------
     // The offer to replay edits rekordbox exported over, while it's up.
-    key(S::Replay, &[K::Ch('y')], "y", A::Replay, "", "replay the edits rekordbox exported over (while it says so)", G::Changing),
+    key(S::Replay, &[K::Ch('y')], "y", A::Replay, "", "replay edits rekordbox overwrote (while it says so)", G::Changing),
     tip(S::Replay, "y", "replay edits", 10),
     tip(S::Replay, "esc", "not now", 9),
     // What the footer says in each pane (the keys are below).
@@ -366,7 +366,7 @@ pub static KEYMAP: &[Binding] = &[
     // The Drives and Snapshots views
     // -----------------------------------------------------------------------------------------
     note(S::Drives, "enter", "open the drive in the library", G::Drives),
-    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: pull it, check it, sync its group, pack a set onto it, bring back a playlist, replay edits, eject it (each shows its plan and asks first)", G::Drives),
+    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject (each shows its plan and asks first)", G::Drives),
     tip(S::Drives, "↑↓", "select", 4),
     tip(S::Drives, "enter", "browse", 9),
     tip(S::Drives, "e", "actions", 8),
@@ -409,10 +409,11 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::Mixes, "space", "play", 8),
     note(S::Mixes, "n  p", "while the set plays: its next / previous track", G::Mixes),
     tip(S::Mixes, "n p", "next/prev track", 6),
-    key(S::Mixes, &[K::Ch('O')], "O", A::MixOpen, "open a recording by path", "open a recording, or a folder of them, by path", G::Mixes)
+    key(S::Mixes, &[K::Ch('O')], "O", A::MixOpen, "open a recording by path", "open a recording by path, or a folder of them (subfolders too) to keep listed", G::Mixes)
         .hint("open a file", 7),
     key(S::Mixes, &[K::Ch('z')], "z", A::MixZoom, "zoom the set's timeline", "zoom the timeline: the whole set, 2×, 4×, 8×", G::Mixes)
         .hint("zoom", 4),
+    key(S::Mixes, &[K::Code(C::Delete), K::Code(C::Backspace)], "del", A::Remove, "", "on a recording from this computer: forget it, or the folder it was found in", G::Mixes),
     note(S::Mixes, "o", "go to the selected track in the library", G::Mixes),
     tip(S::Mixes, "o", "in library", 5),
     key(S::Mixes, &[K::Ch('E')], "E", A::MixExport, "export the set for Local Network", "export the set as data (.mix.json) for Local Network", G::Mixes)
@@ -491,14 +492,14 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the footer said since starting", G::Player),
     // Commands with no key of their own, for the drive open in the library (the selected one in
     // the Drives view).
-    key(S::Global, &[], "pull", A::Pull, "pull: save the drive in the store", "save the drive in the store, a snapshot of its library (shows what that adds first)", G::Commands),
-    key(S::Global, &[], "check", A::Check, "check the drive for the players", "check the drive against the player models remembered for it (results in a panel)", G::Commands),
-    key(S::Global, &[], "set prep", A::SetPrep, "set prep: check every drive of the library", "check the drive and the other mounted drives of its library together, for a set", G::Commands),
-    key(S::Global, &[], "sync", A::SyncGroup, "sync the drive's group from its newest drive", "copy the newest drive of the library over the others plugged in (when none is newest, says why)", G::Commands),
-    key(S::Global, &[], "pack", A::Pack, "pack a set onto a drive", "the marked playlists, the playlist shown or the crate, from the open drive onto another", G::Commands),
-    key(S::Global, &[], "restore", A::RestorePlaylist, "bring back a playlist from a snapshot", "a playlist or folder as a snapshot in the store had it, onto the drive", G::Commands),
-    key(S::Global, &[], "replay", A::Replay, "replay the edits rekordbox exported over", "make the drive's recorded edits again after rekordbox exported over them", G::Commands),
-    key(S::Global, &[K::Ch('u')], "u", A::Undo, "undo the last change to a drive", "undo: take back the last change made, on the drive it was made to (before any, the open or selected drive's last), after showing what that puts back", G::Changing),
+    key(S::Global, &[], "pull", A::Pull, "save a snapshot of the drive", "save the drive in the store, a snapshot of its library (shows what that adds first)", G::Commands),
+    key(S::Global, &[], "check", A::Check, "check the drive for problems", "check the drive against the player models remembered for it (results in a panel)", G::Commands),
+    key(S::Global, &[], "set prep", A::SetPrep, "check all the library's drives", "check the drive and the other mounted drives of its library together, for a set", G::Commands),
+    key(S::Global, &[], "sync", A::SyncGroup, "sync the library's drives", "copy the newest drive of the library over the others plugged in (when none is newest, says why)", G::Commands),
+    key(S::Global, &[], "pack", A::Pack, "pack playlists for a set…", "the marked playlists, the playlist shown or the crate, from the open drive onto another", G::Commands),
+    key(S::Global, &[], "restore", A::RestorePlaylist, "bring back a playlist from a snapshot…", "a playlist or folder as a snapshot in the store had it, onto the drive", G::Commands),
+    key(S::Global, &[], "replay", A::Replay, "replay edits rekordbox overwrote", "make the drive's recorded edits again after rekordbox exported over them", G::Commands),
+    key(S::Global, &[K::Ch('u')], "u", A::Undo, "undo the last change", "undo: take back the last change made, on the drive it was made to (before any, the open or selected drive's last), after showing what that puts back", G::Changing),
     key(S::Global, &[], "smart", A::SmartList, "smart playlists: the rules", "the rule-based playlists kept in the store", G::Commands),
     key(S::Global, &[], "smart apply", A::SmartApply, "fill the smart playlists on the drive", "fill the rule-based playlists on the drive from its own library (shows what changes first)", G::Commands),
     key(S::Global, &[], "smart new", A::SmartNew, "smart playlist from the search", "a rule-based playlist from the search box's filter and the list's sort", G::Commands),
@@ -535,6 +536,11 @@ pub fn scopes(app: &App) -> Vec<Scope> {
     }
     v.push(Scope::Global);
     v
+}
+
+/// What `act` is called in the palette and the menus that offer it.
+pub fn name(act: Act) -> &'static str {
+    KEYMAP.iter().find(|b| b.act == act && !b.name.is_empty()).map_or("", |b| b.name)
 }
 
 /// The binding `key` means in `scopes` (most specific first).

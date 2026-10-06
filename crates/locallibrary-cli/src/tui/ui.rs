@@ -1822,14 +1822,16 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
             let s = &fd.status;
             let (icon, msg, c) = match (s.relation, &s.error) {
                 (_, Some(e)) => ("✖", format!("error: {e}"), theme::RED),
-                (None, _) if s.library.is_none() => ("○", "not in the store (e, then pull)".to_string(), theme::DIM),
+                (None, _) if s.library.is_none() => {
+                    ("○", "not in the store (e, then save a snapshot)".to_string(), theme::DIM)
+                }
                 (None, _) => ("○", "library has no snapshots".to_string(), theme::DIM),
                 (Some(Relation::Identical), _) => ("✓", "up to date".to_string(), theme::GREEN),
                 (Some(Relation::RightNewer), _) => {
-                    ("▲", "has changes not in the store (e, then pull)".to_string(), theme::AMBER)
+                    ("▲", "has changes not in the store (e, then save a snapshot)".to_string(), theme::AMBER)
                 }
                 (Some(Relation::LeftNewer), _) => {
-                    ("▼", "behind the store (sync its group, or locallibrary library push)".to_string(), theme::AMBER)
+                    ("▼", "behind the store (e, then sync, or locallibrary library push)".to_string(), theme::AMBER)
                 }
                 (Some(Relation::Diverged), _) => ("⑂", "diverged from the store".to_string(), theme::RED),
                 (Some(other), _) => ("?", format!("{other:?}").to_lowercase(), theme::DIM),
@@ -1933,7 +1935,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     // `u` undoes on the drive changed last this run, which may be another.
     let undo = app.undo_drive().map(|r| format!("undo the last change to {}", app.drive_label(&r))).unwrap_or_default();
     for (k, what) in [
-        ("e", "pull · check · set prep · sync its group · pack a set · bring back a playlist · replay edits · eject"),
+        ("e", "save a snapshot · check · sync · pack · bring back a playlist · replay edits · eject"),
         ("u", undo.as_str()),
         ("enter", "browse it in the library"),
     ] {

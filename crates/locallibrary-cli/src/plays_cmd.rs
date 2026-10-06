@@ -5,16 +5,19 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use console::style;
+use locallibrary::Store;
 use locallibrary::api;
 use locallibrary::export::{self, Format};
 use locallibrary::model::Track;
-use locallibrary::plays::{self, HistoryArchive, HistoryList, PlayStats};
+use locallibrary::plays::{self, DriveHistory, HistoryArchive, HistoryList, PlayStats};
 use locallibrary::progress::Ctx;
+use serde::Serialize;
 
 use crate::DRIVE_HELP;
+use crate::each_drive::{self, Reads};
 use crate::export_cmd::{FormatArg, PathsArg};
 use crate::output::{Output, dim, duration, heading, ok, warn};
 
@@ -24,7 +27,8 @@ use crate::output::{Output, dim, duration, heading, ok, warn};
 pub struct PlaysArgs {
     #[command(subcommand)]
     command: Option<PlaysCommand>,
-    /// A drive whose history lists to list, as `plays lists` does
+    /// A drive whose history lists to list, as `plays lists` does [default: every mounted
+    /// rekordbox drive]
     #[arg(value_name = "DRIVE")]
     drive: Option<String>,
 }
@@ -53,7 +57,7 @@ const LISTS_LONG_HELP: &str = "Examples:
 
 /// `history`: `plays lists`, with `history publish` for `plays publish`.
 #[derive(Args)]
-#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
+#[command(args_conflicts_with_subcommands = true)]
 pub struct HistoryArgs {
     #[cfg(feature = "account")]
     #[command(subcommand)]
@@ -65,8 +69,7 @@ pub struct HistoryArgs {
 /// `plays lists`.
 #[derive(Args)]
 pub struct ListsArgs {
-    /// The drive: its mount path, name or id prefix
-    #[arg(required = true)]
+    #[arg(help = crate::DEFAULT_DRIVE_HELP)]
     drive: Option<String>,
     /// A history list (name or path): print its tracks, or write them with -o
     list: Option<String>,
@@ -246,9 +249,10 @@ pub fn history(args: HistoryArgs, store: &Option<PathBuf>, out: Output, ctx: &Ct
 
 /// `plays lists`.
 pub fn lists(args: ListsArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let Some(drive) = args.drive.clone() else { bail!("name a drive (`locallibrary drive ls` lists them)") };
     let store = crate::diff_cmd::existing_store(store);
+    let drive = || args.drive.clone().context("name a drive (`locallibrary drive ls` lists them)");
     if args.delete {
+        let drive = drive()?;
         let req = api::DeleteHistoryRequest {
             drive: drive.clone(),
             names: args.list.into_iter().collect(),
@@ -258,6 +262,7 @@ pub fn lists(args: ListsArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
         return crate::edit_cmd::confirm_and_apply(&drive, plan, args.dry_run, out, ctx);
     }
     if let Some(output) = args.output {
+        let drive = drive()?;
         let Some(list) = args.list else {
             bail!("name the history list to write (`locallibrary plays lists {:?}` lists them)", drive)
         };
@@ -282,38 +287,48 @@ pub fn lists(args: ListsArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
         return Ok(ExitCode::SUCCESS);
     }
 
-    let on_drive = api::drive_history(&api::DriveRef { drive: drive.clone() })?;
-    let archive = match (args.all, &store) {
-        (false, _) => None,
-        (true, None) => {
-            if !out.json {
-                warn("there's no store yet, so nothing is archived (locallibrary pull <drive> starts one)");
-            }
-            None
-        }
-        (true, Some(store)) => {
-            let req = api::HistoryArchiveRequest { library: None, drive: Some(drive.clone()) };
-            Some(api::history_archive(store, &req, ctx)?)
-        }
-    };
-    if let Some(query) = &args.list {
-        let list = plays::find_list(&on_drive.lists, query)
-            .or_else(|| archive.as_ref().and_then(|a| plays::find_list(a.lists.iter().map(|a| &a.list), query)));
+    if args.all && store.is_none() && !out.json {
+        warn("there's no store yet, so nothing is archived (locallibrary pull <drive> starts one)");
+    }
+    let reads = each_drive::read(args.drive.clone(), |drive| histories(drive, args.all, store.as_ref(), ctx))?;
+    // A list comes after its drive on the command line, so it's looked for on that drive.
+    if let (Reads::One(h), Some(query)) = (&reads, &args.list) {
+        let list = plays::find_list(&h.drive.lists, query)
+            .or_else(|| h.archive.as_ref().and_then(|a| plays::find_list(a.lists.iter().map(|a| &a.list), query)));
         let Some(list) = list else {
             let hint = if args.all { "" } else { " (--all also looks in the store)" };
-            bail!("no history list {query:?} on {}{hint}", on_drive.drive)
+            bail!("no history list {query:?} on {}{hint}", h.drive.drive)
         };
         let format = args.format.map(Into::into).unwrap_or(Format::Txt);
         out.emit(list, |l| print_list(l, format));
         return Ok(ExitCode::SUCCESS);
     }
-    out.emit_paged(&serde_json::json!({ "drive": on_drive, "archive": archive }), |_| {
-        list_histories(&on_drive.drive, &on_drive.lists, archive.as_ref());
-        for w in &on_drive.warnings {
+    out.page();
+    let outcome = reads.emit(out, |h| {
+        list_histories(&h.drive.drive, &h.drive.lists, h.archive.as_ref());
+        for w in &h.drive.warnings {
             warn(w);
         }
     });
-    Ok(ExitCode::SUCCESS)
+    Ok(outcome.exit())
+}
+
+/// A drive's history lists, and with `all` every one the store archived from it.
+#[derive(Serialize)]
+struct Histories {
+    drive: DriveHistory,
+    archive: Option<HistoryArchive>,
+}
+
+fn histories(drive: String, all: bool, store: Option<&Store>, ctx: &Ctx<'_>) -> locallibrary::Result<Histories> {
+    let on_drive = api::drive_history(&api::DriveRef { drive: drive.clone() })?;
+    let archive = match store.filter(|_| all) {
+        Some(store) => {
+            Some(api::history_archive(store, &api::HistoryArchiveRequest { library: None, drive: Some(drive) }, ctx)?)
+        }
+        None => None,
+    };
+    Ok(Histories { drive: on_drive, archive })
 }
 
 fn print_list(l: &HistoryList, format: Format) {

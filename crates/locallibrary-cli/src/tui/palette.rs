@@ -82,10 +82,11 @@ impl Picker {
         i.or((!self.shown.is_empty()).then_some(0))
     }
 
-    /// Narrow the list to what's typed, best matches first (ties keep the list's order).
+    /// Narrow the list to what's typed, in the label or the detail (so a command's name finds it),
+    /// best matches first (ties keep the list's order).
     pub fn filter(&mut self) {
         let mut scored: Vec<(i32, usize)> = (self.items.iter().enumerate())
-            .filter_map(|(i, it)| fuzzy(&self.query, &it.label).map(|s| (s, i)))
+            .filter_map(|(i, it)| fuzzy(&self.query, &it.label).max(fuzzy(&self.query, &it.detail)).map(|s| (s, i)))
             .collect();
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
         self.shown = scored.into_iter().map(|(_, i)| i).collect();
@@ -320,5 +321,16 @@ mod tests {
         assert!(matches!(app.modal, Some(Modal::Pick(_))));
         press(&mut app, KeyCode::Esc);
         assert!(app.modal.is_none());
+    }
+
+    #[test]
+    fn a_command_is_found_by_the_name_beside_it() {
+        let (acts, items): (Vec<Act>, Vec<Item>) = commands(View::Drives).into_iter().unzip();
+        let mut p = Picker::new("Commands", items, Then::Act(acts.clone()));
+        for (typed, act) in [("pull", Act::Pull), ("set prep", Act::SetPrep), ("restore", Act::RestorePlaylist)] {
+            p.query = typed.into();
+            p.filter();
+            assert_eq!(acts[p.selected().unwrap()], act, "{typed}");
+        }
     }
 }

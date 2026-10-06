@@ -168,7 +168,7 @@ fn drives() {
     );
     // What can be done to it.
     key(&mut app, KeyCode::Char('e'));
-    check(&mut app, "the drive's actions", &["Drive · ", "pull: save it in the store", "eject it"], &[]);
+    check(&mut app, "the drive's actions", &["Drive · ", "save a snapshot of the drive", "eject the drive"], &[]);
     key(&mut app, KeyCode::Esc);
     // A check's results.
     app.modal = Some(Modal::Report(super::drives::Report {

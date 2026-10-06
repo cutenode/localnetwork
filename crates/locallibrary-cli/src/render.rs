@@ -16,6 +16,7 @@ use locallibrary::store::SnapshotInfo;
 use locallibrary::sync::{CopyReason, PullReport, SyncPlan, SyncReport};
 use locallibrary::{Library, Track};
 
+use crate::each_drive::DriveRead;
 use crate::output::{bytes, dim, duration, heading, ok, warn};
 
 pub fn drives(list: &[DeviceInfo]) {
@@ -309,23 +310,7 @@ pub fn track_table(list: &[&Track], columns: &[TrackColumn], format: TableFormat
     let columns = if columns.is_empty() { DEFAULT_COLUMNS } else { columns };
     let rows: Vec<Vec<String>> = list.iter().map(|t| columns.iter().map(|c| c.value(t)).collect()).collect();
     match format {
-        TableFormat::Tsv => {
-            let clean = |v: &str| v.replace(['\t', '\n', '\r'], " ");
-            println!("{}", columns.iter().map(|c| c.header()).collect::<Vec<_>>().join("\t"));
-            for row in &rows {
-                println!("{}", row.iter().map(|v| clean(v)).collect::<Vec<_>>().join("\t"));
-            }
-        }
-        TableFormat::Csv => {
-            let quote = |v: &str| match v.contains([',', '"', '\n', '\r']) {
-                true => format!("\"{}\"", v.replace('"', "\"\"")),
-                false => v.to_string(),
-            };
-            println!("{}", columns.iter().map(|c| c.header()).collect::<Vec<_>>().join(","));
-            for row in &rows {
-                println!("{}", row.iter().map(|v| quote(v)).collect::<Vec<_>>().join(","));
-            }
-        }
+        TableFormat::Tsv | TableFormat::Csv => delimited(format, columns.iter().map(|c| c.header()), &rows),
         TableFormat::Table => {
             let widths: Vec<usize> = columns
                 .iter()
@@ -355,6 +340,36 @@ pub fn track_table(list: &[&Track], columns: &[TrackColumn], format: TableFormat
             };
             say!("{}", dim(count));
         }
+    }
+}
+
+/// Several drives' tracks as one TSV or CSV listing, the drive's name in a column of its own.
+pub fn drive_tracks(reads: &[DriveRead<TracksPage>], columns: &[TrackColumn], format: TableFormat) {
+    let columns = if columns.is_empty() { DEFAULT_COLUMNS } else { columns };
+    let rows: Vec<Vec<String>> = (reads.iter())
+        .filter_map(|r| Some((&r.drive, r.result.as_ref()?)))
+        .flat_map(|(drive, page)| {
+            page.tracks
+                .iter()
+                .map(move |t| std::iter::once(drive.clone()).chain(columns.iter().map(|c| c.value(t))).collect())
+        })
+        .collect();
+    delimited(format, std::iter::once("drive").chain(columns.iter().map(|c| c.header())), &rows);
+}
+
+/// Rows as TSV (tabs and line breaks in a value become spaces) or CSV (quoted as RFC 4180 says),
+/// under a header row.
+fn delimited<'a>(format: TableFormat, headers: impl Iterator<Item = &'a str>, rows: &[Vec<String>]) {
+    let (separator, cell): (&str, fn(&str) -> String) = match format {
+        TableFormat::Csv => (",", |v| match v.contains([',', '"', '\n', '\r']) {
+            true => format!("\"{}\"", v.replace('"', "\"\"")),
+            false => v.to_string(),
+        }),
+        _ => ("\t", |v| v.replace(['\t', '\n', '\r'], " ")),
+    };
+    println!("{}", headers.collect::<Vec<_>>().join(separator));
+    for row in rows {
+        println!("{}", row.iter().map(|v| cell(v)).collect::<Vec<_>>().join(separator));
     }
 }
 

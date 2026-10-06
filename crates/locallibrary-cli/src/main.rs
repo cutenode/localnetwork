@@ -13,6 +13,7 @@ mod cues_cmd;
 mod diff_cmd;
 mod doctor_cmd;
 mod drive_cmd;
+mod each_drive;
 mod edit_cmd;
 mod export_cmd;
 mod help;
@@ -54,9 +55,10 @@ use crate::output::{Outcome, Output};
 /// The help of every `<DRIVE>` argument.
 pub const DRIVE_HELP: &str = "The drive: its mount path, name or id prefix";
 
-/// The help of a `[DRIVE]` argument that can be left out when one drive is in reach.
-pub const DEFAULT_DRIVE_HELP: &str = "The drive: its mount path, name or id prefix [default: the only mounted \
-rekordbox drive, or the library's primary]";
+/// The help of a `[DRIVE]` argument that can be left out: the command then reads every mounted
+/// rekordbox drive.
+pub const DEFAULT_DRIVE_HELP: &str = "The drive: its mount path, name or id prefix [default: every mounted \
+rekordbox drive]";
 
 /// Where the global flags show in every command's help.
 const GLOBAL: &str = "Global options";
@@ -368,7 +370,8 @@ locallibrary pack Main /Volumes/TONIGHT    # later: the same playlists, copying 
     Export(export_cmd::ExportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
     Xml {
-        #[arg(help = DEFAULT_DRIVE_HELP)]
+        /// The drive: its mount path, name or id prefix [default: the only mounted rekordbox drive,
+        /// or the library's primary]
         drive: Option<String>,
         /// The file to write
         #[arg(long, short, default_value = "rekordbox.xml")]
@@ -713,8 +716,8 @@ enum SettingsCommand {
 struct ArtArgs {
     #[command(subcommand)]
     command: Option<ArtCommand>,
-    /// A drive whose tracks without artwork to list, as `art missing` does [default: the only
-    /// mounted rekordbox drive, or the library's primary]
+    /// A drive whose tracks without artwork to list, as `art missing` does [default: every
+    /// mounted rekordbox drive]
     #[arg(value_name = "DRIVE")]
     drive: Option<String>,
 }
@@ -741,8 +744,9 @@ enum ArtCommand {
     },
     /// Fill in missing artwork from embedded tags or cover.jpg/folder.jpg next to the audio
     Auto {
-        #[arg(help = DRIVE_HELP)]
-        drive: String,
+        /// The drive: its mount path, name or id prefix [default: every mounted rekordbox drive but
+        /// archive and retired ones]
+        drive: Option<String>,
         /// Show what would be set without changing anything
         #[arg(long)]
         dry_run: bool,
@@ -1042,18 +1046,22 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             // --search is free text in the filter.
             let filter: Vec<String> = a.search.as_deref().map(search_terms).into_iter().chain(a.filter).collect();
             let filter = (!filter.is_empty()).then(|| filter.join(" "));
-            let req = api::TracksQuery {
-                drive: jobs_cmd::drive_or_default(a.drive, &cli.store, "list")?,
-                filter,
-                playlist: a.playlist,
-                sort: a.sort,
-                offset: 0,
-                limit: a.limit,
-            };
-            out.emit_paged(&api::tracks_query(&req)?, |p| render::tracks(p, &a.columns, a.format));
+            let reads = each_drive::read(a.drive, |drive| {
+                let (filter, playlist, sort) = (filter.clone(), a.playlist.clone(), a.sort.clone());
+                api::tracks_query(&api::TracksQuery { drive, filter, playlist, sort, offset: 0, limit: a.limit })
+            })?;
+            out.page();
+            // Several drives' TSV or CSV is one listing, for the program reading it.
+            if let (each_drive::Reads::Each(each), render::TableFormat::Tsv | render::TableFormat::Csv, false) =
+                (&reads, a.format, out.json)
+            {
+                render::drive_tracks(each, &a.columns, a.format);
+                return Ok(reads.outcome().exit());
+            }
+            return Ok(reads.emit_headed(out, |p| render::tracks(p, &a.columns, a.format)).exit());
         }
-        Command::Playlist(a) => return edit_cmd::playlist(a, &cli.store, out, &ctx),
-        Command::Playlists { drive } => return edit_cmd::tree(drive, &cli.store, out),
+        Command::Playlist(a) => return edit_cmd::playlist(a, out, &ctx),
+        Command::Playlists { drive } => return edit_cmd::tree(drive, out),
         Command::Track(a) => return edit_cmd::track(a, out, &ctx),
         Command::Smart(a) => return edit_cmd::smart(a, &store()?, out, &ctx),
         Command::Edits(a) => return edit_cmd::edits(a, out, &ctx),
@@ -1502,10 +1510,9 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             return out.one_step(&change, "Unset them?", || Ok(api::settings_unset(&store, &req)?), render::profile);
         }
         SettingsCommand::Show { drive } => {
-            let drive = jobs_cmd::drive_or_default(drive, store_path, "show")?;
             let store = open_store(store_path)?;
-            let view = api::settings_show(&store, &api::DriveRef { drive })?;
-            out.emit(&view, render::drive_settings);
+            let reads = each_drive::read(drive, |drive| api::settings_show(&store, &api::DriveRef { drive }))?;
+            return Ok(reads.emit(out, render::drive_settings).exit());
         }
         SettingsCommand::Apply { drives, create_missing, dry_run } => {
             let store = open_store(store_path)?;
@@ -1592,14 +1599,15 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
     };
     match command {
         ArtCommand::Missing { drive } => {
-            let drive = jobs_cmd::drive_or_default(drive, store_path, "look at")?;
-            let list = api::artwork_missing(&api::DriveRef { drive })?;
-            out.emit(&list, |l| {
+            let reads = each_drive::read(drive, |drive| api::artwork_missing(&api::DriveRef { drive }))?;
+            out.page();
+            let outcome = reads.emit_headed(out, |l| {
                 for t in l {
                     say!("{:>6}  {}", format!("#{}", t.id), t.name);
                 }
                 say!("{}", output::dim(format!("{} track(s) without artwork", l.len())));
             });
+            return Ok(outcome.exit());
         }
         ArtCommand::Set { drive, image, select, dry_run } => {
             let req = api::SetArtwork { drive, image, tracks: select.selector() };
@@ -1622,9 +1630,16 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             }));
         }
         ArtCommand::Auto { drive, dry_run } => {
-            let plan = api::artwork_auto_plan(&api::DriveRef { drive: drive.clone() })?;
-            if !out.json {
-                for f in &plan.found {
+            let drives = match drive {
+                Some(drive) => vec![drive],
+                None => each_drive::targets(diff_cmd::existing_store(store_path).as_ref())?,
+            };
+            let mut plans = Vec::new();
+            for drive in drives {
+                plans.push((drive.clone(), api::artwork_auto_plan(&api::DriveRef { drive })?));
+            }
+            let show = |p: &locallibrary::artwork::AutoArtworkPlan| {
+                for f in &p.found {
                     say!(
                         "{:>6}  {}  {}",
                         format!("#{}", f.track.id),
@@ -1632,7 +1647,21 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
                         output::dim(format!("<- {}", f.source))
                     );
                 }
-                say!("{} found, {} still missing", plan.found.len(), plan.not_found.len());
+                say!("{} found, {} still missing", p.found.len(), p.not_found.len());
+            };
+            let done = |r: &locallibrary::artwork::ArtworkReport| {
+                output::ok(format!("artwork set on {} track(s)", r.tracks_updated))
+            };
+            if plans.len() > 1 {
+                let show = |drive: &str, p: &locallibrary::op::Planned<_>| {
+                    output::heading(drive);
+                    show(p);
+                };
+                return each_drive::apply_each(plans, dry_run, "Set the artwork", out, ctx, show, |_, r| done(r));
+            }
+            let (_, plan) = plans.remove(0);
+            if !out.json {
+                show(&plan);
             }
             if plan.noop {
                 return Ok(out.not_applied(&plan, Outcome::NothingToDo));
@@ -1640,11 +1669,8 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             if let Some(o) = out.decide(dry_run, "Apply?") {
                 return Ok(out.not_applied(&plan, o));
             }
-            let _ = drive;
             let r = plan.apply(None, ctx)?;
-            return Ok(out.applied(&plan, &r, Outcome::Applied, || {
-                output::ok(format!("artwork set on {} track(s)", r.tracks_updated))
-            }));
+            return Ok(out.applied(&plan, &r, Outcome::Applied, || done(&r)));
         }
         ArtCommand::Embed { image, files, dry_run } => {
             let store = open_store(store_path)?;

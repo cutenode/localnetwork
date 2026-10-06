@@ -77,3 +77,4 @@ tempfile.workspace = true
 hegeltest.workspace = true
 assert_cmd = "2"
 rekordbox-pdb.workspace = true
+image.workspace = true

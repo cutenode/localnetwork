@@ -4,6 +4,7 @@
 //! selected track's own waveform with the stretch that was played. The set plays in the player,
 //! and the timeline and tracklist follow along.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -54,15 +55,41 @@ const LOWER: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", 
 pub struct Source {
     pub path: PathBuf,
     pub name: String,
-    /// Where it is: the drive it was recorded to, or "opened before".
+    /// Where it is: the drive it was recorded to, the folder it's in, or "opened before".
     pub place: String,
     pub duration_secs: Option<f64>,
     pub when: Option<String>,
+    /// The folder opened that it was found in.
+    pub folder: Option<PathBuf>,
 }
 
 impl Source {
     fn recent(path: PathBuf) -> Source {
-        Source { name: file_name(&path), path, place: "opened before".into(), duration_secs: None, when: None }
+        Source {
+            name: file_name(&path),
+            path,
+            place: "opened before".into(),
+            duration_secs: None,
+            when: None,
+            folder: None,
+        }
+    }
+
+    /// A recording found in a folder opened, placed by the folder it's in (the set's, usually).
+    fn found(folder: &Path, path: PathBuf) -> Source {
+        let place = match path.parent().and_then(|p| p.strip_prefix(folder).ok()) {
+            Some(p) if !p.as_os_str().is_empty() => p.display().to_string(),
+            _ => file_name(folder),
+        };
+        let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        Source {
+            name: file_name(&path),
+            place,
+            duration_secs: None,
+            when: modified.map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%-d %b %Y").to_string()),
+            folder: Some(folder.to_path_buf()),
+            path,
+        }
     }
 }
 
@@ -120,6 +147,13 @@ pub struct MixTab {
     pub list: ListState,
     /// Recordings opened before, newest first.
     pub recent: Vec<PathBuf>,
+    /// Folders of recordings opened, newest first: what's in them and their subfolders is listed.
+    pub folders: Vec<PathBuf>,
+    /// The folders `folder_sources` was (or is being) listed for.
+    folders_listed: Option<Vec<PathBuf>>,
+    folder_sources: Vec<Source>,
+    /// A folder just opened: what was found in it is said once it's listed.
+    announce: Option<PathBuf>,
     pub opened: Option<Result<Opened, String>>,
     loading: Option<Loading>,
     generation: u64,
@@ -144,6 +178,10 @@ impl MixTab {
             sources: Vec::new(),
             list: ListState::default(),
             recent: Vec::new(),
+            folders: Vec::new(),
+            folders_listed: None,
+            folder_sources: Vec::new(),
+            announce: None,
             opened: None,
             loading: None,
             generation: 0,
@@ -199,13 +237,11 @@ impl MixTab {
 
     fn rebuild_sources(&mut self) {
         let selected = self.list.selected().and_then(|i| self.sources.get(i)).map(|s| s.path.clone());
-        let mut sources = self.drive_sources.clone();
-        for p in &self.recent {
-            if !sources.iter().any(|s| &s.path == p) {
-                sources.push(Source::recent(p.clone()));
-            }
-        }
-        self.sources = sources;
+        let recent = self.recent.iter().map(|p| Source::recent(p.clone()));
+        let mut seen = HashSet::new();
+        self.sources = (self.drive_sources.iter().chain(&self.folder_sources).cloned().chain(recent))
+            .filter(|s| seen.insert(s.path.clone()))
+            .collect();
         let i = selected
             .and_then(|p| self.sources.iter().position(|s| s.path == p))
             .or((!self.sources.is_empty()).then_some(0));
@@ -253,8 +289,15 @@ impl MixTab {
 // Opening and identifying
 // ---------------------------------------------------------------------------------------------
 
-/// List the open drive's recordings (in the background), next to the ones opened before.
+/// `R`: list the open drive's recordings and the folders' again.
 pub fn refresh(app: &mut App) {
+    list_drive(app);
+    list_folders(app);
+}
+
+/// List the open drive's recordings (in the background), next to the folders' and the ones
+/// opened before.
+fn list_drive(app: &mut App) {
     let root = app.loaded.as_ref().filter(|l| !l.stale).map(|l| l.root().to_path_buf());
     let name = root.as_ref().map(|r| app.drive_label(r)).unwrap_or_default();
     let t = &mut app.mix;
@@ -272,6 +315,7 @@ pub fn refresh(app: &mut App) {
                         place: name.clone(),
                         duration_secs: r.duration_secs,
                         when: Some(r.local_time("%-d %b %H:%M")),
+                        folder: None,
                     })
                     .collect()
             })
@@ -280,33 +324,74 @@ pub fn refresh(app: &mut App) {
     });
 }
 
-/// Open what was typed: a recording, or a folder whose recordings join the list.
+/// Open what was typed: a recording, or a folder whose recordings (in its subfolders too) stay
+/// in the list.
 fn open_path(app: &mut App, path: PathBuf) {
-    if path.is_dir() {
-        let mut found: Vec<PathBuf> = std::fs::read_dir(&path)
-            .map(|d| {
-                d.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.is_file() && mix::is_mix_file(p)).collect()
-            })
-            .unwrap_or_default();
-        found.sort();
-        if found.is_empty() {
-            app.toast(format!("no recordings in {}", path.display()), Level::Info);
-            return;
-        }
-        let n = found.len();
-        for p in found.iter().rev() {
-            app.mix.recent.retain(|r| r != p);
-            app.mix.recent.insert(0, p.clone());
-        }
-        app.mix.recent.truncate(RECENT.max(n));
-        app.mix.rebuild_sources();
-        let first = app.mix.sources.iter().position(|s| s.path == found[0]);
-        app.mix.list.select(first);
-        app.mix.pane = Pane::Mixes;
-        app.toast(format!("{n} recording{} from {}", if n == 1 { "" } else { "s" }, path.display()), Level::Info);
+    if !path.is_dir() {
+        open(app, path);
         return;
     }
-    open(app, path);
+    let dir = std::path::absolute(&path).unwrap_or(path);
+    let t = &mut app.mix;
+    t.folders.retain(|f| f != &dir);
+    t.folders.insert(0, dir.clone());
+    t.announce = Some(dir);
+    list_folders(app);
+}
+
+/// List what's in the folders opened (in the background).
+fn list_folders(app: &mut App) {
+    let folders = app.mix.folders.clone();
+    app.mix.folders_listed = Some(folders.clone());
+    app.spawn(move || {
+        let sources =
+            folders.iter().flat_map(|d| mix::recordings_in(d).into_iter().map(|p| Source::found(d, p))).collect();
+        Msg::MixFolders(folders, sources)
+    });
+}
+
+/// The folders' recordings, listed (ignored when the folders changed since). A folder just opened
+/// is said to have them, or forgotten when it has none.
+pub fn folders_listed(app: &mut App, folders: Vec<PathBuf>, sources: Vec<Source>) {
+    let t = &mut app.mix;
+    if folders != t.folders {
+        return;
+    }
+    t.folder_sources = sources;
+    t.rebuild_sources();
+    let Some(dir) = t.announce.take() else { return };
+    let n = t.folder_sources.iter().filter(|s| s.folder.as_ref() == Some(&dir)).count();
+    if n == 0 {
+        t.folders.retain(|f| f != &dir);
+        t.folders_listed = Some(t.folders.clone());
+        app.toast(format!("no recordings in {}", dir.display()), Level::Info);
+        return;
+    }
+    t.list.select(t.sources.iter().position(|s| s.folder.as_ref() == Some(&dir)));
+    t.pane = Pane::Mixes;
+    app.toast(format!("{n} recording{} in {}", if n == 1 { "" } else { "s" }, dir.display()), Level::Info);
+}
+
+/// `del` on a recording: forget the folder it was found in, or the recording when it was opened
+/// on its own. The drive's own stay.
+pub fn forget(app: &mut App) {
+    let t = &mut app.mix;
+    let Some(s) = t.list.selected().and_then(|i| t.sources.get(i)).filter(|_| t.pane == Pane::Mixes).cloned() else {
+        return;
+    };
+    let forgot = if let Some(dir) = &s.folder {
+        t.folders.retain(|f| f != dir);
+        t.folders_listed = Some(t.folders.clone());
+        t.folder_sources.retain(|x| x.folder.as_ref() != Some(dir));
+        dir.display().to_string()
+    } else if t.recent.contains(&s.path) {
+        t.recent.retain(|p| p != &s.path);
+        s.name
+    } else {
+        return;
+    };
+    t.rebuild_sources();
+    app.toast(format!("forgot {forgot}"), Level::Info);
 }
 
 /// What a path typed or dropped into the terminal means: quotes and backslash escapes taken off,
@@ -819,10 +904,14 @@ struct Context {
 }
 
 pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
-    // The open drive's recordings are listed: read them again when another drive is open.
+    // The open drive's recordings are listed with the folders': read them again when another
+    // drive is open or the folders changed.
     let root = app.loaded.as_ref().filter(|l| !l.stale).map(|l| l.root().to_path_buf());
     if root != app.mix.drive {
-        refresh(app);
+        list_drive(app);
+    }
+    if app.mix.folders_listed.as_ref() != Some(&app.mix.folders) {
+        list_folders(app);
     }
     let cx =
         Context { playhead: playhead(app), drive: root.as_ref().map(|r| app.drive_label(r)), status: app.mix.status() };
@@ -885,7 +974,7 @@ fn draw_tab(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
                 Line::raw(""),
                 Line::from(vec![
                     Span::styled("Pick a recording, or press ", dim()),
-                    Span::styled("o", theme::key()),
+                    Span::styled("O", theme::key()),
                     Span::styled(" to open a file or a folder.", dim()),
                 ]),
                 Line::styled(drive, dim()),
@@ -910,7 +999,7 @@ fn draw_tab(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
 fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     let focused = t.pane == Pane::Mixes;
     let b = block(title("Recordings", focused), focused)
-        .title_bottom(Line::from(vec![Span::styled(" o ", theme::key()), Span::styled("open… ", faint())]));
+        .title_bottom(Line::from(vec![Span::styled(" O ", theme::key()), Span::styled("open… ", faint())]));
     let mut inner = b.inner(area);
     f.render_widget(b, area);
     if let Some(text_) = &t.input {
@@ -939,7 +1028,7 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
                 dim(),
             ),
             Line::raw(""),
-            Line::styled("Press o to open a recording, or a folder of them.", faint()),
+            Line::styled("Press O to open a recording, or a folder of them.", faint()),
         ];
         f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
         t.areas.list = area;
@@ -1935,7 +2024,13 @@ pub(super) mod tests {
             press(&mut app, KeyCode::Char(c));
         }
         press(&mut app, KeyCode::Enter);
+        // The folder is listed in the background.
+        let t = Instant::now();
+        while app.toast.is_none() && t.elapsed() < Duration::from_secs(5) {
+            app.tick();
+        }
         assert!(app.toast.as_ref().is_some_and(|(m, ..)| m.starts_with("no recordings in")), "{:?}", app.toast);
+        assert!(app.mix.folders.is_empty(), "a folder with none isn't kept");
 
         // Keys the view doesn't use still work.
         press(&mut app, KeyCode::Char('1'));
@@ -1963,6 +2058,7 @@ pub(super) mod tests {
             place: "DNA".into(),
             duration_secs: Some(60.0),
             when: None,
+            folder: None,
         };
         t.drive_listed("/Volumes/DNA".into(), vec![rec]);
         assert_eq!(t.sources.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["b.wav", "a.wav"]);

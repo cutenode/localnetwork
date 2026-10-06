@@ -52,6 +52,8 @@ pub struct Saved {
     pub auto_cue: bool,
     /// Recorded sets opened in the Mixes view, newest first.
     pub mixes: Vec<PathBuf>,
+    /// Folders of recorded sets opened in the Mixes view, newest first.
+    pub mix_folders: Vec<PathBuf>,
     /// The crate (`tag_list` before it was called that).
     #[serde(alias = "tag_list")]
     pub crate_list: Vec<SavedCrateTrack>,

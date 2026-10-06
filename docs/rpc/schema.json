@@ -3982,8 +3982,8 @@
           "type": "string"
         },
         {
-          "const": "size_mismatch",
-          "description": "The audio file's size differs from what the database recorded (truncated or replaced).",
+          "const": "truncated",
+          "description": "The audio file is smaller than the database recorded, and its audio stops before its\nlength: a copy cut short.",
           "type": "string"
         },
         {

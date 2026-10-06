@@ -1179,8 +1179,11 @@ export type DoctorProblem =
   | "missing_audio"
   /** The database's path for it leaves the drive. */
   | "unsafe_path"
-  /** The audio file's size differs from what the database recorded (truncated or replaced). */
-  | "size_mismatch"
+  /**
+   * The audio file is smaller than the database recorded, and its audio stops before its
+   * length: a copy cut short.
+   */
+  | "truncated"
   /** The analysis file (`.DAT`: beat grid, cues, waveform) isn't on the drive. */
   | "missing_analysis"
   /** The artwork image isn't on the drive. */

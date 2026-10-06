@@ -319,8 +319,6 @@ tempo agreeing with its neighbours (150, 148 and 140 BPM sets).
       Linux without overcommit and on Windows: symphonia's isomp4 sizes a `Vec` from them, and an
       allocation failure can't be caught. Needs an upstream fix or a pre-check of the table sizes.
 - [ ] Upload a `mix --export` to a mix through a request on a running Local Network.
-- [ ] The Mixes view lists the open drive's MASTER REC recordings and ones opened before; a
-      configurable folder of sets would save typing paths.
 
 ## DJ profile and publishing (`locallibrary profile`, `account`)
 

@@ -3,7 +3,8 @@
 //!
 //! * every drive holds the same library state as the first one;
 //! * on each drive, `export.pdb` and OneLibrary agree, so every player shows the same library;
-//! * no track's audio, analysis or artwork is missing;
+//! * no track's audio, analysis or artwork is missing, and no audio file is cut short (files
+//!   smaller than the database recorded have their end decoded);
 //! * no file is too large for FAT32 when a FAT32 drive is in the set;
 //! * no locallibrary operation was interrupted;
 //! * the drive's history lists are in the store (rekordbox deletes them from the drive when it
@@ -17,8 +18,8 @@
 //! Track formats come from the database rows; a file is opened (headers only) when its row
 //! doesn't say, or for `.m4a` files whose bit rate doesn't tell AAC from Apple Lossless.
 //!
-//! With [`CheckOptions::audio`], every audio file is also opened and its last seconds decoded
-//! (see [`probe::check_tracks`]), which finds files an interrupted copy cut short.
+//! With [`CheckOptions::audio`], every audio file is opened and its last seconds decoded (see
+//! [`probe::check_tracks`]), not only the smaller ones, which also finds files that don't decode.
 //!
 //! Nothing is written to the drives (beyond the hash cache every scan of an adopted drive keeps).
 
@@ -235,7 +236,7 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
         match read {
             Ok((side, dbs, tree)) => {
                 d.large = doctor::large_files(dbs.primary(), &tree);
-                files_item(&doctor::missing(device, &dbs, &tree), &mut item);
+                files_item(&name, &doctor::missing(device, &dbs, &tree, ctx)?, &mut item);
                 audio = DriveAudio::read(device, &dbs, &tree, &models, ctx)?;
                 if opts.audio {
                     let (checked, findings) = probe::check_tracks(device, &dbs.everything(), &tree, ctx)?;
@@ -396,7 +397,7 @@ fn databases_item(dbs: &Databases, item: &mut impl FnMut(&'static str, Level, St
     item("databases", level, message);
 }
 
-fn files_item(missing: &[doctor::BrokenTrack], item: &mut impl FnMut(&'static str, Level, String)) {
+fn files_item(drive: &str, missing: &[doctor::BrokenTrack], item: &mut impl FnMut(&'static str, Level, String)) {
     let of = |problems: &[Problem]| -> Vec<String> {
         let mut seen = HashSet::new();
         missing
@@ -407,22 +408,16 @@ fn files_item(missing: &[doctor::BrokenTrack], item: &mut impl FnMut(&'static st
             .collect()
     };
     let audio = of(&[Problem::MissingAudio, Problem::UnsafePath]);
-    let sizes = of(&[Problem::SizeMismatch]);
+    let cut = of(&[Problem::Truncated]);
     let analysis = of(&[Problem::MissingAnalysis]);
     let artwork = of(&[Problem::MissingArtwork]);
     if !audio.is_empty() {
         item("files", Level::Problem, format!("{} track(s) have no audio file: {}", audio.len(), names(&audio, 3)));
     }
-    if !sizes.is_empty() {
-        item(
-            "files",
-            Level::Warning,
-            format!(
-                "{} track(s) aren't the size the database recorded (truncated or replaced?): {}",
-                sizes.len(),
-                names(&sizes, 3)
-            ),
-        );
+    if !cut.is_empty() {
+        let message =
+            format!("{} track(s) stop short of their length (an interrupted copy?): {}", cut.len(), names(&cut, 3));
+        item("files", Level::Problem, message);
     }
     if !analysis.is_empty() {
         item(
@@ -439,7 +434,11 @@ fn files_item(missing: &[doctor::BrokenTrack], item: &mut impl FnMut(&'static st
         item(
             "files",
             Level::Warning,
-            format!("{} track(s) have no artwork image: {}", artwork.len(), names(&artwork, 3)),
+            format!(
+                "{} track(s) have no artwork image: {}; `locallibrary art auto \"{drive}\"` fills in art their files embed",
+                artwork.len(),
+                names(&artwork, 3)
+            ),
         );
     }
     if missing.is_empty() {

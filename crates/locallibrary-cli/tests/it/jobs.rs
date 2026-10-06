@@ -203,19 +203,106 @@ fn refresh_puts_back_what_rekordbox_exported_over() {
     rpc.wait().unwrap();
 }
 
+/// The commands that, given no drive, read every mounted one.
+const READS: [&[&str]; 11] = [
+    &["info"],
+    &["tracks"],
+    &["playlists"],
+    &["backups"],
+    &["doctor"],
+    &["space"],
+    &["settings", "show"],
+    &["art"],
+    &["tags"],
+    &["edits"],
+    &["plays"],
+];
+
+#[test]
+fn a_read_given_no_drive_reads_every_mounted_drive() {
+    let env = Env::new();
+    let (v, code) = env.json(&["tracks"]);
+    assert_eq!((code, &v["error"]["kind"]), (2, &json!("usage")), "no drive mounted: {v}");
+    let (a, b) = (demo_drive(&env.volumes, "A"), demo_drive(&env.volumes, "B"));
+
+    // With --json, a list: each drive's name, mount path and what was read.
+    for args in READS {
+        let (v, code) = env.json(args);
+        assert!(code == 0 || code == 4, "{args:?}: {code}\n{v}");
+        let reads = v.as_array().unwrap_or_else(|| panic!("{args:?}: {v}"));
+        let drives: Vec<(&Value, &Value)> = reads.iter().map(|r| (&r["drive"], &r["root"])).collect();
+        let roots = [&a, &b].map(|d| json!(dunce_canonicalize(d)));
+        assert_eq!(drives, [(&json!("A"), &roots[0]), (&json!("B"), &roots[1])], "{args:?}");
+        assert!(reads.iter().all(|r| r["error"].is_null() && !r["result"].is_null()), "{args:?}: {v}");
+    }
+
+    // In a terminal, each drive under its name.
+    let (out, _, code) = env.run(&["tracks", "--columns", "title"]);
+    assert_eq!(code, 0, "{out}");
+    let (at_a, at_b) = (out.find("A  ").unwrap(), out.find("B  ").unwrap());
+    assert!(at_a < at_b && out[at_a..at_b].contains("track(s)") && out[at_b..].contains("track(s)"), "{out}");
+
+    // TSV and CSV: one listing, the drive in a column of its own.
+    let (out, _, code) = env.run(&["tracks", "--format", "csv", "--columns", "id,title"]);
+    assert_eq!(code, 0, "{out}");
+    let lines: Vec<&str> = out.lines().collect();
+    assert_eq!(lines.iter().filter(|l| l.starts_with("drive,")).collect::<Vec<_>>(), [&"drive,id,title"], "{out}");
+    assert!(lines[1].starts_with("A,") && lines.last().unwrap().starts_with("B,"), "{out}");
+    assert_eq!(
+        lines.iter().filter(|l| l.starts_with("A,")).count(),
+        lines.iter().filter(|l| l.starts_with("B,")).count()
+    );
+
+    // A drive that can't be read is left out, and said so; the others are still read.
+    std::fs::write(b.join(PDB), "not a database").unwrap();
+    let (out, err, code) = env.run(&["tracks"]);
+    assert_eq!(code, 5, "{out}\n{err}");
+    assert!(err.contains("B left out: "), "{err}");
+    assert!(out.contains("A  ") && out.contains("track(s)") && !out.contains("B  "), "{out}");
+    let (v, code) = env.json(&["playlists"]);
+    assert_eq!(code, 5, "{v}");
+    assert!(v[0]["error"].is_null() && v[0]["result"].is_array(), "{v}");
+    assert!(v[1]["result"].is_null() && v[1]["error"]["kind"].is_string(), "{v}");
+}
+
+#[test]
+fn art_auto_given_no_drive_fills_in_every_mounted_drive() {
+    let env = Env::new();
+    let drives = [demo_drive(&env.volumes, "A"), demo_drive(&env.volumes, "B")];
+    let cover = image::RgbImage::from_fn(300, 300, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 40]));
+    for d in &drives {
+        cover.save(d.join("Contents/Loopmasters/UnknownAlbum/cover.png")).unwrap();
+    }
+
+    // Every drive's plan, and one question.
+    let (v, code) = env.json(&["art", "auto", "--dry-run"]);
+    assert_eq!((code, &v["outcome"]), (0, &json!("dry_run")), "{v}");
+    let found: Vec<usize> =
+        v["plan"].as_array().unwrap().iter().map(|p| p["found"].as_array().unwrap().len()).collect();
+    assert_eq!(found, [2, 2], "{v}");
+
+    let (out, err, code) = env.run(&["--yes", "art", "auto"]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert_eq!(out.matches("artwork set on 2 track(s)").count(), 2, "{out}");
+    let (v, _) = env.json(&["art", "missing"]);
+    assert!(v.as_array().unwrap().iter().all(|r| r["result"] == json!([])), "{v}");
+}
+
 #[test]
 fn which_drive_a_command_means() {
     let env = Env::new();
     let (a, b) = (demo_drive(&env.volumes, "A"), demo_drive(&env.volumes, "B"));
 
-    // Two drives, neither in a library: say which.
-    let (_, err, code) = env.run(&["info"]);
+    // Two drives, neither in a library: a read takes both (see
+    // `a_read_given_no_drive_reads_every_mounted_drive`), a write says which.
+    let xml = env.root.join("rekordbox.xml");
+    let (_, err, code) = env.run(&["xml", "-o", path(&xml)]);
     assert_eq!(code, 2, "{err}");
-    assert!(err.contains("say which drive to show"), "{err}");
+    assert!(err.contains("say which drive to export"), "{err}");
     for d in [&a, &b] {
         assert!(err.contains(&dunce_canonicalize(d).display().to_string()), "{err}");
     }
-    let (v, code) = env.json(&["tracks"]);
+    let (v, code) = env.json(&["xml", "-o", path(&xml)]);
     assert_eq!((code, &v["error"]["kind"], &v["outcome"]), (2, &json!("usage"), &json!("error")), "{v}");
     assert_eq!((&v["schema"], &v["error"]["code"]), (&json!(1), &json!("usage")), "{v}");
     let (v, code) = env.json(&["info", "A"]);
@@ -236,9 +323,7 @@ fn which_drive_a_command_means() {
     assert!(err.contains("Club drive is known but not mounted; last seen"), "{err}");
 
     // One drive mounted: that's the one, for every command that reads one.
-    for args in
-        [&["info"][..], &["tracks"], &["playlists"], &["backups"], &["doctor"], &["space"], &["settings", "show"]]
-    {
+    for args in READS {
         let (_, err, code) = env.run(args);
         assert!(code == 0 || code == 4, "{args:?}: {code}\n{err}");
     }

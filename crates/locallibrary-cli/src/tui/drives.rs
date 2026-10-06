@@ -17,7 +17,7 @@ use uuid::Uuid;
 use super::app::{App, Focus, Level, View};
 use super::browse::NodeId;
 use super::edits::{Modal, Prompt, PromptFor};
-use super::keymap::Act;
+use super::keymap::{self, Act};
 use super::palette::{Item, Picker, Then};
 
 /// What happens once a confirmed change has been made: the next step of something that takes
@@ -200,21 +200,19 @@ impl App {
         let no_export = (!export).then(|| "no rekordbox export on it".to_string());
         // `u` undoes on the drive changed last this run, which may be another.
         let undo_key = if self.undo_drive().as_ref() == Some(&root) { "u" } else { "" };
-        let item = |label: &str, key: &str, why: &Option<String>| Item {
-            label: label.into(),
-            detail: key.into(),
-            unavailable: why.clone(),
+        let item = |act: Act, key: &str, why: &Option<String>| {
+            (act, Item { label: keymap::name(act).into(), detail: key.into(), unavailable: why.clone() })
         };
         let items = vec![
-            (Act::Pull, item("pull: save it in the store", "", &no_export)),
-            (Act::Check, item("check it for the players", "", &no_export)),
-            (Act::SetPrep, item("set prep: check every drive of its library together", "", &no_export)),
-            (Act::SyncGroup, item("sync its group from the newest drive", "", &no_export)),
-            (Act::Pack, item("pack a set onto it…", "", &None)),
-            (Act::RestorePlaylist, item("bring back a playlist from a snapshot…", "", &no_export)),
-            (Act::Replay, item("replay the edits rekordbox exported over", "", &no_export)),
-            (Act::Undo, item("undo the last change", undo_key, &None)),
-            (Act::Eject, item("eject it", "", &None)),
+            item(Act::Pull, "", &no_export),
+            item(Act::Check, "", &no_export),
+            item(Act::SetPrep, "", &no_export),
+            item(Act::SyncGroup, "", &no_export),
+            item(Act::Pack, "", &None),
+            item(Act::RestorePlaylist, "", &no_export),
+            item(Act::Replay, "", &no_export),
+            item(Act::Undo, undo_key, &None),
+            item(Act::Eject, "", &None),
         ];
         let (acts, items): (Vec<Act>, Vec<Item>) = items.into_iter().unzip();
         let drive = self.drive_at(root);
@@ -275,7 +273,7 @@ impl App {
             let msg = if self.status.is_none() {
                 "reading the drives' status: try again in a moment (the Drives view shows it)".to_string()
             } else {
-                format!("{name} isn't in the store yet: pull it, then it syncs with the other drives of its library")
+                format!("{name} isn't in the store yet: save a snapshot of it first")
             };
             self.refresh_status();
             self.toast(msg, Level::Info);

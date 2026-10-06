@@ -169,8 +169,9 @@ pub enum Problem {
     MissingAudio,
     /// The database's path for it leaves the drive.
     UnsafePath,
-    /// The audio file's size differs from what the database recorded (truncated or replaced).
-    SizeMismatch,
+    /// The audio file is smaller than the database recorded, and its audio stops before its
+    /// length: a copy cut short.
+    Truncated,
     /// The analysis file (`.DAT`: beat grid, cues, waveform) isn't on the drive.
     MissingAnalysis,
     /// The artwork image isn't on the drive.
@@ -368,7 +369,7 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         root: device.root().to_path_buf(),
         tracks: library.tracks.len(),
         duplicates,
-        missing: opts.wants(Section::Missing).then(|| missing(device, &dbs, &tree)),
+        missing: opts.wants(Section::Missing).then(|| missing(device, &dbs, &tree, ctx)).transpose()?,
         orphans,
         unfiled: opts.wants(Section::Unfiled).then(|| unfiled(library)),
         drift: opts.wants(Section::Drift).then(|| dbs.drift()).flatten(),
@@ -410,15 +411,14 @@ pub fn large_files(library: &Library, tree: &FileTree) -> Vec<LargeFile> {
         .collect()
 }
 
-/// Whether a file's size on the drive matches the database's. `export.pdb` stores sizes in 32
-/// bits, so a file of 4 GiB or more is recorded modulo 2^32.
-fn size_matches(on_disk: u64, recorded: u64) -> bool {
-    on_disk == recorded || (recorded < FAT32_MAX_FILE && on_disk % FAT32_MAX_FILE == recorded)
-}
-
-/// Tracks whose audio, analysis or artwork is missing, or whose audio isn't the size the
-/// database recorded. A file both databases reference is reported once.
-pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree) -> Vec<BrokenTrack> {
+/// Tracks whose audio, analysis or artwork is missing, or whose audio is cut short. A file both
+/// databases reference is reported once.
+///
+/// rekordbox records a file's size when it imports it and keeps it when a tag editor (Mixed In
+/// Key, Serato, Mp3tag) later rewrites the file's tags, so a size that differs says little. A cut
+/// copy is always smaller, though: only files smaller than recorded have their end decoded
+/// (see [`crate::probe::check_tracks`]), and only those whose audio stops early are reported.
+pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree, ctx: &Ctx<'_>) -> Result<Vec<BrokenTrack>> {
     let exists = |key: &str| {
         tree.resolve(key).is_some()
             || (paths::classify(key).is_none() && device.checked_path(key).is_ok_and(|p| p.is_file()))
@@ -430,6 +430,7 @@ pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree) -> Vec<
     };
     let mut out = Vec::new();
     let mut seen: HashSet<(Problem, String)> = HashSet::new();
+    let mut smaller = Library::default();
     for (database, library) in dbs.all() {
         for t in &library.tracks {
             let mut report = |problem: Problem, path: String, detail: Option<String>| {
@@ -446,9 +447,9 @@ pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree) -> Vec<
                 );
             } else if !exists(&audio) {
                 report(Problem::MissingAudio, audio, None);
-            } else if let Some(n) = size(&audio).filter(|&n| t.file_size > 0 && !size_matches(n, t.file_size)) {
-                let detail = format!("{n} bytes on the drive, {} in the database", t.file_size);
-                report(Problem::SizeMismatch, audio, Some(detail));
+            } else if size(&audio).is_some_and(|n| n < t.file_size) {
+                // export.pdb keeps sizes modulo 2^32, so a file of 4 GiB or more never looks smaller.
+                smaller.tracks.push(t.clone());
             }
             let present = |key: &str| paths::is_safe_key(key) && exists(key);
             let analysis = paths::key(&t.analyze_path);
@@ -462,7 +463,18 @@ pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree) -> Vec<
             }
         }
     }
-    out
+    let (_, findings) = crate::probe::check_tracks(device, &smaller, tree, ctx)?;
+    for f in findings.into_iter().filter(|f| matches!(f.problem, crate::probe::AudioProblem::Truncated { .. })) {
+        let database = dbs.all().find(|(_, l)| l.tracks.iter().any(|t| t.file_path == f.track.file_path));
+        out.push(BrokenTrack {
+            path: paths::key(&f.track.file_path),
+            detail: Some(f.problem.to_string()),
+            database: database.map_or("device_library", |(d, _)| d),
+            track: f.track,
+            problem: Problem::Truncated,
+        });
+    }
+    Ok(out)
 }
 
 /// Audio under `Contents/`, analysis under `PIONEER/USBANLZ/` and images under
@@ -836,14 +848,5 @@ mod tests {
         assert_eq!(sync_manager_base("(1)"), "(1)");
         assert_eq!(sync_manager_base("Track (live)"), "Track (live)");
         assert_eq!(sync_manager_base("Track 2"), "Track 2");
-    }
-
-    #[test]
-    fn sizes_wrap_at_4_gib_in_export_pdb() {
-        assert!(size_matches(10, 10));
-        assert!(!size_matches(10, 11));
-        assert!(size_matches(FAT32_MAX_FILE + 5, 5));
-        assert!(size_matches(FAT32_MAX_FILE + 5, FAT32_MAX_FILE + 5));
-        assert!(!size_matches(5, FAT32_MAX_FILE + 5));
     }
 }

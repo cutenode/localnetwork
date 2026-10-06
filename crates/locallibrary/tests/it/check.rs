@@ -6,7 +6,7 @@ use std::path::Path;
 use locallibrary::api::{self, CheckRequest, ClearPlayers, SetPlayers};
 use locallibrary::check::{CheckOptions, CheckReport, Level, PlayersFrom};
 use locallibrary::device::{Device, LineageOp};
-use locallibrary::doctor::{DoctorOptions, Section};
+use locallibrary::doctor::{DoctorOptions, Problem, Section};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
@@ -51,8 +51,9 @@ fn ready_drives_pass_and_problems_are_named() {
     assert_eq!(level(&r, "A", "interrupted"), Level::Ok);
     assert_eq!(level(&r, "A", "databases"), Level::Ok);
     assert_eq!(level(&r, "A", "players"), Level::Ok);
-    // The placeholder audio isn't the size export.pdb recorded.
-    assert_eq!(level(&r, "A", "files"), Level::Warning);
+    // The placeholder audio is smaller than export.pdb recorded, but doesn't open as audio, so
+    // nothing says it was cut short.
+    assert_eq!(level(&r, "A", "files"), Level::Ok);
     let first = r.items.iter().position(|i| i.drive == "B").unwrap();
     assert!(r.items[..first].iter().all(|i| i.drive == "A"), "grouped by drive");
 
@@ -262,9 +263,12 @@ fn audio_cut_short_by_an_interrupted_copy() {
         options: CheckOptions { players: vec!["CDJ-3000".into()], audio },
     };
 
-    // Without --audio nothing is decoded (the size check still sees the cut file).
+    // Without --audio only files smaller than recorded are decoded, and only the cut one is named.
     let r = api::check(None, &req(false), &Ctx::silent()).unwrap();
     assert!(r.items.iter().all(|i| i.check != "audio") && r.audio.is_empty());
+    let files: Vec<&str> = r.items.iter().filter(|i| i.check == "files").map(|i| i.message.as_str()).collect();
+    assert_eq!(files, ["1 track(s) stop short of their length (an interrupted copy?): cut.wav"]);
+    assert_eq!(level(&r, "A", "files"), Level::Problem);
 
     let r = api::check(None, &req(true), &Ctx::silent()).unwrap();
     assert_eq!(level(&r, "A", "audio"), Level::Problem);
@@ -285,8 +289,30 @@ fn audio_cut_short_by_an_interrupted_copy() {
     assert_eq!(audio.checked, 14);
     assert!(audio.problems.iter().any(|f| f.track.file_path.ends_with("cut.wav")));
     assert!(!audio.problems.iter().any(|f| f.track.file_path.ends_with("whole.wav")));
-    // Doctor leaves it out unless asked.
+    // Doctor leaves it out unless asked, but its missing section names the cut file.
     let options = DoctorOptions { only: vec![Section::Missing], ..Default::default() };
     let report = api::doctor(&api::DoctorRequest { drive: a.display().to_string(), options }, &Ctx::silent()).unwrap();
     assert!(report.audio.is_none());
+    let cut: Vec<_> = report.missing.unwrap().into_iter().filter(|m| m.problem == Problem::Truncated).collect();
+    assert_eq!(cut.len(), 1, "{cut:#?}");
+    assert_eq!(cut[0].path, "Contents/Formats/cut.wav");
+    assert_eq!(cut[0].detail.as_deref(), Some("stops at 0:15 of 0:30"));
+}
+
+/// rekordbox keeps the size a file had on import, and tag editors rewrite tags afterwards: a file
+/// of another size that plays to its end isn't reported.
+#[test]
+fn retagged_audio_isnt_cut_short() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = common::bigger_drive(dir.path(), "A");
+    let whole = wav(8_000, 16, 30.0);
+    let size = whole.len() as u32;
+    export_track(&a, "grown.wav", 8_000, 16, 30, size - 1024, &whole);
+    export_track(&a, "shrunk.wav", 8_000, 16, 30, size + 4096, &whole);
+    let req = CheckRequest { drives: vec![a.display().to_string()], options: CheckOptions::default() };
+    let r = api::check(None, &req, &Ctx::silent()).unwrap();
+    assert_eq!(level(&r, "A", "files"), Level::Ok, "{r:#?}");
+    let options = DoctorOptions { only: vec![Section::Missing], ..Default::default() };
+    let report = api::doctor(&api::DoctorRequest { drive: a.display().to_string(), options }, &Ctx::silent()).unwrap();
+    assert_eq!(report.missing.unwrap().len(), 0);
 }

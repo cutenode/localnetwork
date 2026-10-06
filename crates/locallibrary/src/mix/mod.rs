@@ -356,6 +356,19 @@ pub fn is_mix_file(path: &Path) -> bool {
     aup::is_project(path) || audio::is_decodable(path)
 }
 
+/// The files [`is_mix_file`] takes in `dir` and every folder under it (hidden ones left out), by
+/// path. Only names are read, so files a cloud drive keeps online aren't downloaded.
+pub fn recordings_in(dir: &Path) -> Vec<PathBuf> {
+    walkdir::WalkDir::new(dir)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
+        .flatten()
+        .filter(|e| e.file_type().is_file() && is_mix_file(e.path()))
+        .map(walkdir::DirEntry::into_path)
+        .collect()
+}
+
 /// Decode and fingerprint a mix, and gather what its file says about it.
 pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
     // Absolute: its folder is looked in (for a cover, a project's audio), and a kept report

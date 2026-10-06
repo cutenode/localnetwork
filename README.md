@@ -219,12 +219,15 @@ write to an archive or retired drive (writes to them are refused otherwise), and
 for, with common tasks; `locallibrary help COMMAND` (or `COMMAND --help`) says more about one, with
 examples.
 
-Commands that read one drive (`drive info`, `tracks`, `playlist ls`, `drive backups`, `doctor`,
-`drive space`, `xml`, `settings show`, `art missing`) work without one: they take the only mounted
-rekordbox drive, or, when the mounted drives that belong to a library all belong to one, its primary
-(`drive role <drive> primary`). When that can't be told, the error lists the mounted drives (name,
-mount path, role, library) and the exit status is 2 (with `--json`, the error's kind is `usage`). A
-name that matches no mounted drive gets the drives that are mounted in its error, and, for a drive
+Commands that read a drive (`drive info`, `tracks`, `playlist ls`, `drive backups`, `doctor`,
+`drive space`, `settings show`, `art missing`, `tags`, `edits list`, `plays lists`) read every
+mounted rekordbox drive when given none, each under its name (one mounted on its own reads as if it
+were named). `tracks --format tsv` or `csv` puts them in one listing with a `drive` column. A drive
+that can't be read is left out with a line on stderr, and the exit status is 5. `xml` and `doctor
+--fix-orphans` given no drive take the only mounted rekordbox drive, or, when the mounted drives
+that belong to a library all belong to one, its primary (`drive role <drive> primary`). When that
+can't be told, the error lists the mounted drives (name, mount path, role, library) and the exit
+status is 2 (with `--json`, the error's kind is `usage`). A name that matches no mounted drive gets the drives that are mounted in its error, and, for a drive
 you own that isn't plugged in, when and where it was last seen. `check`, `eject`, `pull` and `set`
 with no drives take the mounted drives of one library, its drive group (archive and retired drives
 are left out unless named).
@@ -265,7 +268,7 @@ is written and it says to plan again.
 | `locallibrary drive firmware <drive> <file.UPD>` | Stage a player or mixer firmware update, see [Setting up and handing over](#setting-up-and-handing-over) |
 | `locallibrary drive backups [<drive>]` / `drive restore <drive>` | The backups taken before every change to a drive; put any of them back (`--backup ID`; `--dry-run` shows what would change; refuses a backup whose audio has since been removed, unless `--force`). `--playlist P` brings back one playlist or folder from a snapshot or backup, see [Bringing back a playlist](#bringing-back-a-playlist) |
 | `locallibrary provision <target>` | Set up a new drive in one step, see [Setting up and handing over](#setting-up-and-handing-over) |
-| `locallibrary doctor [<drive>] [--hash-audio] [--audio] [--only SECTION,...]` | Health report: duplicates with a suggested keeper, missing or wrong-size files, orphaned files, tracks in no playlist, database drift, files over 4 GB, how players read the drive (`--audio`: audio files cut short or that don't decode); `--fix-orphans` deletes orphans after a backup |
+| `locallibrary doctor [<drive>] [--hash-audio] [--audio] [--only SECTION,...]` | Health report: duplicates with a suggested keeper, missing or cut-short files, orphaned files, tracks in no playlist, database drift, files over 4 GB, how players read the drive (`--audio`: audio files cut short or that don't decode); `--fix-orphans` deletes orphans after a backup |
 | `locallibrary watch [--pull] [--sync-group] [--once]` | Pull drives into the store as they're plugged in, so their history lists outlive rekordbox's import, and sync the rest of their group, see [Saving drives as they're plugged in](#saving-drives-as-theyre-plugged-in) |
 
 **Library and store**
@@ -297,7 +300,7 @@ is written and it says to plan again.
 | `locallibrary tags ...` | My Tags: list, `add`/`untag` tracks, `rename`, `delete` a tag, see [My Tags](#my-tags) |
 | `locallibrary cues ...` | Hot cues, memory cues and loops: list, set, rename, recolour, delete, copy, see [Cues](#cues) |
 | `locallibrary art [<drive>] ...` | Tracks without artwork (`art missing`), and setting it, see [Cover art](#cover-art) |
-| `locallibrary edits [list\|replay\|clear] <drive>` | The edits made to a drive; make them again after rekordbox exports over them |
+| `locallibrary edits [list\|replay\|clear] [<drive>]` | The edits made to a drive; make them again after rekordbox exports over them |
 | `locallibrary smart ...` | Rule-based playlists kept in the store and written to drives, see [Rule-based playlists](#rule-based-playlists) |
 | `locallibrary merge <source> <target>` | Add the source's missing tracks and playlists to the target (`--history`: and its history playlists) |
 | `locallibrary pack <source> <target> --playlist P` | A drive for a set holding only some playlists, see [Drives for a set](#drives-for-a-set) |
@@ -310,7 +313,7 @@ is written and it says to plan again.
 | | |
 | --- | --- |
 | `locallibrary plays [<drive>]` | History lists players recorded on a drive (`plays lists`) |
-| `locallibrary plays lists <drive> [LIST] [--all] [--delete]` | History lists players recorded (`--all`: every one the store kept); one list's tracks; `--delete` once archived |
+| `locallibrary plays lists [<drive> [LIST]] [--all] [--delete]` | History lists players recorded (`--all`: every one the store kept); one list's tracks; `--delete` once archived |
 | `locallibrary plays export <drive> <LIST> -o FILE` | Write a history list as text, CSV or M3U8 |
 | `locallibrary plays stats <drive\|library> [--since SNAPSHOT\|DATE]` | Most played, never played, and what was played since a snapshot or a date |
 | `locallibrary plays publish <drive> <LIST>` | Publish a history list as a set on your Atmosphere account, see [Publishing](#publishing) |
@@ -366,7 +369,7 @@ screen is just printed); `--no-pager`, `PAGER=` or `PAGER=cat` turn it off. Outp
 | 2 | Usage: an unknown command or option, a missing argument, or no drive given where several could be meant |
 | 3 | Not applied: the question was answered no, or there was no terminal to ask on and no `--yes` |
 | 4 | Problems found: `doctor`, `check`, `drive verify` (and `drive verify --repair` when files stay wrong), `drive fsck`, `store verify`, `drive firmware` checks |
-| 5 | Some failed: some of several drives (`sync`, `settings apply`, `smart apply`), recordings, embedded files, a store copy's snapshots, or a `provision` that stopped part way |
+| 5 | Some failed: some of several drives (`sync`, `settings apply`, `smart apply`, `art auto`, a read of every mounted drive), recordings, embedded files, a store copy's snapshots, or a `provision` that stopped part way |
 | 130 | Cancelled with Ctrl-C (`"outcome": "cancelled"`) |
 
 ### JSON
@@ -387,7 +390,10 @@ apply`). `outcome` is `applied`, `nothing_to_do`, `dry_run`, `declined`, `not_co
 `problems` or `partial`. A check (`doctor`, `check`, `drive verify` without `--repair`) prints
 its report with `outcome` added; `drive verify --repair` prints the check as the plan and the
 repair as the report. Reads print what they read: an object (`status` is always `{mounted,
-offline, duplicates}`, `library log` is `{libraries: {<name>: [snapshots]}}`) or a list. An error
+offline, duplicates}`, `library log` is `{libraries: {<name>: [snapshots]}}`) or a list. A read
+given no drive while several are mounted prints a list, one `{"drive", "root", "result", "error"}`
+per drive (`doctor`'s reports without `outcome`); `error` is `{"kind", "message"}` for a drive that
+couldn't be read, and `null` otherwise. An error
 is `{"schema": 1, "error": {"kind", "message"}, "outcome": "error"}` (`"cancelled"` after
 Ctrl-C), with the sidecar's error kinds (`not_found`, `conflict`, `stale_plan`...; `usage` for a
 command line that doesn't say enough, such as which drive, with exit status 2; `invalid` for one
@@ -571,8 +577,10 @@ listening to a drive the way the players see it:
   some are), asking where first.
 - **Mixes** (`5`): a recorded set and the tracks it plays, like [`locallibrary mix`](#mixes)
   against the drive open in the library. Pick one of the drive's recordings (XDJ-AZ and OPUS-QUAD
-  MASTER REC files), or `O` to type the path of a recording or a folder of them (opened ones are
-  remembered). The view draws the set's 3-band waveform with each track's lane under it (shaded by
+  MASTER REC files), or `O` to type the path of a recording or a folder of them on this computer.
+  A folder stays in the list with every recording in it and its subfolders, new ones included,
+  and recordings opened are remembered; `del` forgets one, or the folder it was found in. The
+  view draws the set's 3-band waveform with each track's lane under it (shaded by
   how clearly it's heard, so blends and EQ swaps show), the tempo played, the keys on the way, and
   the tracklist with every handoff: blend, cut or gap, key move and tempo change. The selected
   track's own waveform, cues and phrases show the stretch that was played. `enter` or `space`
@@ -633,7 +641,7 @@ output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives
 | `e`, right-click | actions that change the drive (each asks first); in Drives, what can be done to the drive |
 | `T` | give the marked (or selected) tracks a My Tag, or take one off |
 | `u` | undo the last change, on the drive it was made to |
-| `y` | replay the edits rekordbox exported over, while it offers to |
+| `y` | replay edits rekordbox overwrote, while it offers to |
 | `del` | remove from the playlist shown / delete the selected playlist |
 | `esc` | stop a change before it writes; hide an error; clear the search, then the marks (press twice) |
 | `v` | spectrum · mirror · scope · deck |
@@ -641,7 +649,7 @@ output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives
 | `f` | full screen |
 | `1` … `5` | library · drives · snapshots · profile · mixes (while the pads are off) |
 | Profile: `i` `m` `h` `H` `D` `w` `a` `#` `L` | in/out of the document, pin, hide a track / artist, the document, write it, scope, rounding, sign in/out |
-| Mixes: `O` `z` `o` `E` `w` | open a recording by path, zoom, the track in the library, export for Local Network, write the report |
+| Mixes: `O` `del` `z` `o` `E` `w` | open a recording or a folder of them by path, forget one, zoom, the track in the library, export for Local Network, write the report |
 | `R` `F5` | read the drive again |
 | `!` | messages since starting |
 | `?` `q` | help, quit (a write to the drive finishes first, also when the terminal closes) |
@@ -1103,7 +1111,7 @@ again.
 `locallibrary doctor Main` reports problems and changes nothing (`--hash-audio` keeps the hashes
 it makes in the drive's `.locallibrary/` file index): duplicates (several rows for one
 file, Sync Manager's `Name-1.mp3` copies, the same artist/title/length, and with `--hash-audio`
-identical audio) with a suggested keeper, missing or wrong-size audio, missing analysis and
+identical audio) with a suggested keeper, missing or cut-short audio, missing analysis and
 artwork, orphaned files, tracks in no playlist, drift between the two databases, files over 4 GB,
 and how players read the drive. `track dedupe` replaces the duplicates; `--fix-orphans` deletes
 audio under `Contents/`, analysis under `PIONEER/USBANLZ/` and images under `PIONEER/Artwork/`
@@ -1276,8 +1284,9 @@ locallibrary players models [CDJ-3000]                # what each model reads, a
 ```
 
 One checklist over every drive you're taking: they hold the same library, `export.pdb` and
-OneLibrary agree, no track's audio, analysis or artwork is missing, nothing is too big for a FAT32
-drive in the set, no operation was interrupted, and their history lists are in the store.
+OneLibrary agree, no track's audio, analysis or artwork is missing, no audio file is cut short,
+nothing is too big for a FAT32 drive in the set, no operation was interrupted, and their history
+lists are in the store.
 
 `players set` and `players clear` show what they'd change and ask first (`--dry-run` stops there).
 For each player model (`--players`, or else the models `players set` remembered for the drive's
@@ -1489,10 +1498,10 @@ know about their changes.
 ## Cover art
 
 ```bash
-locallibrary art missing Main
+locallibrary art missing                                             # every mounted drive (or name one)
 locallibrary art set Main cover.jpg --album "Framed And Defamed"     # or --track 12, --playlist, --query
 locallibrary art set Main ~/Music/track.mp3 --track 12               # use a file's embedded art
-locallibrary art auto Main                                           # fill gaps from embedded tags / cover.jpg
+locallibrary art auto                                                # fill gaps from embedded tags / cover.jpg
 locallibrary art embed cover.jpg ~/Music/Album/*.mp3                 # for your computer's collection
 locallibrary art unembed                                             # ...and to put those files back
 ```
@@ -1506,7 +1515,8 @@ the seek index rekordbox stored for VBR MP3s. For your computer's collection, `a
 will rewrite and asks first, and keeps a copy of each file as it was in the store
 (`embed-backups/`, the last 5 embeds): `art unembed` puts them back, each one only if it hasn't
 changed since (`--list` shows the embeds kept, `--backup ID` picks one). `art set` asks first too,
-and the drive is backed up before it's written.
+and the drive is backed up before it's written. `art auto` given no drive takes every mounted
+drive but archive and retired ones: it shows each drive's plan and asks once.
 
 ## Formatting a drive
 

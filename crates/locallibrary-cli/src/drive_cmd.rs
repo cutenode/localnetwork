@@ -18,7 +18,7 @@ use locallibrary::space::{SpaceKind, SpaceReport};
 use locallibrary::tidy::TidyOptions;
 
 use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, warn};
-use crate::{DRIVE_HELP, FsArg, open_store, parse_size, render};
+use crate::{DRIVE_HELP, FsArg, each_drive, open_store, parse_size, render};
 
 /// `locallibrary drive`: with no subcommand, the mounted drives; with a drive, its details.
 #[derive(Args)]
@@ -258,7 +258,7 @@ Examples:
   locallibrary provision /Volumes/NEW --like Main --name \"Backup 2\" --role backup --eject
   locallibrary provision disk4 --format --check-capacity --name Spare";
 
-/// One drive, or the one in reach.
+/// One drive, or every mounted one.
 #[derive(Args)]
 pub struct DriveArg {
     #[arg(help = crate::DEFAULT_DRIVE_HELP)]
@@ -502,7 +502,7 @@ pub fn run(command: TopCommand, store_path: &Option<PathBuf>, out: Output, ctx: 
         TopCommand::Eject(a) => eject(a, store_path, out, ctx),
         TopCommand::Provision(a) => provision(a, store_path, out, ctx),
         TopCommand::Drives(a) => ls(a, store_path, out),
-        TopCommand::Info(a) => info(a.drive, store_path, out),
+        TopCommand::Info(a) => info(a.drive, out),
         TopCommand::Adopt(a) => adopt(a, store_path, out, ctx),
         TopCommand::Disks => disks(store_path, out),
         TopCommand::Format(a) => format(a, store_path, out, ctx),
@@ -512,7 +512,7 @@ pub fn run(command: TopCommand, store_path: &Option<PathBuf>, out: Output, ctx: 
         TopCommand::Tidy(a) => tidy(a, out, ctx),
         TopCommand::Recordings(a) => recordings(a, out, ctx),
         TopCommand::Firmware(a) => firmware(a, out, ctx),
-        TopCommand::Backups(a) => backups(a.drive, store_path, out),
+        TopCommand::Backups(a) => backups(a.drive, out),
         TopCommand::Restore(a) => restore(a, store_path, out, ctx),
     }
 }
@@ -524,14 +524,14 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         (Some(c), _) => c,
         (None, Some(drive)) => {
             crate::help::check_drive_word("drive", &drive)?;
-            return info(Some(drive), store_path, out);
+            return info(Some(drive), out);
         }
         (None, None) => DriveCommand::Ls(LsArgs { all: false, known: false, retired: false }),
     };
     match command {
         DriveCommand::Ls(a) => return ls(a, store_path, out),
         DriveCommand::List { retired } => return ls(LsArgs { all: false, known: true, retired }, store_path, out),
-        DriveCommand::Info(a) => return info(a.drive, store_path, out),
+        DriveCommand::Info(a) => return info(a.drive, out),
         DriveCommand::Adopt(a) => return adopt(a, store_path, out, ctx),
         DriveCommand::Disks => return disks(store_path, out),
         DriveCommand::Format(a) => return format(a, store_path, out, ctx),
@@ -541,7 +541,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         DriveCommand::Tidy(a) => return tidy(a, out, ctx),
         DriveCommand::Recordings(a) => return recordings(a, out, ctx),
         DriveCommand::Firmware(a) => return firmware(a, out, ctx),
-        DriveCommand::Backups(a) => return backups(a.drive, store_path, out),
+        DriveCommand::Backups(a) => return backups(a.drive, out),
         DriveCommand::Restore(a) => return restore(a, store_path, out, ctx),
         DriveCommand::Rename { drive, name, label, dry_run } => {
             if label {
@@ -772,11 +772,9 @@ fn ls(a: LsArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> 
     Ok(ExitCode::SUCCESS)
 }
 
-fn info(drive: Option<String>, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
-    let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "show")?;
-    let info = api::drive_info(&api::DriveRef { drive })?;
-    out.emit(&info, render::info);
-    Ok(ExitCode::SUCCESS)
+fn info(drive: Option<String>, out: Output) -> Result<ExitCode> {
+    let reads = each_drive::read(drive, |drive| api::drive_info(&api::DriveRef { drive }))?;
+    Ok(reads.emit(out, render::info).exit())
 }
 
 fn adopt(a: AdoptArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
@@ -881,10 +879,9 @@ fn confirm_erase(out: &Output, plan: &FormatPlan, erase: Option<&str>) -> Option
     out.confirm_typed(&prompt, name, erase)
 }
 
-fn backups(drive: Option<String>, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
-    let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "list")?;
-    let list = api::list_backups(&api::DriveRef { drive })?;
-    out.emit(&list, |l| {
+fn backups(drive: Option<String>, out: Output) -> Result<ExitCode> {
+    let reads = each_drive::read(drive, |drive| api::list_backups(&api::DriveRef { drive }))?;
+    let outcome = reads.emit_headed(out, |l| {
         if l.is_empty() {
             say!("no backups");
         }
@@ -892,7 +889,7 @@ fn backups(drive: Option<String>, store_path: &Option<PathBuf>, out: Output) -> 
             say!("{}  {}  {}  {}", b.id, b.created.format("%Y-%m-%d %H:%M"), b.reason, output::dim(backup_files(b)));
         }
     });
-    Ok(ExitCode::SUCCESS)
+    Ok(outcome.exit())
 }
 
 /// What a backup holds, in a few words: `12 file(s), 4 audio` (audio may be a track's only copy).
@@ -1020,11 +1017,9 @@ fn render_fsck(r: &locallibrary::fscheck::FsCheckReport) {
 }
 
 fn space(drive: Option<String>, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "measure")?;
     let store = open_store(store_path).ok();
-    let r = api::drive_space(store.as_ref(), &DriveRef { drive }, ctx)?;
-    out.emit(&r, space_report);
-    Ok(ExitCode::SUCCESS)
+    let reads = each_drive::read(drive, |drive| api::drive_space(store.as_ref(), &DriveRef { drive }, ctx))?;
+    Ok(reads.emit(out, space_report).exit())
 }
 
 fn tidy(a: TidyArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {

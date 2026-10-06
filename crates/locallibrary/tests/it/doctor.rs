@@ -117,8 +117,9 @@ fn doctor_reports_duplicates_missing_files_and_orphans() {
     assert!(has(Problem::MissingAudio, 3));
     assert!(has(Problem::MissingAnalysis, 4));
     assert!(has(Problem::MissingArtwork, 5));
-    // The fixture's placeholder audio isn't the size export.pdb recorded; the added tracks' is.
-    assert!(has(Problem::SizeMismatch, 1));
+    // The fixture's placeholder audio is smaller than export.pdb recorded, but it isn't audio that
+    // stops early (it doesn't open at all, which only the audio section looks at).
+    assert!(!missing.iter().any(|m| m.problem == Problem::Truncated));
     assert!(!missing.iter().any(|m| m.track.id >= 13));
     // A file both databases reference is reported once.
     assert_eq!(missing.iter().filter(|m| m.problem == Problem::MissingAudio).count(), 1);

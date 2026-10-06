@@ -25,6 +25,7 @@ use ratatui::widgets::ListState;
 use super::app::{App, Focus, Level, Msg, View, edit_line};
 use super::browse::{COLOURS, NodeId, colour_name, sort_label, sort_spec};
 use super::drives::{After, Report};
+use super::keymap::{self, Act};
 
 // ---------------------------------------------------------------------------------------------
 // Edits
@@ -259,7 +260,7 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
             Action::Restore,
             stale.clone(),
         ),
-        item("y", "replay the edits rekordbox exported over".into(), Action::Replay, stale),
+        item("y", keymap::name(Act::Replay).into(), Action::Replay, stale),
     ]
 }
 

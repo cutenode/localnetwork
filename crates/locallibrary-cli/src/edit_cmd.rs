@@ -8,6 +8,7 @@ use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, DriveRef, EditRequest};
 use locallibrary::edit::{Edit, EditOptions, EditPlan, EditReport, TrackFields};
+use locallibrary::model::Library;
 use locallibrary::op::Planned;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
@@ -28,8 +29,8 @@ pub struct DryRun {
 pub struct PlaylistArgs {
     #[command(subcommand)]
     command: Option<PlaylistCommand>,
-    /// A drive whose playlist tree to show, as `playlist ls` does [default: the only mounted
-    /// rekordbox drive, or the library's primary]
+    /// A drive whose playlist tree to show, as `playlist ls` does [default: every mounted
+    /// rekordbox drive]
     #[arg(value_name = "DRIVE")]
     drive: Option<String>,
 }
@@ -464,7 +465,8 @@ pub enum SmartCommand {
 pub struct EditsArgs {
     #[command(subcommand)]
     command: Option<EditsCommand>,
-    /// A drive whose recorded edits to list, as `edits list` does
+    /// A drive whose recorded edits to list, as `edits list` does [default: every mounted
+    /// rekordbox drive]
     #[arg(value_name = "DRIVE")]
     drive: Option<String>,
 }
@@ -473,8 +475,8 @@ pub struct EditsArgs {
 pub enum EditsCommand {
     /// The edits recorded on a drive
     List {
-        #[arg(help = DRIVE_HELP)]
-        drive: String,
+        #[arg(help = crate::DEFAULT_DRIVE_HELP)]
+        drive: Option<String>,
     },
     /// Make the recorded edits again, e.g. after rekordbox exported to the drive
     Replay {
@@ -602,19 +604,16 @@ pub(crate) fn render_report(r: &EditReport, drive: &str) {
 }
 
 /// A drive's playlist tree (`playlist ls`, and `playlists`).
-pub fn tree(drive: Option<String>, store_path: &Option<std::path::PathBuf>, out: Output) -> Result<ExitCode> {
-    let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "show")?;
-    let view = api::drive_library(&DriveRef { drive })?;
-    out.emit_paged(&view.library.playlists, |_| render::playlist_tree(&view.library));
-    Ok(ExitCode::SUCCESS)
+pub fn tree(drive: Option<String>, out: Output) -> Result<ExitCode> {
+    let reads = crate::each_drive::read(drive, |drive| Ok(api::drive_library(&DriveRef { drive })?.library.playlists))?;
+    out.page();
+    let outcome = reads.emit_headed(out, |playlists| {
+        render::playlist_tree(&Library { playlists: playlists.clone(), ..Default::default() })
+    });
+    Ok(outcome.exit())
 }
 
-pub fn playlist(
-    args: PlaylistArgs,
-    store_path: &Option<std::path::PathBuf>,
-    out: Output,
-    ctx: &Ctx<'_>,
-) -> Result<ExitCode> {
+pub fn playlist(args: PlaylistArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let command = match (args.command, args.drive) {
         (Some(c), _) => c,
         (None, Some(drive)) => {
@@ -624,7 +623,7 @@ pub fn playlist(
         (None, None) => PlaylistCommand::Ls { drive: None },
     };
     let (drive, edits, dry) = match command {
-        PlaylistCommand::Ls { drive } => return tree(drive, store_path, out),
+        PlaylistCommand::Ls { drive } => return tree(drive, out),
         PlaylistCommand::Import { drive, file, into, from, append, choose, dry } => {
             let mut choices = std::collections::BTreeMap::new();
             for c in choose {
@@ -843,73 +842,31 @@ pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Resu
             return out.one_step(&change, "Remove it?", || Ok(api::smart_remove(store, &req)?), show);
         }
         SmartCommand::Apply { drives, dry } => {
-            let targets: Vec<String> = if drives.is_empty() {
-                let (targets, left) = api::unnamed_targets(Some(store));
-                if let Some(w) = api::left_out(&left) {
-                    warn(w);
-                }
-                targets.iter().map(|d| d.root().display().to_string()).collect()
-            } else {
-                drives
-            };
-            if targets.is_empty() {
-                bail!("no rekordbox drives mounted");
-            }
+            let targets = if drives.is_empty() { crate::each_drive::targets(Some(store))? } else { drives };
             return smart_apply(store, targets, dry.dry_run, out, ctx);
         }
     }
     Ok(ExitCode::SUCCESS)
 }
 
-/// `smart apply`: every drive's plan shown, one question, then each drive written; `--json`
-/// prints one document, the plans and what applying each did.
+/// `smart apply`: every drive's plan shown, one question, then each drive written.
 fn smart_apply(store: &Store, drives: Vec<String>, dry_run: bool, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let mut plans = Vec::new();
     for drive in drives {
         plans.push((drive.clone(), api::smart_apply_plan(store, &DriveRef { drive }, ctx)?));
     }
-    let pending = plans.iter().filter(|(_, p)| !p.noop).count();
-    if !out.json {
-        for (drive, p) in &plans {
-            match p.noop {
-                true => {
-                    for w in &p.warnings {
-                        warn(w);
-                    }
-                    output::ok(format!("{drive}: nothing to change"));
-                }
-                false => render_plan(p),
+    let show = |drive: &str, p: &Planned<EditPlan>| match p.noop {
+        true => {
+            for w in &p.warnings {
+                warn(w);
             }
+            output::ok(format!("{drive}: nothing to change"));
         }
-    }
-    let shown: Vec<&Planned<EditPlan>> = plans.iter().map(|(_, p)| p).collect();
-    if pending == 0 {
-        return Ok(out.not_applied(&shown, Outcome::NothingToDo));
-    }
-    if let Some(o) = out.decide(dry_run, &format!("Make these changes on {pending} drive(s)?")) {
-        return Ok(out.not_applied(&shown, o));
-    }
-    // A drive that fails doesn't stop the others.
-    let mut reports = Vec::new();
-    for (drive, p) in plans.iter().filter(|(_, p)| !p.noop) {
-        let r = p.apply(None, ctx);
-        let done = match &r {
-            Ok(r) => serde_json::json!({ "drive": drive, "report": r }),
-            Err(e) => serde_json::json!({ "drive": drive, "error": { "kind": e.code(), "message": e.to_string() } }),
-        };
-        reports.push((drive, r, done));
-    }
-    let failed = reports.iter().any(|(_, r, _)| r.is_err());
-    let outcome = if failed { Outcome::Partial } else { Outcome::Applied };
-    let json: Vec<&serde_json::Value> = reports.iter().map(|(_, _, j)| j).collect();
-    Ok(out.applied(&shown, &json, outcome, || {
-        for (drive, r, _) in &reports {
-            match r {
-                Ok(r) => render_report(r, drive),
-                Err(e) => warn(format!("{drive}: {e}")),
-            }
-        }
-    }))
+        false => render_plan(p),
+    };
+    crate::each_drive::apply_each(plans, dry_run, "Make these changes", out, ctx, show, |drive, r| {
+        render_report(r, drive)
+    })
 }
 
 pub fn edits(args: EditsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
@@ -917,18 +874,15 @@ pub fn edits(args: EditsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
         (Some(c), _) => c,
         (None, Some(drive)) => {
             crate::help::check_drive_word("edits", &drive)?;
-            EditsCommand::List { drive }
+            EditsCommand::List { drive: Some(drive) }
         }
-        (None, None) => {
-            return Err(crate::jobs_cmd::usage(
-                "give a drive: `locallibrary edits DRIVE` lists the edits recorded on it",
-            ));
-        }
+        (None, None) => EditsCommand::List { drive: None },
     };
     match command {
         EditsCommand::List { drive } => {
-            let list = api::edits_list(&DriveRef { drive })?;
-            out.emit_paged(&list, |l| {
+            let reads = crate::each_drive::read(drive, |drive| api::edits_list(&DriveRef { drive }))?;
+            out.page();
+            let outcome = reads.emit_headed(out, |l| {
                 if l.is_empty() {
                     say!("no edits recorded on this drive");
                 }
@@ -939,10 +893,11 @@ pub fn edits(args: EditsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
                     }
                 }
             });
+            Ok(outcome.exit())
         }
         EditsCommand::Replay { drive, dry } => {
             let req = DriveRef { drive: drive.clone() };
-            return confirm_and_apply(&drive, api::edits_replay_plan(&req, ctx)?, dry.dry_run, out, ctx);
+            confirm_and_apply(&drive, api::edits_replay_plan(&req, ctx)?, dry.dry_run, out, ctx)
         }
         EditsCommand::Clear { drive, dry } => {
             let plan = api::edits_clear_plan(&api::ClearEdits { drive: drive.clone(), before: None })?;
@@ -956,12 +911,10 @@ pub fn edits(args: EditsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
                 return Ok(out.not_applied(&plan, o));
             }
             let r = plan.apply(None, ctx)?;
-            return Ok(out.applied(&plan, &r, Outcome::Applied, || {
-                output::ok(format!("forgot {} recorded edit(s)", r.removed))
-            }));
+            Ok(out
+                .applied(&plan, &r, Outcome::Applied, || output::ok(format!("forgot {} recorded edit(s)", r.removed))))
         }
     }
-    Ok(ExitCode::SUCCESS)
 }
 
 /// `pack`: a drive for a set, holding only chosen playlists of another drive.

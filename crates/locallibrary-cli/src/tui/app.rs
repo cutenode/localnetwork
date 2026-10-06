@@ -691,6 +691,8 @@ pub enum Msg {
     Mix(u64, Box<Result<super::mix::Opened, String>>),
     /// The recordings on a drive.
     MixSources(PathBuf, Vec<super::mix::Source>),
+    /// The recordings in the folders opened in the Mixes view (which ones, and what's in them).
+    MixFolders(Vec<PathBuf>, Vec<super::mix::Source>),
     Planned {
         job: u64,
         root: PathBuf,
@@ -1156,6 +1158,7 @@ impl App {
             _ => Repeat::Off,
         };
         self.mix.set_recent(&s.mixes);
+        self.mix.folders = s.mix_folders.clone();
         self.crate_list.items = (s.crate_list.iter())
             .map(|t| CrateTrack { root: t.root.clone(), drive: t.drive.clone(), track: t.track.clone() })
             .collect();
@@ -1202,6 +1205,7 @@ impl App {
             single: self.deck.single,
             auto_cue: self.deck.auto_cue,
             mixes: self.mix.recent.clone(),
+            mix_folders: self.mix.folders.clone(),
             crate_list: (self.crate_list.items.iter())
                 .map(|t| SavedCrateTrack { root: t.root.clone(), drive: t.drive.clone(), track: t.track.clone() })
                 .collect(),
@@ -1381,7 +1385,7 @@ impl App {
         let root = self.store_root.clone();
         let job = move || {
             let r = Store::open(&root)
-                .map_err(|_| "no store yet: pull a drive (e, then pull) to make one".to_string())
+                .map_err(|_| "no store yet: saving a snapshot of a drive (e) makes one".to_string())
                 .and_then(|s| {
                     let req = api::FleetRequest::default();
                     api::fleet_status(&s, &req, &Ctx::silent()).map(|f| f.mounted).map_err(|e| e.to_string())
@@ -1684,6 +1688,7 @@ impl App {
             Msg::Account(e) => super::account::on_event(self, e),
             Msg::Mix(generation, r) => super::mix::loaded(self, generation, *r),
             Msg::MixSources(root, sources) => self.mix.drive_listed(root, sources),
+            Msg::MixFolders(folders, sources) => super::mix::folders_listed(self, folders, sources),
             Msg::Planned { job, root, result } => self.on_planned(job, root, result),
             Msg::Applied { job, root, result } => self.on_applied(job, root, result),
             Msg::Done { job, result } => self.on_done(job, result),
@@ -3038,6 +3043,7 @@ impl App {
             Act::MarkAll => self.mark_all(),
             Act::CrateAdd => self.quick(Action::CrateAdd),
             Act::Actions => self.open_menu(None),
+            Act::Remove if in_mixes => mix::forget(self),
             Act::Remove => match self.focus {
                 Focus::Crate => self.remove_from_crate(),
                 Focus::Tracks => self.quick(Action::RemoveFromList),
@@ -4085,7 +4091,7 @@ mod tests {
         press(&mut app, "e");
         let Some(Modal::Pick(p)) = &app.modal else { panic!("no menu") };
         assert!(p.title.starts_with("Drive · "));
-        assert!(p.items[0].label.starts_with("pull"));
+        assert!(p.items[0].label.starts_with("save a snapshot"));
         press(&mut app, "\n");
         let (op, summary) = confirming(&mut app);
         assert_eq!(op, "pull");
@@ -4506,6 +4512,64 @@ mod tests {
         // Moving on in the queue instead forgets where that track was.
         press(&mut next, "n");
         assert!(next.resume.is_none() && next.resumable().is_none());
+    }
+
+    /// A folder of sets opened in the Mixes view lists the recordings in it and its subfolders
+    /// (not hidden ones, nor other files), is listed again on the next run with what's new in it,
+    /// and `del` forgets it.
+    #[test]
+    fn mixes_lists_a_folder_of_sets_and_remembers_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let sets = dir.path().join("mixes");
+        let files = [
+            "tachycardia/Tierney Cyren.mp3",
+            "tachycardia/._Tierney Cyren.mp3",
+            "one shot/techno/Untitled.mp3",
+            "loose.WAV",
+            "notes.txt",
+            ".old/x.wav",
+        ];
+        for f in files {
+            let p = sets.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "x").unwrap();
+        }
+        let listed = |app: &mut App| {
+            let until = Instant::now() + Duration::from_secs(5);
+            while let Ok(msg) = app.rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
+                let done = matches!(msg, Msg::MixFolders(..));
+                app.handle_msg(msg);
+                if done {
+                    break;
+                }
+            }
+        };
+        let shown = |app: &App| app.mix.sources.iter().map(|s| format!("{} · {}", s.name, s.place)).collect::<Vec<_>>();
+
+        let store = dir.path().join("store");
+        let mut app = App::blank(store.clone(), None);
+        app.view = View::Mixes;
+        press(&mut app, &format!("O{}\n", sets.display()));
+        listed(&mut app);
+        assert_eq!(
+            shown(&app),
+            ["loose.WAV · mixes", "Untitled.mp3 · one shot/techno", "Tierney Cyren.mp3 · tachycardia"]
+        );
+        assert!(app.toast.as_ref().is_some_and(|(m, ..)| m.starts_with("3 recordings in")), "{:?}", app.toast);
+        app.save_state();
+
+        std::fs::write(sets.join("tachycardia/encore.flac"), "x").unwrap();
+        let mut next = App::blank(store.clone(), None);
+        next.apply_saved(&state::load(&store), false);
+        next.view = View::Mixes;
+        // Drawing the view lists the folders.
+        super::super::ui::screen(&mut next, 100, 30);
+        listed(&mut next);
+        assert_eq!(next.mix.sources.len(), 4, "{:?}", shown(&next));
+        assert!(super::super::ui::screen(&mut next, 100, 30).contains("encore.flac"));
+
+        press(&mut next, "\u{7f}");
+        assert!(next.mix.sources.is_empty() && next.mix.folders.is_empty(), "{:?}", shown(&next));
     }
 
     /// A library the size of a big collection, made up: `n` tracks with a few thousand artists,

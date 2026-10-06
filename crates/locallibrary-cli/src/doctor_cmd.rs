@@ -13,6 +13,7 @@ use locallibrary::format::Verdict;
 use locallibrary::paths::FileClass;
 use locallibrary::progress::Ctx;
 
+use crate::each_drive::{self, Reads};
 use crate::output::{self, Outcome, Output, bytes, cap, dim, heading, ok, warn};
 
 #[derive(Args)]
@@ -33,7 +34,8 @@ pub struct DoctorArgs {
     /// Only these sections (repeatable, or comma-separated)
     #[arg(long, value_enum, value_delimiter = ',')]
     only: Vec<SectionArg>,
-    /// Delete audio, analysis and artwork files no track in either database uses (backed up first)
+    /// Delete audio, analysis and artwork files no track in either database uses (backed up first;
+    /// given no drive, on the only mounted one or the library's primary)
     #[arg(long)]
     fix_orphans: bool,
     /// With --fix-orphans: show what would be deleted, delete nothing
@@ -81,16 +83,29 @@ impl From<SectionArg> for Section {
 
 pub fn run(args: DoctorArgs, store: &Option<std::path::PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     crate::output::show_all(args.all);
-    let drive = crate::jobs_cmd::drive_or_default(args.drive.clone(), store, "check")?;
     if args.fix_orphans {
+        let drive = crate::jobs_cmd::drive_or_default(args.drive, store, "clean up")?;
         return fix_orphans(drive, args.dry_run, out, ctx);
     }
     let only = args.only.into_iter().map(Into::into).collect();
     let options = DoctorOptions { hash_audio: args.hash_audio, only, audio: args.audio, ..Default::default() };
-    let report = api::doctor(&api::DoctorRequest { drive, options }, ctx)?;
-    let outcome = if report.has_problems() { Outcome::Problems } else { Outcome::Applied };
+    let reads = each_drive::read(args.drive, |drive| {
+        api::doctor(&api::DoctorRequest { drive, options: options.clone() }, ctx)
+    })?;
     out.page();
-    Ok(out.report(&report, outcome, render))
+    let each = match &reads {
+        Reads::One(report) => {
+            let outcome = if report.has_problems() { Outcome::Problems } else { Outcome::Applied };
+            return Ok(out.report(report, outcome, render));
+        }
+        Reads::Each(each) => each,
+    };
+    let problems = each.iter().filter_map(|r| r.result.as_ref()).any(DoctorReport::has_problems);
+    Ok(match reads.emit(out, render) {
+        Outcome::Applied if problems => Outcome::Problems,
+        outcome => outcome,
+    }
+    .exit())
 }
 
 fn fix_orphans(drive: String, dry_run: bool, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
@@ -193,7 +208,7 @@ fn problem(p: Problem) -> &'static str {
     match p {
         Problem::MissingAudio => "no audio file",
         Problem::UnsafePath => "unsafe path",
-        Problem::SizeMismatch => "size differs",
+        Problem::Truncated => "cut short",
         Problem::MissingAnalysis => "no analysis",
         Problem::MissingArtwork => "no artwork",
         _ => "broken",
