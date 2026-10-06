@@ -1,0 +1,808 @@
+//! Planned operations: every change locallibrary makes is worked out first, shown, and then made
+//! exactly as it was shown.
+//!
+//! A [`Planned`] wraps an operation's plan with what a front end needs to ask for confirmation:
+//! an id, the operation's name, summary lines, warnings, whether it destroys anything, and the
+//! drives (or files on this computer) it touches. For each of those it keeps a hash of the state
+//! the plan was made from, taken at plan time and never serialised. [`Planned::apply`] measures
+//! them again first and refuses with [`Error::StalePlan`] (`stale_plan`) if anything changed, so
+//! a dialog that said "remove 3 tracks" can't remove 5. It also refuses to write to an archive or
+//! retired drive unless the plan was made to (see [`crate::fleet::check_target`]). That check
+//! runs before the drive is locked; the write checks the drive's databases again once it holds
+//! the lock, so another write that slipped in between isn't overwritten either.
+//!
+//! Plans live in memory: the CLI applies the one it showed, the TUI the one in its dialog, and the
+//! JSON-RPC sidecar keeps recent ones by id (`*.apply {"plan_id": ...}`). [`AnyPlanned`] lets a
+//! front end hold plans of every kind together.
+
+use std::any::Any;
+use std::cell::{Cell, RefCell};
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
+use serde::{Serialize, Serializer};
+
+use crate::device::{Device, DeviceState};
+use crate::hash::Hash;
+use crate::progress::Ctx;
+use crate::store::Store;
+use crate::{Error, Result, fsutil, paths};
+
+thread_local! {
+    static ARCHIVE_WRITES: Cell<bool> = const { Cell::new(false) };
+    /// The drives the plans being applied on this thread write, with their databases when the
+    /// plans were made (see [`planned_databases`]); `None` once a write has locked the drive.
+    static PLANNED: RefCell<Vec<(PathBuf, Option<Hash>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The databases the drive at `root` held when the plan being applied on this thread was made,
+/// the first time a write locks the drive while it's applied (later locks are the plan's own
+/// next writes). [`Planned::apply`] checks a plan before anything is locked;
+/// [`crate::commit::lock`] checks this once the drive is.
+pub(crate) fn planned_databases(root: &Path) -> Option<Hash> {
+    PLANNED.with(|planned| {
+        let mut planned = planned.borrow_mut();
+        let found = planned.iter().rev().find(|(r, _)| r == root).and_then(|(_, h)| *h);
+        for (_, h) in planned.iter_mut().filter(|(r, _)| r == root) {
+            *h = None;
+        }
+        found
+    })
+}
+
+/// A plan being applied on this thread, until it's done (a panic included): the drives it
+/// writes, noted for [`planned_databases`], and its archive-write permission, which what it runs
+/// (a provision's format and push) shares. Both are put back as they were when it's dropped.
+struct Applying {
+    planned: usize,
+    archive_writes: bool,
+}
+
+impl Applying {
+    fn start(drives: &[Touched], overwrite_archive: bool) -> Applying {
+        let archive_writes = archive_writes_allowed();
+        allow_archive_writes(archive_writes || overwrite_archive);
+        PLANNED.with(|planned| {
+            let mut planned = planned.borrow_mut();
+            let before = planned.len();
+            let written = drives.iter().filter(|t| t.writes && t.drive);
+            planned.extend(written.filter_map(|t| t.databases.map(|h| (t.root.clone(), Some(h)))));
+            Applying { planned: before, archive_writes }
+        })
+    }
+}
+
+impl Drop for Applying {
+    fn drop(&mut self) {
+        PLANNED.with(|planned| planned.borrow_mut().truncate(self.planned));
+        allow_archive_writes(self.archive_writes);
+    }
+}
+
+/// Let plans made or applied on this thread write to archive and retired drives (the CLI's
+/// `--overwrite-archive`, an RPC request's `overwrite_archive`). A plan made while this is set
+/// keeps the permission wherever it's applied.
+pub fn allow_archive_writes(yes: bool) {
+    ARCHIVE_WRITES.with(|a| a.set(yes));
+}
+
+/// Whether [`allow_archive_writes`] is set on this thread.
+pub fn archive_writes_allowed() -> bool {
+    ARCHIVE_WRITES.with(Cell::get)
+}
+
+/// What of a drive (or a folder on this computer) a plan depends on. [`Touched`] hashes these
+/// when the plan is made and again before it is applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Probe {
+    /// The library's databases (`export.pdb`, `exportExt.pdb`, `exportLibrary.db` and its WAL), by
+    /// content: rekordbox exporting again, or another edit, changes them.
+    Databases,
+    /// The drive's identity and the state locallibrary last recorded for it (another drive
+    /// mounted at the same place, or a locallibrary write in between). A drive without an
+    /// identity is known by its volume: the root folder's device and inode (volume serial and
+    /// file index on Windows) and the volume's size.
+    Identity,
+    /// These files (keys below the root) by content.
+    Content(Vec<String>),
+    /// These files by size and modification time (audio, recordings, update files: too big to
+    /// read twice).
+    Stamp(Vec<String>),
+    /// The files directly in a folder (a key, `""` for the root) by name, size and time.
+    Listing(String),
+}
+
+/// A drive, folder or file an operation reads or writes, and its state when it was planned.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Touched {
+    /// The drive's root, or the folder or file on this computer.
+    pub root: PathBuf,
+    pub name: String,
+    /// Whether the operation writes to it (a sync's source is only read).
+    pub writes: bool,
+    /// A drive (archive and retired drives are refused unless the plan allows it), rather than
+    /// files on this computer.
+    pub drive: bool,
+    #[serde(skip)]
+    probes: Vec<Probe>,
+    #[serde(skip)]
+    state: Hash,
+    /// Its [`Probe::Databases`] alone, if probed, for the write to check again under the lock.
+    #[serde(skip)]
+    databases: Option<Hash>,
+}
+
+impl Touched {
+    /// A drive, its state measured now.
+    pub fn drive(device: &Device, writes: bool, probes: Vec<Probe>) -> Touched {
+        let root = device.root().to_path_buf();
+        let databases = probes.contains(&Probe::Databases).then(|| crate::commit::database_state_at(&root));
+        Touched {
+            state: measure(&root, &probes, databases),
+            name: device.name(),
+            root,
+            writes,
+            drive: true,
+            probes,
+            databases,
+        }
+    }
+
+    /// A drive whose library an operation reads or edits: its databases and identity.
+    pub fn library(device: &Device, writes: bool) -> Touched {
+        Touched::drive(device, writes, vec![Probe::Databases, Probe::Identity])
+    }
+
+    /// A folder or file on this computer (keys in `probes` are below it; `""` is `path` itself).
+    pub fn path(path: &Path, writes: bool, probes: Vec<Probe>) -> Touched {
+        Touched {
+            state: measure(path, &probes, None),
+            name: path.display().to_string(),
+            root: path.to_path_buf(),
+            writes,
+            drive: false,
+            probes,
+            databases: None,
+        }
+    }
+
+    /// Whether it changed since it was measured.
+    pub fn changed(&self) -> bool {
+        measure(&self.root, &self.probes, None) != self.state
+    }
+
+    /// The drive, opened again (refused if it's gone).
+    pub fn open(&self) -> Result<Device> {
+        Device::open(&self.root)
+    }
+}
+
+/// A size for summaries: `840 B`, `12.5 MB`.
+pub fn bytes(n: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut v = n as f64;
+    let mut u = 0;
+    while v >= 1000.0 && u < UNITS.len() - 1 {
+        v /= 1000.0;
+        u += 1;
+    }
+    if u == 0 { format!("{n} B") } else { format!("{v:.1} {}", UNITS[u]) }
+}
+
+fn at(root: &Path, key: &str) -> PathBuf {
+    if key.is_empty() { root.to_path_buf() } else { paths::to_fs(root, key) }
+}
+
+/// Hash `probes` of the drive or folder at `root` (`databases`: its [`Probe::Databases`], when
+/// that's known already). Files that can't be read count as absent.
+fn measure(root: &Path, probes: &[Probe], databases: Option<Hash>) -> Hash {
+    let mut h = blake3::Hasher::new();
+    h.update(root.to_string_lossy().as_bytes());
+    let content = |h: &mut blake3::Hasher, key: &str| {
+        h.update(b"\0content\0");
+        h.update(key.as_bytes());
+        match std::fs::File::open(at(root, key)) {
+            Ok(mut f) => {
+                let mut buf = vec![0u8; 1 << 20];
+                loop {
+                    match f.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            h.update(&buf[..n]);
+                        }
+                        Err(_) => {
+                            h.update(b"\0unreadable");
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                h.update(b"\0absent");
+            }
+        }
+    };
+    let stamp = |h: &mut blake3::Hasher, path: &Path| match std::fs::metadata(path) {
+        Ok(m) => {
+            h.update(&m.len().to_le_bytes());
+            h.update(&fsutil::mtime_secs(&m).to_le_bytes());
+            h.update(&[u8::from(m.is_dir())]);
+        }
+        Err(_) => {
+            h.update(b"\0absent");
+        }
+    };
+    for p in probes {
+        match p {
+            Probe::Databases => {
+                h.update(b"\0databases");
+                h.update(databases.unwrap_or_else(|| crate::commit::database_state_at(root)).as_bytes());
+            }
+            Probe::Identity => {
+                h.update(b"\0identity");
+                let state: Option<DeviceState> =
+                    fsutil::read_json_opt(&root.join(paths::STATE_DIR).join("state.json")).ok().flatten();
+                match state {
+                    Some(s) => {
+                        h.update(s.id.as_bytes());
+                        if let Some(head) = s.head() {
+                            h.update(head.fingerprint.as_bytes());
+                        }
+                        if let Some(p) = &s.pending {
+                            h.update(format!("{:?} {}", p.op, p.started).as_bytes());
+                        }
+                    }
+                    // Blank sticks mount at the same few paths (`/Volumes/NO NAME`): one planned
+                    // onto mustn't pass for another mounted there since.
+                    None => {
+                        if let Ok(volume) = same_file::Handle::from_path(root) {
+                            let mut v = std::hash::DefaultHasher::new();
+                            std::hash::Hash::hash(&volume, &mut v);
+                            h.update(&std::hash::Hasher::finish(&v).to_le_bytes());
+                        }
+                        h.update(&fsutil::total_space(root).unwrap_or(0).to_le_bytes());
+                    }
+                }
+            }
+            Probe::Content(keys) => {
+                for key in keys {
+                    content(&mut h, key);
+                }
+            }
+            Probe::Stamp(keys) => {
+                for key in keys {
+                    h.update(b"\0stamp\0");
+                    h.update(key.as_bytes());
+                    stamp(&mut h, &at(root, key));
+                }
+            }
+            Probe::Listing(dir) => {
+                h.update(b"\0listing\0");
+                h.update(dir.as_bytes());
+                let mut names: Vec<std::ffi::OsString> = std::fs::read_dir(at(root, dir))
+                    .map(|rd| rd.flatten().map(|e| e.file_name()).collect())
+                    .unwrap_or_default();
+                names.sort();
+                for n in names {
+                    h.update(n.to_string_lossy().as_bytes());
+                    stamp(&mut h, &at(root, dir).join(&n));
+                }
+            }
+        }
+    }
+    h.finalize().into()
+}
+
+/// An operation's plan, ready to be confirmed and applied (see the module docs).
+///
+/// It serialises as the plan's own fields with these added: `plan_id`, `operation`, `summary`,
+/// `warnings` (every warning, the plan's own included), `destructive`, `noop`, `drives` (each
+/// `{root, name, writes, drive}`) and `planned_at`.
+#[derive(Debug)]
+pub struct Planned<P, R = ()> {
+    /// Names this plan in `*.apply {"plan_id": ...}`.
+    pub id: String,
+    /// `merge`, `clean`, `edit`...: the RPC method's name without `.plan`.
+    pub operation: &'static str,
+    pub plan: P,
+    /// What will change, in a few lines, for a confirmation dialog.
+    pub summary: Vec<String>,
+    pub warnings: Vec<String>,
+    /// It deletes or overwrites something (files, tracks, a library, a disk); a dialog should
+    /// say so.
+    pub destructive: bool,
+    /// Applying it changes nothing.
+    pub noop: bool,
+    pub drives: Vec<Touched>,
+    pub planned_at: DateTime<Utc>,
+    /// What was asked for, as applying needs it (not shown).
+    pub(crate) request: R,
+    /// Archive and retired drives may be written.
+    pub(crate) overwrite_archive: bool,
+}
+
+impl<P, R> Planned<P, R> {
+    pub(crate) fn new(operation: &'static str, plan: P, request: R) -> Self {
+        Planned {
+            id: uuid::Uuid::new_v4().to_string(),
+            operation,
+            plan,
+            summary: Vec::new(),
+            warnings: Vec::new(),
+            destructive: false,
+            noop: false,
+            drives: Vec::new(),
+            planned_at: Utc::now(),
+            request,
+            overwrite_archive: archive_writes_allowed(),
+        }
+    }
+
+    pub(crate) fn summary(mut self, lines: impl IntoIterator<Item = String>) -> Self {
+        self.summary.extend(lines);
+        self
+    }
+
+    pub(crate) fn line(mut self, line: impl Into<String>) -> Self {
+        self.summary.push(line.into());
+        self
+    }
+
+    pub(crate) fn warnings(mut self, warnings: impl IntoIterator<Item = String>) -> Self {
+        for w in warnings {
+            if !self.warnings.contains(&w) {
+                self.warnings.push(w);
+            }
+        }
+        self
+    }
+
+    pub(crate) fn destructive(mut self, yes: bool) -> Self {
+        self.destructive = yes;
+        self
+    }
+
+    pub(crate) fn noop(mut self, yes: bool) -> Self {
+        self.noop = yes;
+        self
+    }
+
+    pub(crate) fn touches(mut self, touched: Touched) -> Self {
+        self.drives.push(touched);
+        self
+    }
+
+    pub(crate) fn overwrite_archive(mut self, yes: bool) -> Self {
+        self.overwrite_archive |= yes;
+        self
+    }
+
+    /// What was asked for.
+    pub fn request(&self) -> &R {
+        &self.request
+    }
+
+    /// Refuse a plan that writes to an archive or retired drive (unless it was made to). Run when
+    /// planning, so nobody is asked to confirm what would be refused, and again by [`Self::check`].
+    pub(crate) fn guard(self, store: Option<&Store>) -> Result<Self> {
+        self.guard_targets(store)?;
+        Ok(self)
+    }
+
+    fn guard_targets(&self, store: Option<&Store>) -> Result<()> {
+        if self.overwrite_archive || archive_writes_allowed() {
+            return Ok(());
+        }
+        let registry;
+        let store = match store {
+            Some(s) => Some(s),
+            None => {
+                registry = crate::api::registry();
+                registry.as_ref()
+            }
+        };
+        for t in self.drives.iter().filter(|t| t.writes && t.drive) {
+            if let Ok(d) = Device::open(&t.root) {
+                crate::fleet::check_target(store, &d, false)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the plan can still be applied: every drive and file it touches is as it was when
+    /// planned ([`Error::StalePlan`] otherwise), and none it writes is an archive or retired
+    /// drive unless the plan was made to write to one.
+    pub fn check(&self, store: Option<&Store>) -> Result<()> {
+        for t in &self.drives {
+            if !t.root.exists() {
+                return Err(Error::stale(&t.name, "is gone"));
+            }
+            if t.changed() {
+                return Err(Error::stale(&t.name, "changed"));
+            }
+        }
+        self.guard_targets(store)
+    }
+
+    /// The touched drive at `index`, opened again.
+    pub(crate) fn drive(&self, index: usize) -> Result<Device> {
+        self.drives.get(index).ok_or_else(|| Error::invalid("the plan names no such drive"))?.open()
+    }
+}
+
+/// A kind of plan that can be applied. [`crate::api`] implements it for the plans its `*_plan`
+/// functions return.
+pub trait Operation: Sized {
+    /// What applying needs besides the plan (kept in [`Planned`]).
+    type Request;
+    type Report: Serialize;
+
+    /// Make the change. Called by [`Planned::apply`] once the plan is checked.
+    fn apply(planned: &Planned<Self, Self::Request>, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<Self::Report>;
+}
+
+/// A `Planned` reads as its plan (`planned.tracks`, `planned.is_noop()`).
+impl<P, R> std::ops::Deref for Planned<P, R> {
+    type Target = P;
+
+    fn deref(&self) -> &P {
+        &self.plan
+    }
+}
+
+impl<P: Operation> Planned<P, P::Request> {
+    /// Apply exactly this plan: refused with [`Error::StalePlan`] if anything it touches changed
+    /// since it was made (see [`Self::check`]).
+    pub fn apply(&self, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<P::Report> {
+        self.check(store)?;
+        let _applying = Applying::start(&self.drives, self.overwrite_archive);
+        P::apply(self, store, ctx)
+    }
+}
+
+/// What every plan says besides its own fields, as `*.plan` returns it (see [`Planned`]).
+#[derive(Serialize, JsonSchema)]
+pub struct PlanFields<'a> {
+    /// Names the plan in `*.apply {"plan_id": ...}`.
+    pub plan_id: &'a str,
+    /// The RPC method's name without `.plan`.
+    pub operation: &'a str,
+    /// What will change, in a few lines, for a confirmation dialog.
+    pub summary: &'a [String],
+    /// Every warning, the plan's own included.
+    pub warnings: &'a [String],
+    /// It deletes or overwrites something (files, tracks, a library, a disk): a dialog should
+    /// say so.
+    pub destructive: bool,
+    /// Applying it changes nothing.
+    pub noop: bool,
+    /// The drives (and files on this computer) it reads or writes.
+    pub drives: &'a [Touched],
+    pub planned_at: DateTime<Utc>,
+}
+
+impl<P: Serialize, R> Serialize for Planned<P, R> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut map = match json::<_, S::Error>(&self.plan)? {
+            serde_json::Value::Object(map) => map,
+            serde_json::Value::Null => serde_json::Map::new(),
+            other => {
+                let mut map = serde_json::Map::new();
+                map.insert("plan".into(), other);
+                map
+            }
+        };
+        let fields = PlanFields {
+            plan_id: &self.id,
+            operation: self.operation,
+            summary: &self.summary,
+            warnings: &self.warnings,
+            destructive: self.destructive,
+            noop: self.noop,
+            drives: &self.drives,
+            planned_at: self.planned_at,
+        };
+        if let serde_json::Value::Object(fields) = json::<_, S::Error>(&fields)? {
+            map.extend(fields);
+        }
+        map.serialize(serializer)
+    }
+}
+
+fn json<T: Serialize, E: serde::ser::Error>(value: &T) -> std::result::Result<serde_json::Value, E> {
+    serde_json::to_value(value).map_err(E::custom)
+}
+
+/// A plan's schema: the plan's own fields and [`PlanFields`]. (A plan that isn't a JSON object
+/// is under `plan`; one that is `null` adds nothing.)
+impl<P: JsonSchema, R> JsonSchema for Planned<P, R> {
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        format!("Planned_{}", P::schema_name()).into()
+    }
+
+    fn schema_id() -> std::borrow::Cow<'static, str> {
+        format!("locallibrary::op::Planned<{}>", P::schema_id()).into()
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        use crate::schema::{Shape, shape};
+        let plan = generator.subschema_for::<P>();
+        let fields = generator.subschema_for::<PlanFields<'static>>();
+        match shape(generator, &plan) {
+            Shape::Null => fields,
+            Shape::Object => schemars::json_schema!({ "allOf": [plan, fields] }),
+            Shape::Other => schemars::json_schema!({
+                "allOf": [
+                    { "type": "object", "properties": { "plan": plan }, "required": ["plan"] },
+                    fields,
+                ]
+            }),
+        }
+    }
+}
+
+/// A plan of any kind, for front ends that hold plans of several kinds (the RPC sidecar keeps
+/// them by id, the TUI shows one in its dialog).
+pub trait AnyPlanned: Send + Sync {
+    fn id(&self) -> &str;
+    fn operation(&self) -> &'static str;
+    fn summary(&self) -> &[String];
+    fn warnings(&self) -> &[String];
+    fn destructive(&self) -> bool;
+    fn is_noop(&self) -> bool;
+    fn drives(&self) -> &[Touched];
+    fn planned_at(&self) -> DateTime<Utc>;
+    /// The plan as `*.plan` returns it.
+    fn to_json(&self) -> serde_json::Value;
+    /// [`Planned::check`].
+    fn check(&self, store: Option<&Store>) -> Result<()>;
+    /// [`Planned::apply`], with the report as JSON.
+    fn apply_json(&self, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<serde_json::Value>;
+    /// For a front end that shows some kinds of plan in detail.
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<P, R> AnyPlanned for Planned<P, R>
+where
+    P: Operation<Request = R> + Serialize + Send + Sync + 'static,
+    R: Send + Sync + 'static,
+{
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn operation(&self) -> &'static str {
+        self.operation
+    }
+
+    fn summary(&self) -> &[String] {
+        &self.summary
+    }
+
+    fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    fn destructive(&self) -> bool {
+        self.destructive
+    }
+
+    fn is_noop(&self) -> bool {
+        self.noop
+    }
+
+    fn drives(&self) -> &[Touched] {
+        &self.drives
+    }
+
+    fn planned_at(&self) -> DateTime<Utc> {
+        self.planned_at
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::to_value(self).unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }))
+    }
+
+    fn check(&self, store: Option<&Store>) -> Result<()> {
+        Planned::check(self, store)
+    }
+
+    fn apply_json(&self, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<serde_json::Value> {
+        let report = self.apply(store, ctx)?;
+        serde_json::to_value(report).map_err(|e| Error::invalid(e.to_string()))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Serialize)]
+    struct Plan {
+        tracks: usize,
+        warnings: Vec<String>,
+    }
+
+    impl Operation for Plan {
+        type Request = ();
+        type Report = usize;
+
+        fn apply(planned: &Planned<Self>, _: Option<&Store>, _: &Ctx<'_>) -> Result<usize> {
+            Ok(planned.plan.tracks)
+        }
+    }
+
+    fn write(root: &Path, key: &str, bytes: &[u8]) {
+        let p = paths::to_fs(root, key);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, bytes).unwrap();
+    }
+
+    #[test]
+    fn a_plan_is_refused_once_what_it_touches_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, paths::EXPORT_PDB, b"one");
+        write(root, "Contents/a.mp3", b"audio");
+        let d = Device::open(root).unwrap();
+        let plan = Plan { tracks: 3, warnings: vec!["careful".into()] };
+        let planned = Planned::new("test", plan, ()).touches(Touched::drive(
+            &d,
+            true,
+            vec![Probe::Databases, Probe::Listing("Contents".into())],
+        ));
+        assert_eq!(planned.apply(None, &Ctx::silent()).unwrap(), 3);
+
+        // Rewritten with the same bytes: still the state that was planned.
+        write(root, paths::EXPORT_PDB, b"one");
+        assert!(planned.check(None).is_ok());
+        write(root, paths::EXPORT_PDB, b"two");
+        let err = planned.apply(None, &Ctx::silent()).unwrap_err();
+        assert!(matches!(err, Error::StalePlan(_)), "{err}");
+        assert_eq!(err.code(), "stale_plan");
+        write(root, paths::EXPORT_PDB, b"one");
+        assert!(planned.check(None).is_ok());
+
+        // A new file in a listed folder.
+        write(root, "Contents/b.mp3", b"more");
+        assert!(matches!(planned.check(None), Err(Error::StalePlan(_))));
+    }
+
+    /// Writes its drive's database before it first locks the drive (`true`: as another write
+    /// slipping in after the check would), and between two locks (as its own next write does).
+    struct Writes;
+
+    impl Operation for Writes {
+        type Request = bool;
+        type Report = ();
+
+        fn apply(planned: &Planned<Self, bool>, _: Option<&Store>, _: &Ctx<'_>) -> Result<()> {
+            let d = planned.drive(0)?;
+            if *planned.request() {
+                write(d.root(), paths::EXPORT_PDB, b"slipped in");
+            }
+            drop(crate::commit::lock(&d, None)?);
+            write(d.root(), paths::EXPORT_PDB, b"its own");
+            drop(crate::commit::lock(&d, None)?);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_write_slipping_in_before_the_lock_is_refused_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = Device::open(dir.path()).unwrap();
+        let plan = |early| Planned::new("test", Writes, early).touches(Touched::library(&d, true));
+        write(dir.path(), paths::EXPORT_PDB, b"one");
+        assert!(matches!(plan(true).apply(None, &Ctx::silent()), Err(Error::StalePlan(_))));
+        write(dir.path(), paths::EXPORT_PDB, b"one");
+        plan(false).apply(None, &Ctx::silent()).unwrap();
+        assert!(planned_databases(d.root()).is_none(), "nothing is noted once it's applied");
+    }
+
+    #[test]
+    fn stamps_and_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, "rec.wav", b"recording");
+        let mut d = Device::open(root).unwrap();
+        let t = Touched::drive(&d, true, vec![Probe::Identity, Probe::Stamp(vec!["rec.wav".into()])]);
+        assert!(!t.changed());
+        d.adopt(Some("Main")).unwrap();
+        assert!(t.changed(), "a drive given an identity is another state");
+        let t = Touched::drive(&d, true, vec![Probe::Identity, Probe::Stamp(vec!["rec.wav".into()])]);
+        d.adopt(Some("Renamed")).unwrap();
+        assert!(!t.changed(), "a new name changes nothing a plan depends on");
+        std::fs::remove_file(root.join("rec.wav")).unwrap();
+        assert!(t.changed());
+    }
+
+    struct Allowed;
+
+    impl Operation for Allowed {
+        type Request = ();
+        type Report = bool;
+
+        fn apply(_: &Planned<Self>, _: Option<&Store>, _: &Ctx<'_>) -> Result<bool> {
+            Ok(archive_writes_allowed())
+        }
+    }
+
+    /// Regression: a plan made to write to archive drives lost that permission in what it ran
+    /// when applied without it (a provision's format and push).
+    #[test]
+    fn what_a_plan_runs_may_write_where_the_plan_may() {
+        allow_archive_writes(true);
+        let allowed = Planned::new("test", Allowed, ());
+        allow_archive_writes(false);
+        assert!(allowed.apply(None, &Ctx::silent()).unwrap());
+        assert!(!archive_writes_allowed(), "only while it applies");
+        assert!(!Planned::new("test", Allowed, ()).apply(None, &Ctx::silent()).unwrap());
+    }
+
+    struct Panics;
+
+    impl Operation for Panics {
+        type Request = ();
+        type Report = ();
+
+        fn apply(_: &Planned<Self>, _: Option<&Store>, _: &Ctx<'_>) -> Result<()> {
+            std::panic::resume_unwind(Box::new("stopped part way"))
+        }
+    }
+
+    /// Regression: an operation that panicked left writes to archive drives allowed on its thread.
+    #[test]
+    fn a_plan_that_panics_gives_the_archive_permission_back() {
+        allow_archive_writes(true);
+        let plan = Planned::new("test", Panics, ());
+        allow_archive_writes(false);
+        let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| plan.apply(None, &Ctx::silent())));
+        assert!(applied.is_err());
+        assert!(!archive_writes_allowed());
+    }
+
+    /// Regression: two drives without an identity measured the same when mounted at one path in
+    /// turn, so a plan made for one blank stick was applied to another.
+    #[test]
+    fn blank_drives_at_one_path_are_told_apart() {
+        let dir = tempfile::tempdir().unwrap();
+        let (root, other) = (dir.path().join("NO NAME"), dir.path().join("other"));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&other).unwrap();
+        let t = Touched::drive(&Device::open(&root).unwrap(), true, vec![Probe::Identity]);
+        assert!(!t.changed());
+        std::fs::rename(&root, dir.path().join("away")).unwrap();
+        std::fs::rename(&other, &root).unwrap();
+        assert!(t.changed(), "another volume at the same path");
+    }
+
+    #[test]
+    fn serialises_as_the_plan_with_its_details() {
+        let plan = Plan { tracks: 3, warnings: vec!["careful".into()] };
+        let planned = Planned::new("test", plan, ())
+            .line("3 tracks")
+            .warnings(["careful".to_string(), "and another".to_string()])
+            .destructive(true);
+        let v = serde_json::to_value(&planned).unwrap();
+        assert_eq!(v["tracks"], 3);
+        assert_eq!(v["operation"], "test");
+        assert_eq!(v["plan_id"], planned.id.as_str());
+        assert_eq!(v["summary"], serde_json::json!(["3 tracks"]));
+        assert_eq!(v["warnings"], serde_json::json!(["careful", "and another"]));
+        assert_eq!(v["destructive"], true);
+        let any: Box<dyn AnyPlanned> = Box::new(planned);
+        assert_eq!(any.to_json(), v);
+        assert_eq!(any.apply_json(None, &Ctx::silent()).unwrap(), 3);
+    }
+}

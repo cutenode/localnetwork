@@ -1,0 +1,75 @@
+{
+  "lexicon": 1,
+  "id": "computer.localnetwork.locallibrary.set",
+  "description": "A DJ set: the tracks played, in order.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "description": "Written by locallibrary from a history list a player recorded during the set (`locallibrary history publish`), or from the tracks found in a recording of it. Publishing the same set again replaces its record. Tracks the DJ chose not to name are present, unidentified.",
+      "record": {
+        "type": "object",
+        "required": ["date", "tracks", "createdAt"],
+        "properties": {
+          "title": { "type": "string", "maxLength": 1000, "maxGraphemes": 100 },
+          "date": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 10,
+            "description": "The day it was played, as YYYY-MM-DD."
+          },
+          "venue": { "type": "string", "maxLength": 1000, "maxGraphemes": 100 },
+          "source": {
+            "type": "string",
+            "description": "history: a history list a player recorded during the set. mix: a recording of the set, with the tracks found in it and when they start.",
+            "knownValues": ["history", "mix"]
+          },
+          "tracks": {
+            "type": "array",
+            "maxLength": 1000,
+            "description": "In play order.",
+            "items": { "type": "ref", "ref": "#track" }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When it was first published."
+          }
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "description": "One track: named (a title, usually an artist), or unidentified.",
+      "properties": {
+        "title": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+        "artist": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+        "isrc": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 12,
+          "description": "The recording's ISRC."
+        },
+        "bpmCentis": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The track's tempo as rekordbox analysed it, in hundredths of a BPM (12800 is 128 BPM)."
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 3,
+          "description": "Its key on the Camelot wheel, 1A to 12B (8A is A minor, 8B C major)."
+        },
+        "startSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "When it starts, in seconds from the start of the set (known from a recording)."
+        },
+        "unidentified": {
+          "type": "boolean",
+          "description": "Not named: the DJ chose not to say what it is (an unreleased promo, an edit), so only its place in the set is published."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+# The toolchain CI and release builds use (rustup picks it up in this folder). Bump it on
+# purpose, in its own commit, after checking the new clippy and rustfmt are clean.
+#
+# The oldest supported Rust is the workspace's `rust-version` in Cargo.toml (1.89); CI's msrv
+# job checks the workspace still builds with it.
+[toolchain]
+channel = "1.96.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

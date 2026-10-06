@@ -1,0 +1,729 @@
+//! What locallibrary publishes to a DJ's Atmosphere account, as AT Protocol records: My Settings
+//! ([`settings_record`]), the public profile ([`profile_record`]) and sets ([`set_record`]).
+//!
+//! Each record fits its Lexicon ([`crate::atmosphere::lexicon`]). Everything in an account's
+//! repository is public and copied around the network, so records only carry what the DJ chose
+//! to show: the settings profile's base values (per-drive overrides stay on the computer), the
+//! profile document as its preferences allow, and a set's tracks with the ones the DJ hid left
+//! unnamed. The AT Protocol has no fractional numbers: shares become whole percents and tempos
+//! whole BPM (a set's tracks keep hundredths of a BPM).
+//!
+//! Publishing is a [`plan`] (the exact record, what's published in its place now, and whether
+//! the session may write it) and then [`apply`], which writes it only to the account the plan was
+//! for, and only if what's published hasn't changed since the plan read it (a first publish only
+//! if there's still nothing there). [`import_plan`] reads someone's published My Settings.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
+
+use crate::atmosphere::repo::{self, Fetched, Resolved};
+use crate::atmosphere::{self, AccountInfo, lexicon};
+use crate::harmony::Camelot;
+use crate::model::Track;
+use crate::profile::{Count, ProfileDocument};
+use crate::settings::{self, BaseChange, Category};
+use crate::{Error, Result};
+
+/// The format version of the settings and profile records.
+pub const RECORD_VERSION: i64 = 1;
+
+/// `jog_mode` → `jogMode`: setting keys as record fields.
+pub fn camel(key: &str) -> String {
+    let mut out = String::new();
+    let mut up = false;
+    for c in key.chars() {
+        if c == '_' {
+            up = true;
+        } else if up {
+            out.extend(c.to_uppercase());
+            up = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `jogMode` → `jog_mode`.
+pub fn snake(field: &str) -> String {
+    let mut out = String::new();
+    for c in field.chars() {
+        if c.is_ascii_uppercase() {
+            out.push('_');
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// A time as records carry it: UTC, to the millisecond.
+pub fn timestamp(t: DateTime<Utc>) -> String {
+    t.to_rfc3339_opts(SecondsFormat::Millis, true)
+}
+
+fn group(category: Category) -> &'static str {
+    match category {
+        Category::Player => "player",
+        Category::Display => "display",
+        Category::Mixer => "mixer",
+    }
+}
+
+const GROUPS: [&str; 3] = ["player", "display", "mixer"];
+
+// ---------------------------------------------------------------------------------------------
+// My Settings
+// ---------------------------------------------------------------------------------------------
+
+/// The settings record for a settings profile's base values (setting key → value id).
+pub fn settings_record(base: &BTreeMap<String, String>, now: DateTime<Utc>) -> Value {
+    let mut groups: BTreeMap<&str, Map<String, Value>> = BTreeMap::new();
+    for (key, value) in base {
+        if let Ok((def, choice)) = settings::validate(key, value) {
+            groups.entry(group(def.category)).or_default().insert(camel(def.key), choice.id.into());
+        }
+    }
+    let mut record = Map::new();
+    record.insert("$type".into(), lexicon::SETTINGS.into());
+    record.insert("version".into(), RECORD_VERSION.into());
+    for (name, values) in groups {
+        record.insert(name.into(), Value::Object(values));
+    }
+    record.insert("updatedAt".into(), timestamp(now).into());
+    Value::Object(record)
+}
+
+/// The settings a published settings record holds, as a settings profile's base values.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, JsonSchema)]
+pub struct PublishedSettings {
+    pub values: BTreeMap<String, String>,
+    /// `group.field = value` entries this version of locallibrary doesn't know (newer firmware,
+    /// or a newer locallibrary), left out.
+    pub skipped: Vec<String>,
+    pub updated_at: Option<String>,
+}
+
+/// Read a settings record (someone else's, or written by another version of locallibrary). A
+/// record of another format version than [`RECORD_VERSION`] is refused. Each value is checked
+/// against the setting it's for (the settings Lexicon lists the same choices), and a setting or
+/// value this version doesn't know (newer firmware's, or a newer locallibrary's) is skipped, as
+/// the Lexicon asks.
+pub fn settings_from_record(record: &Value) -> Result<PublishedSettings> {
+    let version = record["version"].as_i64().unwrap_or(0);
+    if version != RECORD_VERSION {
+        return Err(Error::invalid(format!(
+            "the published settings are format version {version}, which this locallibrary doesn't know (it reads {RECORD_VERSION}); update locallibrary"
+        )));
+    }
+    if record["$type"] != lexicon::SETTINGS {
+        return Err(Error::invalid(format!(
+            "what's published there isn't a My Settings record (its $type is {})",
+            crate::export::one_line(&record["$type"].to_string())
+        )));
+    }
+    let mut out =
+        PublishedSettings { updated_at: record["updatedAt"].as_str().map(String::from), ..Default::default() };
+    for name in GROUPS {
+        for (field, value) in record[name].as_object().into_iter().flatten() {
+            let known = value
+                .as_str()
+                .and_then(|v| settings::validate(&snake(field), v).ok())
+                .filter(|(def, _)| group(def.category) == name);
+            match known {
+                Some((def, choice)) => {
+                    out.values.insert(def.key.to_string(), choice.id.to_string());
+                }
+                // The value is JSON, escaped; the field name is whatever the record says.
+                None => out.skipped.push(format!("{name}.{} = {value}", crate::export::one_line(field))),
+            }
+        }
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------------------------
+// The profile
+// ---------------------------------------------------------------------------------------------
+
+/// A share (0 to 1) as a whole percent.
+fn percent(x: f64) -> i64 {
+    (x * 100.0).round().clamp(0.0, 100.0) as i64
+}
+
+fn bpm(x: f64) -> i64 {
+    x.round().max(0.0) as i64
+}
+
+fn count(c: Count) -> Value {
+    match c {
+        Count::Exact { count } => json!({ "count": count }),
+        Count::AtLeast { at_least } => json!({ "atLeast": at_least }),
+    }
+}
+
+/// Leave out `None`s.
+fn put(m: &mut Map<String, Value>, key: &str, v: Option<impl Into<Value>>) {
+    if let Some(v) = v {
+        m.insert(key.into(), v.into());
+    }
+}
+
+/// The most signature tracks a profile record names (its Lexicon's limit).
+pub const SIGNATURE_LIMIT: usize = 50;
+
+/// The profile record for a profile document (which already holds only what the DJ chose to
+/// show, rounded as they asked).
+pub fn profile_record(doc: &ProfileDocument) -> Value {
+    let mut r = Map::new();
+    r.insert("$type".into(), lexicon::PROFILE.into());
+    r.insert("version".into(), RECORD_VERSION.into());
+    r.insert("generatedAt".into(), timestamp(doc.generated_at).into());
+    r.insert("precision".into(), serde_json::to_value(doc.precision).unwrap_or_default());
+    r.insert("basis".into(), serde_json::to_value(doc.basis).unwrap_or_default());
+    put(&mut r, "headline", doc.headline.clone());
+    if !doc.tags.is_empty() {
+        r.insert("tags".into(), json!(doc.tags));
+    }
+    if let Some(s) = &doc.sets {
+        let mut sets = count(s.count).as_object().cloned().unwrap_or_default();
+        put(&mut sets, "since", s.since);
+        sets.insert("medianTracks".into(), s.median_tracks.into());
+        r.insert("sets".into(), Value::Object(sets));
+    }
+    if let Some(t) = &doc.tempo {
+        r.insert("tempo".into(), json!({ "low": bpm(t.low), "high": bpm(t.high), "median": bpm(t.median) }));
+    }
+    if let Some(a) = &doc.arc {
+        r.insert(
+            "arc".into(),
+            json!({
+                "shape": serde_json::to_value(a.shape).unwrap_or_default(),
+                "builds": percent(a.builds),
+                "steady": percent(a.steady),
+                "windsDown": percent(a.winds_down),
+            }),
+        );
+    }
+    if let Some(m) = &doc.mixing {
+        let mut mixing = Map::new();
+        put(&mut mixing, "harmonic", m.harmonic.map(percent));
+        put(&mut mixing, "smoothTempo", m.smooth_tempo.map(percent));
+        put(&mut mixing, "genreChanges", m.genre_changes.map(percent));
+        r.insert("mixing".into(), Value::Object(mixing));
+    }
+    if let Some(k) = &doc.keys {
+        let mut keys = Map::new();
+        keys.insert("top".into(), json!(k.top));
+        put(&mut keys, "minor", k.minor.map(percent));
+        r.insert("keys".into(), Value::Object(keys));
+    }
+    if let Some(e) = &doc.energy {
+        r.insert("energy".into(), json!({ "high": percent(e.high), "mid": percent(e.mid), "low": percent(e.low) }));
+    }
+    if let Some(g) = &doc.genres {
+        let genres: Vec<Value> = g.iter().map(|s| json!({ "name": s.name, "share": percent(s.share) })).collect();
+        r.insert("genres".into(), genres.into());
+    }
+    put(&mut r, "labels", doc.labels.clone());
+    put(&mut r, "artists", doc.artists.clone());
+    if let Some(e) = &doc.era {
+        let mut era = Map::new();
+        put(&mut era, "medianYear", e.median_year);
+        put(&mut era, "recent", e.recent.map(percent));
+        r.insert("era".into(), Value::Object(era));
+    }
+    if let Some(tracks) = &doc.signature {
+        let tracks: Vec<Value> = tracks
+            .iter()
+            .take(SIGNATURE_LIMIT)
+            .map(|t| {
+                let mut m = Map::new();
+                put(&mut m, "artist", Some(t.artist.clone()).filter(|a| !a.is_empty()));
+                m.insert("title".into(), t.title.clone().into());
+                Value::Object(m)
+            })
+            .collect();
+        r.insert("signature".into(), tracks.into());
+    }
+    if let Some(p) = &doc.prep {
+        r.insert(
+            "prep".into(),
+            json!({ "hotCues": percent(p.hot_cues), "memoryCues": percent(p.memory_cues), "loops": percent(p.loops) }),
+        );
+    }
+    if let Some(c) = &doc.collection {
+        r.insert("collection".into(), json!({ "tracks": count(c.tracks), "playlists": count(c.playlists) }));
+    }
+    if let Some(style) = &doc.style {
+        r.insert("style".into(), json!(style));
+    }
+    Value::Object(r)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Sets
+// ---------------------------------------------------------------------------------------------
+
+/// Where a set's tracklist comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SetSource {
+    /// A history list a player recorded during the set.
+    History,
+    /// The tracks found in a recording of the set.
+    Mix,
+}
+
+/// One track of a published set.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, JsonSchema)]
+pub struct SetTrack {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub isrc: Option<String>,
+    /// Hundredths of a BPM.
+    pub bpm_centis: Option<u32>,
+    /// Camelot, `8A`.
+    pub key: Option<String>,
+    /// Seconds from the start of the set.
+    pub start_seconds: Option<u32>,
+    /// Not named: only its place in the set is published.
+    pub unidentified: bool,
+}
+
+impl SetTrack {
+    /// A track as its library has it.
+    pub fn named(t: &Track) -> SetTrack {
+        let text = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
+        let isrc = t.isrc.trim().replace('-', "").to_ascii_uppercase();
+        SetTrack {
+            title: text(&t.title),
+            artist: text(&t.artist),
+            isrc: (isrc.len() == 12 && isrc.chars().all(|c| c.is_ascii_alphanumeric())).then_some(isrc),
+            bpm_centis: (t.bpm > 0.0).then(|| (t.bpm * 100.0).round() as u32),
+            key: Camelot::parse(&t.key).map(Camelot::code),
+            start_seconds: None,
+            unidentified: false,
+        }
+    }
+
+    /// A track the DJ doesn't name.
+    pub fn unidentified() -> SetTrack {
+        SetTrack { unidentified: true, ..Default::default() }
+    }
+}
+
+/// A set, ready to publish.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+pub struct SetDraft {
+    pub title: Option<String>,
+    pub date: NaiveDate,
+    pub venue: Option<String>,
+    pub source: SetSource,
+    pub tracks: Vec<SetTrack>,
+    /// When it was first published.
+    pub created_at: DateTime<Utc>,
+}
+
+/// The set record for a set.
+pub fn set_record(set: &SetDraft) -> Value {
+    let mut r = Map::new();
+    r.insert("$type".into(), lexicon::SET.into());
+    put(&mut r, "title", set.title.clone());
+    r.insert("date".into(), set.date.format("%Y-%m-%d").to_string().into());
+    put(&mut r, "venue", set.venue.clone());
+    r.insert("source".into(), serde_json::to_value(set.source).unwrap_or_default());
+    let tracks: Vec<Value> = set
+        .tracks
+        .iter()
+        .map(|t| {
+            let mut m = Map::new();
+            if t.unidentified {
+                m.insert("unidentified".into(), true.into());
+                put(&mut m, "startSeconds", t.start_seconds);
+                return Value::Object(m);
+            }
+            put(&mut m, "title", t.title.clone());
+            put(&mut m, "artist", t.artist.clone());
+            put(&mut m, "isrc", t.isrc.clone());
+            put(&mut m, "bpmCentis", t.bpm_centis);
+            put(&mut m, "key", t.key.clone());
+            put(&mut m, "startSeconds", t.start_seconds);
+            Value::Object(m)
+        })
+        .collect();
+    r.insert("tracks".into(), tracks.into());
+    r.insert("createdAt".into(), timestamp(set.created_at).into());
+    Value::Object(r)
+}
+
+/// A record key for a set: a TID within the day it was played, picked by its history list's
+/// fingerprint. Planning and publishing agree on it, and the same list on the same day always
+/// gets the same key.
+pub fn set_key(date: NaiveDate, fingerprint: &str) -> String {
+    let hash = blake3::hash(fingerprint.as_bytes());
+    let n = u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("8 bytes"));
+    let midnight = date.and_hms_opt(0, 0, 0).map_or(0, |t| t.and_utc().timestamp_micros().max(0) as u64);
+    let micros = midnight + n % 86_400_000_000;
+    jacquard_common::types::tid::Tid::from_time(micros, (n >> 54) as u32).as_str().to_string()
+}
+
+/// The store file holding the record key each published set got, by account and history list
+/// fingerprint, so publishing a list again replaces its record (whatever date it's given).
+pub const SET_KEYS_FILE: &str = "atmosphere-sets.json";
+
+type SetKeys = BTreeMap<String, BTreeMap<String, String>>;
+
+/// The key `did` published the history list with `fingerprint` under, if it did.
+pub fn published_set_key(root: &Path, did: &str, fingerprint: &str) -> Result<Option<String>> {
+    let keys: SetKeys = crate::fsutil::read_json_opt(&root.join(SET_KEYS_FILE))?.unwrap_or_default();
+    Ok(keys.get(did).and_then(|k| k.get(fingerprint)).cloned())
+}
+
+/// Remember the key a set was published under.
+pub fn remember_set_key(root: &Path, did: &str, fingerprint: &str, rkey: &str) -> Result<()> {
+    let path = root.join(SET_KEYS_FILE);
+    let mut keys: SetKeys = crate::fsutil::read_json_opt(&path)?.unwrap_or_default();
+    keys.entry(did.to_string()).or_default().insert(fingerprint.to_string(), rkey.to_string());
+    crate::fsutil::write_json_atomic(&path, &keys)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Publishing
+// ---------------------------------------------------------------------------------------------
+
+/// A record ready to publish, and what's published in its place now.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct PublishPlan {
+    /// The account it goes to. `None`: nobody's signed in, so it can only be looked at.
+    pub account: Option<AccountInfo>,
+    pub collection: String,
+    pub rkey: String,
+    /// `at://did/collection/rkey` (`None` while signed out).
+    pub uri: Option<String>,
+    /// The record exactly as it will be written.
+    pub record: Value,
+    /// What's published there now (`None`: nothing yet).
+    pub current: Option<Fetched>,
+    /// Whether publishing changes anything (time stamps aside).
+    pub changed: bool,
+    /// The scope the session lacks to write the record: sign in again allowing publishing
+    /// (`account.login.begin` with `publish: true`) before applying.
+    pub missing_scope: Option<String>,
+    /// What the DJ should know before publishing, in words: guesses made, things left out.
+    pub notes: Vec<String>,
+}
+
+/// A record published.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Published {
+    pub uri: String,
+    /// Its content hash.
+    pub cid: Option<String>,
+    /// False when what's published was already the same, so nothing was written.
+    pub written: bool,
+    pub record: Value,
+}
+
+/// Fields that only say when: two records that differ in nothing else are the same.
+const TIME_FIELDS: [&str; 3] = ["updatedAt", "generatedAt", "createdAt"];
+
+fn same_content(a: &Value, b: &Value) -> bool {
+    let strip = |v: &Value| {
+        let mut v = v.clone();
+        if let Some(m) = v.as_object_mut() {
+            for f in TIME_FIELDS {
+                m.remove(f);
+            }
+        }
+        v
+    };
+    strip(a) == strip(b)
+}
+
+/// Plan publishing `record` as `collection/rkey` in the signed-in account's repository (reading
+/// what's there now from its server). A record replacing one keeps its `createdAt`.
+pub fn plan(root: &Path, collection: &str, rkey: &str, record: Value) -> Result<PublishPlan> {
+    let account = atmosphere::status(root)?;
+    let current = match &account {
+        Some(info) => repo::get_record(&info.pds, &info.did, collection, rkey)?,
+        None => None,
+    };
+    plan_over(account, collection, rkey, record, current)
+}
+
+/// [`plan`], for `account` (the signed-in one), with what's published as `collection/rkey` in its
+/// repository already read.
+pub fn plan_over(
+    account: Option<AccountInfo>,
+    collection: &str,
+    rkey: &str,
+    mut record: Value,
+    current: Option<Fetched>,
+) -> Result<PublishPlan> {
+    lexicon::validate(collection, &record)?;
+    let mut plan = PublishPlan {
+        account,
+        collection: collection.to_string(),
+        rkey: rkey.to_string(),
+        uri: None,
+        record: Value::Null,
+        current: None,
+        changed: true,
+        missing_scope: None,
+        notes: Vec::new(),
+    };
+    if let Some(info) = &plan.account {
+        plan.uri = Some(repo::at_uri(&info.did, collection, rkey));
+        plan.missing_scope = atmosphere::missing_scope(info, collection);
+        plan.current = current;
+        if let Some(created) = plan.current.as_ref().and_then(|c| c.value.get("createdAt"))
+            && record.get("createdAt").is_some()
+            && created.is_string()
+        {
+            record["createdAt"] = created.clone();
+        }
+        plan.changed = plan.current.as_ref().is_none_or(|c| !same_content(&c.value, &record));
+    }
+    plan.record = record;
+    Ok(plan)
+}
+
+/// Publish a plan's record: written only when it changes something, only to the account the plan
+/// is for, and only if what's published is still what the plan read (otherwise a conflict).
+pub fn apply(root: &Path, plan: &PublishPlan) -> Result<Published> {
+    let info = plan.account.as_ref().ok_or_else(atmosphere::not_signed_in)?;
+    if let Some(current) = plan.current.as_ref().filter(|_| !plan.changed) {
+        return Ok(Published {
+            uri: current.uri.clone(),
+            cid: current.cid.clone(),
+            written: false,
+            record: plan.record.clone(),
+        });
+    }
+    if plan.missing_scope.is_some() {
+        return Err(repo::scope_error(info, &plan.collection));
+    }
+    let swap = plan.current.as_ref().and_then(|c| c.cid.as_deref());
+    let written = repo::put_record(root, &info.did, &plan.collection, &plan.rkey, &plan.record, swap)?;
+    Ok(Published { uri: written.uri, cid: Some(written.cid), written: true, record: plan.record.clone() })
+}
+
+/// Someone's published My Settings, and how importing them changes the settings profile.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct SettingsImportPlan {
+    pub from: Resolved,
+    pub uri: String,
+    pub cid: Option<String>,
+    pub published: PublishedSettings,
+    /// Whether importing replaces the whole base, so settings they didn't publish become unset.
+    /// Otherwise their settings are added to the base, over the values it has for them.
+    pub replace: bool,
+    /// Base values that change.
+    pub changes: Vec<BaseChange>,
+}
+
+impl SettingsImportPlan {
+    /// `base` with the published settings imported.
+    pub fn imported(&self, base: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+        let mut after = if self.replace { BTreeMap::new() } else { base.clone() };
+        after.extend(self.published.values.clone());
+        after
+    }
+}
+
+/// Read the My Settings `from` published, and work out how importing them (adding them to `base`,
+/// or with `replace` replacing it) changes `base`.
+pub fn import_plan(from: Resolved, base: &BTreeMap<String, String>, replace: bool) -> Result<SettingsImportPlan> {
+    let fetched = repo::get_record(&from.pds, &from.did, lexicon::SETTINGS, "self")?
+        .ok_or_else(|| Error::NotFound(format!("My Settings published by {}", from.name())))?;
+    let published = settings_from_record(&fetched.value)?;
+    let mut plan =
+        SettingsImportPlan { from, uri: fetched.uri, cid: fetched.cid, published, replace, changes: Vec::new() };
+    let after = plan.imported(base);
+    let mut keys: Vec<&String> = base.keys().chain(after.keys()).collect();
+    keys.sort();
+    keys.dedup();
+    plan.changes = keys
+        .into_iter()
+        .map(|k| BaseChange { key: k.clone(), from: base.get(k).cloned(), to: after.get(k).cloned() })
+        .filter(|c| c.from != c.to)
+        .collect();
+    Ok(plan)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::profile::{
+        ArcShape, Basis, DocArc, DocCollection, DocEnergy, DocEra, DocKeys, DocMixing, DocPrep, DocSets, DocShare,
+        DocTempo, DocTrack, Precision,
+    };
+
+    fn now() -> DateTime<Utc> {
+        "2026-10-05T12:00:00.123456Z".parse().unwrap()
+    }
+
+    #[test]
+    fn a_set_key_is_a_tid_in_its_day() {
+        let day = NaiveDate::from_ymd_opt(2026, 10, 3).unwrap();
+        let key = set_key(day, "abc");
+        let tid = jacquard_common::types::tid::Tid::new(&key).unwrap();
+        let midnight = day.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_micros() as u64;
+        assert!((midnight..midnight + 86_400_000_000).contains(&tid.timestamp()), "{key}");
+        assert_eq!(set_key(day, "abc"), key);
+        assert_ne!(set_key(day, "abd"), key);
+        assert!(set_key(day.succ_opt().unwrap(), "abc") > key, "sets sort by date");
+
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(published_set_key(dir.path(), "did:plc:abc", "abc").unwrap(), None);
+        remember_set_key(dir.path(), "did:plc:abc", "abc", &key).unwrap();
+        assert_eq!(published_set_key(dir.path(), "did:plc:abc", "abc").unwrap(), Some(key));
+        assert_eq!(published_set_key(dir.path(), "did:plc:other", "abc").unwrap(), None);
+    }
+
+    #[test]
+    fn keys_and_fields_convert_both_ways() {
+        for def in settings::SCHEMA {
+            assert_eq!(snake(&camel(def.key)), def.key);
+        }
+        assert_eq!(camel("channel_fader_curve_long"), "channelFaderCurveLong");
+        assert_eq!(timestamp(now()), "2026-10-05T12:00:00.123Z");
+    }
+
+    #[test]
+    fn every_setting_fits_the_settings_lexicon_and_reads_back() {
+        let base: BTreeMap<String, String> =
+            settings::SCHEMA.iter().map(|d| (d.key.to_string(), d.choices.last().unwrap().id.to_string())).collect();
+        let record = settings_record(&base, now());
+        lexicon::validate(lexicon::SETTINGS, &record).unwrap();
+        assert_eq!(record["player"]["jogMode"], "vinyl");
+        assert_eq!(record["mixer"]["crossfaderCurve"], "fast-cut");
+        let back = settings_from_record(&record).unwrap();
+        assert_eq!(back.values, base);
+        assert!(back.skipped.is_empty());
+        assert_eq!(back.updated_at.as_deref(), Some("2026-10-05T12:00:00.123Z"));
+
+        // A partial profile publishes only what it sets.
+        let partial: BTreeMap<String, String> = [("quantize".to_string(), "off".to_string())].into();
+        let record = settings_record(&partial, now());
+        lexicon::validate(lexicon::SETTINGS, &record).unwrap();
+        assert!(record.get("display").is_none() && record.get("mixer").is_none());
+    }
+
+    #[test]
+    fn settings_this_version_doesnt_know_are_skipped() {
+        let record = json!({
+            "$type": lexicon::SETTINGS,
+            "version": 1,
+            "player": { "quantize": "off", "jogMode": "hover", "slipReverse": "on" },
+            "mixer": { "quantize": "on" },
+            "updatedAt": "2026-10-05T12:00:00.000Z",
+        });
+        let s = settings_from_record(&record).unwrap();
+        assert_eq!(s.values, [("quantize".to_string(), "off".to_string())].into());
+        assert_eq!(s.skipped.len(), 3, "{:?}", s.skipped);
+        let newer = json!({ "version": 2, "player": { "quantize": "off" } });
+        assert!(settings_from_record(&newer).unwrap_err().to_string().contains("version 2"));
+        // Another record type isn't taken for My Settings.
+        let other = json!({ "$type": lexicon::PROFILE, "version": 1, "player": { "quantize": "off" } });
+        assert!(settings_from_record(&other).unwrap_err().to_string().contains("isn't a My Settings record"));
+        // A field name is whatever the record says: none of it reaches a terminal as a control.
+        let tricky = json!({ "$type": lexicon::SETTINGS, "version": 1, "player": { "x\u{1b}]0;owned\u{7}": "on" } });
+        let s = settings_from_record(&tricky).unwrap();
+        assert!(!s.skipped[0].chars().any(char::is_control), "{:?}", s.skipped);
+    }
+
+    fn full_document(precision: Precision) -> ProfileDocument {
+        let at_least =
+            |n| if precision == Precision::Exact { Count::Exact { count: n } } else { Count::AtLeast { at_least: n } };
+        ProfileDocument {
+            version: crate::profile::DOCUMENT_VERSION,
+            generated_at: now(),
+            precision,
+            basis: Basis::Plays,
+            headline: Some("Techno and House · 122-128 BPM · 45+ sets".into()),
+            tags: vec!["Mixes in key".into(), "Plays with quantize off".into()],
+            sets: Some(DocSets { count: at_least(45), since: Some(2019), median_tracks: 24 }),
+            tempo: Some(DocTempo { low: 122.0, high: 128.4, median: 125.5 }),
+            arc: Some(DocArc { shape: ArcShape::WindsDown, builds: 0.2, steady: 0.25, winds_down: 0.55 }),
+            mixing: Some(DocMixing { harmonic: Some(0.7), smooth_tempo: Some(0.853), genre_changes: None }),
+            keys: Some(DocKeys { top: vec!["8A".into(), "5A".into(), "9A".into()], minor: Some(0.8) }),
+            energy: Some(DocEnergy { high: 0.85, mid: 0.1, low: 0.1 }),
+            genres: Some(vec![DocShare { name: "Techno".into(), share: 0.6 }]),
+            labels: Some(vec!["Ninja Tune".into()]),
+            artists: Some(vec!["Bicep".into()]),
+            era: Some(DocEra { median_year: Some(2021), recent: Some(0.4) }),
+            signature: Some(vec![
+                DocTrack { artist: "Bicep".into(), title: "Glue".into() },
+                DocTrack { artist: String::new(), title: "ID".into() },
+            ]),
+            prep: Some(DocPrep { hot_cues: 0.95, memory_cues: 0.5, loops: 0.05 }),
+            collection: Some(DocCollection { tracks: at_least(3500), playlists: Count::Exact { count: 7 } }),
+            style: Some(
+                crate::profile::STYLE_SETTINGS
+                    .iter()
+                    .map(|k| (camel(k), settings::find(k).unwrap().default.into()))
+                    .collect(),
+            ),
+        }
+    }
+
+    #[test]
+    fn a_profile_document_with_every_section_fits_the_profile_lexicon() {
+        for precision in [Precision::Rounded, Precision::Exact] {
+            let record = profile_record(&full_document(precision));
+            lexicon::validate(lexicon::PROFILE, &record).unwrap();
+            assert_eq!(record["tempo"], json!({ "low": 122, "high": 128, "median": 126 }));
+            assert_eq!(record["mixing"], json!({ "harmonic": 70, "smoothTempo": 85 }));
+            assert_eq!(record["arc"]["shape"], "windsDown");
+            assert_eq!(record["signature"][1], json!({ "title": "ID" }));
+        }
+        let rounded = profile_record(&full_document(Precision::Rounded));
+        assert_eq!(rounded["sets"], json!({ "atLeast": 45, "since": 2019, "medianTracks": 24 }));
+        assert_eq!(rounded["collection"]["tracks"], json!({ "atLeast": 3500 }));
+        assert_eq!(rounded["precision"], "rounded");
+
+        // Sections left out of the document stay out of the record.
+        let mut doc = full_document(Precision::Rounded);
+        doc.signature = None;
+        doc.artists = None;
+        let record = profile_record(&doc);
+        lexicon::validate(lexicon::PROFILE, &record).unwrap();
+        assert!(record.get("signature").is_none() && record.get("artists").is_none());
+    }
+
+    #[test]
+    fn a_set_fits_the_set_lexicon_and_unidentified_tracks_say_nothing() {
+        let mut track = crate::model::tests::track(1, "Bicep", "Glue", "/Contents/Bicep/Glue.mp3");
+        track.isrc = "GB-AHT-17-00123".into();
+        track.bpm = 129.98;
+        track.key = "Am".into();
+        let mut hidden = SetTrack::named(&track);
+        hidden.unidentified = true;
+        let set = SetDraft {
+            title: Some("Friday warm-up".into()),
+            date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+            venue: None,
+            source: SetSource::History,
+            tracks: vec![SetTrack::named(&track), hidden, SetTrack::unidentified()],
+            created_at: now(),
+        };
+        let record = set_record(&set);
+        lexicon::validate(lexicon::SET, &record).unwrap();
+        assert_eq!(
+            record["tracks"][0],
+            json!({ "title": "Glue", "artist": "Bicep", "isrc": "GBAHT1700123", "bpmCentis": 12998, "key": "8A" })
+        );
+        assert_eq!(record["tracks"][1], json!({ "unidentified": true }));
+        assert_eq!(record["date"], "2026-10-03");
+        assert_eq!(record["source"], "history");
+        assert!(record.get("venue").is_none());
+    }
+}

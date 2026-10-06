@@ -1,0 +1,15 @@
+{
+  "name": "locallibrary-bombadil",
+  "private": true,
+  "description": "Bombadil specifications for the locallibrary TUI and mix report",
+  "type": "module",
+  "scripts": {
+    "tui": "./tui.sh",
+    "report": "./report.sh",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@antithesishq/bombadil": "0.7.8",
+    "typescript": "^5.9.0"
+  }
+}

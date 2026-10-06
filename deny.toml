@@ -1,0 +1,64 @@
+# cargo-deny (https://embarkstudios.github.io/cargo-deny/). CI runs
+# `cargo deny --locked check advisories bans licenses sources`.
+
+[graph]
+# The platforms release builds are made for.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+# What ships, not what the tests use: rekordcrate (tests only) holds quick-xml at 0.37, which
+# has advisories about untrusted XML, and the tests only read XML locallibrary wrote.
+exclude-dev = true
+
+[advisories]
+# Every RustSec vulnerability fails the check. Unmaintained crates fail it only when the
+# workspace depends on them directly; deeper ones are for the crates that pull them in.
+unmaintained = "workspace"
+yanked = "warn"
+ignore = [
+    # rsa's Marvin attack (timing side channel in RSA decryption; no fixed release). It comes
+    # in through jacquard-oauth's jose-jwk, for JWK types. Sign-in signs with an ES256 DPoP key
+    # and never holds an RSA private key, so there's nothing to leak.
+    { id = "RUSTSEC-2023-0071", reason = "no RSA private key is ever used" },
+]
+
+[licenses]
+# locallibrary is MIT. What ships may use these: permissive licences, and MPL-2.0 (jacquard,
+# symphonia), whose files stay under it and whose source is on crates.io.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    # webpki-roots: Mozilla's root certificates.
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+[bans]
+# Duplicate versions are reported but don't fail the check: with ~700 crates in the lockfile,
+# some can't be avoided.
+multiple-versions = "warn"
+# The workspace crates depend on each other by path.
+wildcards = "allow"
+deny = [
+    # TLS goes through rustls: OpenSSL would tie the Linux binary to the system's libssl.
+    { crate = "openssl-sys", reason = "use rustls" },
+    { crate = "native-tls", reason = "use rustls" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

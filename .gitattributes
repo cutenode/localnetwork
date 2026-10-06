@@ -1,0 +1,11 @@
+# LF on every checkout, Windows included: tests compare files byte for byte with what the code
+# writes (docs/rpc against `locallibrary rpc --emit-schema`).
+* text=auto eol=lf
+
+# rekordbox's own files, kept exactly as they are.
+*.pdb binary
+*.DAT binary
+*.EXT binary
+*.2EX binary
+*.db binary
+*.db-wal binary

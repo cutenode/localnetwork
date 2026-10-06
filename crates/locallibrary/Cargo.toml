@@ -1,0 +1,73 @@
+[package]
+name = "locallibrary"
+description = "Store, sync, compare, merge and configure rekordbox USB library exports"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = ["account"]
+# The Atmosphere account (AT Protocol OAuth sign-in, the keychain) and publishing to it: the
+# `atmosphere` and `publish` modules and the `account_*` and `*_publish_*` API. Most of the
+# library's dependencies (an HTTP client, an async runtime, TLS, DNS) are for this alone.
+account = [
+    "dep:http",
+    "dep:jacquard-api",
+    "dep:jacquard-common",
+    "dep:jacquard-identity",
+    "dep:jacquard-oauth",
+    "dep:keyring",
+    "dep:reqwest",
+    "dep:tokio",
+]
+
+[dependencies]
+rekordbox-pdb.workspace = true
+aes.workspace = true
+blake3.workspace = true
+cbc.workspace = true
+chrono.workspace = true
+directories.workspace = true
+filetime.workspace = true
+fs4.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+image.workspace = true
+http = { workspace = true, optional = true }
+jacquard-api = { workspace = true, optional = true }
+jacquard-common = { workspace = true, optional = true }
+jacquard-identity = { workspace = true, optional = true }
+jacquard-oauth = { workspace = true, optional = true }
+keyring = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+lofty.workspace = true
+pbkdf2.workspace = true
+percent-encoding.workspace = true
+rusqlite.workspace = true
+rustfft.workspace = true
+same-file.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+strsim.workspace = true
+symphonia.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, optional = true }
+unicode-normalization.workspace = true
+uuid.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+# Independent parser used to cross-check what locallibrary writes.
+rekordcrate.workspace = true
+binrw = "0.14"
+quick-xml = { version = "0.37", features = ["serialize"] }
+# Independent FAT reader used to check the FAT32 formatter.
+fatfs = "0.3"
+# An in-memory keychain, so the account's tests never touch the computer's.
+keyring-core = "1"
