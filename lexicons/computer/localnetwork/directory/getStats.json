@@ -1,0 +1,35 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.getStats",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "Directory totals, plus the genres and cities of active projects, most common first.",
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["total", "active", "unclaimed", "cityCount", "genres", "cities"],
+					"properties": {
+						"total": { "type": "integer", "minimum": 0 },
+						"active": { "type": "integer", "minimum": 0 },
+						"unclaimed": {
+							"type": "integer",
+							"minimum": 0,
+							"description": "Projects nobody manages yet, in any status."
+						},
+						"cityCount": { "type": "integer", "minimum": 0, "description": "Distinct cities across every project." },
+						"genres": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#facet" }
+						},
+						"cities": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#place" }
+						}
+					}
+				}
+			}
+		}
+	}
+}

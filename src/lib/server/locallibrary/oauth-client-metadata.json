@@ -1,0 +1,12 @@
+{
+	"application_type": "native",
+	"client_id": "https://locallibrary.localnetwork.computer/oauth-client-metadata.json",
+	"client_name": "locallibrary",
+	"client_uri": "https://locallibrary.localnetwork.computer",
+	"dpop_bound_access_tokens": true,
+	"grant_types": ["authorization_code", "refresh_token"],
+	"redirect_uris": ["http://127.0.0.1/callback"],
+	"response_types": ["code"],
+	"scope": "atproto",
+	"token_endpoint_auth_method": "none"
+}

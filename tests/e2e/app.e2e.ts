@@ -1,0 +1,179 @@
+import { expect, type Page, test } from '@playwright/test';
+
+/** Signs in through the local PDS's OAuth screens with a seeded test account. */
+async function signIn(page: Page, handle: string, password: string, next = '/me') {
+	await page.goto(`/login?next=${encodeURIComponent(next)}`);
+	await page.waitForLoadState('networkidle');
+	await page.getByPlaceholder('alice.bsky.social').fill(handle);
+	await page.getByRole('button', { name: 'Continue' }).click();
+	await page.locator('input[type="password"]').fill(password);
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await page.getByRole('button', { name: 'Authorize' }).click();
+	const target = new URL(next, 'http://127.0.0.1:5199');
+	await page.waitForURL((url) => url.port === '5199' && url.pathname === target.pathname);
+	await page.waitForLoadState('networkidle');
+}
+
+test.describe('public pages', () => {
+	test('home page lists seeded projects and links to search', async ({ page }) => {
+		await page.goto('/');
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('Book the right DJ');
+		await expect(page.getByText('Newly listed projects')).toBeVisible();
+		await page.getByRole('link', { name: 'Find DJs' }).first().click();
+		await expect(page).toHaveURL(/\/projects$/);
+		await expect(page.getByRole('heading', { name: 'Find DJs' })).toBeVisible();
+	});
+
+	test('directory filters by genre family and opens a profile', async ({ page }) => {
+		await page.goto('/projects?genres=house');
+		await expect(page.getByRole('link', { name: 'Halflight' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Coyote Cumbia Club' })).toHaveCount(0);
+		await page.getByRole('link', { name: 'Halflight' }).click();
+		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
+		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
+	});
+
+	test('matcher ranks local projects with reasons', async ({ page }) => {
+		await page.goto(
+			'/match?go=1&place=Berlin&lat=52.52&lng=13.405&radius=50&genres=techno&budget=established&setType=peak'
+		);
+		const first = page.locator('ol > li').first();
+		await expect(first).toContainText('Neon Tide');
+		await expect(first).toContainText('Plays techno');
+	});
+
+	test('staff pages require sign-in', async ({ page }) => {
+		await page.goto('/admin');
+		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
+	});
+
+	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
+		const metadata = await request.get('/oauth-client-metadata.json');
+		expect((await metadata.json()).scope).toContain('space:computer.localnetwork.space.audit');
+		const did = await (await request.get('/.well-known/did.json')).json();
+		expect(did.service[0]).toMatchObject({ id: '#localnetwork_syncer', serviceEndpoint: 'http://127.0.0.1:5199' });
+	});
+});
+
+test.describe('signed in', () => {
+	test('a DJ proposes a change and an admin approves it', async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass', '/projects/saffron-social/edit');
+		await page.locator('#tagline').fill('Disco and boogie for sunny afternoons');
+		await page.getByRole('button', { name: 'Send for review' }).click();
+		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await page.getByRole('button', { name: 'Sign out' }).click();
+
+		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests');
+		await page.getByRole('link', { name: /Changes: Saffron Social/ }).click();
+		await expect(page.getByText('Disco and boogie for sunny afternoons')).toBeVisible();
+		await page.getByRole('button', { name: 'Submit decision' }).click();
+		await expect(page.getByText('Approved and published')).toBeVisible();
+
+		await page.goto('/admin/audit');
+		await expect(page.getByText("Approved @neon.test's change request for Saffron Social")).toBeVisible();
+		await page.getByRole('button', { name: 'Verify chain' }).click();
+		await expect(page.getByText(/entries verified/)).toBeVisible();
+
+		await page.goto('/projects/saffron-social');
+		await expect(page.getByText('Disco and boogie for sunny afternoons')).toBeVisible();
+	});
+
+	test('a promoter sends a booking inquiry', async ({ page }) => {
+		await signIn(page, 'pat.test', 'pat-pass', '/bookings/new?project=neon-tide');
+		await expect(page.getByRole('heading', { name: 'Neon Tide' })).toBeVisible();
+		await page.locator('#title').fill('Basement Sessions');
+		await page.locator('#date').fill('2026-12-12');
+		await page.locator('#message').fill('Would you play our December basement night?');
+		await page.getByRole('button', { name: 'Send inquiry' }).click();
+		await expect(page.getByRole('heading', { name: 'Basement Sessions' })).toBeVisible();
+		await page.locator('#text').fill('Budget is flexible.');
+		await page.getByRole('button', { name: 'Send' }).click();
+		await expect(page.getByText('Budget is flexible.')).toBeVisible();
+	});
+});
+
+test.describe('keeps what people entered', () => {
+	// A 1×1 PNG.
+	const png = Buffer.from(
+		'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+		'base64'
+	);
+
+	test('a DJ with changes waiting goes back to them and sees the proposed photo', async ({ page }) => {
+		await signIn(page, 'neon.test', 'neon-pass', '/projects/neon-tide/edit');
+		await page.locator('#avatar').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: png });
+		await page.getByRole('button', { name: 'Send for review' }).click();
+		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		const request = new URL(page.url()).pathname;
+
+		await page.goto('/projects/neon-tide/edit');
+		await expect(page).toHaveURL(request);
+		await page.waitForLoadState('networkidle');
+		await page.getByRole('button', { name: 'Edit request' }).click();
+		const photo = page.locator('form img');
+		await expect(photo).toBeVisible();
+		expect((await page.request.get((await photo.getAttribute('src'))!)).ok()).toBe(true);
+		await page.getByLabel('Remove the current image').check();
+		await page.getByRole('button', { name: 'Save and resubmit' }).click();
+		// The editor stays open after a revise, now without a photo.
+		await expect(page.getByLabel('Remove the current image')).toHaveCount(0);
+		await expect(photo).toHaveCount(0);
+
+		page.once('dialog', (dialog) => dialog.accept());
+		await page.getByRole('button', { name: 'Withdraw' }).click();
+		await expect(page.getByText('Request withdrawn')).toBeVisible();
+	});
+
+	test('a claim can change its relationship and links when revised', async ({ page }) => {
+		await signIn(page, 'pat.test', 'pat-pass', '/projects/halflight/claim');
+		await page.getByLabel("I'm their booking agent").check();
+		await page.locator('#evidence').fill('I book them; see the bio link');
+		await page.locator('#links').fill('https://example.test/bio');
+		await page.getByRole('button', { name: 'Submit claim' }).click();
+		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await page.waitForLoadState('networkidle');
+
+		await page.getByRole('button', { name: 'Edit request' }).click();
+		await expect(page.locator('#links')).toHaveValue('https://example.test/bio');
+		await page.getByLabel("I'm their manager").check();
+		await page.locator('#links').fill('https://example.test/bio\nhttps://example.test/roster');
+		await page.getByRole('button', { name: 'Save and resubmit' }).click();
+		await expect(page.getByText("Relationship: I'm their manager")).toBeVisible();
+		await expect(page.getByRole('link', { name: 'https://example.test/roster' })).toBeVisible();
+		await page.waitForLoadState('networkidle');
+
+		page.once('dialog', (dialog) => dialog.accept());
+		await page.getByRole('button', { name: 'Withdraw' }).click();
+		await expect(page.getByText('Request withdrawn')).toBeVisible();
+	});
+
+	test('the planner keeps a show that could not be saved, within the record limits', async ({ page }) => {
+		await signIn(page, 'pat.test', 'pat-pass', '/planner/shows/new');
+		await expect(page.locator('#title')).toHaveAttribute('maxlength', '120');
+		await expect(page.locator('#venue')).toHaveAttribute('maxlength', '120');
+		await expect(page.locator('#notes')).toHaveAttribute('maxlength', '2000');
+		await page.locator('#title').fill('Echo Night');
+		await page.locator('#venue').fill('The Lot');
+		await page.locator('#capacity').fill('2000000');
+		await page.locator('#notes').fill('Bring records');
+		await page.getByRole('button', { name: 'Save show' }).click();
+		await expect(page.getByRole('alert')).toContainText('capacity');
+		await expect(page.locator('#title')).toHaveValue('Echo Night');
+		await expect(page.locator('#venue')).toHaveValue('The Lot');
+		await expect(page.locator('#notes')).toHaveValue('Bring records');
+	});
+
+	test('a failed save from the matcher keeps the search and the lineup picks', async ({ page }) => {
+		const place = `${'Long venue name '.repeat(8)}Berlin`;
+		await signIn(page, 'pat.test', 'pat-pass', '/me');
+		await page.goto(`/match?go=1&place=${encodeURIComponent(place)}&lat=52.52&lng=13.405&radius=50&genres=techno`);
+		await page.waitForLoadState('networkidle');
+		const first = page.locator('ol > li').first();
+		await expect(first).toContainText('Neon Tide');
+		await first.getByLabel('Lineup').check();
+		await page.getByRole('button', { name: 'Save show to planner' }).click();
+		await expect(page.getByRole('alert')).toBeVisible();
+		await expect(first).toContainText('Neon Tide');
+		await expect(first.getByLabel('Lineup')).toBeChecked();
+	});
+});

@@ -1,0 +1,84 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.searchProjects",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "Search published projects. Only active projects unless status or includeInactive says otherwise. Sorts by relevance with q, by distance with a location, and newest first otherwise.",
+			"parameters": {
+				"type": "params",
+				"properties": {
+					"q": {
+						"type": "string",
+						"maxLength": 100,
+						"description": "Words to find in names, taglines, bios, genres, and places. Each word matches as a prefix, and every word must match."
+					},
+					"latE6": {
+						"type": "integer",
+						"minimum": -90000000,
+						"maximum": 90000000,
+						"description": "Latitude in millionths of a degree, like the record's location.latE6."
+					},
+					"lngE6": {
+						"type": "integer",
+						"minimum": -180000000,
+						"maximum": 180000000,
+						"description": "Longitude in millionths of a degree."
+					},
+					"radiusKm": { "type": "integer", "minimum": 1, "maximum": 2000, "default": 50 },
+					"genres": {
+						"type": "array",
+						"maxLength": 20,
+						"items": { "type": "string", "maxLength": 48 },
+						"description": "Matches projects playing any of these genres or a close subgenre."
+					},
+					"kinds": { "type": "array", "maxLength": 10, "items": { "type": "string", "maxLength": 48 } },
+					"formats": {
+						"type": "array",
+						"maxLength": 10,
+						"items": { "type": "string", "maxLength": 48 },
+						"description": "Matches projects with any of these formats."
+					},
+					"setTypes": {
+						"type": "array",
+						"maxLength": 10,
+						"items": { "type": "string", "maxLength": 48 },
+						"description": "Matches projects doing any of these set types."
+					},
+					"feeTiers": { "type": "array", "maxLength": 10, "items": { "type": "string", "maxLength": 48 } },
+					"country": { "type": "string", "minLength": 2, "maxLength": 2, "description": "ISO 3166-1 alpha-2 code." },
+					"manager": { "type": "string", "format": "did", "description": "Only projects this account manages." },
+					"status": {
+						"type": "string",
+						"knownValues": ["active", "hidden", "archived"],
+						"description": "Only projects with this status."
+					},
+					"includeInactive": {
+						"type": "boolean",
+						"default": false,
+						"description": "Include hidden and archived projects."
+					},
+					"unclaimed": { "type": "boolean", "default": false, "description": "Only projects nobody manages yet." },
+					"sort": { "type": "string", "knownValues": ["relevance", "distance", "recent", "name"] },
+					"limit": { "type": "integer", "minimum": 1, "maximum": 60, "default": 24 },
+					"cursor": { "type": "string" }
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["projects", "total"],
+					"properties": {
+						"projects": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#projectView" }
+						},
+						"total": { "type": "integer", "minimum": 0, "description": "Matching projects across every page." },
+						"cursor": { "type": "string" }
+					}
+				}
+			}
+		}
+	}
+}

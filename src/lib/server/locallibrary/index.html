@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>locallibrary</title>
+		<meta name="description" content="locallibrary keeps rekordbox USB drives in sync, backed up and merged." />
+		<style>
+			:root {
+				color-scheme: light dark;
+				--fg: #15181e;
+				--muted: #5a6372;
+				--bg: #f5f6f8;
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--fg: #e4e9ef;
+					--muted: #98a2b3;
+					--bg: #0f1319;
+				}
+			}
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--fg);
+				font:
+					17px/1.6 system-ui,
+					-apple-system,
+					'Segoe UI',
+					sans-serif;
+			}
+			main {
+				max-width: 38rem;
+				padding: 4rem 1.25rem;
+				margin: 0 auto;
+			}
+			h1 {
+				font-size: 2rem;
+				margin: 0 0 0.5rem;
+				letter-spacing: -0.01em;
+			}
+			h2 {
+				font-size: 1.05rem;
+				margin: 2rem 0 0.25rem;
+			}
+			p {
+				margin: 0 0 0.75rem;
+			}
+			.muted {
+				color: var(--muted);
+			}
+			code {
+				font-size: 0.9em;
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<h1>locallibrary</h1>
+			<p>
+				A desktop and command-line tool for DJs that keeps rekordbox USB drives in sync, backed up with full history,
+				and merged, and works out what your sets say about how you play.
+			</p>
+
+			<h2>Signing in</h2>
+			<p>
+				This address is how locallibrary introduces itself when you sign in with your Atmosphere account, the account
+				you use for Bluesky and other AT Protocol apps. You sign in on your own account's server, in your browser:
+				locallibrary never sees your password.
+			</p>
+			<p>
+				locallibrary only asks to know who you are. It can't post or change anything on your account, and you can sign
+				out with <code>locallibrary account logout</code> or remove it from your account's settings at any time.
+			</p>
+
+			<p class="muted">
+				The details servers read are in <a href="oauth-client-metadata.json">oauth-client-metadata.json</a>.
+			</p>
+		</main>
+	</body>
+</html>

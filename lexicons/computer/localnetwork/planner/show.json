@@ -1,0 +1,30 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.planner.show",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A show a promoter is planning, with a working lineup, kept in their personal planner space.",
+			"record": {
+				"type": "object",
+				"required": ["details", "lineup", "createdAt"],
+				"properties": {
+					"details": { "type": "ref", "ref": "computer.localnetwork.defs#showDetails" },
+					"lineup": { "type": "array", "maxLength": 40, "items": { "type": "ref", "ref": "#slot" } },
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		},
+		"slot": {
+			"type": "object",
+			"required": ["project"],
+			"properties": {
+				"project": { "type": "string", "format": "at-uri" },
+				"slot": { "type": "string", "maxLength": 640, "maxGraphemes": 64 },
+				"status": { "type": "string", "maxLength": 32, "knownValues": ["considering", "contacted", "confirmed"] }
+			}
+		}
+	}
+}

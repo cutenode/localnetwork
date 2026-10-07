@@ -1,0 +1,22 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.staff.role",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "any",
+			"description": "A staff role, keyed by the subject DID. Written only by the root account into the staff space.",
+			"record": {
+				"type": "object",
+				"required": ["subject", "role", "grantedBy", "createdAt"],
+				"properties": {
+					"subject": { "type": "string", "format": "did" },
+					"role": { "type": "string", "maxLength": 32, "knownValues": ["admin", "moderator"] },
+					"grantedBy": { "type": "string", "format": "did" },
+					"note": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

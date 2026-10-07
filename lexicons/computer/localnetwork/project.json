@@ -1,0 +1,35 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.project",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A published DJ project. Written only by the Local Network root account, after an admin creates it or a moderator approves a request.",
+			"record": {
+				"type": "object",
+				"required": ["slug", "profile", "managers", "status", "revision", "createdBy", "createdAt", "updatedAt"],
+				"properties": {
+					"slug": { "type": "string", "minLength": 2, "maxLength": 64 },
+					"profile": { "type": "ref", "ref": "computer.localnetwork.defs#projectProfile" },
+					"managers": {
+						"type": "array",
+						"maxLength": 10,
+						"description": "Accounts approved to manage this project.",
+						"items": { "type": "string", "format": "did" }
+					},
+					"status": { "type": "string", "maxLength": 32, "knownValues": ["active", "hidden", "archived"] },
+					"revision": { "type": "integer", "minimum": 1 },
+					"createdBy": { "type": "string", "format": "did" },
+					"lastRequest": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The approved moderation request (a space record URI) that produced this revision, if any."
+					},
+					"createdAt": { "type": "string", "format": "datetime" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

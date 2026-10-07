@@ -1,0 +1,40 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.booking.inquiry",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "The opening message of a booking thread, written by the promoter into their repo in the thread's booking space.",
+			"record": {
+				"type": "object",
+				"required": ["project", "show", "message", "createdAt"],
+				"properties": {
+					"project": {
+						"type": "string",
+						"format": "at-uri"
+					},
+					"show": {
+						"type": "ref",
+						"ref": "computer.localnetwork.defs#showDetails"
+					},
+					"message": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 20000,
+						"maxGraphemes": 2000
+					},
+					"onBehalfOf": {
+						"type": "string",
+						"format": "did",
+						"description": "Set when the root account writes for a participant whose PDS does not support atproto spaces yet."
+					},
+					"createdAt": {
+						"type": "string",
+						"format": "datetime"
+					}
+				}
+			}
+		}
+	}
+}

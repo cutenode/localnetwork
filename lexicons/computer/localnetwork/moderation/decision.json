@@ -1,0 +1,26 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.moderation.decision",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A staff decision on a moderation request. Written only by the root account.",
+			"record": {
+				"type": "object",
+				"required": ["request", "requester", "outcome", "decidedBy", "createdAt"],
+				"properties": {
+					"request": { "type": "string", "format": "at-uri" },
+					"requestCid": { "type": "string", "format": "cid" },
+					"requester": { "type": "string", "format": "did" },
+					"outcome": { "type": "string", "maxLength": 32, "knownValues": ["approved", "rejected", "changesRequested"] },
+					"reason": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+					"decidedBy": { "type": "string", "format": "did" },
+					"project": { "type": "string", "format": "at-uri" },
+					"projectRevision": { "type": "integer", "minimum": 1 },
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

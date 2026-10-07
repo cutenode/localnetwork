@@ -1,0 +1,32 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.booking.message",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A message in a booking thread, written by a participant into their own repo in the booking space.",
+			"record": {
+				"type": "object",
+				"required": ["text", "createdAt"],
+				"properties": {
+					"text": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 20000,
+						"maxGraphemes": 2000
+					},
+					"onBehalfOf": {
+						"type": "string",
+						"format": "did",
+						"description": "Set when the root account writes for a participant whose PDS does not support atproto spaces yet."
+					},
+					"createdAt": {
+						"type": "string",
+						"format": "datetime"
+					}
+				}
+			}
+		}
+	}
+}

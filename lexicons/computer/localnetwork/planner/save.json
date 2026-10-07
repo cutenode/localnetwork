@@ -1,0 +1,20 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.planner.save",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A project a promoter saved to their private shortlist (a personal space under their own DID).",
+			"record": {
+				"type": "object",
+				"required": ["project", "createdAt"],
+				"properties": {
+					"project": { "type": "string", "format": "at-uri" },
+					"note": { "type": "string", "maxLength": 5000, "maxGraphemes": 500 },
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,13 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.moderation",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "Project creation, claim, and change requests, plus staff decisions. Readable only by staff.",
+			"key": "literal:main",
+			"name": "Local Network requests",
+			"collections": ["computer.localnetwork.moderation.request", "computer.localnetwork.moderation.decision"]
+		}
+	}
+}

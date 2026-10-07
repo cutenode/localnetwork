@@ -1,0 +1,36 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.booking.status",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A status change on a booking thread, written by a participant.",
+			"record": {
+				"type": "object",
+				"required": ["status", "createdAt"],
+				"properties": {
+					"status": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["open", "negotiating", "confirmed", "declined", "cancelled"]
+					},
+					"note": {
+						"type": "string",
+						"maxLength": 5000,
+						"maxGraphemes": 500
+					},
+					"onBehalfOf": {
+						"type": "string",
+						"format": "did",
+						"description": "Set when the root account writes for a participant whose PDS does not support atproto spaces yet."
+					},
+					"createdAt": {
+						"type": "string",
+						"format": "datetime"
+					}
+				}
+			}
+		}
+	}
+}

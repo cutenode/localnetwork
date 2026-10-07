@@ -1,0 +1,111 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.defs",
+	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects.",
+	"defs": {
+		"projectView": {
+			"type": "object",
+			"description": "A published project as the directory indexed it.",
+			"required": ["uri", "cid", "record"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid" },
+				"record": { "type": "unknown", "description": "The computer.localnetwork.project record." },
+				"distanceM": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Meters from the searched location, when the search had one and the project has coordinates."
+				}
+			}
+		},
+		"match": {
+			"type": "object",
+			"description": "How well a project fits a show.",
+			"required": ["project", "score", "inRange", "breakdown", "reasons", "warnings"],
+			"properties": {
+				"project": { "type": "ref", "ref": "#projectView" },
+				"score": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100,
+					"description": "Weighted fit across every factor."
+				},
+				"inRange": {
+					"type": "boolean",
+					"description": "False when the project is farther than the search radius and doesn't travel that far."
+				},
+				"breakdown": { "type": "ref", "ref": "#matchBreakdown" },
+				"reasons": { "type": "array", "items": { "type": "ref", "ref": "#matchNote" } },
+				"warnings": { "type": "array", "items": { "type": "ref", "ref": "#matchNote" } }
+			}
+		},
+		"matchBreakdown": {
+			"type": "object",
+			"description": "Each factor's fit before weighting. Weights: genre 40, distance 25, budget 15, capacity 8, setType 7, format 5.",
+			"required": ["genre", "distance", "budget", "capacity", "setType", "format"],
+			"properties": {
+				"genre": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"distance": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"budget": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"capacity": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"setType": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"format": { "type": "integer", "minimum": 0, "maximum": 100 }
+			}
+		},
+		"matchNote": {
+			"type": "object",
+			"description": "One reason a project fits a show, or one concern. Clients turn the code into text.",
+			"required": ["code"],
+			"properties": {
+				"code": {
+					"type": "string",
+					"knownValues": [
+						"plays",
+						"adjacentSound",
+						"noGenreOverlap",
+						"locationUnknown",
+						"local",
+						"nearby",
+						"travels",
+						"outOfRange",
+						"fitsBudget",
+						"aboveBudget",
+						"wellAboveBudget",
+						"fitsRoom",
+						"biggerRoom",
+						"smallerRoom",
+						"setType",
+						"formats",
+						"differentSetup"
+					]
+				},
+				"genres": {
+					"type": "array",
+					"items": { "type": "string" },
+					"description": "For plays: the project's closely matching genres."
+				},
+				"distanceM": { "type": "integer", "minimum": 0, "description": "For nearby, travels, and outOfRange." },
+				"setType": { "type": "string", "description": "For setType." },
+				"formats": {
+					"type": "array",
+					"items": { "type": "string" },
+					"description": "For formats: the formats both sides share."
+				}
+			}
+		},
+		"facet": {
+			"type": "object",
+			"required": ["value", "count"],
+			"properties": { "value": { "type": "string" }, "count": { "type": "integer", "minimum": 0 } }
+		},
+		"place": {
+			"type": "object",
+			"required": ["city", "country", "count"],
+			"properties": {
+				"city": { "type": "string" },
+				"country": { "type": "string" },
+				"count": { "type": "integer", "minimum": 0 }
+			}
+		}
+	}
+}

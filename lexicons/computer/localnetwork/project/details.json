@@ -1,0 +1,20 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.project.details",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "Private booking details for a project, stored by the root account in the industry space. The record key matches the project record key.",
+			"record": {
+				"type": "object",
+				"required": ["project", "details", "updatedAt"],
+				"properties": {
+					"project": { "type": "string", "format": "at-uri" },
+					"details": { "type": "ref", "ref": "computer.localnetwork.defs#projectDetails" },
+					"updatedAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

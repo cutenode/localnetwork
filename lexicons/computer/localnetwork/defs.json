@@ -1,0 +1,236 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.defs",
+	"description": "Shared definitions for Local Network, a platform connecting promoters with local DJ projects.",
+	"defs": {
+		"projectProfile": {
+			"type": "object",
+			"description": "The public, promoter-facing profile of a DJ project (a solo DJ, duo, group, or collective).",
+			"required": ["name", "kind", "genres", "location"],
+			"properties": {
+				"name": { "type": "string", "minLength": 1, "maxLength": 640, "maxGraphemes": 64 },
+				"kind": {
+					"type": "string",
+					"maxLength": 32,
+					"knownValues": ["solo", "duo", "group", "collective", "live"]
+				},
+				"tagline": { "type": "string", "maxLength": 1400, "maxGraphemes": 140 },
+				"bio": { "type": "string", "maxLength": 30000, "maxGraphemes": 3000 },
+				"pronouns": { "type": "string", "maxLength": 200, "maxGraphemes": 24 },
+				"genres": {
+					"type": "array",
+					"minLength": 1,
+					"maxLength": 12,
+					"items": { "type": "string", "minLength": 1, "maxLength": 48 }
+				},
+				"location": { "type": "ref", "ref": "#location" },
+				"travel": { "type": "ref", "ref": "#travel" },
+				"formats": {
+					"type": "array",
+					"maxLength": 8,
+					"items": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["vinyl", "cdj", "controller", "hybrid", "live", "modular"]
+					}
+				},
+				"setTypes": {
+					"type": "array",
+					"maxLength": 10,
+					"items": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": [
+							"opener",
+							"warmup",
+							"peak",
+							"closing",
+							"allNight",
+							"b2b",
+							"daytime",
+							"afterhours",
+							"liveSet"
+						]
+					}
+				},
+				"setLength": { "type": "ref", "ref": "#setLength" },
+				"activeSince": {
+					"type": "integer",
+					"minimum": 1950,
+					"maximum": 2100,
+					"description": "Year the project started playing out."
+				},
+				"capacity": { "type": "ref", "ref": "#capacity" },
+				"fee": { "type": "ref", "ref": "#fee" },
+				"links": { "type": "array", "maxLength": 12, "items": { "type": "ref", "ref": "#link" } },
+				"mixes": { "type": "array", "maxLength": 12, "items": { "type": "ref", "ref": "#mix" } },
+				"highlights": {
+					"type": "array",
+					"maxLength": 12,
+					"description": "Notable venues, events, residencies, or releases.",
+					"items": { "type": "string", "maxLength": 1200, "maxGraphemes": 120 }
+				},
+				"lookingFor": {
+					"type": "string",
+					"maxLength": 5000,
+					"maxGraphemes": 500,
+					"description": "The kinds of bookings the project wants."
+				},
+				"avatar": {
+					"type": "blob",
+					"accept": ["image/png", "image/jpeg", "image/webp"],
+					"maxSize": 1000000
+				}
+			}
+		},
+		"projectDetails": {
+			"type": "object",
+			"description": "Private booking details, visible only to signed-in members via the industry space.",
+			"properties": {
+				"bookingEmail": { "type": "string", "maxLength": 320 },
+				"bookingPhone": { "type": "string", "maxLength": 64 },
+				"rateNotes": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+				"techRider": { "type": "string", "maxLength": 20000, "maxGraphemes": 2000 },
+				"hospitality": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 }
+			}
+		},
+		"location": {
+			"type": "object",
+			"required": ["city", "country"],
+			"properties": {
+				"city": { "type": "string", "minLength": 1, "maxLength": 1000, "maxGraphemes": 100 },
+				"region": { "type": "string", "maxLength": 1000, "maxGraphemes": 100 },
+				"country": {
+					"type": "string",
+					"minLength": 2,
+					"maxLength": 2,
+					"description": "ISO 3166-1 alpha-2 country code."
+				},
+				"latE6": {
+					"type": "integer",
+					"minimum": -90000000,
+					"maximum": 90000000,
+					"description": "Latitude in millionths of a degree (the atproto data model has no floats)."
+				},
+				"lngE6": {
+					"type": "integer",
+					"minimum": -180000000,
+					"maximum": 180000000,
+					"description": "Longitude in millionths of a degree."
+				}
+			}
+		},
+		"travel": {
+			"type": "object",
+			"properties": {
+				"radiusKm": { "type": "integer", "minimum": 0, "maximum": 20000 },
+				"international": { "type": "boolean" },
+				"notes": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 }
+			}
+		},
+		"setLength": {
+			"type": "object",
+			"properties": {
+				"minMinutes": { "type": "integer", "minimum": 15, "maximum": 720 },
+				"maxMinutes": { "type": "integer", "minimum": 15, "maximum": 720 }
+			}
+		},
+		"capacity": {
+			"type": "object",
+			"description": "Typical audience sizes the project plays to.",
+			"properties": {
+				"min": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+				"max": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+			}
+		},
+		"fee": {
+			"type": "object",
+			"required": ["tier"],
+			"properties": {
+				"tier": {
+					"type": "string",
+					"maxLength": 32,
+					"knownValues": ["community", "emerging", "established", "headliner"]
+				},
+				"currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+				"minAmount": { "type": "integer", "minimum": 0, "description": "Whole currency units." },
+				"maxAmount": { "type": "integer", "minimum": 0, "description": "Whole currency units." }
+			}
+		},
+		"link": {
+			"type": "object",
+			"required": ["kind", "url"],
+			"properties": {
+				"kind": {
+					"type": "string",
+					"maxLength": 32,
+					"knownValues": [
+						"website",
+						"soundcloud",
+						"mixcloud",
+						"bandcamp",
+						"instagram",
+						"bluesky",
+						"residentAdvisor",
+						"youtube",
+						"spotify",
+						"twitch",
+						"other"
+					]
+				},
+				"url": { "type": "string", "format": "uri", "maxLength": 2048 },
+				"label": { "type": "string", "maxLength": 640, "maxGraphemes": 64 }
+			}
+		},
+		"mix": {
+			"type": "object",
+			"required": ["title", "url"],
+			"properties": {
+				"title": { "type": "string", "minLength": 1, "maxLength": 1200, "maxGraphemes": 120 },
+				"url": { "type": "string", "format": "uri", "maxLength": 2048 },
+				"durationMinutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
+				"year": { "type": "integer", "minimum": 1950, "maximum": 2100 },
+				"tracklist": {
+					"type": "blob",
+					"accept": ["application/json"],
+					"maxSize": 1000000,
+					"description": "A mix report exported by locallibrary (format locallibrary.mix-report, version 1 or 2): which tracks the mix plays, when, at what tempo and key, and how they were mixed. Validated before it is published or shown."
+				}
+			}
+		},
+		"showDetails": {
+			"type": "object",
+			"description": "A show a promoter is planning or booking for.",
+			"required": ["title"],
+			"properties": {
+				"title": { "type": "string", "minLength": 1, "maxLength": 1200, "maxGraphemes": 120 },
+				"date": { "type": "string", "format": "datetime" },
+				"venue": { "type": "string", "maxLength": 1200, "maxGraphemes": 120 },
+				"location": { "type": "ref", "ref": "#location" },
+				"capacity": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+				"budget": { "type": "ref", "ref": "#money" },
+				"budgetTier": {
+					"type": "string",
+					"maxLength": 32,
+					"knownValues": ["community", "emerging", "established", "headliner"]
+				},
+				"setType": { "type": "string", "maxLength": 32 },
+				"setMinutes": { "type": "integer", "minimum": 15, "maximum": 720 },
+				"genres": {
+					"type": "array",
+					"maxLength": 12,
+					"items": { "type": "string", "maxLength": 48 }
+				},
+				"notes": { "type": "string", "maxLength": 20000, "maxGraphemes": 2000 }
+			}
+		},
+		"money": {
+			"type": "object",
+			"required": ["amount", "currency"],
+			"properties": {
+				"amount": { "type": "integer", "minimum": 0, "description": "Whole currency units." },
+				"currency": { "type": "string", "minLength": 3, "maxLength": 3 }
+			}
+		}
+	}
+}

@@ -1,0 +1,13 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.industry",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "Private booking details for projects, visible to signed-in members.",
+			"key": "literal:main",
+			"name": "Local Network industry details",
+			"collections": ["computer.localnetwork.project.details"]
+		}
+	}
+}

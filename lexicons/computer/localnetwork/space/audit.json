@@ -1,0 +1,13 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.audit",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "The Local Network audit log. Anchored on the root account; every account writes its own audit entries here and the root writes a hash-chained mirror of each.",
+			"key": "literal:main",
+			"name": "Local Network audit log",
+			"collections": ["computer.localnetwork.audit.entry"]
+		}
+	}
+}

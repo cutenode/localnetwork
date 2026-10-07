@@ -1,0 +1,17 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.booking",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "A private booking conversation between a promoter and the managers of a project. One space per thread.",
+			"key": "tid",
+			"name": "Local Network booking thread",
+			"collections": [
+				"computer.localnetwork.booking.inquiry",
+				"computer.localnetwork.booking.message",
+				"computer.localnetwork.booking.status"
+			]
+		}
+	}
+}

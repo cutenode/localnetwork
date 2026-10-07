@@ -1,0 +1,19 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"useTabs": true,
+	"singleQuote": true,
+	"trailingComma": "none",
+	"printWidth": 120,
+	"semi": true,
+	"ignorePatterns": [
+		"build",
+		".svelte-kit",
+		"coverage",
+		"node_modules",
+		"pnpm-lock.yaml",
+		"data",
+		"test-results",
+		"playwright-report",
+		"tools/oxlint/anti-slop"
+	]
+}

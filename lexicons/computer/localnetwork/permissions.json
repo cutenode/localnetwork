@@ -1,0 +1,52 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.permissions",
+	"defs": {
+		"main": {
+			"type": "permission-set",
+			"title": "Local Network",
+			"detail": "Submit and manage DJ projects, book DJs, keep a private planner, and record an audit trail of your actions.",
+			"permissions": [
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.audit",
+					"authority": "*",
+					"skey": "main",
+					"collection": ["computer.localnetwork.audit.entry"],
+					"action": ["read_self", "create"]
+				},
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.moderation",
+					"authority": "*",
+					"skey": "main",
+					"collection": ["computer.localnetwork.moderation.request"],
+					"action": ["read_self", "create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.booking",
+					"authority": "*",
+					"collection": [
+						"computer.localnetwork.booking.inquiry",
+						"computer.localnetwork.booking.message",
+						"computer.localnetwork.booking.status"
+					],
+					"action": ["read_self", "create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "space",
+					"spaceType": "computer.localnetwork.space.planner",
+					"skey": "self",
+					"collection": ["computer.localnetwork.planner.save", "computer.localnetwork.planner.show"],
+					"action": ["read", "create", "update", "delete"],
+					"manage": ["create", "update"]
+				}
+			]
+		}
+	}
+}

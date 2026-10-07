@@ -1,0 +1,13 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.staff",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "Admin and moderator role assignments.",
+			"key": "literal:main",
+			"name": "Local Network staff",
+			"collections": ["computer.localnetwork.staff.role"]
+		}
+	}
+}

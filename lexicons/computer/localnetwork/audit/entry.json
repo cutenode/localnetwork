@@ -1,0 +1,84 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.audit.entry",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "One audited action. Each action is written twice with the same record key: once by the acting account into its own repo in the audit space, and once by the root account (with hash-chain fields) into the root's repo in the same space.",
+			"record": {
+				"type": "object",
+				"required": ["actor", "action", "summary", "outcome", "via", "createdAt"],
+				"properties": {
+					"actor": { "type": "string", "format": "did" },
+					"actorRole": { "type": "string", "maxLength": 32, "knownValues": ["admin", "moderator", "member", "system"] },
+					"action": {
+						"type": "string",
+						"maxLength": 64,
+						"knownValues": [
+							"auth.login",
+							"auth.logout",
+							"project.create",
+							"project.update",
+							"project.status",
+							"project.managers",
+							"request.submit",
+							"request.update",
+							"request.withdraw",
+							"request.approve",
+							"request.reject",
+							"request.changesRequested",
+							"role.grant",
+							"role.revoke",
+							"booking.create",
+							"booking.message",
+							"booking.status",
+							"planner.save",
+							"planner.unsave",
+							"planner.show",
+							"system.bootstrap",
+							"system.space"
+						]
+					},
+					"subject": { "type": "string", "maxLength": 2048 },
+					"subjectKind": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["account", "project", "request", "role", "booking", "planner", "space"]
+					},
+					"summary": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+					"changes": { "type": "array", "maxLength": 100, "items": { "type": "ref", "ref": "#change" } },
+					"details": { "type": "unknown" },
+					"outcome": { "type": "string", "maxLength": 16, "knownValues": ["success", "failure", "denied"] },
+					"reason": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+					"via": { "type": "string", "maxLength": 16, "knownValues": ["web", "system", "sync"] },
+					"chain": { "type": "ref", "ref": "#chain" },
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		},
+		"change": {
+			"type": "object",
+			"required": ["field"],
+			"properties": {
+				"field": { "type": "string", "maxLength": 128 },
+				"before": { "type": "string", "maxLength": 4000 },
+				"after": { "type": "string", "maxLength": 4000 }
+			}
+		},
+		"chain": {
+			"type": "object",
+			"description": "Tamper-evident hash chain over the root account's audit log.",
+			"required": ["seq", "prev", "hash"],
+			"properties": {
+				"seq": { "type": "integer", "minimum": 1 },
+				"prev": {
+					"type": "string",
+					"maxLength": 64,
+					"description": "Hex SHA-256 of the previous entry, empty for the first."
+				},
+				"hash": { "type": "string", "minLength": 64, "maxLength": 64 }
+			}
+		}
+	}
+}

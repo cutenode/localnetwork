@@ -1,0 +1,13 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.planner",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "A promoter's private planner: saved projects and shows being booked. Anchored on the promoter's own DID.",
+			"key": "literal:self",
+			"name": "Local Network planner",
+			"collections": ["computer.localnetwork.planner.save", "computer.localnetwork.planner.show"]
+		}
+	}
+}
