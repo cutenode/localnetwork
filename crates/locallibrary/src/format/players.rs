@@ -6,8 +6,10 @@
 //!   explicitly unsupported; APFS isn't listed anywhere. The DJM-V10 and DJM-A9 use USB for
 //!   settings and firmware and need FAT32 on MBR.
 //! * **Partitions.** "Does not support the GUID Partition Map" (CDJ-3000, CDJ-3000X,
-//!   CDJ-2000NXS2, XDJ-XZ, XDJ-RX3, XDJ-AZ, OPUS-QUAD, OMNIS-DUO...): MBR it is. Only the first
-//!   partition is used. So the practical ceiling is MBR's 2 TiB.
+//!   CDJ-2000NXS2, XDJ-XZ, XDJ-RX3, XDJ-AZ, OPUS-QUAD, OMNIS-DUO...): MBR it is, so the practical
+//!   ceiling is MBR's 2 TiB. Players read the first partition unless another holds a rekordbox
+//!   library (the CDJ-2000NXS2, CDJ-2000NXS, XDJ-XZ, OPUS-QUAD and OMNIS-DUO manuals put that one
+//!   first); with just one partition there's no doubt which.
 //! * **Firmware updates** need a FAT/FAT32 drive on almost every unit.
 //! * **Cluster size.** No official guidance, and no measured effect on loading or browsing.
 //!   It only changes how much space small files take (rekordbox writes three analysis files
@@ -135,7 +137,8 @@ pub fn assess(scheme: Option<Scheme>, fs: Option<FsKind>, size: u64) -> Compatib
     c
 }
 
-/// How players get on with a disk as it is: they read its first partition.
+/// How players get on with a disk as it is: they read its first partition (unless another holds
+/// a rekordbox library).
 pub fn assess_disk(disk: &Disk) -> Compatibility {
     let Some(first) = disk.volumes.first() else {
         return Compatibility::new(Verdict::NoPlayers, "no partitions");
@@ -148,8 +151,10 @@ pub fn assess_disk(disk: &Disk) -> Compatibility {
         c.notes.push("case-sensitive HFS+ may not be recognised".into());
     }
     if disk.volumes.len() > 1 && c.verdict != Verdict::NoPlayers {
-        c.notes
-            .push(format!("players only read the first partition ({})", first.label.as_deref().unwrap_or(&first.id)));
+        c.notes.push(format!(
+            "players read the first partition ({}) unless another holds a rekordbox library",
+            first.label.as_deref().unwrap_or(&first.id)
+        ));
     }
     c
 }
@@ -181,5 +186,50 @@ mod tests {
         assert!(c.notes.iter().any(|n| n.contains("first partition")));
         d.volumes.reverse();
         assert_eq!(assess_disk(&d).verdict, Verdict::NoPlayers);
+    }
+
+    #[test]
+    fn each_file_system_gets_its_verdict() {
+        let mbr = Some(Scheme::Mbr);
+        let fat16 = assess(mbr, Some(FsKind::Fat16), 1 << 30);
+        assert_eq!(fat16.verdict, Verdict::AllPlayers);
+        assert!(fat16.notes.iter().any(|n| n.contains("need FAT32")), "{:?}", fat16.notes);
+        let hfs = assess(mbr, Some(FsKind::Hfsplus), 1 << 30);
+        assert_eq!(hfs.verdict, Verdict::AllPlayers);
+        assert!(hfs.notes.iter().any(|n| n.contains("rekordbox for Windows")), "{:?}", hfs.notes);
+        for fs in [None, Some(FsKind::Fat12), Some(FsKind::Apfs), Some(FsKind::Other)] {
+            assert_eq!(assess(mbr, fs, 1 << 30).verdict, Verdict::NoPlayers, "{fs:?}");
+        }
+    }
+
+    /// The partition table only matters once the file system is one players read.
+    #[test]
+    fn partition_tables_and_size_matter_once_the_file_system_is_read() {
+        for scheme in [Scheme::Apm, Scheme::Other] {
+            let c = assess(Some(scheme), Some(FsKind::Fat32), 1 << 30);
+            assert_eq!((c.verdict, c.summary.as_str()), (Verdict::NoPlayers, "players need an MBR partition table"));
+        }
+        let bare = assess(None, Some(FsKind::Exfat), 1 << 30);
+        assert!(
+            bare.summary.starts_with("exFAT: only CDJ-3000")
+                && bare.summary.ends_with("without a partition table, which players aren't documented to read")
+        );
+        let big = assess(Some(Scheme::Mbr), Some(FsKind::Fat32), MBR_MAX + 1);
+        assert_eq!(big.notes, ["players can't use more than 2 TiB"]);
+    }
+
+    #[test]
+    fn disks_without_partitions_or_with_case_sensitive_hfs_are_doubted() {
+        let mut d = crate::format::tests::sample_disk();
+        d.volumes[0].filesystem = Some(FsKind::Hfsplus);
+        d.volumes[0].filesystem_name = Some("Mac OS Extended (Case-sensitive)".into());
+        let c = assess_disk(&d);
+        assert_eq!(c.verdict, Verdict::Unknown);
+        assert!(c.notes.iter().any(|n| n == "case-sensitive HFS+ may not be recognised"));
+        d.volumes[0].filesystem_name = Some("Mac OS Extended".into());
+        assert_eq!(assess_disk(&d).verdict, Verdict::AllPlayers);
+        d.volumes.clear();
+        let none = assess_disk(&d);
+        assert_eq!((none.verdict, none.summary.as_str()), (Verdict::NoPlayers, "no partitions"));
     }
 }

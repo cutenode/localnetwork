@@ -5,7 +5,7 @@ use clap::{Command, CommandFactory};
 /// The top-level commands under each heading, in order. A command that isn't listed goes under
 /// "Other"; one listed that doesn't exist is left out.
 const GROUPS: &[(&str, &[&str])] = &[
-    ("Everyday", &["setup", "status", "refresh", "set", "sync", "pull", "check", "eject", "undo", "tui"]),
+    ("Everyday", &["setup", "status", "refresh", "prep", "sync", "pull", "check", "eject", "undo", "tui"]),
     ("Drives", &["drive", "provision", "doctor", "watch"]),
     ("Library and store", &["tracks", "library", "store", "diff", "collection", "export", "xml"]),
     (
@@ -15,7 +15,7 @@ const GROUPS: &[(&str, &[&str])] = &[
             "settings",
         ],
     ),
-    ("Plays and players", &["plays", "mix", "profile", "players"]),
+    ("Plays and players", &["plays", "sets", "mix", "profile", "players"]),
     ("Other", &["account", "completions", "help"]),
 ];
 
@@ -71,6 +71,57 @@ pub fn tidy_suggestions(e: clap::Error, cmd: &Command) -> clap::Error {
         fresh.insert(ContextKind::SuggestedSubcommand, ContextValue::Strings(kept));
     }
     fresh
+}
+
+/// The night-before job's flags, from when it was `set`.
+const PREP_FLAGS: &[&str] = &["--no-eject", "--players", "--audio", "--library", "-l", "--verbose", "-v", "--dry-run"];
+
+/// `set` was the night-before job, and is a spelling of `sets` now: when what follows `sets` is
+/// one of the job's flags, or what follows `set` a drive, rather than a subcommand of `sets`, say
+/// where the job went. (`sets` followed by a drive is more likely a set named like one.)
+pub fn prep_moved(e: &clap::Error) -> Option<String> {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    let words = command_words();
+    let sets = crate::Cli::command().find_subcommand("sets").cloned()?;
+    let first = words.first().map(String::as_str);
+    if !matches!(first, Some("set" | "sets")) || words.get(1).is_some_and(|w| sets.find_subcommand(w).is_some()) {
+        return None;
+    }
+    let given = |kind| match e.get(kind) {
+        Some(ContextValue::String(w)) => Some(w.as_str()),
+        _ => None,
+    };
+    let job = match e.kind() {
+        ErrorKind::InvalidSubcommand => given(ContextKind::InvalidSubcommand).is_some_and(|w| {
+            first == Some("set")
+                && !matches!(locallibrary::api::resolve_drive(w), Err(locallibrary::Error::NotFound(_)))
+        }),
+        ErrorKind::UnknownArgument => {
+            given(ContextKind::InvalidArg).is_some_and(|a| PREP_FLAGS.contains(&a.split('=').next().unwrap_or(a)))
+        }
+        _ => false,
+    };
+    job.then(|| {
+        "the night-before job (save, sync, check, eject) is `locallibrary prep` now: `locallibrary sets` is the \
+         sets you played"
+            .to_string()
+    })
+}
+
+/// The words of the command line that aren't options (nor the values of the global ones).
+fn command_words() -> Vec<String> {
+    let mut words = Vec::new();
+    let mut args = std::env::args().skip(1).take_while(|a| a != "--");
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--store" | "--color" => {
+                args.next();
+            }
+            a if a.starts_with('-') => {}
+            _ => words.push(a),
+        }
+    }
+    words
 }
 
 /// A group run with a drive (`drive Main` is `drive info Main`) takes a mistyped subcommand for
@@ -149,8 +200,9 @@ fn color_asked() -> Option<clap::ColorChoice> {
 /// Commands that ask before they write and have no `--dry-run` to tell them by. (`pull` and
 /// `eject` don't ask: a snapshot is only added, and ejecting changes nothing on the drive.
 /// Neither does `account login`: signing in is done in the browser.)
-const WRITES: &[&str] =
-    &["role", "forget", "retire", "set", "unset", "add", "rm", "rename", "label", "unlabel", "reset", "setup"];
+const WRITES: &[&str] = &[
+    "role", "forget", "retire", "set", "unset", "add", "rm", "rename", "label", "unlabel", "reset", "setup", "delete",
+];
 
 /// `--json` on a command that writes says it needs `--yes`; on one that only reads, it doesn't.
 /// Before the command is built: a command's own copy of the global flag isn't replaced by the

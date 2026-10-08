@@ -1,7 +1,8 @@
-//! `locallibrary plays ...`: the history lists players recorded (on the drive and archived in the
-//! store), play counts, writing a list out and publishing one. `history` and `stats` are the old
-//! names of `plays lists` and `plays stats`.
+//! `locallibrary plays ...`: the sessions players recorded (history lists, on the drive and
+//! archived in the store), play counts, writing a session out and importing one from Beat Link
+//! Trigger. `history` and `stats` are the old names of `plays lists` and `plays stats`.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -14,54 +15,55 @@ use locallibrary::export::{self, Format};
 use locallibrary::model::Track;
 use locallibrary::plays::{self, DriveHistory, HistoryArchive, HistoryList, PlayStats};
 use locallibrary::progress::Ctx;
+use locallibrary::sets::session::gather_from;
+use locallibrary::sets::{Session, SetBook, describe};
 use serde::Serialize;
 
 use crate::DRIVE_HELP;
 use crate::each_drive::{self, Reads};
 use crate::export_cmd::{FormatArg, PathsArg};
-use crate::output::{Output, dim, duration, heading, ok, warn};
+use crate::output::{Output, dim, heading, ok, warn};
 
-/// `plays`: with a drive and no subcommand, its history lists.
+/// `plays`: with a drive and no subcommand, its sessions.
 #[derive(Args)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct PlaysArgs {
     #[command(subcommand)]
     command: Option<PlaysCommand>,
-    /// A drive whose history lists to list, as `plays lists` does [default: every mounted
-    /// rekordbox drive]
+    /// A drive whose sessions to list, as `plays lists` does [default: every mounted rekordbox
+    /// drive]
     #[arg(value_name = "DRIVE")]
     drive: Option<String>,
 }
 
 #[derive(Subcommand)]
 enum PlaysCommand {
-    /// History lists players recorded on a drive (--all: also every one the store kept), or one
-    /// of them
+    /// Sessions: the history lists players recorded on a drive (--all: also every one the store
+    /// kept), or one session's tracks
     #[command(visible_alias = "history", after_long_help = LISTS_LONG_HELP)]
     Lists(ListsArgs),
     /// Play counts: most played, never played, and what was played since a snapshot or a date
     Stats(StatsArgs),
-    /// Write a history list to a file: text, CSV or M3U8
+    /// Write a session to a file: text, CSV or M3U8
     Export(PlaysExportArgs),
-    /// Publish a history list to your Atmosphere account as a set: its tracks in order, for
-    /// anyone to read
-    #[cfg(feature = "account")]
-    Publish(HistoryPublishArgs),
+    /// Keep a play log from Beat Link Trigger's Playlist Writer as a session, with the time each
+    /// track played
+    Import(ImportArgs),
 }
 
-const LISTS_LONG_HELP: &str = "Examples:
-  locallibrary plays lists Main                     the lists on the drive
+const LISTS_LONG_HELP: &str = "Players start a history list every time a drive goes in and log any track
+that plays for about a minute, practice too: each is a session. A session's id is the same on
+every drive and in the store; its date is a window, as players have no clock.
+
+Examples:
+  locallibrary plays lists Main                     the sessions on the drive
   locallibrary plays lists Main --all               and every one the store kept
-  locallibrary plays lists Main \"HISTORY 012\"       one list's tracks
+  locallibrary plays lists Main \"HISTORY 012\"       one session's tracks (or give its id)
   locallibrary plays lists Main --delete --dry-run  what clearing the drive's lists would remove";
 
-/// `history`: `plays lists`, with `history publish` for `plays publish`.
+/// `history`: `plays lists`.
 #[derive(Args)]
-#[command(args_conflicts_with_subcommands = true)]
 pub struct HistoryArgs {
-    #[cfg(feature = "account")]
-    #[command(subcommand)]
-    command: Option<HistoryCommand>,
     #[command(flatten)]
     lists: ListsArgs,
 }
@@ -71,7 +73,8 @@ pub struct HistoryArgs {
 pub struct ListsArgs {
     #[arg(help = crate::DEFAULT_DRIVE_HELP)]
     drive: Option<String>,
-    /// A history list (name or path): print its tracks, or write them with -o
+    /// A session (its id, or its history list's name or path): print its tracks, or write them
+    /// with -o
     list: Option<String>,
     /// Also every list archived in the store (rekordbox deletes lists from the drive when it
     /// imports them; `locallibrary pull` kept them)
@@ -101,20 +104,12 @@ pub struct ListsArgs {
     dry_run: bool,
 }
 
-#[cfg(feature = "account")]
-#[derive(Subcommand)]
-enum HistoryCommand {
-    /// Publish a history list to your Atmosphere account as a set: its tracks in order, for
-    /// anyone to read
-    Publish(HistoryPublishArgs),
-}
-
 /// `plays export`.
 #[derive(Args)]
 pub struct PlaysExportArgs {
     #[arg(help = DRIVE_HELP)]
     drive: String,
-    /// The history list (name or path)
+    /// The session: its id, or its history list's name or path
     list: String,
     /// The file to write
     #[arg(long, short)]
@@ -133,35 +128,18 @@ pub struct PlaysExportArgs {
     replace: bool,
 }
 
-#[cfg(feature = "account")]
+/// `plays import`.
 #[derive(Args)]
-pub struct HistoryPublishArgs {
-    #[arg(help = DRIVE_HELP)]
-    drive: String,
-    /// The history list (name or path)
-    list: String,
-    /// Also look among the lists the store archived
+pub struct ImportArgs {
+    /// The CSV file Beat Link Trigger's Playlist Writer wrote
+    file: PathBuf,
+    /// The drive whose library the tracks are looked up in [default: the only mounted rekordbox
+    /// drive, else none]
     #[arg(long)]
-    all: bool,
-    /// What the set is called (it has none otherwise)
+    drive: Option<String>,
+    /// The session's name [default: the file's]
     #[arg(long)]
-    title: Option<String>,
-    /// The day it was played [default: as published before, else the day the store first saw
-    /// the list, else today]
-    #[arg(long, value_name = "YYYY-MM-DD")]
-    date: Option<String>,
-    /// Where it was played
-    #[arg(long)]
-    venue: Option<String>,
-    /// Publish the track at this position without naming it (repeat, or separate with commas);
-    /// tracks your profile hides are never named
-    #[arg(long, value_name = "N", value_delimiter = ',')]
-    hide: Vec<usize>,
-    /// Show what would be published without publishing
-    #[arg(long)]
-    dry_run: bool,
-    #[command(flatten)]
-    browser: crate::account_cmd::BrowserArgs,
+    name: Option<String>,
 }
 
 #[derive(Args)]
@@ -219,31 +197,24 @@ pub fn run(args: PlaysArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
             };
             lists(a, store, out, ctx)
         }
-        #[cfg(feature = "account")]
-        PlaysCommand::Publish(p) => publish(p, store, out, ctx),
+        PlaysCommand::Import(a) => {
+            let req = api::ImportSessionLog { file: a.file, drive: a.drive, name: a.name };
+            let log = api::sessions_import(&crate::open_store(store)?, &req)?;
+            Ok(out.done(&log, |l| {
+                let id = &l.id[..l.id.len().min(8)];
+                let when = |t: chrono::DateTime<chrono::Utc>| t.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M");
+                // An imported log has plays: one without is refused.
+                let (first, last) = (&l.plays[0], &l.plays[l.plays.len() - 1]);
+                let span = format!(", {} to {}", when(first.started), when(last.stopped.unwrap_or(last.started)));
+                ok(format!("kept {} as session {id}: {}{span}", l.name, crate::output::plural(l.plays.len(), "play")));
+                crate::output::hint(format!("`locallibrary sets new --from {id}` makes a set of it"));
+            }))
+        }
     }
 }
 
-#[cfg(feature = "account")]
-fn publish(p: HistoryPublishArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let req = api::HistoryPublishRequest {
-        drive: p.drive,
-        list: p.list,
-        archived: p.all,
-        title: p.title,
-        date: p.date,
-        venue: p.venue,
-        hide: p.hide,
-    };
-    crate::publish_cmd::history_publish(store, &req, p.dry_run, p.browser, out, ctx)
-}
-
-/// `history` (`plays lists`, and `history publish`).
+/// `history` (`plays lists`).
 pub fn history(args: HistoryArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    #[cfg(feature = "account")]
-    if let Some(HistoryCommand::Publish(p)) = args.command {
-        return publish(p, store, out, ctx);
-    }
     lists(args.lists, store, out, ctx)
 }
 
@@ -297,38 +268,44 @@ pub fn lists(args: ListsArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
             .or_else(|| h.archive.as_ref().and_then(|a| plays::find_list(a.lists.iter().map(|a| &a.list), query)));
         let Some(list) = list else {
             let hint = if args.all { "" } else { " (--all also looks in the store)" };
-            bail!("no history list {query:?} on {}{hint}", h.drive.drive)
+            bail!("no session {query:?} on {}{hint}", h.drive.drive)
         };
         let format = args.format.map(Into::into).unwrap_or(Format::Txt);
         out.emit(list, |l| print_list(l, format));
         return Ok(ExitCode::SUCCESS);
     }
     out.page();
-    let outcome = reads.emit(out, |h| {
-        list_histories(&h.drive.drive, &h.drive.lists, h.archive.as_ref());
-        for w in &h.drive.warnings {
-            warn(w);
-        }
-    });
+    let outcome = reads.emit(out, |h| list_sessions(h, store.is_some()));
     Ok(outcome.exit())
 }
 
-/// A drive's history lists, and with `all` every one the store archived from it.
+/// A drive's history lists, and with `all` every one the store archived from its library; and the
+/// sessions they are.
 #[derive(Serialize)]
 struct Histories {
     drive: DriveHistory,
     archive: Option<HistoryArchive>,
+    /// The drive's sessions, newest first, with the window each was recorded in and the sets made
+    /// from it (with `all`, also its library's that only the store has, and imported logs).
+    sessions: Vec<Session>,
+    /// The sets the sessions are in, by id, as they're named.
+    #[serde(skip)]
+    sets: BTreeMap<String, String>,
 }
 
 fn histories(drive: String, all: bool, store: Option<&Store>, ctx: &Ctx<'_>) -> locallibrary::Result<Histories> {
-    let on_drive = api::drive_history(&api::DriveRef { drive: drive.clone() })?;
-    let archive = match store.filter(|_| all) {
-        Some(store) => {
-            Some(api::history_archive(store, &api::HistoryArchiveRequest { library: None, drive: Some(drive) }, ctx)?)
-        }
-        None => None,
-    };
-    Ok(Histories { drive: on_drive, archive })
+    let d = api::resolve_drive(&drive)?;
+    let on_drive = plays::drive_history(&d)?;
+    // The store's lists date the drive's too, so they're read whenever there's a store.
+    let req = api::HistoryArchiveRequest { library: None, drive: Some(drive) };
+    let archive = store.map(|s| api::history_archive(s, &req, ctx)).transpose()?;
+    let book = store.map(SetBook::load).transpose()?.unwrap_or_default();
+    let mut sessions = gather_from(archive.as_ref(), std::slice::from_ref(&d), &book).sessions;
+    if !all {
+        sessions.retain(|s| !s.drives.is_empty());
+    }
+    let sets = book.sets.iter().map(|s| (s.id.clone(), describe(s))).collect();
+    Ok(Histories { drive: on_drive, archive: archive.filter(|_| all), sessions, sets })
 }
 
 fn print_list(l: &HistoryList, format: Format) {
@@ -349,43 +326,38 @@ fn print_list(l: &HistoryList, format: Format) {
     }
 }
 
-fn length(tracks: &[Track]) -> String {
-    duration(tracks.iter().map(|t| u64::from(t.duration_secs)).sum())
-}
-
-fn list_histories(drive: &str, lists: &[HistoryList], archive: Option<&HistoryArchive>) {
-    heading(&format!("On {drive}"));
-    if lists.is_empty() {
-        say!("  {}", dim("no history lists"));
-    }
-    for l in lists {
-        let stored = match archive {
-            Some(a) if plays::is_archived(l, a) => style("in the store").green().to_string(),
-            Some(_) => style("not in the store yet").yellow().to_string(),
-            None => String::new(),
+/// A drive's sessions, then (with `--all`) the ones only the store has: each in a line, with
+/// whether the store has it (when there's a store) and the set it's in.
+fn list_sessions(h: &Histories, with_store: bool) {
+    let (on_drive, stored): (Vec<&Session>, Vec<&Session>) = h.sessions.iter().partition(|s| !s.drives.is_empty());
+    let line = |s: &Session, with_drive: bool| {
+        let kept = match (with_store, s.drives.is_empty() || s.first_seen_on.is_some()) {
+            (false, _) => None,
+            (true, true) => Some(style("in the store").green().to_string()),
+            (true, false) => Some(style("not in the store yet").yellow().to_string()),
         };
-        say!("  {:<28} {:>4} tracks  {:>8}  {stored}", l.path, l.tracks.len(), length(&l.tracks));
+        let decided = match s.sets.first() {
+            Some(id) => Some(format!("in {}", h.sets.get(id).unwrap_or(id))),
+            None => s.dismissed.then(|| "dismissed".to_string()),
+        };
+        let status: Vec<String> = [kept, decided].into_iter().flatten().collect();
+        say!("  {}  {}", crate::sets_cmd::session_line(s, with_drive), dim(status.join(" · ")));
+    };
+    heading(&format!("On {}", h.drive.drive));
+    if on_drive.is_empty() {
+        say!("  {}", dim("no sessions"));
     }
-    let Some(archive) = archive else { return };
-    let only_stored: Vec<_> = archive.lists.iter().filter(|a| !lists.iter().any(|l| l.same_as(&a.list))).collect();
-    heading(&format!("Only in the store ({} of {} archived)", only_stored.len(), archive.lists.len()));
-    if only_stored.is_empty() {
+    // The heading names the drive.
+    on_drive.into_iter().for_each(|s| line(s, false));
+    for w in &h.drive.warnings {
+        warn(w);
+    }
+    let Some(archive) = &h.archive else { return };
+    heading(&format!("Only in the store ({})", stored.len()));
+    if stored.is_empty() {
         say!("  {}", dim("none"));
     }
-    for a in only_stored {
-        say!(
-            "  {:<28} {:>4} tracks  {:>8}  {}",
-            a.list.path,
-            a.list.tracks.len(),
-            length(&a.list.tracks),
-            dim(format!(
-                "first seen {} in snapshot {}{}",
-                a.first_seen.created.format("%Y-%m-%d %H:%M"),
-                a.first_seen.short_id,
-                a.first_seen.drive.as_ref().map(|d| format!(" from {d}")).unwrap_or_default()
-            ))
-        );
-    }
+    stored.into_iter().for_each(|s| line(s, true));
     for w in &archive.warnings {
         warn(w);
     }

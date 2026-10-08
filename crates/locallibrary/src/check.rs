@@ -1122,4 +1122,62 @@ mod tests {
         // Mixers have no tracks to play.
         assert!(verdicts(&["DJM-A9"], &layout, &fine).1.is_empty());
     }
+
+    #[test]
+    fn players_refuse_other_partition_tables_and_file_systems() {
+        let none = DriveAudio::default();
+        let on = |scheme, fs| Layout { has_pdb: true, has_plus: true, volume: Some((scheme, fs)) };
+        let said = |player: &str, layout: &Layout| verdicts(&[player], layout, &none).0.remove(0);
+        let mbr = Some(Scheme::Mbr);
+        for (fs, name) in [
+            (FsKind::Fat12, "FAT12"),
+            (FsKind::Ntfs, "NTFS"),
+            (FsKind::Apfs, "APFS"),
+            (FsKind::Other, "this file system"),
+        ] {
+            assert_eq!(said("CDJ-3000", &on(mbr, Some(fs))), (Level::Problem, format!("CDJ-3000: can't read {name}")));
+        }
+        assert_eq!(
+            said("DJM-A9", &on(mbr, Some(FsKind::Hfsplus))),
+            (Level::Problem, "DJM-A9: settings and firmware updates need FAT32".into())
+        );
+        assert_eq!(
+            said("CDJ-3000", &on(Some(Scheme::Apm), Some(FsKind::Fat32))),
+            (Level::Problem, "CDJ-3000: players need an MBR partition table".into())
+        );
+        // Neither a partition table nor a file system that can be told: warnings, both said.
+        assert_eq!(
+            said("CDJ-3000", &on(None, None)),
+            (
+                Level::Warning,
+                "CDJ-3000: the drive has no partition table, which players aren't documented to read; the drive's \
+                 file system isn't known"
+                    .into()
+            )
+        );
+    }
+
+    #[test]
+    fn formats_out_of_range_are_problems_and_unknown_ones_are_left_open() {
+        let tracks = vec![
+            track_audio(&row("/Contents/hi.wav", 0, 192_000, 32), None),
+            // An .m4a neither its row nor its file tells apart: not held against any player.
+            track_audio(&row("/Contents/a.m4a", 360, 44_100, 16), None),
+        ];
+        let audio = DriveAudio { pdb: Some(tracks), plus: None };
+        let layout = Layout { has_pdb: true, has_plus: false, volume: None };
+        let (_, formats) = verdicts(&["CDJ-2000NXS2"], &layout, &audio);
+        assert_eq!(formats.len(), 1, "{formats:?}");
+        let (level, message) = &formats[0];
+        assert_eq!(*level, Level::Problem);
+        let start = "1 WAV file at 192 kHz/32-bit won't load on the CDJ-2000NXS2: it plays WAV at 44.1, 48";
+        assert!(message.starts_with(start) && message.ends_with(" kHz, 16 and 24-bit"), "{message}");
+
+        // The CDJ-2000's specs are inferred from the CDJ-900's.
+        let mp3 =
+            DriveAudio { pdb: Some(vec![track_audio(&row("/Contents/a.mp3", 320, 44_100, 16), None)]), plus: None };
+        let message = "CDJ-2000: probably plays all 1 track(s) (format, sample rate and bit depth; some of its specs \
+                       are inferred)";
+        assert_eq!(verdicts(&["CDJ-2000"], &layout, &mp3).1, [(Level::Ok, message.to_string())]);
+    }
 }

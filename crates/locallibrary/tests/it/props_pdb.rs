@@ -172,16 +172,6 @@ fn rekordcrate_tree(pdb: &[u8]) -> BTreeMap<u32, (u32, String, bool)> {
     out
 }
 
-/// Present rows of a table, as rekordcrate counts them.
-fn rekordcrate_rows(pdb: &[u8], page_type: rekordcrate::pdb::PageType) -> usize {
-    use rekordcrate::pdb::Header;
-    let mut reader = Cursor::new(pdb);
-    let header = Header::read(&mut reader).unwrap();
-    let Some(table) = header.tables.iter().find(|t| t.page_type == page_type) else { return 0 };
-    let pages = header.read_pages(&mut reader, binrw::Endian::NATIVE, (&table.first_page, &table.last_page)).unwrap();
-    pages.iter().flat_map(|p| p.row_groups.iter()).map(|g| g.present_rows().count()).sum()
-}
-
 struct Editing {
     editor: PdbEditor,
     model: Model,
@@ -490,8 +480,8 @@ impl Editing {
         assert_eq!(theirs, ours, "rekordcrate's playlist tree");
         use rekordcrate::pdb::PageType;
         let entries: usize = got.entries.values().map(Vec::len).sum();
-        assert_eq!(rekordcrate_rows(&bytes, PageType::PlaylistEntries), entries, "rekordcrate's entry rows");
-        assert_eq!(rekordcrate_rows(&bytes, PageType::Tracks), got.tracks.len(), "rekordcrate's track rows");
+        assert_eq!(common::rekordcrate_rows(&bytes, PageType::PlaylistEntries), entries, "rekordcrate's entry rows");
+        assert_eq!(common::rekordcrate_rows(&bytes, PageType::Tracks), got.tracks.len(), "rekordcrate's track rows");
     }
 }
 

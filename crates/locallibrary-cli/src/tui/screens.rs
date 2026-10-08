@@ -3,17 +3,20 @@
 //! and footer, each pane's title and labels, and the fixture's own data. A view that stops
 //! drawing, or draws something else, fails here.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use locallibrary::api::{self, DriveStatus, FleetDrive, HistoryRequest, ProfileRequest, PullRequest};
 use locallibrary::compare::Relation;
 use locallibrary::edit::EditOptions;
 use locallibrary::fleet::{DriveLog, Role};
-use locallibrary::{Ctx, Device, Store, paths};
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
+use locallibrary::{Ctx, Device, Store};
+use ratatui::crossterm::event::KeyCode;
 
+use super::app::testing::{demo_drive, key, set, wait};
 use super::app::{App, Focus, View};
+use super::browse::{Category, NodeId};
 use super::edits::{Confirm, Modal, set_rating};
 use super::ui::screen;
 
@@ -27,31 +30,9 @@ struct Fixture {
     app: App,
 }
 
-fn copy(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for e in std::fs::read_dir(src).unwrap().map(Result::unwrap) {
-        let to = dst.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy(&e.path(), &to)
-        } else {
-            std::fs::copy(e.path(), to).map(|_| ()).unwrap()
-        }
-    }
-}
-
 fn fixture() -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../locallibrary/tests/fixtures/rekordcrate/demo_tracks");
-    let root = dir.path().join("DEMO");
-    copy(&source, &root);
-    let device = Device::open_export(&root).unwrap();
-    let lib = device.library().unwrap();
-    for t in &lib.tracks {
-        let p = device.path(&paths::key(&t.file_path));
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, "audio".repeat(100)).unwrap();
-    }
-    let root = device.root().to_path_buf();
+    let (dir, root) = demo_drive();
+    let lib = Device::open_export(&root).unwrap().library().unwrap();
 
     // The store, with one snapshot of the drive.
     let store_root = dir.path().join("store");
@@ -128,10 +109,6 @@ fn root_of(app: &App) -> String {
     app.drives[0].root.display().to_string()
 }
 
-fn key(app: &mut App, code: KeyCode) {
-    app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
-}
-
 #[test]
 fn library() {
     let Fixture { _dir, mut app, .. } = fixture();
@@ -152,6 +129,34 @@ fn library() {
     app.focus = Focus::Playlists;
     app.toast = None;
     check(&mut app, "the playlist tree", &["Playlists", "▸ Browse", "enter open"], &[]);
+}
+
+/// Browse › Sets, and a set: its tracks on the drive, and how many of it aren't.
+#[test]
+fn sets() {
+    let Fixture { _dir, mut app, .. } = fixture();
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    let entry = |i: usize| SetEntry::from_track(&lib.tracks[i], EntryOrigin::Session, None);
+    let tracks = vec![entry(1), SetEntry::added("Floorplan - Never Grow Old"), entry(0)];
+    let friday = set("3m2friday2222", "2026-10-03", Some("Friday at the Warehouse"), None, tracks);
+    SetBook { sets: vec![friday], ..Default::default() }.save(&Store::open(&app.store_root).unwrap()).unwrap();
+    app.read_sets();
+    let open = |app: &mut App, id: NodeId| {
+        wait(app, |a| a.loaded.as_ref().unwrap().tree_position(&id).is_some());
+        app.focus = Focus::Playlists;
+        app.playlist_state.select(app.loaded.as_ref().unwrap().tree_position(&id));
+        key(app, KeyCode::Enter);
+    };
+    open(&mut app, NodeId::Browse);
+    open(&mut app, NodeId::Category(Category::Sets));
+    check(&mut app, "the sets", &["▾ Sets"], &["· 2026-10-03 Friday at"]);
+    open(&mut app, NodeId::Group(Category::Sets, "3m2friday2222".into()));
+    check(
+        &mut app,
+        "a set",
+        &["Sets › 2026-10-03 Friday", &lib.tracks[0].title],
+        &["Sets › 2026-10-03 Friday at the Warehouse 2 · 1 not on this drive"],
+    );
 }
 
 #[test]
@@ -246,11 +251,7 @@ fn help_and_messages() {
 
 /// Run the app's background work until nothing's under way.
 fn settle(app: &mut App) {
-    let t = Instant::now();
-    while (app.job.is_some() || app.loading.is_some()) && t.elapsed() < Duration::from_secs(30) {
-        std::thread::sleep(Duration::from_millis(5));
-        app.tick();
-    }
+    wait(app, |a| a.job.is_none() && a.loading.is_none());
 }
 
 #[test]

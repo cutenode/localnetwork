@@ -1,16 +1,20 @@
 //! A DJ's profile: what their sets, collection and player settings say about how they play.
 //!
-//! Everything comes from data locallibrary already reads: the history lists players record (on
-//! mounted drives, and archived in the store by `pull`; see [`crate::plays`]), each track's
-//! rekordbox analysis (BPM, key, phrase mood, cues), its tags (genre, label, year) and the drives'
-//! My Settings. [`build`] works these out into a [`ProfileReport`], which stays on this computer.
+//! Everything comes from data locallibrary already reads: the sets the DJ declared (see
+//! [`crate::sets`]), each track's rekordbox analysis (BPM, key, phrase mood, cues), its tags
+//! (genre, label, year) and the drives' My Settings. A set's tracks are found in every library the
+//! profile reads (mounted drives, the store's latest snapshots and the history lists `pull`
+//! archived; see [`crate::plays`]) by file, for their analysis. [`build`] works these out into a
+//! [`ProfileReport`], which stays on this computer.
 //! [`document`] turns a report into a [`ProfileDocument`]: the coarser part the DJ approves for a
 //! public profile (publishing it to the AT Protocol comes later). The DJ's choices (which sections
 //! go out, tracks to name or never name, rounding, genre spellings) are [`ProfilePrefs`], kept in
 //! the store.
 //!
-//! Most numbers describe what was *played* (every appearance in a set counts). A library without
-//! history lists is described from its collection instead ([`Basis::Collection`]).
+//! Most numbers describe what was *played* (every appearance in a set counts). Until the DJ
+//! declares sets, the sessions players recorded stand in for them ([`Basis::Sessions`]): practice
+//! and track checks land in those too, so the report says so and the document never counts them.
+//! Without either, the collection is described instead ([`Basis::Collection`]).
 //!
 //! What a profile can't say: anything that compares a DJ with other DJs (tracks only they play),
 //! since that needs other DJs' data.
@@ -21,7 +25,7 @@ pub use document::*;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Local, NaiveDate, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -35,6 +39,7 @@ use crate::model::{BpmRange, Library, Track, normalize};
 use crate::paths;
 use crate::plays::{self, HistoryList};
 use crate::progress::{Ctx, Event, Phase};
+use crate::sets::{Set, SetBook, SetEntry};
 use crate::settings::{self, DriveSettings, SettingValue};
 use crate::store::{Snapshot, Store};
 use crate::{Error, Result};
@@ -48,14 +53,14 @@ pub const STYLE_SETTINGS: [&str; 7] =
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ProfileOptions {
-    /// Only sets first seen on or after this day. Sets still on a drive (not archived yet) are
-    /// recent, so they always count.
+    /// Only sets played on or after this day. Sessions (without declared sets) count from the day
+    /// a pull first archived them; those still only on a drive are recent, so they always count.
     #[serde(default)]
     pub since: Option<NaiveDate>,
-    /// Only sets first seen on or before this day (sets still on a drive don't count).
+    /// Only sets played on or before this day (sessions still only on a drive don't count).
     #[serde(default)]
     pub until: Option<NaiveDate>,
-    /// History lists with fewer tracks are sound checks or previews, not sets.
+    /// Without declared sets: sessions with fewer tracks (sound checks, previews) don't count.
     #[serde(default = "default_min_set_tracks")]
     pub min_set_tracks: usize,
     /// How many entries ranked lists keep.
@@ -111,10 +116,29 @@ pub struct Sources<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Basis {
-    /// Tracks as played in sets (a track played in three sets counts three times).
+    /// Tracks as played in the DJ's sets (a track played in three sets counts three times).
     Plays,
-    /// No sets were found: the collection, each track once.
+    /// No sets declared (or the store left out): tracks as played in the sessions players
+    /// recorded with `min_set_tracks` or more tracks, which can be practice as well as gigs.
+    Sessions,
+    /// Nothing played to count (no sets in the range, or no sets declared and no sessions): the
+    /// collection, each track once.
     Collection,
+}
+
+impl Basis {
+    /// What the plays were counted in: `set`, or `session` without declared sets.
+    pub fn unit(self) -> &'static str {
+        match self {
+            Basis::Sessions => "session",
+            Basis::Plays | Basis::Collection => "set",
+        }
+    }
+
+    /// Whether a document on this basis shows section `s`: sessions are never counted in public.
+    pub fn publishes(self, s: Section) -> bool {
+        !(self == Basis::Sessions && s == Section::Sets)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -149,7 +173,7 @@ pub struct SourceInfo {
     /// `drive` or `store`.
     pub kind: &'static str,
     pub name: String,
-    /// History lists read (before set filtering).
+    /// History lists (sessions) read.
     pub history_lists: usize,
     pub tracks: usize,
 }
@@ -169,6 +193,8 @@ pub struct Tag {
     pub why: String,
 }
 
+/// The sets the numbers come from: the DJ's, or the sessions standing in for them (see
+/// [`ProfileReport::basis`]).
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct SetsSection {
     pub count: usize,
@@ -177,26 +203,30 @@ pub struct SetsSection {
     pub distinct_tracks: usize,
     pub median_tracks: usize,
     pub longest: usize,
-    /// When the oldest and newest archived sets were first seen (sets still on a drive have no
-    /// date).
-    pub first_seen: Option<DateTime<Utc>>,
-    pub last_seen: Option<DateTime<Utc>>,
-    /// Sets on a drive that the store hasn't archived yet.
+    /// The days of the oldest and newest sets ([`SetInfo::date`]).
+    pub oldest: Option<NaiveDate>,
+    pub newest: Option<NaiveDate>,
+    /// Sessions only on a drive, which the store hasn't archived yet.
     pub not_archived: usize,
-    /// History lists left out for having fewer than `min_set_tracks` tracks.
+    /// Sessions left out for having fewer than `min_set_tracks` tracks.
     pub too_short: usize,
-    /// Newest first (undated sets, still on a drive, first).
+    /// Newest first (sessions only on a drive, undated, first).
     pub list: Vec<SetInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct SetInfo {
+    /// The set's id, or the session's (its history list's fingerprint, see
+    /// [`crate::sets::Session::id`]).
+    pub id: String,
+    /// The set's title, else its venue; the session's history list (folders and name).
     pub name: String,
-    pub path: String,
-    /// The drive it was read from, or the drive whose snapshot archived it.
-    pub source: String,
-    pub first_seen: Option<DateTime<Utc>>,
-    pub on_drive: bool,
+    /// Where: the set's venue and city; the drive a session was read from, or whose snapshot
+    /// archived it.
+    pub place: String,
+    /// The day the set was played. A session has no such day: this is the day a pull first
+    /// archived it (it was played then or before), and none while it's only on a drive.
+    pub date: Option<NaiveDate>,
     pub tracks: usize,
     pub opening_bpm: Option<f64>,
     pub closing_bpm: Option<f64>,
@@ -364,6 +394,10 @@ pub struct PlayedTrack {
     pub plays: usize,
     pub opened: usize,
     pub closed: usize,
+    /// A declared set marks it unnamed (`sets edit --unnamed`): the public document never names
+    /// it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unnamed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -471,6 +505,8 @@ struct Rec {
     year: Option<i32>,
     mood: Option<Mood>,
     cues: Option<CueCounts>,
+    /// A declared set marks it unnamed.
+    unnamed: bool,
 }
 
 impl Rec {
@@ -480,14 +516,26 @@ impl Rec {
     }
 }
 
-struct SetData {
-    name: String,
-    path: String,
+/// A history list read, before the profile knows whether it stands in for a set.
+struct ListData {
+    list: HistoryList,
+    /// The drive it was read from, or the drive whose snapshot archived it.
     source: String,
     first_seen: Option<DateTime<Utc>>,
-    on_drive: bool,
-    list: HistoryList,
     tracks: Vec<usize>,
+}
+
+/// A set as the profile counts it: one the DJ declared, or a session standing in for one (its
+/// fields are [`SetInfo`]'s).
+struct SetData {
+    id: String,
+    name: String,
+    place: String,
+    date: Option<NaiveDate>,
+    tracks: Vec<usize>,
+    /// Where entries whose track is gone from the library were: the positions in `tracks` they
+    /// came before.
+    missing_at: Vec<usize>,
 }
 
 impl SetData {
@@ -497,7 +545,7 @@ impl SetData {
         self.tracks
             .windows(2)
             .enumerate()
-            .filter(|(i, w)| w[0] != w[1] && !self.list.missing_at.contains(&(i + 1)))
+            .filter(|(i, w)| w[0] != w[1] && !self.missing_at.contains(&(i + 1)))
             .map(|(_, w)| (w[0], w[1]))
     }
 }
@@ -507,6 +555,9 @@ struct Builder<'a> {
     files: Files<'a>,
     recs: Vec<Rec>,
     by_key: HashMap<String, usize>,
+    /// Every file of every library read ([`plays::file_key`]), to find a set's entries by.
+    by_file: HashMap<String, usize>,
+    lists: Vec<ListData>,
     sets: Vec<SetData>,
     playlists: HashSet<(bool, String)>,
     duplicate_files: usize,
@@ -518,7 +569,7 @@ struct Builder<'a> {
 /// track has neither artist nor title.
 fn rec_key(t: &Track) -> String {
     if t.artist.trim().is_empty() && t.title.trim().is_empty() {
-        format!("file\u{1f}{}", paths::key(&t.file_path).to_lowercase())
+        format!("file\u{1f}{}", plays::file_key(&t.file_path))
     } else {
         t.fingerprint_key()
     }
@@ -530,28 +581,37 @@ fn release_year(t: &Track) -> Option<i32> {
 }
 
 impl<'a> Builder<'a> {
+    /// The recording `t` is, added when it's new. Its file finds it too ([`Builder::entry`]).
     fn rec(&mut self, t: &Track, origin: Option<Origin>) -> usize {
         let key = rec_key(t);
-        if let Some(&i) = self.by_key.get(&key) {
-            if self.recs[i].origin.is_none() && !t.analyze_path.is_empty() {
-                self.recs[i].origin = origin;
-                self.recs[i].track.analyze_path = t.analyze_path.clone();
+        let i = match self.by_key.get(&key) {
+            Some(&i) => {
+                if self.recs[i].origin.is_none() && !t.analyze_path.is_empty() {
+                    self.recs[i].origin = origin;
+                    self.recs[i].track.analyze_path = t.analyze_path.clone();
+                }
+                i
             }
-            return i;
-        }
-        let rec = Rec {
-            track: t.clone(),
-            origin: origin.filter(|_| !t.analyze_path.is_empty()),
-            in_collection: false,
-            camelot: Camelot::parse(&t.key),
-            genres: genres(&t.genre, &self.options.genre_aliases),
-            year: release_year(t),
-            mood: None,
-            cues: None,
+            None => {
+                self.recs.push(Rec {
+                    track: t.clone(),
+                    origin: origin.filter(|_| !t.analyze_path.is_empty()),
+                    in_collection: false,
+                    camelot: Camelot::parse(&t.key),
+                    genres: genres(&t.genre, &self.options.genre_aliases),
+                    year: release_year(t),
+                    mood: None,
+                    cues: None,
+                    unnamed: false,
+                });
+                self.by_key.insert(key, self.recs.len() - 1);
+                self.recs.len() - 1
+            }
         };
-        self.recs.push(rec);
-        self.by_key.insert(key, self.recs.len() - 1);
-        self.recs.len() - 1
+        if !t.file_path.is_empty() {
+            self.by_file.entry(plays::file_key(&t.file_path)).or_insert(i);
+        }
+        i
     }
 
     fn add_collection(&mut self, lib: &Library, origin: Origin) {
@@ -569,28 +629,72 @@ impl<'a> Builder<'a> {
 
     /// Adds a history list unless it's already there (the same list on two drives, or on a drive
     /// and in the store).
-    fn add_list(
-        &mut self,
-        list: HistoryList,
-        source: String,
-        first_seen: Option<DateTime<Utc>>,
-        on_drive: bool,
-        origin: Origin,
-    ) {
-        if let Some(existing) = self.sets.iter_mut().find(|s| s.list.same_as(&list)) {
-            existing.on_drive |= on_drive;
+    fn add_list(&mut self, list: HistoryList, source: String, first_seen: Option<DateTime<Utc>>, origin: Origin) {
+        if self.lists.iter().any(|l| l.list.same_as(&list)) {
             return;
         }
         let tracks = list.tracks.iter().map(|t| self.rec(t, Some(origin))).collect();
-        self.sets.push(SetData {
-            name: list.name.clone(),
-            path: list.path.clone(),
-            source,
-            first_seen,
-            on_drive,
-            list,
-            tracks,
+        self.lists.push(ListData { list, source, first_seen, tracks });
+    }
+
+    /// The recording a set's entry is: the library track with its file, else a track made of what
+    /// the entry kept, with no analysis to read.
+    fn entry(&mut self, e: &SetEntry) -> usize {
+        if let Some(i) = e.file_key().and_then(|k| self.by_file.get(&k).copied()) {
+            return i;
+        }
+        let track = Track {
+            title: e.title.clone(),
+            artist: e.artist.clone(),
+            album: e.album.clone(),
+            genre: e.genre.clone(),
+            label: e.label.clone(),
+            key: e.key.clone(),
+            isrc: e.isrc.clone(),
+            bpm: e.bpm,
+            duration_secs: e.duration_secs,
+            year: e.year,
+            file_path: e.file.clone().unwrap_or_default(),
+            ..Track::default()
+        };
+        self.rec(&track, None)
+    }
+
+    /// Without declared sets, the sessions in range with `min_set_tracks` or more tracks become
+    /// the sets, newest first. Returns how many sessions were too short.
+    fn sessions_as_sets(&mut self) -> usize {
+        let o = self.options;
+        // The local day, as sets and sessions' windows are dated.
+        let day = |l: &ListData| l.first_seen.map(|t| t.with_timezone(&Local).date_naive());
+        let (long, short): (Vec<ListData>, Vec<ListData>) =
+            std::mem::take(&mut self.lists).into_iter().partition(|l| l.tracks.len() >= o.min_set_tracks);
+        let mut sessions: Vec<ListData> = long
+            .into_iter()
+            .filter(|l| match day(l) {
+                Some(d) => o.since.is_none_or(|x| d >= x) && o.until.is_none_or(|x| d <= x),
+                // Still on a drive, not archived: played since the last pull.
+                None => o.until.is_none(),
+            })
+            .collect();
+        // Newest first: undated (still on a drive) first, then by date.
+        sessions.sort_by(|a, c| match (a.first_seen, c.first_seen) {
+            (None, None) => c.list.name.cmp(&a.list.name),
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (Some(x), Some(y)) => y.cmp(&x).then(c.list.name.cmp(&a.list.name)),
         });
+        self.sets = sessions
+            .into_iter()
+            .map(|l| SetData {
+                id: l.list.fingerprint(),
+                date: day(&l),
+                name: l.list.path,
+                place: l.source,
+                tracks: l.tracks,
+                missing_at: l.list.missing_at,
+            })
+            .collect();
+        short.len()
     }
 
     fn read_analysis(&mut self, played: &HashSet<usize>, ctx: &Ctx<'_>) -> Result<()> {
@@ -639,6 +743,8 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
         files: Files { drives: &sources.drives, store: sources.store, snapshots: Vec::new(), by_id: HashMap::new() },
         recs: Vec::new(),
         by_key: HashMap::new(),
+        by_file: HashMap::new(),
+        lists: Vec::new(),
         sets: Vec::new(),
         playlists: HashSet::new(),
         duplicate_files: 0,
@@ -684,7 +790,7 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
                 }
                 let o = b.files.snapshot(&snapshots[&id]);
                 let source = a.first_seen.drive.clone().unwrap_or_else(|| a.first_seen.library.clone());
-                b.add_list(a.list, source, Some(a.first_seen.created), false, Origin::Snapshot(o));
+                b.add_list(a.list, source, Some(a.first_seen.created), Origin::Snapshot(o));
             }
         }
         let n = libraries.len();
@@ -719,7 +825,7 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
             tracks: dbs.primary().tracks.len(),
         });
         for list in lists {
-            b.add_list(list, d.name(), None, true, Origin::Drive(i));
+            b.add_list(list, d.name(), None, Origin::Drive(i));
         }
     }
 
@@ -727,32 +833,37 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
         return Err(Error::NotFound("nothing to build a profile from: no drive, and no library in the store".into()));
     }
 
-    // Which lists are sets.
-    let since = options.since.and_then(|d| d.and_hms_opt(0, 0, 0)).map(|d| d.and_utc());
-    let until = options.until.and_then(|d| d.and_hms_opt(23, 59, 59)).map(|d| d.and_utc());
-    let mut too_short = 0;
-    let all_sets = std::mem::take(&mut b.sets);
-    for s in all_sets {
-        if s.tracks.len() < options.min_set_tracks {
-            too_short += 1;
-            continue;
-        }
-        let in_range = match s.first_seen {
-            Some(at) => since.is_none_or(|x| at >= x) && until.is_none_or(|x| at <= x),
-            // Still on a drive, not archived: played since the last pull.
-            None => until.is_none(),
-        };
-        if in_range {
-            b.sets.push(s);
-        }
+    // The sets: the DJ's own, played in the range, newest first. Once there are any, sessions
+    // never count, whatever the range.
+    let book = sources.store.map(SetBook::load).transpose()?.unwrap_or_default();
+    let mut in_range: Vec<_> = book
+        .sets
+        .iter()
+        .filter(|s| options.since.is_none_or(|d| s.date >= d) && options.until.is_none_or(|d| s.date <= d))
+        .collect();
+    in_range.sort_by(|a, c| Set::newest_first(a, c));
+    for s in in_range {
+        let tracks = s
+            .tracks
+            .iter()
+            .map(|e| {
+                let i = b.entry(e);
+                b.recs[i].unnamed |= e.unnamed;
+                i
+            })
+            .collect();
+        b.sets.push(SetData {
+            id: s.id.clone(),
+            name: s.name().unwrap_or("untitled").to_string(),
+            place: s.place(),
+            date: Some(s.date),
+            tracks,
+            missing_at: Vec::new(),
+        });
     }
-    // Newest first: undated (still on a drive) first, then by date.
-    b.sets.sort_by(|a, c| match (a.first_seen, c.first_seen) {
-        (None, None) => c.name.cmp(&a.name),
-        (None, Some(_)) => std::cmp::Ordering::Less,
-        (Some(_), None) => std::cmp::Ordering::Greater,
-        (Some(x), Some(y)) => y.cmp(&x).then(c.name.cmp(&a.name)),
-    });
+    // None declared: the sessions long enough to stand in for sets.
+    let (counted, too_short) =
+        if book.sets.is_empty() { (Basis::Sessions, b.sessions_as_sets()) } else { (Basis::Plays, 0) };
 
     let played: HashSet<usize> = b.sets.iter().flat_map(|s| s.tracks.iter().copied()).collect();
     if options.analysis {
@@ -761,7 +872,7 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
 
     let style = style(sources);
     let generated = Utc::now();
-    let mut report = compute(&b, too_short, generated);
+    let mut report = compute(&b, counted, too_short, generated);
     report.style = style;
     report.summary = summarise(&report);
     Ok(report)
@@ -817,7 +928,8 @@ fn tally(counts: &mut HashMap<String, (usize, HashMap<String, usize>)>, name: &s
     *e.1.entry(name.trim().to_string()).or_default() += 1;
 }
 
-fn compute(b: &Builder<'_>, too_short: usize, now: DateTime<Utc>) -> ProfileReport {
+/// `counted`: what the sets are, [`Basis::Plays`] (declared) or [`Basis::Sessions`].
+fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>) -> ProfileReport {
     let o = b.options;
     let recs = &b.recs;
     let sets = &b.sets;
@@ -826,14 +938,14 @@ fn compute(b: &Builder<'_>, too_short: usize, now: DateTime<Utc>) -> ProfileRepo
     // it was played in (for "recent" releases).
     let mut pool: Vec<(usize, i32)> = Vec::new();
     for s in sets {
-        let year = s.first_seen.unwrap_or(now).year();
+        let year = s.date.map_or(now.year(), |d| d.year());
         pool.extend(s.tracks.iter().map(|&i| (i, year)));
     }
     let basis = if pool.is_empty() {
         pool = (0..recs.len()).filter(|&i| recs[i].in_collection).map(|i| (i, now.year())).collect();
         Basis::Collection
     } else {
-        Basis::Plays
+        counted
     };
 
     // Sets.
@@ -851,27 +963,26 @@ fn compute(b: &Builder<'_>, too_short: usize, now: DateTime<Utc>) -> ProfileRepo
             });
         lengths.push(s.tracks.len() as f64);
         set_list.push(SetInfo {
+            id: s.id.clone(),
             name: s.name.clone(),
-            path: s.path.clone(),
-            source: s.source.clone(),
-            first_seen: s.first_seen,
-            on_drive: s.on_drive,
+            place: s.place.clone(),
+            date: s.date,
             tracks: s.tracks.len(),
             opening_bpm,
             closing_bpm,
             harmonic_share: share(harmonic, keyed),
         });
     }
-    let dated: Vec<DateTime<Utc>> = sets.iter().filter_map(|s| s.first_seen).collect();
+    let dated: Vec<NaiveDate> = sets.iter().filter_map(|s| s.date).collect();
     let set_section = SetsSection {
         count: sets.len(),
-        plays: if basis == Basis::Plays { pool.len() } else { 0 },
+        plays: if basis == Basis::Collection { 0 } else { pool.len() },
         distinct_tracks: sets.iter().flat_map(|s| s.tracks.iter()).collect::<HashSet<_>>().len(),
         median_tracks: median(&lengths).map_or(0, |m| m.round() as usize),
         longest: sets.iter().map(|s| s.tracks.len()).max().unwrap_or(0),
-        first_seen: dated.iter().min().copied(),
-        last_seen: dated.iter().max().copied(),
-        not_archived: sets.iter().filter(|s| s.first_seen.is_none()).count(),
+        oldest: dated.iter().min().copied(),
+        newest: dated.iter().max().copied(),
+        not_archived: sets.iter().filter(|s| s.date.is_none()).count(),
         too_short,
         list: set_list,
     };
@@ -1182,6 +1293,7 @@ fn signature_section(recs: &[Rec], sets: &[SetData], top: usize) -> SignatureSec
         plays: c.plays,
         opened: c.opened,
         closed: c.closed,
+        unnamed: recs[i].unnamed,
     };
     let mut played: Vec<PlayedTrack> = per.iter().map(|(&i, c)| played_track(i, c)).collect();
     played.sort_by(|a, b| b.sets.cmp(&a.sets).then(b.plays.cmp(&a.plays)).then(a.name.cmp(&b.name)));
@@ -1267,8 +1379,8 @@ pub fn bpm_range(lo: f64, hi: f64) -> String {
 }
 
 /// The generated headline, from the sections `shows` lets through: the main genres, the tempo
-/// range ([`bpm_range`]), and how many sets (or, without sets, tracks in the collection), each
-/// count written by `count`.
+/// range ([`bpm_range`]), and how many sets or sessions (or, without either, tracks in the
+/// collection), each count written by `count`.
 pub fn headline(r: &ProfileReport, shows: impl Fn(Section) -> bool, count: impl Fn(usize) -> String) -> String {
     let mut parts = Vec::new();
     let genres: Vec<&str> = r.genres.top.iter().filter(|s| s.share >= 0.1).take(2).map(|s| s.name.as_str()).collect();
@@ -1280,10 +1392,12 @@ pub fn headline(r: &ProfileReport, shows: impl Fn(Section) -> bool, count: impl 
     {
         parts.push(bpm_range(core.low, core.high));
     }
-    match r.sets.count {
-        0 if shows(Section::Collection) => parts.push(format!("{} tracks", count(r.collection.tracks))),
-        1 if shows(Section::Sets) => parts.push("1 set".into()),
-        n if n > 1 && shows(Section::Sets) => parts.push(format!("{} sets", count(n))),
+    let n = r.sets.count;
+    match r.basis {
+        Basis::Collection if shows(Section::Collection) => parts.push(format!("{} tracks", count(r.collection.tracks))),
+        Basis::Plays | Basis::Sessions if shows(Section::Sets) => {
+            parts.push(format!("{} {}{}", count(n), r.basis.unit(), if n == 1 { "" } else { "s" }))
+        }
         _ => {}
     }
     parts.join(" · ")
@@ -1321,11 +1435,12 @@ fn summarise(r: &ProfileReport) -> Summary {
     {
         tag("focused", format!("Mostly {}", top.name), format!("{} of plays are tagged {}", pct(top.share), top.name));
     }
+    let unit = r.basis.unit();
     if r.arc.sets >= 3 && r.arc.builds >= 0.5 {
         tag(
             "builds",
-            "Builds the tempo through a set".into(),
-            format!("{} of {} sets end at least 2 BPM faster than they start", pct(r.arc.builds), r.arc.sets),
+            format!("Builds the tempo through a {unit}"),
+            format!("{} of {} {unit}s end at least 2 BPM faster than they start", pct(r.arc.builds), r.arc.sets),
         );
     }
     if let Some(recent) = r.era.recent_share
@@ -1361,7 +1476,7 @@ fn summarise(r: &ProfileReport) -> Summary {
         tag(
             "signature",
             "Has signature tracks".into(),
-            format!("{} is in {} of {} sets", t.name, t.sets, r.sets.count),
+            format!("{} is in {} of {} {unit}s", t.name, t.sets, r.sets.count),
         );
     }
     if let Some(p) = &r.prep

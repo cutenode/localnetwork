@@ -281,9 +281,7 @@ fn fit(
     let (mx, my) = (xs.iter().sum::<f64>() / n, ys.iter().sum::<f64>() / n);
     let sxx: f64 = xs.iter().map(|x| (x - mx).powi(2)).sum();
     let sxy: f64 = xs.iter().zip(&ys).map(|(x, y)| (x - mx) * (y - my)).sum();
-    if sxx == 0.0 {
-        return None;
-    }
+    // A week or more between the first and last snapshots: `sxx` isn't 0.
     let per_day = sxy / sxx;
     let full_around = match free {
         Some(free) if per_day > 0.0 => {
@@ -390,6 +388,46 @@ mod tests {
         assert_eq!(classify("PIONEER/rekordbox/export.pdb", "export.pdb", &referenced), SpaceKind::Databases);
         assert_eq!(classify("PIONEER/MYSETTING.DAT", "MYSETTING.DAT", &referenced), SpaceKind::Settings);
         assert_eq!(classify("notes.txt", "notes.txt", &referenced), SpaceKind::Other);
+    }
+
+    #[test]
+    fn classifies_what_rekordbox_keeps_besides_the_library() {
+        let none = HashSet::new();
+        assert_eq!(classify("PIONEER/Artwork/00001/a1.jpg", "a1.jpg", &none), SpaceKind::Artwork);
+        assert_eq!(
+            classify("PIONEER/rekordbox/exportLibrary.db-shm", "exportLibrary.db-shm", &none),
+            SpaceKind::Databases
+        );
+        let backup = "PIONEER/DeviceLibBackup/rbDevLibBaInfo_815904346.json";
+        assert_eq!(classify(backup, "rbDevLibBaInfo_815904346.json", &none), SpaceKind::RekordboxOther);
+        assert_eq!(classify(".locallibrary/state.json", "state.json", &none), SpaceKind::Locallibrary);
+    }
+
+    /// Whole folders the OS keeps are measured as one kind, wherever they are; links aren't
+    /// followed or counted.
+    #[test]
+    fn system_folders_are_measured_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let put = |key: &str, len: usize| {
+            let p = dir.path().join(key);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, vec![0u8; len]).unwrap();
+        };
+        put("System Volume Information/IndexerVolumeGuid", 76);
+        put(".Spotlight-V100/Store-V2/store.db", 4096);
+        put("Music/.fseventsd/fseventsd-uuid", 36);
+        put("PIONEER/Artwork/00001/a1.jpg", 900);
+        put("notes.txt", 24);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(dir.path().join("notes.txt"), dir.path().join("link.txt")).unwrap();
+        let r = breakdown(&Device::open(dir.path()).unwrap(), &Ctx::silent()).unwrap();
+        assert_eq!(r.bytes(SpaceKind::Other), 76 + 24);
+        assert_eq!(r.bytes(SpaceKind::OsClutter), 4096 + 36);
+        assert_eq!(r.bytes(SpaceKind::Artwork), 900);
+        let files: usize = r.categories.iter().map(|c| c.files).sum();
+        assert_eq!((files, r.unreadable), (5, 0));
+        assert_eq!(r.categories[0].kind, SpaceKind::OsClutter, "largest first");
+        assert_eq!(dir_size(&dir.path().join("Music")), (1, 36, 0));
     }
 
     #[test]

@@ -1,3 +1,5 @@
+mod drive_states;
+
 use crate::common;
 
 use std::fs;
@@ -100,26 +102,6 @@ fn drifting_databases_and_bad_requests() {
     assert!(matches!(api::check(None, &req(vec![]), &Ctx::silent()), Err(Error::Invalid(_))));
 }
 
-/// A WAV file of `secs` seconds of silence.
-fn wav(rate: u32, bits: u16, secs: f64) -> Vec<u8> {
-    let data_len = (rate as f64 * secs) as u32 * u32::from(bits / 8) * 2;
-    let mut out = Vec::new();
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + data_len).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&rate.to_le_bytes());
-    out.extend_from_slice(&(rate * u32::from(bits / 8) * 2).to_le_bytes());
-    out.extend_from_slice(&(bits / 8 * 2).to_le_bytes());
-    out.extend_from_slice(&bits.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_len.to_le_bytes());
-    out.resize(out.len() + data_len as usize, 0);
-    out
-}
-
 /// Export one more track to `root`'s export.pdb, with its audio file.
 fn add_track(root: &Path, file: &str, rate: u32, depth: u16, bytes: &[u8]) -> u32 {
     export_track(root, file, rate, depth, 1, bytes.len() as u32, bytes)
@@ -153,7 +135,7 @@ fn track_formats_against_players() {
         add_track(&a, &format!("hi{i}.flac"), 96_000, 24, b"fLaC placeholder");
     }
     // A row that doesn't say: the file's header does.
-    add_track(&a, "unknown.wav", 0, 0, &wav(88_200, 24, 0.1));
+    add_track(&a, "unknown.wav", 0, 0, &common::media::wav_of(88_200, 24, 2, 0.1));
     add_track(&a, "float.wav", 44_100, 32, b"RIFF placeholder");
     let check = |players: &[&str]| {
         let req = CheckRequest {
@@ -254,7 +236,7 @@ fn remembered_players_and_drives_with_one_database() {
 fn audio_cut_short_by_an_interrupted_copy() {
     let dir = tempfile::tempdir().unwrap();
     let a = common::bigger_drive(dir.path(), "A");
-    let whole = wav(8_000, 16, 30.0);
+    let whole = common::media::wav_of(8_000, 16, 2, 30.0);
     let size = whole.len() as u32;
     export_track(&a, "whole.wav", 8_000, 16, 30, size, &whole);
     export_track(&a, "cut.wav", 8_000, 16, 30, size, &whole[..whole.len() / 2]);
@@ -305,7 +287,7 @@ fn audio_cut_short_by_an_interrupted_copy() {
 fn retagged_audio_isnt_cut_short() {
     let dir = tempfile::tempdir().unwrap();
     let a = common::bigger_drive(dir.path(), "A");
-    let whole = wav(8_000, 16, 30.0);
+    let whole = common::media::wav_of(8_000, 16, 2, 30.0);
     let size = whole.len() as u32;
     export_track(&a, "grown.wav", 8_000, 16, 30, size - 1024, &whole);
     export_track(&a, "shrunk.wav", 8_000, 16, 30, size + 4096, &whole);

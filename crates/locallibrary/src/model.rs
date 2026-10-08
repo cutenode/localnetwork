@@ -19,7 +19,7 @@ pub struct Library {
     pub history: Vec<Playlist>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Track {
     /// Row id inside this export. Only meaningful within one export.
     pub id: u32,

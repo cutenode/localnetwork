@@ -1156,6 +1156,31 @@ impl OneLibrary {
 mod tests {
     use super::*;
 
+    /// rekordbox's columns are loosely typed: numbers can come back as text or reals, and text
+    /// as numbers.
+    #[test]
+    fn values_read_as_the_type_a_column_should_have() {
+        assert_eq!(int(ValueRef::Real(2.9)), 2);
+        assert_eq!(int(ValueRef::Text(b" 42 ")), 42);
+        assert_eq!(int(ValueRef::Text(b"forty")), 0);
+        assert_eq!(int(ValueRef::Null), 0);
+        assert_eq!(text(ValueRef::Integer(5)), "5");
+        assert_eq!(text(ValueRef::Real(1.5)), "1.5");
+        assert_eq!(text(ValueRef::Null), "");
+    }
+
+    #[test]
+    fn a_database_without_a_content_table_isnt_onelibrarys() {
+        let one = OneLibrary::create().unwrap();
+        one.conn.execute_batch("DROP TABLE content").unwrap();
+        let err = OneLibrary::from_encrypted(&one.to_encrypted().unwrap(), None).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            Error::OneLibrary("no content table; not a rekordbox OneLibrary database".into()).to_string()
+        );
+        assert!(format!("{one:?}").starts_with("OneLibrary { path: "));
+    }
+
     #[test]
     fn creates_empty_databases_sqlite_and_the_cipher_accept() {
         let mut one = OneLibrary::create().unwrap();

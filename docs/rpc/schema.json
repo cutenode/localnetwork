@@ -531,6 +531,57 @@
       ],
       "type": "object"
     },
+    "Appearance": {
+      "description": "A track's place in a set.",
+      "properties": {
+        "date": {
+          "format": "date",
+          "type": "string"
+        },
+        "position": {
+          "description": "From 1.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "set": {
+          "description": "The set's id.",
+          "type": "string"
+        },
+        "start_seconds": {
+          "description": "Seconds from the start of the set, when known.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "track": {
+          "description": "The track as the set has it: `Artist - Title`.",
+          "type": "string"
+        },
+        "venue": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "set",
+        "date",
+        "position",
+        "track"
+      ],
+      "type": "object"
+    },
     "ApplyPlan": {
       "description": "`*.apply` by the id of the plan `*.plan` returned: applies exactly that plan, once.",
       "properties": {
@@ -672,7 +723,7 @@
         },
         "first_seen": {
           "$ref": "#/$defs/Sighting",
-          "description": "The earliest snapshot holding it."
+          "description": "The earliest snapshot holding it: it was recorded before then."
         },
         "missing": {
           "description": "Entries whose track isn't in the library any more.",
@@ -686,6 +737,14 @@
         "path": {
           "description": "Folders and name (OneLibrary can keep history lists in folders).",
           "type": "string"
+        },
+        "recorded_after": {
+          "description": "It was recorded after this: when the snapshot before `first_seen` of the same drive was\ntaken (which didn't hold it). `None` when that drive wasn't pulled before.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "snapshots": {
           "description": "How many snapshots hold it.",
@@ -707,6 +766,7 @@
         "tracks",
         "missing",
         "first_seen",
+        "recorded_after",
         "snapshots"
       ],
       "type": "object"
@@ -1202,12 +1262,17 @@
       "oneOf": [
         {
           "const": "plays",
-          "description": "Tracks as played in sets (a track played in three sets counts three times).",
+          "description": "Tracks as played in the DJ's sets (a track played in three sets counts three times).",
+          "type": "string"
+        },
+        {
+          "const": "sessions",
+          "description": "No sets declared (or the store left out): tracks as played in the sessions players\nrecorded with `min_set_tracks` or more tracks, which can be practice as well as gigs.",
           "type": "string"
         },
         {
           "const": "collection",
-          "description": "No sets were found: the collection, each track once.",
+          "description": "Nothing played to count (no sets in the range, or no sets declared and no sessions): the\ncollection, each track once.",
           "type": "string"
         }
       ]
@@ -1314,6 +1379,49 @@
       },
       "required": [
         "cancelled"
+      ],
+      "type": "object"
+    },
+    "Candidate": {
+      "description": "Sessions that look like one set.",
+      "properties": {
+        "reasons": {
+          "description": "The evidence, in words.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "score": {
+          "description": "How much it looks like a set, 0 to 100: up to 40 for its tracks, 20 for a drive taken to\nsets, 30 for a recording that has its tracks, 10 for several drives.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessions": {
+          "description": "Their ids, newest first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tracks": {
+          "description": "Different tracks the sessions logged.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "window": {
+          "$ref": "#/$defs/Window",
+          "description": "When it was played: the imported logs' times when there are some, else the time every\nsession's window shares."
+        }
+      },
+      "required": [
+        "sessions",
+        "window",
+        "tracks",
+        "score",
+        "reasons"
       ],
       "type": "object"
     },
@@ -3714,6 +3822,26 @@
       ],
       "type": "object"
     },
+    "DismissSessions": {
+      "properties": {
+        "sessions": {
+          "description": "Ids (any unique prefix of 4 or more characters) or list names.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "undo": {
+          "default": false,
+          "description": "Take the dismissal back.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sessions"
+      ],
+      "type": "object"
+    },
     "DocArc": {
       "properties": {
         "builds": {
@@ -3903,7 +4031,7 @@
           "type": "integer"
         },
         "since": {
-          "description": "Year of the oldest archived set.",
+          "description": "Year of the oldest set.",
           "format": "int32",
           "type": [
             "integer",
@@ -6210,6 +6338,172 @@
       ],
       "type": "object"
     },
+    "EditSet": {
+      "description": "Changes to a set. Tracklist positions start at 1 and all name the tracklist as it was before\nthe edit: a track moved up lands just before the track that was at `to`, one moved down just\nafter it; an insert lands just before the track that was at `at` (one past the last appends).\nAdded sessions' tracks go at the end (or, when the set has a recording, are only checked\nagainst it). Attaching a recording rebuilds the tracklist from it, so it can't come with\nchanges by position.",
+      "properties": {
+        "add_sessions": {
+          "default": [],
+          "description": "Sessions whose tracks to add.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "city": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "country": {
+          "default": null,
+          "description": "ISO 3166 code, `GB`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "date": {
+          "default": null,
+          "description": "The day it was played, `2026-10-03`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "drive": {
+          "default": null,
+          "description": "The drive inserted tracks are looked up on and a recording is matched against (default:\nthe only mounted rekordbox drive).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "drop": {
+          "default": [],
+          "description": "Positions to drop.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "event": {
+          "default": null,
+          "description": "The `at://` URI of the event's `community.lexicon.calendar.event` record.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "insert": {
+          "items": {
+            "$ref": "#/$defs/Insert"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "default": null,
+          "description": "`club`, `festival`, `radio`, `livestream`, `mix`, or another word.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "link": {
+          "default": null,
+          "description": "Where people can listen to it (`https://...`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "moves": {
+          "items": {
+            "$ref": "#/$defs/Move"
+          },
+          "type": "array"
+        },
+        "named": {
+          "default": [],
+          "description": "Positions to name again.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "default": null,
+          "description": "Private notes, never published.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recording": {
+          "default": null,
+          "description": "A recording to attach (identified against `drive`'s library), or a kept report.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "report": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "set": {
+          "description": "The set: `last`, an id prefix of 4 or more, a title, or a day.",
+          "type": "string"
+        },
+        "title": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unnamed": {
+          "default": [],
+          "description": "Positions to publish without naming the track.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "venue": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "with": {
+          "default": null,
+          "description": "Who they played with: names, or `did:...` for an Atmosphere account. Replaces the list;\nempty clears it.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "set"
+      ],
+      "type": "object"
+    },
     "EjectDrives": {
       "properties": {
         "drives": {
@@ -6507,6 +6801,26 @@
         "curve"
       ],
       "type": "object"
+    },
+    "EntryOrigin": {
+      "description": "Where a set's track came from.",
+      "oneOf": [
+        {
+          "const": "session",
+          "description": "A session logged it.",
+          "type": "string"
+        },
+        {
+          "const": "recording",
+          "description": "It was heard in the recording.",
+          "type": "string"
+        },
+        {
+          "const": "added",
+          "description": "The DJ added it.",
+          "type": "string"
+        }
+      ]
     },
     "EraSection": {
       "properties": {
@@ -8368,6 +8682,13 @@
             "string",
             "null"
           ]
+        },
+        "warnings": {
+          "description": "What to be wary of: the check hasn't run on this platform before.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
@@ -8378,7 +8699,8 @@
         "command",
         "ok",
         "repaired",
-        "output"
+        "output",
+        "warnings"
       ],
       "type": "object"
     },
@@ -8410,6 +8732,28 @@
         "other"
       ],
       "type": "string"
+    },
+    "Gathered": {
+      "description": "Every session, newest first, and what couldn't be read.",
+      "properties": {
+        "sessions": {
+          "items": {
+            "$ref": "#/$defs/Session"
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessions",
+        "warnings"
+      ],
+      "type": "object"
     },
     "GcReport": {
       "properties": {
@@ -8634,59 +8978,6 @@
       "required": [
         "name",
         "tracks"
-      ],
-      "type": "object"
-    },
-    "HistoryPublishRequest": {
-      "properties": {
-        "archived": {
-          "default": false,
-          "description": "Also look among the lists the store archived (rekordbox deletes them from the drive).",
-          "type": "boolean"
-        },
-        "date": {
-          "default": null,
-          "description": "The day it was played: `2026-10-03`. Default: the date it was published with before, else\nthe day the store first saw the list, else today.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "drive": {
-          "type": "string"
-        },
-        "hide": {
-          "default": [],
-          "description": "Positions (from 1) of tracks to publish without naming them. Tracks the profile hides\n(`profile hide`) are never named either.",
-          "items": {
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "type": "array"
-        },
-        "list": {
-          "description": "The history list: a name or path, as `history` lists them.",
-          "type": "string"
-        },
-        "title": {
-          "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "venue": {
-          "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "drive",
-        "list"
       ],
       "type": "object"
     },
@@ -9043,6 +9334,34 @@
       ],
       "type": "object"
     },
+    "ImportSessionLog": {
+      "properties": {
+        "drive": {
+          "default": null,
+          "description": "The drive whose library the log's tracks are looked up in. Default: the only mounted\nrekordbox drive (with none mounted, the log is kept as it is).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "file": {
+          "description": "A Beat Link Trigger Playlist Writer CSV.",
+          "type": "string"
+        },
+        "name": {
+          "default": null,
+          "description": "Default: the file's name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "type": "object"
+    },
     "ImportSettings": {
       "properties": {
         "drive": {
@@ -9111,6 +9430,45 @@
         "found",
         "ambiguous",
         "missing"
+      ],
+      "type": "object"
+    },
+    "ImportedSession": {
+      "description": "A play log imported from another tool, with real play times.",
+      "properties": {
+        "file": {
+          "description": "The file it was imported from.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Like a history list's fingerprint: the same log imported twice is one session.",
+          "type": "string"
+        },
+        "imported_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "plays": {
+          "items": {
+            "$ref": "#/$defs/TimedPlay"
+          },
+          "type": "array"
+        },
+        "tool": {
+          "description": "`beat_link_trigger`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "tool",
+        "file",
+        "imported_at",
+        "plays"
       ],
       "type": "object"
     },
@@ -9219,6 +9577,24 @@
         "version",
         "capabilities",
         "methods"
+      ],
+      "type": "object"
+    },
+    "Insert": {
+      "properties": {
+        "at": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "track": {
+          "description": "A search for one of the drive's tracks (`Artist - Title`, part of it, or a path), else\nthe track as typed: `Artist - Title`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "track"
       ],
       "type": "object"
     },
@@ -11408,6 +11784,25 @@
     "Move": {
       "properties": {
         "from": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "MoveOutput": {
+      "properties": {
+        "from": {
           "description": "1-based position on the left.",
           "format": "uint",
           "minimum": 0,
@@ -11497,6 +11892,124 @@
         "differences",
         "warnings"
       ],
+      "type": "object"
+    },
+    "NewSet": {
+      "description": "A set's details. Left out, a field stays as it is; empty (`\"\"`), it's cleared.",
+      "properties": {
+        "city": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "country": {
+          "default": null,
+          "description": "ISO 3166 code, `GB`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "date": {
+          "default": null,
+          "description": "The day it was played, `2026-10-03`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "drive": {
+          "default": null,
+          "description": "The drive whose library a recording is matched against (default: the only mounted\nrekordbox drive).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event": {
+          "default": null,
+          "description": "The `at://` URI of the event's `community.lexicon.calendar.event` record.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "default": null,
+          "description": "`club`, `festival`, `radio`, `livestream`, `mix`, or another word.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "link": {
+          "default": null,
+          "description": "Where people can listen to it (`https://...`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "default": null,
+          "description": "Private notes, never published.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recording": {
+          "default": null,
+          "description": "A recording of the set: identified against `drive`'s library, its report kept in the\nstore. Its tracklist beats the sessions'.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "report": {
+          "default": null,
+          "description": "Or a report kept in the store already (`mix.reports.list`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessions": {
+          "default": [],
+          "description": "Sessions to build it from, in play order (ids, or any unique prefix of 4 or more).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "venue": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "with": {
+          "default": null,
+          "description": "Who they played with: names, or `did:...` for an Atmosphere account. Replaces the list;\nempty clears it.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "NoParams": {
@@ -11757,6 +12270,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "needed_bytes": {
+          "description": "Space the pack needs on the target: the files it copies, its new databases and the backup\nof what it replaces.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "playlists": {
           "items": {
             "type": "string"
@@ -11818,6 +12337,7 @@
         "unchanged",
         "replaces_library",
         "unsaved",
+        "needed_bytes",
         "free_space",
         "fits",
         "warnings"
@@ -12017,6 +12537,25 @@
       ],
       "type": "object"
     },
+    "Partner": {
+      "description": "Someone the DJ played with.",
+      "properties": {
+        "did": {
+          "description": "Their Atmosphere account, when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "PathStyle": {
       "description": "How file paths are written.",
       "oneOf": [
@@ -12078,6 +12617,17 @@
         },
         "op": {
           "$ref": "#/$defs/LineageOp"
+        },
+        "player": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DbIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The player name and colour the drive had before a sync, push or pack replaced its\n`exportLibrary.db`, put back once it's done (see [`crate::player::stash`])."
         },
         "started": {
           "format": "date-time",
@@ -12813,6 +13363,10 @@
         },
         "title": {
           "type": "string"
+        },
+        "unnamed": {
+          "description": "A declared set marks it unnamed (`sets edit --unnamed`): the public document never names\nit.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -13061,7 +13615,7 @@
         },
         "moved": {
           "items": {
-            "$ref": "#/$defs/Move"
+            "$ref": "#/$defs/MoveOutput"
           },
           "type": "array"
         },
@@ -13522,7 +14076,7 @@
         },
         "basis": {
           "$ref": "#/$defs/Basis",
-          "description": "`plays` or `collection` (see [`super::Basis`])."
+          "description": "`plays`, `sessions` or `collection` (see [`Basis`])."
         },
         "collection": {
           "anyOf": [
@@ -13691,14 +14245,14 @@
         },
         "min_set_tracks": {
           "default": 5,
-          "description": "History lists with fewer tracks are sound checks or previews, not sets.",
+          "description": "Without declared sets: sessions with fewer tracks (sound checks, previews) don't count.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
         "since": {
           "default": null,
-          "description": "Only sets first seen on or after this day. Sets still on a drive (not archived yet) are\nrecent, so they always count.",
+          "description": "Only sets played on or after this day. Sessions (without declared sets) count from the day\na pull first archived them; those still only on a drive are recent, so they always count.",
           "format": "date",
           "type": [
             "string",
@@ -13714,7 +14268,7 @@
         },
         "until": {
           "default": null,
-          "description": "Only sets first seen on or before this day (sets still on a drive don't count).",
+          "description": "Only sets played on or before this day (sessions still only on a drive don't count).",
           "format": "date",
           "type": [
             "string",
@@ -13921,7 +14475,7 @@
       "properties": {
         "drives": {
           "default": [],
-          "description": "Drives to read. Default: the mounted rekordbox drives in the store's registry, so a drive\nsomeone else plugged in doesn't count as the DJ's sets; every mounted rekordbox drive when\nthe registry is empty.",
+          "description": "Drives to read. Default: the mounted rekordbox drives in the store's registry, so a drive\nsomeone else plugged in doesn't count as the DJ's; every mounted rekordbox drive when the\nregistry is empty.",
           "items": {
             "type": "string"
           },
@@ -13937,7 +14491,7 @@
         },
         "min_set_tracks": {
           "default": null,
-          "description": "History lists with fewer tracks don't count as sets (default 5).",
+          "description": "Without declared sets: sessions with fewer tracks don't count (default 5).",
           "format": "uint",
           "minimum": 0,
           "type": [
@@ -13952,12 +14506,12 @@
         },
         "no_store": {
           "default": false,
-          "description": "Leave the store out (its archived history lists and its libraries).",
+          "description": "Leave the store out (its sets, archived history lists and libraries).",
           "type": "boolean"
         },
         "since": {
           "default": null,
-          "description": "Only sets first seen from this day: `2026`, `2026-09` or `2026-09-30`.",
+          "description": "Only sets played from this day: `2026`, `2026-09` or `2026-09-30`. Without declared sets,\nsessions first archived from it.",
           "type": [
             "string",
             "null"
@@ -13975,7 +14529,7 @@
         },
         "until": {
           "default": null,
-          "description": "Only sets first seen up to this day (same forms).",
+          "description": "Only sets played up to this day (same forms).",
           "type": [
             "string",
             "null"
@@ -16161,6 +16715,213 @@
       ],
       "type": "object"
     },
+    "Session": {
+      "description": "A session: one run of play logging. A history list a player recorded, or a log imported from\nanother tool ([`ImportedSession`]).",
+      "properties": {
+        "dismissed": {
+          "description": "The DJ said it wasn't a set.",
+          "type": "boolean"
+        },
+        "drives": {
+          "description": "The mounted drives holding it now.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "first_seen_on": {
+          "description": "The drive whose snapshot first held it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "The list's fingerprint ([`crate::plays::HistoryList::fingerprint`]): the same wherever\nit's read. Commands take any unique prefix of 4 or more characters.",
+          "type": "string"
+        },
+        "missing": {
+          "description": "Entries whose track isn't in the library any more.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Folders and name.",
+          "type": "string"
+        },
+        "sets": {
+          "description": "Sets built from it, by id.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "description": "`device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from\n(`beat_link_trigger`).",
+          "type": "string"
+        },
+        "tracks": {
+          "description": "In play order; `start_seconds` is set for timed logs.",
+          "items": {
+            "$ref": "#/$defs/SetEntry"
+          },
+          "type": "array"
+        },
+        "window": {
+          "$ref": "#/$defs/Window"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "path",
+        "source",
+        "drives",
+        "window",
+        "tracks",
+        "missing",
+        "sets",
+        "dismissed"
+      ],
+      "type": "object"
+    },
+    "SessionsRequest": {
+      "properties": {
+        "drive": {
+          "default": null,
+          "description": "Only this drive's sessions and those of its library in the store. Default: every mounted\nrekordbox drive's and the whole store's.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unassigned": {
+          "default": false,
+          "description": "Only the sessions in no set that weren't dismissed (`sessions.dismiss`).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Set": {
+      "description": "A performance: what the DJ played, where and when.",
+      "properties": {
+        "city": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "country": {
+          "description": "ISO 3166 country code, `GB`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "date": {
+          "description": "The day it was played (local).",
+          "format": "date",
+          "type": "string"
+        },
+        "event": {
+          "description": "The event it was part of: the `at://` URI of a `community.lexicon.calendar.event` record.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "A TID ([`new_id`]): the record key when it's published, and how commands name it (any\nunique prefix of 4 or more characters).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "`club`, `festival`, `radio`, `livestream`, `mix` (the Lexicon's `knownValues`) or the DJ's\nown word.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "link": {
+          "description": "Where people can listen to it (Mixcloud, SoundCloud, YouTube...).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notes": {
+          "description": "The DJ's own notes. Never published.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recording": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetRecording"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The recording on this computer the tracklist was found in."
+        },
+        "sessions": {
+          "description": "The sessions it was built from, by id ([`Session::id`]).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tracks": {
+          "description": "In play order.",
+          "items": {
+            "$ref": "#/$defs/SetEntry"
+          },
+          "type": "array"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "venue": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "with": {
+          "description": "Who they played with (back to back).",
+          "items": {
+            "$ref": "#/$defs/Partner"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "date",
+        "tracks",
+        "created_at",
+        "updated_at"
+      ],
+      "type": "object"
+    },
     "SetArtwork": {
       "description": "Which tracks an operation targets: the tracks that fit every field given, so a playlist and a\nfilter together pick the playlist's tracks the filter matches. At least one field must be set,\nand a blank query, filter, album, playlist or history list is refused rather than taken to\nmean every track.",
       "properties": {
@@ -16224,6 +16985,25 @@
       "required": [
         "drive",
         "image"
+      ],
+      "type": "object"
+    },
+    "SetChange": {
+      "description": "A set as it was saved, and what's worth telling the DJ about it (tentative matches, tracks\nlogged but not heard in the recording, a day to check, how inserted tracks were found).",
+      "properties": {
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "set": {
+          "$ref": "#/$defs/Set"
+        }
+      },
+      "required": [
+        "set",
+        "notes"
       ],
       "type": "object"
     },
@@ -16295,6 +17075,206 @@
       ],
       "type": "object"
     },
+    "SetEntry": {
+      "description": "One track of a set, kept as it was when it went in, so the set outlives library changes and\nreads without the drive.",
+      "properties": {
+        "album": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "bpm": {
+          "default": 0.0,
+          "description": "0 when unknown.",
+          "format": "double",
+          "type": "number"
+        },
+        "duration_secs": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "file": {
+          "description": "The audio file's path in the library (`/Contents/...`), to find the track again.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "genre": {
+          "type": "string"
+        },
+        "isrc": {
+          "type": "string"
+        },
+        "key": {
+          "description": "As the library has it (note name, Camelot or Open Key).",
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/EntryOrigin"
+        },
+        "session": {
+          "description": "The session that logged it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "start_seconds": {
+          "description": "Seconds from the start of the set (from a recording or a timed log).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "unnamed": {
+          "description": "Published without naming it: only its place in the set.",
+          "type": "boolean"
+        },
+        "year": {
+          "default": 0,
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "title",
+        "artist",
+        "bpm",
+        "year",
+        "duration_secs",
+        "origin"
+      ],
+      "type": "object"
+    },
+    "SetExport": {
+      "properties": {
+        "drive": {
+          "default": null,
+          "description": "For `m3u8`: the drive the tracks are on (default: the only mounted rekordbox drive).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "format": {
+          "$ref": "#/$defs/SetFormat"
+        },
+        "output": {
+          "default": null,
+          "description": "Write it to this file (otherwise it's answered as `text`). An M3U8's paths are relative\nto it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "replace": {
+          "default": false,
+          "description": "Replace a file already at `output` (refused otherwise).",
+          "type": "boolean"
+        },
+        "set": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "set",
+        "format"
+      ],
+      "type": "object"
+    },
+    "SetExportReport": {
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/SetFormat"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "description": "The document, when it wasn't written to a file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tracks": {
+          "description": "Tracks written.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "warnings": {
+          "description": "Rules of the format the set breaks, and tracks left out.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "format",
+        "tracks",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "SetFormat": {
+      "description": "How a set is written out.",
+      "oneOf": [
+        {
+          "const": "text",
+          "description": "`01. Artist - Title`.",
+          "type": "string"
+        },
+        {
+          "const": "mixcloud",
+          "description": "Mixcloud's tracklist paste: `Artist - Title - 00:04:12`, with its rules checked.",
+          "type": "string"
+        },
+        {
+          "const": "cue",
+          "description": "A CUE sheet for the recording.",
+          "type": "string"
+        },
+        {
+          "const": "youtube",
+          "description": "Chapters for a YouTube description: `04:12 Artist - Title`.",
+          "type": "string"
+        },
+        {
+          "const": "1001",
+          "description": "For 1001Tracklists: `[0:04:12] Artist - Title`. Unconfirmed: their site documents no\npaste format, so this is the cue-time style tracklists are usually written in.",
+          "type": "string"
+        },
+        {
+          "const": "csv",
+          "description": "`#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`.",
+          "type": "string"
+        },
+        {
+          "const": "m3u8",
+          "description": "A playlist of the tracks on a drive.",
+          "type": "string"
+        }
+      ]
+    },
     "SetInfo": {
       "properties": {
         "closing_bpm": {
@@ -16304,8 +17284,9 @@
             "null"
           ]
         },
-        "first_seen": {
-          "format": "date-time",
+        "date": {
+          "description": "The day the set was played. A session has no such day: this is the day a pull first\narchived it (it was played then or before), and none while it's only on a drive.",
+          "format": "date",
           "type": [
             "string",
             "null"
@@ -16319,11 +17300,13 @@
             "null"
           ]
         },
-        "name": {
+        "id": {
+          "description": "The set's id, or the session's (its history list's fingerprint, see\n[`crate::sets::Session::id`]).",
           "type": "string"
         },
-        "on_drive": {
-          "type": "boolean"
+        "name": {
+          "description": "The set's title, else its venue; the session's history list (folders and name).",
+          "type": "string"
         },
         "opening_bpm": {
           "format": "double",
@@ -16332,11 +17315,8 @@
             "null"
           ]
         },
-        "path": {
-          "type": "string"
-        },
-        "source": {
-          "description": "The drive it was read from, or the drive whose snapshot archived it.",
+        "place": {
+          "description": "Where: the set's venue and city; the drive a session was read from, or whose snapshot\narchived it.",
           "type": "string"
         },
         "tracks": {
@@ -16346,11 +17326,10 @@
         }
       },
       "required": [
+        "id",
         "name",
-        "path",
-        "source",
-        "first_seen",
-        "on_drive",
+        "place",
+        "date",
         "tracks",
         "opening_bpm",
         "closing_bpm",
@@ -16448,6 +17427,91 @@
       ],
       "type": "object"
     },
+    "SetPlaylist": {
+      "properties": {
+        "drive": {
+          "type": "string"
+        },
+        "name": {
+          "default": null,
+          "description": "The playlist's path (default: `Sets/<date> <title or venue>`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "set": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "set",
+        "drive"
+      ],
+      "type": "object"
+    },
+    "SetPublishRequest": {
+      "properties": {
+        "hide": {
+          "default": [],
+          "description": "Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed\nand tracks the profile hides (`profile hide`) are never named either.",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "set": {
+          "description": "The set: its id (or a prefix of 4 or more characters), title or day, or `last`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "set"
+      ],
+      "type": "object"
+    },
+    "SetRecording": {
+      "description": "A recording of a set.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "report": {
+          "description": "The mix report kept in the store for it (`mix.reports.get`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "SetRef": {
+      "properties": {
+        "set": {
+          "default": null,
+          "description": "The set: `last`, an id prefix of 4 or more, a title, or a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "venue": {
+          "default": null,
+          "description": "Without `set`: the latest set at the venue whose name contains this (ignoring case).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "SetRole": {
       "properties": {
         "drive": {
@@ -16529,7 +17593,45 @@
       ],
       "type": "object"
     },
+    "SetsQuery": {
+      "properties": {
+        "kind": {
+          "default": null,
+          "description": "Only sets of this kind (ignoring case).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "since": {
+          "default": null,
+          "description": "Only sets played on or after this day (`2026`, `2026-09` or `2026-09-30`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "until": {
+          "default": null,
+          "description": "Only sets played on or before this day (`2026` is the whole year).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "venue": {
+          "default": null,
+          "description": "Only sets at a venue whose name contains this (ignoring case).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "SetsSection": {
+      "description": "The sets the numbers come from: the DJ's, or the sessions standing in for them (see\n[`ProfileReport::basis`]).",
       "properties": {
         "count": {
           "format": "uint",
@@ -16541,23 +17643,8 @@
           "minimum": 0,
           "type": "integer"
         },
-        "first_seen": {
-          "description": "When the oldest and newest archived sets were first seen (sets still on a drive have no\ndate).",
-          "format": "date-time",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "last_seen": {
-          "format": "date-time",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "list": {
-          "description": "Newest first (undated sets, still on a drive, first).",
+          "description": "Newest first (sessions only on a drive, undated, first).",
           "items": {
             "$ref": "#/$defs/SetInfo"
           },
@@ -16573,11 +17660,26 @@
           "minimum": 0,
           "type": "integer"
         },
+        "newest": {
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "not_archived": {
-          "description": "Sets on a drive that the store hasn't archived yet.",
+          "description": "Sessions only on a drive, which the store hasn't archived yet.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
+        },
+        "oldest": {
+          "description": "The days of the oldest and newest sets ([`SetInfo::date`]).",
+          "format": "date",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "plays": {
           "description": "Track appearances across every set.",
@@ -16586,7 +17688,7 @@
           "type": "integer"
         },
         "too_short": {
-          "description": "History lists left out for having fewer than `min_set_tracks` tracks.",
+          "description": "Sessions left out for having fewer than `min_set_tracks` tracks.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -16598,8 +17700,8 @@
         "distinct_tracks",
         "median_tracks",
         "longest",
-        "first_seen",
-        "last_seen",
+        "oldest",
+        "newest",
         "not_archived",
         "too_short",
         "list"
@@ -17127,6 +18229,10 @@
     "SnapshotInfo": {
       "description": "Snapshot without its file list, for listings.",
       "properties": {
+        "beside": {
+          "description": "Off the line back from the library's latest: saved beside it (a drive back from a set, see\n[`crate::sync::pull_beside`]). False from [`Snapshot::info`]; [`crate::api::history`]\nfills it in.",
+          "type": "boolean"
+        },
         "bytes": {
           "format": "uint64",
           "minimum": 0,
@@ -17314,7 +18420,7 @@
     "SourceInfo": {
       "properties": {
         "history_lists": {
-          "description": "History lists read (before set filtering).",
+          "description": "History lists (sessions) read.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -17867,6 +18973,12 @@
           ],
           "description": "When this store is a copy of another (`store copy`): when it was made."
         },
+        "embed_backup_bytes": {
+          "description": "Size of the copies `art embed` keeps of the files it rewrote, for `art unembed`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "libraries": {
           "items": {
             "$ref": "#/$defs/LibraryRecord"
@@ -17883,6 +18995,7 @@
       "required": [
         "root",
         "stats",
+        "embed_backup_bytes",
         "libraries"
       ],
       "type": "object"
@@ -18013,6 +19126,19 @@
       ],
       "type": "object"
     },
+    "SuggestSets": {
+      "properties": {
+        "drive": {
+          "default": null,
+          "description": "Only this drive's sessions and those of its library in the store. Default: every mounted\nrekordbox drive's and the whole store's.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "Suggestion": {
       "description": "What to do about it.",
       "oneOf": [
@@ -18031,6 +19157,30 @@
           "type": "string"
         }
       ]
+    },
+    "Suggestions": {
+      "description": "The sets the sessions suggest, and the sessions they're made of.",
+      "properties": {
+        "candidates": {
+          "description": "Newest first.",
+          "items": {
+            "$ref": "#/$defs/Candidate"
+          },
+          "type": "array"
+        },
+        "sessions": {
+          "description": "The candidates' sessions, newest first.",
+          "items": {
+            "$ref": "#/$defs/Session"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "candidates",
+        "sessions"
+      ],
+      "type": "object"
     },
     "SyncManyPreview": {
       "properties": {
@@ -19147,6 +20297,37 @@
       ],
       "type": "object"
     },
+    "TimedPlay": {
+      "description": "One play in an imported log.",
+      "properties": {
+        "entry": {
+          "$ref": "#/$defs/SetEntry"
+        },
+        "player": {
+          "description": "The player it was played on (`3`), when the log says.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "started": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "stopped": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entry",
+        "started"
+      ],
+      "type": "object"
+    },
     "Touched": {
       "description": "A drive, folder or file an operation reads or writes, and its state when it was planned.",
       "properties": {
@@ -19795,6 +20976,18 @@
         "track",
         "play_count",
         "history_lists"
+      ],
+      "type": "object"
+    },
+    "TrackPlaysQuery": {
+      "properties": {
+        "track": {
+          "description": "Part of `Artist - Title` (ignoring case), or a drive path (`/Contents/...`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "track"
       ],
       "type": "object"
     },
@@ -20906,6 +22099,46 @@
           "type": "object"
         },
         {
+          "description": "Another operation holds the store or the drive: it's looked at again once that's done.\nSaid once per wait.",
+          "properties": {
+            "event": {
+              "const": "watch.waiting",
+              "type": "string"
+            },
+            "has_export": {
+              "description": "Whether it holds a rekordbox export (either database).",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "The identity locallibrary gave it (`.locallibrary/state.json`), if any.",
+              "format": "uuid",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "description": "Its adopted name, else the volume's name.",
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "root",
+            "id",
+            "name",
+            "has_export",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
           "description": "Left alone, and why.",
           "properties": {
             "event": {
@@ -21066,7 +22299,7 @@
           "type": "object"
         },
         {
-          "description": "The store's libraries, snapshots, labels, drive registry, settings or smart playlists\nchanged.",
+          "description": "The store's libraries, snapshots, labels, drive registry, settings, smart playlists or\nsets changed.",
           "properties": {
             "changed": {
               "items": {
@@ -21271,6 +22504,37 @@
           "type": "string"
         }
       ]
+    },
+    "Window": {
+      "description": "When a session was recorded, as far as anyone can tell. Players have no clock, so for a\nhistory list it's a window: after locallibrary last saw the drive without the list, before it\nfirst saw it with it.",
+      "properties": {
+        "after": {
+          "description": "Recorded after this, when known.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "before": {
+          "description": "Recorded before this, when known.",
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exact": {
+          "description": "The times come from the log itself (an imported log): when the first track started and\nthe last one stopped.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "after",
+        "before",
+        "exact"
+      ],
+      "type": "object"
     },
     "WriteOptions": {
       "description": "Accepted by every method that writes (with its other parameters).",
@@ -24476,13 +25740,13 @@
       "destructive": true,
       "kind": "plan",
       "long_running": false,
-      "name": "history.publish.plan",
-      "operation": "history.publish",
-      "pair": "history.publish.apply",
+      "name": "sets.publish.plan",
+      "operation": "sets.publish",
+      "pair": "sets.publish.apply",
       "params": {
         "allOf": [
           {
-            "$ref": "#/$defs/HistoryPublishRequest"
+            "$ref": "#/$defs/SetPublishRequest"
           },
           {
             "$ref": "#/$defs/WriteOptions"
@@ -24505,9 +25769,9 @@
       "destructive": true,
       "kind": "apply",
       "long_running": false,
-      "name": "history.publish.apply",
-      "operation": "history.publish",
-      "pair": "history.publish.plan",
+      "name": "sets.publish.apply",
+      "operation": "sets.publish",
+      "pair": "sets.publish.plan",
       "params": {
         "anyOf": [
           {
@@ -24516,7 +25780,7 @@
           {
             "allOf": [
               {
-                "$ref": "#/$defs/HistoryPublishRequest"
+                "$ref": "#/$defs/SetPublishRequest"
               },
               {
                 "$ref": "#/$defs/WriteOptions"
@@ -24643,6 +25907,258 @@
       },
       "result": {
         "$ref": "#/$defs/SettingsProfile"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "read",
+      "long_running": false,
+      "name": "sets.list",
+      "params": {
+        "$ref": "#/$defs/SetsQuery"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/Set"
+        },
+        "type": "array"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "read",
+      "long_running": false,
+      "name": "sets.get",
+      "params": {
+        "$ref": "#/$defs/SetRef"
+      },
+      "result": {
+        "$ref": "#/$defs/Set"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "immediate",
+      "long_running": true,
+      "name": "sets.new",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/NewSet"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SetChange"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "immediate",
+      "long_running": true,
+      "name": "sets.edit",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/EditSet"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SetChange"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "immediate",
+      "long_running": false,
+      "name": "sets.delete",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetRef"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Set"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "immediate",
+      "long_running": false,
+      "name": "sets.export",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetExport"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/SetExportReport"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "read",
+      "long_running": false,
+      "name": "sets.played",
+      "params": {
+        "$ref": "#/$defs/TrackPlaysQuery"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/$defs/Appearance"
+        },
+        "type": "array"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "plan",
+      "long_running": false,
+      "name": "sets.playlist.plan",
+      "operation": "sets.playlist",
+      "pair": "sets.playlist.apply",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetPlaylist"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/EditPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "apply",
+      "long_running": false,
+      "name": "sets.playlist.apply",
+      "operation": "sets.playlist",
+      "pair": "sets.playlist.plan",
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/SetPlaylist"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "read",
+      "long_running": true,
+      "name": "sets.suggest",
+      "params": {
+        "$ref": "#/$defs/SuggestSets"
+      },
+      "result": {
+        "$ref": "#/$defs/Suggestions"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "read",
+      "long_running": true,
+      "name": "sessions.list",
+      "params": {
+        "$ref": "#/$defs/SessionsRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/Gathered"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "immediate",
+      "long_running": true,
+      "name": "sessions.dismiss",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/DismissSessions"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "immediate",
+      "long_running": false,
+      "name": "sessions.import",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ImportSessionLog"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/ImportedSession"
       }
     },
     {
@@ -25701,13 +27217,15 @@
       }
     },
     {
-      "aliases": [],
+      "aliases": [
+        "set.plan"
+      ],
       "destructive": true,
       "kind": "plan",
       "long_running": true,
-      "name": "set.plan",
+      "name": "prep.plan",
       "operation": "set",
-      "pair": "set.apply",
+      "pair": "prep.apply",
       "params": {
         "allOf": [
           {
@@ -25730,13 +27248,15 @@
       }
     },
     {
-      "aliases": [],
+      "aliases": [
+        "set.apply"
+      ],
       "destructive": true,
       "kind": "apply",
       "long_running": true,
-      "name": "set.apply",
+      "name": "prep.apply",
       "operation": "set",
-      "pair": "set.plan",
+      "pair": "prep.plan",
       "params": {
         "anyOf": [
           {

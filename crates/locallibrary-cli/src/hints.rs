@@ -1,7 +1,10 @@
 //! What to type next: the CLI's wording for what resolves a library error. The library says what
 //! went wrong and, as data, what would resolve it ([`locallibrary::error::Detail`]: a reason,
 //! and actions that name RPC methods and parameters); this turns those into commands and flags.
+//! And after saving drives that came back with new sessions, what makes sets of them.
 
+use locallibrary::Store;
+use locallibrary::api::{self, JobReport, StepKind};
 use locallibrary::error::{Action, Detail};
 use serde_json::{Map, Value};
 
@@ -15,6 +18,44 @@ pub fn hints(e: &locallibrary::Error) -> Vec<String> {
             None => a.label.clone(),
         })
         .collect()
+}
+
+/// After saving drives: `n` new sessions, and how to find the sets among them (nothing when
+/// there are none).
+pub fn new_sessions(n: usize) {
+    match n {
+        0 => {}
+        1 => crate::output::hint("1 new session: `locallibrary sets suggest` says if it looks like a set"),
+        n => crate::output::hint(format!("{n} new sessions: `locallibrary sets suggest` says which look like sets")),
+    }
+}
+
+/// How many history lists the snapshots `saved` (ids, with their parents') hold that their
+/// parents don't, every one for a library's first: the sessions saving them added. One that
+/// can't be read adds none: it's only for a hint.
+pub fn saved_sessions(store: &Store, saved: impl IntoIterator<Item = (String, Option<String>)>) -> usize {
+    saved
+        .into_iter()
+        .filter_map(|(id, parent)| {
+            let req = api::PlayStatsRequest {
+                source: format!("snapshot:{id}"),
+                since: parent.map(|p| format!("snapshot:{p}")),
+                limit: Some(0),
+            };
+            let stats = api::play_stats(Some(store), &req).ok()?;
+            Some(stats.since.map_or(stats.history_lists, |s| s.new_histories.len()))
+        })
+        .sum()
+}
+
+/// [`saved_sessions`] of the snapshots a job's pull step saved.
+pub fn job_sessions(store: &Store, r: &JobReport) -> usize {
+    let saved = r.steps.iter().filter(|s| s.step == StepKind::Pull).flat_map(|s| &s.reports).filter_map(|p| {
+        let s = &p["snapshot"];
+        let id = s["id"].as_str().filter(|_| p["up_to_date"] != true)?;
+        Some((id.to_string(), s["parents"][0].as_str().map(String::from)))
+    });
+    saved_sessions(store, saved)
 }
 
 /// The command (or flags) an action stands for.
@@ -129,5 +170,27 @@ mod tests {
         let e = locallibrary::Error::Account("the system keychain isn't available".into())
             .action(Action::retry(json!({ "session_file": true }), "Keep the session in a file"));
         assert_eq!(hints(&e), ["Keep the session in a file: add --session-file"]);
+    }
+
+    /// Values become flags as typed: a word as it is, a number bare, an unset switch left out; and
+    /// a method's own spelling of a value becomes the command line's.
+    #[test]
+    fn values_are_spelled_as_the_command_line_takes_them() {
+        let e = locallibrary::Error::Conflict("the drives differ".into())
+            .action(Action::retry(json!({ "folder_name": "From B", "limit": 3, "dry_run": false }), "Retry"))
+            .action(Action::call("sync.plan", json!({ "left": "A", "right": "B" }), "Sync"))
+            .action(Action::call("drive.role", json!({ "role": "backup" }), "Make it a backup"))
+            .action(Action::call("convert.plan", json!({ "drive": "A", "to": "device_library" }), "Rebuild"))
+            .action(Action::call("convert.plan", json!({ "drive": "A", "to": "one_library" }), "Convert"));
+        assert_eq!(
+            hints(&e),
+            [
+                "Retry: add --folder \"From B\" --limit 3",
+                "Sync: locallibrary sync A B",
+                "Make it a backup: locallibrary drive role <DRIVE> backup",
+                "Rebuild: locallibrary convert A --to device-library",
+                "Convert: locallibrary convert A --to onelibrary",
+            ]
+        );
     }
 }

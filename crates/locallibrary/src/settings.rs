@@ -1025,6 +1025,34 @@ mod tests {
     }
 
     #[test]
+    fn damaged_files_are_refused_by_name() {
+        let file = SettingsFile::MySetting;
+        let good = SettingsBlob::default_for(file).as_bytes().to_vec();
+        let refused = |bytes: Vec<u8>| SettingsBlob::parse(file, bytes).unwrap_err().to_string();
+        assert!(refused(good[..10].to_vec()).ends_with("too short (10 bytes)"));
+        let mut section = good.clone();
+        section[0] = 0x61;
+        assert!(refused(section).ends_with("unexpected string section length"));
+        let mut longer = good.clone();
+        longer.push(0);
+        let message = refused(longer);
+        assert!(message.contains("unexpected data length") && message.contains(file.file_name()), "{message}");
+
+        // Read from a file, the error names the file.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(file.file_name());
+        std::fs::write(&path, &good[..10]).unwrap();
+        let err = SettingsBlob::read(file, &path).unwrap_err();
+        assert!(matches!(&err, Error::Parse { path: p, .. } if *p == path), "{err}");
+    }
+
+    #[test]
+    fn values_the_schema_lacks_are_shown_as_bytes() {
+        assert_eq!(SettingValue::Unknown(0x7f).to_string(), "unknown(0x7f)");
+        assert_eq!(SettingValue::Known("on".into()).to_string(), "on");
+    }
+
+    #[test]
     fn crc_reference_value() {
         // CRC-16/XMODEM check value from the CRC catalogue.
         assert_eq!(crc16_xmodem(b"123456789"), 0x31c3);

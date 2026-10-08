@@ -1,7 +1,5 @@
 //! Editing OneLibrary's playlists, histories and track details in place (see [`crate::edit`]).
 
-use std::collections::HashSet;
-
 use rusqlite::{OptionalExtension, params};
 
 use super::{Lookup, OneLibrary, id32, int};
@@ -196,19 +194,12 @@ impl OneLibrary {
     }
 
     /// Remove the candidate lookup rows nothing references any more. Albums go first, so an
-    /// album artist only that album used goes too.
+    /// album's artist (a candidate with it) that only that album used goes too.
     fn prune_lookups(&mut self, candidates: &[(Lookup, i64)]) -> Result<()> {
         let mut candidates: Vec<(Lookup, i64)> = candidates.iter().copied().filter(|(_, id)| *id > 0).collect();
         candidates.sort_by_key(|(t, id)| (*t != Lookup::Album, *id));
         candidates.dedup();
-        let mut done = HashSet::new();
-        let mut i = 0;
-        while i < candidates.len() {
-            let (table, id) = candidates[i];
-            i += 1;
-            if !done.insert((table, id)) {
-                continue;
-            }
+        for (table, id) in candidates {
             let used_sql = match table {
                 Lookup::Artist => {
                     "SELECT 1 FROM content WHERE ?1 IN (artist_id_artist, artist_id_remixer, artist_id_originalArtist,
@@ -227,13 +218,6 @@ impl OneLibrary {
             if used.is_some() {
                 continue;
             }
-            if table == Lookup::Album {
-                let artist: Option<i64> = self
-                    .conn
-                    .query_row("SELECT artist_id FROM album WHERE album_id = ?1", [id], |r| Ok(int(r.get_ref(0)?)))
-                    .optional()?;
-                candidates.extend(artist.filter(|a| *a > 0).map(|a| (Lookup::Artist, a)));
-            }
             self.conn.execute(&format!("DELETE FROM {} WHERE {} = ?1", table.table(), table.id()), [id])?;
         }
         Ok(())
@@ -251,5 +235,54 @@ impl OneLibrary {
             )
             .optional()?;
         id.map(|id| id32(id, t)).transpose()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::onelibrary::ContentRecord;
+
+    fn names(one: &OneLibrary, table: &str) -> Vec<String> {
+        let mut stmt = one.conn.prepare(&format!("SELECT name FROM \"{table}\" ORDER BY name")).unwrap();
+        stmt.query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap()
+    }
+
+    #[test]
+    fn lookup_rows_go_once_no_track_uses_them() {
+        let mut one = OneLibrary::create().unwrap();
+        let mut t = crate::model::tests::track(1, "Artist", "Title", "/Contents/a.mp3");
+        (t.album, t.album_artist, t.genre, t.label, t.key) =
+            ("Album".into(), "Band".into(), "House".into(), "Label".into(), "Am".into());
+        let rec = ContentRecord::from_track(&t, false, &one.content_defaults().unwrap());
+        let id = one.add_track(&rec, &t.file_path, "", None).unwrap();
+        let keys = names(&one, "key");
+        assert!(keys.contains(&"Am".to_string()), "{keys:?}");
+
+        let f = TrackFields {
+            artist: Some("Someone".into()),
+            album: Some(String::new()),
+            genre: Some("Techno".into()),
+            label: Some(" ".into()),
+            key: Some(String::new()),
+            ..Default::default()
+        };
+        one.set_track_fields(&[id], &f).unwrap();
+        // The album went, and with it the band only the album named.
+        assert_eq!(names(&one, "artist"), ["Someone"]);
+        assert!(names(&one, "album").is_empty());
+        assert_eq!(names(&one, "genre"), ["Techno"]);
+        assert!(names(&one, "label").is_empty());
+        assert_eq!(names(&one, "key").len(), keys.len() - 1);
+    }
+
+    #[test]
+    fn nodes_and_tracks_that_arent_there_are_not_found() {
+        let mut one = OneLibrary::create().unwrap();
+        let not_found = |r: Result<()>| matches!(r, Err(Error::NotFound(m)) if m.ends_with("#99 in exportLibrary.db"));
+        assert!(not_found(one.rename_node(Tree::History, 99, "x")));
+        assert!(not_found(one.place_node(Tree::Playlist, 99, 0, 1)));
+        assert!(not_found(one.remove_nodes(Tree::Playlist, &[99])));
+        assert!(not_found(one.set_track_fields(&[99], &TrackFields { title: Some("x".into()), ..Default::default() })));
     }
 }

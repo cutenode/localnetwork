@@ -1,24 +1,18 @@
 //! Reading a library a piece at a time, and the cache that keeps a parsed library between
 //! requests.
 
-use crate::common;
+use crate::common::{self, path};
 
-use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 
+use locallibrary::Error;
 use locallibrary::api::{
     self, AnalysisRequest, ArtworkRequest, DriveRef, LibraryCache, LibraryRequest, OneOrMany, TracksGet, TracksQuery,
     WaveformChoice, WaveformEncoding,
 };
-use locallibrary::artwork::{self, Artwork};
 use locallibrary::device::{Device, dunce_canonicalize};
-use locallibrary::progress::Ctx;
 use serde_json::{Value, json};
-
-fn path(p: &Path) -> String {
-    p.display().to_string()
-}
 
 fn query(root: &Path) -> TracksQuery {
     TracksQuery { drive: path(root), ..Default::default() }
@@ -109,19 +103,11 @@ fn the_library_in_pages_trees_and_by_id() {
     assert_eq!(got.missing, [999_999]);
 }
 
-fn png() -> Vec<u8> {
-    let img = image::RgbImage::from_fn(300, 300, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 40]));
-    let mut out = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgb8(img).write_to(&mut out, image::ImageFormat::Png).unwrap();
-    out.into_inner()
-}
-
 #[test]
 fn artwork_as_files_and_in_batches() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");
-    let mut d = Device::open_export(&root).unwrap();
-    artwork::set_on_drive(&mut d, &[1], &Artwork::from_bytes(&png()).unwrap(), &Ctx::silent()).unwrap();
+    common::media::set_art(&root, &[1]);
     let cache = LibraryCache::new(1);
     let one = |track| ArtworkRequest::One { drive: path(&root), track };
 
@@ -148,7 +134,7 @@ fn artwork_as_files_and_in_batches() {
     #[cfg(unix)]
     {
         let outside = dir.path().join("elsewhere.jpg");
-        std::fs::write(&outside, png()).unwrap();
+        std::fs::write(&outside, common::media::png(300, 300, 40)).unwrap();
         let OneOrMany::One(Some(file)) = api::artwork_path(&cache, &one(1)).unwrap() else { unreachable!() };
         std::fs::remove_file(&file.path).unwrap();
         std::os::unix::fs::symlink(&outside, &file.path).unwrap();
@@ -221,4 +207,56 @@ fn analysis_with_the_waveforms_asked_for() {
     let preview = serde_json::to_value(&preview).unwrap();
     assert!(preview["detail"].is_null());
     assert_eq!(decode(preview["preview"]["front"]["heights"].as_str().unwrap()).len(), 1200);
+}
+
+/// A drive's My Tags are read once and kept, both as listed and by track for `tag:` filters,
+/// and cues are listed for the tracks chosen.
+#[test]
+fn my_tags_are_read_once_and_cues_listed_from_the_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let cache = LibraryCache::new(1);
+    let drive = DriveRef { drive: path(&root) };
+
+    let first = api::tags_list_cached(&cache, &drive).unwrap();
+    assert_eq!(first.categories.len(), 4);
+    assert!(Arc::ptr_eq(&first, &api::tags_list_cached(&cache, &drive).unwrap()), "kept, not read again");
+    let tagged = api::TracksQuery { drive: path(&root), filter: Some("tag:Techno".into()), ..Default::default() };
+    for _ in 0..2 {
+        assert_eq!(api::tracks_query_cached(&cache, &tagged).unwrap().total, 0, "no track has the tag");
+    }
+
+    let first_track = api::TrackSelector { ids: vec![1], ..Default::default() };
+    let cues = api::cues_list_cached(&cache, &api::ListCues { drive: path(&root), tracks: first_track }).unwrap();
+    assert_eq!(cues.iter().map(|c| c.track.id).collect::<Vec<_>>(), [1]);
+}
+
+/// Tracks are queried in a playlist's order or sorted, and matched by key and tempo; a track or
+/// playlist the drive doesn't have is refused.
+#[test]
+fn tracks_are_queried_and_matched() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Club");
+    let lib = Device::open(&root).unwrap().library().unwrap();
+    let playlist = lib.playlists.iter().find(|p| !p.is_folder).unwrap();
+    let query = |playlist: Option<&str>, sort: Option<&str>| api::TracksQuery {
+        drive: path(&root),
+        playlist: playlist.map(Into::into),
+        sort: sort.map(Into::into),
+        ..Default::default()
+    };
+
+    let page = api::tracks_query(&query(Some(&playlist.name), None)).unwrap();
+    assert_eq!(page.tracks.iter().map(|t| t.id).collect::<Vec<_>>(), playlist.track_ids);
+    let sorted = api::tracks_query(&query(Some(&playlist.name), Some("-title"))).unwrap();
+    let mut titles: Vec<String> = page.tracks.iter().map(|t| t.title.clone()).collect();
+    titles.sort_by(|a, b| b.cmp(a));
+    assert_eq!(sorted.tracks.iter().map(|t| t.title.clone()).collect::<Vec<_>>(), titles);
+    assert!(matches!(api::tracks_query(&query(Some("Nope"), None)), Err(Error::NotFound(_))));
+
+    let matches = |track| api::harmonic_matches(&api::MatchesRequest { drive: path(&root), track, limit: Some(3) });
+    assert!(matches!(matches(999), Err(Error::NotFound(m)) if m == "track #999"));
+    let found = matches(lib.tracks[0].id).unwrap();
+    assert!(found.len() <= 3);
+    assert!(found.iter().all(|m| m.track.id != lib.tracks[0].id && !m.key.is_empty()), "{found:?}");
 }

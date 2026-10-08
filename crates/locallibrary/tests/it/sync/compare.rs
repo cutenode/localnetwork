@@ -1,3 +1,6 @@
+//! Comparing drives and syncing one onto another: which is newer, what a sync copies and deletes
+//! and never touches, and syncs cancelled or cut off part way.
+
 use crate::common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -1,3 +1,5 @@
+mod sources;
+
 use crate::common;
 
 use std::collections::BTreeMap;
@@ -8,6 +10,7 @@ use locallibrary::device::Device;
 use locallibrary::paths;
 use locallibrary::profile::{self, Basis, Count, Precision, PrefsUpdate, ProfilePrefs, Section};
 use locallibrary::progress::Ctx;
+use locallibrary::sets::{self, EntryOrigin, Set, SetBook, SetEntry};
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
 use rekordbox_pdb::PdbEditor;
@@ -31,14 +34,45 @@ fn build(store: Option<&Store>, req: &ProfileRequest) -> ProfileView {
     api::profile(store, req, &Ctx::silent()).unwrap()
 }
 
+/// The drive's tracks `ids`, in order, as a set's entries.
+fn entries(root: &Path, ids: &[u32]) -> Vec<SetEntry> {
+    let lib = locallibrary::pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
+    ids.iter()
+        .map(|id| SetEntry::from_track(lib.tracks.iter().find(|t| t.id == *id).unwrap(), EntryOrigin::Session, None))
+        .collect()
+}
+
+/// Declares sets in `store`, each a title, the day it was played and its tracks, at Fabric.
+fn declare(store: &Store, sets: Vec<(&str, &str, Vec<SetEntry>)>) -> SetBook {
+    let mut book = SetBook::load(store).unwrap();
+    for (title, date, tracks) in sets {
+        let date = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap();
+        let at = chrono::Utc::now();
+        book.sets.push(Set {
+            id: sets::new_id(date).unwrap(),
+            title: Some(title.into()),
+            date,
+            venue: Some("Fabric".into()),
+            city: Some("London".into()),
+            tracks,
+            created_at: at,
+            updated_at: at,
+            ..Default::default()
+        });
+    }
+    book.save(store).unwrap();
+    book
+}
+
+/// Without declared sets, the history lists players recorded stand in for them, and say so.
 #[test]
-fn sets_on_a_drive_describe_how_it_was_played() {
+fn sessions_on_a_drive_describe_how_it_was_played() {
     let dir = tempfile::tempdir().unwrap();
     let root = club_drive(dir.path(), "Main");
     let v = build(None, &request(&[&root]));
     let r = &v.report;
 
-    assert_eq!(r.basis, Basis::Plays);
+    assert_eq!(r.basis, Basis::Sessions);
     assert_eq!(r.sets.count, 2);
     assert_eq!(r.sets.too_short, 1);
     assert_eq!(r.sets.plays, 12);
@@ -76,15 +110,16 @@ fn sets_on_a_drive_describe_how_it_was_played() {
     assert_eq!(r.signature.transitions[0].sets, 2);
     assert_eq!(r.signature.played.len(), 10);
     assert!(r.summary.headline.contains("Techno"), "{}", r.summary.headline);
-    assert!(r.summary.headline.contains("2 sets"), "{}", r.summary.headline);
+    assert!(r.summary.headline.contains("2 sessions"), "{}", r.summary.headline);
 
-    // The document leaves out what names tracks unless asked.
+    // The document leaves out what names tracks unless asked, and never counts sessions.
     let doc = serde_json::to_value(&v.document).unwrap();
     assert!(doc.get("signature").is_none());
     assert!(doc.get("artists").is_none());
-    assert_eq!(doc["sets"]["count"], 2);
-    assert_eq!(doc["sets"]["medianTracks"], 6);
-    assert!(doc["sets"].get("since").is_none(), "sets still on a drive have no date");
+    assert_eq!(doc["basis"], "sessions");
+    assert!(doc.get("sets").is_none(), "{doc}");
+    let headline = doc["headline"].as_str().unwrap();
+    assert!(headline.contains("Techno") && !headline.contains("session") && !headline.contains("set"), "{headline}");
     assert_eq!(doc["genres"][0]["name"], "Techno");
     assert!(doc["tempo"]["low"].as_f64().unwrap().fract() == 0.0, "rounded to whole BPM");
     let text = doc.to_string();
@@ -125,7 +160,7 @@ fn preferences_choose_what_the_document_shows() {
     assert_eq!(sig[0].artist, "[a]pendics.shuffle");
     assert_eq!(v.report.signature.tracks.len(), 2);
     assert_eq!(v.report.genres.top[1].name, "Electronica");
-    assert!(matches!(d.sets.as_ref().unwrap().count, Count::Exact { count: 2 }));
+    assert!(d.sets.is_none(), "sessions aren't sets");
 
     // Hiding the artist hides every track by them, and the artist list.
     api::profile_prefs_update(
@@ -146,11 +181,40 @@ fn preferences_choose_what_the_document_shows() {
     assert_eq!(api::profile_prefs(&store).unwrap(), before);
 }
 
+/// A track one of the DJ's sets marks unnamed (an unreleased dubplate, say) is never named in
+/// public, even pinned, as if the profile hid it; it still counts.
+#[test]
+fn a_track_a_set_marks_unnamed_is_never_named() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = club_drive(dir.path(), "Main");
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut friday = entries(&root, &[1, 2, 3, 4, 5, 6]);
+    friday[0].unnamed = true;
+    declare(
+        &store,
+        vec![("Friday", "2026-09-12", friday), ("Warm-up", "2026-10-03", entries(&root, &[9, 10, 1, 2, 12, 7]))],
+    );
+    let pin = PrefsUpdate {
+        include: vec![Section::Signature],
+        pin: vec!["[a]pendics.shuffle - A1 - It's In The Eyes".into()],
+        ..Default::default()
+    };
+    api::profile_prefs_update(&store, &pin).unwrap();
+
+    let v = build(Some(&store), &request(&[&root]));
+    let titles: Vec<&str> = v.document.signature.iter().flatten().map(|t| t.title.as_str()).collect();
+    assert_eq!(titles, ["A2 - In Charge"]);
+    let unnamed: Vec<&str> = v.report.signature.tracks.iter().filter(|t| t.unnamed).map(|t| t.title.as_str()).collect();
+    assert_eq!(unnamed, ["A1 - It's In The Eyes"], "it still counts, in the report");
+}
+
 #[test]
 fn the_summary_says_no_more_than_the_sections_in_the_document() {
     let dir = tempfile::tempdir().unwrap();
     let root = club_drive(dir.path(), "Main");
     let mut report = build(None, &request(&[&root])).report;
+    // As if the DJ had declared those sessions as sets.
+    report.basis = Basis::Plays;
     // Traits a bigger library would earn, one backed by each kind of section.
     let traits = [
         ("harmonic", "Mixes in key"),
@@ -206,7 +270,9 @@ fn the_published_profile_is_the_document_in_whole_numbers() {
     let r = &plan.record;
     assert_eq!(r["$type"], "computer.localnetwork.locallibrary.profile");
     locallibrary::atmosphere::lexicon::validate(locallibrary::atmosphere::lexicon::PROFILE, r).unwrap();
-    assert_eq!(r["sets"], serde_json::json!({ "count": 2, "medianTracks": 6 }));
+    // No sets declared: sessions are counted in the numbers, never as sets.
+    assert_eq!(r["basis"], "sessions");
+    assert!(r.get("sets").is_none());
     assert_eq!(r["genres"][0]["name"], "Techno");
     assert!(r["genres"][0]["share"].is_i64() && r["tempo"]["low"].is_i64());
     assert!(r.get("signature").is_none() && r.get("artists").is_none(), "opt-in sections stay out");
@@ -217,7 +283,7 @@ fn the_published_profile_is_the_document_in_whole_numbers() {
 }
 
 #[test]
-fn archived_sets_keep_counting_after_rekordbox_takes_them_off_the_drive() {
+fn archived_sessions_keep_counting_after_rekordbox_takes_them_off_the_drive() {
     let dir = tempfile::tempdir().unwrap();
     let root = club_drive(dir.path(), "Main");
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
@@ -237,9 +303,9 @@ fn archived_sets_keep_counting_after_rekordbox_takes_them_off_the_drive() {
     let r = &v.report;
     assert_eq!(r.sets.count, 3);
     assert_eq!(r.sets.not_archived, 1);
-    assert!(r.sets.first_seen.is_some());
+    assert!(r.sets.oldest.is_some());
     // Newest first: the one still on the drive.
-    assert!(r.sets.list[0].on_drive && r.sets.list[0].first_seen.is_none());
+    assert!(r.sets.list[0].date.is_none());
     assert_eq!(r.sources.iter().map(|s| s.kind).collect::<Vec<_>>(), ["store", "drive"]);
     // The same tracks from the drive and the store's snapshot are one collection.
     assert_eq!(r.collection.tracks, 12);
@@ -255,7 +321,7 @@ fn archived_sets_keep_counting_after_rekordbox_takes_them_off_the_drive() {
     let v = build(Some(&store), &ProfileRequest { until: Some(tomorrow), ..request(&[&root]) });
     assert_eq!(v.report.sets.count, 2);
     assert_eq!(v.report.sets.not_archived, 0);
-    assert!(v.document.sets.as_ref().unwrap().since.is_some());
+    assert!(v.report.sets.oldest.is_some());
 }
 
 /// Shares of one whole add up as published (84/8/8% isn't 85/10/10%), and the set shape is the
@@ -338,4 +404,133 @@ fn bad_requests_explain_themselves() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("after"), "{err}");
+}
+
+/// Once the DJ declares sets, they are what the profile counts: a 12-track practice session on
+/// the drive doesn't count, however long, and `--min-tracks` is only for sessions.
+#[test]
+fn declared_sets_are_the_sets() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = club_drive(dir.path(), "Main");
+    common::add_history(&root, "HISTORY 004", &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    // Without sets, the practice session counts as much as anything else.
+    let v = build(Some(&store), &request(&[&root]));
+    assert_eq!((v.report.basis, v.report.sets.count), (Basis::Sessions, 3));
+
+    let book = declare(
+        &store,
+        vec![
+            ("Friday", "2026-09-12", entries(&root, &[1, 2, 3, 4, 5, 6])),
+            ("Warm-up", "2026-10-03", entries(&root, &[9, 10, 1, 2, 12, 7])),
+        ],
+    );
+    let v = build(Some(&store), &ProfileRequest { min_set_tracks: Some(7), ..request(&[&root]) });
+    let r = &v.report;
+    assert_eq!(r.basis, Basis::Plays);
+    assert_eq!((r.sets.count, r.sets.plays, r.sets.distinct_tracks), (2, 12, 10));
+    assert_eq!((r.sets.too_short, r.sets.not_archived), (0, 0));
+    let day = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok();
+    assert_eq!((r.sets.oldest, r.sets.newest), (day("2026-09-12"), day("2026-10-03")));
+    // Newest first, as the DJ named them.
+    let newest = &r.sets.list[0];
+    assert_eq!(
+        (newest.name.as_str(), newest.place.as_str(), newest.date),
+        ("Warm-up", "Fabric, London", day("2026-10-03"))
+    );
+    assert_eq!(newest.id, book.find("Warm-up").unwrap().id);
+    // Transitions are consecutive entries: 1 into 2 opens one set and sits in the other.
+    assert_eq!(r.mixing.transitions, 10);
+    assert_eq!(r.signature.transitions.len(), 1);
+    assert_eq!(r.signature.transitions[0].sets, 2);
+    assert!(r.summary.headline.ends_with("2 sets"), "{}", r.summary.headline);
+
+    let doc = serde_json::to_value(&v.document).unwrap();
+    assert_eq!(doc["basis"], "plays");
+    assert_eq!(doc["sets"], serde_json::json!({ "count": 2, "since": 2026, "medianTracks": 6 }));
+}
+
+/// A set's entries are the library's tracks, found by file whatever the entry kept, so their
+/// analysis counts; an entry the library doesn't have still counts, from what it kept.
+#[test]
+fn set_entries_are_found_in_the_library_by_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Demo");
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut tracks = entries(&root, &[1, 2]);
+    (tracks[0].title, tracks[0].bpm) = ("Renamed since".into(), 0.0);
+    let mut dubplate = SetEntry::added("Unknown Artist - Dubplate");
+    (dubplate.bpm, dubplate.genre) = (140.0, "Jungle".into());
+    tracks.push(dubplate);
+    declare(&store, vec![("Listening party", "2026-09-20", tracks)]);
+
+    let r = build(Some(&store), &request(&[&root])).report;
+    assert_eq!((r.basis, r.sets.count, r.sets.plays), (Basis::Plays, 1, 3));
+    let played: Vec<&str> = r.signature.played.iter().map(|t| t.name.as_str()).collect();
+    assert!(played.contains(&"Loopmasters - Demo Track 1"), "{played:?}");
+    assert!(played.contains(&"Unknown Artist - Dubplate"), "{played:?}");
+    // The library's BPMs (128 and 120), and the dubplate's own.
+    assert_eq!((r.tempo.tracks, r.tempo.min, r.tempo.max), (3, Some(120.0), Some(140.0)));
+    assert_eq!(r.genres.top[0].name, "Jungle");
+    // Phrase mood comes from the two library tracks' analysis files.
+    assert_eq!(r.energy.as_ref().map(|e| e.tracks), Some(2));
+    assert_eq!(r.mixing.transitions, 2);
+}
+
+/// `--since` and `--until` take sets by the day they were played. With none in the dates, the
+/// collection is described: sessions don't stand in once there are sets.
+#[test]
+fn sets_are_taken_by_the_day_they_were_played() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = club_drive(dir.path(), "Main");
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    declare(
+        &store,
+        vec![
+            ("NYE", "2025-12-31", entries(&root, &[1, 2, 3, 4, 5, 6])),
+            ("Spring", "2026-03-14", entries(&root, &[7, 8, 9, 10, 11, 12])),
+            ("Autumn", "2026-10-03", entries(&root, &[1, 2, 3, 4, 5, 6])),
+        ],
+    );
+    let names = |since: Option<&str>, until: Option<&str>| {
+        let req =
+            ProfileRequest { since: since.map(String::from), until: until.map(String::from), ..request(&[&root]) };
+        let r = build(Some(&store), &req).report;
+        (r.basis, r.sets.list.iter().map(|s| s.name.clone()).collect::<Vec<_>>())
+    };
+    assert_eq!(names(Some("2026"), None), (Basis::Plays, vec!["Autumn".to_string(), "Spring".into()]));
+    assert_eq!(names(None, Some("2025")), (Basis::Plays, vec!["NYE".to_string()]));
+    assert_eq!(names(Some("2026-03"), Some("2026-03")), (Basis::Plays, vec!["Spring".to_string()]));
+    assert_eq!(names(Some("2027"), None), (Basis::Collection, Vec::new()));
+}
+
+/// Sessions stand in for sets in the numbers, but the document never counts them: no sets
+/// section, no count in the headline, no trait the sets section backs.
+#[test]
+fn sessions_are_never_counted_in_public() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = club_drive(dir.path(), "Main");
+    let mut report = build(None, &request(&[&root])).report;
+    assert_eq!(report.basis, Basis::Sessions);
+    report.summary.tags = [("rarely_repeats", "Rarely repeats tracks"), ("harmonic", "Mixes in key")]
+        .iter()
+        .map(|(id, label)| profile::Tag { id, label: label.to_string(), why: String::new() })
+        .collect();
+    let all = ProfilePrefs {
+        sections: Some(Section::ALL.into_iter().collect()),
+        precision: Precision::Exact,
+        ..Default::default()
+    };
+    let d = profile::document(&report, &all);
+    assert!(d.sets.is_none());
+    assert_eq!(d.tags, ["Mixes in key"]);
+    let headline = d.headline.unwrap();
+    assert!(headline.ends_with("BPM") && !headline.contains("session"), "{headline}");
+
+    // The same numbers from declared sets are counted.
+    report.basis = Basis::Plays;
+    let d = profile::document(&report, &all);
+    assert_eq!(d.sets.map(|s| s.count), Some(Count::Exact { count: 2 }));
+    assert_eq!(d.tags.len(), 2);
+    assert!(d.headline.unwrap().ends_with("2 sets"));
 }

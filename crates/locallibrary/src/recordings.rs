@@ -330,6 +330,30 @@ mod tests {
         assert!(read_wav_header(Cursor::new(b"not a wav file"), 14).is_none());
     }
 
+    /// A header that goes on and on without its data is no header.
+    #[test]
+    fn a_header_without_data_is_no_header() {
+        let mut endless = b"RIFF\0\0\0\0WAVE".to_vec();
+        for _ in 0..64 {
+            endless.extend(b"JUNK\0\0\0\0");
+        }
+        endless.extend(b"data\0\0\0\0");
+        assert!(read_wav_header(Cursor::new(&endless), endless.len() as u64).is_none());
+    }
+
+    /// A header saying there are no channels gives no length rather than an endless one.
+    #[test]
+    fn a_recording_of_no_channels_has_no_length() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut bytes = wav(400, 400);
+        // The channel count, in the fmt chunk after the 12-byte JUNK chunk.
+        bytes[12 + 12 + 10..12 + 12 + 12].copy_from_slice(&0u16.to_le_bytes());
+        let path = dir.path().join("REC001.WAV");
+        std::fs::write(&path, bytes).unwrap();
+        let r = recording(dir.path(), &path).unwrap();
+        assert_eq!((r.format.map(|f| f.channels), r.duration_secs, r.started), (Some(0), None, None));
+    }
+
     #[test]
     fn lists_and_collects_recordings() {
         let dir = tempfile::tempdir().unwrap();

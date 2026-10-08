@@ -237,7 +237,7 @@ fn oauth_error(e: OAuthError) -> Error {
         OAuthError::Callback(CallbackError::IssuerMismatch { .. }) => Error::Account(one_line(&format!(
             "the sign-in came back from a different server than it went to ({e}); sign in again"
         ))),
-        _ => Error::Account(one_line(&format!("signing in: {e}"))),
+        _ => Error::Account(one_line(&format!("signing in: {}", net::with_causes(&e)))),
     }
 }
 
@@ -742,6 +742,19 @@ pub(crate) mod tests {
 
     use super::*;
 
+    /// jacquard's message can leave out why (a request's "storage error"): a refused sign-in
+    /// says its causes too, each once.
+    #[test]
+    fn sign_in_errors_say_their_causes() {
+        use jacquard_common::session::SessionStoreError;
+        use jacquard_oauth::request::{RequestError, RequestErrorKind};
+        let full = || Some(Box::new(std::io::Error::other("disk full")) as _);
+        let e = OAuthError::Request(RequestError::new(RequestErrorKind::Storage, full()));
+        assert_eq!(oauth_error(e).to_string(), "signing in: storage error: disk full");
+        let e = OAuthError::Storage(SessionStoreError::Io(std::io::Error::other("disk full")));
+        assert_eq!(oauth_error(e).to_string(), "signing in: I/O error: disk full", "named once");
+    }
+
     #[test]
     fn loopback_clients_carry_their_redirect_and_scopes() {
         let c = client_config(&Client::Loopback, "http://127.0.0.1:53111/callback", scopes(&[]).unwrap()).unwrap();
@@ -836,7 +849,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn signed_in_with(scopes: &[&str]) -> AccountInfo {
+    pub(crate) fn signed_in_with(scopes: &[&str]) -> AccountInfo {
         AccountInfo {
             did: "did:plc:abc".into(),
             handle: Some("dj.example.com".into()),
@@ -872,7 +885,7 @@ pub(crate) mod tests {
     }
 
     /// A session as jacquard would hand it over, for `did`, with servers that refuse connections.
-    fn session(did: &str, refresh: &str) -> jacquard_oauth::session::ClientSessionData {
+    pub(crate) fn session(did: &str, refresh: &str) -> jacquard_oauth::session::ClientSessionData {
         let key = jacquard_oauth::utils::generate_key(&["ES256"]).unwrap();
         let server = "https://127.0.0.1:9";
         serde_json::from_value(serde_json::json!({
@@ -969,8 +982,8 @@ pub(crate) mod tests {
 
     /// The mock keychain's next answer for `did`'s item in the store at `root` is an error.
     fn keychain_fails(root: &Path, did: &str) {
-        let entry = keyring::Entry::new(store::KEYCHAIN_SERVICE, &store::keychain_account(root, did).unwrap()).unwrap();
-        let cred: &keyring_core::mock::Cred = entry.inner.as_any().downcast_ref().unwrap();
+        let entry = store::keychain_entry(root, did).unwrap();
+        let cred: &keyring_core::mock::Cred = entry.as_any().downcast_ref().unwrap();
         cred.set_error(keyring::Error::NoStorageAccess(std::io::Error::other("locked").into()));
     }
 
@@ -1012,55 +1025,23 @@ pub(crate) mod tests {
         assert_eq!(store::read_secrets(root, Storage::Keychain, "did:plc:abc").unwrap(), None);
     }
 
-    #[test]
-    fn the_keychain_item_every_store_shared_before_goes_too() {
-        mock_keychain();
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        crate::store::Store::open_or_init(root).unwrap();
-        let did = "did:plc:earlier";
-        // Where an earlier version kept the secrets, whichever store folder signed in.
-        let old = || keyring::Entry::new(store::KEYCHAIN_SERVICE, &format!("atmosphere:{did}")).unwrap();
-        let old_kept = || !matches!(old().get_password(), Err(keyring::Error::NoEntry));
-        let in_keychain =
-            LocalStore::new(root, Storage::Keychain, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
-
-        // Signing in removes it.
-        old().set_password(r#"{"refresh_token":"old"}"#).unwrap();
-        block_on(ClientAuthStore::upsert_session(&in_keychain, session(did, "refresh-1"))).unwrap();
-        assert!(!old_kept(), "signing in removes it");
-        assert!(store::read_secrets(root, Storage::Keychain, did).unwrap().is_some());
-        // So does signing out.
-        old().set_password(r#"{"refresh_token":"old"}"#).unwrap();
-        let r = logout(root).unwrap();
-        assert!(r.account.is_some() && r.left_behind.is_none());
-        assert!(!old_kept(), "signing out removes it");
-
-        // The keychain won't let go of it: signed in all the same, and signing out tries again.
-        old().set_password(r#"{"refresh_token":"old"}"#).unwrap();
-        let entry = old();
-        let cred: &keyring_core::mock::Cred = entry.inner.as_any().downcast_ref().unwrap();
-        cred.set_error(keyring::Error::NoStorageAccess(std::io::Error::other("locked").into()));
-        block_on(ClientAuthStore::upsert_session(&in_keychain, session(did, "refresh-2"))).unwrap();
-        assert_eq!(status(root).unwrap().unwrap().did, did);
-        assert_eq!(AccountFile::load(root).unwrap().left_behind, [(Storage::Keychain, did.to_string())]);
-        assert!(old_kept());
-        let r = logout(root).unwrap();
-        assert!(r.left_behind.is_none() && AccountFile::load(root).unwrap().left_behind.is_empty());
-        assert!(!old_kept(), "signing out tried again");
-    }
-
     /// A sign-in waiting for the browser, with `state`.
     fn waiting(root: &Path, state: &str) -> String {
+        waiting_at(root, state, "https://127.0.0.1:9", true)
+    }
+
+    /// [`waiting`], at the authorization server `authserver`, reached only if it's at a public
+    /// address with `public_only`.
+    fn waiting_at(root: &Path, state: &str, authserver: &str, public_only: bool) -> String {
         let store =
             LocalStore::new(root, Storage::File, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
         let request = jacquard_oauth::session::AuthRequestData {
             state: state.into(),
-            authserver_url: "https://127.0.0.1:9".into(),
+            authserver_url: authserver.into(),
             account_did: None,
             scopes: scopes(&[]).unwrap(),
             request_uri: "urn:ietf:params:oauth:request_uri:x".into(),
-            authserver_token_endpoint: "https://127.0.0.1:9/oauth/token".into(),
+            authserver_token_endpoint: format!("{authserver}/oauth/token").into(),
             authserver_revocation_endpoint: None,
             pkce_verifier: "verifier".into(),
             dpop_data: jacquard_oauth::session::DpopReqData {
@@ -1072,7 +1053,7 @@ pub(crate) mod tests {
         let (listener, redirect) = callback::bind().unwrap();
         let config = client_config(&Client::Loopback, &redirect, scopes(&[]).unwrap()).unwrap();
         let pending = Pending {
-            oauth: oauth(store, config, true).unwrap(),
+            oauth: oauth(store, config, public_only).unwrap(),
             listener,
             root: root.to_path_buf(),
             input: "dj.example.com".into(),
@@ -1152,5 +1133,246 @@ pub(crate) mod tests {
         assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none(), "nothing written when nobody is signed in");
         assert!(finish_login("nope", Duration::from_secs(1), &Ctx::silent()).is_err());
         assert!(begin_login(dir.path(), "  ", &LoginOptions::default()).is_err());
+    }
+
+    /// A server on 127.0.0.1 answering each request with `answer(its base URL, "METHOD /path")`:
+    /// a status, extra header lines (each ending in CRLF) and a JSON body. Returns its base URL.
+    pub(crate) fn serving(answer: impl Fn(&str, &str) -> (u16, String, serde_json::Value) + Send + 'static) -> String {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let url = base.clone();
+        std::thread::spawn(move || {
+            for mut conn in listener.incoming().flatten() {
+                let mut reader = BufReader::new(conn.try_clone().unwrap());
+                let (mut line, mut header, mut length) = (String::new(), String::new(), 0);
+                let _ = reader.read_line(&mut line);
+                while reader.read_line(&mut header).is_ok_and(|n| n > 2) {
+                    if let Some(n) = header.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = n.trim().parse().unwrap_or(0);
+                    }
+                    header.clear();
+                }
+                let _ = reader.read_exact(&mut vec![0; length]);
+                let target: Vec<&str> = line.split_whitespace().take(2).collect();
+                let (status, headers, body) = answer(&base, &target.join(" "));
+                let body = if status == 204 { String::new() } else { body.to_string() };
+                let _ = write!(
+                    conn,
+                    "HTTP/1.1 {status} X\r\n{headers}content-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        url
+    }
+
+    /// The browser that comes back is shown how the sign-in went; anything else knocking on the
+    /// listener is turned away while it waits.
+    #[test]
+    fn the_browser_is_shown_how_the_sign_in_went() {
+        use std::io::{Read, Write};
+        let dir = tempfile::tempdir().unwrap();
+        let id = waiting(dir.path(), "st4te");
+        let port = PENDING.lock().unwrap()[&id].listener.local_addr().unwrap().port();
+        let send = |query: &str| {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            write!(s, "GET /callback?{query} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").unwrap();
+            s
+        };
+        let read = |mut s: std::net::TcpStream| {
+            let mut text = String::new();
+            s.read_to_string(&mut text).unwrap();
+            text
+        };
+        let stranger = send("code=c&state=guess");
+        let browser = send("error=access_denied&state=st4te");
+        let err = finish_login(&id, Duration::from_secs(60), &Ctx::silent()).unwrap_err();
+        assert!(err.to_string().contains("declined"), "{err}");
+        assert!(read(stranger).starts_with("HTTP/1.1 400"));
+        let page = read(browser);
+        assert!(page.starts_with("HTTP/1.1 200") && page.contains("couldn't sign you in"), "{page}");
+        assert!(page.contains("the sign-in was declined"), "{page}");
+        assert!(!cancel_login(&id), "finished, so nothing to cancel");
+    }
+
+    #[test]
+    fn a_cancelled_sign_in_cant_be_finished() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = waiting(dir.path(), "st4te");
+        assert!(cancel_login(&id));
+        let err = finish_login_with_url(&id, "http://127.0.0.1:1/callback?code=c&state=st4te").unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "{err}");
+    }
+
+    /// The server's metadata, as the mock PDS's (`tests/support/mock_pds.rs`) describes itself.
+    fn authorization_server(base: &str) -> serde_json::Value {
+        serde_json::json!({
+            "issuer": base,
+            "authorization_endpoint": format!("{base}/oauth/authorize"),
+            "token_endpoint": format!("{base}/oauth/token"),
+            "pushed_authorization_request_endpoint": format!("{base}/oauth/par"),
+            "revocation_endpoint": format!("{base}/oauth/revoke"),
+            "scopes_supported": ["atproto"],
+            "response_types_supported": ["code"],
+            "grant_types_supported": ["authorization_code", "refresh_token"],
+            "code_challenge_methods_supported": ["S256"],
+            "token_endpoint_auth_methods_supported": ["none"],
+            "dpop_signing_alg_values_supported": ["ES256"],
+            "require_pushed_authorization_requests": true,
+            "authorization_response_iss_parameter_supported": true,
+            "client_id_metadata_document_supported": true,
+        })
+    }
+
+    /// A redirect naming another issuer than the server the sign-in went to is a mix-up (RFC
+    /// 9207): refused before the code goes anywhere. The sign-in's own goes on to the token
+    /// exchange, and a server refusing the code says why.
+    #[test]
+    fn a_redirect_from_another_server_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens_asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let asked = tokens_asked.clone();
+        let auth = serving(move |base, target| match target {
+            "GET /.well-known/oauth-authorization-server" => (200, String::new(), authorization_server(base)),
+            "POST /oauth/token" => {
+                asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let refusal = serde_json::json!({ "error": "invalid_grant", "error_description": "code expired" });
+                (400, String::new(), refusal)
+            }
+            _ => (404, String::new(), serde_json::json!({})),
+        });
+        let id = waiting_at(dir.path(), "st4te", &auth, false);
+        let url = "http://127.0.0.1:1/callback?code=c&state=st4te&iss=https%3A%2F%2Fevil.example";
+        let err = finish_login_with_url(&id, url).unwrap_err();
+        assert!(err.to_string().contains("came back from a different server"), "{err}");
+        assert_eq!(tokens_asked.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        let id = waiting_at(dir.path(), "st4te", &auth, false);
+        let url = format!("http://127.0.0.1:1/callback?code=c&state=st4te&iss={auth}");
+        let err = finish_login_with_url(&id, &url).unwrap_err();
+        assert!(err.to_string().starts_with("signing in: ") && err.to_string().contains("code expired"), "{err}");
+        assert_eq!(tokens_asked.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(status(dir.path()).unwrap(), None);
+        // The state is spent either way: the same redirect again is another sign-in's.
+        assert_eq!(
+            oauth_error(OAuthError::Callback(jacquard_oauth::error::CallbackError::MissingState)).to_string(),
+            other_attempt().to_string()
+        );
+    }
+
+    /// Asking the server who's signed in: a server that can't be reached, or answers with an
+    /// error, says so and leaves the session as it is; a handle that doesn't check out isn't
+    /// taken.
+    #[test]
+    fn checking_says_what_the_server_said() {
+        let unreachable = tempfile::tempdir().unwrap();
+        save_session(unreachable.path(), "did:plc:abc", "http://127.0.0.1:9", "atproto");
+        let err = check(unreachable.path(), &Ctx::silent()).unwrap_err();
+        assert!(err.to_string().contains("asking the account's server who's signed in"), "{err}");
+        assert_eq!(status(unreachable.path()).unwrap().unwrap().did, "did:plc:abc");
+
+        let pds = serving(|_, target| match target {
+            "GET /xrpc/com.atproto.server.getSession" => {
+                (400, String::new(), serde_json::json!({ "error": "InvalidRequest", "message": "down for a bit" }))
+            }
+            _ => (404, String::new(), serde_json::json!({})),
+        });
+        let dir = tempfile::tempdir().unwrap();
+        save_session(dir.path(), "did:plc:abc", &pds, "atproto");
+        let err = check(dir.path(), &Ctx::silent()).unwrap_err();
+        assert!(err.to_string().contains("couldn't say who's signed in"), "{err}");
+        assert!(status(dir.path()).unwrap().is_some());
+
+        let pds = serving(|_, _| {
+            (200, String::new(), serde_json::json!({ "did": "did:plc:abc", "handle": "handle.invalid" }))
+        });
+        let dir = tempfile::tempdir().unwrap();
+        save_session(dir.path(), "did:plc:abc", &pds, "atproto");
+        let mut file = AccountFile::load(dir.path()).unwrap();
+        file.account.as_mut().unwrap().info.handle = Some("dj.example.com".into());
+        file.save(dir.path()).unwrap();
+        assert_eq!(check(dir.path(), &Ctx::silent()).unwrap().handle.as_deref(), Some("dj.example.com"));
+    }
+
+    /// Sign `did:plc:abc` in with a session whose servers are all `server`, and whose access
+    /// token runs out at `expires_at`.
+    fn signed_in_at(root: &Path, server: &str, expires_at: &str) {
+        let mut s = serde_json::to_value(session("did:plc:abc", "refresh-1")).unwrap();
+        for field in ["host_url", "authserver_url", "iss", "aud"] {
+            s[field] = server.into();
+        }
+        s["authserver_token_endpoint"] = format!("{server}/oauth/token").into();
+        s["authserver_revocation_endpoint"] = format!("{server}/oauth/revoke").into();
+        s["expires_at"] = expires_at.into();
+        let store =
+            LocalStore::new(root, Storage::File, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
+        block_on(ClientAuthStore::upsert_session(&store, serde_json::from_value(s).unwrap())).unwrap();
+    }
+
+    /// A server that offers no revocation still signs out here, unrevoked; one that can't
+    /// refresh a session for now (it's down) leaves it signed in, to try again.
+    #[test]
+    fn a_server_that_cant_help_leaves_what_it_can() {
+        let server = serving(|base, target| match target {
+            "GET /.well-known/oauth-authorization-server" => {
+                let mut metadata = authorization_server(base);
+                metadata.as_object_mut().unwrap().remove("revocation_endpoint");
+                (200, String::new(), metadata)
+            }
+            _ => (503, String::new(), serde_json::json!({ "error": "unavailable" })),
+        });
+        let dir = tempfile::tempdir().unwrap();
+        signed_in_at(dir.path(), &server, "2099-01-01T00:00:00.000Z");
+        let r = logout(dir.path()).unwrap();
+        assert!(r.account.is_some() && !r.revoked);
+        assert_eq!(status(dir.path()).unwrap(), None);
+
+        signed_in_at(dir.path(), &server, "2020-01-01T00:00:00.000Z");
+        let err = check(dir.path(), &Ctx::silent()).unwrap_err();
+        assert!(err.to_string().starts_with("signing in: "), "{err}");
+        assert!(status(dir.path()).unwrap().is_some(), "still signed in");
+    }
+
+    /// Bluesky's servers answer a revocation with 204 (RFC 7009 says 200; the mock PDS's tests
+    /// cover that): both tokens are revoked either way.
+    #[test]
+    fn signing_out_where_revoking_answers_no_content_revokes() {
+        let revoked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = revoked.clone();
+        let server = serving(move |base, target| match target {
+            "GET /.well-known/oauth-authorization-server" => (200, String::new(), authorization_server(base)),
+            "POST /oauth/revoke" => {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                (204, String::new(), serde_json::Value::Null)
+            }
+            _ => (404, String::new(), serde_json::json!({})),
+        });
+        let dir = tempfile::tempdir().unwrap();
+        signed_in_at(dir.path(), &server, "2099-01-01T00:00:00.000Z");
+        let r = logout(dir.path()).unwrap();
+        assert!(r.revoked && r.account.is_some());
+        assert_eq!(revoked.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(status(dir.path()).unwrap(), None);
+    }
+
+    #[test]
+    fn sessions_last_until_they_have_to_be_renewed() {
+        let mut info = signed_in_with(&["atproto"]);
+        assert!(!info.expired() && info.name() == "@dj.example.com");
+        info.sign_in_again_by = Utc::now() - chrono::Duration::days(1);
+        info.handle = None;
+        assert!(info.expired() && info.days_left() < 0 && info.name() == "did:plc:abc");
+        // Not a record type at all: nothing grants it.
+        assert!(missing_scope(&signed_in_with(&["atproto", "transition:generic"]), "not an nsid").is_none());
+        assert_eq!(
+            missing_scope(&info, "not an nsid").as_deref(),
+            Some("repo:not an nsid?action=create&action=update")
+        );
+        // Scopes the document lists anyway aren't listed twice.
+        let doc = client_metadata(CLIENT_ID, &["atproto".into(), PUBLISH_SCOPES[0].into()]).unwrap();
+        assert_eq!(doc["scope"].as_str().unwrap().split(' ').count(), 1 + PUBLISH_SCOPES.len());
+        let doc = client_metadata(CLIENT_ID, &["repo:app.example.thing".into()]).unwrap();
+        assert!(doc["scope"].as_str().unwrap().split(' ').any(|s| s == "repo:app.example.thing"));
     }
 }

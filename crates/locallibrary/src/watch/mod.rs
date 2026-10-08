@@ -26,7 +26,7 @@ use crate::paths;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mount {
     pub path: PathBuf,
-    /// The device id (`st_dev`); 0 where the OS doesn't say (Windows).
+    /// The device id (`st_dev` on Unix, the volume serial number on Windows).
     pub dev: u64,
 }
 
@@ -36,11 +36,23 @@ pub fn mounts() -> Vec<Mount> {
 }
 
 fn mount(path: PathBuf) -> Mount {
-    #[cfg(unix)]
-    let dev = std::fs::metadata(&path).map_or(0, |m| std::os::unix::fs::MetadataExt::dev(&m));
-    #[cfg(not(unix))]
-    let dev = 0;
+    let dev = std::fs::metadata(&path).map_or(0, |m| ids(&path, &m).0);
     Mount { path, dev }
+}
+
+/// The file or folder at `path` (whose metadata is `m`): its device, and its id there. The
+/// device and inode on Unix; on Windows the volume serial number and file index, through a
+/// handle (0s when it can't be opened).
+#[cfg(unix)]
+fn ids(_: &Path, m: &std::fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (m.dev(), m.ino())
+}
+
+#[cfg(windows)]
+fn ids(path: &Path, _: &std::fs::Metadata) -> (u64, u64) {
+    let info = winapi_util::Handle::from_path_any(path).and_then(winapi_util::file::information);
+    info.map_or((0, 0), |i| (i.volume_serial_number(), i.file_index()))
 }
 
 /// One file's metadata, enough to tell that it was rewritten.
@@ -48,8 +60,9 @@ fn mount(path: PathBuf) -> Mount {
 pub struct FileStamp {
     pub len: u64,
     pub modified: Option<SystemTime>,
-    /// The file's id on its file system (the inode on Unix; 0 elsewhere). Files are replaced by
-    /// renaming a new one into place, which changes it even within FAT's 2-second timestamps.
+    /// The file's id on its file system (the inode on Unix, the file index on Windows). Files are
+    /// replaced by renaming a new one into place, which changes it even within FAT's 2-second
+    /// timestamps.
     pub ino: u64,
 }
 
@@ -57,11 +70,7 @@ impl FileStamp {
     /// The file at `path`, if it is one.
     pub fn of(path: &Path) -> Option<FileStamp> {
         let m = std::fs::metadata(path).ok().filter(std::fs::Metadata::is_file)?;
-        #[cfg(unix)]
-        let ino = std::os::unix::fs::MetadataExt::ino(&m);
-        #[cfg(not(unix))]
-        let ino = 0;
-        Some(FileStamp { len: m.len(), modified: m.modified().ok(), ino })
+        Some(FileStamp { len: m.len(), modified: m.modified().ok(), ino: ids(path, &m).1 })
     }
 }
 
@@ -159,8 +168,8 @@ pub enum WatchEvent {
         drive: MountedDrive,
         changed: Vec<DriveChange>,
     },
-    /// The store's libraries, snapshots, labels, drive registry, settings or smart playlists
-    /// changed.
+    /// The store's libraries, snapshots, labels, drive registry, settings, smart playlists or
+    /// sets changed.
     #[serde(rename = "store.changed")]
     StoreChanged { root: PathBuf, changed: Vec<&'static str> },
 }
@@ -186,32 +195,28 @@ impl WatchEvent {
 }
 
 /// The store's files a [`WatchEvent::StoreChanged`] names, by what they hold.
-const STORE_FILES: [(&str, &str); 6] = [
+const STORE_FILES: [(&str, &str); 7] = [
     ("libraries", "libraries.json"),
     ("labels", "labels.json"),
     ("pruned", "pruned.json"),
     ("drives", "drives.json"),
     ("settings", "settings.json"),
     ("smart", "smart.json"),
+    ("sets", crate::sets::SETS_FILE),
 ];
 
 /// The store's metadata: its small JSON files, and the snapshots folder (whose modification
 /// time changes when a snapshot is added or removed).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct StoreStamp {
-    files: [Option<FileStamp>; 6],
+    files: [Option<FileStamp>; STORE_FILES.len()],
     snapshots: Option<(Option<SystemTime>, u64)>,
 }
 
 impl StoreStamp {
     fn of(root: &Path) -> StoreStamp {
-        let snapshots = std::fs::metadata(root.join("snapshots")).ok().map(|m| {
-            #[cfg(unix)]
-            let ino = std::os::unix::fs::MetadataExt::ino(&m);
-            #[cfg(not(unix))]
-            let ino = 0;
-            (m.modified().ok(), ino)
-        });
+        let dir = root.join("snapshots");
+        let snapshots = std::fs::metadata(&dir).ok().map(|m| (m.modified().ok(), ids(&dir, &m).1));
         StoreStamp { files: STORE_FILES.map(|(_, f)| FileStamp::of(&root.join(f))), snapshots }
     }
 
@@ -444,6 +449,8 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         write(&store.join("snapshots/abc.json"), b"{}");
         assert_eq!(roots(&w.poll()), [("store.changed", "snapshots".to_string())]);
+        write(&store.join(crate::sets::SETS_FILE), b"{}");
+        assert_eq!(roots(&w.poll()), [("store.changed", "sets".to_string())]);
         assert!(w.poll().is_empty());
     }
 
@@ -459,7 +466,6 @@ mod tests {
         // Replaced by a file of the same size, as a sync renames a new one into place.
         write(&root.join("new"), b"y");
         std::fs::rename(root.join("new"), root.join(paths::LIBRARY_PLUS_DB)).unwrap();
-        #[cfg(unix)]
         assert_ne!(LibraryStamp::of(root), before);
     }
 

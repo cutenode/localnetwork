@@ -129,6 +129,14 @@ pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Op
     Ok(info)
 }
 
+/// Space on the drive [`create`] needs for a backup with `extra`, each file rounded up to the
+/// drive's allocation unit, so a plan can tell a drive too full for it before it starts.
+pub(crate) fn needed_bytes<'a>(device: &Device, extra: impl IntoIterator<Item = &'a str>) -> u64 {
+    let cluster = fsutil::cluster_size(device.root());
+    let size = |key: &str| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
+    paths::DATABASE_FILES.into_iter().chain(extra).map(|k| size(k).div_ceil(cluster) * cluster).sum()
+}
+
 /// The drive's backups, newest first.
 pub fn list(device: &Device) -> Result<Vec<BackupInfo>> {
     let dir = backups_dir(device);
@@ -369,8 +377,11 @@ pub fn restore_with(device: &mut Device, id: Option<&str>, force: bool, ctx: &Ct
     let mut opts = Options::new(LineageOp::Restore, format!("restore backup {}", info.id))
         .backup(format!("before putting back {}", info.id));
     opts.undoes = Some(info.id.clone());
+    // Read only when the drive remembers a player name, as reading it decrypts OneLibrary.
+    let shown = device.state().and_then(|s| s.player.as_ref()).and_then(|_| crate::player::db_identity(device.root()));
     commit::commit(device, changes, opts, ctx)?;
     crate::edit::journal::undone(device, &info)?;
+    crate::player::after_undo(device, shown)?;
     Ok(info)
 }
 

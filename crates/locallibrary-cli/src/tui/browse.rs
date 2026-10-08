@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use locallibrary::harmony::{self, Camelot};
 use locallibrary::model::{TrackColor, normalize};
 use locallibrary::query::{SortField, SortKey};
+use locallibrary::sets::Set;
 use locallibrary::{Library, Playlist, Track, paths};
 use serde::{Deserialize, Serialize};
 
@@ -26,14 +27,17 @@ pub enum Category {
     Added,
     /// rekordbox's My Tags, by `Category/Tag`.
     MyTags,
-    /// The lists players recorded.
+    /// The sets kept in the store, with their tracks that are on the drive.
+    Sets,
+    /// The lists players recorded, shown as sessions. Saved as `history`, the name they had
+    /// before, so a list remembered then still opens.
     History,
     /// Tracks whose audio file is missing, and copies of the same recording.
     Problems,
 }
 
 impl Category {
-    pub const ALL: [Category; 11] = [
+    pub const ALL: [Category; 12] = [
         Category::Artist,
         Category::Album,
         Category::Genre,
@@ -43,6 +47,7 @@ impl Category {
         Category::Colour,
         Category::Added,
         Category::MyTags,
+        Category::Sets,
         Category::History,
         Category::Problems,
     ];
@@ -58,7 +63,8 @@ impl Category {
             Category::Colour => "Colour",
             Category::Added => "Date added",
             Category::MyTags => "My Tags",
-            Category::History => "History",
+            Category::Sets => "Sets",
+            Category::History => "Sessions",
             Category::Problems => "Problems",
         }
     }
@@ -74,7 +80,7 @@ pub enum NodeId {
     /// The folder holding the categories.
     Browse,
     Category(Category),
-    /// One value of a category (an artist, a key, a BPM band, a history list...), by its key.
+    /// One value of a category (an artist, a key, a BPM band, a set...), by its key.
     Group(Category, String),
 }
 
@@ -100,13 +106,16 @@ pub enum SavedNode {
     Group { category: Category, key: String },
 }
 
-/// One value of a category and its tracks (indexes into the library), in library order (list
-/// order for history lists).
+/// One value of a category and its tracks (indexes into the library), in library order (play
+/// order for sets and history lists).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Group {
     pub key: String,
     pub label: String,
     pub tracks: Vec<usize>,
+    /// Entries whose track isn't on the drive (a set's tracks played from another), left out of
+    /// `tracks`.
+    pub left_out: usize,
 }
 
 /// What's wrong with tracks, by library index.
@@ -189,12 +198,12 @@ fn capitalised(s: &str) -> String {
 fn collect(lib: &Library, none: &str, f: impl Fn(&Track) -> Option<(String, String)>) -> (Vec<Group>, Option<Group>) {
     let mut index: HashMap<String, usize> = HashMap::new();
     let mut out: Vec<Group> = Vec::new();
-    let mut rest = Group { key: String::new(), label: none.to_string(), tracks: Vec::new() };
+    let mut rest = Group { key: String::new(), label: none.to_string(), tracks: Vec::new(), left_out: 0 };
     for (i, t) in lib.tracks.iter().enumerate() {
         match f(t) {
             Some((key, label)) => {
                 let g = *index.entry(key.clone()).or_insert_with(|| {
-                    out.push(Group { key, label, tracks: Vec::new() });
+                    out.push(Group { key, label, tracks: Vec::new(), left_out: 0 });
                     out.len() - 1
                 });
                 out[g].tracks.push(i);
@@ -207,13 +216,14 @@ fn collect(lib: &Library, none: &str, f: impl Fn(&Track) -> Option<(String, Stri
 
 /// The values of `cat` on the drive with their tracks, in display order. `by_id` maps track ids
 /// to library indexes (for history lists); `tags` is each track's My Tags by its file key in lower
-/// case (none until they're read).
+/// case (none until they're read); `sets` are the store's (none until they're read).
 pub fn groups(
     lib: &Library,
     cat: Category,
     by_id: &HashMap<u32, usize>,
     problems: &Problems,
     tags: Option<&HashMap<String, Vec<String>>>,
+    sets: &[Set],
 ) -> Vec<Group> {
     let text = |get: fn(&Track) -> &str, none: &str| {
         let (mut v, rest) = collect(lib, none, |t| {
@@ -281,7 +291,40 @@ pub fn groups(
             }
             by_tag
                 .into_iter()
-                .map(|(tag, tracks)| Group { key: tag.to_string(), label: tag.replace('/', " › "), tracks })
+                .map(|(tag, tracks)| Group {
+                    key: tag.to_string(),
+                    label: tag.replace('/', " › "),
+                    tracks,
+                    left_out: 0,
+                })
+                .collect()
+        }
+        Category::Sets => {
+            if sets.is_empty() {
+                return Vec::new(); // no store, or no sets in it: no need to key every track
+            }
+            // Tracks by their file as sessions key them; from the back, so the first of a file
+            // that's in the library twice wins.
+            let by_file: HashMap<String, usize> = lib
+                .tracks
+                .iter()
+                .enumerate()
+                .rev()
+                .map(|(i, t)| (locallibrary::plays::file_key(&t.file_path), i))
+                .collect();
+            let mut newest: Vec<&Set> = sets.iter().collect();
+            newest.sort_by(|a, b| Set::newest_first(a, b));
+            newest
+                .into_iter()
+                .map(|s| {
+                    let tracks: Vec<usize> =
+                        s.tracks.iter().filter_map(|e| by_file.get(&e.file_key()?).copied()).collect();
+                    let label = match s.name() {
+                        Some(name) => format!("{} {name}", s.date),
+                        None => s.date.to_string(),
+                    };
+                    Group { key: s.id.clone(), label, left_out: s.tracks.len() - tracks.len(), tracks }
+                })
                 .collect()
         }
         Category::History => lib
@@ -292,6 +335,7 @@ pub fn groups(
                 key: h.id.to_string(),
                 label: h.name.clone(),
                 tracks: h.track_ids.iter().filter_map(|id| by_id.get(id).copied()).collect(),
+                left_out: 0,
             })
             .collect(),
         Category::Problems => {
@@ -299,12 +343,12 @@ pub fn groups(
             if let Some(missing) = &problems.missing {
                 let tracks: Vec<usize> = (0..missing.len()).filter(|&i| missing[i]).collect();
                 if !tracks.is_empty() {
-                    v.push(Group { key: "missing".into(), label: "Missing files".into(), tracks });
+                    v.push(Group { key: "missing".into(), label: "Missing files".into(), tracks, left_out: 0 });
                 }
             }
             let tracks: Vec<usize> = (0..lib.tracks.len()).filter(|&i| problems.has_copies(i)).collect();
             if !tracks.is_empty() {
-                v.push(Group { key: "duplicates".into(), label: "Duplicates".into(), tracks });
+                v.push(Group { key: "duplicates".into(), label: "Duplicates".into(), tracks, left_out: 0 });
             }
             v
         }
@@ -617,90 +661,11 @@ impl Search {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
-    use locallibrary::Playlist;
+mod tests {
+    use locallibrary::sets::{EntryOrigin, SetEntry};
 
+    use super::super::app::testing::{library, set, track};
     use super::*;
-
-    pub fn track(id: u32, artist: &str, title: &str) -> Track {
-        Track {
-            id,
-            title: title.into(),
-            artist: artist.into(),
-            album: String::new(),
-            album_artist: String::new(),
-            genre: String::new(),
-            label: String::new(),
-            key: String::new(),
-            remixer: String::new(),
-            original_artist: String::new(),
-            composer: String::new(),
-            comment: String::new(),
-            mix_name: String::new(),
-            isrc: String::new(),
-            bpm: 0.0,
-            duration_secs: 300,
-            year: 0,
-            track_number: 0,
-            disc_number: 0,
-            rating: 0,
-            color: None,
-            play_count: 0,
-            bitrate: 320,
-            sample_rate: 44100,
-            sample_depth: 16,
-            file_size: 1000,
-            file_path: format!("/Contents/{id}.mp3"),
-            analyze_path: String::new(),
-            date_added: String::new(),
-            release_date: String::new(),
-            artwork_id: None,
-            artwork_path: None,
-        }
-    }
-
-    /// Four tracks (two of them the same recording), a folder with a playlist, and a history list.
-    pub fn library() -> Library {
-        let mut a = track(1, "Daft Punk", "Around the World");
-        a.key = "8A".into();
-        a.bpm = 121.0;
-        a.rating = 5;
-        a.genre = "House".into();
-        a.color = Some(TrackColor::Aqua);
-        a.date_added = "2026-09-30".into();
-        a.play_count = 2;
-        let mut b = track(2, "floorplan", "Never Grow Old");
-        b.key = "Am".into();
-        b.bpm = 128.0;
-        b.rating = 3;
-        b.genre = "Techno".into();
-        b.date_added = "2025-01-02".into();
-        b.duration_secs = 420;
-        let mut c = track(3, "Floorplan", "Tell You No Lie");
-        c.key = "3B".into();
-        c.bpm = 124.9;
-        c.genre = "techno".into();
-        let mut d = a.clone();
-        d.id = 4;
-        d.file_path = "/Contents/copy/1.mp3".into();
-        let playlist = |id, parent, name: &str, folder, track_ids| Playlist {
-            id,
-            parent_id: parent,
-            name: name.into(),
-            is_folder: folder,
-            sort_order: 0,
-            track_ids,
-        };
-        Library {
-            tracks: vec![a, b, c, d],
-            playlists: vec![
-                playlist(1, None, "Sets", true, vec![]),
-                playlist(2, Some(1), "Friday", false, vec![2, 1, 3]),
-            ],
-            history_playlists: 1,
-            history: vec![playlist(9, None, "HISTORY 001", false, vec![3, 2])],
-        }
-    }
 
     fn by_id(lib: &Library) -> HashMap<u32, usize> {
         lib.tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect()
@@ -716,7 +681,7 @@ pub(super) mod tests {
         let ids = by_id(&lib);
         let (copy_of, copies) = duplicates(&lib);
         let problems = Problems { missing: None, copy_of, copies };
-        let g = |cat| summary(&groups(&lib, cat, &ids, &problems, None));
+        let g = |cat| summary(&groups(&lib, cat, &ids, &problems, None, &[]));
         // Case and spacing don't split an artist; the first spelling names the group.
         assert_eq!(g(Category::Artist), [("Daft Punk".into(), vec![0, 3]), ("floorplan".into(), vec![1, 2])]);
         assert_eq!(g(Category::Album), [("No album".into(), vec![0, 1, 2, 3])]);
@@ -740,7 +705,7 @@ pub(super) mod tests {
         assert_eq!(g(Category::Problems), [("Duplicates".into(), vec![0, 3])]);
         let problems = Problems { missing: Some(vec![false, true, false, false]), ..problems };
         assert_eq!(
-            summary(&groups(&lib, Category::Problems, &ids, &problems, None))[0],
+            summary(&groups(&lib, Category::Problems, &ids, &problems, None, &[]))[0],
             ("Missing files".into(), vec![1])
         );
         assert_eq!(problems.others(0).collect::<Vec<_>>(), [3]);
@@ -748,11 +713,64 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn sets_hold_their_tracks_on_the_drive_newest_first() {
+        let lib = library();
+        let ids = by_id(&lib);
+        let entry = |i: usize| SetEntry::from_track(&lib.tracks[i], EntryOrigin::Session, None);
+        // Played from another drive; on this one, in other case.
+        let elsewhere = SetEntry { file: Some("/Contents/elsewhere.mp3".into()), ..entry(0) };
+        let shouted = SetEntry { file: Some("/CONTENTS/2.MP3".into()), ..entry(0) };
+        let friday = set(
+            "3m2friday2222",
+            "2026-10-03",
+            Some("Friday at the Warehouse"),
+            Some("Warehouse"),
+            vec![entry(2), elsewhere, entry(0)],
+        );
+        let mut early = set("3m2early22222", "2026-10-03", None, None, vec![shouted]);
+        early.created_at = friday.created_at - chrono::Duration::hours(1);
+        let typed = SetEntry::added("Floorplan - Never Grow Old");
+        let corsica = set("3lzcorsica222", "2026-09-12", None, Some("Corsica Studios"), vec![typed, entry(1)]);
+        let sets = [corsica, early, friday];
+        let g = groups(&lib, Category::Sets, &ids, &Problems::default(), None, &sets);
+        let shown: Vec<_> =
+            g.iter().map(|g| (g.key.as_str(), g.label.as_str(), g.tracks.clone(), g.left_out)).collect();
+        assert_eq!(
+            shown,
+            [
+                ("3m2friday2222", "2026-10-03 Friday at the Warehouse", vec![2, 0], 1),
+                ("3m2early22222", "2026-10-03", vec![1], 0),
+                ("3lzcorsica222", "2026-09-12 Corsica Studios", vec![1], 1),
+            ],
+            "newest first, in the order played; what isn't on the drive left out and counted"
+        );
+        // Beside the sessions, under Browse.
+        let all = HashMap::from([
+            (Category::Sets, g),
+            (Category::History, groups(&lib, Category::History, &ids, &Problems::default(), None, &sets)),
+        ]);
+        let t = tree(&lib, &HashSet::from([NodeId::Browse, NodeId::Category(Category::Sets)]), &all);
+        let names: Vec<String> = t.iter().map(|n| format!("{}{} {}", "-".repeat(n.depth), n.name, n.count)).collect();
+        assert_eq!(
+            names[2..7],
+            [
+                "-Sets 3",
+                "--2026-10-03 Friday at the Warehouse 2",
+                "--2026-10-03 1",
+                "--2026-09-12 Corsica Studios 1",
+                "-Sessions 1"
+            ]
+        );
+        // No store, or no sets in it: nothing to show.
+        assert!(groups(&lib, Category::Sets, &ids, &Problems::default(), None, &[]).is_empty());
+    }
+
+    #[test]
     fn tree_shows_categories_under_browse_and_the_playlists() {
         let lib = library();
         let ids = by_id(&lib);
         let all: HashMap<Category, Vec<Group>> =
-            Category::ALL.iter().map(|&c| (c, groups(&lib, c, &ids, &Problems::default(), None))).collect();
+            Category::ALL.iter().map(|&c| (c, groups(&lib, c, &ids, &Problems::default(), None, &[]))).collect();
         let names = |t: &[Node]| t.iter().map(|n| format!("{}{}", "-".repeat(n.depth), n.name)).collect::<Vec<_>>();
         let closed = tree(&lib, &HashSet::new(), &all);
         assert_eq!(names(&closed), ["All tracks", "Browse", "Sets"]);
@@ -773,7 +791,7 @@ pub(super) mod tests {
                 "-Rating",
                 "-Colour",
                 "-Date added",
-                "-History",
+                "-Sessions",
                 "Sets",
                 "-Friday",
             ],
@@ -845,5 +863,73 @@ pub(super) mod tests {
         let hay = haystack(&t);
         assert!(hay.contains("peak") && hay.contains("/contents/1.mp3"));
         assert!(!hay.contains("punk around"), "fields stay apart");
+    }
+
+    /// Every column the library sorts by, not only the ones the sort key cycles through.
+    const EVERY_FIELD: [SortField; 15] = [
+        SortField::Title,
+        SortField::Artist,
+        SortField::Album,
+        SortField::Genre,
+        SortField::Label,
+        SortField::Key,
+        SortField::Bpm,
+        SortField::Rating,
+        SortField::Color,
+        SortField::Year,
+        SortField::Plays,
+        SortField::Added,
+        SortField::Time,
+        SortField::Bitrate,
+        SortField::Path,
+    ];
+
+    /// Sorted by any column (a sort remembered from before, say), the list comes out as the
+    /// library sorts it, and a playlist sorted on the drive by that column reads the same.
+    #[test]
+    fn every_column_sorts_as_the_library_does_and_on_the_drive() {
+        let mut lib = library();
+        for (i, t) in lib.tracks.iter_mut().enumerate() {
+            t.label = ["Warp", "ostgut", "R&S", "Kompakt"][i].into();
+            t.year = [1997, 2014, 2014, 1990][i];
+            t.bitrate = [320, 256, 1411, 320][i];
+            t.color = [None, Some(TrackColor::Red), Some(TrackColor::Pink), None][i];
+        }
+        let mut labels = HashSet::new();
+        for field in EVERY_FIELD {
+            let mut refs: Vec<&Track> = lib.tracks.iter().collect();
+            locallibrary::query::sort_tracks(&mut refs, &[SortKey { field, descending: false }]);
+            let expected: Vec<u32> = refs.iter().map(|t| t.id).collect();
+            let mut list: Vec<usize> = (0..lib.tracks.len()).collect();
+            sort_list(&mut list, &ranks(&lib, field), false);
+            let got: Vec<u32> = list.iter().map(|&i| lib.tracks[i].id).collect();
+            assert_eq!(got, expected, "{field:?}");
+            for descending in [false, true] {
+                let k = SortKey { field, descending };
+                assert_eq!(locallibrary::query::parse_sort(&sort_spec(k)).unwrap(), [k]);
+            }
+            assert!(labels.insert(sort_label(field)), "{field:?} is named like another column");
+        }
+    }
+
+    /// A corrupt database whose folders hold each other: the tree and the playlists' paths
+    /// still come out, rather than going round forever.
+    #[test]
+    fn a_tree_that_loops_still_lists() {
+        let folder = |id, parent| Playlist {
+            id,
+            parent_id: parent,
+            name: format!("F{id}"),
+            is_folder: true,
+            sort_order: 0,
+            track_ids: Vec::new(),
+        };
+        let lib = Library { playlists: vec![folder(1, None), folder(2, Some(1)), folder(1, Some(2))], ..library() };
+        let expanded: HashSet<NodeId> = [NodeId::Playlist(1), NodeId::Playlist(2)].into();
+        let t = tree(&lib, &expanded, &HashMap::new());
+        assert!(t.len() > 2, "{} rows", t.len());
+        let looped = Library { playlists: vec![folder(1, Some(2)), folder(2, Some(1))], ..library() };
+        let paths = playlist_paths(&looped);
+        assert!(paths[&1].starts_with("F") && paths[&1].ends_with("F1"), "{}", paths[&1]);
     }
 }

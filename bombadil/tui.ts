@@ -234,7 +234,7 @@ export const escapeLeavesSearch = always(() => {
 // throwaway copy (which it won't eject: it's no volume). Text (`TEXT`) is typed only where a line
 // is being typed, so `q`, `L` and `:` there are just letters.
 const KEYS = CharSet.fromLiterals(
-  ..."1234567890?!/abcdefghijklmnoprstuvwxyzABCDEGHJKMNQRSTX*#[]+=-_ ',.<>{}()".split(""),
+  ..."1234567890?!/abcdefghijklmnoprstuvwxyzABCDEGHJKMNPQRSTX*#[]+=-_ ',.<>{}()".split(""),
 );
 
 const NAVIGATION = CharSet.union(

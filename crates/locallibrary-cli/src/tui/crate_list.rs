@@ -89,7 +89,7 @@ impl Crate {
 
 #[cfg(test)]
 mod tests {
-    use super::super::browse::tests::{library, track};
+    use super::super::app::testing::{library, track};
     use super::*;
 
     #[test]

@@ -1,10 +1,11 @@
+mod partial_drives;
+
 use crate::common;
 
 use std::fs;
-use std::io::Cursor;
 use std::path::Path;
 
-use binrw::BinRead;
+use locallibrary::api::{self, DriveRef};
 use locallibrary::clean;
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::onelibrary::OneLibrary;
@@ -13,16 +14,6 @@ use locallibrary::{backup, paths};
 use rekordbox_pdb::{Database, NewTrack, PdbEditor};
 
 const SAMPLES: &str = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES";
-
-/// Present rows of one table as seen by rekordcrate, an independent PDB parser.
-fn rekordcrate_rows(pdb: &[u8], page_type: rekordcrate::pdb::PageType) -> usize {
-    use rekordcrate::pdb::Header;
-    let mut reader = Cursor::new(pdb);
-    let header = Header::read(&mut reader).unwrap();
-    let table = header.tables.iter().find(|t| t.page_type == page_type).unwrap();
-    let pages = header.read_pages(&mut reader, binrw::Endian::NATIVE, (&table.first_page, &table.last_page)).unwrap();
-    pages.into_iter().flat_map(|p| p.row_groups.into_iter()).map(|g| g.present_rows().count()).sum()
-}
 
 /// Add a track the way rekordbox exports one, with audio and analysis files. Returns its id.
 fn export(root: &Path, artist: &str, title: &str, album: Option<&str>, file: &str, anlz: u32) -> u32 {
@@ -116,8 +107,8 @@ fn clean_removes_demo_samples_and_can_be_undone() {
 
     // An independent parser agrees.
     let pdb = d.pdb_bytes().unwrap();
-    assert_eq!(rekordcrate_rows(&pdb, rekordcrate::pdb::PageType::Tracks), 13);
-    assert_eq!(rekordcrate_rows(&pdb, rekordcrate::pdb::PageType::PlaylistEntries), db.playlist_entries.len());
+    assert_eq!(common::rekordcrate_rows(&pdb, rekordcrate::pdb::PageType::Tracks), 13);
+    assert_eq!(common::rekordcrate_rows(&pdb, rekordcrate::pdb::PageType::PlaylistEntries), db.playlist_entries.len());
 
     let d = Device::open_export(&root).unwrap();
     assert_eq!(d.state().unwrap().head().unwrap().op, LineageOp::Clean);
@@ -170,6 +161,17 @@ fn nothing_to_clean() {
     assert_eq!(report.tracks_removed, 0);
     assert_eq!(d.pdb_bytes().unwrap(), before);
     assert!(!d.is_adopted(), "a no-op clean writes nothing to the drive");
+}
+
+/// A drive without rekordbox's demo samples has nothing to clean, and cleaning it removes nothing.
+#[test]
+fn a_drive_without_demo_samples_has_nothing_to_clean() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = DriveRef { drive: common::path(&common::demo_drive(dir.path(), "Main")) };
+    let plan = api::clean_plan(&main, &Ctx::silent()).unwrap();
+    assert!(plan.noop && !plan.destructive);
+    assert_eq!(plan.summary[0], "remove 0 track(s) and 0 file(s) (0 B) from Main");
+    assert_eq!(api::clean_apply(&main, &Ctx::silent()).unwrap().tracks_removed, 0);
 }
 
 #[test]

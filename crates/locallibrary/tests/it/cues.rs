@@ -1,6 +1,8 @@
 //! Editing cue points: the analysis file writer against real rekordbox files and rekordcrate's
 //! independent parser, OneLibrary's cue rows, and the plan/apply pipeline with undo.
 
+mod refusals;
+
 use crate::common;
 
 use std::fs;
@@ -458,7 +460,7 @@ fn onelibrary_rows_follow_and_keep_their_ids() {
     apply(&root, &[1], CueOp::Delete { cue: CueRef::Hot(HotCue(0)) });
     let rows = plus_rows(&root, "Demo Track 1");
     assert_eq!(rows.len(), 2);
-    assert_eq!((rows[0].1, rows[0].2, rows[0].3), (6, 30_025_000, 30_259_000));
+    assert_eq!((rows[0].1, rows[0].2, rows[0].3), (7, 30_025_000, 30_259_000), "hot cue F is kind 7");
     assert_eq!((rows[1].1, rows[1].2), (0, 45_000_000));
     assert!(bank_entries(&root).is_empty());
     let report = api::cues_list(&ListCues {
@@ -471,7 +473,7 @@ fn onelibrary_rows_follow_and_keep_their_ids() {
     // Copying onto the other track gives it rows too.
     apply(&root, &[2], CueOp::Copy { from: TrackSelector { ids: vec![1], ..Default::default() } });
     let rows = plus_rows(&root, "Demo Track 2");
-    assert_eq!(rows.iter().map(|r| (r.1, r.2)).collect::<Vec<_>>(), [(0, 45_000_000), (6, 30_025_000)]);
+    assert_eq!(rows.iter().map(|r| (r.1, r.2)).collect::<Vec<_>>(), [(0, 45_000_000), (7, 30_025_000)]);
 
     // Undo it all, newest edit first: both databases and every analysis file are as they were.
     let mut d = Device::open(&root).unwrap();
@@ -501,7 +503,7 @@ fn onelibrary_only_drives_are_edited_too() {
     assert_eq!(rows.len(), 1);
     assert_eq!(
         (rows[0].1, rows[0].2, rows[0].3, rows[0].4.as_str(), rows[0].5),
-        (4, 8_025_000, 9_025_000, "Hook", 0x3c)
+        (5, 8_025_000, 9_025_000, "Hook", 0x3c)
     );
     let cues = listed(&root, id);
     assert_eq!(

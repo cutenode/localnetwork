@@ -9,39 +9,46 @@
 //! plan needs no sign-in, so a record can be looked at before signing in. Everything published
 //! is public.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use chrono::{NaiveDate, Utc};
+use chrono::Utc;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
 use super::ProfileRequest;
 use crate::atmosphere::repo::{self, Resolved};
-use crate::atmosphere::{self, lexicon};
+use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::error::{Action, Reason};
 use crate::op::{Operation, Planned, Probe, Touched};
-use crate::plays;
-use crate::profile::ProfilePrefs;
+use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::progress::Ctx;
-use crate::publish::{self, SetDraft, SetSource, SetTrack};
+use crate::publish;
 pub use crate::publish::{PublishPlan, Published, PublishedSettings, SettingsImportPlan};
+use crate::sets::{SETS_FILE, SetBook};
 use crate::settings::SettingsProfile;
 use crate::store::Store;
 use crate::{Error, Result};
 
-/// Where a planned record goes: the store whose account publishes it, and for a set, the history
-/// list's fingerprint to remember its record key by.
+/// Where a planned record goes: the store whose account publishes it, and, for a set that takes
+/// over the key `plays publish` gave its history list, the set's id to change to that key.
 #[derive(Debug, Clone)]
 pub struct PublishTo {
     root: PathBuf,
-    set: Option<String>,
+    renamed: Option<String>,
 }
 
 /// A record ready to publish, as [`Planned::apply`] takes it.
 pub type PlannedPublish = Planned<PublishPlan, PublishTo>;
 
 /// Wrap a record's plan: `what` names it in the summary ("your My Settings").
-fn planned(operation: &'static str, what: &str, root: &Path, plan: PublishPlan, set: Option<String>) -> PlannedPublish {
+fn planned(
+    operation: &'static str,
+    what: &str,
+    root: &Path,
+    plan: PublishPlan,
+    renamed: Option<String>,
+) -> PlannedPublish {
     let mut lines = Vec::new();
     let mut warnings = Vec::new();
     match (&plan.account, &plan.uri) {
@@ -65,15 +72,21 @@ fn planned(operation: &'static str, what: &str, root: &Path, plan: PublishPlan, 
     }
     let noop = plan.account.is_some() && !plan.changed;
     let replaces = plan.current.is_some() && plan.changed;
-    let to = PublishTo { root: root.to_path_buf(), set };
+    let to = PublishTo { root: root.to_path_buf(), renamed };
     Planned::new(operation, plan, to).summary(lines).warnings(warnings).noop(noop).destructive(replaces)
 }
 
-/// Publish `plan`'s record; for a set, remember its record key.
+/// Publish `plan`'s record; for a set that takes over an older record's key, make that its id.
 fn publish_to(to: &PublishTo, plan: &PublishPlan) -> Result<Published> {
+    let Some(id) = &to.renamed else { return publish::apply(&to.root, plan) };
+    // The store is locked first, so the set's id changes along with the record.
+    let store = Store::open(&to.root)?;
+    let _lock = store.lock()?;
     let published = publish::apply(&to.root, plan)?;
-    if let (Some(fingerprint), Some(info)) = (&to.set, &plan.account) {
-        publish::remember_set_key(&to.root, &info.did, fingerprint, &plan.rkey)?;
+    let mut book = SetBook::load(&store)?;
+    if let Some(set) = book.sets.iter_mut().find(|s| s.id == *id) {
+        set.id = plan.rkey.clone();
+        book.save(&store)?;
     }
     Ok(published)
 }
@@ -249,150 +262,94 @@ pub fn profile_publish_apply(store_root: &Path, req: &ProfileRequest, ctx: &Ctx<
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
-pub struct HistoryPublishRequest {
-    pub drive: String,
-    /// The history list: a name or path, as `history` lists them.
-    pub list: String,
-    /// Also look among the lists the store archived (rekordbox deletes them from the drive).
-    #[serde(default)]
-    pub archived: bool,
-    #[serde(default)]
-    pub title: Option<String>,
-    /// The day it was played: `2026-10-03`. Default: the date it was published with before, else
-    /// the day the store first saw the list, else today.
-    #[serde(default)]
-    pub date: Option<String>,
-    #[serde(default)]
-    pub venue: Option<String>,
-    /// Positions (from 1) of tracks to publish without naming them. Tracks the profile hides
-    /// (`profile hide`) are never named either.
+pub struct SetPublishRequest {
+    /// The set: its id (or a prefix of 4 or more characters), title or day, or `last`.
+    pub set: String,
+    /// Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed
+    /// and tracks the profile hides (`profile hide`) are never named either.
     #[serde(default)]
     pub hide: Vec<usize>,
 }
 
-/// The plan, and the list's fingerprint (to remember the record key by).
-fn history_plan(store_root: &Path, req: &HistoryPublishRequest, ctx: &Ctx<'_>) -> Result<(PublishPlan, String)> {
-    let drive = super::resolve_drive(&req.drive)?;
-    let on_drive = plays::drive_history(&drive)?;
-    let store = Store::open(store_root).ok();
-    // The lists the store archived, read when they're needed (it reads every snapshot).
-    let mut archive: Option<plays::HistoryArchive> = None;
-    let read_archive = |archive: &mut Option<plays::HistoryArchive>| -> Result<()> {
-        if let (None, Some(store)) = (&archive, &store) {
-            *archive = Some(plays::archive(store, drive.state().and_then(|s| s.library_id), ctx)?);
-        }
-        Ok(())
-    };
-    let mut list = plays::find_list(&on_drive.lists, &req.list).cloned();
-    if list.is_none() || req.archived {
-        read_archive(&mut archive)?;
-        if list.is_none()
-            && let Some(a) = &archive
-        {
-            list = plays::find_list(a.lists.iter().map(|a| &a.list), &req.list).cloned();
+/// `track 3 isn't named: why`, or `tracks 3, 7 aren't named: why`.
+fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
+    let list: Vec<String> = positions.iter().map(usize::to_string).collect();
+    match list.as_slice() {
+        [] => None,
+        [one] => Some(format!("track {one} isn't named: {why}")),
+        many => Some(format!("tracks {} aren't named: {why}", many.join(", "))),
+    }
+}
+
+/// A set as its record: where and when it was played, who with, and its tracks in order
+/// (unidentified where the set, the request or the profile says not to name them), keyed by the
+/// set's id. Planned signed out, it can only be looked at.
+///
+/// `plays publish` published history lists as sets under keys of their own (`atmosphere-sets.json`
+/// remembers them). A set built from one of those lists alone, with nothing published under its
+/// own id, takes over that key the first time it's published, so the old record is replaced rather
+/// than left beside it; publishing changes the set's id to the key.
+pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<PlannedPublish> {
+    let store = Store::open(store_root)?;
+    let book = SetBook::load(&store)?;
+    let set = book.find(&req.set)?;
+    if let Some(&bad) = req.hide.iter().find(|&&p| p == 0 || p > set.tracks.len()) {
+        return Err(Error::invalid(format!("there's no track {bad} to hide: the set has {}", set.tracks.len())));
+    }
+    let prefs = ProfilePrefs::load(&store)?;
+    let (mut marked, mut asked, mut profile) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, e) in set.tracks.iter().enumerate() {
+        let n = i + 1;
+        if e.unnamed {
+            marked.push(n);
+        } else if req.hide.contains(&n) {
+            asked.push(n);
+        } else if !prefs.may_name(&e.name(), &e.artist) {
+            profile.push(n);
         }
     }
-    let list = list.ok_or_else(|| {
-        let hint = if store.is_some() { "" } else { " (and there's no store to look in)" };
-        Error::NotFound(format!("history list {:?} on {}{hint}", req.list, on_drive.drive))
-    })?;
-    if let Some(&bad) = req.hide.iter().find(|&&p| p == 0 || p > list.tracks.len()) {
-        return Err(Error::invalid(format!("the list has {} tracks, so there's no track {bad}", list.tracks.len())));
-    }
-    if list.tracks.is_empty() {
-        return Err(Error::invalid(format!("{} has no tracks the library still has", list.name)));
+    let mut notes: Vec<String> = [
+        unnamed_note(&marked, "marked unnamed (`sets edit --named`)"),
+        unnamed_note(&asked, "hidden as asked"),
+        unnamed_note(&profile, "hidden by your profile (`profile unhide`)"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let hidden: BTreeSet<usize> = asked.iter().chain(&profile).copied().collect();
+    let record = publish::set_record(set, &hidden, Utc::now());
+    if record.get("location").is_none() && set.city.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+        notes.push("the city is left out: it goes out with a country (`sets edit --country`)".into());
     }
 
-    let mut notes = Vec::new();
-    let prefs = store.as_ref().map(ProfilePrefs::load).transpose()?.unwrap_or_default();
-    let mut unnamed = Vec::new();
-    let tracks: Vec<SetTrack> = list
-        .tracks
-        .iter()
-        .enumerate()
-        .map(|(i, t)| {
-            if req.hide.contains(&(i + 1)) {
-                SetTrack::unidentified()
-            } else if !prefs.may_name(&t.display_name(), &t.artist) {
-                unnamed.push((i + 1).to_string());
-                SetTrack::unidentified()
-            } else {
-                SetTrack::named(t)
-            }
-        })
-        .collect();
-    if !unnamed.is_empty() {
-        notes.push(format!("track {} isn't named: your profile hides it (`profile unhide`)", unnamed.join(", ")));
-    }
-    if list.missing > 0 {
-        notes.push(format!("{} entries are left out: their tracks aren't in the library any more", list.missing));
-    }
-
-    // The date: as given, as published before, as the store first saw the list, or today.
-    let fingerprint = list.fingerprint();
     let account = atmosphere::status(store_root)?;
-    let known_key = match &account {
-        Some(info) => publish::published_set_key(store_root, &info.did, &fingerprint)?,
+    let read = |info: &AccountInfo, rkey: &str| repo::get_record(&info.pds, &info.did, lexicon::SET, rkey);
+    let mut rkey = set.id.clone();
+    let mut current = match &account {
+        Some(info) => read(info, &rkey)?,
         None => None,
     };
-    // What's published under that key: read once, for its date and for the plan.
-    let published = match (&account, &known_key) {
-        (Some(info), Some(rkey)) => repo::get_record(&info.pds, &info.did, lexicon::SET, rkey)?,
-        _ => None,
-    };
-    let published_date =
-        published.as_ref().and_then(|r| NaiveDate::parse_from_str(r.value["date"].as_str()?, "%Y-%m-%d").ok());
-    let date = match (&req.date, published_date) {
-        (Some(d), _) => NaiveDate::parse_from_str(d.trim(), "%Y-%m-%d")
-            .map_err(|_| Error::invalid(format!("{d:?} isn't a date like 2026-10-03")))?,
-        (None, Some(d)) => d,
-        (None, None) => {
-            read_archive(&mut archive)?;
-            let archived = archive.iter().flat_map(|a| &a.lists).find(|a| a.list.same_as(&list));
-            match archived.map(|a| a.first_seen.created.date_naive()) {
-                Some(d) => {
-                    notes.push(format!(
-                        "dated {d}, the day the store first saw the list (give the day it was played to change it)"
-                    ));
-                    d
-                }
-                None => {
-                    let today = chrono::Local::now().date_naive();
-                    notes.push(format!("dated today, {today} (give the day it was played to change it)"));
-                    today
-                }
-            }
-        }
-    };
-    let text = |s: &Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
-    let set = SetDraft {
-        title: text(&req.title),
-        date,
-        venue: text(&req.venue),
-        source: SetSource::History,
-        tracks,
-        created_at: Utc::now(),
-    };
-    let record = publish::set_record(&set);
-    let mut plan = match known_key {
-        Some(rkey) => publish::plan_over(account, lexicon::SET, &rkey, record, published)?,
-        None => publish::plan(store_root, lexicon::SET, &publish::set_key(date, &fingerprint), record)?,
-    };
+    let mut renamed = None;
+    if let (Some(info), None, [session]) = (&account, &current, set.sessions.as_slice())
+        && let Some(old) = publish::published_set_key(store_root, &info.did, session)?
+        && !book.sets.iter().any(|s| s.id == old)
+    {
+        let short = &session[..session.len().min(8)];
+        notes.push(format!("replaces what `plays publish` published from session {short}; the set's id becomes {old}"));
+        current = read(info, &old)?;
+        renamed = Some(std::mem::replace(&mut rkey, old));
+    }
+    let mut plan = publish::plan_over(account, lexicon::SET, &rkey, record, current)?;
     plan.notes = notes;
-    Ok((plan, fingerprint))
+    // The record is built from the set and the profile's choices: either changing makes it stale.
+    let read_from =
+        Touched::path(store_root, renamed.is_some(), vec![Probe::Content(vec![SETS_FILE.into(), PREFS_FILE.into()])]);
+    Ok(planned("sets.publish", "this set", store_root, plan, renamed).touches(read_from))
 }
 
-/// A history list as a set record: its tracks in order (unnamed where the DJ hides them), dated
-/// and titled as asked.
-pub fn history_publish_plan(store_root: &Path, req: &HistoryPublishRequest, ctx: &Ctx<'_>) -> Result<PlannedPublish> {
-    let (plan, fingerprint) = history_plan(store_root, req, ctx)?;
-    Ok(planned("history.publish", "this set", store_root, plan, Some(fingerprint)))
-}
-
-/// Publish a history list as a set (planned and published in one go). Publishing the same list
-/// again replaces its record.
-pub fn history_publish_apply(store_root: &Path, req: &HistoryPublishRequest, ctx: &Ctx<'_>) -> Result<Published> {
-    let plan = history_publish_plan(store_root, req, ctx)?;
+/// Publish a set (planned and published in one go). Publishing it again replaces its record.
+pub fn set_publish_apply(store_root: &Path, req: &SetPublishRequest) -> Result<Published> {
+    let plan = set_publish_plan(store_root, req)?;
     publish_to(plan.request(), &plan)
 }
 

@@ -330,6 +330,7 @@ mod tests {
                 files: 0,
                 bytes: 0,
                 labels: vec![],
+                beside: false,
             },
             reasons: vec![],
             drives: vec![],

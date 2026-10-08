@@ -75,3 +75,21 @@ fn my_tags_by_track() {
     let key = locallibrary::paths::key(&track.file_path).to_lowercase();
     assert_eq!(by.get(&key).map(Vec::as_slice), Some(&["Genre/Deep".to_string()][..]));
 }
+
+/// Changing a volume label drives the operating system's tools, untested on Linux and Windows:
+/// the plan says so, for the sidecar and the terminal player as for the CLI.
+#[test]
+fn a_volume_label_change_warns_where_it_is_untested() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let req = |label| api::RenameDrive { drive: root.display().to_string(), name: "Club".into(), label };
+    locallibrary::testing::os_on_this_thread(Some("windows"));
+    let warned = api::drive_rename_plan(&req(true)).unwrap().warnings.clone();
+    let plain = api::drive_rename_plan(&req(false)).unwrap().warnings.clone();
+    locallibrary::testing::os_on_this_thread(Some("macos"));
+    let on_macos = api::drive_rename_plan(&req(true)).unwrap().warnings.clone();
+    locallibrary::testing::os_on_this_thread(None);
+    assert_eq!(warned, ["changing the volume label hasn't been tested on Windows yet; check the result"]);
+    assert!(plain.is_empty(), "{plain:?}");
+    assert!(on_macos.is_empty(), "tested on macOS: {on_macos:?}");
+}

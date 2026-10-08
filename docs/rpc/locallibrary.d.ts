@@ -188,6 +188,21 @@ export type AnalysisView = {
   structure: SongStructure | null;
 };
 
+/** A track's place in a set. */
+export type Appearance = {
+  date: string;
+  /** From 1. */
+  position: number;
+  /** The set's id. */
+  set: string;
+  /** Seconds from the start of the set, when known. */
+  start_seconds?: number | null;
+  title?: string | null;
+  /** The track as the set has it: `Artist - Title`. */
+  track: string;
+  venue?: string | null;
+};
+
 /** `*.apply` by the id of the plan `*.plan` returned: applies exactly that plan, once. */
 export type ApplyPlan = {
   plan_id: string;
@@ -233,13 +248,18 @@ export type ArchivedHistory = {
    * one, when both hold it).
    */
   database: string;
-  /** The earliest snapshot holding it. */
+  /** The earliest snapshot holding it: it was recorded before then. */
   first_seen: Sighting;
   /** Entries whose track isn't in the library any more. */
   missing: number;
   name: string;
   /** Folders and name (OneLibrary can keep history lists in folders). */
   path: string;
+  /**
+   * It was recorded after this: when the snapshot before `first_seen` of the same drive was
+   * taken (which didn't hold it). `None` when that drive wasn't pulled before.
+   */
+  recorded_after: string | null;
   /** How many snapshots hold it. */
   snapshots: number;
   tracks: Track[];
@@ -391,9 +411,17 @@ export type BaseChange = {
 
 /** What the numbers describe. */
 export type Basis =
-  /** Tracks as played in sets (a track played in three sets counts three times). */
+  /** Tracks as played in the DJ's sets (a track played in three sets counts three times). */
   | "plays"
-  /** No sets were found: the collection, each track once. */
+  /**
+   * No sets declared (or the store left out): tracks as played in the sessions players
+   * recorded with `min_set_tracks` or more tracks, which can be practice as well as gigs.
+   */
+  | "sessions"
+  /**
+   * Nothing played to count (no sets in the range, or no sets declared and no sessions): the
+   * collection, each track once.
+   */
   | "collection";
 
 export type Beat = {
@@ -424,6 +452,26 @@ export type CancelRequest = {
 /** Whether there was something to cancel. */
 export type Cancelled = {
   cancelled: boolean;
+};
+
+/** Sessions that look like one set. */
+export type Candidate = {
+  /** The evidence, in words. */
+  reasons: string[];
+  /**
+   * How much it looks like a set, 0 to 100: up to 40 for its tracks, 20 for a drive taken to
+   * sets, 30 for a recording that has its tracks, 10 for several drives.
+   */
+  score: number;
+  /** Their ids, newest first. */
+  sessions: string[];
+  /** Different tracks the sessions logged. */
+  tracks: number;
+  /**
+   * When it was played: the imported logs' times when there are some, else the time every
+   * session's window shares.
+   */
+  window: Window;
 };
 
 export type CheckEntry = {
@@ -1106,6 +1154,13 @@ export type DiskView = {
   problem: string | null;
 };
 
+export type DismissSessions = {
+  /** Ids (any unique prefix of 4 or more characters) or list names. */
+  sessions: string[];
+  /** Take the dismissal back. */
+  undo?: boolean;
+};
+
 export type DocArc = {
   builds: number;
   shape: ArcShape;
@@ -1150,7 +1205,7 @@ export type DocPrep = {
 /** A count: exact, or (rounded) a round number it's at least. */
 export type DocSets = {
   medianTracks: number;
-  /** Year of the oldest archived set. */
+  /** Year of the oldest set. */
   since?: number | null;
 } & ({
   count: number;
@@ -1862,6 +1917,57 @@ export type EditRequest = {
   no_journal?: boolean;
 };
 
+/**
+ * Changes to a set. Tracklist positions start at 1 and all name the tracklist as it was before
+ * the edit: a track moved up lands just before the track that was at `to`, one moved down just
+ * after it; an insert lands just before the track that was at `at` (one past the last appends).
+ * Added sessions' tracks go at the end (or, when the set has a recording, are only checked
+ * against it). Attaching a recording rebuilds the tracklist from it, so it can't come with
+ * changes by position.
+ */
+export type EditSet = {
+  /** Sessions whose tracks to add. */
+  add_sessions?: string[];
+  city?: string | null;
+  /** ISO 3166 code, `GB`. */
+  country?: string | null;
+  /** The day it was played, `2026-10-03`. */
+  date?: string | null;
+  /**
+   * The drive inserted tracks are looked up on and a recording is matched against (default:
+   * the only mounted rekordbox drive).
+   */
+  drive?: string | null;
+  /** Positions to drop. */
+  drop?: number[];
+  /** The `at://` URI of the event's `community.lexicon.calendar.event` record. */
+  event?: string | null;
+  insert?: Insert[];
+  /** `club`, `festival`, `radio`, `livestream`, `mix`, or another word. */
+  kind?: string | null;
+  /** Where people can listen to it (`https://...`). */
+  link?: string | null;
+  moves?: Move[];
+  /** Positions to name again. */
+  named?: number[];
+  /** Private notes, never published. */
+  notes?: string | null;
+  /** A recording to attach (identified against `drive`'s library), or a kept report. */
+  recording?: string | null;
+  report?: string | null;
+  /** The set: `last`, an id prefix of 4 or more, a title, or a day. */
+  set: string;
+  title?: string | null;
+  /** Positions to publish without naming the track. */
+  unnamed?: number[];
+  venue?: string | null;
+  /**
+   * Who they played with: names, or `did:...` for an Atmosphere account. Replaces the list;
+   * empty clears it.
+   */
+  with?: string[] | null;
+};
+
 export type EjectDrives = {
   drives: string[];
 };
@@ -1953,6 +2059,15 @@ export type EnergySection = {
   /** Plays (or tracks) whose phrase analysis was read. */
   tracks: number;
 };
+
+/** Where a set's track came from. */
+export type EntryOrigin =
+  /** A session logged it. */
+  | "session"
+  /** It was heard in the recording. */
+  | "recording"
+  /** The DJ added it. */
+  | "added";
 
 export type EraSection = {
   /** Oldest first. */
@@ -2508,6 +2623,8 @@ export type FsCheckReport = {
   root: string;
   /** The volume's device (`disk4s1`, `/dev/sdb1`, `E:`). */
   volume: string | null;
+  /** What to be wary of: the check hasn't run on this platform before. */
+  warnings: string[];
 };
 
 export type FsCheckRequest = {
@@ -2517,6 +2634,12 @@ export type FsCheckRequest = {
 
 /** A file system found on a volume. */
 export type FsKind = "fat12" | "fat16" | "fat32" | "exfat" | "hfsplus" | "apfs" | "ntfs" | "other";
+
+/** Every session, newest first, and what couldn't be read. */
+export type Gathered = {
+  sessions: Session[];
+  warnings: string[];
+};
 
 export type GcReport = {
   dry_run: boolean;
@@ -2595,26 +2718,6 @@ export type HistoryListName = {
   name: string;
   /** Its entries' audio files (device paths), in order. */
   tracks: string[];
-};
-
-export type HistoryPublishRequest = {
-  /** Also look among the lists the store archived (rekordbox deletes them from the drive). */
-  archived?: boolean;
-  /**
-   * The day it was played: `2026-10-03`. Default: the date it was published with before, else
-   * the day the store first saw the list, else today.
-   */
-  date?: string | null;
-  drive: string;
-  /**
-   * Positions (from 1) of tracks to publish without naming them. Tracks the profile hides
-   * (`profile hide`) are never named either.
-   */
-  hide?: number[];
-  /** The history list: a name or path, as `history` lists them. */
-  list: string;
-  title?: string | null;
-  venue?: string | null;
 };
 
 export type HistoryRequest = {
@@ -2749,6 +2852,18 @@ export type ImportRequest = {
   playlist?: string | null;
 };
 
+export type ImportSessionLog = {
+  /**
+   * The drive whose library the log's tracks are looked up in. Default: the only mounted
+   * rekordbox drive (with none mounted, the log is kept as it is).
+   */
+  drive?: string | null;
+  /** A Beat Link Trigger Playlist Writer CSV. */
+  file: string;
+  /** Default: the file's name. */
+  name?: string | null;
+};
+
 export type ImportSettings = {
   /** Drive to import from; `None` imports rekordbox's own "My Settings" on this computer. */
   drive?: string | null;
@@ -2771,6 +2886,19 @@ export type ImportSummary = {
   entries: number;
   found: number;
   missing: number;
+};
+
+/** A play log imported from another tool, with real play times. */
+export type ImportedSession = {
+  /** The file it was imported from. */
+  file: string;
+  /** Like a history list's fingerprint: the same log imported twice is one session. */
+  id: string;
+  imported_at: string;
+  name: string;
+  plays: TimedPlay[];
+  /** `beat_link_trigger`. */
+  tool: string;
 };
 
 export type IndexMixLibrary = {
@@ -2809,6 +2937,15 @@ export type Initialized = {
   protocol: number;
   /** The sidecar's version. */
   version: string;
+};
+
+export type Insert = {
+  at: number;
+  /**
+   * A search for one of the drive's tracks (`Artist - Title`, part of it, or a path), else
+   * the track as typed: `Artist - Title`.
+   */
+  track: string;
 };
 
 /** What an export writes, and what it leaves out. */
@@ -3445,6 +3582,11 @@ export type MountedDrive = {
 };
 
 export type Move = {
+  from: number;
+  to: number;
+};
+
+export type MoveOutput = {
   /** 1-based position on the left. */
   from: number;
   /** 1-based position on the right. */
@@ -3469,6 +3611,44 @@ export type MyTags = {
   /** The databases read. */
   sources: Source[];
   warnings: string[];
+};
+
+/** A set's details. Left out, a field stays as it is; empty (`""`), it's cleared. */
+export type NewSet = {
+  city?: string | null;
+  /** ISO 3166 code, `GB`. */
+  country?: string | null;
+  /** The day it was played, `2026-10-03`. */
+  date?: string | null;
+  /**
+   * The drive whose library a recording is matched against (default: the only mounted
+   * rekordbox drive).
+   */
+  drive?: string | null;
+  /** The `at://` URI of the event's `community.lexicon.calendar.event` record. */
+  event?: string | null;
+  /** `club`, `festival`, `radio`, `livestream`, `mix`, or another word. */
+  kind?: string | null;
+  /** Where people can listen to it (`https://...`). */
+  link?: string | null;
+  /** Private notes, never published. */
+  notes?: string | null;
+  /**
+   * A recording of the set: identified against `drive`'s library, its report kept in the
+   * store. Its tracklist beats the sessions'.
+   */
+  recording?: string | null;
+  /** Or a report kept in the store already (`mix.reports.list`). */
+  report?: string | null;
+  /** Sessions to build it from, in play order (ids, or any unique prefix of 4 or more). */
+  sessions?: string[];
+  title?: string | null;
+  venue?: string | null;
+  /**
+   * Who they played with: names, or `did:...` for an Atmosphere account. Replaces the list;
+   * empty clears it.
+   */
+  with?: string[] | null;
 };
 
 /** No parameters (any object is accepted). */
@@ -3533,6 +3713,11 @@ export type PackPlan = {
   free_space: number | null;
   /** Size of the packed library's files. */
   library_bytes: number;
+  /**
+   * Space the pack needs on the target: the files it copies, its new databases and the backup
+   * of what it replaces.
+   */
+  needed_bytes: number;
   playlists: string[];
   /** The target holds a library that isn't an earlier pack of this source. */
   replaces_library: boolean;
@@ -3608,6 +3793,13 @@ export type Page = {
   total: number;
 };
 
+/** Someone the DJ played with. */
+export type Partner = {
+  /** Their Atmosphere account, when known. */
+  did?: string | null;
+  name: string;
+};
+
 /** How file paths are written. */
 export type PathStyle =
   /**
@@ -3633,6 +3825,11 @@ export type PendingOp = {
   backup?: string | null;
   description: string;
   op: LineageOp;
+  /**
+   * The player name and colour the drive had before a sync, push or pack replaced its
+   * `exportLibrary.db`, put back once it's done (see [`crate::player::stash`]).
+   */
+  player?: DbIdentity | null;
   started: string;
 };
 
@@ -3859,6 +4056,11 @@ export type PlayedTrack = {
   /** Sets it appears in. */
   sets: number;
   title: string;
+  /**
+   * A declared set marks it unnamed (`sets edit --unnamed`): the public document never names
+   * it.
+   */
+  unnamed?: boolean;
 };
 
 export type PlayerIdentity = {
@@ -3929,7 +4131,7 @@ export type PlaylistChange = {
 export type PlaylistChanges = {
   /** Entries only on the right, at their (1-based) position there. */
   added: DiffEntry[];
-  moved: Move[];
+  moved: MoveOutput[];
   path: string;
   /** Entries only on the left, at their position there. */
   removed: DiffEntry[];
@@ -4057,7 +4259,7 @@ export type PrepSection = {
 export type ProfileDocument = {
   arc?: DocArc | null;
   artists?: string[] | null;
-  /** `plays` or `collection` (see [`super::Basis`]). */
+  /** `plays`, `sessions` or `collection` (see [`Basis`]). */
   basis: Basis;
   collection?: DocCollection | null;
   energy?: DocEnergy | null;
@@ -4084,16 +4286,16 @@ export type ProfileOptions = {
   analysis: boolean;
   /** The DJ's genre spellings, e.g. `{"dnb": "Drum & Bass"}` (see [`ProfilePrefs`]). */
   genre_aliases: { [key: string]: string };
-  /** History lists with fewer tracks are sound checks or previews, not sets. */
+  /** Without declared sets: sessions with fewer tracks (sound checks, previews) don't count. */
   min_set_tracks: number;
   /**
-   * Only sets first seen on or after this day. Sets still on a drive (not archived yet) are
-   * recent, so they always count.
+   * Only sets played on or after this day. Sessions (without declared sets) count from the day
+   * a pull first archived them; those still only on a drive are recent, so they always count.
    */
   since: string | null;
   /** How many entries ranked lists keep. */
   top: number;
-  /** Only sets first seen on or before this day (sets still on a drive don't count). */
+  /** Only sets played on or before this day (sessions still only on a drive don't count). */
   until: string | null;
 };
 
@@ -4146,8 +4348,8 @@ export type ProfileReport = {
 export type ProfileRequest = {
   /**
    * Drives to read. Default: the mounted rekordbox drives in the store's registry, so a drive
-   * someone else plugged in doesn't count as the DJ's sets; every mounted rekordbox drive when
-   * the registry is empty.
+   * someone else plugged in doesn't count as the DJ's; every mounted rekordbox drive when the
+   * registry is empty.
    */
   drives?: string[];
   /**
@@ -4155,17 +4357,20 @@ export type ProfileRequest = {
    * linked to, or every library.
    */
   libraries?: string[];
-  /** History lists with fewer tracks don't count as sets (default 5). */
+  /** Without declared sets: sessions with fewer tracks don't count (default 5). */
   min_set_tracks?: number | null;
   /** Skip analysis files: no phrase mood or cue statistics, but much faster. */
   no_analysis?: boolean;
-  /** Leave the store out (its archived history lists and its libraries). */
+  /** Leave the store out (its sets, archived history lists and libraries). */
   no_store?: boolean;
-  /** Only sets first seen from this day: `2026`, `2026-09` or `2026-09-30`. */
+  /**
+   * Only sets played from this day: `2026`, `2026-09` or `2026-09-30`. Without declared sets,
+   * sessions first archived from it.
+   */
   since?: string | null;
   /** Entries in ranked lists (default 10). */
   top?: number | null;
-  /** Only sets first seen up to this day (same forms). */
+  /** Only sets played up to this day (same forms). */
   until?: string | null;
 };
 
@@ -4870,6 +5075,86 @@ export type ScrubReport = {
 };
 
 /**
+ * A session: one run of play logging. A history list a player recorded, or a log imported from
+ * another tool ([`ImportedSession`]).
+ */
+export type Session = {
+  /** The DJ said it wasn't a set. */
+  dismissed: boolean;
+  /** The mounted drives holding it now. */
+  drives: string[];
+  /** The drive whose snapshot first held it. */
+  first_seen_on?: string | null;
+  /**
+   * The list's fingerprint ([`crate::plays::HistoryList::fingerprint`]): the same wherever
+   * it's read. Commands take any unique prefix of 4 or more characters.
+   */
+  id: string;
+  /** Entries whose track isn't in the library any more. */
+  missing: number;
+  name: string;
+  /** Folders and name. */
+  path: string;
+  /** Sets built from it, by id. */
+  sets: string[];
+  /**
+   * `device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from
+   * (`beat_link_trigger`).
+   */
+  source: string;
+  /** In play order; `start_seconds` is set for timed logs. */
+  tracks: SetEntry[];
+  window: Window;
+};
+
+export type SessionsRequest = {
+  /**
+   * Only this drive's sessions and those of its library in the store. Default: every mounted
+   * rekordbox drive's and the whole store's.
+   */
+  drive?: string | null;
+  /** Only the sessions in no set that weren't dismissed (`sessions.dismiss`). */
+  unassigned?: boolean;
+};
+
+/** A performance: what the DJ played, where and when. */
+export type Set = {
+  city?: string | null;
+  /** ISO 3166 country code, `GB`. */
+  country?: string | null;
+  created_at: string;
+  /** The day it was played (local). */
+  date: string;
+  /** The event it was part of: the `at://` URI of a `community.lexicon.calendar.event` record. */
+  event?: string | null;
+  /**
+   * A TID ([`new_id`]): the record key when it's published, and how commands name it (any
+   * unique prefix of 4 or more characters).
+   */
+  id: string;
+  /**
+   * `club`, `festival`, `radio`, `livestream`, `mix` (the Lexicon's `knownValues`) or the DJ's
+   * own word.
+   */
+  kind?: string | null;
+  /** Where people can listen to it (Mixcloud, SoundCloud, YouTube...). */
+  link?: string | null;
+  /** The DJ's own notes. Never published. */
+  notes?: string | null;
+  /** The recording on this computer the tracklist was found in. */
+  recording?: SetRecording | null;
+  /** The sessions it was built from, by id ([`Session::id`]). */
+  sessions?: string[];
+  title?: string | null;
+  /** In play order. */
+  tracks: SetEntry[];
+  updated_at: string;
+  venue?: string | null;
+  /** Who they played with (back to back). */
+  with?: Partner[];
+};
+
+/**
  * Which tracks an operation targets: the tracks that fit every field given, so a playlist and a
  * filter together pick the playlist's tracks the filter matches. At least one field must be set,
  * and a blank query, filter, album, playlist or history list is refused rather than taken to
@@ -4891,6 +5176,15 @@ export type SetArtwork = {
   playlist?: string | null;
   /** Matches "artist - title" or path substrings; must match at least one track. */
   query?: string | null;
+};
+
+/**
+ * A set as it was saved, and what's worth telling the DJ about it (tentative matches, tracks
+ * logged but not heard in the recording, a day to check, how inserted tracks were found).
+ */
+export type SetChange = {
+  notes: string[];
+  set: Set;
 };
 
 export type SetContact = {
@@ -4917,17 +5211,101 @@ export type SetCue = {
   snap?: boolean;
 };
 
+/**
+ * One track of a set, kept as it was when it went in, so the set outlives library changes and
+ * reads without the drive.
+ */
+export type SetEntry = {
+  album?: string;
+  artist: string;
+  /** 0 when unknown. */
+  bpm: number;
+  duration_secs: number;
+  /** The audio file's path in the library (`/Contents/...`), to find the track again. */
+  file?: string | null;
+  genre?: string;
+  isrc?: string;
+  /** As the library has it (note name, Camelot or Open Key). */
+  key?: string;
+  label?: string;
+  origin: EntryOrigin;
+  /** The session that logged it. */
+  session?: string | null;
+  /** Seconds from the start of the set (from a recording or a timed log). */
+  start_seconds?: number | null;
+  title: string;
+  /** Published without naming it: only its place in the set. */
+  unnamed?: boolean;
+  year: number;
+};
+
+export type SetExport = {
+  /** For `m3u8`: the drive the tracks are on (default: the only mounted rekordbox drive). */
+  drive?: string | null;
+  format: SetFormat;
+  /**
+   * Write it to this file (otherwise it's answered as `text`). An M3U8's paths are relative
+   * to it.
+   */
+  output?: string | null;
+  /** Replace a file already at `output` (refused otherwise). */
+  replace?: boolean;
+  set: string;
+};
+
+export type SetExportReport = {
+  format: SetFormat;
+  path?: string | null;
+  /** The document, when it wasn't written to a file. */
+  text?: string | null;
+  /** Tracks written. */
+  tracks: number;
+  /** Rules of the format the set breaks, and tracks left out. */
+  warnings: string[];
+};
+
+/** How a set is written out. */
+export type SetFormat =
+  /** `01. Artist - Title`. */
+  | "text"
+  /** Mixcloud's tracklist paste: `Artist - Title - 00:04:12`, with its rules checked. */
+  | "mixcloud"
+  /** A CUE sheet for the recording. */
+  | "cue"
+  /** Chapters for a YouTube description: `04:12 Artist - Title`. */
+  | "youtube"
+  /**
+   * For 1001Tracklists: `[0:04:12] Artist - Title`. Unconfirmed: their site documents no
+   * paste format, so this is the cue-time style tracklists are usually written in.
+   */
+  | "1001"
+  /** `#,Start,Artist,Title,Album,Label,Genre,BPM,Key,ISRC,Year,Unnamed`. */
+  | "csv"
+  /** A playlist of the tracks on a drive. */
+  | "m3u8";
+
 export type SetInfo = {
   closing_bpm: number | null;
-  first_seen: string | null;
+  /**
+   * The day the set was played. A session has no such day: this is the day a pull first
+   * archived it (it was played then or before), and none while it's only on a drive.
+   */
+  date: string | null;
   /** Share of transitions between keyed tracks that are harmonic. */
   harmonic_share: number | null;
+  /**
+   * The set's id, or the session's (its history list's fingerprint, see
+   * [`crate::sets::Session::id`]).
+   */
+  id: string;
+  /** The set's title, else its venue; the session's history list (folders and name). */
   name: string;
-  on_drive: boolean;
   opening_bpm: number | null;
-  path: string;
-  /** The drive it was read from, or the drive whose snapshot archived it. */
-  source: string;
+  /**
+   * Where: the set's venue and city; the drive a session was read from, or whose snapshot
+   * archived it.
+   */
+  place: string;
   tracks: number;
 };
 
@@ -4959,6 +5337,37 @@ export type SetPlayers = {
   models: string[];
 };
 
+export type SetPlaylist = {
+  drive: string;
+  /** The playlist's path (default: `Sets/<date> <title or venue>`). */
+  name?: string | null;
+  set: string;
+};
+
+export type SetPublishRequest = {
+  /**
+   * Positions (from 1) of tracks to publish without naming them. Tracks the set marks unnamed
+   * and tracks the profile hides (`profile hide`) are never named either.
+   */
+  hide?: number[];
+  /** The set: its id (or a prefix of 4 or more characters), title or day, or `last`. */
+  set: string;
+};
+
+/** A recording of a set. */
+export type SetRecording = {
+  path: string;
+  /** The mix report kept in the store for it (`mix.reports.get`). */
+  report?: string | null;
+};
+
+export type SetRef = {
+  /** The set: `last`, an id prefix of 4 or more, a title, or a day. */
+  set?: string | null;
+  /** Without `set`: the latest set at the venue whose name contains this (ignoring case). */
+  venue?: string | null;
+};
+
 export type SetRole = {
   drive: string;
   /** `primary`, `backup`, `set` (or `gig`, its old name) or `archive`; `None` clears it. */
@@ -4981,24 +5390,36 @@ export type SetSmartPlaylist = {
   sort?: string | null;
 };
 
+export type SetsQuery = {
+  /** Only sets of this kind (ignoring case). */
+  kind?: string | null;
+  /** Only sets played on or after this day (`2026`, `2026-09` or `2026-09-30`). */
+  since?: string | null;
+  /** Only sets played on or before this day (`2026` is the whole year). */
+  until?: string | null;
+  /** Only sets at a venue whose name contains this (ignoring case). */
+  venue?: string | null;
+};
+
+/**
+ * The sets the numbers come from: the DJ's, or the sessions standing in for them (see
+ * [`ProfileReport::basis`]).
+ */
 export type SetsSection = {
   count: number;
   distinct_tracks: number;
-  /**
-   * When the oldest and newest archived sets were first seen (sets still on a drive have no
-   * date).
-   */
-  first_seen: string | null;
-  last_seen: string | null;
-  /** Newest first (undated sets, still on a drive, first). */
+  /** Newest first (sessions only on a drive, undated, first). */
   list: SetInfo[];
   longest: number;
   median_tracks: number;
-  /** Sets on a drive that the store hasn't archived yet. */
+  newest: string | null;
+  /** Sessions only on a drive, which the store hasn't archived yet. */
   not_archived: number;
+  /** The days of the oldest and newest sets ([`SetInfo::date`]). */
+  oldest: string | null;
   /** Track appearances across every set. */
   plays: number;
-  /** History lists left out for having fewer than `min_set_tracks` tracks. */
+  /** Sessions left out for having fewer than `min_set_tracks` tracks. */
   too_short: number;
 };
 
@@ -5149,6 +5570,12 @@ export type SmartPlaylists = {
 
 /** Snapshot without its file list, for listings. */
 export type SnapshotInfo = {
+  /**
+   * Off the line back from the library's latest: saved beside it (a drive back from a set, see
+   * [`crate::sync::pull_beside`]). False from [`Snapshot::info`]; [`crate::api::history`]
+   * fills it in.
+   */
+  beside?: boolean;
   bytes: number;
   created: string;
   files: number;
@@ -5211,7 +5638,7 @@ export type Source =
   | "one_library";
 
 export type SourceInfo = {
-  /** History lists read (before set filtering). */
+  /** History lists (sessions) read. */
   history_lists: number;
   /** `drive` or `store`. */
   kind: string;
@@ -5402,6 +5829,8 @@ export type StoreCopyRequest = {
 export type StoreInfo = {
   /** When this store is a copy of another (`store copy`): when it was made. */
   copy_of?: CopyRecord | null;
+  /** Size of the copies `art embed` keeps of the files it rewrote, for `art unembed`. */
+  embed_backup_bytes: number;
   libraries: LibraryRecord[];
   root: string;
   stats: StoreStats;
@@ -5446,11 +5875,27 @@ export type Subscribed = {
   kinds: string[];
 };
 
+export type SuggestSets = {
+  /**
+   * Only this drive's sessions and those of its library in the store. Default: every mounted
+   * rekordbox drive's and the whole store's.
+   */
+  drive?: string | null;
+};
+
 /** What to do about it. */
 export type Suggestion =
   | ("nothing" | "update_right" | "update_left" | "merge")
   /** Diverged: pick a side explicitly, or merge. */
   | "choose_or_merge";
+
+/** The sets the sessions suggest, and the sessions they're made of. */
+export type Suggestions = {
+  /** Newest first. */
+  candidates: Candidate[];
+  /** The candidates' sessions, newest first. */
+  sessions: Session[];
+};
 
 export type SyncManyPreview = {
   source: string;
@@ -5750,6 +6195,15 @@ export type TidyRequest = {
   empty_trash?: boolean;
 };
 
+/** One play in an imported log. */
+export type TimedPlay = {
+  entry: SetEntry;
+  /** The player it was played on (`3`), when the log says. */
+  player?: string | null;
+  started: string;
+  stopped?: string | null;
+};
+
 /** A drive, folder or file an operation reads or writes, and its state when it was planned. */
 export type Touched = {
   /**
@@ -5920,6 +6374,11 @@ export type TrackPlays = {
   /** The play count rekordbox and the players keep (the higher of the two databases'). */
   play_count: number;
   track: TrackRef;
+};
+
+export type TrackPlaysQuery = {
+  /** Part of `Artist - Title` (ignoring case), or a drive path (`/Contents/...`). */
+  track: string;
 };
 
 export type TrackRef = {
@@ -6270,6 +6729,21 @@ export type WatchAction =
     root: string;
     targets: TargetResult[];
   }
+  /**
+   * Another operation holds the store or the drive: it's looked at again once that's done.
+   * Said once per wait.
+   */
+  | {
+    event: "watch.waiting";
+    /** Whether it holds a rekordbox export (either database). */
+    has_export: boolean;
+    /** The identity locallibrary gave it (`.locallibrary/state.json`), if any. */
+    id: string | null;
+    /** Its adopted name, else the volume's name. */
+    name: string;
+    reason: string;
+    root: string;
+  }
   /** Left alone, and why. */
   | {
     event: "watch.skipped";
@@ -6315,8 +6789,8 @@ export type WatchEvent =
     root: string;
   }
   /**
-   * The store's libraries, snapshots, labels, drive registry, settings or smart playlists
-   * changed.
+   * The store's libraries, snapshots, labels, drive registry, settings, smart playlists or
+   * sets changed.
    */
   | {
     changed: string[];
@@ -6385,6 +6859,23 @@ export type WaveformStyle =
   | "blue"
   /** Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`). */
   | "rgb";
+
+/**
+ * When a session was recorded, as far as anyone can tell. Players have no clock, so for a
+ * history list it's a window: after locallibrary last saw the drive without the list, before it
+ * first saw it with it.
+ */
+export type Window = {
+  /** Recorded after this, when known. */
+  after: string | null;
+  /** Recorded before this, when known. */
+  before: string | null;
+  /**
+   * The times come from the log itself (an imported log): when the first track started and
+   * the last one stopped.
+   */
+  exact: boolean;
+};
 
 /** Accepted by every method that writes (with its other parameters). */
 export type WriteOptions = {
@@ -6727,10 +7218,10 @@ export interface Methods {
   "profile.publish.plan": { params: ProfileRequest & WriteOptions; result: PublishPlan & PlanFields };
   /** apply method; paired with `profile.publish.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "profile.publish.apply": { params: ApplyPlan | (ProfileRequest & WriteOptions); result: Published };
-  /** plan method; paired with `history.publish.apply`; can delete or overwrite something */
-  "history.publish.plan": { params: HistoryPublishRequest & WriteOptions; result: PublishPlan & PlanFields };
-  /** apply method; paired with `history.publish.plan`; can delete or overwrite something */
-  "history.publish.apply": { params: ApplyPlan | (HistoryPublishRequest & WriteOptions); result: Published };
+  /** plan method; paired with `sets.publish.apply`; can delete or overwrite something */
+  "sets.publish.plan": { params: SetPublishRequest & WriteOptions; result: PublishPlan & PlanFields };
+  /** apply method; paired with `sets.publish.plan`; can delete or overwrite something */
+  "sets.publish.apply": { params: ApplyPlan | (SetPublishRequest & WriteOptions); result: Published };
   /** plan method; paired with `settings.publish.apply`; can delete or overwrite something */
   "settings.publish.plan": { params: NoParams & WriteOptions; result: PublishPlan & PlanFields };
   /** apply method; paired with `settings.publish.plan`; can delete or overwrite something */
@@ -6739,6 +7230,32 @@ export interface Methods {
   "settings.import_published.plan": { params: ImportPublishedSettings & WriteOptions; result: SettingsImportPlan & PlanFields };
   /** apply method; paired with `settings.import_published.plan`; can delete or overwrite something */
   "settings.import_published.apply": { params: ApplyPlan | (ImportPublishedSettings & WriteOptions); result: SettingsProfile };
+  /** read method */
+  "sets.list": { params: SetsQuery; result: Set[] };
+  /** read method */
+  "sets.get": { params: SetRef; result: Set };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "sets.new": { params: NewSet & WriteOptions; result: SetChange };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "sets.edit": { params: EditSet & WriteOptions; result: SetChange };
+  /** immediate method; can delete or overwrite something */
+  "sets.delete": { params: SetRef & WriteOptions; result: Set };
+  /** immediate method */
+  "sets.export": { params: SetExport & WriteOptions; result: SetExportReport };
+  /** read method */
+  "sets.played": { params: TrackPlaysQuery; result: Appearance[] };
+  /** plan method; paired with `sets.playlist.apply` */
+  "sets.playlist.plan": { params: SetPlaylist & WriteOptions; result: EditPlan & PlanFields };
+  /** apply method; paired with `sets.playlist.plan` */
+  "sets.playlist.apply": { params: ApplyPlan | (SetPlaylist & WriteOptions); result: EditReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "sets.suggest": { params: SuggestSets; result: Suggestions };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "sessions.list": { params: SessionsRequest; result: Gathered };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "sessions.dismiss": { params: DismissSessions & WriteOptions; result: string[] };
+  /** immediate method */
+  "sessions.import": { params: ImportSessionLog & WriteOptions; result: ImportedSession };
   /** immediate method; long running: sends `progress`, can be cancelled */
   "mix.index": { params: IndexMixLibrary & WriteOptions; result: IndexReport };
   /** immediate method; long running: sends `progress`, can be cancelled */
@@ -6845,9 +7362,13 @@ export interface Methods {
   "refresh.plan": { params: RefreshRequest & WriteOptions; result: JobPlan & PlanFields };
   /** apply method; paired with `refresh.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "refresh.apply": { params: ApplyPlan | (RefreshRequest & WriteOptions); result: JobReport };
-  /** plan method; paired with `set.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  /** plan method; paired with `prep.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "prep.plan": { params: SetJobRequest & WriteOptions; result: JobPlan & PlanFields };
+  /** plan method; paired with `prep.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `prep.plan` */
   "set.plan": { params: SetJobRequest & WriteOptions; result: JobPlan & PlanFields };
-  /** apply method; paired with `set.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  /** apply method; paired with `prep.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "prep.apply": { params: ApplyPlan | (SetJobRequest & WriteOptions); result: JobReport };
+  /** apply method; paired with `prep.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something; an older name for `prep.apply` */
   "set.apply": { params: ApplyPlan | (SetJobRequest & WriteOptions); result: JobReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "collection.info": { params: CollectionRef; result: CollectionInfo };

@@ -1,11 +1,12 @@
 //! Converting between export.pdb and OneLibrary, and spotting when the two disagree.
 
-use crate::common;
+mod imperfect_drives;
+
+use crate::common::{self, media::png};
 
 use std::fs;
-use std::io::Cursor;
 
-use binrw::BinRead;
+use locallibrary::api;
 use locallibrary::artwork::{self, Artwork};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift, LineageOp};
@@ -14,32 +15,15 @@ use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, anlz, backup, paths, pdb};
 
-fn png() -> Vec<u8> {
-    let img = image::RgbImage::from_fn(120, 90, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 77]));
-    let mut out = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgb8(img).write_to(&mut out, image::ImageFormat::Png).unwrap();
-    out.into_inner()
-}
-
 fn opts(to: Target, replace: bool) -> ConvertOptions {
     ConvertOptions { to, replace }
-}
-
-/// Track rows as rekordcrate, an independent PDB parser, counts them.
-fn rekordcrate_tracks(pdb: &[u8]) -> usize {
-    use rekordcrate::pdb::{Header, PageType};
-    let mut reader = Cursor::new(pdb);
-    let header = Header::read(&mut reader).unwrap();
-    let table = header.tables.iter().find(|t| t.page_type == PageType::Tracks).unwrap();
-    let pages = header.read_pages(&mut reader, binrw::Endian::NATIVE, (&table.first_page, &table.last_page)).unwrap();
-    pages.into_iter().flat_map(|p| p.row_groups.into_iter()).map(|g| g.present_rows().count()).sum()
 }
 
 /// A twelve-track drive with artwork on two tracks and a history playlist.
 fn drive(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
     let root = common::bigger_drive(dir, name);
     let mut d = Device::open_export(&root).unwrap();
-    artwork::set_on_drive(&mut d, &[1, 2], &Artwork::from_bytes(&png()).unwrap(), &Ctx::silent()).unwrap();
+    artwork::set_on_drive(&mut d, &[1, 2], &Artwork::from_bytes(&png(120, 90, 77)).unwrap(), &Ctx::silent()).unwrap();
     common::add_history(&root, "HISTORY 2026-10-04", &[3, 1, 4]);
     root
 }
@@ -104,7 +88,7 @@ fn builds_export_pdb_from_onelibrary() {
     assert!(art.contains("/a") && d.path(&paths::key(&art)).is_file(), "{art}");
     // An independent parser reads the new export.pdb, with none of the template's rows.
     let bytes = d.pdb_bytes().unwrap();
-    assert_eq!(rekordcrate_tracks(&bytes), 12);
+    assert_eq!(common::rekordcrate_rows(&bytes, rekordcrate::pdb::PageType::Tracks), 12);
     let db = pdb::parse_database(bytes, &d.path(paths::EXPORT_PDB)).unwrap();
     assert!(db.tracks.iter().all(|t| !t.title().is_empty()));
     assert_eq!(db.colors.len(), 8, "rekordbox's colours come with the template");
@@ -253,4 +237,27 @@ fn replacing_onelibrary_fixes_drift_and_keeps_its_rows() {
     let kept: i64 =
         one.connection().query_row("SELECT count(*) FROM content WHERE masterDbId = 777", [], |r| r.get(0)).unwrap();
     assert_eq!(kept, 11, "rows OneLibrary had are kept whole; the missing one is rebuilt");
+}
+
+/// OneLibrary's database is built from export.pdb; building it again replaces it only when asked,
+/// and the plan says it does.
+#[test]
+fn onelibrary_is_built_from_export_pdb_and_replaced_only_when_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let main = common::demo_drive(dir.path(), "Main");
+    let convert = |replace| api::ConvertRequest {
+        drive: common::path(&main),
+        options: ConvertOptions { to: Target::OneLibrary, replace },
+    };
+
+    let plan = api::convert_plan(&convert(false), &Ctx::silent()).unwrap();
+    assert_eq!(plan.summary, ["build exportLibrary.db from export.pdb on Main (2 tracks, 0 playlists)"]);
+    assert!(!plan.destructive);
+    assert_eq!(api::convert_apply(&convert(false), &Ctx::silent()).unwrap().tracks, 2);
+    assert!(Device::open(&main).unwrap().has_library_plus());
+
+    assert!(api::convert_plan(&convert(false), &Ctx::silent()).is_err(), "there's one already");
+    let again = api::convert_plan(&convert(true), &Ctx::silent()).unwrap();
+    assert!(again.destructive);
+    assert!(again.summary[0].ends_with(", replacing the exportLibrary.db it has"), "{:?}", again.summary);
 }

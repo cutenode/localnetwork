@@ -15,7 +15,7 @@ use crate::eject::{self, EjectReport};
 use crate::error::{Action, Reason};
 use crate::firmware::{self, FirmwarePlan, FirmwareReport};
 use crate::fleet::{self, Check, DriveSet, Duplicate, KnownDrive, Recognition, RenameReport, Role};
-use crate::format::{FormatOptions, FormatPlan, FormatReport};
+use crate::format::{self, FormatOptions, FormatPlan, FormatReport};
 use crate::fscheck::{self, FsCheckReport};
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::player::{self, ContactReport, PlayerIdentity};
@@ -195,6 +195,7 @@ pub fn drive_rename_plan(req: &RenameDrive) -> Result<Planned<RenamePlan, Rename
     let plan = RenamePlan { drive: d.name(), root: d.root().into(), from: d.name(), to, label };
     Planned::new("drive.rename", plan, req.clone())
         .summary(summary)
+        .warnings(req.label.then(|| format::untested_here("changing the volume label")).flatten())
         .noop(noop)
         .touches(Touched::drive(&d, true, vec![Probe::Identity]))
         .guard(None)
@@ -1069,7 +1070,8 @@ pub fn provision_plan(
         steps.push("write the My Settings profile".into());
     }
     if let Some(r) = role {
-        steps.push(format!("mark it as a {} drive", r.name()));
+        let article = if r == Role::Archive { "an" } else { "a" };
+        steps.push(format!("mark it as {article} {} drive", r.name()));
     }
     if req.player_name.is_some() || req.player_colour.is_some() {
         steps.push("set the name and colour players show".into());
@@ -1077,10 +1079,13 @@ pub fn provision_plan(
     if req.verify {
         steps.push("read every file back and check it".into());
     }
+    // A format or a library it replaces (the only warning so far) is destructive; the platform's
+    // warning below isn't.
+    let destructive = req.format || !warnings.is_empty();
     if req.eject {
         steps.push("eject it".into());
+        warnings.extend(format::untested_here("ejecting"));
     }
-    let destructive = req.format || !warnings.is_empty();
     let plan = ProvisionPlan { steps: steps.clone(), format, warnings: warnings.clone() };
     let mut planned =
         Planned::new("provision", plan, req.clone()).summary(steps).warnings(warnings).destructive(destructive);

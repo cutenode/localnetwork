@@ -119,6 +119,10 @@ pub struct PendingOp {
     /// The backup it made before changing anything: putting it back takes it back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backup: Option<String>,
+    /// The player name and colour the drive had before a sync, push or pack replaced its
+    /// `exportLibrary.db`, put back once it's done (see [`crate::player::stash`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<crate::player::DbIdentity>,
 }
 
 impl PendingOp {
@@ -501,14 +505,18 @@ impl Device {
         pdb::read_header(&buf)
     }
 
-    /// When the library was last written: `export.pdb`, or for a OneLibrary-only drive the newer
-    /// of `exportLibrary.db` and its WAL.
+    /// When rekordbox last exported the library, as far as the drive tells: when `export.pdb` or
+    /// OneLibrary (the newer of `exportLibrary.db` and its WAL) was written, and on a drive with
+    /// both, the older of the two. A player writes only the database it reads (history lists, a
+    /// CDJ-3000X's playlist edits) while rekordbox writes both, so there a set doesn't look like
+    /// an export. With one database, a set can.
     pub fn exported_at(&self) -> Option<DateTime<Utc>> {
         let modified = |key| std::fs::metadata(self.path(key)).and_then(|m| m.modified()).ok();
-        let at: SystemTime = if self.has_device_library() {
-            modified(paths::EXPORT_PDB)?
-        } else {
-            modified(paths::LIBRARY_PLUS_DB).into_iter().chain(modified(paths::LIBRARY_PLUS_WAL)).max()?
+        let pdb = modified(paths::EXPORT_PDB);
+        let plus = modified(paths::LIBRARY_PLUS_DB).into_iter().chain(modified(paths::LIBRARY_PLUS_WAL)).max();
+        let at: SystemTime = match (pdb, plus) {
+            (Some(pdb), Some(plus)) => pdb.min(plus),
+            (pdb, plus) => pdb.or(plus)?,
         };
         Some(at.into())
     }
@@ -609,7 +617,8 @@ impl Device {
     /// A drive marked already was cut off in the middle of something. Copying a whole library onto
     /// it (sync, push, pack) or putting a backup back finishes or replaces whatever that was: it
     /// takes the marker over, keeping when the cut-off run started (files written since then may
-    /// be torn, and the next sync copies them again), and removes the temp files that run left.
+    /// be torn, and the next sync copies them again) and the player name it stashed, and removes
+    /// the temp files that run left.
     /// So does any write after one in place that made no backup (an update file, a repair, a step
     /// of a replay, or an earlier version's edit): nothing could take that back, and refusing would
     /// leave the drive stuck. Anything else is refused, as an edit on top would hide that the
@@ -617,17 +626,17 @@ impl Device {
     pub fn begin(&mut self, op: LineageOp, description: impl Into<String>, backup: Option<String>) -> Result<()> {
         self.reload_state()?;
         let copies = |op| matches!(op, LineageOp::Sync | LineageOp::Push | LineageOp::Pack);
-        let started = match self.state.as_ref().and_then(|s| s.pending.as_ref()) {
-            None => Utc::now(),
+        let (started, player) = match self.state.as_ref().and_then(|s| s.pending.as_ref()) {
+            None => (Utc::now(), None),
             Some(p) if copies(op) || op == LineageOp::Restore || (p.backup.is_none() && !copies(p.op)) => {
-                let started = p.started;
+                let kept = (p.started, p.player.clone());
                 crate::tidy::remove_leftovers(self)?;
-                started
+                kept
             }
             Some(p) => return Err(self.interrupted(p)),
         };
         let state = self.state_mut()?;
-        state.pending = Some(PendingOp { op, started, description: description.into(), backup });
+        state.pending = Some(PendingOp { op, started, description: description.into(), backup, player });
         self.save_state()
     }
 
@@ -849,14 +858,25 @@ thread_local! {
 /// The folders `$LOCALLIBRARY_VOLUMES` names (a path list, like `PATH`), when it's set. It's a
 /// test switch, to be set with `$LOCALLIBRARY_STORE`: drives are then looked for only in those
 /// folders (set it empty to see none), never among the OS's mount points or where the store last
-/// saw them outside these folders, and disks can't be listed or formatted. Harnesses use it so a
-/// run never sees the drives plugged into the machine.
+/// saw them outside these folders, and the system's disk tools don't run (`disks_shown`).
+/// Harnesses use it so a run never sees, or touches, the drives plugged into the machine.
 pub fn volume_folders() -> Option<Vec<PathBuf>> {
     if let Some(dirs) = THREAD_VOLUMES.with(|v| v.borrow().clone()) {
         return Some(dirs);
     }
     let dirs = std::env::var_os("LOCALLIBRARY_VOLUMES")?;
     Some(std::env::split_paths(&dirs).filter(|d| !d.as_os_str().is_empty()).collect())
+}
+
+/// Refused while [`volume_folders`] hides this machine's drives: its disks are hidden too, so they
+/// can't be listed or formatted, nor the volume holding a drive folder checked or relabelled.
+pub(crate) fn disks_shown() -> Result<()> {
+    match volume_folders() {
+        Some(_) => Err(Error::invalid(
+            "LOCALLIBRARY_VOLUMES is set, which hides this machine's drives: its disks can't be listed, formatted, checked or relabelled",
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Candidate mount points for removable drives on this OS (or in [`volume_folders`]), each once.
@@ -976,6 +996,69 @@ mod tests {
             RekordboxSync { library: "onelibrary", automatic: true, collection: Some(2_354_715_273), playlists: 2 }
         );
         assert!(RekordboxSync::parse("onelibrary", "<Other/>").is_none());
+    }
+
+    /// What a run that didn't finish says, and what finishes it.
+    #[test]
+    fn an_unfinished_run_says_what_it_was_and_what_to_do() {
+        let pending = |op, description: &str, backup: Option<&str>| PendingOp {
+            op,
+            started: Utc::now(),
+            description: description.into(),
+            backup: backup.map(String::from),
+            player: None,
+        };
+        let pack = pending(LineageOp::Pack, "pack from Main", None);
+        assert!(pack.describe().starts_with("a `locallibrary pack` (pack from Main) didn't finish (started "));
+        assert_eq!(pack.remedy(), "pack it again to finish it");
+        let repair = pending(LineageOp::Repair, "", Some("20261005-213000"));
+        assert!(repair.describe().starts_with("a `locallibrary drive verify --repair` didn't finish"));
+        assert_eq!(repair.remedy(), "`locallibrary undo` puts back the backup it made");
+        let edit = pending(LineageOp::Edit, "", None);
+        assert!(edit.describe().starts_with("a locallibrary operation didn't finish"));
+        assert_eq!(edit.remedy(), "run it again, or make any other change to the drive, to finish it");
+        assert_eq!(pending(LineageOp::Push, "", None).remedy(), "sync onto it again to finish it");
+        for op in [
+            LineageOp::Sync,
+            LineageOp::Pull,
+            LineageOp::Merge,
+            LineageOp::Clean,
+            LineageOp::Convert,
+            LineageOp::Artwork,
+            LineageOp::Restore,
+        ] {
+            assert!(pending(op, "", None).describe().starts_with("a `locallibrary "), "{op:?}");
+        }
+    }
+
+    /// A drive that copied another's whole library takes over its history, capped like any other.
+    #[test]
+    fn inheriting_a_lineage_ends_with_the_new_state() {
+        let source: Vec<LineageEntry> = (0..=255u8).map(entry).collect();
+        let mut s = DeviceState::new("Backup");
+        s.inherit_with(&source, LineageEntry { op: LineageOp::Sync, ..entry(255) });
+        assert_eq!(s.lineage.len(), MAX_LINEAGE);
+        assert_eq!(s.head().unwrap().op, LineageOp::Sync, "the source's head is replaced");
+        s.inherit_with(&source, entry(7));
+        assert_eq!((s.lineage.len(), s.lineage[0].fingerprint), (MAX_LINEAGE, Hash::of(&[1])));
+        assert_eq!(s.head().unwrap().fingerprint, Hash::of(&[7]));
+    }
+
+    /// A formatted drive gets its identity back, but none of the states it held before.
+    #[test]
+    fn a_formatted_drive_gets_its_identity_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut d = Device::open(dir.path()).unwrap();
+        assert!(matches!(Device::open_export(dir.path()), Err(Error::NotAnExport(_))));
+        d.save_state().unwrap();
+        assert!(!dir.path().join(paths::STATE_DIR).join("state.json").exists(), "nothing to save");
+        let mut old = DeviceState::new("Main");
+        old.record(entry(1));
+        d.reset_identity(&old).unwrap();
+        let d = Device::open(dir.path()).unwrap();
+        assert_eq!((d.id(), d.name()), (Some(old.id), "Main".to_string()));
+        assert!(d.state().unwrap().lineage.is_empty());
+        assert!(format!("{d:?}").contains(&old.id.to_string()));
     }
 
     #[test]

@@ -139,20 +139,13 @@ pub fn fuzzy(query: &str, text: &str) -> Option<i32> {
     best.into_iter().flatten().max()
 }
 
-/// How a key is written in the palette.
+/// How a key is written in the palette: as the help writes it (a test checks every command's).
 fn key_name(k: &K) -> String {
     let code = |c: &KeyCode| match c {
-        KeyCode::Enter => "enter".to_string(),
-        KeyCode::Esc => "esc".into(),
-        KeyCode::Tab => "tab".into(),
-        KeyCode::Up => "↑".into(),
+        KeyCode::Up => "↑".to_string(),
         KeyCode::Down => "↓".into(),
         KeyCode::Left => "←".into(),
         KeyCode::Right => "→".into(),
-        KeyCode::Delete => "del".into(),
-        KeyCode::Char(' ') => "space".into(),
-        KeyCode::Char(c) => c.to_string(),
-        KeyCode::F(n) => format!("F{n}"),
         other => format!("{other:?}").to_lowercase(),
     };
     match k {
@@ -165,7 +158,8 @@ fn key_name(k: &K) -> String {
     }
 }
 
-/// The palette's commands in `view`: the view's own first, then those for everywhere, each once.
+/// The palette's commands in `view`: the view's own first, then those for everywhere (the keymap
+/// names each command once in a view, which a test checks).
 pub fn commands(view: View) -> Vec<(Act, Item)> {
     let own: &[Scope] = match view {
         View::Library => &[Scope::Tracks, Scope::Tree, Scope::Details, Scope::Library, Scope::Crate],
@@ -174,20 +168,14 @@ pub fn commands(view: View) -> Vec<(Act, Item)> {
         View::Profile => &[Scope::Profile],
         View::Mixes => &[Scope::Mixes],
     };
-    let mut out: Vec<(Act, Item)> = Vec::new();
-    for scope in own.iter().chain(&[Scope::Global]) {
-        for b in KEYMAP.iter().filter(|b| b.scope == *scope && !b.name.is_empty()) {
-            if out.iter().any(|(a, _)| *a == b.act) {
-                continue;
-            }
-            let detail = match b.keys.first() {
-                Some(k) => key_name(k),
-                None => b.shown.to_string(),
-            };
-            out.push((b.act, Item::new(b.name, detail)));
-        }
-    }
-    out
+    let scopes = own.iter().chain(&[Scope::Global]);
+    let named = scopes.flat_map(|scope| KEYMAP.iter().filter(move |b| b.scope == *scope && !b.name.is_empty()));
+    named
+        .map(|b| {
+            let detail = b.keys.first().map_or_else(|| b.shown.to_string(), key_name);
+            (b.act, Item::new(b.name, detail))
+        })
+        .collect()
 }
 
 impl App {
@@ -267,8 +255,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::crossterm::event::KeyModifiers;
-
+    use super::super::app::testing::{LEFT, app_with, key, last_message, library, mouse, point, press, spot};
     use super::*;
 
     #[test]
@@ -290,36 +277,25 @@ mod tests {
         assert_eq!(cmds[0].0, Act::ProfileInclude, "the view's own first");
         assert!(cmds.iter().any(|(a, _)| *a == Act::Quit));
         assert!(!cmds.iter().any(|(a, _)| *a == Act::CrateSave), "not the library's in the profile");
-        let acts: Vec<Act> = cmds.iter().map(|(a, _)| *a).collect();
-        let mut dedup = acts.clone();
-        dedup.dedup();
-        assert_eq!(acts.len(), dedup.len());
 
-        let dir = tempfile::tempdir().unwrap();
-        let mut app = App::with_library(dir.path(), super::super::browse::tests::library());
-        let press = |app: &mut App, code: KeyCode| app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
-        press(&mut app, KeyCode::Char(':'));
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, ":");
         assert!(matches!(app.modal, Some(Modal::Pick(_))));
-        for c in "drives".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
+        press(&mut app, "drives");
         let Some(Modal::Pick(p)) = &app.modal else { panic!() };
         assert_eq!(p.items[p.selected().unwrap()].label, "the drives");
         // Keys go to the box, not to the player: q didn't quit.
-        press(&mut app, KeyCode::Char('q'));
+        press(&mut app, "q");
         assert!(!app.quit);
-        press(&mut app, KeyCode::Backspace);
-        press(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Backspace);
+        press(&mut app, "\n");
         assert!(app.modal.is_none());
         assert_eq!(app.view, View::Drives);
         // Nothing matching: enter says so and stays.
-        press(&mut app, KeyCode::Char(':'));
-        for c in "zzzz".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
-        press(&mut app, KeyCode::Enter);
+        press(&mut app, ":zzzz\n");
         assert!(matches!(app.modal, Some(Modal::Pick(_))));
-        press(&mut app, KeyCode::Esc);
+        assert_eq!(last_message(&app), "no command has those letters");
+        press(&mut app, "\u{1b}");
         assert!(app.modal.is_none());
     }
 
@@ -331,6 +307,78 @@ mod tests {
             p.query = typed.into();
             p.filter();
             assert_eq!(acts[p.selected().unwrap()], act, "{typed}");
+        }
+    }
+
+    /// The list moves with the arrows and pages, and with the wheel, stopping at either end; a
+    /// click on an item chooses it, and a click outside closes the list.
+    #[test]
+    fn the_palette_moves_and_is_clicked() {
+        let (mut app, _dir) = app_with(library());
+        let selected = |app: &App| match &app.modal {
+            Some(Modal::Pick(p)) => p.state.selected(),
+            _ => panic!("closed"),
+        };
+        press(&mut app, ":");
+        key(&mut app, KeyCode::PageDown);
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Up);
+        assert_eq!(selected(&app), Some(10));
+        key(&mut app, KeyCode::PageUp);
+        key(&mut app, KeyCode::Up);
+        assert_eq!(selected(&app), Some(0), "stops at the top");
+        let title = spot(&mut app, "Commands");
+        mouse(&mut app, MouseEventKind::ScrollDown, title);
+        mouse(&mut app, MouseEventKind::Moved, title);
+        assert_eq!(selected(&app), Some(3));
+        mouse(&mut app, MouseEventKind::ScrollUp, title);
+        assert_eq!(selected(&app), Some(0));
+        // A click on the title (or the line being typed) chooses nothing.
+        mouse(&mut app, LEFT, title);
+        assert_eq!(selected(&app), Some(0));
+        press(&mut app, "drive");
+        point(&mut app, LEFT, "the drives");
+        assert!(app.modal.is_none());
+        assert_eq!(app.view, View::Drives);
+        // Nothing matching: there's nothing to move to.
+        press(&mut app, ":zzzz");
+        key(&mut app, KeyCode::Down);
+        assert_eq!(selected(&app), None);
+
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Right), (0, 0));
+        assert!(app.modal.is_none(), "closed by a click outside");
+    }
+
+    /// An item that can't be chosen now says why, and the list stays.
+    #[test]
+    fn an_item_that_cant_be_chosen_says_why() {
+        let (mut app, _dir) = app_with(library());
+        let item = Item { unavailable: Some("not while it plays".into()), ..Item::new("quit", "q") };
+        app.modal = Some(Modal::Pick(Picker::new("Commands", vec![item], Then::Act(vec![Act::Quit]))));
+        press(&mut app, "\n");
+        assert!(!app.quit && matches!(app.modal, Some(Modal::Pick(_))));
+        assert_eq!(last_message(&app), "not while it plays");
+    }
+
+    /// Every view's palette lists its own commands first and each command once, with the key
+    /// that does it written as the help writes it.
+    #[test]
+    fn every_views_commands_name_their_keys_as_the_help_does() {
+        for view in View::ALL {
+            let cmds = commands(view);
+            let mut acts: Vec<Act> = cmds.iter().map(|(a, _)| *a).collect();
+            let n = acts.len();
+            acts.sort_by_key(|a| format!("{a:?}"));
+            acts.dedup();
+            assert_eq!(acts.len(), n, "{view:?} lists a command twice");
+            // (The Snapshots view has no commands of its own.)
+            let first = KEYMAP.iter().find(|b| b.act == cmds[0].0).unwrap();
+            assert!(view == View::Snapshots || first.scope != Scope::Global, "{view:?} starts with its own");
+        }
+        // Each command in the palette, beside the key the help shows for it.
+        for b in KEYMAP.iter().filter(|b| !b.name.is_empty() && !b.shown.is_empty()) {
+            let Some(k) = b.keys.first() else { continue };
+            assert!(b.shown.contains(&key_name(k)), "{:?}: {} isn't in {:?}", b.act, key_name(k), b.shown);
         }
     }
 }

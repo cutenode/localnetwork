@@ -153,11 +153,8 @@ pub fn csv(tracks: &[&Track], locator: &Locator) -> String {
         "Comment",
         "Path",
     ];
-    fn field(s: &str) -> String {
-        if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
-    }
-    let mut out = HEADER.join(",");
-    out.push_str("\r\n");
+    let mut out = String::new();
+    csv_line(&mut out, HEADER);
     for (i, t) in tracks.iter().enumerate() {
         let row = [
             (i + 1).to_string(),
@@ -176,10 +173,25 @@ pub fn csv(tracks: &[&Track], locator: &Locator) -> String {
             t.comment.clone(),
             locator.locate(&t.file_path),
         ];
-        out.push_str(&row.iter().map(|f| field(f)).collect::<Vec<_>>().join(","));
-        out.push_str("\r\n");
+        csv_line(&mut out, &row);
     }
     out
+}
+
+/// Add a CSV row (RFC 4180: quoted when it must be, CRLF after).
+pub(crate) fn csv_line(out: &mut String, fields: &[impl AsRef<str>]) {
+    for (i, f) in fields.iter().map(AsRef::as_ref).enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        match f.contains([',', '"', '\n', '\r']) {
+            true => {
+                let _ = write!(out, "\"{}\"", f.replace('"', "\"\""));
+            }
+            false => out.push_str(f),
+        }
+    }
+    out.push_str("\r\n");
 }
 
 fn duration(secs: u32) -> String {
@@ -188,10 +200,15 @@ fn duration(secs: u32) -> String {
 
 /// `01. Artist - Title`, one per line.
 pub fn text(tracks: &[&Track]) -> String {
-    let width = tracks.len().to_string().len().max(2);
+    numbered(tracks.iter().map(|t| t.display_name()))
+}
+
+/// `01. name`, one per line, numbered with at least two digits.
+pub(crate) fn numbered(names: impl ExactSizeIterator<Item = String>) -> String {
+    let width = names.len().to_string().len().max(2);
     let mut out = String::new();
-    for (i, t) in tracks.iter().enumerate() {
-        let _ = writeln!(out, "{:0width$}. {}", i + 1, one_line(&t.display_name()));
+    for (i, name) in names.enumerate() {
+        let _ = writeln!(out, "{:0width$}. {}", i + 1, one_line(&name));
     }
     out
 }
@@ -313,6 +330,46 @@ mod tests {
             relative(Path::new("/Users/me"), Path::new("/Volumes/USB/x.mp3")).as_deref(),
             Some("../../Volumes/USB/x.mp3")
         );
+    }
+
+    #[test]
+    fn a_relative_path_needs_a_root_in_common() {
+        assert_eq!(relative(Path::new("Lists"), Path::new("/Volumes/USB/x.mp3")), None);
+    }
+
+    #[test]
+    fn formats_are_told_by_their_extension() {
+        for f in [Format::M3u8, Format::Csv, Format::Txt] {
+            assert_eq!(Format::from_path(Path::new(&format!("set.{}", f.extension().to_uppercase()))), Some(f));
+        }
+        assert_eq!(Format::from_path(Path::new("set.wav")), None);
+        assert_eq!(Format::from_path(Path::new("set")), None);
+    }
+
+    /// Playlists split into files of the same name get " (2)", " (3)"...
+    #[test]
+    fn split_playlists_named_alike_get_files_of_their_own() {
+        let list = |id, parent_id, name: &str, is_folder| crate::model::Playlist {
+            id,
+            parent_id,
+            name: name.into(),
+            is_folder,
+            sort_order: id,
+            track_ids: if is_folder { vec![] } else { vec![1] },
+        };
+        let lib = Library {
+            tracks: vec![track(1, "A", "B", "/Contents/b.mp3")],
+            playlists: vec![
+                list(1, None, "Sets", true),
+                list(2, Some(1), "Friday", false),
+                list(3, Some(1), "friday", false),
+                list(4, Some(1), "FRIDAY", false),
+            ],
+            ..Default::default()
+        };
+        let files: Vec<PathBuf> = select(&lib, Some("Sets"), true, "x").unwrap().into_iter().map(|s| s.file).collect();
+        let names: Vec<String> = files.iter().map(|f| f.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["Friday", "friday (2)", "FRIDAY (3)"]);
     }
 
     #[test]

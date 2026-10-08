@@ -1,9 +1,16 @@
 //! Drive management: the registry, recognising and copying drives, parallel sync, scrubbing and
-//! repairing, space, player names, and drives coming back from shows.
+//! repairing, space and player names.
 
-use crate::common;
+mod api;
+mod care;
+mod provision;
+mod recordings;
+mod registry;
+mod registry_api;
+mod scrubbing;
+mod which_drive;
 
-use std::path::Path;
+use crate::common::{self, rot};
 
 use locallibrary::compare::{self, Relation};
 use locallibrary::device::{Device, LineageOp};
@@ -13,7 +20,7 @@ use locallibrary::scrub::{self, RepairSource, ScrubOptions};
 use locallibrary::space::{self, SpaceKind};
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, SyncOptions};
-use locallibrary::{Error, after_set, paths, player};
+use locallibrary::{Error, paths, player};
 
 fn ctx() -> Ctx<'static> {
     Ctx::silent()
@@ -26,18 +33,6 @@ fn pull(store: &Store, d: &mut Device, message: &str) {
 
 fn mirror(src: &mut Device, dst: &mut Device) {
     sync::sync_drive_to_drive(src, dst, &SyncOptions::default(), &ctx()).unwrap();
-}
-
-/// Overwrite a file's bytes in place without changing its size or modification time, the way
-/// failing flash damages a file.
-fn rot(path: &Path) {
-    let meta = std::fs::metadata(path).unwrap();
-    let mtime = filetime::FileTime::from_last_modification_time(&meta);
-    let mut bytes = std::fs::read(path).unwrap();
-    let mid = bytes.len() / 2;
-    bytes[mid] ^= 0xFF;
-    std::fs::write(path, bytes).unwrap();
-    filetime::set_file_mtime(path, mtime).unwrap();
 }
 
 fn first_audio(d: &Device) -> String {
@@ -384,6 +379,75 @@ fn player_names_are_per_drive_and_survive_sync() {
     assert_eq!(c.relation, Relation::Identical);
 }
 
+/// Regression: a sync with `--delete-first` takes the target's database off before copying, and
+/// one cut off then left the run that finished the job no player name to put back: the drive got
+/// its source's. The name is kept with the drive's pending marker until it's back.
+#[test]
+fn a_cut_off_sync_keeps_the_targets_player_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let a_root = common::demo_drive(dir.path(), "A");
+    common::add_onelibrary(&a_root);
+    let mut a = Device::open(&a_root).unwrap();
+    std::fs::create_dir(dir.path().join("B")).unwrap();
+    let mut b = Device::open(dir.path().join("B")).unwrap();
+    mirror(&mut a, &mut b);
+    player::set(&mut a, Some("MAIN"), Some(3)).unwrap();
+    player::set(&mut b, Some("BACKUP"), Some(6)).unwrap();
+    // A has a new track, and B a file A doesn't, so the sync deletes before it copies.
+    common::export_new_track(&a_root, "Artist", "New");
+    common::add_onelibrary(&a_root);
+    let mut a = Device::open(&a_root).unwrap();
+    player::set(&mut a, Some("MAIN"), Some(3)).unwrap();
+    std::fs::write(b.root().join("Contents/stale.mp3"), "stale").unwrap();
+
+    let token = CancelToken::new();
+    let stop = |e: &Event| {
+        if matches!(e, Event::Item { phase: Phase::Copy, .. }) {
+            token.cancel();
+        }
+    };
+    let opts = SyncOptions { delete_first: true, ..Default::default() };
+    let cut = sync::sync_drive_to_drive(&mut a, &mut b, &opts, &Ctx::new(&stop, token.clone()));
+    assert!(matches!(cut, Err(Error::Cancelled)), "{cut:?}");
+    assert_eq!(player::db_identity(b.root()), None, "the database came off first");
+
+    mirror(&mut a, &mut b);
+    let id = player::read(&b).onelibrary.unwrap();
+    assert_eq!((id.name.as_deref(), id.colour), (Some("BACKUP"), Some(6)));
+    assert!(Device::open(b.root()).unwrap().state().unwrap().pending.is_none());
+}
+
+/// Regression: undoing `drive player` left the drive remembering the undone name, so `refresh`
+/// set it again. It remembers the one the drive shows again, and an undo of something else
+/// leaves what it remembers alone.
+#[test]
+fn undoing_the_player_name_forgets_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    let mut d = Device::open(&root).unwrap();
+    d.adopt(None).unwrap();
+    player::set(&mut d, Some("MAIN"), Some(3)).unwrap();
+    player::set(&mut d, Some("OTHER"), None).unwrap();
+    let remembered = |d: &Device| Device::open(d.root()).unwrap().state().unwrap().player.clone().unwrap();
+
+    locallibrary::backup::restore(&mut d, None, false).unwrap();
+    let shown = player::db_identity(&root).unwrap();
+    assert_eq!((shown.name.as_deref(), shown.colour), (Some("MAIN"), Some(3)));
+    assert_eq!(remembered(&d), shown);
+
+    // rekordbox exports its own name, then an edit is undone: the drive still remembers MAIN, for
+    // `refresh` to put back.
+    let one = locallibrary::onelibrary::OneLibrary::open_root(&root).unwrap();
+    one.connection().execute("UPDATE property SET deviceName = 'REKORDBOX'", []).unwrap();
+    std::fs::write(paths::to_fs(&root, paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    common::apply(&root, &[locallibrary::edit::Edit::CreatePlaylist { path: "Friday".into(), folder: false }]);
+    let mut d = Device::open(&root).unwrap();
+    locallibrary::backup::restore(&mut d, None, false).unwrap();
+    assert_eq!(player::db_identity(&root).unwrap().name.as_deref(), Some("REKORDBOX"));
+    assert_eq!(remembered(&d), shown);
+}
+
 /// Regression: setting the player name made its backup before editing the database, so a
 /// database that couldn't take the name left a stray backup behind.
 #[test]
@@ -408,40 +472,6 @@ fn a_player_name_the_database_cant_take_leaves_no_backup() {
     player::set(&mut d, Some("MAIN"), Some(3)).unwrap();
     assert_eq!(locallibrary::backup::list(&d).unwrap().len(), 1);
     assert!(d.state().unwrap().pending.is_none());
-}
-
-#[test]
-fn a_drive_back_from_a_gig_is_recognised() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open_or_init(dir.path().join("store")).unwrap();
-    let mut main = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
-    main.adopt(Some("Main")).unwrap();
-    std::fs::create_dir(dir.path().join("Club")).unwrap();
-    let mut club_drive = Device::open(dir.path().join("Club")).unwrap();
-    mirror(&mut main, &mut club_drive);
-    pull(&store, &mut main, "before the set");
-    let club_root = club_drive.root().to_path_buf();
-
-    // At the club: a player records a history list on the club drive. At home: a new export.
-    let ids: Vec<u32> = club_drive.library().unwrap().tracks.iter().map(|t| t.id).collect();
-    common::add_history(&club_root, "HISTORY 001", &ids);
-    common::export_new_track(main.root(), "Artist", "Fresh");
-    let main = Device::open(main.root()).unwrap();
-    let club_drive = Device::open(&club_root).unwrap();
-
-    let c = compare::compare_devices(&main, &club_drive, &ctx()).unwrap();
-    assert_eq!(c.relation, Relation::Diverged);
-    let g = after_set::resolve(&store, &main, &club_drive, &ctx())
-        .unwrap()
-        .expect("the club drive's changes are the players'");
-    assert!(!g.left_is_back_from_set);
-    assert_eq!(g.back_from_set.history_lists, ["HISTORY 001"]);
-    assert!(g.newer.other.iter().any(|o| o.contains("track added")), "{:?}", g.newer.other);
-
-    // A drive with a real change of its own isn't treated as player-only.
-    common::export_new_track(&club_root, "Other", "Edit");
-    let club_drive = Device::open(&club_root).unwrap();
-    assert!(after_set::resolve(&store, &main, &club_drive, &ctx()).unwrap().is_none());
 }
 
 /// A sync puts the target's player name back while it still holds the drive's lock, so nothing

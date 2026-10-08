@@ -16,7 +16,7 @@ use locallibrary::profile::{
 };
 use locallibrary::progress::Ctx;
 
-use crate::output::{Output, dim, fit, heading, ok, warn};
+use crate::output::{Output, dim, fit, heading, ok, plural, thousands, warn};
 
 #[derive(Args)]
 #[command(args_conflicts_with_subcommands = true)]
@@ -33,19 +33,19 @@ pub struct ProfileArgs {
 pub struct SourceArgs {
     /// Drives to read [default: the mounted rekordbox drives the store knows, or all of them]
     drives: Vec<String>,
-    /// Leave out the store (the history lists it archived, and its libraries)
+    /// Leave out the store (your sets, the history lists it archived, and its libraries)
     #[arg(long)]
     no_store: bool,
     /// Only this store library (repeatable) [default: the named drives' libraries, or all]
     #[arg(long = "library", short = 'l', value_name = "LIBRARY")]
     libraries: Vec<String>,
-    /// Only sets first seen from this date: 2026, 2026-09 or 2026-09-30
+    /// Only sets played from this date: 2026, 2026-09 or 2026-09-30
     #[arg(long, value_name = "DATE")]
     since: Option<String>,
-    /// Only sets first seen up to this date
+    /// Only sets played up to this date
     #[arg(long, value_name = "DATE")]
     until: Option<String>,
-    /// History lists with fewer tracks are sound checks, not sets
+    /// Without declared sets: sessions with fewer tracks don't count
     #[arg(long, value_name = "N", default_value_t = DEFAULT_MIN_SET_TRACKS)]
     min_tracks: usize,
     /// Entries in ranked lists
@@ -76,7 +76,7 @@ struct ViewArgs {
     /// Only these sections (repeat, or separate with commas)
     #[arg(long = "section", short = 's', value_name = "SECTION", value_delimiter = ',', value_parser = parse_section)]
     sections: Vec<Section>,
-    /// List every set
+    /// List every set (or, without declared sets, every session)
     #[arg(long)]
     sets: bool,
 }
@@ -439,18 +439,6 @@ fn opt_pct(x: Option<f64>) -> String {
     x.map_or_else(|| "–".to_string(), pct)
 }
 
-fn thousands(n: usize) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
 struct Page<'a> {
     report: &'a ProfileReport,
     prefs: &'a ProfilePrefs,
@@ -464,13 +452,13 @@ impl Page<'_> {
         if !self.only.is_empty() && !self.only.contains(&s) {
             return false;
         }
-        let published = self.published.contains(&s);
+        let published = self.published.contains(&s) && self.report.basis.publishes(s);
         let mark = if published { style("●").green() } else { style("○").dim() };
         let state = if published { style("in the document".to_string()).green() } else { dim("only on this computer") };
         say!();
         say!(
             "{mark} {}  {state}{}",
-            style(s.title()).bold(),
+            style(s.title_in(self.report.basis)).bold(),
             if note.is_empty() { String::new() } else { format!("  {}", dim(note)) }
         );
         true
@@ -483,7 +471,10 @@ fn render(v: &ProfileView, view: &ViewArgs) {
     let sources: Vec<&str> = r.sources.iter().map(|s| s.name.as_str()).collect();
     heading(&format!("DJ profile from {}", sources.join(", ")));
     let basis = match r.basis {
-        Basis::Plays => format!("{} plays in {} sets", thousands(r.sets.plays), r.sets.count),
+        Basis::Plays => format!("{} in {}", plural(r.sets.plays, "play"), plural(r.sets.count, "set")),
+        Basis::Sessions => {
+            format!("no sets declared: {} in {}", plural(r.sets.plays, "play"), plural(r.sets.count, "session"))
+        }
         Basis::Collection => "no sets found: describing the collection".to_string(),
     };
     say!("  {}", dim(format!("{basis} · built {}", r.generated.format("%Y-%m-%d %H:%M UTC"))));
@@ -523,53 +514,67 @@ fn render(v: &ProfileView, view: &ViewArgs) {
 }
 
 fn render_sets(c: &Page<'_>, list: bool) {
-    let s = &c.report.sets;
+    let r = c.report;
+    let s = &r.sets;
     if !c.section(Section::Sets, "") {
         return;
     }
     if s.count == 0 {
-        say!(
-            "  {}",
-            dim("no history lists with enough tracks (players record one per session; `--min-tracks` sets the bar)")
-        );
+        let none = if r.options.since.is_some() || r.options.until.is_some() {
+            "no sets or sessions in these dates"
+        } else {
+            "no sets declared, and no sessions with enough tracks (`--min-tracks` sets the bar)"
+        };
+        say!("  {}", dim(none));
         return;
     }
+    let unit = r.basis.unit();
     say!(
-        "  {} sets · {} tracks in a typical set (longest {}) · {} plays of {} tracks",
-        s.count,
-        s.median_tracks,
+        "  {} · {} in a typical {unit} (longest {}) · {} of {}",
+        plural(s.count, unit),
+        plural(s.median_tracks, "track"),
         s.longest,
-        thousands(s.plays),
-        thousands(s.distinct_tracks)
+        plural(s.plays, "play"),
+        plural(s.distinct_tracks, "track")
     );
     let mut notes = Vec::new();
-    if let (Some(a), Some(b)) = (s.first_seen, s.last_seen) {
-        notes.push(format!("archived sets first seen {} to {}", a.format("%Y-%m-%d"), b.format("%Y-%m-%d")));
+    if let (Some(a), Some(b)) = (s.oldest, s.newest) {
+        let days = if a == b { format!("on {a}") } else { format!("{a} to {b}") };
+        notes.push(match r.basis {
+            Basis::Sessions => format!("archived sessions first seen {days}"),
+            Basis::Plays | Basis::Collection => format!("played {days}"),
+        });
     }
     if s.not_archived > 0 {
         notes.push(format!("{} only on a drive so far (`pull` archives them)", s.not_archived));
     }
     if s.too_short > 0 {
-        notes.push(format!("{} shorter list(s) left out", s.too_short));
+        notes.push(format!("{} left out", plural(s.too_short, "shorter session")));
     }
     if !notes.is_empty() {
         say!("  {}", dim(notes.join(" · ")));
     }
+    if r.basis == Basis::Sessions {
+        crate::output::hint_at("  ", "`locallibrary sets new --from ID` declares one of these as a set");
+    }
     if list {
         for set in &s.list {
-            let when = set.first_seen.map_or_else(|| "on a drive".to_string(), |d| d.format("%Y-%m-%d").to_string());
+            let when = set.date.map_or_else(|| "on a drive".to_string(), |d| d.to_string());
             let bpm = match (set.opening_bpm, set.closing_bpm) {
                 (Some(a), Some(b)) => format!("{a:.0}→{b:.0} BPM"),
                 _ => String::new(),
             };
+            // A set without a title is named after its venue.
+            let place = Some(set.place.as_str()).filter(|p| *p != set.name).unwrap_or_default();
             say!(
-                "    {:<12} {} {:>3} tracks  {:<13} {}  {}",
+                "    {:<12} {} {:>3} {:<6}  {:<13} {}  {}",
                 when,
-                fit(&set.path, 22),
+                fit(&set.name, 22),
                 set.tracks,
+                if set.tracks == 1 { "track" } else { "tracks" },
                 bpm,
                 set.harmonic_share.map(|h| format!("{} in key", pct(h))).unwrap_or_default(),
-                dim(&set.source)
+                dim(format!("{} {place}", set.id.get(..8).unwrap_or(&set.id)).trim_end())
             );
         }
     } else {
@@ -608,15 +613,16 @@ fn render_arc(c: &Page<'_>) {
     if !c.section(Section::Arc, "") {
         return;
     }
+    let unit = c.report.basis.unit();
     if a.sets == 0 {
-        say!("  {}", dim("needs sets of 6 or more tracks with BPMs"));
+        say!("  {}", dim(format!("needs {unit}s of 6 or more tracks with BPMs")));
         return;
     }
     say!(
-        "  opening {:.1} → closing {:.1} BPM, averaged over {} sets",
+        "  opening {:.1} → closing {:.1} BPM, averaged over {}",
         a.opening_bpm.unwrap_or(0.0),
         a.closing_bpm.unwrap_or(0.0),
-        a.sets
+        plural(a.sets, unit)
     );
     say!("  builds {} · steady {} · winds down {}", pct(a.builds), pct(a.steady), pct(a.winds_down));
     let known: Vec<f64> = a.curve.iter().flatten().copied().collect();
@@ -624,7 +630,7 @@ fn render_arc(c: &Page<'_>) {
         say!(
             "  start {} end  {}",
             style(spark(&a.curve)).cyan(),
-            dim(format!("BPM against each set's median: {lo:+.1} to {hi:+.1}"))
+            dim(format!("BPM against each {unit}'s median: {lo:+.1} to {hi:+.1}"))
         );
     }
 }
@@ -635,7 +641,7 @@ fn render_mixing(c: &Page<'_>) {
         return;
     }
     if m.transitions == 0 {
-        say!("  {}", dim("needs sets"));
+        say!("  {}", dim(format!("needs {}s", c.report.basis.unit())));
         return;
     }
     if m.keyed > 0 {
@@ -708,7 +714,11 @@ fn render_energy(c: &Page<'_>) {
         say!("  {name:<5} {} {}", style(bar(share, 30)).magenta(), pct(share));
     }
     if e.curve.iter().flatten().count() > 1 {
-        say!("  start {} end  {}", style(spark(&e.curve)).magenta(), dim("mood across a set"));
+        say!(
+            "  start {} end  {}",
+            style(spark(&e.curve)).magenta(),
+            dim(format!("mood across a {}", c.report.basis.unit()))
+        );
     }
 }
 
@@ -733,7 +743,7 @@ fn render_ranked(c: &Page<'_>, s: Section, r: &RankedSection, with: &str) {
         );
     }
     let noun = match c.report.basis {
-        Basis::Plays => "plays",
+        Basis::Plays | Basis::Sessions => "plays",
         Basis::Collection => "tracks",
     };
     say!("  {}", dim(format!("shares of {} {noun} {with} · {} different", thousands(r.known), thousands(r.distinct))));
@@ -767,21 +777,22 @@ fn render_signature(c: &Page<'_>) {
     if !c.section(Section::Signature, "") {
         return;
     }
-    let sets = c.report.sets.count;
+    let unit = c.report.basis.unit();
+    let of_sets = plural(c.report.sets.count, unit);
     for pin in &p.pinned {
         let found = s.played.iter().find(|t| normalize(&t.name) == normalize(pin));
-        let when = found.map_or_else(|| "not in these sets".to_string(), |t| format!("{}/{sets} sets", t.sets));
+        let when = found.map_or_else(|| format!("not in these {unit}s"), |t| format!("{}/{of_sets}", t.sets));
         say!("  {} {}  {}", style("★").yellow(), pin, dim(when));
     }
     if s.tracks.is_empty() && p.pinned.is_empty() {
-        say!("  {}", dim("no track is in two or more sets yet (`profile pin` names one)"));
+        say!("  {}", dim(format!("no track is in two or more {unit}s yet (`profile pin` names one)")));
     }
     for t in &s.tracks {
         if p.is_pinned(&t.name) {
             continue;
         }
         let hidden = !p.may_name(&t.name, &t.artist);
-        let line = format!("{:>3}/{sets} sets  {}", t.sets, t.name);
+        let line = format!("{:>3}/{of_sets}  {}", t.sets, t.name);
         if hidden {
             say!("    {}  {}", dim(line), dim("hidden"));
         } else {
@@ -839,7 +850,7 @@ fn render_collection(c: &Page<'_>) {
         thousands(k.folders),
         opt_pct(k.rated_share),
         opt_pct(k.coloured_share),
-        k.played_share.map(|p| format!(" · {} played in a set", pct(p))).unwrap_or_default()
+        k.played_share.map(|p| format!(" · {} played in a {}", pct(p), c.report.basis.unit())).unwrap_or_default()
     );
     if k.duplicate_files > 0 {
         crate::output::hint_at(
@@ -935,6 +946,7 @@ mod tests {
             plays: 1,
             opened: 0,
             closed: 0,
+            unnamed: false,
         };
         let played = [t("Bicep - Glue"), t("Bicep - Apricots"), t("Four Tet - Glue")];
         assert_eq!(pick(&played, "apricots").unwrap(), "Bicep - Apricots");

@@ -1,3 +1,5 @@
+mod checks;
+
 use crate::common;
 
 use std::fs;

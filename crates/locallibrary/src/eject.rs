@@ -47,16 +47,11 @@ pub(crate) fn commands(root: &Path) -> Result<Vec<Cmd>> {
 /// `root`), then powers the disk off.
 #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
 fn linux_commands(disk: &Disk, root: &Path) -> Result<Vec<Cmd>> {
-    let volume = disk
-        .volumes
-        .iter()
-        .find(|v| v.mount.as_deref() == Some(root))
-        .ok_or_else(|| Error::NotFound(format!("the partition mounted at {}", root.display())))?;
+    if !disk.volumes.iter().any(|v| v.mount.as_deref() == Some(root)) {
+        return Err(Error::NotFound(format!("the partition mounted at {}", root.display())));
+    }
     let unmount = |id: &str| Cmd::new("udisksctl", &["unmount", "--no-user-interaction", "-b", id]);
     let mut out: Vec<Cmd> = disk.volumes.iter().filter(|v| v.mount.is_some()).map(|v| unmount(&v.id)).collect();
-    if out.is_empty() {
-        out.push(unmount(&volume.id));
-    }
     out.push(Cmd::new("udisksctl", &["power-off", "--no-user-interaction", "-b", &disk.device]));
     Ok(out)
 }
@@ -182,5 +177,40 @@ mod tests {
             );
         }
         assert!(windows_command(Path::new(r"E:\Music")).is_err(), "only a drive's root");
+    }
+
+    /// Ejecting doesn't wait for a running operation, and asks nothing of the system meanwhile.
+    #[test]
+    fn a_drive_in_use_is_not_ejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = Device::open(dir.path()).unwrap();
+        let _syncing = d.lock().unwrap();
+        assert!(matches!(eject(&d), Err(Error::Locked(_))));
+    }
+
+    #[test]
+    fn a_busy_drive_says_what_to_do() {
+        let busy = |message: &str| {
+            let e =
+                busy_hint(Error::External { command: "diskutil eject /Volumes/DNA".into(), message: message.into() });
+            match e {
+                Error::External { message, .. } => message,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(
+            busy("Volume DNA on disk4s1 failed to eject: Resource busy"),
+            "Volume DNA on disk4s1 failed to eject: Resource busy (close any window or program using the drive, then try again)"
+        );
+        assert!(busy("The volume is in use by Music").ends_with("then try again)"));
+        assert_eq!(busy("Unable to find disk for /Volumes/DNA"), "Unable to find disk for /Volumes/DNA");
+        assert!(matches!(busy_hint(Error::Cancelled), Error::Cancelled));
+    }
+
+    #[test]
+    fn a_volume_that_is_gone_is_ejected() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(wait_gone(&dir.path().join("E"), Duration::ZERO));
+        assert!(!wait_gone(dir.path(), Duration::ZERO), "still there");
     }
 }

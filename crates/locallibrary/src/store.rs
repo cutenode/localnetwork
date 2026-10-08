@@ -145,6 +145,11 @@ pub struct SnapshotInfo {
     /// listings fill them in.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
+    /// Off the line back from the library's latest: saved beside it (a drive back from a set, see
+    /// [`crate::sync::pull_beside`]). False from [`Snapshot::info`]; [`crate::api::history`]
+    /// fills it in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub beside: bool,
 }
 
 /// A name given to a snapshot (`pull --label "before NYE"`). Labels are unique in a store (any
@@ -233,6 +238,7 @@ impl SnapshotHead {
             files: self.files.len(),
             bytes: self.files.iter().map(|f| f.size).sum(),
             labels: Vec::new(),
+            beside: false,
         }
     }
 }

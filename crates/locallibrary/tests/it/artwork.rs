@@ -1,19 +1,15 @@
-use crate::common;
+//! Cover art: set on a drive's tracks, found next to their audio, and embedded in the computer's
+//! audio files and taken back out.
 
-use std::io::Cursor;
+mod drive;
+mod embed;
+
+use crate::common::{self, media::png, media::wav};
 
 use locallibrary::artwork::{self, Artwork};
 use locallibrary::device::Device;
+use locallibrary::paths;
 use locallibrary::progress::Ctx;
-use locallibrary::xml::{self, XmlOptions};
-use locallibrary::{anlz, paths};
-
-fn png(w: u32, h: u32, shade: u8) -> Vec<u8> {
-    let img = image::RgbImage::from_fn(w, h, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, shade]));
-    let mut out = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgb8(img).write_to(&mut out, image::ImageFormat::Png).unwrap();
-    out.into_inner()
-}
 
 fn dims(path: &std::path::Path) -> (u32, u32) {
     let img = image::open(path).unwrap();
@@ -68,27 +64,6 @@ fn auto_artwork_from_folder_images() {
     // One image -> one shared artwork row for the whole album.
     assert_eq!((r.tracks_updated, r.artwork_rows_added), (4, 1));
     assert_eq!(artwork::missing(&d, &d.library().unwrap()).len(), 8);
-}
-
-/// Minimal valid 16-bit mono PCM WAV.
-fn wav() -> Vec<u8> {
-    let samples = 4410u32;
-    let data_len = samples * 2;
-    let mut w = Vec::new();
-    w.extend_from_slice(b"RIFF");
-    w.extend_from_slice(&(36 + data_len).to_le_bytes());
-    w.extend_from_slice(b"WAVEfmt ");
-    w.extend_from_slice(&16u32.to_le_bytes());
-    w.extend_from_slice(&1u16.to_le_bytes());
-    w.extend_from_slice(&1u16.to_le_bytes());
-    w.extend_from_slice(&44100u32.to_le_bytes());
-    w.extend_from_slice(&88200u32.to_le_bytes());
-    w.extend_from_slice(&2u16.to_le_bytes());
-    w.extend_from_slice(&16u16.to_le_bytes());
-    w.extend_from_slice(b"data");
-    w.extend_from_slice(&data_len.to_le_bytes());
-    w.extend(std::iter::repeat_n(0u8, data_len as usize));
-    w
 }
 
 /// Regression: `art set` made its backup and interrupted marker and wrote the new images before
@@ -156,6 +131,25 @@ fn embedded_art_can_be_taken_back_out() {
     assert!(artwork::read_embedded(&a).unwrap().is_none());
 }
 
+/// Regression: `store info` left out the copies `art embed` keeps, whole audio files that can
+/// add up.
+#[test]
+fn store_info_counts_the_embeds_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = locallibrary::Store::open_or_init(dir.path().join("store")).unwrap();
+    assert_eq!(locallibrary::api::store_info(&store).unwrap().embed_backup_bytes, 0);
+    let image = dir.path().join("cover.png");
+    std::fs::write(&image, png(400, 400, 9)).unwrap();
+    let (a, b) = (dir.path().join("a.wav"), dir.path().join("b.wav"));
+    for f in [&a, &b] {
+        std::fs::write(f, wav()).unwrap();
+    }
+    let req = locallibrary::api::EmbedArtwork { files: vec![a, b], image };
+    locallibrary::api::artwork_embed_plan(&req).unwrap().apply(Some(&store), &Ctx::silent()).unwrap();
+    let kept = locallibrary::api::store_info(&store).unwrap().embed_backup_bytes;
+    assert!(kept >= 2 * wav().len() as u64, "{kept}");
+}
+
 /// Regression: `art embed` ignored Ctrl-C, and listed what it changed only once every file was
 /// done, so a run stopped part way couldn't be taken back.
 #[test]
@@ -206,50 +200,4 @@ fn files_on_a_drive_are_never_embedded_into_however_named() {
     let plan =
         locallibrary::api::artwork_embed_plan(&locallibrary::api::EmbedArtwork { files: vec![link], image }).unwrap();
     assert!(plan.files.is_empty() && plan.skipped.len() == 1, "{:?}", plan.skipped);
-}
-
-#[test]
-fn xml_export_is_valid_rekordbox_xml() {
-    let dir = tempfile::tempdir().unwrap();
-    let d = Device::open_export(common::demo_drive(dir.path(), "USB")).unwrap();
-    let (xml, report) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
-    assert_eq!(report.tracks, 2);
-    assert_eq!(report.tracks_with_beatgrid, 2);
-    assert!(xml.contains("<TEMPO Inizio="));
-    assert!(xml.contains("Tonality=\"Fm\""));
-    assert!(xml.contains("Location=\"file://localhost/"));
-    assert_well_formed(&xml);
-
-    // Real cue data from the fixture's analysis files ends up in the XML.
-    let lib = d.library().unwrap();
-    let ext = std::fs::read(d.path(&paths::key(&lib.tracks[0].analyze_path.replace(".DAT", ".EXT")))).unwrap();
-    let cues = anlz::cues(&ext).unwrap();
-    assert_eq!(xml.matches("<POSITION_MARK").count(), report.cues);
-    assert!(report.cues >= cues.len());
-
-    let b = Device::open_export(common::bigger_drive(dir.path(), "B")).unwrap();
-    let (xml, report) =
-        xml::export(&b, &XmlOptions { location_root: Some("/Music".into()), ..Default::default() }, &Ctx::silent())
-            .unwrap();
-    assert_eq!(report.playlists, 1);
-    assert!(xml.contains("<NODE Name=\"aab\" Type=\"1\" KeyType=\"0\" Entries=\"12\">"));
-    assert!(xml.contains("file://localhost/Music/Contents/%5Ba%5Dpendics.shuffle/"));
-    assert_well_formed(&xml);
-    // rekordcrate's model of the format accepts it. (Its model can't represent empty playlist
-    // folders, so this check needs a library with playlists.)
-    let _doc: rekordcrate::xml::Document = quick_xml::de::from_str(&xml).expect("parses as DJ_PLAYLISTS");
-}
-
-fn assert_well_formed(xml: &str) {
-    let mut reader = quick_xml::Reader::from_str(xml);
-    let mut depth = 0i32;
-    loop {
-        match reader.read_event().expect("well-formed XML") {
-            quick_xml::events::Event::Start(_) => depth += 1,
-            quick_xml::events::Event::End(_) => depth -= 1,
-            quick_xml::events::Event::Eof => break,
-            _ => {}
-        }
-    }
-    assert_eq!(depth, 0);
 }

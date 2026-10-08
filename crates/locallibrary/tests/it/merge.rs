@@ -1,3 +1,8 @@
+mod files;
+mod matching;
+mod playlist_trees;
+mod unreadable_databases;
+
 use crate::common;
 
 use std::io::Cursor;
@@ -313,4 +318,36 @@ fn merge_plans_only_what_the_targets_export_pdb_can_hold() {
     let by_name = MergeOptions { playlists: PlaylistMode::ByName, ..Default::default() };
     let err = merge::plan(&src, &dst, &by_name, &Ctx::silent()).unwrap_err();
     assert!(err.to_string().contains("too long for the target's export.pdb"), "{err}");
+}
+
+/// Regression: a merge from a drive with only export.pdb into one with OneLibrary made no `cue`
+/// rows, so players that read only OneLibrary showed the merged tracks without cues. The rows are
+/// made from the analysis files, as convert makes them.
+#[test]
+fn merging_from_export_pdb_brings_cues_into_onelibrary() {
+    use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let mut src = Device::open_export(common::demo_drive(dir.path(), "Guest")).unwrap();
+    let t = src.library().unwrap().tracks[0].clone();
+    for (hot_cue, at) in [(Some(HotCue(0)), CuePosition::Beat(9)), (None, CuePosition::Ms(20_000))] {
+        let edit = CueEdit::Set(SetCue { hot_cue, at, snap: false, loop_beats: None, name: None, color: None });
+        let plan = cue_edit::plan(&src, &[t.id], &edit, &Ctx::silent()).unwrap();
+        cue_edit::apply(&plan, &mut src, &Ctx::silent()).unwrap();
+    }
+    assert!(!src.has_library_plus());
+    let dst_root = common::bigger_drive(dir.path(), "Main");
+    common::add_onelibrary(&dst_root);
+    let mut dst = Device::open_export(&dst_root).unwrap();
+
+    let plan = merge::plan(&src, &dst, &MergeOptions::default(), &Ctx::silent()).unwrap();
+    merge::apply(&plan, &src, &mut dst, &MergeOptions::default(), &Ctx::silent()).unwrap();
+    let one = OneLibrary::open(&dst).unwrap();
+    let merged = one.library().unwrap().tracks.into_iter().find(|m| m.title == t.title).unwrap();
+    let rows = one.cue_rows(merged.id).unwrap();
+    let mut got: Vec<_> = rows.iter().map(|r| (r.hot_cue, r.in_usec / 1000)).collect();
+    got.sort();
+    assert_eq!(got.len(), 2, "{got:?}");
+    assert_eq!(got.iter().filter(|(hot, _)| hot.is_some()).count(), 1, "{got:?}");
+    assert!(got.contains(&(None, 20_000)), "{got:?}");
 }

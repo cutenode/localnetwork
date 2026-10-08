@@ -1,4 +1,5 @@
-//! A DJ's profile, built from drives and the store, and the choices about what it shows.
+//! A DJ's profile, built from their sets (or, until they declare some, their sessions), drives and
+//! the store, and the choices about what it shows.
 
 use chrono::{Datelike, NaiveDate};
 use schemars::JsonSchema;
@@ -18,24 +19,25 @@ use crate::{Error, Result};
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct ProfileRequest {
     /// Drives to read. Default: the mounted rekordbox drives in the store's registry, so a drive
-    /// someone else plugged in doesn't count as the DJ's sets; every mounted rekordbox drive when
-    /// the registry is empty.
+    /// someone else plugged in doesn't count as the DJ's; every mounted rekordbox drive when the
+    /// registry is empty.
     #[serde(default)]
     pub drives: Vec<String>,
-    /// Leave the store out (its archived history lists and its libraries).
+    /// Leave the store out (its sets, archived history lists and libraries).
     #[serde(default)]
     pub no_store: bool,
     /// Only these store libraries (names or ids). Default: the libraries the named drives are
     /// linked to, or every library.
     #[serde(default)]
     pub libraries: Vec<String>,
-    /// Only sets first seen from this day: `2026`, `2026-09` or `2026-09-30`.
+    /// Only sets played from this day: `2026`, `2026-09` or `2026-09-30`. Without declared sets,
+    /// sessions first archived from it.
     #[serde(default)]
     pub since: Option<String>,
-    /// Only sets first seen up to this day (same forms).
+    /// Only sets played up to this day (same forms).
     #[serde(default)]
     pub until: Option<String>,
-    /// History lists with fewer tracks don't count as sets (default 5).
+    /// Without declared sets: sessions with fewer tracks don't count (default 5).
     #[serde(default)]
     pub min_set_tracks: Option<usize>,
     /// Entries in ranked lists (default 10).
@@ -204,5 +206,12 @@ mod tests {
         assert_eq!(parse_day("2026-09-30", false).unwrap(), NaiveDate::from_ymd_opt(2026, 9, 30).unwrap());
         assert!(parse_day("last week", false).is_err());
         assert!(parse_day("2026-13", false).is_err());
+    }
+
+    #[test]
+    fn a_month_starts_on_its_first_and_a_day_has_three_parts_at_most() {
+        assert_eq!(parse_day("2026-09", false).unwrap(), NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
+        assert!(parse_day("2026-09-30-12", false).is_err());
+        assert!(parse_day("1900", false).is_err(), "too long ago to be a set");
     }
 }

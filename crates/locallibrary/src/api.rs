@@ -10,6 +10,7 @@
 //!
 //! Drives can be referred to by mount path, adopted name, or id prefix ([`resolve_drive`]).
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -558,7 +559,7 @@ impl Operation for SyncPreview {
     fn apply(planned: &Planned<Self, SyncRequest>, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<SyncResult> {
         match &planned.plan.plan {
             None => Ok(SyncResult { source: None, target: None, report: None, saved: Vec::new() }),
-            Some(plan) => sync_pinned(store, planned.request(), Some(plan), ctx),
+            Some(plan) => sync_pinned(store, planned.request(), plan, ctx),
         }
     }
 }
@@ -579,17 +580,11 @@ pub fn sync_apply(store: Option<&Store>, req: &SyncRequest, ctx: &Ctx<'_>) -> Re
     sync_plan(req, ctx)?.apply(store, ctx)
 }
 
-/// Sync with the direction `req` gives, copying exactly what `confirmed` does when given.
-fn sync_pinned(
-    store: Option<&Store>,
-    req: &SyncRequest,
-    confirmed: Option<&SyncPlan>,
-    ctx: &Ctx<'_>,
-) -> Result<SyncResult> {
+/// Sync with the direction `req` gives, copying exactly what `confirmed` does.
+fn sync_pinned(store: Option<&Store>, req: &SyncRequest, confirmed: &SyncPlan, ctx: &Ctx<'_>) -> Result<SyncResult> {
     let Endpoints { drives, after_set, .. } = sync_endpoints(req, ctx)?;
-    let Some((mut src, mut dst)) = drives else {
-        return Ok(SyncResult { source: None, target: None, report: None, saved: Vec::new() });
-    };
+    // Only `Direction::Auto` finds nothing to do, and a confirmed sync is pinned to a direction.
+    let (mut src, mut dst) = drives.expect("a pinned sync names both drives");
     // Back from a set: keep the players' changes in the store before overwriting them.
     let mut saved = Vec::new();
     // Both snapshots go into the library of the state the drives last shared.
@@ -610,10 +605,7 @@ fn sync_pinned(
         let opts = PullOptions { library: set_library.clone(), message: Some(message), force: true };
         saved.extend(sync::pull(store, &mut dst, &opts, ctx)?.snapshot);
     }
-    let report = match confirmed {
-        Some(plan) => sync::sync_drive_to_drive_as_planned(&mut src, &mut dst, &req.options(), plan, ctx)?,
-        None => sync::sync_drive_to_drive(&mut src, &mut dst, &req.options(), ctx)?,
-    };
+    let report = sync::sync_drive_to_drive_as_planned(&mut src, &mut dst, &req.options(), confirmed, ctx)?;
     if let Some(store) = store {
         sync::register_drive(store, &src, None)?;
         sync::register_drive(store, &dst, report.fingerprint)?;
@@ -909,6 +901,8 @@ pub fn sync_many_apply(
 pub struct StoreInfo {
     pub root: PathBuf,
     pub stats: StoreStats,
+    /// Size of the copies `art embed` keeps of the files it rewrote, for `art unembed`.
+    pub embed_backup_bytes: u64,
     pub libraries: Vec<LibraryRecord>,
     /// When this store is a copy of another (`store copy`): when it was made.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -919,6 +913,7 @@ pub fn store_info(store: &Store) -> Result<StoreInfo> {
     Ok(StoreInfo {
         root: store.root().to_path_buf(),
         stats: store.stats()?,
+        embed_backup_bytes: artwork::embed_backup_bytes(store),
         libraries: store.libraries()?,
         copy_of: crate::offsite::marker(store.root())?,
     })
@@ -931,9 +926,22 @@ pub struct HistoryRequest {
     pub limit: Option<usize>,
 }
 
+/// A library's snapshots, newest first: its latest back through first parents, and the ones
+/// saved beside that line (drives back from a set), marked `beside`.
 pub fn history(store: &Store, req: &HistoryRequest) -> Result<Vec<SnapshotInfo>> {
     let lib = store.find_library(&req.library)?.ok_or_else(|| Error::NotFound(format!("library {:?}", req.library)))?;
-    store.history(&lib, req.limit)
+    let mut out = store.history(&lib, None)?;
+    let line: HashSet<_> = out.iter().map(|s| s.id).collect();
+    let labels = store.labels_by_snapshot()?;
+    for id in store.snapshot_ids()?.into_iter().filter(|id| !line.contains(id)) {
+        let info = store.load_info(&id)?;
+        if info.library_id == lib.id {
+            out.push(SnapshotInfo { labels: labels.get(&id).cloned().unwrap_or_default(), beside: true, ..info });
+        }
+    }
+    out.sort_by_key(|s| std::cmp::Reverse(s.created));
+    out.truncate(req.limit.unwrap_or(usize::MAX));
+    Ok(out)
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -1054,7 +1062,7 @@ impl Operation for PushPreview {
 
     fn apply(planned: &Planned<Self, PushRequest>, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<SyncReport> {
         let store = store.ok_or_else(|| Error::invalid("writing a snapshot needs the store"))?;
-        push_pinned(store, planned.request(), Some(&planned.plan.plan), ctx)
+        push_pinned(store, planned.request(), &planned.plan.plan, ctx)
     }
 }
 
@@ -1063,15 +1071,12 @@ pub fn push_apply(store: &Store, req: &PushRequest, ctx: &Ctx<'_>) -> Result<Syn
     push_plan(store, req, ctx)?.apply(Some(store), ctx)
 }
 
-fn push_pinned(store: &Store, req: &PushRequest, confirmed: Option<&SyncPlan>, ctx: &Ctx<'_>) -> Result<SyncReport> {
+fn push_pinned(store: &Store, req: &PushRequest, confirmed: &SyncPlan, ctx: &Ctx<'_>) -> Result<SyncReport> {
     let mut d = resolve_drive(&req.drive)?;
     crate::fleet::check_target(Some(store), &d, req.force)?;
     let opts = req.options();
     let snap = sync::resolve_push_snapshot(store, &d, &opts)?;
-    let report = match confirmed {
-        Some(plan) => sync::push_as_planned(store, &snap, &mut d, &opts, plan, ctx)?,
-        None => sync::push(store, &snap, &mut d, &opts, ctx)?,
-    };
+    let report = sync::push_as_planned(store, &snap, &mut d, &opts, confirmed, ctx)?;
     crate::fleet::record_write(store, &d, report.copied_bytes)?;
     Ok(report)
 }
@@ -1850,24 +1855,14 @@ fn protected_paths(store_root: Option<&Path>) -> Vec<PathBuf> {
 /// External and removable disks, how players get on with each as it is, and whether it can be
 /// formatted (one holding the store at `store_root` can't be).
 pub fn list_disks(store_root: &Path) -> Result<Vec<DiskView>> {
-    disks_shown()?;
+    device::disks_shown()?;
     format::list(&protected_paths(Some(store_root)))
-}
-
-/// Refused while [`device::volume_folders`] hides this machine's drives: its disks are hidden too.
-fn disks_shown() -> Result<()> {
-    match device::volume_folders() {
-        Some(_) => Err(Error::invalid(
-            "LOCALLIBRARY_VOLUMES is set, which hides this machine's drives: its disks can't be listed or formatted",
-        )),
-        None => Ok(()),
-    }
 }
 
 /// A disk identifier, a mounted drive by path, or an adopted drive by name or id (never by a
 /// volume label, see [`resolve`]).
 fn find_disk(spec: &str) -> Result<format::Disk> {
-    disks_shown()?;
+    device::disks_shown()?;
     if let Some(d) = format::disk_by_id(spec)? {
         return Ok(d);
     }
@@ -2119,12 +2114,16 @@ mod doctor;
 mod export;
 mod mix;
 mod plays;
+mod sessions;
+mod sets;
 pub use check::*;
 pub use diff::*;
 pub use doctor::*;
 pub use export::*;
 pub use mix::*;
 pub use plays::*;
+pub use sessions::*;
+pub use sets::*;
 mod profile;
 pub use profile::*;
 #[cfg(feature = "account")]

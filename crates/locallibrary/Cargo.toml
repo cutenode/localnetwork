@@ -19,6 +19,7 @@ account = [
     "dep:jacquard-identity",
     "dep:jacquard-oauth",
     "dep:keyring",
+    "dep:keyring-core",
     "dep:reqwest",
     "dep:tokio",
 ]
@@ -41,6 +42,9 @@ jacquard-common = { workspace = true, optional = true }
 jacquard-identity = { workspace = true, optional = true }
 jacquard-oauth = { workspace = true, optional = true }
 keyring = { workspace = true, optional = true }
+# The keychain entries themselves, from whichever store is the default: the system's, which
+# `keyring` sets, or the tests' in-memory one.
+keyring-core = { version = "1", optional = true }
 reqwest = { workspace = true, optional = true }
 lofty.workspace = true
 pbkdf2.workspace = true
@@ -69,5 +73,7 @@ binrw = "0.14"
 quick-xml = { version = "0.37", features = ["serialize"] }
 # Independent FAT reader used to check the FAT32 formatter.
 fatfs = "0.3"
-# An in-memory keychain, so the account's tests never touch the computer's.
-keyring-core = "1"
+
+[target."cfg(windows)".dependencies]
+# A file's index and its volume's serial number, which the drive watcher tells rewrites by.
+winapi-util = "0.1.11"

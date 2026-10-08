@@ -624,17 +624,8 @@ pub fn vinyl(cols: u16, rows: u16, angle: f32, label: [u8; 3]) -> PixelBuf {
 mod tests {
     use locallibrary::anlz::{WaveLayer, WaveformStyle};
 
+    use super::super::app::testing::wave;
     use super::*;
-
-    fn wave(n: usize) -> Waveform {
-        let columns = (0..n)
-            .map(|i| WaveColumn {
-                back: WaveLayer { height: (i % 10) as f32 / 10.0, color: [200, 50, 50] },
-                front: WaveLayer { height: 0.0, color: [255, 255, 255] },
-            })
-            .collect();
-        Waveform { style: WaveformStyle::Rgb, columns_per_sec: Some(150.0), columns }
-    }
 
     fn rendered(buf: &Buffer) -> String {
         buf.content.iter().map(|c| c.symbol()).collect()
@@ -684,8 +675,9 @@ mod tests {
         assert!(rendered(&buf).contains('█'));
     }
 
+    /// A cue (see [`testing::cue`](super::super::app::testing::cue)) named `comment`.
     fn cue(hot: Option<u8>, start_ms: u32, end_ms: Option<u32>, comment: &str) -> Cue {
-        Cue { hot_cue: hot, start_ms, end_ms, comment: comment.into(), color: None, color_id: 0, loop_beats: None }
+        Cue { comment: comment.into(), ..super::super::app::testing::cue(hot, start_ms, end_ms) }
     }
 
     #[test]
@@ -751,5 +743,51 @@ mod tests {
         assert!((1..6).all(|y| buf[(30, y)].bg == wash));
         assert_ne!(buf[(20, 3)].bg, wash);
         assert_eq!(buf[(25, 5)].symbol(), "▲");
+    }
+
+    /// A band that has fallen leaves its peak cap behind for a while, and a cue just passed
+    /// tints the bars.
+    #[test]
+    fn spectrum_peaks_hang_above_the_bars() {
+        let area = Rect::new(0, 0, 1, 4);
+        let draw = |tint| {
+            let mut buf = Buffer::empty(area);
+            Spectrum { bands: &[0.25], peaks: &[(0.75, 0.0)], mirror: false, tint }.render(area, &mut buf);
+            buf
+        };
+        let buf = draw(None);
+        let column: Vec<&str> = (0..4).map(|y| buf[(0, y)].symbol()).collect();
+        assert_eq!(column, ["▁", " ", " ", "█"], "the cap three quarters up, the bar a quarter");
+        assert_ne!(draw(Some((theme::RED, 1.0)))[(0, 3)].fg, buf[(0, 3)].fg);
+    }
+
+    /// A cue just passed tints the scope too.
+    #[test]
+    fn scope_is_tinted_by_a_cue_just_passed() {
+        let area = Rect::new(0, 0, 10, 4);
+        let samples: Vec<f32> = (0..40).map(|i| (i as f32 / 3.0).sin()).collect();
+        let draw = |tint| {
+            let mut buf = Buffer::empty(area);
+            Scope { samples: &samples, tint }.render(area, &mut buf);
+            buf.content.iter().map(|c| c.fg).collect::<Vec<_>>()
+        };
+        assert_ne!(draw(None), draw(Some((theme::RED, 1.0))));
+    }
+
+    /// Where the front layer ends inside a cell, the cell shows it in front of the back layer.
+    #[test]
+    fn overview_layers_the_front_over_the_back() {
+        let col = WaveColumn {
+            back: WaveLayer { height: 1.0, color: [200, 50, 50] },
+            front: WaveLayer { height: 0.3, color: [255, 255, 255] },
+        };
+        let w = Waveform { style: WaveformStyle::Rgb, columns_per_sec: None, columns: vec![col; 10] };
+        let area = Rect::new(0, 0, 10, 3);
+        let mut buf = Buffer::empty(area);
+        Overview { wave: Some(&w), progress: 0.0, cues: &[], duration_ms: 10_000.0 }.render(area, &mut buf);
+        // Two rows of waveform: the front fills just over half of the bottom one.
+        let (bottom, top) = (&buf[(5, 2)], &buf[(5, 1)]);
+        assert_eq!((bottom.symbol(), top.symbol()), ("▅", "█"));
+        assert_ne!(bottom.bg, ratatui::style::Color::Reset, "the back layer behind it");
     }
 }

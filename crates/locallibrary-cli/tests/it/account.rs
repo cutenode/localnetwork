@@ -1,50 +1,40 @@
-//! `locallibrary account` and the `account.*` RPC methods, without signing in (that needs a
-//! browser and a real account).
+//! `locallibrary account` and the `account.*` RPC methods. Signing in needs a browser and a real
+//! account, so a signed-in session is written as the files a sign-in with `--session-file` leaves
+//! (never the keychain), for a pretend data server on 127.0.0.1.
 
 #![cfg(feature = "account")]
 
-use std::io::Write;
-use std::process::{Command, Stdio};
+use serde_json::{Value, json};
 
-use serde_json::Value;
-
-fn locallibrary(store: &std::path::Path) -> Command {
-    crate::locallibrary(store, &[])
-}
-
-fn run(store: &std::path::Path, args: &[&str]) -> (String, String, bool) {
-    let out = locallibrary(store).args(args).output().unwrap();
-    (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap(), out.status.success())
-}
+use crate::mock_pds::MockPds;
+use crate::support::account::{DID, sign_in};
+use crate::support::{Env, Rpc, path};
 
 #[test]
 fn signed_out_status_and_sign_out() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = dir.path().join("store");
-    let (out, _, ok) = run(&store, &["account"]);
-    assert!(ok && out.contains("Not signed in to an Atmosphere account"), "{out}");
-    let (out, _, ok) = run(&store, &["--json", "account", "status"]);
-    let v: Value = serde_json::from_str(&out).unwrap();
-    assert!(ok && v["account"].is_null() && v["last_handle"].is_null());
-    let (out, _, ok) = run(&store, &["account", "logout"]);
-    assert!(ok && out.contains("Not signed in"), "{out}");
-    let (_, err, ok) = run(&store, &["account", "status", "--check"]);
-    assert!(!ok && err.contains("not signed in to an Atmosphere account"), "{err}");
-    assert!(!store.exists(), "nothing is written while signed out");
+    let env = Env::new();
+    let out = env.ok(&["account"]);
+    assert!(out.contains("Not signed in to an Atmosphere account"), "{out}");
+    let v = env.json(&["account", "status"]);
+    assert!(v["account"].is_null() && v["last_handle"].is_null(), "{v}");
+    let out = env.ok(&["account", "logout"]);
+    assert!(out.contains("Not signed in"), "{out}");
+    let err = env.fails(1, &["account", "status", "--check"]);
+    assert!(err.contains("not signed in to an Atmosphere account"), "{err}");
+    assert!(!env.store.exists(), "nothing is written while signed out");
 
     // No handle, nothing remembered, and no terminal to ask in.
-    let (out, err, ok) = run(&store, &["--json", "account", "login"]);
-    assert!(!ok && (out + &err).contains("which Atmosphere account?"));
+    let r = env.run(&["--json", "account", "login"]);
+    assert!(r.code != 0 && (r.out + &r.err).contains("which Atmosphere account?"));
 }
 
+/// The client metadata document for a client of one's own, printed or written to a file (never
+/// over one that's there unless asked), and where to host it.
 #[test]
 fn client_metadata_for_a_hosted_client() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = dir.path().join("store");
+    let env = Env::new();
     let id = "https://locallibrary.example/oauth-client-metadata.json";
-    let (out, _, ok) =
-        run(&store, &["account", "client-metadata", "--client-id", id, "--scope", "repo:app.example.thing"]);
-    assert!(ok, "{out}");
+    let out = env.ok(&["account", "client-metadata", "--client-id", id, "--scope", "repo:app.example.thing"]);
     let v: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["client_id"], id);
     assert_eq!(v["application_type"], "native");
@@ -56,63 +46,119 @@ fn client_metadata_for_a_hosted_client() {
          repo:computer.localnetwork.locallibrary.set?action=create&action=update \
          repo:computer.localnetwork.locallibrary.settings?action=create&action=update"
     );
-    let file = dir.path().join("meta.json");
-    let (_, _, ok) = run(&store, &["account", "client-metadata", "--client-id", id, "-o", file.to_str().unwrap()]);
-    assert!(ok && file.exists());
+    let file = env.outside("meta.json");
     let write = |more: &[&str]| {
-        run(&store, &[&["account", "client-metadata", "--client-id", id, "-o", file.to_str().unwrap()], more].concat())
+        env.run(&[&["account", "client-metadata", "--client-id", id, "-o", path(&file)], more].concat())
     };
+    let out = write(&[]).out;
+    assert!(file.exists() && out.contains(&format!("wrote {}", file.display())), "{out}");
+    assert!(out.contains(&format!("Host it at {id}, then sign in with --client-id {id}")), "{out}");
     std::fs::write(&file, "mine").unwrap();
-    let (_, err, ok) = write(&[]);
-    assert!(!ok && err.contains("already there"), "{err}");
+    let r = write(&[]);
+    assert!(r.code != 0 && r.err.contains("already there"), "{}", r.err);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "mine");
-    assert!(write(&["--replace"]).2);
+    assert_eq!(write(&["--replace"]).code, 0);
     assert!(std::fs::read_to_string(&file).unwrap().contains(id));
     // Without --client-id: locallibrary's own (Local Network's web app serves it).
-    let (out, _, ok) = run(&store, &["account", "client-metadata"]);
-    let published: Value = serde_json::from_str(&out).unwrap();
-    assert!(ok);
+    let published: Value = serde_json::from_str(&env.ok(&["account", "client-metadata"])).unwrap();
     assert_eq!(published["client_id"], "https://locallibrary.localnetwork.computer/oauth-client-metadata.json");
-    let (_, err, ok) = run(&store, &["account", "client-metadata", "--client-id", "http://insecure.example/c.json"]);
-    assert!(!ok && err.contains("https://"), "{err}");
+    let out = env.ok(&["account", "client-metadata", "-o", path(&file), "--replace"]);
+    let host = "Host it at https://locallibrary.localnetwork.computer/oauth-client-metadata.json; sign-in uses it once it's online";
+    assert!(out.contains(host), "{out}");
+    let r = env.run(&["account", "client-metadata", "--client-id", "http://insecure.example/c.json"]);
+    assert!(r.code != 0 && r.err.contains("https://"), "{}", r.err);
 }
 
 #[test]
 fn rpc_account_methods() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut child = locallibrary(&dir.path().join("store"))
-        .arg("rpc")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let requests = [
-        r#"{"jsonrpc":"2.0","id":1,"method":"version"}"#,
-        r#"{"jsonrpc":"2.0","id":2,"method":"account.status"}"#,
-        r#"{"jsonrpc":"2.0","id":3,"method":"account.logout"}"#,
-        r#"{"jsonrpc":"2.0","id":4,"method":"account.login.finish","params":{"id":"nope"}}"#,
-        r#"{"jsonrpc":"2.0","id":5,"method":"account.login.cancel","params":{"id":"nope"}}"#,
-        r#"{"jsonrpc":"2.0","id":6,"method":"account.client_metadata","params":{"client_id":"https://x.example/c.json"}}"#,
-        r#"{"jsonrpc":"2.0","id":7,"method":"account.check"}"#,
-    ];
-    {
-        let mut stdin = child.stdin.take().unwrap();
-        for r in requests {
-            writeln!(stdin, "{r}").unwrap();
-        }
-    }
-    let out = child.wait_with_output().unwrap();
-    let replies: Vec<Value> =
-        String::from_utf8(out.stdout).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-    let reply = |id: i64| replies.iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("no reply {id}"));
-    let methods = reply(1)["result"]["methods"].as_array().unwrap();
+    let env = Env::new();
+    let mut rpc = Rpc::start(env.command());
+    let version = rpc.call(1, "version", Value::Null);
+    let methods = version["result"]["methods"].as_array().unwrap();
     for m in ["account.status", "account.login.begin", "account.login.finish", "account.logout"] {
         assert!(methods.contains(&Value::from(m)), "{m}");
     }
-    assert!(reply(2)["result"]["account"].is_null());
-    assert!(reply(3)["result"]["account"].is_null());
-    assert_eq!(reply(4)["error"]["data"]["kind"], "not_found");
-    assert_eq!(reply(5)["result"]["cancelled"], false);
-    assert_eq!(reply(6)["result"]["redirect_uris"][0], "http://127.0.0.1/callback");
-    assert_eq!(reply(7)["error"]["data"]["kind"], "account");
+    assert!(rpc.call(2, "account.status", Value::Null)["result"]["account"].is_null());
+    assert!(rpc.call(3, "account.logout", Value::Null)["result"]["account"].is_null());
+    assert_eq!(rpc.call(4, "account.login.finish", json!({ "id": "nope" }))["error"]["data"]["kind"], "not_found");
+    assert_eq!(rpc.call(5, "account.login.cancel", json!({ "id": "nope" }))["result"]["cancelled"], false);
+    let metadata = rpc.call(6, "account.client_metadata", json!({ "client_id": "https://x.example/c.json" }));
+    assert_eq!(metadata["result"]["redirect_uris"][0], "http://127.0.0.1/callback");
+    assert_eq!(rpc.call(7, "account.check", Value::Null)["error"]["data"]["kind"], "account");
+}
+
+/// A day on the calendar, `hours` from now.
+fn from_now(hours: i64) -> String {
+    (chrono::Utc::now() + chrono::Duration::hours(hours)).to_rfc3339()
+}
+
+#[test]
+fn the_status_says_what_the_session_allows_and_until_when() {
+    let env = Env::ascii();
+    let pds = "http://127.0.0.1:9";
+    // The status reads the account's details only: a session kept in the keychain isn't opened.
+    let client = json!({ "kind": "hosted", "client_id": "https://dj.example.com/c.json" });
+    sign_in(&env.store, pds, &["atproto", "transition:generic"], json!({ "storage": "keychain", "client": client }));
+    let out = env.ok(&["account"]);
+    assert!(out.starts_with("Atmosphere account @dj.example.com\n"), "{out}");
+    assert!(out.contains("  did:plc:testdj - data on 127.0.0.1:9 - signed in at 127.0.0.1:9\n"), "{out}");
+    assert!(out.contains("  signed in 2026-10-05 - sign in again by 2099-01-01 ("), "{out}");
+    assert!(out.contains("allowed: atproto transition:generic - session kept "), "{out}");
+    if cfg!(target_os = "macos") {
+        assert!(out.contains("session kept in the macOS Keychain"), "{out}");
+    }
+    assert!(out.contains("  client https://dj.example.com/c.json\n"), "{out}");
+
+    // Signed in to publish, as the client metadata asks.
+    let publishing = [
+        "atproto",
+        "repo:computer.localnetwork.locallibrary.profile?action=create&action=update",
+        "repo:computer.localnetwork.locallibrary.set?action=create&action=update",
+        "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
+    ];
+    sign_in(&env.store, pds, &publishing, json!({ "sign_in_again_by": from_now(2) }));
+    let out = env.ok(&["account", "status"]);
+    assert!(out.contains(" (today)\n"), "{out}");
+    assert!(
+        out.contains("can publish your My Settings, profile and sets; can't post or change anything else"),
+        "{out}"
+    );
+    assert!(out.contains("session kept in atmosphere-session.json, readable only by you"), "{out}");
+    sign_in(&env.store, pds, &["atproto"], json!({ "sign_in_again_by": from_now(-2) }));
+    let out = env.ok(&["account", "status"]);
+    assert!(out.contains(" - the session has likely ended; sign in again\n"), "{out}");
+}
+
+#[test]
+fn the_session_is_checked_with_the_server_and_signed_out() {
+    let env = Env::ascii();
+    let pds = MockPds::start();
+    pds.set_account(DID, "dj.example.com");
+    sign_in(&env.store, &pds.url, &["atproto"], json!({}));
+    let out = env.ok(&["account", "status", "--check"]);
+    assert!(out.starts_with("Atmosphere account @dj.example.com\n"), "{out}");
+    assert!(out.contains(&format!("v {} answered for this session", pds.url)), "{out}");
+
+    let out = env.ok(&["account", "logout"]);
+    assert_eq!(out, "v Signed out of @dj.example.com\n");
+    // The handle is remembered, for signing in again.
+    let out = env.ok(&["account"]);
+    assert!(out.contains("`locallibrary account login dj.example.com` signs in with the account"), "{out}");
+
+    // The server can't be told: the session is gone from this computer all the same.
+    pds.set_revocation(500);
+    sign_in(&env.store, &pds.url, &["atproto"], json!({}));
+    let out = env.ok(&["account", "logout"]);
+    assert!(out.contains("v Signed out of @dj.example.com on this computer\n"), "{out}");
+    assert!(out.contains("the server couldn't be told; the session ends on its own within two weeks"), "{out}");
+    assert!(env.ok(&["account"]).contains("Not signed in"));
+
+    // Its secrets can't be removed (a folder where the file is): signing out says so.
+    sign_in(&env.store, &pds.url, &["atproto"], json!({}));
+    let secrets = env.store.join("atmosphere-session.json");
+    std::fs::remove_file(&secrets).unwrap();
+    std::fs::create_dir(&secrets).unwrap();
+    let out = env.ok(&["account", "logout"]);
+    assert!(out.contains("its secrets are still on this computer ("), "{out}");
+    assert!(out.contains("`locallibrary account logout` tries again"), "{out}");
 }

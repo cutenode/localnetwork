@@ -29,7 +29,8 @@
 //! * playlists and My Tags hang off `ParentID` `"root"`; a playlist's `Attribute` is 0 for a
 //!   playlist, 1 for a folder and 4 for an intelligent playlist, whose rules (`SmartList`) aren't
 //!   evaluated here, so it reads as empty.
-//! * `djmdCue.Kind` is 0 for a memory cue, otherwise the hot cue (1 = A); `InMsec`/`OutMsec` are
+//! * `djmdCue.Kind` is 0 for a memory cue, 1-3 for hot cues A-C, 4 for a memory loop and 5 on for
+//!   hot cues D onwards (checked against the analysis files of 1,594 tracks); `InMsec`/`OutMsec` are
 //!   milliseconds, `OutMsec` -1 for a cue that isn't a loop. A hot cue's colour is taken to be
 //!   `ColorTableIndex` as a code of rekordbox's hot cue palette, like OneLibrary's
 //!   `colorTableIndex` (inferred, not documented).
@@ -430,7 +431,7 @@ impl Db<'_> {
             let start = int(&r[1]).max(0);
             let end = int(&r[2]);
             let kind = int(&r[3]);
-            let hot_cue = (1..=16).contains(&kind).then(|| (kind - 1) as u8);
+            let hot_cue = hot_cue_from_kind(kind);
             let color_code = int(&r[4]);
             cues.entry(track).or_default().push(Cue {
                 hot_cue,
@@ -691,6 +692,21 @@ pub struct DriveDiff {
     /// counted as missing from it.
     pub uncertain: Vec<TrackRef>,
     pub diff: PlaylistDiff,
+}
+
+/// The hot cue (0 = A) a `djmdCue.Kind` stands for, or `None` for a memory cue or loop. rekordbox
+/// skips 4, which marks a memory loop, so hot cue D is 5.
+pub(crate) fn hot_cue_from_kind(kind: i64) -> Option<u8> {
+    match kind {
+        1..=3 => Some((kind - 1) as u8),
+        5.. => u8::try_from(kind - 2).ok(),
+        _ => None,
+    }
+}
+
+/// The `Kind` hot cue `h` (0 = A) is stored as; the inverse of [`hot_cue_from_kind`].
+pub(crate) fn kind_for_hot_cue(h: u8) -> i64 {
+    if h < 3 { i64::from(h) + 1 } else { i64::from(h) + 2 }
 }
 
 #[cfg(test)]
@@ -954,6 +970,23 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn kind_4_is_a_memory_loop_and_hot_cue_d_is_5() {
+        let f = sample();
+        f.exec(
+            "INSERT INTO djmdCue (ID, ContentID, InMsec, OutMsec, Kind, ColorTableIndex, Comment) VALUES
+                 ('c5', '205356547', 1000, 9000, 4, 0, ''), ('c6', '205356547', 3000, -1, 3, 0, 'C'),
+                 ('c7', '205356547', 5000, -1, 5, 0, 'D'), ('c8', '205356547', 7000, -1, 9, 0, 'H');",
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let c = open(&write(dir.path(), &f.encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+        let cues: Vec<_> = c.cues[&205356547].iter().map(|c| (c.hot_cue, c.start_ms, c.end_ms)).collect();
+        assert_eq!(
+            cues,
+            [(None, 1000, Some(9000)), (Some(2), 3000, None), (Some(3), 5000, None), (Some(7), 7000, None)]
+        );
+    }
+
+    #[test]
     fn a_wrong_key_is_refused_and_the_right_one_given_works() {
         let dir = tempfile::tempdir().unwrap();
         let path = write(dir.path(), &sample().encrypted("another key"));
@@ -1148,6 +1181,55 @@ pub(crate) mod tests {
         assert_eq!(text(&Value::Integer(42)), "42");
         assert_eq!(clamp::<u16>(70_000), u16::MAX);
         assert_eq!(clamp::<u32>(-5), 0);
+    }
+
+    #[test]
+    fn blobs_reals_and_nulls_read_too() {
+        assert_eq!(text(&Value::Blob(b"Am".to_vec())), "Am");
+        assert_eq!(text(&Value::Real(128.5)), "128.5");
+        assert_eq!(text(&Value::Null), "");
+        assert_eq!(int(&Value::Real(320.9)), 320);
+    }
+
+    #[test]
+    fn files_that_arent_a_collection_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = |bytes: &[u8]| {
+            let path = write(dir.path(), bytes);
+            open(&path, DEFAULT_KEY).unwrap_err().to_string()
+        };
+        assert!(err(&[0; 100]).ends_with("too short for a SQLite database"));
+        assert!(err(&[0; PAGE_SIZE + 10]).ends_with("4106 bytes is not a whole number of 4096-byte pages"));
+
+        let other = dir.path().join("other.db");
+        Connection::open(&other).unwrap().execute_batch("CREATE TABLE notes (body TEXT)").unwrap();
+        let message = err(&std::fs::read(&other).unwrap());
+        assert!(message.ends_with("no djmdContent table; not a rekordbox collection database"), "{message}");
+    }
+
+    /// A plain (already decrypted) master.db is read with its WAL, as SQLite would read it.
+    #[test]
+    fn a_plain_database_is_read_with_its_wal() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("live");
+        std::fs::create_dir(&live).unwrap();
+        let path = write(&live, &sample().plain());
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
+             UPDATE djmdContent SET Title = 'Never Grow Old (WAL)' WHERE ID = '205356547';",
+        )
+        .unwrap();
+        // Copied while the WAL holds the change, as a backup of rekordbox's folder would be.
+        let copy = dir.path().join("copy");
+        std::fs::create_dir(&copy).unwrap();
+        for name in ["master.db", "master.db-wal"] {
+            std::fs::copy(live.join(name), copy.join(name)).unwrap();
+        }
+        drop(conn);
+        let titles: Vec<String> =
+            open(&copy.join("master.db"), "unused").unwrap().library.tracks.into_iter().map(|t| t.title).collect();
+        assert!(titles.contains(&"Never Grow Old (WAL)".to_string()), "{titles:?}");
     }
 
     #[test]

@@ -93,12 +93,17 @@ pub fn envelope(plan: &impl Serialize, report: &impl Serialize, applied: bool, o
     })
 }
 
-/// A JSON document on stdout, with `"schema"` in it when it's an object.
-pub fn print_json(mut v: serde_json::Value) {
+/// `v` with `"schema"` in it when it's an object (a list has none).
+pub fn with_schema(mut v: serde_json::Value) -> serde_json::Value {
     if let Some(map) = v.as_object_mut() {
         map.insert("schema".into(), SCHEMA.into());
     }
-    println!("{}", serde_json::to_string_pretty(&v).expect("serialisable"));
+    v
+}
+
+/// A JSON document on stdout, with `"schema"` in it when it's an object.
+pub fn print_json(v: serde_json::Value) {
+    println!("{}", serde_json::to_string_pretty(&with_schema(v)).expect("serialisable"));
 }
 
 impl Output {
@@ -500,19 +505,6 @@ pub fn clip(s: &str, max: usize, ellipsis: &str) -> String {
     format!("{}{ellipsis}", &s[..end])
 }
 
-/// `format`, `fsck`, `eject`, `drive rename --label` and `format --check-capacity` drive the
-/// operating system's disk tools and have only ever run on macOS: on Linux and Windows they say
-/// so before they start (README "Platforms"). Delete this function and its calls once each has
-/// had a run there.
-pub fn untested_on_this_platform(command: &str) {
-    let os = match std::env::consts::OS {
-        "linux" => "Linux",
-        "windows" => "Windows",
-        _ => return,
-    };
-    diag(format!("`locallibrary {command}` hasn't been tested on {os} yet; check the result"));
-}
-
 pub fn dim(s: impl std::fmt::Display) -> console::StyledObject<String> {
     style(s.to_string()).dim()
 }
@@ -536,6 +528,24 @@ pub fn clock(secs: f64) -> String {
     } else {
         format!("{}:{:02}", s / 60, s % 60)
     }
+}
+
+/// `1 track`, `3,886 tracks`.
+pub fn plural(n: usize, one: &str) -> String {
+    format!("{} {one}{}", thousands(n), if n == 1 { "" } else { "s" })
+}
+
+/// `3,886`.
+pub fn thousands(n: usize) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 pub fn duration(secs: u64) -> String {
@@ -665,6 +675,47 @@ mod tests {
         assert_eq!(fit_with("a☺\u{fe0f}bc", 4, "…"), "a☺\u{fe0f}…");
         // Too narrow for the ellipsis: blank.
         assert_eq!(fit_with("abcdef", 2, "..."), "  ");
+    }
+
+    /// A name typed wrong declines the erase, whether or not the output is JSON.
+    #[test]
+    fn a_wrong_name_declines_an_erase() {
+        let out = Output { json: false, quiet: false, yes: false, pager: false };
+        assert_eq!(out.confirm_typed("", "KEYCHAIN", Some(" keychain ")), None);
+        assert_eq!(out.confirm_typed("", "KEYCHAIN", Some("BACKUP")), Some(Outcome::Declined));
+    }
+
+    /// An item bar counts files and shows the latest one's name, a byte bar counts bytes; a
+    /// new phase replaces the bar and its end clears it.
+    #[test]
+    fn progress_bars_count_what_their_phase_counts() {
+        let p = CliProgress { bar: Mutex::new(None), enabled: true };
+        let bar = || p.bar.lock().unwrap().as_ref().map(|(b, _)| (b.prefix(), b.position(), b.message()));
+        let item = |path: &str| Event::Item { phase: Phase::Scan, path: path.into(), bytes: 10 };
+        p.on_event(&Event::PhaseStart { phase: Phase::Scan, items: 3, bytes: 0 });
+        p.on_event(&item("Contents/a.mp3"));
+        p.on_event(&item("Contents/b.mp3"));
+        p.on_event(&Event::Bytes { phase: Phase::Scan, bytes: 100 });
+        assert_eq!(bar(), Some(("Scanning".into(), 2, "b.mp3".into())));
+
+        p.on_event(&Event::PhaseStart { phase: Phase::Copy, items: 3, bytes: 1000 });
+        p.on_event(&item("c.mp3"));
+        p.on_event(&Event::Bytes { phase: Phase::Copy, bytes: 250 });
+        assert_eq!(bar(), Some(("Copying".into(), 250, "c.mp3".into())));
+        p.on_event(&Event::Warning { message: "skipped one".into() });
+        p.on_event(&Event::PhaseEnd { phase: Phase::Copy });
+        assert_eq!(bar(), None);
+
+        // Nothing to count: a spinner.
+        p.on_event(&Event::PhaseStart { phase: Phase::Verify, items: 0, bytes: 0 });
+        assert_eq!(bar().map(|(prefix, position, _)| (prefix, position)), Some(("Verifying".into(), 0)));
+        p.on_event(&Event::PhaseEnd { phase: Phase::Verify });
+
+        // `--json`, `--quiet` or no terminal: no bars.
+        let off = CliProgress { bar: Mutex::new(None), enabled: false };
+        off.on_event(&Event::PhaseStart { phase: Phase::Scan, items: 3, bytes: 0 });
+        off.on_event(&Event::Warning { message: "said anyway".into() });
+        assert!(off.bar.lock().unwrap().is_none());
     }
 
     #[test]

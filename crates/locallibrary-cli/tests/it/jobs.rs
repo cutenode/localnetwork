@@ -1,4 +1,4 @@
-//! `refresh`, `set`, `setup`, and the drive a command means when it's given none, through the
+//! `refresh`, `prep`, `setup`, and the drive a command means when it's given none, through the
 //! command line (and `refresh` over RPC). Every run sees only the volumes under its own
 //! `LOCALLIBRARY_VOLUMES`, never the drives plugged into the machine.
 
@@ -10,38 +10,9 @@ use std::time::{Duration, SystemTime};
 use locallibrary::device::dunce_canonicalize;
 use serde_json::{Value, json};
 
+use crate::support::{PDB, copy_dir, demo_drive, path};
+
 const SAMPLE: &str = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
-const PDB: &str = "PIONEER/rekordbox/export.pdb";
-
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../locallibrary/tests/fixtures")
-}
-
-fn copy_dir(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for e in std::fs::read_dir(src).unwrap() {
-        let e = e.unwrap();
-        let to = dst.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_dir(&e.path(), &to);
-        } else {
-            std::fs::copy(e.path(), to).unwrap();
-        }
-    }
-}
-
-/// The demo export with placeholder audio.
-fn demo_drive(dir: &Path, name: &str) -> PathBuf {
-    let root = dir.join(name);
-    copy_dir(&fixtures().join("rekordcrate/demo_tracks"), &root);
-    let db = rekordbox_pdb::Database::from_file(root.join(PDB)).unwrap();
-    for t in &db.tracks {
-        let p = root.join(t.file_path().trim_start_matches('/'));
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, format!("audio {}", t.title()).repeat(100)).unwrap();
-    }
-    root
-}
 
 /// rekordbox exports to the drive again: `pdb` (its own database), with a demo sample, a minute
 /// from now.
@@ -80,9 +51,7 @@ impl Env {
     }
 
     fn command(&self) -> Command {
-        let mut c = crate::locallibrary(&self.root.join("store"), &[&self.volumes]);
-        c.env_remove("NO_COLOR").env("CLICOLOR", "0");
-        c
+        crate::locallibrary(&self.root.join("store"), &[&self.volumes])
     }
 
     /// stdout, stderr and the exit status.
@@ -97,10 +66,6 @@ impl Env {
         let v = serde_json::from_str(&out).unwrap_or_else(|e| panic!("{args:?}: {e}\n{out}\n{err}"));
         (v, code)
     }
-}
-
-fn path(p: &Path) -> &str {
-    p.to_str().unwrap()
 }
 
 fn running(plan: &Value) -> Vec<&str> {
@@ -333,7 +298,7 @@ fn which_drive_a_command_means() {
 }
 
 #[test]
-fn set_saves_syncs_checks_and_keeps_problems_mounted() {
+fn prep_saves_syncs_checks_and_keeps_problems_mounted() {
     let env = Env::new();
     let main = demo_drive(&env.volumes, "MAIN");
     let backup = env.volumes.join("BACKUP");
@@ -351,31 +316,106 @@ fn set_saves_syncs_checks_and_keeps_problems_mounted() {
     ed.save(main.join(PDB)).unwrap();
     std::fs::create_dir_all(main.join("Contents/New")).unwrap();
     std::fs::write(main.join("Contents/New/new.mp3"), "new audio").unwrap();
-    let (out, _, code) = env.run(&["set", "--dry-run"]);
+    let (out, _, code) = env.run(&["prep", "--dry-run"]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("Get Main, Backup ready for a set"), "{out}");
     assert!(out.contains("2. Copy the newest library onto the other drives"), "{out}");
     assert!(out.contains("Main holds the newest library"), "{out}");
     assert!(out.contains("4. Eject the drives"), "{out}");
-    let (v, code) = env.json(&["--yes", "set", "--no-eject"]);
+    let (v, code) = env.json(&["--yes", "prep", "--no-eject"]);
     assert_eq!((code, &v["outcome"]), (0, &json!("applied")), "{v}");
     assert_eq!(running(&v["plan"]), ["pull", "sync", "check"]);
     let (c, _) = env.json(&["compare", "Main", "Backup"]);
     assert_eq!(c["relation"], "identical");
 
     // A check that finds problems (placeholder audio doesn't decode) leaves the drives mounted.
-    let (v, code) = env.json(&["--yes", "set", "--audio"]);
+    let (v, code) = env.json(&["--yes", "prep", "--audio"]);
     assert_eq!((code, &v["outcome"]), (4, &json!("problems")), "{v}");
     assert_eq!(running(&v["plan"]), ["check", "eject"]);
     assert_eq!(v["report"]["problems"], true);
     assert!(main.exists() && backup.exists());
-    let (out, _, code) = env.run(&["--yes", "set", "--audio"]);
+    let (out, _, code) = env.run(&["--yes", "prep", "--audio"]);
     assert_eq!(code, 4);
     assert!(out.contains("The drives stay mounted"), "{out}");
 
     // `check` and `eject` take the group too.
     let (v, code) = env.json(&["check"]);
     assert_eq!((code, &v["drives"]), (0, &json!(["Main", "Backup"])), "{v}");
+}
+
+/// A drive back from a set while the main drive got a newer export: `sync` saves what players
+/// recorded before copying over it, and says how many sessions that was.
+#[test]
+fn sync_says_how_many_sessions_a_drive_came_back_with() {
+    let env = Env::new();
+    let main = demo_drive(&env.volumes, "MAIN");
+    let backup = env.volumes.join("BACKUP");
+    std::fs::create_dir(&backup).unwrap();
+    env.run(&["pull", path(&main), "--library", "Home", "--new-library"]);
+    let (_, err, code) = env.run(&["--yes", "sync", path(&main), path(&backup)]);
+    assert_eq!(code, 0, "{err}");
+    for name in ["HISTORY 001", "HISTORY 002"] {
+        let mut ed = rekordbox_pdb::PdbEditor::from_file(backup.join(PDB)).unwrap();
+        let list = ed.create_history_playlist(name).unwrap();
+        ed.add_to_history(list, 1).unwrap();
+        ed.save(backup.join(PDB)).unwrap();
+    }
+    export_again(&main, &std::fs::read(main.join(PDB)).unwrap());
+    let (out, err, code) = env.run(&["--yes", "sync", path(&main), path(&backup)]);
+    assert_eq!(code, 0, "{err}");
+    assert!(out.contains("came back from a set"), "{out}");
+    assert!(out.contains("2 new sessions: `locallibrary sets suggest` says which look like sets"), "{out}");
+}
+
+/// The night-before job was `set`: that's a spelling of `sets` (the sets you played) now, and
+/// what was meant for the job says where it went.
+#[test]
+fn set_is_the_sets_you_played_and_the_job_is_prep() {
+    let env = Env::new();
+    let main = demo_drive(&env.volumes, "MAIN");
+    env.run(&["--yes", "adopt", path(&main), "--name", "Main"]);
+    env.run(&["pull", "Main", "--library", "Home", "--new-library"]);
+    let (out, _, code) = env.run(&["set", "list"]);
+    assert_eq!(
+        (code, out.as_str()),
+        (0, "no sets yet\n`locallibrary sets suggest` finds them in the sessions players recorded\n")
+    );
+    // An option before the command doesn't hide it.
+    let store = env.root.join("store");
+    let with_store = ["--store", path(&store), "sets", "--players", "CDJ-3000"];
+    for job in [
+        &["set", "Main"][..],
+        &["set", "--no-eject"],
+        &["sets", "--players", "CDJ-3000"],
+        &["set", "--dry-run"],
+        &with_store,
+    ] {
+        let (_, err, code) = env.run(job);
+        assert_eq!(code, 2, "{job:?}: {err}");
+        assert!(
+            err.contains("the night-before job (save, sync, check, eject) is `locallibrary prep` now"),
+            "{job:?}: {err}"
+        );
+    }
+    // Not a drive, nor the job's: what clap says.
+    let (_, err, code) = env.run(&["sets", "nonsense"]);
+    assert!(code == 2 && !err.contains("prep"), "{err}");
+    let (_, err, code) = env.run(&["sets", "new", "--dry-run"]);
+    assert!(code == 2 && !err.contains("prep"), "{err}");
+    // `sets` (never the job's name) and a drive's name: more likely a set named like the drive.
+    let (_, err, code) = env.run(&["sets", "Main"]);
+    assert!(code == 2 && !err.contains("prep"), "{err}");
+    // `set` and a name that isn't a drive's: a set's.
+    let (_, err, code) = env.run(&["set", "Friday"]);
+    assert!(code == 2 && !err.contains("prep"), "{err}");
+
+    // Players recorded a session on the drive: prep saves it first, and says so.
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(main.join(PDB)).unwrap();
+    let list = ed.create_history_playlist("HISTORY 001").unwrap();
+    ed.add_to_history(list, 1).unwrap();
+    ed.save(main.join(PDB)).unwrap();
+    let (out, err, _) = env.run(&["--yes", "prep", "--no-eject"]);
+    assert!(out.contains("1 new session: `locallibrary sets suggest` says if it looks like a set"), "{out}{err}");
 }
 
 #[test]

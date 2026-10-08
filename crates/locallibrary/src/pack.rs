@@ -13,7 +13,8 @@
 //! lists the packed library won't, or changed since it was last packed (see [`Unsaved`]). Like the
 //! other writers, it backs up the databases it replaces (and the analysis and artwork files it
 //! overwrites or removes) on the drive first. It replaces the target's library, so the edits
-//! recorded for that are forgotten (see [`crate::edit::journal`]).
+//! recorded for that are forgotten (see [`crate::edit::journal`]), but the target keeps the player
+//! name and colour it had (see [`crate::player::stash`]).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -132,6 +133,9 @@ pub struct PackPlan {
     pub replaces_library: bool,
     /// What the target holds that only it has: saved in the store before packing.
     pub unsaved: Option<Unsaved>,
+    /// Space the pack needs on the target: the files it copies, its new databases and the backup
+    /// of what it replaces.
+    pub needed_bytes: u64,
     pub free_space: Option<u64>,
     pub fits: bool,
     pub warnings: Vec<String>,
@@ -300,13 +304,16 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     let db_bytes = round(subset.pdb.as_ref().map_or(0, |b| b.len() as u64))
         + round(subset.plus.as_ref().map_or(0, |b| b.len() as u64));
     let copy_bytes: u64 = copies.iter().map(|c| c.size).sum();
-    let needed = copies.iter().map(|c| round(c.size)).sum::<u64>() + db_bytes;
+    // The backup `apply` takes of a target that holds a library is on the target too.
+    let backup_bytes =
+        if target.has_export() { backup::needed_bytes(target, backed_up.iter().map(String::as_str)) } else { 0 };
+    let needed_bytes = copies.iter().map(|c| round(c.size)).sum::<u64>() + db_bytes + backup_bytes;
     let free_space = fsutil::available_space(target.root());
-    let fits = free_space.is_none_or(|f| needed <= f);
+    let fits = free_space.is_none_or(|f| needed_bytes <= f);
     if !fits {
         warnings.push(format!(
-            "about {} bytes need copying but only {} are free on {}",
-            needed,
+            "the pack needs about {} bytes (its files, databases and backup) but only {} are free on {}",
+            needed_bytes,
             free_space.unwrap_or(0),
             target.name()
         ));
@@ -325,6 +332,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         unchanged,
         replaces_library,
         unsaved,
+        needed_bytes,
         free_space,
         fits,
         warnings,
@@ -398,7 +406,7 @@ pub fn apply(
     if !plan.fits {
         return Err(Error::NoSpace {
             path: plan.target_root.clone(),
-            needed: plan.copy_bytes,
+            needed: plan.needed_bytes,
             available: plan.free_space.unwrap_or(0),
         });
     }
@@ -436,6 +444,7 @@ pub fn apply(
         report.backup = Some(backup::create(target, &reason, &plan.backed_up, None)?.id);
     }
     target.begin(LineageOp::Pack, format!("pack from {}", plan.source), report.backup.clone())?;
+    let identity = crate::player::stash(target, plan.plus.is_some())?;
 
     // Files are flushed before they get their source's modification time, which tells the next
     // pack they're complete (see `fsutil::copy_file`); a pack stopped part way still does both
@@ -496,6 +505,7 @@ pub fn apply(
         steps.push(Swap::Remove(at(paths::EXPORT_PDB)?));
     }
     crate::commit::swap(steps)?;
+    crate::player::preserve(target, identity.as_ref())?;
 
     if !plan.deletes.is_empty() {
         ctx.phase_start(Phase::Delete, plan.deletes.len() as u64, plan.delete_bytes);

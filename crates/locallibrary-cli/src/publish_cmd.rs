@@ -1,5 +1,5 @@
 //! Publishing to the Atmosphere account: `settings publish`, `settings import --from-handle` /
-//! `--from-account`, `profile publish` and `history publish`.
+//! `--from-account`, `profile publish` and `sets publish`.
 //!
 //! Each shows exactly what will be published (or imported), asks first, and then publishes (or
 //! imports) exactly that, with the exit statuses every other write has. A session signed in
@@ -397,13 +397,14 @@ pub fn profile_publish(
 // ---------------------------------------------------------------------------------------------
 
 fn set_track(t: &Value) -> String {
+    let start = t["startSeconds"].as_u64().map(|s| format!("{}  ", crate::output::clock(s as f64))).unwrap_or_default();
     if t["unidentified"] == true {
-        return "ID - ID".to_string();
+        return format!("{start}ID - ID");
     }
     let title = t["title"].as_str().unwrap_or_default();
     let mut s = match t["artist"].as_str() {
-        Some(a) => format!("{a} - {title}"),
-        None => title.to_string(),
+        Some(a) => format!("{start}{a} - {title}"),
+        None => format!("{start}{title}"),
     };
     let bpm = t["bpmCentis"].as_i64().map(|c| format!("{:.2} BPM", c as f64 / 100.0));
     let detail: Vec<String> = [bpm, t["key"].as_str().map(String::from)].into_iter().flatten().collect();
@@ -413,27 +414,61 @@ fn set_track(t: &Value) -> String {
     s
 }
 
+/// A set record's fields, as lines: (field, title, what it says).
+fn set_lines(r: &Value) -> Vec<(&'static str, &'static str, String)> {
+    let text = |f: &str| r[f].as_str().map(String::from);
+    let place = &r["location"];
+    let place = [&place["locality"], &place["country"]].into_iter().filter_map(Value::as_str).collect::<Vec<_>>();
+    let with: Vec<String> = r["with"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| {
+            let name = p["name"].as_str().unwrap_or_default();
+            p["did"].as_str().map_or_else(|| name.to_string(), |did| format!("{name} ({did})"))
+        })
+        .collect();
+    let sources = r["sources"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>();
+    [
+        ("title", "Title", text("title")),
+        ("date", "Date", text("date")),
+        ("kind", "Kind", text("kind")),
+        ("venue", "Venue", text("venue")),
+        ("location", "Where", Some(place.join(", "))),
+        ("with", "With", Some(with.join(", "))),
+        ("event", "Event", text("event")),
+        ("link", "Listen", text("link")),
+        ("sources", "From", Some(sources.join(", "))),
+    ]
+    .into_iter()
+    .filter_map(|(field, title, line)| Some((field, title, line.filter(|l| !l.is_empty())?)))
+    .collect()
+}
+
 fn render_set(record: &Value, current: Option<&Value>) {
-    let field = |f: &str| record[f].as_str().unwrap_or_default().to_string();
+    let lines = set_lines(record);
     let changed = |f: &str| current.is_some_and(|c| c[f] != record[f]);
-    for (f, title) in [("title", "Title"), ("date", "Date"), ("venue", "Venue")] {
-        if record[f].is_string() || changed(f) {
-            let note = if changed(f) { dim(" (changed)").to_string() } else { String::new() };
-            say!("  {title:<7} {}{note}", if record[f].is_string() { field(f) } else { "(none)".into() });
+    for (field, title, text) in &lines {
+        let note = if changed(field) { " (changed)" } else { "" };
+        say!("  {title:<7} {text}{}", dim(note));
+    }
+    for (field, title, _) in current.map(set_lines).unwrap_or_default() {
+        if !lines.iter().any(|(f, _, _)| *f == field) {
+            say!("  {title:<7} {}", dim("no longer published"));
         }
     }
     let tracks = record["tracks"].as_array().cloned().unwrap_or_default();
-    let note = if current.is_some_and(|c| c["tracks"] != record["tracks"]) { " (changed)" } else { "" };
-    say!("  {}{}", style(format!("{} tracks", tracks.len())).bold(), dim(note));
+    let note = if changed("tracks") { " (changed)" } else { "" };
+    say!("  {}{}", style(crate::output::plural(tracks.len(), "track")).bold(), dim(note));
     for (i, t) in tracks.iter().enumerate() {
         say!("  {:>3}. {}", i + 1, set_track(t));
     }
 }
 
-/// `locallibrary plays publish DRIVE LIST`.
-pub fn history_publish(
+/// `locallibrary sets publish SET`.
+pub fn set_publish(
     store: &Option<PathBuf>,
-    req: &api::HistoryPublishRequest,
+    req: &api::SetPublishRequest,
     dry_run: bool,
     browser: BrowserArgs,
     out: Output,
@@ -443,7 +478,7 @@ pub fn history_publish(
     publish_flow(
         Run { root: &root, dry_run, browser, out, ctx },
         "this set",
-        || api::history_publish_plan(&root, req, ctx),
+        || api::set_publish_plan(&root, req),
         render_set,
     )
 }
@@ -501,4 +536,94 @@ pub fn settings_import(
         ok(format!("imported {count} settings from {from}"));
         crate::output::hint("Run `locallibrary settings apply` to write the profile to your drives.");
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(l: Vec<(&'static str, &'static str, String)>) -> Vec<String> {
+        l.into_iter().map(|(_, title, text)| format!("{title}: {text}")).collect()
+    }
+
+    /// Every section a profile record can hold reads as one line; empty ones are left out.
+    #[test]
+    fn a_profile_record_reads_as_a_line_per_section() {
+        let record = json!({
+            "headline": "Techno warm-ups",
+            "tags": ["Mixes in key", "Plays long sets"],
+            "sets": { "atLeast": 50, "since": 2019, "medianTracks": 18 },
+            "tempo": { "low": 122, "high": 128, "median": 125 },
+            "arc": { "shape": "builds", "builds": 60, "steady": 30, "windsDown": 10 },
+            "mixing": { "harmonic": 70, "genreChanges": 20 },
+            "keys": { "top": ["8A", "9A"], "minor": 80 },
+            "energy": { "high": 50, "mid": 30, "low": 20 },
+            "genres": [{ "name": "Techno", "share": 80 }, { "name": "House", "share": 20 }],
+            "labels": [],
+            "artists": ["Floorplan"],
+            "era": { "medianYear": 2019 },
+            "signature": [{ "artist": "Floorplan", "title": "Never Grow Old" }, { "title": "Untitled" }],
+            "prep": { "hotCues": 90, "memoryCues": 50, "loops": 10 },
+            "collection": { "tracks": { "count": 1200 }, "playlists": {} },
+            "style": { "quantize": "off", "madeUp": "x" },
+        });
+        assert_eq!(
+            lines(profile_lines(&record)),
+            [
+                "Headline: Techno warm-ups",
+                "Traits: Mixes in key, Plays long sets",
+                "Sets: 50+ since 2019, 18 tracks in a typical set",
+                "Tempo: 122-128 BPM, median 125",
+                "Set shape: builds (builds 60%, steady 30%, winds down 10%)",
+                "Mixing: 70% in key, 20% change genre",
+                "Keys: 8A, 9A; 80% minor",
+                "Energy: high 50%, mid 30%, low 20%",
+                "Genres: Techno 80%, House 20%",
+                "Artists: Floorplan",
+                "Era: half released by 2019",
+                "Signature tracks: Floorplan - Never Grow Old; Untitled",
+                "Prep: hot cues 90%, memory cues 50%, loops 10%",
+                "Collection: 1200 tracks, ? playlists",
+                "Player style: made_up x, Quantize Off",
+            ]
+        );
+        assert!(profile_lines(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn a_set_record_reads_as_its_details_and_tracks() {
+        let record = json!({
+            "title": "Friday",
+            "date": "2026-10-03",
+            "kind": "club",
+            "venue": "Warehouse",
+            "location": { "locality": "London", "country": "GB" },
+            "with": [{ "name": "DJ Two" }, { "name": "Partner", "did": "did:plc:abc" }],
+            "event": "at://did:plc:abc/x.event/1",
+            "link": "https://www.mixcloud.com/dj/friday/",
+            "sources": ["sessions", "recording"],
+        });
+        assert_eq!(
+            lines(set_lines(&record)),
+            [
+                "Title: Friday",
+                "Date: 2026-10-03",
+                "Kind: club",
+                "Venue: Warehouse",
+                "Where: London, GB",
+                "With: DJ Two, Partner (did:plc:abc)",
+                "Event: at://did:plc:abc/x.event/1",
+                "Listen: https://www.mixcloud.com/dj/friday/",
+                "From: sessions, recording",
+            ]
+        );
+        assert_eq!(lines(set_lines(&json!({ "date": "2026-10-03", "with": [] }))), ["Date: 2026-10-03"]);
+
+        // Plain text, whether or not the tests run in a terminal.
+        console::set_colors_enabled(false);
+        let timed = json!({ "startSeconds": 295, "artist": "Floorplan", "title": "Never Grow Old", "bpmCentis": 12650, "key": "8A" });
+        assert_eq!(set_track(&timed), "4:55  Floorplan - Never Grow Old  126.50 BPM · 8A");
+        assert_eq!(set_track(&json!({ "startSeconds": 0, "unidentified": true })), "0:00  ID - ID");
+        assert_eq!(set_track(&json!({ "title": "Dubplate" })), "Dubplate");
+    }
 }

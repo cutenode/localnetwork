@@ -1,5 +1,7 @@
 //! Watching drives come and go, and saving them into the store as they're plugged in.
 
+mod skips;
+
 use crate::common;
 
 use std::path::{Path, PathBuf};
@@ -7,11 +9,11 @@ use std::time::Duration;
 
 use locallibrary::api::{self, WatchAction, WatchOptions, Watched, Watching};
 use locallibrary::device::{Device, dunce_canonicalize};
-use locallibrary::fleet;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
+use locallibrary::{Error, fleet};
 
 /// A folder of pretend volumes, a store, and drives made outside the folder and moved in to
 /// plug them in.
@@ -187,7 +189,7 @@ fn a_drive_back_from_a_gig_is_saved_beside_a_newer_export() {
     let (main, club) = (desk.drive("Main"), desk.dir.path().join("Club"));
     pull(&desk.store, &main);
     std::fs::create_dir(&club).unwrap();
-    api::sync_apply(Some(&desk.store), &sync_req(&main, &club), &Ctx::silent()).unwrap();
+    api::sync_apply(Some(&desk.store), &common::sync_pair(&main, &club), &Ctx::silent()).unwrap();
     // While Club is out, Main gets a new export, which is pulled.
     common::add_history(&club, "HISTORY 001", &track_ids(&club)[..2]);
     common::export_new_track(&main, "Artist", "Fresh");
@@ -217,7 +219,7 @@ fn drives_due_together_are_saved_newest_export_first() {
     let (main, backup) = (desk.drive("Main"), desk.dir.path().join("Backup"));
     pull(&desk.store, &main);
     std::fs::create_dir(&backup).unwrap();
-    api::sync_apply(Some(&desk.store), &sync_req(&main, &backup), &Ctx::silent()).unwrap();
+    api::sync_apply(Some(&desk.store), &common::sync_pair(&main, &backup), &Ctx::silent()).unwrap();
     // Backup was played at a set; Main got a new export. Both are newer than the store.
     common::add_history(&backup, "HISTORY 001", &track_ids(&backup)[..2]);
     common::export_new_track(&main, "Artist", "Fresh");
@@ -271,7 +273,7 @@ fn the_newest_drive_plugged_in_updates_the_rest_of_its_set() {
     let (main, backup) = (desk.drive("Main"), desk.dir.path().join("Backup"));
     pull(&desk.store, &main);
     std::fs::create_dir(&backup).unwrap();
-    api::sync_apply(Some(&desk.store), &sync_req(&main, &backup), &Ctx::silent()).unwrap();
+    api::sync_apply(Some(&desk.store), &common::sync_pair(&main, &backup), &Ctx::silent()).unwrap();
     let backup = desk.plug(&backup);
     let mut w = desk.watching(WatchOptions { sync_set: true, ..desk.pulled() });
     assert_eq!(kinds(&desk.look(&mut w)), ["watch.up_to_date"], "in sync: nothing to copy");
@@ -294,16 +296,28 @@ fn the_newest_drive_plugged_in_updates_the_rest_of_its_set() {
     assert_eq!(kinds(&did), ["watch.pulled", "watch.synced"], "Backup is newest: {did:?}");
 }
 
-fn sync_req(left: &Path, right: &Path) -> api::SyncRequest {
-    api::SyncRequest {
-        left: left.display().to_string(),
-        right: right.display().to_string(),
-        direction: api::Direction::Auto,
-        allow_low_confidence: false,
-        verify: false,
-        keep_extra: false,
-        delete_first: false,
-        overwrite_archive: false,
-        keep_player_changes: false,
-    }
+/// Regression: `watch --once` waited silently for as long as another operation (the TUI, the
+/// RPC sidecar) held the store. It says so once, then gives up.
+#[test]
+fn watch_once_gives_up_on_a_store_another_operation_holds() {
+    let desk = Desk::new();
+    let main = desk.drive("Main");
+    pull(&desk.store, &main);
+    common::add_history(&main, "HISTORY 001", &track_ids(&main)[..1]);
+    desk.plug(&main);
+    let _held = desk.store.lock().unwrap();
+    let mut w = desk.watching(desk.pulled());
+    w.every = Duration::from_millis(10);
+    w.auto.patience = Some(Duration::from_millis(1));
+    let mut did = Vec::new();
+    let err = w
+        .until_idle(desk.store_root(), &Ctx::silent(), &mut |x| {
+            if let Watched::Did(a) = x {
+                did.push(a.clone());
+            }
+        })
+        .unwrap_err();
+    assert!(matches!(err, Error::Locked(_)), "{err}");
+    assert_eq!(kinds(&did), ["watch.waiting"], "said once, though looked at twice");
+    assert_eq!(desk.snapshots(), 1);
 }

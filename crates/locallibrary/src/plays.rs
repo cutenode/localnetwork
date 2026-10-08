@@ -24,7 +24,7 @@ use crate::hash::Hash;
 use crate::model::{Library, Playlist, Track, TrackRef};
 use crate::paths;
 use crate::progress::{Ctx, Event, Phase};
-use crate::store::{Snapshot, SnapshotInfo, Store};
+use crate::store::{Snapshot, SnapshotInfo, SnapshotSource, Store};
 
 /// One history list: the tracks a player played during one session, in order.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -69,7 +69,9 @@ impl HistoryList {
     }
 }
 
-fn file_key(file_path: &str) -> String {
+/// A track's file as sessions and sets key it, to match tracks across libraries by: its path in
+/// the library, lower case, without the leading slash.
+pub fn file_key(file_path: &str) -> String {
     paths::key(file_path).to_lowercase()
 }
 
@@ -123,17 +125,20 @@ pub(crate) fn histories(dbs: &Databases) -> Vec<HistoryList> {
 }
 
 /// A history list by path: the first that matches exactly, else ignoring ASCII case when every
-/// match shares one path. Failing that, by name ignoring ASCII case, when only one list has it.
+/// match shares one path. Failing that, by name ignoring ASCII case, or as a session by its id
+/// (a prefix of 4 or more characters of its [`HistoryList::fingerprint`]), when only one list
+/// has it.
 pub fn find_list<'a>(lists: impl IntoIterator<Item = &'a HistoryList>, query: &str) -> Option<&'a HistoryList> {
     let lists: Vec<&HistoryList> = lists.into_iter().collect();
     let q = query.trim_matches('/');
-    crate::model::pick(lists.iter().map(|l| (&l.path, *l)), q).or_else(|| {
-        let mut by_name = lists.iter().copied().filter(|l| l.name.eq_ignore_ascii_case(q));
-        match (by_name.next(), by_name.next()) {
-            (Some(l), None) => Some(l),
-            _ => None,
-        }
-    })
+    let only = |pred: &dyn Fn(&HistoryList) -> bool| match lists.iter().filter(|l| pred(l)).collect::<Vec<_>>()[..] {
+        [l] => Some(*l),
+        _ => None,
+    };
+    let id = q.to_ascii_lowercase();
+    crate::model::pick(lists.iter().map(|l| (&l.path, *l)), q)
+        .or_else(|| only(&|l| l.name.eq_ignore_ascii_case(q)))
+        .or_else(|| only(&|l| id.len() >= 4 && l.fingerprint().starts_with(&id)))
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -165,8 +170,11 @@ pub struct Sighting {
 pub struct ArchivedHistory {
     #[serde(flatten)]
     pub list: HistoryList,
-    /// The earliest snapshot holding it.
+    /// The earliest snapshot holding it: it was recorded before then.
     pub first_seen: Sighting,
+    /// It was recorded after this: when the snapshot before `first_seen` of the same drive was
+    /// taken (which didn't hold it). `None` when that drive wasn't pulled before.
+    pub recorded_after: Option<DateTime<Utc>>,
     /// How many snapshots hold it.
     pub snapshots: usize,
 }
@@ -179,6 +187,31 @@ pub struct HistoryArchive {
     pub snapshots: usize,
     /// Snapshots that couldn't be read.
     pub warnings: Vec<String>,
+    /// When each drive's newest snapshot that was read was taken.
+    #[serde(skip)]
+    pulled: HashMap<DriveKey, DateTime<Utc>>,
+}
+
+impl HistoryArchive {
+    /// When `device` was last pulled, of the snapshots read: a list on it that none of them
+    /// holds was recorded after then.
+    pub fn last_pulled(&self, device: &Device) -> Option<DateTime<Utc>> {
+        let key = device.id().map_or_else(|| DriveKey::Name(device.name()), DriveKey::Id);
+        self.pulled.get(&key).copied()
+    }
+}
+
+/// The drive a snapshot was pulled from: its identity, or the name of a drive without one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum DriveKey {
+    Id(Uuid),
+    Name(String),
+}
+
+impl DriveKey {
+    fn of(source: &SnapshotSource) -> DriveKey {
+        source.drive_id.map_or_else(|| DriveKey::Name(source.drive_name.clone()), DriveKey::Id)
+    }
 }
 
 /// Every history list in the store's snapshots (of one library, or all of them), each once, in
@@ -195,7 +228,8 @@ pub fn archive(store: &Store, library: Option<Uuid>, ctx: &Ctx<'_>) -> Result<Hi
     }
     snapshots.sort_by_key(|s| (s.created, s.id));
 
-    let mut out = HistoryArchive { lists: Vec::new(), snapshots: snapshots.len(), warnings: Vec::new() };
+    let mut out =
+        HistoryArchive { lists: Vec::new(), snapshots: snapshots.len(), warnings: Vec::new(), pulled: HashMap::new() };
     let mut index: HashMap<(String, Vec<String>), usize> = HashMap::new();
     // Snapshots of one state share their database files; read each set once.
     let mut cache: HashMap<Vec<Option<Hash>>, Vec<HistoryList>> = HashMap::new();
@@ -218,6 +252,10 @@ pub fn archive(store: &Store, library: Option<Uuid>, ctx: &Ctx<'_>) -> Result<Hi
             };
         }
         let lists = &cache[&databases];
+        // The drive's snapshot before this one held none of the lists this one is the first to
+        // hold. Only snapshots that were read count: one that wasn't might have held them.
+        let drive = s.source.as_ref().map(DriveKey::of);
+        let recorded_after = drive.as_ref().and_then(|d| out.pulled.get(d).copied());
         for list in lists {
             match index.get(&list.identity()) {
                 Some(&i) => out.lists[i].snapshots += 1,
@@ -232,10 +270,14 @@ pub fn archive(store: &Store, library: Option<Uuid>, ctx: &Ctx<'_>) -> Result<Hi
                             library: names.get(&s.library_id).cloned().unwrap_or_else(|| s.library_id.to_string()),
                             drive: s.source.as_ref().map(|src| src.drive_name.clone()),
                         },
+                        recorded_after,
                         snapshots: 1,
                     });
                 }
             }
+        }
+        if let Some(d) = drive {
+            out.pulled.insert(d, s.created);
         }
     }
     ctx.phase_end(Phase::Scan);

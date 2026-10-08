@@ -30,7 +30,13 @@ pub fn pull(store: &Store, mut req: api::PullRequest, out: Output, ctx: &Ctx<'_>
         req.new_library = out.confirm(&format!("There's no library named {name:?}{others}. Start a new one?"));
     }
     let r = api::pull(store, &req, ctx)?;
-    Ok(out.done(&r, render::pull))
+    Ok(out.done(&r, |r| {
+        render::pull(r);
+        if let Some(s) = r.snapshot.as_ref().filter(|_| !r.up_to_date) {
+            let parent = s.parents.first().map(ToString::to_string);
+            crate::hints::new_sessions(crate::hints::saved_sessions(store, [(s.id.to_string(), parent)]));
+        }
+    }))
 }
 
 /// `store prune`: the plan, then (confirmed) exactly that prune.

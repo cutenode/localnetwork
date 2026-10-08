@@ -49,7 +49,11 @@ fn powershell(script: &str) -> Cmd {
 }
 
 fn all_disks() -> Result<Vec<Disk>> {
-    let text = powershell(LIST_SCRIPT).run()?;
+    parse_disks(&powershell(LIST_SCRIPT).run()?)
+}
+
+/// The disks in what [`LIST_SCRIPT`] prints.
+fn parse_disks(text: &str) -> Result<Vec<Disk>> {
     let v: Value = serde_json::from_str(text.trim()).map_err(|e| Error::parse("Get-Disk output", e))?;
     Ok(json::array(Some(&v)).into_iter().map(parse_disk).collect())
 }
@@ -367,5 +371,100 @@ mod tests {
             Target { filesystem: Filesystem::Fat32, label: "USB".into(), cluster_size: 32768, default_cluster: true };
         assert!(partition_script(&d, &t).contains("-MbrType FAT32"));
         assert!(supports(Filesystem::Hfsplus).is_err());
+    }
+
+    /// PowerShell reads `-EncodedCommand` as base64 of UTF-16LE (the value here is Python's
+    /// `base64.b64encode(script.encode("utf-16-le"))`).
+    #[test]
+    fn scripts_go_to_powershell_encoded() {
+        let c = powershell("Get-Disk");
+        assert_eq!(c.program, "powershell");
+        assert_eq!(
+            c.args,
+            [
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                "JABQAHIAbwBnAHIAZQBzAHMAUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAaQBsAGUAbgB0AGwAeQBDAG8AbgB0AGkAbgB1AGUAJwAKAEcAZQB0AC0ARABpAHMAawA="
+            ]
+        );
+    }
+
+    /// What `LIST_SCRIPT` prints on a desktop with a card reader, an attached VHD and a USB hard
+    /// drive (Windows PowerShell 5.1, with its trailing newline).
+    const DESKTOP: &str = concat!(
+        r#"[{"Number":1,"FriendlyName":"Generic STORAGE DEVICE","SerialNumber":"000000000819","Size":31914983424,"LogicalSectorSize":512,"BusType":"SD","IsBoot":false,"IsSystem":false,"IsReadOnly":false,"PartitionStyle":"MBR","Partitions":[{"Number":1,"Offset":4194304,"Size":31910789120,"DriveLetter":"F","Guid":"","FileSystem":"FAT32","Label":"REKORDBOX","AllocationUnitSize":32768}]},"#,
+        r#"{"Number":3,"FriendlyName":"Msft Virtual Disk","SerialNumber":"","Size":1073741824,"LogicalSectorSize":512,"BusType":"File Backed Virtual","IsBoot":false,"IsSystem":false,"IsReadOnly":true,"PartitionStyle":"RAW","Partitions":[]},"#,
+        r#"{"Number":4,"FriendlyName":"WD My Passport 25E2","SerialNumber":"575836314134","Size":2000365289472,"LogicalSectorSize":512,"BusType":"USB","IsBoot":false,"IsSystem":false,"IsReadOnly":false,"PartitionStyle":"GPT","Partitions":[{"Number":1,"Offset":17408,"Size":16759808,"DriveLetter":"\u0000","Guid":"{0a1b2c3d-0000-4000-8000-000000000001}","FileSystem":"","Label":"","AllocationUnitSize":null},{"Number":2,"Offset":16777216,"Size":2000348446720,"DriveLetter":"G","Guid":"{0a1b2c3d-0000-4000-8000-000000000002}","FileSystem":"NTFS","Label":"My Passport","AllocationUnitSize":4096}]}]"#,
+        "\r\n"
+    );
+
+    #[test]
+    fn a_desktops_disks_are_read_from_get_disk() {
+        let disks = parse_disks(DESKTOP).unwrap();
+        let ids: Vec<&str> = disks.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids, ["PhysicalDrive1", "PhysicalDrive3", "PhysicalDrive4"]);
+
+        let card = &disks[0];
+        assert!(card.removable && card.problem(&[]).is_none());
+        assert_eq!((card.scheme, card.volumes[0].filesystem), (Some(Scheme::Mbr), Some(FsKind::Fat32)));
+        assert_eq!(card.volumes[0].mount.as_deref(), Some(Path::new("F:\\")));
+
+        let vhd = &disks[1];
+        assert!(vhd.virtual_disk && vhd.read_only && vhd.volumes.is_empty());
+        assert_eq!(vhd.scheme, None, "RAW: not initialised");
+
+        let passport = &disks[2];
+        assert_eq!(passport.scheme, Some(Scheme::Gpt));
+        // The reserved partition has no file system, letter or cluster size.
+        let reserved = &passport.volumes[0];
+        assert_eq!((reserved.filesystem, &reserved.mount, reserved.cluster_size), (None, &None, None));
+        assert_eq!(passport.volumes[1].filesystem, Some(FsKind::Ntfs));
+        assert_eq!(passport.volumes[1].id, "4:2");
+
+        assert!(matches!(parse_disks("Get-Disk : Access denied"), Err(Error::Parse { .. })));
+    }
+
+    #[test]
+    fn other_file_systems_and_partition_styles_are_told_apart() {
+        let d = parse_disk(&json!({
+            "Number": 5, "BusType": "USB", "PartitionStyle": "Unknown",
+            "Partitions": [{ "Number": 1, "FileSystem": "FAT" }, { "Number": 2, "FileSystem": "exFAT" }, { "Number": 3, "FileSystem": "ReFS" }]
+        }));
+        let kinds: Vec<Option<FsKind>> = d.volumes.iter().map(|v| v.filesystem).collect();
+        assert_eq!(kinds, [Some(FsKind::Fat16), Some(FsKind::Exfat), Some(FsKind::Other)]);
+        assert_eq!(d.scheme, Some(Scheme::Other));
+    }
+
+    /// Only `PhysicalDriveN` (or `\\.\PhysicalDriveN`) names a disk, and only a drive's root has
+    /// one; neither runs PowerShell to say no.
+    #[test]
+    fn disks_are_named_by_number() {
+        for spec in ["Backup", "disk4", "/dev/sdb"] {
+            assert!(by_id(spec).unwrap().is_none(), "{spec}");
+        }
+        assert!(matches!(by_id(r"\\.\PhysicalDriveX"), Err(Error::Invalid(_))));
+        assert!(by_mount(Path::new("/Volumes/DNA")).is_err());
+    }
+
+    #[test]
+    fn each_file_system_is_planned_in_its_own_steps() {
+        let d = parse_disks(DESKTOP).unwrap().remove(0);
+        let t =
+            Target { filesystem: Filesystem::Exfat, label: "USB".into(), cluster_size: 131072, default_cluster: true };
+        assert_eq!(
+            steps(&d, &t).unwrap(),
+            [
+                "PowerShell: Clear-Disk, Initialize-Disk -PartitionStyle MBR, New-Partition -UseMaximumSize, Format-Volume -FileSystem exFAT -AllocationUnitSize 131072 on disk 1"
+            ]
+        );
+        let t =
+            Target { filesystem: Filesystem::Fat32, label: "USB".into(), cluster_size: 32768, default_cluster: true };
+        let s = steps(&d, &t).unwrap();
+        assert!(s[0].ends_with("Format-Volume -FileSystem exFAT on disk 1"), "{s:?}");
+        assert_eq!(s[1], "write FAT32 (32 KB clusters) over the new volume");
+        assert!(supports(Filesystem::Fat32).is_ok() && supports(Filesystem::Exfat).is_ok());
     }
 }

@@ -8,7 +8,7 @@ use locallibrary::device::Device;
 use locallibrary::export::{Format, PathStyle};
 use locallibrary::progress::Ctx;
 use locallibrary::xml::{self, XmlOptions};
-use locallibrary::{Error, paths};
+use locallibrary::{Error, anlz, paths};
 use rekordbox_pdb::PdbEditor;
 
 const A1: &str = "Contents/[a]pendics.shuffle/Framed And Defamed/01 A1 - It's In The Eyes.mp3";
@@ -195,4 +195,50 @@ fn xml_of_some_playlists_only() {
     let (_, report) = xml::export(&d, &opts(&["Shows", "aab"]), &Ctx::silent()).unwrap();
     assert_eq!((report.tracks, report.playlists), (12, 3));
     assert!(matches!(xml::export(&d, &opts(&["Nope"]), &Ctx::silent()), Err(Error::NotFound(_))));
+}
+
+#[test]
+fn xml_export_is_valid_rekordbox_xml() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Device::open_export(common::demo_drive(dir.path(), "USB")).unwrap();
+    let (xml, report) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(report.tracks, 2);
+    assert_eq!(report.tracks_with_beatgrid, 2);
+    assert!(xml.contains("<TEMPO Inizio="));
+    assert!(xml.contains("Tonality=\"Fm\""));
+    assert!(xml.contains("Location=\"file://localhost/"));
+    assert_well_formed(&xml);
+
+    // Real cue data from the fixture's analysis files ends up in the XML.
+    let lib = d.library().unwrap();
+    let ext = std::fs::read(d.path(&paths::key(&lib.tracks[0].analyze_path.replace(".DAT", ".EXT")))).unwrap();
+    let cues = anlz::cues(&ext).unwrap();
+    assert_eq!(xml.matches("<POSITION_MARK").count(), report.cues);
+    assert!(report.cues >= cues.len());
+
+    let b = Device::open_export(common::bigger_drive(dir.path(), "B")).unwrap();
+    let (xml, report) =
+        xml::export(&b, &XmlOptions { location_root: Some("/Music".into()), ..Default::default() }, &Ctx::silent())
+            .unwrap();
+    assert_eq!(report.playlists, 1);
+    assert!(xml.contains("<NODE Name=\"aab\" Type=\"1\" KeyType=\"0\" Entries=\"12\">"));
+    assert!(xml.contains("file://localhost/Music/Contents/%5Ba%5Dpendics.shuffle/"));
+    assert_well_formed(&xml);
+    // rekordcrate's model of the format accepts it. (Its model can't represent empty playlist
+    // folders, so this check needs a library with playlists.)
+    let _doc: rekordcrate::xml::Document = quick_xml::de::from_str(&xml).expect("parses as DJ_PLAYLISTS");
+}
+
+fn assert_well_formed(xml: &str) {
+    let mut reader = quick_xml::Reader::from_str(xml);
+    let mut depth = 0i32;
+    loop {
+        match reader.read_event().expect("well-formed XML") {
+            quick_xml::events::Event::Start(_) => depth += 1,
+            quick_xml::events::Event::End(_) => depth -= 1,
+            quick_xml::events::Event::Eof => break,
+            _ => {}
+        }
+    }
+    assert_eq!(depth, 0);
 }

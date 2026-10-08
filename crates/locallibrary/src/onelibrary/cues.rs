@@ -4,8 +4,9 @@
 //! What the columns hold, as worked out from rekordbox 7's schema, the rows rekordbox writes,
 //! pyrekordbox/rbox's notes and the analysis files' own fields (not yet checked on a player):
 //!
-//! * `kind`: 0 for a memory cue, otherwise the hot cue's number (1 = A ... 8 = H), like the hot
-//!   cue field of the analysis files' entries.
+//! * `kind`: 0 for a memory cue, otherwise the hot cue's number as rekordbox's own `djmdCue.Kind`
+//!   numbers them (1-3 = A-C, 5-9 = D-H; 4 is a memory loop there). Assumed, since no rekordbox
+//!   export checked so far had rows in this table.
 //! * `inUsec` / `outUsec`: the position and the loop's end in microseconds; `outUsec` is -1 for a
 //!   cue that isn't a loop. `in150FramePerSec` / `out150FramePerSec`: the same in rekordbox's
 //!   1/150 s frames (-1 for no end).
@@ -28,7 +29,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::{OneLibrary, ident, int, text};
-use crate::{Error, Result};
+use crate::{Error, Result, masterdb};
 
 /// Seek columns for a cue's position and its loop end, reset when the position moves.
 const IN_SEEK: [&str; 5] = [
@@ -101,7 +102,7 @@ impl CueRow {
         let (numerator, denominator) = (num("beatLoopNumerator"), num("beatLoopDenominator"));
         CueRow {
             cue_id,
-            hot_cue: u8::try_from(num("kind") - 1).ok(),
+            hot_cue: masterdb::hot_cue_from_kind(num("kind")),
             in_usec,
             out_usec: (out_usec >= 0 && out_usec > in_usec).then_some(out_usec),
             comment: get("cueComment").map(|v| text(v.into())).unwrap_or_default(),
@@ -129,7 +130,7 @@ impl CueRow {
         let i = Value::Integer;
         let mut out = Vec::new();
         if changed(&|w| w.hot_cue == self.hot_cue) {
-            out.push(("kind", i(self.hot_cue.map_or(0, |h| i64::from(h) + 1))));
+            out.push(("kind", i(self.hot_cue.map_or(0, masterdb::kind_for_hot_cue))));
         }
         if changed(&|w| w.in_usec == self.in_usec) {
             out.push(("inUsec", i(self.in_usec)));

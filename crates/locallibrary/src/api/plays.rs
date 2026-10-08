@@ -69,9 +69,10 @@ pub fn play_stats(store: Option<&Store>, req: &PlayStatsRequest) -> Result<PlayS
 
 /// `since` as a snapshot: a label, a date (the newest snapshot of the source's library from
 /// before it), or a snapshot id. A date wins over an id prefix of four digits (`snapshot:2026`
-/// is the id).
+/// is the id); a longer run of digits is an id.
 fn since_snapshot(store: &Store, source: &Endpoint<'_>, since: &str) -> Result<Snapshot> {
-    let is_date = since.trim().split('-').all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    let parts: Vec<&str> = since.trim().split('-').collect();
+    let is_date = parts[0].len() == 4 && parts.iter().all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
     if !is_date || store.find_label(since)?.is_some() {
         return snapshot(store, since);
     }

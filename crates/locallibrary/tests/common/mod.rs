@@ -1,17 +1,21 @@
 //! Helpers that turn the fixture databases into realistic drives on disk.
 #![allow(dead_code)]
 
+pub mod media;
 #[path = "../support/sqlcipher.rs"]
 pub mod sqlcipher;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
+use locallibrary::api::{self, Direction, SyncManyRequest, SyncRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::{Edit, EditOptions, EditPlan};
 use locallibrary::onelibrary::{ContentRecord, OneLibrary, cipher};
-use locallibrary::progress::Ctx;
+use locallibrary::progress::{CancelToken, Ctx, Event, Progress};
+use locallibrary::store::Store;
 use locallibrary::{Library, backup, edit, paths, pdb};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
@@ -19,6 +23,9 @@ pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
+/// A copy of `src` at `dst`, keeping each file's modification time as macOS's copy does and
+/// Linux's doesn't: a test's drive then looks the same on every system, its files older than
+/// anything the test writes.
 pub fn copy_dir(src: &Path, dst: &Path) {
     for entry in walkdir::WalkDir::new(src) {
         let entry = entry.unwrap();
@@ -28,7 +35,88 @@ pub fn copy_dir(src: &Path, dst: &Path) {
             fs::create_dir_all(&target).unwrap();
         } else {
             fs::copy(entry.path(), &target).unwrap();
+            let mtime = filetime::FileTime::from_last_modification_time(&entry.metadata().unwrap());
+            filetime::set_file_mtime(&target, mtime).unwrap();
         }
+    }
+}
+
+/// An empty folder `name` in `dir`: a blank drive.
+pub fn blank(dir: &Path, name: &str) -> PathBuf {
+    let root = dir.join(name);
+    fs::create_dir(&root).unwrap();
+    root
+}
+
+/// Flip a byte in the middle of a file, keeping its size and modification time, as failing flash
+/// damages a file.
+pub fn rot(path: &Path) {
+    let mtime = filetime::FileTime::from_last_modification_time(&fs::metadata(path).unwrap());
+    let mut bytes = fs::read(path).unwrap();
+    let mid = bytes.len() / 2;
+    bytes[mid] ^= 0xFF;
+    fs::write(path, bytes).unwrap();
+    filetime::set_file_mtime(path, mtime).unwrap();
+}
+
+/// The warnings an operation gives, collected through [`Warnings::ctx`].
+#[derive(Default)]
+pub struct Warnings(Mutex<Vec<String>>);
+
+impl Progress for Warnings {
+    fn on_event(&self, e: &Event) {
+        if let Event::Warning { message } = e {
+            self.0.lock().unwrap().push(message.clone());
+        }
+    }
+}
+
+impl Warnings {
+    pub fn ctx(&self) -> Ctx<'_> {
+        Ctx::new(self, CancelToken::new())
+    }
+
+    /// The warnings given so far.
+    pub fn said(&self) -> Vec<String> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+/// A folder as the service layer's requests name a drive.
+pub fn path(p: &Path) -> String {
+    p.display().to_string()
+}
+
+/// Give the drive at `root` the name `name` through the service layer, registering it in `store`
+/// when there is one.
+pub fn adopt(store: Option<&Store>, root: &Path, name: &str) {
+    api::adopt_drive(store, &api::AdoptDrive { drive: path(root), name: Some(name.into()) }).unwrap();
+}
+
+/// A sync of two drives, in whichever direction they call for.
+pub fn sync_pair(left: &Path, right: &Path) -> SyncRequest {
+    SyncRequest {
+        left: path(left),
+        right: path(right),
+        direction: Direction::Auto,
+        allow_low_confidence: false,
+        verify: false,
+        keep_extra: false,
+        delete_first: false,
+        overwrite_archive: false,
+        keep_player_changes: false,
+    }
+}
+
+/// A sync of several drives at once.
+pub fn sync_many(drives: &[&Path]) -> SyncManyRequest {
+    SyncManyRequest {
+        drives: drives.iter().map(|d| path(d)).collect(),
+        allow_low_confidence: false,
+        verify: false,
+        keep_extra: false,
+        delete_first: false,
+        overwrite_archive: false,
     }
 }
 
@@ -342,6 +430,18 @@ pub fn wal_drive(dir: &Path, name: &str) -> PathBuf {
     write(&root.join(paths::LIBRARY_PLUS_WAL), &fs::read(f.join("wal.db-wal")).unwrap());
     populate_library(&root, &plus_library(&root));
     root
+}
+
+/// Present rows of one table of an export.pdb as rekordcrate, an independent parser, counts them
+/// (0 for a table the file doesn't have).
+pub fn rekordcrate_rows(pdb: &[u8], page_type: rekordcrate::pdb::PageType) -> usize {
+    use binrw::BinRead;
+    use rekordcrate::pdb::Header;
+    let mut reader = std::io::Cursor::new(pdb);
+    let header = Header::read(&mut reader).unwrap();
+    let Some(table) = header.tables.iter().find(|t| t.page_type == page_type) else { return 0 };
+    let pages = header.read_pages(&mut reader, binrw::Endian::NATIVE, (&table.first_page, &table.last_page)).unwrap();
+    pages.iter().flat_map(|p| p.row_groups.iter()).map(|g| g.present_rows().count()).sum()
 }
 
 /// Bytes a track's ISRC (string 0) takes in its row, written as rekordbox writes one: `0x90`, the

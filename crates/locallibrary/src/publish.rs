@@ -13,19 +13,19 @@
 //! for, and only if what's published hasn't changed since the plan read it (a first publish only
 //! if there's still nothing there). [`import_plan`] reads someone's published My Settings.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::atmosphere::repo::{self, Fetched, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::harmony::Camelot;
-use crate::model::Track;
 use crate::profile::{Count, ProfileDocument};
+use crate::sets::{EntryOrigin, Set, SetEntry};
 use crate::settings::{self, BaseChange, Category};
 use crate::{Error, Result};
 
@@ -271,127 +271,87 @@ pub fn profile_record(doc: &ProfileDocument) -> Value {
 // Sets
 // ---------------------------------------------------------------------------------------------
 
-/// Where a set's tracklist comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SetSource {
-    /// A history list a player recorded during the set.
-    History,
-    /// The tracks found in a recording of the set.
-    Mix,
-}
-
-/// One track of a published set.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, JsonSchema)]
-pub struct SetTrack {
-    pub title: Option<String>,
-    pub artist: Option<String>,
-    pub isrc: Option<String>,
-    /// Hundredths of a BPM.
-    pub bpm_centis: Option<u32>,
-    /// Camelot, `8A`.
-    pub key: Option<String>,
-    /// Seconds from the start of the set.
-    pub start_seconds: Option<u32>,
-    /// Not named: only its place in the set is published.
-    pub unidentified: bool,
-}
-
-impl SetTrack {
-    /// A track as its library has it.
-    pub fn named(t: &Track) -> SetTrack {
-        let text = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
-        let isrc = t.isrc.trim().replace('-', "").to_ascii_uppercase();
-        SetTrack {
-            title: text(&t.title),
-            artist: text(&t.artist),
-            isrc: (isrc.len() == 12 && isrc.chars().all(|c| c.is_ascii_alphanumeric())).then_some(isrc),
-            bpm_centis: (t.bpm > 0.0).then(|| (t.bpm * 100.0).round() as u32),
-            key: Camelot::parse(&t.key).map(Camelot::code),
-            start_seconds: None,
-            unidentified: false,
-        }
+/// One track of a set record: named as the set has it, or, unidentified, only its place (and
+/// when it starts).
+fn set_track(e: &SetEntry, unidentified: bool) -> Value {
+    let mut m = Map::new();
+    if unidentified {
+        m.insert("unidentified".into(), true.into());
+        put(&mut m, "startSeconds", e.start_seconds);
+        return Value::Object(m);
     }
-
-    /// A track the DJ doesn't name.
-    pub fn unidentified() -> SetTrack {
-        SetTrack { unidentified: true, ..Default::default() }
-    }
+    let text = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
+    let isrc = e.isrc.trim().replace('-', "").to_ascii_uppercase();
+    put(&mut m, "title", text(&e.title));
+    put(&mut m, "artist", text(&e.artist));
+    put(&mut m, "isrc", (isrc.len() == 12 && isrc.chars().all(|c| c.is_ascii_alphanumeric())).then_some(isrc));
+    put(&mut m, "bpmCentis", (e.bpm > 0.0).then(|| (e.bpm * 100.0).round() as u32));
+    put(&mut m, "key", Camelot::parse(&e.key).map(Camelot::code));
+    put(&mut m, "startSeconds", e.start_seconds);
+    Value::Object(m)
 }
 
-/// A set, ready to publish.
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
-pub struct SetDraft {
-    pub title: Option<String>,
-    pub date: NaiveDate,
-    pub venue: Option<String>,
-    pub source: SetSource,
-    pub tracks: Vec<SetTrack>,
-    /// When it was first published.
-    pub created_at: DateTime<Utc>,
-}
-
-/// The set record for a set.
-pub fn set_record(set: &SetDraft) -> Value {
+/// The set record for `set`. Its tracks marked `unnamed`, and those at the positions (from 1) in
+/// `hidden`, are published unidentified. The DJ's notes, the recording, the sessions and the
+/// files' paths stay here.
+pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Value {
+    let text = |s: &Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let mut r = Map::new();
     r.insert("$type".into(), lexicon::SET.into());
-    put(&mut r, "title", set.title.clone());
+    put(&mut r, "title", text(&set.title));
     r.insert("date".into(), set.date.format("%Y-%m-%d").to_string().into());
-    put(&mut r, "venue", set.venue.clone());
-    r.insert("source".into(), serde_json::to_value(set.source).unwrap_or_default());
-    let tracks: Vec<Value> = set
-        .tracks
-        .iter()
-        .map(|t| {
-            let mut m = Map::new();
-            if t.unidentified {
-                m.insert("unidentified".into(), true.into());
-                put(&mut m, "startSeconds", t.start_seconds);
-                return Value::Object(m);
-            }
-            put(&mut m, "title", t.title.clone());
-            put(&mut m, "artist", t.artist.clone());
-            put(&mut m, "isrc", t.isrc.clone());
-            put(&mut m, "bpmCentis", t.bpm_centis);
-            put(&mut m, "key", t.key.clone());
-            put(&mut m, "startSeconds", t.start_seconds);
-            Value::Object(m)
-        })
-        .collect();
+    put(&mut r, "kind", text(&set.kind));
+    put(&mut r, "venue", text(&set.venue));
+    // The address Lexicon needs a country.
+    if let Some(country) = text(&set.country) {
+        let mut place = Map::new();
+        put(&mut place, "name", text(&set.venue));
+        put(&mut place, "locality", text(&set.city));
+        place.insert("country".into(), country.into());
+        r.insert("location".into(), Value::Object(place));
+    }
+    put(&mut r, "event", text(&set.event));
+    if !set.with.is_empty() {
+        let with: Vec<Value> = set
+            .with
+            .iter()
+            .map(|p| {
+                let mut m = Map::new();
+                m.insert("name".into(), p.name.trim().into());
+                put(&mut m, "did", text(&p.did));
+                Value::Object(m)
+            })
+            .collect();
+        r.insert("with".into(), with.into());
+    }
+    put(&mut r, "link", text(&set.link));
+    let sources: Vec<&str> =
+        [(EntryOrigin::Session, "history"), (EntryOrigin::Recording, "mix"), (EntryOrigin::Added, "added")]
+            .into_iter()
+            .filter(|(origin, _)| set.tracks.iter().any(|e| e.origin == *origin))
+            .map(|(_, source)| source)
+            .collect();
+    if !sources.is_empty() {
+        r.insert("sources".into(), json!(sources));
+    }
+    let tracks: Vec<Value> =
+        set.tracks.iter().enumerate().map(|(i, e)| set_track(e, e.unnamed || hidden.contains(&(i + 1)))).collect();
     r.insert("tracks".into(), tracks.into());
-    r.insert("createdAt".into(), timestamp(set.created_at).into());
+    r.insert("createdAt".into(), timestamp(now).into());
     Value::Object(r)
 }
 
-/// A record key for a set: a TID within the day it was played, picked by its history list's
-/// fingerprint. Planning and publishing agree on it, and the same list on the same day always
-/// gets the same key.
-pub fn set_key(date: NaiveDate, fingerprint: &str) -> String {
-    let hash = blake3::hash(fingerprint.as_bytes());
-    let n = u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("8 bytes"));
-    let midnight = date.and_hms_opt(0, 0, 0).map_or(0, |t| t.and_utc().timestamp_micros().max(0) as u64);
-    let micros = midnight + n % 86_400_000_000;
-    jacquard_common::types::tid::Tid::from_time(micros, (n >> 54) as u32).as_str().to_string()
-}
-
-/// The store file holding the record key each published set got, by account and history list
-/// fingerprint, so publishing a list again replaces its record (whatever date it's given).
+/// The store file where `plays publish`, in earlier versions, kept the record key of each history
+/// list it published, by account and the list's fingerprint. Nothing writes it now: a set built
+/// from one of those lists alone takes over its key (see [`crate::api::set_publish_plan`]).
 pub const SET_KEYS_FILE: &str = "atmosphere-sets.json";
 
-type SetKeys = BTreeMap<String, BTreeMap<String, String>>;
-
-/// The key `did` published the history list with `fingerprint` under, if it did.
+/// The key `did` published the history list (session) `fingerprint` under with `plays publish`,
+/// if it did.
 pub fn published_set_key(root: &Path, did: &str, fingerprint: &str) -> Result<Option<String>> {
-    let keys: SetKeys = crate::fsutil::read_json_opt(&root.join(SET_KEYS_FILE))?.unwrap_or_default();
+    let keys: BTreeMap<String, BTreeMap<String, String>> =
+        crate::fsutil::read_json_opt(&root.join(SET_KEYS_FILE))?.unwrap_or_default();
     Ok(keys.get(did).and_then(|k| k.get(fingerprint)).cloned())
-}
-
-/// Remember the key a set was published under.
-pub fn remember_set_key(root: &Path, did: &str, fingerprint: &str, rkey: &str) -> Result<()> {
-    let path = root.join(SET_KEYS_FILE);
-    let mut keys: SetKeys = crate::fsutil::read_json_opt(&path)?.unwrap_or_default();
-    keys.entry(did.to_string()).or_default().insert(fingerprint.to_string(), rkey.to_string());
-    crate::fsutil::write_json_atomic(&path, &keys)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -560,6 +520,8 @@ pub fn import_plan(from: Resolved, base: &BTreeMap<String, String>, replace: boo
 
 #[cfg(test)]
 mod tests {
+    use chrono::NaiveDate;
+
     use super::*;
     use crate::profile::{
         ArcShape, Basis, DocArc, DocCollection, DocEnergy, DocEra, DocKeys, DocMixing, DocPrep, DocSets, DocShare,
@@ -568,24 +530,6 @@ mod tests {
 
     fn now() -> DateTime<Utc> {
         "2026-10-05T12:00:00.123456Z".parse().unwrap()
-    }
-
-    #[test]
-    fn a_set_key_is_a_tid_in_its_day() {
-        let day = NaiveDate::from_ymd_opt(2026, 10, 3).unwrap();
-        let key = set_key(day, "abc");
-        let tid = jacquard_common::types::tid::Tid::new(&key).unwrap();
-        let midnight = day.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_micros() as u64;
-        assert!((midnight..midnight + 86_400_000_000).contains(&tid.timestamp()), "{key}");
-        assert_eq!(set_key(day, "abc"), key);
-        assert_ne!(set_key(day, "abd"), key);
-        assert!(set_key(day.succ_opt().unwrap(), "abc") > key, "sets sort by date");
-
-        let dir = tempfile::tempdir().unwrap();
-        assert_eq!(published_set_key(dir.path(), "did:plc:abc", "abc").unwrap(), None);
-        remember_set_key(dir.path(), "did:plc:abc", "abc", &key).unwrap();
-        assert_eq!(published_set_key(dir.path(), "did:plc:abc", "abc").unwrap(), Some(key));
-        assert_eq!(published_set_key(dir.path(), "did:plc:other", "abc").unwrap(), None);
     }
 
     #[test]
@@ -705,25 +649,35 @@ mod tests {
         track.isrc = "GB-AHT-17-00123".into();
         track.bpm = 129.98;
         track.key = "Am".into();
-        let mut hidden = SetTrack::named(&track);
-        hidden.unidentified = true;
-        let set = SetDraft {
+        let named = SetEntry { start_seconds: Some(0), ..SetEntry::from_track(&track, EntryOrigin::Recording, None) };
+        let unnamed = SetEntry { unnamed: true, start_seconds: Some(312), ..named.clone() };
+        let mut set = Set {
+            id: "3m2abcdefgh22".into(),
             title: Some("Friday warm-up".into()),
             date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
-            venue: None,
-            source: SetSource::History,
-            tracks: vec![SetTrack::named(&track), hidden, SetTrack::unidentified()],
+            venue: Some(" ".into()),
+            city: Some("London".into()),
+            tracks: vec![named.clone(), unnamed, named, SetEntry::added("ID")],
             created_at: now(),
+            updated_at: now(),
+            ..Default::default()
         };
-        let record = set_record(&set);
+        let record = set_record(&set, &[3].into(), now());
         lexicon::validate(lexicon::SET, &record).unwrap();
         assert_eq!(
             record["tracks"][0],
-            json!({ "title": "Glue", "artist": "Bicep", "isrc": "GBAHT1700123", "bpmCentis": 12998, "key": "8A" })
+            json!({ "title": "Glue", "artist": "Bicep", "isrc": "GBAHT1700123", "bpmCentis": 12998, "key": "8A", "startSeconds": 0 })
         );
-        assert_eq!(record["tracks"][1], json!({ "unidentified": true }));
-        assert_eq!(record["date"], "2026-10-03");
-        assert_eq!(record["source"], "history");
-        assert!(record.get("venue").is_none());
+        assert_eq!(record["tracks"][1], json!({ "unidentified": true, "startSeconds": 312 }), "marked unnamed");
+        assert_eq!(record["tracks"][2], json!({ "unidentified": true, "startSeconds": 0 }), "hidden");
+        assert_eq!(record["tracks"][3], json!({ "title": "ID" }));
+        assert_eq!((&record["date"], &record["sources"]), (&json!("2026-10-03"), &json!(["mix", "added"])));
+        // Blank fields stay out, and without a country there's no address.
+        assert!(record.get("venue").is_none() && record.get("location").is_none() && record.get("with").is_none());
+
+        set.country = Some("GB".into());
+        let record = set_record(&set, &BTreeSet::new(), now());
+        lexicon::validate(lexicon::SET, &record).unwrap();
+        assert_eq!(record["location"], json!({ "locality": "London", "country": "GB" }));
     }
 }

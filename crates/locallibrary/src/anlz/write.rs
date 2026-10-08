@@ -789,6 +789,19 @@ mod tests {
         assert_eq!(read_cue_points(&out, None).unwrap().len(), 1);
     }
 
+    /// More cues than a list can count, or a name longer than an entry can hold, are refused
+    /// before anything is written.
+    #[test]
+    fn cues_that_cant_be_stored_are_refused() {
+        let f = file(&[]);
+        let many = vec![memory(1); usize::from(u16::MAX) + 1];
+        let err = write_cue_points(&f, CueFile::Ext, &many).unwrap_err();
+        assert_eq!(err.to_string(), "too many cues");
+        let named = CuePoint { comment: "x".repeat(0x10001), ..hot(0, 1) };
+        let err = write_cue_points(&f, CueFile::Ext, &[named]).unwrap_err();
+        assert_eq!(err.to_string(), format!("cue name is too long: {:?}...", "x".repeat(20)));
+    }
+
     #[test]
     fn adds_lists_to_files_without_them() {
         let base = crate::anlz::tests::synthetic("/Contents/a.mp3");

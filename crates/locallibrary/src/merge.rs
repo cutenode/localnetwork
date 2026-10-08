@@ -8,7 +8,8 @@
 //! same-named playlists.
 //!
 //! OneLibrary rows are copied whole from the source's OneLibrary database when it has one
-//! (every column and the track's cue rows), and built from the `export.pdb` row otherwise. Hot
+//! (every column and the track's cue rows), and built from the `export.pdb` row otherwise, with
+//! cue rows made from the track's analysis files, as `convert` makes them. Hot
 //! cue bank lists that use the new tracks' cues come along too (OneLibrary only), and with
 //! [`MergeOptions::history`] the source's history playlists.
 //!
@@ -838,6 +839,7 @@ pub fn apply(
     let mut tagged: Vec<Carried> = Vec::new();
     if let Some((plus_lib, mut one)) = plus {
         let into = PlusMerge {
+            source,
             src_lib: &src_lib,
             src_plus: src_plus.as_ref(),
             src_tree: &src_tree,
@@ -924,6 +926,7 @@ pub fn apply(
 
 /// Merging into the target's OneLibrary database.
 struct PlusMerge<'a> {
+    source: &'a Device,
     src_lib: &'a Library,
     src_plus: Option<&'a OneLibrary>,
     src_tree: &'a FileTree,
@@ -1016,6 +1019,7 @@ impl PlusMerge<'_> {
                 },
                 _ => None,
             };
+            let made = own_row.is_none();
             let mut rec =
                 own_row.unwrap_or_else(|| ContentRecord::from_track(st, !t.analyze_path.is_empty(), &defaults));
             // My Tags are added below, from whichever source database has them.
@@ -1023,6 +1027,13 @@ impl PlusMerge<'_> {
             let analyze = if t.analyze_path.is_empty() { String::new() } else { paths::device_path(&t.analyze_path) };
             let (id, cues) = one.add_track_with_cues(&rec, &paths::device_path(&t.audio), &analyze, image)?;
             cue_ids.extend(cues);
+            // A row built from export.pdb's has no cues: players reading OneLibrary would show none.
+            if made && crate::cue_edit::add_rows_from_analysis(one, id, self.source, st)?.is_none() {
+                warnings.warn(
+                    "unreadable analysis files",
+                    format!("{}: its analysis files can't be read, so it has no cues in OneLibrary", st.display_name()),
+                );
+            }
             id_map.insert(t.source_id, id);
             wanted.push((id, fold(&t.audio), self.my_tags.get(&t.source_id).cloned().unwrap_or_default()));
             if self.primary {
@@ -1353,5 +1364,14 @@ mod tests {
         // A file already on the drive that the library doesn't list (the DJ's own) is taken too.
         let mine = |k: &str| k == "Music/z.mp3";
         assert_eq!(unique_key("Music/z.mp3", &mut taken, &mine), "Music/z (2).mp3");
+    }
+
+    #[test]
+    fn unique_keys_without_an_extension_are_numbered_at_the_end() {
+        let mut taken: HashSet<String> = ["contents/a/notes".to_string(), "contents/a.b/c".to_string()].into();
+        let nothing = |_: &str| false;
+        assert_eq!(unique_key("Contents/A/notes", &mut taken, &nothing), "Contents/A/notes (2)");
+        // A dot in a folder's name isn't an extension.
+        assert_eq!(unique_key("Contents/A.b/c", &mut taken, &nothing), "Contents/A.b/c (2)");
     }
 }

@@ -1,45 +1,12 @@
 //! `locallibrary export --format traktor`, end to end through the binary and the RPC sidecar.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
-use rekordbox_pdb::{Database, NewTrack, PdbEditor};
+use rekordbox_pdb::{NewTrack, PdbEditor};
 use serde_json::Value;
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../locallibrary/tests/fixtures")
-}
-
-fn copy_dir(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for e in std::fs::read_dir(src).unwrap() {
-        let e = e.unwrap();
-        let to = dst.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_dir(&e.path(), &to);
-        } else {
-            std::fs::copy(e.path(), to).unwrap();
-        }
-    }
-}
-
-/// The demo export (two tracks) with placeholder audio and a playlist `Set` holding both.
-fn demo_drive(dir: &Path) -> PathBuf {
-    let root = dir.join("Main");
-    copy_dir(&fixtures().join("rekordcrate/demo_tracks"), &root);
-    let pdb = root.join("PIONEER/rekordbox/export.pdb");
-    let db = Database::from_file(&pdb).unwrap();
-    let mut ed = PdbEditor::from_file(&pdb).unwrap();
-    let set = ed.create_playlist("Set", 0, false).unwrap();
-    for t in &db.tracks {
-        let p = root.join(t.file_path().trim_start_matches('/'));
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, format!("audio {}", t.title()).repeat(100)).unwrap();
-        ed.add_to_playlist(set, t.id, None).unwrap();
-    }
-    ed.save(&pdb).unwrap();
-    root
-}
+use crate::support::dj_drive;
 
 fn locallibrary(root: &Path) -> Command {
     crate::locallibrary(&root.join("store"), &[])
@@ -56,7 +23,7 @@ fn run(root: &Path, args: &[&str]) -> (Value, bool) {
 #[test]
 fn export_for_traktor_plans_then_writes() {
     let dir = tempfile::tempdir().unwrap();
-    let drive = demo_drive(dir.path());
+    let drive = dj_drive(dir.path(), "Main");
     let (drive, out) = (drive.to_str().unwrap(), dir.path().join("traktor"));
     let out_s = out.to_str().unwrap();
 
@@ -89,7 +56,7 @@ fn export_for_traktor_plans_then_writes() {
 #[test]
 fn export_for_serato_writes_crates_and_asks_before_copying() {
     let dir = tempfile::tempdir().unwrap();
-    let drive = demo_drive(dir.path());
+    let drive = dj_drive(dir.path(), "Main");
     let (drive, out) = (drive.to_str().unwrap(), dir.path().join("serato"));
     let out_s = out.to_str().unwrap();
 
@@ -110,7 +77,7 @@ fn export_for_serato_writes_crates_and_asks_before_copying() {
 #[test]
 fn export_for_engine_dj() {
     let dir = tempfile::tempdir().unwrap();
-    let drive = demo_drive(dir.path());
+    let drive = dj_drive(dir.path(), "Main");
     let (drive, out) = (drive.to_str().unwrap(), dir.path().join("engine"));
     let out_s = out.to_str().unwrap();
     let (_, ok) = run(dir.path(), &["export", drive, "--format", "engine", "-o", out_s, "--paths", "absolute"]);
@@ -126,7 +93,7 @@ fn export_for_engine_dj() {
 #[test]
 fn rpc_plans_an_export_for_traktor() {
     let dir = tempfile::tempdir().unwrap();
-    let drive = demo_drive(dir.path());
+    let drive = dj_drive(dir.path(), "Main");
     let out = dir.path().join("traktor");
     let mut child = locallibrary(dir.path()).arg("rpc").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     {
@@ -155,7 +122,7 @@ fn rpc_plans_an_export_for_traktor() {
 #[test]
 fn a_relative_output_folder_is_written() {
     let dir = tempfile::tempdir().unwrap();
-    let root = demo_drive(dir.path());
+    let root = dj_drive(dir.path(), "Main");
     let out = locallibrary(dir.path())
         .current_dir(dir.path())
         .args(["--json", "--yes", "export", root.to_str().unwrap(), "--format", "traktor", "-o", "trak"])
@@ -173,7 +140,7 @@ fn a_relative_output_folder_is_written() {
 #[test]
 fn copies_for_serato_outnumber_the_open_file_limit() {
     let dir = tempfile::tempdir().unwrap();
-    let root = demo_drive(dir.path());
+    let root = dj_drive(dir.path(), "Main");
     let pdb = root.join("PIONEER/rekordbox/export.pdb");
     let mut ed = PdbEditor::from_file(&pdb).unwrap();
     std::fs::create_dir_all(root.join("Contents/Many")).unwrap();

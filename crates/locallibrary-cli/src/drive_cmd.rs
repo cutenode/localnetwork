@@ -9,7 +9,7 @@ use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, DriveRef};
-use locallibrary::fleet::{DriveLog, KnownDrive, Standing};
+use locallibrary::fleet::{DriveLog, KnownDrive, Role, Standing};
 use locallibrary::format::{FormatOptions, FormatPlan};
 use locallibrary::progress::Ctx;
 use locallibrary::recordings::{CollectOptions, Tracklist};
@@ -323,8 +323,8 @@ pub struct FormatArgs {
 /// `drive verify` (and `verify`).
 #[derive(Args)]
 pub struct VerifyArgs {
-    #[arg(help = DRIVE_HELP)]
-    drive: String,
+    #[arg(help = crate::ONE_DRIVE_HELP)]
+    drive: Option<String>,
     /// Compare with this snapshot (id prefix)
     #[arg(long)]
     snapshot: Option<String>,
@@ -365,8 +365,8 @@ pub struct TidyArgs {
 /// `drive recordings` (and `recordings`).
 #[derive(Args)]
 pub struct RecordingsArgs {
-    #[arg(help = DRIVE_HELP)]
-    drive: String,
+    #[arg(help = crate::ONE_DRIVE_HELP)]
+    drive: Option<String>,
     /// Copy them into this folder (a subfolder per drive is made)
     #[arg(long, value_name = "DIR")]
     copy_to: Option<PathBuf>,
@@ -510,7 +510,7 @@ pub fn run(command: TopCommand, store_path: &Option<PathBuf>, out: Output, ctx: 
         TopCommand::Fsck(a) => fsck(a, store_path, out),
         TopCommand::Space(a) => space(a.drive, store_path, out, ctx),
         TopCommand::Tidy(a) => tidy(a, out, ctx),
-        TopCommand::Recordings(a) => recordings(a, out, ctx),
+        TopCommand::Recordings(a) => recordings(a, store_path, out, ctx),
         TopCommand::Firmware(a) => firmware(a, out, ctx),
         TopCommand::Backups(a) => backups(a.drive, out),
         TopCommand::Restore(a) => restore(a, store_path, out, ctx),
@@ -539,14 +539,11 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         DriveCommand::Fsck(a) => return fsck(a, store_path, out),
         DriveCommand::Space(a) => return space(a.drive, store_path, out, ctx),
         DriveCommand::Tidy(a) => return tidy(a, out, ctx),
-        DriveCommand::Recordings(a) => return recordings(a, out, ctx),
+        DriveCommand::Recordings(a) => return recordings(a, store_path, out, ctx),
         DriveCommand::Firmware(a) => return firmware(a, out, ctx),
         DriveCommand::Backups(a) => return backups(a.drive, out),
         DriveCommand::Restore(a) => return restore(a, store_path, out, ctx),
         DriveCommand::Rename { drive, name, label, dry_run } => {
-            if label {
-                output::untested_on_this_platform("drive rename --label");
-            }
             let store = store().ok();
             let plan = api::drive_rename_plan(&api::RenameDrive { drive, name, label })?;
             if plan.noop {
@@ -580,11 +577,11 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         }
         DriveCommand::Role { drive, role } => {
             let role = (!role.eq_ignore_ascii_case("none")).then_some(role);
-            let parsed = role.as_deref().map(locallibrary::fleet::Role::parse).transpose()?;
+            let parsed = role.as_deref().map(Role::parse).transpose()?;
             let store = store()?;
             let rec = api::drive_to_change(&store, &DriveRef { drive: drive.clone() })?;
             let change = match parsed {
-                Some(r) => format!("make {} ({}) a {} drive", rec.name, rec.id, r.name()),
+                Some(r) => format!("make {} ({}) {}", rec.name, rec.id, role_drive(r)),
                 None => format!("take the role off {} ({})", rec.name, rec.id),
             };
             return out.one_step(
@@ -592,7 +589,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                 "Set it?",
                 || Ok(api::drive_role(&store, &api::SetRole { drive, role })?),
                 |r| match r.role {
-                    Some(role) => ok(format!("{} is a {} drive", r.name, role.name())),
+                    Some(role) => ok(format!("{} is {}", r.name, role_drive(role))),
                     None => ok(format!("{} has no role", r.name)),
                 },
             );
@@ -852,7 +849,6 @@ fn someone_elses(root: &std::path::Path, uid: u32) -> bool {
 fn format(a: FormatArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let FormatArgs { drive, filesystem, label, cluster_size, check_capacity, erase, dry_run } = a;
     let options = FormatOptions { filesystem: filesystem.map(Into::into), label, cluster_size, check_capacity };
-    output::untested_on_this_platform(if options.check_capacity { "format --check-capacity" } else { "format" });
     // Only an existing store is consulted (to say whether a library on the drive is backed up);
     // formatting never creates one, which matters under sudo. Its disk is never formatted.
     let root = store_root(store)?;
@@ -913,7 +909,6 @@ fn restore(a: RestoreArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
 
 fn eject(a: EjectArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let drives = crate::jobs_cmd::drives_or_group(a.drives, store_path, None)?;
-    output::untested_on_this_platform("eject");
     let store_root = store_path.clone().unwrap_or_else(Store::default_root);
     // Shown, not asked: ejecting changes nothing on a drive, but takes its disk's other volumes.
     let plan = api::drive_eject_plan(Some(&store_root), &api::EjectDrives { drives })?;
@@ -934,6 +929,7 @@ fn eject(a: EjectArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
 
 fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let VerifyArgs { drive, snapshot, against, repair, all } = a;
+    let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "verify")?;
     output::show_all(all);
     let store = open_store(store_path).ok();
     let req = api::VerifyRequest { drive: drive.clone(), snapshot, against: against.clone() };
@@ -980,7 +976,6 @@ fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
 
 fn fsck(a: FsckArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
     let FsckArgs { drive, repair } = a;
-    output::untested_on_this_platform("fsck");
     if repair
         && let Some(o) =
             out.decide(false, &format!("Repair the file system on {drive}? It is unmounted while this runs."))
@@ -1002,6 +997,9 @@ fn render_fsck(r: &locallibrary::fscheck::FsCheckReport) {
         say!("{}", dim(&r.command));
         for line in &r.output {
             say!("  {}", dim(line));
+        }
+        for w in &r.warnings {
+            warn(w);
         }
         if r.ok {
             ok(format!("{}: {}", r.drive, r.summary()));
@@ -1054,8 +1052,9 @@ fn tidy(a: TidyArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     }))
 }
 
-fn recordings(a: RecordingsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+fn recordings(a: RecordingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let RecordingsArgs { drive, copy_to, only, tracklist, delete, dry_run } = a;
+    let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "take recordings from")?;
     let Some(to) = copy_to else {
         let list = api::recordings_list(&DriveRef { drive })?;
         out.emit(&list, |l| {
@@ -1187,14 +1186,6 @@ fn provision(a: ProvisionArgs, store_path: &Option<PathBuf>, out: Output, ctx: &
         erase,
         dry_run,
     } = a;
-    match (format, check_capacity) {
-        (true, true) => output::untested_on_this_platform("provision --format --check-capacity"),
-        (true, false) => output::untested_on_this_platform("provision --format"),
-        _ => {}
-    }
-    if eject {
-        output::untested_on_this_platform("provision --eject");
-    }
     // Under sudo, never one made now: it would belong to root.
     let store = match std::env::var_os("SUDO_UID") {
         Some(_) => {
@@ -1272,6 +1263,12 @@ fn provision(a: ProvisionArgs, store_path: &Option<PathBuf>, out: Output, ctx: &
 // ---------------------------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------------------------
+
+/// "a backup drive", "an archive drive".
+fn role_drive(r: Role) -> String {
+    let article = if r == Role::Archive { "an" } else { "a" };
+    format!("{article} {} drive", r.name())
+}
 
 fn standing(s: &Standing) -> String {
     match s {
@@ -1497,11 +1494,8 @@ pub fn sync_set(
         keep_extra: f.keep_extra,
         delete_first: f.delete_first,
     };
-    let many = req.resolve(&store)?;
-    if many.drives.len() < 2 {
-        bail!("fewer than two drives of the group are mounted");
-    }
-    crate::run_sync_many(store_path, many.drives, f, allow_guess, out, ctx)
+    // A group has two or more mounted drives: `resolve` refuses fewer.
+    crate::run_sync_many(store_path, req.resolve(&store)?.drives, f, allow_guess, out, ctx)
 }
 
 pub fn target_results(results: &[api::TargetResult]) {
@@ -1519,10 +1513,21 @@ pub fn target_results(results: &[api::TargetResult]) {
 
 /// Eject drives after a sync, reporting failures without failing the sync.
 pub fn eject_after(store_path: &Option<PathBuf>, drives: Vec<String>, out: Output) {
-    output::untested_on_this_platform("--eject");
+    let store_root = store_path.clone().unwrap_or_else(Store::default_root);
     let store = open_store(store_path).ok();
+    let mut said = Vec::new();
     for d in drives {
-        match api::drive_eject(store.as_ref(), &api::EjectDrives { drives: vec![d.clone()] }) {
+        let ejected =
+            api::drive_eject_plan(Some(&store_root), &api::EjectDrives { drives: vec![d.clone()] }).and_then(|plan| {
+                for w in &plan.warnings {
+                    if !said.contains(w) {
+                        output::warn(w);
+                        said.push(w.clone());
+                    }
+                }
+                plan.apply(store.as_ref(), &Ctx::silent())
+            });
+        match ejected {
             Ok(r) => {
                 if !out.json {
                     for e in r {

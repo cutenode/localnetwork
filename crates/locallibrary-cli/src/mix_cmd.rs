@@ -238,10 +238,10 @@ fn export_path(target: &Path, count: usize, r: &MixReport) -> PathBuf {
     in_folder(target, count, r, "mix.json")
 }
 
-/// `target` as given, or `<id>.<ext>` inside it (see [`report::id`]) when it's a folder or there
-/// are several mixes.
+/// `target` as given, or `<id>.<ext>` inside it (see [`report::id`]) when it's a folder (one there,
+/// or one to make, named with a separator at the end) or there are several mixes.
 fn in_folder(target: &Path, count: usize, r: &MixReport, ext: &str) -> PathBuf {
-    if target.is_dir() || count > 1 || target.as_os_str().to_string_lossy().ends_with('/') {
+    if target.is_dir() || count > 1 || target.as_os_str().to_string_lossy().ends_with(std::path::is_separator) {
         target.join(format!("{}.{ext}", report::id(r)))
     } else {
         target.to_path_buf()

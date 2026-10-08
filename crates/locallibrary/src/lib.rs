@@ -105,6 +105,7 @@ pub mod recordings;
 pub mod retention;
 pub mod schema;
 pub mod scrub;
+pub mod sets;
 pub mod settings;
 pub mod smart;
 pub mod space;
@@ -132,6 +133,12 @@ pub mod testing {
     /// `$LOCALLIBRARY_VOLUMES` says), as that variable would make them for the whole process.
     pub fn volumes_on_this_thread(folders: Option<Vec<std::path::PathBuf>>) {
         crate::device::THREAD_VOLUMES.with(|v| *v.borrow_mut() = folders);
+    }
+
+    /// Plans on this thread warn as they would on `os` (`linux`, `windows`; `None`: this one)
+    /// about what hasn't been tested there (see [`crate::format::untested_here`]).
+    pub fn os_on_this_thread(os: Option<&'static str>) {
+        crate::format::THREAD_OS.with(|o| o.set(os));
     }
 }
 

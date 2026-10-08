@@ -2,7 +2,7 @@
 //! just before it swaps the new files and databases in leaves the drive byte-identical, and the
 //! same plan then applies.
 
-use crate::common;
+use crate::common::{self, media::png};
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -161,19 +161,12 @@ fn putting_a_backup_back() {
     assert!(d.library().unwrap().tracks.iter().any(|t| t.title == "House 1"));
 }
 
-fn png(shade: u8) -> Vec<u8> {
-    let img = image::RgbImage::from_fn(120, 90, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, shade]));
-    let mut out = std::io::Cursor::new(Vec::new());
-    img.write_to(&mut out, image::ImageFormat::Png).unwrap();
-    out.into_inner()
-}
-
 #[test]
 fn convert() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let mut d = Device::open_export(&root).unwrap();
-    artwork::set_on_drive(&mut d, &[1, 2], &Artwork::from_bytes(&png(7)).unwrap(), &Ctx::silent()).unwrap();
+    artwork::set_on_drive(&mut d, &[1, 2], &Artwork::from_bytes(&png(120, 90, 7)).unwrap(), &Ctx::silent()).unwrap();
     let opts = ConvertOptions { to: Target::OneLibrary, replace: false };
     let plan = convert::plan(&d, &opts, &Ctx::silent()).unwrap();
     let report = fails_cleanly_and_undoes(&root, || convert::apply(&plan, &mut d, &opts, &Ctx::silent()));
@@ -199,12 +192,12 @@ fn artwork() {
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
     let mut d = Device::open_export(&root).unwrap();
-    let art = Artwork::from_bytes(&png(9)).unwrap();
+    let art = Artwork::from_bytes(&png(120, 90, 9)).unwrap();
     let report = fails_cleanly(&root, || artwork::set_on_drive(&mut d, &[1], &art, &Ctx::silent()));
     assert!(report.artwork_rows_added > 0, "{report:?}");
     // Again: the track is the only one using its art, so the images are overwritten in place, and
     // the backup keeps the old ones.
-    let art = Artwork::from_bytes(&png(99)).unwrap();
+    let art = Artwork::from_bytes(&png(120, 90, 99)).unwrap();
     let report = fails_cleanly_and_undoes(&root, || artwork::set_on_drive(&mut d, &[1], &art, &Ctx::silent()));
     assert_eq!(report.artwork_rows_added, 0, "{report:?}");
     let backup = locallibrary::backup::list(&d).unwrap().remove(0);

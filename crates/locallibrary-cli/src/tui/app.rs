@@ -15,6 +15,7 @@ use locallibrary::error::panic_text;
 use locallibrary::model::normalize;
 use locallibrary::op::AnyPlanned;
 use locallibrary::query::{Filter, QueryContext, SortField, SortKey};
+use locallibrary::sets::{Set, SetBook};
 use locallibrary::store::{LibraryRecord, SnapshotInfo};
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
 use locallibrary::{Ctx, Device, DeviceInfo, Error, Library, Store, Track, artwork, paths};
@@ -165,6 +166,8 @@ pub struct Loaded {
     ranks: Vec<(SortField, Vec<u32>)>,
     pub problems: Problems,
     pub my_tags: MyTags,
+    /// The store's sets, for Browse › Sets: `None` until first read (see `App::read_sets`).
+    sets: Option<Vec<Set>>,
     /// The drive went away: what's shown may be out of date, and can't be played or edited.
     pub stale: bool,
 }
@@ -192,6 +195,7 @@ impl Loaded {
             ranks: Vec::new(),
             problems: Problems { missing: None, copy_of, copies },
             my_tags: MyTags::Unread,
+            sets: None,
             stale: false,
         };
         l.rebuild_tree();
@@ -213,14 +217,33 @@ impl Loaded {
                 MyTags::Read(t) => Some(t.clone()),
                 _ => None,
             };
-            let g = browse::groups(&self.library, c, &self.by_id, &self.problems, tags.as_deref());
+            let sets = self.sets.as_deref().unwrap_or_default();
+            let g = browse::groups(&self.library, c, &self.by_id, &self.problems, tags.as_deref(), sets);
             self.groups.insert(c, g);
         }
     }
 
     pub fn group(&mut self, c: Category, key: &str) -> Option<&Group> {
         self.ensure_groups(c);
+        self.grouped(c, key)
+    }
+
+    /// A value of a category as last grouped (none before it is).
+    pub fn grouped(&self, c: Category, key: &str) -> Option<&Group> {
         self.groups.get(&c)?.iter().find(|g| g.key == key)
+    }
+
+    /// How many entries of the list shown aren't on the drive (a set's, played from another).
+    pub fn left_out(&self) -> usize {
+        match &self.node {
+            NodeId::Group(c, key) => self.grouped(*c, key).map_or(0, |g| g.left_out),
+            _ => 0,
+        }
+    }
+
+    /// The list shown is a set, and the store's sets haven't been read yet.
+    pub fn reading_set(&self) -> bool {
+        self.sets.is_none() && matches!(self.node, NodeId::Group(Category::Sets, _))
     }
 
     /// Open or close a folder (or Browse, or a category).
@@ -270,7 +293,7 @@ impl Loaded {
             NodeId::Browse => "Browse".into(),
             NodeId::Category(c) => c.name().into(),
             NodeId::Group(c, key) => {
-                let label = self.groups.get(c).and_then(|gs| gs.iter().find(|g| &g.key == key)).map(|g| g.label.trim());
+                let label = self.grouped(*c, key).map(|g| g.label.trim());
                 format!("{} › {}", c.name(), label.unwrap_or(key))
             }
         }
@@ -673,6 +696,8 @@ pub enum Msg {
     MyTags(u64, Result<HashMap<String, Vec<String>>, String>),
     /// Sort ranks and Browse's groups, for the library load with this generation.
     Indexed(u64, Box<Index>),
+    /// The store's sets, for the library load with this generation.
+    Sets(u64, Result<Vec<Set>, String>),
     /// A track's audio file opened (or not), for the play with this id.
     Opened(u64, Result<audio::OpenedFile, String>),
     /// Something background work has to say (a report written, say).
@@ -1536,6 +1561,7 @@ impl App {
                 && !self.details_current()
                 && !self.details_lookup_failed())
             || self.now.as_ref().is_some_and(|n| n.loading)
+            || self.loaded.as_ref().is_some_and(Loaded::reading_set)
             || !self.analyzer.is_idle()
             || self.is_playing()
             || self.flash().is_some()
@@ -1553,7 +1579,7 @@ impl App {
         }
     }
 
-    fn handle_msg(&mut self, msg: Msg) {
+    pub(super) fn handle_msg(&mut self, msg: Msg) {
         match msg {
             Msg::Volumes(events, present) => {
                 self.volumes_in_flight = false;
@@ -1631,9 +1657,31 @@ impl App {
                         Err(e) => MyTags::Failed(e),
                     };
                     // Browse › My Tags, grouped again now there are tags to group by.
-                    l.groups.remove(&Category::MyTags);
-                    l.rebuild_tree();
+                    self.regroup(Category::MyTags);
                     self.refresh_visible();
+                }
+            }
+            Msg::Sets(generation, r) => {
+                let Some(l) = self.loaded.as_mut().filter(|l| l.generation == generation) else { return };
+                let sets = match r {
+                    Ok(sets) => sets,
+                    Err(e) => {
+                        l.sets.get_or_insert_default();
+                        self.toast(format!("can't read the sets: {e}"), Level::Error);
+                        return;
+                    }
+                };
+                // Only a set shown last run is shown before the sets are first read.
+                let restored = l.reading_set();
+                let showing_a_set = matches!(l.node, NodeId::Group(Category::Sets, _));
+                l.sets = Some(sets);
+                self.regroup(Category::Sets);
+                if showing_a_set {
+                    self.refresh_visible();
+                }
+                // In the tree now: the cursor goes to it, as it does to a playlist shown last run.
+                if let Some(l) = self.loaded.as_ref().filter(|_| restored) {
+                    self.playlist_state.select(l.tree_position(&l.node).or(self.playlist_state.selected()));
                 }
             }
             Msg::Indexed(generation, index) => {
@@ -1737,8 +1785,11 @@ impl App {
     /// Show a freshly read library. The drive that was already open keeps its view (list,
     /// folders, selection, marks); another drive starts at All tracks, or where the last run
     /// left it.
-    fn install(&mut self, root: PathBuf, new: Loaded) {
+    fn install(&mut self, root: PathBuf, mut new: Loaded) {
         let keep = self.loaded.as_ref().filter(|l| l.root() == new.root()).map(|l| self.view_keep(l));
+        // The store's sets go with every drive: the ones read last stand in until they're read
+        // again, so a set shown doesn't empty meanwhile.
+        new.sets = self.loaded.as_mut().and_then(|l| l.sets.take());
         self.crate_list.refresh(new.root(), &new.library);
         self.loaded = Some(new);
         self.details = None;
@@ -1769,15 +1820,16 @@ impl App {
         self.restore_queue(&root);
         self.check_files();
         self.index_library();
+        self.read_sets();
         self.check_replay();
         if self.show_tags_column {
             self.read_my_tags();
         }
     }
 
-    /// Whether rekordbox exported over edits recorded on the open drive, in the background: its
-    /// databases were written after locallibrary last wrote to it (or saw it), and replaying the
-    /// recorded edits would change something. Then replaying them is offered.
+    /// Whether rekordbox exported over edits recorded on the open drive, in the background: it
+    /// exported after locallibrary last wrote to the drive (or saw it; see `Device::exported_at`),
+    /// and replaying the recorded edits would change something. Then replaying them is offered.
     fn check_replay(&mut self) {
         if self.replay_offer.as_ref().is_some_and(|o| self.loaded.as_ref().is_none_or(|l| l.root() != o.root)) {
             self.replay_offer = None;
@@ -1819,9 +1871,10 @@ impl App {
         let (lib, generation, by_id) = (l.library.clone(), l.generation, l.by_id.clone());
         self.spawn(move || {
             let ranks = browse::SORT_FIELDS.iter().map(|&f| (f, browse::ranks(&lib, f))).collect();
-            // Problems waits for the file check, and is quick.
-            let groups = (Category::ALL.into_iter().filter(|c| !matches!(c, Category::Problems | Category::MyTags)))
-                .map(|c| (c, browse::groups(&lib, c, &by_id, &Problems::default(), None)))
+            // Problems waits for the file check, and is quick; My Tags and Sets wait for their reads.
+            let later = |c: &Category| matches!(c, Category::Problems | Category::MyTags | Category::Sets);
+            let groups = (Category::ALL.into_iter().filter(|c| !later(c)))
+                .map(|c| (c, browse::groups(&lib, c, &by_id, &Problems::default(), None, &[])))
                 .collect();
             Msg::Indexed(generation, Box::new(Index { ranks, groups }))
         });
@@ -1960,6 +2013,33 @@ impl App {
         if self.search_due.is_some() {
             self.refresh_visible();
         }
+    }
+
+    /// Group `c` again now there's more to group by (read in the background), keeping the tree's
+    /// cursor on its row as rows come and go above it.
+    fn regroup(&mut self, c: Category) {
+        let Some(l) = self.loaded.as_mut() else { return };
+        let row = self.playlist_state.selected().and_then(|i| l.tree.get(i)).map(|n| n.id.clone());
+        l.groups.remove(&c);
+        l.rebuild_tree();
+        if let Some(i) = row.and_then(|id| l.tree_position(&id)) {
+            self.playlist_state.select(Some(i));
+        }
+    }
+
+    /// Read the store's sets in the background, for Browse › Sets. Without a store there are
+    /// none.
+    pub(super) fn read_sets(&mut self) {
+        let Some(l) = &self.loaded else { return };
+        let (store_root, generation) = (self.store_root.clone(), l.generation);
+        let job = move || {
+            let sets = match Store::open(&store_root) {
+                Ok(store) => SetBook::load(&store).map(|b| b.sets).map_err(|e| e.to_string()),
+                Err(_) => Ok(Vec::new()),
+            };
+            Msg::Sets(generation, sets)
+        };
+        self.spawn_or(job, move |e| Msg::Sets(generation, Err(e)));
     }
 
     /// Read the open drive's My Tags in the background, the first time a filter needs them.
@@ -2494,6 +2574,8 @@ impl App {
 
     fn toggle_pause(&mut self) {
         match (&self.audio, &self.now) {
+            // Still opening (a slow drive): it starts paused or playing as last asked.
+            (Some(_), Some(n)) if n.opening => self.start_paused = !self.start_paused,
             (Some(a), Some(_)) => a.toggle_pause(),
             // The output went away: play on from where it was, through what there is now.
             (None, Some(_)) => {
@@ -2576,29 +2658,18 @@ impl App {
 
     fn jump_cue(&mut self, forward: bool) {
         let Some(now) = &self.now else { return };
-        let pos = self.position_ms();
-        // Where each cue's jump lands (quantized, a little either side of it).
-        let snap = self.snap();
-        let land = |t: u32| super::deck::cue_jump(&now.analysis.beats, pos, t as f64, snap);
-        let times = now.cue_times();
-        let target = if forward {
-            times.into_iter().find(|&t| land(t) > pos + 250.0)
-        } else {
-            times.into_iter().rev().find(|&t| land(t) + 1500.0 < pos).or(Some(0))
+        let marks: Vec<f64> = now.cue_times().into_iter().map(f64::from).collect();
+        let Some((t, at)) =
+            super::deck::mark_jump(&now.analysis.beats, self.position_ms(), &marks, forward, self.snap())
+        else {
+            self.toast("no more cues", Level::Info);
+            return;
         };
-        match target {
-            Some(t) => {
-                let color = now
-                    .analysis
-                    .cues
-                    .iter()
-                    .filter(|c| c.start_ms == t)
-                    .max_by_key(|c| c.hot_cue.is_some())
-                    .map(cue_color);
-                self.jump(land(t), color);
-            }
-            None => self.toast("no more cues", Level::Info),
-        }
+        let color = (now.analysis.cues.iter())
+            .filter(|c| f64::from(c.start_ms) == t)
+            .max_by_key(|c| c.hot_cue.is_some())
+            .map(cue_color);
+        self.jump(at, color);
     }
 
     /// Jump to `ms` into the playing track, flashing the visualiser in a cue's colour.
@@ -2835,11 +2906,7 @@ impl App {
         }
         if self.searching {
             match key.code {
-                KeyCode::Esc => {
-                    self.searching = false;
-                    self.query.clear();
-                    self.refresh_visible();
-                }
+                KeyCode::Esc => self.close_search(),
                 KeyCode::Enter => {
                     self.searching = false;
                     self.flush_search();
@@ -2853,7 +2920,13 @@ impl App {
                 }
                 KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown => {
                     self.flush_search();
-                    self.on_list_key(key.code);
+                    let act = match key.code {
+                        KeyCode::Up => Act::Move(-1),
+                        KeyCode::Down => Act::Move(1),
+                        KeyCode::PageUp => Act::Page(-1),
+                        _ => Act::Page(1),
+                    };
+                    self.perform(act, None);
                 }
                 _ => {
                     if edit_line(&mut self.query, key) {
@@ -2926,6 +2999,7 @@ impl App {
             }
             Act::Stop => self.stop(),
             Act::Cue(forward) => self.jump_cue(forward),
+            Act::Phrase(forward) => deck::phrase_jump(self, forward),
             Act::Volume(dir) => self.change_volume(0.05 * dir as f32),
             Act::Shuffle => {
                 self.drop_upcoming();
@@ -3146,7 +3220,18 @@ impl App {
         self.focus = order[if back { (i + n - 1) % n } else { (i + 1) % n }];
     }
 
+    /// Put the search box away and clear what was typed in it, as esc does.
+    fn close_search(&mut self) {
+        self.searching = false;
+        self.query.clear();
+        self.refresh_visible();
+    }
+
     fn set_view(&mut self, v: View) {
+        // The search box is the library's: keys typed in another view aren't for it.
+        if self.searching && v != View::Library {
+            self.close_search();
+        }
         self.view = v;
         self.fullscreen = false;
         match v {
@@ -3246,22 +3331,6 @@ impl App {
         }
         let cur = sel.unwrap_or(0) as isize;
         *sel = Some((cur + delta).clamp(0, len as isize - 1) as usize);
-    }
-
-    fn on_list_key(&mut self, code: KeyCode) {
-        let page = match self.focus {
-            Focus::Tracks => self.areas.tracks.height.saturating_sub(3).max(1) as isize,
-            _ => 10,
-        };
-        match code {
-            KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
-            KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
-            KeyCode::PageUp => self.move_selection(-page),
-            KeyCode::PageDown => self.move_selection(page),
-            KeyCode::Home | KeyCode::Char('g') => self.move_selection(isize::MIN / 2),
-            KeyCode::End | KeyCode::Char('G') => self.move_selection(isize::MAX / 2),
-            _ => {}
-        }
     }
 
     pub fn on_mouse(&mut self, m: MouseEvent) {
@@ -3432,7 +3501,9 @@ impl App {
         if row < top || (f == Focus::Details && self.areas.matches.height == 0) {
             return;
         }
-        let i = offset + (row - top) as usize;
+        // The Drives view shows each drive on two lines: its name, then where it's mounted.
+        let lines = if self.view == View::Drives { 2 } else { 1 };
+        let i = offset + (row - top) as usize / lines;
         let (sel, len) = self.list_selection();
         if i < len {
             *sel = Some(i);
@@ -3463,10 +3534,14 @@ fn read_art(device: &Device, t: &Track) -> Option<Vec<u8>> {
 }
 
 #[cfg(test)]
+pub(super) mod testing;
+
+#[cfg(test)]
 mod tests {
     use locallibrary::anlz::{Beat, Mood, Phrase, SongStructure};
+    use locallibrary::sets::{EntryOrigin, SetEntry};
 
-    use super::super::browse::tests::library;
+    use super::testing::*;
     use super::*;
 
     #[test]
@@ -3489,31 +3564,6 @@ mod tests {
         assert_eq!((spans[1].start_ms, spans[1].end_ms, spans[1].bars), (16_000.0, 40_000.0, 16));
     }
 
-    /// An app showing the test library on a drive (an empty folder: nothing on it can be played
-    /// or edited) with no audio and no background polling.
-    fn app_with(lib: Library) -> (App, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        (App::with_library(dir.path(), lib), dir)
-    }
-
-    fn key(code: KeyCode) -> KeyEvent {
-        let shifted = matches!(code, KeyCode::Char(c) if c.is_ascii_uppercase());
-        KeyEvent::new(code, if shifted { KeyModifiers::SHIFT } else { KeyModifiers::NONE })
-    }
-
-    fn press(app: &mut App, keys: &str) {
-        for c in keys.chars() {
-            let code = match c {
-                '\n' => KeyCode::Enter,
-                '\t' => KeyCode::Tab,
-                '\u{1b}' => KeyCode::Esc,
-                '\u{7f}' => KeyCode::Delete,
-                c => KeyCode::Char(c),
-            };
-            app.on_key(key(code));
-        }
-    }
-
     fn titles(app: &App) -> Vec<String> {
         let l = app.loaded.as_ref().unwrap();
         app.visible.iter().map(|&i| l.library.tracks[i].title.clone()).collect()
@@ -3523,7 +3573,7 @@ mod tests {
         let row = app.loaded.as_ref().unwrap().tree_position(&id).unwrap();
         app.focus = Focus::Playlists;
         app.playlist_state.select(Some(row));
-        app.on_key(key(KeyCode::Enter));
+        key(app, KeyCode::Enter);
     }
 
     #[test]
@@ -3539,13 +3589,13 @@ mod tests {
         press(&mut app, "-");
         assert!(app.filter_error.is_some());
         assert_eq!(titles(&app).len(), 2, "half-typed, the last good result stays");
-        app.on_key(key(KeyCode::Backspace));
+        key(&mut app, KeyCode::Backspace);
         press(&mut app, " -genre:house key:8A");
         assert_eq!(titles(&app), ["Never Grow Old"]);
         press(&mut app, "\n");
         assert!(!app.searching && app.filter_error.is_none());
         // Sorting: b cycles, B turns it round; the selected track stays selected.
-        app.on_key(key(KeyCode::Esc));
+        key(&mut app, KeyCode::Esc);
         assert!(app.query.is_empty());
         app.sort = Some(SortKey { field: SortField::Bpm, descending: false });
         app.track_state.select(Some(0));
@@ -3623,6 +3673,86 @@ mod tests {
         assert_eq!(titles(&app), ["Tell You No Lie", "Never Grow Old"], "in the order they were played");
     }
 
+    /// Handle the app's background messages until the store's sets are read.
+    fn read_sets(app: &mut App) {
+        loop {
+            let msg = app.rx.recv_timeout(Duration::from_secs(60)).expect("the sets read");
+            let sets = matches!(msg, Msg::Sets(..));
+            app.handle_msg(msg);
+            if sets {
+                return;
+            }
+        }
+    }
+
+    /// Sets in the store at `store_root`: Friday (track 3, one typed in by hand, track 2), an
+    /// older one at Corsica Studios (track 1), and one with nothing on the drive.
+    fn save_sets(store_root: &Path, lib: &Library) {
+        let store = Store::open_or_init(store_root).unwrap();
+        let entry = |i: usize| SetEntry::from_track(&lib.tracks[i], EntryOrigin::Session, None);
+        let friday = vec![entry(2), SetEntry::added("Unknown - ID"), entry(1)];
+        let sets = vec![
+            set("3lzcorsica222", "2026-09-12", None, Some("Corsica Studios"), vec![entry(0)]),
+            set("3m2friday2222", "2026-10-03", Some("Friday at the Warehouse"), Some("Warehouse"), friday),
+            set("3lxradio22222", "2026-08-01", Some("Radio"), None, vec![SetEntry::added("Unknown - ID")]),
+        ];
+        SetBook { sets, ..Default::default() }.save(&store).unwrap();
+    }
+
+    /// Browse › Sets: the store's sets, each with its tracks on the drive in the order played and
+    /// a count of the rest; played and marked (to save as a playlist) like any list. Without a
+    /// store there's nothing to browse.
+    #[test]
+    fn browses_the_sets_in_the_store() {
+        let lib = library();
+        let (mut app, _dir) = app_with(lib.clone());
+        read_sets(&mut app);
+        select_tree(&mut app, NodeId::Browse);
+        let l = app.loaded.as_ref().unwrap();
+        assert!(l.tree_position(&NodeId::Category(Category::Sets)).is_none(), "no store, no Sets");
+        assert!(app.toast.is_none(), "and nothing to say about it");
+
+        // The sets come in above the playlists: the tree's cursor stays where it was.
+        save_sets(&app.store_root.clone(), &lib);
+        let folder = l.tree_position(&NodeId::Playlist(1));
+        app.playlist_state.select(folder);
+        app.read_sets();
+        read_sets(&mut app);
+        let l = app.loaded.as_ref().unwrap();
+        assert_eq!(app.playlist_state.selected(), l.tree_position(&NodeId::Playlist(1)));
+        assert_ne!(app.playlist_state.selected(), folder);
+
+        select_tree(&mut app, NodeId::Category(Category::Sets));
+        let l = app.loaded.as_ref().unwrap();
+        let names: Vec<&str> = l.tree.iter().filter(|n| n.depth == 2).map(|n| n.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["2026-10-03 Friday at the Warehouse", "2026-09-12 Corsica Studios", "2026-08-01 Radio"],
+            "newest first"
+        );
+        select_tree(&mut app, NodeId::Group(Category::Sets, "3lxradio22222".into()));
+        let screen = super::super::ui::screen(&mut app, 120, 30);
+        assert!(screen.contains("None of its tracks are on this drive."), "{screen}");
+        select_tree(&mut app, NodeId::Group(Category::Sets, "3m2friday2222".into()));
+        assert_eq!(titles(&app), ["Tell You No Lie", "Never Grow Old"], "in the order played");
+        let l = app.loaded.as_ref().unwrap();
+        assert_eq!((l.playlist_name().as_str(), l.left_out()), ("Sets › 2026-10-03 Friday at the Warehouse", 1));
+        let screen = super::super::ui::screen(&mut app, 120, 30);
+        assert!(screen.contains("Friday at the Warehouse 2 · 1 not on this drive"), "{screen}");
+
+        // Marked to save as a playlist, and played, in the set's order.
+        press(&mut app, "M");
+        let tracks = app.target().unwrap().tracks;
+        assert_eq!(tracks, ["/Contents/3.mp3", "/Contents/2.mp3"]);
+        app.play_selected();
+        assert_eq!(app.queue.items, [2, 1]);
+
+        // A session remembered from before they were called that still opens.
+        let saved: SavedNode = serde_json::from_str(r#"{"kind":"group","category":"history","key":"9"}"#).unwrap();
+        let l = app.loaded.as_ref().unwrap();
+        assert_eq!(l.node_title(&l.find_node(&saved).unwrap()), "Sessions › HISTORY 001");
+    }
+
     #[test]
     fn marks_and_the_crate() {
         let (mut app, _dir) = app_with(library());
@@ -3640,7 +3770,7 @@ mod tests {
         press(&mut app, "a");
         press(&mut app, "t");
         assert!(app.show_crate);
-        app.on_key(key(KeyCode::Tab));
+        key(&mut app, KeyCode::Tab);
         assert_eq!(app.focus, Focus::Crate);
         app.crate_state.select(Some(2));
         press(&mut app, "K");
@@ -3833,34 +3963,6 @@ mod tests {
         assert!(m.items.iter().find(|i| i.action == Action::RatingMenu).unwrap().unavailable.is_some());
     }
 
-    /// The demo export from the library's fixtures, with placeholder audio, in a temporary folder.
-    fn demo_drive() -> (tempfile::TempDir, PathBuf) {
-        fn copy(src: &Path, dst: &Path) {
-            std::fs::create_dir_all(dst).unwrap();
-            for e in std::fs::read_dir(src).unwrap().map(Result::unwrap) {
-                let to = dst.join(e.file_name());
-                if e.file_type().unwrap().is_dir() {
-                    copy(&e.path(), &to)
-                } else {
-                    std::fs::copy(e.path(), to).map(|_| ()).unwrap()
-                }
-            }
-        }
-        let fixture =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../locallibrary/tests/fixtures/rekordcrate/demo_tracks");
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("DEMO");
-        copy(&fixture, &root);
-        let device = Device::open_export(&root).unwrap();
-        for t in device.library().unwrap().tracks {
-            let p = device.path(&paths::key(&t.file_path));
-            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-            std::fs::write(p, "audio".repeat(100)).unwrap();
-        }
-        let root = device.root().to_path_buf();
-        (dir, root)
-    }
-
     #[test]
     fn tag_filters_read_the_drives_my_tags() {
         let (_dir, root) = demo_drive();
@@ -3891,16 +3993,6 @@ mod tests {
         press(&mut app, "x");
         let e = app.filter_error.clone().unwrap_or_default();
         assert!(e.contains("playlist \"fridayx\""), "{e}");
-    }
-
-    /// Run the app's background work until `done`.
-    fn wait(app: &mut App, done: impl Fn(&App) -> bool) {
-        let t = Instant::now();
-        while !done(app) && t.elapsed() < Duration::from_secs(60) {
-            std::thread::sleep(Duration::from_millis(5));
-            app.tick();
-        }
-        assert!(done(app), "timed out; last message: {:?}", app.toast.as_ref().map(|t| &t.0));
     }
 
     /// Wait for the plan, check the confirmation, say yes, and wait for the drive to be read again.
@@ -4050,31 +4142,8 @@ mod tests {
         }
     }
 
-    /// Settle a confirmation (keys right as it appears are ignored) and say yes; wait for the
-    /// write and the reads after it.
-    fn say_yes(app: &mut App) {
-        wait(app, |a| a.job.is_none());
-        let Some(Modal::Confirm(c)) = &mut app.modal else { panic!("no confirmation: {:?}", app.toast) };
-        c.shown -= Duration::from_secs(1);
-        press(app, "y");
-        wait(app, |a| a.job.is_none() && a.loading.is_none());
-    }
-
-    /// The confirmation up now, as the plan's operation and first summary line.
-    fn confirming(app: &mut App) -> (&'static str, String) {
-        wait(app, |a| a.job.is_none());
-        match &app.modal {
-            Some(Modal::Confirm(c)) => (c.plan.operation(), c.plan.summary().first().cloned().unwrap_or_default()),
-            _ => panic!("no confirmation: {:?}", app.toast),
-        }
-    }
-
-    fn last_message(app: &App) -> String {
-        app.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default()
-    }
-
     /// From the Drives view: pull a drive into the store (then nothing more to pull), check it,
-    /// refuse to eject a folder (it's no volume), and say why its group can't be synced.
+    /// and refuse to eject a folder (it's no volume).
     #[test]
     fn the_drives_view_pulls_checks_and_ejects() {
         let (dir, root) = demo_drive();
@@ -4102,24 +4171,8 @@ mod tests {
         let store = Store::open(dir.path().join("store")).unwrap();
         assert_eq!(store.libraries().unwrap().len(), 1);
         // The status the Drives view reads (made here: tests read no other drives).
-        let status = api::DriveStatus {
-            drive: Device::open(&root).unwrap().info(),
-            library: Some(store.libraries().unwrap()[0].name.clone()),
-            relation: None,
-            head: None,
-            settings_drift: 0,
-            error: None,
-        };
-        let fleet = api::FleetDrive {
-            status,
-            role: None,
-            read_only: false,
-            low_space: false,
-            log: None,
-            same_identity_as: Vec::new(),
-            exported_over_edits: 0,
-        };
-        app.status = Some(Ok(vec![fleet]));
+        let library = store.libraries().unwrap()[0].name.clone();
+        app.status = Some(Ok(vec![fleet(Device::open(&root).unwrap().info(), Some(&library))]));
 
         // Saved: nothing more to pull.
         app.perform(Act::Pull, None);
@@ -4142,11 +4195,6 @@ mod tests {
         wait(&mut app, |a| a.job.is_none());
         assert!(app.modal.is_none());
         assert!(last_message(&app).contains("nothing to eject"), "{}", last_message(&app));
-
-        // Its group: it's the only drive of its library plugged in.
-        app.perform(Act::SyncGroup, None);
-        assert!(app.job.is_none());
-        assert!(last_message(&app).contains("is the only drive of"), "{}", last_message(&app));
     }
 
     /// Packing the crate for a set: saved as a playlist on the drive first, then packed onto
@@ -4301,7 +4349,7 @@ mod tests {
     }
 
     /// My Tags: a new tag given to the selected track (through the tags plan), shown in the
-    /// column and under Browse › My Tags; offered to take off again.
+    /// column and under Browse › My Tags.
     #[test]
     fn gives_tracks_a_my_tag_and_shows_them() {
         let (_dir, root) = demo_drive();
@@ -4337,13 +4385,6 @@ mod tests {
         select_tree(&mut app, NodeId::Group(Category::MyTags, "Genre/Deep".into()));
         assert_eq!(app.visible.len(), 1);
         assert_eq!(app.loaded.as_ref().unwrap().playlist_name(), "My Tags › Genre › Deep");
-
-        // Tagged already: offered to take it off.
-        app.track_state.select(Some(0));
-        press(&mut app, "T");
-        wait(&mut app, |a| a.job.is_none());
-        let Some(Modal::Pick(p)) = &app.modal else { panic!("no tags") };
-        assert!(p.items.iter().any(|i| i.label == "take Genre/Deep off"), "{:?}", p.items);
     }
 
     /// A rule-based playlist from the search box's filter: saved in the store, then filled on
@@ -4425,6 +4466,68 @@ mod tests {
         type_path(&mut app, &root.join("x.xml"));
         assert!(last_message(&app).starts_with("not onto the drive"));
         assert!(!root.join("x.xml").exists());
+    }
+
+    /// The set shown last run, on starting: said to be reading until the sets are in. Read again
+    /// (after an edit, say), it stays as it was meanwhile.
+    #[test]
+    fn a_set_shown_stays_shown_while_the_sets_are_read() {
+        let lib = library();
+        let dir = tempfile::tempdir().unwrap();
+        save_sets(&dir.path().join("store"), &lib);
+        let mut app = App::blank(dir.path().join("store"), None);
+        let device = Device::open(dir.path()).unwrap();
+        let root = device.root().to_path_buf();
+        let friday = SavedNode::Group { category: Category::Sets, key: "3m2friday2222".into() };
+        app.restore = Some((root.clone(), friday));
+        app.install(root.clone(), Loaded::prepare(device, lib.clone()));
+        assert!(app.visible.is_empty() && app.animating());
+        let screen = super::super::ui::screen(&mut app, 120, 30);
+        assert!(screen.contains("Reading the sets…"), "{screen}");
+        read_sets(&mut app);
+        assert_eq!(titles(&app), ["Tell You No Lie", "Never Grow Old"]);
+        assert!(!app.animating());
+        let l = app.loaded.as_ref().unwrap();
+        let shown = l.tree_position(&NodeId::Group(Category::Sets, "3m2friday2222".into()));
+        assert!(shown.is_some() && app.playlist_state.selected() == shown, "the tree's cursor on it");
+        app.install(root.clone(), Loaded::prepare(Device::open(&root).unwrap(), lib));
+        assert_eq!(titles(&app), ["Tell You No Lie", "Never Grow Old"]);
+    }
+
+    /// A set as it is on the drive: its tracks there, in the order played, written the way a
+    /// playlist is.
+    #[test]
+    fn exports_a_set() {
+        let (dir, root) = demo_drive();
+        let device = Device::open_export(&root).unwrap();
+        let lib = device.library().unwrap();
+        let store = Store::open_or_init(dir.path().join("store")).unwrap();
+        let entry = |i: usize| SetEntry::from_track(&lib.tracks[i], EntryOrigin::Session, None);
+        let elsewhere = SetEntry { file: Some("/Contents/elsewhere.mp3".into()), ..entry(0) };
+        let tracks = vec![entry(1), elsewhere, entry(0)];
+        let friday = set("3m2friday2222", "2026-10-03", Some("Friday at the Warehouse"), None, tracks);
+        SetBook { sets: vec![friday], ..Default::default() }.save(&store).unwrap();
+        let mut app = App::blank(store.root().to_path_buf(), None);
+        app.install(root.clone(), Loaded::prepare(device, lib.clone()));
+        read_sets(&mut app);
+        select_tree(&mut app, NodeId::Browse);
+        select_tree(&mut app, NodeId::Category(Category::Sets));
+        select_tree(&mut app, NodeId::Group(Category::Sets, "3m2friday2222".into()));
+
+        app.perform(Act::ExportList, None);
+        let Some(Modal::Prompt(p)) = &app.modal else { panic!("no prompt: {}", last_message(&app)) };
+        assert!(p.text.ends_with("/2026-10-03 Friday at the Warehouse.m3u8"), "{}", p.text);
+        let out = dir.path().join("out").join("friday.m3u8");
+        app.on_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+        press(&mut app, &format!("{}\n", out.display()));
+        wait(&mut app, |a| a.job.is_none());
+        assert!(last_message(&app).ends_with(": 2 tracks"), "{}", last_message(&app));
+        let m3u8 = std::fs::read_to_string(&out).unwrap();
+        let (first, second) = (&lib.tracks[1], &lib.tracks[0]);
+        let at = |t: &Track| m3u8.find(&format!(",{} - {}\n", t.artist, t.title)).unwrap();
+        assert!(m3u8.starts_with("#EXTM3U\n#PLAYLIST:2026-10-03 Friday at the Warehouse\n"), "{m3u8}");
+        assert!(at(first) < at(second), "in the order played: {m3u8}");
+        assert!(!m3u8.contains("elsewhere"), "{m3u8}");
     }
 
     #[test]
@@ -4580,8 +4683,7 @@ mod tests {
         let keys = ["1A", "2A", "3B", "8A", "8B", "Am", "F#m", "12B", "Ebm", "C"];
         let tracks = (1..=n)
             .map(|id| {
-                let mut t =
-                    super::super::browse::tests::track(id, &format!("Artist {}", id % 4000), &format!("Title {id}"));
+                let mut t = track(id, &format!("Artist {}", id % 4000), &format!("Title {id}"));
                 t.album = format!("Album {}", id % 6000);
                 t.genre = format!("Genre {}", id % 120);
                 t.label = format!("Label {}", id % 900);
@@ -4748,7 +4850,7 @@ mod tests {
         let (mut audio, mut out) = Audio::offline(8000);
         audio.set_volume(1.0);
         let mut app = App::blank(dir.path().join("store"), Some(audio));
-        let mut track = super::super::browse::tests::track(1, "DJ", "Set");
+        let mut track = track(1, "DJ", "Set");
         track.duration_secs = 2;
         assert!(app.play_file(&path, track, Duration::from_millis(500)));
         assert!(app.now.as_ref().is_some_and(|n| n.opening));
@@ -4797,36 +4899,6 @@ mod tests {
         assert!(app.upcoming.is_none() && app.now.as_ref().is_some_and(|n| n.opening));
     }
 
-    /// Half-second WAV tracks at these sample rates on a drive (track `n` holds samples of
-    /// `1000 n`), queued and playing from the first, into a mixer at 8 kHz that's returned.
-    fn playing_wavs(rates: &[u32]) -> (tempfile::TempDir, App, rodio::mixer::MixerSource) {
-        playing_files(&rates.iter().map(|&r| (r, r as usize / 2)).collect::<Vec<_>>())
-    }
-
-    /// [`playing_wavs`], with tracks of so many samples at each rate.
-    fn playing_files(files: &[(u32, usize)]) -> (tempfile::TempDir, App, rodio::mixer::MixerSource) {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("Contents")).unwrap();
-        let mut tracks = Vec::new();
-        for (id, &(rate, samples)) in (1u32..).zip(files) {
-            let wav = super::super::audio::tests::wav(rate, samples, 1000 * id as i16);
-            std::fs::write(dir.path().join(format!("Contents/{id}.wav")), wav).unwrap();
-            let mut t = super::super::browse::tests::track(id, "DJ", &format!("Track {id}"));
-            t.file_path = format!("/Contents/{id}.wav");
-            t.duration_secs = 0; // half a second, as the file says
-            tracks.push(t);
-        }
-        let n = tracks.len();
-        let mut app = App::with_library(dir.path(), Library { tracks, ..Default::default() });
-        let (mut audio, out) = Audio::offline(8000);
-        audio.set_volume(1.0);
-        app.audio = Some(audio);
-        let l = app.loaded.as_ref().unwrap();
-        let (library, root) = (l.library.clone(), l.root().to_path_buf());
-        app.play_tracks(library, (0..n).collect(), root, 0);
-        (dir, app, out)
-    }
-
     /// Ejecting a drive stops playing from it, the track opened ahead too; another drive's
     /// track plays on.
     #[test]
@@ -4840,6 +4912,21 @@ mod tests {
         assert!(app.now.is_none() && app.upcoming.is_none());
         assert!(!app.audio.as_ref().unwrap().is_loaded());
         drop(dir);
+    }
+
+    /// Space while a track is still opening (a slow drive) isn't lost: the track opens paused, or
+    /// playing after a second press.
+    #[test]
+    fn space_while_opening_says_how_the_track_starts() {
+        let (_dir, mut app, _out) = playing_wavs(&[8000, 8000]);
+        press(&mut app, " ");
+        assert!(app.now.as_ref().is_some_and(|n| n.opening) && !app.playback().1, "shown paused");
+        opened(&mut app);
+        assert!(app.audio.as_ref().unwrap().is_loaded() && !app.is_playing());
+        press(&mut app, "n");
+        press(&mut app, "  ");
+        opened(&mut app);
+        assert!(app.is_playing());
     }
 
     /// Single play: nothing's opened ahead, and at the end of a track the player stops, with the
@@ -4867,10 +4954,6 @@ mod tests {
 
     fn title(app: &App) -> Option<String> {
         app.now.as_ref().map(|n| n.track.title.clone())
-    }
-
-    fn opened(app: &mut App) {
-        wait(app, |a| a.now.as_ref().is_some_and(|n| !n.opening));
     }
 
     /// The output going away (unplugged headphones): it's let go of, with the track's file, and
@@ -4907,7 +4990,7 @@ mod tests {
         wait(&mut app, |a| a.upcoming.as_ref().is_some_and(|u| u.queued));
         // Track 1 plays out (half a second at 8 kHz) and track 2 starts, with no tick since.
         (&mut out).take(4100).for_each(drop);
-        app.on_key(key(KeyCode::Right));
+        key(&mut app, KeyCode::Right);
         app.tick();
         assert_eq!((title(&app), app.position()), (Some("Track 2".into()), ms(250)));
     }
@@ -4922,7 +5005,7 @@ mod tests {
         let switch = |app: &mut App, down: usize| {
             press(app, "d");
             for _ in 0..down {
-                app.on_key(key(KeyCode::Down));
+                key(app, KeyCode::Down);
             }
             press(app, "\n");
         };
@@ -4946,7 +5029,7 @@ mod tests {
 
         // A recorded set, paused: still paused, and the queue is still there for afterwards.
         let path = dir.path().join("Contents/1.wav");
-        let mut set = super::super::browse::tests::track(9, "DJ", "Set");
+        let mut set = track(9, "DJ", "Set");
         set.file_path = path.display().to_string();
         assert!(app.play_file(&path, set, ms(50)));
         opened(&mut app);
@@ -5321,6 +5404,7 @@ mod tests {
 
     #[test]
     fn line_editing() {
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
         let mut s = String::new();
         for c in "new folder ".chars() {
             edit_line(&mut s, key(KeyCode::Char(c)));
@@ -5393,5 +5477,932 @@ mod tests {
         if let Some((i, c)) = text[..text.len() - shown.len()].char_indices().next_back() {
             assert!(text[i..].width() > columns, "{c:?} would have fit too");
         }
+    }
+
+    fn selected_title(app: &App) -> Option<String> {
+        app.selected_track().map(|i| app.loaded.as_ref().unwrap().library.tracks[i].title.clone())
+    }
+
+    /// A click selects the row under it, in whichever pane, and a second click there plays it; a
+    /// column header sorts by it; the wheel scrolls the pane it's over; the tabs switch views.
+    #[test]
+    fn clicks_select_play_sort_and_switch_views() {
+        let (mut app, _dir) = app_with(library());
+        let row = spot(&mut app, "Tell You No Lie");
+        mouse(&mut app, LEFT, row);
+        assert_eq!(selected_title(&app).as_deref(), Some("Tell You No Lie"));
+        // Clicked again: played, with the list queued from there (there's no output here to
+        // play it through, which it says).
+        mouse(&mut app, LEFT, row);
+        assert_eq!((&app.queue.items, app.queue.pos), (&app.visible, 2));
+        assert!(last_message(&app).starts_with("can't play"), "{}", last_message(&app));
+
+        point(&mut app, LEFT, "BPM");
+        assert_eq!(app.sort, Some(SortKey { field: SortField::Bpm, descending: false }));
+        assert_eq!(titles(&app), ["Around the World", "Around the World", "Tell You No Lie", "Never Grow Old"]);
+        assert_eq!(selected_title(&app).as_deref(), Some("Tell You No Lie"), "still selected");
+
+        point(&mut app, MouseEventKind::ScrollDown, "♫ All tracks");
+        assert_eq!((app.focus, app.playlist_state.selected()), (Focus::Playlists, Some(2)));
+        point(&mut app, MouseEventKind::ScrollUp, "Tell You No Lie");
+        assert_eq!((app.focus, selected_title(&app).as_deref()), (Focus::Tracks, Some("Around the World")));
+
+        point(&mut app, LEFT, "2 Drives");
+        assert_eq!(app.view, View::Drives);
+        point(&mut app, LEFT, "1 Library");
+        assert_eq!(app.view, View::Library);
+    }
+
+    /// A right-click opens the actions menu on what's under the pointer. Its items, and the
+    /// rating picker's, are clicked; a click outside closes it.
+    #[test]
+    fn right_click_opens_the_menu_and_its_items_are_clicked() {
+        let (mut app, _dir) = app_with(library());
+        point(&mut app, MouseEventKind::Down(MouseButton::Right), "Never Grow Old");
+        let Some(Modal::Menu(m)) = &app.modal else { panic!("no menu") };
+        assert_eq!(m.target.tracks, ["/Contents/2.mp3"]);
+        point(&mut app, LEFT, "add to the crate");
+        assert!(app.modal.is_none());
+        assert_eq!(app.crate_list.items.iter().map(|t| t.track.title.as_str()).collect::<Vec<_>>(), ["Never Grow Old"]);
+
+        press(&mut app, "e");
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Right), (0, 0));
+        assert!(app.modal.is_some(), "only the left button closes it");
+        mouse(&mut app, LEFT, (0, 0));
+        assert!(app.modal.is_none());
+
+        press(&mut app, "e");
+        point(&mut app, LEFT, "set the rating");
+        assert!(matches!(&app.modal, Some(Modal::Menu(m)) if m.sub.is_some()));
+        point(&mut app, LEFT, "no rating");
+        assert!(app.modal.is_none());
+        assert!(app.job.as_ref().is_some_and(|j| !j.writing), "planning it");
+        wait(&mut app, |a| a.job.is_none());
+    }
+
+    /// The help and the messages scroll with the keys and the wheel, and any other key or a click
+    /// closes them.
+    #[test]
+    fn the_help_and_the_messages_scroll_then_close() {
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, "?");
+        press(&mut app, "jj ");
+        key(&mut app, KeyCode::PageUp);
+        key(&mut app, KeyCode::Down);
+        press(&mut app, "k");
+        assert_eq!((app.help, app.help_scroll), (true, 2));
+        mouse(&mut app, MouseEventKind::ScrollDown, (5, 5));
+        mouse(&mut app, MouseEventKind::ScrollUp, (5, 5));
+        mouse(&mut app, MouseEventKind::ScrollUp, (5, 5));
+        assert_eq!(app.help_scroll, 0);
+        mouse(&mut app, LEFT, (5, 5));
+        assert!(!app.help);
+        press(&mut app, "?x");
+        assert!(!app.help && app.view == View::Library, "the key only closes it");
+
+        press(&mut app, "!");
+        key(&mut app, KeyCode::PageDown);
+        press(&mut app, "j");
+        key(&mut app, KeyCode::Up);
+        assert_eq!((app.show_log, app.log_scroll), (true, 10));
+        mouse(&mut app, MouseEventKind::ScrollDown, (5, 5));
+        press(&mut app, "k ");
+        key(&mut app, KeyCode::PageUp);
+        assert_eq!(app.log_scroll, 12);
+        mouse(&mut app, MouseEventKind::ScrollUp, (5, 5));
+        assert_eq!(app.log_scroll, 9);
+        mouse(&mut app, LEFT, (5, 5));
+        assert!(!app.show_log);
+        press(&mut app, "!q");
+        assert!(!app.show_log && !app.quit);
+    }
+
+    /// In the search box: the arrows move through what it finds, enter keeps a filter that
+    /// doesn't read and says why, and esc (or going to another view) clears it. Sorted again, a
+    /// filter that can't be met shows nothing.
+    #[test]
+    fn the_search_box_moves_keeps_and_clears() {
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, "/around");
+        key(&mut app, KeyCode::Down);
+        assert_eq!((app.searching, app.track_state.selected()), (true, Some(1)));
+        key(&mut app, KeyCode::Up);
+        assert_eq!(app.track_state.selected(), Some(0));
+        key(&mut app, KeyCode::Esc);
+        assert!(!app.searching && app.query.is_empty() && app.visible.len() == 4);
+
+        // A click on another view's tab puts it away, as esc does: keys typed there are that view's.
+        press(&mut app, "/around");
+        point(&mut app, LEFT, "2 Drives");
+        assert!(!app.searching && app.query.is_empty() && app.visible.len() == 4);
+        press(&mut app, "1");
+        assert_eq!(app.view, View::Library);
+
+        press(&mut app, "/playlist:nothing\n");
+        assert!(!app.searching);
+        assert!(last_message(&app).contains("playlist \"nothing\""), "{}", last_message(&app));
+        press(&mut app, "b");
+        assert!(app.visible.is_empty() && app.track_state.selected().is_none());
+
+        // With no drive open there's nothing to search.
+        let (mut no_drive, _store) = blank(View::Library);
+        press(&mut no_drive, "/x");
+        assert!(no_drive.visible.is_empty());
+    }
+
+    /// While a playlist is being picked in the tree, the mouse works only there: clicks and the
+    /// wheel elsewhere don't take the focus, a double click opens a folder or picks a playlist,
+    /// and enter on anything else says what to pick.
+    #[test]
+    fn picking_a_playlist_with_the_mouse_stays_in_the_tree() {
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, "ep");
+        assert!(app.picking.is_some());
+        point(&mut app, LEFT, "Never Grow Old");
+        point(&mut app, MouseEventKind::ScrollDown, "Never Grow Old");
+        point(&mut app, LEFT, "2 Drives");
+        assert_eq!((app.focus, app.view), (Focus::Playlists, View::Library));
+        assert_eq!(app.playlist_state.selected(), Some(2), "the wheel moved the tree");
+
+        press(&mut app, "kk\n");
+        assert_eq!(last_message(&app), "pick a playlist (esc to cancel)");
+        let sets = spot(&mut app, "Sets");
+        mouse(&mut app, LEFT, sets);
+        mouse(&mut app, LEFT, sets);
+        let friday = spot(&mut app, "Friday");
+        mouse(&mut app, LEFT, friday);
+        mouse(&mut app, LEFT, friday);
+        assert!(app.picking.is_none() && app.focus == Focus::Tracks);
+        assert!(app.job.is_some(), "adding to Friday is planned");
+        wait(&mut app, |a| a.job.is_none());
+    }
+
+    /// The Drives view: a click selects a drive, a second opens it; one with no export says so.
+    /// Enter on a drive with one reads it and shows it in the library.
+    #[test]
+    fn drives_are_picked_with_the_mouse_and_opened() {
+        let (_dir, root) = demo_drive();
+        let empty = tempfile::tempdir().unwrap();
+        let mut app = App::blank(root.join("store"), None);
+        let named = |r: &Path, name: &str| DeviceInfo { name: Some(name.into()), ..Device::open(r).unwrap().info() };
+        app.drives = vec![named(&root, "Main"), named(empty.path(), "Blank")];
+        press(&mut app, "2");
+        // Each drive takes two lines: its name, and where it's mounted.
+        let blank = spot(&mut app, "Blank");
+        mouse(&mut app, LEFT, blank);
+        assert_eq!(app.drive_state.selected(), Some(1));
+        let (_, main) = spot(&mut app, "Main");
+        mouse(&mut app, LEFT, (4, main + 1));
+        assert_eq!(app.drive_state.selected(), Some(0), "the line under its name");
+        mouse(&mut app, LEFT, blank);
+        mouse(&mut app, LEFT, blank);
+        assert_eq!((last_message(&app), app.view), ("no rekordbox export on this drive", View::Drives));
+
+        key(&mut app, KeyCode::Up);
+        press(&mut app, "\n");
+        assert_eq!((app.view, app.focus), (View::Library, Focus::Playlists));
+        assert!(app.loading.is_some());
+        wait(&mut app, |a| a.loading.is_none());
+        assert_eq!(app.loaded.as_ref().map(|l| l.root()), Some(root.as_path()));
+        assert_eq!(app.drive_state.selected(), Some(0));
+    }
+
+    /// Clicking the track's overview seeks there; dragging along it too.
+    #[test]
+    fn the_overview_seeks_where_clicked_or_dragged() {
+        let (mut app, _dir) = playing(TrackAnalysis::default());
+        super::super::ui::screen(&mut app, 120, 30);
+        let r = app.areas.overview;
+        let at = |app: &App| app.pending_seek.map(|d| d.as_secs());
+        mouse(&mut app, LEFT, (r.x + r.width / 2, r.y));
+        assert!(at(&app).is_some_and(|s| (145..=155).contains(&s)), "half way through five minutes: {:?}", at(&app));
+        app.last_seek -= Duration::from_secs(1);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), (r.x, r.y));
+        assert!(at(&app).is_some_and(|s| s < 5), "the start: {:?}", at(&app));
+        let start = app.pending_seek;
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), (r.x + r.width / 2, 0));
+        assert_eq!(app.pending_seek, start, "dragging elsewhere doesn't seek");
+        // The outputs listed: a click closes them.
+        press(&mut app, "d");
+        mouse(&mut app, MouseEventKind::ScrollDown, (r.x, r.y));
+        assert!(app.deck.outputs.is_some());
+        mouse(&mut app, LEFT, (r.x, r.y));
+        assert!(app.deck.outputs.is_none());
+    }
+
+    /// A queue of the test library's tracks on its drive, at `pos`.
+    fn queued(app: &mut App, pos: usize) {
+        let l = app.loaded.as_ref().unwrap();
+        app.queue = Queue {
+            library: l.library.clone(),
+            items: (0..4).collect(),
+            root: l.root().to_path_buf(),
+            drive: "TEST".into(),
+            order: (0..4).collect(),
+            pos,
+        };
+    }
+
+    /// Shuffle puts the track playing first and the rest in a new order, and back in the list's
+    /// order when it's turned off; repeat goes off, all, one. The volume, visualiser, full screen
+    /// and the deck's zoom keep within their bounds.
+    #[test]
+    fn playback_modes_and_bounds() {
+        let (mut app, _dir) = app_with(library());
+        queued(&mut app, 2);
+        press(&mut app, "s");
+        let mut order = app.queue.order.clone();
+        assert_eq!((order[0], app.queue.pos, app.shuffle), (2, 0, true));
+        order.sort();
+        assert_eq!(order, [0, 1, 2, 3]);
+        press(&mut app, "s");
+        assert_eq!((app.queue.order.clone(), app.queue.pos), (vec![0, 1, 2, 3], 2));
+        assert_eq!(last_message(&app), "shuffle off");
+        let repeats: Vec<Repeat> = (0..3)
+            .map(|_| {
+                press(&mut app, "r");
+                app.repeat
+            })
+            .collect();
+        assert_eq!(repeats, [Repeat::All, Repeat::One, Repeat::Off]);
+
+        press(&mut app, &"+".repeat(20));
+        assert_eq!(app.volume, 1.5);
+        press(&mut app, &"-".repeat(40));
+        assert_eq!(app.volume, 0.0);
+        press(&mut app, "vvv");
+        assert_eq!(app.vis, Vis::Deck);
+        press(&mut app, "v");
+        assert_eq!(app.vis, Vis::Bars);
+        press(&mut app, &"]".repeat(10));
+        assert_eq!(app.deck_secs, 1.5);
+        press(&mut app, &"[".repeat(20));
+        assert_eq!(app.deck_secs, 60.0);
+        press(&mut app, "f");
+        assert!(app.fullscreen);
+        press(&mut app, "\u{1b}");
+        assert!(!app.fullscreen, "esc leaves full screen");
+    }
+
+    /// `o` goes to the playing track: selected in the library, showing all tracks when the list
+    /// shown doesn't have it. On another drive it says so; a recorded set is in Mixes.
+    #[test]
+    fn o_goes_to_the_playing_track() {
+        let (mut app, _dir) = playing(TrackAnalysis::default());
+        queued(&mut app, 0);
+        press(&mut app, "/lie\n2");
+        press(&mut app, "o");
+        assert_eq!((app.view, app.focus, app.query.as_str()), (View::Library, Focus::Tracks, ""));
+        assert_eq!(app.selected_track(), Some(0));
+        app.track_state.select(Some(2));
+        press(&mut app, "o");
+        assert_eq!(app.selected_track(), Some(0), "in the list shown");
+
+        let elsewhere = PathBuf::from("/Volumes/ELSEWHERE");
+        app.queue.root = elsewhere.clone();
+        app.now.as_mut().unwrap().root = elsewhere;
+        press(&mut app, "o");
+        assert_eq!(last_message(&app), "the track is on another drive");
+        app.queue = Queue::default();
+        press(&mut app, "o");
+        assert_eq!(app.view, View::Mixes, "a recorded set");
+    }
+
+    /// `c` and `C` jump to the next and previous cue; past the last there are no more.
+    #[test]
+    fn c_jumps_from_cue_to_cue() {
+        let cues = vec![cue(Some(0), 1_000, None), cue(None, 64_000, None)];
+        let (mut app, _dir) = playing(TrackAnalysis { cues, ..Default::default() });
+        press(&mut app, "c");
+        assert_eq!(app.pending_seek, Some(Duration::from_secs(1)));
+        // (While the track opens it stays at the start: where it is is set here.)
+        app.resume = Some(Duration::from_secs(70));
+        press(&mut app, "C");
+        assert_eq!(app.pending_seek, Some(Duration::from_secs(64)));
+        press(&mut app, "c");
+        assert_eq!(last_message(&app), "no more cues");
+        assert_eq!(app.pending_seek, Some(Duration::from_secs(64)));
+    }
+
+    /// Enter in the crate plays it from the entry selected, only the entries on that entry's
+    /// drive (saying so); enter in the details panel plays the matches.
+    #[test]
+    fn plays_the_crate_and_the_matches() {
+        let (mut app, _dir) = app_with(library());
+        let other = track(9, "Elsewhere", "Not Here");
+        app.crate_list.add(Path::new("/Volumes/OTHER"), "OTHER", [other]);
+        press(&mut app, "jja");
+        press(&mut app, "kka");
+        press(&mut app, "t");
+        app.focus = Focus::Crate;
+        app.crate_state.select(Some(2));
+        press(&mut app, "\n");
+        let queued: Vec<&str> = (0..app.queue.len()).map(|i| app.queue.track(i).title.as_str()).collect();
+        assert_eq!((queued, app.queue.pos), (vec!["Tell You No Lie", "Around the World"], 1));
+        let said = format!("playing the crate's tracks on {}", app.queue.drive);
+        assert!(app.log.iter().any(|(m, ..)| *m == said), "{:?}", app.log);
+
+        app.focus = Focus::Tracks;
+        press(&mut app, "ki");
+        wait(&mut app, |a| a.details_current());
+        press(&mut app, "\t");
+        assert_eq!(app.focus, Focus::Details);
+        // The actions menu there is for the match selected.
+        press(&mut app, "e");
+        let Some(Modal::Menu(m)) = &app.modal else { panic!("no menu") };
+        let first = app.details.as_ref().unwrap().matches.items[0].index;
+        assert_eq!(m.target.tracks, [app.loaded.as_ref().unwrap().library.tracks[first].file_path.clone()]);
+        press(&mut app, "\u{1b}");
+        let d = app.details.as_ref().unwrap();
+        let matches: Vec<usize> = d.matches.items.iter().map(|m| m.index).collect();
+        assert!(!matches.is_empty());
+        assert_eq!(app.selected_match(), Some(matches[0]));
+        press(&mut app, "\n");
+        assert_eq!(app.queue.items, matches);
+        // Hiding the panel takes the focus back to the tracks.
+        press(&mut app, "i");
+        assert_eq!(app.focus, Focus::Tracks);
+    }
+
+    /// What comes back from the background for a read nobody waits for any more changes
+    /// nothing; what does is shown, and a failure is said.
+    #[test]
+    fn background_results_are_shown_or_said() {
+        let (mut app, _dir) = app_with(library());
+        let generation = app.loaded.as_ref().unwrap().generation;
+        app.handle_msg(Msg::Status(Ok(Vec::new())));
+        assert!(matches!(app.status, Some(Ok(ref v)) if v.is_empty()) && !app.status_loading);
+        app.history_state.select(None);
+        app.handle_msg(Msg::History(Err("no store yet".into())));
+        assert_eq!(app.history_state.selected(), Some(0));
+        app.handle_msg(Msg::Note("a report was written".into(), Level::Info));
+        assert_eq!(last_message(&app), "a report was written");
+        app.handle_msg(Msg::Library(app.load, PathBuf::from("/Volumes/GONE"), Err("can't read it".into())));
+        assert_eq!(last_message(&app), "can't read it");
+
+        // My Tags that can't be read: a tag filter says so, and matches nothing.
+        app.handle_msg(Msg::MyTags(generation, Err("no tags here".into())));
+        press(&mut app, "/tag:deep");
+        assert_eq!(app.filter_note.as_deref(), Some("can't read My Tags: no tags here"));
+        assert!(app.visible.is_empty());
+        press(&mut app, "\u{1b}");
+        // Sets that can't be read: said, and Browse has none.
+        app.handle_msg(Msg::Sets(generation, Err("a broken set book".into())));
+        assert_eq!(last_message(&app), "can't read the sets: a broken set book");
+
+        // Another load's index is dropped; a details lookup for a track no longer asked about too.
+        let index = Index { ranks: vec![(SortField::Title, vec![0; 4])], groups: HashMap::new() };
+        app.handle_msg(Msg::Indexed(generation + 1, Box::new(index)));
+        assert!(app.loaded.as_ref().unwrap().ranks.is_empty());
+        let l = app.loaded.as_ref().unwrap();
+        let matches = Matches { library: l.library.clone(), root: l.root().to_path_buf(), items: Vec::new() };
+        let details = Details { generation, index: 1, matches, playlists: Vec::new() };
+        app.handle_msg(Msg::Details(Box::new(details)));
+        assert!(app.details.is_none());
+    }
+
+    /// The drive list arriving with no drive open opens the one open last time (else the first
+    /// with an export); a read of the list asked for while one ran is made once that one fails.
+    #[test]
+    fn the_drive_open_last_time_opens_when_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = App::blank(dir.path().join("store"), None);
+        let drive = |name: &str| {
+            let root = dir.path().join(name);
+            std::fs::create_dir_all(&root).unwrap();
+            DeviceInfo { has_export: true, ..Device::open(&root).unwrap().info() }
+        };
+        let (a, b) = (drive("A"), drive("B"));
+        app.preferred_root = Some(b.root.clone());
+        app.status = Some(Ok(Vec::new()));
+        app.drives_again = true;
+        app.handle_msg(Msg::Drives(vec![a, b]));
+        assert!(!app.drives_again, "read again as asked");
+        assert_eq!((app.loading.as_deref(), app.drive_state.selected()), (Some("Reading B…"), Some(1)));
+        // (An empty folder, read as a drive: it says why it can't be.)
+        wait(&mut app, |a| a.loading.is_none());
+        assert!(app.loaded.is_none() && !last_message(&app).is_empty());
+
+        app.drives_in_flight = true;
+        app.drives_again = true;
+        app.handle_msg(Msg::Failed(Work::Drives, "the list fell over".into()));
+        assert!(!app.drives_in_flight && !app.drives_again);
+        assert_eq!(last_message(&app), "the list fell over");
+    }
+
+    /// The open drive unplugged is said, and reading it is refused; plugged back in, it's read
+    /// again.
+    #[test]
+    fn an_unplugged_drive_is_read_again_when_it_comes_back() {
+        let (mut app, _dir) = app_with(library());
+        let root = app.loaded.as_ref().unwrap().root().to_path_buf();
+        app.handle_msg(Msg::Volumes(Vec::new(), Some((root.clone(), false))));
+        assert!(last_message(&app).ends_with("was unplugged: what's shown may be out of date"));
+        press(&mut app, "\n");
+        assert_eq!(last_message(&app), "the drive was unplugged");
+        assert!(app.now.is_none() && app.queue.is_empty());
+        app.handle_msg(Msg::Volumes(Vec::new(), Some((root, true))));
+        assert!(app.loading.is_some());
+    }
+
+    /// `R` reads again what the view shows: the drive in the library; the store's snapshots,
+    /// which without a store say how to make one.
+    #[test]
+    fn r_reads_the_view_again() {
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, "R");
+        assert!(app.loading.is_some());
+        press(&mut app, "3");
+        wait(&mut app, |a| a.history.is_some());
+        let Some(Err(e)) = &app.history else { panic!("snapshots without a store") };
+        assert!(e.starts_with("no store yet"), "{e}");
+        app.history = None;
+        press(&mut app, "R");
+        wait(&mut app, |a| a.history.is_some());
+        assert_eq!(app.history_rows(), 0);
+        // (The Drives view's status isn't read in tests: it would look at the machine's drives.)
+        press(&mut app, "2R");
+        assert!(app.status.is_none() && !app.status_loading);
+    }
+
+    /// The store's snapshots in the Snapshots view: moved through with the keys and the mouse.
+    #[test]
+    fn the_snapshots_view_lists_the_store() {
+        let (dir, root) = demo_drive();
+        let store_root = dir.path().join("store");
+        let store = Store::open_or_init(&store_root).unwrap();
+        let pull = |store: &Store| {
+            let req = api::PullRequest { drive: root.display().to_string(), ..Default::default() };
+            api::pull(store, &req, &Ctx::silent()).unwrap();
+        };
+        pull(&store);
+        let edit = super::super::edits::create("Warmup", false, &[]);
+        let req = api::EditRequest { drive: root.display().to_string(), edits: edit, options: Default::default() };
+        api::edit_apply(&req, &Ctx::silent()).unwrap();
+        pull(&store);
+        let mut app = App::blank(store_root, None);
+        press(&mut app, "3\n");
+        assert_eq!(last_message(&app), "open the drive to bring a playlist back to in the library first");
+        let device = Device::open_export(&root).unwrap();
+        let lib = device.library().unwrap();
+        app.install(root.clone(), Loaded::prepare(device, lib));
+        wait(&mut app, |a| a.history.is_some());
+        assert_eq!(app.history_rows(), 2);
+        press(&mut app, "G");
+        assert_eq!(app.history_state.selected(), Some(1));
+        press(&mut app, "g");
+        assert_eq!(app.history_state.selected(), Some(0));
+        let Some(Ok(libs)) = &app.history else { panic!("no snapshots") };
+        let ids: Vec<String> = libs[0].1.iter().map(|s| s.short_id[..8].to_string()).collect();
+        let second = spot_in(&mut app, &ids[1], |a| a.areas.history);
+        mouse(&mut app, LEFT, second);
+        assert_eq!(app.history_state.selected(), Some(1));
+        mouse(&mut app, MouseEventKind::ScrollUp, second);
+        assert_eq!(app.history_state.selected(), Some(0));
+        // Enter brings back a playlist from the snapshot selected: named, then planned (here, it's
+        // on the drive as it is in the snapshot).
+        press(&mut app, "\n");
+        let Some(Modal::Prompt(p)) = &app.modal else { panic!("no prompt: {}", last_message(&app)) };
+        assert_eq!(p.label, format!("Bring back from {} the playlist or folder", ids[0]));
+        press(&mut app, "Warmup\n");
+        wait(&mut app, |a| a.job.is_none());
+        assert_eq!(last_message(&app), "nothing to change");
+    }
+
+    /// Paging moves a screenful of tracks (as many rows as the list shows), in the search box
+    /// too, else ten; home and end go to either end. Tab goes round the panes and shift-tab back.
+    #[test]
+    fn paging_and_moving_between_panes() {
+        let mut lib = library();
+        let more = (5..40).map(|id| track(id, "Artist", &format!("Track {id}")));
+        lib.tracks.extend(more);
+        let (mut app, _dir) = app_with(lib);
+        super::super::ui::screen(&mut app, 120, 30);
+        let page = app.areas.tracks.height as usize - 3;
+        key(&mut app, KeyCode::PageDown);
+        assert_eq!(app.track_state.selected(), Some(page));
+        key(&mut app, KeyCode::End);
+        assert_eq!(app.track_state.selected(), Some(38));
+        key(&mut app, KeyCode::PageUp);
+        assert_eq!(app.track_state.selected(), Some(38 - page));
+        key(&mut app, KeyCode::Home);
+        assert_eq!(app.track_state.selected(), Some(0));
+        // The same in the search box.
+        press(&mut app, "/");
+        key(&mut app, KeyCode::PageDown);
+        assert_eq!((app.searching, app.track_state.selected()), (true, Some(page)));
+        key(&mut app, KeyCode::PageUp);
+        assert_eq!(app.track_state.selected(), Some(0));
+        key(&mut app, KeyCode::Esc);
+
+        press(&mut app, "it");
+        let back = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
+        let panes: Vec<Focus> = (0..5)
+            .map(|_| {
+                app.on_key(back);
+                app.focus
+            })
+            .collect();
+        assert_eq!(panes, [Focus::Playlists, Focus::Drives, Focus::Crate, Focus::Details, Focus::Tracks]);
+        app.focus = Focus::Playlists;
+        key(&mut app, KeyCode::PageDown);
+        assert_eq!(app.playlist_state.selected(), Some(2), "ten down, as far as the tree goes");
+        // The crate's panel hidden while it has the focus: the focus goes back to the tracks.
+        app.focus = Focus::Crate;
+        press(&mut app, "t");
+        assert_eq!(app.focus, Focus::Tracks);
+    }
+
+    /// `del` in the tree deletes the playlist selected there (planned first); on a list that
+    /// isn't a playlist it says what to select. In the crate, `w` says when there's nothing from
+    /// this drive to save.
+    #[test]
+    fn del_in_the_tree_and_saving_an_empty_crate() {
+        let (mut app, _dir) = app_with(library());
+        app.focus = Focus::Playlists;
+        press(&mut app, "\u{7f}");
+        assert_eq!(last_message(&app), "select a playlist or folder");
+        assert!(app.job.is_none());
+        let sets = app.loaded.as_ref().unwrap().tree_position(&NodeId::Playlist(1));
+        app.playlist_state.select(sets);
+        press(&mut app, "\u{7f}");
+        assert!(app.job.is_some(), "deleting Sets is planned");
+        wait(&mut app, |a| a.job.is_none());
+
+        press(&mut app, "t");
+        app.focus = Focus::Crate;
+        press(&mut app, "w");
+        assert_eq!(last_message(&app), "the crate has nothing from this drive");
+    }
+
+    /// `p` goes back a track, and on the first restarts it; `n` past the last stops, with repeat
+    /// off. Space with nothing playing plays the selected track; with no output it says why.
+    #[test]
+    fn moving_back_and_past_the_end_of_the_queue() {
+        let (_dir, mut app, _out) = playing_wavs(&[8000, 8000]);
+        opened(&mut app);
+        press(&mut app, "n");
+        assert_eq!(app.queue.pos, 1);
+        press(&mut app, "p");
+        assert_eq!((app.queue.pos, title(&app)), (0, Some("Track 1".into())));
+        opened(&mut app);
+        app.seek_to(ms(300));
+        press(&mut app, "p");
+        assert_eq!(app.queue.pos, 0, "the first track restarts");
+        assert!(app.position() < ms(100), "{:?}", app.position());
+        press(&mut app, "nn");
+        assert!(app.now.is_none(), "stopped at the end");
+        // The volume goes to the output playing.
+        press(&mut app, "-");
+        assert_eq!((app.volume, app.audio.as_ref().unwrap().volume()), (0.75, 0.75));
+
+        // Nothing playing: space plays the selected track.
+        app.track_state.select(Some(1));
+        press(&mut app, " ");
+        assert_eq!((app.queue.pos, title(&app)), (1, Some("Track 2".into())));
+
+        let (mut silent, _dir) = app_with(library());
+        press(&mut silent, " ");
+        assert!(last_message(&silent).starts_with("can't play"), "{}", last_message(&silent));
+        let track = silent.loaded.as_ref().unwrap().library.tracks[0].clone();
+        assert!(!silent.play_file(Path::new("/nowhere/set.wav"), track, Duration::ZERO));
+    }
+
+    /// Space carries on where the last run left off: the track it was on, from where it was.
+    #[test]
+    fn space_carries_on_where_the_last_run_left_off() {
+        let (_dir, mut app, _out) = playing_wavs(&[8000, 8000]);
+        press(&mut app, "x");
+        assert!(app.now.is_none());
+        app.queue.pos = 1;
+        app.resume = Some(ms(200));
+        press(&mut app, " ");
+        assert_eq!(title(&app), Some("Track 2".into()));
+        opened(&mut app);
+        assert_eq!(app.position(), ms(200));
+    }
+
+    /// Shuffled, playing a list starts with the track picked and plays the rest in another order.
+    #[test]
+    fn shuffled_play_starts_with_the_track_picked() {
+        let (_dir, mut app, _out) = playing_wavs(&[8000; 5]);
+        app.shuffle = true;
+        app.track_state.select(Some(3));
+        press(&mut app, "\n");
+        assert_eq!((app.queue.order[0], app.queue.pos, title(&app)), (3, 0, Some("Track 4".into())));
+        let mut order = app.queue.order.clone();
+        order.sort();
+        assert_eq!(order, [0, 1, 2, 3, 4]);
+    }
+
+    /// A track that won't open, come to by moving through the queue, is passed over (and said).
+    #[test]
+    fn a_track_that_wont_open_is_passed_over() {
+        let (dir, mut app, _out) = playing_wavs(&[8000, 8000, 8000]);
+        std::fs::remove_file(dir.path().join("Contents/2.wav")).unwrap();
+        opened(&mut app);
+        press(&mut app, "n");
+        wait(&mut app, |a| a.queue.pos == 2);
+        opened(&mut app);
+        assert_eq!(title(&app), Some("Track 3".into()));
+        assert!(app.log.iter().any(|(m, ..)| m.starts_with("DJ - Track 2: ")), "{:?}", app.log);
+    }
+
+    /// Single play turned on while the next track is queued behind the playing one takes it off
+    /// the queue: the player stops at the end of the track.
+    #[test]
+    fn single_play_takes_back_the_track_queued() {
+        let (_dir, mut app, mut out) = playing_wavs(&[8000, 8000]);
+        wait(&mut app, |a| a.upcoming.as_ref().is_some_and(|u| u.queued));
+        press(&mut app, "S");
+        assert!(app.upcoming.is_none());
+        (&mut out).take(4100).for_each(drop);
+        wait(&mut app, |a| a.now.is_none());
+        assert_eq!(app.queue.pos, 1, "track 2 ready for space");
+    }
+
+    /// What the player shows and how it plays is remembered for the next run, and saved every
+    /// couple of seconds as it changes, not only on the way out.
+    #[test]
+    fn remembers_the_players_settings_and_saves_them_as_they_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("store");
+        let mut app = App::blank(store.clone(), None);
+        press(&mut app, "vv*#itQSA");
+        app.volume = 0.35;
+        app.deck.output = Some("Phones".into());
+        app.search_all = true;
+        // Not saved until it's been a couple of seconds since the last look.
+        app.tick();
+        assert_eq!(state::load(&store), Saved::default());
+        app.last_save_check -= Duration::from_secs(3);
+        app.tick();
+        let saved = state::load(&store);
+        assert_eq!(saved.vis.as_deref(), Some("scope"));
+
+        let mut next = App::blank(store, None);
+        next.apply_saved(&saved, false);
+        let shown =
+            |a: &App| (a.vis, a.show_ratings, a.show_tags_column, a.show_details, a.show_crate, a.search_all, a.volume);
+        assert_eq!(shown(&next), (Vis::Scope, true, true, true, true, true, 0.35));
+        let deck = |a: &App| (a.deck.quantize, a.deck.single, a.deck.auto_cue, a.deck.output.clone());
+        assert_eq!(deck(&next), (false, true, true, Some("Phones".into())));
+        assert_eq!(View::from_title("History"), Some(View::Snapshots), "what the Snapshots view was called");
+    }
+
+    /// The queue the last run had waits for its drive; it isn't put back over a track playing,
+    /// nor when none of its tracks are on the drive any more.
+    #[test]
+    fn the_last_runs_queue_waits_for_its_drive() {
+        let (mut app, _dir) = app_with(library());
+        let root = app.loaded.as_ref().unwrap().root().to_path_buf();
+        let saved = |tracks: Vec<&str>| SavedQueue {
+            root: root.clone(),
+            drive: "TEST".into(),
+            tracks: tracks.into_iter().map(String::from).collect(),
+            pos: 0,
+            at_ms: 30_000,
+        };
+        app.restore_queue = Some(saved(vec!["/Contents/gone.mp3"]));
+        app.restore_queue(&root);
+        assert!(app.queue.is_empty() && app.resume.is_none(), "none of it is on the drive");
+        app.restore_queue = Some(saved(vec!["/Contents/2.mp3"]));
+        app.restore_queue(Path::new("/Volumes/OTHER"));
+        assert!(app.restore_queue.is_some(), "waits for its own drive");
+        app.now = playing(TrackAnalysis::default()).0.now.take();
+        app.restore_queue(&root);
+        assert!(app.queue.is_empty(), "not over a track playing");
+    }
+
+    /// Marks and the crate: `m` does nothing where there's nothing to mark, marks and unmarks a
+    /// playlist in the tree; adding what's partly in the crate says how much was new; `X` with
+    /// nothing selected in an empty crate does nothing.
+    #[test]
+    fn marking_and_the_crate_at_their_edges() {
+        let (mut app, _dir) = app_with(library());
+        app.focus = Focus::Details;
+        press(&mut app, "m");
+        assert!(app.marks.is_empty());
+        app.focus = Focus::Tracks;
+        press(&mut app, "/no such track\nm");
+        assert!(app.marks.is_empty(), "nothing selected");
+        press(&mut app, "\u{1b}");
+        app.focus = Focus::Playlists;
+        press(&mut app, "m");
+        assert!(app.list_marks.is_empty(), "All tracks isn't a playlist");
+        let sets = app.loaded.as_ref().unwrap().tree_position(&NodeId::Playlist(1));
+        app.playlist_state.select(sets);
+        press(&mut app, "m");
+        app.playlist_state.select(sets);
+        press(&mut app, "m");
+        assert!(app.list_marks.is_empty(), "marked and unmarked");
+
+        app.focus = Focus::Tracks;
+        press(&mut app, "a");
+        press(&mut app, "kmm");
+        press(&mut app, "a");
+        assert_eq!(last_message(&app), "added 1 to the crate (1 already there)");
+        press(&mut app, "a");
+        assert_eq!(last_message(&app), "already in the crate");
+        // In the crate: keys move through it; one taken out leaves the one after it selected.
+        press(&mut app, "t");
+        app.focus = Focus::Crate;
+        app.crate_state.select(Some(0));
+        press(&mut app, "j");
+        assert_eq!(app.crate_state.selected(), Some(1));
+        press(&mut app, "\u{7f}\u{7f}\u{7f}");
+        assert!(app.crate_list.is_empty() && app.crate_state.selected().is_none());
+
+        // With nothing playing, shuffle only says it's on.
+        press(&mut app, "s");
+        assert!(app.shuffle && app.queue.order.is_empty());
+        // The details panel with nothing looked up has nothing to move through, or to delete.
+        press(&mut app, "i");
+        app.focus = Focus::Details;
+        press(&mut app, "j\u{7f}");
+        assert!(app.job.is_none());
+        assert_eq!(app.details_state.selected(), None);
+        assert!(app.selected_match().is_none());
+        press(&mut app, "\n");
+        assert!(app.queue.is_empty(), "no match to play");
+    }
+
+    /// A click in the crate selects its row there; a click on a pane's border selects nothing;
+    /// a click while a prompt is open leaves it open; a click below a menu's last item leaves
+    /// the menu open.
+    #[test]
+    fn clicks_in_the_crate_on_borders_and_on_dialogs() {
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, "ajajat");
+        app.crate_state.select(Some(0));
+        let row = spot_in(&mut app, "Tell You No Lie", |a| a.areas.crate_panel);
+        mouse(&mut app, LEFT, row);
+        assert_eq!((app.focus, app.crate_state.selected()), (Focus::Crate, Some(2)));
+        let tracks = app.areas.tracks;
+        let selected = app.track_state.selected();
+        mouse(&mut app, LEFT, (tracks.x + 5, tracks.y));
+        assert_eq!((app.focus, app.track_state.selected()), (Focus::Tracks, selected));
+
+        press(&mut app, "e");
+        super::super::ui::screen(&mut app, 120, 30);
+        let menu = app.areas.menu;
+        mouse(&mut app, LEFT, (menu.x + 3, menu.y + menu.height - 1));
+        assert!(matches!(app.modal, Some(Modal::Menu(_))), "below the last item");
+        press(&mut app, "c");
+        super::super::ui::screen(&mut app, 120, 30);
+        let menu = app.areas.menu;
+        mouse(&mut app, LEFT, (menu.x + 3, menu.y + menu.height - 1));
+        assert!(matches!(&app.modal, Some(Modal::Menu(m)) if m.sub.is_some()));
+        press(&mut app, "\u{1b}q");
+        press(&mut app, "eN");
+        mouse(&mut app, LEFT, (1, 1));
+        assert!(matches!(app.modal, Some(Modal::Prompt(_))));
+    }
+
+    /// In the Profile and Mixes views a click on a tab still switches views; in the library,
+    /// enter on the drive list opens the drive selected (one with no export says so).
+    #[test]
+    fn tabs_from_every_view_and_enter_on_the_drive_list() {
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, "5");
+        point(&mut app, LEFT, "4 Profile");
+        assert_eq!(app.view, View::Profile);
+        point(&mut app, LEFT, "1 Library");
+        assert_eq!(app.view, View::Library);
+        let empty = tempfile::tempdir().unwrap();
+        app.drives = vec![Device::open(empty.path()).unwrap().info()];
+        app.drive_state.select(Some(0));
+        app.focus = Focus::Drives;
+        press(&mut app, "\n");
+        assert_eq!(last_message(&app), "no rekordbox export on this drive");
+        // Tab does nothing in the Drives view, nor del.
+        press(&mut app, "2\t\u{7f}");
+        assert_eq!((app.view, app.focus), (View::Drives, Focus::Drives));
+    }
+
+    /// The playing track's artwork is read from the drive once it's open.
+    #[test]
+    fn the_playing_tracks_artwork_is_read_from_the_drive() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Contents")).unwrap();
+        std::fs::write(dir.path().join("Contents/1.wav"), super::super::audio::tests::wav(8000, 4000, 1000)).unwrap();
+        let art = dir.path().join("PIONEER/Artwork/00001/a1.png");
+        std::fs::create_dir_all(art.parent().unwrap()).unwrap();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([200, 30, 90])).save(&art).unwrap();
+        let mut t = track(1, "DJ", "Track 1");
+        t.file_path = "/Contents/1.wav".into();
+        t.artwork_path = Some("/PIONEER/Artwork/00001/a1.png".into());
+        let mut app = App::with_library(dir.path(), Library { tracks: vec![t], ..Default::default() });
+        let (audio, _out) = Audio::offline(8000);
+        app.audio = Some(audio);
+        press(&mut app, "\n");
+        wait(&mut app, |a| a.now.as_ref().is_some_and(|n| !n.loading));
+        assert!(app.now.as_ref().unwrap().art.is_some());
+    }
+
+    /// Asked to play through an output that's gone, it plays through the default and says so.
+    #[test]
+    fn an_output_thats_gone_plays_through_the_default() {
+        let (_dir, mut app, _out) = playing_wavs(&[8000]);
+        app.audio = None;
+        app.outputs = super::super::audio::tests::OUTPUTS;
+        app.deck.output = Some("Speakers".into());
+        press(&mut app, "\n");
+        assert!(app.audio.is_some());
+        assert_eq!(last_message(&app), "no output called Speakers: playing through the default output");
+    }
+
+    /// A recorded set played on its own stops at its end; the queue stays for afterwards.
+    #[test]
+    fn a_recorded_set_stops_at_its_end() {
+        let (dir, mut app, mut out) = playing_wavs(&[8000, 8000]);
+        opened(&mut app);
+        let mut set = track(9, "DJ", "Set");
+        set.duration_secs = 0;
+        let path = dir.path().join("Contents/2.wav");
+        assert!(app.play_file(&path, set, Duration::ZERO));
+        opened(&mut app);
+        (&mut out).take(4100).for_each(drop);
+        wait(&mut app, |a| a.now.is_none());
+        assert_eq!((app.queue.len(), app.queue.pos), (2, 0));
+    }
+
+    /// Crossing a cue as it plays flashes the visualiser in the cue's colour.
+    #[test]
+    fn crossing_a_cue_flashes_its_colour() {
+        let (_dir, mut app, mut out) = playing_wavs(&[8000]);
+        opened(&mut app);
+        let mut cue = cue(Some(0), 100, None);
+        cue.color = Some([1, 2, 3]);
+        app.now.as_mut().unwrap().analysis.cues = vec![cue];
+        app.tick();
+        assert!(app.flash.is_none());
+        (&mut out).take(1600).for_each(drop);
+        app.tick();
+        assert_eq!(app.flash().map(|(c, _)| c), Some([1, 2, 3]));
+        // It fades: gone a second later.
+        app.flash.as_mut().unwrap().1 -= Duration::from_secs(1);
+        assert!(app.flash().is_none());
+    }
+
+    /// The messages log keeps the last 200.
+    #[test]
+    fn the_log_keeps_the_last_messages() {
+        let (mut app, _dir) = app_with(library());
+        for i in 0..=LOG {
+            app.toast(format!("message {i}"), Level::Info);
+        }
+        assert_eq!(app.log.len(), LOG);
+        assert_eq!(app.log.front().map(|m| m.0.as_str()), Some("message 1"));
+    }
+
+    /// On a big library the search box narrows the list once typing pauses (at the next tick
+    /// after then), not on every key.
+    #[test]
+    fn a_big_librarys_search_waits_for_typing_to_pause() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = App::with_library(dir.path(), big_library(TYPE_AHEAD as u32 + 1));
+        press(&mut app, "/title 4999");
+        assert_eq!(app.visible.len(), TYPE_AHEAD + 1, "not yet");
+        app.search_due = Some(Instant::now());
+        app.tick();
+        assert_eq!(titles(&app), ["Title 4999"]);
+    }
+
+    /// An offer to replay edits on a drive that isn't open any more goes away.
+    #[test]
+    fn a_replay_offer_goes_with_its_drive() {
+        let (mut app, dir) = app_with(library());
+        let other = PathBuf::from("/Volumes/OTHER");
+        app.replay_offer = Some(ReplayOffer { root: other, drive: "OTHER".into(), edits: 2 });
+        let device = Device::open(dir.path()).unwrap();
+        app.install(device.root().to_path_buf(), Loaded::prepare(device, library()));
+        assert!(app.replay_offer.is_none());
+    }
+
+    /// In the Mixes view the keys for moving go through its recordings, as the wheel does
+    /// outside its own panes.
+    #[test]
+    fn the_mixes_view_moves_through_its_recordings() {
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, "5");
+        let recording = |i: usize| super::super::mix::Source {
+            path: PathBuf::from(format!("/sets/{i}.wav")),
+            name: format!("{i}.wav"),
+            place: "sets".into(),
+            duration_secs: None,
+            when: None,
+            folder: None,
+        };
+        app.mix.sources = (0..15).map(recording).collect();
+        app.mix.list.select(Some(0));
+        let selected = |app: &App| app.mix.list.selected();
+        press(&mut app, "G");
+        assert_eq!(selected(&app), Some(14));
+        press(&mut app, "g");
+        key(&mut app, KeyCode::PageDown);
+        assert_eq!(selected(&app), Some(10));
+        mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
+        assert_eq!(selected(&app), Some(13));
     }
 }

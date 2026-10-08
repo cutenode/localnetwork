@@ -390,6 +390,58 @@ mod tests {
         drop(shared);
     }
 
+    #[test]
+    fn files_already_there_are_replaced_only_when_asked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b, c) = (dir.path().join("a.xml"), dir.path().join("b.xml"), dir.path().join("c.xml"));
+        for p in [&a, &b] {
+            fs::write(p, b"<old/>").unwrap();
+        }
+        let err = refuse_to_replace(&[&c, &a, &b], false).unwrap_err();
+        assert_eq!(err.reason(), Some(Reason::Exists));
+        assert!(
+            err.to_string().ends_with("is already there (and 1 more); choose another place, or replace them"),
+            "{err}"
+        );
+        assert!(refuse_to_replace(&[&a, &b], true).is_ok());
+        assert!(write_output(&a, b"<new/>", false).is_err());
+        write_output(&c, b"<new/>", false).unwrap();
+        assert_eq!(fs::read(&c).unwrap(), b"<new/>");
+    }
+
+    /// A staged copy whose bytes aren't the expected ones is refused, and the file it was to
+    /// replace stays.
+    #[test]
+    fn a_copy_that_doesnt_match_its_hash_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let (src, dst) = (dir.path().join("a.mp3"), dir.path().join("Contents/a.mp3"));
+        fs::write(&src, b"audio").unwrap();
+        let err = stage_copy(&src, &dst, None, Some(Hash::of(b"other audio")), &Ctx::silent()).unwrap_err();
+        assert!(matches!(err, Error::Corrupt { .. }), "{err}");
+        assert!(!dst.exists());
+        let (tmp, hash) =
+            stage_copy(&src, &dst, Some(1_600_000_000), Some(Hash::of(b"audio")), &Ctx::silent()).unwrap();
+        assert_eq!(hash, Hash::of(b"audio"));
+        tmp.persist(&dst).unwrap();
+        assert_eq!(mtime_secs(&fs::metadata(&dst).unwrap()), 1_600_000_000);
+    }
+
+    #[test]
+    fn missing_files_read_as_nothing_and_remove_as_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        assert_eq!(read_json_opt::<u32>(&path).unwrap(), None);
+        assert!(!file_exists(&path));
+        fs::write(&path, b"{").unwrap();
+        assert!(file_exists(&path));
+        assert!(matches!(read_json_opt::<u32>(&path), Err(Error::Parse { .. })));
+        assert!(matches!(read_json_opt::<u32>(dir.path()), Err(Error::Io { .. })), "a folder");
+        assert!(remove_if_exists(&path).unwrap());
+        assert!(!remove_if_exists(&path).unwrap());
+        #[cfg(unix)]
+        assert_eq!(absolute(Path::new("/a/./b")), PathBuf::from("/a/b"));
+    }
+
     /// Flushing a copied file works on every platform (on Windows it once failed with "Access is
     /// denied"), leaves its contents and modification time alone, and skips files that are gone.
     #[test]

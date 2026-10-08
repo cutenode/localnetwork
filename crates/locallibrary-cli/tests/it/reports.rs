@@ -1,54 +1,13 @@
 //! `--json` runs of doctor, history, stats, export, diff, check, `xml --only` and
 //! `restore --dry-run`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use rekordbox_pdb::{Database, PdbEditor};
 use serde_json::{Value, json};
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../locallibrary/tests/fixtures")
-}
-
-fn copy_dir(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for e in std::fs::read_dir(src).unwrap() {
-        let e = e.unwrap();
-        let to = dst.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_dir(&e.path(), &to);
-        } else {
-            std::fs::copy(e.path(), to).unwrap();
-        }
-    }
-}
-
-fn pdb(root: &Path) -> PathBuf {
-    root.join("PIONEER/rekordbox/export.pdb")
-}
-
-/// The demo export (two tracks) with placeholder audio, a playlist holding both, and a history
-/// list a player recorded.
-fn demo_drive(dir: &Path, name: &str) -> PathBuf {
-    let root = dir.join(name);
-    copy_dir(&fixtures().join("rekordcrate/demo_tracks"), &root);
-    let db = Database::from_file(pdb(&root)).unwrap();
-    for t in &db.tracks {
-        let p = root.join(t.file_path().trim_start_matches('/'));
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, format!("audio {}", t.title()).repeat(100)).unwrap();
-    }
-    let mut ed = PdbEditor::from_file(pdb(&root)).unwrap();
-    let set = ed.create_playlist("Set", 0, false).unwrap();
-    let history = ed.create_history_playlist("HISTORY 001").unwrap();
-    for t in &db.tracks {
-        ed.add_to_playlist(set, t.id, None).unwrap();
-        ed.add_to_history(history, t.id).unwrap();
-    }
-    ed.save(pdb(&root)).unwrap();
-    root
-}
+use crate::support::{PDB, copy_dir, dj_drive, path};
 
 struct Env {
     _dir: tempfile::TempDir,
@@ -80,14 +39,10 @@ impl Env {
     }
 }
 
-fn path(p: &Path) -> &str {
-    p.to_str().unwrap()
-}
-
 #[test]
 fn doctor_reports_and_removes_orphans_only_with_yes() {
     let env = Env::new();
-    let a = demo_drive(&env.root, "A");
+    let a = dj_drive(&env.root, "A");
     let orphan = a.join("Contents/Old/forgotten.mp3");
     std::fs::create_dir_all(orphan.parent().unwrap()).unwrap();
     std::fs::write(&orphan, "old").unwrap();
@@ -137,7 +92,7 @@ fn doctor_reports_and_removes_orphans_only_with_yes() {
 #[test]
 fn history_stats_export_and_diff() {
     let env = Env::new();
-    let a = demo_drive(&env.root, "A");
+    let a = dj_drive(&env.root, "A");
 
     let v = env.json(&["history", path(&a)]);
     assert_eq!(v["drive"]["lists"][0]["name"], "HISTORY 001");
@@ -155,10 +110,10 @@ fn history_stats_export_and_diff() {
 
     // The store keeps the list once rekordbox has deleted it from the drive.
     env.json(&["pull", path(&a)]);
-    let history: Vec<u32> = Database::from_file(pdb(&a)).unwrap().history_playlists.iter().map(|h| h.id).collect();
-    let mut ed = PdbEditor::from_file(pdb(&a)).unwrap();
+    let history: Vec<u32> = Database::from_file(a.join(PDB)).unwrap().history_playlists.iter().map(|h| h.id).collect();
+    let mut ed = PdbEditor::from_file(a.join(PDB)).unwrap();
     ed.remove_history_playlists(&history).unwrap();
-    ed.save(pdb(&a)).unwrap();
+    ed.save(a.join(PDB)).unwrap();
     let v = env.json(&["history", path(&a), "--all"]);
     assert!(v["drive"]["lists"].as_array().unwrap().is_empty());
     assert_eq!(v["archive"]["lists"][0]["name"], "HISTORY 001");
@@ -180,11 +135,11 @@ fn history_stats_export_and_diff() {
     // B drops a track from the playlist.
     let b = env.root.join("B");
     copy_dir(&a, &b);
-    let db = Database::from_file(pdb(&b)).unwrap();
+    let db = Database::from_file(b.join(PDB)).unwrap();
     let set = db.playlist_tree.iter().find(|p| p.name == "Set").unwrap().id;
-    let mut ed = PdbEditor::from_file(pdb(&b)).unwrap();
+    let mut ed = PdbEditor::from_file(b.join(PDB)).unwrap();
     ed.set_playlist_entries(set, &[db.tracks[1].id]).unwrap();
-    ed.save(pdb(&b)).unwrap();
+    ed.save(b.join(PDB)).unwrap();
     let v = env.json(&["diff", path(&a), path(&b)]);
     assert_eq!(v["changed_playlists"][0]["path"], "Set");
     assert_eq!(v["changed_playlists"][0]["removed"][0]["position"], 1);
@@ -200,7 +155,7 @@ fn history_stats_export_and_diff() {
 #[test]
 fn check_exits_with_failure_on_problems() {
     let env = Env::new();
-    let a = demo_drive(&env.root, "A");
+    let a = dj_drive(&env.root, "A");
     let (v, ok) = env.run(&["check", path(&a), "--players", "CDJ-2000NXS2"]);
     assert!(ok, "{v}");
     assert_eq!(v["problems"], 0);
@@ -222,7 +177,7 @@ fn check_exits_with_failure_on_problems() {
 #[test]
 fn remembered_players() {
     let env = Env::new();
-    let a = demo_drive(&env.root, "A");
+    let a = dj_drive(&env.root, "A");
     let v = env.json(&["players"]);
     assert_eq!(v["default"].as_array().unwrap().len(), 0);
     // Like every write, it shows its plan and asks first: without --yes nothing is remembered.
@@ -256,7 +211,7 @@ fn remembered_players() {
 #[test]
 fn rpc_lists_the_new_methods() {
     let env = Env::new();
-    let a = demo_drive(&env.root, "A");
+    let a = dj_drive(&env.root, "A");
     let mut child = env.locallibrary().arg("rpc").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     {
         use std::io::Write;
@@ -326,7 +281,7 @@ fn tone(secs: u32) -> Vec<u8> {
 #[test]
 fn mix_keeps_its_fingerprints_in_a_store_it_makes() {
     let env = Env::new();
-    let a = demo_drive(&env.root, "A");
+    let a = dj_drive(&env.root, "A");
     let set = env.root.join("mixes/friday.wav");
     std::fs::create_dir_all(set.parent().unwrap()).unwrap();
     std::fs::write(&set, tone(5)).unwrap();
@@ -361,7 +316,7 @@ fn mix_keeps_its_fingerprints_in_a_store_it_makes() {
 fn an_identified_mix_that_cant_be_kept_still_comes_back() {
     use std::io::Write;
     let env = Env::new();
-    let a = demo_drive(&env.root, "A");
+    let a = dj_drive(&env.root, "A");
     let set = env.root.join("friday.wav");
     std::fs::write(&set, tone(5)).unwrap();
     // A file where the store keeps its reports.

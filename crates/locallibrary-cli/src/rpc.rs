@@ -1073,6 +1073,42 @@ mod tests {
         }
     }
 
+    /// The request loop, writing to a sink.
+    fn server() -> (Server, Sink) {
+        let sink = Sink::default();
+        let server = Server {
+            store_root: PathBuf::from("store"),
+            out: Arc::new(Mutex::new(Box::new(sink.clone()))),
+            jobs: Arc::default(),
+            events: Arc::default(),
+            watch: Arc::default(),
+            reads: Pool::new(1),
+            work: Pool::new(1),
+            plans: Arc::default(),
+        };
+        (server, sink)
+    }
+
+    /// Blank lines are skipped; a request without a method, or whose parameters aren't an
+    /// object, is answered with what's wrong with it.
+    #[test]
+    fn blank_lines_are_skipped_and_bad_requests_say_why() {
+        let (s, sink) = server();
+        assert!(s.handle(b""));
+        assert!(s.handle(br#"{"jsonrpc":"2.0","id":1}"#));
+        assert!(s.handle(br#"{"jsonrpc":"2.0","id":2,"method":"rpc.describe","params":7}"#));
+        let text = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
+        let replies: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(replies.len(), 2, "nothing for the blank line: {replies:?}");
+        let missing = &replies[0];
+        assert_eq!((&missing["id"], &missing["error"]["code"]), (&json!(1), &json!(-32600)), "{missing}");
+        assert_eq!(missing["error"]["message"], "missing method");
+        let bad = &replies[1]["error"];
+        assert_eq!((&replies[1]["id"], &bad["data"]["kind"]), (&json!(2), &json!("invalid_params")), "{bad}");
+        assert!(bad["message"].as_str().unwrap().starts_with("invalid params: invalid type: integer `7`"), "{bad}");
+        assert!(bad["data"]["fields"].get("path").is_none(), "the whole of it is wrong, not a field: {bad}");
+    }
+
     fn progress() -> (RpcProgress, Sink) {
         let sink = Sink::default();
         (RpcProgress::new(json!(1), Arc::new(Mutex::new(Box::new(sink.clone())))), sink)

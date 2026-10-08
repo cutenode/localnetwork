@@ -7,9 +7,9 @@ use hegel::generators as gs;
 use hegel::{Generator, TestCase};
 use locallibrary::model::normalize;
 use locallibrary::profile::{
-    self, ArcSection, Basis, CollectionSection, EraSection, KeysSection, MixingSection, PlayedTrack, PrefsUpdate,
-    ProfileOptions, ProfilePrefs, ProfileReport, RankedSection, Section, SetsSection, Share, SignatureSection, Summary,
-    TempoSection,
+    self, ArcSection, Basis, CollectionSection, EraSection, KeysSection, MixingSection, PlayedTrack, Precision,
+    PrefsUpdate, ProfileOptions, ProfilePrefs, ProfileReport, RankedSection, Section, SetsSection, Share,
+    SignatureSection, Summary, Tag, TempoSection,
 };
 
 const NAMES: &[&str] = &["Bicep", "Clara La San", "Röyksopp", "Robyn", "Fred again..", "Four Tet", "İzel", "x", "A"];
@@ -85,6 +85,7 @@ fn report(tracks: &[(String, String)], top_artists: &[String]) -> ProfileReport 
             plays: 2,
             opened: 0,
             closed: 0,
+            unnamed: false,
         })
         .collect();
     let share = |name: &String| Share { name: name.clone(), count: 1, share: 0.1 };
@@ -148,6 +149,24 @@ fn the_document_never_names_what_is_hidden(tc: TestCase) {
     for a in d.artists.iter().flatten() {
         assert!(!is_hidden_artist(a), "{a:?} is named");
     }
+}
+
+/// Whatever the sections and rounding, a document built on sessions never counts them: no sets
+/// section, no count in the headline, and no trait the sets section backs.
+#[hegel::test(test_cases = 300)]
+fn sessions_are_never_counted_in_public(tc: TestCase) {
+    let mut r = report(&[], &[]);
+    r.basis = Basis::Sessions;
+    r.sets = SetsSection { count: tc.draw(gs::integers::<usize>().max_value(5000)), ..Default::default() };
+    r.summary.tags = vec![Tag { id: "rarely_repeats", label: "Rarely repeats tracks".into(), why: String::new() }];
+    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(15));
+    let precision = if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded };
+    let prefs = ProfilePrefs { sections: Some(sections.into_iter().collect()), precision, ..Default::default() };
+    let d = profile::document(&r, &prefs);
+    assert!(d.sets.is_none());
+    assert!(d.tags.is_empty(), "{:?}", d.tags);
+    let headline = d.headline.unwrap_or_default();
+    assert!(!headline.contains("session") && !headline.contains("set"), "{headline:?}");
 }
 
 /// Shrunk counterexample: hiding "Bicep" didn't hide the signature track credited "Bicep;".

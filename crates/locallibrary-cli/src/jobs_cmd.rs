@@ -1,5 +1,5 @@
 //! The commands that run several steps as one plan: `refresh` (rekordbox just exported to a
-//! drive), `set` (the night before a set) and `setup` (the first run); and the drive or drives a
+//! drive), `prep` (the night before a set) and `setup` (the first run); and the drive or drives a
 //! command means when it's given none.
 //!
 //! Each takes its parsed arguments, so where the commands sit in the command line can change
@@ -136,6 +136,7 @@ pub fn pull_group(
         if let Some(s) = &r.stopped {
             output::warn(format!("stopped: {}", s.message));
         }
+        crate::hints::new_sessions(crate::hints::job_sessions(store, r));
     }))
 }
 
@@ -192,7 +193,7 @@ fn title_of(plan: &JobPlan, step: &str) -> String {
     plan.steps.iter().find(|s| s.step.id() == step).map_or_else(|| step.to_string(), |s| s.title.clone())
 }
 
-fn render_report(plan: &JobPlan, r: &JobReport, verbose: bool) {
+fn render_report(plan: &JobPlan, r: &JobReport, store: &Store, verbose: bool) {
     for s in &r.steps {
         if s.step == StepKind::Check {
             continue;
@@ -204,6 +205,7 @@ fn render_report(plan: &JobPlan, r: &JobReport, verbose: bool) {
             output::warn(w);
         }
     }
+    crate::hints::new_sessions(crate::hints::job_sessions(store, r));
     if let Some(c) = &r.check {
         say!();
         crate::check_cmd::render(c, verbose);
@@ -254,7 +256,7 @@ fn run_job(plan: Planned<JobPlan>, store: &Store, shown: Shown<'_>, out: Output,
         (None, true) => Outcome::Problems,
         (None, false) => Outcome::Applied,
     };
-    Ok(out.applied(&plan, &report, outcome, || render_report(&plan, &report, verbose)))
+    Ok(out.applied(&plan, &report, outcome, || render_report(&plan, &report, store, verbose)))
 }
 
 fn parse_step(s: &str) -> std::result::Result<StepKind, String> {
@@ -303,11 +305,11 @@ pub fn refresh(args: RefreshArgs, store_path: &Option<PathBuf>, out: Output, ctx
 }
 
 // ---------------------------------------------------------------------------------------------
-// set
+// prep
 // ---------------------------------------------------------------------------------------------
 
 #[derive(Args)]
-pub struct SetArgs {
+pub struct PrepArgs {
     /// The drives you're taking [default: the mounted drives of one library]
     pub drives: Vec<String>,
     /// The library whose mounted drives to take (with no drives given)
@@ -331,21 +333,18 @@ pub struct SetArgs {
     pub dry_run: bool,
 }
 
-pub const SET_HELP: &str = "Steps: save the drives in the store (history lists first, so the sync doesn't lose \
+pub const PREP_HELP: &str = "Steps: save the drives in the store (history lists first, so the sync doesn't lose \
 any), copy the newest library onto the others, check them against the player models (`players set`, or \
 --players), and eject them when everything passed. One plan lists them all and asks once. Exit status 4 when \
 the check finds problems (the drives stay mounted), 5 when a step failed after others were done.";
 
-/// `locallibrary set [DRIVES...]`: the night before a set.
-pub fn set(args: SetArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+/// `locallibrary prep [DRIVES...]`: the night before a set.
+pub fn prep(args: PrepArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let drives = drives_or_group(args.drives, store_path, args.library.as_deref())?;
     let store = crate::open_store(store_path)?;
     let req =
         api::SetJobRequest { drives, library: None, players: args.players, audio: args.audio, eject: !args.no_eject };
     let plan = api::set_job_plan(&store, &req, ctx)?;
-    if plan.running().any(|s| s.step == StepKind::Eject) {
-        output::untested_on_this_platform("set");
-    }
     let names: Vec<&str> = plan.targets.iter().map(|t| t.name.as_str()).collect();
     let heading = format!("Get {} ready for a set", names.join(", "));
     let shown = Shown { heading: &heading, nothing: "nothing to do", dry_run: args.dry_run, verbose: args.verbose };
@@ -384,7 +383,7 @@ pub struct SetupArgs {
     /// With --contact: also a top-level playlist "IF FOUND: <contact>", the first thing a player shows
     #[arg(long, requires = "contact")]
     pub contact_playlist: bool,
-    /// Player models to remember for `check` and `set`, e.g. CDJ-3000,CDJ-2000NXS2
+    /// Player models to remember for `check` and `prep`, e.g. CDJ-3000,CDJ-2000NXS2
     #[arg(long, value_delimiter = ',')]
     pub players: Vec<String>,
     /// Don't import My Settings from the primary drive
@@ -920,7 +919,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             ("locallibrary status", "every drive at a glance"),
             ("locallibrary refresh", "after rekordbox exports to a drive: your edits, settings and names back"),
             ("locallibrary sync", "copy the newest drive onto the others"),
-            ("locallibrary set", "the night before a set: save, sync, check and eject"),
+            ("locallibrary prep", "the night before a set: save, sync, check and eject"),
             ("locallibrary", "browse your drives and listen"),
         ] {
             say!("  {:<22} {}", style(c).bold(), dim(what));

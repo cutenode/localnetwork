@@ -7,3 +7,6 @@ node_modules/
 # Claude Code's worktrees and per-machine settings.
 .claude/worktrees/
 .claude/settings.local.json
+.claude/launch.json
+# Local secrets (HappyView admin token).
+.env

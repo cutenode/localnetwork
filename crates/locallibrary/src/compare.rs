@@ -432,7 +432,7 @@ fn decide(left: &Side, right: &Side, overlap: f64, ev: &mut Vec<Evidence>) -> (R
             ev.push(evidence(
                 "exported_at",
                 f,
-                format!("export.pdb written {} vs {}", a.format("%Y-%m-%d %H:%M"), b.format("%Y-%m-%d %H:%M")),
+                format!("exported {} vs {}", a.format("%Y-%m-%d %H:%M"), b.format("%Y-%m-%d %H:%M")),
                 1,
             ));
         }

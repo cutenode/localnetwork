@@ -307,11 +307,9 @@ fn copy_library(
     ctx: &Ctx<'_>,
 ) -> Result<SyncReport> {
     let databases = crate::commit::database_state(target);
-    let identity = plan.touches_library_plus().then(|| crate::player::db_identity(target.root())).flatten();
     let mut report = apply(plan, source, target, opts, holds.entry.op, ctx)?;
     let ctx = &ctx.uncancellable();
     report.fingerprint = Some(holds.entry.fingerprint);
-    crate::player::preserve(target, identity.as_ref())?;
     crate::pack::forget(target)?;
     if crate::commit::database_state(target) != databases {
         crate::edit::journal::forget(target)?;
@@ -446,20 +444,15 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
     }
 
     // OneLibrary's database and WAL move together (see the module docs): if either changes, the
-    // target's WAL is removed first, so the source's must be copied even when it's unchanged, and
-    // a WAL the source doesn't have goes even when deletes are off.
+    // target's WAL is removed first, so the source's must be copied even when it's unchanged. (A
+    // WAL the source doesn't have is deleted above, as a database file, even when deletes are off.)
     if plan.touches_library_plus() {
         let wal = fold(paths::LIBRARY_PLUS_WAL);
-        let src_wal = source_entries.iter().find(|e| fold(&e.path) == wal);
-        let tgt_wal = target_by_fold.get(&wal);
-        match (src_wal, tgt_wal) {
-            (Some(e), Some(t)) if !plan.copies.iter().any(|c| fold(&c.path) == wal) => copy_again(&mut plan, e, t),
-            (None, Some(t)) if !plan.deletes.iter().any(|d| fold(&d.path) == wal) => {
-                plan.delete_bytes += t.size;
-                plan.deletes_by_class.add(t.class);
-                plan.deletes.push(PlannedDelete { path: t.path.clone(), size: t.size, class: t.class });
-            }
-            _ => {}
+        if let Some(e) = source_entries.iter().find(|e| fold(&e.path) == wal)
+            && let Some(t) = target_by_fold.get(&wal)
+            && !plan.copies.iter().any(|c| fold(&c.path) == wal)
+        {
+            copy_again(&mut plan, e, t);
         }
     }
 
@@ -568,7 +561,8 @@ pub struct SyncReport {
 }
 
 /// Execute a plan, the target locked by the caller and marked as being written by `op` (a sync
-/// or a push). Hashes of copied files are recorded in the target's hash cache.
+/// or a push). Hashes of copied files are recorded in the target's hash cache. A new
+/// `exportLibrary.db` gets the target's player name and colour back (see [`crate::player::stash`]).
 fn apply(
     plan: &SyncPlan,
     source: &Source<'_>,
@@ -586,6 +580,7 @@ fn apply(
     let mut index = target.load_index();
 
     target.begin(op, plan.source.clone(), None)?;
+    let identity = crate::player::stash(target, plan.touches_library_plus())?;
 
     let (db_deletes, file_deletes): (Vec<&PlannedDelete>, Vec<&PlannedDelete>) =
         plan.deletes.iter().partition(|d| d.class == FileClass::Database);
@@ -665,6 +660,7 @@ fn apply(
         delete_files(target, &file_deletes, &mut index, &mut report, ctx)?;
     }
     target.save_index(&index)?;
+    crate::player::preserve(target, identity.as_ref())?;
     Ok(report)
 }
 
@@ -1496,4 +1492,18 @@ pub fn summarize_paths(paths: impl Iterator<Item = String>) -> BTreeMap<String, 
         *out.entry(top).or_insert(0) += 1;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_are_summarised_by_their_top_two_folders() {
+        let keys =
+            ["Contents/A/x.mp3", "Contents/A/y.mp3", "Contents/B/z.mp3", "PIONEER/rekordbox/export.pdb", "top.mp3"];
+        let summary = summarize_paths(keys.into_iter().map(String::from));
+        let want = [("Contents/A", 2), ("Contents/B", 1), ("PIONEER/rekordbox", 1), ("top.mp3", 1)];
+        assert_eq!(summary, want.into_iter().map(|(k, n)| (k.to_string(), n)).collect());
+    }
 }

@@ -303,4 +303,40 @@ mod tests {
         assert!(plan(&d, &TidyOptions::default(), &Ctx::silent()).unwrap().is_noop());
         assert!(root.join("Contents/A/a.mp3").is_file());
     }
+
+    /// A plan is checked again item by item: a path that leaves the drive is refused, and what
+    /// is no longer the clutter it was is left.
+    #[test]
+    fn applying_leaves_what_changed_since_and_refuses_odd_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("Contents")).unwrap();
+        for p in ["Thumbs.db", "Contents/.DS_Store", "Contents/notes.txt"] {
+            std::fs::write(root.join(p), b"x").unwrap();
+        }
+        let d = Device::open(root).unwrap();
+        let mut p = plan(&d, &TidyOptions::default(), &Ctx::silent()).unwrap();
+        let found: Vec<(&str, TidyKind)> = p.items.iter().map(|i| (i.path.as_str(), i.kind)).collect();
+        assert_eq!(found, [("Contents/.DS_Store", TidyKind::DsStore), ("Thumbs.db", TidyKind::Thumbnails)]);
+        // The .DS_Store is now a folder the DJ made.
+        std::fs::remove_file(root.join("Contents/.DS_Store")).unwrap();
+        std::fs::create_dir(root.join("Contents/.DS_Store")).unwrap();
+        let odd =
+            |path: &str| TidyItem { path: path.into(), kind: TidyKind::Thumbnails, is_dir: false, files: 1, bytes: 1 };
+        p.items.extend([odd("../Thumbs.db"), odd("Contents//Thumbs.db"), odd("Contents\\Thumbs.db")]);
+
+        let r = apply(&p, &d, &Ctx::silent()).unwrap();
+        assert_eq!(r.removed, 1);
+        let failed: Vec<(&str, &str)> = r.failed.iter().map(|f| (f.path.as_str(), f.error.as_str())).collect();
+        assert_eq!(
+            failed,
+            [
+                ("../Thumbs.db", "unexpected path"),
+                ("Contents//Thumbs.db", "unexpected path"),
+                ("Contents\\Thumbs.db", "unexpected path")
+            ]
+        );
+        assert!(!root.join("Thumbs.db").exists() && root.join("Contents/.DS_Store").is_dir());
+        assert!(root.join("Contents/notes.txt").is_file());
+    }
 }

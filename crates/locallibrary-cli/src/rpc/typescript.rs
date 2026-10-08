@@ -332,4 +332,52 @@ mod tests {
             "{\n  kind: \"x\";\n}"
         );
     }
+
+    /// Schemas outside what schemars writes for the API still give TypeScript that compiles:
+    /// whatever isn't understood is `unknown`, nothing impossible is `never`.
+    #[test]
+    fn odd_schemas_still_make_valid_types() {
+        let t = |s: Value| ty(&s, 0);
+        assert_eq!(t(json!(false)), "never");
+        assert_eq!(t(json!(3)), "unknown");
+        assert_eq!(t(json!({ "enum": [] })), "never");
+        assert_eq!(t(json!({ "type": "decimal" })), "unknown");
+        assert_eq!(t(json!({ "type": 7 })), "never");
+        assert_eq!(t(json!({ "anyOf": [{ "type": "string" }, true] })), "unknown");
+        assert_eq!(t(json!({ "properties": {} })), "{ [key: string]: unknown }");
+        assert_eq!(t(json!({ "type": "object", "additionalProperties": false })), "Record<string, never>");
+        assert_eq!(
+            t(
+                json!({ "properties": { "a": { "type": "string" } }, "required": ["a"], "additionalProperties": { "type": "integer" } })
+            ),
+            "{\n  a: string;\n} & { [key: string]: number }"
+        );
+        assert_eq!(t(json!({ "type": "array", "prefixItems": [{ "type": "integer" }] })), "[number]");
+        // A `|` inside a string literal doesn't make a type a union; one between types does.
+        assert_eq!(tight("\"a\\\"|b\"".into()), "\"a\\\"|b\"");
+        assert_eq!(tight("/* a | b */ string".into()), "/* a | b */ string");
+        assert_eq!(tight("string | null".into()), "(string | null)");
+        assert_eq!(ident("1st-thing"), "_1st_thing");
+        assert_eq!(key("a-b"), "\"a-b\"");
+    }
+
+    #[test]
+    fn descriptions_become_doc_comments() {
+        let mut out = String::new();
+        doc(&mut out, &json!({ "description": "First.\n\nSecond, about */ comments." }), "  ");
+        assert_eq!(out, "  /**\n   * First.\n   *\n   * Second, about *\\/ comments.\n   */\n");
+        let mut out = String::new();
+        doc(&mut out, &json!({ "description": "  " }), "");
+        assert!(out.is_empty());
+    }
+
+    /// The error's `data` gets a type of its own, unless it's a definition already.
+    #[test]
+    fn the_error_data_is_declared_once() {
+        let contract = json!({ "$defs": {}, "methods": [], "error": { "type": "object", "properties": { "kind": { "type": "string" } } } });
+        assert!(declarations(&contract).contains("export type ErrorData = {\n  kind?: string;\n};\n"));
+        let defined =
+            json!({ "$defs": { "ErrorData": { "type": "object" } }, "error": { "$ref": "#/$defs/ErrorData" } });
+        assert_eq!(declarations(&defined).matches("export type ErrorData").count(), 1);
+    }
 }

@@ -1,8 +1,8 @@
 //! Shell completion and man pages. `locallibrary completions SHELL` prints a script that has the
 //! shell ask `locallibrary` itself on Tab (`COMPLETE=SHELL locallibrary -- ...`, clap_complete's
 //! dynamic completion), so drives, playlist paths, My Tags and history lists complete from what's
-//! mounted now, and libraries from the store; `--static` prints a script that completes only
-//! commands and flags.
+//! mounted now, and libraries, sets and sessions from the store; `--static` prints a script that
+//! completes only commands and flags.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -109,6 +109,10 @@ enum Takes {
     Model,
     /// A step `refresh` can leave out (`--skip`).
     Step,
+    /// One of the DJ's sets.
+    Set,
+    /// A session: a history list players recorded, or an imported log.
+    Session,
 }
 
 fn takes(a: &Arg) -> Option<Takes> {
@@ -119,6 +123,8 @@ fn takes(a: &Arg) -> Option<Takes> {
     match (a.get_id().as_str(), name.as_deref()) {
         (_, Some("PLAYLIST")) | ("playlist" | "playlists", _) => Some(Takes::Playlist),
         (_, Some("DRIVE")) => Some(Takes::Drive),
+        (_, Some("SET")) => Some(Takes::Set),
+        (_, Some("SESSION")) => Some(Takes::Session),
         ("drive" | "drives" | "source" | "target" | "left" | "right" | "like" | "against", _) => Some(Takes::Drive),
         ("tag", _) => Some(Takes::Tag),
         ("list" | "history", _) => Some(Takes::HistoryList),
@@ -138,6 +144,8 @@ fn with_candidates(cmd: Command) -> Command {
         Some(Takes::Library) => a.add(ArgValueCandidates::new(libraries)),
         Some(Takes::Model) => a.add(ArgValueCandidates::new(models)),
         Some(Takes::Step) => a.add(ArgValueCandidates::new(steps)),
+        Some(Takes::Set) => a.add(ArgValueCandidates::new(sets)),
+        Some(Takes::Session) => a.add(ArgValueCandidates::new(sessions)),
         None => a,
     })
     .mut_subcommands(with_candidates)
@@ -232,6 +240,32 @@ fn libraries() -> Vec<CompletionCandidate> {
     store.libraries().unwrap_or_default().into_iter().map(|l| CompletionCandidate::new(l.name)).collect()
 }
 
+/// The DJ's sets, by id, newest first.
+fn sets() -> Vec<CompletionCandidate> {
+    let Ok(store) = locallibrary::Store::open(store_root()) else { return Vec::new() };
+    let book = locallibrary::sets::SetBook::load(&store).unwrap_or_default();
+    book.sets
+        .iter()
+        .map(|s| CompletionCandidate::new(&s.id).help(Some(locallibrary::sets::describe(s).into())))
+        .collect()
+}
+
+/// The sessions on the mounted drives and in the store, by id, newest first.
+fn sessions() -> Vec<CompletionCandidate> {
+    let store = locallibrary::Store::open(store_root()).ok();
+    let req = api::SessionsRequest::default();
+    let Ok(got) = api::sessions(store.as_ref(), &req, &locallibrary::progress::Ctx::silent()) else {
+        return Vec::new();
+    };
+    got.sessions
+        .iter()
+        .map(|s| {
+            let help = format!("{}, {} tracks, {}", s.name, s.tracks.len(), s.window.label());
+            CompletionCandidate::new(s.short_id()).help(Some(help.into()))
+        })
+        .collect()
+}
+
 /// The player models locallibrary knows.
 fn models() -> Vec<CompletionCandidate> {
     api::player_models().iter().map(|m| CompletionCandidate::new(m.name)).collect()
@@ -273,9 +307,12 @@ mod tests {
         assert_eq!(find(&["merge"], "history"), None, "a flag takes nothing");
         assert_eq!(find(&["refresh"], "drive"), Some(Takes::Drive));
         assert_eq!(find(&["refresh"], "skip"), Some(Takes::Step));
-        assert_eq!(find(&["set"], "drives"), Some(Takes::Drive));
-        assert_eq!(find(&["set"], "library"), Some(Takes::Library));
-        assert_eq!(find(&["set"], "players"), Some(Takes::Model));
+        assert_eq!(find(&["prep"], "drives"), Some(Takes::Drive));
+        assert_eq!(find(&["prep"], "library"), Some(Takes::Library));
+        assert_eq!(find(&["prep"], "players"), Some(Takes::Model));
+        assert_eq!(find(&["sets", "edit"], "set"), Some(Takes::Set));
+        assert_eq!(find(&["sets", "new"], "sessions"), Some(Takes::Session));
+        assert_eq!(find(&["sets", "playlist"], "drive"), Some(Takes::Drive));
         assert_eq!(find(&["setup"], "primary"), Some(Takes::Drive));
         assert_eq!(find(&["pull"], "library"), Some(Takes::Library));
         assert_eq!(find(&["players", "set"], "models"), Some(Takes::Model));

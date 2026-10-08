@@ -1,12 +1,15 @@
 //! Exports for other DJ software, read back with independent parsers: Traktor's NML with
 //! quick-xml.
 
+mod shapes;
+
 use crate::common;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use locallibrary::anlz::{self, CueFile, CuePoint, TrackAnalysis};
+use locallibrary::api;
 use locallibrary::device::Device;
 use locallibrary::interop::{self, InteropOptions, Software};
 use locallibrary::paths;
@@ -693,4 +696,28 @@ fn engine_library_for_the_drive_and_replacing_one() {
     // Other software locates tracks by their full path.
     let traktor = InteropOptions { paths: locallibrary::export::PathStyle::Drive, ..options() };
     assert_eq!(interop::plan(&d, Software::Traktor, &out, &traktor, &Ctx::silent()).unwrap_err().code(), "invalid");
+}
+
+/// A library for Traktor is planned without writing anything, written, and replaced only when
+/// asked.
+#[test]
+fn a_library_for_other_software_is_written_once_unless_replacing() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let out = dir.path().join("exports/traktor");
+    let req = |replace| api::InteropRequest {
+        drive: common::path(&root),
+        software: Software::Traktor,
+        output: out.clone(),
+        options: InteropOptions { replace, ..Default::default() },
+    };
+
+    let plan = api::interop_plan(&req(false), &Ctx::silent()).unwrap();
+    assert!(!plan.destructive && !out.exists(), "a plan writes nothing");
+    assert!(plan.summary[0].starts_with("write 1 file(s) for Traktor"), "{:?}", plan.summary);
+    let written = api::interop_apply(&req(false), &Ctx::silent()).unwrap();
+    assert!(written.files[0].path.is_file());
+    assert!(api::interop_apply(&req(false), &Ctx::silent()).is_err(), "not replaced unasked");
+    assert!(api::interop_plan(&req(true), &Ctx::silent()).unwrap().destructive);
+    api::interop_apply(&req(true), &Ctx::silent()).unwrap();
 }

@@ -510,6 +510,76 @@ pub(crate) mod tests {
         assert!(matches!(err.inner(), Error::Parse { message, .. } if message == CRASHED), "{err}");
     }
 
+    /// An AIFF file of `frames` frames of 48 kHz mono 16-bit silence.
+    pub(crate) fn aiff(frames: u32) -> Vec<u8> {
+        let mut comm = 1u16.to_be_bytes().to_vec();
+        comm.extend_from_slice(&frames.to_be_bytes());
+        comm.extend_from_slice(&16u16.to_be_bytes());
+        comm.extend_from_slice(&[0x40, 0x0E, 0xBB, 0x80, 0, 0, 0, 0, 0, 0]); // 48000 as an 80-bit float
+        let data = vec![0u8; frames as usize * 2];
+        let mut body = b"AIFFCOMM".to_vec();
+        body.extend_from_slice(&18u32.to_be_bytes());
+        body.extend_from_slice(&comm);
+        body.extend_from_slice(b"SSND");
+        body.extend_from_slice(&(8 + data.len() as u32).to_be_bytes());
+        body.extend_from_slice(&[0; 8]);
+        body.extend_from_slice(&data);
+        let mut out = b"FORM".to_vec();
+        out.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        out.extend_from_slice(&body);
+        out
+    }
+
+    /// PCM in AIFF, which players list as AIFF.
+    #[test]
+    fn aiff_headers_give_the_format() {
+        let dir = tempfile::tempdir().unwrap();
+        let aif = dir.path().join("a.aif");
+        std::fs::write(&aif, aiff(24_000)).unwrap();
+        let f = format(&aif).unwrap();
+        assert_eq!((f.codec, f.sample_rate, f.bit_depth), (Some(Codec::Aiff), 48_000, 16));
+        assert!((f.duration_secs.unwrap() - 0.5).abs() < 0.01, "{f:?}");
+        assert_eq!(health(&aif, 0.0, 0), None);
+    }
+
+    #[test]
+    fn problems_read_as_sentences() {
+        let cases = [
+            (
+                AudioProblem::Unreadable { error: "no audio track".into() },
+                "unreadable",
+                "can't be opened: no audio track",
+            ),
+            (AudioProblem::Truncated { ends_secs: 72.4, expected_secs: 187.0 }, "truncated", "stops at 1:12 of 3:07"),
+            (
+                AudioProblem::Undecodable { error: "invalid main_data".into() },
+                "undecodable",
+                "its end doesn't decode: invalid main_data",
+            ),
+            (
+                AudioProblem::LengthDiffers { file_secs: 241.0, expected_secs: 187.0 },
+                "length_differs",
+                "4:01 long, the database says 3:07",
+            ),
+        ];
+        for (problem, kind, text) in cases {
+            assert_eq!((problem.kind(), problem.to_string().as_str()), (kind, text));
+            assert_eq!(problem.is_warning(), kind == "length_differs");
+        }
+        assert_eq!(minutes(-3.0), "0:00");
+    }
+
+    #[test]
+    fn parallel_work_stops_when_cancelled() {
+        let cancel = crate::progress::CancelToken::new();
+        cancel.cancel();
+        let ctx = Ctx::new(&crate::progress::NoProgress, cancel);
+        let r = parallel(&[1, 2, 3], Phase::Verify, |i| (i.to_string(), 0), |i| i * 2, &ctx);
+        assert!(matches!(r, Err(Error::Cancelled)));
+        let none: Vec<u32> = Vec::new();
+        assert!(parallel(&none, Phase::Verify, |i| (i.to_string(), 0), |i| i * 2, &ctx).unwrap().is_empty());
+    }
+
     #[test]
     fn parallel_keeps_order() {
         let items: Vec<u32> = (0..100).collect();

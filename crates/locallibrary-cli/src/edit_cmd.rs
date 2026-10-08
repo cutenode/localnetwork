@@ -528,6 +528,10 @@ pub(crate) fn confirm_and_apply(
     }
     if !out.json {
         render_plan(&planned);
+        // What the plan says besides the edit's own (a set's tracks not on the drive, say).
+        for w in planned.warnings.iter().filter(|w| !planned.plan.warnings.contains(w)) {
+            warn(w);
+        }
     }
     if let Some(o) = out.decide(dry_run, "Make these changes?") {
         return Ok(out.not_applied(&planned, o));
@@ -957,6 +961,9 @@ pub fn pack(
     }
     let report = plan.apply(store, ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || {
+        if let Some(s) = &report.saved {
+            output::ok(format!("saved snapshot {} ({})", s.short_id, s.message.as_deref().unwrap_or("")));
+        }
         output::ok(format!(
             "packed {}: {} file(s) copied ({}), {} removed",
             plan.target,
@@ -965,6 +972,9 @@ pub fn pack(
             report.deleted
         ));
         crate::output::hint(format!("Run the same command without --playlist to update {} later.", plan.target));
+        if let Some(b) = &report.backup {
+            crate::output::hint(format!("undo with: locallibrary undo {:?} (backup {b})", req.target));
+        }
     }))
 }
 

@@ -1,40 +1,12 @@
 //! `locallibrary tags` and the `tags.*` RPC methods.
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../locallibrary/tests/fixtures")
-}
-
-fn copy_dir(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for e in std::fs::read_dir(src).unwrap() {
-        let e = e.unwrap();
-        let to = dst.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_dir(&e.path(), &to);
-        } else {
-            std::fs::copy(e.path(), to).unwrap();
-        }
-    }
-}
-
-/// The demo export (with rekordbox's default My Tags in exportExt.pdb) and placeholder audio.
-fn demo_drive(dir: &Path) -> PathBuf {
-    let root = dir.join("Demo");
-    copy_dir(&fixtures().join("rekordcrate/demo_tracks"), &root);
-    let db = rekordbox_pdb::Database::from_file(root.join("PIONEER/rekordbox/export.pdb")).unwrap();
-    for t in &db.tracks {
-        let p = root.join(t.file_path().trim_start_matches('/'));
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, format!("audio {}", t.title()).repeat(100)).unwrap();
-    }
-    root
-}
+use crate::support::demo_drive;
 
 fn locallibrary(dir: &Path) -> Command {
     crate::locallibrary(&dir.join("store"), &[])
@@ -62,7 +34,7 @@ fn tracks_with(list: &Value, path: &str) -> Vec<String> {
 #[test]
 fn tags_are_listed_planned_and_applied() {
     let dir = tempfile::tempdir().unwrap();
-    let drive = demo_drive(dir.path());
+    let drive = demo_drive(dir.path(), "Demo");
     let d = drive.to_str().unwrap();
 
     let list = json(dir.path(), &["tags", d]);
@@ -100,7 +72,7 @@ fn tags_are_listed_planned_and_applied() {
 #[test]
 fn rpc_tags_methods() {
     let dir = tempfile::tempdir().unwrap();
-    let drive = demo_drive(dir.path());
+    let drive = demo_drive(dir.path(), "Demo");
     let d = drive.to_str().unwrap();
     let mut child = locallibrary(dir.path()).arg("rpc").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     {

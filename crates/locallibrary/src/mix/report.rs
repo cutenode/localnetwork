@@ -492,7 +492,7 @@ pub fn load(store_root: &Path, id: &str) -> Result<MixReport> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -549,7 +549,7 @@ mod tests {
         assert_eq!(std::fs::canonicalize(followed).unwrap(), std::fs::canonicalize(&audio).unwrap(), "{url}");
     }
 
-    fn report(title: &str) -> MixReport {
+    pub(crate) fn report(title: &str) -> MixReport {
         MixReport {
             mix: super::super::MixInfo {
                 path: PathBuf::from("/mixes/set.wav"),
@@ -579,7 +579,7 @@ mod tests {
         }
     }
 
-    fn play(track: Track) -> Play {
+    pub(crate) fn play(track: Track) -> Play {
         Play {
             track,
             start: 10.0,
@@ -631,6 +631,14 @@ mod tests {
         // Without the drive, the page has the report and no tracks' extras.
         let html = page(&back, None, None, &reports_dir(root).join("x.html"), &ProfilePrefs::default(), false);
         assert!(html.contains("<title>") && html.contains("Live at the Warehouse") && html.contains("\"extras\":[]"));
+    }
+
+    /// A reports folder that can't be read is an error, not an empty list.
+    #[test]
+    fn a_reports_folder_that_cant_be_read_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(reports_dir(dir.path()), b"a file where the folder goes").unwrap();
+        assert!(matches!(list(dir.path()).unwrap_err().inner(), Error::Io { .. }));
     }
 
     /// Two recordings with one title (a recorder's sets take their folder's name) are kept

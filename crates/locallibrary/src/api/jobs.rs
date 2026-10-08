@@ -894,16 +894,16 @@ fn edits_lost(d: &Device, entries: &[JournalEntry], ctx: &Ctx<'_>) -> bool {
         && edit::plan(d, &rest, &EditOptions { lenient: true, no_journal: true }, ctx).is_ok_and(|p| !p.is_noop())
 }
 
-/// Whether the drive's databases were written after its last recorded edit (allowing for FAT's
-/// 2-second timestamps).
+/// Whether rekordbox exported to the drive after its last recorded edit (see
+/// [`Device::exported_at`]; allowing for FAT's 2-second timestamps).
 fn exported_since(d: &Device, entries: &[JournalEntry]) -> bool {
     let Some(last) = entries.iter().map(|e| e.at).max() else { return false };
     d.exported_at().is_some_and(|at| at > last + chrono::Duration::seconds(2))
 }
 
 /// How many recorded edits a rekordbox export replaced: the entries in the drive's journal, when
-/// its databases were written after the last of them and making them again would change
-/// something; 0 otherwise. `status` flags such a drive; `refresh` makes the edits again.
+/// rekordbox exported after the last of them and making them again would change something; 0
+/// otherwise. `status` flags such a drive; `refresh` makes the edits again.
 pub fn exported_over_edits(d: &Device) -> usize {
     let Ok(entries) = edit::journal::list(d) else { return 0 };
     match exported_since(d, &entries) && edits_lost(d, &entries, &Ctx::silent()) {
@@ -1058,6 +1058,9 @@ pub fn set_job_plan(store: &Store, req: &SetJobRequest, ctx: &Ctx<'_>) -> Result
                 .map(|(name, root)| format!("{name}{}", also(root).unwrap_or_default()))
                 .collect();
             eject.summary.push(format!("eject {} once the check passes", named.join(", ")));
+            if let Some(w) = crate::format::untested_here("ejecting") {
+                eject.warn(w);
+            }
             eject.runs = true;
             eject.work.push(Work::Eject { roots });
             eject
@@ -1211,7 +1214,7 @@ pub fn refresh_drive(store: Option<&Store>) -> Result<Device> {
     }
 }
 
-/// The mounted drives of one library, as `check`, `eject`, `pull` and `set` take them when given
+/// The mounted drives of one library, as `check`, `eject`, `pull` and `prep` take them when given
 /// no drives (the library's drive group: archive and retired drives are left out).
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct DriveGroup {
@@ -1315,6 +1318,19 @@ pub(crate) fn unmatched_drive(spec: &str, mounted: &[Device]) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Steps are named as requests and progress events name them, in any case; an unknown one is
+    /// refused with the names it could have been.
+    #[test]
+    fn steps_are_parsed_by_their_ids() {
+        assert_eq!(StepKind::parse(" Sync ").unwrap(), StepKind::Sync);
+        assert!(StepKind::ALL.iter().all(|k| StepKind::parse(k.id()).ok() == Some(*k)));
+        let err = StepKind::parse("dance").unwrap_err().to_string();
+        assert!(
+            err.contains("unknown step \"dance\" (clean, replay, smart, player, settings, pull, sync, check, eject)"),
+            "{err}"
+        );
+    }
 
     /// Regression: when ejecting the drives failed part way, the report dropped the ones already
     /// ejected.

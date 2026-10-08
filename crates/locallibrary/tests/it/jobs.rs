@@ -2,7 +2,9 @@
 //! drives ready for a set, and which drive a command means when it's given none. One test, with
 //! the mounted volumes and the store the API consults named for its thread.
 
-use crate::common;
+mod refresh_and_prep;
+
+use crate::common::{self, path};
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -16,14 +18,10 @@ use locallibrary::edit::Edit;
 use locallibrary::progress::{CancelToken, Ctx, Event, Progress, Scope};
 use locallibrary::query::TrackSelector;
 use locallibrary::store::Store;
-use locallibrary::{Error, fleet, paths, player};
+use locallibrary::{Error, fleet, paths, player, tags};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
 const SAMPLE: &str = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
-
-fn path(p: &Path) -> String {
-    p.display().to_string()
-}
 
 /// rekordbox's demo sample, as an export brings it back.
 fn add_demo_sample(root: &Path) {
@@ -93,7 +91,7 @@ fn jobs_through_the_api() {
     add_demo_sample(&main);
     common::add_onelibrary(&main);
     let export = databases(&main);
-    api::adopt_drive(Some(&store), &api::AdoptDrive { drive: path(&main), name: Some("Main".into()) }).unwrap();
+    common::adopt(Some(&store), &main, "Main");
     let pull =
         api::PullRequest { drive: path(&main), library: Some("Home".into()), new_library: true, ..Default::default() };
     api::pull(&store, &pull, &ctx).unwrap();
@@ -192,19 +190,8 @@ fn jobs_through_the_api() {
     // Backup: a copy of Main, in the same library.
     let backup = volumes.join("Backup");
     std::fs::create_dir(&backup).unwrap();
-    let sync = |l: &Path, r: &Path| api::SyncRequest {
-        left: path(l),
-        right: path(r),
-        direction: api::Direction::Auto,
-        allow_low_confidence: false,
-        verify: false,
-        keep_extra: false,
-        delete_first: false,
-        overwrite_archive: false,
-        keep_player_changes: false,
-    };
-    api::sync_apply(Some(&store), &sync(&main, &backup), &ctx).unwrap();
-    api::adopt_drive(Some(&store), &api::AdoptDrive { drive: path(&backup), name: Some("Backup".into()) }).unwrap();
+    api::sync_apply(Some(&store), &common::sync_pair(&main, &backup), &ctx).unwrap();
+    common::adopt(Some(&store), &backup, "Backup");
     api::pull(&store, &api::PullRequest { drive: path(&backup), ..Default::default() }, &ctx).unwrap();
 
     // Two drives: which one?
@@ -328,4 +315,37 @@ fn jobs_through_the_api() {
     let stopped = report.stopped.as_ref().expect("refused");
     assert_eq!((stopped.step.as_str(), stopped.kind), ("replay", "stale_plan"), "{}", stopped.message);
     assert_eq!(report.steps.iter().map(|s| s.step).collect::<Vec<_>>(), [StepKind::Clean]);
+}
+
+/// rekordbox writes both databases, a player only the one it reads: on a drive with both, a set
+/// isn't taken for an export over recorded edits (whose My Tag edits would then count as lost).
+#[test]
+fn a_set_is_not_taken_for_an_export_over_recorded_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    let export = databases(&root);
+    let mut d = Device::open_export(&root).unwrap();
+    let first = d.library().unwrap().tracks[0].id;
+    let tag = tags::Edit::Add { tag: "Genre/Deep".into(), tracks: vec![first] };
+    tags::apply(&tags::plan(&d, &tag).unwrap(), &mut d, &Ctx::silent()).unwrap();
+    let written = |key: &str, at: SystemTime| {
+        std::fs::File::options().write(true).open(root.join(key)).unwrap().set_modified(at).unwrap();
+    };
+    let later = SystemTime::now() + Duration::from_secs(60);
+    let over = || api::exported_over_edits(&Device::open(&root).unwrap());
+
+    // A CDJ-3000X writes OneLibrary only.
+    written(paths::LIBRARY_PLUS_DB, later);
+    assert_eq!(over(), 0, "a player wrote OneLibrary");
+    written(paths::LIBRARY_PLUS_DB, SystemTime::now());
+
+    // A CDJ-3000 records a history list in export.pdb only.
+    common::add_history(&root, "HISTORY 001", &[first]);
+    written(paths::EXPORT_PDB, later);
+    assert_eq!(over(), 0, "a player wrote export.pdb");
+
+    // rekordbox writes both.
+    export_again(&root, &export);
+    assert_eq!(over(), 1);
 }

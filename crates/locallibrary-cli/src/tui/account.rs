@@ -278,3 +278,181 @@ pub fn on_event(app: &mut App, e: AccountEvent) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::app::View;
+    use super::super::app::testing::{blank, last_message, wait};
+    use super::*;
+
+    /// The bar as text.
+    fn shown(t: &Account, width: u16) -> String {
+        t.line(width).spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    /// An account signed in as the hosted client, whose session lasts until `until`.
+    fn signed_in(until: &str) -> AccountInfo {
+        serde_json::from_value(serde_json::json!({
+            "did": "did:plc:abc",
+            "handle": "dj.example.com",
+            "pds": "https://pds.example",
+            "auth_server": "https://pds.example",
+            "scopes": ["atproto"],
+            "signed_in_at": "2026-01-05T12:00:00Z",
+            "sign_in_again_by": until,
+            "access_expires_at": null,
+            "client": { "kind": "hosted", "client_id": "https://example.com/client.json" },
+            "storage": "file"
+        }))
+        .unwrap()
+    }
+
+    /// A key, as the account takes it before the view: whether it took it.
+    fn input(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> bool {
+        on_input(app, KeyEvent::new(code, modifiers))
+    }
+
+    fn starting(app: &mut App) -> CancelToken {
+        let cancel = CancelToken::new();
+        app.profile.account.sign_in = Some(SignIn::Starting(cancel.clone()));
+        cancel
+    }
+
+    #[test]
+    fn the_bar_says_how_signing_in_is_going() {
+        let mut t = Account::default();
+        assert!(!t.busy());
+        t.sign_in = Some(SignIn::Starting(CancelToken::new()));
+        assert!(shown(&t, 120).contains("Finding your account's server…  esc stop"));
+        assert!(t.busy() && !t.typing());
+
+        // The browser didn't open, so the address to open by hand is shown.
+        t.sign_in = Some(SignIn::Waiting {
+            server: "https://pds.example".into(),
+            url: "https://pds.example/authorize".into(),
+            opened: false,
+            local_app: true,
+            cancel: CancelToken::new(),
+        });
+        let bar = shown(&t, 200);
+        assert!(bar.contains("Approve in your browser at https://pds.example"), "{bar}");
+        assert!(bar.contains("as a local development app"), "{bar}");
+        assert!(bar.contains("(the browser didn't open: https://pds.example/authorize)"), "{bar}");
+
+        t.sign_in = Some(SignIn::Waiting {
+            server: "https://pds.example".into(),
+            url: "https://pds.example/authorize".into(),
+            opened: true,
+            local_app: false,
+            cancel: CancelToken::new(),
+        });
+        let bar = shown(&t, 200);
+        assert!(!bar.contains("didn't open") && !bar.contains("development app"), "{bar}");
+
+        t.sign_in = Some(SignIn::SigningOut);
+        assert!(shown(&t, 80).contains("Signing out…"));
+        assert!(t.busy());
+    }
+
+    #[test]
+    fn a_session_past_its_end_asks_to_sign_in_again() {
+        let mut t = Account { info: Some(signed_in("2020-01-01T00:00:00Z")), ..Default::default() };
+        let bar = shown(&t, 200);
+        assert!(bar.contains("Atmosphere account @dj.example.com"), "{bar}");
+        assert!(bar.contains("the session has likely ended; L signs in again"), "{bar}");
+        assert!(!bar.contains("development client"), "a hosted client isn't called that: {bar}");
+
+        t.info = Some(signed_in("2099-01-01T00:00:00Z"));
+        let bar = shown(&t, 200);
+        assert!(bar.contains("sign in again by 2099-01-01"), "{bar}");
+        assert!(!bar.contains("likely ended"), "{bar}");
+    }
+
+    #[test]
+    fn typing_a_handle_edits_it_and_enter_wants_one() {
+        let (mut app, _dir) = blank(View::Profile);
+        app.profile.account.last_handle = Some("old.example.com".into());
+        super::press(&mut app);
+        assert!(app.profile.account.typing());
+        assert!(shown(&app.profile.account, 120).contains("old.example.com"), "the last handle to begin with");
+
+        // Ctrl-U clears it; enter with nothing typed says what to type.
+        assert!(input(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL));
+        assert!(input(&mut app, KeyCode::Char(' '), KeyModifiers::NONE));
+        assert!(input(&mut app, KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.profile.account.typing(), "still typing");
+        assert!(last_message(&app).starts_with("type your handle"), "{}", last_message(&app));
+        // Other control keys type nothing.
+        assert!(input(&mut app, KeyCode::Char('x'), KeyModifiers::CONTROL));
+        assert!(input(&mut app, KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(shown(&app.profile.account, 120).matches('x').count(), 0);
+    }
+
+    #[test]
+    fn esc_stops_a_sign_in_and_l_waits_for_it() {
+        let (mut app, _dir) = blank(View::Profile);
+        assert!(!input(&mut app, KeyCode::Esc, KeyModifiers::NONE), "nothing to stop");
+        assert!(!input(&mut app, KeyCode::Char('L'), KeyModifiers::NONE), "L goes to the view");
+
+        let cancel = starting(&mut app);
+        assert!(input(&mut app, KeyCode::Char('L'), KeyModifiers::NONE), "already signing in");
+        assert!(!input(&mut app, KeyCode::Char('x'), KeyModifiers::NONE));
+        assert!(input(&mut app, KeyCode::Esc, KeyModifiers::NONE));
+        assert!(cancel.is_cancelled());
+
+        // The browser was sent on: esc still stops it.
+        let cancel = starting(&mut app);
+        let started = AccountEvent::Started {
+            server: "https://pds.example".into(),
+            url: "https://pds.example/authorize".into(),
+            opened: true,
+            local_app: false,
+        };
+        on_event(&mut app, started);
+        assert!(shown(&app.profile.account, 120).contains("Approve in your browser at https://pds.example"));
+        assert!(input(&mut app, KeyCode::Esc, KeyModifiers::NONE));
+        assert!(cancel.is_cancelled());
+    }
+
+    /// News of a sign-in that was stopped meanwhile changes nothing.
+    #[test]
+    fn a_late_start_is_ignored() {
+        let (mut app, _dir) = blank(View::Profile);
+        let started = AccountEvent::Started { server: "s".into(), url: "u".into(), opened: true, local_app: false };
+        on_event(&mut app, started);
+        assert!(!app.profile.account.busy());
+    }
+
+    #[test]
+    fn a_failed_sign_in_says_so_as_an_error() {
+        let (mut app, _dir) = blank(View::Profile);
+        starting(&mut app);
+        on_event(&mut app, AccountEvent::Done { message: "the server said no".into(), error: true });
+        assert!(!app.profile.account.busy());
+        assert!(matches!(&app.toast, Some((m, Level::Error, _)) if m == "the server said no"), "{:?}", app.toast);
+    }
+
+    /// The first press of `L` signed in only arms signing out for a few seconds.
+    #[test]
+    fn a_second_press_long_after_the_first_asks_again() {
+        let (mut app, _dir) = blank(View::Profile);
+        app.profile.account.info = Some(signed_in("2099-01-01T00:00:00Z"));
+        app.profile.account.logout_armed = Instant::now().checked_sub(Duration::from_secs(10));
+        super::press(&mut app);
+        assert!(!app.profile.account.busy(), "too long ago to count");
+        assert_eq!(last_message(&app), "signed in as @dj.example.com: press L again to sign out");
+    }
+
+    /// Signing out runs on a thread, which says how it went; here nobody was signed in.
+    #[test]
+    fn signing_out_reports_back() {
+        let (mut app, _dir) = blank(View::Profile);
+        app.profile.account.info = Some(signed_in("2099-01-01T00:00:00Z"));
+        super::press(&mut app);
+        super::press(&mut app);
+        assert!(app.profile.account.busy());
+        wait(&mut app, |a| !a.profile.account.busy());
+        assert!(matches!(&app.toast, Some((m, Level::Info, _)) if m == "not signed in"), "{:?}", app.toast);
+        assert!(app.profile.account.info.is_none(), "read again from the store");
+    }
+}

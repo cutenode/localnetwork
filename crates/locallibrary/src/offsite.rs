@@ -38,8 +38,15 @@ use crate::{Error, Result};
 /// The store's own files a copy takes besides stored files, snapshots and `libraries.json`. Not
 /// the account session (`atmosphere*.json`, secrets that stay on this computer), the lock,
 /// caches or reports.
-const METADATA: &[&str] =
-    &["drives.json", "settings.json", "smart.json", "players.json", crate::profile::PREFS_FILE, "pruned.json"];
+const METADATA: &[&str] = &[
+    "drives.json",
+    "settings.json",
+    "smart.json",
+    "players.json",
+    crate::profile::PREFS_FILE,
+    crate::sets::SETS_FILE,
+    "pruned.json",
+];
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct CopyOptions {

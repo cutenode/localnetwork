@@ -195,6 +195,11 @@ pub fn embed_backups(store: &Store) -> Result<Vec<EmbedBackup>> {
     Ok(out)
 }
 
+/// Space the embeds kept take in the store: whole copies of the files they rewrote.
+pub fn embed_backup_bytes(store: &Store) -> u64 {
+    crate::space::dir_size(&embeds_dir(store)).1
+}
+
 /// What embedding art into files did.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct EmbedReport {
@@ -631,15 +636,6 @@ pub fn apply_auto(device: &mut Device, plan: &AutoArtworkPlan, ctx: &Ctx<'_>) ->
             groups.entry(Hash::of(&bytes)).or_insert_with(|| (Vec::new(), bytes)).0.push(t.id);
         }
     }
-    if groups.is_empty() {
-        return Ok(ArtworkReport {
-            tracks_updated: 0,
-            artwork_rows_added: 0,
-            files_written: Vec::new(),
-            backup: None,
-            fingerprint: None,
-        });
-    }
     let decoded: Vec<(Vec<u32>, Artwork)> = groups
         .into_values()
         .filter_map(|(ids, bytes)| match Artwork::from_bytes(&bytes) {
@@ -650,6 +646,17 @@ pub fn apply_auto(device: &mut Device, plan: &AutoArtworkPlan, ctx: &Ctx<'_>) ->
             }
         })
         .collect();
+    // Nothing to set (no art found, or none of it decodes): the drive isn't written, not even a
+    // backup.
+    if decoded.is_empty() {
+        return Ok(ArtworkReport {
+            tracks_updated: 0,
+            artwork_rows_added: 0,
+            files_written: Vec::new(),
+            backup: None,
+            fingerprint: None,
+        });
+    }
     let batches: Vec<(Vec<u32>, &Artwork)> = decoded.iter().map(|(ids, a)| (ids.clone(), a)).collect();
     apply_batches(device, &batches, ctx)
 }
@@ -697,5 +704,21 @@ mod tests {
         std::fs::create_dir_all(taken.parent().unwrap()).unwrap();
         std::fs::write(&taken, b"x").unwrap();
         assert_eq!(free_artwork_key(dir.path(), 7, "jpg"), "PIONEER/Artwork/00002/a7.jpg");
+    }
+
+    /// Without an extension, or with a dot only in a folder's name, the suffix goes at the end.
+    #[test]
+    fn medium_variants_of_names_without_an_extension() {
+        assert_eq!(medium_variant("PIONEER/Artwork/00001/a1"), "PIONEER/Artwork/00001/a1_m");
+        assert_eq!(medium_variant("PIONEER/Art.work/a1"), "PIONEER/Art.work/a1_m");
+    }
+
+    #[test]
+    fn previews_are_lossless_pngs() {
+        let jpeg = Artwork::from_bytes(&png(40, 30)).unwrap().jpeg(THUMB_SIZE).unwrap();
+        let back = image::load_from_memory(&to_png(&jpeg).unwrap()).unwrap();
+        assert_eq!((back.width(), back.height()), (THUMB_SIZE, THUMB_SIZE));
+        assert_eq!(image::guess_format(&to_png(&jpeg).unwrap()).unwrap(), ImageFormat::Png);
+        assert!(matches!(to_png(b"not an image"), Err(Error::Image(_))));
     }
 }

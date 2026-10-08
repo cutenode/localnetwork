@@ -440,4 +440,57 @@ mod tests {
         let admin = Error::Permission("formatting /dev/disk4 needs administrator rights".into()).detail();
         assert_eq!((admin.reason, admin.actions[0].elevate), (Some(Reason::NeedsAdmin), true));
     }
+
+    /// Front ends switch on the codes, so they stay what they are; the values an error is about
+    /// come with it, whatever detail was added on top.
+    #[test]
+    fn every_kind_keeps_its_code_and_says_what_its_about() {
+        let io = || io::Error::other("gone");
+        let cases = [
+            (Error::Io { path: "/a".into(), source: io() }, "io", json!({ "path": "/a" })),
+            (Error::NotAnExport("/b".into()), "not_an_export", json!({ "path": "/b" })),
+            (Error::parse("/c", "bad"), "parse", json!({ "path": "/c" })),
+            (Error::Locked("/d".into()), "locked", json!({ "path": "/d" })),
+            (
+                Error::Corrupt { path: "/e".into(), expected: "ab".into(), actual: "cd".into() },
+                "corrupt",
+                json!({ "path": "/e", "expected": "ab", "actual": "cd" }),
+            ),
+            (
+                Error::External { command: "diskutil".into(), message: "no".into() },
+                "external",
+                json!({ "command": "diskutil" }),
+            ),
+            (Error::stale("DNA", "changed"), "stale_plan", json!({})),
+            (Error::ExportExt("x".into()), "pdb", json!({})),
+            (Error::OneLibrary("x".into()), "onelibrary", json!({})),
+            (Error::Image("x".into()), "image", json!({})),
+            (Error::Tags("x".into()), "tags", json!({})),
+            (Error::Account("x".into()), "account", json!({})),
+            (Error::Cancelled, "cancelled", json!({})),
+            (
+                Error::NoSpace { path: "/f".into(), needed: 2, available: 1 },
+                "no_space",
+                json!({ "path": "/f", "needed": 2, "available": 1 }),
+            ),
+            (Error::Permission("x".into()), "permission", json!({})),
+        ];
+        for (e, code, fields) in cases {
+            let e = e.with("drive", "DNA");
+            let mut want = fields.as_object().unwrap().clone();
+            want.insert("drive".into(), "DNA".into());
+            assert_eq!((e.code(), e.detail().fields), (code, want), "{e}");
+        }
+        assert_eq!(Error::stale("DNA", "changed").to_string(), "DNA changed since the plan was made; plan again");
+        // An action's params are an object, or nothing.
+        assert!(Action::call("pull", json!("DNA"), "Pull").params.is_empty());
+    }
+
+    #[test]
+    fn panics_say_what_they_said() {
+        let said = |f: fn()| panic_text(&*std::panic::catch_unwind(f).unwrap_err());
+        assert_eq!(said(|| panic!("plain")), "plain");
+        assert_eq!(said(|| panic!("{}", String::from("formatted"))), "formatted");
+        assert_eq!(said(|| std::panic::panic_any(7)), "a panic");
+    }
 }

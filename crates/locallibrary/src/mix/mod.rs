@@ -623,4 +623,201 @@ mod tests {
         assert_eq!(info.title, "Live at the Warehouse");
         assert_eq!(info.artist.as_deref(), Some("Example DJ"));
     }
+
+    /// Half a second of a recording, at `path`.
+    fn recording(path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, crate::probe::tests::wav(8_000, 16, 0.5)).unwrap();
+    }
+
+    /// Tags an editor wrote and an embedded cover describe the mix, and the cover is one to
+    /// share.
+    #[test]
+    fn tags_and_an_embedded_cover_describe_the_mix() {
+        use lofty::config::WriteOptions;
+        let dir = tempfile::tempdir().unwrap();
+        let set = dir.path().join("REC001.wav");
+        recording(&set);
+        let png = dir.path().join("art.png");
+        image::RgbImage::from_fn(64, 64, |x, _| image::Rgb([x as u8 * 4, 0, 0])).save(&png).unwrap();
+        crate::artwork::embed_in_file(&set, &crate::artwork::Artwork::from_path(&png).unwrap()).unwrap();
+        let mut tagged = lofty::read_from_path(&set).unwrap();
+        let tag = tagged.primary_tag_mut().unwrap();
+        tag.set_title("Friday".into());
+        tag.set_artist("Example DJ".into());
+        tag.set_genre("Techno".into());
+        tag.insert_text(ItemKey::RecordingDate, "2026-10-03".into());
+        tag.save_to_path(&set, WriteOptions::default()).unwrap();
+
+        let (info, _) = listen(&set, &Ctx::silent()).unwrap();
+        let described = (info.title.as_str(), info.artist.as_deref(), info.genre.as_deref(), info.date.as_deref());
+        assert_eq!(described, ("Friday", Some("Example DJ"), Some("Techno"), Some("2026-10-03")));
+        assert!(matches!(&info.cover, Some(CoverSource::Embedded(p)) if *p == set), "{:?}", info.cover);
+        let shared = info.shared_cover().unwrap();
+        assert_eq!(image::load_from_memory(&shared).unwrap().width(), crate::artwork::THUMB_SIZE);
+    }
+
+    /// An image next to the mix is its cover when it's named like the mix, then like its folder,
+    /// then a generic cover name; it's a guess, so a shared report leaves it out.
+    #[test]
+    fn a_cover_next_to_the_mix_is_found_by_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Live at Fabric");
+        let set = folder.join("set.wav");
+        recording(&set);
+        let cover = || match listen(&set, &Ctx::silent()).unwrap().0.cover {
+            Some(CoverSource::File(p)) => p.file_name().unwrap().to_string_lossy().into_owned(),
+            other => panic!("{other:?}"),
+        };
+        for name in ["notes.png", "cover.JPG", "set.txt"] {
+            std::fs::write(folder.join(name), name).unwrap();
+        }
+        assert_eq!(cover(), "cover.JPG");
+        std::fs::write(folder.join("fabric.png"), b"x").unwrap();
+        assert_eq!(cover(), "fabric.png");
+        std::fs::write(folder.join("set.webp"), b"x").unwrap();
+        assert_eq!(cover(), "set.webp");
+
+        let (info, _) = listen(&set, &Ctx::silent()).unwrap();
+        assert_eq!(info.shared_cover(), None);
+        assert_eq!(info.cover.unwrap().read().unwrap(), b"x");
+        assert!(CoverSource::File(folder.join("gone.png")).read().is_err());
+        let err = CoverSource::Embedded(set.clone()).read().unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "{err}");
+        assert!(matches!(listen(&folder.join("gone.wav"), &Ctx::silent()), Err(Error::NotFound(_))));
+    }
+
+    /// An Audacity project is listened to as the mix it renders, with its labels and tags.
+    #[test]
+    fn a_project_is_listened_to_as_its_mix() {
+        use super::aup::tests::{Xml, floats, project};
+        let dir = tempfile::tempdir().unwrap();
+        let mut x = Xml::new(4);
+        x.start("project").double("rate", 8_000.0);
+        x.start("tags").start("tag").string("name", "TITLE").string("value", "Warehouse").end("tag").end("tags");
+        x.start("labeltrack").start("label").double("t", 1.0).string("title", "drop").end("label").end("labeltrack");
+        x.start("wavetrack").clip(0.0, 8_000, &[(0, 1)]);
+        let tone: Vec<f32> = (0..8_000).map(|i| (i as f32 * 0.05).sin() * 0.5).collect();
+        // 0x0004_000F: Audacity's 32-bit float samples.
+        let path = project(dir.path(), "project", Some(&x), &[(1, 0x0004_000F, floats(&tone))]);
+        let (info, heard) = listen(&path, &Ctx::silent()).unwrap();
+        assert_eq!((info.kind, info.title.as_str(), info.duration_secs), ("audacity", "Warehouse", 1.0));
+        assert_eq!(info.labels, [Label { start: 1.0, end: 1.0, title: "drop".into() }]);
+        assert!(heard.frames > 0);
+    }
+
+    /// Recordings are found by their names alone, in every folder but hidden ones.
+    #[test]
+    fn recordings_are_found_in_every_folder_but_hidden_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join(".mixes");
+        for f in ["b.MP3", "a.wav", "notes.txt", "old/set.aup3", ".hidden/d.wav", "old/.e.flac"] {
+            let p = root.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"not audio, but only the name is read").unwrap();
+        }
+        let found: Vec<PathBuf> = recordings_in(&root).iter().map(|p| p.strip_prefix(&root).unwrap().into()).collect();
+        assert_eq!(found, [PathBuf::from("a.wav"), "b.MP3".into(), Path::new("old").join("set.aup3")]);
+    }
+
+    /// A drive is matched by its identity, or by its name when it has none.
+    #[test]
+    fn a_report_knows_the_drive_it_was_matched_against() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut device = Device::open(dir.path()).unwrap();
+        let mut r = crate::mix::report::tests::report("Friday");
+        r.drive = device.name();
+        assert!(r.matched_against(&device));
+        r.drive = "Other".into();
+        assert!(!r.matched_against(&device));
+        let id = device.adopt(Some("Other")).unwrap().id;
+        r.drive_id = Some(Uuid::new_v4());
+        assert!(!r.matched_against(&device), "the same name, another identity");
+        r.drive_id = Some(id);
+        assert!(r.matched_against(&device));
+    }
+
+    /// What the matcher found becomes a play: the key heard moves with the speed unless key lock
+    /// was on, and the other tracks matching the same stretch are named.
+    #[test]
+    fn plays_hear_the_key_moved_by_the_speed() {
+        use crate::model::tests::track;
+        let mut t = track(1, "A", "One", "/Contents/one.wav");
+        (t.key, t.bpm) = ("Am".into(), 125.0);
+        // Unanalysed: no key or tempo.
+        let mut copy = track(2, "A", "One (copy)", "/Contents/copy.wav");
+        copy.bpm = 0.0;
+        let tracks = vec![t, copy];
+        let print = || index::TrackPrint { duration_secs: 60.0, peaks: Vec::new() };
+        let id = Identifier {
+            drive: "DNA".into(),
+            drive_id: None,
+            library: Arc::new(Library { tracks, ..Default::default() }),
+            report: IndexReport::default(),
+            index: LibraryIndex::build(vec![(1, print()), (2, print())]),
+            slots: HashMap::new(),
+        };
+        let semitone_up = 2f64.powf(1.0 / 12.0);
+        let found = |slot, key_lock| Found {
+            slot,
+            start: 10.0,
+            end: 70.0,
+            track_start: 0.0,
+            track_end: 60.0,
+            tempo: semitone_up,
+            key_lock,
+            votes: 600,
+            strongest: 400,
+            heard: 30,
+            spanned: 30,
+            presence: vec![1.0],
+            jumps: 0,
+            alternates: vec![(1, true), (7, false)],
+            fits: Vec::new(),
+        };
+        let p = id.play(&found(0, Some(false))).unwrap();
+        assert_eq!((p.key.as_deref(), p.played_key.as_deref()), (Some("8A"), Some("3A")));
+        assert!((p.semitones - 1.0).abs() < 1e-9 && (p.played_bpm.unwrap() - 125.0 * semitone_up).abs() < 1e-9);
+        let alternates: Vec<(u32, &str, bool)> =
+            p.alternates.iter().map(|a| (a.track_id, a.file_path.as_str(), a.same_audio)).collect();
+        assert_eq!(alternates, [(2, "/Contents/copy.wav", true)], "slot 7 isn't in the index");
+        let locked = id.play(&found(0, Some(true))).unwrap();
+        assert_eq!((locked.semitones, locked.played_key.as_deref()), (0.0, Some("8A")));
+        let keyless = id.play(&found(1, None)).unwrap();
+        assert_eq!((keyless.key, keyless.played_bpm), (None, None));
+        assert!(id.play(&found(5, None)).is_none());
+    }
+
+    /// Each transition says how the keys heard relate and how the tempo moved.
+    #[test]
+    fn transitions_say_how_keys_and_tempos_move() {
+        use crate::model::tests::track;
+        let play = |start: f64, end: f64, key: Option<&str>, bpm: Option<f64>| Play {
+            start,
+            end,
+            track_end: end - start,
+            played_bpm: bpm,
+            key: key.map(str::to_string),
+            played_key: key.map(str::to_string),
+            ..report::tests::play(track(1, "A", "One", "/Contents/one.wav"))
+        };
+        let plays = [
+            play(0.0, 130.0, Some("8A"), Some(125.0)),
+            play(120.0, 250.0, Some("10A"), Some(128.0)),
+            play(260.0, 400.0, Some("3A"), None),
+            play(390.0, 500.0, None, Some(126.0)),
+        ];
+        let t = transitions(&plays);
+        let said: Vec<(f64, f64, Option<&str>, Option<f64>)> =
+            t.iter().map(|t| (t.at, t.overlap, t.harmony.as_deref(), t.tempo_change)).collect();
+        assert_eq!(
+            said,
+            [
+                (120.0, 10.0, Some("energy boost"), Some(2.4)),
+                (260.0, -10.0, Some("clash"), None),
+                (390.0, 10.0, None, None),
+            ]
+        );
+        assert_eq!(t.iter().map(|t| (t.from, t.to)).collect::<Vec<_>>(), [(0, 1), (1, 2), (2, 3)]);
+    }
 }

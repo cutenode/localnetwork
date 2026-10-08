@@ -12,7 +12,7 @@ use locallibrary::progress::Ctx;
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
 use locallibrary::{Error, Store};
 
-use crate::output::{Output, dim};
+use crate::output::{Output, dim, with_schema};
 
 #[derive(Args)]
 #[command(after_long_help = "Examples:
@@ -65,15 +65,18 @@ pub fn run(args: WatchArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
 fn log(out: Output, w: Watched<'_>) {
     if out.json {
         let line = match w {
-            Watched::Seen(e) => serde_json::to_string(e),
-            Watched::Did(a) => serde_json::to_string(a),
+            Watched::Seen(e) => serde_json::to_value(e),
+            Watched::Did(a) => serde_json::to_value(a),
         };
-        say!("{}", line.expect("serialisable"));
+        say!("{}", with_schema(line.expect("serialisable")));
         return;
     }
     let Some(text) = describe(w) else { return };
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     say!("{} {text}", dim(now));
+    if let Watched::Did(WatchAction::Pulled { history_lists, .. }) = w {
+        crate::hints::new_sessions(history_lists.len());
+    }
 }
 
 fn describe(w: Watched<'_>) -> Option<String> {
@@ -107,6 +110,7 @@ fn describe(w: Watched<'_>) -> Option<String> {
                         .collect();
                     format!("{} {name}: synced to {}", style("✓").green().bold(), each.join(", "))
                 }
+                WatchAction::Waiting { reason, .. } => format!("{name}: waiting: {reason}"),
                 WatchAction::Skipped { reason, .. } => format!("{name}: left alone: {reason}"),
                 WatchAction::Failed { message, .. } => format!("{} {name}: {message}", style("error:").red().bold()),
             }

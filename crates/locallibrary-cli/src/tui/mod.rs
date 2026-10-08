@@ -27,8 +27,7 @@ mod widgets;
 
 use std::io::stdout;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -50,10 +49,11 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     execute!(stdout(), EnterAlternateScreen)?;
     let mut terminal = ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(stdout()))?;
     let _ = execute!(stdout(), EnableMouseCapture);
-    let signalled = on_signals();
-    let result = event_loop(&mut terminal, &mut app, &signalled);
+    SIGNAL.store(RUNNING, Ordering::Relaxed);
+    let result = event_loop(&mut terminal, &mut app);
     let _ = execute!(stdout(), DisableMouseCapture);
     ratatui::restore();
+    SIGNAL.store(IDLE, Ordering::Relaxed);
     // The loop also ends when the terminal goes away mid-write: the write still finishes.
     app.finish_write();
     app.save_state();
@@ -81,23 +81,31 @@ fn on_panic() {
     }));
 }
 
-/// A flag raised when the terminal closes (SIGHUP) or something asks the player to stop
-/// (SIGTERM), instead of the process ending on the spot: a drive write under way gets to finish
-/// and the state is saved, as when quitting with `q`.
-fn on_signals() -> Arc<AtomicBool> {
-    let flag = Arc::new(AtomicBool::new(false));
-    #[cfg(unix)]
-    for signal in [signal_hook::consts::SIGHUP, signal_hook::consts::SIGTERM] {
-        let _ = signal_hook::flag::register(signal, flag.clone());
-    }
-    flag
+/// Where a signal goes (Ctrl-C, SIGTERM, or SIGHUP as the terminal closes): to the CLI's handler,
+/// or while the player runs, to the player (see [`signal`]).
+static SIGNAL: AtomicU8 = AtomicU8::new(IDLE);
+const IDLE: u8 = 0;
+const RUNNING: u8 = 1;
+const SIGNALLED: u8 = 2;
+
+/// A signal, from the CLI's handler: true when it's the player's, which then quits as with `q`
+/// (a drive write under way gets to finish and the state is saved) and puts the terminal back.
+/// The handler's own way (a message, then exiting on a second signal) would write over the
+/// screen and leave the terminal raw.
+pub fn signal() -> bool {
+    matches!(SIGNAL.compare_exchange(RUNNING, SIGNALLED, Ordering::Relaxed, Ordering::Relaxed), Ok(_) | Err(SIGNALLED))
 }
 
-fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App, signalled: &AtomicBool) -> Result<()> {
+/// Quit, once signalled.
+fn on_signal(app: &mut App) {
+    if SIGNAL.compare_exchange(SIGNALLED, RUNNING, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
+        app.request_quit();
+    }
+}
+
+fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     while !app.quit {
-        if signalled.swap(false, Ordering::Relaxed) {
-            app.request_quit();
-        }
+        on_signal(app);
         app.tick();
         terminal.draw(|f| ui::draw(f, app))?;
         // ~60 fps while something moves (unless asked for less motion), otherwise just often
@@ -159,5 +167,22 @@ mod tests {
         on_panic();
         let opened = std::thread::spawn(move || audio::open_file(&path).map(|_| ())).join().unwrap();
         assert!(format!("{:#}", opened.unwrap_err()).contains("crashed"));
+    }
+
+    /// A signal while the player runs is the player's, and quits it as `q` does; before it runs
+    /// (and after), it's the CLI's handler's.
+    #[test]
+    fn signals_quit_the_running_player() {
+        assert!(!signal(), "not running yet");
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = App::blank(dir.path().join("store"), None);
+        SIGNAL.store(RUNNING, Ordering::Relaxed);
+        on_signal(&mut app);
+        assert!(!app.quit);
+        assert!(signal() && signal(), "every signal while it runs");
+        on_signal(&mut app);
+        assert!(app.quit);
+        SIGNAL.store(IDLE, Ordering::Relaxed);
+        assert!(!signal());
     }
 }

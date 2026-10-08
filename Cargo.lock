@@ -3236,6 +3236,7 @@ dependencies = [
  "unicode-normalization",
  "uuid",
  "walkdir",
+ "winapi-util",
 ]
 
 [[package]]
@@ -3258,6 +3259,7 @@ dependencies = [
  "ratatui",
  "rekordbox-pdb",
  "rodio",
+ "rusqlite",
  "rustfft",
  "schemars",
  "serde",

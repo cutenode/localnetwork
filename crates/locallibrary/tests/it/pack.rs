@@ -1,3 +1,5 @@
+mod files;
+
 use crate::common;
 
 use std::fs;
@@ -259,4 +261,57 @@ fn pack_stages_the_databases_and_an_exit_waits_for_the_swap() {
     });
     assert_eq!(staged(), 0);
     assert!(databases.iter().all(|k| paths::to_fs(&club_root, k).is_file()));
+}
+
+/// Regression: packing put the source's player name and colour on the target, the way players
+/// tell sticks apart. The target keeps its own.
+#[test]
+fn packing_keeps_the_targets_player_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = source(dir.path());
+    let club_root = dir.path().join("Club");
+    fs::create_dir_all(&club_root).unwrap();
+    let mut src = Device::open_export(&src_root).unwrap();
+    src.adopt(None).unwrap();
+    locallibrary::player::set(&mut src, Some("MAIN"), Some(3)).unwrap();
+    let mut club = Device::open(&club_root).unwrap();
+    let opts = PackOptions { playlists: vec!["Sets".into()], ..Default::default() };
+    let plan = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    pack::apply(&plan, &src, &mut club, None, &Ctx::silent()).unwrap();
+    locallibrary::player::set(&mut club, Some("CLUB"), Some(6)).unwrap();
+
+    let opts = PackOptions { playlists: vec!["Other".into()], ..Default::default() };
+    let plan = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    pack::apply(&plan, &src, &mut club, None, &Ctx::silent()).unwrap();
+    let id = locallibrary::player::db_identity(&club_root).unwrap();
+    assert_eq!((id.name.as_deref(), id.colour), (Some("CLUB"), Some(6)));
+    assert_eq!(common::plus_library(&club_root).tracks.len(), 2, "the library is the new pack's");
+}
+
+/// Regression: pack's space check left out the backup it takes of the target, so a stick with room
+/// for the copies but not the backup failed part way instead of in the plan.
+#[test]
+fn packs_space_check_counts_the_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = source(dir.path());
+    let club_root = dir.path().join("Club");
+    fs::create_dir_all(&club_root).unwrap();
+    let mut src = Device::open_export(&src_root).unwrap();
+    src.adopt(None).unwrap();
+    let mut club = Device::open(&club_root).unwrap();
+    let opts = PackOptions { playlists: vec!["Sets".into()], ..Default::default() };
+    let first = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    pack::apply(&first, &src, &mut club, None, &Ctx::silent()).unwrap();
+
+    // Packed again with the same selection: the new databases are the size of the ones on the
+    // stick, and the backup copies those too.
+    let again = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    let size = |key: &str| fs::metadata(paths::to_fs(&club_root, key)).map(|m| m.len()).unwrap_or(0);
+    let databases = size(paths::EXPORT_PDB) + size(paths::LIBRARY_PLUS_DB);
+    assert!(
+        again.needed_bytes >= again.copy_bytes + 2 * databases,
+        "{} needed, {} copied, {databases} in databases",
+        again.needed_bytes,
+        again.copy_bytes
+    );
 }

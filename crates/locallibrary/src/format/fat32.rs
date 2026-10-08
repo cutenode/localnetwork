@@ -112,9 +112,12 @@ impl Layout {
         u64::from(self.clusters) * u64::from(self.cluster_size())
     }
 
-    /// Bytes [`write()`] puts on the device (for progress).
+    /// Bytes [`write()`] puts on the device (for progress): the reserved area, the FATs and the
+    /// root directory, then the boot sector, the FSInfo sector and their backups over the
+    /// reserved area.
     pub fn bytes_written(&self) -> u64 {
-        (u64::from(self.reserved_sectors) + NUM_FATS * u64::from(self.fat_sectors)) * u64::from(self.bytes_per_sector)
+        (u64::from(self.reserved_sectors) + NUM_FATS * u64::from(self.fat_sectors) + 4)
+            * u64::from(self.bytes_per_sector)
             + u64::from(self.cluster_size())
     }
 }
@@ -302,6 +305,30 @@ mod tests {
         assert!(Layout::new(3_000 * GB, 512, 32768, 0).is_err(), "more than 2^32 sectors");
         assert!(Layout::new(64 * GB, 512, 65536, 0).is_err(), "64 KB clusters");
         assert!(Layout::new(64 * GB, 512, 3000, 0).is_err(), "not a power of two");
+    }
+
+    #[test]
+    fn only_sector_sizes_disks_use_are_taken() {
+        for bps in [512, 4096] {
+            assert_eq!(Layout::new(64 * GB, bps, 32768, 0).unwrap().bytes_per_sector, bps);
+        }
+        let err = Layout::new(64 * GB, 520, 32768, 0).unwrap_err();
+        assert_eq!(err.to_string(), "unsupported sector size 520");
+    }
+
+    /// The progress a format reports adds up to what it said it would write.
+    #[test]
+    fn progress_adds_up_to_the_bytes_written() {
+        let layout = Layout::new(64 << 20, 512, 512, 0).unwrap();
+        let reported = std::sync::atomic::AtomicU64::new(0);
+        let count = |e: &Event| {
+            if let Event::Bytes { phase: Phase::Format, bytes } = e {
+                reported.fetch_add(*bytes, std::sync::atomic::Ordering::Relaxed);
+            }
+        };
+        let mut volume = std::io::Cursor::new(Vec::new());
+        write(&mut volume, 0, &layout, "USB", 1, &Ctx::new(&count, Default::default())).unwrap();
+        assert_eq!(reported.into_inner(), layout.bytes_written());
     }
 
     #[test]

@@ -4,35 +4,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../locallibrary/tests/fixtures")
-}
-
-fn copy_dir(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for e in std::fs::read_dir(src).unwrap() {
-        let e = e.unwrap();
-        let to = dst.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_dir(&e.path(), &to);
-        } else {
-            std::fs::copy(e.path(), to).unwrap();
-        }
-    }
-}
-
-/// The demo export with placeholder audio.
-fn demo_drive(dir: &Path, name: &str) -> PathBuf {
-    let root = dir.join(name);
-    copy_dir(&fixtures().join("rekordcrate/demo_tracks"), &root);
-    let db = rekordbox_pdb::Database::from_file(root.join("PIONEER/rekordbox/export.pdb")).unwrap();
-    for t in &db.tracks {
-        let p = root.join(t.file_path().trim_start_matches('/'));
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, format!("audio {}", t.title()).repeat(100)).unwrap();
-    }
-    root
-}
+use crate::support::{PDB, club_export, copy_dir, demo_drive, fixtures, path};
 
 struct Env {
     _dir: tempfile::TempDir,
@@ -57,10 +29,6 @@ impl Env {
         serde_json::from_str(&text)
             .unwrap_or_else(|e| panic!("{args:?}: {e}\n{text}\n{}", String::from_utf8_lossy(&out.stderr)))
     }
-}
-
-fn path(p: &Path) -> &str {
-    p.to_str().unwrap()
 }
 
 #[test]
@@ -149,9 +117,7 @@ fn errors_are_reported_with_codes() {
     let a = demo_drive(&env.root, "A");
     let other = env.root.join("unrelated");
     copy_dir(&fixtures().join("rekordcrate/demo_tracks"), &other);
-    let bigger =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../vendor/rekordbox-pdb/tests/data/bigger-export.pdb");
-    std::fs::copy(bigger, other.join("PIONEER/rekordbox/export.pdb")).unwrap();
+    std::fs::copy(club_export(), other.join(PDB)).unwrap();
     let out = env.locallibrary().args(["--json", "--yes", "sync", path(&a), path(&other)]).output().unwrap();
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["error"]["code"], "conflict", "different libraries must not be synced automatically");
@@ -269,6 +235,7 @@ fn watch_pulls_drives_with_new_history_and_leaves_the_rest_alone() {
     };
     // Without --pull: only said.
     let events = watch(&["--json", "watch", "--once"]);
+    assert!(events.iter().all(|e| e["schema"] == 1), "{events:?}");
     let pending = events.iter().find(|e| e["event"] == "watch.pending").expect("Main has news");
     assert_eq!(pending["history_lists"], serde_json::json!(["HISTORY 001"]));
 
@@ -882,4 +849,37 @@ fn sigterm_stops_at_a_safe_point() {
     assert!(kill.success());
     let status = child.wait().unwrap();
     assert_eq!(status.code(), Some(0), "stopped by the signal itself: {status:?}");
+}
+
+/// Regression: `pack` said which snapshot it saved the stick's state in, and which backup `undo`
+/// puts back, only with `--json`.
+#[test]
+fn pack_says_what_it_saved_and_how_to_undo_it() {
+    let env = Env::new();
+    let (main, club) = (demo_drive(&env.root, "Main"), demo_drive(&env.root, "Club"));
+    env.json(&["--yes", "playlist", "new", path(&main), "Friday", "--track", "1"]);
+    env.json(&["pull", path(&club), "--library", "Club", "--new-library"]);
+    add_history(&club, "HISTORY 001");
+    let out =
+        env.locallibrary().args(["--yes", "pack", path(&main), path(&club), "--playlist", "Friday"]).output().unwrap();
+    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("saved snapshot "), "{text}");
+    assert!(text.contains("undo with: locallibrary undo") && text.contains("(backup "), "{text}");
+}
+
+/// `drive verify` and `drive recordings` take the one mounted drive when given none, as `export`
+/// does, and ask which with several.
+#[test]
+fn verify_and_recordings_default_to_the_mounted_drive() {
+    let env = Env::new();
+    demo_drive(&env.root, "A");
+    assert_eq!(env.json(&["drive", "verify"])["drive"], "A");
+    assert_eq!(env.json(&["drive", "recordings"]), serde_json::json!([]));
+    demo_drive(&env.root, "B");
+    for (args, purpose) in [(["drive", "verify"], "verify"), (["drive", "recordings"], "take recordings from")] {
+        let v = env.json(&args);
+        let message = v["error"]["message"].as_str().unwrap();
+        assert!(message.starts_with(&format!("say which drive to {purpose}")), "{v}");
+    }
 }

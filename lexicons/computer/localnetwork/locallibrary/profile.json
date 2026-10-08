@@ -1,7 +1,7 @@
 {
   "lexicon": 1,
   "id": "computer.localnetwork.locallibrary.profile",
-  "description": "A DJ's public profile: how they play, worked out by locallibrary from the history lists players record during sets, the tracks' rekordbox analysis and the DJ's My Settings.",
+  "description": "A DJ's public profile: how they play, worked out by locallibrary from the DJ's sets (until they declare some, the history lists players record), the tracks' rekordbox analysis and the DJ's My Settings.",
   "defs": {
     "main": {
       "type": "record",
@@ -24,8 +24,8 @@
           },
           "basis": {
             "type": "string",
-            "description": "plays: tracks as played in sets (a track in three sets counts three times). collection: no sets were found, so the collection, each track once.",
-            "knownValues": ["plays", "collection"]
+            "description": "plays: tracks as played in sets (a track in three sets counts three times). sessions: no sets declared yet, so the history lists players recorded (which can include practice) stand in; the sets section is then absent. collection: no sets were found, so the collection, each track once.",
+            "knownValues": ["plays", "sessions", "collection"]
           },
           "headline": {
             "type": "string",
@@ -111,7 +111,7 @@
     },
     "arc": {
       "type": "object",
-      "description": "Set shape: the percent of sets whose last quarter is at least 2 BPM faster than their first (builds), within 2 BPM of it (steady), or at least 2 BPM slower (windsDown).",
+      "description": "Set shape: the percent of sets (sessions when basis is sessions) whose last quarter is at least 2 BPM faster than their first (builds), within 2 BPM of it (steady), or at least 2 BPM slower (windsDown).",
       "required": ["shape", "builds", "steady", "windsDown"],
       "properties": {
         "shape": {
@@ -126,7 +126,7 @@
     },
     "mixing": {
       "type": "object",
-      "description": "Transitions between consecutive tracks in sets, as percents.",
+      "description": "Transitions between consecutive tracks in sets (sessions when basis is sessions), as percents.",
       "properties": {
         "harmonic": {
           "type": "integer",

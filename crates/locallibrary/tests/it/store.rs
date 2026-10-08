@@ -1,3 +1,10 @@
+mod api;
+mod copy;
+mod copy_repairs;
+mod pull_plans;
+mod records;
+mod upkeep;
+
 use crate::common;
 
 use locallibrary::compare::{self, Relation, Side};

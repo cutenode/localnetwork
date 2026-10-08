@@ -374,4 +374,68 @@ mod tests {
         let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
         assert!(!err.chars().any(char::is_control) && err.contains("Nope [2J: really ]52;c;Zm9v "), "{err:?}");
     }
+
+    /// A refusal to give a record says what it can: its error, else the status.
+    #[test]
+    fn a_refusal_to_read_says_its_error_or_status() {
+        let (pds, _) = server(vec![
+            answer("400 Bad Request", br#"{"error":"RepoDeactivated"}"#),
+            answer("502 Bad Gateway", b"<html>"),
+        ]);
+        let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
+        assert!(err.ends_with("(RepoDeactivated)"), "{err}");
+        let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
+        assert!(err.ends_with("(502 Bad Gateway)"), "{err}");
+    }
+
+    /// However the account's server refuses a write, the error says what to do about it: sign
+    /// in again allowing publishing, sign in again, or what the server said.
+    #[test]
+    fn a_refused_write_says_how_to_go_on() {
+        use std::sync::{Arc, Mutex};
+        type Answer = (u16, String, Value);
+        let next: Arc<Mutex<Answer>> = Arc::new(Mutex::new((200, String::new(), json!({}))));
+        let answering = next.clone();
+        let pds = crate::atmosphere::tests::serving(move |_, _| answering.lock().unwrap().clone());
+        let dir = tempfile::tempdir().unwrap();
+        crate::store::Store::open_or_init(dir.path()).unwrap();
+        let scopes = crate::atmosphere::publish_scopes().join(" ");
+        crate::atmosphere::tests::save_session(dir.path(), "did:plc:abc", &pds, &scopes);
+        let record = crate::publish::settings_record(&[("quantize".into(), "off".into())].into(), chrono::Utc::now());
+        let write = |status: u16, headers: &str, body: Value| {
+            *next.lock().unwrap() = (status, headers.to_string(), body);
+            put_record(dir.path(), "did:plc:abc", lexicon::SETTINGS, "self", &record, None).unwrap_err()
+        };
+
+        for err in [
+            write(403, "", json!({})),
+            write(401, "www-authenticate: DPoP error=\"insufficient_scope\"\r\n", json!({})),
+        ] {
+            assert_eq!(err.reason(), Some(Reason::MissingScope), "{err}");
+        }
+        for err in
+            [write(400, "", json!({ "error": "ExpiredToken" })), write(401, "", json!({ "error": "Unauthorized" }))]
+        {
+            assert_eq!(err.reason(), Some(Reason::SessionEnded), "{err}");
+        }
+        let err = write(500, "", json!({ "error": "InternalServerError", "message": "boom" }));
+        assert!(err.to_string().ends_with("refused to publish My Settings (InternalServerError: boom)"), "{err}");
+        let err = write(200, "", json!({ "nothing": "useful" }));
+        assert!(err.to_string().contains("answered in a way locallibrary can't read"), "{err}");
+
+        let gone = tempfile::tempdir().unwrap();
+        crate::store::Store::open_or_init(gone.path()).unwrap();
+        crate::atmosphere::tests::save_session(gone.path(), "did:plc:abc", "http://127.0.0.1:9", &scopes);
+        let err = put_record(gone.path(), "did:plc:abc", lexicon::SETTINGS, "self", &record, None).unwrap_err();
+        assert!(err.to_string().starts_with("couldn't reach 127.0.0.1:9"), "{err}");
+    }
+
+    #[test]
+    fn a_missing_scope_names_what_couldnt_be_published() {
+        let info = crate::atmosphere::tests::signed_in_with(&["atproto"]);
+        let said = |collection| scope_error(&info, collection).to_string();
+        assert!(said(lexicon::PROFILE).contains("publish the profile;"));
+        assert!(said(lexicon::SET).contains("publish sets;"));
+        assert!(said("app.example.thing").contains("publish records;"));
+    }
 }

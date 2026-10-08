@@ -42,6 +42,8 @@ pub struct FsCheckReport {
     pub repaired: bool,
     /// The tool's report, last lines.
     pub output: Vec<String>,
+    /// What to be wary of: the check hasn't run on this platform before.
+    pub warnings: Vec<String>,
 }
 
 impl FsCheckReport {
@@ -189,8 +191,10 @@ fn unmount(unmount: &Cmd, check: &Cmd, partition: Option<&str>) -> Result<()> {
 
 /// Check a drive's file system (with `repair`, fix it). Nothing may be using the drive: it is
 /// unmounted for the duration and mounted again (by diskutil on macOS, by udisks on Linux), and
-/// on Windows a repair dismounts it.
+/// on Windows a repair dismounts it. Refused while `$LOCALLIBRARY_VOLUMES` hides the machine's
+/// drives (`device::disks_shown`): the volume holding a drive folder is the machine's.
 pub fn check(device: &Device, repair: bool) -> Result<FsCheckReport> {
+    crate::device::disks_shown()?;
     // No locallibrary operation may be running on it (and the lock file, on the drive itself,
     // must be closed again before the volume can be unmounted).
     drop(device.lock()?);
@@ -228,6 +232,7 @@ pub fn check(device: &Device, repair: bool) -> Result<FsCheckReport> {
         ok,
         repaired: repair,
         output,
+        warnings: crate::format::untested_here("the file-system check").into_iter().collect(),
     })
 }
 
@@ -286,6 +291,96 @@ mod tests {
         assert_eq!(windows_steps(Path::new(r"E:\"), false).unwrap().display(), "chkdsk E:");
         assert_eq!(windows_steps(Path::new("E:"), true).unwrap(), Steps::only(Cmd::new("chkdsk", &["E:", "/f", "/x"])));
         assert!(windows_steps(Path::new(r"E:\Music"), false).is_err(), "only a drive's root");
+    }
+
+    #[test]
+    fn each_outcome_is_summed_up_for_the_logbook() {
+        let report = |ok, repaired| FsCheckReport {
+            drive: "Main".into(),
+            root: "/Volumes/MAIN".into(),
+            volume: Some("disk4s1".into()),
+            filesystem: Some("MS-DOS FAT32".into()),
+            command: "diskutil verifyVolume /Volumes/MAIN".into(),
+            ok,
+            repaired,
+            output: Vec::new(),
+            warnings: Vec::new(),
+        };
+        assert_eq!(report(true, false).summary(), "file system consistent");
+        assert_eq!(report(true, true).summary(), "file system repaired");
+        assert_eq!(report(false, false).summary(), "file system errors found");
+        assert_eq!(report(false, true).summary(), "file system errors the repair couldn't fix");
+    }
+
+    /// Nothing is checked while a locallibrary operation is writing to the drive.
+    #[test]
+    fn a_drive_in_use_is_not_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = Device::open(dir.path()).unwrap();
+        let _writing = d.lock().unwrap();
+        assert!(matches!(check(&d, false), Err(Error::Locked(_))));
+    }
+
+    /// Under the test switch the volume holding a drive folder is this machine's own: it isn't
+    /// checked, and nothing is run.
+    #[test]
+    fn the_test_switch_leaves_the_machines_volumes_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = Device::open(dir.path()).unwrap();
+        // Were the switch ignored, the drive in use would still stop the check.
+        let _writing = d.lock().unwrap();
+        crate::testing::volumes_on_this_thread(Some(vec![dir.path().to_path_buf()]));
+        let refused = check(&d, false);
+        crate::testing::volumes_on_this_thread(None);
+        assert!(
+            matches!(&refused, Err(Error::Invalid(m)) if m.starts_with("LOCALLIBRARY_VOLUMES is set")),
+            "{refused:?}"
+        );
+    }
+
+    /// A check tool's exit status and output, as fsck.vfat and diskutil give them. Each fake tool
+    /// prints what the real one does.
+    #[cfg(unix)]
+    #[test]
+    fn the_check_tools_status_and_output_give_the_verdict() {
+        let tool = |script: &str| Cmd::new("sh", &["-c", script]);
+        let (ok, text) =
+            run_status(&tool("echo 'fsck.fat 4.2 (2021-01-31)'; echo '/dev/sdb1: 12 files, 3/1953 clusters'")).unwrap();
+        assert!(ok && text.contains("12 files"));
+        let dirty = tool("echo 'Dirty bit is set. Fs was not properly unmounted'; exit 1");
+        assert!(!run_status(&dirty).unwrap().0);
+        // diskutil exits 0 and says what the file system check found.
+        let diskutil =
+            tool("echo 'File system check exit code is 8.'; echo 'Error: -69845: File system verify or repair failed'");
+        assert!(!run_status(&diskutil).unwrap().0);
+        let not_root = tool("echo 'fsck.fat 4.2 (2021-01-31)'; echo 'open: Permission denied' >&2; exit 6");
+        assert!(matches!(run_status(&not_root), Err(Error::Permission(m)) if m.contains("administrator")));
+        assert!(matches!(run_status(&Cmd::new("locallibrary-no-such-tool", &[])), Err(Error::External { .. })));
+    }
+
+    /// When the drive can't be unmounted, the check doesn't run, and says what to do.
+    #[cfg(unix)]
+    #[test]
+    fn a_busy_drive_stops_the_check() {
+        let check = Cmd::new("fsck.vfat", &["-n", "/dev/sdb1"]);
+        let busy = Cmd::new(
+            "sh",
+            &[
+                "-c",
+                "echo 'Error unmounting /dev/sdb1: GDBus.Error:org.freedesktop.UDisks2.Error.DeviceBusy: target is busy' >&2; exit 1",
+            ],
+        );
+        let dir = tempfile::tempdir().unwrap();
+        // A partition that isn't there is the tool's to report.
+        let partition = dir.path().join("sdb1");
+        match unmount(&busy, &check, Some(&partition.to_string_lossy())) {
+            Err(Error::External { message, .. }) => assert!(
+                message.contains("target is busy") && message.contains("close any window or program using the drive"),
+                "{message}"
+            ),
+            other => panic!("{other:?}"),
+        }
+        assert!(unmount(&Cmd::new("true", &[]), &check, None).is_ok());
     }
 
     #[test]

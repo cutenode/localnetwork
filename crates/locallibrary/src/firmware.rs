@@ -236,6 +236,40 @@ mod tests {
         assert!(model_for("firmware.UPD").is_none());
     }
 
+    /// A file named otherwise is flagged (the devices look for their own name), a folder is
+    /// refused, and the guide's socket is passed on.
+    #[test]
+    fn update_files_are_known_by_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = Device::open(dir.path()).unwrap();
+        let err = plan(&d, dir.path(), false).unwrap_err();
+        assert!(matches!(&err, Error::Invalid(m) if m.ends_with("is not a file")), "a folder: {err}");
+        let renamed = dir.path().join("cdj3000x-update.upd");
+        std::fs::write(&renamed, b"firmware").unwrap();
+        let p = plan(&d, &renamed, false).unwrap();
+        assert!(p.model.is_none());
+        assert!(p.problems[0].contains("isn't named like an AlphaTheta update file"), "{:?}", p.problems);
+        let file = dir.path().join("CDJ3000Xv150.UPD");
+        std::fs::write(&file, b"firmware").unwrap();
+        let p = plan(&d, &file, false).unwrap();
+        assert!(
+            p.notes.iter().any(|n| n == "insert the drive in the CDJ-3000X USB1 (Type-A) or USB2 (Type-C) socket"),
+            "{:?}",
+            p.notes
+        );
+        // Only update files in the drive's root count, and not macOS's `._` shadows of them.
+        std::fs::write(dir.path().join("._CDJ3000Xv150.UPD"), b"").unwrap();
+        std::fs::create_dir(dir.path().join("OLD.UPD")).unwrap();
+        assert_eq!(existing_updates(dir.path()), ["CDJ3000Xv150.UPD", "cdj3000x-update.upd"]);
+    }
+
+    #[test]
+    fn removing_from_a_drive_without_updates_removes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut d = Device::open(dir.path()).unwrap();
+        assert!(remove(&mut d, &Ctx::silent()).unwrap().is_empty());
+    }
+
     #[test]
     fn stages_and_removes_update_files() {
         let dir = tempfile::tempdir().unwrap();

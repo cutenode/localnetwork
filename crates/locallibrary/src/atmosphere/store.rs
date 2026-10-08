@@ -30,7 +30,7 @@ use crate::{Error, Result};
 pub const ACCOUNT_FILE: &str = "atmosphere.json";
 pub const SECRETS_FILE: &str = "atmosphere-session.json";
 const LOCK_FILE: &str = "atmosphere.lock";
-pub(super) const KEYCHAIN_SERVICE: &str = "locallibrary";
+const KEYCHAIN_SERVICE: &str = "locallibrary";
 
 /// Session fields that stay out of `atmosphere.json`.
 const SECRET_FIELDS: [&str; 2] = ["dpop_key", "refresh_token"];
@@ -100,21 +100,19 @@ pub fn lock(root: &Path) -> Result<AccountLock> {
 
 /// The keychain item for `did`'s secrets: one per store folder, so two stores signed in to the
 /// same account don't share (and spend) one refresh token.
-pub(super) fn keychain_account(root: &Path, did: &str) -> Result<String> {
+fn keychain_account(root: &Path, did: &str) -> Result<String> {
     Ok(format!("atmosphere:{did}@{}", crate::store::Store::open(root)?.id()?))
 }
 
-fn keychain_entry(root: &Path, did: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new(KEYCHAIN_SERVICE, &keychain_account(root, did)?).map_err(keychain_error)
+/// `keyring::Entry::new` refuses whenever the system's keychain couldn't be opened, even when
+/// another store is the default (the tests' in-memory one, on a Linux without Secret Service), so
+/// the entry comes from the default store, once `keyring` has tried to set the system's.
+pub(super) fn keychain_entry(root: &Path, did: &str) -> Result<keyring_core::Entry> {
+    let _ = keyring::Entry::store_status();
+    keyring_core::Entry::new(KEYCHAIN_SERVICE, &keychain_account(root, did)?).map_err(keychain_error)
 }
 
-/// Remove `did`'s secrets from the one keychain item every store folder shared before each had
-/// its own. Nothing reads that item any more.
-fn delete_old_keychain_item(did: &str) -> Result<()> {
-    delete_entry(keyring::Entry::new(KEYCHAIN_SERVICE, &format!("atmosphere:{did}")).map_err(keychain_error)?)
-}
-
-fn delete_entry(entry: keyring::Entry) -> Result<()> {
+fn delete_entry(entry: keyring_core::Entry) -> Result<()> {
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(keychain_error(e)),
@@ -206,10 +204,7 @@ pub fn write_secrets(root: &Path, storage: Storage, did: &str, secrets: &Map<Str
 
 pub fn delete_secrets(root: &Path, storage: Storage, did: &str) -> Result<()> {
     match storage {
-        Storage::Keychain => {
-            delete_entry(keychain_entry(root, did)?)?;
-            delete_old_keychain_item(did)
-        }
+        Storage::Keychain => delete_entry(keychain_entry(root, did)?),
         Storage::File => {
             let mut all = secrets_file(root).unwrap_or_default();
             all.remove(did);
@@ -320,11 +315,6 @@ impl LocalStore {
                 a
             }
             None => {
-                // A new session in the keychain: the item an earlier version kept this account's
-                // secrets in goes too.
-                if self.storage == Storage::Keychain && delete_old_keychain_item(&did).is_err() {
-                    file.leave_behind(Storage::Keychain, &did);
-                }
                 let now = Utc::now();
                 StoredAccount {
                     info: AccountInfo {
@@ -409,6 +399,7 @@ impl ClientAuthStore for LocalStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::atmosphere::block_on;
 
     #[test]
     fn secrets_split_off_and_join_back() {
@@ -508,6 +499,55 @@ mod tests {
         assert!(item(one.path()).starts_with("atmosphere:did:plc:abc@"));
         assert_ne!(item(one.path()), item(two.path()));
         assert_eq!(item(one.path()), item(one.path()));
+    }
+
+    /// What jacquard asks the store for: only the signed-in account's own session, with its
+    /// secrets, and the sign-ins in flight in this process.
+    #[test]
+    fn jacquard_gets_only_the_signed_in_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let store =
+            LocalStore::new(root, Storage::File, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
+        let did: Did = Did::new_owned("did:plc:abc").unwrap();
+        let get = |session_id: &str| block_on(store.get_session(&did, session_id)).unwrap();
+        assert!(block_on(store.list_session_keys()).unwrap().is_empty());
+        block_on(store.upsert_session(crate::atmosphere::tests::session("did:plc:abc", "refresh-1"))).unwrap();
+        let keys = block_on(store.list_session_keys()).unwrap();
+        assert_eq!(keys.len(), 1);
+        assert!(get("s1").is_some() && get("s2").is_none());
+
+        // Another session's removal leaves this one; its own removes it, secrets and all.
+        block_on(store.delete_session(&did, "s2")).unwrap();
+        assert!(get("s1").is_some());
+        block_on(store.delete_session(&did, "s1")).unwrap();
+        assert!(AccountFile::load(root).unwrap().account.is_none() && !root.join(SECRETS_FILE).exists());
+
+        // Without its secrets a session is no session.
+        block_on(store.upsert_session(crate::atmosphere::tests::session("did:plc:abc", "refresh-1"))).unwrap();
+        std::fs::remove_file(root.join(SECRETS_FILE)).unwrap();
+        assert!(get("s1").is_none());
+    }
+
+    /// A session file that's been damaged (a folder in its place, a list, an account's secrets
+    /// that aren't an object) is said to be, not read as no session at all.
+    #[test]
+    fn a_damaged_session_file_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let read = || read_secrets(root, Storage::File, "did:plc:abc").unwrap_err().to_string();
+        std::fs::write(root.join(SECRETS_FILE), "[]").unwrap();
+        assert_eq!(read(), "the saved session isn't a JSON object; sign in again");
+        std::fs::write(root.join(SECRETS_FILE), r#"{"did:plc:abc": "a token"}"#).unwrap();
+        assert_eq!(read(), "the saved session isn't a JSON object; sign in again");
+        std::fs::remove_file(root.join(SECRETS_FILE)).unwrap();
+        std::fs::create_dir(root.join(SECRETS_FILE)).unwrap();
+        assert!(read().contains(SECRETS_FILE));
+        // Through jacquard, the same.
+        let store =
+            LocalStore::new(root, Storage::File, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
+        let session = crate::atmosphere::tests::session("did:plc:abc", "refresh-1");
+        assert!(block_on(store.upsert_session(session)).is_err());
     }
 
     #[test]

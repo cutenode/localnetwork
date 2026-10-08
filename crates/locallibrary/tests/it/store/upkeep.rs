@@ -1,8 +1,6 @@
 //! Looking after the store: libraries, snapshot labels, pruning.
 
-use crate::common;
-
-use std::path::Path;
+use crate::common::{self, path};
 
 use locallibrary::Error;
 use locallibrary::api::{self, KeepReason, LabelRequest, PruneOptions, PullRequest, RenameLibrary};
@@ -11,10 +9,6 @@ use locallibrary::edit::Edit;
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PushOptions};
-
-fn path(p: &Path) -> String {
-    p.display().to_string()
-}
 
 #[test]
 fn pull_refuses_an_unknown_library_unless_asked_to_start_one() {
@@ -212,6 +206,9 @@ fn prune_and_gc_keep_a_drive_saved_beside_the_latest() {
     let beside = sync::pull_beside(&store, &mut b, &sync::PullOptions::default(), s1.id, &ctx).unwrap();
     let beside = beside.snapshot.unwrap();
     assert_eq!(store.find_library("A").unwrap().unwrap().head, Some(s3.id), "the latest stays the latest");
+    // `log` lists it too, newest first and marked, then the latest.
+    let log = api::history(&store, &api::HistoryRequest { library: "A".into(), limit: Some(2) }).unwrap();
+    assert_eq!(log.iter().map(|s| (s.id, s.beside)).collect::<Vec<_>>(), [(beside.id, true), (s3.id, false)]);
 
     // Nothing uses an extra file: gc says so, and keeps every snapshot.
     let stray = store.import_bytes(b"nothing uses this").unwrap();

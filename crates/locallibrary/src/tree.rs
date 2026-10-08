@@ -297,6 +297,30 @@ mod tests {
         assert_eq!(tree.get("PIONEER/MYSETTING.DAT").unwrap().class, FileClass::Settings);
     }
 
+    /// Audio the database keeps outside `Contents/` is scanned when asked for, once, and only as
+    /// a regular file on the drive.
+    #[test]
+    fn audio_outside_contents_is_scanned_when_asked_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for (p, body) in [("Contents/A/x.mp3", "audio"), ("Music/set.mp3", "more audio")] {
+            let path = root.join(p);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, body).unwrap();
+        }
+        // A link to audio on the drive is still not a file on it (on Windows there's no link).
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("Music/set.mp3"), root.join("Music/link.mp3")).unwrap();
+        let extra_keys =
+            ["Music/set.mp3", "/Contents/A/x.mp3", "Music/gone.mp3", "Music/link.mp3"].map(String::from).into();
+        let tree = scan(root, &ScanOptions { extra_keys }, &Ctx::silent()).unwrap();
+        let keys: Vec<&str> = tree.entries.keys().map(String::as_str).collect();
+        assert_eq!(keys, ["Contents/A/x.mp3", "Music/set.mp3"]);
+        assert_eq!(tree.get("Music/set.mp3").unwrap().class, FileClass::Audio);
+        assert_eq!(tree.total_bytes(), 15);
+        assert_eq!(tree.fs_path("Music/set.mp3"), root.join("Music/set.mp3"));
+    }
+
     #[test]
     fn hash_index_avoids_rehashing() {
         let dir = tempfile::tempdir().unwrap();

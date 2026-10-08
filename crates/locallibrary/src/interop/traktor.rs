@@ -34,8 +34,18 @@ use crate::model::{Library, Playlist, Track, TrackColor};
 use crate::progress::{Ctx, Event, Phase};
 use crate::xml::esc;
 
-/// The volume Traktor on a Mac calls the startup disk, for audio outside `/Volumes`.
+/// The startup disk's name when this computer doesn't say (it isn't a Mac): macOS's default.
 const STARTUP_VOLUME: &str = "Macintosh HD";
+
+/// The startup disk's name, which Traktor on a Mac gives audio outside `/Volumes`: macOS lists it
+/// in `volumes` (`/Volumes`) as a link to `/`.
+fn startup_volume(volumes: &Path) -> Option<String> {
+    std::fs::read_dir(volumes)
+        .ok()?
+        .flatten()
+        .find(|e| std::fs::read_link(e.path()).is_ok_and(|to| to == Path::new("/")))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+}
 
 /// Where a file is, the way `LOCATION` says it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,20 +62,21 @@ impl Location {
     }
 }
 
-/// An absolute path as Traktor locates it, and whether the volume is a guess (the startup disk).
-fn location(path: &Path) -> (Location, bool) {
+/// An absolute path as Traktor locates it (outside `/Volumes`, on the volume `startup`), and
+/// whether it's on the startup disk.
+fn location(path: &Path, startup: &str) -> (Location, bool) {
     let s = path.to_string_lossy().replace('\\', "/");
-    let (volume, rest, guessed) = match s.as_bytes() {
+    let (volume, rest, on_startup) = match s.as_bytes() {
         [letter, b':', ..] if letter.is_ascii_alphabetic() => (s[..2].to_ascii_uppercase(), s[2..].to_string(), false),
         _ => match s.strip_prefix("/Volumes/").and_then(|r| r.split_once('/')) {
             Some((volume, rest)) => (volume.to_string(), format!("/{rest}"), false),
-            None => (STARTUP_VOLUME.to_string(), s.clone(), true),
+            None => (startup.to_string(), s.clone(), true),
         },
     };
     let mut parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
     let file = parts.pop().unwrap_or_default().to_string();
     let dir = parts.iter().map(|p| format!("/:{p}")).collect::<String>() + "/:";
-    (Location { volume, dir, file }, guessed)
+    (Location { volume, dir, file }, on_startup)
 }
 
 /// `2026-09-30` (or a longer timestamp) as Traktor writes dates: `2026/9/30`.
@@ -132,14 +143,16 @@ pub(crate) fn build(src: &Source<'_>, output: &Path, opts: &InteropOptions, ctx:
         lock: format!(" LOCK=\"1\" LOCK_MODIFICATION_TIME=\"{}\"", now.format("%Y-%m-%dT%H:%M:%S")),
     };
 
+    let startup = startup_volume(Path::new("/Volumes"));
     let mut entries = String::new();
     let mut written = HashSet::new();
     ctx.phase_start(Phase::Scan, lib.tracks.len() as u64, 0);
     for t in &lib.tracks {
         ctx.check()?;
         ctx.emit(Event::Item { phase: Phase::Scan, path: t.file_path.clone(), bytes: 0 });
-        let (loc, guessed) = location(&src.audio(t));
-        tally.startup_volume |= guessed;
+        let (loc, on_startup) = location(&src.audio(t), startup.as_deref().unwrap_or(STARTUP_VOLUME));
+        // On a startup disk whose name is a guess.
+        tally.startup_volume |= on_startup && startup.is_none();
         keys.insert(t.id, loc.key());
         // Two rows for one file are one track to Traktor.
         if !written.insert(loc.key()) {
@@ -184,8 +197,9 @@ pub(crate) fn build(src: &Source<'_>, output: &Path, opts: &InteropOptions, ctx:
     ];
     if tally.startup_volume {
         plan.notes.push(format!(
-            "Audio outside /Volumes is located on the startup disk as \"{STARTUP_VOLUME}\"; if yours is called \
-             otherwise, Traktor's Relocate (or Consistency Check) finds the files again."
+            "This computer doesn't name a startup disk, so audio outside /Volumes is located on one called \
+             \"{STARTUP_VOLUME}\"; if the Mac's is called otherwise, Traktor's Relocate (or Consistency Check) finds \
+             the files again."
         ));
     }
     if tally.varying_tempo > 0 {
@@ -339,22 +353,46 @@ fn node(x: &mut String, lib: &Library, p: &Playlist, keys: &std::collections::Ha
 mod tests {
     use super::*;
 
+    /// rekordbox's eight colours on Traktor's seven (red 1 round to magenta 7): aqua and blue
+    /// are both its blue.
+    #[test]
+    fn colours_are_traktors_nearest() {
+        use TrackColor::*;
+        let traktor = [Red, Orange, Yellow, Green, Aqua, Blue, Purple, Pink].map(colour);
+        assert_eq!(traktor, [1, 2, 3, 4, 5, 5, 6, 7]);
+    }
+
     #[test]
     fn locations_split_volume_folders_and_file() {
-        let (mac, guessed) = location(Path::new("/Volumes/USB/Contents/Daft Punk/One.mp3"));
-        assert!(!guessed);
+        let (mac, on_startup) = location(Path::new("/Volumes/USB/Contents/Daft Punk/One.mp3"), STARTUP_VOLUME);
+        assert!(!on_startup);
         assert_eq!(
             mac,
             Location { volume: "USB".into(), dir: "/:Contents/:Daft Punk/:".into(), file: "One.mp3".into() }
         );
         assert_eq!(mac.key(), "USB/:Contents/:Daft Punk/:One.mp3");
-        let (win, _) = location(Path::new(r"e:\Contents\x.mp3"));
+        let (win, _) = location(Path::new(r"e:\Contents\x.mp3"), STARTUP_VOLUME);
         assert_eq!((win.volume.as_str(), win.dir.as_str(), win.file.as_str()), ("E:", "/:Contents/:", "x.mp3"));
-        let (home, guessed) = location(Path::new("/Users/me/Music/x.mp3"));
-        assert!(guessed);
+        let (home, on_startup) = location(Path::new("/Users/me/Music/x.mp3"), STARTUP_VOLUME);
+        assert!(on_startup);
         assert_eq!(home.key(), "Macintosh HD/:Users/:me/:Music/:x.mp3");
-        let (root, _) = location(Path::new("/Volumes/USB/x.mp3"));
+        let (root, _) = location(Path::new("/Volumes/USB/x.mp3"), STARTUP_VOLUME);
         assert_eq!(root.dir, "/:");
+    }
+
+    /// The startup disk is the volume linked to `/`, whatever it's called.
+    #[cfg(unix)]
+    #[test]
+    fn startup_volume_is_the_one_linked_to_root() {
+        let volumes = tempfile::tempdir().unwrap();
+        std::fs::create_dir(volumes.path().join("USB")).unwrap();
+        std::os::unix::fs::symlink("/tmp", volumes.path().join("Elsewhere")).unwrap();
+        assert_eq!(startup_volume(volumes.path()), None);
+        std::os::unix::fs::symlink("/", volumes.path().join("Studio SSD")).unwrap();
+        assert_eq!(startup_volume(volumes.path()).as_deref(), Some("Studio SSD"));
+        assert_eq!(startup_volume(&volumes.path().join("missing")), None);
+        let (home, _) = location(Path::new("/Users/me/x.mp3"), "Studio SSD");
+        assert_eq!(home.key(), "Studio SSD/:Users/:me/:x.mp3");
     }
 
     #[test]

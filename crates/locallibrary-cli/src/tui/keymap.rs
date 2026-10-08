@@ -91,6 +91,8 @@ pub enum Act {
     Stop,
     /// The next (true) or previous cue.
     Cue(bool),
+    /// The next (true) or previous phrase.
+    Phrase(bool),
     /// Up (1) or down (-1).
     Volume(i8),
     Shuffle,
@@ -344,7 +346,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Library, &[K::Ch('/')], "/", A::Search, "search or filter the tracks", "search title, artist, album, genre, label, key, comment and path as you type", G::Browsing),
     note(S::Library, "", "or filter: bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep", G::Browsing),
     note(S::Library, "", "in the box: enter keeps it, esc clears it, ctrl-u empties it, ctrl-w deletes a word, tab searches the whole drive or the list shown", G::Browsing),
-    note(S::Library, "Browse", "at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, history lists, problems", G::Browsing),
+    note(S::Library, "Browse", "at the top of the tree: by artist, album, genre, key, BPM, rating, colour, date added, My Tags, sets, sessions, problems", G::Browsing),
     key(S::Library, &[K::Ch('b')], "b  B", A::Sort, "sort by the next column", "sort by the next column / the other way (or click a header)", G::Browsing),
     key(S::Library, &[K::Ch('B')], "", A::SortReverse, "sort the other way", "", G::Browsing),
     key(S::Library, &[K::Ch('*')], "*", A::Ratings, "show or hide the rating column", "show / hide the rating column", G::Browsing),
@@ -431,6 +433,7 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::FullScreen, "Q", "quantize", 5),
     tip(S::FullScreen, "l", "loop", 7),
     tip(S::FullScreen, "c C", "cue", 6),
+    tip(S::FullScreen, "N P", "phrase", 5),
     tip(S::FullScreen, "space", "pause", 8),
     tip(S::FullScreen, "n p", "track", 4),
     tip(S::FullScreen, "f", "back", 7),
@@ -446,6 +449,8 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('p')], "", A::Prev, "previous track", "", G::Playback),
     key(S::Global, &[K::Ch('c')], "c  C", A::Cue(true), "next cue", "jump to the next / previous cue", G::Playback),
     key(S::Global, &[K::Ch('C')], "", A::Cue(false), "previous cue", "", G::Playback),
+    key(S::Global, &[K::Ch('N')], "N  P", A::Phrase(true), "next phrase", "jump to the next / previous phrase", G::Playback),
+    key(S::Global, &[K::Ch('P')], "", A::Phrase(false), "previous phrase", "", G::Playback),
     key(S::Global, &[K::Ch('+'), K::Ch('=')], "+  -", A::Volume(1), "volume up", "volume", G::Playback),
     key(S::Global, &[K::Ch('-'), K::Ch('_')], "", A::Volume(-1), "volume down", "", G::Playback),
     key(S::Global, &[K::Ch('s')], "s  r", A::Shuffle, "shuffle on or off", "shuffle / repeat (off, all, one)", G::Playback),
@@ -459,7 +464,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('>')], "", A::BeatJump(4), "a bar forward", "", G::Deck),
     key(S::Global, &[K::Ch('{')], "{  }", A::BeatJump(-32), "8 bars back", "8 bars (32 beats, a phrase) back / forward", G::Deck),
     key(S::Global, &[K::Ch('}')], "", A::BeatJump(32), "8 bars forward", "", G::Deck),
-    key(S::Global, &[K::Ch('Q')], "Q", A::Quantize, "quantize on or off", "quantize on / off: playing, cue and beat jumps keep the beat; paused, beat jumps land on one", G::Deck),
+    key(S::Global, &[K::Ch('Q')], "Q", A::Quantize, "quantize on or off", "quantize on / off: playing, cue, phrase and beat jumps keep the beat; paused, beat jumps land on one", G::Deck),
     key(S::Global, &[K::Ch('l')], "l", A::Loop, "loop here, or exit the loop", "loop: the saved loop the playhead is in, else 4 beats from the beat it's in; again to exit", G::Deck),
     key(S::Global, &[K::Ch('(')], "(  )", A::LoopSize(false), "halve the loop", "halve / double the loop", G::Deck),
     key(S::Global, &[K::Ch(')')], "", A::LoopSize(true), "double the loop", "", G::Deck),
@@ -503,7 +508,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "smart", A::SmartList, "smart playlists: the rules", "the rule-based playlists kept in the store", G::Commands),
     key(S::Global, &[], "smart apply", A::SmartApply, "fill the smart playlists on the drive", "fill the rule-based playlists on the drive from its own library (shows what changes first)", G::Commands),
     key(S::Global, &[], "smart new", A::SmartNew, "smart playlist from the search", "a rule-based playlist from the search box's filter and the list's sort", G::Commands),
-    key(S::Global, &[], "export", A::ExportList, "export the list shown (M3U8, CSV, text)", "write the playlist, history list or all tracks shown to a file on this computer", G::Commands),
+    key(S::Global, &[], "export", A::ExportList, "export the list shown (M3U8, CSV, text)", "write the playlist, set, session or all tracks shown to a file on this computer", G::Commands),
     key(S::Global, &[], "xml", A::ExportXml, "export rekordbox XML", "rekordbox XML of the drive (the marked playlists only, when some are), to take back into rekordbox", G::Commands),
     key(S::Global, &[], "eject", A::Eject, "eject the drive", "unmount the drive and power it off (playing from it stops first)", G::Commands),
     key(S::Global, &[K::Ch('q'), K::Ctrl('c'), K::Ctrl('q')], "q", A::Quit, "quit", "quit (a write to the drive finishes first)", G::Player).hint("quit", 1),
@@ -610,6 +615,7 @@ pub fn help(view: View) -> (Vec<HelpSection>, Vec<HelpSection>) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::app::testing::{app_with, library};
     use super::*;
 
     fn press(c: KeyCode) -> KeyEvent {
@@ -715,8 +721,7 @@ mod tests {
 
     #[test]
     fn the_footer_drops_the_least_important_hints_to_fit() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut app = App::with_library(dir.path(), super::super::browse::tests::library());
+        let (mut app, _dir) = app_with(library());
         app.focus = Focus::Tracks;
         let wide = hints(&app, 300);
         let keys: Vec<&str> = wide.iter().map(|(k, _)| k.as_str()).collect();
@@ -731,5 +736,17 @@ mod tests {
         assert!(!hints(&app, 80).iter().any(|(k, _)| k == "q"), "quitting goes first");
         app.fullscreen = true;
         assert_eq!(hints(&app, 300)[0], ("1-8".to_string(), "hot cue"));
+    }
+
+    /// Each view's help starts with its own keys under its own heading; the keys for everywhere
+    /// follow, the commands with no key last.
+    #[test]
+    fn each_views_help_starts_with_its_own_keys() {
+        for (view, title) in [(View::Drives, "Drives"), (View::Snapshots, "Snapshots"), (View::Mixes, "Mixes")] {
+            let (own, global) = help(view);
+            assert_eq!(own[0].0, title);
+            assert!(global.iter().all(|(t, _)| *t != title), "{view:?}");
+            assert!(global.last().is_some_and(|(t, _)| t.starts_with("Commands")), "{view:?}");
+        }
     }
 }

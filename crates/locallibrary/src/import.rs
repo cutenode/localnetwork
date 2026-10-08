@@ -123,7 +123,7 @@ fn parse_text(text: &str, format: Format) -> Result<Vec<Entry>> {
 
 /// Bytes to text with `\n` line ends: UTF-8 or UTF-16 (with or without a BOM), falling back to
 /// Windows-1252 for the legacy `.m3u` files some software still writes.
-fn text_of(bytes: &[u8]) -> String {
+pub(crate) fn text_of(bytes: &[u8]) -> String {
     let text = if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
         String::from_utf8_lossy(rest).into_owned()
     } else if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
@@ -569,17 +569,17 @@ fn split_artist_title(s: &str, allow_by: bool) -> (String, String) {
 // Tables: CSV and rekordbox's text export
 // ---------------------------------------------------------------------------------------------
 
-struct Record<'a> {
-    line: usize,
+pub(crate) struct Record<'a> {
+    pub line: usize,
     raw: &'a str,
-    fields: Vec<String>,
+    pub fields: Vec<String>,
 }
 
 /// RFC 4180 with leniency: quotes only open at the start of a field (after optional spaces),
 /// `""` inside quotes is a quote, text after a closing quote is kept, and quoted fields may span
 /// lines. Without `quoting` (rekordbox's text), quotes are ordinary characters. Blank records
 /// are dropped.
-fn read_table(text: &str, delim: char, quoting: bool) -> Vec<Record<'_>> {
+pub(crate) fn read_table(text: &str, delim: char, quoting: bool) -> Vec<Record<'_>> {
     let mut records = Vec::new();
     let mut fields = Vec::new();
     let mut field = String::new();

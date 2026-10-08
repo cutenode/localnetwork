@@ -427,7 +427,9 @@ fn open_selected(app: &mut App) {
         return;
     };
     let path = s.path.clone();
-    let shown = matches!(&app.mix.opened, Some(Ok(o)) if o.report.mix.path == path);
+    // Shown already, with tracks to go through: to them. Shown with none found, it's identified
+    // again (the drive open may be another by now).
+    let shown = matches!(&app.mix.opened, Some(Ok(o)) if o.report.mix.path == path && !o.report.plays.is_empty());
     if shown && app.mix.loading.is_none() {
         app.mix.pane = Pane::Tracks;
     } else {
@@ -1765,7 +1767,10 @@ fn draw_track_wave(
 pub(super) mod tests {
     use locallibrary::mix::{Alternate, MixInfo, Span as Gap};
 
-    use super::super::browse::tests::track;
+    use super::super::app::View;
+    use super::super::app::testing::*;
+    use super::super::audio::Audio;
+    use super::super::ui::screen;
     use super::*;
 
     fn play(i: usize, start: f64, end: f64, key: &str, bpm: f64) -> Play {
@@ -1794,7 +1799,7 @@ pub(super) mod tests {
         }
     }
 
-    pub fn report() -> MixReport {
+    fn report() -> MixReport {
         let mut plays = vec![
             play(0, 0.0, 330.0, "8A", 126.0),
             play(1, 300.0, 640.0, "9A", 126.0),
@@ -1853,7 +1858,7 @@ pub(super) mod tests {
         }
     }
 
-    fn opened() -> Opened {
+    fn opened_set() -> Opened {
         let r = report();
         let analyses = r.plays.iter().map(|_| TrackAnalysis::default()).collect();
         Opened {
@@ -1870,7 +1875,7 @@ pub(super) mod tests {
     pub(crate) fn tab() -> MixTab {
         let (tx, _rx) = std::sync::mpsc::channel();
         let mut t = MixTab::new(tx);
-        t.opened = Some(Ok(opened()));
+        t.opened = Some(Ok(opened_set()));
         t.rows.select(Some(1));
         t.pane = Pane::Tracks;
         t
@@ -1984,8 +1989,6 @@ pub(super) mod tests {
 
     #[test]
     fn keys_move_zoom_and_type() {
-        use ratatui::crossterm::event::KeyModifiers;
-
         use super::super::app::View;
 
         let store = tempfile::tempdir().unwrap();
@@ -1993,51 +1996,43 @@ pub(super) mod tests {
         app.mix = tab();
         app.mix.rows.select(Some(0));
         app.view = View::Mixes;
-        let press = |app: &mut App, code: KeyCode| app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
 
-        press(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Down);
         assert_eq!(app.mix.rows.selected(), Some(1));
-        press(&mut app, KeyCode::End);
+        key(&mut app, KeyCode::End);
         assert_eq!(app.mix.rows.selected(), Some(2));
-        press(&mut app, KeyCode::Char('z'));
-        press(&mut app, KeyCode::Char('z'));
+        press(&mut app, "z");
+        press(&mut app, "z");
         assert_eq!(app.mix.zoom, 4);
-        press(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Tab);
         assert_eq!(app.mix.pane, Pane::Mixes);
-        press(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Tab);
         assert_eq!(app.mix.pane, Pane::Tracks);
-        press(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Esc);
         assert_eq!(app.mix.pane, Pane::Mixes);
 
         // Typing a path: every key goes to it, even view keys.
-        press(&mut app, KeyCode::Char('O'));
-        for c in "1q".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
+        press(&mut app, "O");
+        press(&mut app, "1q");
         assert_eq!(app.mix.input.as_deref(), Some("1q"));
         assert!(!app.quit);
-        press(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Esc);
         assert_eq!(app.mix.input, None);
         // A folder with no recordings in it says so.
-        press(&mut app, KeyCode::Char('O'));
-        for c in store.path().display().to_string().chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
-        press(&mut app, KeyCode::Enter);
+        press(&mut app, "O");
+        press(&mut app, &store.path().display().to_string());
+        key(&mut app, KeyCode::Enter);
         // The folder is listed in the background.
-        let t = Instant::now();
-        while app.toast.is_none() && t.elapsed() < Duration::from_secs(5) {
-            app.tick();
-        }
+        wait(&mut app, |a| a.toast.is_some());
         assert!(app.toast.as_ref().is_some_and(|(m, ..)| m.starts_with("no recordings in")), "{:?}", app.toast);
         assert!(app.mix.folders.is_empty(), "a folder with none isn't kept");
 
         // Keys the view doesn't use still work.
-        press(&mut app, KeyCode::Char('1'));
+        press(&mut app, "1");
         assert_eq!(app.view, View::Library);
-        press(&mut app, KeyCode::Char('5'));
+        press(&mut app, "5");
         assert_eq!(app.view, View::Mixes);
-        press(&mut app, KeyCode::Char('q'));
+        press(&mut app, "q");
         assert!(app.quit);
     }
 
@@ -2066,5 +2061,471 @@ pub(super) mod tests {
         assert_eq!(t.sources.len(), 2, "a listing for another drive is ignored");
         t.remember(&b);
         assert_eq!(t.recent, [b, a]);
+    }
+
+    /// A tiny WAV file at `path` (its folders made).
+    fn wav_at(path: &Path) -> PathBuf {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, super::super::audio::tests::wav(8000, 800, 1000)).unwrap();
+        path.to_path_buf()
+    }
+
+    /// Identifying under way, at `phase` with `items` and `bytes` done of their totals.
+    fn identifying(t: &mut MixTab, phase: Option<Phase>, items: (u64, u64), bytes: (u64, u64)) -> CancelToken {
+        let cancel = CancelToken::new();
+        t.loading = Some(Loading {
+            path: "/sets/Sunday.wav".into(),
+            progress: Arc::new(Mutex::new(Progress { phase, items, bytes })),
+            cancel: cancel.clone(),
+            started: Instant::now(),
+        });
+        cancel
+    }
+
+    #[test]
+    fn the_header_says_how_far_identifying_has_got() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut t = MixTab::new(tx);
+        assert_eq!(t.status(), None);
+        let says = |t: &mut MixTab, phase, items, bytes| {
+            identifying(t, phase, items, bytes);
+            t.status().unwrap()
+        };
+        assert_eq!(says(&mut t, None, (0, 0), (0, 0)), "Opening Sunday.wav…");
+        assert_eq!(says(&mut t, Some(Phase::Fingerprint), (0, 0), (0, 0)), "Fingerprinting the drive's tracks…");
+        assert_eq!(says(&mut t, Some(Phase::Fingerprint), (3, 40), (0, 0)), "Fingerprinting the drive's tracks… 3/40");
+        assert_eq!(says(&mut t, Some(Phase::Index), (0, 0), (0, 0)), "Indexing fingerprints…");
+        assert_eq!(says(&mut t, Some(Phase::Listen), (0, 0), (0, 0)), "Listening to Sunday.wav…");
+        assert_eq!(says(&mut t, Some(Phase::Listen), (1, 4), (0, 0)), "Listening to Sunday.wav… 25%");
+        assert_eq!(says(&mut t, Some(Phase::Listen), (1, 4), (900, 1000)), "Listening to Sunday.wav… 90%");
+        assert_eq!(says(&mut t, Some(Phase::Match), (0, 0), (0, 0)), "Finding tracks in Sunday.wav…");
+
+        // The view says it too, and how to stop.
+        let cx = Context { status: t.status(), ..quiet() };
+        let screen = render(&mut t, &cx, 120, 20);
+        assert!(screen.contains("Finding tracks in Sunday.wav…") && screen.contains("esc stops"), "{screen}");
+    }
+
+    /// Esc stops identifying, and what the stopped run sends back afterwards is ignored.
+    #[test]
+    fn esc_stops_identifying() {
+        let (mut app, _dir) = blank(View::Mixes);
+        let cancel = identifying(&mut app.mix, Some(Phase::Listen), (0, 0), (0, 0));
+        let generation = app.mix.generation;
+        press(&mut app, "\u{1b}");
+        assert!(cancel.is_cancelled() && !app.mix.is_loading());
+        assert_eq!(last_message(&app), "stopped");
+        loaded(&mut app, generation, Err("too late".into()));
+        assert!(app.mix.opened.is_none());
+        // With nothing to stop and the recordings shown, esc goes on to the app.
+        assert!(!escape(&mut app));
+    }
+
+    #[test]
+    fn opening_a_file_says_why_it_cant() {
+        let (mut app, dir) = blank(View::Mixes);
+        let open_typed = |app: &mut App, path: &Path| {
+            press(app, &format!("O{}\n", path.display()));
+            last_message(app).to_string()
+        };
+        let gone = open_typed(&mut app, &dir.path().join("gone.wav"));
+        assert!(gone.ends_with("gone.wav doesn't exist"), "{gone}");
+        let notes = dir.path().join("notes.txt");
+        std::fs::write(&notes, "set list").unwrap();
+        assert!(open_typed(&mut app, &notes).starts_with("notes.txt isn't a recording"));
+        let set = wav_at(&dir.path().join("set.wav"));
+        assert!(open_typed(&mut app, &set).starts_with("open a drive in the library first"));
+        // Enter on nothing types a path; enter on nothing typed opens nothing.
+        press(&mut app, "\n");
+        assert_eq!(app.mix.input.as_deref(), Some(""));
+        press(&mut app, "\n");
+        assert_eq!(app.mix.input, None);
+    }
+
+    /// A folder's listing that comes back after another folder was opened is too late to count;
+    /// del on one of its recordings forgets the folder, and says so.
+    #[test]
+    fn a_folder_opened_is_listed_until_forgotten() {
+        let (mut app, dir) = blank(View::Mixes);
+        let music = dir.path().join("music");
+        wav_at(&music.join("Friday/warm-up.wav"));
+        wav_at(&music.join("closing.wav"));
+        press(&mut app, &format!("O{}\n", music.display()));
+        wait(&mut app, |a| a.toast.is_some());
+        assert!(last_message(&app).starts_with("2 recordings in "), "{}", last_message(&app));
+        folders_listed(&mut app, Vec::new(), Vec::new());
+        assert_eq!(app.mix.sources.len(), 2);
+
+        press(&mut app, "\u{7f}");
+        assert_eq!(last_message(&app), format!("forgot {}", music.display()));
+        assert!(app.mix.sources.is_empty() && app.mix.folders.is_empty());
+    }
+
+    /// The open drive's own recordings are listed, read again with `R`.
+    #[test]
+    fn the_open_drives_recordings_are_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let drive = dir.path().join("DNA");
+        std::fs::create_dir_all(&drive).unwrap();
+        let mut app = App::with_library(&drive, library());
+        app.view = View::Mixes;
+        assert!(screen(&mut app, 120, 30).contains("No recordings on DNA."));
+        wav_at(&drive.join("PIONEER REC/REC001.wav"));
+        press(&mut app, "R");
+        wait(&mut app, |a| !a.mix.sources.is_empty());
+        let s = &app.mix.sources[0];
+        assert_eq!((s.name.as_str(), s.place.as_str(), s.folder.as_ref()), ("REC001.wav", "DNA", None));
+        let s = screen(&mut app, 120, 30);
+        assert!(s.contains("REC001.wav") && s.contains("0:00 · DNA ·"), "{s}");
+    }
+
+    /// Enter on the set already shown goes to its tracks, without identifying it again.
+    #[test]
+    fn enter_on_the_set_shown_goes_to_its_tracks() {
+        let (mut app, dir) = blank(View::Mixes);
+        app.mix = tab();
+        let set = wav_at(&dir.path().join("Sunday Warm-up.wav"));
+        if let Some(Ok(o)) = &mut app.mix.opened {
+            o.report.mix.path = set.clone();
+        }
+        app.mix.set_recent(&[set]);
+        app.mix.pane = Pane::Mixes;
+        press(&mut app, "\n");
+        assert_eq!(app.mix.pane, Pane::Tracks);
+        assert!(!app.mix.is_loading());
+        // The zoom goes round: 2, 4 and 8 times, and back to the whole set.
+        for zoom in [2, 4, 8, 1] {
+            press(&mut app, "z");
+            assert_eq!(app.mix.zoom, zoom);
+        }
+    }
+
+    /// del forgets a recording opened on its own, but not one on the open drive.
+    #[test]
+    fn del_forgets_a_recording_from_this_computer_only() {
+        let (mut app, dir) = blank(View::Mixes);
+        let set = wav_at(&dir.path().join("set.wav"));
+        app.mix.set_recent(std::slice::from_ref(&set));
+        press(&mut app, "\u{7f}");
+        assert_eq!(last_message(&app), "forgot set.wav");
+        assert!(app.mix.recent.is_empty() && app.mix.sources.is_empty());
+
+        let on_drive = Source::recent(set);
+        app.mix.drive_sources = vec![Source { place: "DNA".into(), ..on_drive }];
+        app.mix.rebuild_sources();
+        app.toast = None;
+        press(&mut app, "\u{7f}");
+        assert_eq!(app.mix.sources.len(), 1, "the drive's own stay");
+        assert!(app.toast.is_none());
+    }
+
+    /// A recording is identified against the open drive's library in the background; one whose
+    /// tracks aren't in it opens with none found, and stays on the recordings.
+    #[test]
+    fn a_recording_is_identified_against_the_open_drive() {
+        let dir = tempfile::tempdir().unwrap();
+        let drive = dir.path().join("drive");
+        std::fs::create_dir_all(&drive).unwrap();
+        let mut app = App::with_library(&drive, library());
+        app.view = View::Mixes;
+        let set = wav_at(&dir.path().join("sets/set.wav"));
+        app.mix.set_recent(std::slice::from_ref(&set));
+        press(&mut app, "\n");
+        assert!(app.mix.is_loading());
+        assert!(screen(&mut app, 120, 30).contains("⟳ set.wav"));
+        wait(&mut app, |a| !a.mix.is_loading());
+        let Some(Ok(o)) = &app.mix.opened else { panic!("not opened: {}", last_message(&app)) };
+        assert!(o.report.plays.is_empty());
+        assert!(last_message(&app).contains("0 tracks found"), "{}", last_message(&app));
+        assert_eq!(app.mix.pane, Pane::Mixes, "nothing to go through");
+        let s = screen(&mut app, 120, 30);
+        assert!(s.contains("● set.wav"), "{s}");
+        // Enter on it again identifies it again (against the drive open now), rather than going to
+        // a tracklist with nothing in it.
+        press(&mut app, "\n");
+        assert_eq!((app.mix.is_loading(), app.mix.pane), (true, Pane::Mixes));
+        wait(&mut app, |a| !a.mix.is_loading());
+
+        // One that isn't audio after all fails, and says so in place of the set.
+        let bad = dir.path().join("sets/bad.wav");
+        std::fs::write(&bad, "not audio").unwrap();
+        open(&mut app, bad);
+        wait(&mut app, |a| !a.mix.is_loading());
+        assert!(matches!(&app.mix.opened, Some(Err(e)) if e.starts_with("bad.wav: ")), "{}", last_message(&app));
+        let s = screen(&mut app, 120, 30);
+        assert!(s.contains("enter tries again"), "{s}");
+    }
+
+    /// The made-up set open in an app that plays into a mixer (no device, returned with it),
+    /// its audio a short WAV file.
+    fn playing_app() -> (App, tempfile::TempDir, rodio::mixer::MixerSource) {
+        let (mut app, dir) = blank(View::Mixes);
+        let (audio, out) = Audio::offline(8000);
+        app.audio = Some(audio);
+        app.mix = tab();
+        let wav = wav_at(&dir.path().join("Sunday Warm-up.wav"));
+        if let Some(Ok(o)) = &mut app.mix.opened {
+            o.audio = Some(wav);
+        }
+        (app, dir, out)
+    }
+
+    fn at(app: &App) -> f64 {
+        app.position().as_secs_f64()
+    }
+
+    /// Space plays the set from the selected track, `n` and `p` go from track to track, and
+    /// the tracklist follows.
+    #[test]
+    fn space_plays_the_set_and_n_and_p_go_through_its_tracks() {
+        let (mut app, _dir, _out) = playing_app();
+        assert!(!track_jump(&mut app, true), "nothing playing: n moves through the queue");
+        press(&mut app, " ");
+        assert_eq!(app.now.as_ref().map(|n| n.track.title.as_str()), Some("Sunday Warm-up"));
+        opened(&mut app);
+        assert_eq!(at(&app), 300.0, "from Signal Path");
+        let s = screen(&mut app, 160, 48);
+        assert!(s.contains("▶ 5:00 / 16:40") && s.contains("2 · Signal Path"), "{s}");
+
+        press(&mut app, "n");
+        assert_eq!(at(&app), 680.0);
+        screen(&mut app, 160, 48);
+        assert_eq!(app.mix.rows.selected(), Some(2), "the selection follows the set");
+        press(&mut app, "n");
+        assert_eq!(last_message(&app), "that's the last track in the set");
+        // Back to the start of the one before (just into this one), then of this one.
+        press(&mut app, "p");
+        assert_eq!(at(&app), 300.0);
+        app.seek_to(Duration::from_secs(320));
+        press(&mut app, "p");
+        assert_eq!(at(&app), 300.0);
+        press(&mut app, "p");
+        assert_eq!(at(&app), 0.0);
+
+        // Enter on a track plays the set from it, paused or not.
+        press(&mut app, " ");
+        assert!(app.audio.as_ref().unwrap().is_paused(), "with the set playing, space pauses as anywhere");
+        key(&mut app, KeyCode::Up);
+        press(&mut app, "\n");
+        assert_eq!(at(&app), 300.0);
+        assert!(!app.audio.as_ref().unwrap().is_paused());
+    }
+
+    /// A project without its audio exported next to it has nothing to play.
+    #[test]
+    fn a_set_without_audio_says_so() {
+        let (mut app, _dir) = blank(View::Mixes);
+        app.mix = tab();
+        if let Some(Ok(o)) = &mut app.mix.opened {
+            o.audio = None;
+        }
+        assert!(screen(&mut app, 160, 48).contains("no audio to play"));
+        press(&mut app, " ");
+        assert!(
+            last_message(&app).starts_with("nothing to play: export the project's audio"),
+            "{}",
+            last_message(&app)
+        );
+        assert!(app.now.is_none());
+    }
+
+    /// Clicking the timeline picks the track under the pointer, or with the set playing, plays
+    /// from there; the tracklist and the recordings take clicks and the wheel too.
+    #[test]
+    fn the_mouse_picks_tracks_and_recordings() {
+        let (mut app, dir, _out) = playing_app();
+        let sets = [wav_at(&dir.path().join("a.wav")), wav_at(&dir.path().join("b.wav"))];
+        app.mix.set_recent(&sets);
+        let tracklist = |app: &App| app.mix.areas.rows;
+        let recordings = |app: &App| app.mix.areas.list;
+        screen(&mut app, 120, 30);
+        let timeline = app.mix.areas.timeline;
+        // The middle of the timeline is 500 s in: the second track.
+        app.mix.rows.select(Some(0));
+        mouse(&mut app, LEFT, (timeline.x + timeline.width / 2, timeline.y));
+        assert_eq!((app.mix.pane, app.mix.rows.selected()), (Pane::Tracks, Some(1)));
+        let halogen = spot_in(&mut app, "Halogen", tracklist);
+        mouse(&mut app, LEFT, halogen);
+        assert_eq!(app.mix.rows.selected(), Some(2));
+        mouse(&mut app, MouseEventKind::ScrollUp, halogen);
+        assert_eq!(app.mix.rows.selected(), Some(0));
+        // The recordings: one click selects, a second opens.
+        let b = spot_in(&mut app, "b.wav", recordings);
+        mouse(&mut app, LEFT, b);
+        assert_eq!(
+            (app.mix.pane, app.mix.list.selected().map(|i| app.mix.sources[i].name.as_str())),
+            (Pane::Mixes, Some("b.wav"))
+        );
+        mouse(&mut app, MouseEventKind::ScrollUp, b);
+        assert_eq!(app.mix.list.selected(), Some(0));
+        let a = spot_in(&mut app, "a.wav", recordings);
+        mouse(&mut app, LEFT, a);
+        mouse(&mut app, LEFT, a);
+        assert!(last_message(&app).starts_with("open a drive in the library first"), "{}", last_message(&app));
+
+        // Playing, a click on the timeline plays from there.
+        press(&mut app, " ");
+        opened(&mut app);
+        screen(&mut app, 120, 30);
+        let timeline = app.mix.areas.timeline;
+        mouse(&mut app, LEFT, (timeline.x, timeline.y));
+        assert!(at(&app) < 10.0, "{}", at(&app));
+    }
+
+    /// `E` saves the set as data for Local Network into the store's reports folder, from the
+    /// drive it was matched against; `w` won't write the report without that drive.
+    #[test]
+    fn the_set_is_exported_from_its_drive() {
+        let (mut app, dir) = blank(View::Mixes);
+        let drive = dir.path().join("drive");
+        std::fs::create_dir_all(&drive).unwrap();
+        press(&mut app, "E");
+        assert_eq!(last_message(&app), "open a set first");
+        press(&mut app, "w");
+        assert_eq!(last_message(&app), "open a set first");
+
+        app.mix = tab();
+        if let Some(Ok(o)) = &mut app.mix.opened {
+            o.root = drive.clone();
+            o.report.drive = "drive".into();
+        }
+        press(&mut app, "E");
+        assert!(
+            last_message(&app).starts_with("saving ") && last_message(&app).ends_with(".mix.json…"),
+            "{}",
+            last_message(&app)
+        );
+        wait(&mut app, |a| last_message(a).starts_with("wrote "));
+        let written = last_message(&app).trim_start_matches("wrote ").split(" (").next().unwrap().to_string();
+        let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&written).unwrap()).unwrap();
+        assert!(doc.to_string().contains("Signal Path"), "{doc}");
+
+        std::fs::remove_dir(&drive).unwrap();
+        press(&mut app, "E");
+        wait(&mut app, |a| a.toast.as_ref().is_some_and(|t| t.1 == Level::Error));
+        assert!(last_message(&app).starts_with("the set's tracks are read from its drive"), "{}", last_message(&app));
+        app.toast = None;
+        press(&mut app, "w");
+        assert!(
+            last_message(&app).starts_with("writing ") && last_message(&app).ends_with(".html…"),
+            "{}",
+            last_message(&app)
+        );
+        wait(&mut app, |a| a.toast.as_ref().is_some_and(|t| t.1 == Level::Error));
+        assert!(last_message(&app).starts_with("the set's tracks are read from its drive"), "{}", last_message(&app));
+    }
+
+    /// `o` with a set open goes to the selected track in the library, which is on the drive
+    /// the set was matched against.
+    #[test]
+    fn o_finds_the_selected_track_on_its_drive() {
+        let (mut app, _dir) = blank(View::Mixes);
+        assert!(!go_to(&mut app), "no set: o goes to the playing track");
+        app.mix = tab();
+        press(&mut app, "o");
+        assert_eq!(last_message(&app), "the track is on another drive");
+        assert_eq!(app.view, View::Mixes);
+    }
+
+    /// A track's analysis: a preview waveform, a hot cue and a memory cue, and two phrases on
+    /// a beat grid of one beat a second.
+    fn analysis() -> TrackAnalysis {
+        use locallibrary::anlz::{Mood, Phrase, PhraseKind, SongStructure};
+        let phrase = |kind, start_beat, end_beat| Phrase { kind, start_beat, end_beat, fill_beat: None };
+        TrackAnalysis {
+            beats: grid(0, 60.0, 400),
+            cues: vec![cue(Some(0), 20_000, None), cue(None, 300_000, None)],
+            preview: Some(wave(400)),
+            detail: None,
+            structure: Some(SongStructure {
+                mood: Mood::High,
+                phrases: vec![phrase(PhraseKind::Intro, 1, 60), phrase(PhraseKind::Chorus, 60, 999)],
+            }),
+        }
+    }
+    /// A cut, a plain gap, a track pitched without key lock and one with no key, alternates on
+    /// the drive, a cover: each is drawn as the set's report says it.
+    #[test]
+    fn every_kind_of_handoff_and_track_is_drawn() {
+        let mut t = tab();
+        let Some(Ok(o)) = &mut t.opened else { unreachable!() };
+        let r = &mut o.report;
+        r.unidentified.clear();
+        r.transitions[0] = Transition { overlap: 0.5, harmony: None, tempo_change: None, ..r.transitions[0].clone() };
+        r.transitions[1].overlap = -75.0;
+        let p = &mut r.plays[1];
+        (p.key_lock, p.semitones, p.jumps, p.confidence) = (Some(false), -1.0, 2, 0.4);
+        (p.track.label, p.track.genre) = ("Hessle Audio".into(), "Techno".into());
+        let alternate = |name: &str, same_audio| Alternate {
+            track_id: 9,
+            name: name.into(),
+            file_path: "/Contents/9.mp3".into(),
+            same_audio,
+        };
+        p.alternates = vec![alternate("Ferrule - Signal Path", false)];
+        let p = &mut r.plays[2];
+        p.alternates = vec![alternate("Ferrule - Halogen (Edit)", true)];
+        (p.key, p.played_key, p.track.key) = (None, None, String::new());
+        r.plays[1].played_key = None;
+        o.analyses = vec![TrackAnalysis::default(), analysis(), TrackAnalysis::default()].into();
+        let mut png = Vec::new();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([200, 40, 90]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        o.cover = Art::decode(&png);
+
+        let screen = render(&mut t, &quiet(), 160, 60);
+        for said in [
+            "↓ cut",
+            "1:15 gap",
+            "pitched -1.0 semitones",
+            "Hessle Audio · Techno",
+            "2 jumps: looped or skipped",
+            "(tentative)",
+            "Also on the drive as /Contents/9.mp3",
+            "└in 0:10",
+            "Intro",
+        ] {
+            assert!(screen.contains(said), "{said}:\n{screen}");
+        }
+        // The keys row has a question mark for a key not heard, and a cross for a clash.
+        assert!(screen.contains("keys 8A → ? ✕ ?"), "{screen}");
+        // Over the track's waveform, its hot cue by its letter (at 20 s of 400) before its
+        // memory cue (at 300 s).
+        let lines: Vec<&str> = screen.lines().collect();
+        let panel = lines.iter().position(|l| l.contains("╭ 2 · Signal Path")).expect("the track's panel");
+        let cues = lines[panel + 1];
+        assert!(cues.find('A').is_some_and(|a| cues.find('▼').is_some_and(|m| a < m)), "{cues}");
+        assert!(lines[panel + 2..panel + 5].iter().any(|l| l.contains('█')), "{screen}");
+        t.rows.select(Some(2));
+        let screen = render(&mut t, &quiet(), 160, 60);
+        for said in ["Same audio as Ferrule - Halogen (Edit)", "No key in the library for this track."] {
+            assert!(screen.contains(said), "{said}:\n{screen}");
+        }
+
+        // Smaller, with less room for the detail (two of its sizes), it keeps what was done with
+        // the track.
+        t.rows.select(Some(1));
+        for h in [34, 40] {
+            let screen = render(&mut t, &quiet(), 100, h);
+            assert!(screen.contains("Played 0:10–5:50 of 6:40"), "{h}\n{screen}");
+        }
+    }
+
+    /// Without colours, the tracks' lanes under the timeline show in reverse video.
+    #[test]
+    fn lanes_show_in_reverse_video_without_colours() {
+        let mut t = tab();
+        let cx = Context { playhead: Some(500.0), ..quiet() };
+        theme::set_test_mode(Some(theme::Mode::Plain));
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 48)).unwrap();
+        term.draw(|f| draw_tab(f, &mut t, f.area(), &cx)).unwrap();
+        theme::set_test_mode(None);
+        let buf = term.backend().buffer();
+        let row = |y| (0..160).map(|x| buf[(x, y)].symbol()).collect::<String>();
+        let (y, x) = (0..48)
+            .find_map(|y| row(y).find("1 Night Bus").map(|i| (y, row(y)[..i].chars().count())))
+            .expect("the lanes");
+        assert!(buf[(x as u16, y)].modifier.contains(Modifier::REVERSED));
     }
 }

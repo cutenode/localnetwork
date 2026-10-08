@@ -379,7 +379,7 @@ pub struct Found {
     pub spanned: u32,
     /// Matching anchors per [`PRESENCE_STEP`] from `start`, scaled to 0-1.
     pub presence: Vec<f32>,
-    /// Loops and cue jumps (the play is more than one chain).
+    /// Loops and cue jumps: neighbouring chains whose track positions don't follow on (see `jumped`).
     pub jumps: u32,
     /// Other library entries matching the same stretch: (slot, same audio?).
     pub alternates: Vec<(u32, bool)>,
@@ -548,10 +548,20 @@ fn play(slot: u32, chains: Vec<(Chain, Fit)>) -> Option<Found> {
         heard,
         spanned: last_slice - first_slice + 1,
         presence: Vec::new(),
-        jumps: chains.len() as u32 - 1,
+        jumps: fits.windows(2).filter(|w| jumped(&w[0], &w[1])).count() as u32,
         alternates: Vec::new(),
         fits,
     })
+}
+
+/// Whether the track jumps (a loop, a cue jump) between neighbouring chains `a` and `b` of a play.
+/// Riding the pitch fader splits a play into chains at different speeds too, but there the track
+/// carries on: halfway between them both lines put it in the same place, give or take the speed
+/// change over the gap.
+fn jumped(a: &Fit, b: &Fit) -> bool {
+    let (mid, gap) = ((a.end + b.start) / 2.0, (b.start - a.end).abs());
+    let slack = MERGE_TOLERANCE * FRAMES_PER_SEC + (a.ratio - b.ratio).abs() * gap / 2.0;
+    (a.track_frame(mid) - b.track_frame(mid)).abs() > slack
 }
 
 /// Keep the strongest of plays that are really the same audio, or one track's material heard
@@ -793,6 +803,128 @@ mod tests {
         r.push(x, &mut |s| out.extend_from_slice(s));
         r.finish(&mut |s| out.extend_from_slice(s));
         out
+    }
+
+    /// A chain of track 1 from `from` to `to` seconds into the mix, played at `speed` from `at`
+    /// seconds into the track: a detection per slice, its anchors along that line.
+    fn chain_at(variants: &[Variant], from: f64, to: f64, at: f64, speed: f64) -> Chain {
+        let off = |v: &Variant| (v.ratio - speed).abs();
+        let variant = (0..variants.len()).min_by(|&a, &b| off(&variants[a]).total_cmp(&off(&variants[b]))).unwrap();
+        let (start, end) = ((from * FRAMES_PER_SEC) as u32, (to * FRAMES_PER_SEC) as u32);
+        let detections = (start / SLICE..end / SLICE)
+            .map(|slice| {
+                let pairs = (slice * SLICE..(slice + 1) * SLICE)
+                    .step_by(8)
+                    .filter(|t| (start..end).contains(t))
+                    .map(|t| (t, (at * FRAMES_PER_SEC + speed * (t - start) as f64) as u32))
+                    .collect();
+                Detection {
+                    slot: 1,
+                    slice,
+                    variant: variant as u16,
+                    votes: 20,
+                    stretch_votes: 0,
+                    pitch_votes: 20,
+                    pairs,
+                }
+            })
+            .collect();
+        Chain { slot: 1, detections }
+    }
+
+    /// [`chain_at`], of track `slot`, with each detection's votes split `stretch`/`pitch`
+    /// between key-locked and pitched speeds.
+    fn chain_of(slot: u32, chain: Chain, stretch: u32, pitch: u32) -> Chain {
+        let detections = chain
+            .detections
+            .into_iter()
+            .map(|d| Detection { slot, stretch_votes: stretch, pitch_votes: pitch, ..d })
+            .collect();
+        Chain { slot, detections }
+    }
+
+    /// A breakdown the mix drops out over splits a track into two chains on one line: one play.
+    /// A track heard again minutes later is another play; a weaker match of its own material
+    /// elsewhere in the track, alongside the real one (a repeated chorus), is no play at all.
+    #[test]
+    fn chains_become_plays() {
+        let variants = fingerprint::variants(0.08);
+        let at = |from, to, track| chain_at(&variants, from, to, track, 1.0);
+        // (plays, and each one's lines and jumps)
+        let shapes = |found: &[Found]| (found.len(), found.iter().map(|f| (f.fits.len(), f.jumps)).collect::<Vec<_>>());
+        let quiet = plays(vec![at(0.0, 30.0, 10.0), at(36.0, 70.0, 46.0)], &variants);
+        assert_eq!(shapes(&quiet), (1, vec![(1, 0)]), "{quiet:#?}");
+        assert!(quiet[0].start < 1.0 && quiet[0].end > 66.0, "{quiet:#?}");
+        let again = plays(vec![at(0.0, 40.0, 10.0), at(100.0, 140.0, 10.0)], &variants);
+        assert_eq!(shapes(&again), (2, vec![(1, 0), (1, 0)]), "{again:#?}");
+        let chorus = plays(vec![at(0.0, 60.0, 10.0), at(20.0, 40.0, 90.0)], &variants);
+        assert_eq!(shapes(&chorus), (1, vec![(1, 0)]), "{chorus:#?}");
+        // A slice or two is what a similar groove at the same tempo gives.
+        assert!(plays(vec![at(0.0, 2.0, 10.0)], &variants).is_empty());
+    }
+
+    /// Key lock is told by which speeds voted most: time-stretched ones (on), pitched ones
+    /// (off), and neither by much, or barely off 1.0, can't be told.
+    #[test]
+    fn key_lock_is_told_by_the_votes() {
+        let variants = fingerprint::variants(0.08);
+        let lock = |speed, stretch, pitch| {
+            let chain = chain_of(1, chain_at(&variants, 0.0, 40.0, 10.0, speed), stretch, pitch);
+            plays(vec![chain], &variants)[0].key_lock
+        };
+        assert_eq!(lock(1.04, 20, 0), Some(true));
+        assert_eq!(lock(1.04, 0, 20), Some(false));
+        assert_eq!(lock(1.04, 20, 19), None);
+        assert_eq!(lock(1.0, 20, 0), None);
+    }
+
+    /// Of plays of different tracks over one stretch: a duplicate file is named as the same
+    /// audio, a track whose material is heard inside another's as an alternate, a barely-there
+    /// one not at all, and one heard only underneath the tracks around it is dropped.
+    #[test]
+    fn overlapping_plays_are_resolved_to_the_strongest() {
+        let variants = fingerprint::variants(0.08);
+        let found = |slot, from, to, votes: u32| {
+            let mut c = chain_of(slot, chain_at(&variants, from, to, 10.0, 1.0), 0, 0);
+            c.detections.iter_mut().for_each(|d| d.votes = votes);
+            plays(vec![c], &variants).remove(0)
+        };
+        let resolved = resolve(vec![
+            found(1, 0.0, 60.0, 20),
+            found(2, 0.0, 60.0, 20),
+            found(3, 10.0, 40.0, 10),
+            found(4, 0.0, 60.0, 4),
+            found(5, 60.0, 120.0, 20),
+            found(6, 30.0, 90.0, 4),
+        ]);
+        let kept: Vec<(u32, &[(u32, bool)])> = resolved.iter().map(|f| (f.slot, f.alternates.as_slice())).collect();
+        assert_eq!(kept, [(1, &[(2, true), (3, false)][..]), (5, &[][..])]);
+    }
+
+    #[test]
+    fn nothing_is_found_outside_the_speeds_that_can_be_searched() {
+        let index = LibraryIndex::build(Vec::new());
+        let err = find(&index, &[], 0, 0.3, None, &Ctx::silent()).unwrap_err();
+        assert!(err.to_string().contains("tempo range 0.3"), "{err}");
+        assert_eq!(coverage(&[], 0.0), 0.0);
+        assert_eq!(gaps(&[], 90.0, 30.0), [(0.0, 90.0)]);
+    }
+
+    #[test]
+    fn a_pitch_ride_carries_on_where_a_cue_jump_jumps() {
+        let variants = fingerprint::variants(0.08);
+        // 40 s at +0%, then the pitch fader up to +6%: the track carries on from where it was.
+        let ride = plays(
+            vec![chain_at(&variants, 0.0, 40.0, 10.0, 1.0), chain_at(&variants, 40.0, 80.0, 50.0, 1.06)],
+            &variants,
+        );
+        assert_eq!(ride.iter().map(|p| (p.fits.len(), p.jumps)).collect::<Vec<_>>(), [(2, 0)], "{ride:#?}");
+        // At one speed, but 20 s further on in the track after 40 s: a cue jump.
+        let skip = plays(
+            vec![chain_at(&variants, 0.0, 40.0, 10.0, 1.0), chain_at(&variants, 40.0, 80.0, 70.0, 1.0)],
+            &variants,
+        );
+        assert_eq!(skip.iter().map(|p| (p.fits.len(), p.jumps)).collect::<Vec<_>>(), [(2, 1)], "{skip:#?}");
     }
 
     #[test]

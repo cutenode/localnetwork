@@ -36,10 +36,6 @@ const HPF_POLE: f32 = 0.98;
 /// Frames per second of audio.
 pub const FRAMES_PER_SEC: f64 = RATE as f64 / HOP as f64;
 
-pub fn frames_to_secs(frames: f64) -> f64 {
-    frames / FRAMES_PER_SEC
-}
-
 /// A spectral peak: frame index and frequency bin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Peak {

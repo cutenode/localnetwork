@@ -528,30 +528,58 @@ mod tests {
         assert_eq!(m.left_out, 2, "the memory cue and pad 10");
     }
 
-    /// A WAV and an AIFF file of a few frames of 16-bit stereo silence.
-    fn wav_and_aiff() -> (Vec<u8>, Vec<u8>) {
-        let mut wav = b"RIFF\0\0\0\0WAVEfmt ".to_vec();
-        wav.extend_from_slice(&16u32.to_le_bytes());
-        wav.extend_from_slice(&[1, 0, 2, 0]);
-        wav.extend_from_slice(&44_100u32.to_le_bytes());
-        wav.extend_from_slice(&176_400u32.to_le_bytes());
-        wav.extend_from_slice(&[4, 0, 16, 0]);
-        wav.extend_from_slice(b"data");
-        wav.extend_from_slice(&16u32.to_le_bytes());
-        wav.extend_from_slice(&[0; 16]);
-        let len = (wav.len() - 8) as u32;
-        wav[4..8].copy_from_slice(&len.to_le_bytes());
+    /// Serato has eight saved loop slots: memory loops past them are left out, and each track
+    /// colour is the pastel Serato's picker stores.
+    #[test]
+    fn loops_past_the_eighth_slot_are_left_out() {
+        let memory_loop = |i: u32| Cue {
+            hot_cue: None,
+            start_ms: i * 1000,
+            end_ms: Some(i * 1000 + 500),
+            comment: String::new(),
+            color: None,
+            color_id: 0,
+            loop_beats: None,
+        };
+        let m = Markers::from_rekordbox(None, &(0..9).map(memory_loop).collect::<Vec<_>>());
+        assert_eq!(m.loops.iter().map(|l| l.0).collect::<Vec<_>>(), (0..8).collect::<Vec<u8>>());
+        assert_eq!((m.left_out, m.colour), (1, [0xff, 0xff, 0xff]));
+        use TrackColor::*;
+        let pastels = [Pink, Red, Orange, Yellow, Green, Aqua, Blue, Purple].map(|c| track_colour(Some(c)));
+        assert!(pastels.iter().all(|[r, g, b]| r.min(g).min(b) == &0x99 && r.max(g).max(b) == &0xff), "{pastels:x?}");
+        assert_eq!(pastels.iter().collect::<std::collections::HashSet<_>>().len(), 8);
+    }
 
-        let mut aiff = b"FORM\0\0\0\0AIFFCOMM".to_vec();
-        aiff.extend_from_slice(&18u32.to_be_bytes());
-        aiff.extend_from_slice(&[0, 2, 0, 0, 0, 4, 0, 16]);
-        aiff.extend_from_slice(&[0x40, 0x0e, 0xac, 0x44, 0, 0, 0, 0, 0, 0]);
-        aiff.extend_from_slice(b"SSND");
-        aiff.extend_from_slice(&24u32.to_be_bytes());
-        aiff.extend_from_slice(&[0; 24]);
-        let len = (aiff.len() - 8) as u32;
-        aiff[4..8].copy_from_slice(&len.to_be_bytes());
-        (wav, aiff)
+    /// Crate names are made safe for a file name, `%%` (Serato's folder separator) can't come
+    /// from a playlist's own name, long ones are cut on a character boundary, and same-named
+    /// crates are told apart.
+    #[test]
+    fn crate_names_are_safe_unique_and_short_enough() {
+        let node = |id, parent_id, name: &str, is_folder| Playlist {
+            id,
+            parent_id,
+            name: name.into(),
+            is_folder,
+            sort_order: id,
+            track_ids: Vec::new(),
+        };
+        let long = "ü".repeat(150);
+        let lib = Library {
+            playlists: vec![
+                node(1, None, "50%% off", true),
+                node(2, Some(1), "Set", false),
+                node(3, None, "set", false),
+                node(4, None, "Set", false),
+                node(5, None, &long, false),
+            ],
+            ..Default::default()
+        };
+        let names: Vec<(u32, String)> = crate_names(&lib).into_iter().map(|(p, n)| (p.id, n)).collect();
+        assert_eq!(
+            &names[..4],
+            [(1, "50% off".to_string()), (2, "50% off%%Set".into()), (3, "set".into()), (4, "Set (2)".into())]
+        );
+        assert!(names[4].1.len() <= NAME_BYTES && long.starts_with(&names[4].1), "{}", names[4].1);
     }
 
     #[test]
@@ -562,7 +590,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let m = Markers { colour: [0xff; 3], cues: vec![(3, 1234, PAD_COLOURS[3], "x".into())], ..Default::default() };
-        let (wav, aiff) = wav_and_aiff();
+        let (wav, aiff) = (crate::probe::tests::wav(44_100, 16, 0.0001), crate::probe::tests::aiff(4));
         let geob = |tag: &Id3v2Tag| -> Vec<Vec<u8>> {
             tag.into_iter()
                 .filter_map(|f| match f {

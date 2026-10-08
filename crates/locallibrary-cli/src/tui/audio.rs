@@ -1237,4 +1237,54 @@ pub(super) mod tests {
         assert!(out.iter().all(|s| s.abs() <= 0.75 + 1e-4));
         assert!(out.iter().any(|s| s.abs() > 0.01));
     }
+
+    /// A track that can't seek ([`Breaks`] never breaks this soon, and doesn't seek).
+    fn unseekable() -> Breaks<SamplesBuffer> {
+        Breaks(counting(100), usize::MAX)
+    }
+
+    /// A seek the track can't make is flagged for the UI, and the track plays on from where
+    /// it was.
+    #[test]
+    fn a_seek_the_track_cant_make_plays_on() {
+        let head = Arc::new(Playhead::default());
+        let mut l = Looper::new(unseekable(), head.clone());
+        play(&mut l, 3);
+        l.try_seek(ms(50)).unwrap();
+        assert_eq!(play(&mut l, 2), [3, 4]);
+        assert!(head.seek_failed.load(Ordering::Relaxed));
+    }
+
+    /// A loop set inside it, in a track that can't seek back to its start, plays on through
+    /// its end and stops looping.
+    #[test]
+    fn a_loop_the_track_cant_go_back_in_plays_on() {
+        let head = Arc::new(Playhead::default());
+        let mut l = Looper::new(unseekable(), head.clone());
+        play(&mut l, 12);
+        head.set_loop(Some((ms(10), ms(14))));
+        assert_eq!(play(&mut l, 4), [12, 13, 14, 15]);
+        assert!(!head.is_looping());
+    }
+
+    /// The loop playing set again, unchanged: it goes on from memory where it was.
+    #[test]
+    fn setting_the_same_loop_again_changes_nothing() {
+        let head = Arc::new(Playhead::default());
+        let mut l = Looper::new(counting(100), head.clone());
+        head.set_loop(Some((ms(10), ms(14))));
+        play(&mut l, 20);
+        head.set_loop(Some((ms(10), ms(14))));
+        assert_eq!(play(&mut l, 4), [12, 13, 10, 11]);
+    }
+
+    /// A track played to its end has nothing left of its span, so a queue goes on to the next
+    /// track's channels and rate.
+    #[test]
+    fn a_track_at_its_end_ends_its_span() {
+        let head = Arc::new(Playhead::default());
+        let mut l = Looper::new(counting(2), head.clone());
+        assert_eq!(play(&mut l, 3), [0, 1]);
+        assert_eq!(l.current_span_len(), Some(0));
+    }
 }

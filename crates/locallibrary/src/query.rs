@@ -1053,6 +1053,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn numbers_and_dates_compare_every_way() {
+        assert_eq!(ids("bpm:<100"), [3]);
+        assert_eq!(ids("bpm:>121"), [2]);
+        assert_eq!(ids("bpm:<=121"), [1, 3]);
+        // A bare month or year on the open side of a bound takes the whole of it.
+        assert_eq!(ids("added:<=2025-12"), [2]);
+        assert_eq!(ids("added:>2025"), [1]);
+        assert_eq!(ids("added:<2026"), [2]);
+    }
+
+    #[test]
+    fn colours_parse_by_number_too() {
+        assert_eq!(parse_color("0").unwrap(), None);
+        assert_eq!(parse_color(" 5 ").unwrap(), TrackColor::from_id(5));
+        assert_eq!(parse_color("9").unwrap_err().to_string(), Error::invalid("no colour number 9").to_string());
+    }
+
     /// Regression: a word before a colon that named no field was text to look for, so
     /// `-gnere:house` matched every track; `playlist:` compared full paths only, so a nested
     /// playlist's name matched nothing, and negated, everything.

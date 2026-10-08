@@ -422,6 +422,41 @@ mod tests {
         assert_eq!(keys, ["1A", "1B", "2A", "Am", "12B", ""]);
     }
 
+    /// Suggestions mix in by key and tempo, best first, and never offer the track itself (by its
+    /// file, or a copy of it elsewhere).
+    #[test]
+    fn suggestions_mix_in_best_first() {
+        let t = |id: u32, title: &str, key: &str, bpm| {
+            let mut t = crate::model::tests::track(id, "A", title, &format!("/Contents/{id}.mp3"));
+            t.key = key.into();
+            t.bpm = bpm;
+            t
+        };
+        let playing = t(1, "Playing", "8A", 124.0);
+        let mut copy = playing.clone();
+        copy.id = 2;
+        copy.file_path = "/Contents/copy.mp3".into();
+        let tracks = vec![
+            playing.clone(),
+            copy,
+            t(3, "Relative, half time", "8B", 62.0),
+            t(4, "Neighbour", "9A", 124.0),
+            t(5, "Same key", "Am", 125.0),
+            t(6, "Too fast", "8A", 140.0),
+            t(7, "Clash", "3A", 124.0),
+            t(8, "No key", "", 124.0),
+        ];
+        let library = Library { tracks, ..Default::default() };
+        let titles = |limit| suggestions(&library, &playing, limit).into_iter().map(|s| s.track.id).collect::<Vec<_>>();
+        assert_eq!(titles(10), [5, 4, 3]);
+        assert_eq!(titles(2), [5, 4]);
+        assert!(suggestions(&library, &t(9, "Unknown key", "?", 124.0), 10).is_empty());
+        let described: Vec<&str> = [Relation::Same, Relation::Adjacent, Relation::Relative, Relation::EnergyBoost]
+            .map(Relation::describe)
+            .into();
+        assert_eq!(described, ["same key", "±1", "relative", "energy boost"]);
+    }
+
     #[test]
     fn tempo_allows_half_and_double_time() {
         assert!(tempo_gap(126.0, 128.0) < 0.02);

@@ -3,7 +3,7 @@
 
 use crate::common;
 
-use locallibrary::api::{self, Direction, EditRequest, SyncRequest};
+use locallibrary::api::{self, EditRequest};
 use locallibrary::edit::{Edit, EditOptions};
 use locallibrary::fleet::{self, Role};
 use locallibrary::progress::Ctx;
@@ -52,17 +52,7 @@ fn a_sync_copies_exactly_what_was_confirmed() {
     let a = common::bigger_drive(dir.path(), "A");
     let b = dir.path().join("B");
     std::fs::create_dir(&b).unwrap();
-    let req = SyncRequest {
-        left: a.display().to_string(),
-        right: b.display().to_string(),
-        direction: Direction::Auto,
-        allow_low_confidence: false,
-        verify: false,
-        keep_extra: false,
-        delete_first: false,
-        overwrite_archive: false,
-        keep_player_changes: false,
-    };
+    let req = common::sync_pair(&a, &b);
     // The source exports again after the plan was made.
     let planned = api::sync_plan(&req, &Ctx::silent()).unwrap();
     common::export_new_track(&a, "Artist", "Late addition");

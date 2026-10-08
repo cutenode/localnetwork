@@ -306,4 +306,13 @@ mod tests {
         let err = wait(&listener, Duration::MAX, &Ctx::new(&progress, cancel), |_| true).unwrap_err();
         assert!(matches!(err, Error::Cancelled));
     }
+
+    #[test]
+    fn waits_are_said_in_seconds_then_whole_minutes() {
+        let said = |secs| span(Duration::from_secs(secs));
+        assert_eq!(
+            [said(1), said(30), said(119), said(120), said(121)],
+            ["1 second", "30 seconds", "119 seconds", "2 minutes", "3 minutes"]
+        );
+    }
 }

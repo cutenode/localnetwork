@@ -1908,6 +1908,11 @@ fn plan_with(
         })
         .flatten()
         .collect();
+    // Only tracks whose fields end up different: replaying an edit that's still in place, or
+    // setting what a track already holds, changes nothing.
+    let was: HashMap<u32, &Track> = primary.tracks.iter().map(|t| (t.id, t)).collect();
+    let tracks_changed =
+        after.tracks.iter().filter(|t| edited.contains(&tkey(t)) && was.get(&t.id).is_some_and(|w| *w != *t)).count();
     let history_removed =
         primary.history.iter().filter(|h| !h.is_folder).count() - after.history.iter().filter(|h| !h.is_folder).count();
 
@@ -1971,7 +1976,7 @@ fn plan_with(
         playlists_created: created,
         playlists_deleted: deleted,
         playlists_changed,
-        tracks_changed: edited.len(),
+        tracks_changed,
         tracks_removed,
         history_removed,
         files: files.keys().cloned().collect(),

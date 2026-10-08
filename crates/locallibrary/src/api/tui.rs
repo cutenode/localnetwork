@@ -206,7 +206,9 @@ pub fn drive_eject_plan(store_root: Option<&Path>, req: &EjectDrives) -> Result<
         drives.iter().map(|t| format!("eject {}: unmount it{} and power it off", t.drive, t.also())).collect();
     // Named by mount path from here on: a name could find another drive by then.
     let request = EjectDrives { drives: drives.iter().map(|t| t.root.display().to_string()).collect() };
-    let mut planned = Planned::new("eject", EjectPlan { drives }, request).summary(summary);
+    let mut planned = Planned::new("eject", EjectPlan { drives }, request)
+        .summary(summary)
+        .warnings(crate::format::untested_here("ejecting"));
     for t in touched {
         planned = planned.touches(t);
     }

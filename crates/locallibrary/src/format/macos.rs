@@ -416,4 +416,144 @@ mod tests {
         assert_eq!(whole_of("disk12s1"), "disk12");
         assert_eq!(whole_of("disk3"), "disk3");
     }
+
+    /// An external SSD as macOS formats it: GUID, an EFI partition, and an APFS container whose
+    /// volume (and mount point) is on the synthesized disk6. `diskutil info`/`list -plist`, trimmed.
+    #[test]
+    fn apfs_volumes_come_from_their_container() {
+        let info = json!({
+            "DeviceIdentifier": "disk5", "DeviceNode": "/dev/disk5", "Content": "GUID_partition_scheme",
+            "IORegistryEntryName": "Samsung PSSD T7 Media", "Size": 1000204886016u64, "DeviceBlockSize": 512,
+            "BusProtocol": "USB", "Internal": false, "RemovableMediaOrExternalDevice": true,
+            "VirtualOrPhysical": "Physical", "WritableMedia": true
+        });
+        let listing = json!({ "AllDisksAndPartitions": [{
+            "DeviceIdentifier": "disk5", "Content": "GUID_partition_scheme", "Size": 1000204886016u64,
+            "Partitions": [
+                { "DeviceIdentifier": "disk5s1", "Content": "EFI", "Size": 209715200, "VolumeName": "EFI",
+                  "DiskUUID": "A1B2C3D4-0000-4000-8000-000000000001" },
+                { "DeviceIdentifier": "disk5s2", "Content": "Apple_APFS", "Size": 999995129856u64,
+                  "DiskUUID": "A1B2C3D4-0000-4000-8000-000000000002" }
+            ]
+        }]});
+        let parts = HashMap::from([
+            (
+                "disk5s1".to_string(),
+                json!({ "FilesystemType": "msdos", "FilesystemName": "MS-DOS FAT32", "VolumeAllocationBlockSize": 512,
+                    "DiskUUID": "A1B2C3D4-0000-4000-8000-000000000001" }),
+            ),
+            ("disk5s2".to_string(), json!({ "Content": "Apple_APFS", "APFSContainerReference": "disk6" })),
+            (
+                "disk5s2/apfs".to_string(),
+                json!({ "AllDisksAndPartitions": [{
+                    "DeviceIdentifier": "disk6", "Size": 999995129856u64,
+                    "APFSPhysicalStores": [{ "DeviceIdentifier": "disk5s2" }],
+                    "APFSVolumes": [{ "DeviceIdentifier": "disk6s1", "VolumeName": "Samples",
+                        "MountPoint": "/Volumes/Samples", "CapacityInUse": 421507072000u64, "Size": 999995129856u64,
+                        "VolumeUUID": "0F1E2D3C-4B5A-4978-8695-A4B3C2D1E0F9" }]
+                }]}),
+            ),
+        ]);
+        let d = parse_disk(&info, &listing, &parts, &["disk3".into()]);
+        assert_eq!((d.model.as_str(), d.scheme), ("Samsung PSSD T7", Some(Scheme::Gpt)));
+        let ids: Vec<&str> = d.volumes.iter().map(|v| v.id.as_str()).collect();
+        assert_eq!(ids, ["disk5s1", "disk5s2", "disk6s1"]);
+        assert_eq!(d.volumes[0].uuid.as_deref(), Some("A1B2C3D4-0000-4000-8000-000000000001"));
+        // The container's partition has no file system of its own; the volume in it does.
+        assert_eq!((d.volumes[1].filesystem, d.volumes[1].filesystem_name.as_deref()), (None, Some("Apple_APFS")));
+        let apfs = &d.volumes[2];
+        assert_eq!((apfs.filesystem, apfs.label.as_deref()), (Some(FsKind::Apfs), Some("Samples")));
+        assert_eq!((apfs.size, apfs.mount.as_deref()), (421507072000, Some(Path::new("/Volumes/Samples"))));
+        // Players read the first partition, and don't read GUID partition tables.
+        assert_eq!(crate::format::players::assess_disk(&d).verdict, crate::format::Verdict::NoPlayers);
+    }
+
+    /// An SD card with its lock switch on, formatted FAT16 without a partition table: the file
+    /// system is on the whole disk, which `list` shows without partitions.
+    #[test]
+    fn a_locked_card_without_a_partition_table_is_one_volume() {
+        let info = json!({
+            "DeviceIdentifier": "disk7", "DeviceNode": "/dev/disk7", "Content": "DOS_FAT_16", "MediaName": "SD Card Reader",
+            "Size": 1973420032u64, "DeviceBlockSize": 512, "BusProtocol": "Secure Digital", "Internal": false,
+            "Removable": true, "VirtualOrPhysical": "Physical", "WritableMedia": false, "FilesystemType": "msdos",
+            "FilesystemName": "MS-DOS FAT16", "VolumeName": "CARD", "MountPoint": "/Volumes/CARD",
+            "VolumeAllocationBlockSize": 32768, "VolumeUUID": "5F8C1A2B-3D4E-3F60-9A7B-C8D9E0F1A2B3"
+        });
+        let listing = json!({ "AllDisksAndPartitions": [{
+            "DeviceIdentifier": "disk7", "Content": "DOS_FAT_16", "Size": 1973420032u64, "VolumeName": "CARD",
+            "MountPoint": "/Volumes/CARD"
+        }]});
+        let d = parse_disk(&info, &listing, &HashMap::new(), &[]);
+        assert_eq!(d.model, "SD Card Reader", "the media name, without an IORegistry name");
+        assert_eq!(d.scheme, None);
+        assert!(d.read_only && d.removable);
+        assert_eq!(d.problem(&[]).as_deref(), Some("it's write-protected"));
+        assert_eq!(d.volumes.len(), 1);
+        let v = &d.volumes[0];
+        assert_eq!((v.id.as_str(), v.filesystem, v.label.as_deref()), ("disk7", Some(FsKind::Fat16), Some("CARD")));
+        assert_eq!((v.cluster_size, v.mount.as_deref()), (Some(32768), Some(Path::new("/Volumes/CARD"))));
+    }
+
+    #[test]
+    fn partition_schemes_are_told_by_content() {
+        let (mut info, listing, parts) = usb_drive();
+        for (content, scheme) in [
+            ("GUID_partition_scheme", Some(Scheme::Gpt)),
+            ("Apple_partition_scheme", Some(Scheme::Apm)),
+            ("Sun_partition_scheme", Some(Scheme::Other)),
+        ] {
+            info["Content"] = json!(content);
+            assert_eq!(parse_disk(&info, &listing, &parts, &[]).scheme, scheme, "{content}");
+        }
+        info.as_object_mut().unwrap().remove("Content");
+        assert_eq!(parse_disk(&info, &listing, &parts, &[]).scheme, None);
+    }
+
+    #[test]
+    fn file_systems_are_told_by_type_and_name() {
+        for (kind, name, want) in [
+            ("msdos", "MS-DOS FAT16", FsKind::Fat16),
+            ("msdos", "MS-DOS FAT12", FsKind::Fat12),
+            ("msdos", "MS-DOS", FsKind::Other),
+            ("exfat", "ExFAT", FsKind::Exfat),
+            ("hfs", "Mac OS Extended (Case-sensitive)", FsKind::Hfsplus),
+            ("apfs", "APFS", FsKind::Apfs),
+            ("ntfs", "Windows NT File System (NTFS)", FsKind::Ntfs),
+            ("udf", "Universal Disk Format (UDF)", FsKind::Other),
+        ] {
+            let (k, n) = filesystem(&json!({ "FilesystemType": kind, "FilesystemName": name }), &Value::Null);
+            assert_eq!((k, n.as_deref()), (Some(want), Some(name)));
+        }
+        // No file system: the partition's content names it.
+        let part = json!({ "Content": "Microsoft Basic Data" });
+        assert_eq!(filesystem(&Value::Null, &part), (None, Some("Microsoft Basic Data".into())));
+    }
+
+    #[test]
+    fn hfs_and_fat32_with_a_chosen_cluster_size_are_planned() {
+        let (info, listing, parts) = usb_drive();
+        let d = parse_disk(&info, &listing, &parts, &[]);
+        let t =
+            Target { filesystem: Filesystem::Hfsplus, label: "DNA".into(), cluster_size: 4096, default_cluster: true };
+        assert_eq!(steps(&d, &t).unwrap(), ["diskutil eraseDisk HFS+ DNA MBR disk4"]);
+        let t =
+            Target { filesystem: Filesystem::Fat32, label: "DNA".into(), cluster_size: 16384, default_cluster: false };
+        assert_eq!(
+            steps(&d, &t).unwrap(),
+            [
+                r#"diskutil eraseDisk "MS-DOS FAT32" DNA MBR disk4"#,
+                "diskutil unmountDisk disk4",
+                "newfs_msdos -F 32 -b 16384 -v DNA /dev/rdisk4s1",
+                "diskutil mountDisk disk4",
+            ]
+        );
+    }
+
+    /// Only names shaped like `disk4` (or `/dev/disk4`, `/dev/rdisk4s1`) are asked of diskutil.
+    #[test]
+    fn other_names_are_not_disks() {
+        for spec in ["Backup", "/dev/sdb", "disks", "/Volumes/DNA", "PhysicalDrive2"] {
+            assert!(by_id(spec).unwrap().is_none(), "{spec}");
+        }
+    }
 }

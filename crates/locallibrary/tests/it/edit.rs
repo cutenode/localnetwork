@@ -1,27 +1,20 @@
+mod api;
+mod drifted_databases;
+mod journal_replay;
+mod refusals;
+
 use crate::common;
 
 use std::fs;
-use std::io::Cursor;
 use std::path::Path;
 
 use crate::common::{apply, replay};
-use binrw::BinRead;
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
 use locallibrary::model::TrackColor;
 use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 use locallibrary::{Library, backup, paths, pdb};
-
-/// Present rows of one table as rekordcrate, an independent PDB parser, sees them.
-fn rekordcrate_rows(pdb: &[u8], page_type: rekordcrate::pdb::PageType) -> usize {
-    use rekordcrate::pdb::Header;
-    let mut reader = Cursor::new(pdb);
-    let header = Header::read(&mut reader).unwrap();
-    let table = header.tables.iter().find(|t| t.page_type == page_type).unwrap();
-    let pages = header.read_pages(&mut reader, binrw::Endian::NATIVE, (&table.first_page, &table.last_page)).unwrap();
-    pages.into_iter().flat_map(|p| p.row_groups.into_iter()).map(|g| g.present_rows().count()).sum()
-}
 
 fn pdb_library(root: &Path) -> Library {
     pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap()
@@ -86,7 +79,7 @@ fn playlist_edits_land_in_both_databases_and_can_be_undone() {
         assert_eq!(files(&lib, "Shows/2026/Friday, 10 October"), want);
     }
     let pdb_bytes = fs::read(root.join(paths::EXPORT_PDB)).unwrap();
-    let tree_rows = rekordcrate_rows(&pdb_bytes, rekordcrate::pdb::PageType::PlaylistTree);
+    let tree_rows = common::rekordcrate_rows(&pdb_bytes, rekordcrate::pdb::PageType::PlaylistTree);
     assert_eq!(tree_rows, pdb_library(&root).playlists.len());
 
     let d = Device::open_export(&root).unwrap();
@@ -123,7 +116,7 @@ fn deleting_a_folder_removes_everything_below_it() {
         assert_eq!(lib.tracks.len(), tracks);
     }
     let bytes = fs::read(root.join(paths::EXPORT_PDB)).unwrap();
-    let entries = rekordcrate_rows(&bytes, rekordcrate::pdb::PageType::PlaylistEntries);
+    let entries = common::rekordcrate_rows(&bytes, rekordcrate::pdb::PageType::PlaylistEntries);
     assert_eq!(entries, pdb_library(&root).playlists.iter().map(|p| p.track_ids.len()).sum::<usize>());
 }
 
@@ -168,7 +161,7 @@ fn track_details_change_in_both_databases() {
         }
     }
     let bytes = fs::read(root.join(paths::EXPORT_PDB)).unwrap();
-    assert_eq!(rekordcrate_rows(&bytes, rekordcrate::pdb::PageType::Tracks), lib.tracks.len());
+    assert_eq!(common::rekordcrate_rows(&bytes, rekordcrate::pdb::PageType::Tracks), lib.tracks.len());
 }
 
 #[test]
@@ -1006,22 +999,6 @@ fn dedupe_replaces_another_edit_only_with_metadata() {
 }
 
 #[test]
-fn history_is_deleted_only_once_the_store_has_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = common::bigger_drive(dir.path(), "Main");
-    common::add_history(&root, "HISTORY 001", &[1, 2]);
-    let store = locallibrary::Store::open_or_init(dir.path().join("store")).unwrap();
-    let req =
-        locallibrary::api::DeleteHistoryRequest { drive: root.display().to_string(), names: vec![], force: false };
-    let err = locallibrary::api::delete_history_plan(Some(&store), &req, &Ctx::silent()).unwrap_err();
-    assert!(matches!(err.inner(), locallibrary::Error::Conflict(_)), "{err}");
-    let pull = locallibrary::api::PullRequest { drive: root.display().to_string(), ..Default::default() };
-    locallibrary::api::pull(&store, &pull, &Ctx::silent()).unwrap();
-    locallibrary::api::delete_history_apply(Some(&store), &req, &Ctx::silent()).unwrap();
-    assert!(pdb_library(&root).history.is_empty());
-}
-
-#[test]
 fn track_details_say_where_a_track_is_filed_and_what_is_wrong_with_it() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
@@ -1244,4 +1221,20 @@ fn playlists_nest_no_deeper_than_a_drive_is_read() {
     let opts = locallibrary::merge::MergeOptions::default();
     let err = locallibrary::merge::plan(&src, &dst, &opts, &Ctx::silent()).map(|_| ()).unwrap_err().to_string();
     assert!(err.contains("merge by name instead"), "{err}");
+}
+
+/// Setting what tracks already hold changes nothing, so replaying a field edit that's still in
+/// place is a no-op rather than counting every track it names as changed.
+#[test]
+fn a_field_edit_already_in_place_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = both_databases(dir.path());
+    let first = pdb_library(&root).tracks[0].id;
+    let edit =
+        Edit::EditTracks { tracks: ids(&[first]), fields: TrackFields { rating: Some(5), ..Default::default() } };
+    assert_eq!(apply(&root, std::slice::from_ref(&edit)).tracks_changed, 1);
+    let d = Device::open_export(&root).unwrap();
+    let again = edit::plan(&d, &[edit], &EditOptions { lenient: true, no_journal: true }, &Ctx::silent()).unwrap();
+    assert_eq!(again.tracks_changed, 0);
+    assert!(again.is_noop());
 }

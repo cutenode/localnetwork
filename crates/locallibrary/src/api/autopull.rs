@@ -34,6 +34,10 @@ pub const WATCH_SETTLE: Duration = Duration::from_secs(5);
 /// How often drives are polled.
 pub const WATCH_POLL_EVERY: Duration = Duration::from_secs(1);
 
+/// How long `watch --once` waits for another operation (the TUI, the RPC sidecar, a pull) to let
+/// go of the store or a drive before giving up.
+pub const WATCH_ONCE_WAIT: Duration = Duration::from_secs(60);
+
 #[derive(Debug, Clone, Copy)]
 pub struct WatchOptions {
     /// Pull drives holding a state the store lacks; without it, only say so.
@@ -92,6 +96,14 @@ pub enum WatchAction {
         library: String,
         targets: Vec<TargetResult>,
     },
+    /// Another operation holds the store or the drive: it's looked at again once that's done.
+    /// Said once per wait.
+    #[serde(rename = "watch.waiting")]
+    Waiting {
+        #[serde(flatten)]
+        drive: MountedDrive,
+        reason: String,
+    },
     /// Left alone, and why.
     #[serde(rename = "watch.skipped")]
     Skipped {
@@ -115,6 +127,7 @@ impl WatchAction {
             | WatchAction::Pending { drive, .. }
             | WatchAction::Pulled { drive, .. }
             | WatchAction::Synced { drive, .. }
+            | WatchAction::Waiting { drive, .. }
             | WatchAction::Skipped { drive, .. }
             | WatchAction::Failed { drive, .. } => drive,
         }
@@ -134,11 +147,16 @@ pub struct AutoPull {
     pub options: WatchOptions,
     /// Drives to look at, and when they'll have settled.
     due: BTreeMap<PathBuf, Instant>,
+    /// Drives found held by another operation, and since when.
+    waiting: BTreeMap<PathBuf, Instant>,
+    /// How long to wait for a drive another operation holds before failing; `None` waits as long
+    /// as it takes.
+    pub patience: Option<Duration>,
 }
 
 impl AutoPull {
     pub fn new(options: WatchOptions) -> AutoPull {
-        AutoPull { options, due: BTreeMap::new() }
+        AutoPull { options, due: BTreeMap::new(), waiting: BTreeMap::new(), patience: None }
     }
 
     /// Look at these drives (the ones mounted when watching starts) once they've settled, as
@@ -166,6 +184,7 @@ impl AutoPull {
                 }
                 WatchEvent::Detached(d) => {
                     self.due.remove(&d.root);
+                    self.waiting.remove(&d.root);
                 }
                 _ => {}
             }
@@ -178,7 +197,8 @@ impl AutoPull {
     }
 
     /// Looks at the drives that have settled, among `mounted`, with the store at `store_root`
-    /// (never created here). Fails only when cancelled.
+    /// (never created here). Fails only when cancelled, or when another operation held a drive or
+    /// the store for longer than `patience`.
     pub fn run(
         &mut self,
         store_root: &Path,
@@ -194,12 +214,24 @@ impl AutoPull {
             match look(store_root, drive, mounted, &self.options, ctx, on) {
                 Ok(()) => {}
                 Err(Error::Cancelled) => return Err(Error::Cancelled),
-                // Another operation is writing it, or the store: look again later.
-                Err(Error::Locked(_)) => {
+                // Another operation is writing it, or the store: say so once, and look again
+                // later.
+                Err(e @ Error::Locked(_)) => {
+                    let patience = self.patience;
+                    let since = *self.waiting.entry(root.clone()).or_insert_with(|| {
+                        let limit = patience.map(|p| format!("; giving up after {}s", p.as_secs())).unwrap_or_default();
+                        on(&WatchAction::Waiting { drive: drive.clone(), reason: format!("{e}{limit}") });
+                        now
+                    });
+                    if patience.is_some_and(|p| now.duration_since(since) >= p) {
+                        return Err(e);
+                    }
                     self.due.insert(root, Instant::now() + self.options.settle.max(WATCH_SETTLE));
+                    continue;
                 }
                 Err(e) => on(&WatchAction::Failed { drive: drive.clone(), kind: e.code(), message: e.to_string() }),
             }
+            self.waiting.remove(&root);
         }
         Ok(())
     }
@@ -260,8 +292,10 @@ impl Watching {
     }
 
     /// Looks at the drives mounted now (and any plugged in meanwhile), each once it has
-    /// settled, then returns: `watch --once`.
+    /// settled, then returns: `watch --once`. A drive or the store another operation holds is
+    /// waited for up to `auto.patience` [default: [`WATCH_ONCE_WAIT`]], then it fails.
     pub fn until_idle(&mut self, store_root: &Path, ctx: &Ctx<'_>, on: &mut dyn FnMut(Watched<'_>)) -> Result<()> {
+        self.auto.patience.get_or_insert(WATCH_ONCE_WAIT);
         self.watch(store_root, ctx, &|w| w.auto.is_idle(), on)
     }
 

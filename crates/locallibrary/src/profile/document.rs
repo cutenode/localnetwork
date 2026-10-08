@@ -2,8 +2,10 @@
 //! without being an inventory.
 //!
 //! A [`ProfileDocument`] never holds file paths, drive or history-list names, ratings, comments,
-//! bitrates or exact dates, whatever the preferences say. Tracks are only named in the
-//! `signature` section, and never when the DJ hid the track or its artist.
+//! bitrates or exact dates, whatever the preferences say, and never counts sessions (they stand in
+//! for sets until the DJ declares some, [`super::Basis::Sessions`]). Tracks are only named in the
+//! `signature` section, and never when the DJ hid the track or its artist, or a set marks it
+//! unnamed.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -11,7 +13,7 @@ use chrono::{DateTime, Datelike, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{ProfileReport, artist_credits, credited_artists};
+use super::{Basis, ProfileReport, artist_credits, credited_artists};
 use crate::model::normalize;
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
@@ -79,6 +81,15 @@ impl Section {
             Section::Prep => "prep",
             Section::Collection => "collection",
             Section::Style => "style",
+        }
+    }
+
+    /// The title in a report on `basis`: without declared sets, the sets are sessions.
+    pub fn title_in(self, basis: Basis) -> &'static str {
+        match (self, basis) {
+            (Section::Sets, Basis::Sessions) => "Sessions",
+            (Section::Arc, Basis::Sessions) => "Session shape",
+            _ => self.title(),
         }
     }
 
@@ -385,8 +396,8 @@ pub struct ProfileDocument {
     pub version: u32,
     pub generated_at: DateTime<Utc>,
     pub precision: Precision,
-    /// `plays` or `collection` (see [`super::Basis`]).
-    pub basis: super::Basis,
+    /// `plays`, `sessions` or `collection` (see [`Basis`]).
+    pub basis: Basis,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headline: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -427,7 +438,7 @@ pub struct ProfileDocument {
 pub struct DocSets {
     #[serde(flatten)]
     pub count: Count,
-    /// Year of the oldest archived set.
+    /// Year of the oldest set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub since: Option<i32>,
     pub median_tracks: u64,
@@ -610,6 +621,7 @@ fn split_name(name: &str) -> DocTrack {
 /// The public part of `report`, as `prefs` allow.
 pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument {
     let on = prefs.published();
+    let shows = |s: Section| on.contains(&s) && report.basis.publishes(s);
     let r = Round(prefs.precision);
     let mut d = ProfileDocument {
         version: DOCUMENT_VERSION,
@@ -641,22 +653,22 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
             Count::Exact { count } => count.to_string(),
             Count::AtLeast { at_least } => format!("{at_least}+"),
         };
-        let headline = prefs.headline.clone().unwrap_or_else(|| super::headline(report, |s| on.contains(&s), count));
+        let headline = prefs.headline.clone().unwrap_or_else(|| super::headline(report, shows, count));
         d.headline = (!headline.is_empty()).then_some(headline);
         // A trait is shown only with the section whose numbers back it.
         d.tags = report
             .summary
             .tags
             .iter()
-            .filter(|t| tag_section(t.id).is_some_and(|s| on.contains(&s)))
+            .filter(|t| tag_section(t.id).is_some_and(shows))
             .map(|t| t.label.clone())
             .collect();
     }
     let s = &report.sets;
-    if on.contains(&Section::Sets) && s.count > 0 {
+    if shows(Section::Sets) && s.count > 0 {
         d.sets = Some(DocSets {
             count: r.count(s.count),
-            since: s.first_seen.map(|t| t.year()),
+            since: s.oldest.map(|d| d.year()),
             median_tracks: s.median_tracks as u64,
         });
     }
@@ -734,12 +746,11 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
         let mut tracks: Vec<DocTrack> = Vec::new();
         let played = &report.signature.played;
         for pin in &prefs.pinned {
-            let t = played
-                .iter()
-                .find(|p| normalize(&p.name) == normalize(pin))
+            let p = played.iter().find(|p| normalize(&p.name) == normalize(pin));
+            let t = p
                 .map(|p| DocTrack { artist: p.artist.clone(), title: p.title.clone() })
                 .unwrap_or_else(|| split_name(pin));
-            if prefs.may_name(pin, &t.artist) && !tracks.contains(&t) {
+            if prefs.may_name(pin, &t.artist) && !p.is_some_and(|p| p.unnamed) && !tracks.contains(&t) {
                 tracks.push(t);
             }
         }
@@ -748,7 +759,7 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
                 break;
             }
             let t = DocTrack { artist: p.artist.clone(), title: p.title.clone() };
-            if prefs.may_name(&p.name, &p.artist) && !tracks.contains(&t) {
+            if prefs.may_name(&p.name, &p.artist) && !p.unnamed && !tracks.contains(&t) {
                 tracks.push(t);
             }
         }

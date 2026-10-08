@@ -20,7 +20,7 @@ formula = "locallibrary"
 
 [features]
 default = ["account", "tui", "playback"]
-# The Atmosphere account: `account`, publishing (`profile publish`, `plays publish`, `settings
+# The Atmosphere account: `account`, publishing (`profile publish`, `sets publish`, `settings
 # publish`, `settings import --from-handle`), the `account.*` and `*.publish.*` RPC methods and
 # signing in from the player's Profile view. Most of the dependencies (an HTTP client, an async
 # runtime, TLS, the keychain) are for this alone.
@@ -78,3 +78,5 @@ hegeltest.workspace = true
 assert_cmd = "2"
 rekordbox-pdb.workspace = true
 image.workspace = true
+# Builds rekordbox-shaped collection databases (`master.db`) for `collection`'s tests.
+rusqlite.workspace = true

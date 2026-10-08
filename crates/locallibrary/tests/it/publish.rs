@@ -4,18 +4,23 @@
 
 #![cfg(feature = "account")]
 
+mod signing_in;
+
 use crate::common;
 use crate::mock_pds;
 
 use std::path::Path;
 
+use chrono::{NaiveDate, Utc};
 use jacquard_oauth::authstore::ClientAuthStore;
-use locallibrary::api::{self, HistoryPublishRequest, ImportPublishedSettings, ProfileRequest, SetSettings};
-use locallibrary::atmosphere::lexicon::{PROFILE, SET, SETTINGS};
+use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetSettings};
+use locallibrary::atmosphere::lexicon::{self, PROFILE, SET, SETTINGS};
 use locallibrary::atmosphere::store::LocalStore;
 use locallibrary::atmosphere::{self, Client, Storage};
 use locallibrary::error::Reason;
+use locallibrary::profile::PrefsUpdate;
 use locallibrary::progress::Ctx;
+use locallibrary::sets::{EntryOrigin, Partner, Recording, Set, SetBook, SetEntry};
 use locallibrary::store::Store;
 use mock_pds::{MockPds, Writes, base64url};
 use serde_json::{Value, json};
@@ -235,49 +240,273 @@ fn a_session_that_ran_out_and_cant_be_refreshed_has_ended() {
     assert!(!root.join(atmosphere::store::SECRETS_FILE).exists());
 }
 
+/// A set with every field, built from `sessions`, saved in the store at `root`.
+fn save_set(root: &Path, id: &str, sessions: &[&str]) -> Set {
+    let at = Utc::now();
+    let entry = |text: &str, origin: EntryOrigin, start: u32| SetEntry {
+        file: Some(format!("/Contents/{text}.mp3")),
+        start_seconds: Some(start),
+        session: sessions.first().map(|s| s.to_string()),
+        origin,
+        ..SetEntry::added(text)
+    };
+    let mut glue = entry("Bicep - Glue", EntryOrigin::Recording, 0);
+    (glue.isrc, glue.bpm, glue.key) = ("GB-AHT-17-00123".into(), 129.98, "Am".into());
+    let set = Set {
+        id: id.into(),
+        title: Some("Friday warm-up".into()),
+        date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+        kind: Some("club".into()),
+        venue: Some("Fabric".into()),
+        city: Some("London".into()),
+        country: Some("GB".into()),
+        event: Some("at://did:plc:club/community.lexicon.calendar.event/3lte3c7x43l2e".into()),
+        with: vec![
+            Partner { name: "Ayla".into(), did: Some("did:plc:ayla".into()) },
+            Partner { name: "Sam".into(), did: None },
+        ],
+        link: Some("https://www.mixcloud.com/dj/friday-warm-up/".into()),
+        recording: Some(Recording {
+            path: "/Users/dj/Recordings/REC001.WAV".into(),
+            report: Some("report-7f3a".into()),
+        }),
+        notes: Some("PRIVATE: the monitors were too loud".into()),
+        sessions: sessions.iter().map(|s| s.to_string()).collect(),
+        tracks: vec![
+            glue,
+            SetEntry { unnamed: true, ..entry("Unreleased - Promo", EntryOrigin::Recording, 300) },
+            entry("Floorplan - Never Grow Old", EntryOrigin::Session, 600),
+            entry("Calvin Harris feat. Rihanna - This Is What You Came For", EntryOrigin::Session, 900),
+            entry("Four Tet - Baby", EntryOrigin::Added, 1200),
+            entry("Overmono - So U Kno", EntryOrigin::Session, 1500),
+        ],
+        created_at: at,
+        updated_at: at,
+    };
+    let store = Store::open_or_init(root).unwrap();
+    let mut book = SetBook::load(&store).unwrap();
+    book.sets.push(set.clone());
+    book.save(&store).unwrap();
+    set
+}
+
+fn publish_set(set: &str) -> SetPublishRequest {
+    SetPublishRequest { set: set.into(), hide: vec![] }
+}
+
+#[test]
+fn a_set_goes_out_as_its_record_with_nothing_private() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    let set = save_set(&root, "3m2abcdefgh22", &["0123456789abcdef0123456789abcdef"]);
+    let store = Store::open(&root).unwrap();
+    let hide = PrefsUpdate {
+        hide: vec!["floorplan - never grow old".into()],
+        hide_artist: vec!["Rihanna".into()],
+        ..Default::default()
+    };
+    api::profile_prefs_update(&store, &hide).unwrap();
+
+    // Signed out, the record can be looked at (`--dry-run`), not published.
+    let req = SetPublishRequest { set: "friday warm-up".into(), hide: vec![6] };
+    let plan = api::set_publish_plan(&root, &req).unwrap();
+    assert!(plan.account.is_none() && plan.uri.is_none() && plan.current.is_none());
+    assert_eq!(plan.rkey, set.id);
+    let r = &plan.record;
+    lexicon::validate(SET, r).unwrap();
+    assert_eq!(
+        (&r["title"], &r["date"], &r["kind"], &r["venue"]),
+        (&json!("Friday warm-up"), &json!("2026-10-03"), &json!("club"), &json!("Fabric"))
+    );
+    assert_eq!(r["location"], json!({ "name": "Fabric", "locality": "London", "country": "GB" }));
+    assert_eq!(r["event"], "at://did:plc:club/community.lexicon.calendar.event/3lte3c7x43l2e");
+    assert_eq!(r["with"], json!([{ "name": "Ayla", "did": "did:plc:ayla" }, { "name": "Sam" }]));
+    assert_eq!(r["link"], "https://www.mixcloud.com/dj/friday-warm-up/");
+    assert_eq!(r["sources"], json!(["history", "mix", "added"]));
+    let tracks = r["tracks"].as_array().unwrap();
+    assert_eq!(
+        tracks[0],
+        json!({ "title": "Glue", "artist": "Bicep", "isrc": "GBAHT1700123", "bpmCentis": 12998, "key": "8A", "startSeconds": 0 })
+    );
+    assert_eq!(tracks[1], json!({ "unidentified": true, "startSeconds": 300 }), "marked unnamed");
+    assert_eq!(tracks[2], json!({ "unidentified": true, "startSeconds": 600 }), "the profile hides the track");
+    assert_eq!(tracks[3], json!({ "unidentified": true, "startSeconds": 900 }), "the profile hides the artist");
+    assert_eq!(tracks[4], json!({ "title": "Baby", "artist": "Four Tet", "startSeconds": 1200 }));
+    assert_eq!(tracks[5], json!({ "unidentified": true, "startSeconds": 1500 }), "hidden as asked");
+    assert_eq!(
+        plan.notes,
+        [
+            "track 2 isn't named: marked unnamed (`sets edit --named`)",
+            "track 6 isn't named: hidden as asked",
+            "tracks 3, 4 aren't named: hidden by your profile (`profile unhide`)",
+        ]
+    );
+    // The notes, the recording, the sessions, the files and the set's own bookkeeping stay here.
+    let text = r.to_string();
+    for private in
+        ["PRIVATE", "REC001", "report-7f3a", "0123456789abcdef", "Contents", "updatedAt", "unnamed", "origin"]
+    {
+        assert!(!text.contains(private), "{private}: {text}");
+    }
+    assert_eq!(api::set_publish_apply(&root, &req).unwrap_err().code(), "account");
+
+    let bad = |req: SetPublishRequest| api::set_publish_plan(&root, &req).unwrap_err().code();
+    assert_eq!(bad(SetPublishRequest { hide: vec![7], ..req.clone() }), "invalid");
+    assert_eq!(bad(SetPublishRequest { hide: vec![0], ..req.clone() }), "invalid");
+    assert_eq!(bad(publish_set("Saturday")), "not_found");
+    assert_eq!(api::set_publish_plan(&dir.path().join("nowhere"), &req).unwrap_err().code(), "not_found");
+    // Without a country, there's no address to give the city in.
+    let mut book = SetBook::load(&store).unwrap();
+    book.sets[0].country = None;
+    book.save(&store).unwrap();
+    let plan = api::set_publish_plan(&root, &req).unwrap();
+    assert!(plan.record.get("location").is_none() && plan.record["venue"] == "Fabric");
+    assert_eq!(plan.notes.last().unwrap(), "the city is left out: it goes out with a country (`sets edit --country`)");
+    // A set that doesn't fit the Lexicon isn't planned.
+    book.sets[0].link = Some("mixcloud dot com".into());
+    book.save(&store).unwrap();
+    let err = api::set_publish_plan(&root, &req).unwrap_err().to_string();
+    assert!(err.contains("link isn't a URI"), "{err}");
+}
+
 #[test]
 fn a_set_and_the_profile_go_where_they_should() {
     let pds = MockPds::start();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
     sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
+    let set = save_set(&root, "3m2abcdefgh22", &[]);
+
+    let plan = api::set_publish_plan(&root, &publish_set("last")).unwrap();
+    assert_eq!(plan.uri, Some(format!("at://{DID}/{SET}/{}", set.id)));
+    assert!(plan.current.is_none() && !plan.destructive);
+    let published = api::set_publish_apply(&root, &publish_set("last")).unwrap();
+    assert_eq!(published.uri, format!("at://{DID}/{SET}/{}", set.id), "the key is the set's id");
+    let (first, _) = pds.record(DID, SET, &set.id).unwrap();
+    assert_eq!(without(first.clone(), "createdAt"), without(plan.record.clone(), "createdAt"));
+
+    // Again: as published, so nothing to write. What's published is read once.
+    let reads = pds.calls(GET).len();
+    let plan = api::set_publish_plan(&root, &publish_set("last")).unwrap();
+    assert_eq!(pds.calls(GET).len(), reads + 1);
+    assert!(!plan.changed && plan.noop, "{:?}", plan.notes);
+    assert!(!api::set_publish_apply(&root, &publish_set("last")).unwrap().written);
+    // Edited, it replaces its record, keeping when it was first published.
+    let store = Store::open(&root).unwrap();
+    let mut book = SetBook::load(&store).unwrap();
+    book.sets[0].title = Some("Friday closing".into());
+    book.save(&store).unwrap();
+    let plan = api::set_publish_plan(&root, &publish_set("last")).unwrap();
+    assert!(plan.changed && plan.destructive);
+    assert!(plan.apply(None, &Ctx::silent()).unwrap().written);
+    let (second, _) = pds.record(DID, SET, &set.id).unwrap();
+    assert_eq!((second["title"].as_str(), &second["createdAt"]), (Some("Friday closing"), &first["createdAt"]));
+    assert!(pds.calls(PUT).last().unwrap().json()["swapRecord"].is_string());
+    assert_eq!(SetBook::load(&store).unwrap().sets[0].id, set.id, "the set keeps its id");
+
+    // The set changed since the plan read it: refused, nothing sent.
+    let plan = api::set_publish_plan(&root, &SetPublishRequest { set: "last".into(), hide: vec![1] }).unwrap();
+    let mut book = SetBook::load(&store).unwrap();
+    book.sets[0].title = Some("Friday".into());
+    book.save(&store).unwrap();
+    let writes = pds.calls(PUT).len();
+    assert_eq!(plan.apply(None, &Ctx::silent()).unwrap_err().code(), "stale_plan");
+    assert_eq!(pds.calls(PUT).len(), writes);
+
     let drive = common::bigger_drive(dir.path(), "Main");
     common::add_history(&drive, "HISTORY 001", &[1, 2, 3, 4, 5, 6]);
-
-    let req = HistoryPublishRequest {
-        drive: drive.display().to_string(),
-        list: "HISTORY 001".into(),
-        date: Some("2026-10-03".into()),
-        ..Default::default()
-    };
-    let plan = api::history_publish_plan(&root, &req, &Ctx::silent()).unwrap();
-    let published = api::history_publish_apply(&root, &req, &Ctx::silent()).unwrap();
-    assert_eq!(published.uri, format!("at://{DID}/{SET}/{}", plan.rkey), "the key the preview showed");
-    let (first, _) = pds.record(DID, SET, &plan.rkey).unwrap();
-    assert_eq!(first["tracks"].as_array().unwrap().len(), 6);
-    assert_eq!(first["date"], "2026-10-03");
-
-    // Again, without a date: the same set, as published, so nothing to write. What's published
-    // is read once, for its date and for the plan.
-    let undated = HistoryPublishRequest { date: None, ..req.clone() };
-    let reads = pds.calls(GET).len();
-    let plan = api::history_publish_plan(&root, &undated, &Ctx::silent()).unwrap();
-    assert_eq!(pds.calls(GET).len(), reads + 1);
-    assert!(!plan.changed && plan.notes.is_empty(), "{:?}", plan.notes);
-    // A title replaces it, keeping when it was first published.
-    let titled = HistoryPublishRequest { title: Some("Friday warm-up".into()), ..undated };
-    let published = api::history_publish_apply(&root, &titled, &Ctx::silent()).unwrap();
-    assert!(published.written);
-    let (second, _) = pds.record(DID, SET, &plan.rkey).unwrap();
-    assert_eq!((second["title"].as_str(), &second["createdAt"]), (Some("Friday warm-up"), &first["createdAt"]));
-    assert!(pds.calls(PUT).last().unwrap().json()["swapRecord"].is_string());
-
     let profile = ProfileRequest { drives: vec![drive.display().to_string()], ..Default::default() };
     let published = api::profile_publish_apply(&root, &profile, &Ctx::silent()).unwrap();
     assert_eq!(published.uri, format!("at://{DID}/{PROFILE}/self"));
     let (record, _) = pds.record(DID, PROFILE, "self").unwrap();
     assert_eq!(record["sets"]["count"], 1);
     assert!(record.get("signature").is_none());
+}
+
+const SESSION: &str = "0123456789abcdef0123456789abcdef";
+const OLD_KEY: &str = "3lzzzzzzzzz22";
+
+/// What `plays publish` left: a set record under `OLD_KEY`, remembered for `SESSION` and `did`.
+fn published_by_plays_publish(root: &Path, pds: &MockPds, did: &str) {
+    let old = json!({
+        "$type": SET,
+        "date": "2026-10-03",
+        "source": "history",
+        "tracks": [{ "title": "Glue", "artist": "Bicep" }],
+        "createdAt": "2026-10-04T09:30:00.000Z",
+    });
+    pds.put(did, SET, OLD_KEY, old);
+    let keys = json!({ did: { SESSION: OLD_KEY } });
+    std::fs::write(root.join(locallibrary::publish::SET_KEYS_FILE), keys.to_string()).unwrap();
+}
+
+#[test]
+fn a_set_from_a_list_plays_publish_published_replaces_that_record() {
+    let pds = MockPds::start();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
+    published_by_plays_publish(&root, &pds, DID);
+    let set = save_set(&root, "3m2abcdefgh22", &[SESSION]);
+
+    let plan = api::set_publish_plan(&root, &publish_set(&set.id)).unwrap();
+    assert_eq!(plan.rkey, OLD_KEY);
+    assert!(plan.current.is_some() && plan.destructive, "it replaces the old record");
+    assert!(
+        plan.notes.contains(&format!(
+            "replaces what `plays publish` published from session 01234567; the set's id becomes {OLD_KEY}"
+        )),
+        "{:?}",
+        plan.notes
+    );
+    assert!(plan.apply(None, &Ctx::silent()).unwrap().written);
+    let (record, _) = pds.record(DID, SET, OLD_KEY).unwrap();
+    assert!(record.get("source").is_none() && record["sources"].is_array());
+    assert_eq!(record["createdAt"], "2026-10-04T09:30:00.000Z", "first published by plays publish");
+    assert!(pds.record(DID, SET, &set.id).is_none(), "not published twice");
+    let store = Store::open(&root).unwrap();
+    let book = SetBook::load(&store).unwrap();
+    assert_eq!(book.sets[0].id, OLD_KEY, "the set took the key as its id");
+    // From now on it's the set's own key.
+    let plan = api::set_publish_plan(&root, &publish_set("last")).unwrap();
+    assert_eq!((plan.rkey.as_str(), plan.noop), (OLD_KEY, true));
+    assert!(plan.notes.iter().all(|n| !n.contains("replaces")), "{:?}", plan.notes);
+
+    // Another set from the same list doesn't take the key the first one has.
+    let other = save_set(&root, "3m4bbbbbbbb22", &[SESSION]);
+    assert_eq!(api::set_publish_plan(&root, &publish_set(&other.id)).unwrap().rkey, other.id);
+}
+
+#[test]
+fn a_set_keeps_its_own_key_when_the_old_one_doesnt_fit() {
+    let pds = MockPds::start();
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    sign_in(&root, &pds.url, PUBLISHING, LATER, Some("refresh-1"));
+    published_by_plays_publish(&root, &pds, DID);
+    let key = |id: &str| {
+        let plan = api::set_publish_plan(&root, &publish_set(id)).unwrap();
+        assert!(plan.notes.iter().all(|n| !n.contains("replaces")), "{:?}", plan.notes);
+        plan.rkey.clone()
+    };
+    // Built from that list and another.
+    let two = save_set(&root, "3m2aaaaaaaa22", &[SESSION, "fedcba9876543210fedcba9876543210"]);
+    assert_eq!(key(&two.id), two.id);
+    // Published under its own id already.
+    let own = save_set(&root, "3m3aaaaaaaa22", &[SESSION]);
+    pds.put(
+        DID,
+        SET,
+        &own.id,
+        json!({ "$type": SET, "date": "2026-10-03", "tracks": [], "createdAt": "2026-10-05T00:00:00.000Z" }),
+    );
+    assert_eq!(key(&own.id), own.id);
+    // Remembered for another account.
+    let other = dir.path().join("other");
+    sign_in(&other, &pds.url, PUBLISHING, LATER, Some("refresh-2"));
+    published_by_plays_publish(&other, &pds, "did:plc:someoneelse");
+    let set = save_set(&other, "3m2abcdefgh22", &[SESSION]);
+    assert_eq!(api::set_publish_plan(&other, &publish_set(&set.id)).unwrap().rkey, set.id);
 }
 
 #[test]

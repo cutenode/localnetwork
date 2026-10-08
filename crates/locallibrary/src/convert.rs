@@ -417,12 +417,9 @@ impl Builder<'_, '_> {
             ids.insert(t.id, id);
             // A row OneLibrary had keeps its cues; a new one gets the analysis files'.
             if made {
-                match cue_edit::rows_from_analysis(self.device, t) {
-                    Ok(Some(rows)) if !rows.is_empty() => {
-                        self.report.cues += one.replace_cues(id, &rows)?.added;
-                    }
-                    Ok(_) => {}
-                    Err(_) => unreadable.push(t.display_name()),
+                match cue_edit::add_rows_from_analysis(&mut one, id, self.device, t)? {
+                    Some(added) => self.report.cues += added,
+                    None => unreadable.push(t.display_name()),
                 }
             }
         }

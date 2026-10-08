@@ -11,6 +11,8 @@ use assert_cmd::cargo::CommandCargoExt;
 use locallibrary::device::dunce_canonicalize;
 use serde_json::{Value, json};
 
+use crate::support::{blank_drive, demo_drive};
+
 /// Generous: the first run of a freshly built binary can be slow to start.
 const WAIT: Duration = Duration::from_secs(60);
 
@@ -455,41 +457,6 @@ fn item_progress_is_coalesced_and_counted() {
     assert!(s.exit().success());
 }
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../locallibrary/tests/fixtures")
-}
-
-fn copy_dir(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for e in std::fs::read_dir(src).unwrap() {
-        let e = e.unwrap();
-        let to = dst.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_dir(&e.path(), &to);
-        } else {
-            std::fs::copy(e.path(), to).unwrap();
-        }
-    }
-}
-
-/// The demo export with placeholder audio.
-fn demo_drive(dir: &Path, name: &str) -> String {
-    let root = dir.join(name);
-    copy_dir(&fixtures().join("rekordcrate/demo_tracks"), &root);
-    let db = rekordbox_pdb::Database::from_file(root.join("PIONEER/rekordbox/export.pdb")).unwrap();
-    for t in &db.tracks {
-        let p = root.join(t.file_path().trim_start_matches('/'));
-        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, format!("audio {}", t.title()).repeat(100)).unwrap();
-    }
-    root.display().to_string()
-}
-
-fn empty_drive(dir: &Path, name: &str) -> String {
-    std::fs::create_dir(dir.join(name)).unwrap();
-    dir.join(name).display().to_string()
-}
-
 /// A request's progress events and its response.
 fn run(s: &mut Sidecar, id: i64, method: &str, params: Value) -> (Vec<Value>, Value) {
     s.send(id, method, params);
@@ -511,7 +478,7 @@ fn progress_says_which_drive_and_step() {
     let a = demo_drive(&root, "A");
 
     // Several drives at once: each target's events carry its root, as in the results.
-    let (b, c) = (empty_drive(&root, "B"), empty_drive(&root, "C"));
+    let (b, c) = (blank_drive(&root, "B"), blank_drive(&root, "C"));
     let (events, reply) = run(&mut s, 1, "sync_many.apply", json!({ "drives": [a, b, c] }));
     let results = reply["result"].as_array().unwrap_or_else(|| panic!("{reply}"));
     let mut targets: Vec<&Value> = results.iter().map(|r| &r["target"]).collect();
@@ -522,7 +489,7 @@ fn progress_says_which_drive_and_step() {
     assert_eq!(seen, targets, "{events:#?}");
 
     // Provisioning: each step it runs is announced, and its events carry it.
-    let new = empty_drive(&root, "New");
+    let new = blank_drive(&root, "New");
     let (events, reply) = run(&mut s, 2, "provision.apply", json!({ "target": new, "like": a, "name": "Spare" }));
     assert!(reply["result"]["stopped"].is_null(), "{reply}");
     let steps: Vec<&Value> = events.iter().filter(|e| e["event"] == "step").map(|e| &e["step"]).collect();

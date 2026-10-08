@@ -1,4 +1,4 @@
-use crate::common;
+use crate::common::{self, path};
 
 use std::fs;
 use std::path::Path;
@@ -11,10 +11,6 @@ use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
 use locallibrary::{Error, paths};
 use rekordbox_pdb::{NewTrack, PdbEditor};
-
-fn path(p: &Path) -> String {
-    p.display().to_string()
-}
 
 fn aab(root: &Path) -> u32 {
     locallibrary::pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().find_playlist("aab").unwrap().id

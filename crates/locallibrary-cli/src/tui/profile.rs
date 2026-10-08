@@ -23,6 +23,7 @@ use super::account::Account;
 use super::app::{App, Level, Msg};
 use super::keymap::Act;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
+use crate::output::plural;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Scope {
@@ -420,8 +421,9 @@ pub fn on_mouse(app: &mut App, m: MouseEvent) -> bool {
         }
         MouseEventKind::Down(MouseButton::Left) if t.detail_len() > 0 && !t.document => {
             t.pane = Pane::Detail;
-            // The list's header row sits under the border and the section's note.
-            let top = t.detail_area.y + 3;
+            // The list's header row sits under the border, what the section reveals (two rows)
+            // and the section's note (two rows).
+            let top = t.detail_area.y + 5;
             if m.row > top {
                 let i = (m.row - top - 1) as usize + t.rows.offset();
                 if i < t.detail_len() {
@@ -568,7 +570,10 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
                 _ => vec![
                     Line::raw(""),
                     Line::styled(status.unwrap_or_else(|| "Building profile…".into()), bold(theme::FG)),
-                    Line::styled("Reading history lists, tags and analysis from your drives and the store", dim()),
+                    Line::styled(
+                        "Reading sets, history lists, tags and analysis from your drives and the store",
+                        dim(),
+                    ),
                 ],
             };
             let p = Paragraph::new(lines).alignment(Alignment::Center).block(block(title("Profile", true), true));
@@ -597,7 +602,10 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     }
     let sources: Vec<&str> = r.sources.iter().map(|s| s.name.as_str()).collect();
     let basis = match r.basis {
-        Basis::Plays => format!("{} plays in {} sets", r.sets.plays, r.sets.count),
+        Basis::Plays => format!("{} in {}", plural(r.sets.plays, "play"), plural(r.sets.count, "set")),
+        Basis::Sessions => {
+            format!("no sets declared: {} in {}", plural(r.sets.plays, "play"), plural(r.sets.count, "session"))
+        }
         Basis::Collection => "no sets: from the collection".to_string(),
     };
     let rounding = match v.prefs.precision {
@@ -608,7 +616,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         format!(
             "{} · {basis} · document: {} of {} sections, {rounding}",
             sources.join(", "),
-            v.published.len(),
+            v.published.iter().filter(|s| r.basis.publishes(**s)).count(),
             Section::ALL.len()
         ),
         dim(),
@@ -634,14 +642,14 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     let items: Vec<ListItem> = Section::ALL
         .iter()
         .map(|&s| {
-            let on = v.published.contains(&s);
+            let on = v.published.contains(&s) && r.basis.publishes(s);
             let mark = if on { Span::styled("● ", fg(theme::GREEN)) } else { Span::styled("○ ", faint()) };
             // The stat can be user text (the top genre or key): it gets half the column at most.
             let st = super::ui::clip(&stat(r, s), inner_w / 2);
             let name_w = inner_w.saturating_sub(unicode_width::UnicodeWidthStr::width(st.as_str()) + 3).max(4);
             ListItem::new(Line::from(vec![
                 mark,
-                Span::styled(fit(s.title(), name_w), if on { text() } else { dim() }),
+                Span::styled(fit(s.title_in(r.basis), name_w), if on { text() } else { dim() }),
                 Span::styled(format!(" {st}"), faint()),
             ]))
         })
@@ -658,17 +666,22 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     }
     let section = Section::ALL[t.sections.selected().unwrap_or(0).min(Section::ALL.len() - 1)];
     let on = v.published.contains(&section);
-    let state = if on {
+    let state = if on && r.basis.publishes(section) {
         Span::styled(" in the document ", fg(theme::GREEN))
     } else {
         Span::styled(" only on this computer ", faint())
     };
     let detail_focused = t.pane == Pane::Detail;
-    let b = block(title(section.title(), detail_focused), detail_focused).title(Line::from(state).right_aligned());
+    let b = block(title(section.title_in(r.basis), detail_focused), detail_focused)
+        .title(Line::from(state).right_aligned());
     let inner = b.inner(detail);
     f.render_widget(b, detail);
     let [reveal, body] = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).areas(inner);
-    let reveal_text = if on { "Published, this shows " } else { "Published, this would show " };
+    let reveal_text = match (r.basis.publishes(section), on) {
+        (false, _) => "Sessions aren't published. With sets declared, this shows ",
+        (true, true) => "Published, this shows ",
+        (true, false) => "Published, this would show ",
+    };
     f.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(format!(" {reveal_text}"), faint()),
@@ -726,53 +739,58 @@ fn summary_lines(v: &ProfileView) -> Vec<Line<'static>> {
 
 fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: bool, area: Rect) {
     let s = &r.sets;
+    let unit = r.basis.unit();
     let mut head = vec![Line::from(vec![
-        Span::styled(format!("{} sets", s.count), bold(theme::FG)),
+        Span::styled(plural(s.count, unit), bold(theme::FG)),
         Span::styled(
             format!(
-                " · {} tracks in a typical set (longest {}) · {} plays of {} tracks",
+                " · {} tracks in a typical {unit} (longest {}) · {} plays of {} tracks",
                 s.median_tracks, s.longest, s.plays, s.distinct_tracks
             ),
             text(),
         ),
     ])];
     let mut notes = Vec::new();
+    if r.basis == Basis::Sessions {
+        notes.push("no sets declared (locallibrary sets new --from ID declares one)".to_string());
+    }
     if s.not_archived > 0 {
         notes.push(format!("{} only on a drive (pull archives them)", s.not_archived));
     }
     if s.too_short > 0 {
-        notes.push(format!("{} shorter list(s) left out", s.too_short));
+        notes.push(format!("{} left out", plural(s.too_short, "shorter session")));
     }
     head.push(note(notes.join(" · ")));
     let [h, table] = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).areas(area);
     f.render_widget(Paragraph::new(head), h);
     if s.list.is_empty() {
-        f.render_widget(
-            Paragraph::new(note("Players record a history list per session; lists with enough tracks count as sets.")),
-            table,
-        );
+        f.render_widget(Paragraph::new(note("No sets declared, and no sessions with enough tracks.")), table);
         return;
     }
     let data: Vec<Row> = s
         .list
         .iter()
         .map(|set| {
-            let when = set.first_seen.map_or_else(|| "on a drive".to_string(), |d| d.format("%Y-%m-%d").to_string());
+            let when = set.date.map_or_else(|| "on a drive".to_string(), |d| d.to_string());
             let bpm = match (set.opening_bpm, set.closing_bpm) {
                 (Some(a), Some(b)) => format!("{a:.0} → {b:.0}"),
                 _ => String::new(),
             };
             Row::new(vec![
                 Cell::from(Span::styled(when, fg(theme::AMBER))),
-                Cell::from(Span::styled(set.path.clone(), text())),
+                Cell::from(Span::styled(set.name.clone(), text())),
                 Cell::from(Line::styled(set.tracks.to_string(), text()).right_aligned()),
                 Cell::from(Span::styled(bpm, fg(theme::CYAN))),
                 Cell::from(Line::styled(set.harmonic_share.map(pct).unwrap_or_default(), text()).right_aligned()),
-                Cell::from(Span::styled(set.source.clone(), dim())),
+                Cell::from(Span::styled(set.place.clone(), dim())),
+                Cell::from(Span::styled(set.id.get(..8).unwrap_or(&set.id).to_string(), faint())),
             ])
         })
         .collect();
-    let header = ["First seen", "List", "Tracks", "BPM", "In key", "From"];
+    let header = match r.basis {
+        Basis::Sessions => ["First seen", "Session", "Tracks", "BPM", "In key", "Drive", "Id"],
+        Basis::Plays | Basis::Collection => ["Date", "Set", "Tracks", "BPM", "In key", "Where", "Id"],
+    };
     let t = Table::new(
         data,
         [
@@ -782,6 +800,7 @@ fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: b
             Constraint::Length(9),
             Constraint::Length(6),
             Constraint::Fill(1),
+            Constraint::Length(8),
         ],
     )
     .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::DIM))))))
@@ -837,8 +856,9 @@ fn tempo_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
 
 fn arc_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     let a = &r.arc;
+    let unit = r.basis.unit();
     if a.sets == 0 {
-        return vec![note("Needs sets of 6 or more tracks with BPMs.")];
+        return vec![note(format!("Needs {unit}s of 6 or more tracks with BPMs."))];
     }
     let mut lines = vec![
         Line::from(vec![
@@ -846,7 +866,7 @@ fn arc_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
                 format!("{:.1} → {:.1} BPM", a.opening_bpm.unwrap_or(0.0), a.closing_bpm.unwrap_or(0.0)),
                 bold(theme::CYAN),
             ),
-            Span::styled(format!("  opening and closing quarter, averaged over {} sets", a.sets), text()),
+            Span::styled(format!("  opening and closing quarter, averaged over {}", plural(a.sets, unit)), text()),
         ]),
         Line::raw(""),
     ];
@@ -863,7 +883,7 @@ fn arc_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
         axis.push_str(&format!("{:>width$}", "end", width = col_w * 5 - 1));
         lines.push(Line::styled(axis, dim()));
         let hi = a.curve.iter().flatten().copied().fold(f64::NEG_INFINITY, f64::max);
-        lines.push(note(format!("BPM against each set's median, through a set: {lo:+.1} to {hi:+.1}")));
+        lines.push(note(format!("BPM against each {unit}'s median, through a {unit}: {lo:+.1} to {hi:+.1}")));
     }
     lines
 }
@@ -871,7 +891,7 @@ fn arc_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
 fn mixing_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     let m = &r.mixing;
     if m.transitions == 0 {
-        return vec![note("Needs sets.")];
+        return vec![note(format!("Needs {}s.", r.basis.unit()))];
     }
     let mut lines = Vec::new();
     if m.keyed > 0 {
@@ -977,7 +997,7 @@ fn energy_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
         let mut axis = fit("start", col_w * 5);
         axis.push_str(&format!("{:>width$}", "end", width = col_w * 5 - 1));
         lines.push(Line::styled(axis, dim()));
-        lines.push(note("Mood through a set (high 1, mid ½, low 0)"));
+        lines.push(note(format!("Mood through a {} (high 1, mid ½, low 0)", r.basis.unit())));
     }
     lines
 }
@@ -990,7 +1010,7 @@ fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState
         _ => &r.artists,
     };
     let noun = match r.basis {
-        Basis::Plays => "plays",
+        Basis::Plays | Basis::Sessions => "plays",
         Basis::Collection => "tracks",
     };
     let hint = match s {
@@ -1070,6 +1090,7 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
     let r = &v.report;
     let s = &r.signature;
     let p = &v.prefs;
+    let unit = r.basis.unit();
     let moves = s.transitions.len().min(4);
     let [h, table, foot] = Layout::vertical([
         Constraint::Length(2),
@@ -1081,7 +1102,7 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
         Paragraph::new(vec![
             Line::from(vec![
                 Span::styled("★ pinned ", fg(theme::AMBER)),
-                Span::styled("tracks lead the document's list, then those in the most sets. ", dim()),
+                Span::styled(format!("tracks lead the document's list, then those in the most {unit}s. "), dim()),
                 Span::styled("m", theme::key()),
                 Span::styled(" pin  ", dim()),
                 Span::styled("h", theme::key()),
@@ -1090,7 +1111,7 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
                 Span::styled(" hide artist", dim()),
             ]),
             note(format!(
-                "{} tracks played · {} in two or more of {} sets",
+                "{} tracks played · {} in two or more of {} {unit}s",
                 s.played.len(),
                 s.tracks.len(),
                 r.sets.count
@@ -1128,12 +1149,13 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
             ])
         })
         .collect();
-    let header = ["", "Sets", "Plays", "Opened", "Closed", "Track"];
+    let in_how_many = if r.basis == Basis::Sessions { "Sessions" } else { "Sets" };
+    let header = ["", in_how_many, "Plays", "Opened", "Closed", "Track"];
     let t = Table::new(
         data,
         [
             Constraint::Length(1),
-            Constraint::Length(4),
+            Constraint::Length(in_how_many.len() as u16),
             Constraint::Length(5),
             Constraint::Length(6),
             Constraint::Length(6),
@@ -1184,7 +1206,7 @@ fn prep_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
 
 fn collection_lines(r: &ProfileReport) -> Vec<Line<'static>> {
     let c = &r.collection;
-    let row = |k: &str, v: String| Line::from(vec![Span::styled(fit(k, 16), dim()), Span::styled(v, text())]);
+    let row = |k: &str, v: String| Line::from(vec![Span::styled(fit(k, 20), dim()), Span::styled(v, text())]);
     let mut lines = vec![
         row("Tracks", c.tracks.to_string()),
         row("Playlists", format!("{} in {} folders", c.playlists, c.folders)),
@@ -1192,7 +1214,7 @@ fn collection_lines(r: &ProfileReport) -> Vec<Line<'static>> {
         row("Colour-tagged", opt_pct(c.coloured_share)),
     ];
     if let Some(p) = c.played_share {
-        lines.push(row("Played in a set", pct(p)));
+        lines.push(row(&format!("Played in a {}", r.basis.unit()), pct(p)));
     }
     if c.duplicate_files > 0 {
         lines.push(Line::raw(""));
@@ -1260,12 +1282,15 @@ fn json_line(line: &str) -> Line<'static> {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::crossterm::event::{KeyCode, KeyEvent};
+    use ratatui::crossterm::event::KeyCode;
 
+    use super::super::app::View;
+    use super::super::app::testing::*;
+    use super::super::ui::screen;
     use super::*;
 
     /// The view drawn at `w`×`h`, as text.
-    pub(crate) fn render(t: &mut ProfileTab, w: u16, h: u16) -> String {
+    fn render(t: &mut ProfileTab, w: u16, h: u16) -> String {
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
         term.draw(|f| draw_tab(f, t, f.area())).unwrap();
         let buf = term.backend().buffer().clone();
@@ -1277,12 +1302,25 @@ mod tests {
 
     /// A tab holding the profile of the fixture export (twelve tracks, no history).
     fn fixture_tab() -> ProfileTab {
+        fixture_tab_with(&[])
+    }
+
+    /// [`fixture_tab`], with history lists of the export's tracks.
+    fn fixture_tab_with(history: &[&[u32]]) -> ProfileTab {
         let dir = tempfile::tempdir().unwrap();
         let pdb = dir.path().join("PIONEER/rekordbox/export.pdb");
         std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
         let fixture =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../vendor/rekordbox-pdb/tests/data/bigger-export.pdb");
         std::fs::copy(fixture, &pdb).unwrap();
+        let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb).unwrap();
+        for (i, tracks) in history.iter().enumerate() {
+            let id = ed.create_history_playlist(&format!("HISTORY {:03}", i + 1)).unwrap();
+            for t in *tracks {
+                ed.add_to_history(id, *t).unwrap();
+            }
+        }
+        ed.save(&pdb).unwrap();
         let req = ProfileRequest { drives: vec![dir.path().display().to_string()], ..Default::default() };
         let view = api::profile(None, &req, &Ctx::silent()).unwrap();
         let (tx, _rx) = std::sync::mpsc::channel();
@@ -1314,26 +1352,39 @@ mod tests {
         assert!(screen.contains("124–128 BPM"), "{screen}");
     }
 
+    /// Without declared sets, the view counts sessions and calls them that.
+    #[test]
+    fn sessions_are_called_sessions() {
+        let mut t = fixture_tab_with(&[&[1, 2, 3, 4, 5, 6], &[9, 10, 1, 2, 12, 7]]);
+        t.select_section(Section::ALL.iter().position(|s| *s == Section::Sets).unwrap());
+        let screen = render(&mut t, 160, 30);
+        assert!(screen.contains("no sets declared: 12 plays in 2 sessions"), "{screen}");
+        assert!(
+            screen.contains("Session shape") && screen.contains("2 sessions · 6 tracks in a typical session"),
+            "{screen}"
+        );
+        assert!(screen.contains("First seen") && screen.contains("HISTORY 001"), "{screen}");
+        assert!(screen.contains("only on this computer") && !screen.contains("Set shape"), "{screen}");
+        assert!(!screen.contains(" Sets ") && !screen.contains("2 sets"), "{screen}");
+    }
+
     #[test]
     fn keys_change_the_view_and_save_choices() {
-        use ratatui::crossterm::event::KeyModifiers;
-
         use super::super::app::View;
 
         let store = tempfile::tempdir().unwrap();
         let mut app = App::blank(store.path().to_path_buf(), None);
         app.profile = fixture_tab();
         app.view = View::Profile;
-        let press = |app: &mut App, code: KeyCode| app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
         let published = |app: &App| match &app.profile.view {
             Some(Ok(v)) => v.published.clone(),
             _ => panic!("no profile"),
         };
 
-        press(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Down);
         assert_eq!(app.profile.section(), Section::Sets);
         assert!(published(&app).contains(&Section::Sets));
-        press(&mut app, KeyCode::Char('i'));
+        press(&mut app, "i");
         assert!(!published(&app).contains(&Section::Sets));
         let saved = locallibrary::profile::ProfilePrefs::load(&Store::open(store.path()).unwrap()).unwrap();
         assert!(!saved.published().contains(&Section::Sets), "choices are saved as they're made");
@@ -1341,31 +1392,31 @@ mod tests {
         // Into the artist list, and hide the top artist.
         let artists = Section::ALL.iter().position(|s| *s == Section::Artists).unwrap();
         app.profile.select_section(artists);
-        press(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Tab);
         assert_eq!(app.profile.pane, Pane::Detail);
-        press(&mut app, KeyCode::Char('h'));
+        press(&mut app, "h");
         let Some(Ok(v)) = &app.profile.view else { panic!() };
         assert_eq!(v.prefs.hidden_artists, ["[a]pendics.shuffle"]);
-        press(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Esc);
         assert_eq!(app.profile.pane, Pane::Sections);
 
-        press(&mut app, KeyCode::Char('#'));
+        press(&mut app, "#");
         let Some(Ok(v)) = &app.profile.view else { panic!() };
         assert_eq!(v.document.precision, Precision::Exact);
-        press(&mut app, KeyCode::Char('d'));
+        press(&mut app, "d");
         assert!(!app.profile.document, "d picks the output, as everywhere");
         app.deck.outputs = None;
-        press(&mut app, KeyCode::Char('D'));
+        press(&mut app, "D");
         assert!(app.profile.document);
-        press(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Esc);
         assert!(!app.profile.document);
 
         // Keys the view doesn't use still work.
-        press(&mut app, KeyCode::Char('1'));
+        press(&mut app, "1");
         assert_eq!(app.view, View::Library);
-        press(&mut app, KeyCode::Char('4'));
+        press(&mut app, "4");
         assert_eq!(app.view, View::Profile);
-        press(&mut app, KeyCode::Char('q'));
+        press(&mut app, "q");
         assert!(app.quit);
     }
 
@@ -1405,26 +1456,21 @@ mod tests {
     #[cfg(feature = "account")]
     #[test]
     fn signing_in_takes_a_handle_and_signing_out_two_presses() {
-        use ratatui::crossterm::event::KeyModifiers;
-
         use super::super::app::View;
 
         let store = tempfile::tempdir().unwrap();
         let mut app = App::blank(store.path().to_path_buf(), None);
         app.profile = fixture_tab();
         app.view = View::Profile;
-        let press = |app: &mut App, code: KeyCode| app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
         assert!(render(&mut app.profile, 120, 30).contains("Not signed in"));
 
-        press(&mut app, KeyCode::Char('L'));
-        for c in "dj.example.comq".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
+        press(&mut app, "L");
+        press(&mut app, "dj.example.comq");
         assert!(!app.quit, "typing a handle doesn't run commands");
-        press(&mut app, KeyCode::Backspace);
+        key(&mut app, KeyCode::Backspace);
         let screen = render(&mut app.profile, 120, 30);
         assert!(screen.contains("Atmosphere handle or server: dj.example.com"), "{screen}");
-        press(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Esc);
         assert!(!app.profile.account.typing());
 
         let account: locallibrary::api::AccountInfo = serde_json::from_value(serde_json::json!({
@@ -1444,9 +1490,9 @@ mod tests {
         let screen = render(&mut app.profile, 140, 30);
         assert!(screen.contains("Atmosphere account @dj.example.com as the development client"), "{screen}");
         assert!(screen.contains("sign in again by"), "{screen}");
-        press(&mut app, KeyCode::Char('L'));
+        press(&mut app, "L");
         assert!(app.toast.as_ref().is_some_and(|t| t.0.contains("signed in as @dj.example.com: press L again")));
-        press(&mut app, KeyCode::Char('L'));
+        press(&mut app, "L");
         assert!(app.profile.account.busy(), "the second press signs out");
 
         // The sign-out thread's answer: nobody was signed in in this store folder.
@@ -1481,5 +1527,333 @@ mod tests {
         let text: String = l.spans.iter().map(|s| s.content.to_string()).collect();
         assert_eq!(text, "  \"headline\": \"Techno warm-ups\",");
         assert_eq!(json_line("}").spans.len(), 2);
+    }
+
+    /// [`fixture_tab_with`] two sessions, as a profile of declared sets, every section filled
+    /// in with made-up numbers.
+    fn full_tab() -> ProfileTab {
+        use locallibrary::profile::{
+            ArcSection, DecadeCount, EnergySection, MixingSection, PrepSection, SetInfo, SignatureTransition,
+            StyleSection, StyleValue, Tag,
+        };
+        let mut t = fixture_tab_with(&[&[1, 2, 3, 4, 5, 6], &[9, 10, 1, 2, 12, 7]]);
+        let Some(Ok(v)) = &mut t.view else { panic!("no profile") };
+        let r = &mut v.report;
+        r.basis = Basis::Plays;
+        r.summary.tags =
+            vec![Tag { id: "harmonic", label: "Mixes in key".into(), why: "77% of 30 transitions".into() }];
+        (r.sets.not_archived, r.sets.too_short) = (1, 2);
+        r.sets.list.push(SetInfo {
+            id: "0123456789abcdef".into(),
+            name: "Friday at the Bunker".into(),
+            place: "DNA".into(),
+            date: None,
+            tracks: 6,
+            opening_bpm: Some(122.0),
+            closing_bpm: Some(128.0),
+            harmonic_share: Some(0.5),
+        });
+        r.arc = ArcSection {
+            sets: 2,
+            opening_bpm: Some(122.0),
+            closing_bpm: Some(127.5),
+            builds: 0.6,
+            steady: 0.3,
+            winds_down: 0.1,
+            curve: vec![Some(-2.0), Some(-1.0), None, Some(1.5)],
+        };
+        r.mixing = MixingSection {
+            transitions: 40,
+            keyed: 30,
+            same_key: 10,
+            adjacent: 8,
+            relative: 3,
+            energy_boost: 2,
+            clash: 7,
+            harmonic_share: Some(0.77),
+            timed: 30,
+            median_step_pct: Some(1.2),
+            within_3pct: Some(0.8),
+            within_6pct: Some(0.95),
+            half_double: 1,
+            genred: 20,
+            genre_change_share: Some(0.35),
+        };
+        r.energy = Some(EnergySection { tracks: 12, high: 0.5, mid: 0.3, low: 0.2, curve: vec![Some(0.2), Some(1.0)] });
+        r.era.tracks = 10;
+        (r.era.median_year, r.era.oldest, r.era.newest, r.era.recent_share) =
+            (Some(2019), Some(1998), Some(2024), Some(0.3));
+        r.era.decades = vec![DecadeCount { decade: 1990, count: 2 }, DecadeCount { decade: 2010, count: 8 }];
+        r.signature.transitions =
+            vec![SignatureTransition { from: "Ferrule - Night Bus".into(), to: "Ferrule - Halogen".into(), sets: 3 }];
+        r.prep = Some(PrepSection {
+            tracks: 12,
+            hot_cue_share: 0.75,
+            hot_cues_per_track: Some(3.5),
+            memory_cue_share: 0.5,
+            loop_share: 0.1,
+        });
+        (r.collection.played_share, r.collection.duplicate_files) = (Some(0.4), 3);
+        r.style = Some(StyleSection {
+            source: "MYSETTING.DAT on DNA".into(),
+            values: vec![StyleValue {
+                key: "quantize".into(),
+                label: "Quantize".into(),
+                value: "on".into(),
+                value_label: "On".into(),
+            }],
+        });
+        v.prefs.headline = Some("Warm-up specialist".into());
+        let played: Vec<String> = r.signature.played.iter().take(2).map(|p| p.name.clone()).collect();
+        (v.prefs.pinned, v.prefs.hidden) = (vec![played[0].clone()], vec![played[1].clone()]);
+        t
+    }
+
+    /// The screen with section `s` selected.
+    fn showing(t: &mut ProfileTab, s: Section) -> String {
+        t.select_section(Section::ALL.iter().position(|x| *x == s).unwrap());
+        render(t, 140, 40)
+    }
+
+    #[test]
+    fn every_section_says_what_its_numbers_show() {
+        let mut t = full_tab();
+        for (s, says) in [
+            (
+                Section::Summary,
+                &["Warm-up specialist  (your headline)", "Your headline: Warm-up specialist", "77% of 30 transitions"]
+                    [..],
+            ),
+            (
+                Section::Sets,
+                &[
+                    "1 only on a drive (pull archives them) · 2 shorter sessions left out",
+                    "on a drive",
+                    "122 → 128",
+                    "01234567",
+                ],
+            ),
+            (Section::Arc, &["122.0 → 127.5 BPM", "averaged over 2 sets", "builds", "through a set: -2.0 to +1.5"]),
+            (
+                Section::Mixing,
+                &[
+                    "77% of 30 transitions between keyed tracks are harmonic",
+                    "clash 7",
+                    "median 1.2% · 80% within 3% · 95% within 6% · 1 at half or double time",
+                    "35% of transitions change genre",
+                ],
+            ),
+            (Section::Energy, &["mood, 12 tracks", "high", "50%", "Mood through a set"]),
+            (Section::Era, &["median 2019", "(1998–2024) · 30% released the year played", "1990s", "2010s"]),
+            (Section::Signature, &["Moves played again and again", " 3× Ferrule - Night Bus → Ferrule - Halogen"]),
+            (Section::Prep, &["Cues across 12 tracks", "75% · 3.5 each", "memory cues"]),
+            (Section::Collection, &["Played in a set", "40%", "3 more files are copies of these"]),
+            (Section::Style, &["Quantize", "On", "From MYSETTING.DAT on DNA"]),
+        ] {
+            let screen = showing(&mut t, s);
+            for said in says {
+                assert!(screen.contains(said), "{s:?}: {said}\n{screen}");
+            }
+        }
+        // The pinned track is starred, the hidden one struck out.
+        let Some(Ok(v)) = &t.view else { panic!("no profile") };
+        let (pinned, hidden) = (v.prefs.pinned[0].clone(), v.prefs.hidden[0].clone());
+        let screen = showing(&mut t, Section::Signature);
+        let row = |name: &str| screen.lines().find(|l| l.contains(name)).unwrap_or_else(|| panic!("{name}\n{screen}"));
+        assert!(row(&pinned).contains('★') && row(&hidden).contains('⊘'), "{screen}");
+    }
+
+    /// A section without the data it needs says what it needs.
+    #[test]
+    fn empty_sections_say_what_they_need() {
+        let mut t = fixture_tab();
+        let Some(Ok(v)) = &mut t.view else { panic!("no profile") };
+        let r = &mut v.report;
+        (r.tempo.core, r.keys.tracks, r.era.tracks, r.energy, r.prep, r.style) = (None, 0, 0, None, None, None);
+        r.genres.top.clear();
+        for (s, says) in [
+            (Section::Tempo, "No BPMs: tracks need rekordbox's analysis."),
+            (Section::Arc, "Needs sets of 6 or more tracks with BPMs."),
+            (Section::Mixing, "Needs sets."),
+            (Section::Keys, "No keys: tracks need rekordbox's analysis."),
+            (Section::Energy, "No phrase analysis read"),
+            (Section::Genres, "None tagged."),
+            (Section::Era, "No release years tagged."),
+            (Section::Prep, "No cues read"),
+            (Section::Style, "No My Settings on these drives"),
+            (Section::Sets, "No sets declared, and no sessions with enough tracks."),
+            (Section::Summary, "No trait stands out yet."),
+        ] {
+            let screen = showing(&mut t, s);
+            assert!(screen.contains(says), "{s:?}: {says}\n{screen}");
+        }
+    }
+
+    /// The section list sums up how the sets run.
+    #[test]
+    fn the_arc_is_summed_up_in_a_word() {
+        let mut t = full_tab();
+        let Some(Ok(v)) = &mut t.view else { panic!("no profile") };
+        let r = &mut v.report;
+        let mut word = |builds, steady, winds_down| {
+            (r.arc.builds, r.arc.steady, r.arc.winds_down) = (builds, steady, winds_down);
+            stat(r, Section::Arc)
+        };
+        assert_eq!(word(0.6, 0.2, 0.2), "builds");
+        assert_eq!(word(0.2, 0.6, 0.2), "steady");
+        assert_eq!(word(0.2, 0.2, 0.6), "winds down");
+        assert_eq!(word(0.4, 0.3, 0.3), "varies");
+    }
+
+    /// The app's Profile view showing `t`, its store in a temporary folder.
+    fn profile_app(t: ProfileTab) -> (App, tempfile::TempDir) {
+        let (mut app, dir) = blank(View::Profile);
+        app.profile = t;
+        (app, dir)
+    }
+
+    /// `m` pins a signature track and `h` hides it, each pressed again undoing it; `H` hides
+    /// its artist. Outside a list, they say where to go.
+    #[test]
+    fn signature_tracks_are_pinned_and_hidden() {
+        let (mut app, _store) = profile_app(fixture_tab_with(&[&[1, 2, 3, 4, 5, 6], &[9, 10, 1, 2, 12, 7]]));
+        press(&mut app, "m");
+        assert_eq!(last_message(&app), "select a track under Signature tracks (tab) to pin it");
+        press(&mut app, "h");
+        assert!(
+            last_message(&app).starts_with("select a track under Signature tracks, or an artist"),
+            "{}",
+            last_message(&app)
+        );
+
+        app.profile.select_section(Section::ALL.iter().position(|s| *s == Section::Signature).unwrap());
+        press(&mut app, "\t");
+        let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
+        let track = v.report.signature.played[0].clone();
+        for (key, said) in [
+            ('m', format!("pinned {}", track.name)),
+            ('m', format!("unpinned {}", track.name)),
+            ('h', format!("{} won't be named", track.name)),
+            ('h', format!("{} can be named again", track.name)),
+            ('H', format!("{} won't be named", track.artist)),
+            ('H', format!("{} can be named again", track.artist)),
+        ] {
+            press(&mut app, &key.to_string());
+            assert_eq!(last_message(&app), said);
+        }
+        let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
+        assert!(v.prefs.pinned.is_empty() && v.prefs.hidden.is_empty() && v.prefs.hidden_artists.is_empty());
+
+        // Among artists, m pins nothing.
+        press(&mut app, "\u{1b}");
+        app.profile.select_section(Section::ALL.iter().position(|s| *s == Section::Artists).unwrap());
+        press(&mut app, "\t");
+        press(&mut app, "m");
+        assert_eq!(last_message(&app), "select a track under Signature tracks (tab) to pin it");
+    }
+
+    /// `w` writes the document into the store folder, made there if there's none.
+    #[test]
+    fn w_writes_the_document_to_the_store() {
+        let (mut app, _dir) = profile_app(fixture_tab());
+        press(&mut app, "w");
+        let path = app.store_root.join("profile-document.json");
+        assert_eq!(last_message(&app), format!("wrote {}", path.display()));
+        let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(doc["version"], 1);
+
+        let (tx, _rx) = std::sync::mpsc::channel();
+        app.profile = ProfileTab::new(tx);
+        press(&mut app, "w");
+        assert_eq!(last_message(&app), "nothing to export yet");
+    }
+
+    /// A choice that can't be saved (the store folder is a file) says why, and changes nothing.
+    #[test]
+    fn a_choice_that_cant_be_saved_says_why() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("store");
+        std::fs::write(&file, "not a folder").unwrap();
+        let mut app = App::blank(file, None);
+        app.profile = fixture_tab();
+        app.view = View::Profile;
+        let before = match &app.profile.view {
+            Some(Ok(v)) => v.published.clone(),
+            _ => panic!("no profile"),
+        };
+        press(&mut app, "i");
+        assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
+        press(&mut app, "w");
+        assert!(app.toast.as_ref().is_some_and(|t| t.1 == Level::Error), "{:?}", app.toast);
+        let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
+        assert_eq!(v.published, before);
+    }
+
+    /// `a` builds the profile from the open drive alone, in the background, and the header
+    /// says how far it's got.
+    #[test]
+    fn a_builds_the_profile_from_the_open_drive() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdb = dir.path().join("PIONEER/rekordbox/export.pdb");
+        std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+        let fixture =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../vendor/rekordbox-pdb/tests/data/bigger-export.pdb");
+        std::fs::copy(fixture, &pdb).unwrap();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let (mut app, _store) = profile_app(ProfileTab::new(tx));
+        press(&mut app, "a");
+        assert_eq!(last_message(&app), "open a drive in the library first");
+
+        let mut app = App::with_library(dir.path(), library());
+        app.view = View::Profile;
+        press(&mut app, "a");
+        let Scope::Drive(_, name) = app.profile.scope.clone() else { panic!("{:?}", app.profile.scope) };
+        assert_eq!(last_message(&app), format!("profile from {name} only"));
+        assert!(app.profile.loading);
+        // The header says so while it builds.
+        app.profile.progress[1].store(12, Ordering::Relaxed);
+        app.profile.progress[0].store(3, Ordering::Relaxed);
+        let s = screen(&mut app, 140, 30);
+        assert!(s.contains("Building profile… 3/12 tracks"), "{s}");
+        // A build started before this one is stopped, and what it sends back ignored.
+        let old = app.profile.generation;
+        press(&mut app, "R");
+        app.profile.loaded(old, Err("stale".into()));
+        assert!(app.profile.loading && app.profile.view.is_none());
+
+        wait(&mut app, |a| !a.profile.loading);
+        assert!(matches!(&app.profile.view, Some(Ok(v)) if v.report.collection.tracks == 12), "{:?}", app.toast);
+        let s = screen(&mut app, 140, 30);
+        assert!(s.contains(&format!("Profile · {name} only")), "{s}");
+    }
+
+    /// The pointer picks a section, a click picks the row of its list under it, and the wheel
+    /// moves through either.
+    #[test]
+    fn the_mouse_picks_sections_and_rows() {
+        let (mut app, _dir) = profile_app(fixture_tab_with(&[&[1, 2, 3, 4, 5, 6], &[9, 10, 1, 2, 12, 7]]));
+        let signature = spot_in(&mut app, "Signature", |a| a.profile.sections_area);
+        mouse(&mut app, LEFT, signature);
+        assert_eq!(app.profile.section(), Section::Signature);
+
+        // The row showing the third track.
+        let Some(Ok(v)) = &app.profile.view else { panic!("no profile") };
+        let third = v.report.signature.played[2].name.clone();
+        let row = spot_in(&mut app, &third, |a| a.profile.detail_area);
+        mouse(&mut app, LEFT, row);
+        assert_eq!((app.profile.pane, app.profile.rows.selected()), (Pane::Detail, Some(2)));
+        mouse(&mut app, MouseEventKind::ScrollDown, row);
+        assert_eq!(app.profile.rows.selected(), Some(5));
+        mouse(&mut app, MouseEventKind::ScrollUp, signature);
+        let i = Section::ALL.iter().position(|s| *s == Section::Signature).unwrap();
+        assert_eq!((app.profile.pane, app.profile.section()), (Pane::Sections, Section::ALL[i - 3]));
+        let detail = app.profile.detail_area;
+        // The document scrolls with the wheel.
+        press(&mut app, "D");
+        mouse(&mut app, MouseEventKind::ScrollDown, (detail.x + 4, detail.y + 6));
+        assert_eq!(app.profile.scroll, 3);
+        // Outside the view, the pointer does what it does anywhere.
+        mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
+        assert_eq!(app.profile.scroll, 3);
     }
 }

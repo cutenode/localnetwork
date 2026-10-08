@@ -16,10 +16,11 @@
 //! the device again.
 //!
 //! Because the name and colour belong to the drive, not to the library, OneLibrary's content
-//! fingerprint leaves them out (see [`crate::onelibrary::content_hash`]), and a sync or push that
-//! replaces `exportLibrary.db` puts the target's own values back ([`preserve`]). [`set`] also
-//! remembers them in the drive's identity (`.locallibrary/state.json`), so `locallibrary refresh`
-//! can put them back after rekordbox's next export.
+//! fingerprint leaves them out (see [`crate::onelibrary::content_hash`]), and a sync, push or pack
+//! that replaces `exportLibrary.db` puts the target's own values back ([`stash`], [`preserve`]),
+//! even when it finishes a run that was cut off. [`set`] also remembers them in the drive's
+//! identity (`.locallibrary/state.json`), so `locallibrary refresh` can put them back after
+//! rekordbox's next export.
 
 use std::path::Path;
 
@@ -151,6 +152,22 @@ pub fn set(device: &mut Device, name: Option<&str>, colour: Option<i64>) -> Resu
     Ok(now)
 }
 
+/// After `undo` put a backup back on a drive that remembers a name and colour: when that changed
+/// the ones it shows (`shown`, read with [`db_identity`] before), as undoing [`set`] does, remember
+/// the ones it shows now instead, or `refresh` would set the undone ones again. A drive left with
+/// neither remembers nothing.
+pub fn after_undo(device: &mut Device, shown: Option<DbIdentity>) -> Result<()> {
+    if device.state().is_none_or(|s| s.player.is_none()) {
+        return Ok(());
+    }
+    let now = db_identity(device.root());
+    if now == shown {
+        return Ok(());
+    }
+    device.state_mut()?.player = now.filter(|n| n.name.is_some() || n.colour.is_some_and(|c| c != 0));
+    device.save_state()
+}
+
 /// Whether [`set`] can give a drive this name and colour.
 pub fn check(device: &Device, name: Option<&str>, colour: Option<i64>) -> Result<()> {
     if name.is_none() && colour.is_none() {
@@ -202,10 +219,30 @@ fn with_identity(one: &OneLibrary, want: &DbIdentity, keep_others: bool) -> Resu
     Ok(bytes)
 }
 
-/// After a sync or push replaced `exportLibrary.db`, put back the name and colour the target had
-/// (`before`, read with [`db_identity`] beforehand). The caller holds the drive's lock from
-/// before it read them until this is done, so no other write comes between. Returns whether
-/// anything was written.
+/// The name and colour to put back with [`preserve`] once a sync, push or pack (marked with
+/// [`Device::begin`]) that `replaces` `device`'s `exportLibrary.db` is done. They're kept in the
+/// drive's pending marker, so a run cut off before then (after taking the database off first, or
+/// after swapping the new one in) leaves them for the run that finishes the job: the drive's
+/// database may no longer hold them, and that run may have no database left to replace.
+pub fn stash(device: &mut Device, replaces: bool) -> Result<Option<DbIdentity>> {
+    let kept = device.state().and_then(|s| s.pending.as_ref()).and_then(|p| p.player.clone());
+    if kept.is_some() || !replaces {
+        return Ok(kept);
+    }
+    let now = db_identity(device.root());
+    if now.is_some()
+        && let Some(p) = device.state_mut()?.pending.as_mut()
+    {
+        p.player.clone_from(&now);
+        device.save_state()?;
+    }
+    Ok(now)
+}
+
+/// After a sync, push or pack replaced `exportLibrary.db`, put back the name and colour the
+/// target had (`before`, from [`stash`]). The caller holds the drive's lock from before it read
+/// them until this is done, so no other write comes between. Returns whether anything was
+/// written.
 pub fn preserve(device: &Device, before: Option<&DbIdentity>) -> Result<bool> {
     let Some(before) = before else { return Ok(false) };
     let Some(now) = db_identity(device.root()) else { return Ok(false) };
@@ -273,6 +310,37 @@ mod tests {
     fn contact_playlist_names_have_no_slashes() {
         assert_eq!(contact_playlist(" sam@example.com "), "IF FOUND: sam@example.com");
         assert_eq!(contact_playlist("call 555/1234"), "IF FOUND: call 555-1234");
+    }
+
+    #[test]
+    fn names_and_colours_players_can_show() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = Device::open(dir.path()).unwrap();
+        let invalid = |name: Option<&str>, colour| match check(&d, name, colour) {
+            Err(Error::Invalid(m)) => m,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(invalid(None, None), "give a name, a colour, or both");
+        for name in ["  ", "A\tB", &"x".repeat(MAX_NAME + 1)] {
+            assert!(invalid(Some(name), None).starts_with("a player name is 1 to 32"), "{name:?}");
+        }
+        assert!(invalid(None, Some(9)).starts_with("the colour is a rekordbox colour code"));
+        // A good name, on a drive without the database that keeps it.
+        let err = check(&d, Some("BACKUP B"), Some(3)).unwrap_err();
+        assert_eq!(err.reason(), Some(Reason::NoOneLibrary), "{err}");
+        assert!(set(&mut Device::open(dir.path()).unwrap(), Some("BACKUP B"), None).is_err());
+    }
+
+    /// The contact goes in a text file in the root; a drive without a library gets no playlist.
+    #[test]
+    fn a_contact_for_whoever_finds_the_drive() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut d = Device::open(dir.path()).unwrap();
+        assert!(set_contact(&mut d, " \n", true, &Ctx::silent()).is_err());
+        let r = set_contact(&mut d, "sam@example.com", true, &Ctx::silent()).unwrap();
+        assert_eq!((r.file.as_path(), r.playlist), (d.root().join(CONTACT_FILE).as_path(), None));
+        let text = std::fs::read_to_string(&r.file).unwrap();
+        assert!(text.contains("\r\n    sam@example.com\r\n"), "{text:?}");
     }
 
     #[test]

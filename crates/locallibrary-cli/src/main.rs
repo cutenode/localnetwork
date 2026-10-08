@@ -30,6 +30,7 @@ mod publish_cmd;
 mod render;
 mod restore_cmd;
 mod rpc;
+mod sets_cmd;
 mod store_cmd;
 mod tags_cmd;
 #[cfg(feature = "tui")]
@@ -60,6 +61,11 @@ pub const DRIVE_HELP: &str = "The drive: its mount path, name or id prefix";
 pub const DEFAULT_DRIVE_HELP: &str = "The drive: its mount path, name or id prefix [default: every mounted \
 rekordbox drive]";
 
+/// The help of a `[DRIVE]` argument that can be left out for one drive (see
+/// [`jobs_cmd::drive_or_default`]).
+pub const ONE_DRIVE_HELP: &str = "The drive: its mount path, name or id prefix [default: the only mounted \
+rekordbox drive, or the library's primary]";
+
 /// Where the global flags show in every command's help.
 const GLOBAL: &str = "Global options";
 
@@ -85,7 +91,7 @@ macro_rules! after_help {
   locallibrary setup                      first run: name your drives, start your library
   locallibrary status                     every mounted drive at a glance
   locallibrary refresh                    after a rekordbox export: put back what it replaced
-  locallibrary set                        the night before a set: save, sync, check, eject
+  locallibrary prep                       the night before a set: save, sync, check, eject
   locallibrary sync                       bring the drive group up to date from its newest drive
   locallibrary sync --from Main Backup    copy one drive onto another
   locallibrary pull                       save the mounted drives in the store
@@ -211,8 +217,8 @@ locallibrary pull /Volumes/NEW --library Main    # into an existing library")]
     #[command(after_help = jobs_cmd::REFRESH_HELP)]
     Refresh(jobs_cmd::RefreshArgs),
     /// The night before a set: save the drives, sync them, check them for the players, eject them
-    #[command(after_help = jobs_cmd::SET_HELP)]
-    Set(jobs_cmd::SetArgs),
+    #[command(after_help = jobs_cmd::PREP_HELP)]
+    Prep(jobs_cmd::PrepArgs),
     /// First run: name your drives, start your library, import My Settings, remember your players
     #[command(after_help = jobs_cmd::SETUP_HELP)]
     Setup(jobs_cmd::SetupArgs),
@@ -255,8 +261,13 @@ locallibrary pull /Volumes/NEW --library Main    # into an existing library")]
     DriveManagement(drive_cmd::TopCommand),
     /// The libraries in the store: list them, their snapshot history, write one to a drive, prune it
     Library(library_cmd::LibraryArgs),
-    /// What players recorded: history lists, play counts, and writing a list out
+    /// What players recorded: sessions (history lists), play counts, writing a session out,
+    /// importing one from Beat Link Trigger
     Plays(plays_cmd::PlaysArgs),
+    /// The sets you played: declare them from sessions and recordings, edit them, write their
+    /// tracklists out, make playlists of them, publish them
+    #[command(alias = "set")]
+    Sets(sets_cmd::SetsArgs),
     /// Playlist entries added, removed and moved between two drives or snapshots (--summary:
     /// which drive is newer, and why)
     Diff(diff_cmd::DiffArgs),
@@ -370,8 +381,7 @@ locallibrary pack Main /Volumes/TONIGHT    # later: the same playlists, copying 
     Export(export_cmd::ExportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
     Xml {
-        /// The drive: its mount path, name or id prefix [default: the only mounted rekordbox drive,
-        /// or the library's primary]
+        #[arg(help = ONE_DRIVE_HELP)]
         drive: Option<String>,
         /// The file to write
         #[arg(long, short, default_value = "rekordbox.xml")]
@@ -504,13 +514,14 @@ Examples:
   locallibrary tracks Main -p \"Sets/2026/Friday\" -n 20"
 );
 
-const PROFILE_HELP: &str = "Built from the history lists players record (on drives, and every one `pull` archived),
-each track's rekordbox analysis and tags, and My Settings. The report stays on this computer; `profile document` is
-the part a public profile would show: rounded, without paths, list names or dates, and naming tracks only when you
-include `signature`. Choose what it shows with include/exclude, pin, hide, alias, headline and precision.
+const PROFILE_HELP: &str = "Built from your sets (`locallibrary sets`; until you declare one, the sessions players
+record stand in), each track's rekordbox analysis and tags, and My Settings. The report stays on this computer;
+`profile document` is the part a public profile would show: rounded, without paths, list names or dates, and
+naming tracks only when you include `signature`. Choose what it shows with include/exclude, pin, hide, alias,
+headline and precision.
 
   locallibrary profile                      your mounted drives and the store
-  locallibrary profile Main --since 2026    one drive, sets first seen this year
+  locallibrary profile Main --since 2026    one drive, sets played this year
   locallibrary profile -s tempo,mixing      just those sections
   locallibrary profile include signature    name your most-played tracks
   locallibrary profile hide \"ID - ID\" --exact
@@ -887,7 +898,10 @@ fn main() -> ExitCode {
     let cmd = help::command();
     let matches = match cmd.clone().try_get_matches() {
         Ok(m) => m,
-        Err(e) => return usage_error(help::tidy_suggestions(e, &cmd)),
+        Err(e) => match help::prep_moved(&e) {
+            Some(moved) => return usage_error(cmd.clone().error(clap::error::ErrorKind::InvalidSubcommand, moved)),
+            None => return usage_error(help::tidy_suggestions(e, &cmd)),
+        },
     };
     let cli = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
@@ -1006,9 +1020,13 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
     if !matches!(cli.command, Some(Command::Rpc { .. })) {
         let c = cancel.clone();
         // The first Ctrl-C (or SIGTERM) stops at the next safe point; a second exits once no
-        // database swap is under way.
+        // database swap is under way. The player quits on its own, putting the terminal back.
         let mut pressed = false;
         let _ = ctrlc::set_handler(move || {
+            #[cfg(feature = "tui")]
+            if tui::signal() {
+                return;
+            }
             if pressed {
                 let _swaps = locallibrary::progress::wait_for_critical();
                 std::process::exit(130);
@@ -1259,6 +1277,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         }
         Command::Doctor(args) => return doctor_cmd::run(args, &cli.store, out, &ctx),
         Command::Plays(a) => return plays_cmd::run(a, &cli.store, out, &ctx),
+        Command::Sets(a) => return sets_cmd::run(a, &cli.store, out, &ctx),
         Command::History(args) => return plays_cmd::history(args, &cli.store, out, &ctx),
         Command::Stats(args) => return plays_cmd::stats(args, &cli.store, out),
         #[cfg(feature = "account")]
@@ -1289,7 +1308,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         }
         Command::Watch(args) => return watch_cmd::run(args, &cli.store, out, &ctx),
         Command::Refresh(args) => return jobs_cmd::refresh(args, &cli.store, out, &ctx),
-        Command::Set(args) => return jobs_cmd::set(args, &cli.store, out, &ctx),
+        Command::Prep(args) => return jobs_cmd::prep(args, &cli.store, out, &ctx),
         Command::Setup(args) => return jobs_cmd::setup(args, &cli.store, out, &ctx),
         Command::DriveManagement(command) => return drive_cmd::run(command, &cli.store, out, &ctx),
     }
@@ -1392,6 +1411,9 @@ fn run_sync(
         if let Some(r) = &result.report {
             render::sync_report(r);
         }
+        if let Some(g) = preview.after_set.as_ref().filter(|_| !result.saved.is_empty()) {
+            hints::new_sessions(g.back_from_set.history_lists.len());
+        }
     });
     if eject {
         drive_cmd::eject_after(store, vec![source, target], out);
@@ -1447,7 +1469,17 @@ pub(crate) fn many_targets(
     let results = preview.apply(store.as_ref(), ctx)?;
     let failed = results.iter().any(|r| r.error.is_some());
     let outcome = if failed { Outcome::Partial } else { Outcome::Applied };
-    let code = out.applied(&preview, &results, outcome, || drive_cmd::target_results(&results));
+    let code = out.applied(&preview, &results, outcome, || {
+        drive_cmd::target_results(&results);
+        // Drives back from a set were saved before they were overwritten.
+        let saved = preview
+            .targets
+            .iter()
+            .filter(|t| results.iter().any(|r| r.report.is_some() && Some(&r.target) == t.target.as_ref()));
+        hints::new_sessions(
+            saved.filter_map(|t| t.after_set.as_ref()).map(|g| g.back_from_set.history_lists.len()).sum(),
+        );
+    });
     if f.eject {
         let mut all = vec![preview.source.display().to_string()];
         all.extend(results.iter().filter(|r| r.error.is_none()).map(|r| r.target.display().to_string()));
@@ -1753,6 +1785,18 @@ mod tests {
         use clap::CommandFactory;
         super::Cli::command().debug_assert();
         super::help::command().debug_assert();
+    }
+
+    /// `--cluster-size` takes sizes as people write them.
+    #[test]
+    fn sizes_read_as_written() {
+        for (written, bytes) in [("32768", 32768), ("32K", 32768), ("32kb", 32768), ("64 KiB", 65536), ("1M", 1 << 20)]
+        {
+            assert_eq!(super::parse_size(written), Ok(bytes), "{written}");
+        }
+        for wrong in ["", "K", "big", "-1K", "4096M"] {
+            assert!(super::parse_size(wrong).is_err(), "{wrong}");
+        }
     }
 
     /// The filter syntax follows the help of every command that takes `--filter`, or its group's.

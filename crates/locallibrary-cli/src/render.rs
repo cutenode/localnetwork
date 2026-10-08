@@ -794,9 +794,10 @@ pub fn log(all: &BTreeMap<String, Vec<SnapshotInfo>>) {
         heading(lib);
         for s in snaps {
             say!(
-                "  {}{}  {}  {:>5} tracks  {:>9}  {}{}",
+                "  {}{}{}  {}  {:>5} tracks  {:>9}  {}{}",
                 style(&s.short_id).yellow(),
                 labels(&s.labels),
+                if s.beside { format!(" {}", dim("beside")) } else { String::new() },
                 s.created.format("%Y-%m-%d %H:%M"),
                 s.summary.tracks,
                 bytes(s.bytes),
@@ -826,6 +827,9 @@ pub fn store_info(s: &StoreInfo) {
         }
     }
     say!("  data       {} in {} files", bytes(s.stats.object_bytes), s.stats.objects);
+    if s.embed_backup_bytes > 0 {
+        say!("  embeds     {} kept for `art unembed`", bytes(s.embed_backup_bytes));
+    }
     say!("  snapshots  {}", s.stats.snapshots);
     say!("  drives     {} known", s.stats.drives);
     for l in &s.libraries {

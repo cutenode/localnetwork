@@ -73,9 +73,27 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   lists the drive's recordings next to folders of sets opened from the computer.
 - **DJ profile.** `profile` sums up how you play from your sets, collection and settings (with no
   drives named, the mounted drives the store knows), with a rounded public view; `account` signs
-  in with an Atmosphere (AT Protocol) account, and `profile publish`, `plays publish` and
+  in with an Atmosphere (AT Protocol) account, and `profile publish`, `sets publish` and
   `settings publish` write locallibrary's own records there, asking only to create and update
   them.
+- **Sets and sessions.** A history list a player recorded (or a Beat Link Trigger log, `plays
+  import`) is a *session*: raw, private, never counted or published as a set. `plays` lists sessions
+  with an id that's the same on every drive and in the store (any list name argument takes one), the
+  window each was recorded in (players have no clock: after locallibrary last saw the drive without
+  it, before it first saw it with it), and the set made from it. A *set* is what the DJ declares in
+  `sets`: `suggest` lists the sessions that look like sets with the evidence (a night's together,
+  when their windows are narrow enough to tell), `new` builds one from sessions and/or a recording
+  (its timed tracklist wins), `edit` changes its details (kind, venue, city, country, event, who it
+  was played with, a link, notes) and tracklist by position, and `export` (text, Mixcloud, CUE,
+  YouTube, 1001Tracklists, CSV, M3U8), `played`, `playlist` and `publish` use it. Sets live in the
+  store's `sets.json`. Saving a drive that came back with new sessions (`pull`, `sync`, `prep`,
+  `watch`) says how many. The profile counts declared sets, with sessions standing in (and never
+  published) until there are some, and never names a track a set marks unnamed. `sets publish`
+  replaces `plays publish`: a set made from a single list that `plays publish` published takes over
+  that record the first time it's published. The set Lexicon gains `kind`, `location` (a Lexicon
+  Community address), `event`, `with`, `link` and `sources` (for `source`), and the profile's
+  `basis` can be `sessions`. The night-before job `set` is `prep` (`set` is a spelling of `sets`
+  now; over RPC `prep.plan/apply`, and `set.*` still works).
 - **Player.** A terminal UI to browse a drive the way players show it and listen to it: search
   and filters, track details, harmonic suggestions, history and mixes. It does the drive work
   too, each change planned and confirmed as on the command line: the Drives view pulls, checks
@@ -83,7 +101,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   crate, the CDJ's TAG LIST), brings back playlists from snapshots, replays edits and ejects;
   `u` undoes the last change, on the drive it was made to; after a rekordbox export it offers to
   replay the edits it went over; My Tags show in a column and under Browse, and `T` gives tracks
-  one; rule-based playlists come from the search box. Every key is in one table that also draws
+  one; rule-based playlists come from the search box; `N` and `P` jump to the next and previous
+  phrase, quantized like cue jumps. Every key is in one table that also draws
   the help (the view's own keys first) and the footer's hints, and `:` opens a command palette
   with every action by name.
 - **For GUIs.** Every operation is a serde request and response in the library's `api` module,
@@ -113,11 +132,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   saves the drive in the store and, with `--sync`, copies it onto its library's other mounted
   drives. `status` flags a drive rekordbox exported over recorded edits, and names it in its hint.
   Over RPC, `refresh.plan` and `refresh.apply`.
-- **The night before a set.** `set [DRIVES...]` saves the drives in the store (history lists
+- **The night before a set.** `prep [DRIVES...]` saves the drives in the store (history lists
   first), copies the newest library onto the others, checks them against your player models and
   ejects them when everything passed; a check with problems, or history lists it couldn't save,
   leaves them mounted (exit status 4). `check`, `eject` and `pull` with no drives take the mounted
-  drives of one library. Over RPC, `set.plan` and `set.apply`.
+  drives of one library. Over RPC, `prep.plan` and `prep.apply`.
 - **First run.** `setup [DRIVES...]` names the drives you pick, chooses their roles (the first one
   named is the primary unless `--primary` says), starts your library with a first pull (run again,
   it saves them in the library they're in and keeps their roles), imports My Settings from the
@@ -133,8 +152,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   methods aren't there and `initialize` doesn't list the `account` capability.
 - **Shell completion and man pages.** `locallibrary completions SHELL` for bash, zsh, fish,
   elvish and PowerShell: the shell asks `locallibrary` on Tab, so mounted drives, their playlist
-  paths, My Tags and history lists, the store's libraries, player models and `refresh --skip`
-  steps complete too (`--static` for commands and flags only).
+  paths, My Tags and history lists, the store's libraries, sets and sessions, player models and
+  `refresh --skip` steps complete too (`--static` for commands and flags only).
   `locallibrary man -o DIR` writes a man page for every command.
 
 ### Changed
@@ -153,7 +172,7 @@ their old names.
   commands are under `drive` (`drive ls`, `info`, `adopt`, `disks`, `format`, `verify`, `fsck`,
   `space`, `tidy`, `recordings`, `firmware`, `backups`, `restore`), snapshot history under `library`
   (`library log`, `push`, `prune`), history lists and play counts under `plays` (`plays lists`,
-  `stats`, `export`, `publish`), the playlist tree is `playlist ls`, `sync --from` replaces `mirror`
+  `stats`, `export`, `import`), the playlist tree is `playlist ls`, `sync --from` replaces `mirror`
   and `diff --summary` replaces `compare`. The old names still work and aren't listed. `drive`,
   `library`, `plays`, `playlist`, `track`, `settings`, `art`, `edits` and `smart` with no subcommand
   list or show (`drive Main` is `drive info Main`).
@@ -289,6 +308,27 @@ their old names.
   `Unplayable`, `CopyReason`, `fleet::Check`, `SpaceKind`, `TidyKind`, `Suggestion`,
   `interop::Software`, `StepKind` and the import and export formats. A `match` on them needs a `_`
   arm.
+- `pack` keeps the target's own player name and colour instead of stamping the source's on it, a
+  cut-off `sync` or `pack` puts them back when it's finished, and undoing `drive player` no longer
+  comes back on `refresh`. `pack` counts its backup in the space check and prints the snapshot it
+  saved and its backup id without `--json`.
+- Merging from an `export.pdb`-only drive into OneLibrary gives the merged tracks their cues.
+- Hot cues D-H are `djmdCue.Kind` 5-9 in rekordbox's `master.db` (4 is a memory loop): before,
+  `collection` read memory loops as hot cue D and shifted D-H by one. OneLibrary's `cue.kind` is
+  written the same way.
+- `mix` no longer reports riding the pitch fader as a loop or skip.
+- `status` and the player's replay offer no longer take a player's writes for a rekordbox export
+  on drives with both databases, and replaying field edits already in place changes nothing.
+- `library log` shows snapshots saved beside the latest (drives back from a set) as `beside`;
+  `store info` counts the copies `art embed` keeps; `watch --once` says when the store is in use
+  and gives up after a minute; `watch --json` lines carry `schema`; `drive verify` and `drive
+  recordings` default to the mounted drive.
+- The "untested on this platform" warning for disk commands is part of their plans, so the
+  sidecar and the player show it too. On Windows, the drive watcher and the sidecar cache tell
+  files apart by volume serial and file index.
+- The player quits cleanly on SIGINT, SIGTERM and SIGHUP, and space while a track is opening
+  decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
+  real startup disk name.
 
 ### Security
 

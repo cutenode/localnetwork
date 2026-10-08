@@ -745,17 +745,27 @@ fn close(usec: i64, ms: u32) -> bool {
     (usec - i64::from(ms) * 1000).abs() <= 1000
 }
 
-/// A track's cues as rows of OneLibrary's `cue` table, made from its analysis files (for a
-/// database that has none for it). `None` when it has no analysis files (or they're somewhere
-/// [`load`] refuses to read them from).
-pub(crate) fn rows_from_analysis(device: &Device, t: &Track) -> Result<Option<Vec<CueRow>>> {
+/// Give a OneLibrary row with no cue rows (`id`, made for `t` from `export.pdb`'s row by convert
+/// or merge) the cues in `t`'s analysis files on `device`: how many it got, or `None` when the
+/// analysis files can't be read. A track without analysis files (or with them somewhere [`load`]
+/// refuses to read them from) gets none.
+pub(crate) fn add_rows_from_analysis(
+    one: &mut OneLibrary,
+    id: u32,
+    device: &Device,
+    t: &Track,
+) -> Result<Option<usize>> {
     let dat = paths::key(&t.analyze_path);
     let readable = paths::is_safe_key(&dat) && paths::classify(&dat) == Some(FileClass::Analysis);
     if t.analyze_path.is_empty() || !readable || !device.checked_path(&dat).is_ok_and(|p| p.is_file()) {
-        return Ok(None);
+        return Ok(Some(0));
     }
-    let loaded = load(device, t)?;
-    Ok(Some(loaded.cues.iter().map(|c| row_for(c, CueRow::default())).collect()))
+    let Ok(loaded) = load(device, t) else { return Ok(None) };
+    let rows: Vec<CueRow> = loaded.cues.iter().map(|c| row_for(c, CueRow::default())).collect();
+    if rows.is_empty() {
+        return Ok(Some(0));
+    }
+    Ok(Some(one.replace_cues(id, &rows)?.added))
 }
 
 /// `c` as a row of the `cue` table, starting from `row` (its current row, a copied one, or none).

@@ -1,11 +1,11 @@
 //! OneLibrary (`exportLibrary.db`): reading SQLCipher files and their WAL, OneLibrary-only drives,
 //! and keeping the database and its WAL together through syncs, edits and restores.
 
-use crate::common;
+use crate::common::{self, media::png};
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::Cursor;
+
 use std::path::Path;
 
 use locallibrary::artwork::{self, Artwork};
@@ -25,13 +25,6 @@ fn fixture(name: &str) -> Vec<u8> {
 
 fn titles(lib: &Library) -> Vec<&str> {
     lib.tracks.iter().map(|t| t.title.as_str()).collect()
-}
-
-fn png(shade: u8) -> Vec<u8> {
-    let img = image::RgbImage::from_fn(300, 200, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, shade]));
-    let mut out = Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgb8(img).write_to(&mut out, image::ImageFormat::Png).unwrap();
-    out.into_inner()
 }
 
 fn read(root: &Path, key: &str) -> Option<Vec<u8>> {
@@ -218,7 +211,7 @@ fn edits_replace_the_wal_and_restores_bring_it_back() {
     assert_eq!(titles(&d.library().unwrap()), ["One", "Two"]);
 
     // Track 2 lives only in the WAL; setting its artwork must keep it.
-    let art = Artwork::from_bytes(&png(10)).unwrap();
+    let art = Artwork::from_bytes(&png(300, 200, 10)).unwrap();
     let r = artwork::set_on_drive(&mut d, &[2], &art, &Ctx::silent()).unwrap();
     assert_eq!((r.tracks_updated, r.artwork_rows_added), (1, 1));
     assert!(!root.join(paths::LIBRARY_PLUS_WAL).exists() && !root.join(paths::LIBRARY_PLUS_SHM).exists());
@@ -252,7 +245,7 @@ fn artwork_goes_into_both_databases() {
         common::plus_library(&root).tracks.iter().map(|t| (t.file_path.clone(), t.id)).collect();
     let ids: Vec<u32> = lib.tracks.iter().take(2).map(|t| t.id).collect();
 
-    let art = Artwork::from_bytes(&png(20)).unwrap();
+    let art = Artwork::from_bytes(&png(300, 200, 20)).unwrap();
     let r = artwork::set_on_drive(&mut d, &ids, &art, &Ctx::silent()).unwrap();
     assert_eq!((r.tracks_updated, r.artwork_rows_added), (2, 2), "one new row in each database");
     common::sqlcipher_reads(&root);
@@ -267,7 +260,7 @@ fn artwork_goes_into_both_databases() {
     }
 
     // Again on exactly those tracks: both images are replaced in place.
-    let art = Artwork::from_bytes(&png(200)).unwrap();
+    let art = Artwork::from_bytes(&png(300, 200, 200)).unwrap();
     let r = artwork::set_on_drive(&mut d, &ids, &art, &Ctx::silent()).unwrap();
     assert_eq!(r.artwork_rows_added, 0);
     assert_eq!(common::plus_library(&root).tracks.iter().filter(|t| t.artwork_id.is_some()).count(), 2);

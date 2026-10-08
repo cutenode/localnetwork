@@ -411,8 +411,8 @@ pub fn large_files(library: &Library, tree: &FileTree) -> Vec<LargeFile> {
         .collect()
 }
 
-/// Tracks whose audio, analysis or artwork is missing, or whose audio is cut short. A file both
-/// databases reference is reported once.
+/// Tracks whose audio, analysis or artwork is missing, or whose audio is cut short. A track both
+/// databases list is reported once; tracks sharing a missing file (an album's cover) each are.
 ///
 /// rekordbox records a file's size when it imports it and keeps it when a tag editor (Mixed In
 /// Key, Serato, Mp3tag) later rewrites the file's tags, so a size that differs says little. A cut
@@ -429,16 +429,18 @@ pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree, ctx: &C
             .or_else(|| device.checked_path(key).ok().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len()))
     };
     let mut out = Vec::new();
-    let mut seen: HashSet<(Problem, String)> = HashSet::new();
+    // (problem, file, the track's audio file)
+    let mut seen: HashSet<(Problem, String, String)> = HashSet::new();
     let mut smaller = Library::default();
     for (database, library) in dbs.all() {
         for t in &library.tracks {
+            let audio = paths::key(&t.file_path);
+            let track_audio = fold(&audio);
             let mut report = |problem: Problem, path: String, detail: Option<String>| {
-                if seen.insert((problem, fold(&path))) {
+                if seen.insert((problem, fold(&path), track_audio.clone())) {
                     out.push(BrokenTrack { track: t.into(), problem, path, detail, database });
                 }
             };
-            let audio = paths::key(&t.file_path);
             if !paths::is_safe_key(&audio) {
                 report(
                     Problem::UnsafePath,
@@ -848,5 +850,32 @@ mod tests {
         assert_eq!(sync_manager_base("(1)"), "(1)");
         assert_eq!(sync_manager_base("Track (live)"), "Track (live)");
         assert_eq!(sync_manager_base("Track 2"), "Track 2");
+    }
+
+    /// Regression: tracks sharing a missing cover were reported as one, so `check` counted one
+    /// track without artwork for a whole album.
+    #[test]
+    fn each_track_missing_a_shared_file_is_reported_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = Device::open(dir.path()).unwrap();
+        let track = |id, path: &str| Track {
+            artwork_path: Some("/PIONEER/Artwork/00001/a1.jpg".into()),
+            ..crate::model::tests::track(id, "A", "T", path)
+        };
+        let lib =
+            Library { tracks: vec![track(1, "/Contents/a.mp3"), track(2, "/Contents/b.mp3")], ..Default::default() };
+        // Both databases list both tracks.
+        let dbs = Databases { pdb: Some(lib.clone()), plus: Some(lib), plus_error: None, images: Vec::new() };
+        let found = missing(&d, &dbs, &FileTree::default(), &Ctx::silent()).unwrap();
+        let said: Vec<(Problem, u32, &str)> = found.iter().map(|b| (b.problem, b.track.id, b.database)).collect();
+        assert_eq!(
+            said,
+            [
+                (Problem::MissingAudio, 1, "device_library"),
+                (Problem::MissingArtwork, 1, "device_library"),
+                (Problem::MissingAudio, 2, "device_library"),
+                (Problem::MissingArtwork, 2, "device_library"),
+            ]
+        );
     }
 }

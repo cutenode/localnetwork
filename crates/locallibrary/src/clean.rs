@@ -165,11 +165,13 @@ pub fn plan(device: &Device, ctx: &Ctx<'_>) -> Result<CleanPlan> {
     // The backup copies the database files and everything deleted; each new database is staged
     // next to the old one.
     let size = |key| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
-    let db_bytes: u64 = paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum();
     let staged = if pdb_tracks.is_empty() { 0 } else { round(size(paths::EXPORT_PDB)) }
         + if plus_tracks.is_empty() { 0 } else { round(size(paths::LIBRARY_PLUS_DB) + size(paths::LIBRARY_PLUS_WAL)) };
-    let needed_bytes =
-        if doomed.is_empty() { 0 } else { files.values().map(|&n| round(n)).sum::<u64>() + db_bytes + staged };
+    let needed_bytes = if doomed.is_empty() {
+        0
+    } else {
+        crate::backup::needed_bytes(device, files.keys().map(String::as_str)) + staged
+    };
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
     if !fits {

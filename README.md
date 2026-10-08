@@ -41,6 +41,9 @@ separately and remembering which is current. locallibrary treats a drive export 
 - **Keep a drive healthy.** Find duplicates, missing and orphaned files and tracks in no playlist,
   check your drives before a set, and keep every history list players recorded, even after
   rekordbox deletes them from the drive.
+- **Your sets.** Say which of the sessions players logged (or which recording) was a set, where
+  and when, fix its tracklist, and write it out for Mixcloud, YouTube or a CUE sheet, as a playlist
+  to start the next one, or to your Atmosphere account.
 - **A DJ profile.** What your sets say about how you play: the tempo range, how often you mix in
   key, whether your sets build, the tracks you keep coming back to. A rounded summary that leaves
   out anything you haven't chosen to show is ready for a public profile.
@@ -97,7 +100,7 @@ This installs `locallibrary`. On Linux, the player's audio output needs the ALSA
 Cargo features choose what's built. All three are on unless `--no-default-features` turns them
 off:
 
-- `account`: the Atmosphere account and publishing to it (`account`, `profile publish`, `plays
+- `account`: the Atmosphere account and publishing to it (`account`, `profile publish`, `sets
   publish`, `settings publish`, `settings import --from-handle`, the player's sign-in, and the
   sidecar's `account.*` and `*.publish.*` methods). Half the dependencies are for this alone (an
   HTTP client, an async runtime, TLS, DNS, the system keychain): about 220 of the 430 crates the
@@ -142,11 +145,11 @@ locallibrary is developed and used on macOS. **Linux and Windows are experimenta
 hardware**, and CI hasn't passed on them yet. Most commands only read and write files, and are
 written to work the same on all three. The commands that drive the operating system's own disk
 tools have only ever run on macOS: `drive format` (with `--check-capacity` too, and `provision
---format`), `drive fsck`, `eject` (and `--eject` on `sync` and `provision`, and `set`) and `drive
+--format`), `drive fsck`, `eject` (and `--eject` on `sync` and `provision`, and `prep`) and `drive
 rename --label`. On Linux and Windows their code paths have never run (the Windows FAT32 writer
-hasn't even been compiled), so each prints a warning when it starts, and you should check the
-result yourself (`locallibrary drive disks`, `locallibrary drive ls`) before trusting a drive to
-it.
+hasn't even been compiled), so their plans carry a warning (the sidecar and the terminal player
+show it too; `drive fsck`'s report has it), and you should check the result yourself
+(`locallibrary drive disks`, `locallibrary drive ls`) before trusting a drive to it.
 
 ## Quick start
 
@@ -172,7 +175,10 @@ locallibrary sync Main Backup
 locallibrary refresh Main
 
 # The night before a set: save, sync, check and eject every drive of the library
-locallibrary set
+locallibrary prep
+
+# After it: which of the sessions players recorded look like a set
+locallibrary sets suggest
 
 # Or just browse and listen
 locallibrary
@@ -192,7 +198,7 @@ store, then the other drives where they hold the same library. Run again, it sav
 library they're in rather than starting another, and keeps their roles. Then, if you like, it
 imports the primary's My Settings into your profile, sets the Device Name players show and your
 contact details on the drives (archive drives are kept as they are), and remembers the player
-models you play on for `check` and `set`. Each change shows its plan and asks first. It ends with
+models you play on for `check` and `prep`. Each change shows its plan and asks first. It ends with
 the commands you'll use most.
 
 Without a terminal (or with `--json`) it asks nothing: pass `--yes` and `--library NAME`, and the
@@ -228,7 +234,7 @@ that can't be read is left out with a line on stderr, and the exit status is 5. 
 that belong to a library all belong to one, its primary (`drive role <drive> primary`). When that
 can't be told, the error lists the mounted drives (name, mount path, role, library) and the exit
 status is 2 (with `--json`, the error's kind is `usage`). A name that matches no mounted drive gets the drives that are mounted in its error, and, for a drive
-you own that isn't plugged in, when and where it was last seen. `check`, `eject`, `pull` and `set`
+you own that isn't plugged in, when and where it was last seen. `check`, `eject`, `pull` and `prep`
 with no drives take the mounted drives of one library, its drive group (archive and retired drives
 are left out unless named).
 
@@ -242,7 +248,7 @@ is written and it says to plan again.
 | --- | --- |
 | `locallibrary setup` | The first run: name your drives, choose their roles, start your library, import My Settings, set what players show and remember your player models, see [First run](#first-run) |
 | `locallibrary refresh [<drive>] [--sync] [--skip STEP]` | rekordbox just exported to a drive: its demo samples out, your recorded edits, rule-based playlists, player name and My Settings back, then saved in the store (`--sync`: and copied onto its library's other drives), one plan, see [After rekordbox exports](#after-rekordbox-exports) |
-| `locallibrary set [<drive>...] [--players MODEL,...] [--no-eject]` | The night before a set: save the drives in the store, copy the newest library onto the others, check them for the players, eject them, one plan, see [The night before a set](#the-night-before-a-set) |
+| `locallibrary prep [<drive>...] [--players MODEL,...] [--no-eject]` | The night before a set: save the drives in the store, copy the newest library onto the others, check them for the players, eject them, one plan, see [The night before a set](#the-night-before-a-set) |
 | `locallibrary status [--all]` | Every mounted drive against its library's latest snapshot (up to date / behind / has new changes / diverged), settings drift, roles, write protection, low space and copies; `--all` adds the drives that aren't plugged in, see [Drive management](#drive-management) |
 | `locallibrary sync [<a> <b> ...]` | Copy the newest drive over the others, all at once (refuses if any diverged or hold different libraries, except a drive [back from a set](#back-from-a-set)); with no drives, the mounted drive group |
 | `locallibrary sync --from <source> <target>` | Copy one drive onto another, overwriting the target's library whichever is newer |
@@ -263,8 +269,8 @@ is written and it says to plan again.
 | `locallibrary drive rename\|forget\|role\|retire\|log\|recognise\|reidentify\|player\|contact\|groups` | The drives you own, see [Drive management](#drive-management) |
 | `locallibrary drive disks` | External disks, their partition table and file system, and which players can read them |
 | `locallibrary drive format <drive> [--fs fat32\|exfat\|hfs+] [--check-capacity]` | Erase a drive and format it for players (experimental on Linux and Windows, see [Platforms](#platforms)), see [Formatting a drive](#formatting-a-drive) |
-| `locallibrary drive verify <drive> [--repair]` / `drive fsck <drive> [--repair]` | Re-read every file against a known-good copy and rewrite damaged ones; the OS's file-system check (`fsck`: experimental on Linux and Windows), see [Health](#health) |
-| `locallibrary drive space [<drive>]` / `drive tidy <drive>` / `drive recordings <drive>` | What's using a drive and when it fills; remove OS clutter; copy off set recordings, see [Space](#space) |
+| `locallibrary drive verify [<drive>] [--repair]` / `drive fsck <drive> [--repair]` | Re-read every file against a known-good copy and rewrite damaged ones; the OS's file-system check (`fsck`: experimental on Linux and Windows), see [Health](#health) |
+| `locallibrary drive space [<drive>]` / `drive tidy <drive>` / `drive recordings [<drive>]` | What's using a drive and when it fills; remove OS clutter; copy off set recordings, see [Space](#space) |
 | `locallibrary drive firmware <drive> <file.UPD>` | Stage a player or mixer firmware update, see [Setting up and handing over](#setting-up-and-handing-over) |
 | `locallibrary drive backups [<drive>]` / `drive restore <drive>` | The backups taken before every change to a drive; put any of them back (`--backup ID`; `--dry-run` shows what would change; refuses a backup whose audio has since been removed, unless `--force`). `--playlist P` brings back one playlist or folder from a snapshot or backup, see [Bringing back a playlist](#bringing-back-a-playlist) |
 | `locallibrary provision <target>` | Set up a new drive in one step, see [Setting up and handing over](#setting-up-and-handing-over) |
@@ -278,7 +284,7 @@ is written and it says to plan again.
 | `locallibrary tracks [<drive>] [-s WORDS] [-p PLAYLIST] [-f FILTER] [--sort KEYS] [--columns C,...] [--format table\|tsv\|csv]` | List, search, filter and sort tracks (`-s`: words to find, as free text in the filter), see [Filters](#filters) and [Output](#output) |
 | `locallibrary library [<library>]` | With no library, the libraries in the store (`library ls`); with one, its snapshots (`library log`) |
 | `locallibrary library ls\|rename` | The libraries in the store, their latest snapshot and drives; rename one |
-| `locallibrary library log [LIB] [-n N]` | Snapshot history, with labels |
+| `locallibrary library log [LIB] [-n N]` | Snapshot history, with labels and the snapshots saved beside the latest |
 | `locallibrary library push <drive> [--snapshot ID]` | Write the latest (or any) snapshot onto a drive |
 | `locallibrary library prune [--keep-last N] ...` | Remove old snapshots (as `store prune`), see [Pruning old snapshots](#pruning-old-snapshots) |
 | `locallibrary store [info\|gc\|verify\|label\|unlabel\|prune]` | Store size, garbage collection, integrity check, snapshot labels, removing old snapshots |
@@ -312,11 +318,17 @@ is written and it says to plan again.
 
 | | |
 | --- | --- |
-| `locallibrary plays [<drive>]` | History lists players recorded on a drive (`plays lists`) |
-| `locallibrary plays lists [<drive> [LIST]] [--all] [--delete]` | History lists players recorded (`--all`: every one the store kept); one list's tracks; `--delete` once archived |
-| `locallibrary plays export <drive> <LIST> -o FILE` | Write a history list as text, CSV or M3U8 |
+| `locallibrary plays [<drive>]` | The sessions (history lists) players recorded on a drive, with their ids and dates (`plays lists`), see [History and play counts](#history-and-play-counts) |
+| `locallibrary plays lists [<drive> [SESSION]] [--all] [--delete]` | Sessions players recorded (`--all`: every one the store kept); one session's tracks; `--delete` once archived |
+| `locallibrary plays export <drive> <SESSION> -o FILE` | Write a session as text, CSV or M3U8 |
+| `locallibrary plays import FILE.csv [--drive D] [--name N]` | Keep a log from Beat Link Trigger's Playlist Writer as a session, with the time each track played |
 | `locallibrary plays stats <drive\|library> [--since SNAPSHOT\|DATE]` | Most played, never played, and what was played since a snapshot or a date |
-| `locallibrary plays publish <drive> <LIST>` | Publish a history list as a set on your Atmosphere account, see [Publishing](#publishing) |
+| `locallibrary sets [list] [--venue V] [--kind K] [--since D] [--until D]` | Your sets, newest first, see [Sets](#sets) |
+| `locallibrary sets suggest [--dismiss SESSION]` | The sets your sessions suggest, each with the command that declares it |
+| `locallibrary sets new\|show\|edit\|delete ...` | Declare a set from sessions or a recording, show it, change its details and tracklist, delete it |
+| `locallibrary sets export <SET> [--format mixcloud\|cue\|youtube\|1001\|csv\|m3u8] [-o FILE]` | A set's tracklist for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists, a spreadsheet, or a playlist file |
+| `locallibrary sets played <QUERY>` / `sets playlist <SET> <drive>` | When and where you played a track; a playlist of a set's tracks on a drive |
+| `locallibrary sets publish <SET>` | Publish a set on your Atmosphere account, see [Publishing](#publishing) |
 | `locallibrary mix <recording>... [--drive D] [--html PATH] [--export PATH] [--open]` | Which of a drive's tracks a recorded set plays, when, at what speed and in what key, as a tracklist and an interactive report, see [Mixes](#mixes) |
 | `locallibrary profile [<drive>...]` | What your sets, collection and settings say about how you play, and what a public profile would show, see [DJ profile](#dj-profile) |
 | `locallibrary players [set\|clear\|models]` | The player models `check` uses when none are given, and what each model reads, see [Before a set](#before-a-set) |
@@ -335,7 +347,8 @@ Commands that moved into a group still work under their old names, which `--help
 `recordings`, `firmware`, `backups` and `restore` (each `drive ...`), `log` and `push`
 (`library ...`), `history` and `stats` (`plays lists`, `plays stats`), `playlists`
 (`playlist ls`), `mirror` (`sync --from`), `compare` (`diff --summary`), `drive list`
-(`drive ls --known`) and `drive sets` (`drive groups`).
+(`drive ls --known`) and `drive sets` (`drive groups`). `set` is a spelling of `sets` now: the
+night-before job it used to be is `prep`.
 
 ### Output
 
@@ -375,8 +388,8 @@ screen is just printed); `--no-pager`, `PAGER=` or `PAGER=cat` turn it off. Outp
 ### JSON
 
 With `--json`, every command prints one JSON document on stdout, and every JSON object it prints
-at the top level has `"schema": 1`, the version of these shapes (raised only by a change that
-would break a script). A command that writes prints the same envelope whatever it does:
+at the top level (each line of `watch --json` too) has `"schema": 1`, the version of these shapes
+(raised only by a change that would break a script); a list at the top level has none. A command that writes prints the same envelope whatever it does:
 
 ```json
 { "schema": 1, "plan": { ... }, "report": { ... }, "applied": true, "outcome": "applied" }
@@ -465,8 +478,9 @@ listening to a drive the way the players see it:
   colours (`*` adds the ratings, `#` the [My Tags](#my-tags)). Keys that mix with the playing
   track, or with nothing playing the selected one, show green: the same key, ±1 or relative on the
   Camelot wheel. **Browse**, at the top of the tree, groups the drive like a CDJ's top menu: by
-  artist, album, genre, key, BPM (5-BPM bands), rating, colour, month added, My Tag, the history
-  lists players recorded, and problems.
+  artist, album, genre, key, BPM (5-BPM bands), rating, colour, month added, My Tag, the sets in
+  the store (newest first, each with its tracks on this drive in the order played, and a count of
+  the rest), the sessions players recorded (their history lists), and problems.
 - **Search and sort**: `/` searches as you type the way `tracks --filter` does (plain words look in
   title, artist, album, genre, label, key, comment and file path), and takes the whole
   [filter language](#filters) (`bpm:120-128 key:8A~ rating:>=4 -genre:house tag:Deep`); Tab in the
@@ -489,7 +503,8 @@ listening to a drive the way the players see it:
   rekordbox analysis, and `c` jumps between cue points. Tracks follow each other without a gap:
   half a minute before one ends, the next is opened and queued behind it, so a continuous mix
   or a live album plays straight through (a next track at another sample rate starts the
-  moment the playing one ends, without the wait for its file).
+  moment the playing one ends, without the wait for its file). An MP3 over 40 MB (a recorded set)
+  seeks by its place in the file, which is quick but can land a few seconds off in a VBR file.
 - **Play modes and output**: `S` switches to single play, as on a CDJ: the player stops at the
   end of each track with the next one ready for `space` (`S` again plays on). `A` turns on auto
   cue: each track starts at its first memory cue, else its first beat, where a CDJ would cue
@@ -507,7 +522,7 @@ listening to a drive the way the players see it:
 - **Beat jumps and quantize**: `,` and `.` jump a beat back or forward along the track's beat
   grid, `<` and `>` a bar, `{` and `}` eight bars (a phrase); the arrows still seek by time.
   Quantize (`Q`, on until turned off, shown as `Q on` by the clock) keeps jumps on the grid:
-  while playing, cue, hot cue and beat jumps land as far before or after the beat as the
+  while playing, cue, hot cue, phrase and beat jumps land as far before or after the beat as the
   playhead was, as if they had waited for the nearest beat, so the rhythm carries on; paused,
   beat jumps land on a beat. A track without a beat grid jumps by its BPM.
 - **Loops**: `l` loops the saved loop the playhead is in, or makes one of 4 beats from the beat
@@ -527,8 +542,8 @@ listening to a drive the way the players see it:
   analysis.
 - **Phrases**: rekordbox's phrase analysis (Intro, Up, Down, Chorus, Verse, Bridge, Outro) shows
   as the current phrase and bar in the player, with a countdown to the next one, and as a strip
-  under the full-screen overview. Keys show in both Camelot and note names, whichever rekordbox
-  stored.
+  under the full-screen overview. `N` and `P` jump to the next and previous phrase. Keys show in
+  both Camelot and note names, whichever rekordbox stored.
 - **Cues** everywhere: under the spectrum and scope, a lane of the 32 seconds around the playhead shows
   hot cues as lettered chips, memory cues as diamonds and loops as bars, with their names and loop
   lengths in beats (`[` `]` zoom it). Memory cues and loops take the colours they were given in
@@ -542,11 +557,12 @@ listening to a drive the way the players see it:
   playlist or folder, sort a playlist on the drive the way the list is sorted, save the crate,
   bring a playlist back from a snapshot, or replay recorded edits. `T` gives the marked or
   selected tracks a My Tag (one the drive has, or a new `Category/Tag`), or takes off one they all
-  have. Every change first shows its plan and is written only when you press `y`, the same change
+  have. My Tags are read once as the drive loads, so after changing them elsewhere, `R` reads them
+  again. Every change first shows its plan and is written only when you press `y`, the same change
   the [commands](#editing-playlists-and-tracks) make, with a backup first; `u` takes the last one
   back, after showing what that puts back (the playlists and tracks, the files, the recorded edits
   that come off the journal).
-- **After a rekordbox export**: when the drive's databases were written after locallibrary last
+- **After a rekordbox export**: when rekordbox exported to the drive after locallibrary last
   wrote to it, and replaying the [edits recorded on it](#when-rekordbox-exports-again) would change
   something, a line above the footer says "rekordbox exported over 3 edits on Main. Replay?":
   `y` shows the replay to confirm, `esc` puts the offer away for the run.
@@ -572,7 +588,7 @@ listening to a drive the way the players see it:
   out, `m`/`h`/`H` pin and hide tracks and artists, `D` shows the document and `w` writes it. The
   bar at the top shows your [Atmosphere account](#atmosphere-account): `L` signs in (type your
   handle, approve in the browser), and signed in, `L` twice signs out.
-- **Export**: in the palette, "export" writes the playlist, history list or all tracks shown as
+- **Export**: in the palette, "export" writes the playlist, set, session or all tracks shown as
   M3U8, CSV or text, and "xml" writes rekordbox XML of the drive (just the marked playlists when
   some are), asking where first.
 - **Mixes** (`5`): a recorded set and the tracks it plays, like [`locallibrary mix`](#mixes)
@@ -614,6 +630,7 @@ output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives
 | `←` `→` | seek 5 s (shift: 30 s) |
 | `n` `p` | next / previous track |
 | `c` `C` | next / previous cue |
+| `N` `P` | next / previous phrase |
 | `1` … `8` | hot cue A … H, in full screen or with the pads on |
 | `'` | pads on / off |
 | `,` `.` | beat jump back / forward (`<` `>`: a bar, `{` `}`: 8 bars) |
@@ -652,7 +669,7 @@ output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives
 | Mixes: `O` `del` `z` `o` `E` `w` | open a recording or a folder of them by path, forget one, zoom, the track in the library, export for Local Network, write the report |
 | `R` `F5` | read the drive again |
 | `!` | messages since starting |
-| `?` `q` | help, quit (a write to the drive finishes first, also when the terminal closes) |
+| `?` `q` | help, quit (a write to the drive finishes first, also when the terminal closes or a signal stops the player) |
 
 Mouse: click to select, double-click to play, click a column header to sort, click or drag the
 waveform to seek, right-click for actions.
@@ -694,8 +711,9 @@ It runs in the foreground (Ctrl-C stops it) and logs a line for each drive plugg
 unplugged and for what it did (`--json`: one JSON object per line). A drive is looked at when it's
 plugged in, when it's there as `watch` starts, and when its databases change (rekordbox
 exporting to it), once they have gone unchanged for 5 seconds (`--settle SECS`). Drives ready
-at the same time are saved as `set` saves them: the newest export first, then drives back from a
-set beside it.
+at the same time are saved as `prep` saves them: the newest export first, then drives back from a
+set beside it. While another operation holds the store or a drive (the TUI, the RPC sidecar, a
+pull), it says so once and waits; `--once` gives up after a minute with an error.
 
 - Only drives of a library the store has are pulled: a drive that was never pulled, or whose
   library isn't in the store, is left alone and never starts a library (pull it once yourself).
@@ -704,7 +722,7 @@ set beside it.
   lists, an export). One that came back from a set after the main drive's newer export was pulled,
   with only player changes since (history lists, cues), is saved beside the newest snapshot, which
   stays the newest (`library push` still writes the newer export; `plays lists --all` lists its
-  history lists, `library log` doesn't show it). One with other changes since is left alone: merge
+  history lists, and `library log` shows it marked `beside`). One with other changes since is left alone: merge
   or sync it yourself.
 - With `--sync-group`, after a drive is pulled (or found saved), the other mounted drives of its
   group (`drive groups`) are synced from it when it's the newest of them with confidence, as `sync`
@@ -781,7 +799,9 @@ snapshots are always kept:
 - each library's latest, and labelled ones (take a label off with `store unlabel` to let it go);
 - the state each drive was last seen holding (retired drives aside): `library push` relies on it to
   know a drive's changes are saved, `drive ls --known` counts how far behind a drive is from it, and
-  a drive back from a set is told apart from a new export by it;
+  a drive back from a set is told apart from a new export by it. When such a drive was registered
+  at its unsaved set state, the snapshot it last shared with its partner isn't kept for it, and
+  once pruned, `sync` refuses the two as diverged (safe: pull or merge it);
 - the newest snapshot holding each history list, so `plays lists --all` and the DJ profile keep
   every set the store has seen; a snapshot whose databases can't be read is kept too.
 
@@ -866,7 +886,8 @@ and they end up on drives, often once per export (`House1.wav`, `House1-1.wav`, 
 along with its playlist and history entries, audio, analysis files and artwork, plus artists,
 albums and genres nothing else uses. Files another track (in either database) still points at
 are kept. The list lives in
-[`clean.rs`](crates/locallibrary/src/clean.rs) (`USELESS_TRACKS`).
+[`clean.rs`](crates/locallibrary/src/clean.rs) (`USELESS_TRACKS`). The next export brings them
+back unless they're removed from the rekordbox collection too.
 
 ## After rekordbox exports
 
@@ -899,11 +920,13 @@ what was done stays done, and the exit status is 5 (1 when nothing was done). `-
 (repeatable, or comma-separated) leaves steps out.
 
 `status` flags a drive rekordbox exported over recorded edits ("rekordbox exported over 3
-recorded edit(s): run `locallibrary refresh "Main"`"): its databases were written after its last
-recorded edit, and making the edits again would change something. With no drive, `refresh` takes
-the one mounted drive flagged so, else the only mounted drive or the primary. My Tag and cue edits
-count once the drive was exported to after them, since telling whether they're in place means
-making them.
+recorded edit(s): run `locallibrary refresh "Main"`"): rekordbox exported to it after its last
+recorded edit, and making the edits again would change something. On a drive with both databases,
+an export is when both were written since: a player writes only the one it reads (history lists, a
+CDJ-3000X's playlist edits), so a set isn't taken for one. With no drive, `refresh` takes the one
+mounted drive flagged so, else the only mounted drive or the primary. My Tag and cue edits count
+once the drive was exported to after them, since telling whether they're in place means making
+them.
 
 ## Editing playlists and tracks
 
@@ -1058,10 +1081,11 @@ A packed drive comes back from a set with history lists and memory cues the play
 Before packing it again, `pack` saves its state in the store when it holds history lists the new
 pack won't have, or changed since it was last packed (it refuses when there's no store), and
 backs up the databases, analysis and artwork it replaces on the drive, so `locallibrary undo`
-puts them back. Audio it removed isn't kept (it's on the source): tracks it removed come back by
-packing again with the old selection, or with `undo --force` without their audio. Packing forgets
-the edits recorded on the drive. Like every command that writes, it won't write to an archive or
-retired drive without `--overwrite-archive`.
+puts them back (it says which snapshot and backup; the plan counts the backup's space). The drive
+keeps its own player name and colour. Audio it removed isn't kept (it's on the source): tracks it
+removed come back by packing again with the old selection, or with `undo --force` without their
+audio. Packing forgets the edits recorded on the drive. Like every command that writes, it won't
+write to an archive or retired drive without `--overwrite-archive`.
 
 ## My Tags
 
@@ -1121,41 +1145,93 @@ decode at the end (see [Before a set](#before-a-set)).
 
 ## History and play counts
 
-Players record a history list per session. rekordbox imports and deletes them on its next sync, but
-every `locallibrary pull` keeps the drive's databases: `locallibrary plays lists Main --all` lists
-every list the store ever saw (once, however many drives or snapshots held it), and `locallibrary
-plays export Main "HISTORY 012" -o set.txt` writes one as `01. Artist - Title` (or CSV, M3U8).
+Players start a history list every time a drive goes in, and log any track that plays for about a
+minute, practice and track checks too: each list is a session. rekordbox imports and deletes them
+on its next sync, but every `locallibrary pull` keeps the drive's databases: `locallibrary plays
+lists Main --all` lists every session the store ever saw (once, however many drives or snapshots
+held it), each with its id, its tracks, when it was recorded and the set made from it. An id, or
+its first few characters, names a session wherever a list's name does: `locallibrary plays export
+Main "HISTORY 012" -o set.txt` (or `plays export Main 1a2b3c4d -o set.txt`) writes one as `01.
+Artist - Title` (or CSV, M3U8). `locallibrary plays import friday.csv` keeps a log from Beat Link
+Trigger's Playlist Writer as a session, with the time each track played.
 `locallibrary plays lists Main --delete` clears the lists from the drive, like a player's ALL
-DELETE, but only those the store has kept. `locallibrary plays publish Main "HISTORY 012" --title
-"Friday warm-up"` publishes one as a set on your [Atmosphere account](#publishing). `locallibrary
-plays stats Main --since 3f9a2c` (or `--since 2026-09`) shows the most and never played tracks and
-what was played since a snapshot. `locallibrary export` writes playlists and folders the same way,
-and `locallibrary diff Main Backup --playlist Sets/Friday` shows which entries were added, removed
-or moved between two drives or snapshots.
+DELETE, but only those the store has kept. `locallibrary plays stats Main --since 3f9a2c` (or
+`--since 2026-09`) shows the most and never played tracks and what was played since a snapshot.
+`locallibrary export` writes playlists and folders the same way, and `locallibrary diff Main
+Backup --playlist Sets/Friday` shows which entries were added, removed or moved between two
+drives or snapshots.
+
+## Sets
+
+A session is what a player logged; a set is what you played, where and when, and only you can say
+which sessions were one. A set can span several sessions and drives (a play is logged on the drive
+the file came from, whichever deck played it), and a recording of it says more than any of them.
+
+```bash
+locallibrary sets suggest                     # sessions that look like sets, with the evidence
+locallibrary sets new --from 1a2b3c4d --from 5e6f7a8b --title Friday --venue Warehouse \
+  --city Leeds --country GB --date 2026-10-03
+locallibrary sets new --recording friday.wav --title Friday   # the tracks a recording plays, timed
+locallibrary sets edit Friday --drop 1-2 --move 5:2 --insert 4:"Floorplan - Never Grow Old"
+locallibrary sets edit Friday --unnamed 7      # an unreleased dubplate: published as ID - ID
+locallibrary sets export Friday --format mixcloud   # paste into Mixcloud's tracklist
+locallibrary sets playlist Friday Main        # a playlist of it on the drive, to start the next one
+locallibrary sets played "never grow old"     # when and where you played a track
+locallibrary sets publish Friday --dry-run    # see Publishing
+```
+
+`sets suggest` lists the sessions in no set that look like sets and says why: how many tracks, a
+drive you take to sets (`drive role <drive> set`), a recording that has its tracks, several drives.
+Sessions one pull saved, or whose windows overlap, go together as one night when their windows span
+36 hours or less; wider windows (a drive's first pull, or a week between pulls) can't tell nights
+apart, so each session of 3 tracks or more is suggested on its own. It prints the `sets new` command
+for each; `--dismiss ID` says a session wasn't one. `sets new` takes sessions in play order, a
+recording (identified as `mix` identifies one), both, or neither (then `sets edit --insert` adds
+tracks). A recording's tracklist wins: it has start times, catches tracks played for less than a
+minute and leaves out what was only previewed in headphones, and the logged tracks it doesn't hear
+are pointed out. Sets are kept in the store's `sets.json` with a copy of each track's details, so
+they read without the drive.
+
+Players have no clock, so a session's date is a window: after locallibrary last saw the drive
+without it, before it first saw it with it (`on 3 Oct 2026` when both fall on one day, `between 29
+Sep and 3 Oct 2026` otherwise). `watch` keeps the windows tight by saving drives as they're
+plugged in. A set's day is the one you give with `--date`, else the recording's, else the day its
+sessions' windows agree on; failing those it says to give one. A log from Beat Link Trigger has
+real times, so a set made from it is timed too.
+
+`sets edit` positions name the tracklist as it was before the edit, so `--drop 1 --move 5:2` puts
+the track that was fifth just before the one that was second. `--insert` looks the track up on
+the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text, Mixcloud's
+tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
+1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
+`.m3u8` or `.txt`).
 
 ## DJ profile
 
 ```bash
 locallibrary profile                          # your mounted drives and the store
-locallibrary profile Main --since 2026        # one drive; sets first seen this year
+locallibrary profile Main --since 2026        # one drive; sets played this year
 locallibrary profile -s tempo,mixing --sets   # just those sections, and every set
 locallibrary profile document -o profile.json # what a public profile would show
 ```
 
-`profile` works out how you play from what locallibrary already reads: the history lists players
-record (on the drives, plus every list `pull` archived, so lists rekordbox has since deleted still
-count), each track's analysis (BPM, key, phrase mood, cues) and tags, and My Settings. A history
-list with fewer than 5 tracks (`--min-tracks`) counts as a sound check, not a set. A library
-without sets is described from its collection, and the same recording on several drives or in
-several files counts once. Without drives named, it reads the mounted drives the store knows (ones
-you've pulled or synced), so a stick someone else plugged in doesn't count as your sets; a store
-that knows none reads every mounted drive. Transitions are tracks played one after the other:
-not two either side of a track since deleted, nor one track logged twice.
+`profile` works out how you play from what locallibrary already reads: the sets you declared
+(`locallibrary sets`), each track's analysis (BPM, key, phrase mood, cues) and tags, and My
+Settings. A set's tracks are found by file in every library it reads (the drives, the store's
+snapshots and every history list `pull` archived), so their analysis counts; a track none of them
+has still counts, from what the set kept. Until you declare a set, the sessions players record
+stand in: history lists with 5 tracks or more (`--min-tracks`). Practice lands in those too, so
+the report calls them sessions and the public document never counts them. With nothing played
+to count, the collection is described, and the same recording on several drives or in several
+files counts once. Without drives named, it reads the mounted drives the store knows (ones you've pulled or
+synced), so a stick someone else plugged in doesn't count as yours; a store that knows none reads
+every mounted drive. Transitions are tracks played one after the other: not two either side of a
+track since deleted, nor one track logged twice.
 
 | Section | What it says |
 | --- | --- |
 | Summary | a headline ("Techno and House · 122–128 BPM · 48 sets") and the traits the numbers support, each with its evidence: mixes in key, smooth tempo changes, builds the tempo through a set, genre-hopping, plays new releases or older records, rarely repeats tracks, has signature tracks, cues up every track, plays with quantize off |
-| Sets | how many, how long, when they were first archived |
+| Sets | how many, how long, when they were played (until you declare sets: sessions, never published) |
 | Tempo | the BPM range of the middle 80% of plays, and a histogram |
 | Set shape | opening against closing tempo, and whether sets build, hold or wind down |
 | Mixing | how many transitions are harmonic on the Camelot wheel (same key, ±1, relative, energy boost), tempo steps, genre changes |
@@ -1182,7 +1258,9 @@ locallibrary profile headline "Warm-up specialist"
 locallibrary profile precision exact           # or rounded, the default
 ```
 
-A profile can't compare you with other DJs (which tracks only you play): that needs their data.
+A track one of your sets marks unnamed (`sets edit --unnamed`) is never named either, pinned or
+not. A profile can't compare you with other DJs (which tracks only you play): that needs their
+data.
 
 ## Atmosphere account
 
@@ -1243,7 +1321,7 @@ checks on the server's answer, refresh and revocation) is the
 ```bash
 locallibrary settings publish                 # your My Settings
 locallibrary profile publish --dry-run        # your DJ profile: look first
-locallibrary plays publish Main "HISTORY 012" --title "Friday warm-up" --date 2026-10-03
+locallibrary sets publish last --hide 3,7     # your latest set, without naming tracks 3 and 7
 ```
 
 Publishing writes a record to your account's repository, where anyone can read it and other
@@ -1259,18 +1337,21 @@ shows the plan again for the account you approved. Publishing again replaces the
 | --- | --- | --- |
 | `settings publish` | `computer.localnetwork.locallibrary.settings`, key `self` | the settings profile's base values |
 | `profile publish` | `computer.localnetwork.locallibrary.profile`, key `self` | the [profile document](#dj-profile), in whole numbers: shares as percents, BPM whole |
-| `plays publish <drive> <list>` | `computer.localnetwork.locallibrary.set`, a key per set | the day it was played, an optional `--title` and `--venue`, and the tracks in order: artist, title, ISRC, BPM, Camelot key |
+| `sets publish <set>` | `computer.localnetwork.locallibrary.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with, where to listen, what the tracklist came from (`history`, `mix`, `added`), and the tracks in order: artist, title, ISRC, BPM, Camelot key, start time |
 
-A set leaves out the history list's name and the files' paths. Tracks your profile hides
+A set's notes, its recording, the sessions it came from and the files' paths stay on this
+computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your profile hides
 (`profile hide`) and the positions you give with `--hide 3,7` are published as unidentified:
-only their place in the set. Without `--date`, a set is dated as it was published before, else
-the day the store first saw the list, else today, and the preview says which. `--all` also looks
-among the lists the store archived after rekordbox took them off the drive. Publishing the same
-list again replaces its set.
+only their place in the set and when it starts. The venue, city and country also go out as a
+`community.lexicon.location.address`, which needs a country: without one, the city stays out. A
+set built from a single history list that an earlier version published with `plays publish`
+replaces that record the first time it's published, and takes its key as its id.
 
 The record types are Lexicons in [`lexicons/`](lexicons/computer/localnetwork/locallibrary/),
-and each record is checked against its Lexicon before it's written. Everything published is
-public and copied around the network: deleting a record later doesn't delete the copies.
+next to the address Lexicon they use, copied from
+[Lexicon Community](https://github.com/lexicon-community/lexicon). Each record is checked against
+its Lexicon before it's written. Everything published is public and copied around the network:
+deleting a record later doesn't delete the copies.
 
 ## Before a set
 
@@ -1322,12 +1403,12 @@ too.
 ## The night before a set
 
 ```bash
-locallibrary set                                   # the mounted drives of your library
-locallibrary set Main "Club drive" --players CDJ-3000X
-locallibrary set --no-eject --dry-run
+locallibrary prep                                  # the mounted drives of your library
+locallibrary prep Main "Club drive" --players CDJ-3000X
+locallibrary prep --no-eject --dry-run
 ```
 
-`set` gets the drives you're taking ready in one plan:
+`prep` gets the drives you're taking ready in one plan:
 
 1. save them in the store, history lists first: the drive with the newest export goes on top of
    the library's latest snapshot, then any drive back from a set beside it (as `watch --pull`
@@ -1375,7 +1456,9 @@ Duplicates on the drive and remixes that share a vocal are listed under the trac
 rather than as tracks of their own. Matches under 50% confidence are marked tentative, and
 stretches nothing matches (a track that isn't on the drive) are marked as such. Things that hide
 a track from fingerprints: heavy effects, very long filtered intros, and speeds outside the range
-searched. Matching only looks at one drive's library at a time.
+searched. A transition shorter than about 20 s often shows a small gap, since a track under heavy
+filtering isn't heard until it's nearly at full volume. Matching only looks at one drive's library
+at a time.
 
 `--export PATH` writes the same report as data instead (`<title>_<hash>.mix.json` inside `PATH`
 when it's a folder or there are several recordings; the hash is of the recording's path, so two
@@ -1443,8 +1526,9 @@ what the format leaves out without writing. RPC: `interop.plan` and `interop.app
   on pads 1-8, memory cues, loops, and the playlist tree. In Traktor, right-click Track
   Collection, choose "Import another Collection" and pick the file. Traktor's grid has one
   tempo, so a track that changes tempo keeps its first; cue colours, history lists, My Tags and
-  artwork don't come across. Audio outside `/Volumes` is placed on a startup disk called
-  "Macintosh HD"; Traktor's Relocate finds it if yours is called otherwise.
+  artwork don't come across. Audio outside `/Volumes` is placed on the Mac's startup disk, by
+  its name ("Macintosh HD" when exporting from another system; Traktor's Relocate finds it if
+  the Mac's is called otherwise).
 - **Serato** (`_Serato_/Subcrates/*.crate`): a crate per playlist, in the playlist's order;
   folders become crates holding their crates (`Sets%%Friday.crate`), a name past 200 bytes cut
   to fit a file name. Serato keeps crates in a
@@ -1513,10 +1597,11 @@ a drive are deliberately left untouched: rewriting tags there would shift the au
 the seek index rekordbox stored for VBR MP3s. For your computer's collection, `art embed`, then
 "Reload Tag" in rekordbox, so every future export carries the art. `art embed` lists the files it
 will rewrite and asks first, and keeps a copy of each file as it was in the store
-(`embed-backups/`, the last 5 embeds): `art unembed` puts them back, each one only if it hasn't
-changed since (`--list` shows the embeds kept, `--backup ID` picks one). `art set` asks first too,
-and the drive is backed up before it's written. `art auto` given no drive takes every mounted
-drive but archive and retired ones: it shows each drive's plan and asks once.
+(`embed-backups/`, the last 5 embeds, counted in `store info`): `art unembed` puts them back,
+each one only if it hasn't changed since (`--list` shows the embeds kept, `--backup ID` picks
+one). `art set` asks first too, and the drive is backed up before it's written. `art auto` given
+no drive takes every mounted drive but archive and retired ones: it shows each drive's plan and
+asks once.
 
 ## Formatting a drive
 
@@ -1551,8 +1636,9 @@ Help Center and the rekordbox 7 manual), and how AlphaTheta's SanDisk DJ drives 
 
 - **MBR, not GPT.** The Help Center pages for the CDJ-3000, CDJ-3000X, CDJ-2000NXS2, XDJ-XZ,
   XDJ-RX3, XDJ-AZ, OPUS-QUAD and OMNIS-DUO all say the GUID partition map isn't supported
-  (macOS Disk Utility uses it by default). Players only read the first partition, so the drive
-  gets exactly one. MBR tops out at 2 TiB, so larger drives are refused.
+  (macOS Disk Utility uses it by default). Players read the first partition, unless another
+  holds a rekordbox library (the NXS2, NXS, XDJ-XZ, OPUS-QUAD and OMNIS-DUO manuals give that one
+  priority). The drive gets exactly one, so there's no doubt which. MBR tops out at 2 TiB, so larger drives are refused.
 - **Cluster size** has no official guidance and no measured effect on loading or browsing. It
   decides how much space small files take: rekordbox writes three analysis files per track, so
   exFAT's default 128 KB clusters use about 0.5 MB per track where `--cluster-size 32K` uses
@@ -1713,10 +1799,12 @@ locallibrary drive contact Main "sam@example.com" --playlist
   OneLibrary's `property` table and in its own record of the device
   (`PIONEER/DeviceLibBackup/rbDevLibBaInfo_*.json`, never copied between drives). `drive player`
   sets OneLibrary's, which the newer players read; where players reading `export.pdb` find the
-  name isn't documented. Sync and push keep each drive's own name and colour, and OneLibrary's
-  fingerprint leaves them out, so drives with different names still compare as identical.
-  rekordbox's next export writes rekordbox's values again; `drive player` remembers its own on the
-  drive (in `.locallibrary/`), and `locallibrary refresh` puts them back.
+  name isn't documented. Sync, push and pack keep each drive's own name and colour (a run that
+  was cut off leaves them for the one that finishes it), and OneLibrary's fingerprint leaves them
+  out, so drives with different names still compare as identical. rekordbox's next export writes
+  rekordbox's values again; `drive player` remembers its own on the drive (in `.locallibrary/`),
+  and `locallibrary refresh` puts them back. Undoing `drive player` remembers the ones it puts
+  back instead.
 - `drive contact` writes `IF FOUND.txt` in the drive's root and, with `--playlist`, a top-level
   playlist named after the contact, the first thing a player shows. The playlist is a recorded
   edit, so `edits replay` puts it back after rekordbox's next export.
@@ -1901,11 +1989,12 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `art.unembed`, `store.gc`, `store.prune`, `players.set`, `players.clear`, `player.set`,
   `playlist.restore`, `drive.eject`, `pull`), `sync_many.*` (`sync.many.*`), `sync_group.*` and
   `sync_set.*` (`sync.group.*`), `smart.apply.plan` / `smart.apply` (`smart.write.*`),
-  `settings.apply.plan` / `settings.apply` (`settings.write.*`) and `drive.sets` (`drive.groups`).
+  `settings.apply.plan` / `settings.apply` (`settings.write.*`), `drive.sets` (`drive.groups`)
+  and `set.*` (`prep.*`).
   `drive.restore.preview` is kept as it was; `drive.restore.plan` is the plan `drive.restore.apply`
   applies (an `undo` plan), as `drive.eject.plan` makes `eject` plans. A few methods are a single
   verb, as the CLI's commands are: `status`, `compare`, `diff`, `check`, `doctor`, `export`;
-  `refresh` and `set` are jobs of several steps.
+  `refresh` and `prep` are jobs of several steps.
 - Every `*.plan` answers with the plan's own fields plus `plan_id`, `operation` (the method's
   name without `.plan`), `summary` (a few lines for a dialog), `warnings` (all of them),
   `destructive` (it deletes or overwrites something), `noop` (applying it changes nothing),
@@ -1956,7 +2045,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `drive.detached` (the drive as last seen) and `drive.changed` (`changed`: `databases` and/or
   `state`, its `.locallibrary` identity) with the drive's `root`, `id`, `name` and `has_export`;
   `store.changed` with `changed` (`libraries`, `snapshots`, `labels`, `pruned`, `drives`,
-  `settings`, `smart`); and `job.started` / `job.finished` (`id`, `method`, `ok`, and the error's
+  `settings`, `smart`, `sets`); and `job.started` / `job.finished` (`id`, `method`, `ok`, and the error's
   `kind`) for every request. `kinds` takes event names or groups (`drive`, `store`, `job`);
   empty means all. Drives and the store are polled every second (`interval_ms`, at least 100)
   by looking at file metadata only, so watching costs a few `stat` calls per drive. Every mounted
@@ -1968,8 +2057,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   sidecar until `watch.stop {cancel?}`, and sends an event for each thing it does, whether or not
   you subscribed (unless a subscription's `kinds` leave them out): `watch.up_to_date`,
   `watch.pending` and `watch.pulled` (`library`, `history_lists`, `beside`, and the `snapshot`),
-  `watch.synced` (`targets`, as `sync.many.apply` returns them), `watch.skipped` (`reason`) and
-  `watch.failed` (`kind`, `message`), each with the drive's fields as above. It shows in
+  `watch.synced` (`targets`, as `sync.many.apply` returns them), `watch.waiting` and
+  `watch.skipped` (`reason`), and `watch.failed` (`kind`, `message`), each with the drive's fields as above. It shows in
   `jobs.list` as `{id: null, method: "watch"}`; a second `watch.start` while it runs is a
   `conflict`. `watch.stop` lets what it's doing finish (`cancel: true` stops that too), as do
   `shutdown` and closing stdin.
@@ -1981,7 +2070,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 - SIGINT or SIGTERM (Ctrl-C on Windows) cancels every running request at its next safe point
   (each fails with `kind: "cancelled"`) and refuses new ones; the process exits with 128 + the
   signal's number once they have answered. A second signal exits once no database swap is under
-  way.
+  way. Windows has no SIGTERM to catch, and a GUI's piped child never gets Ctrl-C, so a Windows
+  app should send `shutdown {cancel: true}` or close stdin instead.
 - Errors carry `error.data.kind`: `not_found`, `not_an_export`, `conflict` (needs a user decision
   such as a direction or `force`), `stale_plan` (the drive changed since the plan was made: plan
   again and ask again), `no_space`, `locked` (another operation is writing that drive or the store),
@@ -2066,10 +2156,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `account.logout` says whether the server revoked the session (`revoked`) and what couldn't be
   removed (`left_behind`). Errors about the account have `kind: "account"`. Publishing:
   `settings.publish.plan/apply`, `profile.publish.plan/apply` (the parameters of
-  `profile.build`), `history.publish.plan/apply` (`drive`, `list`, optional `archived`, `title`,
-  `date`, `venue`, `hide`), and `settings.import_published.plan/apply` (`from`: a handle or
-  DID, default the signed-in account; `pds`; `replace: true` to replace the base instead of
-  adding to it). A plan holds the exact `record`, what's published
+  `profile.build`), `sets.publish.plan/apply` (`set`, optional `hide`), and
+  `settings.import_published.plan/apply` (`from`: a handle or DID, default the signed-in
+  account; `pds`; `replace: true` to replace the base instead of adding to it). A plan holds the exact `record`, what's published
   in its place now (`current`), `changed`, `notes` to show the DJ, and `missing_scope` when
   the session may not write it: sign in again with `publish: true` before applying. Like every
   plan it has a `plan_id`: `*.apply {"plan_id": ...}` publishes (or imports) exactly what it
@@ -2091,6 +2180,15 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   its `path`, for a webview; the tracks' waveforms, cues and covers come from the drive it was
   matched against, by its identity, when it's mounted; `inline: true` adds the page itself as
   `html`).
+- Sets and sessions: `sessions.list {drive?, unassigned?}` (every session on the mounted drives
+  and in the store, newest first, with its `id`, `window {after, before, exact}`, tracks and the
+  `sets` made from it), `sessions.dismiss {sessions, undo?}`, `sessions.import {file, drive?,
+  name?}` (a Beat Link Trigger log), `sets.suggest {drive?}` (`candidates`, and the `sessions`
+  they're made of), `sets.list`, `sets.get {set | venue}`, `sets.new`, `sets.edit` (both answer
+  the `set` and `notes` to show), `sets.delete`, `sets.export {set, format, output?}` (without
+  `output`, the document comes back as `text`), `sets.played {track}` and
+  `sets.playlist.plan/apply`. Sets are written to the store at once, so `sets.new`, `sets.edit`,
+  `sets.delete`, `sets.export`, `sessions.dismiss` and `sessions.import` are `immediate`.
 - Drive management: `fleet.status`, `drives.known`, `drive.rename/forget/role/retire/log`,
   `drive.recognise`, `drive.adopt_as.plan/apply`, `drive.reidentify.plan/apply`, `drive.groups`,
   `sync.group.plan/apply` (`watch.start` takes `sync_group`, or `sync_set` as before),
@@ -2100,8 +2198,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `recordings.list`, `recordings.collect.plan/apply`, `firmware.plan/apply`,
   `firmware.remove.plan/apply`, `player.show`, `player.set.plan/apply`, `drive.contact.plan/apply`,
   `provision.plan/apply` (`provision.apply` with the request takes the plan's `format.identity`
-  as `format_identity` when formatting), and the jobs `refresh.plan/apply` and `set.plan/apply`
-  (what `locallibrary refresh` and `set` do, as one plan of steps). `sync.many.apply` returns one
+  as `format_identity` when formatting), and the jobs `refresh.plan/apply` and `prep.plan/apply`
+  (what `locallibrary refresh` and `prep` do, as one plan of steps; its plans' `operation` is
+  still `set`). `sync.many.apply` returns one
   result per target: a target that fails carries an `error` and doesn't stop the others.
 - Writes that had no plan step have one: `drive.adopt.plan`, `drive.adopt_as.plan`,
   `drive.rename.plan`, `drive.contact.plan`, `player.set.plan`, `edits.clear.plan`,
@@ -2146,6 +2245,8 @@ crates/locallibrary/        the library
   cue_edit.rs  hot cues, memory cues and loops in analysis files and OneLibrary's cue table
   doctor.rs    duplicates, missing and orphaned files, drift
   plays.rs     history lists on drives and in the store, play statistics
+  sets/        the DJ's sets (sets.json): sessions and their windows, suggestions, building a set from
+               sessions and recordings, editing, exports, Beat Link Trigger logs
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
   mix/         which library tracks a recorded set plays (fingerprints, index, matcher); its report: the
                interactive page, the mix's playable audio, the reports kept in the store (report.rs and
@@ -2242,11 +2343,12 @@ docs/rpc/                   the sidecar's contract: schema.json and locallibrary
   database grows a little with every rename or text edit until the next export.
 - Merged tracks bring their My Tags into both databases, from whichever of the source's
   databases has them; tags beyond rekordbox's four categories of 50 are skipped with a warning.
-  Hot cue bank lists only merge between OneLibrary databases. History playlists merge with
-  `--history`, flattened to the top level. Tracks matched as duplicates keep the target's
-  metadata and tags. A track whose details are too long for one of the target's `export.pdb`
-  rows (OneLibrary has no such limit) is left out with a warning, and a playlist, folder or
-  history list name that long is refused in the plan.
+  Tracks from a source without OneLibrary get OneLibrary `cue` rows made from their analysis
+  files, as `convert` makes them. Hot cue bank lists only merge between OneLibrary databases.
+  History playlists merge with `--history`, flattened to the top level. Tracks matched as
+  duplicates keep the target's metadata and tags. A track whose details are too long for one of
+  the target's `export.pdb` rows (OneLibrary has no such limit) is left out with a warning, and a
+  playlist, folder or history list name that long is refused in the plan.
 - The computer-side rekordbox database (`master.db`) is only read, never written: interchange
   with rekordbox goes through device exports and rekordbox XML. The reader follows pyrekordbox's
   description of the tables and was checked against databases built to that description (with
@@ -2317,8 +2419,8 @@ finds, and raise `rust-version` together with the msrv job in `ci.yml`.
 
 - format, clippy and the tests on macOS, Linux and Windows. Tests run under
   [cargo-nextest](https://nexte.st) (`cargo nextest run --workspace` locally), doctests with
-  `cargo test --doc`. On macOS and Linux the tests have the `sqlcipher` CLI, and must find it
-  (see the fixtures below);
+  `cargo test --doc`. On Linux they run under coverage (see below). On macOS and Linux the tests
+  have the `sqlcipher` CLI, and must find it (see the fixtures below);
 - clippy on the CLI without its default features, on Linux without the ALSA headers;
 - the MSRV check, and the docs build with warnings denied;
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) with `deny.toml`: RustSec advisories
@@ -2338,24 +2440,27 @@ Actions are pinned to commits, and Dependabot proposes updates to them and to `C
 month.
 
 The library's integration tests are one test binary, `crates/locallibrary/tests/it/` (a module
-for each area: `edit`, `sync_compare`, `props_pdb`...), so the library is linked once and every
-test runs at once. Tests that need the mounted volumes, or the store drive lookups consult, name
-them for their own thread (`locallibrary::testing::volumes_on_this_thread` and
-`store_root_on_this_thread`), not with `$LOCALLIBRARY_VOLUMES` or `api::set_store_root`, which hold
-for the process. The CLI's are one binary too, `crates/locallibrary-cli/tests/it/`, running
-the `locallibrary` cargo built for them with a store of their own and `LOCALLIBRARY_VOLUMES` set,
-so they never see the machine's drives.
+for each area: `edit`, `sync`, `props_pdb`..., with an area's submodules in a folder of its name,
+like `edit/refusals.rs`, and the helpers they share in `tests/common/`), so the library is linked
+once and every test runs at once. Tests that need the mounted volumes, or the store drive
+lookups consult, name them for their own thread (`locallibrary::testing::volumes_on_this_thread`
+and `store_root_on_this_thread`), not with `$LOCALLIBRARY_VOLUMES` or `api::set_store_root`,
+which hold for the process. The CLI's are one binary too, `crates/locallibrary-cli/tests/it/`,
+running the `locallibrary` cargo built for them with a store of their own and
+`LOCALLIBRARY_VOLUMES` set, so they never see the machine's drives. What they share is in
+`support.rs`: the demo drives, and `Env`, a store and folder of drives for one test that runs
+commands in them.
 
 `LOCALLIBRARY_VOLUMES` (a path list, like `PATH`) is a test switch, set together with
 `LOCALLIBRARY_STORE`: drives are looked for only in the folders it names (set empty, nowhere),
 never among the machine's mount points or where the store last saw them outside those folders,
-and `drive disks` and `drive format` refuse to run. Every command warns when it's set. Tests sharing
-a process name their folders for their own thread
+and `drive disks`, `drive format`, `drive fsck` and `drive rename --label` refuse to run. Every
+command warns when it's set. Tests sharing a process name their folders for their own thread
 (`locallibrary::testing::volumes_on_this_thread`).
 
 ```bash
 cargo test -p locallibrary --test it                        # the library's integration tests
-cargo test -p locallibrary --test it sync_compare::         # one module's
+cargo test -p locallibrary --test it sync::                 # one area's
 cargo test -p locallibrary-cli --test it rpc::              # the sidecar's, in the CLI's
 ```
 
@@ -2374,6 +2479,20 @@ Publishing is tested against a pretend data server on 127.0.0.1
 checks each write's DPoP proof and hands out a DPoP nonce, and refuses on cue. The tests write the
 session as files, or to an in-memory keychain, so none of them signs in to a real account,
 touches the computer's keychain or goes on the network.
+
+### Coverage
+
+```bash
+cargo coverage              # the tests under coverage, with a summary per file
+cargo coverage --open       # and an HTML report
+```
+
+`cargo coverage` is an alias in `.cargo/config.toml` for
+[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) over nextest. It fails when line,
+function or region coverage drops below the thresholds there, set just under what CI measures on
+Linux; raise them when coverage goes up. It needs `cargo-llvm-cov` and rustup's
+`llvm-tools-preview` component. With Homebrew's Rust, install Homebrew's `llvm` and point
+`LLVM_COV` and `LLVM_PROFDATA` at its tools: its version must match the one `rustc -vV` names.
 
 ### Property-based tests
 

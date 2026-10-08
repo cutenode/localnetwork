@@ -1,8 +1,8 @@
-//! Drive management through the service layer: syncing after a set, archive drives, parallel
-//! multi-drive sync, and provisioning a new drive. One test, with the store the API consults
-//! named for its thread.
+//! Drive management through the service layer: finding drives (and hiding disks) while tests
+//! name the folders they're in, syncing after a set, archive drives, parallel multi-drive sync,
+//! and provisioning a new drive. The store the API consults is named for each test's thread.
 
-use crate::common;
+use crate::common::{self, path, sync_pair};
 
 use locallibrary::api::{self, Direction};
 use locallibrary::compare::{Relation, Side};
@@ -11,27 +11,10 @@ use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::{Error, fleet};
 
-fn path(p: &std::path::Path) -> String {
-    p.display().to_string()
-}
-
-fn sync_req(left: &str, right: &str) -> api::SyncRequest {
-    api::SyncRequest {
-        left: left.into(),
-        right: right.into(),
-        direction: Direction::Auto,
-        allow_low_confidence: false,
-        verify: false,
-        keep_extra: false,
-        delete_first: false,
-        overwrite_archive: false,
-        keep_player_changes: false,
-    }
-}
-
 /// While the test switch names folders, a drive the store knows is found only inside them: never
 /// the machine's own, wherever the store last saw them. Inside, one mounted deeper than the
-/// folders' subfolders is still found where the store last saw it.
+/// folders' subfolders is still found where the store last saw it. The machine's disks are hidden
+/// too.
 #[test]
 fn the_store_finds_drives_only_inside_the_folders_named() {
     let dir = tempfile::tempdir().unwrap();
@@ -41,16 +24,21 @@ fn the_store_finds_drives_only_inside_the_folders_named() {
     let deep = common::demo_drive(&volumes.join("mnt"), "Deep");
     let outside = common::demo_drive(dir.path(), "Outside");
     for (d, name) in [(&deep, "Deep"), (&outside, "Probestick")] {
-        api::adopt_drive(Some(&store), &api::AdoptDrive { drive: path(d), name: Some(name.into()) }).unwrap();
+        common::adopt(Some(&store), d, name);
     }
     locallibrary::testing::volumes_on_this_thread(Some(vec![volumes.clone()]));
     let names: Vec<_> = api::list_drives(&api::ListDrives::default()).into_iter().map(|d| d.name).collect();
     assert_eq!(names, [Some("Deep".to_string())]);
     assert_eq!(api::resolve_drive("deep").unwrap().root(), dunce_canonicalize(&deep));
     assert!(api::resolve_drive("Probestick").is_err());
-    // Disks are hidden with the drives.
-    let err = api::list_disks(store.root()).unwrap_err();
-    assert!(err.to_string().contains("LOCALLIBRARY_VOLUMES"), "{err}");
+    // Disks are hidden with the drives: they can't be listed, nor a format planned or applied.
+    let hidden = |e: Error| assert!(e.to_string().contains("LOCALLIBRARY_VOLUMES"), "{e}");
+    hidden(api::list_disks(store.root()).unwrap_err());
+    let format = api::FormatRequest { drive: path(&deep), options: Default::default() };
+    hidden(api::format_plan(store.root(), &format, &Ctx::silent()).unwrap_err());
+    let apply = api::FormatApply { drive: path(&deep), identity: "disk9".into(), options: Default::default() };
+    hidden(api::format_apply(store.root(), &apply, &Ctx::silent()).unwrap_err());
+    assert!(Device::open(&deep).unwrap().has_export(), "untouched");
 }
 
 /// A mounted drive is looked up by its identity: the registry's record of another drive with its
@@ -64,8 +52,8 @@ fn a_drive_is_found_by_its_identity_and_a_shared_name_is_refused() {
     let volumes = dir.path().join("volumes");
     let main = common::demo_drive(dir.path(), "Main");
     let stick = common::demo_drive(&volumes, "Stick");
-    api::adopt_drive(Some(&store), &api::AdoptDrive { drive: path(&main), name: Some("Main".into()) }).unwrap();
-    api::adopt_drive(None, &api::AdoptDrive { drive: path(&stick), name: Some("Main".into()) }).unwrap();
+    common::adopt(Some(&store), &main, "Main");
+    common::adopt(None, &stick, "Main");
     locallibrary::testing::volumes_on_this_thread(Some(vec![volumes.clone()]));
     let main_id = Device::open(&main).unwrap().id().unwrap().to_string();
     let find = |drive: &str| api::drive_find(&store, &api::DriveRef { drive: drive.into() });
@@ -81,7 +69,7 @@ fn a_drive_is_found_by_its_identity_and_a_shared_name_is_refused() {
     assert_eq!(find(&main_id).unwrap().id.to_string(), main_id);
 
     let spare = common::demo_drive(&volumes, "Spare");
-    api::adopt_drive(None, &api::AdoptDrive { drive: path(&spare), name: Some("Main".into()) }).unwrap();
+    common::adopt(None, &spare, "Main");
     let refused = find("Main").unwrap_err().to_string();
     assert!(refused.contains("Spare") && refused.contains("Stick"), "{refused}");
     // Regression: a role went to the registry's Main, which neither of them is.
@@ -118,12 +106,12 @@ fn drive_management_through_the_api() {
 
     // Main, and Club synced from it, both saved in the store.
     let main = common::demo_drive(dir.path(), "Main");
-    api::adopt_drive(Some(&store), &api::AdoptDrive { drive: path(&main), name: Some("Main".into()) }).unwrap();
+    common::adopt(Some(&store), &main, "Main");
     std::fs::create_dir(dir.path().join("Club")).unwrap();
     let club = dir.path().join("Club");
-    let r = api::sync_apply(Some(&store), &sync_req(&path(&main), &path(&club)), &ctx).unwrap();
+    let r = api::sync_apply(Some(&store), &sync_pair(&main, &club), &ctx).unwrap();
     assert!(r.report.is_some());
-    api::adopt_drive(Some(&store), &api::AdoptDrive { drive: path(&club), name: Some("Club".into()) }).unwrap();
+    common::adopt(Some(&store), &club, "Club");
     api::pull(&store, &api::PullRequest { drive: path(&main), ..Default::default() }, &ctx).unwrap();
 
     // The club: a player records history on Club; at home, Main gets a new export.
@@ -131,7 +119,7 @@ fn drive_management_through_the_api() {
     common::add_history(&club, "HISTORY 001", &ids);
     common::export_new_track(&main, "Artist", "Fresh");
 
-    let preview = api::sync_plan(&sync_req(&path(&main), &path(&club)), &ctx).unwrap();
+    let preview = api::sync_plan(&sync_pair(&main, &club), &ctx).unwrap();
     assert_eq!(preview.comparison.relation, Relation::Diverged);
     let g = preview.after_set.as_ref().expect("Club came back from a set");
     assert_eq!(g.back_from_set.drive, "Club");
@@ -143,7 +131,7 @@ fn drive_management_through_the_api() {
         right: path(preview.target.as_ref().unwrap()),
         direction: Direction::LeftToRight,
         keep_player_changes: true,
-        ..sync_req("", "")
+        ..sync_pair(&main, &club)
     };
     let r = api::sync_apply(Some(&store), &pinned, &ctx).unwrap();
     assert_eq!(r.saved.len(), 2, "the club's state, then the result");
@@ -165,10 +153,9 @@ fn drive_management_through_the_api() {
     let club_id = Device::open(&club).unwrap().id().unwrap();
     fleet::set_role(&store, club_id, Some(fleet::Role::Archive)).unwrap();
     common::export_new_track(&main, "Artist", "Later");
-    let err = api::sync_plan(&sync_req(&path(&main), &path(&club)), &ctx).unwrap_err();
+    let err = api::sync_plan(&sync_pair(&main, &club), &ctx).unwrap_err();
     assert!(matches!(err.inner(), Error::Conflict(m) if m.contains("archive")), "{err}");
-    let ok =
-        api::sync_plan(&api::SyncRequest { overwrite_archive: true, ..sync_req(&path(&main), &path(&club)) }, &ctx);
+    let ok = api::sync_plan(&api::SyncRequest { overwrite_archive: true, ..sync_pair(&main, &club) }, &ctx);
     assert!(ok.is_ok());
     fleet::set_role(&store, club_id, None).unwrap();
 
@@ -176,14 +163,7 @@ fn drive_management_through_the_api() {
     for n in ["X", "Y"] {
         std::fs::create_dir(dir.path().join(n)).unwrap();
     }
-    let many = api::SyncManyRequest {
-        drives: vec![path(&main), path(&club), path(&dir.path().join("X")), path(&dir.path().join("Y"))],
-        allow_low_confidence: false,
-        verify: false,
-        keep_extra: false,
-        delete_first: false,
-        overwrite_archive: false,
-    };
+    let many = common::sync_many(&[&main, &club, &dir.path().join("X"), &dir.path().join("Y")]);
     let preview = api::sync_many_plan(&many, &ctx).unwrap();
     let results = api::sync_many_apply(Some(&store), &many, &preview, &ctx).unwrap();
     assert_eq!(results.len(), 3, "{results:?}");
@@ -231,7 +211,7 @@ fn provisioning_an_archive_drive_is_refused_before_anything_is_written() {
     let main = common::demo_drive(dir.path(), "Main");
     api::pull(&store, &api::PullRequest { drive: path(&main), ..Default::default() }, &ctx).unwrap();
     let vault = common::demo_drive(dir.path(), "Vault");
-    api::adopt_drive(Some(&store), &api::AdoptDrive { drive: path(&vault), name: Some("Vault".into()) }).unwrap();
+    common::adopt(Some(&store), &vault, "Vault");
     let req = api::ProvisionRequest {
         target: path(&vault),
         like: None,

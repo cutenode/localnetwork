@@ -134,14 +134,12 @@ pub fn probe(disk: &mut dyn RawDisk, size: u64, align: u32, ctx: &Ctx<'_>) -> Re
     for &off in &offsets {
         ctx.check()?;
         pattern(off, nonce, &mut want);
-        let ok = match disk.read_at(off, &mut buf) {
-            Ok(()) => buf == want,
-            Err(_) => false,
-        };
-        if !ok {
+        let read = disk.read_at(off, &mut buf).is_ok();
+        if !(read && buf == want) {
             report.failed += 1;
             report.works_up_to.get_or_insert(off);
-            if &buf[..8] == MAGIC && buf[16..24] == nonce.to_le_bytes() && report.aliases.len() < 8 {
+            // A failed read leaves an earlier region's data in the buffer: that's no alias.
+            if read && &buf[..8] == MAGIC && buf[16..24] == nonce.to_le_bytes() && report.aliases.len() < 8 {
                 let written_at = u64::from_le_bytes(buf[8..16].try_into().unwrap());
                 if written_at != off {
                     report.aliases.push(Alias { written_at, read_at: off });
@@ -204,7 +202,7 @@ impl RawDisk for DeviceFile {
 mod tests {
     use super::*;
 
-    /// A disk that keeps only `real` bytes and wraps every address past them.
+    /// A disk that keeps only as many bytes as `data` holds and wraps every address past them.
     struct FakeDisk {
         data: Vec<u8>,
     }
@@ -286,6 +284,64 @@ mod tests {
         let mut d = FailingDisk { inner: FakeDisk { data }, ok: 3 };
         assert!(probe(&mut d, 16 * MIB, 512, &Ctx::silent()).is_err());
         assert!(d.inner.data[..REGION].iter().all(|&b| b == 0), "the boot sector is gone");
+    }
+
+    /// A disk that keeps only as many bytes as `data` holds, drops writes past them and fails
+    /// reads there, as many fake sticks do once their real capacity is used up.
+    struct DroppingDisk {
+        data: Vec<u8>,
+    }
+
+    impl RawDisk for DroppingDisk {
+        fn write_at(&mut self, offset: u64, buf: &[u8]) -> io::Result<()> {
+            if let Some(dst) = self.data.get_mut(offset as usize..offset as usize + buf.len()) {
+                dst.copy_from_slice(buf);
+            }
+            Ok(())
+        }
+        fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> io::Result<()> {
+            let src =
+                self.data.get(offset as usize..offset as usize + buf.len()).ok_or(io::ErrorKind::UnexpectedEof)?;
+            buf.copy_from_slice(src);
+            Ok(())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_disk_that_fails_reads_past_its_real_size_is_caught() {
+        let mut d = DroppingDisk { data: vec![0; (32 * MIB) as usize] };
+        let r = probe(&mut d, 128 * MIB, 512, &Ctx::silent()).unwrap();
+        assert!(r.is_fake());
+        assert_eq!(r.failed, r.regions - 32, "{r:?}");
+        assert!((31 * MIB..=32 * MIB).contains(&r.works_up_to.unwrap()), "{r:?}");
+        assert!(r.aliases.is_empty(), "nothing came back from the wrong place");
+    }
+
+    /// A disk smaller than one test region has nothing to test, and nothing is written to it.
+    #[test]
+    fn a_disk_smaller_than_a_region_is_left_alone() {
+        let mut d = FailingDisk { inner: FakeDisk { data: vec![0; REGION / 2] }, ok: 0 };
+        let r = probe(&mut d, REGION as u64 / 2, 512, &Ctx::silent()).unwrap();
+        assert_eq!((r.regions, r.failed, r.works_up_to), (0, 0, None));
+        assert_eq!(region_count(REGION as u64 / 2, 512), 0);
+    }
+
+    /// The probe reads back from the device file it wrote, on a file standing in for a disk.
+    /// Not on Linux, where flushing drops the kernel's caches, which only root may.
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    #[test]
+    fn a_device_file_is_probed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rdisk4");
+        std::fs::File::create(&path).unwrap().set_len(8 * MIB).unwrap();
+        let mut dev = DeviceFile::open(&path.to_string_lossy()).unwrap();
+        let r = probe(&mut dev, 8 * MIB, 512, &Ctx::silent()).unwrap();
+        assert!(!r.is_fake() && r.regions == 8, "{r:?}");
+        let err = DeviceFile::open(&dir.path().join("rdisk5").to_string_lossy()).err().unwrap();
+        assert_eq!(err.code(), "io");
     }
 
     #[test]

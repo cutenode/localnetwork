@@ -1,5 +1,7 @@
 //! Restoring one playlist or folder from a stored snapshot or a drive backup.
 
+mod refusals;
+
 use crate::common;
 
 use std::path::Path;
@@ -297,6 +299,28 @@ fn undo_steps_back_one_change_at_a_time() {
     assert_eq!(playlist_names(&root), original);
     assert!(matches!(api::undo_plan(&undo_request(&root)), Err(Error::NotFound(_))));
     assert!(edit::journal::list(&Device::open(&root).unwrap()).unwrap().is_empty());
+}
+
+/// Without a drive named, only the mounted drives with backups are listed, the one `undo`
+/// takes marked; named, a drive is listed even with none.
+#[test]
+fn what_can_be_undone_is_listed_for_the_drives_that_have_something() {
+    let dir = tempfile::tempdir().unwrap();
+    locallibrary::testing::volumes_on_this_thread(Some(vec![dir.path().to_path_buf()]));
+    let main = common::demo_drive(dir.path(), "Main");
+    let other = common::demo_drive(dir.path(), "Other");
+    apply(&main, &[Edit::CreatePlaylist { path: "Friday".into(), folder: false }]);
+    apply(&main, &[Edit::CreatePlaylist { path: "Saturday".into(), folder: false }]);
+
+    let all = api::undo_list(None, &api::UndoListRequest::default()).unwrap();
+    assert_eq!(all.drives.iter().map(|d| d.drive.as_str()).collect::<Vec<_>>(), ["Main"]);
+    let next: Vec<bool> = all.drives[0].backups.iter().map(|b| b.next).collect();
+    assert_eq!(next, [true, false], "newest first, and that's the one undo takes");
+    let journal: Vec<usize> = all.drives[0].backups.iter().map(|b| b.journal).collect();
+    assert_eq!(journal, [1, 2], "putting back the older one takes both edits off the journal");
+    let named = api::undo_list(None, &api::UndoListRequest { drive: Some(other.display().to_string()) }).unwrap();
+    assert_eq!(named.drives.len(), 1);
+    assert!(named.drives[0].backups.is_empty());
 }
 
 #[test]

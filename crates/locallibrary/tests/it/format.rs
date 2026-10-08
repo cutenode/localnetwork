@@ -1,5 +1,7 @@
 //! The FAT32 formatter, checked with an independent FAT implementation.
 
+mod plans;
+
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 

@@ -37,12 +37,16 @@ pub(crate) enum NetError {
     Http(#[from] reqwest::Error),
 }
 
-/// An error and what caused it (reqwest's own message leaves the cause out).
-fn with_causes(e: &reqwest::Error) -> String {
+/// An error and what caused it, each cause once: reqwest's own message leaves the cause out,
+/// and so do some of jacquard's, while others name it.
+pub(crate) fn with_causes(e: &(dyn std::error::Error + 'static)) -> String {
     let mut out = e.to_string();
-    let mut cause = std::error::Error::source(e);
+    let mut cause = e.source();
     while let Some(c) = cause {
-        out = format!("{out}: {c}");
+        let said = c.to_string();
+        if !out.contains(&said) {
+            out = format!("{out}: {said}");
+        }
         cause = c.source();
     }
     out

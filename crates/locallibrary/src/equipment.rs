@@ -5,9 +5,8 @@
 //! Sources (checked October 2026; each model's entry names its own):
 //!
 //! * the model's instruction manual: the "USB devices" and "Supported file formats" (older
-//!   manuals: "Playable music file formats") sections. Most were read from AlphaTheta's download
-//!   server (`downloads.support.alphatheta.com/manuals/...`); where only the Help Center links
-//!   the PDF, from manua.ls's copy of the same manual, as noted;
+//!   manuals: "Playable music file formats") sections, read from AlphaTheta's download server
+//!   (`downloads.support.alphatheta.com/manuals/...`) unless the entry says otherwise;
 //! * AlphaTheta, "Important Notice for Customers Using USB Devices with Our DJ Equipment"
 //!   (18 March 2026), for which models read OneLibrary and which read Device Library
 //!   (`export.pdb`), and the models' manuals ("This unit only supports OneLibrary");
@@ -311,8 +310,8 @@ pub const MODELS: &[Model] = &[
         audio: MODERN_48K,
         audio_inferred: false,
         notes: &[],
-        source: "CDJ-1500X Instruction Manual (July 2026) pp. 10, 12-13, read from manua.ls's copy \
-                 (manua.ls/alphatheta/cdj-1500x/manual); alphatheta.com product page",
+        source: "CDJ-1500X Instruction Manual DRI2044A pp. 10, 12-13 \
+                 (downloads.support.alphatheta.com/manuals/dj-players/CDJ-1500X/CDJ-1500X_DRI2044A_manual.pdf)",
     },
     Model {
         name: "CDJ-3000",
@@ -404,7 +403,8 @@ pub const MODELS: &[Model] = &[
         ],
         audio_inferred: false,
         notes: &[],
-        source: "XDJ-1000MK2 Operating Instructions p. 6, read from manua.ls's copy (manua.ls/pioneer/xdj-1000mk2/manual)",
+        source: "XDJ-1000MK2 Operating Instructions DRI1396B p. 6 \
+                 (downloads.support.alphatheta.com/manuals/dj-players/XDJ-1000MK2/XDJ-1000MK2_DRI1396B_manual.pdf)",
     },
     Model {
         name: "XDJ-700",
@@ -415,7 +415,8 @@ pub const MODELS: &[Model] = &[
         audio: NXS,
         audio_inferred: false,
         notes: &[],
-        source: "XDJ-700 Operating Instructions p. 5, read from manua.ls's copy (manua.ls/pioneer/xdj-700/manual)",
+        source: "XDJ-700 Operating Instructions DRI1271B p. 5 \
+                 (downloads.support.alphatheta.com/manuals/dj-players/XDJ-700/XDJ-700_DRI1271B_manual.pdf)",
     },
     Model {
         name: "OPUS-QUAD",
@@ -450,8 +451,8 @@ pub const MODELS: &[Model] = &[
         audio: MODERN_96K,
         audio_inferred: false,
         notes: &[],
-        source: "XDJ-AZ Instruction Manual DRI1936C pp. 10-11, 13, read from manua.ls's copy \
-                 (manua.ls/alphatheta/xdj-az/manual)",
+        source: "XDJ-AZ Instruction Manual DRI1936C pp. 10-11, 13 \
+                 (downloads.support.alphatheta.com/manuals/all-in-one-dj-systems/XDJ-AZ/XDJ-AZ_DRI1936C_manual_EN.pdf)",
     },
     Model {
         name: "XDJ-AN",
@@ -498,7 +499,8 @@ pub const MODELS: &[Model] = &[
         ],
         audio_inferred: false,
         notes: &["the manual lists no Apple Lossless (ALAC)"],
-        source: "XDJ-RX3 Instruction Manual DRI1702B pp. 9-10, read from manua.ls's copy (manua.ls/pioneer/xdj-rx3/manual)",
+        source: "XDJ-RX3 Instruction Manual DRI1702C pp. 9-10 \
+                 (downloads.support.alphatheta.com/manuals/all-in-one-dj-systems/XDJ-RX3/XDJ-RX3_DRI1702C_manual.pdf)",
     },
     Model {
         name: "XDJ-RX2",

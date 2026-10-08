@@ -359,6 +359,10 @@ pub fn rename(store: Option<&Store>, device: &mut Device, name: &str, label: boo
     if name.is_empty() {
         return Err(Error::invalid("the name is empty"));
     }
+    // Before anything changes: the label is refused under the test switch.
+    if label {
+        crate::device::disks_shown()?;
+    }
     let _lock = device.lock()?;
     device.reload_state()?;
     let old_name = device.name();
@@ -376,8 +380,10 @@ pub fn volume_label(name: &str) -> String {
 }
 
 /// Change the volume label of the volume mounted at `root`. Returns the label as written (FAT
-/// labels are 11 characters, upper case).
+/// labels are 11 characters, upper case). Refused while `$LOCALLIBRARY_VOLUMES` hides the
+/// machine's drives (`device::disks_shown`).
 pub fn set_volume_label(root: &Path, name: &str) -> Result<String> {
+    crate::device::disks_shown()?;
     let label = crate::format::fat32::sanitize_label(name, "REKORDBOX");
     #[cfg(target_os = "macos")]
     let cmd = crate::format::Cmd::new("diskutil", &["rename", &root.to_string_lossy(), &label]);
@@ -812,6 +818,7 @@ mod tests {
             files: 0,
             bytes: 0,
             labels: Vec::new(),
+            beside: false,
         }
     }
 
@@ -838,6 +845,27 @@ mod tests {
         let cmd = windows_label_command(Path::new(r"E:\"), &volume_label("DJ's USB")).unwrap();
         assert_eq!(cmd.args.last().unwrap(), "Set-Volume -DriveLetter E -NewFileSystemLabel 'DJ''S USB'");
         assert!(windows_label_command(Path::new(r"E:\Music"), "X").is_err(), "only a drive's root");
+    }
+
+    /// Under the test switch the volume holding a drive folder is this machine's own: its label
+    /// stays, and the drive keeps its name too.
+    #[test]
+    fn the_test_switch_leaves_volume_labels_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut d = Device::open(dir.path()).unwrap();
+        d.adopt(Some("Main")).unwrap();
+        crate::testing::volumes_on_this_thread(Some(Vec::new()));
+        let renamed = rename(None, &mut d, "Club", true);
+        // A path that isn't there: were the switch ignored, no tool could find a volume for it.
+        let labelled = set_volume_label(&dir.path().join("gone"), "Club");
+        crate::testing::volumes_on_this_thread(None);
+        for refused in [renamed.map(|r| r.name), labelled] {
+            assert!(
+                matches!(&refused, Err(Error::Invalid(m)) if m.starts_with("LOCALLIBRARY_VOLUMES is set")),
+                "{refused:?}"
+            );
+        }
+        assert_eq!(Device::open(dir.path()).unwrap().name(), "Main");
     }
 
     #[test]

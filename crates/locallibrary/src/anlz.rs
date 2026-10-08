@@ -756,6 +756,88 @@ mod tests {
         assert_eq!(got, [(3, None), (6, Some((4, 1))), (0, Some((1, 2)))]);
     }
 
+    /// An unmasked `PSSI` (crate-digger's layout) of `mood`, phrases of `(start beat, kind)`
+    /// up to beat `end`, the last with a fill-in from beat `end - 4`.
+    fn pssi(mood: u16, end: u16, phrases: &[(u16, u16)]) -> Vec<u8> {
+        let mut h = 24u32.to_be_bytes().to_vec();
+        h.extend_from_slice(&(phrases.len() as u16).to_be_bytes());
+        h.extend_from_slice(&mood.to_be_bytes());
+        h.extend_from_slice(&[0; 6]);
+        h.extend_from_slice(&end.to_be_bytes());
+        h.extend_from_slice(&[0; 4]);
+        let mut b = Vec::new();
+        for (i, &(beat, kind)) in phrases.iter().enumerate() {
+            let mut e = vec![0u8; 24];
+            e[0..2].copy_from_slice(&(i as u16 + 1).to_be_bytes());
+            e[2..4].copy_from_slice(&beat.to_be_bytes());
+            e[4..6].copy_from_slice(&kind.to_be_bytes());
+            if i == phrases.len() - 1 {
+                e[21] = 1;
+                e[22..24].copy_from_slice(&(end - 4).to_be_bytes());
+            }
+            b.extend(e);
+        }
+        section(b"PSSI", &h, &b)
+    }
+
+    /// Phrase kinds are named by the track's mood, as rekordbox names them.
+    #[test]
+    fn phrases_are_named_by_mood() {
+        let read = |mood, phrases: &[(u16, u16)]| song_structure(&file(&[pssi(mood, 97, phrases)])).unwrap();
+        let mid = read(2, &[(1, 1), (17, 2), (33, 5), (49, 8), (65, 9), (81, 10)]).unwrap();
+        assert_eq!(mid.mood, Mood::Mid);
+        let names: Vec<String> = mid.phrases.iter().map(|p| p.kind.name()).collect();
+        assert_eq!(names, ["Intro", "Verse 1", "Verse 4", "Bridge", "Chorus", "Outro"]);
+        let spans: Vec<(u16, u16)> = mid.phrases.iter().map(|p| (p.start_beat, p.end_beat)).collect();
+        assert_eq!(spans, [(1, 17), (17, 33), (33, 49), (49, 65), (65, 81), (81, 97)]);
+        assert_eq!(mid.phrases.iter().map(|p| p.fill_beat).collect::<Vec<_>>()[4..], [None, Some(93)]);
+
+        let low = read(3, &[(1, 3), (9, 6), (17, 8), (25, 42)]).unwrap();
+        assert_eq!(low.mood, Mood::Low);
+        let names: Vec<String> = low.phrases.iter().map(|p| p.kind.name()).collect();
+        assert_eq!(names, ["Verse 1", "Verse 2", "Bridge", "Phrase 42"]);
+        let high = read(1, &[(1, 2), (9, 3), (17, 5), (25, 6)]).unwrap();
+        let names: Vec<String> = high.phrases.iter().map(|p| p.kind.name()).collect();
+        assert_eq!(
+            (high.mood, names),
+            (Mood::High, vec!["Up".to_string(), "Down".into(), "Chorus".into(), "Outro".into()])
+        );
+        // Not a mood rekordbox writes: no structure, rather than a wrong one.
+        assert_eq!(read(7, &[(1, 1)]), None);
+        // Cut short before its entry count.
+        let truncated = file(&[section(b"PSSI", &[], &[])]);
+        assert!(song_structure(&truncated).unwrap_err().to_string().contains("truncated PSSI"));
+    }
+
+    /// The blue detail waveform (`PWV3`), for files without a colour one: as many columns as the
+    /// header says (no more than are there), at the rate it says, or 150 a second.
+    #[test]
+    fn the_blue_detail_waveform_is_read_when_theres_no_colour_one() {
+        let pwv3 = |count: u32, rate: u16, body: &[u8]| {
+            let mut h = 1u32.to_be_bytes().to_vec();
+            h.extend_from_slice(&count.to_be_bytes());
+            h.extend_from_slice(&rate.to_be_bytes());
+            h.extend_from_slice(&[0, 0]);
+            file(&[section(b"PWV3", &h, body)])
+        };
+        let w = detail(&pwv3(2, 0, &[0x1f, 0xe0, 0x1f])).unwrap().unwrap();
+        assert_eq!((w.style, w.columns_per_sec, w.columns.len()), (WaveformStyle::Blue, Some(150.0), 2));
+        assert_eq!((w.columns[0].back.height, w.columns[1].back.height), (1.0, 0.0));
+        assert_eq!(w.columns[1].back.color, [200, 230, 255], "all white");
+        assert_eq!(detail(&pwv3(9, 300, &[0x1f])).unwrap().unwrap().columns_per_sec, Some(300.0));
+        assert_eq!(detail(&file(&[])).unwrap(), None);
+    }
+
+    /// An entry claiming a length shorter than its own header ends the list there.
+    #[test]
+    fn a_cue_entry_of_impossible_length_ends_the_list() {
+        let mut entries = [pcpt(0, 1, 500, u32::MAX), pcpt(0, 1, 900, u32::MAX)].concat();
+        let second = entries.len() / 2;
+        entries[second + 8..second + 12].copy_from_slice(&4u32.to_be_bytes());
+        let list = section(b"PCOB", &[0, 0, 0, 0, 0, 0, 0, 2, 0xff, 0xff, 0xff, 0xff], &entries);
+        assert_eq!(cues(&file(&[list])).unwrap().iter().map(|c| c.start_ms).collect::<Vec<_>>(), [500]);
+    }
+
     #[test]
     fn rejects_garbage() {
         assert!(read_path(b"nope").is_err());

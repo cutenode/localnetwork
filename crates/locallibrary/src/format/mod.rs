@@ -35,6 +35,7 @@ use macos as os;
 #[cfg(windows)]
 use windows as os;
 
+use std::cell::Cell;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -50,6 +51,23 @@ use crate::store::Store;
 use crate::{Error, Result};
 
 pub use players::{Compatibility, Verdict};
+
+thread_local! {
+    /// The operating system [`untested_here`] answers for on this thread (`None`: this one).
+    pub(crate) static THREAD_OS: Cell<Option<&'static str>> = const { Cell::new(None) };
+}
+
+/// The warning for `what` (formatting, ejecting...) on Linux and Windows: it drives the
+/// operating system's disk tools, which have only ever run on macOS (README "Platforms"). The
+/// plans that do it carry this. Delete it and its uses once each has had a run there.
+pub fn untested_here(what: &str) -> Option<String> {
+    let os = match THREAD_OS.with(Cell::get).unwrap_or(std::env::consts::OS) {
+        "linux" => "Linux",
+        "windows" => "Windows",
+        _ => return None,
+    };
+    Some(format!("{what} hasn't been tested on {os} yet; check the result"))
+}
 
 /// Where the partition starts: 1 MiB, the alignment every modern tool uses.
 pub const PARTITION_START: u64 = 1 << 20;
@@ -281,20 +299,21 @@ pub struct DiskView {
 
 /// External and removable disks.
 pub fn list(protected: &[PathBuf]) -> Result<Vec<DiskView>> {
-    Ok(os::list()?
-        .into_iter()
-        .filter(|d| d.removable && !d.internal && (!d.virtual_disk || virtual_disks_allowed()))
-        .map(|d| view(d, protected))
-        .collect())
+    Ok(views(os::list()?, protected))
 }
 
-fn view(disk: Disk, protected: &[PathBuf]) -> DiskView {
-    DiskView {
-        identity: disk.identity(),
-        compatibility: players::assess_disk(&disk),
-        problem: disk.problem(protected),
-        disk,
-    }
+/// The external and removable ones of `disks`, as [`list`] shows them.
+fn views(disks: Vec<Disk>, protected: &[PathBuf]) -> Vec<DiskView> {
+    disks
+        .into_iter()
+        .filter(|d| d.removable && !d.internal && (!d.virtual_disk || virtual_disks_allowed()))
+        .map(|disk| DiskView {
+            identity: disk.identity(),
+            compatibility: players::assess_disk(&disk),
+            problem: disk.problem(protected),
+            disk,
+        })
+        .collect()
 }
 
 /// The disk with this OS identifier (`disk4`, `/dev/sdb`, `PhysicalDrive2`). `None` if `spec`
@@ -473,6 +492,7 @@ pub fn plan(
     if compatibility.verdict != Verdict::AllPlayers {
         warnings.push("this drive won't work on every player (see above)".into());
     }
+    warnings.extend(untested_here(if opts.check_capacity { "formatting with a capacity check" } else { "formatting" }));
     let mut steps = os::steps(&disk, &target)?;
     if opts.check_capacity {
         capacity_supported()?;
@@ -919,6 +939,33 @@ pub(crate) mod tests {
         assert_eq!(named.confirmation(), "Backup");
     }
 
+    /// The plan says formatting hasn't run on Linux or Windows, so the sidecar and the terminal
+    /// player show it too (only the CLI used to).
+    #[test]
+    #[cfg_attr(
+        target_os = "linux",
+        ignore = "a plan on Linux asks lsblk what's mounted on the disk, and the sample disk isn't there"
+    )]
+    fn plans_warn_where_formatting_is_untested() {
+        let warnings = |os, check_capacity| {
+            THREAD_OS.with(|o| o.set(os));
+            let opts = FormatOptions { check_capacity, ..Default::default() };
+            let w = plan(sample_disk(), &opts, None, &[], &Ctx::silent()).map(|p| p.warnings);
+            THREAD_OS.with(|o| o.set(None));
+            w.unwrap()
+        };
+        let untested = |w: Vec<String>| w.into_iter().filter(|w| w.contains("tested")).collect::<Vec<_>>();
+        assert_eq!(
+            untested(warnings(Some("linux"), false)),
+            ["formatting hasn't been tested on Linux yet; check the result"]
+        );
+        assert_eq!(
+            untested(warnings(Some("windows"), true)),
+            ["formatting with a capacity check hasn't been tested on Windows yet; check the result"]
+        );
+        assert!(untested(warnings(Some("macos"), false)).is_empty());
+    }
+
     #[test]
     fn identity_tracks_contents_not_mounts() {
         let a = sample_disk();
@@ -965,5 +1012,125 @@ pub(crate) mod tests {
         assert_eq!(json::array(v.get("e")).len(), 2);
         assert_eq!(json::array(v.get("f")).len(), 1);
         assert_eq!(json::str(&v, "g"), None);
+    }
+
+    /// What the tools put where a string or a count belongs: numbers as text, flags as 0 and 1.
+    #[test]
+    fn lenient_json_takes_numbers_and_flags_in_any_form() {
+        let v = serde_json::json!({"n": 3, "flag": 1, "off": 0, "t": "True", "yes": true, "list": [1]});
+        assert_eq!(json::str(&v, "n").as_deref(), Some("3"));
+        assert_eq!((json::str(&v, "yes"), json::u64(&v, "yes"), json::u64(&v, "list")), (None, None, None));
+        assert!(json::bool(&v, "flag") && json::bool(&v, "t") && !json::bool(&v, "off") && !json::bool(&v, "list"));
+        assert!(json::array(v.get("n")).is_empty());
+    }
+
+    #[test]
+    fn file_systems_are_named_and_small_volumes_get_small_clusters() {
+        let names: Vec<&str> = [Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus].map(Filesystem::name).into();
+        assert_eq!(names, ["FAT32", "exFAT", "HFS+"]);
+        assert_eq!(Filesystem::Exfat.default_cluster_size(256 << 20), 4096);
+        assert_eq!(Filesystem::Hfsplus.default_cluster_size(1 << 40), 4096);
+        assert!(Filesystem::Hfsplus.check_cluster_size(4096, 512).is_ok());
+        assert_eq!(Filesystem::Hfsplus.label(":::"), "___");
+        assert_eq!(Filesystem::Hfsplus.label(""), "REKORDBOX");
+    }
+
+    /// A disk image is refused unless tests allow them, and so is a disk holding `/` whatever it
+    /// says about itself.
+    #[test]
+    fn refuses_disk_images_and_the_root_volume() {
+        let image = Disk { virtual_disk: true, ..sample_disk() };
+        assert_eq!(image.problem(&[]).as_deref(), Some("it's a disk image or virtual disk"));
+        let mut root = sample_disk();
+        root.volumes[0].mount = Some("/".into());
+        assert_eq!(root.problem(&[]).as_deref(), Some("it holds the running operating system"));
+    }
+
+    /// Only external and removable physical disks are listed, each with why it can't be
+    /// formatted when it can't.
+    #[test]
+    fn lists_only_external_and_removable_disks() {
+        let disks = vec![
+            sample_disk(),
+            Disk { id: "disk0".into(), internal: true, removable: false, ..sample_disk() },
+            Disk { id: "disk1".into(), removable: false, ..sample_disk() },
+            Disk { id: "disk9".into(), virtual_disk: true, ..sample_disk() },
+            Disk { id: "disk5".into(), read_only: true, ..sample_disk() },
+        ];
+        let views = views(disks, &[PathBuf::from("/Volumes/DNA/store")]);
+        let ids: Vec<&str> = views.iter().map(|v| v.disk.id.as_str()).collect();
+        assert_eq!(ids, ["disk4", "disk5"]);
+        assert_eq!(views[0].identity, views[0].disk.identity());
+        assert_eq!(views[0].compatibility.verdict, Verdict::AllPlayers);
+        assert_eq!(views[0].problem.as_deref(), Some("it holds /Volumes/DNA/store"));
+        assert_eq!(views[1].problem.as_deref(), Some("it's write-protected"));
+    }
+
+    /// A drive's name isn't taken for a disk identifier on any system, so nothing is asked of the
+    /// system's tools.
+    #[test]
+    fn a_drive_name_is_not_a_disk() {
+        assert!(disk_by_id("Backup").unwrap().is_none());
+    }
+
+    /// Refused before anything is asked of the system's tools: more than MBR can address, a
+    /// cluster size the file system can't take, a FAT32 volume too small for its clusters.
+    #[test]
+    fn plans_refuse_what_cant_be_formatted() {
+        let plan_of = |disk: Disk, opts: FormatOptions| plan(disk, &opts, None, &[], &Ctx::silent()).unwrap_err();
+        let huge = Disk { size: 3_000_000_000_000, ..sample_disk() };
+        assert!(plan_of(huge, FormatOptions::default()).to_string().contains("2 TiB"));
+        let odd = FormatOptions { cluster_size: Some(3000), ..Default::default() };
+        assert!(plan_of(sample_disk(), odd).to_string().contains("power of two"));
+        let small = Disk { size: 1_000_000_000, ..sample_disk() };
+        let big_clusters = FormatOptions { cluster_size: Some(32768), ..Default::default() };
+        assert!(plan_of(small, big_clusters).to_string().contains("too small for FAT32"));
+        let system = Disk { system: true, ..sample_disk() };
+        assert!(plan_of(system, FormatOptions::default()).to_string().contains("refusing to format"));
+    }
+
+    /// A plan made for one disk formats nothing on another.
+    #[test]
+    fn applying_needs_the_planned_disks_identity() {
+        let disk = sample_disk();
+        let err = apply(disk, "0123456789abcdef", &FormatOptions::default(), None, &[], &Ctx::silent()).unwrap_err();
+        assert!(matches!(err, Error::StalePlan(_)), "{err}");
+    }
+
+    #[test]
+    fn missing_tools_say_what_to_install() {
+        let err = Cmd::new("locallibrary-no-such-tool", &[]).run().unwrap_err();
+        assert!(matches!(&err, Error::External { message, .. } if message == "not found"), "{err}");
+        assert_eq!(install_hint("mkfs.exfat"), " (install exfatprogs)");
+        assert_eq!(install_hint("lsblk"), " (install util-linux)");
+        assert_eq!(install_hint("diskutil"), "");
+    }
+
+    /// A tool's own message is the error when it fails, and its input reaches it on stdin.
+    #[cfg(unix)]
+    #[test]
+    fn tools_run_without_a_shell() {
+        let failing = Cmd::new("sh", &["-c", "echo 'Unable to unmount disk4' >&2; exit 1"]);
+        match failing.run() {
+            Err(Error::External { command, message }) => {
+                assert_eq!(command, r#"sh -c "echo 'Unable to unmount disk4' >&2; exit 1""#);
+                assert_eq!(message, "Unable to unmount disk4");
+            }
+            other => panic!("{other:?}"),
+        }
+        let silent = Cmd::new("sh", &["-c", "exit 2"]).run().unwrap_err();
+        assert!(matches!(silent, Error::External { message, .. } if message == "no output"));
+        assert_eq!(Cmd::new("cat", &[]).input("label: dos\n").run().unwrap(), "label: dos\n");
+    }
+
+    #[test]
+    fn write_access_to_a_device_is_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rdisk4");
+        std::fs::write(&file, b"").unwrap();
+        assert!(require_write_access(&file.to_string_lossy(), "run it as an administrator").is_ok());
+        let gone = dir.path().join("rdisk5");
+        let err = require_write_access(&gone.to_string_lossy(), "run it as an administrator").unwrap_err();
+        assert_eq!(err.code(), "io", "{err}");
     }
 }

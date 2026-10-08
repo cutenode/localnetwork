@@ -36,21 +36,19 @@ pub fn by_id(spec: &str) -> Result<Option<Disk>> {
     if !spec.starts_with("/dev/") {
         return Ok(None);
     }
-    let all = lsblk(None)?;
-    let disks: Vec<&Value> = json::array(all.get("blockdevices"));
     // A partition names its disk.
-    let top = disks.into_iter().find(|d| contains(d, &|n| json::str(n, "path").as_deref() == Some(spec)));
-    Ok(top.and_then(parse_disk))
+    Ok(disk_holding(&lsblk(None)?, &|n| json::str(n, "path").as_deref() == Some(spec)))
 }
 
 pub fn by_mount(path: &Path) -> Result<Disk> {
-    let all = lsblk(None)?;
     let want = path.to_string_lossy();
-    json::array(all.get("blockdevices"))
-        .into_iter()
-        .find(|d| contains(d, &|n| json::str(n, "mountpoint").as_deref() == Some(&*want)))
-        .and_then(parse_disk)
+    disk_holding(&lsblk(None)?, &|n| json::str(n, "mountpoint").as_deref() == Some(&*want))
         .ok_or_else(|| Error::invalid(format!("{} is not the root of a mounted volume", path.display())))
+}
+
+/// The disk in `lsblk` output `all` that is, or holds, a device `pred` picks.
+fn disk_holding(all: &Value, pred: &dyn Fn(&Value) -> bool) -> Option<Disk> {
+    json::array(all.get("blockdevices")).into_iter().find(|d| contains(d, pred)).and_then(parse_disk)
 }
 
 fn contains(node: &Value, pred: &dyn Fn(&Value) -> bool) -> bool {
@@ -286,5 +284,122 @@ mod tests {
         assert_eq!(first_partition("/dev/sdb"), "/dev/sdb1");
         assert_eq!(first_partition("/dev/mmcblk0"), "/dev/mmcblk0p1");
         assert_eq!(first_partition("/dev/nvme1n1"), "/dev/nvme1n1p1");
+    }
+
+    /// `lsblk --json --bytes --output <COLUMNS>,FSVER` on a laptop (util-linux 2.39), trimmed: a
+    /// snap's loop device, a USB stick, a stick formatted without a partition table, an SD card,
+    /// the DVD drive and the system disk.
+    const LAPTOP: &str = r#"{"blockdevices": [
+      {"name":"loop0", "path":"/dev/loop0", "type":"loop", "size":77881344, "rm":false, "hotplug":false, "ro":true, "tran":null, "vendor":null, "model":null, "serial":null, "fstype":"squashfs", "label":null, "uuid":null, "mountpoint":"/snap/core22/1380", "pttype":null, "log-sec":512, "fsver":"4.0"},
+      {"name":"sda", "path":"/dev/sda", "type":"disk", "size":61530439680, "rm":true, "hotplug":true, "ro":false, "tran":"usb", "vendor":"SanDisk ", "model":"Ultra Fit       ", "serial":"4C530001230617114391", "fstype":null, "label":null, "uuid":null, "mountpoint":null, "pttype":"dos", "log-sec":512, "fsver":null,
+        "children": [
+          {"name":"sda1", "path":"/dev/sda1", "type":"part", "size":61529391104, "rm":true, "hotplug":true, "ro":false, "tran":null, "vendor":null, "model":null, "serial":null, "fstype":"exfat", "label":"REKORDBOX", "uuid":"64F6-2F12", "mountpoint":"/media/sam/REKORDBOX", "pttype":"dos", "log-sec":512, "fsver":"1.0"}
+        ]},
+      {"name":"sdb", "path":"/dev/sdb", "type":"disk", "size":8053063680, "rm":true, "hotplug":true, "ro":false, "tran":"usb", "vendor":"Generic", "model":"Flash Disk", "serial":"FBB1A2C3", "fstype":"vfat", "label":"STICK", "uuid":"0E4A-77C1", "mountpoint":"/media/sam/STICK", "pttype":null, "log-sec":512, "fsver":"FAT32"},
+      {"name":"mmcblk0", "path":"/dev/mmcblk0", "type":"disk", "size":31914983424, "rm":false, "hotplug":false, "ro":false, "tran":null, "vendor":null, "model":null, "serial":"0x1234abcd", "fstype":null, "label":null, "uuid":null, "mountpoint":null, "pttype":"dos", "log-sec":512, "fsver":null,
+        "children": [
+          {"name":"mmcblk0p1", "path":"/dev/mmcblk0p1", "type":"part", "size":31913934848, "rm":false, "hotplug":false, "ro":false, "tran":null, "vendor":null, "model":null, "serial":null, "fstype":"vfat", "label":"CARD", "uuid":"1A2B-3C4D", "mountpoint":"/media/sam/CARD", "pttype":"dos", "log-sec":512, "fsver":"FAT16"}
+        ]},
+      {"name":"sr0", "path":"/dev/sr0", "type":"rom", "size":1073741312, "rm":true, "hotplug":true, "ro":false, "tran":"sata", "vendor":"HL-DT-ST", "model":"DVDRAM GU90N", "serial":"KZPH1234", "fstype":null, "label":null, "uuid":null, "mountpoint":null, "pttype":null, "log-sec":2048, "fsver":null},
+      {"name":"nvme0n1", "path":"/dev/nvme0n1", "type":"disk", "size":512110190592, "rm":false, "hotplug":false, "ro":false, "tran":"nvme", "vendor":null, "model":"Samsung SSD 980 PRO 512GB", "serial":"S5GXNX0T123456", "fstype":null, "label":null, "uuid":null, "mountpoint":null, "pttype":"gpt", "log-sec":512, "fsver":null,
+        "children": [
+          {"name":"nvme0n1p1", "path":"/dev/nvme0n1p1", "type":"part", "size":536870912, "rm":false, "hotplug":false, "ro":false, "tran":"nvme", "vendor":null, "model":null, "serial":null, "fstype":"vfat", "label":null, "uuid":"9C1E-0B2A", "mountpoint":"/boot/efi", "pttype":"gpt", "log-sec":512, "fsver":"FAT32"},
+          {"name":"nvme0n1p2", "path":"/dev/nvme0n1p2", "type":"part", "size":494927527936, "rm":false, "hotplug":false, "ro":false, "tran":"nvme", "vendor":null, "model":null, "serial":null, "fstype":"ext4", "label":null, "uuid":"3f5c0a8e-2b1d-4c6e-9f7a-8b9c0d1e2f3a", "mountpoint":"/", "pttype":"gpt", "log-sec":512, "fsver":"1.0"},
+          {"name":"nvme0n1p3", "path":"/dev/nvme0n1p3", "type":"part", "size":16645095424, "rm":false, "hotplug":false, "ro":false, "tran":"nvme", "vendor":null, "model":null, "serial":null, "fstype":"swap", "label":null, "uuid":"b7d2e1f0-1a2b-4c3d-8e9f-0a1b2c3d4e5f", "mountpoint":"[SWAP]", "pttype":"gpt", "log-sec":512, "fsver":"1"}
+        ]}
+    ]}"#;
+
+    fn laptop() -> Value {
+        serde_json::from_str(LAPTOP).unwrap()
+    }
+
+    #[test]
+    fn a_laptops_disks_are_read_from_lsblk() {
+        let all = laptop();
+        let disks: Vec<Disk> = json::array(all.get("blockdevices")).into_iter().filter_map(parse_disk).collect();
+        let ids: Vec<&str> = disks.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids, ["/dev/sda", "/dev/sdb", "/dev/mmcblk0", "/dev/nvme0n1"], "no loop or DVD drive");
+
+        let (stick, bare, card, system) = (&disks[0], &disks[1], &disks[2], &disks[3]);
+        assert_eq!((stick.model.as_str(), stick.bus.as_deref()), ("SanDisk Ultra Fit", Some("USB")));
+        assert_eq!(stick.volumes[0].filesystem, Some(FsKind::Exfat));
+        assert_eq!(stick.problem(&[]), None);
+
+        // A file system on the whole disk is its one volume.
+        assert_eq!((bare.scheme, bare.volumes.len()), (None, 1));
+        assert_eq!((bare.volumes[0].id.as_str(), bare.volumes[0].filesystem), ("/dev/sdb", Some(FsKind::Fat32)));
+
+        // A card in a built-in reader says neither removable nor hot-pluggable: its name does.
+        assert!(card.removable && !card.internal);
+        assert_eq!(card.volumes[0].filesystem, Some(FsKind::Fat16));
+
+        assert!(system.system && system.internal && !system.removable);
+        assert_eq!(system.scheme, Some(Scheme::Gpt));
+        let kinds: Vec<Option<FsKind>> = system.volumes.iter().map(|v| v.filesystem).collect();
+        assert_eq!(kinds, [Some(FsKind::Fat32), Some(FsKind::Other), Some(FsKind::Other)]);
+        assert_eq!(system.problem(&[]).as_deref(), Some("it holds the running operating system"));
+    }
+
+    #[test]
+    fn a_partition_or_a_mount_point_finds_its_disk() {
+        let all = laptop();
+        let by_path = |p: &str| disk_holding(&all, &|n| json::str(n, "path").as_deref() == Some(p)).map(|d| d.id);
+        assert_eq!(by_path("/dev/sda1").as_deref(), Some("/dev/sda"));
+        assert_eq!(by_path("/dev/sda").as_deref(), Some("/dev/sda"));
+        assert_eq!(by_path("/dev/loop0"), None, "not a disk");
+        assert_eq!(by_path("/dev/sdz"), None);
+        let at = |m: &str| disk_holding(&all, &|n| json::str(n, "mountpoint").as_deref() == Some(m)).map(|d| d.id);
+        assert_eq!(at("/media/sam/CARD").as_deref(), Some("/dev/mmcblk0"));
+        assert_eq!(at("/media/sam"), None);
+    }
+
+    /// Partitions are unmounted deepest first, swap is left alone, and the partition starts at
+    /// 1 MiB whatever the sector size.
+    #[test]
+    fn unmounts_then_partitions_a_4k_disk() {
+        let all = laptop();
+        let system = json::array(all.get("blockdevices"))[5];
+        let mut mounted = Vec::new();
+        mounts(system, &mut mounted);
+        assert_eq!(mounted[0], ("/dev/nvme0n1p1".to_string(), "/boot/efi".to_string()));
+        assert_eq!(mounted.len(), 3);
+        let disk = Disk { sector_size: 4096, ..parse_disk(system).unwrap() };
+        let t =
+            Target { filesystem: Filesystem::Hfsplus, label: "Club".into(), cluster_size: 4096, default_cluster: true };
+        let cmds = commands(&disk, &t, &mounted);
+        let shown: Vec<String> = cmds.iter().map(Cmd::display).collect();
+        assert_eq!(
+            shown,
+            [
+                "umount /boot/efi",
+                "umount /",
+                "sfdisk --wipe always --wipe-partitions always /dev/nvme0n1 <<< (script)",
+                "mkfs.hfsplus -v Club /dev/nvme0n1p1",
+            ]
+        );
+        assert_eq!(cmds[2].input.as_deref(), Some("label: dos\nstart=256, type=af\n"));
+    }
+
+    #[test]
+    fn file_systems_and_partition_tables_are_told_apart() {
+        let fs = |fstype: &str, fsver: Option<&str>| volume(&json!({ "fstype": fstype, "fsver": fsver })).filesystem;
+        assert_eq!(fs("vfat", Some("FAT12")), Some(FsKind::Fat12));
+        assert_eq!(fs("vfat", None), Some(FsKind::Fat32), "lsblk before 2.35 has no FSVER");
+        assert_eq!(fs("hfsplus", None), Some(FsKind::Hfsplus));
+        assert_eq!(fs("apfs", None), Some(FsKind::Apfs));
+        assert_eq!(fs("ntfs3", None), Some(FsKind::Ntfs));
+        let mut d = usb_drive(false);
+        for (pttype, scheme) in [("mac", Some(Scheme::Apm)), ("atari", Some(Scheme::Other))] {
+            d["pttype"] = json!(pttype);
+            assert_eq!(parse_disk(&d).unwrap().scheme, scheme, "{pttype}");
+        }
+    }
+
+    /// Only device paths are asked of lsblk.
+    #[test]
+    fn other_names_are_not_disks() {
+        for spec in ["Backup", "disk4", "sdb", "PhysicalDrive2"] {
+            assert!(by_id(spec).unwrap().is_none(), "{spec}");
+        }
     }
 }
