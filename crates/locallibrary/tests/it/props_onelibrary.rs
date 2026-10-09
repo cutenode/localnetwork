@@ -35,7 +35,7 @@ fn codec() -> &'static Codec {
 /// The empty fixture database, decrypted.
 fn empty_plain() -> &'static [u8] {
     static PLAIN: OnceLock<Vec<u8>> = OnceLock::new();
-    PLAIN.get_or_init(|| codec().decrypt(fixture("empty.db")).unwrap())
+    PLAIN.get_or_init(|| codec().decrypt(fixture("empty.db"), |_| true).unwrap())
 }
 
 const USABLE: usize = PAGE_SIZE - RESERVE;
@@ -99,7 +99,7 @@ fn databases_round_trip_through_the_cipher(tc: TestCase) {
     plain[20] = RESERVE as u8;
     let enc = codec().encrypt(&plain).unwrap();
     assert_eq!(enc.len(), plain.len());
-    let dec = Codec::for_file(&enc).unwrap().decrypt(&enc).unwrap();
+    let dec = Codec::for_file(&enc).unwrap().decrypt(&enc, |_| true).unwrap();
     for (a, b) in dec.chunks(PAGE_SIZE).zip(plain.chunks(PAGE_SIZE)) {
         assert_eq!(&a[..USABLE], &b[..USABLE]);
     }
@@ -276,7 +276,8 @@ fn wal_reader_survives_any_bytes(tc: TestCase) {
 /// `onelibrary::decrypt` lays the committed WAL pages (encrypted like the main file's) over the
 /// decrypted database, grown or truncated to the last commit's size; a commit claiming more pages
 /// than the file and the WAL's pages past it hold (and the lock-byte page SQLite skips) is
-/// refused rather than allocated. A page of zeros needs no key, so it can carry any number.
+/// refused rather than allocated. A committed frame of zeros fails authentication like any other
+/// damaged page.
 #[hegel::test(test_cases = 50)]
 fn wal_frames_are_laid_over_the_database(tc: TestCase) {
     let db = fixture("empty.db");
@@ -308,6 +309,10 @@ fn wal_frames_are_laid_over_the_database(tc: TestCase) {
         assert_eq!(result.unwrap().1, plain);
         return;
     };
+    if pages.values().any(|p| p.iter().all(|&b| b == 0)) {
+        assert!(result.is_err(), "a committed frame of zeros was accepted");
+        return;
+    }
     let known = n + pages.keys().filter(|p| **p > n).count() as u32 + 1;
     if db_pages > known {
         assert!(result.is_err(), "a commit of {db_pages} pages was accepted (only {known} exist)");
@@ -331,11 +336,12 @@ fn a_wal_claiming_a_huge_database_is_refused() {
     assert!(onelibrary::decrypt(fixture("empty.db"), Some(&wal)).is_err());
 }
 
-/// A frame of zeros needs no key: one numbered 100,000 with a commit of as many pages made
-/// `decrypt` allocate 400 MB before, the bound taking its page number on trust.
+/// The key is public, so anyone can write a valid frame: one numbered 100,000 with a commit of as
+/// many pages made `decrypt` allocate 400 MB before, the bound taking its page number on trust.
 #[test]
 fn a_wal_claiming_pages_it_does_not_hold_is_refused() {
-    let wal = build_wal(false, PAGE_SIZE, (1, 2), &[(100_000, 100_000, vec![0; PAGE_SIZE])]);
+    let page = codec().encrypt_page(100_000, &[7; PAGE_SIZE]).unwrap();
+    let wal = build_wal(false, PAGE_SIZE, (1, 2), &[(100_000, 100_000, page)]);
     let err = onelibrary::decrypt(fixture("empty.db"), Some(&wal)).map(|_| ()).unwrap_err().to_string();
     assert!(err.contains("says the database has 100000 pages"), "{err}");
     // A database a page longer than its main file holds the page in its WAL.

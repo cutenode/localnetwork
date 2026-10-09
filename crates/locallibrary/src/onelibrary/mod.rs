@@ -54,9 +54,10 @@ pub(crate) fn ident(name: &str) -> String {
 /// (or rekordbox) opening it would see it, as a plain SQLite file.
 pub fn decrypt(db: &[u8], wal: Option<&[u8]>) -> Result<(Codec, Vec<u8>)> {
     let codec = Codec::for_file(db)?;
-    let mut plain = codec.decrypt(db)?;
+    let committed = wal.map(|w| wal::committed(w, PAGE_SIZE)).transpose()?.flatten();
+    let mut plain = codec.decrypt(db, |pgno| reads_main_page(pgno, committed.as_ref()))?;
     cipher::check_plain_header(&plain)?;
-    if let Some(committed) = wal.map(|w| wal::committed(w, PAGE_SIZE)).transpose()?.flatten() {
+    if let Some(committed) = committed {
         let replayed = wal_pages(&codec, &committed, plain.len() / PAGE_SIZE)?;
         plain.resize(committed.db_pages as usize * PAGE_SIZE, 0);
         for (pgno, page) in replayed {
@@ -66,6 +67,15 @@ pub fn decrypt(db: &[u8], wal: Option<&[u8]>) -> Result<(Codec, Vec<u8>)> {
         cipher::check_plain_header(&plain)?;
     }
     Ok((codec, plain))
+}
+
+/// Whether SQLite, opening a database whose WAL holds `committed`, reads page `pgno` from the
+/// main file. It doesn't read the lock-byte page, a page a committed frame replaces, or a page
+/// past the last commit's size, so those may hold anything (a hole an interrupted checkpoint
+/// left, say) and aren't checked. Page 1 always is: its salt keys every other page.
+pub(crate) fn reads_main_page(pgno: u32, committed: Option<&wal::Committed<'_>>) -> bool {
+    let replaced = committed.is_some_and(|c| c.pages.contains_key(&pgno) || pgno > c.db_pages);
+    pgno == 1 || (pgno != cipher::LOCK_PAGE && !replaced)
 }
 
 /// The pages of a WAL's `committed` transactions over a main file of `main_pages`, decrypted,
@@ -144,7 +154,7 @@ fn property_page(plain: &[u8]) -> Result<Option<(u32, Vec<u8>)>> {
     std::fs::write(&path, &copy).at(&path)?;
     let conn = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     // Read before `OneLibrary::open` has looked at the file: only the one table is read here.
-    if let Some(why) = distrust(&conn, &[], "rekordbox")? {
+    if let Some(why) = distrust(&conn, &[], "rekordbox")?.or(damaged(&conn)?) {
         return Err(Error::OneLibrary(why));
     }
     let root: Option<u32> = conn
@@ -177,12 +187,13 @@ fn property_page(plain: &[u8]) -> Result<Option<(u32, Vec<u8>)>> {
 
 /// Make `conn`, open on a database someone else wrote, safe to run SQL on: SQL in its schema may
 /// only call functions without side effects, no SQL may corrupt the file on purpose (SQLite's
-/// defensive mode), and a schema object of one of the `refused` kinds, which `maker` never
-/// makes, is refused: a view standing in for a table could loop for ever when read, a trigger
-/// would run on every edit made here. `Some` says which one the file has.
+/// defensive mode), a malformed b-tree cell is an error rather than read out of bounds, and a
+/// schema object of one of the `refused` kinds, which `maker` never makes, is refused: a view
+/// standing in for a table could loop for ever when read, a trigger would run on every edit made
+/// here. `Some` says which one the file has.
 pub(crate) fn distrust(conn: &Connection, refused: &[&str], maker: &str) -> rusqlite::Result<Option<String>> {
     conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true)?;
-    conn.execute_batch("PRAGMA trusted_schema = OFF")?;
+    conn.execute_batch("PRAGMA trusted_schema = OFF; PRAGMA cell_size_check = ON")?;
     for kind in refused {
         let name: Option<String> =
             conn.query_row("SELECT name FROM sqlite_master WHERE type = ?1", [kind], |r| r.get(0)).optional()?;
@@ -191,6 +202,14 @@ pub(crate) fn distrust(conn: &Connection, refused: &[&str], maker: &str) -> rusq
         }
     }
     Ok(None)
+}
+
+/// SQLite's structural check of every b-tree in `conn`'s database, which SQLite advises before
+/// reading a file someone else wrote. It reads the whole file, so it's for databases of a few
+/// hundred MB at most (rekordbox's), not Audacity projects full of audio. `Some` says what's wrong.
+pub(crate) fn damaged(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    let check: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
+    Ok((check != "ok").then(|| format!("SQLite finds it damaged: {check}")))
 }
 
 /// Replace a drive's OneLibrary database with `bytes`, a complete encrypted file.
@@ -482,7 +501,7 @@ impl OneLibrary {
         let conn = Connection::open(&path)?;
         // The schema comes from the drive. Anyone can write this file (its key is public), and
         // rekordbox makes no views or triggers.
-        if let Some(why) = distrust(&conn, &["view", "trigger"], "rekordbox")? {
+        if let Some(why) = distrust(&conn, &["view", "trigger"], "rekordbox")?.or(damaged(&conn)?) {
             return Err(Error::OneLibrary(why));
         }
         // A scratch copy: no need for durability, and thousands of single-row edits stay fast.
@@ -506,7 +525,7 @@ impl OneLibrary {
         cipher::check_plain_header(&plain)?;
         plain[18..20].copy_from_slice(&self.journal);
         let bytes = self.codec.encrypt(&plain)?;
-        let back = self.codec.decrypt(&bytes)?;
+        let back = self.codec.decrypt(&bytes, |_| true)?;
         let usable = PAGE_SIZE - cipher::RESERVE;
         if back.len() != plain.len()
             || back.chunks(PAGE_SIZE).zip(plain.chunks(PAGE_SIZE)).any(|(a, b)| a[..usable] != b[..usable])
@@ -1153,7 +1172,7 @@ impl OneLibrary {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// rekordbox's columns are loosely typed: numbers can come back as text or reals, and text
@@ -1202,6 +1221,52 @@ mod tests {
         assert_eq!(lib.find_playlist("Set").unwrap().track_ids, [t]);
         // Two new databases never share a salt.
         assert_ne!(bytes[..16], OneLibrary::create().unwrap().to_encrypted().unwrap()[..16]);
+    }
+
+    /// A database whose b-tree for `table` claims more cells than a page holds, re-encrypted.
+    pub(crate) fn with_broken_table(conn: &Connection, codec: &Codec, mut plain: Vec<u8>, table: &str) -> Vec<u8> {
+        let root: u32 =
+            conn.query_row("SELECT rootpage FROM sqlite_master WHERE name = ?1", [table], |r| r.get(0)).unwrap();
+        let at = (root as usize - 1) * PAGE_SIZE;
+        plain[at + 3..at + 5].copy_from_slice(&u16::MAX.to_be_bytes());
+        codec.encrypt(&plain).unwrap()
+    }
+
+    #[test]
+    fn a_damaged_b_tree_is_refused_before_anything_reads_it() {
+        let one = OneLibrary::create().unwrap();
+        let (codec, plain) = decrypt(&one.to_encrypted().unwrap(), None).unwrap();
+        let bytes = with_broken_table(&one.conn, &codec, plain, "menuItem");
+        let err = OneLibrary::from_encrypted(&bytes, None).unwrap_err().to_string();
+        assert!(err.contains("SQLite finds it damaged"), "{err}");
+    }
+
+    /// SQLite reads a page from the WAL when a committed frame holds it, so the main file's copy
+    /// may be anything (zeros an interrupted checkpoint left, say). Anywhere else, zeros are damage.
+    #[test]
+    fn only_pages_sqlite_reads_must_authenticate() {
+        let one = OneLibrary::create().unwrap();
+        let bytes = one.to_encrypted().unwrap();
+        let (codec, plain) = decrypt(&bytes, None).unwrap();
+        let pages = (plain.len() / PAGE_SIZE) as u32;
+        let frame = codec.encrypt_page(2, &plain[PAGE_SIZE..2 * PAGE_SIZE]).unwrap();
+        let wal = wal::tests::build(PAGE_SIZE, (1, 2), &[(2, pages, frame)]);
+        let mut holed = bytes.clone();
+        holed[PAGE_SIZE..2 * PAGE_SIZE].fill(0);
+        // Equal but for the reserve, which keeps each page's own IV and HMAC.
+        let usable = |db: &[u8]| {
+            db.chunks(PAGE_SIZE).flat_map(|p| p[..PAGE_SIZE - cipher::RESERVE].to_vec()).collect::<Vec<_>>()
+        };
+        assert_eq!(usable(&decrypt(&holed, Some(&wal)).unwrap().1), usable(&plain));
+        let err = decrypt(&holed, None).map(|_| ()).unwrap_err().to_string();
+        assert!(err.contains("page 2 fails authentication"), "{err}");
+
+        let committed = wal::committed(&wal, PAGE_SIZE).unwrap().unwrap();
+        assert!(!reads_main_page(2, Some(&committed)));
+        assert!(!reads_main_page(pages + 1, Some(&committed)), "past the last commit");
+        assert!(reads_main_page(3, Some(&committed)));
+        assert!(!reads_main_page(cipher::LOCK_PAGE, None));
+        assert!(reads_main_page(1, None));
     }
 
     #[test]

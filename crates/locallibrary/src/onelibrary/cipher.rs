@@ -36,6 +36,9 @@ const HMAC_SALT_MASK: u8 = 0x3a;
 /// The passphrase every rekordbox installation encrypts `exportLibrary.db` under (`PRAGMA key`).
 pub const PASSPHRASE: &str = "r8gddnr4k847830ar6cqzbkk0el6qytmb3trbbx805jm74vez64i5o8fnrqryqls";
 pub const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
+/// The page holding SQLite's lock bytes (at 1 GiB), which SQLite never writes or reads: in a file
+/// that large it is a hole of zeros.
+pub const LOCK_PAGE: u32 = (0x4000_0000 / PAGE_SIZE) as u32 + 1;
 
 type HmacSha512 = Hmac<Sha512>;
 type Aes256CbcEnc = cbc::Encryptor<aes::Aes256>;
@@ -108,13 +111,11 @@ impl Codec {
     }
 
     /// Decrypt page `pgno` (1-based). Page 1 comes back with SQLite's magic in place of the salt.
-    /// An all-zero page decrypts to zeros, as in SQLCipher (space allocated but never written).
+    /// Every page must authenticate, zeros included: SQLCipher lets a page of zeros through only
+    /// in an auto-vacuum database reading past the end of the file, which never happens here.
     pub fn decrypt_page(&self, pgno: u32, page: &[u8]) -> Result<Vec<u8>> {
         if page.len() != PAGE_SIZE {
             return Err(Error::OneLibrary(format!("page {pgno} is {} bytes, expected {PAGE_SIZE}", page.len())));
-        }
-        if page.iter().all(|&b| b == 0) {
-            return Ok(vec![0; PAGE_SIZE]);
         }
         let start = if pgno == 1 { SALT_LEN } else { 0 };
         let end = PAGE_SIZE - RESERVE;
@@ -154,14 +155,20 @@ impl Codec {
         Ok(out)
     }
 
-    /// Decrypt a whole database file.
-    pub fn decrypt(&self, bytes: &[u8]) -> Result<Vec<u8>> {
+    /// Decrypt a whole database file. Pages `read` says SQLite won't read (the lock-byte page, or
+    /// pages a WAL replaces) come back as zeros, unchecked.
+    pub fn decrypt(&self, bytes: &[u8], read: impl Fn(u32) -> bool) -> Result<Vec<u8>> {
         if bytes.is_empty() || !bytes.len().is_multiple_of(PAGE_SIZE) {
             return Err(Error::OneLibrary(format!("{} bytes is not a whole number of pages", bytes.len())));
         }
         let mut out = Vec::with_capacity(bytes.len());
         for (i, page) in bytes.chunks(PAGE_SIZE).enumerate() {
-            out.extend(self.decrypt_page(i as u32 + 1, page)?);
+            let pgno = i as u32 + 1;
+            if read(pgno) {
+                out.extend(self.decrypt_page(pgno, page)?);
+            } else {
+                out.resize(out.len() + PAGE_SIZE, 0);
+            }
         }
         Ok(out)
     }
@@ -213,7 +220,7 @@ mod tests {
         let enc = codec.encrypt(&plain).unwrap();
         assert_eq!(&enc[..SALT_LEN], &[7; SALT_LEN]);
         assert_ne!(&enc[SALT_LEN..PAGE_SIZE - RESERVE], &plain[SALT_LEN..PAGE_SIZE - RESERVE]);
-        let back = Codec::for_file(&enc).unwrap().decrypt(&enc).unwrap();
+        let back = Codec::for_file(&enc).unwrap().decrypt(&enc, |_| true).unwrap();
         for (a, b) in back.chunks(PAGE_SIZE).zip(plain.chunks(PAGE_SIZE)) {
             assert_eq!(&a[..PAGE_SIZE - RESERVE], &b[..PAGE_SIZE - RESERVE]);
         }
@@ -226,11 +233,13 @@ mod tests {
         let codec = Codec::with_salt([1; SALT_LEN]);
         let mut enc = codec.encrypt(&plain_db(2)).unwrap();
         enc[PAGE_SIZE + 100] ^= 1;
-        assert!(codec.decrypt(&enc).is_err());
+        assert!(codec.decrypt(&enc, |_| true).is_err());
+        // A page SQLite won't read isn't checked.
+        assert!(codec.decrypt(&enc, |pgno| pgno != 2).is_ok());
         let enc = codec.encrypt(&plain_db(2)).unwrap();
         assert!(Codec::with_salt([2; SALT_LEN]).decrypt_page(2, &enc[PAGE_SIZE..]).is_err());
-        // Never-written pages are zeros, not errors.
-        assert_eq!(codec.decrypt_page(2, &[0; PAGE_SIZE]).unwrap(), vec![0; PAGE_SIZE]);
+        // A page wiped to zeros (a torn write on a FAT drive, say) is damage, as in SQLCipher.
+        assert!(codec.decrypt_page(2, &[0; PAGE_SIZE]).is_err());
     }
 
     #[test]

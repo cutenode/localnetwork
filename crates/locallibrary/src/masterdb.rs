@@ -161,6 +161,15 @@ pub fn open(path: &Path, key: &str) -> Result<Collection> {
     };
     let conn = Connection::open_with_flags(&copy, flags | OpenFlags::SQLITE_OPEN_NO_MUTEX)
         .map_err(|e| Error::parse(path, e))?;
+    // Anything that can write rekordbox's folder could have written this, and any path can be
+    // given. Only SELECTs run here, so no trigger fires; views aren't refused, as rekordbox may
+    // make some.
+    let why = onelibrary::distrust(&conn, &[], "rekordbox")
+        .and_then(|why| Ok(why.or(onelibrary::damaged(&conn)?)))
+        .map_err(|e| Error::parse(path, e))?;
+    if let Some(why) = why {
+        return Err(Error::parse(path, why));
+    }
     let db = Db { conn, path };
     if db.columns("djmdContent")?.is_empty() {
         return Err(Error::parse(path, "no djmdContent table; not a rekordbox collection database"));
@@ -222,16 +231,21 @@ fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
     };
     let page1 = codec.decrypt_page(1, &first).map_err(|_| wrong_key())?;
     cipher::check_plain_header(&page1).map_err(|_| wrong_key())?;
+    let committed = wal.as_deref().map(|w| wal::committed(w, cipher::PAGE_SIZE)).transpose()?.flatten();
     let mut dst = std::fs::File::create(&out).at(&out)?;
     dst.write_all(&page1).at(&out)?;
     let mut page = vec![0u8; cipher::PAGE_SIZE];
     for pgno in 2..=(len / cipher::PAGE_SIZE as u64) as u32 {
         src.read_exact(&mut page).at(&enc)?;
-        dst.write_all(&codec.decrypt_page(pgno, &page).map_err(damaged)?).at(&out)?;
+        if onelibrary::reads_main_page(pgno, committed.as_ref()) {
+            dst.write_all(&codec.decrypt_page(pgno, &page).map_err(damaged)?).at(&out)?;
+        } else {
+            dst.write_all(&[0; cipher::PAGE_SIZE]).at(&out)?;
+        }
     }
     drop(src);
     std::fs::remove_file(&enc).at(&enc)?;
-    if let Some(committed) = wal.as_deref().map(|w| wal::committed(w, cipher::PAGE_SIZE)).transpose()?.flatten() {
+    if let Some(committed) = committed {
         let main_pages = (len / cipher::PAGE_SIZE as u64) as usize;
         let replayed = onelibrary::wal_pages(&codec, &committed, main_pages).map_err(damaged)?;
         dst.set_len(u64::from(committed.db_pages) * cipher::PAGE_SIZE as u64).at(&out)?;
@@ -1007,6 +1021,17 @@ pub(crate) mod tests {
         let path = write(dir.path(), &bytes);
         let err = open(&path, DEFAULT_KEY).unwrap_err().to_string();
         assert!(err.starts_with(&format!("could not parse {}: page 2 fails authentication", path.display())), "{err}");
+    }
+
+    #[test]
+    fn a_damaged_b_tree_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = sample();
+        let codec = Codec::with_passphrase(DEFAULT_KEY.as_bytes(), [9; 16]);
+        let bytes = crate::onelibrary::tests::with_broken_table(&f.conn, &codec, f.plain(), "djmdCue");
+        let path = write(dir.path(), &bytes);
+        let err = open(&path, DEFAULT_KEY).unwrap_err().to_string();
+        assert!(err.contains("SQLite finds it damaged"), "{err}");
     }
 
     #[test]

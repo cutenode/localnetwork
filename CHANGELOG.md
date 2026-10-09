@@ -344,6 +344,12 @@ their old names.
 - A drive's `exportLibrary.db` with a view or trigger is refused, its schema runs with
   `trusted_schema` off and SQLite's defensive mode, and column names from it are quoted safely.
   Audacity projects open with `trusted_schema` off too, and are refused when they hold a view.
+  `exportLibrary.db` and `master.db` are refused when SQLite's `quick_check` finds them damaged,
+  `master.db` gets the same defensive mode and `trusted_schema` off, and SQLite checks every b-tree
+  cell's size as it reads any of them.
+- A page of zeros in an encrypted database no longer passes as a valid empty page: it's reported
+  as damage, as SQLCipher does, unless SQLite would never read it (the WAL replaces it, or it's
+  the lock-byte page at 1 GiB).
 - Crafted files can't make a read or an edit allocate without bound: a OneLibrary or `master.db`
   WAL's pages are authenticated before its commit size is believed, and `export.pdb` free-page
   fields and `exportExt.pdb` table counts are checked. A playlist tree that repeats an id or loops
