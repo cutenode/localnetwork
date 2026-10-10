@@ -1,0 +1,44 @@
+# dist (https://axodotdev.github.io/cargo-dist/) builds the release archives and installers
+# when a version tag is pushed (.github/workflows/locallibrary-release.yml). See "Releasing" in
+# apps/locallibrary/CONTRIBUTING.md.
+[workspace]
+members = ["cargo:."]
+
+[dist]
+# The dist version locallibrary-release.yml installs: change both together.
+cargo-dist-version = "0.33.0"
+ci = "github"
+# Release only on tags that start with `locallibrary` (locallibrary-cli-v0.2.0), since the repo
+# holds other apps. dist also names the workflow after it: locallibrary-release.yml.
+tag-namespace = "locallibrary"
+# An archive per platform with the `locallibrary` binary, shell (macOS, Linux) and PowerShell
+# (Windows) installers, and a Homebrew formula.
+installers = ["shell", "powershell", "homebrew"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# The Homebrew tap the formula is pushed to. The repository doesn't exist yet: see
+# apps/locallibrary/CONTRIBUTING.md.
+tap = "cutenode/homebrew-tap"
+publish-jobs = ["homebrew"]
+install-path = "CARGO_HOME"
+install-updater = false
+# Pull requests only plan a release, which checks this configuration.
+pr-run-mode = "plan"
+# Sign the macOS binaries before archiving them. locallibrary-release.yml sets the variables dist
+# signs with from the APPLE_* secrets, and leaves them unset (no signing) until those exist.
+macos-sign = true
+# locallibrary-release.yml has hand-written steps (macOS signing and notarization, the tap token
+# check), so dist must neither rewrite it nor fail the plan because it differs from the generated
+# one.
+allow-dirty = ["ci"]
+
+# The player's audio output links against ALSA on Linux.
+[dist.dependencies.apt]
+libasound2-dev = "*"
+pkg-config = "*"
+
+# The commits locallibrary-release.yml pins actions to (for `dist generate`; keep them in step
+# with it).
+[dist.github-action-commits]
+"actions/checkout" = "3d3c42e5aac5ba805825da76410c181273ba90b1" # v7.0.1
+"actions/upload-artifact" = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" # v7.0.1
+"actions/download-artifact" = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" # v8.0.1

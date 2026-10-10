@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { HAPPYVIEW_PERMISSIONS } from '../../src/lib/server/happyview/client.ts';
 import { startJetstream } from './jetstream.ts';
 
-/** Also pulled by the integration and e2e jobs in .github/workflows/ci.yml. */
+/** Also pulled by the integration and e2e jobs in .github/workflows/web-ci.yml. */
 const IMAGE = 'ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0';
 
 const ADMIN_DID = 'did:web:localhost';

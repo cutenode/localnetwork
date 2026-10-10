@@ -1,0 +1,21 @@
+{
+	"name": "localnetwork-monorepo",
+	"private": true,
+	"scripts": {
+		"dev": "pnpm --filter localnetwork dev",
+		"build": "pnpm --filter localnetwork build",
+		"check": "pnpm --filter localnetwork check",
+		"lint": "pnpm --filter localnetwork lint",
+		"format": "pnpm --filter localnetwork format",
+		"test": "pnpm --filter localnetwork test",
+		"knip": "pnpm --filter localnetwork knip",
+		"verify": "pnpm --filter localnetwork verify"
+	},
+	"engines": {
+		"node": ">=24.12"
+	},
+	"packageManager": "pnpm@12.6.0",
+	"devDependencies": {
+		"lefthook": "^2.1.16"
+	}
+}

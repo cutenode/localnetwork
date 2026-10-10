@@ -1,4 +1,6 @@
 # syntax=docker/dockerfile:1.7
+# Build from the repo root, which holds the pnpm workspace and lockfile:
+#   docker build -f apps/web/Dockerfile .
 FROM node:24-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH CI=true
 RUN corepack enable
@@ -6,15 +8,17 @@ WORKDIR /app
 
 FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-COPY . .
-RUN pnpm build && pnpm prune --prod --ignore-scripts
+COPY apps/web/package.json apps/web/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter localnetwork
+COPY apps/web apps/web/
+RUN pnpm --filter localnetwork build
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm --filter localnetwork deploy --prod --ignore-scripts /prod
 
 FROM base AS runtime
 ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 DATABASE_PATH=/data/localnetwork.db
-COPY --from=build --chown=node:node /app/package.json ./
-COPY --from=build --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/build ./build
+COPY --from=build --chown=node:node /prod/package.json ./
+COPY --from=build --chown=node:node /prod/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/apps/web/build ./build
 RUN mkdir -p /data && chown node:node /data
 USER node
 VOLUME /data

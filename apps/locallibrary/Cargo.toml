@@ -1,111 +1,85 @@
-[workspace]
-resolver = "3"
-members = ["crates/locallibrary", "crates/locallibrary-cli", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-waveform", "vendor/rekordbox-pdb"]
+[package]
+name = "locallibrary-cli"
+description = "Command line interface for locallibrary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
-[workspace.package]
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.89"
-license = "MIT"
-repository = "https://github.com/cutenode/locallibrary"
+[[bin]]
+name = "locallibrary"
+path = "src/main.rs"
+# The binary shares its name with the library crate, so their rustdoc output would collide
+# (cargo#6313). The library is the documented API.
+doc = false
 
-[workspace.dependencies]
-# Without its default features (the Atmosphere account): the CLI turns them on with its own.
-locallibrary = { path = "crates/locallibrary", default-features = false }
-loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
-loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
-loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }
-loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
-loclib-mysettings = { path = "crates/loclib-mysettings", version = "0.1.0" }
-loclib-progress = { path = "crates/loclib-progress", version = "0.1.0" }
-loclib-tracklist = { path = "crates/loclib-tracklist", version = "0.1.0" }
-loclib-waveform = { path = "crates/loclib-waveform", version = "0.1.0" }
-rekordbox-pdb = { path = "vendor/rekordbox-pdb" }
-rekordcrate = { version = "0.3", default-features = false }
-aes = "0.8"
-anyhow = "1"
-# Base64 for data URIs, packed waveforms, PowerShell's -EncodedCommand and Serato's cue tag.
-base64 = "0.22"
-blake3 = "1.8"
-cbc = "0.1"
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
-clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
-# Shell completion (`locallibrary completions`), dynamic: the shell asks the binary, which lists
-# mounted drives, playlists, My Tags and history lists.
-clap_complete = { version = "4.6", features = ["unstable-dynamic"] }
-# Man pages (`locallibrary man`).
-clap_mangen = "0.3"
-console = "0.16"
-directories = "6"
-filetime = "0.2"
-fs4 = "1"
-getrandom = "0.3"
-hmac = "0.12"
-# Atmosphere account sign-in (AT Protocol OAuth). Pinned: the jacquard crates make breaking
-# changes between minor versions.
-jacquard-api = { version = "=0.12.2", default-features = false, features = ["com_atproto", "std"] }
-jacquard-common = "=0.12.2"
-jacquard-identity = { version = "=0.12.2", features = ["dns"] }
-jacquard-oauth = "=0.12.2"
-keyring = "4.2"
-# The types jacquard's HTTP client trait is written in (reqwest is built on them).
-http = "1"
-# TLS comes with jacquard (rustls and Mozilla's roots, built in); the system's own trust store is
-# added for computers whose networks need a root installed there (a company or venue proxy).
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif"] }
-# The ordered map, in place of BTreeMap (clippy.toml bans it): keeps insertion order, so code that
-# needs keys sorted sorts them where it does.
-indexmap = { version = "2.14", features = ["serde"] }
-indicatif = "0.18"
-lofty = "0.25"
-pbkdf2 = "0.12"
-percent-encoding = "2.3"
-rusqlite = { version = "0.40", features = ["bundled"] }
-# Which volume and folder a path is (device and inode, or volume serial and file index): a drive
-# without an identity is told apart from another mounted at the same path by it.
-same-file = "1"
-rustfft = "6.4"
-# FxHash for the HashMaps and HashSets: faster than std's SipHash on the integer ids and short
-# strings they're keyed by, and nothing hashed comes from an untrusted network peer.
-rustc-hash = "2.1"
-# JSON Schema for the API's requests and results: the RPC sidecar's machine-readable contract.
-schemars = { version = "1.2", default-features = false, features = ["derive", "std", "chrono04", "indexmap2", "uuid1"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-# Where in a request a bad parameter is (`edits[0].op`), for the RPC sidecar's invalid_params errors.
-serde_path_to_error = "0.1"
-sha2 = "0.10"
-# Edit distance, for "did you mean" on a mistyped filter field or subcommand.
-strsim = "0.11"
-# Decoding for mix identification: what drives and recorders hold (MP3, AAC/ALAC, FLAC, WAV, AIFF).
-symphonia = { version = "0.5", default-features = false, features = ["aac", "aiff", "alac", "flac", "isomp4", "mp3", "pcm", "wav"] }
-tempfile = "3"
-thiserror = "2"
-tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "time"] }
-unicode-normalization = "0.1"
-uuid = { version = "1", features = ["v4", "serde"] }
-walkdir = "2.5"
-# Property-based tests (dev only). Pinned: Hegel is in beta and makes breaking changes.
-# `static-engine` links Hegel's engine as an ordinary dependency, so it's in Cargo.lock: without
-# it, hegeltest's build script fetches and builds the engine in a nested, unlocked cargo build.
-hegeltest = { version = "=0.48.1", features = ["static-engine"] }
+# Release packaging (see dist-workspace.toml): name the Homebrew formula after the command.
+[package.metadata.dist]
+formula = "locallibrary"
 
-# OneLibrary's key derivation (PBKDF2-HMAC-SHA512, 256,000 rounds) takes seconds unoptimised.
-[profile.dev.package.sha2]
-opt-level = 3
+[features]
+default = ["account", "tui", "playback"]
+# The Atmosphere account: `account`, publishing (`profile publish`, `sets publish`, `settings
+# publish`, `settings import --from-handle`), the `account.*` and `*.publish.*` RPC methods and
+# signing in from the player's Profile view. Most of the dependencies (an HTTP client, an async
+# runtime, TLS, the keychain) are for this alone.
+account = ["locallibrary/account"]
+# The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
+tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform"]
+# The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
+# shows waveforms, but there's no output to play through.
+playback = ["tui", "rodio/playback"]
 
-[profile.dev.package.pbkdf2]
-opt-level = 3
+[dependencies]
+locallibrary.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+clap_mangen.workspace = true
+console.workspace = true
+# `termination`: SIGTERM (a GUI stopping the process) stops at a safe point too, as Ctrl-C does.
+ctrlc = { version = "3.5", features = ["termination"] }
+indicatif.workspace = true
+ratatui = { version = "0.30", optional = true }
+# The player's waveforms, visualisers and cover art.
+loclib-waveform = { workspace = true, optional = true, features = ["image"] }
+# Playback for the TUI: rekordbox drives carry MP3, AAC/ALAC (.m4a), FLAC, WAV and AIFF. The
+# output device comes with the `playback` feature.
+rodio = { version = "0.22", optional = true, default-features = false, features = [
+    "symphonia-aac",
+    "symphonia-aiff",
+    "symphonia-alac",
+    "symphonia-flac",
+    "symphonia-isomp4",
+    "symphonia-mp3",
+    "symphonia-pcm",
+    "symphonia-wav",
+] }
+rustfft = { workspace = true, optional = true }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_path_to_error.workspace = true
+# Columns a typed character takes (ratatui already depends on it).
+unicode-width = "0.2"
+uuid.workspace = true
+rustc-hash.workspace = true
+indexmap.workspace = true
 
-[profile.dev.package.hmac]
-opt-level = 3
+[target.'cfg(unix)'.dependencies]
+# Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.
+libc = "0.2"
+# SIGTERM for the RPC sidecar; the TUI also lets a drive write finish and saves its state when the
+# terminal closes (SIGHUP) or it's told to stop (SIGTERM). Already built for crossterm.
+signal-hook = "0.3"
 
-[profile.release]
-lto = "thin"
-codegen-units = 1
-strip = true
-
-# What dist builds release archives with (dist-workspace.toml).
-[profile.dist]
-inherits = "release"
+[dev-dependencies]
+tempfile.workspace = true
+hegeltest.workspace = true
+assert_cmd = "2"
+rekordbox-pdb.workspace = true
+image.workspace = true
+# Builds rekordbox-shaped collection databases (`master.db`) for `collection`'s tests.
+rusqlite.workspace = true

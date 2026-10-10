@@ -1,0 +1,24 @@
+# Git hooks (installed by `pnpm install`). The jobs cover the web app: each runs in apps/web and
+# only sees the files under it.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format
+      root: apps/web/
+      glob: '*.{ts,js,json,css}'
+      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: lint
+      root: apps/web/
+      glob: '*.{ts,js,svelte}'
+      run: pnpm exec oxlint {staged_files}
+
+pre-push:
+  parallel: true
+  jobs:
+    - name: typecheck
+      root: apps/web/
+      run: pnpm check
+    - name: unit tests
+      root: apps/web/
+      run: pnpm test

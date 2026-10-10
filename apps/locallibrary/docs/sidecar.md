@@ -1,6 +1,6 @@
 # Building a GUI
 
-All operations live in the library's [`api`](../crates/locallibrary/src/api.rs) module as
+All operations live in the library's [`api`](../../../crates/locallibrary/src/api.rs) module as
 `request → response` functions over serde types. Operations that write come as `*.plan` /
 `*.apply` pairs, so a UI can show a confirmation dialog and then make exactly the change it
 showed. The simplest integration is the sidecar: spawn `locallibrary rpc` and speak

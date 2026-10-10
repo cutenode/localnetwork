@@ -5,9 +5,9 @@
  * The demo export ships without audio, so the tracks are synthesized, and everything happens in a
  * temporary folder with its own store: no library or drive of yours is read or written.
  *
- *   pnpm fixtures:mix [path/to/locallibrary]
+ *   pnpm fixtures:mix
  *
- * The locallibrary checkout defaults to ../locallibrary. Needs cargo.
+ * Builds locallibrary from this repo's Cargo workspace, so it needs cargo.
  */
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,7 +16,8 @@ import { join, resolve } from 'node:path';
 
 const RATE = 22_050;
 
-const repo = resolve(process.argv[2] ?? '../locallibrary');
+// The repo root, which holds the Cargo workspace (pnpm runs this from apps/web).
+const repo = resolve('../..');
 
 const fixture = resolve('src/lib/mix/fixtures/v2.mix.json');
 

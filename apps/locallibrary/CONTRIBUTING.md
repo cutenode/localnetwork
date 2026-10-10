@@ -1,5 +1,9 @@
 # Contributing
 
+locallibrary is the CLI in this folder plus the library crates in the repository's `crates/` and
+`vendor/`, one Cargo workspace whose root is the repository root. Paths below that start with
+`crates/`, `vendor/` or `.github/` are from there; the rest are from this folder.
+
 ```bash
 cargo test --workspace --locked     # unit + integration tests against real rekordbox export fixtures
 cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -21,7 +25,7 @@ Code that needs a feature is behind `#[cfg(feature = "...")]`; tests that need o
 same way (`#![cfg(feature = "account")]` for a whole file). The RPC contract in `docs/rpc/`
 describes the default build, so the test that checks it only runs there.
 
-The crates in `crates/` besides `locallibrary` and `locallibrary-cli` are for other tools too (see
+The crates in `crates/` besides `locallibrary` are for other tools too (see
 [Crates for other DJ tools](README.md#crates-for-other-dj-tools)), so they never depend on
 locallibrary: it depends on them, re-exports them where their code used to live, and converts
 their errors into its own in `crates/locallibrary/src/error.rs`, keeping the messages and RPC
@@ -36,10 +40,10 @@ cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, sa
 file, and its clippy may disagree with CI's. The oldest Rust locallibrary supports (its MSRV) is
 `rust-version` in Cargo.toml, 1.89; check it with `cargo +1.89 check --workspace --locked`.
 Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
-finds, and raise `rust-version` together with the msrv job in `ci.yml`.
+finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
 
-**CI** (`.github/workflows/ci.yml`) runs the quick checks on pull requests and pushes to `main`
-(not when only Markdown or the issue templates changed):
+**CI** (`.github/workflows/locallibrary-ci.yml`) runs the quick checks on pull requests and
+pushes to `main` that change the workspace (not when only Markdown changed):
 
 - format, clippy and the tests on macOS, Linux and Windows. Tests run under
   [cargo-nextest](https://nexte.st) (`cargo nextest run --workspace` locally), doctests with
@@ -51,8 +55,8 @@ finds, and raise `rust-version` together with the msrv job in `ci.yml`.
   (each ignored one says why), banned crates (OpenSSL: TLS goes through rustls) and crate
   sources, and that every shipped dependency's licence is one `deny.toml` allows.
 
-`.github/workflows/scheduled.yml` runs the slow suites every Monday, and on any branch from the
-Actions tab (Scheduled, Run workflow):
+`.github/workflows/locallibrary-scheduled.yml` runs the slow suites every Monday, and on any
+branch from the Actions tab (locallibrary scheduled, Run workflow):
 
 - the builds without the default features (on Linux, without the ALSA headers): the tests of the
   library and the CLI with none and of the CLI with only `account`, and clippy over every
@@ -69,7 +73,7 @@ like `edit/refusals.rs`, and the helpers they share in `tests/common/`), so the 
 once and every test runs at once. Tests that need the mounted volumes, or the store drive
 lookups consult, name them for their own thread (`locallibrary::testing::volumes_on_this_thread`
 and `store_root_on_this_thread`), not with `$LOCALLIBRARY_VOLUMES` or `api::set_store_root`,
-which hold for the process. The CLI's are one binary too, `crates/locallibrary-cli/tests/it/`,
+which hold for the process. The CLI's are one binary too, `tests/it/`,
 running the `locallibrary` cargo built for them with a store of their own and
 `LOCALLIBRARY_VOLUMES` set, so they never see the machine's drives. What they share is in
 `support.rs`: the demo drives, and `Env`, a store and folder of drives for one test that runs
@@ -152,7 +156,7 @@ views, help opens and closes, a typed line keeps its cursor in view, edits finis
 counts agree and its player stays consistent. macOS and Linux only, with Node 22:
 
 ```bash
-cd bombadil && npm ci
+cd bombadil && npm ci       # from this folder
 ./tui.sh                    # 2 minutes; TIME_LIMIT=30m ./tui.sh for longer
 ./report.sh                 # needs Chrome: npx -y playwright@1.63.0 install --only-shell chromium
 ```
@@ -167,24 +171,27 @@ print where the trace went; add Bombadil options after the script name (`./tui.s
 
 ## Releasing
 
-[dist](https://axodotdev.github.io/cargo-dist/) builds releases (`dist-workspace.toml`,
-`.github/workflows/release.yml`) when a version tag is pushed:
+[dist](https://axodotdev.github.io/cargo-dist/) builds releases (`dist-workspace.toml` at the
+repository root, `.github/workflows/locallibrary-release.yml`) when a version tag is pushed:
 
 1. In `CHANGELOG.md`, rename "Unreleased" to the version and date (`## [0.2.0] - 2026-11-02`)
    and start a new "Unreleased" above it. The GitHub Release takes its notes from that section.
-2. Bump `version` in `[workspace.package]` in `Cargo.toml`, run `cargo check` so `Cargo.lock`
-   follows, and commit.
-3. Tag the commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`. A version with a
-   suffix (`v0.2.0-beta.1`) is a prerelease, which leaves the Homebrew formula alone.
+2. Bump `version` in `[workspace.package]` in the root `Cargo.toml`, run `cargo check` so
+   `Cargo.lock` follows, and commit.
+3. Tag the commit with the CLI package's name and push the tag:
+   `git tag locallibrary-cli-v0.2.0 && git push origin locallibrary-cli-v0.2.0`. Only tags that
+   start with `locallibrary` release it (`tag-namespace` in `dist-workspace.toml`), so the
+   repository's other apps can tag their own. A version with a suffix
+   (`locallibrary-cli-v0.2.0-beta.1`) is a prerelease, which leaves the Homebrew formula alone.
 
 The workflow builds an archive for each of macOS (Apple silicon, Intel), Linux (x86_64 glibc) and
 Windows (x86_64), plus `locallibrary-cli-installer.sh`, `locallibrary-cli-installer.ps1` and a
 Homebrew formula, creates the GitHub Release with all of them and pushes the formula to the tap.
 On pull requests that change a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
 `rust-toolchain.toml` or the workflow itself, it only runs `dist plan`, which checks the
-configuration. `release.yml` is dist 0.33.0's generated workflow with hand-written additions
-listed at its top, so `dist-workspace.toml` sets `allow-dirty = ["ci"]`. After changing the dist
-configuration or upgrading dist, regenerate the file (`dist generate --mode=ci`, with
+configuration. `locallibrary-release.yml` is dist 0.33.0's generated workflow with hand-written
+additions listed at its top, so `dist-workspace.toml` sets `allow-dirty = ["ci"]`. After changing
+the dist configuration or upgrading dist, regenerate the file (`dist generate --mode=ci`, with
 `allow-dirty` removed for the run) and carry the additions over.
 
 Still to set up before the first release (the workflow runs without them, and says what it

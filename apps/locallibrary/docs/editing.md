@@ -288,7 +288,7 @@ and they end up on drives, often once per export (`House1.wav`, `House1-1.wav`, 
 `clean` removes every track on its list from `export.pdb` and OneLibrary's `exportLibrary.db`, along
 with its playlist and history entries, audio, analysis files and artwork, plus artists, albums,
 genres, labels, keys and artwork rows nothing else uses. Files another track (in either database)
-still points at are kept. The list lives in [`clean.rs`](../crates/locallibrary/src/clean.rs)
+still points at are kept. The list lives in [`clean.rs`](../../../crates/locallibrary/src/clean.rs)
 (`USELESS_TRACKS`). The next export brings them back unless they're removed from the rekordbox
 collection too.
 

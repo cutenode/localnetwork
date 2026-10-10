@@ -1,0 +1,11 @@
+# Cargo's build output for the Rust workspace.
+/target
+**/*.rs.bk
+# Hegel keeps failing examples here to replay them first next time.
+.hegel/
+node_modules/
+.DS_Store
+# Claude Code's per-machine settings.
+.claude/launch.json
+.claude/settings.local.json
+.claude/worktrees/

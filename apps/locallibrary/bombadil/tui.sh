@@ -15,7 +15,8 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib.sh
 . "$here/lib.sh"
-repo=$(dirname "$here")
+# The Cargo workspace: the repository root.
+repo=$(cd "$here/../../.." && pwd)
 fixtures="$repo/crates/locallibrary/tests/fixtures"
 
 cargo build --quiet --locked --manifest-path "$repo/Cargo.toml" -p locallibrary-cli

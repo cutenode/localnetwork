@@ -107,7 +107,9 @@ With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons cha
 
 ## Getting started
 
-Requirements: Node.js 24 (see `.node-version`), pnpm 12, and Docker (or OrbStack) for the local HappyView.
+Requirements: Node.js 24 (see `.node-version` at the repo root), pnpm 12, and Docker (or OrbStack) for the local HappyView.
+
+The app lives in `apps/web` of a pnpm workspace whose root is the repo root. Run the commands below in `apps/web`; `pnpm install` there installs the whole workspace and the git hooks. The repo root forwards `dev`, `build`, `check`, `lint`, `format`, `test`, `knip`, and `verify` here.
 
 ```bash
 pnpm install
@@ -153,7 +155,7 @@ The network is temporary; restarting it resets everything (and the dev database)
 | `pnpm lexicons:publish`             | Publish lexicons from the root account and check their DNS records    |
 | `pnpm verify`                       | Everything CI runs, in order                                          |
 
-Git hooks (lefthook) format and lint staged files on commit and run type checks and unit tests on push.
+Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files on commit and run type checks and unit tests on push.
 
 ## Configuration
 
@@ -174,9 +176,9 @@ See [`.env.example`](.env.example) for every option. The essentials:
    pnpm lexicons:publish
    ```
 3. Run HappyView 2.16 (`ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0`, SQLite on a volume) at `https://happyview.localnetwork.computer`, log in to its dashboard first (the first login becomes its admin), and create an API key with the permissions above.
-4. Run the container at `https://localnetwork.computer` (`PUBLIC_URL`) with a persistent volume for `/data`:
+4. Run the container at `https://localnetwork.computer` (`PUBLIC_URL`) with a persistent volume for `/data`. Build it from the repo root, which holds the workspace and lockfile, with `apps/web/Dockerfile`:
    ```bash
-   docker build -t localnetwork .
+   docker build -f apps/web/Dockerfile -t localnetwork .
    ```
    ```bash
    docker run -p 3000:3000 -v localnetwork-data:/data --env-file .env localnetwork

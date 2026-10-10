@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/cutenode/localnetwork#readme
+    about: What each tool does, and where its guides are.
+  - name: Security vulnerability
+    url: https://github.com/cutenode/localnetwork/security/advisories/new
+    about: Report it privately instead of in an issue.

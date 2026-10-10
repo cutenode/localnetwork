@@ -47,8 +47,8 @@ On a Mac:
    several minutes.
 
    ```bash
-   git clone https://github.com/cutenode/locallibrary.git
-   cargo install --path locallibrary/crates/locallibrary-cli --locked
+   git clone https://github.com/cutenode/localnetwork.git
+   cargo install --path localnetwork/apps/locallibrary --locked
    ```
 
 4. Check it worked:
@@ -161,19 +161,19 @@ Building on locallibrary: [the JSON-RPC sidecar](docs/sidecar.md) for desktop ap
 
 Some of locallibrary's parts are Rust crates of their own, which don't depend on locallibrary:
 
-- [loclib-progress](crates/loclib-progress): progress events and cancellation for long-running work
-- [loclib-model](crates/loclib-model): tracks, playlists, library diffs, Camelot keys and a track's
+- [loclib-progress](../../crates/loclib-progress): progress events and cancellation for long-running work
+- [loclib-model](../../crates/loclib-model): tracks, playlists, library diffs, Camelot keys and a track's
   analysis (beat grid, cues, waveforms, phrases)
-- [loclib-equipment](crates/loclib-equipment): what each Pioneer DJ / AlphaTheta player and mixer
+- [loclib-equipment](../../crates/loclib-equipment): what each Pioneer DJ / AlphaTheta player and mixer
   reads from a USB drive, with sources, also as JSON
-- [loclib-mysettings](crates/loclib-mysettings): reading and writing the My Settings files
+- [loclib-mysettings](../../crates/loclib-mysettings): reading and writing the My Settings files
   players load from a drive
-- [loclib-tracklist](crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
+- [loclib-tracklist](../../crates/loclib-tracklist): reading M3U, CSV, rekordbox and plain-text
   tracklists, and finding their tracks in a library
-- [loclib-mixid](crates/loclib-mixid): which known tracks a recorded mix plays, when and at what
+- [loclib-mixid](../../crates/loclib-mixid): which known tracks a recorded mix plays, when and at what
   speed
-- [loclib-interop](crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ
-- [loclib-waveform](crates/loclib-waveform): ratatui widgets for waveforms, cues, phrases, a
+- [loclib-interop](../../crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ
+- [loclib-waveform](../../crates/loclib-waveform): ratatui widgets for waveforms, cues, phrases, a
   spectrum and cover art
 
 They aren't on crates.io yet.
@@ -208,5 +208,5 @@ run on macOS. [Platforms](docs/install.md#platforms) has the details.
 ## Licence
 
 MIT: see [LICENSE](LICENSE). The vendored rekordbox-pdb is MIT as well
-([its licence](vendor/rekordbox-pdb/LICENSE)), and the test fixtures carry their own
-([fixtures README](crates/locallibrary/tests/fixtures/README.md)).
+([its licence](../../vendor/rekordbox-pdb/LICENSE)), and the test fixtures carry their own
+([fixtures README](../../crates/locallibrary/tests/fixtures/README.md)).

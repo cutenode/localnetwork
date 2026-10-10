@@ -2,7 +2,7 @@
 
 ## Install
 
-Each [GitHub Release](https://github.com/cutenode/locallibrary/releases) has `locallibrary` for
+Each [GitHub Release](https://github.com/cutenode/localnetwork/releases) has `locallibrary` for
 macOS (Apple silicon and Intel), Linux (x86_64) and Windows (x86_64), and installers for it. The
 Linux and Windows builds are experimental and untested on hardware (see [Platforms](#platforms)).
 There hasn't been a release yet (see [Releasing](../CONTRIBUTING.md#releasing)); until then, build
@@ -10,7 +10,7 @@ from source.
 
 ```bash
 # macOS and Linux
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cutenode/locallibrary/releases/latest/download/locallibrary-cli-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-cli-installer.sh | sh
 
 # Homebrew
 brew install cutenode/tap/locallibrary
@@ -18,17 +18,17 @@ brew install cutenode/tap/locallibrary
 
 ```powershell
 # Windows
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/cutenode/locallibrary/releases/latest/download/locallibrary-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/cutenode/localnetwork/releases/latest/download/locallibrary-cli-installer.ps1 | iex"
 ```
 
 The shell and PowerShell installers put `locallibrary` in `~/.cargo/bin` (`%USERPROFILE%\.cargo\bin`
 on Windows). The Linux build needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12) and ALSA's library
 (`libasound2`, which desktops already have) for the player's audio.
 
-From source, with Rust 1.89 or newer:
+From source, with Rust 1.89 or newer, in a clone of the repository:
 
 ```bash
-cargo install --path crates/locallibrary-cli --locked
+cargo install --path apps/locallibrary --locked
 ```
 
 This installs `locallibrary`. On Linux, the player's audio output needs the ALSA headers
@@ -49,14 +49,14 @@ off:
 
 ```bash
 # A headless sidecar for a desktop app: no player, no account (about 160 crates)
-cargo install --path crates/locallibrary-cli --locked --no-default-features
+cargo install --path apps/locallibrary --locked --no-default-features
 # The same, with the account
-cargo install --path crates/locallibrary-cli --locked --no-default-features --features account
+cargo install --path apps/locallibrary --locked --no-default-features --features account
 # The player without audio output: no ALSA headers needed on Linux
-cargo install --path crates/locallibrary-cli --locked --no-default-features --features tui,account
+cargo install --path apps/locallibrary --locked --no-default-features --features tui,account
 ```
 
-The library (`crates/locallibrary`) has the `account` feature too, on by default.
+The library (`crates/locallibrary` at the repository root) has the `account` feature too, on by default.
 
 ### Shell completion and man pages
 Tab completes commands and flags, and also the drives mounted now, their playlist paths, My Tags and

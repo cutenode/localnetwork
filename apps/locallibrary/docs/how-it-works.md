@@ -107,12 +107,12 @@ crates/locallibrary/src/    the library, built on the crates above
   schema.rs    JSON Schema for the API's types (every request and result derives it), labelled tuples
   error.rs     errors with a stable code, and the reason, fields and actions a front end acts on (its
                messages never name a CLI command or flag: the CLI's hints.rs words those)
-crates/locallibrary-cli/    `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
+apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
                             and the TypeScript types), and the player (tui/: ratatui + rodio, drawing with
                             loclib-waveform, the `tui` and `playback` features; account_off.rs and the
                             `playback`-less audio.rs stand in for what a build leaves out)
-docs/rpc/                   the sidecar's contract: schema.json and locallibrary.d.ts (`rpc --emit-schema`)
+apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary.d.ts (`rpc --emit-schema`)
 ```
 
 - **Fingerprint.** A drive's library state is identified by hashing every library file's path and

@@ -1,0 +1,33 @@
+# A pull request a month for each ecosystem, every update in one.
+#
+# The workflows pin actions to commits; this keeps the pins current. locallibrary-release.yml's
+# pins are also listed in dist-workspace.toml ([dist.github-action-commits]): update them there
+# too.
+#
+# Cargo and npm: the lockfiles only, the semver-compatible updates `cargo update` and
+# `pnpm update` would make. Cargo.toml (and its `=` pins) and package.json are changed by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    versioning-strategy: lockfile-only
+    groups:
+      cargo:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    versioning-strategy: lockfile-only
+    groups:
+      npm:
+        patterns: ["*"]

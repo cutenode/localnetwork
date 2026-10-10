@@ -8,35 +8,38 @@ and hardware checks are grouped into test days. Tick items off or delete them as
 - [ ] **Nothing is pushed and there's no remote.** The root commit and `main`'s history hold
       session and artifact links and personal paths, so a public push needs a history rewrite or
       a fresh first commit. The commits on `integration` past `main` are unsigned: re-create them
-      signed on a `bnb/` branch from `main`. Then create `github.com/cutenode/locallibrary`
-      (already set as `repository` in `Cargo.toml`) and push.
+      signed on a `bnb/` branch from `main`. Then create `github.com/cutenode/localnetwork`
+      (already set as `repository` in the root `Cargo.toml`) and push.
 - [ ] **CI has never run.** On pull requests and pushes to `main` (Markdown-only changes skip it):
       fmt, clippy, nextest on macOS/Linux/Windows, the msrv job (`cargo +1.89 check`, not yet run
       against the updated lockfile), docs, cargo-deny, and a slim `features` job (clippy on the
       headless CLI without ALSA headers). Linux runs the tests under coverage, with thresholds
       (`.cargo/config.toml`) measured in an arm64 Linux container: set them just under what the
-      first run measures. Weekly and on demand, `scheduled.yml` runs Bombadil, the
+      first run measures. Weekly and on demand, `locallibrary-scheduled.yml` runs Bombadil, the
       no-default-features tests, the cargo-hack feature powerset and cargo-deny's advisories:
-      after the first push, run it once (Actions > Scheduled > Run workflow). The Linux and
-      Windows legs have never run, and the Windows-only code (raw-volume FAT32 writer,
+      after the first push, run it once (Actions > locallibrary scheduled > Run workflow). The
+      Linux and Windows legs have never run, and the Windows-only code (raw-volume FAT32 writer,
       `fsutil::flush` with a write handle, the clippy lints fixed by reading, paths compared
       without the `\\?\` prefix, the mix report's `file:///E:/` links) has never compiled. The
       no-`playback` and no-`account` builds have only been built on macOS, and the feature jobs
       don't cover Windows.
 - [ ] Rename the packages before v0.1.0, when installer names become permanent: the CLI package
       to `locallibrary` and the library to `locallibrary-core`, keeping `[lib] name =
-      "locallibrary"` so no `use` changes.
+      "locallibrary"` so no `use` changes. Release tags then become `locallibrary-v0.1.0` (update
+      CONTRIBUTING.md's "Releasing"). Until then a `locallibrary-v…` tag picks the library
+      package, so releases are tagged `locallibrary-cli-v…`.
 - [ ] Drop the pre-release compatibility aliases (the hidden CLI commands in `main.rs`, the `gig`
       role, the RPC method aliases): they only map from builds nobody else ran, and after v0.1.0
       they're public contract. Fold CHANGELOG "Changed" into "Added" at the same time (it still
       lists `mirror` and `push`).
 - [ ] `dist plan` runs only on PRs that touch a `Cargo.toml`, `Cargo.lock`, `dist-workspace.toml`,
-      `rust-toolchain.toml` or `release.yml`; the rename PR will trigger it. Then try the release
-      pipeline with `v0.1.0-rc.1` (which skips the Homebrew push) before tagging v0.1.0.
+      `rust-toolchain.toml` or `locallibrary-release.yml`; the rename PR will trigger it. Then try
+      the release pipeline with `locallibrary-v0.1.0-rc.1` (which skips the Homebrew push) before
+      tagging `locallibrary-v0.1.0`.
 - [ ] Third-party notices for the release archives and the Homebrew formula: generate them with
-      `cargo about` in `release.yml`, plus rekordbox-pdb's MIT notice for the vendored code and
-      `crates/locallibrary/src/convert/template.pdb`. Keep the task here or in CONTRIBUTING.md's release
-      checklist, not both.
+      `cargo about` in `locallibrary-release.yml`, plus rekordbox-pdb's MIT notice for the vendored
+      code and `crates/locallibrary/src/convert/template.pdb`. Keep the task here or in
+      CONTRIBUTING.md's release checklist, not both.
 - [ ] Jobs (`refresh`, `prep`) re-plan later steps on any `StalePlan`, including a rekordbox export
       mid-job, which breaks `op.rs`'s promise that the confirmed plan is what runs. Re-plan only
       drives this job already wrote; refuse otherwise.
