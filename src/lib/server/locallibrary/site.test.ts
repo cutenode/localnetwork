@@ -20,14 +20,25 @@ describe('locallibrarySite', () => {
 		expect(doc.token_endpoint_auth_method).toBe('none');
 		expect(doc.dpop_bound_access_tokens).toBe(true);
 		expect(doc.redirect_uris).toContain('http://127.0.0.1/callback');
-		expect(doc.scope.split(' ')).toContain('atproto');
+		// Servers refuse a sign-in that asks for more than this allows, so publishing needs its scopes here.
+		expect(doc.scope.split(' ')).toEqual(
+			expect.arrayContaining([
+				'atproto',
+				...['settings', 'profile', 'set'].map(
+					(record) => `repo:computer.localnetwork.locallibrary.${record}?action=create&action=update`
+				)
+			])
+		);
 	});
 
 	it('serves the page at the root, locked down', async () => {
 		const res = locallibrarySite(request('LocalLibrary.localnetwork.computer:443'), '/');
 		expect(res?.status).toBe(200);
 		expect(res?.headers.get('content-security-policy')).toContain("default-src 'none'");
-		expect(await res!.text()).toMatch(/Atmosphere\s+account/);
+		const html = await res!.text();
+		expect(html).toMatch(/Atmosphere\s+account/);
+		// It says what publishing asks for, since the client document now allows it.
+		expect(html).toMatch(/can't delete them/);
 		const head = locallibrarySite(request('locallibrary.localnetwork.computer', 'HEAD'), '/');
 		expect(head?.status).toBe(200);
 		expect(await head!.text()).toBe('');

@@ -4,19 +4,24 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>locallibrary</title>
-		<meta name="description" content="locallibrary keeps rekordbox USB drives in sync, backed up and merged." />
+		<meta
+			name="description"
+			content="locallibrary looks after your rekordbox library and the USB drives that carry it: sync, history, edits and checks before a set."
+		/>
 		<style>
 			:root {
 				color-scheme: light dark;
 				--fg: #15181e;
 				--muted: #5a6372;
 				--bg: #f5f6f8;
+				--code-bg: #e8eaef;
 			}
 			@media (prefers-color-scheme: dark) {
 				:root {
 					--fg: #e4e9ef;
 					--muted: #98a2b3;
 					--bg: #0f1319;
+					--code-bg: #1b212b;
 				}
 			}
 			body {
@@ -43,14 +48,29 @@
 				font-size: 1.05rem;
 				margin: 2rem 0 0.25rem;
 			}
-			p {
+			p,
+			ul {
 				margin: 0 0 0.75rem;
+			}
+			ul {
+				padding-left: 1.25rem;
+			}
+			a {
+				color: inherit;
 			}
 			.muted {
 				color: var(--muted);
 			}
 			code {
 				font-size: 0.9em;
+				overflow-wrap: anywhere;
+			}
+			pre {
+				background: var(--code-bg);
+				border-radius: 6px;
+				padding: 0.75rem 1rem;
+				margin: 0 0 0.75rem;
+				overflow-x: auto;
 			}
 		</style>
 	</head>
@@ -58,8 +78,39 @@
 		<main>
 			<h1>locallibrary</h1>
 			<p>
-				A desktop and command-line tool for DJs that keeps rekordbox USB drives in sync, backed up with full history,
-				and merged, and works out what your sets say about how you play.
+				locallibrary looks after your rekordbox library and the USB drives that carry it. If you export from rekordbox
+				to a stick and play from it on CDJs or XDJs, it can:
+			</p>
+			<ul>
+				<li>keep every copy of your library identical to the drive you export to, copying only what changed;</li>
+				<li>tell you which drive is newest, and why;</li>
+				<li>keep a history of your library on your computer, so a lost or broken drive can be rebuilt;</li>
+				<li>
+					edit playlists, tags, cues, ratings and cover art right on your drives, and redo those edits after rekordbox
+					exports again;
+				</li>
+				<li>check drives before a set, down to the tracks a particular player won't load;</li>
+				<li>
+					keep the history lists players record and turn them into tracklists for Mixcloud, YouTube or a CUE sheet;
+				</li>
+				<li>set the same My Settings on every drive, and format drives the way players read them.</li>
+			</ul>
+			<p>
+				It runs in a terminal, on a Mac (Linux and Windows are experimental). Typing <code>locallibrary</code> on its
+				own opens a player where you can browse your library and listen to it the way a CDJ shows it. Every change shows
+				its plan and asks first, and <code>locallibrary undo</code> takes the last one back.
+			</p>
+
+			<h2>Getting it</h2>
+			<p>
+				There's no ready-made download yet, so for now you build it on your own computer.
+				<a href="https://github.com/cutenode/locallibrary/blob/main/docs/install.md">Installing locallibrary</a> walks
+				through it. Then plug in your drives and run:
+			</p>
+			<pre><code>locallibrary setup</code></pre>
+			<p>
+				The <a href="https://github.com/cutenode/locallibrary#readme">README</a> covers everyday use, and the
+				<a href="https://github.com/cutenode/locallibrary/tree/main/docs">guides</a> cover the rest.
 			</p>
 
 			<h2>Signing in</h2>
@@ -69,8 +120,29 @@
 				locallibrary never sees your password.
 			</p>
 			<p>
-				locallibrary only asks to know who you are. It can't post or change anything on your account, and you can sign
-				out with <code>locallibrary account logout</code> or remove it from your account's settings at any time.
+				Signing in only asks to know who you are. Sign out with <code>locallibrary account logout</code>, or remove
+				locallibrary from your account's settings, at any time.
+			</p>
+
+			<h2>Publishing</h2>
+			<p>
+				Publishing your sets, your My Settings or your DJ profile asks for one more permission, the first time: to
+				create and update locallibrary's own records in your account. It can't delete them, and can't touch anything
+				else.
+			</p>
+			<ul>
+				<li><code>locallibrary sets publish</code> writes a set: the day, venue, event and tracks in order.</li>
+				<li><code>locallibrary settings publish</code> writes your My Settings.</li>
+				<li><code>locallibrary profile publish</code> writes a rounded summary of how you play.</li>
+			</ul>
+			<p>
+				Each one shows exactly what it will publish and asks first. Tracks you mark unnamed go out without a name, and a
+				set's notes, recordings and file paths stay on your computer. What's published is public.
+			</p>
+			<p>
+				A recorded mix exported with <code>locallibrary mix … --export</code> can go on your
+				<a href="https://localnetwork.computer/for-djs">Local Network</a> profile, with its tracklist, tempo and every
+				transition.
 			</p>
 
 			<p class="muted">

@@ -1,8 +1,8 @@
-// The site for locallibrary, the DJ drive tool (desktop app and CLI) that signs in with Atmosphere
-// accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json`. This app
-// serves it to requests for that host. It can't share the main site's
-// /oauth-client-metadata.json: that one is Local Network's own web client, and a desktop app
-// needs a native client with a 127.0.0.1 redirect.
+// The site for locallibrary, the DJ drive tool (CLI and terminal player) that signs in with
+// Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json`.
+// This app serves it to requests for that host. It can't share the main site's
+// /oauth-client-metadata.json: that one is Local Network's own web client, and a native app needs
+// a client with a 127.0.0.1 redirect.
 //
 // oauth-client-metadata.json is written by locallibrary:
 //   locallibrary account client-metadata -o src/lib/server/locallibrary/oauth-client-metadata.json
