@@ -1,0 +1,3 @@
+disallowed-types = [
+    { path = "std::collections::BTreeMap", reason = "use IndexMap", replacement = "indexmap::IndexMap" },
+]

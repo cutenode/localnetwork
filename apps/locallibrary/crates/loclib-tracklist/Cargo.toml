@@ -1,0 +1,28 @@
+[package]
+name = "loclib-tracklist"
+description = "Read tracklists (M3U, CSV, rekordbox text and XML, plain text) and find their tracks in a DJ library"
+readme = "README.md"
+keywords = ["dj", "playlist", "m3u", "rekordbox", "tracklist"]
+categories = ["multimedia::audio", "parser-implementations"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-model.workspace = true
+percent-encoding.workspace = true
+rustc-hash.workspace = true
+schemars = { optional = true, version = "1.2", default-features = false, features = ["derive", "std"] }
+serde.workspace = true
+thiserror.workspace = true
+unicode-normalization.workspace = true
+
+[features]
+schemars = ["dep:schemars"]
+
+[dev-dependencies]
+loclib-model = { workspace = true, features = ["test-util"] }
+hegeltest.workspace = true
+serde_json.workspace = true

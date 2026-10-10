@@ -1,0 +1,25 @@
+[package]
+name = "loclib-mixid"
+description = "Find which known tracks a recorded DJ mix plays, when, at what speed and with or without key lock"
+readme = "README.md"
+keywords = ["dj", "fingerprint", "audio", "mix", "tracklist"]
+categories = ["multimedia::audio"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-progress.workspace = true
+rustc-hash.workspace = true
+rustfft.workspace = true
+symphonia.workspace = true
+thiserror.workspace = true
+
+[features]
+# `test_util`: synthetic audio and WAV files for tests, in this crate and the ones built on it.
+test-util = []
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,23 @@
+[package]
+name = "loclib-equipment"
+description = "What each Pioneer DJ / AlphaTheta player, all-in-one and mixer reads from a USB drive, with sources"
+readme = "README.md"
+keywords = ["rekordbox", "pioneer", "cdj", "dj", "alphatheta"]
+categories = ["multimedia::audio", "data-structures"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+schemars = { optional = true, version = "1.2", default-features = false, features = ["derive", "std"] }
+serde.workspace = true
+thiserror.workspace = true
+
+[features]
+# `JsonSchema` for the types, and the test that keeps equipment.schema.json current.
+schemars = ["dep:schemars"]
+
+[dev-dependencies]
+serde_json.workspace = true

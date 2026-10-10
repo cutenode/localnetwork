@@ -1,0 +1,4 @@
+# `cargo coverage`: the tests under cargo-llvm-cov, failing below these thresholds. CI runs it on
+# Linux; raise the thresholds to just under the new numbers when coverage goes up.
+[alias]
+coverage = "llvm-cov nextest --workspace --locked --no-fail-fast --fail-under-lines 95 --fail-under-functions 92.5 --fail-under-regions 93"

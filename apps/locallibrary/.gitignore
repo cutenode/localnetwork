@@ -1,0 +1,12 @@
+/target
+**/*.rs.bk
+.DS_Store
+# Hegel keeps failing examples here to replay them first next time.
+.hegel/
+node_modules/
+# Claude Code's worktrees and per-machine settings.
+.claude/worktrees/
+.claude/settings.local.json
+.claude/launch.json
+# Local secrets (HappyView admin token).
+.env

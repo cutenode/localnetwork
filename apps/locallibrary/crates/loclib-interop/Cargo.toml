@@ -1,0 +1,41 @@
+[package]
+name = "loclib-interop"
+description = "Write a DJ library for other DJ software: Traktor's collection.nml, Serato crates and cue tags, an Engine DJ library"
+readme = "README.md"
+keywords = ["dj", "traktor", "serato", "engine-dj", "rekordbox"]
+categories = ["multimedia::audio", "encoding"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64 = { workspace = true, optional = true }
+blake3 = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+loclib-model.workspace = true
+loclib-progress.workspace = true
+getrandom = { workspace = true, optional = true }
+lofty = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+rustc-hash.workspace = true
+schemars = { optional = true, version = "1.2", default-features = false, features = ["derive", "std"] }
+serde.workspace = true
+tempfile = { workspace = true, optional = true }
+thiserror.workspace = true
+uuid = { workspace = true, optional = true }
+
+[features]
+default = ["traktor", "serato", "engine"]
+# Traktor's collection.nml.
+traktor = ["dep:blake3", "dep:chrono"]
+# Serato's crates, and its cue tag written into copies of the audio.
+serato = ["dep:base64", "dep:lofty"]
+# A new Engine DJ library: an SQLite database (SQLite is built in).
+engine = ["dep:chrono", "dep:getrandom", "dep:rusqlite", "dep:tempfile", "dep:uuid"]
+# `JsonSchema` for `Software`.
+schemars = ["dep:schemars"]
+
+[dev-dependencies]
+tempfile.workspace = true

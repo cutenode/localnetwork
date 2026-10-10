@@ -1,0 +1,23 @@
+[package]
+name = "loclib-waveform"
+description = "ratatui widgets for music software: rekordbox-style waveforms, cue markers, phrases, a spectrum, a scope and cover art"
+readme = "README.md"
+keywords = ["ratatui", "tui", "waveform", "dj", "rekordbox"]
+categories = ["command-line-interface", "multimedia::audio", "visualization"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-model.workspace = true
+image = { workspace = true, optional = true }
+ratatui = { version = "0.30", default-features = false, features = ["std"] }
+
+[features]
+# `Art`: decoding cover art (JPEG, PNG, WebP, BMP, GIF) and resampling it to cells.
+image = ["dep:image"]
+
+[dev-dependencies]
+image.workspace = true

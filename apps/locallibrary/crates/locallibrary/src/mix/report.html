@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f3f2ef;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --ring: rgba(11, 11, 11, 0.10);
+  --accent: #2a78d6;
+  --accent-wash: rgba(42, 120, 214, 0.10);
+  --good: #006300;
+  --critical: #d03b3b;
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.06);
+  /* The mix display is dark in both themes, like a player's screen. */
+  --deck: #141413;
+  --deck-2: #1f1f1d;
+  --deck-3: #2c2c2a;
+  --deck-ink: #ffffff;
+  --deck-ink-2: #c3c2b7;
+  --deck-muted: #898781;
+  --low: #3987e5;
+  --mid: #d95926;
+  --high: #ece9df;
+  --lane: #3987e5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #232321;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --ring: rgba(255, 255, 255, 0.10);
+    --accent: #3987e5;
+    --accent-wash: rgba(57, 135, 229, 0.14);
+    --good: #0ca30c;
+    --critical: #e66767;
+    --shadow: none;
+    --deck: #111110;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232321;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --ring: rgba(255, 255, 255, 0.10);
+  --accent: #3987e5;
+  --accent-wash: rgba(57, 135, 229, 0.14);
+  --good: #0ca30c;
+  --critical: #e66767;
+  --shadow: none;
+  --deck: #111110;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+body.has-player { padding-bottom: 88px; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 32px 24px 48px; }
+@media (max-width: 640px) { .wrap { padding: 20px 16px 40px; } }
+button { font: inherit; color: inherit; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Header */
+header.mix { display: grid; grid-template-columns: auto 1fr auto; gap: 28px; align-items: end; }
+.cover {
+  width: 168px; height: 168px; border-radius: 14px; overflow: hidden; background: var(--deck);
+  box-shadow: 0 0 0 1px var(--ring), var(--shadow); position: relative;
+}
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover canvas { width: 100%; height: 100%; display: block; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+h1 { font-size: clamp(26px, 4vw, 40px); line-height: 1.08; margin: 0; font-weight: 650; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.byline { margin: 8px 0 0; color: var(--ink-2); font-size: 16px; }
+.facts { margin: 10px 0 0; color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.theme-toggle {
+  align-self: start; border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  border-radius: 8px; padding: 6px 10px; font-size: 13px;
+}
+.theme-toggle:hover { background: var(--surface-2); color: var(--ink); }
+@media (max-width: 720px) {
+  header.mix { grid-template-columns: 1fr; gap: 16px; }
+  .cover { width: 112px; height: 112px; }
+  .theme-toggle { position: absolute; right: 12px; top: 12px; }
+}
+
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 28px 0 0; }
+@media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tile { background: var(--surface); border-radius: 12px; padding: 14px 16px; box-shadow: 0 0 0 1px var(--ring); }
+.tile .label { font-size: 12.5px; color: var(--ink-2); }
+.tile .value { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; margin-top: 2px; }
+.tile .sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+section { margin-top: 28px; }
+.card { background: var(--surface); border-radius: 14px; box-shadow: 0 0 0 1px var(--ring), var(--shadow); padding: 18px 20px 20px; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.card-head .hint { font-size: 12.5px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.legend .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.legend .ln { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+
+/* The deck: waveform + lanes */
+.deck { background: var(--deck); border-radius: 14px; padding: 16px 0 10px; color: var(--deck-ink); position: relative; box-shadow: var(--shadow); }
+.deck-head { display: flex; justify-content: space-between; align-items: center; padding: 0 18px 10px; gap: 12px; flex-wrap: wrap; }
+.deck-head h2 { color: var(--deck-ink); }
+.deck .legend { color: var(--deck-ink-2); }
+.zoom { display: inline-flex; background: var(--deck-2); border-radius: 8px; padding: 2px; }
+.zoom button { border: 0; background: transparent; color: var(--deck-ink-2); padding: 3px 10px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.zoom button[aria-pressed="true"] { background: var(--deck-3); color: var(--deck-ink); }
+.scroller { overflow-x: auto; overflow-y: hidden; padding: 0 18px; scrollbar-width: thin; scrollbar-color: var(--deck-3) transparent; }
+.timeline { position: relative; user-select: none; touch-action: pan-x; }
+.timeline canvas.wave { display: block; width: 100%; height: 112px; }
+.lanes { position: relative; margin-top: 10px; }
+.block {
+  position: absolute; height: 58px; border-radius: 7px; background: var(--deck-2); overflow: hidden;
+  cursor: pointer; border: 0; padding: 0; text-align: left; color: var(--deck-ink);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  transition: box-shadow .12s, background .12s;
+}
+.block:hover, .block:focus-visible, .block.on { background: var(--deck-3); box-shadow: inset 0 0 0 2px var(--lane); outline: none; }
+.block.tentative { opacity: .72; }
+.block svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.block .lab { position: absolute; left: 8px; right: 8px; top: 6px; display: flex; gap: 8px; align-items: center; pointer-events: none; }
+.block .lab img { width: 32px; height: 32px; border-radius: 4px; flex: none; object-fit: cover; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
+.block .lab .t { min-width: 0; }
+.block .lab .n { font-size: 11px; color: var(--deck-ink-2); white-space: nowrap; }
+.block .lab .ti { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.block .lab .ar { font-size: 11.5px; color: var(--deck-ink-2); white-space: nowrap; }
+.gap { position: absolute; height: 58px; border-radius: 7px; border: 1px solid var(--deck-3); color: var(--deck-muted); font-size: 11.5px; display: flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; }
+.axis { position: relative; height: 22px; margin-top: 6px; }
+.axis span { position: absolute; top: 4px; transform: translateX(-50%); font-size: 11px; color: var(--deck-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.axis span::before { content: ""; position: absolute; left: 50%; top: -6px; width: 1px; height: 4px; background: var(--deck-3); }
+.playhead, .hoverline { position: absolute; top: 0; bottom: 28px; width: 2px; margin-left: -1px; pointer-events: none; }
+.playhead { background: #ffffff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); display: none; }
+.hoverline { background: rgba(255,255,255,.35); width: 1px; display: none; }
+.deck-foot { display: flex; justify-content: space-between; padding: 6px 18px 0; font-size: 12px; color: var(--deck-muted); gap: 12px; flex-wrap: wrap; }
+
+/* Tooltip */
+.tip {
+  position: fixed; z-index: 20; pointer-events: none; max-width: 300px; background: var(--surface); color: var(--ink);
+  border-radius: 10px; padding: 10px 12px; font-size: 12.5px; box-shadow: 0 0 0 1px var(--ring), 0 10px 30px rgba(0,0,0,.18);
+  opacity: 0; transform: translateY(4px); transition: opacity .08s, transform .08s;
+}
+.tip.show { opacity: 1; transform: none; }
+.tip .tv { font-size: 15px; font-weight: 600; }
+.tip .ts { color: var(--ink-2); }
+.tip .tm { color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.tip .row { display: flex; align-items: center; gap: 6px; }
+.tip .row .ln { width: 12px; height: 2px; border-radius: 1px; flex: none; }
+
+/* Tempo + wheel */
+.pair { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+svg text { font-family: inherit; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.wheel-wrap { display: flex; justify-content: center; }
+.wheel-wrap svg { width: 100%; max-width: 360px; height: auto; }
+
+/* Tracklist */
+.tracks { list-style: none; margin: 0; padding: 0; }
+.track {
+  display: grid; grid-template-columns: 34px 56px minmax(0, 1fr) 280px 128px; gap: 6px 16px; align-items: center;
+  grid-template-areas: "idx art who used nums" ". . also also also";
+  padding: 12px 10px; border-radius: 10px; cursor: pointer; position: relative;
+}
+.track .idx { grid-area: idx; } .track .art { grid-area: art; } .track .who { grid-area: who; }
+.track .used { grid-area: used; } .track .nums { grid-area: nums; } .track .also { grid-area: also; }
+.track:hover { background: var(--surface-2); }
+.track.on { background: var(--accent-wash); }
+.track:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.track .idx { font-size: 20px; font-weight: 600; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.track .art { width: 56px; height: 56px; border-radius: 8px; background: var(--surface-2); overflow: hidden; box-shadow: 0 0 0 1px var(--ring); }
+.track .art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.track .who { min-width: 0; }
+.track .title { font-weight: 600; overflow-wrap: anywhere; }
+.track .artist { color: var(--ink-2); overflow-wrap: anywhere; }
+.track .meta { color: var(--muted); font-size: 12.5px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.track .meta .when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; border-radius: 999px; padding: 1px 8px; background: var(--surface-2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--ring); white-space: nowrap; }
+.used canvas { width: 280px; height: 44px; display: block; }
+.used .cap { font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; gap: 8px; }
+.used .cap b { color: var(--ink-2); font-weight: 500; }
+.nums { text-align: right; }
+.nums .bpm { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.nums .bpm small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.nums .key { margin-top: 2px; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.nums .speed { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.conf { display: inline-block; width: 40px; height: 4px; border-radius: 2px; background: var(--grid); vertical-align: middle; position: relative; overflow: hidden; margin-left: 6px; }
+.conf i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink-2); border-radius: 2px; }
+.also { font-size: 12px; color: var(--muted); }
+.handoff {
+  display: flex; align-items: center; gap: 10px; padding: 2px 10px 2px 60px; font-size: 12.5px; color: var(--muted);
+}
+.handoff .rule { flex: 1; height: 1px; background: var(--grid); }
+.handoff .ok { color: var(--good); }
+.handoff .bad { color: var(--critical); }
+.unknown { padding: 10px 10px 10px 60px; color: var(--muted); font-size: 13px; }
+@media (max-width: 1000px) {
+  .track { grid-template-columns: 28px 48px minmax(0, 1fr) 112px; grid-template-areas: "idx art who nums" ". . used used" ". . also also"; }
+  .track .art { width: 48px; height: 48px; }
+  .used canvas { width: 100%; }
+}
+@media (max-width: 560px) {
+  .track { grid-template-columns: 24px 44px minmax(0, 1fr); gap: 8px 12px; grid-template-areas: "idx art who" ". . nums" ". . used" ". . also"; }
+  .track .nums { text-align: left; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .track .art { width: 44px; height: 44px; }
+  .handoff { padding-left: 36px; }
+}
+
+footer { margin-top: 36px; color: var(--muted); font-size: 12.5px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+footer button { background: none; border: 0; color: var(--ink-2); cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Player */
+.player {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: color-mix(in srgb, var(--deck) 94%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); color: var(--deck-ink);
+  border-top: 1px solid rgba(255,255,255,.06);
+}
+.player .in { max-width: 1240px; margin: 0 auto; padding: 12px 24px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: center; }
+@media (max-width: 640px) { .player .in { padding: 10px 16px; gap: 12px; } }
+.pp { width: 44px; height: 44px; border-radius: 50%; border: 0; background: #ffffff; color: #111; cursor: pointer; display: grid; place-items: center; }
+.pp:focus-visible { outline: 2px solid var(--lane); outline-offset: 2px; }
+.pp svg { width: 18px; height: 18px; }
+.now { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.now .stack { position: relative; width: 44px; height: 44px; flex: none; }
+.now .stack img { position: absolute; inset: 0; width: 44px; height: 44px; border-radius: 6px; object-fit: cover; transition: opacity .3s; }
+.now .txt { min-width: 0; }
+.now .l1 { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now .l2 { font-size: 12.5px; color: var(--deck-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.xfader { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--deck-muted); }
+.xfader .rail { width: 84px; height: 4px; border-radius: 2px; background: var(--deck-3); position: relative; }
+.xfader .cap { position: absolute; top: -5px; width: 8px; height: 14px; margin-left: -4px; border-radius: 2px; background: var(--deck-ink); transition: left .25s; }
+.clock { font-size: 13px; color: var(--deck-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 640px) { .xfader { display: none; } }
+.noaudio { font-size: 12.5px; color: var(--deck-muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="mix" id="head"></header>
+  <div class="tiles" id="tiles"></div>
+
+  <section>
+    <div class="deck" id="deck">
+      <div class="deck-head">
+        <h2>The mix</h2>
+        <div class="legend" aria-label="Waveform legend">
+          <span class="key"><span class="sw" style="background:var(--low)"></span>Lows</span>
+          <span class="key"><span class="sw" style="background:var(--mid)"></span>Mids</span>
+          <span class="key"><span class="sw" style="background:var(--high)"></span>Highs</span>
+          <span class="key"><span class="ln" style="background:var(--lane)"></span>How clearly each track is heard</span>
+        </div>
+        <div class="zoom" role="group" aria-label="Zoom">
+          <button data-z="1" aria-pressed="true">Fit</button><button data-z="2" aria-pressed="false">2×</button><button data-z="4" aria-pressed="false">4×</button>
+        </div>
+      </div>
+      <div class="scroller" id="scroller">
+        <div class="timeline" id="timeline">
+          <canvas class="wave" id="wave" aria-label="Waveform of the whole mix"></canvas>
+          <div class="lanes" id="lanes"></div>
+          <div class="axis" id="axis"></div>
+          <div class="hoverline" id="hoverline"></div>
+          <div class="playhead" id="playhead"></div>
+        </div>
+      </div>
+      <div class="deck-foot"><span id="deckhint"></span><span id="decksrc"></span></div>
+    </div>
+  </section>
+
+  <section class="pair">
+    <div class="card">
+      <div class="card-head">
+        <h2>Tempo</h2>
+        <div class="legend">
+          <span class="key"><span class="ln" style="background:var(--accent)"></span>As played</span>
+          <span class="key"><span class="ln" style="background:var(--muted)"></span>As recorded</span>
+        </div>
+      </div>
+      <div class="chart" id="tempo"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Key journey</h2>
+        <div class="legend">
+          <span class="key"><span class="ln" style="background:var(--accent)"></span>Harmonic move</span>
+          <span class="key"><span class="ln" style="background:var(--critical)"></span>Clash</span>
+        </div>
+      </div>
+      <div class="wheel-wrap" id="wheel"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Tracklist</h2><span class="hint" id="listhint"></span></div>
+    <ol class="tracks" id="tracks"></ol>
+  </section>
+
+  <footer><span id="foot"></span><button id="dl" type="button">Download the data (JSON)</button></footer>
+</div>
+
+<div class="tip" id="tip" role="tooltip"></div>
+<div class="player" id="player" hidden>
+  <div class="in">
+    <button class="pp" id="pp" aria-label="Play"></button>
+    <div class="now">
+      <div class="stack" id="nowart"></div>
+      <div class="txt"><div class="l1" id="now1"></div><div class="l2" id="now2"></div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:18px">
+      <div class="xfader" id="xf" title="Which track is louder"><span>A</span><div class="rail"><div class="cap" id="xfcap" style="left:50%"></div></div><span>B</span></div>
+      <div class="clock" id="clock">0:00</div>
+    </div>
+  </div>
+  <audio id="audio" preload="metadata"></audio>
+</div>
+
+<script id="data" type="application/json">/*{{DATA}}*/null</script>
+<script>
+(() => {
+"use strict";
+const D = JSON.parse(document.getElementById("data").textContent);
+const R = D.report, X = D.extras || [];
+const plays = R.plays;
+const dur = Math.max(1, R.mix.duration_secs);
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const svgEl = (tag, attrs) => { const e = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in attrs || {}) e.setAttribute(k, attrs[k]); return e; };
+const clock = (s) => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
+const pct = (r) => { const v = (r - 1) * 100; return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "%"; };
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const name = (t) => t.artist ? `${t.artist} – ${t.title}` : t.title;
+const b64 = (s) => { const bin = atob(s); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
+
+/* Theme toggle: auto → light → dark. */
+const themes = ["auto", "light", "dark"];
+let theme = "auto";
+try { theme = localStorage.getItem("mix-theme") || "auto"; } catch (_) {}
+const applyTheme = () => {
+  if (theme === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", theme);
+};
+applyTheme();
+
+/* ---------- Header ---------- */
+(function header() {
+  const h = $("head");
+  const cover = el("div", "cover");
+  if (D.cover) { const img = el("img"); img.src = D.cover; img.alt = ""; cover.append(img); }
+  else { const c = el("canvas"); cover.append(c); requestAnimationFrame(() => drawDisc(c)); }
+  const text = el("div");
+  text.append(el("p", "eyebrow", R.mix.kind === "audacity" ? "Audacity project" : "Mix"));
+  text.append(el("h1", null, R.mix.title || "Untitled mix"));
+  const by = [R.mix.artist, R.mix.genre, R.mix.date].filter(Boolean).join(" · ");
+  if (by) text.append(el("p", "byline", by));
+  const facts = el("p", "facts");
+  const add = (s) => facts.append(el("span", null, s));
+  add(clock(R.mix.duration_secs));
+  if (R.mix.recorder) add("Recorded on " + R.mix.recorder);
+  text.append(facts);
+  const tt = el("button", "theme-toggle"); tt.type = "button";
+  const label = () => tt.textContent = { auto: "Theme: auto", light: "Theme: light", dark: "Theme: dark" }[theme];
+  label();
+  tt.onclick = () => { theme = themes[(themes.indexOf(theme) + 1) % 3]; try { localStorage.setItem("mix-theme", theme); } catch (_) {} applyTheme(); label(); redraw(); };
+  h.append(cover, text, tt);
+})();
+
+function drawDisc(c) {
+  // No cover: draw the mix's own waveform as a disc.
+  const s = c.clientWidth * devicePixelRatio; c.width = c.height = s;
+  const g = c.getContext("2d"); const w = R.waveform; const n = w.peak.length || 1;
+  g.fillStyle = "#141413"; g.fillRect(0, 0, s, s); g.translate(s / 2, s / 2);
+  const rings = 180;
+  for (let i = 0; i < rings; i++) {
+    const k = Math.floor(i / rings * n), a = i / rings * Math.PI * 2 - Math.PI / 2;
+    const lo = (w.low[k] || 0) / 255, mi = (w.mid[k] || 0) / 255;
+    const r0 = s * 0.16, r1 = r0 + s * 0.30 * Math.max(lo, mi * 0.9);
+    g.strokeStyle = lo > mi ? "#3987e5" : "#d95926"; g.globalAlpha = 0.85; g.lineWidth = Math.max(1, s / 260);
+    g.beginPath(); g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); g.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); g.stroke();
+  }
+  g.globalAlpha = 1; g.fillStyle = "#ece9df"; g.beginPath(); g.arc(0, 0, s * 0.035, 0, Math.PI * 2); g.fill();
+}
+
+/* ---------- Stat tiles ---------- */
+(function tiles() {
+  const t = $("tiles");
+  const tile = (label, value, sub) => { const d = el("div", "tile"); d.append(el("div", "label", label), el("div", "value", value)); if (sub) d.append(el("div", "sub", sub)); t.append(d); };
+  tile("Tracks identified", String(plays.length), plays.length ? `${plays.filter(p => !p.tentative).length} with high confidence` : "none found");
+  tile("Of the mix identified", Math.round(R.coverage * 100) + "%", R.unidentified.length ? `${R.unidentified.length} stretch${R.unidentified.length > 1 ? "es" : ""} not in the library` : "nothing missing");
+  const bpms = plays.map(p => p.played_bpm).filter(Boolean).sort((a, b) => a - b);
+  if (bpms.length) {
+    const lo = bpms[0], hi = bpms[bpms.length - 1], mid = bpms[Math.floor(bpms.length / 2)];
+    tile("Tempo", `${mid.toFixed(0)} BPM`, Math.round(hi) - Math.round(lo) >= 2 ? `${lo.toFixed(0)}–${hi.toFixed(0)} across the set` : "held steady all set");
+  } else tile("Tempo", "—", "no BPM in the library");
+  const known = R.transitions.filter(t => t.harmony);
+  const good = known.filter(t => t.harmony !== "clash").length;
+  tile("Harmonic transitions", known.length ? `${good} of ${known.length}` : "—", known.length ? "by the keys as played" : "keys unknown");
+})();
+
+/* ---------- Timeline ---------- */
+let zoom = 1;
+const timeline = $("timeline"), scroller = $("scroller"), lanesEl = $("lanes");
+const lanes = (() => {
+  // Alternate decks A/B; a third lane only if three tracks overlap.
+  const ends = []; const out = [];
+  plays.forEach((p, i) => {
+    let lane = i % 2;
+    const free = (l) => (ends[l] ?? -Infinity) <= p.start + 0.5;
+    if (!free(lane)) { lane = ends.findIndex((e, l) => free(l)); if (lane < 0) lane = ends.length; }
+    ends[lane] = p.end; out.push(lane);
+  });
+  return out;
+})();
+const laneCount = Math.max(2, ...lanes.map(l => l + 1));
+const LANE_H = 58, LANE_GAP = 8;
+lanesEl.style.height = laneCount * LANE_H + (laneCount - 1) * LANE_GAP + "px";
+
+function width() { return Math.max(320, (scroller.clientWidth - 36) * zoom); }
+const xOf = (t, w) => t / dur * w;
+
+function drawWave() {
+  const c = $("wave"), w = width(), h = 112, dpr = devicePixelRatio || 1;
+  timeline.style.width = w + "px";
+  c.width = Math.round(w * dpr); c.height = h * dpr; c.style.width = w + "px";
+  const g = c.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, w, h);
+  const W = R.waveform, n = W.low.length; if (!n) return;
+  const mid = h / 2;
+  const cols = Math.min(n, Math.round(w));
+  // Layered like a player's 3-band waveform: lows outermost, highs a bright core.
+  const layers = [["low", css("--low"), 1], ["mid", css("--mid"), 0.66], ["high", css("--high"), 0.32]];
+  for (const [band, color, scale] of layers) {
+    g.fillStyle = color;
+    for (let x = 0; x < cols; x++) {
+      const a = Math.floor(x / cols * n), b = Math.max(a + 1, Math.floor((x + 1) / cols * n));
+      let mx = 0, sum = 0; for (let k = a; k < b; k++) { mx = Math.max(mx, W[band][k]); sum += W[band][k]; }
+      const v = 0.6 * mx + 0.4 * sum / (b - a);
+      const amp = v / 255 * (mid - 2) * scale;
+      const px = x / cols * w, pw = Math.max(1, w / cols - (w / cols > 3 ? 1 : 0));
+      g.fillRect(px, mid - amp, pw, amp * 2);
+    }
+  }
+  // Dim what has already played.
+  if (audioReady && audio.currentTime > 0) {
+    g.fillStyle = "rgba(20,20,19,0.45)"; g.fillRect(0, 0, xOf(audio.currentTime, w), h);
+  }
+}
+
+function drawLanes() {
+  const w = width();
+  lanesEl.replaceChildren();
+  R.unidentified.forEach((u) => {
+    const d = el("div", "gap"); const x = xOf(u.start, w), ww = xOf(u.end, w) - x;
+    d.style.left = x + "px"; d.style.width = ww + "px"; d.style.top = (LANE_H + LANE_GAP) * (laneCount - 1) / 2 + "px";
+    if (ww > 90) d.textContent = "Not in the library";
+    d.title = `${clock(u.start)}–${clock(u.end)}: no track from the library found here`;
+    lanesEl.append(d);
+  });
+  plays.forEach((p, i) => {
+    const b = el("button", "block" + (p.tentative ? " tentative" : "")); b.type = "button"; b.dataset.i = i;
+    const x = xOf(p.start, w), bw = Math.max(4, xOf(p.end, w) - x);
+    b.style.left = x + "px"; b.style.width = bw + "px"; b.style.top = lanes[i] * (LANE_H + LANE_GAP) + "px";
+    b.setAttribute("aria-label", `${i + 1}. ${name(p.track)}, ${clock(p.start)} to ${clock(p.end)}`);
+    // Presence: how clearly the track is heard, as an area along the block.
+    const s = svgEl("svg", { viewBox: `0 0 ${bw} ${LANE_H}`, preserveAspectRatio: "none" });
+    const pr = p.presence.length ? p.presence : [1];
+    const pts = pr.map((v, k) => [pr.length === 1 ? bw / 2 : k / (pr.length - 1) * bw, LANE_H - 3 - v * (LANE_H * 0.62)]);
+    const line = pts.map((q, k) => (k ? "L" : "M") + q[0].toFixed(1) + " " + q[1].toFixed(1)).join(" ");
+    s.append(svgEl("path", { d: `${line} L${bw} ${LANE_H} L0 ${LANE_H} Z`, fill: css("--lane"), "fill-opacity": "0.16" }));
+    s.append(svgEl("path", { d: line, fill: "none", stroke: css("--lane"), "stroke-width": "2", "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }));
+    b.append(s);
+    const lab = el("div", "lab");
+    if (bw > 150 && X[i] && X[i].art) { const img = el("img"); img.src = X[i].art; img.alt = ""; lab.append(img); }
+    const tx = el("div", "t");
+    if (bw > 16) tx.append(el("div", "n", String(i + 1)));
+    if (bw > 110) { tx.append(el("div", "ti", p.track.title)); if (p.track.artist) tx.append(el("div", "ar", p.track.artist)); }
+    // Only keep labels that fit; the tooltip and tracklist carry the rest.
+    lab.append(tx); b.append(lab);
+    b.addEventListener("pointerenter", (e) => showPlayTip(i, e));
+    b.addEventListener("pointermove", (e) => moveTip(e));
+    b.addEventListener("pointerleave", hideTip);
+    b.addEventListener("focus", () => { const r = b.getBoundingClientRect(); showPlayTip(i, { clientX: r.left + r.width / 2, clientY: r.top }); });
+    b.addEventListener("blur", hideTip);
+    b.addEventListener("click", () => select(i, true));
+    lanesEl.append(b);
+  });
+  requestAnimationFrame(() => {
+    lanesEl.querySelectorAll(".block .ti, .block .ar").forEach((t) => { if (t.scrollWidth > t.parentElement.parentElement.clientWidth + 1) t.remove(); });
+  });
+}
+
+function drawAxis() {
+  const w = width(), a = $("axis"); a.replaceChildren();
+  const target = w / 110; const steps = [30, 60, 120, 300, 600, 900, 1200, 1800];
+  const step = steps.find(s => dur / s <= target) || 3600;
+  for (let t = 0; t <= dur + 0.1; t += step) { const s = el("span", null, clock(t)); s.style.left = xOf(t, w) + "px"; a.append(s); }
+}
+
+function redraw() {
+  drawWave(); drawLanes(); drawAxis(); drawTempo(); drawWheel(); placePlayhead();
+  document.querySelectorAll(".used canvas").forEach((c) => drawUsed(c, +c.closest(".track").dataset.i));
+}
+
+document.querySelectorAll(".zoom button").forEach((b) => b.addEventListener("click", () => {
+  const centre = (scroller.scrollLeft + scroller.clientWidth / 2) / (timeline.clientWidth || 1);
+  zoom = +b.dataset.z;
+  document.querySelectorAll(".zoom button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  drawWave(); drawLanes(); drawAxis(); placePlayhead();
+  scroller.scrollLeft = centre * timeline.clientWidth - scroller.clientWidth / 2;
+}));
+
+/* Hover on the timeline: a time readout and which tracks are on. */
+timeline.addEventListener("pointermove", (e) => {
+  const r = timeline.getBoundingClientRect(); const x = e.clientX - r.left; const t = x / r.width * dur;
+  const hl = $("hoverline"); hl.style.display = "block"; hl.style.left = x + "px";
+  $("deckhint").textContent = `${clock(t)} · ` + (onAt(t).map(i => `${i + 1}. ${plays[i].track.title}`).join("  +  ") || "no track identified");
+});
+timeline.addEventListener("pointerleave", () => { $("hoverline").style.display = "none"; $("deckhint").textContent = defaultHint(); });
+$("wave").addEventListener("click", (e) => { const r = timeline.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * dur); });
+const defaultHint = () => audioReady ? "Click the waveform to play from there, or a track to jump to it" : "Hover for what's playing when";
+
+/* Presence of play i at time t (0-1). */
+function presenceAt(i, t) {
+  const p = plays[i]; if (t < p.start || t > p.end) return 0;
+  const k = (t - p.start) / p.presence_step; const a = Math.floor(k), f = k - a;
+  const v0 = p.presence[a] ?? p.presence[p.presence.length - 1] ?? 1, v1 = p.presence[a + 1] ?? v0;
+  return v0 + (v1 - v0) * f;
+}
+const onAt = (t) => plays.map((p, i) => i).filter(i => plays[i].start <= t && t <= plays[i].end);
+
+/* ---------- Tooltip ---------- */
+const tip = $("tip");
+function showPlayTip(i, e) {
+  const p = plays[i], t = p.track; tip.replaceChildren();
+  tip.append(el("div", "tv", t.title));
+  if (t.artist) tip.append(el("div", "ts", t.artist));
+  const lines = [
+    `${clock(p.start)}–${clock(p.end)} in the mix`,
+    `${clock(p.track_start)}–${clock(p.track_end)} of the track (${clock(t.duration_secs)})`,
+    p.played_bpm ? `${p.played_bpm.toFixed(1)} BPM (${pct(p.tempo)}${p.key_lock === true ? ", key lock" : p.key_lock === false ? ", pitched" : ""})` : `Speed ${pct(p.tempo)}`,
+  ];
+  if (p.played_key) lines.push(p.key && p.played_key !== p.key ? `Key ${p.key} → ${p.played_key} (pitched)` : `Key ${p.played_key}` + (t.key && t.key !== p.played_key ? ` (${t.key})` : ""));
+  if (p.alternates.some(a => a.same_audio)) lines.push("Also in the library as " + [...new Set(p.alternates.filter(a => a.same_audio).map(a => a.name))].join(", "));
+  lines.push(`Confidence ${Math.round(p.confidence * 100)}%` + (p.tentative ? " (tentative)" : ""));
+  lines.forEach((l) => tip.append(el("div", "tm", l)));
+  tip.classList.add("show"); moveTip(e);
+}
+function moveTip(e) {
+  const pad = 14, r = tip.getBoundingClientRect();
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+}
+function hideTip() { tip.classList.remove("show"); }
+
+/* ---------- Tempo chart ---------- */
+function niceTicks(lo, hi, n) {
+  const span = hi - lo, raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 5, 10].map(m => m * mag).find(s => span / s <= n) || mag * 10;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+  return out;
+}
+function drawTempo() {
+  const host = $("tempo"); host.replaceChildren();
+  const rows = plays.map((p, i) => ({ i, p, played: p.played_bpm, orig: p.track.bpm })).filter(r => r.played);
+  if (!rows.length) { host.append(el("p", "hint", "No BPMs in the library for these tracks.")); return; }
+  const W = Math.max(280, host.clientWidth), H = 220, m = { l: 40, r: 12, t: 10, b: 26 };
+  const vals = rows.flatMap(r => [r.played, r.orig]);
+  let lo = Math.min(...vals), hi = Math.max(...vals); const padv = Math.max(2, (hi - lo) * 0.12); lo -= padv; hi += padv;
+  const ticks = niceTicks(lo, hi, 4); lo = Math.min(lo, ticks[0]); hi = Math.max(hi, ticks[ticks.length - 1]);
+  const x = (t) => m.l + t / dur * (W - m.l - m.r), y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+  const s = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Tempo of each track as played, across the mix" });
+  ticks.forEach((v) => {
+    s.append(svgEl("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: css("--grid"), "stroke-width": 1 }));
+    const tx = svgEl("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") }); tx.textContent = v; s.append(tx);
+  });
+  s.append(svgEl("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1 }));
+  const step = [300, 600, 900, 1200, 1800].find(st => dur / st <= 6) || 3600;
+  for (let t = 0; t <= dur; t += step) { const tx = svgEl("text", { x: x(t), y: H - 8, "text-anchor": "middle", "font-size": 11, fill: css("--muted") }); tx.textContent = clock(t); s.append(tx); }
+  // As recorded: thin muted segments. As played: the 2px line, joined across transitions.
+  rows.forEach((r) => s.append(svgEl("line", { x1: x(r.p.start), x2: x(r.p.end), y1: y(r.orig), y2: y(r.orig), stroke: css("--muted"), "stroke-width": 1, "stroke-linecap": "round" })));
+  let d = ""; rows.forEach((r, k) => { d += (k ? "L" : "M") + x(r.p.start).toFixed(1) + " " + y(r.played).toFixed(1) + " L" + x(r.p.end).toFixed(1) + " " + y(r.played).toFixed(1) + " "; });
+  s.append(svgEl("path", { d, fill: "none", stroke: css("--accent"), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  const cross = svgEl("line", { y1: m.t, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1, visibility: "hidden" });
+  const dot = svgEl("circle", { r: 4, fill: css("--accent"), stroke: css("--surface"), "stroke-width": 2, visibility: "hidden" });
+  s.append(cross, dot);
+  const hit = svgEl("rect", { x: m.l, y: 0, width: W - m.l - m.r, height: H - m.b, fill: "transparent" });
+  hit.addEventListener("pointermove", (e) => {
+    const bb = s.getBoundingClientRect(); const px = (e.clientX - bb.left) / bb.width * W; const t = (px - m.l) / (W - m.l - m.r) * dur;
+    let best = null; rows.forEach(r => { const dd = t < r.p.start ? r.p.start - t : t > r.p.end ? t - r.p.end : 0; if (!best || dd < best.dd) best = { r, dd }; });
+    const r = best.r; cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", Math.min(Math.max(px, x(r.p.start)), x(r.p.end))); dot.setAttribute("cy", y(r.played)); dot.setAttribute("visibility", "visible");
+    tip.replaceChildren();
+    tip.append(el("div", "tv", `${r.played.toFixed(1)} BPM`));
+    const row = el("div", "row ts"); const ln = el("span", "ln"); ln.style.background = css("--accent"); row.append(ln, el("span", null, `${r.i + 1}. ${r.p.track.title}`)); tip.append(row);
+    tip.append(el("div", "tm", `recorded at ${r.orig.toFixed(1)} BPM, played ${pct(r.p.tempo)}`));
+    tip.append(el("div", "tm", `${clock(r.p.start)}–${clock(r.p.end)}`));
+    tip.classList.add("show"); moveTip(e);
+  });
+  hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); hideTip(); });
+  hit.addEventListener("click", (e) => { const bb = s.getBoundingClientRect(); const px = (e.clientX - bb.left) / bb.width * W; seek((px - m.l) / (W - m.l - m.r) * dur); });
+  s.append(hit);
+  host.append(s);
+}
+
+/* ---------- Camelot wheel ---------- */
+function camelot(k) { const m = /^(\d{1,2})([AB])$/.exec(k || ""); return m ? { n: +m[1], major: m[2] === "B" } : null; }
+function drawWheel() {
+  const host = $("wheel"); host.replaceChildren();
+  const S = 340, c = S / 2, rOut = 142, rIn = 100, rNode = { true: 124, false: 82 };
+  const s = svgEl("svg", { viewBox: `0 0 ${S} ${S}`, role: "img", "aria-label": "Keys as played, in order, on the Camelot wheel" });
+  const pos = (k) => { const a = (k.n % 12) / 12 * Math.PI * 2 - Math.PI / 2; const r = rNode[k.major]; return [c + Math.cos(a) * r, c + Math.sin(a) * r]; };
+  s.append(svgEl("circle", { cx: c, cy: c, r: rOut, fill: "none", stroke: css("--grid"), "stroke-width": 1 }));
+  s.append(svgEl("circle", { cx: c, cy: c, r: rIn, fill: "none", stroke: css("--grid"), "stroke-width": 1 }));
+  s.append(svgEl("circle", { cx: c, cy: c, r: 60, fill: "none", stroke: css("--grid"), "stroke-width": 1 }));
+  const used = new Map();
+  plays.forEach((p, i) => { const k = camelot(p.played_key); if (k) { const id = k.n + (k.major ? "B" : "A"); if (!used.has(id)) used.set(id, []); used.get(id).push(i); } });
+  for (let n = 1; n <= 12; n++) {
+    const a = (n % 12) / 12 * Math.PI * 2 - Math.PI / 2;
+    s.append(svgEl("line", { x1: c + Math.cos(a + Math.PI / 12) * 60, y1: c + Math.sin(a + Math.PI / 12) * 60, x2: c + Math.cos(a + Math.PI / 12) * rOut, y2: c + Math.sin(a + Math.PI / 12) * rOut, stroke: css("--grid"), "stroke-width": 1 }));
+    for (const major of [true, false]) {
+      const [x, y] = pos({ n, major }); const id = n + (major ? "B" : "A");
+      if (!used.has(id)) { const t = svgEl("text", { x, y: y + 4, "text-anchor": "middle", "font-size": 10.5, fill: css("--muted") }); t.textContent = id; s.append(t); }
+    }
+  }
+  // Moves between consecutive tracks, curved through the middle.
+  R.transitions.forEach((tr) => {
+    const a = camelot(plays[tr.from].played_key), b = camelot(plays[tr.to].played_key); if (!a || !b) return;
+    const [x1, y1] = pos(a), [x2, y2] = pos(b);
+    const clash = tr.harmony === "clash";
+    const color = clash ? css("--critical") : css("--accent");
+    if (x1 === x2 && y1 === y2) return;
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, qx = mx + (c - mx) * 0.35, qy = my + (c - my) * 0.35;
+    s.append(svgEl("path", { d: `M${x1} ${y1} Q${qx} ${qy} ${x2} ${y2}`, fill: "none", stroke: color, "stroke-width": 2, "stroke-opacity": clash ? 0.9 : 0.55, "stroke-linecap": "round" }));
+  });
+  used.forEach((list, id) => {
+    const k = camelot(id); const [x, y] = pos(k);
+    const g = svgEl("g", { tabindex: 0, role: "button", "aria-label": `${id}: tracks ${list.map(i => i + 1).join(", ")}`, style: "cursor:pointer" });
+    g.append(svgEl("circle", { cx: x, cy: y, r: 13, fill: css("--accent"), stroke: css("--surface"), "stroke-width": 2 }));
+    const t = svgEl("text", { x, y: y + 4, "text-anchor": "middle", "font-size": 11, "font-weight": 600, fill: "#ffffff" }); t.textContent = list.length > 1 ? `${list[0] + 1}+` : String(list[0] + 1); g.append(t);
+    // Name the key just outside the ring for majors, just inside for minors, clear of the other ring.
+    const ang = (k.n % 12) / 12 * Math.PI * 2 - Math.PI / 2, lr = k.major ? 124 + 25 : 82 - 24;
+    const lab = svgEl("text", { x: c + Math.cos(ang) * lr, y: c + Math.sin(ang) * lr + 4, "text-anchor": "middle", "font-size": 10.5, "font-weight": 600, fill: css("--ink-2") }); lab.textContent = id; g.append(lab);
+    const show = (e) => {
+      tip.replaceChildren(); tip.append(el("div", "tv", id));
+      list.forEach((i) => tip.append(el("div", "ts", `${i + 1}. ${name(plays[i].track)}`)));
+      tip.classList.add("show"); moveTip(e);
+    };
+    g.addEventListener("pointerenter", show); g.addEventListener("pointermove", moveTip); g.addEventListener("pointerleave", hideTip);
+    g.addEventListener("click", () => select(list[0], true));
+    s.append(g);
+  });
+  const ctext = svgEl("text", { x: c, y: c - 4, "text-anchor": "middle", "font-size": 22, "font-weight": 600, fill: css("--ink") });
+  ctext.textContent = String(used.size); s.append(ctext);
+  const csub = svgEl("text", { x: c, y: c + 14, "text-anchor": "middle", "font-size": 11, fill: css("--muted") });
+  csub.textContent = used.size === 1 ? "key" : "keys"; s.append(csub);
+  host.append(s);
+}
+
+/* ---------- Tracklist ---------- */
+function phraseAt(i, secs) { const ph = (X[i] && X[i].phrases) || []; const f = ph.find(p => p.start <= secs && secs < p.end); return f && f.kind; }
+function drawUsed(c, i) {
+  const p = plays[i], ex = X[i] || {}, dpr = devicePixelRatio || 1;
+  const w = c.clientWidth || 280, h = 44; c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const total = Math.max(1, p.track.duration_secs || p.track_end), a = p.track_start / total * w, b = p.track_end / total * w;
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  const wave = ex.wave ? b64(ex.wave) : null; const n = wave ? wave.length / 4 : 120;
+  const H = 32, base = H;
+  for (let k = 0; k < n; k++) {
+    const x = k / n * w, ww = Math.max(1, w / n - 0.6);
+    const v = wave ? wave[k * 4] / 255 : 0.35 + 0.25 * Math.sin(k / 3);
+    const inside = x + ww >= lo && x <= hi;
+    g.fillStyle = inside ? css("--accent") : css("--axis");
+    const bh = Math.max(1, v * H);
+    g.fillRect(x, base - bh, ww, bh);
+  }
+  // Phrases: a thin strip under the waveform.
+  (ex.phrases || []).forEach((ph, k) => {
+    const x0 = ph.start / total * w, x1 = Math.min(w, ph.end / total * w);
+    g.fillStyle = k % 2 ? css("--grid") : css("--axis"); g.fillRect(x0, base + 6, Math.max(1, x1 - x0 - 2), 3);
+  });
+  // Hot cues: small flags along the top.
+  (ex.cues || []).forEach((cu) => { const x = cu.t / total * w; g.fillStyle = cu.color || css("--ink-2"); g.fillRect(x - 0.5, 0, 2, 6); });
+  // In and out points.
+  g.fillStyle = css("--ink"); g.fillRect(a - 1, 0, 2, base); g.fillRect(b - 1, 0, 2, base);
+}
+
+function drawTracks() {
+  const list = $("tracks"); list.replaceChildren();
+  const items = plays.map((p, i) => ({ t: p.start, i })).concat(R.unidentified.map(u => ({ t: u.start, u }))).sort((a, b) => a.t - b.t);
+  items.forEach((it) => {
+    if (it.u) { const li = el("li", "unknown", `${clock(it.u.start)} · ${clock(it.u.end - it.u.start)} not found in the library`); list.append(li); return; }
+    const i = it.i, p = plays[i], t = p.track, ex = X[i] || {};
+    const li = el("li", "track"); li.tabIndex = 0; li.dataset.i = i; li.id = "track-" + i;
+    li.append(el("div", "idx", String(i + 1)));
+    const art = el("div", "art"); if (ex.art) { const img = el("img"); img.src = ex.art; img.alt = ""; img.loading = "lazy"; art.append(img); } li.append(art);
+    const who = el("div", "who");
+    who.append(el("div", "title", t.title));
+    if (t.artist) who.append(el("div", "artist", t.artist));
+    const meta = el("div", "meta");
+    meta.append(el("span", "when", `${clock(p.start)}–${clock(p.end)}`));
+    if (t.album) meta.append(el("span", null, t.album));
+    if (t.label) meta.append(el("span", null, t.label));
+    if (p.key_lock === true) meta.append(el("span", "badge", "Key lock"));
+    if (p.key_lock === false && Math.abs(p.semitones) >= 0.05) meta.append(el("span", "badge", `Pitched ${p.semitones > 0 ? "+" : "−"}${Math.abs(p.semitones).toFixed(1)} st`));
+    if (p.jumps > 0) meta.append(el("span", "badge", `${p.jumps} jump${p.jumps > 1 ? "s" : ""}/loop${p.jumps > 1 ? "s" : ""}`));
+    if (p.tentative) meta.append(el("span", "badge", "Tentative"));
+    who.append(meta); li.append(who);
+
+    const used = el("div", "used"); const c = el("canvas"); c.setAttribute("aria-label", `Played ${clock(p.track_start)} to ${clock(p.track_end)} of ${clock(t.duration_secs)}`); used.append(c);
+    const cap = el("div", "cap");
+    const pin = phraseAt(i, p.track_start), pout = phraseAt(i, p.track_end);
+    const left = el("span"); left.append(el("b", null, clock(p.track_start)), document.createTextNode(pin ? ` ${pin}` : " in"));
+    const right = el("span"); right.append(el("b", null, clock(p.track_end)), document.createTextNode(pout ? ` ${pout}` : " out"), document.createTextNode(` · of ${clock(t.duration_secs)}`));
+    cap.append(left, right); used.append(cap); li.append(used);
+
+    const nums = el("div", "nums");
+    const bpm = el("div", "bpm"); bpm.textContent = p.played_bpm ? p.played_bpm.toFixed(1) + " " : "— "; bpm.append(el("small", null, "BPM")); nums.append(bpm);
+    nums.append(el("div", "speed", t.bpm ? `${t.bpm.toFixed(1)} ${pct(p.tempo)}` : pct(p.tempo)));
+    const key = el("div", "key", p.key && p.played_key && p.played_key !== p.key ? `${p.key} → ${p.played_key}` : (p.played_key || t.key || "—"));
+    if (t.key && t.key !== (p.played_key || "")) key.title = `${t.key} in rekordbox`;
+    const conf = el("span", "conf"); conf.title = `Confidence ${Math.round(p.confidence * 100)}%`; const fill = el("i"); fill.style.width = Math.round(p.confidence * 100) + "%"; conf.append(fill); key.append(conf);
+    nums.append(key); li.append(nums);
+    if (p.alternates.length) {
+      const self = `${t.artist} - ${t.title}`;
+      const dups = p.alternates.filter(a => a.name === self || a.name === t.title);
+      const others = p.alternates.filter(a => !dups.includes(a));
+      const notes = [];
+      if (dups.length) notes.push(dups.length > 1 ? `${dups.length} duplicates in the library` : "A duplicate in the library");
+      const seen = new Set();
+      others.filter(a => !seen.has(a.name) && seen.add(a.name)).forEach(a => notes.push(a.same_audio ? `Same audio as ${a.name}` : `Shares material with ${a.name}`));
+      li.append(el("div", "also", notes.join(" · ")));
+    }
+    li.addEventListener("click", () => select(i, false, true));
+    li.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(i, false, true); } });
+    list.append(li);
+
+    const tr = R.transitions.find(x => x.from === i);
+    if (tr) {
+      const h = el("li", "handoff"); h.setAttribute("aria-hidden", "true");
+      // Fades below what fingerprints can hear make short "gaps"; only call a long one a gap.
+      const how = tr.overlap >= 8 ? `${Math.round(tr.overlap)}s blend` : tr.overlap > -12 ? "quick mix" : `${Math.round(-tr.overlap)}s apart`;
+      const parts = [how];
+      if (tr.tempo_change != null && Math.abs(tr.tempo_change) >= 0.3) parts.push(`${tr.tempo_change > 0 ? "+" : "−"}${Math.abs(tr.tempo_change).toFixed(1)}% tempo`);
+      h.append(el("span", null, "↓ " + parts.join(" · ")));
+      if (tr.harmony) { const ok = tr.harmony !== "clash"; h.append(el("span", ok ? "ok" : "bad", ok ? `✓ ${tr.harmony}` : "! key clash")); }
+      h.append(el("span", "rule"));
+      list.append(h);
+    }
+  });
+  $("listhint").textContent = audioReady ? "Click a track to play from where it comes in" : "";
+}
+
+/* ---------- Selection & playback ---------- */
+let selected = -1;
+function select(i, scrollList, play) {
+  selected = i;
+  document.querySelectorAll(".block").forEach((b) => b.classList.toggle("on", +b.dataset.i === i));
+  document.querySelectorAll(".track").forEach((t) => t.classList.toggle("on", +t.dataset.i === i));
+  if (scrollList) document.getElementById("track-" + i)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (audioReady && (play || scrollList)) seek(plays[i].start, true);
+}
+
+const audio = $("audio"); let audioReady = false;
+const ICON_PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg>';
+const ICON_PAUSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
+function seek(t, play) {
+  if (!audioReady) return;
+  audio.currentTime = Math.max(0, Math.min(dur - 0.1, t));
+  if (play !== false) audio.play().catch(() => {});
+}
+function placePlayhead() {
+  const ph = $("playhead"); if (!audioReady) { ph.style.display = "none"; return; }
+  // A share of the timeline, so zooming or resizing (even while paused) never leaves it behind.
+  ph.style.display = "block"; ph.style.left = Math.min(100, audio.currentTime / dur * 100) + "%";
+}
+let lastNow = null;
+function nowPlaying() {
+  const t = audio.currentTime; $("clock").textContent = `${clock(t)} / ${clock(dur)}`;
+  const on = onAt(t).map(i => ({ i, v: presenceAt(i, t) })).sort((a, b) => plays[a.i].start - plays[b.i].start);
+  const key = on.map(o => o.i).join(",");
+  if (key !== lastNow) {
+    lastNow = key; const stack = $("nowart"); stack.replaceChildren();
+    if (!on.length) { $("now1").textContent = R.mix.title; $("now2").textContent = "No track identified here"; }
+    else {
+      on.forEach((o) => { if (X[o.i] && X[o.i].art) { const img = el("img"); img.src = X[o.i].art; img.alt = ""; img.dataset.i = o.i; stack.append(img); } });
+      $("now1").textContent = on.map(o => plays[o.i].track.title).join("  →  ");
+      $("now2").textContent = on.map(o => plays[o.i].track.artist).filter(Boolean).join("  →  ") || `${on.length} track${on.length > 1 ? "s" : ""}`;
+    }
+    document.querySelectorAll(".block").forEach((b) => b.classList.toggle("on", on.some(o => o.i === +b.dataset.i)));
+  }
+  // Crossfader: the balance between the outgoing and incoming track.
+  const cap = $("xfcap");
+  if (on.length >= 2) { const a = on[0].v, b = on[on.length - 1].v; cap.style.left = (b / Math.max(0.01, a + b) * 100) + "%"; }
+  else cap.style.left = on.length ? (lanes[on[0].i] % 2 ? "100%" : "0%") : "50%";
+  if (on.length >= 2) { const imgs = $("nowart").querySelectorAll("img"); if (imgs.length >= 2) imgs[imgs.length - 1].style.opacity = String(Math.min(1, on[on.length - 1].v / Math.max(0.01, on[0].v + on[on.length - 1].v) * 1.4)); }
+  placePlayhead();
+}
+
+if (D.audio) {
+  audio.src = D.audio;
+  audio.addEventListener("loadedmetadata", () => {
+    audioReady = true; document.body.classList.add("has-player"); $("player").hidden = false;
+    $("pp").innerHTML = ICON_PLAY; $("deckhint").textContent = defaultHint(); $("listhint").textContent = "Click a track to play from where it comes in";
+    $("decksrc").textContent = D.audioName ? `Playing ${D.audioName}` : ""; nowPlaying();
+  });
+  audio.addEventListener("error", () => {
+    // A page made to be shared links the recording by its name alone.
+    $("decksrc").textContent = D.audio.includes("/")
+      ? "The mix's audio isn't where this report expects it, so playback is off"
+      : `To listen along, put ${D.audioName} next to this page`;
+  });
+  audio.addEventListener("timeupdate", nowPlaying);
+  audio.addEventListener("play", () => { $("pp").innerHTML = ICON_PAUSE; $("pp").setAttribute("aria-label", "Pause"); tick(); });
+  audio.addEventListener("pause", () => { $("pp").innerHTML = ICON_PLAY; $("pp").setAttribute("aria-label", "Play"); drawWave(); });
+  // play() rejects when a pause interrupts it; that's not an error here.
+  const toggle = () => { if (audio.paused) audio.play().catch(() => {}); else audio.pause(); };
+  $("pp").addEventListener("click", toggle);
+  document.addEventListener("keydown", (e) => {
+    if (!audioReady || e.target.closest("input, textarea, [contenteditable]")) return;
+    if (e.code === "Space" && !e.target.closest("button, li, [role=button]")) { e.preventDefault(); toggle(); }
+    if (e.key === "ArrowRight" && !e.target.closest(".scroller")) seek(audio.currentTime + 10, !audio.paused);
+    if (e.key === "ArrowLeft" && !e.target.closest(".scroller")) seek(audio.currentTime - 10, !audio.paused);
+  });
+}
+let raf = 0;
+function tick() { cancelAnimationFrame(raf); if (audio.paused) return; nowPlaying(); raf = requestAnimationFrame(tick); }
+let waveTimer = 0; audio.addEventListener("timeupdate", () => { clearTimeout(waveTimer); waveTimer = setTimeout(drawWave, 400); });
+
+/* ---------- Footer ---------- */
+(function foot() {
+  $("foot").textContent = `Found by locallibrary ${D.version} in a rekordbox library, searching ±${Math.round(R.tempo_range * 100)}% tempo · ${new Date(R.analysed_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`;
+  $("dl").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(R, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = (R.mix.title || "mix").replace(/[^\w.-]+/g, "-") + ".json"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+})();
+
+$("deckhint").textContent = defaultHint();
+$("decksrc").textContent = D.audio ? "" : "The mix's audio wasn't found, so there's nothing to listen along to";
+drawTracks();
+redraw();
+let rt = 0; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(redraw, 120); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (theme === "auto") redraw(); });
+})();
+</script>
+</body>
+</html>

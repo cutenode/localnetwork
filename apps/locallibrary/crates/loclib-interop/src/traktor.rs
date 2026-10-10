@@ -1,0 +1,458 @@
+//! Traktor Pro's collection file, `collection.nml`, which Traktor imports with "Import another
+//! Collection" (right-click Track Collection in the browser tree), merging it into its own.
+//!
+//! NML is XML (`<NML VERSION="19">`, as Traktor Pro 3 and 4 write it); Native Instruments
+//! doesn't document it, so this follows what Traktor writes and what converters that read it
+//! agree on:
+//!
+//! * a track is an `ENTRY` in `COLLECTION`, found by its `LOCATION`: `VOLUME` (a Mac volume's
+//!   name, a Windows drive letter like `E:`), `DIR` with every folder as `/:name` and a final
+//!   `/:`, and `FILE`. Playlists name tracks by the three run together
+//!   (`USB/:Contents/:Artist/:x.mp3`) in a `PRIMARYKEY`.
+//! * `INFO` holds the details: `BITRATE` in bits per second, `PLAYTIME` in seconds, `FILESIZE` in
+//!   kilobytes, `RANKING` 0-255 (51 a star), dates as `2026/9/30`, `COLOR` 1-7 (red, orange,
+//!   yellow, green, blue, violet, magenta). `TEMPO BPM` is the tempo and `MUSICAL_KEY VALUE` the
+//!   key as 0-11 for C to B major and 12-23 for C to B minor.
+//! * `CUE_V2` elements are markers, `START` and `LEN` in milliseconds: `TYPE` 0 a cue, 4 a grid
+//!   marker (with the tempo, the beat grid), 5 a loop; `HOTCUE` the pad (0-7), -1 for a cue
+//!   without one. Traktor's grid has one tempo, so a rekordbox grid becomes one marker on its
+//!   first downbeat; `LOCK` keeps Traktor from analysing it again.
+//! * playlists are `NODE`s under `PLAYLISTS`: `TYPE="FOLDER"` with `SUBNODES`, or
+//!   `TYPE="PLAYLIST"` with a `PLAYLIST` of `ENTRY`/`PRIMARYKEY`s.
+
+use rustc_hash::FxHashSet;
+use std::fmt::Write as _;
+use std::path::Path;
+
+use chrono::{Datelike, Timelike};
+
+use loclib_model::analysis::{Beat, TrackAnalysis};
+use loclib_model::harmony::Camelot;
+use loclib_model::{Library, Playlist, Track, TrackColor};
+use loclib_progress::{Ctx, Event, Phase};
+
+use crate::encode::xml_escape as esc;
+use crate::{Export, Result, Source};
+
+/// The startup disk's name when this computer doesn't say (it isn't a Mac): macOS's default.
+const STARTUP_VOLUME: &str = "Macintosh HD";
+
+/// The startup disk's name, which Traktor on a Mac gives audio outside `/Volumes`: macOS lists it
+/// in `volumes` (`/Volumes`) as a link to `/`.
+fn startup_volume(volumes: &Path) -> Option<String> {
+    std::fs::read_dir(volumes)
+        .ok()?
+        .flatten()
+        .find(|e| std::fs::read_link(e.path()).is_ok_and(|to| to == Path::new("/")))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+}
+
+/// Where a file is, the way `LOCATION` says it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Location {
+    volume: String,
+    dir: String,
+    file: String,
+}
+
+impl Location {
+    /// `VOLUME` + `DIR` + `FILE`: what playlists name the track by.
+    fn key(&self) -> String {
+        format!("{}{}{}", self.volume, self.dir, self.file)
+    }
+}
+
+/// An absolute path as Traktor locates it (outside `/Volumes`, on the volume `startup`), and
+/// whether it's on the startup disk.
+fn location(path: &Path, startup: &str) -> (Location, bool) {
+    let s = path.to_string_lossy().replace('\\', "/");
+    let (volume, rest, on_startup) = match s.as_bytes() {
+        [letter, b':', ..] if letter.is_ascii_alphabetic() => (s[..2].to_ascii_uppercase(), s[2..].to_string(), false),
+        _ => match s.strip_prefix("/Volumes/").and_then(|r| r.split_once('/')) {
+            Some((volume, rest)) => (volume.to_string(), format!("/{rest}"), false),
+            None => (startup.to_string(), s.clone(), true),
+        },
+    };
+    let mut parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
+    let file = parts.pop().unwrap_or_default().to_string();
+    let dir = parts.iter().map(|p| format!("/:{p}")).collect::<String>() + "/:";
+    (Location { volume, dir, file }, on_startup)
+}
+
+/// `2026-09-30` (or a longer timestamp) as Traktor writes dates: `2026/9/30`.
+fn date(s: &str) -> Option<String> {
+    let mut it = s.get(..10)?.split('-').map(|p| p.parse::<u32>().ok());
+    let (y, m, d) = (it.next()??, it.next()??, it.next()??);
+    (y > 0 && (1..=12).contains(&m) && (1..=31).contains(&d)).then(|| format!("{y}/{m}/{d}"))
+}
+
+/// The semitone (0 = C) of a key's tonic.
+fn semitone(c: Camelot) -> u8 {
+    // Inverse of Camelot::parse: number - 1 = (semitone * 7 + offset) % 12, and 7 * 7 = 1 mod 12.
+    let offset = if c.major { 7 } else { 4 };
+    ((u32::from(c.number) - 1 + 12 - offset) * 7 % 12) as u8
+}
+
+/// `MUSICAL_KEY VALUE`: 0-11 for C to B major, 12-23 for C to B minor.
+fn key_value(key: &str) -> Option<u8> {
+    let c = Camelot::parse(key)?;
+    Some(semitone(c) + if c.major { 0 } else { 12 })
+}
+
+fn colour(c: TrackColor) -> u8 {
+    match c {
+        TrackColor::Red => 1,
+        TrackColor::Orange => 2,
+        TrackColor::Yellow => 3,
+        TrackColor::Green => 4,
+        TrackColor::Aqua | TrackColor::Blue => 5,
+        TrackColor::Purple => 6,
+        TrackColor::Pink => 7,
+    }
+}
+
+/// A track's beat grid as one tempo and the first downbeat, for formats with a constant-tempo
+/// grid. `None` without a grid. The flag says the tempo changes within the track.
+fn constant_grid(beats: &[Beat], track_bpm: f64) -> Option<(f64, u32, bool)> {
+    let first = beats.iter().find(|b| b.beat_number == 1).or(beats.first())?;
+    let bpm = if first.bpm > 0.0 { first.bpm } else { track_bpm };
+    let varies = beats.iter().any(|b| (b.bpm - bpm).abs() > 0.005);
+    (bpm > 0.0).then_some((bpm, first.time_ms, varies))
+}
+
+/// The `ENTRY` attributes saying when it was written, and that its grid is locked.
+struct Stamps {
+    modified: String,
+    lock: String,
+}
+
+/// Counts for the export.
+#[derive(Default)]
+struct Tally {
+    grids: usize,
+    cues: usize,
+    varying_tempo: usize,
+    extra_hot_cues: usize,
+    startup_volume: bool,
+}
+
+/// `collection.nml` in `output`, with `src`'s tracks, playlists and folders, and its beat grids and
+/// cues when it has them.
+pub fn build(src: &Source<'_>, output: &Path, ctx: &Ctx<'_>) -> Result<Export> {
+    let lib = &src.library;
+    let mut tally = Tally::default();
+    let mut keys: rustc_hash::FxHashMap<u32, String> = rustc_hash::FxHashMap::default();
+    let now = chrono::Local::now();
+    let stamps = Stamps {
+        modified: format!(
+            "MODIFIED_DATE=\"{}/{}/{}\" MODIFIED_TIME=\"{}\"",
+            now.year(),
+            now.month(),
+            now.day(),
+            now.num_seconds_from_midnight()
+        ),
+        lock: format!(" LOCK=\"1\" LOCK_MODIFICATION_TIME=\"{}\"", now.format("%Y-%m-%dT%H:%M:%S")),
+    };
+
+    let startup = startup_volume(Path::new("/Volumes"));
+    let mut entries = String::new();
+    let mut written = FxHashSet::default();
+    ctx.phase_start(Phase::Scan, lib.tracks.len() as u64, 0);
+    for t in &lib.tracks {
+        ctx.check()?;
+        ctx.emit(Event::Item { phase: Phase::Scan, path: t.file_path.clone(), bytes: 0 });
+        let (loc, on_startup) = location(&src.audio(t), startup.as_deref().unwrap_or(STARTUP_VOLUME));
+        // On a startup disk whose name is a guess.
+        tally.startup_volume |= on_startup && startup.is_none();
+        keys.insert(t.id, loc.key());
+        // Two rows for one file are one track to Traktor.
+        if !written.insert(loc.key()) {
+            continue;
+        }
+        let analysis = src.analysis.map(|load| load(t));
+        entry(&mut entries, t, &loc, analysis.as_ref(), &stamps, &mut tally);
+    }
+    ctx.phase_end(Phase::Scan);
+
+    let mut x = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\" ?>\n<NML VERSION=\"19\">");
+    x.push_str("<HEAD COMPANY=\"www.native-instruments.com\" PROGRAM=\"Traktor\"></HEAD>\n");
+    x.push_str("<MUSICFOLDERS></MUSICFOLDERS>\n");
+    let _ = writeln!(x, "<COLLECTION ENTRIES=\"{}\">", written.len());
+    x.push_str(&entries);
+    x.push_str("</COLLECTION>\n<SETS ENTRIES=\"0\"></SETS>\n<PLAYLISTS>\n");
+    let top = lib.children(None);
+    let _ = writeln!(x, "<NODE TYPE=\"FOLDER\" NAME=\"$ROOT\"><SUBNODES COUNT=\"{}\">", top.len());
+    for p in top {
+        node(&mut x, lib, p, &keys);
+    }
+    x.push_str("</SUBNODES></NODE>\n</PLAYLISTS>\n</NML>\n");
+
+    let mut export = Export::new(lib);
+    export.tracks = written.len();
+    export.beat_grids = tally.grids;
+    export.cues = tally.cues;
+    export.notes = vec![
+        "In Traktor, right-click Track Collection in the browser tree, choose Import another Collection and pick \
+         collection.nml: its tracks and playlists are added to Traktor's collection."
+            .into(),
+        "A beat grid becomes one grid marker on the first downbeat with one tempo, locked so Traktor keeps it. \
+         Cue colours aren't carried (Traktor colours cues by type)."
+            .into(),
+        "Traktor and rekordbox can place an MP3's cues and grid a few milliseconds apart (they handle the encoder's \
+         delay differently); nothing corrects for it, so check an MP3's grid before relying on it."
+            .into(),
+        "History lists aren't exported; My Tags, artwork and waveforms aren't part of the file.".into(),
+    ];
+    if tally.startup_volume {
+        export.notes.push(format!(
+            "This computer doesn't name a startup disk, so audio outside /Volumes is located on one called \
+             \"{STARTUP_VOLUME}\"; if the Mac's is called otherwise, Traktor's Relocate (or Consistency Check) finds \
+             the files again."
+        ));
+    }
+    if tally.varying_tempo > 0 {
+        export.warnings.push(format!(
+            "{} track(s) change tempo; their grid keeps the tempo of the first downbeat",
+            tally.varying_tempo
+        ));
+    }
+    if tally.extra_hot_cues > 0 {
+        export.warnings.push(format!("{} hot cue(s) past H left out (Traktor has 8 pads)", tally.extra_hot_cues));
+    }
+    if lib.tracks.len() > written.len() {
+        export.warnings.push(format!(
+            "{} track row(s) share a file with another and are one track in Traktor",
+            lib.tracks.len() - written.len()
+        ));
+    }
+    let path = output.join("collection.nml");
+    export.file(path, "Traktor collection: tracks, beat grids, cues and playlists", x.into_bytes());
+    Ok(export)
+}
+
+fn entry(
+    x: &mut String,
+    t: &Track,
+    loc: &Location,
+    analysis: Option<&TrackAnalysis>,
+    stamps: &Stamps,
+    tally: &mut Tally,
+) {
+    let grid = analysis.and_then(|a| constant_grid(&a.beats, t.bpm));
+    let lock = if grid.is_some() { stamps.lock.as_str() } else { "" };
+    let _ = writeln!(x, "<ENTRY {}{lock} TITLE=\"{}\" ARTIST=\"{}\">", stamps.modified, esc(&t.title), esc(&t.artist));
+    let _ = writeln!(
+        x,
+        "<LOCATION DIR=\"{}\" FILE=\"{}\" VOLUME=\"{}\" VOLUMEID=\"{}\"></LOCATION>",
+        esc(&loc.dir),
+        esc(&loc.file),
+        esc(&loc.volume),
+        esc(&loc.volume)
+    );
+    if !t.album.is_empty() || t.track_number > 0 {
+        let number = if t.track_number > 0 { format!("TRACK=\"{}\" ", t.track_number) } else { String::new() };
+        let _ = writeln!(x, "<ALBUM {number}TITLE=\"{}\"></ALBUM>", esc(&t.album));
+    }
+    x.push_str("<MODIFICATION_INFO AUTHOR_TYPE=\"user\"></MODIFICATION_INFO>\n");
+    let mut info = String::new();
+    let mut attr = |name: &str, value: String| {
+        if !value.is_empty() {
+            let _ = write!(info, " {name}=\"{}\"", esc(&value));
+        }
+    };
+    if t.bitrate > 0 {
+        attr("BITRATE", (u64::from(t.bitrate) * 1000).to_string());
+    }
+    attr("GENRE", t.genre.clone());
+    attr("LABEL", t.label.clone());
+    attr("COMMENT", t.comment.clone());
+    attr("MIX", t.mix_name.clone());
+    attr("REMIXER", t.remixer.clone());
+    attr("KEY", t.key.clone());
+    attr("PLAYCOUNT", t.play_count.to_string());
+    if t.duration_secs > 0 {
+        attr("PLAYTIME", t.duration_secs.to_string());
+        attr("PLAYTIME_FLOAT", format!("{:.6}", f64::from(t.duration_secs)));
+    }
+    attr("RANKING", (u32::from(t.rating.min(5)) * 51).to_string());
+    attr("IMPORT_DATE", date(&t.date_added).unwrap_or_default());
+    let release = date(&t.release_date).or_else(|| (t.year > 0).then(|| format!("{}/1/1", t.year)));
+    attr("RELEASE_DATE", release.unwrap_or_default());
+    if t.file_size > 0 {
+        attr("FILESIZE", t.file_size.div_ceil(1024).to_string());
+    }
+    if let Some(c) = t.color {
+        attr("COLOR", colour(c).to_string());
+    }
+    let _ = writeln!(x, "<INFO{info}></INFO>");
+    let bpm = grid.map_or(t.bpm, |g| g.0);
+    if bpm > 0.0 {
+        let _ = writeln!(x, "<TEMPO BPM=\"{bpm:.6}\" BPM_QUALITY=\"100.000000\"></TEMPO>");
+    }
+    if let Some(v) = key_value(&t.key) {
+        let _ = writeln!(x, "<MUSICAL_KEY VALUE=\"{v}\"></MUSICAL_KEY>");
+    }
+    if let Some((_, start, varies)) = grid {
+        tally.grids += 1;
+        tally.varying_tempo += usize::from(varies);
+        cue(x, "AutoGrid", 4, f64::from(start), 0.0, -1);
+    }
+    for c in analysis.map(|a| a.cues.as_slice()).unwrap_or_default() {
+        let hot = match c.hot_cue {
+            Some(h) if h > 7 => {
+                tally.extra_hot_cues += 1;
+                continue;
+            }
+            Some(h) => i32::from(h),
+            None => -1,
+        };
+        let name = if c.comment.is_empty() { "n.n." } else { &c.comment };
+        let (kind, len) = match c.end_ms {
+            Some(end) => (5, f64::from(end.saturating_sub(c.start_ms))),
+            None => (0, 0.0),
+        };
+        tally.cues += 1;
+        cue(x, name, kind, f64::from(c.start_ms), len, hot);
+    }
+    x.push_str("</ENTRY>\n");
+}
+
+fn cue(x: &mut String, name: &str, kind: u8, start_ms: f64, len_ms: f64, hot: i32) {
+    let _ = writeln!(
+        x,
+        "<CUE_V2 NAME=\"{}\" DISPL_ORDER=\"0\" TYPE=\"{kind}\" START=\"{start_ms:.6}\" LEN=\"{len_ms:.6}\" \
+         REPEATS=\"-1\" HOTCUE=\"{hot}\"></CUE_V2>",
+        esc(name)
+    );
+}
+
+/// A stable id for a playlist, from its path: re-importing the same playlist gives the same one.
+fn uuid(path: &str) -> String {
+    // Seeded as locallibrary seeded it, so a playlist keeps the id it had in earlier exports.
+    let hash = blake3::hash(format!("locallibrary traktor playlist\0{path}").as_bytes());
+    hash.as_bytes()[..16].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn node(x: &mut String, lib: &Library, p: &Playlist, keys: &rustc_hash::FxHashMap<u32, String>) {
+    if p.is_folder {
+        let kids = lib.children(Some(p.id));
+        let _ = writeln!(x, "<NODE TYPE=\"FOLDER\" NAME=\"{}\"><SUBNODES COUNT=\"{}\">", esc(&p.name), kids.len());
+        for k in kids {
+            node(x, lib, k, keys);
+        }
+        x.push_str("</SUBNODES></NODE>\n");
+        return;
+    }
+    let entries: Vec<&String> = p.track_ids.iter().filter_map(|id| keys.get(id)).collect();
+    let _ = writeln!(
+        x,
+        "<NODE TYPE=\"PLAYLIST\" NAME=\"{}\"><PLAYLIST ENTRIES=\"{}\" TYPE=\"LIST\" UUID=\"{}\">",
+        esc(&p.name),
+        entries.len(),
+        uuid(&lib.playlist_path(p.id))
+    );
+    for k in entries {
+        let _ = writeln!(x, "<ENTRY><PRIMARYKEY TYPE=\"TRACK\" KEY=\"{}\"></PRIMARYKEY></ENTRY>", esc(k));
+    }
+    x.push_str("</PLAYLIST></NODE>\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A grid whose tempo changes is written at its first downbeat's tempo, and the export says so.
+    #[test]
+    fn a_changing_tempo_is_kept_at_the_first_downbeat_and_warned_about() {
+        let track =
+            Track { id: 1, title: "A".into(), file_path: "/Contents/a.mp3".into(), bpm: 126.0, ..Default::default() };
+        let library = Library { tracks: vec![track], ..Default::default() };
+        let beat = |n, bpm, ms| Beat { beat_number: n, bpm, time_ms: ms };
+        let analysis =
+            |_: &Track| TrackAnalysis { beats: vec![beat(1, 120.0, 40), beat(2, 124.0, 540)], ..Default::default() };
+        let src =
+            Source { library: &library, root: std::path::PathBuf::from("/Volumes/USB"), analysis: Some(&analysis) };
+        let export = build(&src, Path::new("out"), &Ctx::silent()).unwrap();
+        assert_eq!(export.beat_grids, 1);
+        assert_eq!(export.warnings, ["1 track(s) change tempo; their grid keeps the tempo of the first downbeat"]);
+        let crate::Content::Bytes(nml) = &export.files[0].content else { panic!("the NML is written out") };
+        assert!(String::from_utf8_lossy(nml).contains("<TEMPO BPM=\"120.000000\""));
+    }
+
+    #[test]
+    fn grids_start_on_the_first_downbeat() {
+        let beat = |n, bpm, ms| Beat { beat_number: n, bpm, time_ms: ms };
+        let beats = [beat(3, 128.0, 100), beat(4, 128.0, 569), beat(1, 128.0, 1038)];
+        assert_eq!(constant_grid(&beats, 128.0), Some((128.0, 1038, false)));
+        let changing = [beat(1, 120.0, 0), beat(2, 121.0, 500)];
+        assert_eq!(constant_grid(&changing, 120.0), Some((120.0, 0, true)));
+        assert_eq!(constant_grid(&[], 128.0), None);
+    }
+
+    /// rekordbox's eight colours on Traktor's seven (red 1 round to magenta 7): aqua and blue
+    /// are both its blue.
+    #[test]
+    fn colours_are_traktors_nearest() {
+        use TrackColor::*;
+        let traktor = [Red, Orange, Yellow, Green, Aqua, Blue, Purple, Pink].map(colour);
+        assert_eq!(traktor, [1, 2, 3, 4, 5, 5, 6, 7]);
+    }
+
+    #[test]
+    fn locations_split_volume_folders_and_file() {
+        let (mac, on_startup) = location(Path::new("/Volumes/USB/Contents/Daft Punk/One.mp3"), STARTUP_VOLUME);
+        assert!(!on_startup);
+        assert_eq!(
+            mac,
+            Location { volume: "USB".into(), dir: "/:Contents/:Daft Punk/:".into(), file: "One.mp3".into() }
+        );
+        assert_eq!(mac.key(), "USB/:Contents/:Daft Punk/:One.mp3");
+        let (win, _) = location(Path::new(r"e:\Contents\x.mp3"), STARTUP_VOLUME);
+        assert_eq!((win.volume.as_str(), win.dir.as_str(), win.file.as_str()), ("E:", "/:Contents/:", "x.mp3"));
+        let (home, on_startup) = location(Path::new("/Users/me/Music/x.mp3"), STARTUP_VOLUME);
+        assert!(on_startup);
+        assert_eq!(home.key(), "Macintosh HD/:Users/:me/:Music/:x.mp3");
+        let (root, _) = location(Path::new("/Volumes/USB/x.mp3"), STARTUP_VOLUME);
+        assert_eq!(root.dir, "/:");
+    }
+
+    /// The startup disk is the volume linked to `/`, whatever it's called.
+    #[cfg(unix)]
+    #[test]
+    fn startup_volume_is_the_one_linked_to_root() {
+        let volumes = tempfile::tempdir().unwrap();
+        std::fs::create_dir(volumes.path().join("USB")).unwrap();
+        std::os::unix::fs::symlink("/tmp", volumes.path().join("Elsewhere")).unwrap();
+        assert_eq!(startup_volume(volumes.path()), None);
+        std::os::unix::fs::symlink("/", volumes.path().join("Studio SSD")).unwrap();
+        assert_eq!(startup_volume(volumes.path()).as_deref(), Some("Studio SSD"));
+        assert_eq!(startup_volume(&volumes.path().join("missing")), None);
+        let (home, _) = location(Path::new("/Users/me/x.mp3"), "Studio SSD");
+        assert_eq!(home.key(), "Studio SSD/:Users/:me/:x.mp3");
+    }
+
+    #[test]
+    fn keys_dates_and_colours() {
+        assert_eq!(key_value("C"), Some(0));
+        assert_eq!(key_value("8B"), Some(0));
+        assert_eq!(key_value("Am"), Some(21));
+        assert_eq!(key_value("8A"), Some(21));
+        assert_eq!(key_value("F#m"), Some(18));
+        assert_eq!(key_value("Bb"), Some(10));
+        assert_eq!(key_value("1m"), Some(21), "Open Key 1m is A minor");
+        assert_eq!(key_value(""), None);
+        for n in 1..=12 {
+            for major in [false, true] {
+                let c = Camelot { number: n, major };
+                assert_eq!(Camelot::parse(&c.note()), Some(c), "{}", c.note());
+                assert_eq!(key_value(&c.note()), key_value(&c.code()));
+            }
+        }
+        assert_eq!(date("2026-09-30"), Some("2026/9/30".into()));
+        assert_eq!(date("2024-03-01 10:00:00"), Some("2024/3/1".into()));
+        assert_eq!(date("2024"), None);
+        assert_eq!(colour(TrackColor::Pink), 7);
+        assert_eq!(uuid("Shows/Friday"), uuid("Shows/Friday"));
+        assert_eq!(uuid("Shows/Friday").len(), 32);
+    }
+}
