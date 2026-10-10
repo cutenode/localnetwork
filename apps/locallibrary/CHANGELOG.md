@@ -77,8 +77,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **DJ profile.** `profile` sums up how you play from your sets, collection and settings (with no
   drives named, the mounted drives the store knows), with a rounded public view; `account` signs
   in with an Atmosphere (AT Protocol) account, and `profile publish`, `sets publish` and
-  `settings publish` write locallibrary's own records there, asking only to create and update
-  them. Signing in and publishing are alpha.
+  `settings publish` write their records there, asking only to create and update them. Signing
+  in and publishing are alpha.
 - **Sets and sessions.** A history list a player recorded (or a Beat Link Trigger log, `plays
   import`) is a *session*: raw, private, never counted or published as a set. `plays` lists sessions
   with an id that's the same on every drive and in the store (any list name argument takes one), the
@@ -92,10 +92,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   store's `sets.json`. Saving a drive that came back with new sessions (`pull`, `sync`, `prep`,
   `watch`) says how many. The profile counts declared sets, with sessions standing in (and never
   published) until there are some, and never names a track a set marks unnamed. `sets publish`
-  replaces `plays publish`: a set made from a single list that `plays publish` published takes over
-  that record the first time it's published. The set Lexicon gains `kind`, `location` (a Lexicon
-  Community address), `event`, `with`, `link` and `sources` (for `source`), and the profile's
-  `basis` can be `sessions`. The night-before job `set` is `prep` (`set` is a spelling of `sets`
+  replaces `plays publish`: a set made from a single list that `plays publish` published takes that
+  list's key and first-published time the first time it's published. Sets and the profile are
+  `computer.localnetwork.dj.set` and `computer.localnetwork.dj.profile`, record types Local
+  Network's tools share (with `computer.localnetwork.dj.defs`), and My Settings stay
+  `computer.localnetwork.locallibrary.settings`. The set Lexicon gains `kind`, `location` (an open
+  union, a Lexicon Community address for now), `event`, `playedWith`, `links` and `sources` (for
+  `source`), and the profile's `basis` can be `sessions`. The night-before job `set` is `prep` (`set` is a spelling of `sets`
   now; over RPC `prep.plan/apply`, and `set.*` still works).
 - **Player.** A terminal UI to browse a drive the way players show it and listen to it: search
   and filters, track details, harmonic suggestions, history and mixes. It does the drive work

@@ -286,9 +286,11 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
 /// set's id. Planned signed out, it can only be looked at.
 ///
 /// `plays publish` published history lists as sets under keys of their own (`atmosphere-sets.json`
-/// remembers them). A set built from one of those lists alone, with nothing published under its
-/// own id, takes over that key the first time it's published, so the old record is replaced rather
-/// than left beside it; publishing changes the set's id to the key.
+/// remembers them), in the collection sets had then ([`publish::PLAYS_PUBLISH_COLLECTION`]). A set
+/// built from one of those lists alone, with nothing published under its own id, takes over that
+/// key the first time it's published, and the time the old record says it first went out;
+/// publishing changes the set's id to the key. The old record stays where it is: publishing may
+/// only write sets in today's collection.
 pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<PlannedPublish> {
     let store = Store::open(store_root)?;
     let book = SetBook::load(&store)?;
@@ -317,7 +319,7 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
     .flatten()
     .collect();
     let hidden: BTreeSet<usize> = asked.iter().chain(&profile).copied().collect();
-    let record = publish::set_record(set, &hidden, Utc::now());
+    let mut record = publish::set_record(set, &hidden, Utc::now());
     if record.get("location").is_none() && set.city.as_deref().is_some_and(|c| !c.trim().is_empty()) {
         notes.push("the city is left out: it goes out with a country (`sets edit --country`)".into());
     }
@@ -335,8 +337,17 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
         && !book.sets.iter().any(|s| s.id == old)
     {
         let short = &session[..session.len().min(8)];
-        notes.push(format!("replaces what `plays publish` published from session {short}; the set's id becomes {old}"));
+        notes.push(format!("takes the key `plays publish` gave session {short}; the set's id becomes {old}"));
         current = read(info, &old)?;
+        if let Some(legacy) = repo::get_record(&info.pds, &info.did, publish::PLAYS_PUBLISH_COLLECTION, &old)? {
+            notes.push(format!(
+                "what `plays publish` published stays in {}: publishing can't remove it",
+                publish::PLAYS_PUBLISH_COLLECTION
+            ));
+            if let Some(first) = legacy.value.get("createdAt").filter(|c| c.is_string() && current.is_none()) {
+                record["createdAt"] = first.clone();
+            }
+        }
         renamed = Some(std::mem::replace(&mut rkey, old));
     }
     let mut plan = publish::plan_over(account, lexicon::SET, &rkey, record, current)?;

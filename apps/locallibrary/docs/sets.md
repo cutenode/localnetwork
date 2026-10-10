@@ -136,7 +136,8 @@ the track that was fifth just before the one that was second. `--insert` looks t
 the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text, Mixcloud's
 tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
 1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
-`.m3u8` or `.txt`).
+`.m3u8` or `.txt`). `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as
+a `computer.localnetwork.dj.set` record, a type Local Network's tools share.
 
 ## Mixes
 
@@ -220,8 +221,9 @@ deleted, nor one track logged twice.
 | Prep, Collection, Player style | how many tracks have cues and loops, the collection's size, My Settings such as quantize and jog mode |
 
 The report stays on this computer. `profile document` is the part meant for a public profile, and
-`profile publish` puts it on your [Atmosphere account](account.md#publishing): counts rounded down
-to round numbers, shares to 5% (shares of one whole still add up to it), BPM to whole numbers, and
+`profile publish` puts it on your [Atmosphere account](account.md#publishing) as a
+`computer.localnetwork.dj.profile` record: counts rounded down to round numbers, shares (of genres,
+labels and artists) to 5% (shares of one whole still add up to it), BPM to whole numbers, and
 no paths, drive or history-list names, ratings or exact dates. Sections that name tracks, artists or
 labels, or describe the collection itself, stay out until you include them, and the headline and
 traits only say what the included sections say. Your choices are kept in the store (`profile.json`):

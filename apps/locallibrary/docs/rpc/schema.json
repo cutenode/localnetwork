@@ -138,7 +138,7 @@
         },
         "publish": {
           "default": false,
-          "description": "Also allow publishing: writing locallibrary's own records (My Settings, the profile, sets)\nto the account ([`atmosphere::PUBLISH_SCOPES`]), and nothing else.",
+          "description": "Also allow publishing: writing the My Settings, profile and set records to the account\n([`atmosphere::PUBLISH_SCOPES`]), and nothing else.",
           "type": "boolean"
         },
         "scopes": {
@@ -14183,8 +14183,9 @@
           ]
         },
         "artists": {
+          "description": "A track credited to several artists counts for each, so shares can add up to more than 1.",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/DocShare"
           },
           "type": [
             "array",
@@ -14256,7 +14257,7 @@
         },
         "labels": {
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/DocShare"
           },
           "type": [
             "array",

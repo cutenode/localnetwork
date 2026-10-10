@@ -109,8 +109,8 @@ fn sets_publish_from_the_command_line() {
     let v = env.json(&["--yes", "sets", "publish", "Friday"]);
     let id = env.json(&["sets", "show", "Friday"])["id"].as_str().unwrap().to_string();
     assert_eq!((&v["outcome"], &v["plan"]["operation"]), (&json!("applied"), &json!("sets.publish")));
-    assert_eq!(v["report"]["uri"], format!("at://{DID}/computer.localnetwork.locallibrary.set/{id}"));
-    let (record, _) = pds.record(DID, "computer.localnetwork.locallibrary.set", &id).unwrap();
+    assert_eq!(v["report"]["uri"], format!("at://{DID}/computer.localnetwork.dj.set/{id}"));
+    let (record, _) = pds.record(DID, "computer.localnetwork.dj.set", &id).unwrap();
     assert_eq!((&record["venue"], &record["location"]["country"]), (&json!("Warehouse"), &json!("GB")));
     assert_eq!(record["tracks"][1]["title"], "Dubplate");
 
@@ -192,7 +192,7 @@ fn a_publish_plan_is_applied_by_its_id_and_only_over_what_it_read() {
     env.ok(&["--yes", "settings", "set", "quantize=on"]);
     let plan = s.call(4, "settings.publish.plan", json!({}))["result"].clone();
     assert_eq!(plan["destructive"], true, "it replaces what's published: {plan}");
-    let theirs = json!({ "$type": SETTINGS, "version": 1, "updatedAt": "2026-10-05T00:00:00.000Z" });
+    let theirs = json!({ "$type": SETTINGS, "updatedAt": "2026-10-05T00:00:00.000Z" });
     pds.put(DID, SETTINGS, "self", theirs.clone());
     let refused = s.call(5, "settings.publish.apply", json!({ "plan_id": plan["plan_id"] }));
     assert_eq!(refused["error"]["data"]["kind"], "stale_plan", "{refused}");
@@ -231,7 +231,7 @@ fn settings_are_shown_against_what_was_published_and_imported_elsewhere() {
 
     // Published from another app: no date, a value of its own, and one locallibrary doesn't know.
     let player = json!({ "quantize": "on", "madeUp": "x" });
-    pds.put(DID, SETTINGS, "self", json!({ "$type": SETTINGS, "version": 1, "player": player }));
+    pds.put(DID, SETTINGS, "self", json!({ "$type": SETTINGS, "player": player }));
     let out = env.ok(&["settings", "publish", "--dry-run"]);
     assert!(out.contains(&format!("at://{DID}/{SETTINGS}/self - replaces what's published there")), "{out}");
     for line in [

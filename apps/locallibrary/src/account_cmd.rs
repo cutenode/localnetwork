@@ -69,7 +69,7 @@ struct LoginArgs {
     /// without one)
     #[arg(long)]
     session_file: bool,
-    /// Also allow publishing your My Settings, profile and sets (locallibrary's own records, nothing
+    /// Also allow publishing your My Settings, profile and sets (those three record types, nothing
     /// else); publishing asks for this when it's needed
     #[arg(long)]
     publish: bool,

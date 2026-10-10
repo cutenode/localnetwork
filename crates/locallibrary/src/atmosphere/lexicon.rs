@@ -1,17 +1,20 @@
 //! The record types locallibrary publishes to an Atmosphere account, and a check that a record
 //! fits its type.
 //!
-//! Each type is a Lexicon document in `apps/locallibrary/lexicons/computer/localnetwork/locallibrary/`
-//! under the authority `locallibrary.localnetwork.computer`: [`SETTINGS`] (My Settings, one per
-//! account), [`PROFILE`] (the public profile, one per account) and [`SET`] (a set, one per set). Documents they refer to that others maintain are copied in unchanged, in
-//! their own authority's folder: [`ADDRESS`] (where a set was played).
+//! Each type is a Lexicon document in the repo's `lexicons/`, in the folder its NSID names.
+//! [`SETTINGS`] (My Settings, one per account) is locallibrary's own, under the authority
+//! `locallibrary.localnetwork.computer`. [`PROFILE`] (the public profile, one per account) and
+//! [`SET`] (a set, one per set) are shared by Local Network's tools, under the authority
+//! `dj.localnetwork.computer`, with the definitions they share in [`DEFS`]. Documents they refer
+//! to that others maintain are copied in unchanged, in their own authority's folder: [`ADDRESS`]
+//! (where a set was played).
 //!
 //! [`validate`] checks a record against its document before it's written. It's strict, so a field
 //! the document doesn't define is an error, and it follows the AT Protocol's data model, which has
 //! no fractional numbers. It covers the parts of Lexicon these documents use: objects, refs (within
-//! a document and to another one), strings, integers, booleans and arrays, and the string formats
-//! `datetime`, `at-uri`, `did` and `uri`. The AT Protocol library's parsers check DIDs and at://
-//! URIs and chrono checks times; a `uri` only gets the light check the protocol's reference
+//! a document and to another one), unions, strings, integers, booleans and arrays, and the string
+//! formats `datetime`, `at-uri`, `did` and `uri`. The AT Protocol library's parsers check DIDs and
+//! at:// URIs and chrono checks times; a `uri` only gets the light check the protocol's reference
 //! implementation gives one (a scheme, then no spaces).
 
 use rustc_hash::FxHashMap;
@@ -27,21 +30,24 @@ use crate::{Error, Result};
 /// A DJ's My Settings (record key `self`).
 pub const SETTINGS: &str = "computer.localnetwork.locallibrary.settings";
 /// A DJ's public profile (record key `self`).
-pub const PROFILE: &str = "computer.localnetwork.locallibrary.profile";
+pub const PROFILE: &str = "computer.localnetwork.dj.profile";
 /// A set: where and when it was played, and its tracklist (record key: a TID).
-pub const SET: &str = "computer.localnetwork.locallibrary.set";
+pub const SET: &str = "computer.localnetwork.dj.set";
+/// What [`PROFILE`] and [`SET`] share (tracks, keys, partners, shares, counts). Not a record type.
+pub const DEFS: &str = "computer.localnetwork.dj.defs";
 /// A street address, from Lexicon Community: where a set was played. Not a record type.
 pub const ADDRESS: &str = "community.lexicon.location.address";
 
 /// Every record type locallibrary writes.
 pub const COLLECTIONS: [&str; 3] = [SETTINGS, PROFILE, SET];
 
-/// The Lexicon documents, by NSID: locallibrary's and the ones they refer to.
-pub const DOCUMENTS: [(&str, &str); 4] = [
-    (SETTINGS, include_str!("../../../../apps/locallibrary/lexicons/computer/localnetwork/locallibrary/settings.json")),
-    (PROFILE, include_str!("../../../../apps/locallibrary/lexicons/computer/localnetwork/locallibrary/profile.json")),
-    (SET, include_str!("../../../../apps/locallibrary/lexicons/computer/localnetwork/locallibrary/set.json")),
-    (ADDRESS, include_str!("../../../../apps/locallibrary/lexicons/community/lexicon/location/address.json")),
+/// The Lexicon documents, by NSID: the ones locallibrary writes and the ones they refer to.
+pub const DOCUMENTS: [(&str, &str); 5] = [
+    (SETTINGS, include_str!("../../../../lexicons/computer/localnetwork/locallibrary/settings.json")),
+    (PROFILE, include_str!("../../../../lexicons/computer/localnetwork/dj/profile.json")),
+    (SET, include_str!("../../../../lexicons/computer/localnetwork/dj/set.json")),
+    (DEFS, include_str!("../../../../lexicons/computer/localnetwork/dj/defs.json")),
+    (ADDRESS, include_str!("../../../../lexicons/community/lexicon/location/address.json")),
 ];
 
 static PARSED: LazyLock<FxHashMap<&'static str, Value>> = LazyLock::new(|| {
@@ -120,6 +126,29 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
             let (doc, name) = target(nsid, r);
             let found = def(doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))?;
             check(doc, found, v, path)
+        }
+        // A union's value names its type in `$type`: `nsid` for a document's main definition,
+        // `nsid#name` for another. A type the union doesn't list passes unless it's closed.
+        "union" => {
+            let Value::Object(fields) = v else { return Err(format!("{} should be an object", what(path))) };
+            let Some(ty) = fields.get("$type").and_then(Value::as_str) else {
+                return Err(format!("{} is missing $type", what(path)));
+            };
+            let listed = schema["refs"].as_array().into_iter().flatten().filter_map(Value::as_str).find(|r| {
+                let (doc, name) = target(nsid, r);
+                if name == "main" { ty == doc } else { ty.split_once('#') == Some((doc, name)) }
+            });
+            let Some(r) = listed else {
+                return match schema["closed"].as_bool() {
+                    Some(true) => Err(format!("{} can't be a {ty}", what(path))),
+                    _ => Ok(()),
+                };
+            };
+            let (doc, name) = target(nsid, r);
+            let found = def(doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))?;
+            let mut rest = fields.clone();
+            rest.remove("$type");
+            check(doc, found, &Value::Object(rest), path)
         }
         "object" => {
             let Value::Object(fields) = v else { return Err(format!("{} should be an object", what(path))) };
@@ -208,7 +237,7 @@ mod tests {
 
     /// Every definition reachable from `v`, checked for what [`check`] understands.
     fn walk(nsid: &str, v: &Value, at: &str, problems: &mut Vec<String>) {
-        let known = ["record", "object", "ref", "string", "integer", "boolean", "array", "unknown"];
+        let known = ["record", "object", "ref", "union", "string", "integer", "boolean", "array", "unknown"];
         let ty = v["type"].as_str().unwrap_or_default();
         if !known.contains(&ty) {
             problems.push(format!("{nsid} {at}: type {ty:?}"));
@@ -227,11 +256,16 @@ mod tests {
                 }
             }
             "array" => walk(nsid, &v["items"], &format!("{at}[]"), problems),
-            "ref" => {
-                let r = v["ref"].as_str().unwrap_or_default();
-                let (doc, name) = target(nsid, r);
-                if def(doc, name).is_none() {
-                    problems.push(format!("{nsid} {at}: ref {r} doesn't resolve"));
+            "ref" | "union" => {
+                let refs = v["ref"]
+                    .as_str()
+                    .into_iter()
+                    .chain(v["refs"].as_array().into_iter().flatten().map(|r| r.as_str().unwrap_or_default()));
+                for r in refs {
+                    let (doc, name) = target(nsid, r);
+                    if def(doc, name).is_none() {
+                        problems.push(format!("{nsid} {at}: ref {r} doesn't resolve"));
+                    }
                 }
             }
             "string"
@@ -254,7 +288,7 @@ mod tests {
 
     #[test]
     fn every_lexicon_parses_and_its_refs_resolve() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/locallibrary/lexicons");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lexicons");
         // The file is where the NSID says, so tools that publish a folder of Lexicons find it.
         let path = |nsid: &str| root.join(nsid.replace('.', "/")).with_extension("json");
         let mut problems = Vec::new();
@@ -271,13 +305,17 @@ mod tests {
         }
         assert!(problems.is_empty(), "{problems:#?}");
         for nsid in COLLECTIONS {
-            assert!(nsid.starts_with("computer.localnetwork.locallibrary."));
+            // locallibrary's own settings, and the DJ records Local Network's tools share.
+            let group =
+                if nsid == SETTINGS { "computer.localnetwork.locallibrary." } else { "computer.localnetwork.dj." };
+            assert!(nsid.starts_with(group), "{nsid}");
             let main = &document(nsid).unwrap()["defs"]["main"];
             assert_eq!(main["type"], "record", "{nsid}");
             let key = if nsid == SET { "tid" } else { "literal:self" };
             assert_eq!(main["key"], key, "{nsid}");
         }
-        // Every file in the folder is one of the documents.
+        // Every file in the folders locallibrary owns is one of the documents. The rest of the
+        // repo's `lexicons/` belongs to the other tools.
         fn files(dir: &Path, found: &mut BTreeSet<PathBuf>) {
             for entry in std::fs::read_dir(dir).unwrap() {
                 let p = entry.unwrap().path();
@@ -288,9 +326,14 @@ mod tests {
                 }
             }
         }
+        let ours = ["computer/localnetwork/locallibrary", "computer/localnetwork/dj"].map(|d| root.join(d));
         let mut found = BTreeSet::new();
-        files(&root, &mut found);
-        assert_eq!(found, DOCUMENTS.iter().map(|(nsid, _)| path(nsid)).collect());
+        for dir in &ours {
+            files(dir, &mut found);
+        }
+        let documents = DOCUMENTS.iter().map(|(nsid, _)| path(nsid)).filter(|p| ours.iter().any(|d| p.starts_with(d)));
+        assert_eq!(found, documents.collect());
+        assert_eq!(found.len(), 4, "settings, and the DJ profile, set and defs");
     }
 
     #[test]
@@ -341,24 +384,79 @@ mod tests {
         assert!(validate("app.example.thing", &ok).is_err());
     }
 
+    /// The set's lists hold objects, so each entry can gain fields later.
+    #[test]
+    fn a_set_lists_objects_it_can_grow() {
+        let mut set = json!({
+            "$type": SET,
+            "date": "2026-10-03",
+            "playedWith": [{ "name": "Ayla", "did": "did:plc:ayla" }, { "name": "Sam" }],
+            "links": [
+                { "uri": "https://www.mixcloud.com/dj/friday-warm-up/", "name": "Mixcloud" },
+                { "uri": "https://station.example/archive/2026-10-03" },
+            ],
+            "sources": [{ "kind": "history" }, { "kind": "mix" }],
+            "tracks": [{ "title": "Glue", "recordingMbId": "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b", "key": "8A" }],
+            "createdAt": "2026-10-04T09:30:00.000Z",
+        });
+        validate(SET, &set).unwrap();
+        let broken = |f: &dyn Fn(&mut Value)| {
+            let mut v = set.clone();
+            f(&mut v);
+            validate(SET, &v).unwrap_err().to_string()
+        };
+        // The fields they replace are gone: `with` (a keyword in most languages) and the one `link`.
+        assert!(broken(&|v| v["with"] = json!([{ "name": "Ayla" }])).contains("with isn't in the Lexicon"));
+        assert!(broken(&|v| v["link"] = json!("https://www.mixcloud.com/dj/")).contains("link isn't in the Lexicon"));
+        assert!(broken(&|v| v["sources"] = json!(["history"])).contains("sources[0] should be an object"));
+        assert!(
+            broken(&|v| v["links"] = json!(["https://www.mixcloud.com/dj/"])).contains("links[0] should be an object")
+        );
+        assert!(broken(&|v| v["links"][1] = json!({ "name": "Archive" })).contains("links[1] is missing uri"));
+        assert!(broken(&|v| v["playedWith"][1] = json!({})).contains("playedWith[1] is missing name"));
+        // A source this version doesn't know is still a source: known values aren't a closed list.
+        set["sources"][1]["kind"] = json!("stream");
+        validate(SET, &set).unwrap();
+    }
+
     /// A ref names a definition in this document (`#name`), another document's (`nsid#name`) or
     /// another document's `main` (`nsid`), and that definition's own refs resolve in its document.
     #[test]
     fn refs_to_other_documents_are_checked_there() {
+        // The set's location is an open union: an address is checked against the address
+        // document, and a kind of location the set's document doesn't list passes as it is.
         let at = |location: Value| json!({ "$type": SET, "date": "2026-10-03", "tracks": [], "createdAt": "2026-10-04T09:30:00.000Z", "location": location });
-        validate(SET, &at(json!({ "name": "Fabric", "locality": "London", "country": "GB" }))).unwrap();
+        let address = |fields: Value| {
+            let mut v = json!({ "$type": ADDRESS });
+            v.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+            v
+        };
+        validate(SET, &at(address(json!({ "name": "Fabric", "locality": "London", "country": "GB" })))).unwrap();
+        validate(
+            SET,
+            &at(json!({ "$type": "community.lexicon.location.geo", "latitude": "51.52", "longitude": "-0.10" })),
+        )
+        .unwrap();
         let err = |location: Value| validate(SET, &at(location)).unwrap_err().to_string();
-        assert!(err(json!({ "name": "Fabric" })).contains("location is missing country"));
-        assert!(err(json!({ "country": "GB", "zip": "EC1M" })).contains("location.zip isn't in the Lexicon"));
-        assert!(err(json!({ "country": "G" })).contains("location.country is 1 bytes long"));
+        assert!(err(address(json!({ "name": "Fabric" }))).contains("location is missing country"));
+        assert!(err(address(json!({ "country": "GB", "zip": "EC1M" }))).contains("location.zip isn't in the Lexicon"));
+        assert!(err(address(json!({ "country": "G" }))).contains("location.country is 1 bytes long"));
+        assert!(err(json!({ "country": "GB" })).contains("location is missing $type"));
         assert!(err(json!("London")).contains("location should be an object"));
 
-        // From the profile's document, the set's partner, and the profile's collection, whose
-        // `#count` refs are the profile's (the set has no #count).
-        let partner = json!({ "type": "ref", "ref": "computer.localnetwork.locallibrary.set#partner" });
-        check(PROFILE, &partner, &json!({ "name": "Ayla" }), "with").unwrap();
-        assert!(check(PROFILE, &partner, &json!({}), "with").unwrap_err().contains("with is missing name"));
-        let collection = json!({ "type": "ref", "ref": "computer.localnetwork.locallibrary.profile#collection" });
+        // From another document, the shared track, whose `#camelotKey` ref resolves in the shared
+        // document (the settings have no #camelotKey), and the profile's collection, whose counts
+        // are the shared document's.
+        let track = json!({ "type": "ref", "ref": "computer.localnetwork.dj.defs#track" });
+        check(SETTINGS, &track, &json!({ "title": "Glue", "key": "8A" }), "track").unwrap();
+        assert!(check(SETTINGS, &track, &json!({ "key": "8A9" }), "track").is_ok(), "a key it doesn't know");
+        assert!(
+            check(SETTINGS, &track, &json!({ "key": "10AB" }), "track").unwrap_err().contains("track.key is 4 bytes")
+        );
+        let partner = json!({ "type": "ref", "ref": "computer.localnetwork.dj.defs#partner" });
+        check(PROFILE, &partner, &json!({ "name": "Ayla" }), "playedWith").unwrap();
+        assert!(check(PROFILE, &partner, &json!({}), "playedWith").unwrap_err().contains("playedWith is missing name"));
+        let collection = json!({ "type": "ref", "ref": "computer.localnetwork.dj.profile#collection" });
         let counts = json!({ "tracks": { "count": 3500 }, "playlists": { "atLeast": 5 } });
         check(SET, &collection, &counts, "collection").unwrap();
         let bad = json!({ "tracks": { "count": -1 }, "playlists": {} });
@@ -436,5 +534,20 @@ mod tests {
         assert!(checked(json!({ "blob": {} })).unwrap_err().contains("doesn't know the Lexicon type \"blob\""));
         // Only the fields named nullable may be null.
         assert_eq!(checked(json!({ "mood": null })).unwrap_err(), "mood should be text");
+
+        // A closed union takes only the types it lists, and a local ref's type is `nsid#name`.
+        let closed = json!({ "type": "union", "refs": ["#link", ADDRESS], "closed": true });
+        let checked = |v: Value| check(SET, &closed, &v, "place");
+        checked(json!({ "$type": format!("{SET}#link"), "uri": "https://station.example/" })).unwrap();
+        checked(json!({ "$type": ADDRESS, "country": "GB" })).unwrap();
+        assert_eq!(
+            checked(json!({ "$type": "#link", "uri": "https://station.example/" })).unwrap_err(),
+            "place can't be a #link"
+        );
+        assert_eq!(checked(json!({ "$type": "app.example.place" })).unwrap_err(), "place can't be a app.example.place");
+        assert_eq!(checked(json!({ "$type": format!("{SET}#link") })).unwrap_err(), "place is missing uri");
+        let nowhere = json!({ "type": "union", "refs": ["#nowhere"] });
+        let err = check(SET, &nowhere, &json!({ "$type": format!("{SET}#nowhere") }), "place").unwrap_err();
+        assert_eq!(err, "place: unknown ref #nowhere");
     }
 }

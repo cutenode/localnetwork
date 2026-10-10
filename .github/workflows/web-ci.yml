@@ -39,6 +39,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
+      - name: Lexicon formatting
+        working-directory: .
+        run: pnpm lexicons:format --check
       - run: pnpm lint
       - run: pnpm check
       - run: pnpm knip

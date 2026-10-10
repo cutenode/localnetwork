@@ -53,8 +53,8 @@ export type AccountLoginRequest = {
    */
   handle?: string | null;
   /**
-   * Also allow publishing: writing locallibrary's own records (My Settings, the profile, sets)
-   * to the account ([`atmosphere::PUBLISH_SCOPES`]), and nothing else.
+   * Also allow publishing: writing the My Settings, profile and set records to the account
+   * ([`atmosphere::PUBLISH_SCOPES`]), and nothing else.
    */
   publish?: boolean;
   /** Scopes to ask for (default: `atproto`, which identifies you and nothing more). */
@@ -4338,7 +4338,8 @@ export type PrepSection = {
 
 export type ProfileDocument = {
   arc?: DocArc | null;
-  artists?: string[] | null;
+  /** A track credited to several artists counts for each, so shares can add up to more than 1. */
+  artists?: DocShare[] | null;
   /** `plays`, `sessions` or `collection` (see [`Basis`]). */
   basis: Basis;
   collection?: DocCollection | null;
@@ -4348,7 +4349,7 @@ export type ProfileDocument = {
   genres?: DocShare[] | null;
   headline?: string | null;
   keys?: DocKeys | null;
-  labels?: string[] | null;
+  labels?: DocShare[] | null;
   mixing?: DocMixing | null;
   precision: Precision;
   prep?: DocPrep | null;

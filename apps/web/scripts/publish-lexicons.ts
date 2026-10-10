@@ -1,5 +1,6 @@
 /**
- * Publishes the computer.localnetwork.* lexicons as com.atproto.lexicon.schema
+ * Publishes every tool's computer.localnetwork.* lexicons (the repo's
+ * lexicons/computer/, so locallibrary's too) as com.atproto.lexicon.schema
  * records in the root account's repo, then checks the `_lexicon` DNS TXT
  * records that make them resolvable and exits non-zero while any are missing
  * or point at another DID. PDSes must resolve the space type declarations
@@ -12,16 +13,24 @@
  * points at the temporary dev network, and `pnpm dev:network` publishes the
  * lexicons there itself.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolveTxt } from 'node:dns/promises';
+import { join } from 'node:path';
 import { AtpAgent } from '@atproto/api';
+import { parseLexiconDoc } from '@atproto/lexicon';
 import { canonicalJson } from '../src/lib/server/audit/chain.ts';
 import { IdentityResolver } from '../src/lib/server/atproto/identity.ts';
-import { LEXICON_DOCS } from '../src/lib/server/atproto/lexicons.ts';
 import { AgentRootClient } from '../src/lib/server/atproto/repo-client.ts';
 import { silentLogger } from '../src/lib/server/logger.ts';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
+
+// Ours only: lexicons/community/ holds copies of other authorities' lexicons, which they publish.
+const ours = join(import.meta.dirname, '../../../lexicons/computer');
+
+const docs = readdirSync(ours, { recursive: true, encoding: 'utf8' })
+	.filter((file) => file.endsWith('.json'))
+	.map((file) => parseLexiconDoc(JSON.parse(readFileSync(join(ours, file), 'utf8'))));
 
 const identifier = process.env.ROOT_IDENTIFIER;
 
@@ -49,7 +58,7 @@ await agent.login({ identifier: did, password });
 
 const root = new AgentRootClient(did, agent);
 
-for (const doc of LEXICON_DOCS) {
+for (const doc of docs) {
 	const record = { $type: 'com.atproto.lexicon.schema', ...JSON.parse(JSON.stringify(doc)) };
 
 	const existing = await root.getRecord({ collection: 'com.atproto.lexicon.schema', rkey: doc.id });
@@ -63,7 +72,7 @@ for (const doc of LEXICON_DOCS) {
 	console.log(`published  ${doc.id}`);
 }
 
-const authorities = new Set(LEXICON_DOCS.map((doc) => doc.id.split('.').slice(0, -1).toReversed().join('.')));
+const authorities = new Set(docs.map((doc) => doc.id.split('.').slice(0, -1).toReversed().join('.')));
 
 const expected = `did=${did}`;
 

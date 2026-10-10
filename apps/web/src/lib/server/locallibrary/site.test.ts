@@ -24,8 +24,8 @@ describe('locallibrarySite', () => {
 		expect(doc.scope.split(' ')).toEqual(
 			expect.arrayContaining([
 				'atproto',
-				...['settings', 'profile', 'set'].map(
-					(record) => `repo:computer.localnetwork.locallibrary.${record}?action=create&action=update`
+				...['locallibrary.settings', 'dj.profile', 'dj.set'].map(
+					(record) => `repo:computer.localnetwork.${record}?action=create&action=update`
 				)
 			])
 		);

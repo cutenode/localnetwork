@@ -16,10 +16,10 @@ locallibrary never sees your password. Give your handle, a DID, or your server
 (`locallibrary account login https://bsky.social`, which also lets you pick an account or make
 one). Signing in only asks to know who you are: locallibrary can't post or change anything.
 [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
-and replace locallibrary's own records
+and replace the three record types it publishes
 (`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, and the same for
-`.profile` and `.set`), not to delete them, and nothing else in the account. `account login
---publish` asks for it up front.
+`computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`), not to delete them, and
+nothing else in the account. `account login --publish` asks for it up front.
 
 - **The browser comes back to locallibrary** on a one-off `127.0.0.1` port, and only the address
   that carries this sign-in's `state` counts. When the browser runs on another computer (over
@@ -75,8 +75,8 @@ shows the plan again for the account you approved. Publishing again replaces the
 | Command | Record | Holds |
 | --- | --- | --- |
 | `settings publish` | `computer.localnetwork.locallibrary.settings`, key `self` | the settings profile's base values |
-| `profile publish` | `computer.localnetwork.locallibrary.profile`, key `self` | the [profile document](sets.md#dj-profile), in whole numbers: shares as percents, BPM whole |
-| `sets publish <set>` | `computer.localnetwork.locallibrary.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with, where to listen, what the tracklist came from (`history`, `mix`, `added`), and the tracks in order: artist, title, ISRC, BPM, Camelot key, start time |
+| `profile publish` | `computer.localnetwork.dj.profile`, key `self` | the [profile document](sets.md#dj-profile), in whole numbers: shares as percents, BPM whole |
+| `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, ISRC, BPM, Camelot key, start time |
 
 A set's notes, its recording, the sessions it came from and the files' paths stay on this
 computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your profile hides
@@ -84,10 +84,13 @@ computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your
 only their place in the set and when it starts. The venue, city and country also go out as a
 `community.lexicon.location.address`, which needs a country: without one, the city stays out. A
 set built from a single history list that an earlier version published with `plays publish`
-replaces that record the first time it's published, and takes its key as its id.
+takes that list's key as its id the first time it's published, and the time the old record says
+it first went out. The old record stays where `plays publish` wrote it
+(`computer.localnetwork.locallibrary.set`), since publishing may only write today's set records.
 
-The record types are Lexicons in [`lexicons/`](../lexicons/computer/localnetwork/locallibrary/),
-next to the address Lexicon they use, copied from
-[Lexicon Community](https://github.com/lexicon-community/lexicon). Each record is checked against
-its Lexicon before it's written. Everything published is public and copied around the network:
+The record types are Lexicons in the repo's [`lexicons/`](../../../lexicons/computer/localnetwork/):
+My Settings is locallibrary's own (`locallibrary/`), and the profile and set are DJ records Local
+Network's tools share (`dj/`, with the definitions both use in `dj/defs.json`). The address Lexicon
+they use is copied from [Lexicon Community](https://github.com/lexicon-community/lexicon). Each
+record is checked against its Lexicon before it's written. Everything published is public and copied around the network:
 deleting a record later doesn't delete the copies.

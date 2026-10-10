@@ -10,6 +10,7 @@ FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter localnetwork
+COPY lexicons lexicons/
 COPY apps/web apps/web/
 RUN pnpm --filter localnetwork build
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm --filter localnetwork deploy --prod --ignore-scripts /prod

@@ -1,0 +1,106 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.dj.defs",
+	"description": "Definitions DJ records share: tracks, keys, the people a DJ plays with, shares and counts.",
+	"defs": {
+		"track": {
+			"type": "object",
+			"description": "One track: named (a title, usually an artist), or unidentified. isrc and recordingMbId are named as in teal.fm's records, so readers can map them.",
+			"properties": {
+				"title": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+				"artist": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
+				"isrc": {
+					"type": "string",
+					"minLength": 12,
+					"maxLength": 12,
+					"description": "The recording's ISRC."
+				},
+				"recordingMbId": {
+					"type": "string",
+					"maxLength": 36,
+					"description": "MusicBrainz recording ID"
+				},
+				"bpmCentis": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Its tempo as the writer's analysis has it, in hundredths of a BPM (12800 is 128 BPM)."
+				},
+				"key": {
+					"type": "ref",
+					"ref": "#camelotKey"
+				},
+				"startSeconds": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "When it starts, in seconds from the start of the set or mix it's in (known from a recording)."
+				},
+				"unidentified": {
+					"type": "boolean",
+					"description": "Not named: the DJ chose not to say what it is (an unreleased promo, an edit), so only its place is published."
+				}
+			}
+		},
+		"camelotKey": {
+			"type": "string",
+			"maxLength": 3,
+			"description": "A key on the Camelot wheel, 1A to 12B (8A is A minor, 8B C major).",
+			"knownValues": [
+				"1A",
+				"1B",
+				"2A",
+				"2B",
+				"3A",
+				"3B",
+				"4A",
+				"4B",
+				"5A",
+				"5B",
+				"6A",
+				"6B",
+				"7A",
+				"7B",
+				"8A",
+				"8B",
+				"9A",
+				"9B",
+				"10A",
+				"10B",
+				"11A",
+				"11B",
+				"12A",
+				"12B"
+			]
+		},
+		"partner": {
+			"type": "object",
+			"description": "Someone a DJ played with.",
+			"required": ["name"],
+			"properties": {
+				"name": { "type": "string", "maxLength": 640, "maxGraphemes": 64, "description": "The name they play under." },
+				"did": { "type": "string", "format": "did", "description": "Their account, when known." }
+			}
+		},
+		"share": {
+			"type": "object",
+			"description": "A name (a genre, label or artist) and its share of plays.",
+			"required": ["name", "share"],
+			"properties": {
+				"name": { "type": "string", "maxLength": 1000, "maxGraphemes": 200 },
+				"share": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100,
+					"description": "Percent of plays."
+				}
+			}
+		},
+		"count": {
+			"type": "object",
+			"description": "How many: count when exact, atLeast when rounded down to a round number. One of the two.",
+			"properties": {
+				"count": { "type": "integer", "minimum": 0 },
+				"atLeast": { "type": "integer", "minimum": 0 }
+			}
+		}
+	}
+}

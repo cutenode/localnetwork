@@ -1,0 +1,228 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.dj.profile",
+	"description": "A DJ's public profile: how they play, worked out from their sets (or, until they declare some, the history lists their players recorded), their tracks' analysis and their player settings.",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "literal:self",
+			"description": "One per account. Only the sections the DJ chose are present. Never holds file paths, drive or history-list names, ratings or exact dates. Shares are whole percents (0 to 100) and tempos whole BPM.",
+			"record": {
+				"type": "object",
+				"required": ["generatedAt", "precision", "basis"],
+				"properties": {
+					"generatedAt": { "type": "string", "format": "datetime" },
+					"precision": {
+						"type": "string",
+						"description": "rounded: counts are round numbers the true count is at least, and shares are to 5%. exact: as counted.",
+						"knownValues": ["rounded", "exact"]
+					},
+					"basis": {
+						"type": "string",
+						"description": "plays: tracks as played in sets (a track in three sets counts three times). sessions: no sets declared yet, so the history lists players recorded (which can include practice) stand in; the sets section is then absent. collection: no sets were found, so the collection, each track once.",
+						"knownValues": ["plays", "sessions", "collection"]
+					},
+					"headline": {
+						"type": "string",
+						"maxLength": 1000,
+						"maxGraphemes": 120,
+						"description": "One line, written by the DJ or built from the sections present (genres, tempo, how many sets)."
+					},
+					"tags": {
+						"type": "array",
+						"maxLength": 20,
+						"description": "Traits the numbers support, like \"Mixes in key\". Only traits backed by a section that's present.",
+						"items": { "type": "ref", "ref": "#tag" }
+					},
+					"sets": { "type": "ref", "ref": "#sets" },
+					"tempo": { "type": "ref", "ref": "#tempo" },
+					"arc": { "type": "ref", "ref": "#arc" },
+					"mixing": { "type": "ref", "ref": "#mixing" },
+					"keys": { "type": "ref", "ref": "#keys" },
+					"energy": { "type": "ref", "ref": "#energy" },
+					"genres": {
+						"type": "array",
+						"maxLength": 10,
+						"description": "The genres played most, with their share of plays.",
+						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#share" }
+					},
+					"labels": {
+						"type": "array",
+						"maxLength": 10,
+						"description": "The labels played most, with their share of plays.",
+						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#share" }
+					},
+					"artists": {
+						"type": "array",
+						"maxLength": 10,
+						"description": "The artists played most, with their share of plays. A track credited to several artists counts for each.",
+						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#share" }
+					},
+					"era": { "type": "ref", "ref": "#era" },
+					"signature": {
+						"type": "array",
+						"maxLength": 50,
+						"description": "Tracks played again and again, pinned ones first.",
+						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#track" }
+					},
+					"prep": { "type": "ref", "ref": "#prep" },
+					"collection": { "type": "ref", "ref": "#collection" },
+					"style": { "type": "ref", "ref": "#style" }
+				}
+			}
+		},
+		"tag": {
+			"type": "object",
+			"description": "A trait the numbers support.",
+			"required": ["name"],
+			"properties": {
+				"name": { "type": "string", "maxLength": 300, "maxGraphemes": 60 }
+			}
+		},
+		"sets": {
+			"type": "object",
+			"description": "The sets the profile is built from: how many, since when, and how long.",
+			"required": ["medianTracks"],
+			"properties": {
+				"total": { "type": "ref", "ref": "computer.localnetwork.dj.defs#count" },
+				"since": { "type": "integer", "description": "The year of the oldest set." },
+				"medianTracks": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Tracks in a typical set."
+				}
+			}
+		},
+		"tempo": {
+			"type": "object",
+			"description": "BPM: the range the middle 80% of plays fall in, and the median.",
+			"required": ["low", "high", "median"],
+			"properties": {
+				"low": { "type": "integer", "minimum": 0 },
+				"high": { "type": "integer", "minimum": 0 },
+				"median": { "type": "integer", "minimum": 0 }
+			}
+		},
+		"arc": {
+			"type": "object",
+			"description": "Set shape: the percent of sets (sessions when basis is sessions) whose last quarter is at least 2 BPM faster than their first (builds), within 2 BPM of it (steady), or at least 2 BPM slower (windsDown).",
+			"required": ["shape", "builds", "steady", "windsDown"],
+			"properties": {
+				"shape": {
+					"type": "string",
+					"description": "What half the sets or more do, or varies.",
+					"knownValues": ["builds", "steady", "windsDown", "varies"]
+				},
+				"builds": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"steady": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"windsDown": { "type": "integer", "minimum": 0, "maximum": 100 }
+			}
+		},
+		"mixing": {
+			"type": "object",
+			"description": "Transitions between consecutive tracks in sets (sessions when basis is sessions), as percents.",
+			"properties": {
+				"harmonic": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100,
+					"description": "Into a key that mixes on the Camelot wheel (same key, one step, relative, energy boost)."
+				},
+				"smoothTempo": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100,
+					"description": "Changing tempo by 3% or less."
+				},
+				"genreChanges": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100,
+					"description": "Into another genre."
+				}
+			}
+		},
+		"keys": {
+			"type": "object",
+			"required": ["top"],
+			"properties": {
+				"top": {
+					"type": "array",
+					"maxLength": 12,
+					"description": "Camelot keys played most, most first.",
+					"items": { "type": "ref", "ref": "#topKey" }
+				},
+				"minor": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100,
+					"description": "Percent of plays in minor keys."
+				}
+			}
+		},
+		"topKey": {
+			"type": "object",
+			"description": "One of the keys played most.",
+			"required": ["key"],
+			"properties": {
+				"key": { "type": "ref", "ref": "computer.localnetwork.dj.defs#camelotKey" }
+			}
+		},
+		"energy": {
+			"type": "object",
+			"description": "Percent of plays in each phrase mood (high, mid, low), as the tracks' phrase analysis has it.",
+			"required": ["high", "mid", "low"],
+			"properties": {
+				"high": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"mid": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"low": { "type": "integer", "minimum": 0, "maximum": 100 }
+			}
+		},
+		"era": {
+			"type": "object",
+			"properties": {
+				"medianYear": {
+					"type": "integer",
+					"description": "Half the plays came out this year or earlier."
+				},
+				"recent": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100,
+					"description": "Percent of plays released that year or the year before."
+				}
+			}
+		},
+		"prep": {
+			"type": "object",
+			"description": "Percent of the collection with hot cues, memory cues and loops set.",
+			"required": ["hotCues", "memoryCues", "loops"],
+			"properties": {
+				"hotCues": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"memoryCues": { "type": "integer", "minimum": 0, "maximum": 100 },
+				"loops": { "type": "integer", "minimum": 0, "maximum": 100 }
+			}
+		},
+		"collection": {
+			"type": "object",
+			"required": ["tracks", "playlists"],
+			"properties": {
+				"tracks": { "type": "ref", "ref": "computer.localnetwork.dj.defs#count" },
+				"playlists": { "type": "ref", "ref": "computer.localnetwork.dj.defs#count" }
+			}
+		},
+		"style": {
+			"type": "object",
+			"description": "Player settings that say something about how the DJ plays. Values as in computer.localnetwork.locallibrary.settings.",
+			"properties": {
+				"quantize": { "type": "string", "knownValues": ["off", "on"] },
+				"sync": { "type": "string", "knownValues": ["off", "on"] },
+				"masterTempo": { "type": "string", "knownValues": ["off", "on"] },
+				"jogMode": { "type": "string", "knownValues": ["cdj", "vinyl"] },
+				"vinylSpeedAdjust": { "type": "string", "knownValues": ["touch-release", "touch", "release"] },
+				"tempoRange": { "type": "string", "knownValues": ["6", "10", "16", "wide"] },
+				"autoCue": { "type": "string", "knownValues": ["off", "on"] }
+			}
+		}
+	}
+}

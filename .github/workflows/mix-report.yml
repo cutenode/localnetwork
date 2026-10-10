@@ -1,0 +1,49 @@
+name: Mix report
+
+# locallibrary writes mix reports (`mix --export`) and the web app reads them, with the format
+# defined on each side. This regenerates the web app's fixture with the real writer: it fails
+# when the checked-in fixture is out of date (the analysis time aside) or the reader rejects it.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - crates/locallibrary/src/mix/**
+      - crates/loclib-mixid/**
+      - apps/locallibrary/src/mix_cmd.rs
+      - apps/web/src/lib/mix/**
+      - apps/web/scripts/mix-fixture.ts
+      - .github/workflows/mix-report.yml
+  pull_request:
+    paths: *paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The CLI's default features include the player's audio output, which needs ALSA.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter localnetwork fixtures:mix
+      - name: The checked-in fixture is current
+        run: git diff --exit-code -I '"analysedAt"' -- apps/web/src/lib/mix/fixtures
+      - name: The reader accepts it
+        working-directory: apps/web
+        run: pnpm exec vitest run --project server src/lib/mix

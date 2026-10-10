@@ -19,8 +19,8 @@
 //! * A lock, so the CLI and a running sidecar never spend the same single-use refresh token.
 //! * The network (`net`): servers found from a handle or DID are only reached at public https
 //!   addresses, and answers are read up to a limit.
-//! * Records ([`repo`]): writing locallibrary's own record types ([`lexicon`]) with the session,
-//!   which needs the [`PUBLISH_SCOPES`], and reading anyone's without one.
+//! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]) with the
+//!   session, which needs the [`PUBLISH_SCOPES`], and reading anyone's without one.
 //!
 //! One account is signed in at a time. Bluesky's servers end a public client's session two weeks
 //! after sign-in however often it's refreshed ([`AccountInfo::sign_in_again_by`]).
@@ -71,15 +71,15 @@ pub const CLIENT_ID: &str = "https://locallibrary.localnetwork.computer/oauth-cl
 /// What signing in asks for: to know who you are, nothing more.
 pub const DEFAULT_SCOPES: [&str; 1] = ["atproto"];
 
-/// What publishing asks for besides `atproto`: to create and replace locallibrary's own record
-/// types (see [`lexicon`]), and nothing else in the account (not even deleting them, which
+/// What publishing asks for besides `atproto`: to create and replace the record types locallibrary
+/// writes (see [`lexicon`]), and nothing else in the account (not even deleting them, which
 /// locallibrary doesn't do). Signing in only asks for them when the DJ publishes (`account login
 /// --publish`, or a publish command that signs in again). The hosted client document has to
 /// allow them before a release asks: sign-in checks, and refuses while it doesn't.
 pub const PUBLISH_SCOPES: [&str; 3] = [
     "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
-    "repo:computer.localnetwork.locallibrary.profile?action=create&action=update",
-    "repo:computer.localnetwork.locallibrary.set?action=create&action=update",
+    "repo:computer.localnetwork.dj.profile?action=create&action=update",
+    "repo:computer.localnetwork.dj.set?action=create&action=update",
 ];
 
 /// `atproto` and the publish scopes: what a sign-in that allows publishing asks for.
@@ -823,8 +823,8 @@ pub(crate) mod tests {
         assert_eq!(m["client_uri"], "https://locallibrary.example");
         assert_eq!(
             m["scope"],
-            "atproto repo:computer.localnetwork.locallibrary.profile?action=create&action=update \
-             repo:computer.localnetwork.locallibrary.set?action=create&action=update \
+            "atproto repo:computer.localnetwork.dj.profile?action=create&action=update \
+             repo:computer.localnetwork.dj.set?action=create&action=update \
              repo:computer.localnetwork.locallibrary.settings?action=create&action=update"
         );
         assert!(client_metadata("http://locallibrary.example/c.json", &[]).is_err());

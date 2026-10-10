@@ -207,9 +207,14 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       back to the development client; online without those scopes, a publish sign-in stops and
       points at `--dev-client`. jacquard sends `application_type: web`
       for a hosted ID while the document says `native`: untested.
-- [ ] Publish the three Lexicons (`lexicons/computer/localnetwork/locallibrary/`) as
-      `com.atproto.lexicon.schema` records and add the `_lexicon.locallibrary.localnetwork.computer`
-      TXT record.
+- [ ] Publish the Lexicons locallibrary writes as `com.atproto.lexicon.schema` records with the
+      repo's lexicon publisher (`pnpm -C apps/web lexicons:publish`), and add a `_lexicon` TXT
+      record for each of their two authorities: `locallibrary.localnetwork.computer`
+      (`lexicons/computer/localnetwork/locallibrary/`, My Settings) and `dj.localnetwork.computer`
+      (`lexicons/computer/localnetwork/dj/`, the profile, set and their shared defs).
+- [ ] Switch publishing to a permission set (`include:`) once a real sign-in shows whether the PDS
+      expands it in the token response; jacquard only resolves includes with its `scope-check`
+      feature.
 - [ ] First real run of `settings publish`, `profile publish`, `sets publish` and `settings import
       --from-handle`; check what a real PDS answers to a write without the scope (the refusal
       mapping is a guess). Everything so far ran against a mock PDS only.

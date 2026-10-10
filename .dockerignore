@@ -1,9 +1,10 @@
 # The build context is the repo root, but only the web app's image is built from it
-# (apps/web/Dockerfile). Send the workspace files and apps/web, minus what's local or generated.
+# (apps/web/Dockerfile). Send the workspace files, the lexicons and apps/web, minus what's local or generated.
 *
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+!lexicons
 !apps/web
 apps/web/node_modules
 apps/web/.svelte-kit

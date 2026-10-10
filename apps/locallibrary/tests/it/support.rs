@@ -290,8 +290,8 @@ pub mod account {
     pub const PUBLISHING: [&str; 4] = [
         "atproto",
         "repo:computer.localnetwork.locallibrary.settings",
-        "repo:computer.localnetwork.locallibrary.profile",
-        "repo:computer.localnetwork.locallibrary.set",
+        "repo:computer.localnetwork.dj.profile",
+        "repo:computer.localnetwork.dj.set",
     ];
 
     /// A P-256 key made for these tests: it signs nothing but proofs sent to the pretend server.

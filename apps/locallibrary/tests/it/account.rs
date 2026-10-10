@@ -42,8 +42,8 @@ fn client_metadata_for_a_hosted_client() {
     assert_eq!(
         v["scope"],
         "atproto repo:app.example.thing \
-         repo:computer.localnetwork.locallibrary.profile?action=create&action=update \
-         repo:computer.localnetwork.locallibrary.set?action=create&action=update \
+         repo:computer.localnetwork.dj.profile?action=create&action=update \
+         repo:computer.localnetwork.dj.set?action=create&action=update \
          repo:computer.localnetwork.locallibrary.settings?action=create&action=update"
     );
     let file = env.outside("meta.json");
@@ -112,8 +112,8 @@ fn the_status_says_what_the_session_allows_and_until_when() {
     // Signed in to publish, as the client metadata asks.
     let publishing = [
         "atproto",
-        "repo:computer.localnetwork.locallibrary.profile?action=create&action=update",
-        "repo:computer.localnetwork.locallibrary.set?action=create&action=update",
+        "repo:computer.localnetwork.dj.profile?action=create&action=update",
+        "repo:computer.localnetwork.dj.set?action=create&action=update",
         "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
     ];
     sign_in(&env.store, pds, &publishing, json!({ "sign_in_again_by": from_now(2) }));

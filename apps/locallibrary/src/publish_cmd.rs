@@ -83,8 +83,8 @@ fn publish_flow(
             );
         }
         eprintln!(
-            "Publishing needs your permission for locallibrary to write its own records (your My Settings, \
-             profile and sets) to your account, and nothing else. That means signing in again."
+            "Publishing needs your permission for locallibrary to write your My Settings, profile and \
+             sets to your account, and nothing else. That means signing in again."
         );
         if let Some(o) = out.decide(false, "Sign in again to allow publishing?") {
             return Ok(stop(out, &p, o));
@@ -237,8 +237,20 @@ fn percent(v: &Value) -> Option<String> {
     v.as_i64().map(|p| format!("{p}%"))
 }
 
-fn names(v: &Value) -> String {
-    v.as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+/// The `field` of each object in a list, joined.
+fn names(v: &Value, field: &str) -> String {
+    v.as_array().into_iter().flatten().filter_map(|x| x[field].as_str()).collect::<Vec<_>>().join(", ")
+}
+
+/// Each name in a list of shares, with its percent.
+fn shares(v: &Value) -> String {
+    let shares: Vec<String> = v
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|s| format!("{} {}%", s["name"].as_str().unwrap_or_default(), s["share"]))
+        .collect();
+    shares.join(", ")
 }
 
 /// One line per section in a profile record: (field, title, what it says).
@@ -250,14 +262,14 @@ fn profile_lines(r: &Value) -> Vec<(&'static str, &'static str, String)> {
         }
     };
     line("headline", "Headline", r["headline"].as_str().map(String::from));
-    line("tags", "Traits", Some(names(&r["tags"])));
+    line("tags", "Traits", Some(names(&r["tags"], "name")));
     let s = &r["sets"];
     line(
         "sets",
         "Sets",
         s.is_object().then(|| {
             let since = s["since"].as_i64().map(|y| format!(" since {y}")).unwrap_or_default();
-            format!("{}{since}, {} tracks in a typical set", count(s), s["medianTracks"])
+            format!("{}{since}, {} tracks in a typical set", count(&s["total"]), s["medianTracks"])
         }),
     );
     let t = &r["tempo"];
@@ -288,7 +300,8 @@ fn profile_lines(r: &Value) -> Vec<(&'static str, &'static str, String)> {
         "keys",
         "Keys",
         k.is_object().then(|| {
-            format!("{}{}", names(&k["top"]), percent(&k["minor"]).map(|p| format!("; {p} minor")).unwrap_or_default())
+            let minor = percent(&k["minor"]).map(|p| format!("; {p} minor")).unwrap_or_default();
+            format!("{}{minor}", names(&k["top"], "key"))
         }),
     );
     let e = &r["energy"];
@@ -297,15 +310,9 @@ fn profile_lines(r: &Value) -> Vec<(&'static str, &'static str, String)> {
         "Energy",
         e.is_object().then(|| format!("high {}%, mid {}%, low {}%", e["high"], e["mid"], e["low"])),
     );
-    let genres: Vec<String> = r["genres"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|g| format!("{} {}%", g["name"].as_str().unwrap_or_default(), g["share"]))
-        .collect();
-    line("genres", "Genres", Some(genres.join(", ")));
-    line("labels", "Labels", Some(names(&r["labels"])));
-    line("artists", "Artists", Some(names(&r["artists"])));
+    line("genres", "Genres", Some(shares(&r["genres"])));
+    line("labels", "Labels", Some(shares(&r["labels"])));
+    line("artists", "Artists", Some(shares(&r["artists"])));
     let era = &r["era"];
     let era_text = [
         era["medianYear"].as_i64().map(|y| format!("half released by {y}")),
@@ -419,7 +426,7 @@ fn set_lines(r: &Value) -> Vec<(&'static str, &'static str, String)> {
     let text = |f: &str| r[f].as_str().map(String::from);
     let place = &r["location"];
     let place = [&place["locality"], &place["country"]].into_iter().filter_map(Value::as_str).collect::<Vec<_>>();
-    let with: Vec<String> = r["with"]
+    let with: Vec<String> = r["playedWith"]
         .as_array()
         .into_iter()
         .flatten()
@@ -428,17 +435,25 @@ fn set_lines(r: &Value) -> Vec<(&'static str, &'static str, String)> {
             p["did"].as_str().map_or_else(|| name.to_string(), |did| format!("{name} ({did})"))
         })
         .collect();
-    let sources = r["sources"].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>();
+    let links: Vec<String> = r["links"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| {
+            let uri = l["uri"].as_str()?;
+            Some(l["name"].as_str().map_or_else(|| uri.to_string(), |name| format!("{name} ({uri})")))
+        })
+        .collect();
     [
         ("title", "Title", text("title")),
         ("date", "Date", text("date")),
         ("kind", "Kind", text("kind")),
         ("venue", "Venue", text("venue")),
         ("location", "Where", Some(place.join(", "))),
-        ("with", "With", Some(with.join(", "))),
+        ("playedWith", "With", Some(with.join(", "))),
         ("event", "Event", text("event")),
-        ("link", "Listen", text("link")),
-        ("sources", "From", Some(sources.join(", "))),
+        ("links", "Listen", Some(links.join(", "))),
+        ("sources", "From", Some(names(&r["sources"], "kind"))),
     ]
     .into_iter()
     .filter_map(|(field, title, line)| Some((field, title, line.filter(|l| !l.is_empty())?)))
@@ -551,16 +566,16 @@ mod tests {
     fn a_profile_record_reads_as_a_line_per_section() {
         let record = json!({
             "headline": "Techno warm-ups",
-            "tags": ["Mixes in key", "Plays long sets"],
-            "sets": { "atLeast": 50, "since": 2019, "medianTracks": 18 },
+            "tags": [{ "name": "Mixes in key" }, { "name": "Plays long sets" }],
+            "sets": { "total": { "atLeast": 50 }, "since": 2019, "medianTracks": 18 },
             "tempo": { "low": 122, "high": 128, "median": 125 },
             "arc": { "shape": "builds", "builds": 60, "steady": 30, "windsDown": 10 },
             "mixing": { "harmonic": 70, "genreChanges": 20 },
-            "keys": { "top": ["8A", "9A"], "minor": 80 },
+            "keys": { "top": [{ "key": "8A" }, { "key": "9A" }], "minor": 80 },
             "energy": { "high": 50, "mid": 30, "low": 20 },
             "genres": [{ "name": "Techno", "share": 80 }, { "name": "House", "share": 20 }],
             "labels": [],
-            "artists": ["Floorplan"],
+            "artists": [{ "name": "Floorplan", "share": 5 }],
             "era": { "medianYear": 2019 },
             "signature": [{ "artist": "Floorplan", "title": "Never Grow Old" }, { "title": "Untitled" }],
             "prep": { "hotCues": 90, "memoryCues": 50, "loops": 10 },
@@ -579,7 +594,7 @@ mod tests {
                 "Keys: 8A, 9A; 80% minor",
                 "Energy: high 50%, mid 30%, low 20%",
                 "Genres: Techno 80%, House 20%",
-                "Artists: Floorplan",
+                "Artists: Floorplan 5%",
                 "Era: half released by 2019",
                 "Signature tracks: Floorplan - Never Grow Old; Untitled",
                 "Prep: hot cues 90%, memory cues 50%, loops 10%",
@@ -598,10 +613,13 @@ mod tests {
             "kind": "club",
             "venue": "Warehouse",
             "location": { "locality": "London", "country": "GB" },
-            "with": [{ "name": "DJ Two" }, { "name": "Partner", "did": "did:plc:abc" }],
+            "playedWith": [{ "name": "DJ Two" }, { "name": "Partner", "did": "did:plc:abc" }],
             "event": "at://did:plc:abc/x.event/1",
-            "link": "https://www.mixcloud.com/dj/friday/",
-            "sources": ["sessions", "recording"],
+            "links": [
+                { "uri": "https://www.mixcloud.com/dj/friday/" },
+                { "uri": "https://radio.example/archive/friday", "name": "Archive" },
+            ],
+            "sources": [{ "kind": "history" }, { "kind": "mix" }],
         });
         assert_eq!(
             lines(set_lines(&record)),
@@ -613,11 +631,11 @@ mod tests {
                 "Where: London, GB",
                 "With: DJ Two, Partner (did:plc:abc)",
                 "Event: at://did:plc:abc/x.event/1",
-                "Listen: https://www.mixcloud.com/dj/friday/",
-                "From: sessions, recording",
+                "Listen: https://www.mixcloud.com/dj/friday/, Archive (https://radio.example/archive/friday)",
+                "From: history, mix",
             ]
         );
-        assert_eq!(lines(set_lines(&json!({ "date": "2026-10-03", "with": [] }))), ["Date: 2026-10-03"]);
+        assert_eq!(lines(set_lines(&json!({ "date": "2026-10-03", "playedWith": [] }))), ["Date: 2026-10-03"]);
 
         // Plain text, whether or not the tests run in a terminal.
         console::set_colors_enabled(false);

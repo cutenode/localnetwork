@@ -418,9 +418,10 @@ pub struct ProfileDocument {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub genres: Option<Vec<DocShare>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<String>>,
+    pub labels: Option<Vec<DocShare>>,
+    /// A track credited to several artists counts for each, so shares can add up to more than 1.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub artists: Option<Vec<String>>,
+    pub artists: Option<Vec<DocShare>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub era: Option<DocEra>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -726,18 +727,21 @@ pub fn document(report: &ProfileReport, prefs: &ProfilePrefs) -> ProfileDocument
         );
     }
     if on.contains(&Section::Labels) && !report.labels.top.is_empty() {
-        d.labels = Some(report.labels.top.iter().take(5).map(|l| l.name.clone()).collect());
+        // A track has one label: the shares are parts of one whole, like genres'.
+        let top = &report.labels.top[..report.labels.top.len().min(5)];
+        let shares = r.shares(&top.iter().map(|l| l.share).collect::<Vec<_>>());
+        d.labels = Some(top.iter().zip(shares).map(|(l, share)| DocShare { name: l.name.clone(), share }).collect());
     }
     if on.contains(&Section::Artists) {
-        let names: Vec<String> = report
+        let artists: Vec<DocShare> = report
             .artists
             .top
             .iter()
             .filter(|a| !prefs.is_hidden_artist(&a.name))
             .take(5)
-            .map(|a| a.name.clone())
+            .map(|a| DocShare { name: a.name.clone(), share: r.share(a.share) })
             .collect();
-        d.artists = (!names.is_empty()).then_some(names);
+        d.artists = (!artists.is_empty()).then_some(artists);
     }
     if on.contains(&Section::Era) && report.era.tracks > 0 {
         d.era =

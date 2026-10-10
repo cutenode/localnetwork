@@ -1,0 +1,105 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.dj.set",
+	"description": "A DJ set: a performance the DJ played, and the tracks they played in it, in order.",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "One per set the DJ chose to publish. The tracklist comes from what the players logged during the set, a recording of it, or tracks the DJ added by hand. Never holds file paths, history-list names or the DJ's own notes. Tracks the DJ chose not to name are present, unidentified.",
+			"record": {
+				"type": "object",
+				"required": ["date", "tracks", "createdAt"],
+				"properties": {
+					"title": { "type": "string", "maxLength": 1000, "maxGraphemes": 100 },
+					"date": {
+						"type": "string",
+						"minLength": 10,
+						"maxLength": 10,
+						"description": "The day it was played, as YYYY-MM-DD."
+					},
+					"kind": {
+						"type": "string",
+						"maxLength": 640,
+						"maxGraphemes": 64,
+						"description": "What sort of set it was. club and festival: played to a crowd. radio: on air. livestream: streamed as it was played. mix: recorded to be listened to later.",
+						"knownValues": ["club", "festival", "radio", "livestream", "mix"]
+					},
+					"venue": {
+						"type": "string",
+						"maxLength": 1000,
+						"maxGraphemes": 100,
+						"description": "Where it was played: the club, festival or station."
+					},
+					"location": {
+						"type": "union",
+						"refs": ["community.lexicon.location.address"],
+						"closed": false,
+						"description": "Where the venue is: an address (its name, city and country), or another kind of location a reader may not know."
+					},
+					"event": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The event it was part of: a community.lexicon.calendar.event record."
+					},
+					"playedWith": {
+						"type": "array",
+						"maxLength": 20,
+						"description": "Who the DJ played with, back to back.",
+						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#partner" }
+					},
+					"links": {
+						"type": "array",
+						"maxLength": 10,
+						"description": "Where people can listen to it: Mixcloud, SoundCloud, YouTube, a station's archive.",
+						"items": { "type": "ref", "ref": "#link" }
+					},
+					"sources": {
+						"type": "array",
+						"maxLength": 10,
+						"description": "What the tracklist came from.",
+						"items": { "type": "ref", "ref": "#source" }
+					},
+					"tracks": {
+						"type": "array",
+						"maxLength": 1000,
+						"description": "In play order.",
+						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#track" }
+					},
+					"createdAt": {
+						"type": "string",
+						"format": "datetime",
+						"description": "When it was first published."
+					}
+				}
+			}
+		},
+		"link": {
+			"type": "object",
+			"description": "A place to listen to the set.",
+			"required": ["uri"],
+			"properties": {
+				"uri": { "type": "string", "format": "uri", "maxLength": 2000 },
+				"name": {
+					"type": "string",
+					"maxLength": 640,
+					"maxGraphemes": 64,
+					"description": "What it is, like Mixcloud or the station's archive."
+				}
+			}
+		},
+		"source": {
+			"type": "object",
+			"description": "Something the tracklist came from.",
+			"required": ["kind"],
+			"properties": {
+				"kind": {
+					"type": "string",
+					"maxLength": 64,
+					"description": "history: what the players logged during the set (or a log another app kept). mix: a recording of the set, with the tracks found in it and when they start. added: tracks the DJ added by hand.",
+					"knownValues": ["history", "mix", "added"]
+				}
+			}
+		}
+	}
+}

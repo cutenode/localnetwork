@@ -1,5 +1,5 @@
-# Git hooks (installed by `pnpm install`). The jobs cover the web app: each runs in apps/web and
-# only sees the files under it.
+# Git hooks (installed by `pnpm install`). The jobs cover the web app (each runs in apps/web and
+# only sees the files under it) and the lexicons.
 pre-commit:
   parallel: true
   jobs:
@@ -7,6 +7,10 @@ pre-commit:
       root: apps/web/
       glob: '*.{ts,js,json,css}'
       run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: format lexicons
+      glob: 'lexicons/computer/**/*.json'
+      run: pnpm exec oxfmt -c apps/web/.oxfmtrc.json {staged_files}
       stage_fixed: true
     - name: lint
       root: apps/web/

@@ -20,6 +20,7 @@ use locallibrary::atmosphere::{self, Client, Storage};
 use locallibrary::error::Reason;
 use locallibrary::profile::PrefsUpdate;
 use locallibrary::progress::Ctx;
+use locallibrary::publish::PLAYS_PUBLISH_COLLECTION;
 use locallibrary::sets::{EntryOrigin, Partner, Recording, Set, SetBook, SetEntry};
 use locallibrary::store::Store;
 use mock_pds::{MockPds, Writes, base64url};
@@ -30,7 +31,7 @@ const DID: &str = "did:plc:testdj";
 const PUT: &str = "com.atproto.repo.putRecord";
 const GET: &str = "com.atproto.repo.getRecord";
 const PUBLISHING: &str = "atproto repo:computer.localnetwork.locallibrary.settings \
-                          repo:computer.localnetwork.locallibrary.profile repo:computer.localnetwork.locallibrary.set";
+                          repo:computer.localnetwork.dj.profile repo:computer.localnetwork.dj.set";
 
 /// Sign `DID` in on this computer (the session in files, not the keychain) with a session for
 /// `pds` that was granted `scopes`. Returns the session's DPoP key.
@@ -151,7 +152,7 @@ fn my_settings_go_out_in_a_dpop_bound_put_record_and_come_back() {
     // Published from another computer since the plan read it: a conflict, not lost.
     set(&root, &[("language", "german")]);
     let stale = api::settings_publish_plan(&root).unwrap();
-    pds.put(DID, SETTINGS, "self", json!({ "$type": SETTINGS, "version": 1, "updatedAt": "2026-10-05T00:00:00.000Z" }));
+    pds.put(DID, SETTINGS, "self", json!({ "$type": SETTINGS, "updatedAt": "2026-10-05T00:00:00.000Z" }));
     let err = locallibrary::publish::apply(&root, &stale).unwrap_err();
     assert_eq!(err.code(), "conflict", "{err}");
     // Applying the plan someone confirmed: it's stale.
@@ -318,11 +319,14 @@ fn a_set_goes_out_as_its_record_with_nothing_private() {
         (&r["title"], &r["date"], &r["kind"], &r["venue"]),
         (&json!("Friday warm-up"), &json!("2026-10-03"), &json!("club"), &json!("Fabric"))
     );
-    assert_eq!(r["location"], json!({ "name": "Fabric", "locality": "London", "country": "GB" }));
+    assert_eq!(
+        r["location"],
+        json!({ "$type": lexicon::ADDRESS, "name": "Fabric", "locality": "London", "country": "GB" })
+    );
     assert_eq!(r["event"], "at://did:plc:club/community.lexicon.calendar.event/3lte3c7x43l2e");
-    assert_eq!(r["with"], json!([{ "name": "Ayla", "did": "did:plc:ayla" }, { "name": "Sam" }]));
-    assert_eq!(r["link"], "https://www.mixcloud.com/dj/friday-warm-up/");
-    assert_eq!(r["sources"], json!(["history", "mix", "added"]));
+    assert_eq!(r["playedWith"], json!([{ "name": "Ayla", "did": "did:plc:ayla" }, { "name": "Sam" }]));
+    assert_eq!(r["links"], json!([{ "uri": "https://www.mixcloud.com/dj/friday-warm-up/" }]));
+    assert_eq!(r["sources"], json!([{ "kind": "history" }, { "kind": "mix" }, { "kind": "added" }]));
     let tracks = r["tracks"].as_array().unwrap();
     assert_eq!(
         tracks[0],
@@ -366,7 +370,7 @@ fn a_set_goes_out_as_its_record_with_nothing_private() {
     book.sets[0].link = Some("mixcloud dot com".into());
     book.save(&store).unwrap();
     let err = api::set_publish_plan(&root, &req).unwrap_err().to_string();
-    assert!(err.contains("link isn't a URI"), "{err}");
+    assert!(err.contains("links[0].uri isn't a URI"), "{err}");
 }
 
 #[test]
@@ -419,29 +423,30 @@ fn a_set_and_the_profile_go_where_they_should() {
     let published = api::profile_publish_apply(&root, &profile, &Ctx::silent()).unwrap();
     assert_eq!(published.uri, format!("at://{DID}/{PROFILE}/self"));
     let (record, _) = pds.record(DID, PROFILE, "self").unwrap();
-    assert_eq!(record["sets"]["count"], 1);
+    assert_eq!(record["sets"]["total"]["count"], 1);
     assert!(record.get("signature").is_none());
 }
 
 const SESSION: &str = "0123456789abcdef0123456789abcdef";
 const OLD_KEY: &str = "3lzzzzzzzzz22";
 
-/// What `plays publish` left: a set record under `OLD_KEY`, remembered for `SESSION` and `did`.
+/// What `plays publish` left: a set record under `OLD_KEY`, in the collection sets had then,
+/// remembered for `SESSION` and `did`.
 fn published_by_plays_publish(root: &Path, pds: &MockPds, did: &str) {
     let old = json!({
-        "$type": SET,
+        "$type": PLAYS_PUBLISH_COLLECTION,
         "date": "2026-10-03",
         "source": "history",
         "tracks": [{ "title": "Glue", "artist": "Bicep" }],
         "createdAt": "2026-10-04T09:30:00.000Z",
     });
-    pds.put(did, SET, OLD_KEY, old);
+    pds.put(did, PLAYS_PUBLISH_COLLECTION, OLD_KEY, old);
     let keys = json!({ did: { SESSION: OLD_KEY } });
     std::fs::write(root.join(locallibrary::publish::SET_KEYS_FILE), keys.to_string()).unwrap();
 }
 
 #[test]
-fn a_set_from_a_list_plays_publish_published_replaces_that_record() {
+fn a_set_from_a_list_plays_publish_published_takes_its_key() {
     let pds = MockPds::start();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");
@@ -451,26 +456,26 @@ fn a_set_from_a_list_plays_publish_published_replaces_that_record() {
 
     let plan = api::set_publish_plan(&root, &publish_set(&set.id)).unwrap();
     assert_eq!(plan.rkey, OLD_KEY);
-    assert!(plan.current.is_some() && plan.destructive, "it replaces the old record");
-    assert!(
-        plan.notes.contains(&format!(
-            "replaces what `plays publish` published from session 01234567; the set's id becomes {OLD_KEY}"
-        )),
-        "{:?}",
-        plan.notes
-    );
+    assert!(plan.current.is_none() && !plan.destructive, "nothing of today's sets is replaced");
+    let notes = [
+        format!("takes the key `plays publish` gave session 01234567; the set's id becomes {OLD_KEY}"),
+        format!("what `plays publish` published stays in {PLAYS_PUBLISH_COLLECTION}: publishing can't remove it"),
+    ];
+    assert!(notes.iter().all(|n| plan.notes.contains(n)), "{:?}", plan.notes);
     assert!(plan.apply(None, &Ctx::silent()).unwrap().written);
     let (record, _) = pds.record(DID, SET, OLD_KEY).unwrap();
     assert!(record.get("source").is_none() && record["sources"].is_array());
     assert_eq!(record["createdAt"], "2026-10-04T09:30:00.000Z", "first published by plays publish");
     assert!(pds.record(DID, SET, &set.id).is_none(), "not published twice");
+    let (old, _) = pds.record(DID, PLAYS_PUBLISH_COLLECTION, OLD_KEY).unwrap();
+    assert_eq!(old["source"], "history", "only read");
     let store = Store::open(&root).unwrap();
     let book = SetBook::load(&store).unwrap();
     assert_eq!(book.sets[0].id, OLD_KEY, "the set took the key as its id");
     // From now on it's the set's own key.
     let plan = api::set_publish_plan(&root, &publish_set("last")).unwrap();
     assert_eq!((plan.rkey.as_str(), plan.noop), (OLD_KEY, true));
-    assert!(plan.notes.iter().all(|n| !n.contains("replaces")), "{:?}", plan.notes);
+    assert!(plan.notes.iter().all(|n| !n.contains("plays publish")), "{:?}", plan.notes);
 
     // Another set from the same list doesn't take the key the first one has.
     let other = save_set(&root, "3m4bbbbbbbb22", &[SESSION]);
@@ -486,7 +491,7 @@ fn a_set_keeps_its_own_key_when_the_old_one_doesnt_fit() {
     published_by_plays_publish(&root, &pds, DID);
     let key = |id: &str| {
         let plan = api::set_publish_plan(&root, &publish_set(id)).unwrap();
-        assert!(plan.notes.iter().all(|n| !n.contains("replaces")), "{:?}", plan.notes);
+        assert!(plan.notes.iter().all(|n| !n.contains("plays publish")), "{:?}", plan.notes);
         plan.rkey.clone()
     };
     // Built from that list and another.
@@ -519,7 +524,7 @@ fn a_first_publish_doesnt_replace_one_made_meanwhile() {
     let plan = api::settings_publish_plan(&root).unwrap();
     assert!(plan.current.is_none());
     // Another computer publishes first.
-    let theirs = json!({ "$type": SETTINGS, "version": 1, "updatedAt": "2026-10-05T00:00:00.000Z" });
+    let theirs = json!({ "$type": SETTINGS, "updatedAt": "2026-10-05T00:00:00.000Z" });
     pds.put(DID, SETTINGS, "self", theirs.clone());
     let err = plan.apply(None, &Ctx::silent()).unwrap_err();
     assert_eq!(err.code(), "stale_plan", "{err}");
@@ -611,7 +616,7 @@ fn importing_adds_to_the_base_unless_asked_to_replace_it() {
         (0..30).map(|i| (format!("newSetting{i}"), Value::from("on"))).collect();
     unknown.insert("quantize".into(), "on".into());
     unknown.insert("evil\u{1b}]0;owned\u{7}".into(), "on".into());
-    let theirs = json!({ "$type": SETTINGS, "version": 1, "player": unknown, "updatedAt": "2026-10-05T00:00:00.000Z" });
+    let theirs = json!({ "$type": SETTINGS, "player": unknown, "updatedAt": "2026-10-05T00:00:00.000Z" });
     pds.put(DID, SETTINGS, "self", theirs);
     let from = ImportPublishedSettings { from: Some(DID.into()), pds: Some(pds.url.clone()), replace: false };
 

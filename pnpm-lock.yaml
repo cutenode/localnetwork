@@ -209,6 +209,9 @@ importers:
       lefthook:
         specifier: ^2.1.16
         version: 2.2.1
+      oxfmt:
+        specifier: ^0.71.0
+        version: 0.71.0(svelte@5.57.1)
 
   apps/web:
     dependencies:

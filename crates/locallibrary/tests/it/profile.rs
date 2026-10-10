@@ -268,7 +268,7 @@ fn the_published_profile_is_the_document_in_whole_numbers() {
     let plan = api::profile_publish_plan(&dir.path().join("store"), &request(&[&root]), &Ctx::silent()).unwrap();
     assert!(plan.account.is_none() && plan.uri.is_none() && plan.missing_scope.is_none());
     let r = &plan.record;
-    assert_eq!(r["$type"], "computer.localnetwork.locallibrary.profile");
+    assert_eq!(r["$type"], "computer.localnetwork.dj.profile");
     locallibrary::atmosphere::lexicon::validate(locallibrary::atmosphere::lexicon::PROFILE, r).unwrap();
     // No sets declared: sessions are counted in the numbers, never as sets.
     assert_eq!(r["basis"], "sessions");

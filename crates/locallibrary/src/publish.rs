@@ -25,13 +25,10 @@ use serde_json::{Map, Value, json};
 use crate::atmosphere::repo::{self, Fetched, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::harmony::Camelot;
-use crate::profile::{Count, ProfileDocument};
+use crate::profile::{Count, DocShare, ProfileDocument};
 use crate::sets::{EntryOrigin, Set, SetEntry};
 use crate::settings::{self, BaseChange, Category};
 use crate::{Error, Result};
-
-/// The format version of the settings and profile records.
-pub const RECORD_VERSION: i64 = 1;
 
 /// `jog_mode` → `jogMode`: setting keys as record fields.
 pub fn camel(key: &str) -> String {
@@ -93,7 +90,6 @@ pub fn settings_record(base: &IndexMap<String, String>, now: DateTime<Utc>) -> V
     }
     let mut record = Map::new();
     record.insert("$type".into(), lexicon::SETTINGS.into());
-    record.insert("version".into(), RECORD_VERSION.into());
     for (name, values) in groups {
         record.insert(name.into(), Value::Object(values));
     }
@@ -111,18 +107,12 @@ pub struct PublishedSettings {
     pub updated_at: Option<String>,
 }
 
-/// Read a settings record (someone else's, or written by another version of locallibrary). A
-/// record of another format version than [`RECORD_VERSION`] is refused. Each value is checked
-/// against the setting it's for (the settings Lexicon lists the same choices), and a setting or
-/// value this version doesn't know (newer firmware's, or a newer locallibrary's) is skipped, as
-/// the Lexicon asks.
+/// Read a settings record (someone else's, or written by another version of locallibrary). Each
+/// value is checked against the setting it's for (the settings Lexicon lists the same choices),
+/// and a setting or value this version doesn't know (newer firmware's, or a newer locallibrary's)
+/// is skipped, as the Lexicon asks. A change that would make a value mean something else gets a
+/// new record type rather than a version number, so there's no version to check.
 pub fn settings_from_record(record: &Value) -> Result<PublishedSettings> {
-    let version = record["version"].as_i64().unwrap_or(0);
-    if version != RECORD_VERSION {
-        return Err(Error::invalid(format!(
-            "the published settings are format version {version}, which this locallibrary doesn't know (it reads {RECORD_VERSION}); update locallibrary"
-        )));
-    }
     if record["$type"] != lexicon::SETTINGS {
         return Err(Error::invalid(format!(
             "what's published there isn't a My Settings record (its $type is {})",
@@ -162,6 +152,7 @@ fn bpm(x: f64) -> i64 {
     x.round().max(0.0) as i64
 }
 
+/// A count as the shared `count` definition has it.
 fn count(c: Count) -> Value {
     match c {
         Count::Exact { count } => json!({ "count": count }),
@@ -184,16 +175,17 @@ pub const SIGNATURE_LIMIT: usize = 50;
 pub fn profile_record(doc: &ProfileDocument) -> Value {
     let mut r = Map::new();
     r.insert("$type".into(), lexicon::PROFILE.into());
-    r.insert("version".into(), RECORD_VERSION.into());
     r.insert("generatedAt".into(), timestamp(doc.generated_at).into());
     r.insert("precision".into(), serde_json::to_value(doc.precision).unwrap_or_default());
     r.insert("basis".into(), serde_json::to_value(doc.basis).unwrap_or_default());
     put(&mut r, "headline", doc.headline.clone());
     if !doc.tags.is_empty() {
-        r.insert("tags".into(), json!(doc.tags));
+        let tags: Vec<Value> = doc.tags.iter().map(|t| json!({ "name": t })).collect();
+        r.insert("tags".into(), tags.into());
     }
     if let Some(s) = &doc.sets {
-        let mut sets = count(s.count).as_object().cloned().unwrap_or_default();
+        let mut sets = Map::new();
+        sets.insert("total".into(), count(s.count));
         put(&mut sets, "since", s.since);
         sets.insert("medianTracks".into(), s.median_tracks.into());
         r.insert("sets".into(), Value::Object(sets));
@@ -221,19 +213,20 @@ pub fn profile_record(doc: &ProfileDocument) -> Value {
     }
     if let Some(k) = &doc.keys {
         let mut keys = Map::new();
-        keys.insert("top".into(), json!(k.top));
+        let top: Vec<Value> = k.top.iter().map(|key| json!({ "key": key })).collect();
+        keys.insert("top".into(), top.into());
         put(&mut keys, "minor", k.minor.map(percent));
         r.insert("keys".into(), Value::Object(keys));
     }
     if let Some(e) = &doc.energy {
         r.insert("energy".into(), json!({ "high": percent(e.high), "mid": percent(e.mid), "low": percent(e.low) }));
     }
-    if let Some(g) = &doc.genres {
-        let genres: Vec<Value> = g.iter().map(|s| json!({ "name": s.name, "share": percent(s.share) })).collect();
-        r.insert("genres".into(), genres.into());
-    }
-    put(&mut r, "labels", doc.labels.clone());
-    put(&mut r, "artists", doc.artists.clone());
+    let shares = |list: &Vec<DocShare>| -> Vec<Value> {
+        list.iter().map(|s| json!({ "name": s.name, "share": percent(s.share) })).collect()
+    };
+    put(&mut r, "genres", doc.genres.as_ref().map(shares));
+    put(&mut r, "labels", doc.labels.as_ref().map(shares));
+    put(&mut r, "artists", doc.artists.as_ref().map(shares));
     if let Some(e) = &doc.era {
         let mut era = Map::new();
         put(&mut era, "medianYear", e.median_year);
@@ -306,6 +299,7 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Va
     // The address Lexicon needs a country.
     if let Some(country) = text(&set.country) {
         let mut place = Map::new();
+        place.insert("$type".into(), lexicon::ADDRESS.into());
         put(&mut place, "name", text(&set.venue));
         put(&mut place, "locality", text(&set.city));
         place.insert("country".into(), country.into());
@@ -313,7 +307,7 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Va
     }
     put(&mut r, "event", text(&set.event));
     if !set.with.is_empty() {
-        let with: Vec<Value> = set
+        let played_with: Vec<Value> = set
             .with
             .iter()
             .map(|p| {
@@ -323,17 +317,17 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Va
                 Value::Object(m)
             })
             .collect();
-        r.insert("with".into(), with.into());
+        r.insert("playedWith".into(), played_with.into());
     }
-    put(&mut r, "link", text(&set.link));
-    let sources: Vec<&str> =
+    put(&mut r, "links", text(&set.link).map(|uri| json!([{ "uri": uri }])));
+    let sources: Vec<Value> =
         [(EntryOrigin::Session, "history"), (EntryOrigin::Recording, "mix"), (EntryOrigin::Added, "added")]
             .into_iter()
             .filter(|(origin, _)| set.tracks.iter().any(|e| e.origin == *origin))
-            .map(|(_, source)| source)
+            .map(|(_, source)| json!({ "kind": source }))
             .collect();
     if !sources.is_empty() {
-        r.insert("sources".into(), json!(sources));
+        r.insert("sources".into(), sources.into());
     }
     let tracks: Vec<Value> =
         set.tracks.iter().enumerate().map(|(i, e)| set_track(e, e.unnamed || hidden.contains(&(i + 1)))).collect();
@@ -346,6 +340,10 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Va
 /// list it published, by account and the list's fingerprint. Nothing writes it now: a set built
 /// from one of those lists alone takes over its key (see [`crate::api::set_publish_plan`]).
 pub const SET_KEYS_FILE: &str = "atmosphere-sets.json";
+
+/// The collection `plays publish` wrote those sets to, before sets moved to [`lexicon::SET`].
+/// Only read, for when a set first went out; nothing writes it now.
+pub const PLAYS_PUBLISH_COLLECTION: &str = "computer.localnetwork.locallibrary.set";
 
 /// The key `did` published the history list (session) `fingerprint` under with `plays publish`,
 /// if it did.
@@ -567,7 +565,6 @@ mod tests {
     fn settings_this_version_doesnt_know_are_skipped() {
         let record = json!({
             "$type": lexicon::SETTINGS,
-            "version": 1,
             "player": { "quantize": "off", "jogMode": "hover", "slipReverse": "on" },
             "mixer": { "quantize": "on" },
             "updatedAt": "2026-10-05T12:00:00.000Z",
@@ -575,13 +572,18 @@ mod tests {
         let s = settings_from_record(&record).unwrap();
         assert_eq!(s.values, [("quantize".to_string(), "off".to_string())].into());
         assert_eq!(s.skipped.len(), 3, "{:?}", s.skipped);
-        let newer = json!({ "version": 2, "player": { "quantize": "off" } });
-        assert!(settings_from_record(&newer).unwrap_err().to_string().contains("version 2"));
+        // A change that breaks readers gets a new record type, so there's no version to refuse: a
+        // top-level field this version doesn't know (an early draft's `version`) is passed over.
+        let drafted = json!({ "$type": lexicon::SETTINGS, "version": 2, "player": { "quantize": "off" } });
+        assert_eq!(
+            settings_from_record(&drafted).unwrap().values,
+            [("quantize".to_string(), "off".to_string())].into()
+        );
         // Another record type isn't taken for My Settings.
-        let other = json!({ "$type": lexicon::PROFILE, "version": 1, "player": { "quantize": "off" } });
+        let other = json!({ "$type": lexicon::PROFILE, "player": { "quantize": "off" } });
         assert!(settings_from_record(&other).unwrap_err().to_string().contains("isn't a My Settings record"));
         // A field name is whatever the record says: none of it reaches a terminal as a control.
-        let tricky = json!({ "$type": lexicon::SETTINGS, "version": 1, "player": { "x\u{1b}]0;owned\u{7}": "on" } });
+        let tricky = json!({ "$type": lexicon::SETTINGS, "player": { "x\u{1b}]0;owned\u{7}": "on" } });
         let s = settings_from_record(&tricky).unwrap();
         assert!(!s.skipped[0].chars().any(char::is_control), "{:?}", s.skipped);
     }
@@ -603,8 +605,8 @@ mod tests {
             keys: Some(DocKeys { top: vec!["8A".into(), "5A".into(), "9A".into()], minor: Some(0.8) }),
             energy: Some(DocEnergy { high: 0.85, mid: 0.1, low: 0.1 }),
             genres: Some(vec![DocShare { name: "Techno".into(), share: 0.6 }]),
-            labels: Some(vec!["Ninja Tune".into()]),
-            artists: Some(vec!["Bicep".into()]),
+            labels: Some(vec![DocShare { name: "Ninja Tune".into(), share: 0.15 }]),
+            artists: Some(vec![DocShare { name: "Bicep".into(), share: 0.054 }]),
             era: Some(DocEra { median_year: Some(2021), recent: Some(0.4) }),
             signature: Some(vec![
                 DocTrack { artist: "Bicep".into(), title: "Glue".into() },
@@ -630,9 +632,15 @@ mod tests {
             assert_eq!(record["mixing"], json!({ "harmonic": 70, "smoothTempo": 85 }));
             assert_eq!(record["arc"]["shape"], "windsDown");
             assert_eq!(record["signature"][1], json!({ "title": "ID" }));
+            // Lists hold objects, so their entries can gain fields.
+            assert_eq!(record["tags"], json!([{ "name": "Mixes in key" }, { "name": "Plays with quantize off" }]));
+            assert_eq!(record["keys"]["top"], json!([{ "key": "8A" }, { "key": "5A" }, { "key": "9A" }]));
+            assert_eq!(record["labels"], json!([{ "name": "Ninja Tune", "share": 15 }]));
+            assert_eq!(record["artists"], json!([{ "name": "Bicep", "share": 5 }]));
+            assert!(record.get("version").is_none(), "a breaking change gets a new record type instead");
         }
         let rounded = profile_record(&full_document(Precision::Rounded));
-        assert_eq!(rounded["sets"], json!({ "atLeast": 45, "since": 2019, "medianTracks": 24 }));
+        assert_eq!(rounded["sets"], json!({ "total": { "atLeast": 45 }, "since": 2019, "medianTracks": 24 }));
         assert_eq!(rounded["collection"]["tracks"], json!({ "atLeast": 3500 }));
         assert_eq!(rounded["precision"], "rounded");
 
@@ -673,13 +681,19 @@ mod tests {
         assert_eq!(record["tracks"][1], json!({ "unidentified": true, "startSeconds": 312 }), "marked unnamed");
         assert_eq!(record["tracks"][2], json!({ "unidentified": true, "startSeconds": 0 }), "hidden");
         assert_eq!(record["tracks"][3], json!({ "title": "ID" }));
-        assert_eq!((&record["date"], &record["sources"]), (&json!("2026-10-03"), &json!(["mix", "added"])));
+        assert_eq!(
+            (&record["date"], &record["sources"]),
+            (&json!("2026-10-03"), &json!([{ "kind": "mix" }, { "kind": "added" }]))
+        );
         // Blank fields stay out, and without a country there's no address.
-        assert!(record.get("venue").is_none() && record.get("location").is_none() && record.get("with").is_none());
+        assert!(record.get("venue").is_none() && record.get("location").is_none());
+        assert!(record.get("playedWith").is_none() && record.get("links").is_none());
 
         set.country = Some("GB".into());
+        set.link = Some("https://www.mixcloud.com/dj/friday-warm-up/".into());
         let record = set_record(&set, &BTreeSet::new(), now());
         lexicon::validate(lexicon::SET, &record).unwrap();
-        assert_eq!(record["location"], json!({ "locality": "London", "country": "GB" }));
+        assert_eq!(record["location"], json!({ "$type": lexicon::ADDRESS, "locality": "London", "country": "GB" }));
+        assert_eq!(record["links"], json!([{ "uri": "https://www.mixcloud.com/dj/friday-warm-up/" }]));
     }
 }

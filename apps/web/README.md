@@ -97,7 +97,7 @@ The app is a space syncer. For each watched space it mints a space credential (d
 
 ### Directory
 
-Published projects are served by [HappyView](https://happyview.dev) 2.16, not the app. HappyView follows Jetstream for `computer.localnetwork.project` records and answers the `computer.localnetwork.directory.*` queries (`lexicons/computer/localnetwork/directory/`) with Lua scripts in `lua/`:
+Published projects are served by [HappyView](https://happyview.dev) 2.16, not the app. HappyView follows Jetstream for `computer.localnetwork.project` records and answers the `computer.localnetwork.directory.*` queries ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)) with Lua scripts in `lua/`:
 
 - `project.lua` runs on every incoming record and keeps only the root account's, since Jetstream filters by collection and anyone can write one.
 - `searchProjects`, `matchProjects`, `getProject`, `getProjects`, and `getStats` do the search, ranking, and lookups. Match results carry reason codes, which the app turns into text.
@@ -171,7 +171,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
 ## Deploying
 
 1. Create the root account on a PDS that runs the spaces alpha (e.g. `ghcr.io/bluesky-social/atproto:pds-spaces-alpha`).
-2. Publish the lexicons and add the printed `_lexicon` TXT records to the `localnetwork.computer` zone. The lexicons are `computer.localnetwork.*` (`src/lib/nsid.ts` and `lexicons/`), so there's one record per sub-namespace (`_lexicon.localnetwork.computer`, `_lexicon.space.localnetwork.computer`, and so on). PDSes resolve the space type declarations while authorizing OAuth requests, so sign-in fails with `invalid_scope` until they resolve. `computer.localnetwork.locallibrary.*` belongs to locallibrary; keep this app's lexicons out of it.
+2. Publish the lexicons (`pnpm lexicons:publish` publishes every tool's, all of the repo's `lexicons/computer/`) and add the printed `_lexicon` TXT records to the `localnetwork.computer` zone. The lexicons are `computer.localnetwork.*` (`src/lib/nsid.ts` and the repo's [`lexicons/`](../../lexicons/)), so there's one record per sub-namespace (`_lexicon.localnetwork.computer`, `_lexicon.space.localnetwork.computer`, and so on). PDSes resolve the space type declarations while authorizing OAuth requests, so sign-in fails with `invalid_scope` until they resolve. locallibrary writes `computer.localnetwork.locallibrary.*` (its own) and `computer.localnetwork.dj.*` (DJ profiles and sets, shared by Local Network's tools); keep this app's lexicons out of `locallibrary.*`, and reuse the `dj.*` defs rather than redefining tracks or sets.
    ```bash
    pnpm lexicons:publish
    ```
@@ -190,7 +190,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
 
 ### locallibrary's site
 
-[locallibrary](../locallibrary), the DJ drive tool (a CLI and terminal player, with a JSON-RPC sidecar for desktop apps), signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json`. This app serves that host from `src/lib/server/locallibrary/` before anything else runs (so it works even while the app isn't configured): the client document at `/oauth-client-metadata.json` and a short page about locallibrary at `/` (what it does, where to get it, and what signing in and publishing ask for). Every other path on that host is a 404. It's separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. The document lists every scope locallibrary may ask for: `atproto` to sign in, and create/update on its own `computer.localnetwork.locallibrary.{settings,profile,set}` records to publish.
+[locallibrary](../locallibrary), the DJ drive tool (a CLI and terminal player, with a JSON-RPC sidecar for desktop apps), signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json`. This app serves that host from `src/lib/server/locallibrary/` before anything else runs (so it works even while the app isn't configured): the client document at `/oauth-client-metadata.json` and a short page about locallibrary at `/` (what it does, where to get it, and what signing in and publishing ask for). Every other path on that host is a 404. It's separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. The document lists every scope locallibrary may ask for: `atproto` to sign in, and create/update on the records it publishes (`computer.localnetwork.locallibrary.settings`, `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`).
 
 locallibrary writes the document; after changing its scopes, regenerate it here before releasing the locallibrary version that asks for them:
 
@@ -213,7 +213,6 @@ Until the host answers, locallibrary signs in as a local development app instead
 ## Project layout
 
 ```
-lexicons/computer/localnetwork/ Lexicons: project record, space types, space records, permission set, directory queries
 lua/                            HappyView scripts: the project record gate and the directory queries
 scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture
 scripts/lib/                    Local HappyView container and Jetstream stand-in

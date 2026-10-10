@@ -148,7 +148,7 @@ fn the_document_never_names_what_is_hidden(tc: TestCase) {
         assert!(!hidden.iter().any(|h| normalize(h) == name), "{name:?} is hidden");
     }
     for a in d.artists.iter().flatten() {
-        assert!(!is_hidden_artist(a), "{a:?} is named");
+        assert!(!is_hidden_artist(&a.name), "{:?} is named", a.name);
     }
 }
 

@@ -7,6 +7,6 @@
 	"grant_types": ["authorization_code", "refresh_token"],
 	"redirect_uris": ["http://127.0.0.1/callback"],
 	"response_types": ["code"],
-	"scope": "atproto repo:computer.localnetwork.locallibrary.profile?action=create&action=update repo:computer.localnetwork.locallibrary.set?action=create&action=update repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
+	"scope": "atproto repo:computer.localnetwork.dj.profile?action=create&action=update repo:computer.localnetwork.dj.set?action=create&action=update repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
 	"token_endpoint_auth_method": "none"
 }

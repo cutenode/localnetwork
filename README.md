@@ -12,6 +12,7 @@ Tools for DJs and the people who book them, built on the AT Protocol. Each tool 
 ```
 apps/web/             Local Network, the website (its README covers setup and deployment)
 apps/locallibrary/    locallibrary's command line tool, player and sidecar, with its docs
+lexicons/             Every tool's lexicons (computer.localnetwork.*), plus copies of others' they use
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 vendor/               Vendored Rust crates
 ```
@@ -23,7 +24,7 @@ The repo root is both the pnpm workspace and the Cargo workspace, so commands ru
 ```bash
 pnpm install                 # the web app's dependencies and the git hooks
 pnpm dev                     # the website, see apps/web/README.md for its .env
-pnpm verify                  # format, lint, type check, tests and build for the website
+pnpm verify                  # the website's format, lint, type check, tests and build, and the lexicons' format
 
 cargo build                  # locallibrary
 cargo test --workspace --locked
@@ -33,4 +34,4 @@ CI runs each tool's checks only when its files (or the shared ones) change.
 
 ## Adding a tool
 
-A new tool goes in `apps/<tool>`, with shared code in `crates/` (Rust) or `packages/` (TypeScript). Its records live under its own lexicon group, `computer.localnetwork.<tool>.*`, and binaries and crates follow the same names as the rest: `local<thing>` for a tool, `loclib-*` for a Rust library.
+A new tool goes in `apps/<tool>`, with shared code in `crates/` (Rust) or `packages/` (TypeScript). Records only it writes live under its own lexicon group, `computer.localnetwork.<tool>.*`; records other tools read too go in a shared group named for what they are, like `computer.localnetwork.dj.*` for DJ sets and profiles. Binaries and crates follow the same names as the rest: `local<thing>` for a tool, `loclib-*` for a Rust library.
