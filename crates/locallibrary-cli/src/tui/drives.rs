@@ -12,7 +12,7 @@ use locallibrary::api::{self, CheckRequest, DriveRef, EjectDrives, FleetDrive, P
 use locallibrary::check::{CheckOptions, CheckReport, Level as CheckLevel};
 use locallibrary::export::{self, Format, Locator, PathStyle};
 use locallibrary::pack::PackOptions;
-use locallibrary::{Ctx, Error, Store, Track, fsutil};
+use locallibrary::{Ctx, DeviceInfo, Error, Store, Track, fsutil};
 use uuid::Uuid;
 
 use super::app::{App, Focus, Level, View};
@@ -108,6 +108,15 @@ fn s(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
 
+/// A row of the Drives view: a library (its clones plugged in follow), the drives of no library
+/// (they follow), or a drive (by its place in [`App::drives`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DriveRow {
+    Library(Uuid),
+    Unlinked,
+    Drive(usize),
+}
+
 /// A drive remembered to act on later (the drive menu's, the one `u` undoes on): where it was
 /// mounted, and its identity when it has one, so a drive mounted there since (two sticks with one
 /// volume name mount at the same path) isn't taken for it.
@@ -158,6 +167,121 @@ impl App {
         out
     }
 
+    /// The Drives view's row of a library (or of the drives of none) when that's what's selected.
+    pub(super) fn header(&self) -> Option<DriveRow> {
+        self.drive_header.filter(|_| self.view == View::Drives)
+    }
+
+    /// The library the store knows the drive `d` as a clone of.
+    pub(super) fn library_id(&self, d: &DeviceInfo) -> Option<Uuid> {
+        d.library_id.filter(|id| self.library_names.contains_key(id))
+    }
+
+    /// The Drives view's rows: each library by name with its drives under it, then the drives of
+    /// none (under a row of their own when a library is above them).
+    pub(super) fn drive_rows(&self) -> Vec<DriveRow> {
+        let mut libraries: Vec<Uuid> = self.drives.iter().filter_map(|d| self.library_id(d)).collect();
+        libraries.sort_by_key(|id| (self.library_names[id].to_lowercase(), *id));
+        libraries.dedup();
+        let drives_of = |id| (0..self.drives.len()).filter(move |&i| self.library_id(&self.drives[i]) == id);
+        let mut rows = Vec::new();
+        for &id in &libraries {
+            rows.push(DriveRow::Library(id));
+            rows.extend(drives_of(Some(id)).map(DriveRow::Drive));
+        }
+        let loose: Vec<DriveRow> = drives_of(None).map(DriveRow::Drive).collect();
+        if !libraries.is_empty() && !loose.is_empty() {
+            rows.push(DriveRow::Unlinked);
+        }
+        rows.extend(loose);
+        rows
+    }
+
+    /// Where the selection is among `rows`: the library's row selected, else the selected drive's.
+    pub(super) fn drive_row(&self, rows: &[DriveRow]) -> Option<usize> {
+        let selected = self.drive_header.or(self.drive_state.selected().map(DriveRow::Drive))?;
+        rows.iter().position(|r| *r == selected)
+    }
+
+    /// Select a row of the Drives view: a drive's is the drive the view's actions work on.
+    pub(super) fn select_drive_row(&mut self, row: DriveRow) {
+        match row {
+            DriveRow::Drive(i) => {
+                self.drive_header = None;
+                self.drive_state.select(Some(i));
+            }
+            header => self.drive_header = Some(header),
+        }
+    }
+
+    /// Move the Drives view's selection `delta` rows.
+    pub(super) fn move_drive_row(&mut self, delta: isize) {
+        let rows = self.drive_rows();
+        let Some(last) = rows.len().checked_sub(1) else { return };
+        let at = self.drive_row(&rows).unwrap_or(0) as isize;
+        self.select_drive_row(rows[(at + delta).clamp(0, last as isize) as usize]);
+    }
+
+    /// The library's drives plugged in that have an export: its clones here.
+    pub(super) fn clones(&self, id: Uuid) -> Vec<PathBuf> {
+        let ours = |d: &&DeviceInfo| d.has_export && self.library_id(d) == Some(id);
+        self.drives.iter().filter(ours).map(|d| d.root.clone()).collect()
+    }
+
+    /// Show the library `id` in the library view: its lead clone, as commands given the library
+    /// find it (see [`api::resolve_drive`]: archive and retired drives aren't among them), found
+    /// in the background; the first of its drives when there's none.
+    pub(super) fn open_library(&mut self, id: Uuid) {
+        let name = self.library_names.get(&id).cloned().unwrap_or_default();
+        let Some(first) = self.clones(id).first().cloned() else {
+            self.toast(format!("none of {name}'s drives has a rekordbox export"), Level::Info);
+            return;
+        };
+        self.read_from(name, first.clone(), move || {
+            api::resolve_drive(&id.to_string()).map_or(first, |d| d.root().to_path_buf())
+        });
+    }
+
+    /// Enter on a library's row in the Drives view: show the library.
+    pub(super) fn activate_header(&mut self) {
+        let Some(DriveRow::Library(id)) = self.drive_header else {
+            self.toast("select one of these drives", Level::Info);
+            return;
+        };
+        self.open_library(id);
+        self.view = View::Library;
+        self.focus = Focus::Playlists;
+    }
+
+    /// `e` on a library's row: what can be done to all of its clones plugged in.
+    fn library_menu(&mut self, id: Uuid) {
+        let name = self.library_names.get(&id).cloned().unwrap_or_default();
+        let items = [
+            (Act::SyncGroup, "sync its clones from the newest"),
+            (Act::SetPrep, "check its clones for a set"),
+            (Act::Eject, "eject its clones"),
+        ];
+        let (acts, items): (Vec<Act>, Vec<Item>) =
+            items.into_iter().map(|(a, label)| (a, Item::new(label, ""))).unzip();
+        self.modal = Some(Modal::Pick(Picker::new(format!("Library · {name}"), items, Then::Library { id, acts })));
+    }
+
+    /// One of a library's actions (see [`Self::library_menu`]), on its clones plugged in.
+    pub(super) fn library_act(&mut self, act: Act, id: Uuid) {
+        let name = self.library_names.get(&id).cloned().unwrap_or_default();
+        let clones = self.clones(id);
+        let Some(first) = clones.first().cloned() else {
+            self.toast(format!("none of {name}'s drives is plugged in any more"), Level::Info);
+            return;
+        };
+        match act {
+            Act::SyncGroup => self.sync_group(first),
+            Act::SetPrep => self.check(clones),
+            Act::Eject => self.eject(clones),
+            _ => self.toast(format!("that's for one drive: select one of {name}'s"), Level::Info),
+        }
+    }
+
     /// The drive to act on, or a message saying there's none.
     fn acting_on(&mut self) -> Option<PathBuf> {
         let root = self.action_drive();
@@ -170,6 +294,12 @@ impl App {
     /// One of a drive's actions (see [`Self::drive_menu`]), by a key: on the drive the keys act
     /// on.
     pub(super) fn drive_key(&mut self, act: Act) {
+        if let Some(header) = self.header() {
+            return match header {
+                DriveRow::Library(id) => self.library_act(act, id),
+                _ => self.toast("select one of these drives", Level::Info),
+            };
+        }
         if let Some(root) = self.acting_on() {
             self.drive_act(act, root);
         }
@@ -179,14 +309,14 @@ impl App {
     pub(super) fn drive_act(&mut self, act: Act, root: PathBuf) {
         match act {
             Act::Pull => self.pull(root),
-            Act::Check => self.check(root, false),
-            Act::SetPrep => self.check(root, true),
+            Act::Check => self.check(vec![root]),
+            Act::SetPrep => self.check(self.group_of(&root)),
             Act::SyncGroup => self.sync_group(root),
             Act::Pack => self.pack(Some(root)),
             Act::RestorePlaylist => self.restore_playlist(root),
             Act::Replay => self.replay(root),
             Act::Undo => self.undo_on(root),
-            Act::Eject => self.eject(root),
+            Act::Eject => self.eject(vec![root]),
             act => self.perform(act, None),
         }
     }
@@ -195,6 +325,11 @@ impl App {
     /// that drive (by its identity: see [`DriveKey`]), even if another is selected by then, or
     /// refused once it's been unplugged.
     pub(super) fn drive_menu(&mut self) {
+        match self.header() {
+            Some(DriveRow::Library(id)) => return self.library_menu(id),
+            Some(_) => return self.toast("select one of these drives", Level::Info),
+            None => {}
+        }
         let Some(root) = self.acting_on() else { return };
         let name = self.drive_label(&root);
         let export = self.drives.iter().find(|d| d.root == root).is_none_or(|d| d.has_export);
@@ -230,20 +365,18 @@ impl App {
         });
     }
 
-    /// Eject the drive (playback from it stops first), once the plan is confirmed.
-    pub(super) fn eject(&mut self, root: PathBuf) {
-        let (drive, store_root) = (root.display().to_string(), self.store_root.clone());
-        self.plan(root, move |_| {
-            Ok(Box::new(api::drive_eject_plan(Some(&store_root), &EjectDrives { drives: vec![drive] })?))
-        });
+    /// Eject the drives (playback from them stops first), once the plan is confirmed.
+    pub(super) fn eject(&mut self, roots: Vec<PathBuf>) {
+        let Some(first) = roots.first().cloned() else { return };
+        let drives = roots.iter().map(|r| r.display().to_string()).collect();
+        let store_root = self.store_root.clone();
+        self.plan(first, move |_| Ok(Box::new(api::drive_eject_plan(Some(&store_root), &EjectDrives { drives })?)));
     }
 
-    /// Check the drive (`group`: and the other mounted drives of its library, as for a set)
-    /// against the player models remembered for it, in the background; the results show in a
-    /// panel.
-    pub(super) fn check(&mut self, root: PathBuf, group: bool) {
-        let name = self.drive_label(&root);
-        let drives = if group { self.group_of(&root) } else { vec![root] };
+    /// Check the drives (several: the mounted drives of a library, as for a set) against the
+    /// player models remembered for them, in the background; the results show in a panel.
+    pub(super) fn check(&mut self, drives: Vec<PathBuf>) {
+        let Some(name) = drives.first().map(|r| self.drive_label(r)) else { return };
         let label = match drives.len() {
             1 => format!("Checking {name}"),
             n => format!("Checking {name} and {} more", n - 1),

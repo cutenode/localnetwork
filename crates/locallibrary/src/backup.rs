@@ -19,7 +19,10 @@
 //! tracks' audio are counted apart from those that don't, so a run of small edits never prunes
 //! the only copy of a deleted track, and the ones undos take apart from the others.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
+
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -57,12 +60,12 @@ pub struct BackupInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undoes: Option<String>,
     /// Each of `files` as it was backed up, by content.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub hashes: BTreeMap<String, Hash>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub hashes: IndexMap<String, Hash>,
     /// What its change left in each file putting it back replaces or removes, by content (`null`:
     /// absent). Missing when the change didn't finish, or an earlier version made the backup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub after: Option<BTreeMap<String, Option<Hash>>>,
+    pub after: Option<IndexMap<String, Option<Hash>>>,
 }
 
 fn backups_dir(device: &Device) -> PathBuf {
@@ -102,7 +105,7 @@ pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Op
         id.push('_');
     };
     let mut files = Vec::new();
-    let mut hashes = BTreeMap::new();
+    let mut hashes = IndexMap::new();
     let keys = paths::DATABASE_FILES.iter().map(|k| k.to_string()).chain(extra.iter().cloned());
     for key in keys {
         let src = device.checked_path(&key)?;
@@ -163,7 +166,7 @@ pub fn list(device: &Device) -> Result<Vec<BackupInfo>> {
 pub(crate) fn prune(device: &Device) -> Result<()> {
     let backups = list(device)?;
     let kind = |b: &BackupInfo| (b.audio > 0, b.undoes.is_some());
-    let mut kept: HashMap<(bool, bool), usize> = HashMap::new();
+    let mut kept: FxHashMap<(bool, bool), usize> = FxHashMap::default();
     for b in &backups {
         let n = kept.entry(kind(b)).or_default();
         *n += 1;
@@ -182,7 +185,7 @@ fn keys(info: &BackupInfo) -> BTreeSet<String> {
 
 /// Files on the drive by content, each hashed once (`None`: absent or unreadable).
 #[derive(Default)]
-struct Contents(HashMap<String, Option<Hash>>);
+struct Contents(FxHashMap<String, Option<Hash>>);
 
 impl Contents {
     fn of(&mut self, device: &Device, key: &str) -> Option<Hash> {
@@ -389,7 +392,7 @@ pub fn restore_with(device: &mut Device, id: Option<&str>, force: bool, ctx: &Ct
 /// (restoring refuses them unless forced), by name.
 pub fn missing_audio(device: &Device, info: &BackupInfo) -> Result<Vec<String>> {
     let old = Device::open(dir(device, &info.id))?.library()?;
-    let saved: std::collections::HashSet<String> = info.files.iter().map(|f| f.to_lowercase()).collect();
+    let saved: rustc_hash::FxHashSet<String> = info.files.iter().map(|f| f.to_lowercase()).collect();
     Ok(old
         .tracks
         .iter()

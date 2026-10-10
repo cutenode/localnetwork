@@ -22,7 +22,7 @@
 //! MIT) with its rows removed, which keeps rekordbox's colours and browse columns. A new OneLibrary
 //! database starts from rekordbox's schema and default rows ([`OneLibrary::create`]).
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
 use rekordbox_pdb::{PdbEditor, TableType};
@@ -173,7 +173,7 @@ pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<Co
     if replaces {
         match &existing {
             Some(existing) => {
-                let keep: HashSet<String> = source.tracks.iter().map(|t| fold(&t.file_path)).collect();
+                let keep: FxHashSet<String> = source.tracks.iter().map(|t| fold(&t.file_path)).collect();
                 let dropped = existing.tracks.iter().filter(|t| !keep.contains(&fold(&t.file_path))).count();
                 if dropped > 0 {
                     warnings.push(format!(
@@ -202,8 +202,8 @@ pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<Co
         "it has no record of the converted database's playlists and may export them again when it next syncs",
     ));
 
-    let mut artwork: HashSet<String> = HashSet::new();
-    let mut missing: HashSet<String> = HashSet::new();
+    let mut artwork: FxHashSet<String> = FxHashSet::default();
+    let mut missing: FxHashSet<String> = FxHashSet::default();
     let mut artwork_bytes = 0;
     let file_size = |k: &str| device.checked_path(k).ok().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len());
     for a in source.tracks.iter().filter_map(|t| t.artwork_path.as_ref()) {
@@ -370,14 +370,14 @@ impl Builder<'_, '_> {
             tags::copy_categories(&mut one, ext)?;
         }
         let old = existing.as_ref().map(OneLibrary::library).transpose()?;
-        let old_by_path: HashMap<String, &Track> =
+        let old_by_path: FxHashMap<String, &Track> =
             old.iter().flat_map(|l| l.tracks.iter()).map(|t| (fold(&t.file_path), t)).collect();
         let defaults = match &existing {
             Some(e) => e.content_defaults()?,
             None => one.content_defaults()?,
         };
-        let mut images: HashMap<String, Option<u32>> = HashMap::new();
-        let mut ids = HashMap::new();
+        let mut images: FxHashMap<String, Option<u32>> = FxHashMap::default();
+        let mut ids = FxHashMap::default();
         let mut unreadable = Vec::new();
         for t in &self.source.tracks {
             self.progress(t)?;
@@ -455,8 +455,8 @@ impl Builder<'_, '_> {
     /// Build `export.pdb` from OneLibrary.
     fn device_library(&mut self) -> Result<Vec<u8>> {
         let mut editor = empty_device_library()?;
-        let mut artwork: HashMap<String, u32> = HashMap::new();
-        let mut ids = HashMap::new();
+        let mut artwork: FxHashMap<String, u32> = FxHashMap::default();
+        let mut ids = FxHashMap::default();
         let source = self.source;
         let bytes = pdb::guard_editor(|| {
             for t in &source.tracks {
@@ -490,9 +490,9 @@ impl Builder<'_, '_> {
     }
 
     /// Recreate playlists (folders first) and history playlists.
-    fn trees(&mut self, db: &mut impl PlaylistDb, ids: &HashMap<u32, u32>) -> Result<()> {
+    fn trees(&mut self, db: &mut impl PlaylistDb, ids: &FxHashMap<u32, u32>) -> Result<()> {
         let lib = self.source;
-        let mut new_ids: HashMap<u32, u32> = HashMap::new();
+        let mut new_ids: FxHashMap<u32, u32> = FxHashMap::default();
         let mut queue: Vec<Option<u32>> = vec![None];
         while let Some(parent) = queue.pop() {
             for p in lib.children(parent) {

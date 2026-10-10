@@ -4,7 +4,7 @@
 //! and making one from the search box's filter. The My Tags column and Browse › My Tags are drawn
 //! from the tags the library load reads (`app.rs`, `browse.rs`).
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::path::PathBuf;
 
 use locallibrary::api::{self, DriveRef, SetSmartPlaylist, TagAction, TagsEdit};
@@ -48,7 +48,7 @@ impl App {
         self.task("Reading My Tags".into(), move |_| {
             let tags = api::tags_list(&DriveRef { drive })?;
             Ok(Box::new(move |app: &mut App| {
-                let chosen: HashSet<String> = tracks.iter().map(|p| paths::key(p).to_lowercase()).collect();
+                let chosen: FxHashSet<String> = tracks.iter().map(|p| paths::key(p).to_lowercase()).collect();
                 // A new tag first: the list of existing ones can be long.
                 let mut items = vec![Item::new("a new tag…", "Category/Tag")];
                 let mut choices = vec![TagChoice::New];
@@ -130,10 +130,8 @@ impl App {
                 if let Some(n) = p.limit {
                     extra.push(format!("at most {n}"));
                 }
-                extra.push(match p.drives.len() {
-                    0 => "every drive".to_string(),
-                    n => format!("{n} drive{} only", if n == 1 { "" } else { "s" }),
-                });
+                let scope = if p.drives.is_empty() { "every drive" } else { "some libraries only" };
+                extra.push(scope.to_string());
                 lines.push((Tone::Text, extra.join("  ·  ")));
             }
             if !all.playlists.is_empty() {
@@ -305,7 +303,7 @@ mod tests {
         all.set(rule).unwrap();
         store.save_smart_playlists(&all).unwrap();
         let lines = rules(&mut app);
-        assert_eq!(lines[..2], ["Smart/Peak", "bpm:>=128  ·  sorted by -bpm  ·  at most 20  ·  1 drive only"]);
+        assert_eq!(lines[..2], ["Smart/Peak", "bpm:>=128  ·  sorted by -bpm  ·  at most 20  ·  some libraries only"]);
     }
 
     /// Filling the rules needs a drive; a rule needs a search that reads as a filter.

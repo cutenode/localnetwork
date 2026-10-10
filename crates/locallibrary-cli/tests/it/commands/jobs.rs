@@ -1,7 +1,9 @@
 //! `setup`, `refresh` and `pull` in a terminal: what setup says about each drive and step, and a
 //! job that stops part way.
 
-use crate::support::{Env, path};
+use serde_json::json;
+
+use crate::support::{Env, copy_dir, path};
 
 #[test]
 fn setup_says_what_it_leaves_out_and_why() {
@@ -68,6 +70,108 @@ fn setup_names_a_drive_for_players_that_read_onelibrary() {
     env.ok(&["--yes", "convert", "--to", "onelibrary", path(&demo)]);
     let out = env.ok(&["--yes", "setup", "--library", "Home", "--player-name", "REKORDBOX=Main"]);
     assert!(out.contains("Device Names\n- players show REKORDBOX as \"Main\"\n"), "{out}");
+}
+
+/// Drives keep their volume names: setup asks only what to call the library, first, and offers
+/// the library the drives are in, else a name no library has.
+#[cfg(unix)]
+#[test]
+fn setup_asks_for_the_librarys_name_and_not_the_drives() {
+    use std::io::Write;
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let env = Env::ascii();
+    let main = env.demo("REKORDBOX");
+    copy_dir(&main, &env.volumes.join("BACKUP"));
+    // A home of its own where `watch --install` is done already, so setup doesn't offer it.
+    let home = env.store.with_file_name("home");
+    let agent = match cfg!(target_os = "macos") {
+        true => home.join("Library/LaunchAgents/local.locallibrary.watch.plist"),
+        false => home.join(".config/systemd/user/locallibrary-watch.service"),
+    };
+    std::fs::create_dir_all(agent.parent().unwrap()).unwrap();
+    std::fs::write(&agent, "").unwrap();
+    // What setup asked, answering each question in turn.
+    let asked = |args: &[&str], answers: &[&str]| {
+        let (mut keyboard, stdin) = crate::support::terminal();
+        for a in answers {
+            writeln!(keyboard, "{a}").unwrap();
+        }
+        let mut command = env.command();
+        command.env("HOME", &home).env_remove("XDG_CONFIG_HOME").stdin(Stdio::from(stdin));
+        command.args(["setup", "--no-settings", "--players", "CDJ-3000"]).args(args);
+        let mut child = command.stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+        // A question it wasn't answered (or one asked again for an answer it won't take) would
+        // wait forever.
+        let started = Instant::now();
+        while child.try_wait().unwrap().is_none() && started.elapsed() < Duration::from_secs(60) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let _ = child.kill();
+        let out = child.wait_with_output().unwrap();
+        let err = String::from_utf8(out.stderr).unwrap();
+        assert!(out.status.success(), "{args:?}: {err}");
+        err
+    };
+    let in_order = |err: &str, questions: &[&str]| {
+        let mut at = 0;
+        for q in questions {
+            at += err[at..].find(q).unwrap_or_else(|| panic!("no {q:?} after the questions before it in:\n{err}"));
+        }
+    };
+
+    // The library's name right after which drives; none for a drive.
+    let err = asked(&[], &["", "", "", "y", "", "", "y", "", "n"]);
+    in_order(
+        &err,
+        &[
+            "Is BACKUP a copy of your library? [Y/n]",
+            "Is REKORDBOX a copy of your library? [Y/n]",
+            "Name for your library [My library]",
+            "Mark them as copies of your library? [y/N]",
+            "Which one does rekordbox export to (1-2)? [1]",
+            "Role for REKORDBOX (backup, set or archive) [backup]",
+            "Start your library? [y/N]",
+            "Contact details",
+            "Remember them? [y/N]",
+        ],
+    );
+    assert!(!err.contains("Name for /"), "{err}");
+    let libraries = env.json(&["library", "ls"]);
+    assert_eq!(libraries[0]["name"], "My library", "{libraries}");
+    let drives = env.json(&["drive", "list"]);
+    let names: Vec<_> = drives.as_array().unwrap().iter().map(|d| (&d["name"], &d["role"])).collect();
+    assert_eq!(names, [(&json!("BACKUP"), &json!("primary")), (&json!("REKORDBOX"), &json!("backup"))]);
+
+    // Run again, it offers the library they're in; a drive in none gets a name no library has.
+    in_order(&asked(&["REKORDBOX"], &["", "n", "", "n"]), &["Name for your library [My library]", "Save them in it?"]);
+    env.club("CLUB");
+    in_order(
+        &asked(&["CLUB"], &["", "n", "n", "", "n"]),
+        &["Name for your library [My library 2]", "Start your library?"],
+    );
+}
+
+/// Without a terminal, `--library` is all setup needs: each drive keeps its volume name, and the
+/// report lists the steps it took.
+#[test]
+fn setup_without_a_terminal_needs_only_the_librarys_name() {
+    let env = Env::ascii();
+    let main = env.demo("REKORDBOX");
+    copy_dir(&main, &env.volumes.join("BACKUP"));
+    let tip = "`locallibrary setup` starts your library from the drives you have";
+    assert!(env.run(&["drive", "list"]).err.contains(tip));
+    assert!(env.ok(&["setup", "--help"]).contains("Drives keep their volume names"));
+    let v = env.json(&["--yes", "setup", "--library", "Home", "--no-settings"]);
+    let steps = v["report"]["steps"].as_array().unwrap();
+    let kinds: Vec<_> = steps.iter().map(|s| s["step"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["names", "names", "pull", "role", "pull", "role"], "{v}");
+    let named: Vec<_> = steps[..2].iter().map(|s| &s["plan"]["name"]).collect();
+    assert_eq!(named, [&json!("BACKUP"), &json!("REKORDBOX")], "{v}");
+    assert!(v["report"]["notes"].is_array(), "{v}");
+    let drives = env.json(&["drive", "list"]);
+    let names: Vec<_> = drives.as_array().unwrap().iter().map(|d| &d["name"]).collect();
+    assert_eq!(names, [&json!("BACKUP"), &json!("REKORDBOX")], "{drives}");
 }
 
 /// A job's steps run in turn: the first that fails stops it, and the ones before stay done (exit

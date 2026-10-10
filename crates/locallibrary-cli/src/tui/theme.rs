@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use locallibrary::anlz::PhraseKind;
 use locallibrary::model::TrackColor;
+use loclib_waveform::Palette;
+pub use loclib_waveform::color::{gradient, mix, scale};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Span;
 use ratatui::widgets::BorderType;
@@ -201,37 +203,24 @@ fn xterm256(r: u8, g: u8, b: u8) -> u8 {
     if dist([grey, grey, grey]) < dist(cube) { 232 + gi_ } else { 16 + 36 * ri as u8 + 6 * gi as u8 + bi as u8 }
 }
 
-/// Mix two colours: `t` = 0 gives `a`, 1 gives `b`.
-pub fn mix(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
-    let t = t.clamp(0.0, 1.0);
-    [0, 1, 2].map(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * t).round() as u8)
-}
-
-pub fn scale(c: [u8; 3], f: f32) -> [u8; 3] {
-    c.map(|v| (v as f32 * f).clamp(0.0, 255.0) as u8)
-}
-
-// Palette.
-pub const FG: [u8; 3] = [226, 226, 236];
-pub const DIM: [u8; 3] = [120, 120, 142];
-pub const FAINT: [u8; 3] = [72, 72, 92];
-pub const PINK: [u8; 3] = [255, 92, 160];
-pub const CYAN: [u8; 3] = [92, 214, 255];
-pub const AMBER: [u8; 3] = [255, 196, 86];
-pub const VIOLET: [u8; 3] = [158, 112, 255];
+// Palette: the waveforms' dark one, and the player's own colours.
+const DARK: Palette = Palette::DARK;
+pub const FG: [u8; 3] = DARK.fg;
+pub const DIM: [u8; 3] = DARK.dim;
+pub const FAINT: [u8; 3] = DARK.faint;
+pub const PINK: [u8; 3] = DARK.accent;
+pub const CYAN: [u8; 3] = DARK.scope[0];
+pub const AMBER: [u8; 3] = DARK.spectrum[3];
+pub const VIOLET: [u8; 3] = DARK.spectrum[1];
 pub const GREEN: [u8; 3] = [120, 222, 140];
 pub const RED: [u8; 3] = [255, 100, 100];
 pub const SELECTION: [u8; 3] = [44, 44, 70];
 pub const VINYL: [u8; 3] = [40, 40, 52];
 
-/// Gradient for level displays, bottom to top.
-pub const SPECTRUM: [[u8; 3]; 4] = [[64, 140, 255], VIOLET, PINK, AMBER];
-
-/// Colour at `t` (0-1) along a multi-stop gradient.
-pub fn gradient(stops: &[[u8; 3]], t: f32) -> [u8; 3] {
-    let t = t.clamp(0.0, 1.0) * (stops.len() - 1) as f32;
-    let i = (t.floor() as usize).min(stops.len() - 2);
-    mix(stops[i], stops[i + 1], t - i as f32)
+/// The palette the player's waveforms, visualisers and cover art draw in, for the mode it draws
+/// in.
+pub fn palette() -> Palette {
+    Palette { paint: rgb3, image, plain: plain(), ..DARK }
 }
 
 pub fn fg(c: [u8; 3]) -> Style {
@@ -302,16 +291,7 @@ pub fn key() -> Style {
 }
 
 pub fn track_color(c: TrackColor) -> [u8; 3] {
-    match c {
-        TrackColor::Pink => [248, 82, 201],
-        TrackColor::Red => [232, 48, 48],
-        TrackColor::Orange => [255, 140, 30],
-        TrackColor::Yellow => [240, 220, 40],
-        TrackColor::Green => [60, 200, 80],
-        TrackColor::Aqua => [40, 200, 220],
-        TrackColor::Blue => [48, 96, 240],
-        TrackColor::Purple => [150, 72, 230],
-    }
+    (DARK.track_color)(c)
 }
 
 /// Phrases by role: intros and outros cool, builds and verses warm, choruses hot, breakdowns
@@ -328,9 +308,9 @@ pub fn phrase_color(kind: PhraseKind) -> [u8; 3] {
 }
 
 /// rekordbox's default hot cue colour (green), used for cues without one.
-pub const HOT_CUE: [u8; 3] = [40, 226, 20];
-pub const MEMORY_CUE: [u8; 3] = [232, 48, 48];
-pub const LOOP: [u8; 3] = [255, 140, 30];
+pub const HOT_CUE: [u8; 3] = DARK.hot_cue;
+pub const MEMORY_CUE: [u8; 3] = DARK.memory_cue;
+pub const LOOP: [u8; 3] = DARK.loop_cue;
 
 #[cfg(test)]
 mod tests {
@@ -373,11 +353,7 @@ mod tests {
             let top = |c: [u8; 3]| (0..3).max_by_key(|&i| c[i]).unwrap();
             assert_eq!(top(l), top(c), "{c:?} -> {l:?} keeps its hue");
         }
-        assert_eq!(
-            for_light([128, 128, 128]).iter().collect::<std::collections::HashSet<_>>().len(),
-            1,
-            "greys stay grey"
-        );
+        assert_eq!(for_light([128, 128, 128]).iter().collect::<rustc_hash::FxHashSet<_>>().len(), 1, "greys stay grey");
         // Chips (light ink on the colour, turned round) stay readable, bright greens too.
         let contrast = |a: [u8; 3], b: [u8; 3]| {
             let (x, y) = (luminance(a), luminance(b));
@@ -392,12 +368,5 @@ mod tests {
         assert_eq!(colour_dot(TrackColor::Aqua).content, "6");
         set_test_mode(None);
         assert_eq!(colour_dot(TrackColor::Aqua).content, "●");
-    }
-
-    #[test]
-    fn gradients() {
-        assert_eq!(gradient(&SPECTRUM, 0.0), SPECTRUM[0]);
-        assert_eq!(gradient(&SPECTRUM, 1.0), AMBER);
-        assert_eq!(mix([0, 0, 0], [200, 100, 50], 0.5), [100, 50, 25]);
     }
 }

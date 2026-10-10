@@ -5,7 +5,7 @@
 //! as tracklists write a track nobody's named. CSV and M3U8 are for the DJ: they name every
 //! track, and CSV says which are unnamed in its last column. M3U8 only lists the files.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fmt::Write as _;
 
 use schemars::JsonSchema;
@@ -89,7 +89,7 @@ pub(crate) fn render(set: &Set, format: SetFormat, drive: Option<(&Library, &Loc
 
 /// The set's tracks found in `library` by file, and a warning for each that isn't there.
 pub(crate) fn on_drive<'a>(set: &Set, library: &'a Library) -> (Vec<&'a Track>, Vec<String>) {
-    let by_file: HashMap<String, &Track> =
+    let by_file: FxHashMap<String, &Track> =
         library.tracks.iter().map(|t| (crate::plays::file_key(&t.file_path), t)).collect();
     let (mut found, mut missing) = (Vec::new(), Vec::new());
     for (i, e) in set.tracks.iter().enumerate() {
@@ -299,9 +299,9 @@ fn limits(tracks: &[Vec<String>], what: impl Fn(&str) -> String, most: usize, in
 mod tests {
     use super::*;
     use crate::export::PathStyle;
-    use crate::model::tests::track;
     use crate::sets::query::tests::set;
     use crate::sets::{EntryOrigin, Recording};
+    use loclib_model::test_util::track;
 
     fn friday() -> Set {
         let mut s = set("3m2abcdefgh22", "2026-10-03", Some("Friday"));

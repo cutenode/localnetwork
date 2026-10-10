@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/cutenode/locallibrary#readme
+    about: Installing it, every command, and how drives, the store and sets work.
+  - name: Security vulnerability
+    url: https://github.com/cutenode/locallibrary/security/advisories/new
+    about: Report it privately instead of in an issue.

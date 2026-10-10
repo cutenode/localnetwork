@@ -10,7 +10,9 @@
 //! pull and the sync) are planned as they run. The first step that fails stops the job, and the
 //! report says what was done ([`JobReport::stopped`]).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
+
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
@@ -31,7 +33,7 @@ use crate::edit::{self, Edit, EditOptions};
 use crate::eject::EjectReport;
 use crate::error::{Action, Reason};
 use crate::fleet::{self, Role};
-use crate::op::{AnyPlanned, Operation, Planned, Touched};
+use crate::op::{self, AnyPlanned, CloneTarget, Operation, Planned, Touched};
 use crate::progress::{Ctx, Steps};
 use crate::store::Store;
 use crate::sync::{self, PullOptions, PullReport};
@@ -120,10 +122,12 @@ impl StepKind {
 /// Plans an operation again, on the drives as they are now.
 type Replan = Box<dyn Fn(Option<&Store>, &Ctx<'_>) -> Result<Box<dyn AnyPlanned>> + Send + Sync>;
 
+/// A step's operation, planned to write its own drive only: the job's sync step is what copies
+/// onto the library's other clones (see [`op::alone`]).
 fn replan<P: AnyPlanned + 'static>(
     f: impl Fn(Option<&Store>, &Ctx<'_>) -> Result<P> + Send + Sync + 'static,
 ) -> Replan {
-    Box::new(move |store, ctx| Ok(Box::new(f(store, ctx)?) as Box<dyn AnyPlanned>))
+    Box::new(move |store, ctx| Ok(Box::new(op::alone(|| f(store, ctx))?) as Box<dyn AnyPlanned>))
 }
 
 /// What a step does when it runs.
@@ -923,7 +927,8 @@ fn yes() -> bool {
 /// Getting drives ready for a set.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct SetJobRequest {
-    /// The drives you're taking [default: the mounted drives of one library, see [`drive_group`]].
+    /// The drives you're taking, or a library's name for its mounted clones [default: the mounted
+    /// drives of one library, see [`drive_group`]].
     #[serde(default)]
     pub drives: Vec<String>,
     /// The library whose mounted drives to take, when `drives` is empty.
@@ -956,7 +961,7 @@ pub fn set_job_plan(store: &Store, req: &SetJobRequest, ctx: &Ctx<'_>) -> Result
         }
         false => {
             let mut out: Vec<Device> = Vec::new();
-            for spec in &req.drives {
+            for spec in &super::expand_libraries(&req.drives)?.0 {
                 let d = resolve_drive(spec)?;
                 if out.iter().any(|x| x.root() == d.root()) {
                     return Err(Error::invalid(format!("{spec:?} is listed twice")));
@@ -1133,7 +1138,7 @@ fn mounted_exports() -> Vec<Device> {
 
 fn candidates_of(store: Option<&Store>, devices: &[Device]) -> Vec<DriveCandidate> {
     let registry = store.and_then(|s| s.drives().ok()).unwrap_or_default();
-    let libraries: HashMap<Uuid, String> =
+    let libraries: FxHashMap<Uuid, String> =
         store.and_then(|s| s.libraries().ok()).unwrap_or_default().into_iter().map(|l| (l.id, l.name)).collect();
     devices
         .iter()
@@ -1169,9 +1174,9 @@ fn table(candidates: &[DriveCandidate]) -> String {
 }
 
 /// The drive a command means when it's given none: the only mounted rekordbox drive; otherwise,
-/// when the mounted drives that belong to a library all belong to one, that library's primary
-/// drive. Anything else is refused, listing the candidates (name, mount path, role, library).
-/// `purpose` finishes "say which drive to ...".
+/// when the mounted drives that belong to a library all belong to one, that library's lead clone
+/// (see [`lead_clone`]). Anything else is refused, listing the candidates (name, mount path, role,
+/// library). `purpose` finishes "say which library to ...".
 pub fn default_drive(store: Option<&Store>, purpose: &str) -> Result<Device> {
     let mut mounted = mounted_exports();
     match mounted.len() {
@@ -1179,29 +1184,208 @@ pub fn default_drive(store: Option<&Store>, purpose: &str) -> Result<Device> {
         1 => return Ok(mounted.remove(0)),
         _ => {}
     }
-    if let Some(store) = store {
-        let libraries: BTreeSet<Uuid> = mounted.iter().filter_map(|d| d.state().and_then(|s| s.library_id)).collect();
-        if libraries.len() == 1
-            && let Some(primary) = fleet::primary_of(store, libraries.first().copied())?
-            && let Some(i) = mounted.iter().position(|d| d.id() == Some(primary.id))
-        {
-            return Ok(mounted.remove(i));
-        }
+    let libraries: BTreeSet<Uuid> = mounted.iter().filter_map(|d| d.state().and_then(|s| s.library_id)).collect();
+    if libraries.len() == 1
+        && let Ok(group) = drive_group(store, None)
+        && group.library_id.is_some()
+    {
+        return lead_clone(store, &group, &Ctx::silent());
     }
+    let names: Vec<String> = candidates_of(store, &mounted).into_iter().filter_map(|c| c.library).collect();
+    let which = match names.is_empty() {
+        true => "say which drive".to_string(),
+        false => format!(
+            "say which library ({}) or drive",
+            names.into_iter().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>().join(", ")
+        ),
+    };
     Err(Error::invalid(format!(
-        "say which drive to {purpose} (a name, a mount path or an id): {} rekordbox drives are mounted\n{}\n\
-         With one library's drives mounted, its primary is the default: give one drive the primary role",
+        "{which} to {purpose} (a library's name, or a drive's name, mount path or id): {} rekordbox drives are \
+         mounted\n{}",
         mounted.len(),
         table(&candidates_of(store, &mounted))
     ))
     .because(Reason::ChooseDrive)
     .with("drives", mounted.iter().map(|d| d.root().display().to_string()).collect::<Vec<_>>())
-    .action(Action::retry(serde_json::json!({ "drive": null }), "Choose the drive"))
-    .action(Action::call(
-        "drive.role",
-        serde_json::json!({ "drive": null, "role": "primary" }),
-        "Make one drive the primary",
-    )))
+    .action(Action::retry(serde_json::json!({ "drive": null }), "Choose the library or drive")))
+}
+
+/// The clone of a library that commands act on, among its mounted clones (`group`): the newest,
+/// as `sync` finds it, which is the primary when they're identical. When they can't be ordered
+/// (they diverged, or one came back from a set), the primary if it's mounted, else `sync`'s
+/// refusal. Refused when the library's only mounted drives are archive or retired ones.
+pub fn lead_clone(store: Option<&Store>, group: &DriveGroup, ctx: &Ctx<'_>) -> Result<Device> {
+    match group.drives.as_slice() {
+        [] => {
+            let library = group.library.as_deref().unwrap_or_default();
+            return Err(Error::NotFound(format!(
+                "a mounted drive of library {library:?} but archive and retired ones"
+            )));
+        }
+        [only] => return Device::open(only),
+        _ => {}
+    }
+    let req = super::SyncManyRequest { drives: group.specs(), ..Default::default() };
+    match super::newest_of(&req, ctx) {
+        Ok((lead, _)) => Ok(lead),
+        Err(e) if matches!(e.inner(), Error::Conflict(_)) => match primary_mounted(store, group) {
+            Some(primary) => Device::open(&primary),
+            None => Err(e),
+        },
+        Err(e) => Err(e),
+    }
+}
+
+/// The other mounted clones of `lead`'s library, which a write to it is copied onto (see
+/// `Planned::reaching_clones`; archive and retired ones aren't clones here, see [`fleet::sets`],
+/// and a write to one stays on it) but the drives the write touches already (`touched`), each
+/// with why it's left alone, if it is: it's newer than `lead`, diverged from it or back from a
+/// set, which a sync of the two sorts out first.
+pub(crate) fn clones_of(lead: &Device, touched: &[&Path], ctx: &Ctx<'_>) -> Result<Vec<(Device, Option<String>)>> {
+    let mut clones = Vec::new();
+    let (Some(library), Some(store)) = (lead.state().and_then(|s| s.library_id), registry()) else {
+        return Ok(clones);
+    };
+    let set = fleet::sets(&store, &known_drives(false))?
+        .into_iter()
+        .find(|s| s.library_id == Some(library) && s.members.iter().any(|m| m == lead.root()));
+    let others = set.map(|s| s.members).unwrap_or_default().into_iter().filter(|m| !touched.contains(&m.as_path()));
+    let name = lead.name();
+    for root in others {
+        let clone = Device::open(&root)?;
+        // A drive of the library holding no export (emptied, or set up and not written yet) is
+        // filled by a sync or `provision`, not by a change to the library.
+        if !clone.has_export() {
+            continue;
+        }
+        let left_alone = match super::sync_endpoints(&pair(lead.root(), &root), ctx) {
+            Ok(e) if e.after_set.is_some() => Some(format!(
+                "not copying {name} onto {}: one of them came back from a set (sync the two first, which keeps \
+                 the players' changes in the store)",
+                clone.name()
+            )),
+            Ok(e) if e.drives.as_ref().is_none_or(|(source, _)| source.root() == lead.root()) => None,
+            Ok(_) => Some(format!("{} is newer than {name}: it isn't copied over", clone.name())),
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(e) => Some(format!("not copying {name} onto {}: {e}", clone.name())),
+        };
+        clones.push((clone, left_alone));
+    }
+    Ok(clones)
+}
+
+/// Copy `lead` onto its `clones` once a write to it is done (see `Planned::reaching_clones`),
+/// as a group sync does, crash-safe. The copy goes from `lead` whichever is newer: an undo leaves
+/// it older than its clones, which an automatic sync would copy back over it. The plan found each
+/// clone no newer than `lead`, applying it checked none changed since, and each clone's lock
+/// refuses one that changed after that. The write is done by then, so what isn't copied is a
+/// warning.
+pub(crate) fn copy_onto_clones(lead: &Path, clones: &[&CloneTarget], store: Option<&Store>, ctx: &Ctx<'_>) {
+    let owned = store.is_none().then(registry).flatten();
+    let store = store.or(owned.as_ref());
+    let req = super::SyncManyRequest::default();
+    let copy = || {
+        let source = Device::open(lead)?;
+        let mut targets = Vec::new();
+        for c in clones {
+            targets.push(sync_plan(&req.pair(lead, &c.root, Direction::LeftToRight), ctx)?.plan);
+        }
+        let preview = super::SyncManyPreview { source_name: source.name(), source: lead.to_path_buf(), targets };
+        super::sync_many_apply(store, &req, &preview, ctx)
+    };
+    match copy() {
+        Ok(results) => {
+            for r in results {
+                if let Some(e) = r.error {
+                    ctx.warn(format!("the change wasn't copied onto {}: {}", r.name, e.message));
+                }
+            }
+        }
+        Err(e) => {
+            let names: Vec<&str> = clones.iter().map(|c| c.name.as_str()).collect();
+            ctx.warn(format!("the change wasn't copied onto {}: {e}", names.join(", ")));
+        }
+    }
+}
+
+/// The drives a write to each of `specs` goes to, with several clones of one library (see
+/// [`fleet::sets`]) taken once, as the library's lead clone: a write to one reaches the others
+/// (see `Planned::reaching_clones`). When the clones can't be ordered and none is the primary,
+/// the first named, which the write's plan says it can't copy onto the rest.
+pub fn libraries_once(specs: Vec<String>) -> Result<Vec<String>> {
+    let Some(store) = registry() else { return Ok(specs) };
+    let devices: Vec<Device> = specs.iter().map(|s| resolve_drive(s)).collect::<Result<_>>()?;
+    let sets = fleet::sets(&store, &known_drives(false))?;
+    let set_of = |d: &Device| sets.iter().position(|s| s.members.iter().any(|m| m == d.root()));
+    let mut taken = Vec::new();
+    let mut out = Vec::new();
+    for (spec, d) in specs.iter().zip(&devices) {
+        let Some(set) = set_of(d) else {
+            out.push(spec.clone());
+            continue;
+        };
+        if taken.contains(&set) {
+            continue;
+        }
+        taken.push(set);
+        if devices.iter().filter(|x| set_of(x) == Some(set)).count() == 1 {
+            out.push(spec.clone());
+            continue;
+        }
+        match lead_clone(Some(&store), &group_of(sets[set].clone()), &Ctx::silent()) {
+            Ok(lead) => out.push(lead.root().display().to_string()),
+            Err(e) if matches!(e.inner(), Error::Conflict(_)) => out.push(spec.clone()),
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(out)
+}
+
+/// The library's primary, when it's one of the mounted clones in `group`.
+fn primary_mounted(store: Option<&Store>, group: &DriveGroup) -> Option<PathBuf> {
+    let registry = store?.drives().ok()?;
+    group
+        .drives
+        .iter()
+        .find(|p| {
+            Device::open(p)
+                .ok()
+                .and_then(|d| d.id())
+                .and_then(|id| registry.get(&id))
+                .is_some_and(|r| r.role == Some(Role::Primary))
+        })
+        .cloned()
+}
+
+/// What a read that's given no drive reads: each library with a clone mounted once, from its lead
+/// clone (named after the library), and each mounted rekordbox drive that belongs to no library in
+/// the store.
+pub fn library_reads(store: Option<&Store>) -> Vec<DriveCandidate> {
+    let owned = store.is_none().then(super::registry).flatten();
+    let store = store.or(owned.as_ref());
+    let mounted = mounted_exports();
+    let candidates = candidates_of(store, &mounted);
+    let sets = store.and_then(|s| fleet::sets(s, &mounted).ok()).unwrap_or_default();
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for c in &candidates {
+        let Some(library) = &c.library else {
+            out.push(c.clone());
+            continue;
+        };
+        if !seen.insert(library.clone()) {
+            continue;
+        }
+        // A library whose only mounted clones are archive or retired ones is read from the first.
+        let lead = sets
+            .iter()
+            .find(|s| s.library.as_ref() == Some(library) && !s.members.is_empty())
+            .and_then(|s| lead_clone(store, &group_of(s.clone()), &Ctx::silent()).ok())
+            .map(|d| d.root().to_path_buf());
+        let lead = candidates.iter().find(|x| Some(&x.root) == lead.as_ref()).unwrap_or(c);
+        out.push(DriveCandidate { name: library.clone(), ..lead.clone() });
+    }
+    out
 }
 
 /// The drive `refresh` means when it's given none: the one mounted drive rekordbox exported over
@@ -1276,11 +1460,7 @@ pub fn drive_group(store: Option<&Store>, library: Option<&str>) -> Result<Drive
         }
     };
     Ok(match set {
-        Some(set) => {
-            let mut drives: Vec<PathBuf> = set.primary.iter().cloned().collect();
-            drives.extend(set.members.iter().filter(|m| Some(*m) != set.primary.as_ref()).cloned());
-            DriveGroup { library: set.library, library_id: set.library_id, drives, excluded: set.excluded }
-        }
+        Some(set) => group_of(set),
         None => DriveGroup {
             library: None,
             library_id: None,
@@ -1288,6 +1468,13 @@ pub fn drive_group(store: Option<&Store>, library: Option<&str>) -> Result<Drive
             excluded: Vec::new(),
         },
     })
+}
+
+/// A library's mounted clones as a group, its primary first.
+fn group_of(set: fleet::DriveSet) -> DriveGroup {
+    let mut drives: Vec<PathBuf> = set.primary.iter().cloned().collect();
+    drives.extend(set.members.iter().filter(|m| Some(*m) != set.primary.as_ref()).cloned());
+    DriveGroup { library: set.library, library_id: set.library_id, drives, excluded: set.excluded }
 }
 
 /// Why `spec` names no mounted drive: a known drive that isn't plugged in, or no match at all,

@@ -2622,6 +2622,8 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -3195,6 +3197,7 @@ name = "locallibrary"
 version = "0.1.0"
 dependencies = [
  "aes 0.8.4",
+ "base64 0.22.1",
  "binrw",
  "blake3",
  "cbc 0.1.2",
@@ -3208,12 +3211,20 @@ dependencies = [
  "hmac 0.12.1",
  "http",
  "image",
+ "indexmap",
  "jacquard-api",
  "jacquard-common",
  "jacquard-identity",
  "jacquard-oauth",
  "keyring",
  "keyring-core",
+ "loclib-equipment",
+ "loclib-interop",
+ "loclib-mixid",
+ "loclib-model",
+ "loclib-mysettings",
+ "loclib-progress",
+ "loclib-tracklist",
  "lofty",
  "pbkdf2",
  "percent-encoding",
@@ -3222,6 +3233,7 @@ dependencies = [
  "rekordcrate",
  "reqwest",
  "rusqlite",
+ "rustc-hash",
  "rustfft",
  "same-file",
  "schemars",
@@ -3233,7 +3245,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
- "unicode-normalization",
  "uuid",
  "walkdir",
  "winapi-util",
@@ -3253,13 +3264,16 @@ dependencies = [
  "ctrlc",
  "hegeltest",
  "image",
+ "indexmap",
  "indicatif",
  "libc",
  "locallibrary",
+ "loclib-waveform",
  "ratatui",
  "rekordbox-pdb",
  "rodio",
  "rusqlite",
+ "rustc-hash",
  "rustfft",
  "schemars",
  "serde",
@@ -3278,6 +3292,106 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
+]
+
+[[package]]
+name = "loclib-equipment"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-interop"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "blake3",
+ "chrono",
+ "getrandom 0.3.4",
+ "loclib-model",
+ "loclib-progress",
+ "lofty",
+ "rusqlite",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "loclib-mixid"
+version = "0.1.0"
+dependencies = [
+ "loclib-progress",
+ "rustc-hash",
+ "rustfft",
+ "symphonia",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-model"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "indexmap",
+ "loclib-progress",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "loclib-mysettings"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-progress"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-tracklist"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-model",
+ "percent-encoding",
+ "rustc-hash",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "loclib-waveform"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "loclib-model",
+ "ratatui",
 ]
 
 [[package]]
@@ -5101,6 +5215,7 @@ checksum = "687274d293b6cdc6e73e0fee520bf2049650090d7164f87672d212a3c530cf4a"
 dependencies = [
  "chrono",
  "dyn-clone",
+ "indexmap",
  "ref-cast",
  "schemars_derive",
  "serde",

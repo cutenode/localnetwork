@@ -164,7 +164,7 @@ fn track_command_lines_that_dont_say_enough_are_refused() {
     let club = env.club("Club");
     let d = path(&club);
     let err = env.fails(2, &["track"]);
-    assert!(err.contains("give a drive and the tracks"), "{err}");
+    assert!(err.contains("give a library or drive and the tracks"), "{err}");
     let err = env.fails(2, &["track", "set", d, "--rating", "4"]);
     assert!(err.contains("say which tracks"), "{err}");
     let err = env.fails(2, &["track", "sett"]);
@@ -181,7 +181,7 @@ fn smart_playlists_are_kept_in_the_store_and_written_to_drives() {
     let add = ["--yes", "smart", "add", "Smart/Peak", "--filter", "bpm:>=125", "--sort", "-bpm", "--limit", "5"];
     let out = env.ok(&[&add[..], &["--drive", d]].concat());
     assert!(out.contains(r#"add a rule for "Smart/Peak": "bpm:>=125""#), "{out}");
-    assert!(out.contains("Smart/Peak  bpm:>=125  sorted by -bpm, at most 5, 1 drive(s) only"), "{out}");
+    assert!(out.contains("Smart/Peak  bpm:>=125  sorted by -bpm, at most 5, some libraries only"), "{out}");
     assert!(out.contains("Run `locallibrary smart apply`"), "{out}");
     let out = env.ok(&["--yes", "smart", "add", "Smart/Peak", "--filter", "bpm:>=126"]);
     assert!(out.contains(r#"replace the rule for "Smart/Peak" (bpm:>=125) with "bpm:>=126""#), "{out}");

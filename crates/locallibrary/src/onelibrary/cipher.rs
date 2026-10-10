@@ -15,7 +15,7 @@
 //! (`master.db`, see [`crate::masterdb`]) is encrypted the same way under another passphrase
 //! ([`Codec::with_passphrase`]).
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::{Mutex, OnceLock};
 
 use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, block_padding::NoPadding};
@@ -53,7 +53,7 @@ struct Keys {
 /// Key derivation costs a few hundred milliseconds and every file keeps its salt for life, so
 /// derived keys are remembered per passphrase and salt.
 fn derive(passphrase: &[u8], salt: &[u8; SALT_LEN]) -> Keys {
-    type Cache = HashMap<(Vec<u8>, [u8; SALT_LEN]), Keys>;
+    type Cache = FxHashMap<(Vec<u8>, [u8; SALT_LEN]), Keys>;
     static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let id = (passphrase.to_vec(), *salt);

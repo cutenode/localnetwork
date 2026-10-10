@@ -27,7 +27,7 @@
 //! The target's database is backed up first (see [`crate::backup`]), so `locallibrary undo` takes back a
 //! merge.
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
 
 use rekordbox_pdb::{NewTrack, PdbEditor};
@@ -145,7 +145,7 @@ pub struct MergePlan {
     state: Option<Hash>,
     /// source track id -> existing target track id
     #[serde(skip)]
-    matches: HashMap<u32, u32>,
+    matches: FxHashMap<u32, u32>,
     #[serde(skip)]
     folder_name: String,
 }
@@ -163,11 +163,11 @@ fn fold(s: &str) -> String {
 }
 
 /// Source playlists selected by `opts.only_playlists` (all when empty).
-fn selected_playlists(source: &Library, opts: &MergeOptions) -> Result<HashSet<u32>> {
+fn selected_playlists(source: &Library, opts: &MergeOptions) -> Result<FxHashSet<u32>> {
     if opts.only_playlists.is_empty() {
         return Ok(source.playlists.iter().map(|p| p.id).collect());
     }
-    let mut out = HashSet::new();
+    let mut out = FxHashSet::default();
     for q in &opts.only_playlists {
         let p =
             source.find_playlist(q).ok_or_else(|| Error::NotFound(format!("playlist {q:?} in the source library")))?;
@@ -206,7 +206,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     let dst_tree = target.scan(Some(&dst_lib), ctx)?;
 
     let selected = selected_playlists(&src_lib, opts)?;
-    let wanted_tracks: Option<HashSet<u32>> = (!opts.only_playlists.is_empty()).then(|| {
+    let wanted_tracks: Option<FxHashSet<u32>> = (!opts.only_playlists.is_empty()).then(|| {
         src_lib
             .playlists
             .iter()
@@ -221,12 +221,12 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
         if target.has_device_library() { crate::clean::open_plus(target, true, &mut warnings)? } else { None };
 
     // Index the target.
-    let dst_by_path: HashMap<String, &Track> =
+    let dst_by_path: FxHashMap<String, &Track> =
         dst_lib.tracks.iter().map(|t| (fold(&paths::key(&t.file_path)), t)).collect();
-    let dst_by_meta: HashMap<String, &Track> = dst_lib.tracks.iter().map(|t| (t.fingerprint_key(), t)).collect();
+    let dst_by_meta: FxHashMap<String, &Track> = dst_lib.tracks.iter().map(|t| (t.fingerprint_key(), t)).collect();
     // Paths that are off limits: everything on the target, plus everything its database
     // references even if the file is missing (so two rows never end up sharing one file).
-    let mut taken: HashSet<String> = dst_tree.entries.keys().map(|k| fold(k)).collect();
+    let mut taken: FxHashSet<String> = dst_tree.entries.keys().map(|k| fold(k)).collect();
     for t in dst_lib.tracks.iter().chain(dst_plus.iter().flat_map(|(l, _)| l.tracks.iter())) {
         taken.insert(fold(&paths::key(&t.file_path)));
         if let Some((stem, _)) = paths::key(&t.analyze_path).rsplit_once('.') {
@@ -244,10 +244,10 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
     let round = |n: u64| n.div_ceil(cluster) * cluster;
     let mut new_tracks = Vec::new();
     let mut unanalysed = Vec::new();
-    let mut matches = HashMap::new();
+    let mut matches = FxHashMap::default();
     let mut copy_bytes = 0u64;
     let mut needed = 0u64;
-    let mut artwork_ids = HashSet::new();
+    let mut artwork_ids = FxHashSet::default();
 
     for t in &src_lib.tracks {
         if wanted_tracks.as_ref().is_some_and(|w| !w.contains(&t.id)) {
@@ -346,7 +346,7 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
             fits
         });
     }
-    let new_ids: HashSet<u32> = new_tracks.iter().map(|t| t.source_id).collect();
+    let new_ids: FxHashSet<u32> = new_tracks.iter().map(|t| t.source_id).collect();
     let history_ids = if opts.history { plan_history(&src_lib, &dst_lib, &matches, &new_ids) } else { Vec::new() };
     let history: Vec<String> = history_ids
         .iter()
@@ -451,7 +451,7 @@ fn check_names(
     db: &rekordbox_pdb::Database,
     src: &Library,
     dst: &Library,
-    selected: &HashSet<u32>,
+    selected: &FxHashSet<u32>,
     mode: PlaylistMode,
     folder_name: &str,
     history: &[String],
@@ -552,8 +552,8 @@ fn plan_my_tags(
 
 /// Source history playlists worth bringing across: ones holding a track the merge carries, that
 /// the target doesn't already have (same name, same tracks).
-fn plan_history(src: &Library, dst: &Library, matches: &HashMap<u32, u32>, new_ids: &HashSet<u32>) -> Vec<u32> {
-    let existing: HashSet<(String, Vec<u32>)> =
+fn plan_history(src: &Library, dst: &Library, matches: &FxHashMap<u32, u32>, new_ids: &FxHashSet<u32>) -> Vec<u32> {
+    let existing: FxHashSet<(String, Vec<u32>)> =
         dst.history.iter().filter(|h| !h.is_folder).map(|h| (fold(&h.name), h.track_ids.clone())).collect();
     src.history
         .iter()
@@ -569,7 +569,7 @@ fn plan_history(src: &Library, dst: &Library, matches: &HashMap<u32, u32>, new_i
 
 /// `key`, or `key` with ` (2)`, ` (3)`... before the extension, whichever is free: not `taken`
 /// and not `on_disk`.
-fn unique_key(key: &str, taken: &mut HashSet<String>, on_disk: &dyn Fn(&str) -> bool) -> String {
+fn unique_key(key: &str, taken: &mut FxHashSet<String>, on_disk: &dyn Fn(&str) -> bool) -> String {
     let mut candidate = key.to_string();
     let (stem, ext) = match key.rsplit_once('.') {
         Some((s, e)) if !e.contains('/') => (s.to_string(), format!(".{e}")),
@@ -590,7 +590,7 @@ fn plan_analysis(
     t: &Track,
     src_tree: &FileTree,
     target_audio: &str,
-    taken: &mut HashSet<String>,
+    taken: &mut FxHashSet<String>,
 ) -> (Vec<(String, String)>, String) {
     let dat = paths::key(&t.analyze_path);
     if !paths::is_safe_key(&dat) || paths::classify(&dat) != Some(paths::FileClass::Analysis) {
@@ -609,7 +609,7 @@ fn plan_analysis(
     let dir = dir.as_str();
     let siblings: Vec<&str> = found.iter().map(|e| e.path.as_str()).collect();
     let dir_taken =
-        |d: &str, taken: &HashSet<String>| siblings.iter().any(|s| taken.contains(&fold(&s.replacen(dir, d, 1))));
+        |d: &str, taken: &FxHashSet<String>| siblings.iter().any(|s| taken.contains(&fold(&s.replacen(dir, d, 1))));
     let mut target_dir = dir.to_string();
     let mut salt = 0u32;
     while dir_taken(&target_dir, taken) {
@@ -630,7 +630,7 @@ fn plan_analysis(
 }
 
 fn unique_top_level_name(lib: &Library, base: &str) -> String {
-    let names: HashSet<String> = lib.children(None).iter().map(|p| fold(&p.name)).collect();
+    let names: FxHashSet<String> = lib.children(None).iter().map(|p| fold(&p.name)).collect();
     let mut name = base.to_string();
     let mut n = 2;
     while names.contains(&fold(&name)) {
@@ -651,11 +651,11 @@ fn merge_target<'a>(dst: &'a Library, path: &str, folder: bool) -> Option<&'a Pl
 fn plan_playlists(
     src: &Library,
     dst: &Library,
-    selected: &HashSet<u32>,
+    selected: &FxHashSet<u32>,
     mode: PlaylistMode,
     folder_name: &str,
-    matches: &HashMap<u32, u32>,
-    new_ids: &HashSet<u32>,
+    matches: &FxHashMap<u32, u32>,
+    new_ids: &FxHashSet<u32>,
 ) -> Vec<PlannedPlaylist> {
     let carried = |id: &u32| matches.contains_key(id) || new_ids.contains(id);
     let mut out = Vec::new();
@@ -675,7 +675,8 @@ fn plan_playlists(
             for p in src.playlists.iter().filter(|p| selected.contains(&p.id) && !p.is_folder) {
                 let path = src.playlist_path(p.id);
                 let existing = merge_target(dst, &path, false);
-                let already: HashSet<u32> = existing.map(|d| d.track_ids.iter().copied().collect()).unwrap_or_default();
+                let already: FxHashSet<u32> =
+                    existing.map(|d| d.track_ids.iter().copied().collect()).unwrap_or_default();
                 let added = p
                     .track_ids
                     .iter()
@@ -730,7 +731,7 @@ pub fn apply(
     // My Tags each new track brings, for the target's exportExt.pdb and OneLibrary.
     let mut tag_warnings = Vec::new();
     let src_tags = DriveTags::read(source, &src_lib, src_plus.as_ref(), &mut tag_warnings);
-    let (mut ext_tags, mut plus_tags) = (HashMap::new(), HashMap::new());
+    let (mut ext_tags, mut plus_tags) = (FxHashMap::default(), FxHashMap::default());
     for t in &plan.new_tracks {
         let Some(st) = src_lib.track(t.source_id) else { continue };
         let (ext, plus) = src_tags.of(&fold(&paths::key(&st.file_path)));
@@ -781,11 +782,11 @@ pub fn apply(
     let tgt: &Device = target;
     let mut pdb_bytes = None;
     // Source track id -> export.pdb id, and export.pdb's tracks once merged.
-    let mut id_map: HashMap<u32, u32> = plan.matches.clone();
+    let mut id_map: FxHashMap<u32, u32> = plan.matches.clone();
     let mut pdb_after = None;
     if has_pdb {
         let mut editor = PdbEditor::from_bytes(target.pdb_bytes()?);
-        let mut artwork_map: HashMap<u32, u32> = HashMap::new();
+        let mut artwork_map: FxHashMap<u32, u32> = FxHashMap::default();
         // The editor indexes raw bytes; contain any panic on a malformed database.
         let bytes = pdb::guard_editor(|| {
             for t in &plan.new_tracks {
@@ -874,7 +875,7 @@ pub fn apply(
         tagged.push(carried);
         ext_bytes = out;
     }
-    report.tagged_tracks = tagged.iter().flat_map(|c| &c.tracks).collect::<HashSet<_>>().len();
+    report.tagged_tracks = tagged.iter().flat_map(|c| &c.tracks).collect::<FxHashSet<_>>().len();
     ctx.phase_end(Phase::Write);
 
     // 2. Back up, copy the files next to where they go, then swap them and the databases in.
@@ -938,7 +939,7 @@ struct PlusMerge<'a> {
     /// OneLibrary is the target's only database, so the report counts what happens here.
     primary: bool,
     /// Source track id -> the My Tags it brings.
-    my_tags: &'a HashMap<u32, TagNames>,
+    my_tags: &'a FxHashMap<u32, TagNames>,
     /// The target's `exportExt.pdb` tags, for new tags' names and ids.
     ext_tags: Option<&'a DbTags>,
 }
@@ -955,11 +956,11 @@ impl PlusMerge<'_> {
         warnings: &mut WarningLimiter<'_, '_>,
         ctx: &Ctx<'_>,
     ) -> Result<(Vec<u8>, Carried)> {
-        let by_path = |lib: &Library| -> HashMap<String, u32> {
+        let by_path = |lib: &Library| -> FxHashMap<String, u32> {
             lib.tracks.iter().map(|t| (fold(&paths::key(&t.file_path)), t.id)).collect()
         };
         // Source tracks the target already has, in OneLibrary's ids.
-        let mut id_map: HashMap<u32, u32> = if self.primary {
+        let mut id_map: FxHashMap<u32, u32> = if self.primary {
             plan.matches.clone()
         } else {
             let plus_ids = by_path(self.plus_lib);
@@ -986,8 +987,8 @@ impl PlusMerge<'_> {
         };
         let src_plus_ids = self.src_plus.map(|one| one.library().map(|l| by_path(&l))).transpose()?;
         let defaults = one.content_defaults()?;
-        let mut cue_ids: HashMap<i64, i64> = HashMap::new();
-        let mut images: HashMap<u32, Option<u32>> = HashMap::new();
+        let mut cue_ids: FxHashMap<i64, i64> = FxHashMap::default();
+        let mut images: FxHashMap<u32, Option<u32>> = FxHashMap::default();
         let mut wanted: Wanted = Vec::new();
         for t in &plan.new_tracks {
             ctx.check()?;
@@ -1205,7 +1206,7 @@ fn write_history(
     db: &mut impl PlaylistDb,
     src: &Library,
     plan: &MergePlan,
-    id_map: &HashMap<u32, u32>,
+    id_map: &FxHashMap<u32, u32>,
 ) -> Result<usize> {
     for h in plan.history_ids.iter().filter_map(|id| src.history.iter().find(|h| h.id == *id)) {
         let id = db.add_history(&h.name)?;
@@ -1222,12 +1223,12 @@ fn copy_hot_cue_bank_lists(
     src: &OneLibrary,
     dst: &mut OneLibrary,
     folder: &str,
-    cue_ids: &HashMap<i64, i64>,
+    cue_ids: &FxHashMap<i64, i64>,
 ) -> Result<usize> {
     let lists = src.hot_cue_bank_lists()?;
     let uses_copied = |l: &crate::Playlist| l.track_ids.iter().any(|c| cue_ids.contains_key(&i64::from(*c)));
     // Lists with copied cues, and the folders above them.
-    let mut keep: HashSet<u32> = HashSet::new();
+    let mut keep: FxHashSet<u32> = FxHashSet::default();
     for l in lists.iter().filter(|l| !l.is_folder && uses_copied(l)) {
         let mut cur = Some(l);
         while let Some(n) = cur.filter(|n| keep.insert(n.id)) {
@@ -1238,7 +1239,7 @@ fn copy_hot_cue_bank_lists(
         return Ok(0);
     }
     let root = dst.create_hot_cue_bank_list(folder, 0, true)?;
-    let mut new_ids: HashMap<u32, u32> = HashMap::new();
+    let mut new_ids: FxHashMap<u32, u32> = FxHashMap::default();
     let mut added = 0;
     let mut queue = vec![None];
     while let Some(parent) = queue.pop() {
@@ -1270,13 +1271,13 @@ fn write_playlists(
     dst: &Library,
     plan: &MergePlan,
     opts: &MergeOptions,
-    id_map: &HashMap<u32, u32>,
+    id_map: &FxHashMap<u32, u32>,
 ) -> Result<(usize, usize)> {
     let selected = selected_playlists(src, opts)?;
     let mut created = 0;
     let mut entries = 0;
     let mut add_entries =
-        |editor: &mut dyn PlaylistDb, playlist: u32, tracks: &[u32], skip: &HashSet<u32>| -> Result<()> {
+        |editor: &mut dyn PlaylistDb, playlist: u32, tracks: &[u32], skip: &FxHashSet<u32>| -> Result<()> {
             let mut seen = skip.clone();
             for sid in tracks {
                 if let Some(&tid) = id_map.get(sid)
@@ -1294,7 +1295,7 @@ fn write_playlists(
             let root_folder = editor.add_playlist(&plan.folder_name, 0, true)?;
             created += 1;
             // Recreate the selected part of the tree, parents before children.
-            let mut new_ids: HashMap<u32, u32> = HashMap::new();
+            let mut new_ids: FxHashMap<u32, u32> = FxHashMap::default();
             let mut queue: Vec<Option<u32>> = vec![None];
             while let Some(parent) = queue.pop() {
                 for p in src.children(parent) {
@@ -1310,14 +1311,14 @@ fn write_playlists(
                     if p.is_folder {
                         queue.push(Some(p.id));
                     } else {
-                        add_entries(editor, id, &p.track_ids, &HashSet::new())?;
+                        add_entries(editor, id, &p.track_ids, &FxHashSet::default())?;
                     }
                 }
             }
         }
         PlaylistMode::ByName => {
             // Folder path -> id of the folders we create.
-            let mut made: HashMap<String, u32> = HashMap::new();
+            let mut made: FxHashMap<String, u32> = FxHashMap::default();
             for p in src.playlists.iter().filter(|p| selected.contains(&p.id) && !p.is_folder) {
                 let path = src.playlist_path(p.id);
                 let existing = merge_target(dst, &path, false);
@@ -1340,7 +1341,7 @@ fn write_playlists(
                             };
                         }
                         created += 1;
-                        (editor.add_playlist(&p.name, parent, false)?, HashSet::new())
+                        (editor.add_playlist(&p.name, parent, false)?, FxHashSet::default())
                     }
                 };
                 add_entries(editor, id, &p.track_ids, &already)?;
@@ -1356,7 +1357,7 @@ mod tests {
 
     #[test]
     fn unique_keys() {
-        let mut taken: HashSet<String> = ["contents/a/x.mp3".to_string()].into();
+        let mut taken: FxHashSet<String> = ["contents/a/x.mp3".to_string()].into_iter().collect();
         let nothing = |_: &str| false;
         assert_eq!(unique_key("Contents/A/x.mp3", &mut taken, &nothing), "Contents/A/x (2).mp3");
         assert_eq!(unique_key("Contents/A/x.mp3", &mut taken, &nothing), "Contents/A/x (3).mp3");
@@ -1368,7 +1369,8 @@ mod tests {
 
     #[test]
     fn unique_keys_without_an_extension_are_numbered_at_the_end() {
-        let mut taken: HashSet<String> = ["contents/a/notes".to_string(), "contents/a.b/c".to_string()].into();
+        let mut taken: FxHashSet<String> =
+            ["contents/a/notes".to_string(), "contents/a.b/c".to_string()].into_iter().collect();
         let nothing = |_: &str| false;
         assert_eq!(unique_key("Contents/A/notes", &mut taken, &nothing), "Contents/A/notes (2)");
         // A dot in a folder's name isn't an extension.

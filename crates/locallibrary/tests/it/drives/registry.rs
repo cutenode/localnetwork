@@ -201,3 +201,23 @@ fn the_original_of_two_copies_is_on_the_recorded_disk() {
     let info = fleet::reidentify(Some(&store), &mut copy, Some("Spare")).unwrap();
     assert_eq!(store.drives().unwrap()[&info.id.unwrap()].name, "Spare");
 }
+
+/// A library has one primary: a primary pulled into a library that has one becomes a backup there,
+/// and the library's primary stays.
+#[test]
+fn a_primary_joining_a_library_with_one_becomes_a_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let mut main = drive(dir.path(), "Main");
+    pull(&store, &mut main, None);
+    let mut other = drive(dir.path(), "Other");
+    pull(&store, &mut other, None);
+    let (main_id, other_id) = (main.id().unwrap(), other.id().unwrap());
+    fleet::set_role(&store, main_id, Some(Role::Primary)).unwrap();
+    fleet::set_role(&store, other_id, Some(Role::Primary)).unwrap();
+
+    pull(&store, &mut other, Some("Main"));
+    let drives = store.drives().unwrap();
+    assert_eq!((drives[&main_id].role, drives[&other_id].role), (Some(Role::Primary), Some(Role::Backup)));
+    assert_eq!(fleet::primary_of(&store, main.state().unwrap().library_id).unwrap().unwrap().id, main_id);
+}

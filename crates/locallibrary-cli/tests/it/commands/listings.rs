@@ -53,7 +53,7 @@ fn every_column_shows_its_value() {
     let tsv = env.ok(&["tracks", "A", "--format", "tsv", "--columns", &columns.join(",")]);
     let rows: Vec<Vec<&str>> = tsv.lines().map(|l| l.split('\t').collect()).collect();
     assert_eq!(rows[0], columns);
-    let row: std::collections::HashMap<&str, &str> = columns.iter().copied().zip(rows[2].iter().copied()).collect();
+    let row: rustc_hash::FxHashMap<&str, &str> = columns.iter().copied().zip(rows[2].iter().copied()).collect();
     let expected = [
         ("id", "2"),
         ("name", "Loopmasters - Demo Track 2"),

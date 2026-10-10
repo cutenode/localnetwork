@@ -11,7 +11,7 @@ use crate::progress::Ctx;
 use crate::store::Store;
 use crate::tags::{self, Edit, MyTags, TagPlan, TagReport};
 
-/// A My Tag edit: `{"drive": "Main", "action": "add", "tag": "Genre/Deep House", "query": "..."}`.
+/// A My Tag edit: `{"drive": "Home", "action": "add", "tag": "Genre/Deep House", "query": "..."}`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct TagsEdit {
     pub drive: String,
@@ -77,6 +77,7 @@ pub fn tags_plan(req: &TagsEdit) -> Result<Planned<TagPlan>> {
         .destructive(destructive)
         .noop(noop)
         .touches(Touched::library(&d, true))
+        .reaching_clones(&Ctx::silent())?
         .guard(None)
 }
 

@@ -189,7 +189,7 @@ fn rpc_round_trip() {
     }
     drop(child.stdin.take());
     let out = child.wait_with_output().unwrap();
-    let mut by_id = std::collections::HashMap::new();
+    let mut by_id = rustc_hash::FxHashMap::default();
     for line in String::from_utf8(out.stdout).unwrap().lines() {
         let v: Value = serde_json::from_str(line).unwrap();
         if let Some(id) = v["id"].as_i64() {
@@ -590,7 +590,7 @@ fn json_shapes() {
 
     // Reads: an object always, with the schema.
     let v = env.json(&["status"]);
-    assert_eq!(keys(&v), ["duplicates", "mounted", "offline", "schema"], "{v}");
+    assert_eq!(keys(&v), ["duplicates", "libraries", "mounted", "offline", "schema"], "{v}");
 
     // Errors.
     let v = env.json(&["drive", "info", "/definitely/not/here"]);

@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn lookup_rows_go_once_no_track_uses_them() {
         let mut one = OneLibrary::create().unwrap();
-        let mut t = crate::model::tests::track(1, "Artist", "Title", "/Contents/a.mp3");
+        let mut t = loclib_model::test_util::track(1, "Artist", "Title", "/Contents/a.mp3");
         (t.album, t.album_artist, t.genre, t.label, t.key) =
             ("Album".into(), "Band".into(), "House".into(), "Label".into(), "Am".into());
         let rec = ContentRecord::from_track(&t, false, &one.content_defaults().unwrap());

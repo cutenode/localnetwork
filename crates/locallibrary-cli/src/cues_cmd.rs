@@ -28,18 +28,18 @@ pub struct CuesArgs {
 enum CuesCommand {
     /// A track's cues
     List {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
     },
     /// Add a hot cue or memory cue, or move the hot cue in that slot (it keeps its name and colour)
     #[command(
-        after_help = "Examples:\n  locallibrary cues set Main --track 12 --hot B --at 1:02.5 --loop 8 --name Drop --colour red\n  \
-locallibrary cues set Main --track 12 --memory --beat 129"
+        after_help = "Examples:\n  locallibrary cues set Home --track 12 --hot B --at 1:02.5 --loop 8 --name Drop --colour red\n  \
+locallibrary cues set Home --track 12 --memory --beat 129"
     )]
     Set {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
@@ -65,7 +65,7 @@ locallibrary cues set Main --track 12 --memory --beat 129"
     },
     /// Rename a cue ("" clears the name)
     Rename {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
@@ -79,7 +79,7 @@ locallibrary cues set Main --track 12 --memory --beat 129"
     /// Recolour cues: a name (red, aqua, violet...), #rrggbb, or none
     #[command(alias = "color")]
     Colour {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
@@ -92,7 +92,7 @@ locallibrary cues set Main --track 12 --memory --beat 129"
     },
     /// Delete cues
     Rm {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         track: TrackArgs,
@@ -104,7 +104,7 @@ locallibrary cues set Main --track 12 --memory --beat 129"
     },
     /// Replace tracks' cues with a copy of another track's (e.g. onto a duplicate)
     Copy {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         /// Track to copy from
         #[arg(long, value_name = "ID")]
@@ -232,7 +232,7 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
         Some(c) => c,
         None => {
             let Some(drive) = args.drive else {
-                bail!("give a drive and a track: locallibrary cues <drive> --track ID")
+                bail!("give a library or drive and a track: locallibrary cues <library> --track ID")
             };
             CuesCommand::List { drive, track: args.track }
         }
@@ -275,6 +275,7 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     }
     if !out.json {
         render_plan(&plan);
+        crate::output::clones(&plan);
     }
     if let Some(o) = out.decide(dry_run, "Write these cues?") {
         return Ok(out.not_applied(&plan, o));

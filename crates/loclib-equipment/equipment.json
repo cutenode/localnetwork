@@ -1,0 +1,1622 @@
+[
+  {
+    "name": "CDJ-3000X",
+    "kind": "player",
+    "export_pdb": {
+      "value": false,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": true,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "yes",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [
+      "exFAT drives can also update its firmware"
+    ],
+    "source": "CDJ-3000X Instruction Manual DRI1956B pp. 9, 11-12 (downloads.support.alphatheta.com/manuals/dj-players/CDJ-3000X/CDJ-3000X_DRI1956B_manual.pdf)"
+  },
+  {
+    "name": "CDJ-1500X",
+    "kind": "player",
+    "export_pdb": {
+      "value": false,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": true,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "yes",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "CDJ-1500X Instruction Manual DRI2044A pp. 10, 12-13 (downloads.support.alphatheta.com/manuals/dj-players/CDJ-1500X/CDJ-1500X_DRI2044A_manual.pdf)"
+  },
+  {
+    "name": "CDJ-3000",
+    "kind": "player",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": {
+        "firmware": "1.20"
+      },
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [
+      "firmware 3.30 read OneLibrary, in preference to export.pdb when a drive has both, but was withdrawn in November 2025; 3.22 (January 2026) reads export.pdb only"
+    ],
+    "source": "CDJ-3000 Instruction Manual DRI1586A pp. 11, 13 (downloads.support.alphatheta.com/manuals/dj-players/CDJ-3000/CDJ-3000_DRI1586A_manual.pdf); AlphaTheta's USB notice (18 March 2026); Pioneer DJ news, firmware 3.22 (15 January 2026)"
+  },
+  {
+    "name": "CDJ-2000NXS2",
+    "kind": "player",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "CDJ-2000NXS2 Operating Instructions DRI1290A pp. 6-7 (downloads.support.alphatheta.com/manuals/dj-players/CDJ-2000NXS2/CDJ-2000NXS2_DRI1290A_manual.pdf)"
+  },
+  {
+    "name": "CDJ-2000NXS",
+    "kind": "player",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "CDJ-2000NXS Operating Instructions DRI1052A pp. 6-7 (downloads.support.alphatheta.com/manuals/dj-players/CDJ-2000NXS/CDJ-2000NXS_DRI1052_manual.pdf)"
+  },
+  {
+    "name": "CDJ-900NXS",
+    "kind": "player",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "CDJ-900NXS Operating Instructions DRI1168A (pioneerdj.com/support)"
+  },
+  {
+    "name": "CDJ-2000",
+    "kind": "player",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": true
+      }
+    ],
+    "audio_inferred": true,
+    "notes": [],
+    "source": "inferred from the CDJ-900 of the same generation (its Operating Instructions DRB1486A p. 8); the CDJ-2000's own manual (DRB1475) wasn't read"
+  },
+  {
+    "name": "CDJ-900",
+    "kind": "player",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "CDJ-900 Operating Instructions DRB1486A pp. 7-8"
+  },
+  {
+    "name": "XDJ-1000MK2",
+    "kind": "player",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "XDJ-1000MK2 Operating Instructions DRI1396B p. 6 (downloads.support.alphatheta.com/manuals/dj-players/XDJ-1000MK2/XDJ-1000MK2_DRI1396B_manual.pdf)"
+  },
+  {
+    "name": "XDJ-700",
+    "kind": "player",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "XDJ-700 Operating Instructions DRI1271B p. 5 (downloads.support.alphatheta.com/manuals/dj-players/XDJ-700/XDJ-700_DRI1271B_manual.pdf)"
+  },
+  {
+    "name": "OPUS-QUAD",
+    "kind": "all_in_one",
+    "export_pdb": {
+      "value": false,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": true,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "yes",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "OPUS-QUAD Instruction Manual DRI1795D pp. 9-10, 12 (assets.pioneerdjhub.com/OPUS_QUAD_DRI1795D_manual_EN.pdf); AlphaTheta's USB notice (18 March 2026)"
+  },
+  {
+    "name": "OMNIS-DUO",
+    "kind": "all_in_one",
+    "export_pdb": {
+      "value": false,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": true,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "yes",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "OMNIS-DUO Instruction Manual DRI1882A pp. 13-14, 17 (downloads.support.alphatheta.com/manuals/OMNIS_DUO_DRI1882A_manual.pdf)"
+  },
+  {
+    "name": "XDJ-AZ",
+    "kind": "all_in_one",
+    "export_pdb": {
+      "value": false,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": true,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "yes",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000,
+          88200,
+          96000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "XDJ-AZ Instruction Manual DRI1936C pp. 10-11, 13 (downloads.support.alphatheta.com/manuals/all-in-one-dj-systems/XDJ-AZ/XDJ-AZ_DRI1936C_manual_EN.pdf)"
+  },
+  {
+    "name": "XDJ-AN",
+    "kind": "all_in_one",
+    "export_pdb": {
+      "value": false,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": true,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "yes",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "alac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [],
+    "source": "XDJ-AN Instruction Manual DRI2023A pp. 8-9, 11 (AlphaTheta Help Center, July 2026)"
+  },
+  {
+    "name": "XDJ-XZ",
+    "kind": "all_in_one",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": {
+        "firmware": "1.23"
+      },
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [
+      "the 2019 manual lists no Apple Lossless (ALAC)"
+    ],
+    "source": "XDJ-XZ Operating Instructions DRI1625B pp. 6-8 (downloads.support.alphatheta.com/manuals/all-in-one-dj-systems/XDJ-XZ/XDJ-XZ_DRI1625B_manual.pdf)"
+  },
+  {
+    "name": "XDJ-RX3",
+    "kind": "all_in_one",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": {
+        "firmware": "1.11"
+      },
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      },
+      {
+        "codec": "flac",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": false
+      }
+    ],
+    "audio_inferred": false,
+    "notes": [
+      "the manual lists no Apple Lossless (ALAC)"
+    ],
+    "source": "XDJ-RX3 Instruction Manual DRI1702C pp. 9-10 (downloads.support.alphatheta.com/manuals/all-in-one-dj-systems/XDJ-RX3/XDJ-RX3_DRI1702C_manual.pdf)"
+  },
+  {
+    "name": "XDJ-RX2",
+    "kind": "all_in_one",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": true
+      }
+    ],
+    "audio_inferred": true,
+    "notes": [],
+    "source": "inferred: manua.ls's summary of its manual lists MP3, AAC, WAV and AIFF; rates as on the XDJ-700"
+  },
+  {
+    "name": "XDJ-RR",
+    "kind": "all_in_one",
+    "export_pdb": {
+      "value": true,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [
+      {
+        "codec": "mp3",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "aac",
+        "rates": [
+          16000,
+          22050,
+          24000,
+          32000,
+          44100,
+          48000
+        ],
+        "depths": [
+          16
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "wav",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": true
+      },
+      {
+        "codec": "aiff",
+        "rates": [
+          44100,
+          48000
+        ],
+        "depths": [
+          16,
+          24
+        ],
+        "inferred": true
+      }
+    ],
+    "audio_inferred": true,
+    "notes": [],
+    "source": "inferred: AlphaTheta's USB notice lists it as a Device Library unit; formats as on the XDJ-RX2"
+  },
+  {
+    "name": "DJM-V10",
+    "kind": "mixer",
+    "export_pdb": {
+      "value": false,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [],
+    "audio_inferred": false,
+    "notes": [
+      "reads My Settings and firmware updates from a FAT32 drive on MBR"
+    ],
+    "source": "AlphaTheta Help Center, October 2026"
+  },
+  {
+    "name": "DJM-A9",
+    "kind": "mixer",
+    "export_pdb": {
+      "value": false,
+      "inferred": false
+    },
+    "onelibrary": {
+      "value": false,
+      "inferred": false
+    },
+    "exfat": {
+      "value": "no",
+      "inferred": false
+    },
+    "audio": [],
+    "audio_inferred": false,
+    "notes": [
+      "reads My Settings and firmware updates from a FAT32 drive on MBR (one update file at a time)"
+    ],
+    "source": "AlphaTheta Help Center, October 2026"
+  }
+]

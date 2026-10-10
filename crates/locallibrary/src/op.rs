@@ -11,6 +11,9 @@
 //! runs before the drive is locked; the write checks the drive's databases again once it holds
 //! the lock, so another write that slipped in between isn't overwritten either.
 //!
+//! A write to a library reaches all of it: a plan made with `Planned::reaching_clones` names the
+//! library's other mounted clones, and applying it copies the drive it wrote onto them.
+//!
 //! Plans live in memory: the CLI applies the one it showed, the TUI the one in its dialog, and the
 //! JSON-RPC sidecar keeps recent ones by id (`*.apply {"plan_id": ...}`). [`AnyPlanned`] lets a
 //! front end hold plans of every kind together.
@@ -35,6 +38,22 @@ thread_local! {
     /// The drives the plans being applied on this thread write, with their databases when the
     /// plans were made (see [`planned_databases`]); `None` once a write has locked the drive.
     static PLANNED: RefCell<Vec<(PathBuf, Option<Hash>)>> = const { RefCell::new(Vec::new()) };
+    /// Whether plans made on this thread reach their library's other clones (see [`alone`]).
+    static REACH_CLONES: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Run `f` with the plans made in it writing their own drive only, not their library's other
+/// clones (see `Planned::reaching_clones`): a job plans the operations it runs this way, and
+/// copies onto the clones itself.
+pub(crate) fn alone<T>(f: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            REACH_CLONES.with(|r| r.set(self.0));
+        }
+    }
+    let _restore = Restore(REACH_CLONES.with(|r| r.replace(false)));
+    f()
 }
 
 /// The databases the drive at `root` held when the plan being applied on this thread was made,
@@ -179,6 +198,18 @@ impl Touched {
     }
 }
 
+/// A mounted clone of the library a plan writes, which applying the plan copies the drive it wrote
+/// onto unless it's left alone (see `Planned::reaching_clones`).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct CloneTarget {
+    pub name: String,
+    pub root: PathBuf,
+    /// Why it isn't copied onto (it's newer, diverged, or back from a set), also among the
+    /// plan's warnings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_alone: Option<String>,
+}
+
 /// A size for summaries: `840 B`, `12.5 MB`.
 pub fn bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
@@ -299,7 +330,7 @@ fn measure(root: &Path, probes: &[Probe], databases: Option<Hash>) -> Hash {
 ///
 /// It serialises as the plan's own fields with these added: `plan_id`, `operation`, `summary`,
 /// `warnings` (every warning, the plan's own included), `destructive`, `noop`, `drives` (each
-/// `{root, name, writes, drive}`) and `planned_at`.
+/// `{root, name, writes, drive}`), `clones` (when it has any) and `planned_at`.
 #[derive(Debug)]
 pub struct Planned<P, R = ()> {
     /// Names this plan in `*.apply {"plan_id": ...}`.
@@ -316,6 +347,9 @@ pub struct Planned<P, R = ()> {
     /// Applying it changes nothing.
     pub noop: bool,
     pub drives: Vec<Touched>,
+    /// The library's other mounted clones, which applying copies the drive it writes onto, but
+    /// those left alone (see `Self::reaching_clones`).
+    pub clones: Vec<CloneTarget>,
     pub planned_at: DateTime<Utc>,
     /// What was asked for, as applying needs it (not shown).
     pub(crate) request: R,
@@ -334,6 +368,7 @@ impl<P, R> Planned<P, R> {
             destructive: false,
             noop: false,
             drives: Vec::new(),
+            clones: Vec::new(),
             planned_at: Utc::now(),
             request,
             overwrite_archive: archive_writes_allowed(),
@@ -377,6 +412,49 @@ impl<P, R> Planned<P, R> {
     pub(crate) fn overwrite_archive(mut self, yes: bool) -> Self {
         self.overwrite_archive |= yes;
         self
+    }
+
+    /// Once it's applied, copy the drive it writes (the first it touches as written) onto the other
+    /// mounted clones of that drive's library, as a group sync would: a write to a library is one
+    /// plan, and one confirmation, for all of it. A clone that can't take the copy (newer than the
+    /// drive, diverged from it, back from a set) is left alone, which a warning says. Not for a plan
+    /// that changes nothing, nor one made inside [`alone`].
+    pub(crate) fn reaching_clones(mut self, ctx: &Ctx<'_>) -> Result<Self> {
+        if self.noop || !REACH_CLONES.with(Cell::get) {
+            return Ok(self);
+        }
+        let Some(written) = self.written() else { return Ok(self) };
+        let touched: Vec<&Path> = self.drives.iter().map(|t| t.root.as_path()).collect();
+        for (clone, left_alone) in crate::api::clones_of(&written.open()?, &touched, ctx)? {
+            match &left_alone {
+                Some(why) => self = self.warnings([why.clone()]),
+                None => self.drives.push(Touched::library(&clone, true)),
+            }
+            self.clones.push(CloneTarget { name: clone.name(), root: clone.root().to_path_buf(), left_alone });
+        }
+        self.summary.extend(self.copied_onto());
+        Ok(self)
+    }
+
+    /// "then copied onto Backup and SD": the clones applying copies the drive it writes onto, if
+    /// any (see `Self::reaching_clones`).
+    pub fn copied_onto(&self) -> Option<String> {
+        let mut names: Vec<&str> = self.copied().map(|c| c.name.as_str()).collect();
+        let last = names.pop()?;
+        Some(match names.is_empty() {
+            true => format!("then copied onto {last}"),
+            false => format!("then copied onto {} and {last}", names.join(", ")),
+        })
+    }
+
+    /// The clones it's copied onto: those not left alone.
+    fn copied(&self) -> impl Iterator<Item = &CloneTarget> {
+        self.clones.iter().filter(|c| c.left_alone.is_none())
+    }
+
+    /// The drive it writes that its clones are copied from: the first it touches as written.
+    fn written(&self) -> Option<&Touched> {
+        self.drives.iter().find(|t| t.writes && t.drive)
     }
 
     /// What was asked for.
@@ -454,11 +532,17 @@ impl<P, R> std::ops::Deref for Planned<P, R> {
 
 impl<P: Operation> Planned<P, P::Request> {
     /// Apply exactly this plan: refused with [`Error::StalePlan`] if anything it touches changed
-    /// since it was made (see [`Self::check`]).
+    /// since it was made (see [`Self::check`]). Then copy the drive it wrote onto its clones (see
+    /// `Self::reaching_clones`): the write is done, so a clone that isn't copied onto is a warning.
     pub fn apply(&self, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<P::Report> {
         self.check(store)?;
         let _applying = Applying::start(&self.drives, self.overwrite_archive);
-        P::apply(self, store, ctx)
+        let report = P::apply(self, store, ctx)?;
+        let clones: Vec<&CloneTarget> = self.copied().collect();
+        if let Some(written) = self.written().filter(|_| !clones.is_empty()) {
+            crate::api::copy_onto_clones(&written.root, &clones, store, ctx);
+        }
+        Ok(report)
     }
 }
 
@@ -467,7 +551,8 @@ impl<P: Operation> Planned<P, P::Request> {
 pub struct PlanFields<'a> {
     /// Names the plan in `*.apply {"plan_id": ...}`.
     pub plan_id: &'a str,
-    /// The RPC method's name without `.plan`.
+    /// The RPC method's name without `.plan`, except `undo` for `drive.restore.plan`, `eject` for
+    /// `drive.eject.plan` and `set` for `prep.plan`.
     pub operation: &'a str,
     /// What will change, in a few lines, for a confirmation dialog.
     pub summary: &'a [String],
@@ -478,8 +563,12 @@ pub struct PlanFields<'a> {
     pub destructive: bool,
     /// Applying it changes nothing.
     pub noop: bool,
-    /// The drives (and files on this computer) it reads or writes.
+    /// The drives (and files on this computer) it reads or writes, its clones included.
     pub drives: &'a [Touched],
+    /// The library's other mounted clones, which applying copies the drive it writes onto, but
+    /// those `left_alone`.
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub clones: &'a [CloneTarget],
     pub planned_at: DateTime<Utc>,
 }
 
@@ -502,6 +591,7 @@ impl<P: Serialize, R> Serialize for Planned<P, R> {
             destructive: self.destructive,
             noop: self.noop,
             drives: &self.drives,
+            clones: &self.clones,
             planned_at: self.planned_at,
         };
         if let serde_json::Value::Object(fields) = json::<_, S::Error>(&fields)? {

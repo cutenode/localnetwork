@@ -1,13 +1,14 @@
 name: CI
 
 # Pull requests and pushes to main run the quick checks. The slow suites (Bombadil, every feature
-# combination) and a weekly advisory check are in scheduled.yml. Changes to Markdown alone skip CI.
+# combination) and a weekly advisory check are in scheduled.yml. Changes to Markdown alone skip CI,
+# except the crates' READMEs, which are their crate docs and doctests. (A later pattern wins.)
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md"]
+    paths: ["**", "!**.md", "!.github/ISSUE_TEMPLATE/**", "crates/*/README.md"]
   pull_request:
-    paths-ignore: ["**.md"]
+    paths: ["**", "!**.md", "!.github/ISSUE_TEMPLATE/**", "crates/*/README.md"]
 
 permissions:
   contents: read

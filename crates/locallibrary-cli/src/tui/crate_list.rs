@@ -70,7 +70,7 @@ impl Crate {
     /// The drive at `root` was read again (after an edit, say): take the tracks' new details,
     /// and drop the ones it no longer has.
     pub fn refresh(&mut self, root: &Path, lib: &Library) {
-        let by_path: std::collections::HashMap<&str, &Track> =
+        let by_path: rustc_hash::FxHashMap<&str, &Track> =
             lib.tracks.iter().map(|t| (t.file_path.as_str(), t)).collect();
         self.items.retain_mut(|item| {
             if item.root != root {

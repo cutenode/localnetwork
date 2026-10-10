@@ -31,7 +31,7 @@ mod net;
 pub mod repo;
 pub mod store;
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, OnceLock};
@@ -350,7 +350,7 @@ struct Pending {
     started: Instant,
 }
 
-static PENDING: LazyLock<Mutex<HashMap<String, Pending>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static PENDING: LazyLock<Mutex<FxHashMap<String, Pending>>> = LazyLock::new(|| Mutex::new(FxHashMap::default()));
 
 fn take_pending(id: &str) -> Result<Pending> {
     PENDING.lock().unwrap().remove(id).ok_or_else(|| {

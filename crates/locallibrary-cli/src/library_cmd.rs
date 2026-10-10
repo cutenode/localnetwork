@@ -1,7 +1,7 @@
 //! `locallibrary library ...`: the libraries in the store, their snapshot history, writing a
 //! snapshot onto a drive (`push`) and pruning old snapshots.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -50,9 +50,9 @@ pub enum LibraryCommand {
 }
 
 const PUSH_LONG_HELP: &str = "Examples:
-  locallibrary library push \"New drive\"                    the latest snapshot of the drive's library
-  locallibrary library push Spare --snapshot \"before NYE\"   a labelled snapshot
-  locallibrary library push Spare -l Main --snapshot 3f9a2c";
+  locallibrary library push BACKUP                          the latest snapshot of the drive's library
+  locallibrary library push BACKUP --snapshot \"before NYE\"  a labelled snapshot
+  locallibrary library push /Volumes/NEW -l Home --snapshot 3f9a2c";
 
 /// `library log` (and `log`).
 #[derive(Args)]
@@ -149,10 +149,11 @@ pub fn log(a: LogArgs, store: &Store, out: Output) -> Result<ExitCode> {
         Some(l) => vec![l],
         None => store.libraries()?.into_iter().map(|l| l.name).collect(),
     };
-    let mut all = BTreeMap::new();
+    let mut all = IndexMap::new();
     for l in libs {
         all.insert(l.clone(), api::history(store, &api::HistoryRequest { library: l, limit: a.limit })?);
     }
+    all.sort_unstable_keys();
     // Under a key of its own: a library's name can be anything, `schema` too.
     out.emit_paged(&serde_json::json!({ "libraries": all }), |_| render::log(&all));
     Ok(ExitCode::SUCCESS)

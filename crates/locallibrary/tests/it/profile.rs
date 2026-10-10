@@ -2,7 +2,7 @@ mod sources;
 
 use crate::common;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::Path;
 
 use locallibrary::api::{self, ProfileRequest, ProfileView};
@@ -139,7 +139,7 @@ fn preferences_choose_what_the_document_shows() {
         exclude: vec![Section::Style, Section::Keys],
         pin: vec!["[a]pendics.shuffle - Deluxe Cynic".into()],
         hide: vec!["[a]pendics.shuffle - A1 - It's In The Eyes".into()],
-        alias: BTreeMap::from([("electronic".into(), "Electronica".into())]),
+        alias: IndexMap::from([("electronic".into(), "Electronica".into())]),
         headline: Some("Techno warm-ups".into()),
         precision: Some(locallibrary::profile::Precision::Exact),
         ..Default::default()

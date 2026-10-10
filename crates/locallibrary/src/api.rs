@@ -10,10 +10,11 @@
 //!
 //! Drives can be referred to by mount path, adopted name, or id prefix ([`resolve_drive`]).
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use base64::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -26,6 +27,7 @@ use crate::convert;
 use crate::device::{self, Device, DeviceInfo};
 use crate::error::{Action, Reason};
 use crate::format::{self, DiskView, FormatOptions, FormatPlan, FormatReport};
+use crate::hash::Hash;
 use crate::merge::{self, MergeOptions};
 use crate::model::{Library, LibrarySummary, TrackRef};
 use crate::op::{self, Operation, Planned, Touched, bytes};
@@ -91,18 +93,79 @@ fn known_drives(include_blank: bool) -> Vec<Device> {
     out
 }
 
-/// Find a drive by mount path, adopted name (case-insensitive), volume name, or id prefix. A bare
-/// word (no `/`, not starting with `.` or `~`) is a drive's name first: a folder of that name in the
-/// working directory is taken only when no drive has the name, and is refused as ambiguous when one
-/// does (`sync Main Backup` run where a `Backup/` folder is must not write there).
+/// Find what a command acting on a library means by `spec`: a drive by mount path, adopted name
+/// (case-insensitive), volume name or id prefix, or else a library's name, meaning its lead clone
+/// (see [`jobs::lead_clone`]). A bare word (no `/`, not starting with `.` or `~`) is a drive's
+/// name first: a folder of that name in the working directory is taken only when no drive or
+/// library has the name, and is refused as ambiguous when a drive does (`sync Main Backup` run
+/// where a `Backup/` folder is must not write there).
 pub fn resolve_drive(spec: &str) -> Result<Device> {
-    resolve(spec, true)
+    resolve(spec, true, true)
+}
+
+/// [`resolve_drive`] for commands about one particular drive rather than its library (its role,
+/// name, file system, backups, player history): a library's name isn't taken.
+pub fn resolve_one_drive(spec: &str) -> Result<Device> {
+    resolve(spec, true, false)
+}
+
+/// The mounted clones `spec` means when it names a library rather than a drive (as
+/// [`resolve_drive`] takes it): the library's drive group (see [`jobs::drive_group`]). `None`
+/// when it names a drive.
+pub fn library_clones(spec: &str) -> Result<Option<DriveGroup>> {
+    Ok(match find(spec, true, true)? {
+        Found::Drive(_) => None,
+        Found::Library(_, group) => Some(group),
+    })
+}
+
+/// The drives a command that takes several (`sync`, `check`, `eject`, `prep`, `settings apply`) means by
+/// `specs`: a library's name as its mounted clones (see [`library_clones`]), and a clone named
+/// besides its library once. A drive named twice is left for the command to refuse. With them,
+/// the libraries' mounted drives left out: archive and retired ones.
+pub fn expand_libraries(specs: &[String]) -> Result<(Vec<String>, Vec<String>)> {
+    let (mut drives, mut left_out) = (Vec::new(), Vec::new());
+    let (mut named, mut cloned): (Vec<PathBuf>, Vec<PathBuf>) = (Vec::new(), Vec::new());
+    for spec in specs {
+        match find(spec, true, true)? {
+            Found::Drive(d) if cloned.iter().any(|c| c == d.root()) => {}
+            Found::Drive(d) => {
+                named.push(d.root().to_path_buf());
+                drives.push(spec.clone());
+            }
+            Found::Library(_, group) => {
+                for root in group.drives {
+                    if !named.contains(&root) && !cloned.contains(&root) {
+                        drives.push(root.display().to_string());
+                        cloned.push(root);
+                    }
+                }
+                left_out.extend(group.excluded);
+            }
+        }
+    }
+    Ok((drives, left_out))
 }
 
 /// [`resolve_drive`]. Without `labels`, a name must be an adopted drive's, and a folder here is
 /// taken only as a path (`./Backup`): for erasing, where the label of an unrelated volume could
-/// match while the drive meant isn't plugged in.
-fn resolve(spec: &str, labels: bool) -> Result<Device> {
+/// match while the drive meant isn't plugged in. Without `libraries`, a library's name isn't taken.
+fn resolve(spec: &str, labels: bool, libraries: bool) -> Result<Device> {
+    match find(spec, labels, libraries)? {
+        Found::Drive(d) => Ok(*d),
+        Found::Library(store, group) => jobs::lead_clone(Some(&store), &group, &Ctx::silent()),
+    }
+}
+
+/// What a spec names (see [`resolve`]).
+enum Found {
+    Drive(Box<Device>),
+    /// A library, with the store that has it and its mounted clones.
+    Library(Store, DriveGroup),
+}
+
+/// What `spec` names, as [`resolve`] takes it.
+fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
     let p = Path::new(spec);
     // A folder inside an export (e.g. `/Volumes/USB/Contents`) means the export's drive.
     let open = |p: &Path| match p.ancestors().skip(1).find(|a| crate::paths::is_export_root(a)) {
@@ -111,7 +174,7 @@ fn resolve(spec: &str, labels: bool) -> Result<Device> {
     };
     let path_like = p.is_absolute() || spec.contains(['/', '\\']) || spec.starts_with(['.', '~']);
     if path_like && p.is_dir() {
-        return open(p);
+        return open(p).map(|d| Found::Drive(Box::new(d)));
     }
     let candidates = known_drives(true);
     let lower = spec.to_lowercase();
@@ -124,8 +187,16 @@ fn resolve(spec: &str, labels: bool) -> Result<Device> {
         .into_iter()
         .partition(|d| named(d) || (spec.len() >= 4 && d.id().is_some_and(|id| id.to_string().starts_with(&lower))));
     let same = |d: &Device| p.canonicalize().ok().zip(d.root().canonicalize().ok()).is_some_and(|(a, b)| a == b);
+    if matches.is_empty()
+        && libraries
+        && let Some(store) = registry()
+        && let Some(library) = store.find_library(spec)?
+    {
+        let group = jobs::drive_group(Some(&store), Some(&library.name))?;
+        return Ok(Found::Library(store, group));
+    }
     match matches.len() {
-        0 if labels && p.is_dir() => open(p),
+        0 if labels && p.is_dir() => open(p).map(|d| Found::Drive(Box::new(d))),
         0 => match others.iter().find(|d| labelled(d)) {
             Some(d) => Err(Error::invalid(format!(
                 "{spec:?} is the label of the volume at {}, not the name of a drive locallibrary adopted: give its path, or the disk's identifier",
@@ -137,7 +208,7 @@ fn resolve(spec: &str, labels: bool) -> Result<Device> {
             "{spec:?} is both a folder here and the drive at {}; give a path (./{spec}) or the drive's mount path",
             matches[0].root().display()
         ))),
-        1 => Ok(matches.remove(0)),
+        1 => Ok(Found::Drive(Box::new(matches.remove(0)))),
         n => {
             let paths: Vec<String> = matches.iter().map(|d| d.root().display().to_string()).collect();
             Err(Error::invalid(format!("{spec:?} matches {n} drives ({}); use a path instead", paths.join(", "))))
@@ -179,7 +250,7 @@ pub struct DriveRef {
 }
 
 pub fn drive_info(req: &DriveRef) -> Result<DeviceInfo> {
-    Ok(resolve_drive(&req.drive)?.info())
+    Ok(resolve_one_drive(&req.drive)?.info())
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -201,7 +272,7 @@ pub struct AdoptPlan {
 }
 
 pub fn adopt_plan(req: &AdoptDrive) -> Result<Planned<AdoptPlan, AdoptDrive>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let name = req.name.clone().unwrap_or_else(|| d.name());
     let line = match d.id() {
         None => format!("give {} an identity, named {name:?}", d.root().display()),
@@ -249,7 +320,7 @@ pub fn drive_library(req: &DriveRef) -> Result<LibraryView> {
 }
 
 pub fn list_backups(req: &DriveRef) -> Result<Vec<BackupInfo>> {
-    backup::list(&resolve_drive(&req.drive)?)
+    backup::list(&resolve_one_drive(&req.drive)?)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -625,8 +696,9 @@ fn sync_pinned(store: Option<&Store>, req: &SyncRequest, confirmed: &SyncPlan, c
 }
 
 /// Sync any number of drives: the single newest one is copied onto all the others.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct SyncManyRequest {
+    /// Drives, or a library's name for its mounted clones (but archive and retired ones).
     pub drives: Vec<String>,
     #[serde(default)]
     pub allow_low_confidence: bool,
@@ -671,11 +743,12 @@ pub struct SyncManyPreview {
 /// Find the newest drive. Fails with `conflict` if two drives diverged, hold different
 /// libraries, or can't be ordered with confidence.
 fn newest_of(req: &SyncManyRequest, ctx: &Ctx<'_>) -> Result<(Device, Vec<Device>)> {
-    if req.drives.len() < 2 {
+    let specs = expand_libraries(&req.drives)?.0;
+    if specs.len() < 2 {
         return Err(Error::invalid("give at least two drives"));
     }
     let mut devices = Vec::new();
-    for spec in &req.drives {
+    for spec in &specs {
         let d = resolve_drive(spec)?;
         if devices.iter().any(|x: &Device| x.root() == d.root()) {
             return Err(Error::invalid(format!("{spec:?} is listed twice")));
@@ -931,7 +1004,7 @@ pub struct HistoryRequest {
 pub fn history(store: &Store, req: &HistoryRequest) -> Result<Vec<SnapshotInfo>> {
     let lib = store.find_library(&req.library)?.ok_or_else(|| Error::NotFound(format!("library {:?}", req.library)))?;
     let mut out = store.history(&lib, None)?;
-    let line: HashSet<_> = out.iter().map(|s| s.id).collect();
+    let line: FxHashSet<_> = out.iter().map(|s| s.id).collect();
     let labels = store.labels_by_snapshot()?;
     for id in store.snapshot_ids()?.into_iter().filter(|id| !line.contains(id)) {
         let info = store.load_info(&id)?;
@@ -995,7 +1068,7 @@ pub fn pull(store: &Store, req: &PullRequest, ctx: &Ctx<'_>) -> Result<PullRepor
             let _lock = store.lock()?;
             store.add_label(&snap.id, l)?;
         }
-        snap.labels = store.labels_by_snapshot()?.remove(&snap.id).unwrap_or_default();
+        snap.labels = store.labels_by_snapshot()?.shift_remove(&snap.id).unwrap_or_default();
     }
     Ok(report)
 }
@@ -1037,7 +1110,7 @@ pub struct PushPreview {
 /// What writing a snapshot onto a drive would do. Applying it writes that snapshot (even if the
 /// library has a newer one by then), exactly as planned.
 pub fn push_plan(store: &Store, req: &PushRequest, ctx: &Ctx<'_>) -> Result<Planned<PushPreview, PushRequest>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let opts = req.options();
     let snap = sync::resolve_push_snapshot(store, &d, &opts)?;
     let plan = sync::plan_push(store, &snap, &d, &opts, ctx)?;
@@ -1072,7 +1145,7 @@ pub fn push_apply(store: &Store, req: &PushRequest, ctx: &Ctx<'_>) -> Result<Syn
 }
 
 fn push_pinned(store: &Store, req: &PushRequest, confirmed: &SyncPlan, ctx: &Ctx<'_>) -> Result<SyncReport> {
-    let mut d = resolve_drive(&req.drive)?;
+    let mut d = resolve_one_drive(&req.drive)?;
     crate::fleet::check_target(Some(store), &d, req.force)?;
     let opts = req.options();
     let snap = sync::resolve_push_snapshot(store, &d, &opts)?;
@@ -1090,6 +1163,9 @@ pub struct DriveStatus {
     /// if not linked to a library.
     pub relation: Option<Relation>,
     pub head: Option<SnapshotInfo>,
+    /// Back from a set: the drive is newer than the head only by what players add (history
+    /// lists, TAG LIST playlists), with this many history lists new or longer. Pulling saves them.
+    pub back_from_set: Option<usize>,
     /// Settings that differ from the profile.
     pub settings_drift: usize,
     pub error: Option<String>,
@@ -1097,6 +1173,13 @@ pub struct DriveStatus {
 
 /// Every mounted drive against its library's head snapshot, plus settings drift.
 pub fn status(store: &Store, ctx: &Ctx<'_>) -> Result<Vec<DriveStatus>> {
+    Ok(statuses(store, ctx)?.into_iter().map(|(s, _)| s).collect())
+}
+
+/// [`status`], with the library state each drive holds, to tell which hold the same: the head's
+/// fingerprint when it's identical to it (a drive synced with `--keep-extra` also goes by it),
+/// else its own. `None` when it wasn't compared.
+fn statuses(store: &Store, ctx: &Ctx<'_>) -> Result<Vec<(DriveStatus, Option<Hash>)>> {
     let profile = store.settings_profile()?;
     let mut out = Vec::new();
     for d in known_drives(false) {
@@ -1107,8 +1190,16 @@ pub fn status(store: &Store, ctx: &Ctx<'_>) -> Result<Vec<DriveStatus>> {
         } else {
             settings::drift(&profile, d.id(), &current).len()
         };
-        let mut st =
-            DriveStatus { drive: info, library: None, relation: None, head: None, settings_drift, error: None };
+        let mut st = DriveStatus {
+            drive: info,
+            library: None,
+            relation: None,
+            head: None,
+            back_from_set: None,
+            settings_drift,
+            error: None,
+        };
+        let mut state = None;
         let lib = match d.state().and_then(|s| s.library_id) {
             Some(id) => store.library_by_id(id)?,
             None => None,
@@ -1119,12 +1210,20 @@ pub fn status(store: &Store, ctx: &Ctx<'_>) -> Result<Vec<DriveStatus>> {
                 let snap = store.load_snapshot(&head)?;
                 st.head = Some(snap.info());
                 match Side::from_snapshot(store, &snap, "store").and_then(|s| Ok((s, Side::from_device(&d, ctx)?))) {
-                    Ok((left, right)) => st.relation = Some(compare::compare(&left, &right).relation),
+                    Ok((left, right)) => {
+                        let relation = compare::compare(&left, &right).relation;
+                        st.relation = Some(relation);
+                        state = if relation == Relation::Identical { left.fingerprint } else { right.fingerprint };
+                        if relation == Relation::RightNewer {
+                            let changes = crate::after_set::library_changes(&left.library, &right.library);
+                            st.back_from_set = changes.player_only().then_some(changes.history_lists.len());
+                        }
+                    }
                     Err(e) => st.error = Some(e.to_string()),
                 }
             }
         }
-        out.push(st);
+        out.push((st, state));
     }
     Ok(out)
 }
@@ -1168,6 +1267,7 @@ pub fn merge_plan(req: &MergeRequest, ctx: &Ctx<'_>) -> Result<Planned<merge::Me
         .noop(noop)
         .touches(Touched::library(&dst, true))
         .touches(Touched::library(&src, false))
+        .reaching_clones(ctx)?
         .guard(None)
 }
 
@@ -1207,6 +1307,7 @@ pub fn clean_plan(req: &DriveRef, ctx: &Ctx<'_>) -> Result<Planned<clean::CleanP
         .destructive(!noop)
         .noop(noop)
         .touches(Touched::library(&d, true))
+        .reaching_clones(ctx)?
         .guard(None)
 }
 
@@ -1258,6 +1359,7 @@ pub fn convert_plan(
         .warnings(warnings)
         .destructive(replaces)
         .touches(Touched::library(&d, true))
+        .reaching_clones(ctx)?
         .guard(None)
 }
 
@@ -1285,7 +1387,7 @@ pub fn convert_apply(req: &ConvertRequest, ctx: &Ctx<'_>) -> Result<convert::Con
 /// Identify the drive a per-drive override applies to: a mounted drive (adopted on the spot), or
 /// a drive in the store's registry by name or id.
 fn override_target(store: &Store, spec: &str) -> Result<(Uuid, String)> {
-    if let Ok(mut d) = resolve_drive(spec) {
+    if let Ok(mut d) = resolve_one_drive(spec) {
         let state = d.adopt(None)?;
         let out = (state.id, state.name.clone());
         sync::register_drive(store, &d, None)?;
@@ -1303,7 +1405,7 @@ fn override_target(store: &Store, spec: &str) -> Result<(Uuid, String)> {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct SetSettings {
     /// Setting key -> value id (see [`settings::SCHEMA`]).
-    pub values: std::collections::BTreeMap<String, String>,
+    pub values: indexmap::IndexMap<String, String>,
     /// Make these per-drive overrides instead of base values.
     #[serde(default)]
     pub drive: Option<String>,
@@ -1347,7 +1449,7 @@ pub struct DriveSettingsView {
 }
 
 pub fn settings_show(store: &Store, req: &DriveRef) -> Result<DriveSettingsView> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let current = settings::read_all(&DriveSettings(d.root()));
     let drift = settings::drift(&store.settings_profile()?, d.id(), &current);
     Ok(DriveSettingsView { drive: d.name(), id: d.id(), current, drift })
@@ -1377,7 +1479,9 @@ pub fn settings_apply(store: &Store, req: &ApplySettings) -> Result<settings::Ap
 /// Writing the settings profile to several drives.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct SettingsApplyRequest {
-    /// Drives [default: every mounted rekordbox drive but archive and retired ones].
+    /// Drives, or libraries: each of a library's mounted clones (settings are each drive's own) but
+    /// archive and retired ones [default: every mounted rekordbox drive but archive and retired
+    /// ones].
     #[serde(default)]
     pub drives: Vec<String>,
     /// Write all four files even when the profile doesn't mention their settings.
@@ -1412,7 +1516,10 @@ pub fn settings_apply_plan(store: &Store, req: &SettingsApplyRequest) -> Result<
     let profile = store.settings_profile()?;
     let (devices, left) = match req.drives.is_empty() {
         true => unnamed_targets(Some(store)),
-        false => (req.drives.iter().map(|d| resolve_drive(d)).collect::<Result<_>>()?, Vec::new()),
+        false => {
+            let (specs, left) = expand_libraries(&req.drives)?;
+            (specs.iter().map(|s| resolve_drive(s)).collect::<Result<_>>()?, left)
+        }
     };
     if devices.is_empty() {
         return Err(Error::NotFound("a mounted rekordbox drive".into()));
@@ -1602,6 +1709,7 @@ pub fn artwork_set_plan(req: &SetArtwork) -> Result<Planned<ArtworkSetPlan>> {
         .line(line)
         .touches(Touched::library(&d, true))
         .touches(Touched::path(&req.image, false, vec![op::Probe::Content(vec![String::new()])]))
+        .reaching_clones(&Ctx::silent())?
         .guard(None)
 }
 
@@ -1632,7 +1740,12 @@ pub fn artwork_auto_plan(req: &DriveRef) -> Result<Planned<artwork::AutoArtworkP
     let plan = artwork::plan_auto(&d, &d.library()?);
     let line = format!("set artwork on {} track(s) of {}", plan.found.len(), d.name());
     let noop = plan.found.is_empty();
-    Planned::new("art.auto", plan, ()).line(line).noop(noop).touches(Touched::library(&d, true)).guard(None)
+    Planned::new("art.auto", plan, ())
+        .line(line)
+        .noop(noop)
+        .touches(Touched::library(&d, true))
+        .reaching_clones(&Ctx::silent())?
+        .guard(None)
 }
 
 impl Operation for artwork::AutoArtworkPlan {
@@ -1663,7 +1776,7 @@ pub struct ArtworkImage {
 pub fn artwork_get(req: &GetArtwork) -> Result<Option<ArtworkImage>> {
     let d = resolve_drive(&req.drive)?;
     let bytes = artwork::read_from_drive(&d, &d.library()?, req.track)?;
-    Ok(bytes.map(|b| ArtworkImage { mime: "image/jpeg", base64: base64(&b) }))
+    Ok(bytes.map(|b| ArtworkImage { mime: "image/jpeg", base64: BASE64_STANDARD.encode(&b) }))
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -1820,23 +1933,6 @@ impl Operation for UnembedPlan {
     }
 }
 
-pub(crate) fn base64(bytes: &[u8]) -> String {
-    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(T[(n >> (18 - 6 * i) & 63) as usize] as char);
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
-}
-
 // ---------------------------------------------------------------------------------------------
 // Formatting
 // ---------------------------------------------------------------------------------------------
@@ -1866,7 +1962,7 @@ fn find_disk(spec: &str) -> Result<format::Disk> {
     if let Some(d) = format::disk_by_id(spec)? {
         return Ok(d);
     }
-    format::disk_at(resolve(spec, false)?.root())
+    format::disk_at(resolve(spec, false, false)?.root())
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -2062,17 +2158,17 @@ mod tests {
         let path = |name: &str| device::dunce_canonicalize(&dir.path().join(name));
         // An external disk labelled Backup; the stick adopted as "Backup" isn't plugged in.
         std::fs::create_dir(dir.path().join("Backup")).unwrap();
-        let err = resolve("Backup", false).unwrap_err();
+        let err = resolve("Backup", false, false).unwrap_err();
         assert!(err.to_string().contains("is the label of the volume at"), "{err}");
-        assert_eq!(resolve("Backup", true).unwrap().root(), path("Backup"), "other commands still take labels");
+        assert_eq!(resolve("Backup", true, false).unwrap().root(), path("Backup"), "other commands still take labels");
 
         // Now it is: the adopted drive is the one meant, where a label would be ambiguous.
         std::fs::create_dir(dir.path().join("STICK")).unwrap();
         Device::open(dir.path().join("STICK")).unwrap().adopt(Some("Backup")).unwrap();
-        assert_eq!(resolve("backup", false).unwrap().root(), path("STICK"));
-        assert!(resolve("Backup", true).unwrap_err().to_string().contains("matches 2 drives"));
+        assert_eq!(resolve("backup", false, false).unwrap().root(), path("STICK"));
+        assert!(resolve("Backup", true, false).unwrap_err().to_string().contains("matches 2 drives"));
         // An adopted drive's volume label isn't its name either.
-        assert!(resolve("STICK", false).is_err());
+        assert!(resolve("STICK", false, false).is_err());
         crate::testing::volumes_on_this_thread(None);
     }
 
@@ -2084,25 +2180,10 @@ mod tests {
         crate::testing::volumes_on_this_thread(Some(vec![dir.path().to_path_buf()]));
         // Tests run in the crate's folder, which holds `src`; so does a volume labelled src.
         std::fs::create_dir(dir.path().join("src")).unwrap();
-        let err = resolve("src", false).unwrap_err();
+        let err = resolve("src", false, false).unwrap_err();
         assert!(err.to_string().contains("is the label of the volume at"), "{err}");
-        assert_eq!(resolve("./src", false).unwrap().root(), device::dunce_canonicalize(Path::new("src")));
+        assert_eq!(resolve("./src", false, false).unwrap().root(), device::dunce_canonicalize(Path::new("src")));
         crate::testing::volumes_on_this_thread(None);
-    }
-
-    #[test]
-    fn base64_matches_rfc4648_vectors() {
-        for (input, want) in [
-            ("", ""),
-            ("f", "Zg=="),
-            ("fo", "Zm8="),
-            ("foo", "Zm9v"),
-            ("foob", "Zm9vYg=="),
-            ("fooba", "Zm9vYmE="),
-            ("foobar", "Zm9vYmFy"),
-        ] {
-            assert_eq!(base64(input.as_bytes()), want);
-        }
     }
 }
 

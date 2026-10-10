@@ -1,8 +1,9 @@
 //! Undo: put back the backup of the last change locallibrary made to a drive that the drive
 //! still holds (see [`crate::backup::choose`]), after showing what that changes: the files and
 //! databases, the playlists and tracks, the history lists dropped, and the recorded edits taken
-//! off the journal. Every writer that changes a drive in place backs it up first, so the last
-//! change can be taken back, and the one before it next. A drive that changed since (a rekordbox
+//! off the journal. Writers that change a drive in place back it up first (not repairs, firmware
+//! files, recordings or `drive tidy`'s deletions), so the last change can be taken back, and the
+//! one before it next. A drive that changed since (a rekordbox
 //! export, a sync, players at a set) is refused unless forced, as that would be lost too.
 
 use std::path::PathBuf;
@@ -199,6 +200,7 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
         .destructive(true)
         .noop(noop)
         .touches(Touched::drive(&d, true, vec![Probe::Databases, Probe::Identity, Probe::Stamp(keys)]))
+        .reaching_clones(&Ctx::silent())?
         .guard(None)
 }
 

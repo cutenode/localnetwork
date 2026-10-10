@@ -5,8 +5,7 @@
 //! so it is planned, backed up, journaled and undone like any other. Entries are matched to the
 //! drive's tracks by audio file; tracks the drive no longer has are left out and listed.
 
-use std::collections::{HashMap, HashSet};
-
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +43,7 @@ pub struct PlaylistRestoreRequest {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RestoreSource {
     Snapshot { snapshot: Box<SnapshotInfo>, library: Option<String> },
-    Backup { backup: BackupInfo },
+    Backup { backup: Box<BackupInfo> },
 }
 
 /// An entry the source has whose track isn't on the drive any more.
@@ -113,6 +112,7 @@ pub fn playlist_restore_plan(
         .warnings(warnings)
         .noop(noop)
         .touches(Touched::library(&d, true))
+        .reaching_clones(ctx)?
         .guard(store)
 }
 
@@ -147,7 +147,7 @@ fn prepare(store: Option<&Store>, req: &PlaylistRestoreRequest, d: &Device) -> R
                 .find(|b| &b.id == id)
                 .ok_or_else(|| Error::NotFound(format!("backup {id} on {}", d.name())))?;
             let library = Device::open(backup::dir(d, &info.id))?.library()?;
-            (RestoreSource::Backup { backup: info }, library)
+            (RestoreSource::Backup { backup: Box::new(info) }, library)
         }
         (Some(prefix), None) => {
             let store = store.ok_or_else(|| Error::invalid("restoring from a snapshot needs the store"))?;
@@ -190,7 +190,7 @@ fn newest_with(store: &Store, d: &Device, spec: &str) -> Result<(RestoreSource, 
     })?;
     let lib = store.library_by_id(id)?.ok_or_else(|| Error::NotFound(format!("library {id} in the store")))?;
     // Snapshots of one state share their database files: read each set once.
-    let mut read: HashSet<Vec<Option<Hash>>> = HashSet::new();
+    let mut read: FxHashSet<Vec<Option<Hash>>> = FxHashSet::default();
     for info in store.history(&lib, None)? {
         let snap = store.load_snapshot(&info.id)?;
         let databases: Vec<Option<Hash>> = [paths::EXPORT_PDB, paths::LIBRARY_PLUS_DB, paths::LIBRARY_PLUS_WAL]
@@ -229,7 +229,7 @@ struct Restoration {
 /// playlist gets the source's entries whose track `current` has. Playlists `current` has in the
 /// folder that `source` lacks are left alone.
 fn restore_edits(source: &Library, node: &Playlist, current: &Library) -> Result<Restoration> {
-    let on_drive: HashSet<String> = current.tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect();
+    let on_drive: FxHashSet<String> = current.tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect();
     let names = source.playlist_names(node.id);
     if let Some(n) = names.iter().find(|n| n.contains('/')) {
         return Err(Error::invalid(format!("can't restore {n:?}: names with a / can't be given as a path")));
@@ -243,8 +243,8 @@ fn restore_edits(source: &Library, node: &Playlist, current: &Library) -> Result
         missing: Vec::new(),
         untouched: Vec::new(),
     };
-    let mut layout = Layout { current, children: HashMap::new() };
-    let mut restored = HashSet::new();
+    let mut layout = Layout { current, children: FxHashMap::default() };
+    let mut restored = FxHashSet::default();
     let mut stack = vec![(node, names)];
     while let Some((p, names)) = stack.pop() {
         let path = names.join("/");
@@ -331,7 +331,7 @@ fn find<'l>(lib: &'l Library, names: &[String]) -> Option<&'l Playlist> {
 struct Layout<'l> {
     current: &'l Library,
     /// Names in each folder (by path), in display order.
-    children: HashMap<Vec<String>, Vec<String>>,
+    children: FxHashMap<Vec<String>, Vec<String>>,
 }
 
 impl Layout<'_> {
@@ -376,7 +376,7 @@ mod tests {
     use crate::model::Track;
 
     fn track(id: u32) -> Track {
-        crate::model::tests::track(id, "", &format!("T{id}"), &format!("/Contents/t{id}.mp3"))
+        loclib_model::test_util::track(id, "", &format!("T{id}"), &format!("/Contents/t{id}.mp3"))
     }
 
     fn node(id: u32, parent: Option<u32>, name: &str, folder: bool, order: u32, tracks: &[u32]) -> Playlist {

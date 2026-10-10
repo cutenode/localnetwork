@@ -1,6 +1,7 @@
 //! Properties of the profile's privacy controls and genre and artist parsing (`profile`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
 
 use chrono::Utc;
 use hegel::generators as gs;
@@ -206,7 +207,7 @@ fn update() -> impl hegel::Generator<PrefsUpdate> {
             unhide: rarely(tc.draw(names())),
             hide_artist: tc.draw(artists()),
             unhide_artist: rarely(tc.draw(artists())),
-            alias: BTreeMap::new(),
+            alias: IndexMap::new(),
             unalias: Vec::new(),
             headline: tc.draw(gs::optional(gs::sampled_from(vec!["Warm-up DJ", " "]).map(String::from))),
         }
@@ -331,7 +332,7 @@ fn genres_are_distinct_and_stable(tc: TestCase) {
         .max_size(4)
         .map(|v| v.join(" / ")),
     ));
-    let none = BTreeMap::new();
+    let none = IndexMap::new();
     let genres = profile::genres(&raw, &none);
     let distinct: BTreeSet<String> = genres.iter().map(|g| normalize(g)).collect();
     assert_eq!(distinct.len(), genres.len(), "{genres:?}");

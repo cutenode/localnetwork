@@ -1,9 +1,8 @@
 //! Sessions: every history list on the mounted drives and in the store, and imported logs, each
 //! once, with the window it was recorded in.
 
-use std::collections::HashMap;
-
 use chrono::Utc;
+use rustc_hash::FxHashMap;
 
 use crate::device::Device;
 use crate::plays::{self, HistoryArchive, HistoryList};
@@ -29,7 +28,7 @@ pub(crate) fn gather(store: Option<&Store>, drives: &[Device], book: &SetBook, c
 /// and imported into `book`, each once.
 pub fn gather_from(archive: Option<&HistoryArchive>, drives: &[Device], book: &SetBook) -> Gathered {
     let mut out = Gathered::default();
-    let mut index: HashMap<String, usize> = HashMap::new();
+    let mut index: FxHashMap<String, usize> = FxHashMap::default();
     for a in archive.iter().flat_map(|a| &a.lists) {
         let window = Window { after: a.recorded_after, before: Some(a.first_seen.created), exact: false };
         let id = a.list.fingerprint();

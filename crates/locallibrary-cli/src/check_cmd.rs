@@ -14,12 +14,12 @@ use crate::output::{Outcome, Output, dim, heading};
 
 #[derive(Args)]
 #[command(after_long_help = "Examples:
-  locallibrary check Main Backup --players CDJ-3000X,CDJ-2000NXS2
-  locallibrary check Main --verbose          the tracks a player won't load
-  locallibrary check Main Backup --audio     also decode every file's end (slow)")]
+  locallibrary check --players CDJ-3000X,CDJ-2000NXS2
+  locallibrary check SD --verbose            the tracks a player won't load
+  locallibrary check Home --audio            also decode every file's end (slow)")]
 pub struct CheckArgs {
-    /// The drives you're taking; the first is the one the others must match [default: the
-    /// mounted drives of one library]
+    /// The drives you're taking (a library's name: its mounted drives); the first is the one the
+    /// others must match [default: the mounted drives of one library]
     drives: Vec<String>,
     /// Player models to check the drives against, e.g. CDJ-2000NXS2,CDJ-3000X (repeatable or comma-separated)
     /// [default: the ones `locallibrary players set` remembered]

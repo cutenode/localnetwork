@@ -8,7 +8,7 @@ fn a_drive_is_named_given_a_role_retired_and_forgotten() {
     let env = Env::new();
     let a = env.drive("A");
     // Mounted drives by volume name; none registered yet.
-    assert!(line(&env.ok(&["drive"]), "2 tracks").starts_with("A  "));
+    assert!(line(&env.ok(&["drive"]), "2 tracks").starts_with("  A  "));
     assert!(env.ok(&["drive", "ls", "--known"]).contains("No drives registered yet"));
 
     // Adopting asks first, and a second adopt has nothing to do.
@@ -117,19 +117,22 @@ fn the_registry_says_how_far_behind_each_drive_is() {
     assert!(line(&out, "Backup  Main").ends_with("had changes not in the store"), "{out}");
     env.ok(&["pull", "Main"]);
     assert!(line(&env.ok(&["drive", "ls", "--known"]), "Backup  Main").ends_with("up to date"));
+    // Made with Backup unplugged, or the edit would reach it too.
+    std::fs::rename(&backup, env.outside("Backup")).unwrap();
     env.ok(&["--yes", "playlist", "new", "Main", "Newer"]);
+    std::fs::rename(env.outside("Backup"), &backup).unwrap();
     env.ok(&["pull", "Main"]);
     let out = env.ok(&["drive", "ls", "--known"]);
     assert!(line(&out, "Backup  Main").contains("1 snapshot(s) behind (held "), "{out}");
 
-    // Unplugged: last seen, and under "Not mounted" in the status of every drive.
+    // Unplugged: last seen, and under its library in the status, not plugged in.
     std::fs::rename(&backup, env.outside("Backup")).unwrap();
     // The day it was last seen (the test may run past midnight).
     let days = [started, chrono::Local::now()].map(|t| format!("last seen {}", t.format("%Y-%m-%d")));
     let out = env.ok(&["drive", "ls", "--known"]);
     assert!(days.iter().any(|d| line(&out, "Backup").contains(d.as_str())), "{out}");
-    let out = env.ok(&["status", "--all"]);
-    assert!(out.contains("Not mounted\nBackup  Main  last seen"), "{out}");
+    let out = env.ok(&["status"]);
+    assert!(line(&out, "  Backup ").contains("not plugged in · 1 snapshot(s) behind (held "), "{out}");
 
     // rekordbox exported over the playlist made on the drive, after it was made.
     let fixture = fixtures().join("rekordcrate/demo_tracks").join(PDB);
@@ -189,8 +192,10 @@ fn drives_of_one_library_make_a_group_that_syncs_together() {
     assert!(line(&out, "  Archive  ").contains("archive"), "{out}");
 
     // The group syncs from its newest drive, leaving the archive out; ejecting a folder fails
-    // without failing the sync.
+    // without failing the sync. (Backup is unplugged for the edit, which would reach it too.)
+    std::fs::rename(&backup, env.outside("Backup")).unwrap();
     env.ok(&["--yes", "playlist", "new", "Main", "New"]);
+    std::fs::rename(env.outside("Backup"), &backup).unwrap();
     let out = env.ok(&["--yes", "sync", "--eject"]);
     assert!(out.starts_with("Main is the newest") && out.contains("Backup"), "{out}");
     assert!(line(&out, &format!("couldn't eject {}", backup.display())).contains("there's nothing to eject"), "{out}");

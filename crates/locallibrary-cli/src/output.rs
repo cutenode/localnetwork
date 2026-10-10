@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
+use locallibrary::op::Planned;
 use locallibrary::progress::{Event, Phase, Progress};
 use serde::Serialize;
 
@@ -430,6 +431,17 @@ pub fn summary(lines: &[String], warnings: &[String]) {
     }
     for w in warnings {
         warn(w);
+    }
+}
+
+/// For a plan shown its own way: the library's other clones applying it copies onto, and those
+/// left alone (see `Planned::reaching_clones`).
+pub fn clones<P, R>(plan: &Planned<P, R>) {
+    if let Some(line) = plan.copied_onto() {
+        say!("  {line}");
+    }
+    for why in plan.clones.iter().filter_map(|c| c.left_alone.as_ref()) {
+        warn(why);
     }
 }
 

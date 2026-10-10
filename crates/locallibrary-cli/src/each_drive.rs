@@ -1,5 +1,7 @@
-//! The commands that, given no drive, take every mounted rekordbox drive: a read reads each one,
-//! a write plans each, asks once and writes each.
+//! The commands that, given no drive, take what's mounted: a read of a library reads each mounted
+//! library once (from its lead clone), a read of something each drive keeps for itself reads each
+//! drive, and a write plans each library on its lead clone (reaching the others), asks once and
+//! writes each.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -30,13 +32,28 @@ pub struct DriveRead<T> {
     pub error: Option<TargetError>,
 }
 
-/// Read `drive`, or else every mounted rekordbox drive (only one mounted reads as if it were
-/// named). A drive that can't be read doesn't stop the others: it's said on stderr, before any
-/// pager starts.
+/// Read `drive` (a library or a drive), or else each mounted library once, from its lead clone,
+/// and each mounted rekordbox drive of no library (only one of those reads as if it were named). A
+/// library that can't be read doesn't stop the others: it's said on stderr, before any pager
+/// starts.
 pub fn read<T>(drive: Option<String>, read: impl Fn(String) -> locallibrary::Result<T>) -> Result<Reads<T>> {
+    read_from(drive, api::library_reads, read)
+}
+
+/// [`read`] of what each drive keeps for itself (its backups, space, My Settings, history lists):
+/// given no drive, every mounted rekordbox drive, clones included.
+pub fn read_each_drive<T>(drive: Option<String>, read: impl Fn(String) -> locallibrary::Result<T>) -> Result<Reads<T>> {
+    read_from(drive, api::drive_candidates, read)
+}
+
+fn read_from<T>(
+    drive: Option<String>,
+    candidates: fn(Option<&Store>) -> Vec<api::DriveCandidate>,
+    read: impl Fn(String) -> locallibrary::Result<T>,
+) -> Result<Reads<T>> {
     let mut mounted = match drive {
         Some(drive) => return Ok(Reads::One(read(drive)?)),
-        None => api::drive_candidates(None),
+        None => candidates(None),
     };
     if mounted.len() < 2 {
         // None mounted is a usage error, as `drive_or_default` makes it.
@@ -106,8 +123,9 @@ impl<T: Serialize> Reads<T> {
     }
 }
 
-/// The drives a write given none goes to: every mounted rekordbox drive but archive and retired
-/// ones (a warning names those).
+/// The drives a write given none goes to: each mounted library's lead clone, which the write
+/// reaches the library's other clones from, and each mounted rekordbox drive of no library, but
+/// archive and retired ones (a warning names those).
 pub fn targets(store: Option<&Store>) -> Result<Vec<String>> {
     let (targets, left) = api::unnamed_targets(store);
     if let Some(w) = api::left_out(&left) {
@@ -116,7 +134,7 @@ pub fn targets(store: Option<&Store>) -> Result<Vec<String>> {
     if targets.is_empty() {
         bail!("no rekordbox drives mounted");
     }
-    Ok(targets.iter().map(|d| d.root().display().to_string()).collect())
+    Ok(api::libraries_once(targets.iter().map(|d| d.root().display().to_string()).collect())?)
 }
 
 /// Several drives' plans: each shown with `show`, one question ("`question` on N drive(s)?"), then

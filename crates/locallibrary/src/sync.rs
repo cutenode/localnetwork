@@ -30,10 +30,14 @@
 //!
 //! Settings files, rekordbox's per-device identity and what players and rekordbox keep for one
 //! drive are never synced (see [`crate::paths::FileClass`]); settings are handled by
-//! [`crate::settings`] so per-drive overrides survive. A drive that gets a whole library forgets
-//! the edits recorded for the one it held (see [`crate::edit::journal`]).
+//! [`crate::settings`] so per-drive overrides survive. A drive that gets a whole library from
+//! another drive gets the edits recorded on that one with it; from a snapshot, it forgets the
+//! edits recorded for the library it held (see [`crate::edit::journal`]).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
@@ -295,9 +299,9 @@ struct Holds<'a> {
 
 /// Copy a library onto `target` (locked by the caller) as `plan` says, and record what it holds
 /// then. Its player name and colour are put back and its pack record is forgotten: it holds the
-/// whole library now. When its databases changed, its recorded edits are forgotten too: they
-/// were made to the library the copy replaced. Once the copy is done, recording it isn't
-/// cancellable.
+/// whole library now. When its databases changed, its recorded edits become the source drive's,
+/// which go with the library (a snapshot has none: they're forgotten, made to the library the
+/// copy replaced). Once the copy is done, recording it isn't cancellable.
 fn copy_library(
     plan: &SyncPlan,
     source: &Source<'_>,
@@ -312,7 +316,10 @@ fn copy_library(
     report.fingerprint = Some(holds.entry.fingerprint);
     crate::pack::forget(target)?;
     if crate::commit::database_state(target) != databases {
-        crate::edit::journal::forget(target)?;
+        match source {
+            Source::Drive { device, .. } => crate::edit::journal::copy(device, target)?,
+            Source::Snapshot { .. } => crate::edit::journal::forget(target)?,
+        }
     }
     let alias = alias_after_copy(target, holds.entry.fingerprint, ctx)?;
     let state = target.state_mut()?;
@@ -349,9 +356,9 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
 
     // FAT32/exFAT/HFS+ are case-insensitive: match keys ignoring case so a file whose name only
     // changed case is not "copied" and then deleted as stale.
-    let target_by_fold: HashMap<String, &FileEntry> =
+    let target_by_fold: FxHashMap<String, &FileEntry> =
         target_tree.library_entries().map(|e| (fold(&e.path), e)).collect();
-    let mut source_folds = HashSet::new();
+    let mut source_folds = FxHashSet::default();
     let source_entries = source.entries();
     // The DJ's own files where the source keeps audio outside PIONEER/ and Contents/.
     let mut in_the_way = Vec::new();
@@ -460,7 +467,11 @@ pub fn plan(source: &Source<'_>, target: &Device, target_tree: &FileTree, opts: 
     // exportLibrary.db disappearing) too.
     plan.copies.sort_by_key(|c| (c.class == FileClass::Database, c.path.clone()));
     if plan.replaces_databases() {
-        plan.warnings.extend(crate::edit::journal::forget_warning(target, "this"));
+        let from = match source {
+            Source::Drive { device, .. } => Some(*device),
+            Source::Snapshot { .. } => None,
+        };
+        plan.warnings.extend(crate::edit::journal::forget_warning(target, from, "this"));
     }
     if let Some(free) = plan.free_space {
         let needed = plan.bytes_needed();
@@ -575,7 +586,7 @@ fn apply(
         let free = plan.free_space.unwrap_or(0);
         return Err(Error::NoSpace { path: plan.target.clone(), needed: plan.bytes_needed(), available: free });
     }
-    let by_key: HashMap<&str, &FileEntry> = source.entries().into_iter().map(|e| (e.path.as_str(), e)).collect();
+    let by_key: FxHashMap<&str, &FileEntry> = source.entries().into_iter().map(|e| (e.path.as_str(), e)).collect();
     let mut report = SyncReport { unchanged: plan.unchanged, ..Default::default() };
     let mut index = target.load_index();
 
@@ -700,7 +711,7 @@ struct Copied {
 
 fn copy_one(
     c: &PlannedCopy,
-    by_key: &HashMap<&str, &FileEntry>,
+    by_key: &FxHashMap<&str, &FileEntry>,
     source: &Source<'_>,
     target: &Device,
     ctx: &Ctx<'_>,
@@ -1127,9 +1138,9 @@ fn pull_into(
         },
         (None, Some(id)) => match store.library_by_id(id)? {
             Some(l) => l,
-            None => store.create_library(&unique_library_name(store, &device.name())?)?,
+            None => store.create_library(&store.unused_library_name(&device.name())?)?,
         },
-        (None, None) => store.create_library(&unique_library_name(store, &device.name())?)?,
+        (None, None) => store.create_library(&store.unused_library_name(&device.name())?)?,
     };
 
     // Relationship between the drive and the library head.
@@ -1274,16 +1285,6 @@ fn pull_into(
     })
 }
 
-fn unique_library_name(store: &Store, base: &str) -> Result<String> {
-    let mut name = base.to_string();
-    let mut n = 2;
-    while store.find_library(&name)?.is_some() {
-        name = format!("{base} {n}");
-        n += 1;
-    }
-    Ok(name)
-}
-
 fn link_device(
     store: &Store,
     device: &mut Device,
@@ -1312,9 +1313,21 @@ pub fn register_drive(store: &Store, device: &Device, fp: Option<Hash>) -> Resul
     let Some(state) = device.state() else { return Ok(()) };
     let capacity = fsutil::total_space(device.root());
     store.update_drives(|drives| {
+        // A primary that joins a library which already has one becomes a backup there: a library
+        // has one primary, the drive rekordbox exports to.
+        let primary_taken = state.library_id.is_some()
+            && drives.values().any(|r| {
+                r.id != state.id
+                    && r.library_id == state.library_id
+                    && r.role == Some(crate::fleet::Role::Primary)
+                    && r.log.retired.is_none()
+            });
         let rec = drives
             .entry(state.id)
             .or_insert_with(|| crate::store::DriveRecord::new(state.id, &state.name, device.root().to_path_buf()));
+        if rec.library_id != state.library_id && rec.role == Some(crate::fleet::Role::Primary) && primary_taken {
+            rec.role = Some(crate::fleet::Role::Backup);
+        }
         rec.name = state.name.clone();
         rec.library_id = state.library_id;
         rec.last_mount = device.root().to_path_buf();
@@ -1485,12 +1498,13 @@ fn push_snapshot(
 }
 
 /// Group a plan's copies by top-level folder for compact display.
-pub fn summarize_paths(paths: impl Iterator<Item = String>) -> BTreeMap<String, usize> {
-    let mut out = BTreeMap::new();
+pub fn summarize_paths(paths: impl Iterator<Item = String>) -> IndexMap<String, usize> {
+    let mut out = IndexMap::new();
     for p in paths {
         let top: String = p.split('/').take(2).collect::<Vec<_>>().join("/");
         *out.entry(top).or_insert(0) += 1;
     }
+    out.sort_unstable_keys();
     out
 }
 
@@ -1504,6 +1518,6 @@ mod tests {
             ["Contents/A/x.mp3", "Contents/A/y.mp3", "Contents/B/z.mp3", "PIONEER/rekordbox/export.pdb", "top.mp3"];
         let summary = summarize_paths(keys.into_iter().map(String::from));
         let want = [("Contents/A", 2), ("Contents/B", 1), ("PIONEER/rekordbox", 1), ("top.mp3", 1)];
-        assert_eq!(summary, want.into_iter().map(|(k, n)| (k.to_string(), n)).collect());
+        assert_eq!(summary.into_iter().collect::<Vec<_>>(), want.map(|(k, n)| (k.to_string(), n)));
     }
 }

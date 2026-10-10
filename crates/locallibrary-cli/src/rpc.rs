@@ -58,7 +58,8 @@ mod contract;
 mod methods;
 mod typescript;
 
-use std::collections::{BTreeMap, VecDeque};
+use indexmap::IndexMap;
+use std::collections::VecDeque;
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -426,7 +427,7 @@ struct Jobs {
 struct JobState {
     next: u64,
     /// In the order they started.
-    running: BTreeMap<u64, Job>,
+    running: IndexMap<u64, Job>,
     /// Shutting down: new requests are refused.
     stopping: bool,
     /// The signal that stopped the sidecar: it sets the exit status.
@@ -479,7 +480,7 @@ impl Jobs {
         if let Some(r) = response {
             send(out, r);
         }
-        s.running.remove(&key);
+        s.running.shift_remove(&key);
         self.changed.notify_all();
     }
 
@@ -503,7 +504,7 @@ impl Jobs {
             dropped(job);
             let e = RpcError::from(locallibrary::Error::Cancelled);
             send(out, &response(id, Err(e)));
-            s.running.remove(&key);
+            s.running.shift_remove(&key);
             self.changed.notify_all();
         }
         true
@@ -1011,7 +1012,7 @@ impl Server {
             // A bug must not leave the client waiting forever for a response.
             let run = || {
                 // Cancelled while it waited (shutting down): it doesn't start.
-                ctx.check()?;
+                ctx.check().map_err(locallibrary::Error::from)?;
                 let call = Call { root: &store_root, plans: &plans, ctx: &ctx };
                 m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(&method)))
             };

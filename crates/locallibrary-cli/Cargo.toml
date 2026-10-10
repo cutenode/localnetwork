@@ -26,7 +26,7 @@ default = ["account", "tui", "playback"]
 # runtime, TLS, the keychain) are for this alone.
 account = ["locallibrary/account"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
-tui = ["dep:image", "dep:ratatui", "dep:rodio", "dep:rustfft"]
+tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
 # shows waveforms, but there's no output to play through.
 playback = ["tui", "rodio/playback"]
@@ -41,9 +41,10 @@ clap_mangen.workspace = true
 console.workspace = true
 # `termination`: SIGTERM (a GUI stopping the process) stops at a safe point too, as Ctrl-C does.
 ctrlc = { version = "3.5", features = ["termination"] }
-image = { workspace = true, optional = true }
 indicatif.workspace = true
 ratatui = { version = "0.30", optional = true }
+# The player's waveforms, visualisers and cover art.
+loclib-waveform = { workspace = true, optional = true, features = ["image"] }
 # Playback for the TUI: rekordbox drives carry MP3, AAC/ALAC (.m4a), FLAC, WAV and AIFF. The
 # output device comes with the `playback` feature.
 rodio = { version = "0.22", optional = true, default-features = false, features = [
@@ -64,6 +65,8 @@ serde_path_to_error.workspace = true
 # Columns a typed character takes (ratatui already depends on it).
 unicode-width = "0.2"
 uuid.workspace = true
+rustc-hash.workspace = true
+indexmap.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.

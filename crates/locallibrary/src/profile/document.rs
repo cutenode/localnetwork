@@ -7,7 +7,8 @@
 //! `signature` section, and never when the DJ hid the track or its artist, or a set marks it
 //! unnamed.
 
-use std::collections::{BTreeMap, BTreeSet};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
 
 use chrono::{DateTime, Datelike, Utc};
 use schemars::JsonSchema;
@@ -191,7 +192,7 @@ pub struct ProfilePrefs {
     pub hidden_artists: Vec<String>,
     /// The DJ's genre spellings: genre text as tagged → genre as shown.
     #[serde(default)]
-    pub genre_aliases: BTreeMap<String, String>,
+    pub genre_aliases: IndexMap<String, String>,
     /// The DJ's own one-line description, instead of the generated one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headline: Option<String>,
@@ -317,7 +318,7 @@ impl ProfilePrefs {
                 return Err(Error::invalid("a genre alias needs both the tagged text and the genre"));
             }
             self.genre_aliases.retain(|k, _| normalize(k) != normalize(from));
-            self.genre_aliases.insert(from.trim().to_string(), to.trim().to_string());
+            self.genre_aliases.insert_sorted(from.trim().to_string(), to.trim().to_string());
         }
         for from in &u.unalias {
             let before = self.genre_aliases.len();
@@ -365,7 +366,7 @@ pub struct PrefsUpdate {
     #[serde(default)]
     pub unhide_artist: Vec<String>,
     #[serde(default)]
-    pub alias: BTreeMap<String, String>,
+    pub alias: IndexMap<String, String>,
     #[serde(default)]
     pub unalias: Vec<String>,
     /// The DJ's own headline (empty: back to the generated one).
@@ -430,7 +431,7 @@ pub struct ProfileDocument {
     pub collection: Option<DocCollection>,
     /// Setting key → value, e.g. `{"quantize": "off", "jogMode": "vinyl"}`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub style: Option<BTreeMap<String, String>>,
+    pub style: Option<IndexMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

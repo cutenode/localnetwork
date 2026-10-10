@@ -3,7 +3,7 @@
 
 use crate::common;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::io::Cursor;
 use std::path::PathBuf;
 
@@ -75,13 +75,13 @@ struct Node {
 /// What the database should hold, as the tests understand the edits.
 #[derive(Clone, Debug, PartialEq, Default)]
 struct Model {
-    tracks: BTreeMap<u32, Vec<String>>,
-    artists: BTreeMap<u32, String>,
-    tree: BTreeMap<u32, Node>,
+    tracks: IndexMap<u32, Vec<String>>,
+    artists: IndexMap<u32, String>,
+    tree: IndexMap<u32, Node>,
     /// Playlist id → (entry index, track id), in entry order.
-    entries: BTreeMap<u32, Vec<(u32, u32)>>,
-    history: BTreeMap<u32, String>,
-    history_entries: BTreeMap<u32, Vec<(u32, u32)>>,
+    entries: IndexMap<u32, Vec<(u32, u32)>>,
+    history: IndexMap<u32, String>,
+    history_entries: IndexMap<u32, Vec<(u32, u32)>>,
 }
 
 impl Model {
@@ -149,7 +149,7 @@ impl Model {
 }
 
 /// The playlist tree as rekordcrate reads it: id → (parent, name, folder).
-fn rekordcrate_tree(pdb: &[u8]) -> BTreeMap<u32, (u32, String, bool)> {
+fn rekordcrate_tree(pdb: &[u8]) -> IndexMap<u32, (u32, String, bool)> {
     use rekordcrate::pdb::{Header, PageType, Row};
     let mut reader = Cursor::new(pdb);
     let header = Header::read(&mut reader).expect("rekordcrate reads the header");
@@ -157,7 +157,7 @@ fn rekordcrate_tree(pdb: &[u8]) -> BTreeMap<u32, (u32, String, bool)> {
     let pages = header
         .read_pages(&mut reader, binrw::Endian::NATIVE, (&table.first_page, &table.last_page))
         .expect("rekordcrate reads the playlist tree");
-    let mut out = BTreeMap::new();
+    let mut out = IndexMap::new();
     for group in pages.iter().flat_map(|p| p.row_groups.iter()) {
         for row in group.present_rows() {
             if let Row::PlaylistTreeNode(n) = row {
@@ -259,8 +259,8 @@ impl Editing {
         let result = self.editor.remove_playlists(&[id]);
         self.expect("remove_playlists", Some(true), &result);
         // Children of a removed folder stay where they are (the caller removes them too).
-        self.model.tree.remove(&id);
-        self.model.entries.remove(&id);
+        self.model.tree.shift_remove(&id);
+        self.model.entries.shift_remove(&id);
     }
 
     #[rule]
@@ -287,7 +287,7 @@ impl Editing {
         self.expect("set_playlist_entries", Some(true), &result);
         let list: Vec<(u32, u32)> = tracks.iter().enumerate().map(|(i, t)| (i as u32 + 1, *t)).collect();
         if list.is_empty() {
-            self.model.entries.remove(&playlist);
+            self.model.entries.shift_remove(&playlist);
         } else {
             self.model.entries.insert(playlist, list);
         }
@@ -376,7 +376,7 @@ impl Editing {
         let id = tc.draw(gs::sampled_from(self.model.track_ids()));
         let result = self.editor.remove_tracks(&[id]);
         self.expect("remove_tracks", Some(true), &result);
-        self.model.tracks.remove(&id);
+        self.model.tracks.shift_remove(&id);
         for list in self.model.entries.values_mut().chain(self.model.history_entries.values_mut()) {
             let before = list.len();
             list.retain(|e| e.1 != id);
@@ -442,8 +442,8 @@ impl Editing {
         let id = tc.draw(gs::sampled_from(self.model.history.keys().copied().collect::<Vec<_>>()));
         let result = self.editor.remove_history_playlists(&[id]);
         self.expect("remove_history_playlists", Some(true), &result);
-        self.model.history.remove(&id);
-        self.model.history_entries.remove(&id);
+        self.model.history.shift_remove(&id);
+        self.model.history_entries.shift_remove(&id);
     }
 
     /// Saving and reopening mid-session changes nothing (the editor's index is rebuilt).
@@ -468,7 +468,7 @@ impl Editing {
         assert_eq!(got.history_entries, self.model.history_entries, "history entries");
 
         let mut theirs = rekordcrate_tree(&bytes);
-        let ours: BTreeMap<u32, (u32, String, bool)> =
+        let ours: IndexMap<u32, (u32, String, bool)> =
             got.tree.iter().map(|(id, n)| (*id, (n.parent, n.name.clone(), n.folder))).collect();
         for (id, (_, name, _)) in &ours {
             if common::rekordcrate_reads_as_isrc(name)

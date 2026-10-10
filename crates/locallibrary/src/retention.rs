@@ -18,9 +18,8 @@
 //! removes a snapshot of a library, so it keeps every snapshot the plan keeps). Which of two
 //! drives is newer comes from the lineage each drive keeps, which pruning doesn't touch.
 
-use std::collections::{HashMap, HashSet};
-
 use chrono::{Datelike, Local};
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -131,7 +130,7 @@ pub fn plan(store: &Store, opts: &PruneOptions, ctx: &Ctx<'_>) -> Result<PruneRe
         None => store.libraries()?,
     };
     let labels = store.labels_by_snapshot()?;
-    let mut by_library: HashMap<uuid::Uuid, Vec<Candidate>> = HashMap::new();
+    let mut by_library: FxHashMap<uuid::Uuid, Vec<Candidate>> = FxHashMap::default();
     for id in store.snapshot_ids()? {
         let mut info = store.load_info(&id)?;
         info.labels = labels.get(&id).cloned().unwrap_or_default();
@@ -139,7 +138,7 @@ pub fn plan(store: &Store, opts: &PruneOptions, ctx: &Ctx<'_>) -> Result<PruneRe
         let c = Candidate { info, reasons: Vec::new(), drives: Vec::new(), history: Vec::new() };
         by_library.entry(library).or_default().push(c);
     }
-    let mut drive_states: HashMap<Hash, Vec<String>> = HashMap::new();
+    let mut drive_states: FxHashMap<Hash, Vec<String>> = FxHashMap::default();
     for d in store.drives()?.into_values().filter(|d| d.log.retired.is_none()) {
         if let Some(fp) = d.last_fingerprint {
             drive_states.entry(fp).or_default().push(d.name);
@@ -154,7 +153,7 @@ pub fn plan(store: &Store, opts: &PruneOptions, ctx: &Ctx<'_>) -> Result<PruneRe
         dry_run: true,
         warnings: Vec::new(),
     };
-    let mut doomed = HashSet::new();
+    let mut doomed = FxHashSet::default();
     for lib in libraries {
         let mut snaps = by_library.remove(&lib.id).unwrap_or_default();
         snaps.sort_by(|a, b| b.info.created.cmp(&a.info.created).then(b.info.id.cmp(&a.info.id)));
@@ -198,7 +197,7 @@ pub fn apply(store: &Store, plan: &PruneReport) -> Result<PruneReport> {
 fn by_policy(
     snaps: &mut [Candidate],
     head: Option<Hash>,
-    drive_states: &HashMap<Hash, Vec<String>>,
+    drive_states: &FxHashMap<Hash, Vec<String>>,
     opts: &PruneOptions,
 ) {
     for c in snaps.iter_mut() {
@@ -238,7 +237,7 @@ fn keep_newest_per(
     reason: KeepReason,
     period: impl Fn(&SnapshotInfo) -> (i32, u32),
 ) {
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
     for c in snaps.iter_mut() {
         let p = period(&c.info);
         if seen.contains(&p) {
@@ -263,7 +262,7 @@ fn protect_history(store: &Store, snaps: &mut [Candidate], ctx: &Ctx<'_>, warnin
         return Ok(());
     }
     // Snapshots of one state share their database files: read each set once.
-    let mut cache: HashMap<Vec<Option<Hash>>, Lists> = HashMap::new();
+    let mut cache: FxHashMap<Vec<Option<Hash>>, Lists> = FxHashMap::default();
     let mut lists = |info: &SnapshotInfo, warnings: &mut Vec<String>| -> Result<Lists> {
         ctx.check()?;
         ctx.emit(Event::Item { phase: Phase::Scan, path: info.short_id.clone(), bytes: 0 });
@@ -286,7 +285,7 @@ fn protect_history(store: &Store, snaps: &mut [Candidate], ctx: &Ctx<'_>, warnin
         Ok(found)
     };
     ctx.phase_start(Phase::Scan, snaps.len() as u64, 0);
-    let mut safe: HashSet<ListId> = HashSet::new();
+    let mut safe: FxHashSet<ListId> = FxHashSet::default();
     for c in snaps.iter().filter(|c| !c.reasons.is_empty()) {
         safe.extend(lists(&c.info, warnings)?.into_iter().flatten().map(|(_, id)| id));
     }
@@ -355,7 +354,7 @@ mod tests {
 
     #[test]
     fn last_daily_and_weekly_keep_the_newest_of_each() {
-        let none = HashMap::new();
+        let none = FxHashMap::default();
         let mut snaps = three_weeks();
         by_policy(&mut snaps, None, &none, &PruneOptions { keep_last: Some(3), ..Default::default() });
         assert_eq!(kept(&snaps), ["41", "40", "39"]);
@@ -372,7 +371,7 @@ mod tests {
         // Together, with the head (an older one), a label and a drive's state.
         let mut snaps = three_weeks();
         snaps[30].info.labels = vec!["before NYE".into()];
-        let drives = HashMap::from([(snaps[35].info.fingerprint, vec!["Backup".to_string()])]);
+        let drives = FxHashMap::from_iter([(snaps[35].info.fingerprint, vec!["Backup".to_string()])]);
         let head = Some(snaps[1].info.id);
         let opts = PruneOptions { keep_last: Some(1), keep_daily: Some(2), keep_weekly: Some(3), ..Default::default() };
         by_policy(&mut snaps, head, &drives, &opts);

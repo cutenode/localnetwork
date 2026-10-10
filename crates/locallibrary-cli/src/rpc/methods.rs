@@ -7,7 +7,7 @@
 //! and applies a request in one go. Older names stay as aliases (`drive.adopt` for
 //! `drive.adopt.apply`, `sync_many.plan` for `sync.many.plan`).
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -258,7 +258,7 @@ where
 /// Every method, by name and alias.
 pub struct Registry {
     methods: Vec<Method>,
-    by_name: HashMap<&'static str, usize>,
+    by_name: FxHashMap<&'static str, usize>,
 }
 
 impl Registry {
@@ -446,7 +446,7 @@ fn build() -> Registry {
     use PlanStore::{Existing, Optional, Required};
     use api::NoParams;
 
-    let mut r = Registry { methods: Vec::new(), by_name: HashMap::new() };
+    let mut r = Registry { methods: Vec::new(), by_name: FxHashMap::default() };
 
     // The sidecar itself.
     r.control::<NoParams, api::Initialized>("initialize");
@@ -856,7 +856,7 @@ fn build() -> Registry {
         }
         let until = Instant::now() + Duration::from_millis(req.ms);
         while Instant::now() < until {
-            c.ctx.check()?;
+            c.ctx.check().map_err(locallibrary::Error::from)?;
             std::thread::sleep(Duration::from_millis(10));
         }
         Ok(Waited { waited_ms: req.ms })

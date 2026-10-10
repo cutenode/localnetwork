@@ -9,7 +9,7 @@
 //! [`crate::watch::VolumeWatcher`] that it changed, can also [`LibraryCache::invalidate`] it,
 //! which covers file systems whose timestamps are too coarse to tell two quick writes apart.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -59,7 +59,7 @@ enum IdentifierSlot {
 }
 
 /// Each track's My Tags (`Category/Tag`) by its file key, as [`tags::by_track`] gives them.
-pub type TagsByTrack = HashMap<String, Vec<String>>;
+pub type TagsByTrack = FxHashMap<String, Vec<String>>;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)

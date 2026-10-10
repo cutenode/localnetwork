@@ -32,7 +32,7 @@ fn reads_real_exports() {
     // holding more than 255 rows. All 7,440 found here reference real tracks, and every
     // playlist's entries are complete (no gaps in their positions).
     assert_eq!(lib.playlists.iter().map(|p| p.track_ids.len()).sum::<usize>(), 7440);
-    let ids: std::collections::HashSet<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    let ids: rustc_hash::FxHashSet<u32> = lib.tracks.iter().map(|t| t.id).collect();
     assert!(lib.playlists.iter().flat_map(|p| &p.track_ids).all(|id| ids.contains(id)));
     let s = lib.summary();
     assert!(s.playlists > 0 && s.folders > 0 && s.artists > 100);

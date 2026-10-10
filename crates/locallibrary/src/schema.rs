@@ -6,74 +6,7 @@
 //! --emit-schema`). This module has the pieces the derive doesn't cover: results that were tuples
 //! keep their JSON (an array) but name each element (`labelled_tuple!`, [`Failure`], [`Skip`]).
 
-/// A struct whose JSON is an array of its fields in order (`["Contents/a.mp3", "unreadable"]`),
-/// the shape the result had as a tuple, while its schema (and the TypeScript types made from it)
-/// names each element (`[path: string, error: string]`). Doc comments on the fields become the
-/// elements' descriptions.
-macro_rules! labelled_tuple {
-    (
-        $(#[$meta:meta])*
-        $vis:vis struct $name:ident {
-            $(
-                $(#[doc = $doc:literal])*
-                $fvis:vis $field:ident: $ty:ty
-            ),+ $(,)?
-        }
-    ) => {
-        $(#[$meta])*
-        $vis struct $name {
-            $(
-                $(#[doc = $doc])*
-                $fvis $field: $ty,
-            )+
-        }
-
-        impl serde::Serialize for $name {
-            fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-                serde::Serialize::serialize(&($(&self.$field,)+), serializer)
-            }
-        }
-
-        impl<'de> serde::Deserialize<'de> for $name {
-            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-                let ($($field,)+) = <($($ty,)+) as serde::Deserialize>::deserialize(deserializer)?;
-                Ok($name { $($field),+ })
-            }
-        }
-
-        impl schemars::JsonSchema for $name {
-            fn schema_name() -> std::borrow::Cow<'static, str> {
-                stringify!($name).into()
-            }
-
-            fn schema_id() -> std::borrow::Cow<'static, str> {
-                concat!(module_path!(), "::", stringify!($name)).into()
-            }
-
-            fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-                let items: Vec<schemars::Schema> = vec![$({
-                    let mut item = generator.subschema_for::<$ty>();
-                    item.insert("title".into(), stringify!($field).into());
-                    let doc: &[&str] = &[$($doc),*];
-                    let doc = doc.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
-                    if !doc.is_empty() {
-                        item.insert("description".into(), doc.into());
-                    }
-                    item
-                }),+];
-                let n = items.len();
-                schemars::json_schema!({
-                    "type": "array",
-                    "prefixItems": items,
-                    "minItems": n,
-                    "maxItems": n,
-                })
-            }
-        }
-    };
-}
-
-pub(crate) use labelled_tuple;
+pub(crate) use loclib_model::labelled_tuple;
 
 labelled_tuple! {
     /// Something an operation couldn't do, and the error: `[path, error]`.

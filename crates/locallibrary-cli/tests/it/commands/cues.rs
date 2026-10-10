@@ -65,7 +65,7 @@ fn a_track_without_an_ext_is_warned_about() {
 fn a_cue_command_needs_a_drive_and_a_time_it_can_read() {
     let env = Env::ascii();
     let err = env.fails(1, &["cues"]);
-    assert!(err.contains("give a drive and a track"), "{err}");
+    assert!(err.contains("give a library or drive and a track"), "{err}");
     let err = env.fails(2, &["cues", "set", "Demo", "--track", "1", "--hot", "A", "--at", "1:75"]);
     assert!(err.contains("not a time: \"1:75\""), "{err}");
 }

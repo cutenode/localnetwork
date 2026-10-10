@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 use ratatui::widgets::ListState;
+use uuid::Uuid;
 
 use super::app::{App, View, edit_line};
 use super::drives::{DriveKey, PackWhat};
@@ -51,6 +52,8 @@ pub enum Then {
     /// Do one of a drive's actions to `drive` (called `name`), wherever it's mounted by then (one
     /// per item).
     Drive { drive: DriveKey, name: String, acts: Vec<Act> },
+    /// Do one of a library's actions to its clones plugged in by then (one per item).
+    Library { id: Uuid, acts: Vec<Act> },
     /// Packing: what goes on the drive (one per item), onto `target` when it's known.
     PackWhat { source: PathBuf, target: Option<PathBuf>, choices: Vec<PackWhat> },
     /// Packing `what`: onto the drive picked (one per item).
@@ -243,6 +246,7 @@ impl App {
                 Some(root) => self.drive_act(acts[i], root),
                 None => self.toast(format!("{name} isn't plugged in any more"), super::app::Level::Info),
             },
+            Then::Library { id, acts } => self.library_act(acts[i], id),
             Then::PackWhat { source, target, mut choices } => self.pack_what(source, target, choices.swap_remove(i)),
             Then::PackOnto { source, what, mut roots } => self.pack_onto(source, roots.swap_remove(i), what),
             Then::Snapshot { root, playlist, mut snapshots } => {

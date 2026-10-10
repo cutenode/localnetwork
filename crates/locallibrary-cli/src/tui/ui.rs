@@ -1,8 +1,11 @@
 //! Drawing.
 
+use locallibrary::api::{DriveStatus, FleetLibrary};
 use locallibrary::compare::Relation;
+use locallibrary::fleet::{Role, Standing};
 use locallibrary::query::{SortField, SortKey};
 use locallibrary::{DeviceInfo, Track};
+use loclib_waveform::{CueLane, Detail, Overview, PhraseStrip, Pixels, Scope, Spectrum, bar_layout, cue_letter, vinyl};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Margin, Rect};
 use ratatui::style::{Modifier, Style};
@@ -11,16 +14,15 @@ use ratatui::widgets::{
     Block, Borders, Cell, Clear, HighlightSpacing, List, ListItem, ListState, Paragraph, Row, Scrollbar,
     ScrollbarOrientation, ScrollbarState, Table, TableState, Wrap,
 };
+use uuid::Uuid;
 
 use super::analyzer::Bands;
 use super::app::{App, Focus, Level, Matches, Repeat, View, Vis, typed_tail};
 use super::browse::{COLOURS, NodeId, colour_name, sort_label, stars};
+use super::drives::DriveRow;
 use super::edits::{Menu, Modal, Sub};
 use super::keys::{Camelot, Relation as KeyRelation};
 use super::theme::{self, bold, dim, faint, fg, text};
-use super::widgets::{
-    CueLane, Detail, Overview, PhraseStrip, Pixels, Scope, Spectrum, bar_layout, cue_color, cue_letter, vinyl,
-};
 use crate::output::{bytes, clock, duration, plural};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -426,7 +428,7 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
         let [drives, playlists] = Layout::vertical([Constraint::Length(drives_h), Constraint::Min(0)]).areas(side);
         app.areas.drives = drives;
         app.areas.playlists = playlists;
-        draw_drive_list(f, app, drives, app.focus == Focus::Drives && app.view == View::Library, false);
+        draw_drive_list(f, app, drives, app.focus == Focus::Drives && app.view == View::Library);
         draw_playlists(f, app, playlists);
     }
     app.areas.tracks = tracks;
@@ -444,44 +446,45 @@ fn draw_library(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect, focused: bool, detailed: bool) {
+fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
     let loaded_root = app.loaded.as_ref().map(|l| l.root().to_path_buf());
     let inner_w = area.width.saturating_sub(3);
-    let items: Vec<ListItem> = app
-        .drives
-        .iter()
-        .map(|d| {
-            let open = loaded_root.as_deref() == Some(d.root.as_path());
-            let dot = if !d.has_export {
-                Span::styled("○ ", faint())
-            } else if open {
-                Span::styled("● ", bold(theme::PINK))
-            } else {
-                Span::styled("● ", fg(theme::GREEN))
-            };
-            let name_style = if open { bold(theme::FG) } else { text() };
-            let left = vec![dot, Span::styled(drive_name(d), name_style)];
-            let right = match &d.summary {
-                Some(s) => vec![Span::styled(compact(s.tracks), dim())],
-                None => vec![Span::styled("blank", faint())],
-            };
-            let mut lines = vec![spread(left, right, inner_w)];
-            if detailed {
-                lines.push(Line::styled(format!("  {}", d.root.display()), faint()));
-            }
-            ListItem::new(Text::from(lines))
-        })
+    let items: Vec<ListItem> = (app.drives.iter())
+        .map(|d| ListItem::new(drive_line(d, loaded_root.as_deref() == Some(d.root.as_path()), "", inner_w)))
         .collect();
+    let list = drive_list(items, focused);
+    f.render_stateful_widget(list, area, &mut app.drive_state);
+}
+
+/// A drive in a list: a dot (pink: open, green: has an export, hollow: blank), its name and its
+/// track count, after `indent`.
+fn drive_line(d: &DeviceInfo, open: bool, indent: &str, width: u16) -> Line<'static> {
+    let dot = if !d.has_export {
+        Span::styled("○ ", faint())
+    } else if open {
+        Span::styled("● ", bold(theme::PINK))
+    } else {
+        Span::styled("● ", fg(theme::GREEN))
+    };
+    let name_style = if open { bold(theme::FG) } else { text() };
+    let left = vec![Span::raw(indent.to_string()), dot, Span::styled(drive_name(d), name_style)];
+    let right = match &d.summary {
+        Some(s) => vec![Span::styled(compact(s.tracks), dim())],
+        None => vec![Span::styled("blank", faint())],
+    };
+    spread(left, right, width)
+}
+
+/// The drive lists' frame, and what they say with no drive.
+fn drive_list(items: Vec<ListItem<'static>>, focused: bool) -> List<'static> {
     let list = if items.is_empty() {
         List::new([ListItem::new(Line::styled("no rekordbox drives", dim()))])
     } else {
         List::new(items)
     };
-    let list = list
-        .block(block(title("Drives", focused), focused))
+    list.block(block(title("Drives", focused), focused))
         .highlight_style(if focused { theme::selected() } else { Style::new() })
-        .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
-    f.render_stateful_widget(list, area, &mut app.drive_state);
+        .highlight_symbol(Span::styled("▍", fg(theme::PINK)))
 }
 
 /// Keep `sel` in a window of `page` rows starting at `offset`; returns the new offset.
@@ -1002,7 +1005,7 @@ fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
         "nothing in a compatible key and tempo"
     };
     let matches = details.map(|d| &d.matches);
-    let rows = draw_matches(f, mixes, matches, why, &mut app.details_state, focused);
+    let rows = draw_matches(f, mixes, matches, None, why, &mut app.details_state, focused);
     app.areas.matches = rows;
 }
 
@@ -1179,6 +1182,7 @@ fn draw_player(f: &mut Frame, app: &mut App, area: Rect, big: bool) {
                     progress: progress_frac,
                     cues: &cues,
                     duration_ms: dur * 1000.0,
+                    palette: theme::palette(),
                 },
                 overview,
             );
@@ -1189,13 +1193,21 @@ fn draw_player(f: &mut Frame, app: &mut App, area: Rect, big: bool) {
                     .map(|p| (p.start_ms, p.end_ms, p.kind.name(), theme::phrase_color(p.kind)))
                     .collect();
                 f.render_widget(
-                    PhraseStrip { phrases: &phrases, duration_ms: dur * 1000.0, progress: progress_frac },
+                    PhraseStrip {
+                        phrases: &phrases,
+                        duration_ms: dur * 1000.0,
+                        progress: progress_frac,
+                        palette: theme::palette(),
+                    },
                     strip,
                 );
             }
         }
         None => {
-            f.render_widget(Overview { wave: None, progress: 0.0, cues: &[], duration_ms: 0.0 }, overview);
+            f.render_widget(
+                Overview { wave: None, progress: 0.0, cues: &[], duration_ms: 0.0, palette: theme::palette() },
+                overview,
+            );
         }
     }
     draw_progress(f, app, progress);
@@ -1210,14 +1222,14 @@ fn draw_art(f: &mut Frame, app: &mut App, area: Rect) {
     match app.now.as_mut().and_then(|n| n.art.as_mut()) {
         Some(art) => {
             let px = art.pixels(area.width, area.height);
-            f.render_widget(Pixels { width: area.width, pixels: px }, area);
+            f.render_widget(Pixels { width: area.width, pixels: px, palette: theme::palette() }, area);
         }
         None => {
             // 33⅓ rpm, in the light streak's terms.
             let angle = if playing && !theme::reduced_motion() { t * std::f32::consts::TAU * 0.555 } else { 0.6 };
             let label = app.now.as_ref().and_then(|n| n.track.color).map_or(theme::PINK, theme::track_color);
-            let px = vinyl(area.width, area.height, angle, label);
-            f.render_widget(Pixels { width: area.width, pixels: &px }, area);
+            let px = vinyl(area.width, area.height, angle, label, theme::VINYL);
+            f.render_widget(Pixels { width: area.width, pixels: &px, palette: theme::palette() }, area);
         }
     }
 }
@@ -1344,7 +1356,7 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
             if pads && let Some(h) = c.hot_cue.filter(|h| *h < super::deck::PADS) {
                 spans.push(Span::styled((h + 1).to_string(), theme::key()));
             }
-            let mut s = chip(cue_letter(c).unwrap_or('?').to_string(), cue_color(c));
+            let mut s = chip(cue_letter(c).unwrap_or('?').to_string(), theme::palette().cue_color(c));
             if current.is_some_and(|cur| std::ptr::eq(cur, *c)) {
                 s.style = s.style.add_modifier(Modifier::UNDERLINED);
             }
@@ -1358,7 +1370,7 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
         if let Some(c) = next {
             let mark = cue_letter(c).map_or("◆".to_string(), |l| l.to_string());
             spans.push(Span::styled("  next ", faint()));
-            spans.push(Span::styled(mark, bold(cue_color(c))));
+            spans.push(Span::styled(mark, bold(theme::palette().cue_color(c))));
             spans.push(Span::styled(format!(" {}", clock((c.start_ms as f64 - pos_ms) / 1000.0)), dim()));
         }
         lines.push(Line::from(spans));
@@ -1405,9 +1417,9 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     f.render_widget(Paragraph::new(lines), area);
 }
 
-/// Full screen, beside the visualisers: what mixes into the playing track, where it's filed, and
-/// what rekordbox's analysis found.
-fn draw_details(f: &mut Frame, app: &App, area: Rect) {
+/// Full screen, beside the visualisers: what mixes into the playing track (to pick the next one
+/// from), where it's filed, and what rekordbox's analysis found.
+fn draw_details(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(now) = &app.now else { return };
     let mut about: Vec<Line> = Vec::new();
     let beats = &now.analysis.beats;
@@ -1451,7 +1463,10 @@ fn draw_details(f: &mut Frame, app: &App, area: Rect) {
     } else {
         "nothing in a compatible key and tempo"
     };
-    draw_matches(f, mixes, now.matches.as_ref(), why, &mut ListState::default(), false);
+    // The queue's next track, marked when it's one of the matches.
+    let q = &app.queue;
+    let next = q.order.get(q.pos + 1).map(|&i| q.track(i).file_path.as_str());
+    app.areas.matches = draw_matches(f, mixes, now.matches.as_ref(), next, why, &mut app.next_pick, true);
 
     if lists > 0 {
         draw_in_playlists(f, lists_area, &now.playlists, lists);
@@ -1462,12 +1477,14 @@ fn draw_details(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// Tracks that mix into a track, under a header that doubles as the legend for the key colours.
-/// Returns where the rows are, for clicks.
+/// Tracks that mix into a track, under a header that doubles as the legend for the key colours,
+/// with the one at `next` (a file path) marked as playing next. Returns where the rows are, for
+/// clicks.
 fn draw_matches(
     f: &mut Frame,
     area: Rect,
     matches: Option<&Matches>,
+    next: Option<&str>,
     why: &str,
     state: &mut ListState,
     focused: bool,
@@ -1501,12 +1518,16 @@ fn draw_matches(
                         true => format!("{}{:<3}", relation_mark(x.relation), x.key.code()),
                         false => format!("{:<4}", x.key.code()),
                     };
-                    ListItem::new(Line::from(vec![
+                    let mut spans = vec![
                         Span::styled(key, bold(key_color)),
                         Span::styled(format!("{:>5.1} ", t.bpm), bpm_style),
                         Span::styled(t.title.clone(), text()),
-                        Span::styled(format!("  {}", t.artist), dim()),
-                    ]))
+                    ];
+                    if next == Some(t.file_path.as_str()) {
+                        spans.push(Span::styled(" next", bold(theme::CYAN)));
+                    }
+                    spans.push(Span::styled(format!("  {}", t.artist), dim()));
+                    ListItem::new(Line::from(spans))
                 })
                 .collect();
             let list = List::new(items)
@@ -1546,11 +1567,14 @@ fn draw_spectrum(f: &mut Frame, app: &mut App, area: Rect, mirror: bool) {
     app.areas.spectra.push((area.width, mirror));
     let empty = Bands::default();
     let bands = app.analyzer.bands(bar_layout(area.width, mirror).0).unwrap_or(&empty);
-    f.render_widget(Spectrum { bands: &bands.levels, peaks: &bands.peaks, mirror, tint: app.flash() }, area);
+    f.render_widget(
+        Spectrum { bands: &bands.levels, peaks: &bands.peaks, mirror, tint: app.flash(), palette: theme::palette() },
+        area,
+    );
 }
 
 fn draw_scope(f: &mut Frame, app: &App, area: Rect) {
-    f.render_widget(Scope { samples: &app.analyzer.scope, tint: app.flash() }, area);
+    f.render_widget(Scope { samples: &app.analyzer.scope, tint: app.flash(), palette: theme::palette() }, area);
 }
 
 fn draw_deck(f: &mut Frame, app: &App, area: Rect) {
@@ -1562,6 +1586,7 @@ fn draw_deck(f: &mut Frame, app: &App, area: Rect) {
                 visible_secs: app.deck_secs,
                 beats: &now.analysis.beats,
                 cues: &app.drawn_cues(),
+                palette: theme::palette(),
             },
             area,
         ),
@@ -1589,6 +1614,7 @@ fn draw_lane(f: &mut Frame, app: &App, area: Rect) {
             position_secs: app.position().as_secs_f64(),
             visible_secs: app.lane_secs(),
             bpm: now.track.bpm,
+            palette: theme::palette(),
         },
         area,
     );
@@ -1753,11 +1779,63 @@ fn draw_progress(f: &mut Frame, app: &App, area: Rect) {
 // Drives
 // ---------------------------------------------------------------------------------------------
 
+/// A section's heading in the Drives view's right pane.
+fn pane_heading(s: &str) -> Line<'static> {
+    Line::styled(s.to_uppercase(), bold(theme::CYAN))
+}
+
+/// A labelled value in the Drives view's right pane.
+fn pane_field(k: &str, v: String) -> Line<'static> {
+    Line::from(vec![Span::styled(format!("  {k:<12}"), dim()), Span::styled(v, text())])
+}
+
+/// Where a drive stands against the store: a mark and a few words, coloured, and (with `hints`)
+/// what to do about it.
+fn standing(s: &DriveStatus, hints: bool) -> Vec<Span<'static>> {
+    let save = Some("e, then save a snapshot");
+    let (icon, msg, hint, c) = match (s.relation, &s.error) {
+        (_, Some(e)) => ("✖", format!("error: {e}"), None, theme::RED),
+        (None, _) if s.library.is_none() => ("○", "not in the store".to_string(), save, theme::DIM),
+        (None, _) => ("○", "library has no snapshots".to_string(), None, theme::DIM),
+        (Some(Relation::Identical), _) => ("✓", "up to date".to_string(), None, theme::GREEN),
+        (Some(Relation::RightNewer), _) => match s.back_from_set {
+            Some(0) => ("▲", "back from a set".to_string(), save, theme::AMBER),
+            Some(n) => ("▲", format!("back from a set: {}", plural(n, "new session")), save, theme::AMBER),
+            None => ("▲", "has changes not in the store".to_string(), save, theme::AMBER),
+        },
+        (Some(Relation::LeftNewer), _) => {
+            ("▼", "behind the store".to_string(), Some("e, then sync, or locallibrary library push"), theme::AMBER)
+        }
+        (Some(Relation::Diverged), _) => ("⑂", "diverged from the store".to_string(), None, theme::RED),
+        (Some(other), _) => ("?", format!("{other:?}").to_lowercase(), None, theme::DIM),
+    };
+    let msg = match hint.filter(|_| hints) {
+        Some(h) => format!("{msg} ({h})"),
+        None => msg,
+    };
+    vec![Span::styled(format!("{icon} "), bold(c)), Span::styled(msg, fg(c))]
+}
+
 fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     let [list, detail] =
         Layout::horizontal([Constraint::Length(36.min(area.width / 2)), Constraint::Min(0)]).areas(area);
     app.areas.drive_list = list;
-    draw_drive_list(f, app, list, true, true);
+    draw_drive_rows(f, app, list);
+    match app.drive_header {
+        Some(DriveRow::Library(id)) => return draw_library_clones(f, app, id, detail),
+        Some(_) => {
+            let p = Paragraph::new(vec![
+                Line::raw(""),
+                Line::styled("These drives aren't in the store yet.", bold(theme::FG)),
+                Line::styled("Select one, then e to save a snapshot: that starts its library.", dim()),
+            ])
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true })
+            .block(block(title("No library", false), false));
+            return f.render_widget(p, detail);
+        }
+        None => {}
+    }
     let Some(d) = app.drive_state.selected().and_then(|i| app.drives.get(i)) else {
         let p = Paragraph::new(vec![
             Line::raw(""),
@@ -1770,9 +1848,6 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let mut lines: Vec<Line> = Vec::new();
-    let section = |s: &str| Line::styled(s.to_uppercase(), bold(theme::CYAN));
-    let kv = |k: &str, v: String| Line::from(vec![Span::styled(format!("  {k:<12}"), dim()), Span::styled(v, text())]);
-
     lines.push(Line::styled(drive_name(d), bold(theme::PINK)));
     let id =
         d.id.map_or("not adopted (locallibrary drive adopt)".to_string(), |id| format!("id {}", &id.to_string()[..8]));
@@ -1780,20 +1855,21 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     lines.push(Line::raw(""));
 
     if let Some(s) = &d.summary {
-        lines.push(section("Library"));
-        lines.push(kv("tracks", format!("{}  ·  {} artists", s.tracks, s.artists)));
-        lines.push(kv("playlists", format!("{} in {} folders", s.playlists, s.folders)));
-        lines.push(kv("duration", duration(s.total_duration_secs)));
-        lines.push(kv("audio", bytes(s.audio_bytes)));
+        lines.push(pane_heading("Library"));
+        lines.push(pane_field("tracks", format!("{}  ·  {} artists", s.tracks, s.artists)));
+        lines.push(pane_field("playlists", format!("{} in {} folders", s.playlists, s.folders)));
+        lines.push(pane_field("duration", duration(s.total_duration_secs)));
+        lines.push(pane_field("audio", bytes(s.audio_bytes)));
         if s.tracks_without_artwork > 0 {
-            lines.push(kv("no artwork", format!("{} tracks (locallibrary art auto)", s.tracks_without_artwork)));
+            lines
+                .push(pane_field("no artwork", format!("{} tracks (locallibrary art auto)", s.tracks_without_artwork)));
         }
         if let Some(at) = d.exported_at {
             let rev = d.pdb.as_ref().map(|p| format!("  ·  export.pdb rev {}", p.sequence)).unwrap_or_default();
-            lines.push(kv("exported", format!("{}{rev}", at.format("%Y-%m-%d %H:%M"))));
+            lines.push(pane_field("exported", format!("{}{rev}", at.format("%Y-%m-%d %H:%M"))));
         }
         if d.has_library_plus {
-            lines.push(kv("players", "OneLibrary (exportLibrary.db) present".into()));
+            lines.push(pane_field("players", "OneLibrary (exportLibrary.db) present".into()));
         }
         lines.push(Line::raw(""));
     } else {
@@ -1804,7 +1880,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     if let (Some(free), Some(total)) = (d.free_space, d.total_space)
         && total > 0
     {
-        lines.push(section("Space"));
+        lines.push(pane_heading("Space"));
         let used = 1.0 - free as f64 / total as f64;
         let w = detail.width.saturating_sub(6).min(48) as usize;
         let filled = (used * w as f64).round() as usize;
@@ -1822,29 +1898,13 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     let fleet = app.fleet_drive(&d.root);
-    lines.push(section("Store"));
+    lines.push(pane_heading("Store"));
     match (&app.status, fleet) {
         (None, _) | (_, None) if app.status_loading => lines.push(Line::styled("  checking…", dim())),
         (Some(Err(e)), _) => lines.push(Line::styled(format!("  {e}"), dim())),
         (_, Some(fd)) => {
             let s = &fd.status;
-            let (icon, msg, c) = match (s.relation, &s.error) {
-                (_, Some(e)) => ("✖", format!("error: {e}"), theme::RED),
-                (None, _) if s.library.is_none() => {
-                    ("○", "not in the store (e, then save a snapshot)".to_string(), theme::DIM)
-                }
-                (None, _) => ("○", "library has no snapshots".to_string(), theme::DIM),
-                (Some(Relation::Identical), _) => ("✓", "up to date".to_string(), theme::GREEN),
-                (Some(Relation::RightNewer), _) => {
-                    ("▲", "has changes not in the store (e, then save a snapshot)".to_string(), theme::AMBER)
-                }
-                (Some(Relation::LeftNewer), _) => {
-                    ("▼", "behind the store (e, then sync, or locallibrary library push)".to_string(), theme::AMBER)
-                }
-                (Some(Relation::Diverged), _) => ("⑂", "diverged from the store".to_string(), theme::RED),
-                (Some(other), _) => ("?", format!("{other:?}").to_lowercase(), theme::DIM),
-            };
-            lines.push(Line::from(vec![Span::styled(format!("  {icon} "), bold(c)), Span::styled(msg, fg(c))]));
+            lines.push(Line::from([vec![Span::raw("  ")], standing(s, true)].concat()));
             if let Some(lib) = &s.library {
                 let group = app
                     .status
@@ -1852,10 +1912,10 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
                     .and_then(|r| r.as_ref().ok())
                     .map_or(0, |list| list.iter().filter(|o| o.status.library.as_ref() == Some(lib)).count());
                 let plugged = if group > 1 { format!("  ·  {group} of its drives plugged in") } else { String::new() };
-                lines.push(kv("library", format!("{lib}{plugged}")));
+                lines.push(pane_field("library", format!("{lib}{plugged}")));
             }
             if let Some(h) = &s.head {
-                lines.push(kv("latest", format!("{}  {}", h.short_id, h.created.format("%Y-%m-%d %H:%M"))));
+                lines.push(pane_field("latest", format!("{}  {}", h.short_id, h.created.format("%Y-%m-%d %H:%M"))));
             }
             if s.settings_drift > 0 {
                 lines.push(Line::styled(
@@ -1885,21 +1945,21 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         }
         let role = fd.role.map(super::drives::role_name);
         if role.is_some() || fd.log.is_some() || !warn.is_empty() {
-            lines.push(section("Logbook"));
+            lines.push(pane_heading("Logbook"));
             if let Some(r) = role {
-                lines.push(kv("role", r));
+                lines.push(pane_field("role", r));
             }
             if let Some(log) = &fd.log {
                 if log.writes > 0 {
-                    lines.push(kv("written", format!("{} times, {}", log.writes, bytes(log.bytes_written))));
+                    lines.push(pane_field("written", format!("{} times, {}", log.writes, bytes(log.bytes_written))));
                 }
                 if log.clean_ejects > 0 {
-                    lines.push(kv("ejected", format!("{} times cleanly", log.clean_ejects)));
+                    lines.push(pane_field("ejected", format!("{} times cleanly", log.clean_ejects)));
                 }
                 for (what, c) in [("verified", &log.last_scrub), ("fs check", &log.last_fs_check)] {
                     if let Some(c) = c {
                         let mark = if c.ok { "✓" } else { "✖" };
-                        lines.push(kv(what, format!("{mark} {}  {}", c.at.format("%Y-%m-%d"), c.summary)));
+                        lines.push(pane_field(what, format!("{mark} {}  {}", c.at.format("%Y-%m-%d"), c.summary)));
                     }
                 }
                 if let Some(p) = log.problems.last() {
@@ -1917,12 +1977,12 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     if !d.settings_files.is_empty() {
-        lines.push(section("My Settings"));
+        lines.push(pane_heading("My Settings"));
         lines.push(Line::styled(format!("  {}", d.settings_files.join(" · ")), text()));
         lines.push(Line::raw(""));
     }
     if d.lineage_len > 0 {
-        lines.push(section("States"));
+        lines.push(pane_heading("States"));
         let last = d
             .last_known
             .as_ref()
@@ -1939,7 +1999,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         ));
         lines.push(Line::raw(""));
     }
-    lines.push(section("Actions"));
+    lines.push(pane_heading("Actions"));
     // `u` undoes on the drive changed last this run, which may be another.
     let undo = app.undo_drive().map(|r| format!("undo the last change to {}", app.drive_label(&r))).unwrap_or_default();
     for (k, what) in [
@@ -1954,6 +2014,156 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         .wrap(Wrap { trim: false })
         .block(block(title("Drive", false), false).padding(ratatui::widgets::Padding::horizontal(1)));
     f.render_widget(p, detail);
+}
+
+/// The Drives view's list: each library (how many of its clones are plugged in, how they stand),
+/// its drives under it, then the drives of no library. Each row takes two lines.
+fn draw_drive_rows(f: &mut Frame, app: &mut App, area: Rect) {
+    let rows = app.drive_rows();
+    let loaded_root = app.loaded.as_ref().map(|l| l.root().to_path_buf());
+    let inner_w = area.width.saturating_sub(3);
+    // Drives are indented under the libraries, when there are any.
+    let indent = if rows.iter().any(|r| matches!(r, DriveRow::Library(_))) { "  " } else { "" };
+    let items: Vec<ListItem> = rows
+        .iter()
+        .map(|row| {
+            let lines = match *row {
+                DriveRow::Library(id) => {
+                    let name = app.library_names.get(&id).cloned().unwrap_or_default();
+                    let plugged = app.drives.iter().filter(|d| app.library_id(d) == Some(id)).count();
+                    let fleet = app.fleet_libraries.iter().find(|l| l.id == id);
+                    let count = match fleet {
+                        Some(l) => format!("{plugged} of {}", plugged + l.offline.len()),
+                        None => plugged.to_string(),
+                    };
+                    let left = vec![Span::styled(name, bold(theme::FG))];
+                    let about = match fleet {
+                        Some(l) => library_state(l),
+                        None if app.status_loading => vec![Span::styled("checking…", faint())],
+                        None => Vec::new(),
+                    };
+                    vec![
+                        spread(left, vec![Span::styled(count, dim())], inner_w),
+                        Line::from([vec![Span::raw("  ")], about].concat()),
+                    ]
+                }
+                DriveRow::Unlinked => {
+                    vec![Line::styled("No library", bold(theme::DIM)), Line::styled("  not in the store yet", faint())]
+                }
+                DriveRow::Drive(i) => {
+                    let d = &app.drives[i];
+                    let open = loaded_root.as_deref() == Some(d.root.as_path());
+                    let root = Line::styled(format!("{indent}  {}", d.root.display()), faint());
+                    vec![drive_line(d, open, indent, inner_w), root]
+                }
+            };
+            ListItem::new(Text::from(lines))
+        })
+        .collect();
+    app.drive_rows.select(app.drive_row(&rows));
+    f.render_stateful_widget(drive_list(items, true), area, &mut app.drive_rows);
+}
+
+/// How a library's clones plugged in stand together: whether they hold the same, and whether
+/// the store has what they hold.
+fn library_state(l: &FleetLibrary) -> Vec<Span<'static>> {
+    let mut out = Vec::new();
+    let mut say = |s: &'static str, c| {
+        if !out.is_empty() {
+            out.push(Span::styled(" · ", faint()));
+        }
+        out.push(Span::styled(s, fg(c)));
+    };
+    match l.identical {
+        Some(true) => say("identical", theme::GREEN),
+        Some(false) => say("not identical", theme::AMBER),
+        None => {}
+    }
+    match (&l.head, l.unsaved) {
+        (None, _) => say("no snapshots yet", theme::DIM),
+        (Some(_), true) => say("unsaved", theme::AMBER),
+        (Some(_), false) => say("saved", theme::DIM),
+    }
+    out
+}
+
+/// The Drives view's right pane for a library: its clones (those not plugged in too) and where
+/// each stands, the store's latest snapshot of it, and what can be done to all of them.
+fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
+    let name = app.library_names.get(&id).cloned().unwrap_or_default();
+    let fleet = app.fleet_libraries.iter().find(|l| l.id == id);
+    let here: Vec<&DeviceInfo> = app.drives.iter().filter(|d| app.library_id(d) == Some(id)).collect();
+    let away = fleet.map_or(&[][..], |l| l.offline.as_slice());
+    let mut lines = vec![
+        Line::styled(name, bold(theme::PINK)),
+        Line::styled(format!("{} of {} plugged in", here.len(), plural(here.len() + away.len(), "clone")), faint()),
+        Line::raw(""),
+        pane_heading("Clones"),
+    ];
+    let name_w = here
+        .iter()
+        .map(|d| drive_name(d).chars().count())
+        .chain(away.iter().map(|k| k.name.chars().count()))
+        .max()
+        .unwrap_or(0);
+    let clone = |dot: Span<'static>, name: String, role: Option<Role>, state: Vec<Span<'static>>| {
+        let role = format!("{:<9}", role.map_or("", Role::name));
+        Line::from(
+            [
+                vec![
+                    Span::raw("  "),
+                    dot,
+                    Span::styled(format!("{name:<name_w$}  "), text()),
+                    Span::styled(role, dim()),
+                ],
+                state,
+            ]
+            .concat(),
+        )
+    };
+    for d in &here {
+        let fd = app.fleet_drive(&d.root);
+        let state = match fd {
+            Some(fd) => standing(&fd.status, false),
+            None if app.status_loading => vec![Span::styled("checking…", dim())],
+            None => Vec::new(),
+        };
+        lines.push(clone(Span::styled("● ", fg(theme::GREEN)), drive_name(d), fd.and_then(|f| f.role), state));
+    }
+    for k in away {
+        let behind = match &k.standing {
+            Standing::Behind { snapshots, .. } => format!(" · {} behind", plural(*snapshots, "snapshot")),
+            Standing::UpToDate => " · up to date".into(),
+            Standing::Unsaved => " · had changes not in the store".into(),
+            Standing::Unknown => String::new(),
+        };
+        let state = vec![Span::styled(format!("not plugged in{behind}"), dim())];
+        lines.push(clone(Span::styled("○ ", faint()), k.name.clone(), k.role, state));
+    }
+    lines.push(Line::raw(""));
+    lines.push(pane_heading("Store"));
+    match (&app.status, fleet) {
+        (_, Some(l)) => {
+            if let Some(h) = &l.head {
+                lines.push(pane_field("latest", format!("{}  {}", h.short_id, h.created.format("%Y-%m-%d %H:%M"))));
+            }
+            lines.push(Line::from(
+                [vec![Span::styled(format!("  {:<12}", "clones"), dim())], library_state(l)].concat(),
+            ));
+        }
+        (Some(Err(e)), _) => lines.push(Line::styled(format!("  {e}"), dim())),
+        _ if app.status_loading => lines.push(Line::styled("  checking…", dim())),
+        _ => lines.push(Line::styled("  press R to check", dim())),
+    }
+    lines.push(Line::raw(""));
+    lines.push(pane_heading("Actions"));
+    for (k, what) in [("enter", "browse its newest clone in the library"), ("e", "sync, check or eject its clones")] {
+        lines.push(Line::from(vec![Span::styled(format!("  {k:<6}"), theme::key()), Span::styled(what, text())]));
+    }
+    let p = Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(block(title("Library", false), false).padding(ratatui::widgets::Padding::horizontal(1)));
+    f.render_widget(p, area);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2923,6 +3133,7 @@ mod tests {
                 library: library.map(Into::into),
                 relation,
                 head: None,
+                back_from_set: None,
                 settings_drift: 2,
                 error: error.map(Into::into),
             },
@@ -2988,6 +3199,139 @@ mod tests {
         }
     }
 
+    /// The Drives view lists each library with its drives under it, the drives of none last. A
+    /// library's row says how its clones stand together; its pane lists them (those not plugged
+    /// in too), where each stands, and what can be done to all of them.
+    #[test]
+    fn the_drives_view_lists_libraries_with_their_clones() {
+        use chrono::TimeZone;
+        use locallibrary::fleet::{DriveLog, KnownDrive};
+        use locallibrary::hash::Hash;
+        use locallibrary::store::SnapshotInfo;
+
+        let (mut app, dir) = blank(View::Drives);
+        let home = Uuid::new_v4();
+        let drive = |name: &str, library_id| {
+            let root = dir.path().join(name);
+            std::fs::create_dir_all(&root).unwrap();
+            DeviceInfo { has_export: true, library_id, ..locallibrary::Device::open(&root).unwrap().info() }
+        };
+        let (loose, sd, main) = (drive("LOOSE", None), drive("SD", Some(home)), drive("REKORDBOX", Some(home)));
+        app.drives = vec![loose.clone(), sd.clone(), main.clone()];
+        app.library_names = [(home, "Home".to_string())].into_iter().collect();
+        app.drive_state.select(Some(0));
+        let s = screen(&mut app, 140, 30);
+        let at = |s: &str, t: &str| s.find(t).unwrap_or_else(|| panic!("{t}\n{s}"));
+        assert!(at(&s, "Home") < at(&s, "  ● SD") && at(&s, "  ● SD") < at(&s, "  ● REKORDBOX"), "{s}");
+        assert!(at(&s, "  ● REKORDBOX") < at(&s, "No library") && at(&s, "No library") < at(&s, "  ● LOOSE"), "{s}");
+
+        // Up from the drive of none: the row of the drives of none, then the library's drives,
+        // then the library.
+        let up = |app: &mut App| app.on_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        up(&mut app);
+        assert!(screen(&mut app, 140, 30).contains("These drives aren't in the store yet."));
+        up(&mut app);
+        up(&mut app);
+        assert_eq!(app.drive_state.selected(), Some(1), "SD");
+        up(&mut app);
+        let s = screen(&mut app, 140, 30);
+        for said in ["2 of 2 clones plugged in", "● REKORDBOX", "● SD", "press R to check"] {
+            assert!(s.contains(said), "{said}\n{s}");
+        }
+        app.status_loading = true;
+        assert!(screen(&mut app, 140, 30).contains("checking…"));
+
+        // What the store says of the library and its clones.
+        let at_time = chrono::Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap();
+        let head = SnapshotInfo {
+            id: Hash::of(b"head"),
+            short_id: "3f9a2c".into(),
+            library_id: home,
+            parents: Vec::new(),
+            created: at_time,
+            message: None,
+            source: None,
+            fingerprint: Hash::of(b"library"),
+            summary: Default::default(),
+            files: 0,
+            bytes: 0,
+            labels: Vec::new(),
+            beside: false,
+        };
+        let spare = KnownDrive {
+            id: Uuid::new_v4(),
+            name: "Spare".into(),
+            role: Some(Role::Backup),
+            library: Some("Home".into()),
+            mounted: None,
+            last_mount: dir.path().join("Spare"),
+            last_seen: at_time,
+            capacity: None,
+            standing: Standing::Behind { snapshots: 2, held: "1a2b3c".into() },
+            log: DriveLog::default(),
+        };
+        app.fleet_libraries = vec![FleetLibrary {
+            id: home,
+            name: "Home".into(),
+            head: Some(head),
+            mounted: vec![main.root.clone(), sd.root.clone()],
+            offline: vec![spare],
+            identical: Some(false),
+            unsaved: true,
+        }];
+        let clone = |d: &DeviceInfo, role, relation, back_from_set| {
+            let mut f = fleet(d.clone(), Some("Home"));
+            (f.role, f.status.relation, f.status.back_from_set) = (Some(role), Some(relation), back_from_set);
+            f
+        };
+        app.status = Some(Ok(vec![
+            clone(&main, Role::Primary, Relation::Identical, None),
+            clone(&sd, Role::Set, Relation::RightNewer, Some(2)),
+        ]));
+        app.status_loading = false;
+        let s = screen(&mut app, 140, 30);
+        for said in [
+            "2 of 3",
+            "not identical · unsaved",
+            "2 of 3 clones plugged in",
+            "● REKORDBOX  primary  ✓ up to date",
+            "● SD         set      ▲ back from a set: 2 new sessions",
+            "○ Spare      backup   not plugged in · 2 snapshots behind",
+            "latest      3f9a2c  2026-10-08 12:00",
+            "browse its newest clone in the library",
+        ] {
+            assert!(s.contains(said), "{said}\n{s}");
+        }
+        for (w, h) in [(80, 24), (40, 12), (20, 6)] {
+            screen(&mut app, w, h);
+        }
+
+        // Its actions are the library's, on all of its clones plugged in, not the drive's selected
+        // before.
+        assert_eq!(app.action_drive(), None);
+        app.on_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+        let Some(Modal::Pick(p)) = &app.modal else { panic!("no menu") };
+        let labels: Vec<&str> = p.items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(
+            (p.title.as_str(), labels),
+            (
+                "Library · Home",
+                vec!["sync its clones from the newest", "check its clones for a set", "eject its clones"]
+            )
+        );
+        app.modal = None;
+        app.perform(super::super::keymap::Act::SetPrep, None);
+        assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Checking SD and 1 more"));
+        wait(&mut app, |a| a.job.is_none());
+
+        // Enter shows the library: read from its newest clone (here, empty folders: it says why
+        // it can't be).
+        app.modal = None;
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!((app.view, app.loading.as_deref()), (View::Library, Some("Reading Home…")));
+        wait(&mut app, |a| a.loading.is_none());
+    }
+
     /// The Snapshots view while the store is read, when it can't be, and when it has none.
     #[test]
     fn the_snapshots_view_says_when_there_are_none() {
@@ -3035,7 +3379,7 @@ mod tests {
         image::RgbImage::from_pixel(8, 8, image::Rgb([200, 40, 90]))
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
-        now.art = super::super::widgets::Art::decode(&png);
+        now.art = loclib_waveform::Art::decode(&png);
         now.playlists = (1..=6).map(|n| format!("Sets › Friday {n}")).collect();
         now.opening = false;
         app.resume = Some(std::time::Duration::from_secs(30));

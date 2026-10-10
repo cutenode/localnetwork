@@ -7,7 +7,7 @@
 //! readable only by the user. Splitting keeps the keychain item small: Windows' Credential
 //! Manager holds at most 2,560 bytes, and a whole session can be more.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -254,7 +254,7 @@ pub struct LocalStore {
     pub redirect_uri: String,
     pub requested_scopes: Vec<String>,
     /// Authorization requests in flight. They only have to outlive one sign-in, in this process.
-    pending: Mutex<HashMap<String, AuthRequestData>>,
+    pending: Mutex<FxHashMap<String, AuthRequestData>>,
 }
 
 impl LocalStore {
@@ -271,7 +271,7 @@ impl LocalStore {
             client,
             redirect_uri,
             requested_scopes,
-            pending: Mutex::new(HashMap::new()),
+            pending: Mutex::new(FxHashMap::default()),
         }
     }
 

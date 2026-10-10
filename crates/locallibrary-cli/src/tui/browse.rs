@@ -1,15 +1,14 @@
 //! Browsing a library: the sidebar tree (the playlists, plus CDJ-style categories under Browse),
 //! the track list's sort order, and which of its two modes the search box is in.
 
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
-
 use locallibrary::harmony::{self, Camelot};
 use locallibrary::model::{TrackColor, normalize};
 use locallibrary::query::{SortField, SortKey};
 use locallibrary::sets::Set;
 use locallibrary::{Library, Playlist, Track, paths};
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 /// The ways to browse a drive besides its playlists, as on a CDJ's top menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -147,7 +146,7 @@ impl Problems {
 /// Tracks that are the same recording (rekordbox's fingerprint: artist, title and duration).
 /// Untitled tracks without an artist aren't compared.
 pub fn duplicates(lib: &Library) -> (Vec<Option<u32>>, Vec<Vec<usize>>) {
-    let mut by_key: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut by_key: FxHashMap<String, Vec<usize>> = FxHashMap::default();
     for (i, t) in lib.tracks.iter().enumerate() {
         if !(t.artist.trim().is_empty() && t.title.trim().is_empty()) {
             by_key.entry(t.fingerprint_key()).or_default().push(i);
@@ -196,7 +195,7 @@ fn capitalised(s: &str) -> String {
 /// Tracks grouped by `f`'s (key, label); tracks it gives nothing for go in a last group named
 /// `none`. Groups come out in first-seen order.
 fn collect(lib: &Library, none: &str, f: impl Fn(&Track) -> Option<(String, String)>) -> (Vec<Group>, Option<Group>) {
-    let mut index: HashMap<String, usize> = HashMap::new();
+    let mut index: FxHashMap<String, usize> = FxHashMap::default();
     let mut out: Vec<Group> = Vec::new();
     let mut rest = Group { key: String::new(), label: none.to_string(), tracks: Vec::new(), left_out: 0 };
     for (i, t) in lib.tracks.iter().enumerate() {
@@ -220,9 +219,9 @@ fn collect(lib: &Library, none: &str, f: impl Fn(&Track) -> Option<(String, Stri
 pub fn groups(
     lib: &Library,
     cat: Category,
-    by_id: &HashMap<u32, usize>,
+    by_id: &FxHashMap<u32, usize>,
     problems: &Problems,
-    tags: Option<&HashMap<String, Vec<String>>>,
+    tags: Option<&FxHashMap<String, Vec<String>>>,
     sets: &[Set],
 ) -> Vec<Group> {
     let text = |get: fn(&Track) -> &str, none: &str| {
@@ -283,12 +282,13 @@ pub fn groups(
         }
         Category::MyTags => {
             let Some(tags) = tags else { return Vec::new() };
-            let mut by_tag: std::collections::BTreeMap<&str, Vec<usize>> = Default::default();
+            let mut by_tag: indexmap::IndexMap<&str, Vec<usize>> = Default::default();
             for (i, t) in lib.tracks.iter().enumerate() {
                 for tag in tags.get(&paths::key(&t.file_path).to_lowercase()).into_iter().flatten() {
                     by_tag.entry(tag).or_default().push(i);
                 }
             }
+            by_tag.sort_unstable_keys();
             by_tag
                 .into_iter()
                 .map(|(tag, tracks)| Group {
@@ -305,7 +305,7 @@ pub fn groups(
             }
             // Tracks by their file as sessions key them; from the back, so the first of a file
             // that's in the library twice wins.
-            let by_file: HashMap<String, usize> = lib
+            let by_file: FxHashMap<String, usize> = lib
                 .tracks
                 .iter()
                 .enumerate()
@@ -362,7 +362,7 @@ pub fn stars(r: u8) -> String {
 /// The sidebar: All tracks, the Browse folder with its categories (and their values when
 /// expanded), then the playlist tree. `groups` holds every category's groups once Browse is
 /// open; categories with nothing in them are left out.
-pub fn tree(lib: &Library, expanded: &HashSet<NodeId>, groups: &HashMap<Category, Vec<Group>>) -> Vec<Node> {
+pub fn tree(lib: &Library, expanded: &FxHashSet<NodeId>, groups: &FxHashMap<Category, Vec<Group>>) -> Vec<Node> {
     let node = |id, name: &str, depth, folder, count| {
         let expanded = folder && expanded.contains(&id);
         Node { id, name: name.to_string(), depth, folder, expanded, count }
@@ -386,15 +386,15 @@ pub fn tree(lib: &Library, expanded: &HashSet<NodeId>, groups: &HashMap<Category
     }
     // Each folder's children, in display order (as `Library::children` gives them), found in one
     // pass: asking the library for each folder's scans every playlist each time.
-    let mut children: HashMap<Option<u32>, Vec<&Playlist>> = HashMap::new();
+    let mut children: FxHashMap<Option<u32>, Vec<&Playlist>> = FxHashMap::default();
     for p in &lib.playlists {
         children.entry(p.parent_id).or_default().push(p);
     }
     for v in children.values_mut() {
         v.sort_by_key(|p| (p.sort_order, p.id));
     }
-    type Children<'a> = HashMap<Option<u32>, Vec<&'a Playlist>>;
-    fn walk(kids: &Children, parent: Option<u32>, depth: usize, expanded: &HashSet<NodeId>, out: &mut Vec<Node>) {
+    type Children<'a> = FxHashMap<Option<u32>, Vec<&'a Playlist>>;
+    fn walk(kids: &Children, parent: Option<u32>, depth: usize, expanded: &FxHashSet<NodeId>, out: &mut Vec<Node>) {
         if depth > 32 {
             return; // cyclic tree in a corrupt database
         }
@@ -420,10 +420,10 @@ pub fn tree(lib: &Library, expanded: &HashSet<NodeId>, groups: &HashMap<Category
 
 /// Every playlist and folder's path (`Sets/Friday`) by id, as `Library::playlist_path` gives
 /// it, worked out with one map rather than a scan of every playlist for each folder above each.
-pub fn playlist_paths(lib: &Library) -> HashMap<u32, String> {
+pub fn playlist_paths(lib: &Library) -> FxHashMap<u32, String> {
     // Collected from the back, so the first of a repeated id wins, as in `Library::playlist`.
-    let by_id: HashMap<u32, &Playlist> = lib.playlists.iter().rev().map(|p| (p.id, p)).collect();
-    let mut out = HashMap::new();
+    let by_id: FxHashMap<u32, &Playlist> = lib.playlists.iter().rev().map(|p| (p.id, p)).collect();
+    let mut out = FxHashMap::default();
     for p in &lib.playlists {
         let mut names = Vec::new();
         let mut cur = by_id.get(&p.id).copied();
@@ -667,7 +667,7 @@ mod tests {
     use super::super::app::testing::{library, set, track};
     use super::*;
 
-    fn by_id(lib: &Library) -> HashMap<u32, usize> {
+    fn by_id(lib: &Library) -> FxHashMap<u32, usize> {
         lib.tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect()
     }
 
@@ -745,11 +745,11 @@ mod tests {
             "newest first, in the order played; what isn't on the drive left out and counted"
         );
         // Beside the sessions, under Browse.
-        let all = HashMap::from([
+        let all = FxHashMap::from_iter([
             (Category::Sets, g),
             (Category::History, groups(&lib, Category::History, &ids, &Problems::default(), None, &sets)),
         ]);
-        let t = tree(&lib, &HashSet::from([NodeId::Browse, NodeId::Category(Category::Sets)]), &all);
+        let t = tree(&lib, &FxHashSet::from_iter([NodeId::Browse, NodeId::Category(Category::Sets)]), &all);
         let names: Vec<String> = t.iter().map(|n| format!("{}{} {}", "-".repeat(n.depth), n.name, n.count)).collect();
         assert_eq!(
             names[2..7],
@@ -769,12 +769,12 @@ mod tests {
     fn tree_shows_categories_under_browse_and_the_playlists() {
         let lib = library();
         let ids = by_id(&lib);
-        let all: HashMap<Category, Vec<Group>> =
+        let all: FxHashMap<Category, Vec<Group>> =
             Category::ALL.iter().map(|&c| (c, groups(&lib, c, &ids, &Problems::default(), None, &[]))).collect();
         let names = |t: &[Node]| t.iter().map(|n| format!("{}{}", "-".repeat(n.depth), n.name)).collect::<Vec<_>>();
-        let closed = tree(&lib, &HashSet::new(), &all);
+        let closed = tree(&lib, &FxHashSet::default(), &all);
         assert_eq!(names(&closed), ["All tracks", "Browse", "Sets"]);
-        let open = HashSet::from([NodeId::Browse, NodeId::Category(Category::Key), NodeId::Playlist(1)]);
+        let open = FxHashSet::from_iter([NodeId::Browse, NodeId::Category(Category::Key), NodeId::Playlist(1)]);
         let t = tree(&lib, &open, &all);
         assert_eq!(
             names(&t),
@@ -895,7 +895,7 @@ mod tests {
             t.bitrate = [320, 256, 1411, 320][i];
             t.color = [None, Some(TrackColor::Red), Some(TrackColor::Pink), None][i];
         }
-        let mut labels = HashSet::new();
+        let mut labels = FxHashSet::default();
         for field in EVERY_FIELD {
             let mut refs: Vec<&Track> = lib.tracks.iter().collect();
             locallibrary::query::sort_tracks(&mut refs, &[SortKey { field, descending: false }]);
@@ -925,8 +925,8 @@ mod tests {
             track_ids: Vec::new(),
         };
         let lib = Library { playlists: vec![folder(1, None), folder(2, Some(1)), folder(1, Some(2))], ..library() };
-        let expanded: HashSet<NodeId> = [NodeId::Playlist(1), NodeId::Playlist(2)].into();
-        let t = tree(&lib, &expanded, &HashMap::new());
+        let expanded: FxHashSet<NodeId> = [NodeId::Playlist(1), NodeId::Playlist(2)].into_iter().collect();
+        let t = tree(&lib, &expanded, &FxHashMap::default());
         assert!(t.len() > 2, "{} rows", t.len());
         let looped = Library { playlists: vec![folder(1, Some(2)), folder(2, Some(1))], ..library() };
         let paths = playlist_paths(&looped);

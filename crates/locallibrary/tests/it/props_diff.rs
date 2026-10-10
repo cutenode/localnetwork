@@ -247,7 +247,7 @@ fn entry_changes_account_for_every_entry(tc: TestCase) {
         assert_eq!(stay(&left, &out_left), stay(&right, &out_right));
         // Pair the k-th copy of a file on the left with its k-th copy on the right: the paired
         // right positions, in left order, have a longest increasing run of `paired - moved`.
-        let mut seen = std::collections::HashMap::<&str, usize>::new();
+        let mut seen = rustc_hash::FxHashMap::<&str, usize>::default();
         let mut rights = Vec::new();
         for k in &left {
             let n = seen.entry(k).or_default();

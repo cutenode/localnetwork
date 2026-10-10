@@ -2,13 +2,13 @@
 //! in the store and for ejecting drives, so they can be shown and confirmed like every other
 //! operation, and a drive's My Tags by track, to show them beside its tracks.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use super::{DriveRef, EjectDrives, PullRequest, resolve_drive};
+use super::{DriveRef, EjectDrives, PullRequest, resolve_drive, resolve_one_drive};
 use crate::compare::{self, Relation, Side};
 use crate::device::Device;
 use crate::eject::{self, EjectReport};
@@ -160,7 +160,7 @@ impl EjectTarget {
 /// commands would act on the disk the folder is on), and for one whose disk also holds the store
 /// (at `store_root`) or this program, which ejecting would take away from under them.
 pub(super) fn eject_target(spec: &str, store_root: Option<&Path>) -> Result<(Device, EjectTarget)> {
-    let d = resolve_drive(spec)?;
+    let d = resolve_one_drive(spec)?;
     let Some((disk, volume)) = crate::doctor::volume_of(d.root()) else {
         return Err(Error::invalid(format!(
             "{} isn't the root of a volume mounted from a disk: there's nothing to eject",
@@ -197,7 +197,7 @@ pub fn drive_eject_plan(store_root: Option<&Path>, req: &EjectDrives) -> Result<
     }
     let mut drives = Vec::new();
     let mut touched = Vec::new();
-    for spec in &req.drives {
+    for spec in &super::expand_libraries(&req.drives)?.0 {
         let (d, target) = eject_target(spec, store_root)?;
         drives.push(target);
         touched.push(Touched::drive(&d, false, vec![Probe::Identity]));
@@ -230,6 +230,6 @@ impl Operation for EjectPlan {
 
 /// Each tagged track's My Tags (`Category/Tag`, in display order) by the track's file key in
 /// lower case, from both databases (see [`crate::tags::by_track`]).
-pub fn tags_by_track(req: &DriveRef) -> Result<HashMap<String, Vec<String>>> {
+pub fn tags_by_track(req: &DriveRef) -> Result<FxHashMap<String, Vec<String>>> {
     crate::tags::by_track(&resolve_drive(&req.drive)?)
 }

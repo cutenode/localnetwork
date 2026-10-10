@@ -6,7 +6,9 @@
 //! audio copied onto the drive by hand (players list it when browsing folders, with no
 //! analysis). [`forecast`] fits the library's growth across its stored snapshots.
 
-use std::collections::{BTreeMap, HashSet};
+use indexmap::IndexMap;
+
+use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
@@ -27,7 +29,7 @@ pub const PLAYER_HEADROOM: u64 = 200 * 1000 * 1000;
 /// Audio file extensions players can list.
 pub const AUDIO_EXTENSIONS: [&str; 9] = ["mp3", "m4a", "aac", "mp4", "flac", "wav", "aif", "aiff", "alac"];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum SpaceKind {
@@ -110,9 +112,9 @@ pub fn is_audio_name(name: &str) -> bool {
 pub fn breakdown(device: &Device, ctx: &Ctx<'_>) -> Result<SpaceReport> {
     let root = device.root();
     let library = device.library().ok();
-    let referenced: HashSet<String> =
+    let referenced: FxHashSet<String> =
         library.iter().flat_map(|l| l.tracks.iter()).map(|t| paths::key(&t.file_path).to_lowercase()).collect();
-    let mut by_kind: BTreeMap<SpaceKind, (usize, u64)> = BTreeMap::new();
+    let mut by_kind: IndexMap<SpaceKind, (usize, u64)> = IndexMap::new();
     let mut loose = Vec::new();
     let mut unreadable = 0;
     ctx.phase_start(Phase::Scan, 0, 0);
@@ -173,7 +175,7 @@ pub fn breakdown(device: &Device, ctx: &Ctx<'_>) -> Result<SpaceReport> {
     ctx.phase_end(Phase::Scan);
     let mut categories: Vec<SpaceCategory> =
         by_kind.into_iter().map(|(kind, (files, bytes))| SpaceCategory { kind, files, bytes }).collect();
-    categories.sort_by_key(|c| std::cmp::Reverse(c.bytes));
+    categories.sort_by_key(|c| (std::cmp::Reverse(c.bytes), c.kind));
     loose.sort_by_key(|f| std::cmp::Reverse(f.size));
     loose.truncate(50);
     Ok(SpaceReport {
@@ -190,7 +192,7 @@ pub fn breakdown(device: &Device, ctx: &Ctx<'_>) -> Result<SpaceReport> {
     })
 }
 
-fn classify(key: &str, name: &str, referenced: &HashSet<String>) -> SpaceKind {
+fn classify(key: &str, name: &str, referenced: &FxHashSet<String>) -> SpaceKind {
     if key.split('/').any(|c| c.starts_with("._") || paths::is_ignored_name(c)) {
         return SpaceKind::OsClutter;
     }
@@ -376,7 +378,7 @@ mod tests {
 
     #[test]
     fn classifies_files() {
-        let referenced: HashSet<String> = ["music/a.mp3".to_string()].into();
+        let referenced: FxHashSet<String> = ["music/a.mp3".to_string()].into_iter().collect();
         assert_eq!(classify("Contents/x.mp3", "x.mp3", &referenced), SpaceKind::Audio);
         assert_eq!(classify("Music/A.mp3", "A.mp3", &referenced), SpaceKind::Audio);
         assert_eq!(classify("Music/b.mp3", "b.mp3", &referenced), SpaceKind::LooseAudio);
@@ -392,7 +394,7 @@ mod tests {
 
     #[test]
     fn classifies_what_rekordbox_keeps_besides_the_library() {
-        let none = HashSet::new();
+        let none = FxHashSet::default();
         assert_eq!(classify("PIONEER/Artwork/00001/a1.jpg", "a1.jpg", &none), SpaceKind::Artwork);
         assert_eq!(
             classify("PIONEER/rekordbox/exportLibrary.db-shm", "exportLibrary.db-shm", &none),

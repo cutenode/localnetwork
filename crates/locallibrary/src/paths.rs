@@ -1,15 +1,18 @@
 //! Drive-relative path keys and the rules for which files locallibrary manages.
 //!
-//! Every file on a drive is identified by a *key*: its path relative to the drive root,
-//! `/`-separated, Unicode NFC-normalised, without a leading slash (`Contents/A/B/x.mp3`).
-//! Normalising matters: rekordbox writes NFC names, while macOS may hand back NFD names when
-//! listing a directory, and the same track must compare equal either way.
+//! Every file on a drive is identified by a *key* ([`key`], from [`loclib_model::paths`]): its
+//! path relative to the drive root, `/`-separated, Unicode NFC-normalised, without a leading slash
+//! (`Contents/A/B/x.mp3`). Normalising matters: rekordbox writes NFC names, while macOS may hand
+//! back NFD names when listing a directory, and the same track must compare equal either way.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use unicode_normalization::UnicodeNormalization;
+
+pub use loclib_model::paths::{key, sanitize_component, to_fs};
+
+use loclib_model::paths::is_safe_component;
 
 pub const PIONEER_DIR: &str = "PIONEER";
 pub const CONTENTS_DIR: &str = "Contents";
@@ -46,31 +49,9 @@ pub fn is_export_root(dir: &Path) -> bool {
     to_fs(dir, EXPORT_PDB).is_file() || to_fs(dir, LIBRARY_PLUS_DB).is_file()
 }
 
-/// Normalise any path-ish string into a key.
-pub fn key(s: &str) -> String {
-    let s: String = s.nfc().collect();
-    let s = s.replace('\\', "/");
-    s.trim_start_matches('/').to_string()
-}
-
 /// Convert a key back into the absolute device path format used inside `export.pdb`.
 pub fn device_path(key: &str) -> String {
     format!("/{key}")
-}
-
-/// Resolve a key below a drive root. Components that could climb out of the root (`..`,
-/// `.`, drive prefixes like `C:`) are dropped, so the result is always lexically inside `root`.
-/// Keys from untrusted databases should be checked with [`is_safe_key`] first.
-pub fn to_fs(root: &Path, key: &str) -> PathBuf {
-    let mut p = root.to_path_buf();
-    for part in key.split('/').filter(|c| is_safe_component(c)) {
-        p.push(part);
-    }
-    p
-}
-
-fn is_safe_component(c: &str) -> bool {
-    !c.is_empty() && c != "." && c != ".." && !c.contains([':', '\\', '\0'])
 }
 
 /// Whether a key (typically a path read from a drive's database) is a plain relative path that
@@ -202,34 +183,6 @@ fn is_settings_file(name: &str) -> bool {
     upper.ends_with(".DAT") && upper.contains("SETTING")
 }
 
-/// Make a string safe to use as a single path component on FAT32/exFAT.
-pub fn sanitize_component(s: &str) -> String {
-    let cleaned: String = s
-        .chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            c if c.is_control() => '_',
-            c => c,
-        })
-        .collect();
-    // Windows drops trailing dots and spaces in any order ("x ." is "x").
-    let mut out = cleaned.trim_start().trim_end_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
-    // Nor can Windows open a file named after a device, with or without an extension ("nul.txt").
-    let stem = out.split('.').next().unwrap_or("").trim_end();
-    if is_reserved_name(stem) {
-        out.insert(stem.len(), '_');
-    }
-    if out.is_empty() { "_".into() } else { out }
-}
-
-fn is_reserved_name(stem: &str) -> bool {
-    let upper = stem.to_ascii_uppercase();
-    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || (upper.len() == 4
-            && (upper.starts_with("COM") || upper.starts_with("LPT"))
-            && matches!(upper.as_bytes()[3], b'1'..=b'9'))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,17 +258,5 @@ mod tests {
         }
         assert!(is_safe_key("Contents/A/x.mp3"));
         assert!(is_safe_key("Music/x.mp3"));
-        let root = Path::new("/r");
-        assert_eq!(to_fs(root, "../../etc/passwd"), Path::new("/r/etc/passwd"));
-        assert_eq!(to_fs(root, "C:/x"), Path::new("/r/x"));
-    }
-
-    #[test]
-    fn sanitize() {
-        assert_eq!(sanitize_component("AC/DC: Live?"), "AC_DC_ Live_");
-        assert_eq!(sanitize_component("  ...  "), "_");
-        assert_eq!(sanitize_component("x ."), "x");
-        assert_eq!(sanitize_component("Nul.m3u8"), "Nul_.m3u8");
-        assert_eq!(sanitize_component("COM1"), "COM1_");
     }
 }

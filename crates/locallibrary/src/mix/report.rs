@@ -6,6 +6,7 @@
 use std::borrow::Cow;
 use std::path::{Component, Path, PathBuf, Prefix};
 
+use base64::prelude::*;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ use serde_json::json;
 
 use super::export::{UNNAMED, may_name};
 use super::{MixReport, Play};
-use crate::anlz::TrackAnalysis;
+use crate::anlz::{self, TrackAnalysis};
 use crate::artwork::{self, Artwork};
 use crate::cue_edit::HotCue;
 use crate::device::Device;
@@ -136,7 +137,7 @@ impl<'a> Drive<'a> {
     pub(crate) fn analysis(&self, i: usize, track: &Track) -> Cow<'a, TrackAnalysis> {
         match self.analyses.and_then(|a| a.get(i)) {
             Some(a) => Cow::Borrowed(a),
-            None => Cow::Owned(TrackAnalysis::load(self.device, track)),
+            None => Cow::Owned(anlz::load(self.device, track)),
         }
     }
 }
@@ -199,7 +200,7 @@ pub fn extras(drive: Drive<'_>, play: &Play, i: usize, page: bool) -> PlayExtras
             bytes.push((c.back.height.clamp(0.0, 1.0) * 255.0) as u8);
             bytes.extend(c.back.color);
         }
-        crate::api::base64(&bytes)
+        BASE64_STANDARD.encode(&bytes)
     });
     let beat_secs =
         |beat: u16| analysis.beats.get((beat as usize).saturating_sub(1)).map(|b| b.time_ms as f64 / 1000.0);
@@ -233,7 +234,7 @@ pub fn extras(drive: Drive<'_>, play: &Play, i: usize, page: bool) -> PlayExtras
 }
 
 fn data_url(mime: &str, bytes: &[u8]) -> String {
-    format!("data:{mime};base64,{}", crate::api::base64(bytes))
+    format!("data:{mime};base64,{}", BASE64_STANDARD.encode(bytes))
 }
 
 /// A path's characters a URL takes as they are; the rest are percent-encoded.
@@ -687,7 +688,7 @@ pub(crate) mod tests {
     /// recording by its file name alone), and the tracks the profile hides are "ID - ID".
     #[test]
     fn the_page_holds_only_what_it_shows() {
-        use crate::model::tests::track;
+        use loclib_model::test_util::track;
         let dir = tempfile::tempdir().unwrap();
         let screenshot = dir.path().join("screenshot.png");
         image::RgbImage::new(32, 32).save(&screenshot).unwrap();
@@ -733,7 +734,7 @@ pub(crate) mod tests {
     #[test]
     fn extras_come_from_the_drive_by_file() {
         use crate::anlz::Cue;
-        use crate::model::tests::track;
+        use loclib_model::test_util::track;
         let dir = tempfile::tempdir().unwrap();
         let device = Device::open(dir.path()).unwrap();
         let library = Library { tracks: vec![track(7, "A", "One", "/Contents/one.mp3")], ..Default::default() };

@@ -23,7 +23,10 @@
 //! Snapshots form a DAG through `parents`, so "is X newer than Y" can be answered from
 //! history, and any previous state of a library can be restored onto a drive.
 
-use std::collections::{BTreeMap, HashSet, VecDeque};
+use indexmap::IndexMap;
+use std::collections::VecDeque;
+
+use rustc_hash::FxHashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -277,7 +280,7 @@ pub(crate) struct Garbage {
     /// Stored files and their sizes.
     pub objects: Vec<(Hash, u64)>,
     /// `pruned.json` without what nothing reaches, when that's less.
-    pub pruned: Option<BTreeMap<Hash, PrunedSnapshot>>,
+    pub pruned: Option<IndexMap<Hash, PrunedSnapshot>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]
@@ -441,6 +444,18 @@ impl Store {
             .find(|l| l.name.eq_ignore_ascii_case(name_or_id) || l.id.to_string() == name_or_id))
     }
 
+    /// `base`, or `base 2`, `base 3`... when the store has a library of that name.
+    pub fn unused_library_name(&self, base: &str) -> Result<String> {
+        let mut name = base.to_string();
+        for n in 2.. {
+            if self.find_library(&name)?.is_none() {
+                break;
+            }
+            name = format!("{base} {n}");
+        }
+        Ok(name)
+    }
+
     pub fn library_by_id(&self, id: Uuid) -> Result<Option<LibraryRecord>> {
         Ok(self.libraries()?.into_iter().find(|l| l.id == id))
     }
@@ -568,6 +583,7 @@ impl Store {
                 ids.push(h);
             }
         }
+        ids.sort_unstable();
         Ok(ids)
     }
 
@@ -600,7 +616,7 @@ impl Store {
     /// A snapshot's [`SnapshotInfo`], with its labels.
     pub fn snapshot_info(&self, snapshot: &Snapshot) -> Result<SnapshotInfo> {
         let mut info = snapshot.info();
-        info.labels = self.labels_by_snapshot()?.remove(&snapshot.id).unwrap_or_default();
+        info.labels = self.labels_by_snapshot()?.shift_remove(&snapshot.id).unwrap_or_default();
         Ok(info)
     }
 
@@ -616,8 +632,8 @@ impl Store {
     }
 
     /// Label names by snapshot.
-    pub fn labels_by_snapshot(&self) -> Result<BTreeMap<Hash, Vec<String>>> {
-        let mut out: BTreeMap<Hash, Vec<String>> = BTreeMap::new();
+    pub fn labels_by_snapshot(&self) -> Result<IndexMap<Hash, Vec<String>>> {
+        let mut out: IndexMap<Hash, Vec<String>> = IndexMap::new();
         for l in self.labels()? {
             out.entry(l.snapshot).or_default().push(l.name);
         }
@@ -669,7 +685,7 @@ impl Store {
     /// Whether `ancestor` is reachable from `descendant` through parents (inclusive).
     pub fn is_ancestor(&self, ancestor: &Hash, descendant: &Hash) -> Result<bool> {
         let pruned = self.pruned()?;
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         let mut queue = VecDeque::from([*descendant]);
         while let Some(id) = queue.pop_front() {
             if &id == ancestor {
@@ -688,7 +704,7 @@ impl Store {
     // -- pruning ----------------------------------------------------------------------------
 
     /// Snapshots `store prune` removed, by id.
-    pub fn pruned(&self) -> Result<BTreeMap<Hash, PrunedSnapshot>> {
+    pub fn pruned(&self) -> Result<IndexMap<Hash, PrunedSnapshot>> {
         Ok(fsutil::read_json_opt(&self.root.join("pruned.json"))?.unwrap_or_default())
     }
 
@@ -696,8 +712,8 @@ impl Store {
     /// [`crate::retention`], which decides which). A library's latest snapshot and labelled ones
     /// are refused. Their files stay until [`Store::gc`].
     pub fn forget_snapshots(&self, ids: &[Hash]) -> Result<()> {
-        let heads: HashSet<Hash> = self.libraries()?.iter().filter_map(|l| l.head).collect();
-        let labelled: HashSet<Hash> = self.labels()?.iter().map(|l| l.snapshot).collect();
+        let heads: FxHashSet<Hash> = self.libraries()?.iter().filter_map(|l| l.head).collect();
+        let labelled: FxHashSet<Hash> = self.labels()?.iter().map(|l| l.snapshot).collect();
         let mut pruned = self.pruned()?;
         let mut doomed = Vec::new();
         for id in ids {
@@ -734,7 +750,7 @@ impl Store {
 
     // -- drives -----------------------------------------------------------------------------
 
-    pub fn drives(&self) -> Result<BTreeMap<Uuid, DriveRecord>> {
+    pub fn drives(&self) -> Result<IndexMap<Uuid, DriveRecord>> {
         Ok(fsutil::read_json_opt(&self.root.join("drives.json"))?.unwrap_or_default())
     }
 
@@ -743,7 +759,7 @@ impl Store {
     /// (`drives.lock`, waited for, and taken whether or not the caller holds the store's), so a
     /// CLI and the sidecar recording at once don't drop each other's changes. `f` mustn't
     /// change the registry itself.
-    pub fn update_drives<T>(&self, f: impl FnOnce(&mut BTreeMap<Uuid, DriveRecord>) -> Result<T>) -> Result<T> {
+    pub fn update_drives<T>(&self, f: impl FnOnce(&mut IndexMap<Uuid, DriveRecord>) -> Result<T>) -> Result<T> {
         let _lock = fsutil::FileLock::wait(&self.root.join("drives.lock"))?;
         let mut drives = self.drives()?;
         let before = serde_json::to_value(&drives).map_err(|e| Error::invalid(e.to_string()))?;
@@ -755,7 +771,7 @@ impl Store {
     }
 
     pub fn forget_drive(&self, id: Uuid) -> Result<bool> {
-        self.update_drives(|drives| Ok(drives.remove(&id).is_some()))
+        self.update_drives(|drives| Ok(drives.shift_remove(&id).is_some()))
     }
 
     // -- settings ---------------------------------------------------------------------------
@@ -857,7 +873,7 @@ impl Store {
     /// belongs to and which files it uses, so then nothing is deleted. Unless `dry_run`, the
     /// caller holds the store's lock.
     pub fn gc(&self, dry_run: bool) -> Result<GcReport> {
-        let g = self.garbage(&HashSet::new())?;
+        let g = self.garbage(&FxHashSet::default())?;
         let leftovers = self.leftovers()?;
         let report = GcReport {
             removed_snapshots: g.snapshots.len(),
@@ -888,19 +904,19 @@ impl Store {
     /// What [`Store::gc`] would delete once the `forgotten` snapshots are gone as well (what
     /// `store prune` plans to remove: it says what that frees this way). Every manifest is read
     /// first, and nothing is planned if one can't be.
-    pub(crate) fn garbage(&self, forgotten: &HashSet<Hash>) -> Result<Garbage> {
+    pub(crate) fn garbage(&self, forgotten: &FxHashSet<Hash>) -> Result<Garbage> {
         let libs = self.libraries()?;
-        let libraries: HashSet<Uuid> = libs.iter().map(|l| l.id).collect();
-        let mut roots: HashSet<Hash> = self.labels()?.iter().map(|l| l.snapshot).collect();
+        let libraries: FxHashSet<Uuid> = libs.iter().map(|l| l.id).collect();
+        let mut roots: FxHashSet<Hash> = self.labels()?.iter().map(|l| l.snapshot).collect();
         roots.extend(libs.iter().filter_map(|l| l.head));
         let mut pruned = self.pruned()?;
-        let mut live = HashSet::new();
+        let mut live = FxHashSet::default();
         let mut queue = VecDeque::new();
         // Snapshots of no library, until a snapshot that stays turns out to descend from one:
         // their parents and files.
-        let mut orphans: BTreeMap<Hash, (Vec<Hash>, Vec<Hash>)> = BTreeMap::new();
+        let mut orphans: IndexMap<Hash, (Vec<Hash>, Vec<Hash>)> = IndexMap::new();
         // Forgotten snapshots walk on to their parents, as pruned ones do.
-        let mut gone: BTreeMap<Hash, Vec<Hash>> = BTreeMap::new();
+        let mut gone: IndexMap<Hash, Vec<Hash>> = IndexMap::new();
         for id in self.snapshot_ids()? {
             let s = self.load_snapshot(&id)?;
             let files = s.files.iter().filter_map(|f| f.hash);
@@ -913,12 +929,12 @@ impl Store {
                 orphans.insert(id, (s.parents, files.collect()));
             }
         }
-        let mut reached = HashSet::new();
+        let mut reached = FxHashSet::default();
         while let Some(id) = queue.pop_front() {
             if !reached.insert(id) {
                 continue;
             }
-            if let Some((parents, files)) = orphans.remove(&id) {
+            if let Some((parents, files)) = orphans.shift_remove(&id) {
                 live.extend(files);
                 queue.extend(parents);
             } else if let Some(parents) = gone.get(&id) {
@@ -938,7 +954,7 @@ impl Store {
     /// Re-hash every object referenced by any snapshot.
     pub fn verify(&self, ctx: &Ctx<'_>) -> Result<VerifyReport> {
         let mut report = VerifyReport::default();
-        let mut wanted: BTreeMap<Hash, String> = BTreeMap::new();
+        let mut wanted: IndexMap<Hash, String> = IndexMap::new();
         for id in self.snapshot_ids()? {
             for f in self.load_snapshot(&id)?.files {
                 if let Some(h) = f.hash {

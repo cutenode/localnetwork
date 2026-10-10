@@ -19,7 +19,9 @@
 //! files from store objects or another mounted drive, verifying every byte on the way, then
 //! reads them back.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
+
+use rustc_hash::FxHashMap;
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -141,7 +143,7 @@ pub struct ScrubOptions {
 
 /// Expected contents, per file key (folded to lower case).
 struct References<'a> {
-    exact: Option<HashMap<String, &'a FileEntry>>,
+    exact: Option<FxHashMap<String, &'a FileEntry>>,
     history: Vec<&'a Snapshot>,
     index: HashIndex,
 }
@@ -253,7 +255,7 @@ pub fn scrub(
     let total: u64 = keys.iter().map(|k| tree.entries[k].size).sum();
 
     // 1. Read everything.
-    let mut unreadable_errors: HashMap<String, String> = HashMap::new();
+    let mut unreadable_errors: FxHashMap<String, String> = FxHashMap::default();
     ctx.phase_start(Phase::Verify, keys.len() as u64, total);
     for key in &keys {
         ctx.check()?;
@@ -510,7 +512,7 @@ pub fn repair(
     // Each copy is verified against the expected hash as it's staged; one that can't be made
     // is reported and the others go in. There's no backup: what's written back is a good copy of
     // the same state.
-    let mut expected: HashMap<String, (FileClass, Hash, u64)> = HashMap::new();
+    let mut expected: FxHashMap<String, (FileClass, Hash, u64)> = FxHashMap::default();
     let mut files = Vec::new();
     for (p, hash, src) in &todo {
         let dst_key = tree.resolve(&p.path).map(|e| e.path.clone()).unwrap_or_else(|| p.path.clone());

@@ -13,7 +13,9 @@
 //! drive replaces its databases, and `replay` puts the recorded edits back. My Tag and cue edits
 //! ([`crate::tags`], [`crate::cue_edit`]) are recorded there too, and a replay makes them first.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use indexmap::IndexMap;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
@@ -527,7 +529,7 @@ impl EditDb for ModelDb<'_> {
         if set.is_empty() {
             return Ok(());
         }
-        let rows: HashMap<u32, &rekordbox_pdb::Track> = db.tracks.iter().map(|t| (t.id, t)).collect();
+        let rows: FxHashMap<u32, &rekordbox_pdb::Track> = db.tracks.iter().map(|t| (t.id, t)).collect();
         for t in self.lib.tracks.iter().filter(|t| ids.contains(&t.id)) {
             let mut after = t.clone();
             f.apply_to(&mut after);
@@ -594,7 +596,7 @@ impl PdbDb {
     /// Remove candidate lookup rows no track (or album) references.
     fn prune(&mut self) -> Result<()> {
         let db = self.editor.database()?;
-        let mut used: HashMap<u32, HashSet<u32>> = HashMap::new();
+        let mut used: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
         let mut note = |t: TableType, id: u32| {
             used.entry(t as u32).or_default().insert(id);
         };
@@ -608,8 +610,8 @@ impl PdbDb {
             note(TableType::Keys, t.key_id);
             note(TableType::Artwork, t.artwork_id);
         }
-        let albums: HashMap<u32, u32> = db.albums.iter().map(|a| (a.id, a.artist_id)).collect();
-        let unused = |t: TableType, id: u32, used: &HashMap<u32, HashSet<u32>>| {
+        let albums: FxHashMap<u32, u32> = db.albums.iter().map(|a| (a.id, a.artist_id)).collect();
+        let unused = |t: TableType, id: u32, used: &FxHashMap<u32, FxHashSet<u32>>| {
             id != 0 && !used.get(&(t as u32)).is_some_and(|u| u.contains(&id))
         };
         let mut gone: Vec<(TableType, u32)> = Vec::new();
@@ -816,7 +818,7 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
         Ok(())
     };
     let ids_of = |lib: &Library, keys: &[String]| -> (Vec<u32>, Vec<String>) {
-        let by_key: HashMap<String, u32> = lib.tracks.iter().map(|t| (tkey(t), t.id)).collect();
+        let by_key: FxHashMap<String, u32> = lib.tracks.iter().map(|t| (tkey(t), t.id)).collect();
         let mut missing = Vec::new();
         let ids = keys
             .iter()
@@ -1133,7 +1135,7 @@ impl<'a> Resolver<'a> {
         if !self.lenient {
             return files.to_vec();
         }
-        let have: HashSet<String> = lib.tracks.iter().map(tkey).collect();
+        let have: FxHashSet<String> = lib.tracks.iter().map(tkey).collect();
         let (kept, gone): (Vec<String>, Vec<String>) =
             files.iter().cloned().partition(|f| have.contains(&paths::key(f).to_lowercase()));
         if let Some(example) = gone.first() {
@@ -1262,7 +1264,7 @@ impl<'a> Resolver<'a> {
                 let mut ops = vec![Op::Delete { node, folder: p.is_folder }];
                 let mut recorded = vec![Edit::DeletePlaylist { playlist: named(p), with_tracks: false }];
                 if *with_tracks {
-                    let mut inside = HashSet::from([p.id]);
+                    let mut inside = FxHashSet::from_iter([p.id]);
                     let mut queue = vec![p.id];
                     while let Some(id) = queue.pop() {
                         for c in lib.children(Some(id)) {
@@ -1270,7 +1272,7 @@ impl<'a> Resolver<'a> {
                             queue.push(c.id);
                         }
                     }
-                    let used_elsewhere: HashSet<u32> = lib
+                    let used_elsewhere: FxHashSet<u32> = lib
                         .playlists
                         .iter()
                         .filter(|q| !inside.contains(&q.id))
@@ -1329,11 +1331,11 @@ impl<'a> Resolver<'a> {
             Edit::RemoveTracks { playlist: spec, tracks, positions } => {
                 let p = list(lib, spec)?;
                 let old = entries(p);
-                let doomed: HashSet<u32> = match tracks {
+                let doomed: FxHashSet<u32> = match tracks {
                     Some(sel) => self.select(lib, sel, true)?.into_iter().collect(),
-                    None => HashSet::new(),
+                    None => FxHashSet::default(),
                 };
-                let at: HashSet<usize> = indexes(positions, old.len())?.into_iter().collect();
+                let at: FxHashSet<usize> = indexes(positions, old.len())?.into_iter().collect();
                 if tracks.is_none() && positions.is_empty() {
                     return Err(Error::invalid("say which tracks or positions to remove"));
                 }
@@ -1352,7 +1354,7 @@ impl<'a> Resolver<'a> {
                     .filter(|(i, t)| at.contains(i) || doomed.contains(t))
                     .map(|(_, t)| *t)
                     .collect();
-                let mut seen = HashSet::new();
+                let mut seen = FxHashSet::default();
                 removed.retain(|t| seen.insert(*t));
                 let canonical = match removed.iter().any(|t| new.contains(t)) {
                     false => Edit::RemoveTracks {
@@ -1378,7 +1380,7 @@ impl<'a> Resolver<'a> {
                 // Recorded as the files it moved coming out and going back in at `to`, so a replay
                 // leaves entries a later export added; when those files have other entries too,
                 // as what it left.
-                let alone = moving.iter().collect::<HashSet<_>>().len() == moving.len()
+                let alone = moving.iter().collect::<FxHashSet<_>>().len() == moving.len()
                     && !rest.iter().any(|t| moving.contains(t));
                 let playlist = lib.playlist_path(p.id);
                 let files = TrackSelector::paths(Self::device_paths(lib, &moving));
@@ -1456,7 +1458,7 @@ impl<'a> Resolver<'a> {
             }
             Edit::Dedupe { playlist: spec, recordings } => {
                 let p = list(lib, spec)?;
-                let mut seen = HashSet::new();
+                let mut seen = FxHashSet::default();
                 let new: Vec<u32> = entries(p)
                     .into_iter()
                     .filter(|id| {
@@ -1472,7 +1474,7 @@ impl<'a> Resolver<'a> {
             }
             Edit::PlanSet { playlist: spec, start, into } => {
                 let p = list(lib, spec)?;
-                let mut seen = HashSet::new();
+                let mut seen = FxHashSet::default();
                 let ids: Vec<u32> = p.track_ids.iter().copied().filter(|id| seen.insert(*id)).collect();
                 let tracks = lib.tracks_by_id(&ids);
                 let start = match start {
@@ -1547,7 +1549,7 @@ impl<'a> Resolver<'a> {
             Edit::DeleteHistory { names, all } => {
                 let lists: Vec<&Playlist> = lib.history.iter().filter(|h| !h.is_folder).collect();
                 let mut picked = Vec::new();
-                let mut counts: HashMap<&str, usize> = HashMap::new();
+                let mut counts: FxHashMap<&str, usize> = FxHashMap::default();
                 for h in &lists {
                     let nth = counts.entry(h.name.as_str()).or_default();
                     if *all || names.iter().any(|n| n.trim().eq_ignore_ascii_case(&h.name)) {
@@ -1622,11 +1624,11 @@ impl<'a> Resolver<'a> {
     }
 
     /// Each track's energy from rekordbox's phrase analysis (1 low, 2 mid, 3 high), where known.
-    fn energy(&self, tracks: &[&Track]) -> HashMap<u32, f64> {
+    fn energy(&self, tracks: &[&Track]) -> FxHashMap<u32, f64> {
         tracks
             .iter()
             .filter_map(|t| {
-                let a = crate::anlz::TrackAnalysis::load(self.device, t);
+                let a = crate::anlz::load(self.device, t);
                 let mood = a.structure.as_ref()?.mood;
                 Some((
                     t.id,
@@ -1812,7 +1814,7 @@ fn plan_with(
     let mut ops = Vec::new();
     let mut recorded = Vec::new();
     // Tracks deleted by an edit that keeps their files (the others' files go).
-    let mut kept: HashSet<String> = HashSet::new();
+    let mut kept: FxHashSet<String> = FxHashSet::default();
     for edit in &rest {
         ctx.check()?;
         let resolved = resolver.resolve(edit, &model.lib).and_then(|(edit_ops, desc, canonical)| {
@@ -1863,7 +1865,7 @@ fn plan_with(
     let diff = LibraryDiff::between(primary, after);
     // Playlists matched by key, as the diff matches them: same-named siblings share a path, and
     // each reports its own numbers.
-    let before: HashMap<PlaylistKey, &Playlist> = primary.keyed_playlists().map(|(k, _, p)| (k, p)).collect();
+    let before: FxHashMap<PlaylistKey, &Playlist> = primary.keyed_playlists().map(|(k, _, p)| (k, p)).collect();
     let playlists_changed = after
         .keyed_playlists()
         .filter(|(_, _, p)| !p.is_folder)
@@ -1872,7 +1874,8 @@ fn plan_with(
             if old == new {
                 return None;
             }
-            let (o, n): (HashSet<u32>, HashSet<u32>) = (old.iter().copied().collect(), new.iter().copied().collect());
+            let (o, n): (FxHashSet<u32>, FxHashSet<u32>) =
+                (old.iter().copied().collect(), new.iter().copied().collect());
             let mut o_sorted = old.clone();
             let mut n_sorted = new.clone();
             o_sorted.sort_unstable();
@@ -1887,10 +1890,11 @@ fn plan_with(
             };
             Some((key, change))
         })
-        .collect::<BTreeMap<_, _>>()
-        .into_values()
+        .collect::<IndexMap<_, _>>()
+        .sorted_unstable_by(|a, _, b, _| a.cmp(b))
+        .map(|(_, change)| change)
         .collect();
-    let doomed: HashSet<String> = ops
+    let doomed: FxHashSet<String> = ops
         .iter()
         .filter_map(|op| match op {
             Op::DeleteTracks { tracks } => Some(tracks.iter().cloned()),
@@ -1900,7 +1904,7 @@ fn plan_with(
         .collect();
     let tracks_removed: Vec<TrackRef> =
         primary.tracks.iter().filter(|t| doomed.contains(&tkey(t))).map(TrackRef::from).collect();
-    let edited: HashSet<String> = ops
+    let edited: FxHashSet<String> = ops
         .iter()
         .filter_map(|op| match op {
             Op::SetFields { tracks, .. } => Some(tracks.iter().cloned()),
@@ -1910,14 +1914,14 @@ fn plan_with(
         .collect();
     // Only tracks whose fields end up different: replaying an edit that's still in place, or
     // setting what a track already holds, changes nothing.
-    let was: HashMap<u32, &Track> = primary.tracks.iter().map(|t| (t.id, t)).collect();
+    let was: FxHashMap<u32, &Track> = primary.tracks.iter().map(|t| (t.id, t)).collect();
     let tracks_changed =
         after.tracks.iter().filter(|t| edited.contains(&tkey(t)) && was.get(&t.id).is_some_and(|w| *w != *t)).count();
     let history_removed =
         primary.history.iter().filter(|h| !h.is_folder).count() - after.history.iter().filter(|h| !h.is_folder).count();
 
     // Files the removed tracks leave unused.
-    let mut files = BTreeMap::new();
+    let mut files = IndexMap::new();
     if doomed.iter().any(|k| !kept.contains(k)) {
         let libraries: Vec<&Library> =
             dbs.pdb.iter().map(|(_, _, l)| l).chain(dbs.plus.iter().map(|(l, _)| l)).collect();
@@ -1994,7 +1998,7 @@ fn plan_with(
 }
 
 fn dedup(v: Vec<String>) -> Vec<String> {
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
     v.into_iter().filter(|w| seen.insert(w.clone())).collect()
 }
 
@@ -2002,21 +2006,21 @@ fn dedup(v: Vec<String>) -> Vec<String> {
 /// playlists and folders by key, so same-named siblings stay apart).
 #[derive(Debug, PartialEq)]
 struct Shape<'a> {
-    tracks: BTreeMap<String, Track>,
+    tracks: IndexMap<String, Track>,
     /// Path and entries.
-    playlists: BTreeMap<PlaylistKey<'a>, (String, Vec<String>)>,
+    playlists: IndexMap<PlaylistKey<'a>, (String, Vec<String>)>,
     /// The names and kinds of each folder's children in order (the top level's under an empty
     /// key).
-    order: BTreeMap<PlaylistKey<'a>, Vec<(&'a str, bool)>>,
+    order: IndexMap<PlaylistKey<'a>, Vec<(&'a str, bool)>>,
     history: Vec<(String, Vec<String>)>,
 }
 
 fn shape(lib: &Library) -> Shape<'_> {
-    let keys: HashMap<u32, String> = lib.tracks.iter().map(|t| (t.id, tkey(t))).collect();
+    let keys: FxHashMap<u32, String> = lib.tracks.iter().map(|t| (t.id, tkey(t))).collect();
     let entries = |ids: &[u32]| ids.iter().map(|id| keys.get(id).cloned().unwrap_or_default()).collect::<Vec<_>>();
     let kids = |parent| lib.children(parent).into_iter().map(|p| (p.name.as_str(), p.is_folder)).collect();
-    let mut order = BTreeMap::from([(Vec::new(), kids(None))]);
-    let mut playlists = BTreeMap::new();
+    let mut order = IndexMap::from([(Vec::new(), kids(None))]);
+    let mut playlists = IndexMap::new();
     for (key, path, p) in lib.keyed_playlists() {
         if p.is_folder {
             order.insert(key.clone(), kids(Some(p.id)));
@@ -2353,7 +2357,7 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
         return Err(Error::invalid("choose at least one playlist or folder to pack"));
     }
     // Chosen nodes with everything below them, and the folders above them.
-    let mut keep: HashSet<u32> = HashSet::new();
+    let mut keep: FxHashSet<u32> = FxHashSet::default();
     for spec in playlists {
         let p = playlist(&primary, spec)?;
         let mut queue = vec![p.id];
@@ -2374,7 +2378,7 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
             ops.push(Op::Delete { node: primary.playlist_names(p.id), folder: p.is_folder });
         }
     }
-    let used: HashSet<u32> = primary
+    let used: FxHashSet<u32> = primary
         .playlists
         .iter()
         .filter(|p| keep.contains(&p.id))
@@ -2386,7 +2390,7 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
         ops.push(Op::DeleteTracks { tracks: dropped });
     }
     if !history {
-        let mut counts: HashMap<&str, usize> = HashMap::new();
+        let mut counts: FxHashMap<&str, usize> = FxHashMap::default();
         let lists: Vec<(String, usize)> = primary
             .history
             .iter()
@@ -2543,33 +2547,49 @@ pub mod journal {
     }
 
     /// Each of the drive's backups by id, and its place among them (0: the newest).
-    fn order(device: &Device) -> Result<HashMap<String, usize>> {
+    fn order(device: &Device) -> Result<FxHashMap<String, usize>> {
         Ok(crate::backup::list(device)?.into_iter().enumerate().map(|(i, b)| (b.id, i)).collect())
     }
 
     /// Whether restoring `backup` takes `e` back: `e`'s own backup is that one or a later one (in
     /// the order the drive's backups were made, as computers' clocks differ), or, when it has none
     /// left, `e` was recorded after `backup` was made.
-    fn undoes(order: &HashMap<String, usize>, backup: &crate::backup::BackupInfo, e: &JournalEntry) -> bool {
+    fn undoes(order: &FxHashMap<String, usize>, backup: &crate::backup::BackupInfo, e: &JournalEntry) -> bool {
         match (e.backup.as_ref().and_then(|id| order.get(id)), order.get(&backup.id)) {
             (Some(own), Some(restored)) => own <= restored,
             _ => e.backup.as_deref() == Some(backup.id.as_str()) || e.at >= backup.created,
         }
     }
 
-    /// Forget every recorded edit: the drive got a whole library from elsewhere (a sync, push or
-    /// pack), and they were made to the one it replaced. A journal this build can't read goes too.
+    /// Forget every recorded edit: the drive got a whole library from a snapshot (a push) or a
+    /// pack, and they were made to the one it replaced. A journal this build can't read goes too.
     pub(crate) fn forget(device: &Device) -> Result<()> {
         fsutil::remove_if_exists(&device.state_dir().join(FILE)).map(|_| ())
     }
 
-    /// A plan's warning that the drive's recorded edits will be forgotten (see [`forget`]), when
-    /// it has any: `by` (`this`, `packing`) replaces the library they were made to.
-    pub(crate) fn forget_warning(device: &Device, by: &str) -> Option<String> {
-        let edits = list(device).map_or(0, |j| j.len());
+    /// Give `target` the recorded edits of `source`, whose library a sync just copied onto it: the
+    /// journal travels with the library, so `refresh` makes edits made on any clone again after
+    /// rekordbox exports to this one. Without a journal this build can read on `source`,
+    /// `target`'s is forgotten (see [`forget`]).
+    pub(crate) fn copy(source: &Device, target: &Device) -> Result<()> {
+        match list(source) {
+            Ok(entries) if !entries.is_empty() => write(target, &entries),
+            _ => forget(target),
+        }
+    }
+
+    /// A plan's warning that the drive's recorded edits will be forgotten (see [`forget`]), or
+    /// replaced by those of `source`, the drive whose library replaces its own (see [`copy`]):
+    /// when it has any `source` lacks. `by` (`this`, `packing`) replaces the library they were
+    /// made to.
+    pub(crate) fn forget_warning(device: &Device, source: Option<&Device>, by: &str) -> Option<String> {
+        let kept: Vec<DateTime<Utc>> =
+            source.and_then(|s| list(s).ok()).unwrap_or_default().iter().map(|e| e.at).collect();
+        let edits = list(device).map_or(0, |j| j.iter().filter(|e| !kept.contains(&e.at)).count());
+        let lacks = source.map(|s| format!(" {} lacks", s.name())).unwrap_or_default();
         (edits > 0).then(|| {
             format!(
-                "{} has {edits} recorded edit(s), made to the library {by} replaces: they're forgotten",
+                "{} has {edits} recorded edit(s){lacks}, made to the library {by} replaces: they're forgotten",
                 device.name()
             )
         })
@@ -2592,7 +2612,7 @@ pub mod journal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::tests::track;
+    use loclib_model::test_util::track;
 
     fn lib() -> Library {
         let mut l = Library {

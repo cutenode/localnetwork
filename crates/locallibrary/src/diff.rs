@@ -7,8 +7,9 @@
 //! pairs with its k-th occurrence on the other, and of the paired entries, the longest run that
 //! kept its relative order stays put; the rest moved.
 
-use std::collections::{BTreeMap, HashMap};
+use indexmap::IndexMap;
 
+use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -74,14 +75,17 @@ pub struct Move {
 }
 
 /// Playlist key -> its path and tracks in order (`None` for folders, whose path ends in `/`).
-fn playlists(lib: &Library) -> BTreeMap<PlaylistKey<'_>, (String, Option<Vec<&Track>>)> {
-    let by_id: HashMap<u32, &Track> = lib.tracks.iter().map(|t| (t.id, t)).collect();
-    lib.keyed_playlists()
+fn playlists(lib: &Library) -> IndexMap<PlaylistKey<'_>, (String, Option<Vec<&Track>>)> {
+    let by_id: FxHashMap<u32, &Track> = lib.tracks.iter().map(|t| (t.id, t)).collect();
+    let mut out: IndexMap<_, _> = lib
+        .keyed_playlists()
         .map(|(key, path, p)| match p.is_folder {
             true => (key, (path, None)),
             false => (key, (path, Some(p.track_ids.iter().filter_map(|id| by_id.get(id).copied()).collect()))),
         })
-        .collect()
+        .collect();
+    out.sort_unstable_keys();
+    out
 }
 
 fn file_key(t: &Track) -> String {
@@ -149,7 +153,7 @@ fn entries_diff(path: &str, left: &[&Track], right: &[&Track]) -> Option<Playlis
         return None;
     }
     // Pair the k-th occurrence of each file on the left with its k-th occurrence on the right.
-    let mut slots: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut slots: FxHashMap<&str, Vec<usize>> = FxHashMap::default();
     for (j, k) in rk.iter().enumerate().rev() {
         slots.entry(k).or_default().push(j);
     }
@@ -208,7 +212,7 @@ fn longest_increasing(v: &[usize]) -> Vec<bool> {
 mod tests {
     use super::*;
     use crate::model::Playlist;
-    use crate::model::tests::track;
+    use loclib_model::test_util::track;
 
     fn lib(lists: &[(&str, &[u32])]) -> Library {
         Library {

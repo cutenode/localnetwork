@@ -12,7 +12,9 @@
 //! The database and every deleted file are backed up first (see [`crate::backup`]), so
 //! `locallibrary undo` takes a clean back.
 
-use std::collections::{BTreeMap, HashSet};
+use indexmap::IndexMap;
+
+use rustc_hash::FxHashSet;
 use std::path::PathBuf;
 
 use rekordbox_pdb::{Database, PdbEditor, TableType};
@@ -133,13 +135,13 @@ pub fn plan(device: &Device, ctx: &Ctx<'_>) -> Result<CleanPlan> {
     // What to show: the tracks as the drive's main database lists them, plus any only OneLibrary has.
     let primary = libraries[0];
     let mut tracks: Vec<TrackRef> = Vec::new();
-    let mut shown = HashSet::new();
+    let mut shown = FxHashSet::default();
     for t in &doomed {
         if shown.insert(fold(&paths::key(&t.file_path))) {
             tracks.push(TrackRef::from(*t));
         }
     }
-    let primary_ids: HashSet<u32> =
+    let primary_ids: FxHashSet<u32> =
         primary.tracks.iter().filter(|t| is_useless(&t.artist, &t.title)).map(|t| t.id).collect();
     let playlists = primary
         .playlists
@@ -209,12 +211,12 @@ pub(crate) fn removable_files(
     plus: Option<&OneLibrary>,
     doomed: &dyn Fn(&Track) -> bool,
     ctx: &Ctx<'_>,
-) -> Result<(BTreeMap<String, u64>, BTreeMap<String, String>)> {
+) -> Result<(IndexMap<String, u64>, IndexMap<String, String>)> {
     // Scan with every track either database references (audio outside Contents/ included).
     let everything =
         Library { tracks: libraries.iter().flat_map(|l| l.tracks.iter().cloned()).collect(), ..Default::default() };
     let tree = device.scan(Some(&everything), ctx)?;
-    let mut in_use: HashSet<String> = HashSet::new();
+    let mut in_use: FxHashSet<String> = FxHashSet::default();
     for t in libraries.iter().flat_map(|l| l.tracks.iter()).filter(|t| !doomed(t)) {
         in_use.insert(fold(&paths::key(&t.file_path)));
         for e in analysis_files(&t.analyze_path, &tree) {
@@ -231,8 +233,8 @@ pub(crate) fn removable_files(
             in_use.insert(fold(&crate::artwork::medium_variant(&paths::key(&a))));
         }
     }
-    let mut files: BTreeMap<String, u64> = BTreeMap::new();
-    let add = |key: &str, class: FileClass, files: &mut BTreeMap<String, u64>| {
+    let mut files: IndexMap<String, u64> = IndexMap::new();
+    let add = |key: &str, class: FileClass, files: &mut IndexMap<String, u64>| {
         // Only files that really are what the database says, inside PIONEER/ or Contents/: a
         // crafted database must not get us to delete its own database files or anything else.
         if let Some(e) = tree.resolve(key)
@@ -243,7 +245,7 @@ pub(crate) fn removable_files(
             files.insert(e.path.clone(), e.size);
         }
     };
-    let mut left_in_place = BTreeMap::new();
+    let mut left_in_place = IndexMap::new();
     for t in libraries.iter().flat_map(|l| l.tracks.iter()).filter(|t| doomed(t)) {
         let audio = paths::key(&t.file_path);
         if paths::classify(&audio).is_none() && tree.resolve(&audio).is_some() {
@@ -259,6 +261,8 @@ pub(crate) fn removable_files(
             add(&key, FileClass::Artwork, &mut files);
         }
     }
+    files.sort_unstable_keys();
+    left_in_place.sort_unstable_keys();
     Ok((files, left_in_place))
 }
 
@@ -302,9 +306,9 @@ pub(crate) fn analysis_files(analyze_path: &str, tree: &FileTree) -> Vec<String>
 }
 
 /// Lookup rows referenced by the removed tracks and by nothing that remains.
-pub(crate) fn unused_lookups(db: &Database, removed: &HashSet<u32>) -> Vec<(TableType, Vec<u32>)> {
+pub(crate) fn unused_lookups(db: &Database, removed: &FxHashSet<u32>) -> Vec<(TableType, Vec<u32>)> {
     let (gone, kept): (Vec<_>, Vec<_>) = db.tracks.iter().partition(|t| removed.contains(&t.id));
-    let unused = |candidates: Vec<u32>, used: HashSet<u32>| {
+    let unused = |candidates: Vec<u32>, used: FxHashSet<u32>| {
         let mut ids: Vec<u32> = candidates.into_iter().filter(|id| *id != 0 && !used.contains(id)).collect();
         ids.sort_unstable();
         ids.dedup();
@@ -384,7 +388,7 @@ pub fn apply(plan: &CleanPlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<Cle
     //    failure here leaves no backup and no interrupted operation). Nothing references the files
     //    once they are replaced.
     ctx.phase_start(Phase::Write, u64::from(pdb_before.is_some()) + u64::from(plus.is_some()), 0);
-    let removed_pdb: HashSet<u32> = pdb_ids.iter().copied().collect();
+    let removed_pdb: FxHashSet<u32> = pdb_ids.iter().copied().collect();
     let pdb_bytes = match &pdb_before {
         None => None,
         Some(before) => {
@@ -412,7 +416,7 @@ pub fn apply(plan: &CleanPlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<Cle
             one.remove_tracks(&plus_ids)?;
             let bytes = one.to_encrypted()?;
             let check = OneLibrary::from_encrypted(&bytes, None)?.library()?;
-            let removed: HashSet<u32> = plus_ids.iter().copied().collect();
+            let removed: FxHashSet<u32> = plus_ids.iter().copied().collect();
             if check.tracks.len() != before.tracks.len() - plus_ids.len()
                 || check.tracks.iter().any(|t| removed.contains(&t.id))
                 || check.playlists.iter().any(|p| p.track_ids.iter().any(|id| removed.contains(id)))

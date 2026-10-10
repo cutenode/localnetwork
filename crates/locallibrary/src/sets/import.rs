@@ -10,7 +10,7 @@
 //!
 //! Unlike a history list, it says when each track played.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::Path;
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone, Utc};
@@ -55,7 +55,7 @@ fn read_log(text: &str, library: Option<&Library>) -> std::result::Result<(Strin
     };
     let (artist, album, player, stopped) = (column("Artist"), column("Album"), column("Player"), column("Stopped"));
     // The first of tracks with one artist and title, as library lookups take the first.
-    let tracks: HashMap<(String, String), &Track> = library
+    let tracks: FxHashMap<(String, String), &Track> = library
         .iter()
         .flat_map(|l| l.tracks.iter().rev())
         .map(|t| ((normalize(&t.artist), normalize(&t.title)), t))
@@ -165,7 +165,8 @@ Unknown (no metadata found),,,1,Player 1 USB,Sat Oct 03 23:30:00 UTC 2026,Sat Oc
 
     #[test]
     fn rows_are_matched_to_the_library_by_artist_and_title() {
-        let mut t = crate::model::tests::track(7, "[a]pendics.shuffle", "A2 - In Charge", "/Contents/a/In Charge.mp3");
+        let mut t =
+            loclib_model::test_util::track(7, "[a]pendics.shuffle", "A2 - In Charge", "/Contents/a/In Charge.mp3");
         t.bpm = 128.0;
         let lib = Library { tracks: vec![t], ..Default::default() };
         let (_, plays) = read_log(LOG, Some(&lib)).unwrap();

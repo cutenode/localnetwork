@@ -15,7 +15,9 @@
 //!   the identity was given says which one is the original.
 //! * [`DriveLog`]: a short logbook per drive (data written, ejects, check results, problems).
 
-use std::collections::{BTreeMap, HashMap};
+use indexmap::IndexMap;
+
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -251,10 +253,10 @@ pub struct KnownDrive {
 /// Every registered drive, mounted ones first, then by name. Retired drives only with
 /// `include_retired`.
 pub fn known(store: &Store, mounted: &[Device], include_retired: bool) -> Result<Vec<KnownDrive>> {
-    let libraries: HashMap<Uuid, crate::store::LibraryRecord> =
+    let libraries: FxHashMap<Uuid, crate::store::LibraryRecord> =
         store.libraries()?.into_iter().map(|l| (l.id, l)).collect();
     // A library's history, loaded once (snapshots are big).
-    let mut histories: HashMap<Uuid, Vec<SnapshotInfo>> = HashMap::new();
+    let mut histories: FxHashMap<Uuid, Vec<SnapshotInfo>> = FxHashMap::default();
     let mut out = Vec::new();
     for rec in store.drives()?.into_values() {
         if rec.log.retired.is_some() && !include_retired {
@@ -452,7 +454,7 @@ pub fn retire(store: &Store, id: Uuid, undo: bool) -> Result<DriveRecord> {
 pub fn check_target(store: Option<&Store>, target: &Device, force: bool) -> Result<()> {
     let force = force || crate::op::archive_writes_allowed();
     let (Some(store), Some(id), false) = (store, target.id(), force) else { return Ok(()) };
-    let Some(rec) = store.drives()?.remove(&id) else { return Ok(()) };
+    let Some(rec) = store.drives()?.shift_remove(&id) else { return Ok(()) };
     if rec.log.retired.is_some() {
         let drive = target.root().display().to_string();
         return Err(Error::conflict(
@@ -501,8 +503,8 @@ pub struct DriveSet {
 /// Mounted drives grouped by library.
 pub fn sets(store: &Store, mounted: &[Device]) -> Result<Vec<DriveSet>> {
     let registry = store.drives()?;
-    let libraries: HashMap<Uuid, String> = store.libraries()?.into_iter().map(|l| (l.id, l.name)).collect();
-    let mut groups: BTreeMap<Option<Uuid>, DriveSet> = BTreeMap::new();
+    let libraries: FxHashMap<Uuid, String> = store.libraries()?.into_iter().map(|l| (l.id, l.name)).collect();
+    let mut groups: IndexMap<Option<Uuid>, DriveSet> = IndexMap::new();
     for d in mounted.iter().filter(|d| d.has_export() || d.is_adopted()) {
         let Some(state) = d.state() else { continue };
         let lib = state.library_id;
@@ -727,7 +729,7 @@ pub struct Duplicate {
 /// Groups of mounted drives that claim the same identity. With `hardware`, the disk behind each
 /// root (looked up with [`Hardware::of`] when `None`).
 pub fn duplicates(mounted: &[Device], hardware: &dyn Fn(&Path) -> Option<Hardware>) -> Vec<Duplicate> {
-    let mut by_id: BTreeMap<Uuid, Vec<&Device>> = BTreeMap::new();
+    let mut by_id: IndexMap<Uuid, Vec<&Device>> = IndexMap::new();
     for d in mounted {
         if let Some(id) = d.id() {
             by_id.entry(id).or_default().push(d);

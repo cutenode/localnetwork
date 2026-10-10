@@ -4,8 +4,8 @@
 //! buffers directly, so a truncated or corrupt file from a half-written USB drive could panic; we
 //! contain that with `catch_unwind` and surface a normal parse error instead.
 
+use rustc_hash::FxHashMap;
 use std::cell::Cell;
-use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::Once;
@@ -120,13 +120,14 @@ pub fn read_library(path: &Path) -> Result<Library> {
 }
 
 pub fn library_from_database(db: &Database) -> Library {
-    let artists: HashMap<u32, &str> = db.artists.iter().map(|a| (a.id, a.name.as_str())).collect();
-    let albums: HashMap<u32, (&str, u32)> = db.albums.iter().map(|a| (a.id, (a.name.as_str(), a.artist_id))).collect();
-    let genres: HashMap<u32, &str> = db.genres.iter().map(|g| (g.id, g.name.as_str())).collect();
-    let labels: HashMap<u32, &str> = db.labels.iter().map(|l| (l.id, l.name.as_str())).collect();
-    let keys: HashMap<u32, &str> = db.keys.iter().map(|k| (k.id, k.name.as_str())).collect();
-    let artwork: HashMap<u32, &str> = db.artwork.iter().map(|a| (a.id, a.path.as_str())).collect();
-    let name = |m: &HashMap<u32, &str>, id: u32| m.get(&id).copied().unwrap_or_default().to_string();
+    let artists: FxHashMap<u32, &str> = db.artists.iter().map(|a| (a.id, a.name.as_str())).collect();
+    let albums: FxHashMap<u32, (&str, u32)> =
+        db.albums.iter().map(|a| (a.id, (a.name.as_str(), a.artist_id))).collect();
+    let genres: FxHashMap<u32, &str> = db.genres.iter().map(|g| (g.id, g.name.as_str())).collect();
+    let labels: FxHashMap<u32, &str> = db.labels.iter().map(|l| (l.id, l.name.as_str())).collect();
+    let keys: FxHashMap<u32, &str> = db.keys.iter().map(|k| (k.id, k.name.as_str())).collect();
+    let artwork: FxHashMap<u32, &str> = db.artwork.iter().map(|a| (a.id, a.path.as_str())).collect();
+    let name = |m: &FxHashMap<u32, &str>, id: u32| m.get(&id).copied().unwrap_or_default().to_string();
 
     let tracks = db
         .tracks
@@ -170,7 +171,7 @@ pub fn library_from_database(db: &Database) -> Library {
         })
         .collect();
 
-    let mut entries: HashMap<u32, Vec<(u32, u32)>> = HashMap::new();
+    let mut entries: FxHashMap<u32, Vec<(u32, u32)>> = FxHashMap::default();
     for e in &db.playlist_entries {
         entries.entry(e.playlist_id).or_default().push((e.entry_index, e.track_id));
     }
@@ -192,7 +193,7 @@ pub fn library_from_database(db: &Database) -> Library {
             .collect(),
     );
 
-    let mut history_entries: HashMap<u32, Vec<(u32, u32)>> = HashMap::new();
+    let mut history_entries: FxHashMap<u32, Vec<(u32, u32)>> = FxHashMap::default();
     for e in &db.history_entries {
         history_entries.entry(e.playlist_id).or_default().push((e.entry_index, e.track_id));
     }

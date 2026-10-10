@@ -10,9 +10,8 @@
 //! A list recorded on several drives or kept across several snapshots is the same list when its
 //! name and its sequence of tracks (by file path) are the same.
 
-use std::collections::{HashMap, HashSet};
-
 use chrono::{DateTime, Utc};
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::Serialize;
 use uuid::Uuid;
@@ -93,7 +92,7 @@ fn history_tree(lib: &Library) -> Vec<(&Playlist, String)> {
     let mut out = Vec::new();
     walk(lib, None, "", &mut out);
     // Lists under a folder that doesn't exist still count.
-    let reached: HashSet<u32> = out.iter().map(|(h, _)| h.id).collect();
+    let reached: FxHashSet<u32> = out.iter().map(|(h, _)| h.id).collect();
     out.extend(lib.history.iter().filter(|h| !h.is_folder && !reached.contains(&h.id)).map(|h| (h, h.name.clone())));
     out
 }
@@ -102,9 +101,9 @@ fn history_tree(lib: &Library) -> Vec<(&Playlist, String)> {
 /// players reading only one of them add theirs there).
 pub(crate) fn histories(dbs: &Databases) -> Vec<HistoryList> {
     let mut out = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
     for (database, lib) in dbs.all() {
-        let by_id: HashMap<u32, &Track> = lib.tracks.iter().map(|t| (t.id, t)).collect();
+        let by_id: FxHashMap<u32, &Track> = lib.tracks.iter().map(|t| (t.id, t)).collect();
         for (h, path) in history_tree(lib) {
             let (mut tracks, mut missing_at) = (Vec::new(), Vec::new());
             for id in &h.track_ids {
@@ -189,7 +188,7 @@ pub struct HistoryArchive {
     pub warnings: Vec<String>,
     /// When each drive's newest snapshot that was read was taken.
     #[serde(skip)]
-    pulled: HashMap<DriveKey, DateTime<Utc>>,
+    pulled: FxHashMap<DriveKey, DateTime<Utc>>,
 }
 
 impl HistoryArchive {
@@ -217,7 +216,7 @@ impl DriveKey {
 /// Every history list in the store's snapshots (of one library, or all of them), each once, in
 /// the order they were first seen.
 pub fn archive(store: &Store, library: Option<Uuid>, ctx: &Ctx<'_>) -> Result<HistoryArchive> {
-    let names: HashMap<Uuid, String> = store.libraries()?.into_iter().map(|l| (l.id, l.name)).collect();
+    let names: FxHashMap<Uuid, String> = store.libraries()?.into_iter().map(|l| (l.id, l.name)).collect();
     // Which snapshots, without their file lists; each one's files are read in turn below.
     let mut snapshots: Vec<SnapshotInfo> = Vec::new();
     for id in store.snapshot_ids()? {
@@ -228,11 +227,15 @@ pub fn archive(store: &Store, library: Option<Uuid>, ctx: &Ctx<'_>) -> Result<Hi
     }
     snapshots.sort_by_key(|s| (s.created, s.id));
 
-    let mut out =
-        HistoryArchive { lists: Vec::new(), snapshots: snapshots.len(), warnings: Vec::new(), pulled: HashMap::new() };
-    let mut index: HashMap<(String, Vec<String>), usize> = HashMap::new();
+    let mut out = HistoryArchive {
+        lists: Vec::new(),
+        snapshots: snapshots.len(),
+        warnings: Vec::new(),
+        pulled: FxHashMap::default(),
+    };
+    let mut index: FxHashMap<(String, Vec<String>), usize> = FxHashMap::default();
     // Snapshots of one state share their database files; read each set once.
-    let mut cache: HashMap<Vec<Option<Hash>>, Vec<HistoryList>> = HashMap::new();
+    let mut cache: FxHashMap<Vec<Option<Hash>>, Vec<HistoryList>> = FxHashMap::default();
     ctx.phase_start(Phase::Scan, snapshots.len() as u64, 0);
     for info in &snapshots {
         ctx.check()?;
@@ -339,8 +342,8 @@ pub struct PlayDelta {
 }
 
 /// Play count per file: the higher of the two databases'.
-fn play_counts(dbs: &Databases) -> HashMap<String, u16> {
-    let mut out: HashMap<String, u16> = HashMap::new();
+fn play_counts(dbs: &Databases) -> FxHashMap<String, u16> {
+    let mut out: FxHashMap<String, u16> = FxHashMap::default();
     for (_, lib) in dbs.all() {
         for t in &lib.tracks {
             let n = out.entry(file_key(&t.file_path)).or_default();
@@ -351,10 +354,10 @@ fn play_counts(dbs: &Databases) -> HashMap<String, u16> {
 }
 
 /// Number of lists each file appears in.
-fn list_counts<'a>(lists: impl IntoIterator<Item = &'a HistoryList>) -> HashMap<String, usize> {
-    let mut out: HashMap<String, usize> = HashMap::new();
+fn list_counts<'a>(lists: impl IntoIterator<Item = &'a HistoryList>) -> FxHashMap<String, usize> {
+    let mut out: FxHashMap<String, usize> = FxHashMap::default();
     for list in lists {
-        for key in list.tracks.iter().map(|t| file_key(&t.file_path)).collect::<HashSet<_>>() {
+        for key in list.tracks.iter().map(|t| file_key(&t.file_path)).collect::<FxHashSet<_>>() {
             *out.entry(key).or_default() += 1;
         }
     }
@@ -400,7 +403,7 @@ pub(crate) fn stats(source: String, dbs: &Databases, limit: usize) -> PlayStats 
 pub(crate) fn played_since(before: &Databases, snapshot: &Snapshot, after: &Databases) -> PlayedSince {
     let old_counts = play_counts(before);
     let new_counts = play_counts(after);
-    let old_lists: HashSet<(String, Vec<String>)> = histories(before).iter().map(HistoryList::identity).collect();
+    let old_lists: FxHashSet<(String, Vec<String>)> = histories(before).iter().map(HistoryList::identity).collect();
     let new_lists: Vec<HistoryList> =
         histories(after).into_iter().filter(|l| !old_lists.contains(&l.identity())).collect();
     let in_lists = list_counts(&new_lists);

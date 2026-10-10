@@ -64,6 +64,7 @@ fn fixture() -> Fixture {
             library: Some("Demo".into()),
             relation: Some(Relation::Identical),
             head: history[0].1.first().cloned(),
+            back_from_set: None,
             settings_drift: 0,
             error: None,
         },

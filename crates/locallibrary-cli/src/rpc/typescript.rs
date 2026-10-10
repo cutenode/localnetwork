@@ -192,8 +192,14 @@ fn ty(schema: &Value, indent: usize) -> String {
         Value::Object(o) => o,
         _ => return "unknown".into(),
     };
+    let mut parts = Vec::new();
     if let Some(r) = obj.get("$ref").and_then(Value::as_str) {
-        return ident(r.rsplit('/').next().unwrap_or(r));
+        let name = ident(r.rsplit('/').next().unwrap_or(r));
+        // A tagged variant of a flattened struct: the struct, plus its tag beside the `$ref`.
+        if !obj.contains_key("properties") {
+            return name;
+        }
+        parts.push(name);
     }
     if let Some(c) = obj.get("const") {
         return c.to_string();
@@ -201,7 +207,6 @@ fn ty(schema: &Value, indent: usize) -> String {
     if let Some(values) = obj.get("enum").and_then(Value::as_array) {
         return union(values.iter().map(Value::to_string).collect());
     }
-    let mut parts = Vec::new();
     if let Some(types) = obj.get("type") {
         let types: Vec<&str> = match types {
             Value::String(t) => vec![t.as_str()],
@@ -297,6 +302,12 @@ mod tests {
         let t = |s: Value| ty(&s, 0);
         assert_eq!(t(json!({ "type": ["string", "null"] })), "string | null");
         assert_eq!(t(json!({ "$ref": "#/$defs/Hash" })), "Hash");
+        assert_eq!(
+            t(
+                json!({ "$ref": "#/$defs/A", "type": "object", "properties": { "event": { "const": "a.b", "type": "string" } }, "required": ["event"] })
+            ),
+            "A & {\n  event: \"a.b\";\n}"
+        );
         assert_eq!(t(json!({ "enum": ["a", "b"] })), "\"a\" | \"b\"");
         assert_eq!(
             t(json!({ "type": "array", "items": { "anyOf": [{ "type": "integer" }, { "type": "null" }] } })),

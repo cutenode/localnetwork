@@ -1,6 +1,6 @@
 //! Human-readable rendering of results.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use console::style;
 use locallibrary::api::{DriveSettingsView, StoreInfo, TrackDetails, TracksPage};
@@ -15,29 +15,43 @@ use locallibrary::settings::{self, ApplyReport, SettingsProfile};
 use locallibrary::store::SnapshotInfo;
 use locallibrary::sync::{CopyReason, PullReport, SyncPlan, SyncReport};
 use locallibrary::{Library, Track};
+use rustc_hash::FxHashMap;
+use uuid::Uuid;
 
 use crate::each_drive::DriveRead;
-use crate::output::{bytes, dim, duration, heading, ok, warn};
+use crate::output::{self, bytes, dim, duration, heading, ok, warn};
 
-pub fn drives(list: &[DeviceInfo]) {
+/// The drives, under the library each is a clone of (`libraries`, the store's names by id), those
+/// of none last.
+pub fn drives(list: &[DeviceInfo], libraries: &FxHashMap<Uuid, String>) {
     if list.is_empty() {
         say!("No rekordbox drives mounted. {}", dim("(--all lists every volume)"));
         return;
     }
+    let mut groups: IndexMap<(bool, String), (&str, Vec<&DeviceInfo>)> = IndexMap::new();
     for d in list {
-        let name = d.name.clone().unwrap_or_else(|| d.volume_name.clone());
-        let lib = match &d.summary {
-            Some(s) => format!("{} tracks, {} playlists", s.tracks, s.playlists),
-            None if d.has_export => "unreadable export".into(),
-            None => "no export".into(),
-        };
-        let space = match (d.free_space, d.total_space) {
-            (Some(f), Some(t)) => format!("{} free of {}", bytes(f), bytes(t)),
-            _ => String::new(),
-        };
-        say!("{}  {}  {}  {}", style(&name).bold(), d.root.display(), lib, dim(space));
-        if let Some(p) = &d.pending {
-            warn(format!("  {name}: {}", interrupted(p)));
+        let library = d.library_id.and_then(|id| libraries.get(&id)).map(String::as_str);
+        let key = (library.is_none(), library.unwrap_or_default().to_lowercase());
+        groups.entry(key).or_insert((library.unwrap_or("No library"), Vec::new())).1.push(d);
+    }
+    groups.sort_unstable_keys();
+    for (library, drives) in groups.values() {
+        heading(library);
+        for d in drives {
+            let name = d.name.clone().unwrap_or_else(|| d.volume_name.clone());
+            let lib = match &d.summary {
+                Some(s) => format!("{} tracks, {} playlists", s.tracks, s.playlists),
+                None if d.has_export => "unreadable export".into(),
+                None => "no export".into(),
+            };
+            let space = match (d.free_space, d.total_space) {
+                (Some(f), Some(t)) => format!("{} free of {}", bytes(f), bytes(t)),
+                _ => String::new(),
+            };
+            say!("  {name}  {}  {lib}  {}", d.root.display(), dim(space));
+            if let Some(p) = &d.pending {
+                warn(format!("  {name}: {}", interrupted(p)));
+            }
         }
     }
 }
@@ -47,35 +61,23 @@ fn interrupted(p: &locallibrary::device::PendingOp) -> String {
     format!("{}: {}", p.describe(), p.remedy())
 }
 
-pub fn status(list: &[locallibrary::api::DriveStatus]) {
-    if list.is_empty() {
-        say!("No rekordbox drives mounted.");
-        return;
-    }
-    for s in list {
-        let name = s.drive.name.clone().unwrap_or_else(|| s.drive.volume_name.clone());
-        let lib = s.library.clone().unwrap_or_else(|| "-".into());
-        let state = match (s.relation, &s.error) {
-            (_, Some(e)) => style(format!("error: {e}")).red().to_string(),
-            (None, _) if s.library.is_none() => dim("not in the store (locallibrary pull)").to_string(),
-            (None, _) => dim("library has no snapshots").to_string(),
-            (Some(Relation::Identical), _) => style("up to date").green().to_string(),
-            (Some(Relation::RightNewer), _) => {
-                style("has changes not in the store (locallibrary pull)").yellow().to_string()
-            }
-            (Some(Relation::LeftNewer), _) => {
-                style("behind the store (locallibrary library push)").yellow().to_string()
-            }
-            (Some(Relation::Diverged), _) => style("diverged from the store").red().to_string(),
-            (Some(other), _) => format!("{other:?}").to_lowercase(),
-        };
-        let mut settings =
-            if s.settings_drift > 0 { format!("  {} setting(s) differ", s.settings_drift) } else { String::new() };
-        if s.drive.drift.as_ref().is_some_and(|d| !d.is_empty()) {
-            settings.push_str("  export.pdb and OneLibrary differ (locallibrary drive info)");
-        }
-        let tracks = s.drive.summary.as_ref().map(|x| format!("{} tracks", x.tracks)).unwrap_or_default();
-        say!("{:<20} {:<16} {:>12}  {state}{}", style(&name).bold(), lib, tracks, style(settings).yellow());
+/// Where a mounted drive stands against the store, in a few words.
+pub fn drive_state(s: &locallibrary::api::DriveStatus) -> String {
+    match (s.relation, &s.error) {
+        (_, Some(e)) => style(format!("error: {e}")).red().to_string(),
+        (None, _) if s.library.is_none() => dim("not in the store (locallibrary pull)").to_string(),
+        (None, _) => dim("library has no snapshots").to_string(),
+        (Some(Relation::Identical), _) => style("up to date").green().to_string(),
+        (Some(Relation::RightNewer), _) => match s.back_from_set {
+            Some(0) => style("back from a set (pull saves its changes)").yellow().to_string(),
+            Some(n) => style(format!("back from a set: {} (pull saves them)", output::plural(n, "new session")))
+                .yellow()
+                .to_string(),
+            None => style("has changes not in the store (locallibrary pull)").yellow().to_string(),
+        },
+        (Some(Relation::LeftNewer), _) => style("behind the store (locallibrary library push)").yellow().to_string(),
+        (Some(Relation::Diverged), _) => style("diverged from the store").red().to_string(),
+        (Some(other), _) => format!("{other:?}").to_lowercase(),
     }
 }
 
@@ -697,10 +699,11 @@ pub fn clean_plan(p: &CleanPlan) {
         bytes(p.bytes)
     );
     // The same sample is often exported many times over; list each once.
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut counts: IndexMap<&str, usize> = IndexMap::new();
     for t in &p.tracks {
         *counts.entry(t.name.as_str()).or_default() += 1;
     }
+    counts.sort_unstable_keys();
     for (name, n) in counts {
         let copies = if n > 1 { format!("  ×{n}") } else { String::new() };
         say!("    - {name}{}", dim(copies));
@@ -786,7 +789,7 @@ pub fn labels(labels: &[String]) -> String {
     labels.iter().map(|l| format!(" {}", style(format!("[{l}]")).cyan())).collect()
 }
 
-pub fn log(all: &BTreeMap<String, Vec<SnapshotInfo>>) {
+pub fn log(all: &IndexMap<String, Vec<SnapshotInfo>>) {
     if all.is_empty() {
         say!("The store is empty. Snapshot a drive with `locallibrary pull <drive>`.");
     }
@@ -882,7 +885,7 @@ pub fn profile(p: &SettingsProfile) {
 
 pub fn drive_settings(v: &DriveSettingsView) {
     heading(&v.drive);
-    let drift: BTreeMap<&str, &settings::Drift> = v.drift.iter().map(|d| (d.key.as_str(), d)).collect();
+    let drift: IndexMap<&str, &settings::Drift> = v.drift.iter().map(|d| (d.key.as_str(), d)).collect();
     for def in settings::SCHEMA {
         let current = v.current.values.get(def.key).map(|v| v.to_string()).unwrap_or_else(|| "-".into());
         match drift.get(def.key) {
@@ -925,7 +928,7 @@ pub fn drive_settings(v: &DriveSettingsView) {
     }
 }
 
-pub fn settings_apply(reports: &BTreeMap<String, ApplyReport>) {
+pub fn settings_apply(reports: &IndexMap<String, ApplyReport>) {
     for (drive, r) in reports {
         if r.changes.is_empty() && r.files_written.is_empty() {
             ok(format!("{drive}: already matches"));
@@ -1047,8 +1050,8 @@ pub fn format_report(r: &FormatReport) {
             say!("  mounted at {}", m.display());
             let name = r.drive_name.clone().unwrap_or_else(|| m.display().to_string());
             crate::output::hint(format!(
-                "Next: `locallibrary provision {name:?} --like <your main drive>` gives it the library, the \
-                     settings profile and a name (or export to it from rekordbox)"
+                "Next: `locallibrary provision {name:?} --like <your library>` makes it a copy of your library, \
+                     with the settings profile (or export to it from rekordbox)"
             ));
             crate::output::hint("Players show the Device Name set in rekordbox, not the volume label.");
         }

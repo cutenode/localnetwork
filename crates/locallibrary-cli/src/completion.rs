@@ -100,7 +100,10 @@ pub fn man(args: ManArgs) -> Result<ExitCode> {
 /// What an argument takes, for completing it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Takes {
+    /// A drive, or a library (its lead clone).
     Drive,
+    /// One particular drive: a library's name isn't taken (see [`is_drive_only`]).
+    OneDrive,
     Playlist,
     Tag,
     HistoryList,
@@ -122,10 +125,11 @@ fn takes(a: &Arg) -> Option<Takes> {
     let name = a.get_value_names().and_then(|v| v.first()).map(|s| s.as_str().to_ascii_uppercase());
     match (a.get_id().as_str(), name.as_deref()) {
         (_, Some("PLAYLIST")) | ("playlist" | "playlists", _) => Some(Takes::Playlist),
-        (_, Some("DRIVE")) => Some(Takes::Drive),
+        (_, Some("DRIVE")) | ("drive" | "drives" | "source" | "target" | "left" | "right" | "like" | "against", _) => {
+            Some(if is_drive_only(a) { Takes::OneDrive } else { Takes::Drive })
+        }
         (_, Some("SET")) => Some(Takes::Set),
         (_, Some("SESSION")) => Some(Takes::Session),
-        ("drive" | "drives" | "source" | "target" | "left" | "right" | "like" | "against", _) => Some(Takes::Drive),
         ("tag", _) => Some(Takes::Tag),
         ("list" | "history", _) => Some(Takes::HistoryList),
         ("library", _) | (_, Some("LIBRARY")) => Some(Takes::Library),
@@ -135,9 +139,25 @@ fn takes(a: &Arg) -> Option<Takes> {
     }
 }
 
+/// Marks a drive argument about one particular drive whose help isn't one of the helps such
+/// arguments share (`#[arg(add = DriveOnly)]`).
+#[derive(Clone, Debug)]
+pub struct DriveOnly;
+
+impl clap::builder::ArgExt for DriveOnly {}
+
+/// Whether a drive argument is about one particular drive, so a library's name isn't taken: its
+/// help is one of those such arguments share, or it's marked [`DriveOnly`].
+fn is_drive_only(a: &Arg) -> bool {
+    let help = a.get_help().map(ToString::to_string);
+    let shared = [crate::DRIVE_HELP, crate::DEFAULT_DRIVE_HELP, crate::ONE_DRIVE_HELP];
+    a.get::<DriveOnly>().is_some() || shared.iter().any(|h| help.as_deref() == Some(*h))
+}
+
 fn with_candidates(cmd: Command) -> Command {
     cmd.mut_args(|a| match takes(&a) {
-        Some(Takes::Drive) => a.add(ArgValueCandidates::new(drives)),
+        Some(Takes::Drive) => a.add(ArgValueCandidates::new(drives_and_libraries)),
+        Some(Takes::OneDrive) => a.add(ArgValueCandidates::new(drives)),
         Some(Takes::Playlist) => a.add(ArgValueCandidates::new(playlists)),
         Some(Takes::Tag) => a.add(ArgValueCandidates::new(tags)),
         Some(Takes::HistoryList) => a.add(ArgValueCandidates::new(history_lists)),
@@ -234,6 +254,17 @@ fn history_lists() -> Vec<CompletionCandidate> {
     out
 }
 
+/// [`drives`], then the libraries in the store (a library's name means its lead clone).
+fn drives_and_libraries() -> Vec<CompletionCandidate> {
+    let mut out = drives();
+    for l in libraries() {
+        if !out.iter().any(|c| c.get_value() == l.get_value()) {
+            out.push(l.help(Some("library".into())));
+        }
+    }
+    out
+}
+
 /// The libraries in the store.
 fn libraries() -> Vec<CompletionCandidate> {
     let Ok(store) = locallibrary::Store::open(store_root()) else { return Vec::new() };
@@ -317,5 +348,13 @@ mod tests {
         assert_eq!(find(&["pull"], "library"), Some(Takes::Library));
         assert_eq!(find(&["players", "set"], "models"), Some(Takes::Model));
         assert_eq!(find(&["drive", "format"], "erase"), None);
+        // About one drive: a library's name isn't taken.
+        assert_eq!(find(&["drive", "rename"], "drive"), Some(Takes::OneDrive));
+        assert_eq!(find(&["drive", "format"], "drive"), Some(Takes::OneDrive));
+        assert_eq!(find(&["drive", "verify"], "against"), Some(Takes::OneDrive));
+        assert_eq!(find(&["library", "push"], "drive"), Some(Takes::OneDrive));
+        assert_eq!(find(&["settings", "set"], "drive"), Some(Takes::OneDrive));
+        assert_eq!(find(&["provision"], "target"), Some(Takes::OneDrive));
+        assert_eq!(find(&["provision"], "like"), Some(Takes::Drive));
     }
 }

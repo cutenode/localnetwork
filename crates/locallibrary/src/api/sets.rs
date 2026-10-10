@@ -431,6 +431,7 @@ pub fn set_playlist_plan(store: &Store, req: &SetPlaylist, ctx: &Ctx<'_>) -> Res
         "sets.playlist",
         edit::plan(&d, &edits, &EditOptions::default(), ctx)?,
         Touched::library(&d, true),
+        ctx,
     )?
     .warnings(missing))
 }

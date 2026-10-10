@@ -10,7 +10,7 @@ use std::io::Cursor;
 use std::path::Path;
 
 use binrw::BinRead;
-use locallibrary::anlz::{self, CueFile, CuePoint, TrackAnalysis};
+use locallibrary::anlz::{self, CueFile, CuePoint};
 use locallibrary::api::{self, CueOp, EditCues, ListCues, TrackSelector};
 use locallibrary::cue_edit::{CuePosition, CueRef, HotCue, SetCue, UpdateCue};
 use locallibrary::onelibrary::{self, OneLibrary};
@@ -278,7 +278,7 @@ fn sets_renames_recolours_and_deletes_cues_with_undo() {
     assert_eq!(cues[0].color.as_deref(), Some("green"));
     // Snapping a time to the grid, as hot cue A.
     let d = Device::open(&root).unwrap();
-    let beats = TrackAnalysis::load_grid(&d, d.library().unwrap().track(1).unwrap()).beats;
+    let beats = anlz::load_grid(&d, d.library().unwrap().track(1).unwrap()).beats;
     let near = CuePosition::Ms(beats[2].time_ms + 40);
     apply(&root, &[1], CueOp::Set(SetCue { snap: true, ..set(Some('a'), near) }));
     let a = &listed(&root, 1)[1];
@@ -296,7 +296,7 @@ fn sets_renames_recolours_and_deletes_cues_with_undo() {
     );
     let d = Device::open(&root).unwrap();
     let track = d.library().unwrap().track(1).unwrap().clone();
-    let shown = TrackAnalysis::load(&d, &track).cues;
+    let shown = anlz::load(&d, &track).cues;
     let b = shown.iter().find(|c| c.hot_cue == Some(1)).unwrap();
     assert_eq!((b.comment.as_str(), b.color, b.end_ms), ("Big drop", Some([0, 0xe0, 0xff]), Some(66_250)));
     // Moving B keeps its name; the memory cue is found by its position.

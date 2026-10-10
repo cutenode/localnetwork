@@ -1,0 +1,28 @@
+[package]
+name = "loclib-model"
+description = "The plain data model of a DJ library: tracks, playlists, diffs, Camelot keys and track analysis"
+readme = "README.md"
+keywords = ["dj", "rekordbox", "playlist", "camelot", "music"]
+categories = ["multimedia::audio", "data-structures"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-progress.workspace = true
+indexmap.workspace = true
+rustc-hash.workspace = true
+schemars = { optional = true, version = "1.2", default-features = false, features = ["derive", "std"] }
+serde.workspace = true
+unicode-normalization.workspace = true
+
+[features]
+schemars = ["dep:schemars"]
+# `test_util`: ready-made tracks for tests, in this crate and the ones built on it.
+test-util = []
+
+[dev-dependencies]
+hegeltest.workspace = true
+serde_json.workspace = true

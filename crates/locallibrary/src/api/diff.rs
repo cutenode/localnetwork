@@ -1,7 +1,6 @@
 //! Playlist diffs between drives and snapshots, and what a restore would change.
 
-use std::collections::HashSet;
-
+use rustc_hash::FxHashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -53,8 +52,8 @@ pub(super) fn snapshot(store: &Store, spec: &str) -> Result<Snapshot> {
     store.load_snapshot(&store.resolve_snapshot(prefix)?)
 }
 
-/// `snapshot:<id prefix>`, a drive (path, name or id), or a library in the store (its latest
-/// snapshot).
+/// `snapshot:<id prefix>`, a drive (path, name or id), or a library in the store: its lead clone
+/// when one of its drives is plugged in (see [`resolve_drive`]), else its latest snapshot.
 pub(super) fn resolve_endpoint<'s>(store: Option<&'s Store>, spec: &str) -> Result<Endpoint<'s>> {
     let need_store = || Error::invalid(format!("{spec:?} is in the store, but there is no store"));
     if spec.starts_with("snapshot:") {
@@ -76,7 +75,8 @@ pub(super) fn resolve_endpoint<'s>(store: Option<&'s Store>, spec: &str) -> Resu
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct DiffRequest {
-    /// A drive, `snapshot:<id prefix>`, or a library (its latest snapshot).
+    /// A library (its newest drive plugged in, else its latest snapshot), a drive, or
+    /// `snapshot:<id prefix>`.
     pub left: String,
     pub right: String,
     /// Only this playlist, or the playlists in this folder.
@@ -112,7 +112,7 @@ pub fn restore_preview(req: &RestoreBackup) -> Result<RestorePreview> {
         None => backups.into_iter().next().ok_or_else(|| Error::NotFound("no backups on this drive".into()))?,
     };
     let restored = Device::open(backup::dir(&d, &info.id))?.library()?;
-    let saved: HashSet<String> = info.files.iter().map(|f| f.to_lowercase()).collect();
+    let saved: FxHashSet<String> = info.files.iter().map(|f| f.to_lowercase()).collect();
     let missing_audio = restored
         .tracks
         .iter()

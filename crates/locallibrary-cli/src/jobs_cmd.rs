@@ -5,7 +5,7 @@
 //! Each takes its parsed arguments, so where the commands sit in the command line can change
 //! without touching this.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -23,6 +23,7 @@ use locallibrary::progress::{Ctx, Event, Progress, Scope};
 use locallibrary::store::LibraryRecord;
 use serde_json::{Value, json};
 
+use crate::autostart;
 use crate::output::{self, Outcome, Output, dim};
 
 // ---------------------------------------------------------------------------------------------
@@ -52,8 +53,9 @@ pub fn is_usage(e: &anyhow::Error) -> bool {
 }
 
 /// `drive`, or else the drive a command means when it's given none (the only mounted rekordbox
-/// drive, or the primary of the one library whose drives are mounted). When that can't be told,
-/// a usage error lists the mounted drives. `purpose` finishes "say which drive to ...".
+/// drive, or the lead clone of the one library whose drives are mounted). When that can't be
+/// told, a usage error lists the mounted drives. `purpose` finishes "say which library or drive
+/// to ...".
 pub fn drive_or_default(drive: Option<String>, store_path: &Option<PathBuf>, purpose: &str) -> Result<String> {
     drive_or(drive, store_path, |store| api::default_drive(store, purpose))
 }
@@ -74,22 +76,26 @@ fn drive_or(
     }
 }
 
-/// `drives`, or else the mounted drives of one library (its drive group; archive and retired
-/// drives are left out, and said so).
+/// `drives`, a library's name meaning its mounted drives (see `api::expand_libraries`), or else
+/// the mounted drives of one library (its drive group). Archive and retired drives a library's
+/// name would take are left out, and said so.
 pub fn drives_or_group(
     drives: Vec<String>,
     store_path: &Option<PathBuf>,
     library: Option<&str>,
 ) -> Result<Vec<String>> {
-    if !drives.is_empty() {
-        return Ok(drives);
-    }
-    let store = crate::diff_cmd::existing_store(store_path);
-    let group = api::drive_group(store.as_ref(), library).map_err(|e| usage(e.to_string()))?;
-    if let Some(w) = api::left_out(&group.excluded) {
+    let (drives, left_out) = match drives.is_empty() {
+        true => {
+            let store = crate::diff_cmd::existing_store(store_path);
+            let group = api::drive_group(store.as_ref(), library).map_err(|e| usage(e.to_string()))?;
+            (group.specs(), group.excluded)
+        }
+        false => api::expand_libraries(&drives)?,
+    };
+    if let Some(w) = api::left_out(&left_out) {
         output::warn(w);
     }
-    Ok(group.specs())
+    Ok(drives)
 }
 
 /// When there's no store yet: one line on stderr suggesting `setup`.
@@ -100,7 +106,7 @@ pub fn suggest_setup(store_path: &Option<PathBuf>, out: Output) {
     let root = store_path.clone().unwrap_or_else(Store::default_root);
     if !root.join("store.json").exists() {
         eprintln!(
-            "{} there's no locallibrary store yet: `locallibrary setup` names your drives and starts your library",
+            "{} there's no locallibrary store yet: `locallibrary setup` starts your library from the drives you have",
             style("tip:").cyan().bold()
         );
     }
@@ -269,9 +275,9 @@ fn parse_step(s: &str) -> std::result::Result<StepKind, String> {
 
 #[derive(Args)]
 pub struct RefreshArgs {
-    /// The drive rekordbox exported to [default: the only mounted rekordbox drive, else the one
-    /// rekordbox exported over recorded edits on, else the primary of the one library whose
-    /// drives are mounted]
+    /// The drive rekordbox exported to (a library's name: its newest drive plugged in) [default:
+    /// the only mounted rekordbox drive, else the one rekordbox exported over recorded edits on,
+    /// else the newest drive of the one library plugged in]
     pub drive: Option<String>,
     /// Leave a step out: clean, replay, smart, player, settings, pull or sync (repeatable or
     /// comma-separated)
@@ -310,7 +316,8 @@ pub fn refresh(args: RefreshArgs, store_path: &Option<PathBuf>, out: Output, ctx
 
 #[derive(Args)]
 pub struct PrepArgs {
-    /// The drives you're taking [default: the mounted drives of one library]
+    /// The drives you're taking (a library's name: its mounted drives) [default: the mounted
+    /// drives of one library]
     pub drives: Vec<String>,
     /// The library whose mounted drives to take (with no drives given)
     #[arg(long, short)]
@@ -360,14 +367,15 @@ pub struct SetupArgs {
     /// The drives to set up (names, mount paths or volume names) [default: asked in a terminal;
     /// with --yes, every mounted rekordbox drive but those of another library in the store]
     pub drives: Vec<String>,
-    /// The library's name: a new one, or one the store has (asked in a terminal; needed with
-    /// --yes)
+    /// The library's name: a new one, or one the store has [default: asked, offering the library
+    /// the drives are in, else "My library"; needed with --yes]
     #[arg(long, short)]
     pub library: Option<String>,
     /// The drive rekordbox exports to [default: asked, or the first drive named or found]
     #[arg(long, value_name = "DRIVE")]
     pub primary: Option<String>,
-    /// A drive's name, as DRIVE=NAME (DRIVE: its mount path or volume name; repeatable)
+    /// A name for a drive other than its volume name, as DRIVE=NAME (DRIVE: its mount path or
+    /// volume name; repeatable) [default: drives keep their volume names]
     #[arg(long = "name", value_name = "DRIVE=NAME")]
     pub names: Vec<String>,
     /// A drive's role, as DRIVE=ROLE: backup, set or archive (repeatable) [default: the role it has,
@@ -389,14 +397,22 @@ pub struct SetupArgs {
     /// Don't import My Settings from the primary drive
     #[arg(long)]
     pub no_settings: bool,
+    /// Save drives into the store as they're plugged in and sync the other copies, whenever
+    /// you're logged in (`watch --install`; asked in a terminal)
+    #[arg(long)]
+    pub watch: bool,
 }
 
-pub const SETUP_HELP: &str = "Finds your rekordbox drives, names them, chooses their roles, starts your library \
-with a first pull (or saves the drives in the library they're in), imports My Settings from the primary drive, \
-and (if you like) sets the name players show, your contact details and the player models you play on. Each \
-change shows its plan first. It asks its questions in a terminal; without one, pass --yes and --library NAME \
-(the other flags answer the rest). Drives of another library in the store are left out unless named (or, in a \
-terminal, said yes to), and archive drives are kept as they are.";
+pub const SETUP_HELP: &str = "Starts your library from your rekordbox drives, each one a copy of it: asks \
+which drives and what to call the library, which drive rekordbox exports to and the others' roles, then saves \
+them in the library with a first pull (or joins the library they're in already) and imports My Settings from \
+the drive rekordbox exports to. If you like, it also sets the name players show, your contact details and the \
+player models you play on, and saves drives into the store as they're plugged in from then on, syncing the \
+other copies plugged in. Drives keep \
+their volume names (--name DRIVE=NAME gives one another). Each change shows its plan first. It asks its \
+questions in a terminal; without one, pass --yes and --library NAME (the other flags answer the rest). \
+Drives of another library in the store are left out unless named (or, in a terminal, said yes to), and \
+archive drives are kept as they are.";
 
 /// Asking (in a terminal) or taking the answers from flags (with `--yes`).
 struct Setup<'a> {
@@ -476,8 +492,8 @@ impl Setup<'_> {
 }
 
 /// `DRIVE=VALUE` flags, by the drive they name (a mount path, volume name or drive name).
-fn by_drive(flags: &[String], drives: &[DeviceInfo], flag: &str) -> Result<BTreeMap<PathBuf, String>> {
-    let mut out = BTreeMap::new();
+fn by_drive(flags: &[String], drives: &[DeviceInfo], flag: &str) -> Result<IndexMap<PathBuf, String>> {
+    let mut out = IndexMap::new();
     for f in flags {
         let Some((key, value)) = f.split_once('=') else {
             return Err(usage(format!("{flag} takes DRIVE=VALUE, not {f:?}")));
@@ -552,8 +568,11 @@ fn choose_drives(
         let other = other.and_then(|id| libraries.iter().find(|l| l.id == id));
         let take = match other {
             None if !several => true,
-            None => s.ask_yes(&format!("Set up {}?", label(&d)), true)?,
-            Some(l) => s.ask_yes(&format!("Set up {}? It's a drive of library {:?}", label(&d), l.name), false)?,
+            None => s.ask_yes(&format!("Is {} a copy of your library?", label(&d)), true)?,
+            Some(l) => s.ask_yes(
+                &format!("Is {} a copy of your library? It's a drive of library {:?}", label(&d), l.name),
+                false,
+            )?,
         };
         match (take, other) {
             (true, _) => out.push(d),
@@ -584,6 +603,16 @@ fn linked_library(store: &Store, primary: &DeviceInfo) -> Result<Option<LibraryR
 /// without it.
 fn left_behind<'l>(linked: &'l Option<LibraryRecord>, existing: &Option<LibraryRecord>) -> Option<&'l LibraryRecord> {
     linked.as_ref().filter(|l| existing.as_ref().is_none_or(|e| e.id != l.id))
+}
+
+/// What setup offers to call the library: the one the drives are in already (`primary`'s first),
+/// else "My library" (numbered when the store has one) rather than a drive's name, which
+/// commands would take for the drive.
+fn default_library(store: &Store, primary: Option<&DeviceInfo>, drives: &[DeviceInfo]) -> Result<String> {
+    if let Some(l) = primary.into_iter().chain(drives).map(|d| linked_library(store, d)).find_map(Result::transpose) {
+        return Ok(l?.name);
+    }
+    Ok(store.unused_library_name("My library")?)
 }
 
 fn leaving(primary: &DeviceInfo, from: &LibraryRecord) -> String {
@@ -618,7 +647,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     if !asking && !out.yes {
         return Err(usage(
             "setup asks questions, so it needs a terminal; without one, pass --yes with --library NAME \
-             (and --primary, --name, --role, --player-name, --contact, --players as you like)",
+             (and --primary, --role, --player-name, --contact, --players as you like)",
         ));
     }
     if !asking && args.library.is_none() {
@@ -649,10 +678,15 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     let roles = by_drive(&args.roles, &drives, "--role")?;
     let player_names = by_drive(&args.player_names, &drives, "--player-name")?;
     let roots: Vec<PathBuf> = drives.iter().map(|d| d.root.clone()).collect();
+    let given = given_primary(args.primary.as_deref(), &drives)?;
+    let library = match args.library {
+        Some(l) => l,
+        None => s.ask("Name for your library", &default_library(&store, given, &drives)?)?,
+    };
     // Without a terminal, a primary that would leave its library behind is refused before
     // anything is written.
-    if let (false, Some(library)) = (asking, &args.library) {
-        let primary = given_primary(args.primary.as_deref(), &drives)?.unwrap_or(&drives[0]);
+    if !asking {
+        let primary = given.unwrap_or(&drives[0]);
         let linked = linked_library(&store, primary)?;
         if let Some(from) = left_behind(&linked, &store.find_library(library.trim())?) {
             let why = leaving(primary, from);
@@ -663,11 +697,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         }
     }
 
-    // 1. Names: a known drive's identity back, or a new one.
-    if !out.json {
-        say!();
-        output::heading("Names");
-    }
+    // 1. Identities: a known drive's back, or a new one under its volume name (or the --name given).
     let mut plans: Vec<Box<dyn AnyPlanned>> = Vec::new();
     for d in &drives {
         let spec = d.root.display().to_string();
@@ -684,12 +714,16 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             plans.push(Box::new(api::drive_adopt_as_plan(&store, &req)?));
             continue;
         }
-        let default = names.get(&d.root).cloned().unwrap_or_else(|| label(d));
-        let name = s.ask(&format!("Name for {}", d.root.display()), &default)?;
-        plans.push(Box::new(api::adopt_plan(&api::AdoptDrive { drive: spec, name: Some(name) })?));
+        let name = names.get(&d.root).cloned();
+        plans.push(Box::new(api::adopt_plan(&api::AdoptDrive { drive: spec, name })?));
     }
-    s.apply("names", "Name them?", plans)?;
-    // Read again (named now), in the order chosen: the first is the primary unless one is given.
+    if !out.json && plans.iter().any(|p| !p.is_noop()) {
+        say!();
+        output::heading("Your library's drives");
+    }
+    s.apply("names", "Mark them as copies of your library?", plans)?;
+    // Read again (with their identities now), in the order chosen: the first is the primary
+    // unless one is given.
     let listed = mounted_exports();
     let drives: Vec<DeviceInfo> = roots.iter().filter_map(|r| listed.iter().find(|d| d.root == *r).cloned()).collect();
 
@@ -729,12 +763,8 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         };
         chosen.push((d, role));
     }
-    // The library the primary is in already, if the store has it: setting up again joins it.
+    // The library the primary is in already, if the store has it.
     let linked = linked_library(&store, primary)?;
-    let library = match &args.library {
-        Some(l) => l.clone(),
-        None => s.ask("Name for your library", &linked.as_ref().map_or_else(|| label(primary), |l| l.name.clone()))?,
-    };
     let existing = store.find_library(library.trim())?;
     if let Some(from) = left_behind(&linked, &existing).filter(|_| s.asking)
         && !out.confirm(&format!("{}. Set it up in {library:?} anyway?", leaving(primary, from)))
@@ -756,7 +786,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         output::summary(
             &[
                 first,
-                "then the other drives in it too, where they hold the same library".into(),
+                "then the other drives in it too, as copies, where they hold the same library".into(),
                 format!(
                     "roles: {}",
                     chosen.iter().map(|(d, r)| format!("{} {r}", label(d))).collect::<Vec<_>>().join(", ")
@@ -765,7 +795,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             &[],
         );
     }
-    let question = if existing.is_some() { "Save them in it?" } else { "Start the library?" };
+    let question = if existing.is_some() { "Save them in it?" } else { "Start your library?" };
     if !s.asking || out.confirm(question) {
         let req = api::PullRequest {
             drive: primary.root.display().to_string(),
@@ -911,17 +941,32 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         }
     }
 
+    // 6. Saving drives as they're plugged in, from then on.
+    let mut watching = autostart::installed();
+    let offer = "Save drives into the store whenever they're plugged in, and sync the other copies plugged in (runs \
+         `locallibrary watch --pull --sync-group` when you log in)?";
+    if !watching && (args.watch || (asking && autostart::path().is_some() && s.ask_yes(offer, true)?)) {
+        let command = crate::watch_cmd::agent_args(store_path, false, crate::watch_cmd::SETTLE)?;
+        let path = crate::watch_cmd::install(&command, out)?;
+        s.log.push(json!({ "step": "watch", "installed": path, "command": command }));
+        watching = true;
+    }
+
     let report = json!({ "steps": s.log, "notes": s.notes });
     Ok(out.done(&report, |_| {
         say!();
         output::heading("You're set up. The commands you'll use most:");
+        let watch = (!watching).then_some(("locallibrary watch --install", "save drives as they're plugged in"));
         for (c, what) in [
-            ("locallibrary status", "every drive at a glance"),
-            ("locallibrary refresh", "after rekordbox exports to a drive: your edits, settings and names back"),
-            ("locallibrary sync", "copy the newest drive onto the others"),
+            ("locallibrary status", "your library and its drives at a glance"),
+            ("locallibrary refresh", "after rekordbox exports: your edits, settings and names back"),
+            ("locallibrary sync", "bring every copy up to date with the newest"),
             ("locallibrary prep", "the night before a set: save, sync, check and eject"),
-            ("locallibrary", "browse your drives and listen"),
-        ] {
+            ("locallibrary", "browse your library and listen"),
+        ]
+        .into_iter()
+        .chain(watch)
+        {
             say!("  {:<22} {}", style(c).bold(), dim(what));
         }
     }))

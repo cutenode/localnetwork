@@ -23,8 +23,9 @@
 //!
 //! Nothing is written to the drives (beyond the hash cache every scan of an adopted drive keeps).
 
+use indexmap::IndexMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -208,7 +209,7 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
     };
     let mut chosen: Vec<DrivePlayers> = Vec::new();
     // Each library's history archive, read once for every drive of it.
-    let mut archives: HashMap<Option<Uuid>, plays::HistoryArchive> = HashMap::new();
+    let mut archives: FxHashMap<Option<Uuid>, plays::HistoryArchive> = FxHashMap::default();
     let mut unloadable: Vec<Unloadable> = Vec::new();
     let mut audio_issues: Vec<AudioIssues> = Vec::new();
     for device in devices {
@@ -399,7 +400,7 @@ fn databases_item(dbs: &Databases, item: &mut impl FnMut(&'static str, Level, St
 
 fn files_item(drive: &str, missing: &[doctor::BrokenTrack], item: &mut impl FnMut(&'static str, Level, String)) {
     let of = |problems: &[Problem]| -> Vec<String> {
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         missing
             .iter()
             .filter(|m| problems.contains(&m.problem))
@@ -476,7 +477,7 @@ fn history_item(
     dbs: &Databases,
     side: &Side,
     store: Option<&Store>,
-    archives: &mut HashMap<Option<Uuid>, plays::HistoryArchive>,
+    archives: &mut FxHashMap<Option<Uuid>, plays::HistoryArchive>,
     ctx: &Ctx<'_>,
     item: &mut impl FnMut(&'static str, Level, String),
 ) -> Result<()> {
@@ -676,7 +677,7 @@ impl DriveAudio {
         let libraries: Vec<&Library> = pdb.into_iter().chain(plus).collect();
         // Files whose rows don't say enough, each opened once.
         let mut todo: Vec<(String, PathBuf, u64)> = Vec::new();
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         for t in libraries.iter().flat_map(|l| &l.tracks).filter(|t| needs_probe(t)) {
             let key = paths::key(&t.file_path);
             if !seen.insert(key.to_lowercase()) {
@@ -692,10 +693,10 @@ impl DriveAudio {
         }
         let formats =
             probe::parallel(&todo, Phase::Scan, |(k, _, n)| (k.clone(), *n), |(_, p, _)| probe::format(p).ok(), ctx)?;
-        let probed: HashMap<String, probe::Format> =
+        let probed: FxHashMap<String, probe::Format> =
             todo.iter().zip(formats).filter_map(|((key, ..), f)| f.map(|f| (key.to_lowercase(), f))).collect();
         let audio = |library: &Library| -> Vec<TrackAudio> {
-            let mut files = HashSet::new();
+            let mut files = FxHashSet::default();
             library
                 .tracks
                 .iter()
@@ -880,7 +881,7 @@ fn format_items(
 ) -> Vec<Unloadable> {
     // (format, reason, rate, depth, inferred) -> tracks
     type Key = (String, Unplayable, Option<u32>, Option<u16>, bool);
-    let mut failing: BTreeMap<Key, Vec<TrackRef>> = BTreeMap::new();
+    let mut failing: IndexMap<Key, Vec<TrackRef>> = IndexMap::new();
     let mut checked = 0;
     let mut inferred = false;
     for t in tracks {
@@ -906,6 +907,7 @@ fn format_items(
         checked += 1;
         failing.entry(key).or_default().push(t.track.clone());
     }
+    failing.sort_unstable_keys();
     let mut groups: Vec<Unloadable> = failing
         .into_iter()
         .map(|((format, reason, sample_rate, bit_depth, inferred), tracks)| {
@@ -917,10 +919,11 @@ fn format_items(
             };
             let probably = if inferred { "probably " } else { "" };
             let why = match reason {
-                Unplayable::Format => format!("it {probably}doesn't play {format}"),
                 Unplayable::SampleRate => takes(m, &format, true, false, probably),
                 Unplayable::BitDepth => takes(m, &format, false, true, probably),
                 Unplayable::SampleRateAndBitDepth => takes(m, &format, true, true, probably),
+                // `Format`, and whatever reason loclib-equipment adds later.
+                _ => format!("it {probably}doesn't play {format}"),
             };
             let files = if tracks.len() == 1 { "file" } else { "files" };
             let message =

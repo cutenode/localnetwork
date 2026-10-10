@@ -1,7 +1,8 @@
 //! Model-based tests of the snapshot store: objects, snapshots, library heads, gc and verify,
 //! with objects and manifests damaged behind the store's back; and snapshot ids and hashes.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use indexmap::IndexMap;
+use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::path::PathBuf;
 
@@ -66,12 +67,12 @@ struct StoreMachine {
     dir: tempfile::TempDir,
     store: Store,
     /// What each imported object holds.
-    objects: BTreeMap<Hash, Vec<u8>>,
+    objects: IndexMap<Hash, Vec<u8>>,
     /// Objects overwritten or deleted behind the store's back.
     tampered: BTreeSet<Hash>,
     deleted: BTreeSet<Hash>,
     /// Saved snapshots, and the order they were first saved in (for draws to pick from).
-    snapshots: BTreeMap<Hash, Snapshot>,
+    snapshots: IndexMap<Hash, Snapshot>,
     order: Vec<Hash>,
     /// Manifests overwritten with garbage.
     damaged: BTreeSet<Hash>,
@@ -85,10 +86,10 @@ impl StoreMachine {
         StoreMachine {
             dir,
             store,
-            objects: BTreeMap::new(),
+            objects: IndexMap::new(),
             tampered: BTreeSet::new(),
             deleted: BTreeSet::new(),
-            snapshots: BTreeMap::new(),
+            snapshots: IndexMap::new(),
             order: Vec::new(),
             damaged: BTreeSet::new(),
             libraries: Vec::new(),
@@ -96,7 +97,9 @@ impl StoreMachine {
     }
 
     fn on_disk(&self) -> Vec<Hash> {
-        self.objects.keys().filter(|h| !self.deleted.contains(*h)).copied().collect()
+        let mut out: Vec<Hash> = self.objects.keys().filter(|h| !self.deleted.contains(*h)).copied().collect();
+        out.sort_unstable();
+        out
     }
 
     fn manifest(&self, id: &Hash) -> PathBuf {
@@ -325,11 +328,11 @@ impl StoreMachine {
         assert_eq!(report.freed_bytes, dead_objects.iter().map(size).sum::<u64>(), "bytes gc frees");
         if !dry_run {
             for id in &dead_snapshots {
-                self.snapshots.remove(id);
+                self.snapshots.shift_remove(id);
                 self.order.retain(|o| o != id);
             }
             for h in &dead_objects {
-                self.objects.remove(h);
+                self.objects.shift_remove(h);
                 self.tampered.remove(h);
             }
         }
@@ -560,7 +563,7 @@ fn resolving_a_prefix_agrees_with_a_scan(tc: TestCase) {
 fn verify_reports_exactly_the_damaged_objects(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
-    let mut objects: BTreeMap<Hash, Vec<u8>> = BTreeMap::new();
+    let mut objects: IndexMap<Hash, Vec<u8>> = IndexMap::new();
     for bytes in tc.draw(gs::vecs(gs::binary().max_size(16)).min_size(1).max_size(6)) {
         objects.insert(store.import_bytes(&bytes).unwrap(), bytes);
     }

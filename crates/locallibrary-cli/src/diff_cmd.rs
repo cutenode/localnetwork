@@ -16,12 +16,12 @@ use crate::output::{Output, cap, dim, ok};
 use crate::render;
 
 #[derive(Args)]
-#[command(after_long_help = "Examples:\n  locallibrary diff Main Backup --playlist Sets/Friday\n  \
-locallibrary diff snapshot:3f9a2c Main\n  \
-locallibrary diff Main Backup --summary    # which is newer, the evidence, and the differences")]
+#[command(after_long_help = "Examples:\n  locallibrary diff REKORDBOX BACKUP --playlist Sets/Friday\n  \
+locallibrary diff snapshot:3f9a2c Home\n  \
+locallibrary diff REKORDBOX BACKUP --summary    # which is newer, the evidence, and the differences")]
 pub struct DiffArgs {
-    /// A drive, snapshot:<id prefix>, or a library in the store (its latest snapshot); with
-    /// --summary, a drive
+    /// A library (its newest drive plugged in, else its latest snapshot), a drive, or
+    /// snapshot:<id prefix>; with --summary, a drive (a library's name: its newest)
     left: String,
     /// Same, compared against the first
     right: String,

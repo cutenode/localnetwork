@@ -1,0 +1,25 @@
+[package]
+name = "loclib-mysettings"
+description = "Read and write the rekordbox \"My Settings\" files (MYSETTING.DAT and friends) players load from USB drives"
+readme = "README.md"
+keywords = ["rekordbox", "pioneer", "cdj", "dj", "settings"]
+categories = ["encoding", "parser-implementations", "multimedia::audio"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+schemars = { optional = true, version = "1.2", default-features = false, features = ["derive", "indexmap2", "std"] }
+serde.workspace = true
+thiserror.workspace = true
+
+[features]
+# JSON Schema (`schemars::JsonSchema`) for the types.
+schemars = ["dep:schemars"]
+
+[dev-dependencies]
+rustc-hash.workspace = true
+

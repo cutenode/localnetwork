@@ -12,7 +12,7 @@
 //! *computer's* collection: embed there, "Reload Tag" in rekordbox, and every future export
 //! carries the art.
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
@@ -342,8 +342,8 @@ pub fn set_on_drive(device: &mut Device, track_ids: &[u32], art: &Artwork, ctx: 
 
 /// For each batch of track ids (sorted), the image key to overwrite in place when the tracks are
 /// exactly the users of one artwork row that nothing else (`shared`) uses, else `None`.
-fn plan_in_place(library: &Library, shared: &HashSet<u32>, batches: &[Vec<u32>]) -> Vec<Option<String>> {
-    let mut users: HashMap<u32, Vec<u32>> = HashMap::new();
+fn plan_in_place(library: &Library, shared: &FxHashSet<u32>, batches: &[Vec<u32>]) -> Vec<Option<String>> {
+    let mut users: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
     for t in &library.tracks {
         if let Some(a) = t.artwork_id {
             users.entry(a).or_default().push(t.id);
@@ -403,7 +403,7 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
     let mut plus_plan: Option<PlusBatches> = None;
     if let Some((plus_lib, one)) = &plus {
         let batches_plus: Vec<Vec<u32>> = if has_pdb {
-            let by_path: HashMap<String, u32> =
+            let by_path: FxHashMap<String, u32> =
                 plus_lib.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect();
             let mut missing = 0;
             let mapped = sorted
@@ -432,14 +432,14 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
         } else {
             sorted.clone()
         };
-        let shared: HashSet<u32> = one.images_used_outside_tracks()?.into_iter().map(|(id, _)| id).collect();
+        let shared: FxHashSet<u32> = one.images_used_outside_tracks()?.into_iter().map(|(id, _)| id).collect();
         let in_place = plan_in_place(plus_lib, &shared, &batches_plus);
         plus_plan = Some(PlusBatches { ids: batches_plus, in_place });
     }
     for w in warnings {
         ctx.warn(w);
     }
-    let pdb_in_place = if has_pdb { plan_in_place(&library, &HashSet::new(), &sorted) } else { Vec::new() };
+    let pdb_in_place = if has_pdb { plan_in_place(&library, &FxHashSet::default(), &sorted) } else { Vec::new() };
 
     let mut report = ArtworkReport {
         tracks_updated: sorted.iter().map(Vec::len).sum(),
@@ -590,7 +590,7 @@ pub struct AutoArtworkItem {
 /// (`cover.jpg`, `folder.png`, ...) next to it on the drive.
 pub fn plan_auto(device: &Device, library: &Library) -> AutoArtworkPlan {
     let mut plan = AutoArtworkPlan { found: Vec::new(), not_found: Vec::new() };
-    let wanted: std::collections::HashSet<u32> = missing(device, library).iter().map(|t| t.id).collect();
+    let wanted: rustc_hash::FxHashSet<u32> = missing(device, library).iter().map(|t| t.id).collect();
     for t in library.tracks.iter().filter(|t| wanted.contains(&t.id)) {
         let Ok(audio) = device.checked_path(&paths::key(&t.file_path)) else {
             plan.not_found.push(t.into());
@@ -622,7 +622,7 @@ fn folder_image(audio: &Path) -> Option<PathBuf> {
 
 /// Apply [`plan_auto`]. Tracks whose source image is byte-identical share one artwork row.
 pub fn apply_auto(device: &mut Device, plan: &AutoArtworkPlan, ctx: &Ctx<'_>) -> Result<ArtworkReport> {
-    let mut groups: HashMap<Hash, (Vec<u32>, Vec<u8>)> = HashMap::new();
+    let mut groups: FxHashMap<Hash, (Vec<u32>, Vec<u8>)> = FxHashMap::default();
     let library = device.library()?;
     for item in &plan.found {
         let Some(t) = library.track(item.track.id) else { continue };

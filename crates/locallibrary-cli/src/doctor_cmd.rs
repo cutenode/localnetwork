@@ -18,11 +18,11 @@ use crate::output::{self, Outcome, Output, bytes, cap, dim, heading, ok, warn};
 
 #[derive(Args)]
 #[command(after_long_help = "Examples:
-  locallibrary doctor Main
-  locallibrary doctor Main --only duplicates,unfiled --hash-audio
-  locallibrary doctor Main --fix-orphans --dry-run    what deleting the orphaned files would remove")]
+  locallibrary doctor
+  locallibrary doctor Home --only duplicates,unfiled --hash-audio
+  locallibrary doctor Home --fix-orphans --dry-run    what deleting the orphaned files would remove")]
 pub struct DoctorArgs {
-    #[arg(help = crate::DEFAULT_DRIVE_HELP)]
+    #[arg(help = crate::DEFAULT_LIBRARY_HELP)]
     drive: Option<String>,
     /// Also find duplicates by audio content (reads the audio files whose size matches another's)
     #[arg(long)]
@@ -35,7 +35,7 @@ pub struct DoctorArgs {
     #[arg(long, value_enum, value_delimiter = ',')]
     only: Vec<SectionArg>,
     /// Delete audio, analysis and artwork files no track in either database uses (backed up first;
-    /// given no drive, on the only mounted one or the library's primary)
+    /// given no drive, on the only mounted one or the newest of the one library plugged in)
     #[arg(long)]
     fix_orphans: bool,
     /// With --fix-orphans: show what would be deleted, delete nothing
@@ -116,6 +116,7 @@ fn fix_orphans(drive: String, dry_run: bool, out: Output, ctx: &Ctx<'_>) -> Resu
     }
     if !out.json {
         orphan_plan(&plan);
+        crate::output::clones(&plan);
     }
     if let Some(o) = out.decide(dry_run, "Delete them?") {
         return Ok(out.not_applied(&plan, o));

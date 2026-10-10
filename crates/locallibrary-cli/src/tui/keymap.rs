@@ -277,7 +277,7 @@ use Scope as S;
 /// `L` in the Profile view: signing in to the Atmosphere account and out.
 #[cfg(feature = "account")]
 #[rustfmt::skip]
-const ACCOUNT_KEY: Binding = key(S::Profile, &[K::Ch('L')], "L", A::ProfileAccount, "sign in to your Atmosphere account (or out)", "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps); signed in, press twice to sign out", G::Profile)
+const ACCOUNT_KEY: Binding = key(S::Profile, &[K::Ch('L')], "L", A::ProfileAccount, "sign in to your Atmosphere account (or out)", "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha); signed in, press twice to sign out", G::Profile)
     .hint("sign in/out", 4);
 
 /// Built without the account (the `account` feature), `L` only says so.
@@ -367,8 +367,8 @@ pub static KEYMAP: &[Binding] = &[
     // -----------------------------------------------------------------------------------------
     // The Drives and Snapshots views
     // -----------------------------------------------------------------------------------------
-    note(S::Drives, "enter", "open the drive in the library", G::Drives),
-    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject (each shows its plan and asks first)", G::Drives),
+    note(S::Drives, "enter", "open the drive in the library (a library: its newest clone)", G::Drives),
+    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
     tip(S::Drives, "↑↓", "select", 4),
     tip(S::Drives, "enter", "browse", 9),
     tip(S::Drives, "e", "actions", 8),
@@ -436,6 +436,8 @@ pub static KEYMAP: &[Binding] = &[
     tip(S::FullScreen, "N P", "phrase", 5),
     tip(S::FullScreen, "space", "pause", 8),
     tip(S::FullScreen, "n p", "track", 4),
+    tip(S::FullScreen, "↑↓ enter", "play next", 7),
+    tip(S::FullScreen, "S", "autoplay", 5),
     tip(S::FullScreen, "f", "back", 7),
     key(S::Pads, &[K::Digits('1', '8')], "1 … 8", A::HotCue, "", "in full screen, or with the pads on: hot cue A … H (jumps there and plays)", G::Deck),
     // -----------------------------------------------------------------------------------------
@@ -469,7 +471,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch('(')], "(  )", A::LoopSize(false), "halve the loop", "halve / double the loop", G::Deck),
     key(S::Global, &[K::Ch(')')], "", A::LoopSize(true), "double the loop", "", G::Deck),
     note(S::Global, "", "A hot cue saved as a loop plays the loop. Seeking out of a loop leaves it.", G::Deck),
-    key(S::Global, &[K::Ch('S')], "S", A::Single, "single play or continuous", "single play: stop after each track, the next one ready for space; again to play on", G::Deck),
+    key(S::Global, &[K::Ch('S')], "S", A::Single, "autoplay on or off (single play)", "autoplay off (single play): stop after each track, the next one ready for space; again to play on", G::Deck),
     key(S::Global, &[K::Ch('A')], "A", A::AutoCue, "auto cue on or off", "auto cue: tracks start at their first memory cue, else their first beat", G::Deck),
     key(S::Global, &[K::Ch('d')], "d", A::Outputs, "the output to play through", "the output: the system's default, or another (headphones, an interface), remembered", G::Deck),
     key(S::Global, &[K::Ch('v')], "v", A::Visualiser, "the next visualiser", "spectrum · mirror · scope · deck", G::Visuals),

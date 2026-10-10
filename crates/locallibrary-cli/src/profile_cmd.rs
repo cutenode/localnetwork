@@ -118,7 +118,7 @@ enum ProfileCommand {
         #[arg(long, requires = "output")]
         replace: bool,
     },
-    /// Publish the document to your Atmosphere account, where anyone can read it
+    /// Publish the document to your Atmosphere account, where anyone can read it (alpha)
     #[cfg(feature = "account")]
     Publish {
         #[command(flatten)]

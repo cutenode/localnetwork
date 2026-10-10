@@ -5,10 +5,10 @@ mod shapes;
 
 use crate::common;
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
-use locallibrary::anlz::{self, CueFile, CuePoint, TrackAnalysis};
+use locallibrary::anlz::{self, CueFile, CuePoint};
 use locallibrary::api;
 use locallibrary::device::Device;
 use locallibrary::interop::{self, InteropOptions, Software};
@@ -63,7 +63,7 @@ fn drive(dir: &Path) -> PathBuf {
     root
 }
 
-fn attrs(e: &BytesStart<'_>) -> HashMap<String, String> {
+fn attrs(e: &BytesStart<'_>) -> FxHashMap<String, String> {
     e.attributes()
         .map(|a| {
             let a = a.unwrap();
@@ -73,14 +73,14 @@ fn attrs(e: &BytesStart<'_>) -> HashMap<String, String> {
 }
 
 /// An element's attributes.
-type Attrs = HashMap<String, String>;
+type Attrs = FxHashMap<String, String>;
 
 /// A Traktor collection as quick-xml reads it.
 #[derive(Debug, Default)]
 struct Nml {
     /// Entries by primary key (`VOLUME` + `DIR` + `FILE`): their element attributes by element
     /// name, and their `CUE_V2`s.
-    entries: Vec<(String, HashMap<String, Attrs>, Vec<Attrs>)>,
+    entries: Vec<(String, FxHashMap<String, Attrs>, Vec<Attrs>)>,
     collection_count: usize,
     /// Playlist nodes as `path` -> primary keys; folders as `path/`.
     nodes: Vec<(String, Vec<String>)>,
@@ -102,7 +102,7 @@ fn parse_nml(text: &str) -> Nml {
                     "COLLECTION" => nml.collection_count = a["ENTRIES"].parse().unwrap(),
                     "ENTRY" if path.is_empty() => {
                         in_entry = true;
-                        nml.entries.push((String::new(), HashMap::from([(name, a)]), Vec::new()));
+                        nml.entries.push((String::new(), FxHashMap::from_iter([(name, a)]), Vec::new()));
                     }
                     "LOCATION" => {
                         let entry = nml.entries.last_mut().unwrap();
@@ -159,7 +159,7 @@ fn traktor_collection_reads_back() {
     assert_eq!((nml.collection_count, nml.entries.len()), (2, 2));
 
     let lib = d.library().unwrap();
-    let mut keys = HashMap::new();
+    let mut keys = FxHashMap::default();
     let mut grids = 0;
     let mut cues = 0;
     for t in &lib.tracks {
@@ -180,14 +180,14 @@ fn traktor_collection_reads_back() {
         assert_eq!(info["KEY"], t.key);
         assert_eq!(el["MUSICAL_KEY"]["VALUE"], "17", "F minor");
 
-        let a = TrackAnalysis::load_grid(&d, t);
+        let a = anlz::load_grid(&d, t);
         let grid = markers.iter().find(|c| c["TYPE"] == "4").expect("a grid marker");
         let downbeat = a.beats.iter().find(|b| b.beat_number == 1).unwrap();
         assert_eq!(grid["START"].parse::<f64>().unwrap(), f64::from(downbeat.time_ms));
         assert_eq!(el["TEMPO"]["BPM"].parse::<f64>().unwrap(), downbeat.bpm);
         assert_eq!(el["ENTRY"]["LOCK"], "1");
         grids += 1;
-        let others: Vec<&HashMap<String, String>> = markers.iter().filter(|c| c["TYPE"] != "4").collect();
+        let others: Vec<&FxHashMap<String, String>> = markers.iter().filter(|c| c["TYPE"] != "4").collect();
         assert_eq!(others.len(), a.cues.len());
         for (m, c) in others.iter().zip(&a.cues) {
             assert_eq!(m["START"].parse::<f64>().unwrap(), f64::from(c.start_ms));
@@ -502,7 +502,7 @@ fn entity_chain(db: &rusqlite::Connection, list: i64) -> Vec<i64> {
     let mut stmt = db.prepare("SELECT id, trackId, nextEntityId FROM PlaylistEntity WHERE listId = ?1").unwrap();
     let rows: Vec<(i64, i64, i64)> =
         stmt.query_map([list], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().map(Result::unwrap).collect();
-    let pointed: std::collections::HashSet<i64> = rows.iter().map(|r| r.2).collect();
+    let pointed: rustc_hash::FxHashSet<i64> = rows.iter().map(|r| r.2).collect();
     let mut cur = rows.iter().find(|r| !pointed.contains(&r.0)).map(|r| r.0);
     let mut out = Vec::new();
     while let Some(id) = cur.filter(|id| *id != 0) {
@@ -520,7 +520,7 @@ fn list_chain(db: &rusqlite::Connection, parent: i64) -> Vec<(i64, String)> {
     let mut stmt = db.prepare("SELECT id, title, nextListId FROM Playlist WHERE parentListId = ?1").unwrap();
     let rows: Vec<(i64, String, i64)> =
         stmt.query_map([parent], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().map(Result::unwrap).collect();
-    let pointed: std::collections::HashSet<i64> = rows.iter().map(|r| r.2).collect();
+    let pointed: rustc_hash::FxHashSet<i64> = rows.iter().map(|r| r.2).collect();
     let mut cur = rows.iter().find(|r| !pointed.contains(&r.0)).map(|r| r.0);
     let mut out = Vec::new();
     while let Some(id) = cur.filter(|id| *id != 0) {
@@ -550,6 +550,11 @@ fn engine_library_reads_back() {
     let report = interop::apply(&d, Software::Engine, &out, &options(), &Ctx::silent()).unwrap();
     assert_eq!((report.tracks, report.playlists, report.folders, report.cues), (2, 3, 1, 0));
     assert!(report.warnings.iter().any(|w| w.contains("1 repeated playlist")), "{:?}", report.warnings);
+    // The notes name the command line's options.
+    let notes = |opts: &InteropOptions| interop::plan(&d, Software::Engine, &out, opts, &Ctx::silent()).unwrap().notes;
+    assert!(notes(&options())[1].ends_with("or export with --paths drive to put it on the drive."));
+    let skipped = notes(&InteropOptions { skip_analysis: true, ..options() });
+    assert_eq!(skipped.last().unwrap(), "--no-analysis changes nothing here: no analysis is written anyway.");
 
     let path = out.join("Engine Library/Database2/m.db");
     let db = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
@@ -592,7 +597,7 @@ fn engine_library_reads_back() {
     );
 
     let library_dir = out.canonicalize().unwrap().join("Engine Library");
-    let mut ids = HashMap::new();
+    let mut ids = FxHashMap::default();
     for t in &lib.tracks {
         let file = paths::key(&t.file_path).rsplit('/').next().unwrap().to_string();
         let (id, rel, bpm, key, length, kind, analysed, origin, art): (

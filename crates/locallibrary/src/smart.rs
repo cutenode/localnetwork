@@ -20,7 +20,8 @@ pub struct SmartPlaylist {
     pub sort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
-    /// Drives it applies to; every drive when empty.
+    /// The libraries it's limited to, by a library's id or one of its drives' (any clone of that
+    /// drive's library takes it, as clones are kept identical); every drive when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drives: Vec<Uuid>,
 }
@@ -48,8 +49,10 @@ impl SmartPlaylist {
         key(&self.path)
     }
 
-    pub fn applies_to(&self, drive: Option<Uuid>) -> bool {
-        self.drives.is_empty() || drive.is_some_and(|d| self.drives.contains(&d))
+    /// Whether it applies to a drive that answers to `ids`: its own, its library's and its
+    /// library's other drives'.
+    pub fn applies_to(&self, ids: &[Uuid]) -> bool {
+        self.drives.is_empty() || ids.iter().any(|id| self.drives.contains(id))
     }
 
     /// The edit that brings a drive's copy up to date.
@@ -111,9 +114,9 @@ impl SmartPlaylists {
         Ok(self.playlists.remove(i))
     }
 
-    /// The edits that bring a drive's smart playlists up to date.
-    pub fn edits_for(&self, drive: Option<Uuid>) -> Vec<Edit> {
-        self.playlists.iter().filter(|p| p.applies_to(drive)).map(SmartPlaylist::edit).collect()
+    /// The edits that bring a drive's smart playlists up to date (see [`SmartPlaylist::applies_to`]).
+    pub fn edits_for(&self, ids: &[Uuid]) -> Vec<Edit> {
+        self.playlists.iter().filter(|p| p.applies_to(ids)).map(SmartPlaylist::edit).collect()
     }
 }
 
@@ -140,8 +143,8 @@ mod tests {
         assert!(s.set(rule("Smart/All", "")).is_err() && s.set(rule("Smart/All", "  ")).is_err());
         let only = Uuid::new_v4();
         s.set(SmartPlaylist { drives: vec![only], ..rule("Tokyo", "genre:techno") }).unwrap();
-        assert_eq!(s.edits_for(None).len(), 1);
-        assert_eq!(s.edits_for(Some(only)).len(), 2);
+        assert_eq!(s.edits_for(&[]).len(), 1);
+        assert_eq!(s.edits_for(&[only]).len(), 2);
         s.remove("SMART/PEAK").unwrap();
         assert!(s.remove("nope").is_err());
     }

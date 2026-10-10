@@ -10,7 +10,7 @@
 //! [`LibraryStamp`] is the same metadata for one drive's databases: equal stamps mean the
 //! library hasn't been rewritten, which is what keeps a parsed library valid for a cache.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -264,7 +264,7 @@ impl Seen {
 pub struct VolumeWatcher {
     volumes: Volumes,
     /// By mount path.
-    seen: BTreeMap<PathBuf, Seen>,
+    seen: IndexMap<PathBuf, Seen>,
     store: Option<(PathBuf, StoreStamp)>,
 }
 
@@ -287,7 +287,7 @@ impl VolumeWatcher {
     }
 
     fn start(volumes: Volumes) -> VolumeWatcher {
-        let mut w = VolumeWatcher { volumes, seen: BTreeMap::new(), store: None };
+        let mut w = VolumeWatcher { volumes, seen: IndexMap::new(), store: None };
         w.seen = w.list().iter().map(|m| (m.path.clone(), Seen::new(m))).collect();
         w
     }
@@ -324,7 +324,7 @@ impl VolumeWatcher {
             .map(|(path, _)| path.clone())
             .collect();
         for path in gone {
-            if let Some(seen) = self.seen.remove(&path) {
+            if let Some(seen) = self.seen.shift_remove(&path) {
                 detached.push(WatchEvent::Detached(seen.drive));
             }
         }
@@ -332,7 +332,7 @@ impl VolumeWatcher {
             let Some(seen) = self.seen.get_mut(&m.path) else {
                 let seen = Seen::new(m);
                 attached.push(WatchEvent::Attached(seen.drive.clone()));
-                self.seen.insert(m.path.clone(), seen);
+                self.seen.insert_sorted(m.path.clone(), seen);
                 continue;
             };
             let root = seen.drive.root.clone();

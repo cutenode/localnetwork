@@ -11,7 +11,7 @@
 //! the cues its collection has. Every applied edit is recorded in the drive's journal of edits (as
 //! a [`CueChange`] on tracks named by file), so `edits replay` makes it again.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -183,7 +183,7 @@ impl CueChange {
 /// The analysis files (keys) that hold the cues of the tracks of `library` at `files` (device
 /// paths): what editing them may rewrite, for a backup.
 pub(crate) fn analysis_files(device: &Device, library: &Library, files: &[String]) -> Vec<String> {
-    let wanted: std::collections::HashSet<String> = files.iter().map(|f| paths::key(f).to_lowercase()).collect();
+    let wanted: rustc_hash::FxHashSet<String> = files.iter().map(|f| paths::key(f).to_lowercase()).collect();
     let mut out = Vec::new();
     for t in library.tracks.iter().filter(|t| wanted.contains(&paths::key(&t.file_path).to_lowercase())) {
         let dat = paths::key(&t.analyze_path);
@@ -462,7 +462,7 @@ fn load(device: &Device, t: &Track) -> Result<Loaded> {
 }
 
 /// OneLibrary's track ids by audio file.
-fn plus_ids(lib: &crate::model::Library) -> HashMap<String, u32> {
+fn plus_ids(lib: &crate::model::Library) -> FxHashMap<String, u32> {
     lib.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect()
 }
 
@@ -994,7 +994,7 @@ pub(crate) fn replay(device: &mut Device, files: &[String], change: &CueChange, 
         format!("skipped an edit that no longer applies ({}): {e}", change.describe(files.len()))
     };
     let library = device.library()?;
-    let by_key: HashMap<String, u32> =
+    let by_key: FxHashMap<String, u32> =
         library.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect();
     let id = |f: &str| by_key.get(&paths::key(f).to_lowercase()).copied();
     let ids: Vec<u32> = files.iter().filter_map(|f| id(f)).collect();

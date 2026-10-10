@@ -9,6 +9,7 @@ use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, DriveRef};
+use locallibrary::compare::Relation;
 use locallibrary::fleet::{DriveLog, KnownDrive, Role, Standing};
 use locallibrary::format::{FormatOptions, FormatPlan};
 use locallibrary::progress::Ctx;
@@ -17,6 +18,7 @@ use locallibrary::scrub::ScrubReport;
 use locallibrary::space::{SpaceKind, SpaceReport};
 use locallibrary::tidy::TidyOptions;
 
+use crate::completion::DriveOnly;
 use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, warn};
 use crate::{DRIVE_HELP, FsArg, each_drive, open_store, parse_size, render};
 
@@ -27,7 +29,7 @@ pub struct DriveArgs {
     #[command(subcommand)]
     command: Option<DriveCommand>,
     /// A drive to show, as `drive info` does [default: the mounted drives, as `drive ls` lists them]
-    #[arg(value_name = "DRIVE")]
+    #[arg(value_name = "DRIVE", add = DriveOnly)]
     drive: Option<String>,
 }
 
@@ -40,8 +42,8 @@ pub enum DriveCommand {
     #[command(alias = "show")]
     Info(DriveArg),
     /// Give a drive a stable identity and a name
-    #[command(after_long_help = "Examples:\n  locallibrary drive adopt /Volumes/REKORDBOX --name Main\n  \
-locallibrary drive adopt /Volumes/USB --as Backup    # after it was erased elsewhere")]
+    #[command(after_long_help = "Examples:\n  locallibrary drive adopt /Volumes/REKORDBOX\n  \
+locallibrary drive adopt /Volumes/USB --as BACKUP    # after it was erased elsewhere")]
     Adopt(AdoptArgs),
     /// Rename a drive (with --label, its volume label too)
     Rename {
@@ -158,9 +160,9 @@ writes the values rekordbox has for the drive.")]
     Backups(DriveArg),
     /// Put back one of a drive's backups (`undo` puts back the latest), or bring back one playlist
     /// or folder from a snapshot or a backup (--playlist)
-    #[command(after_long_help = "Examples:\n  locallibrary drive restore Main --backup 20261004T165600.123Z\n  \
-locallibrary drive restore Main --playlist \"Sets/2026/Friday\"\n  \
-locallibrary drive restore Main --playlist \"Sets/2026\" --snapshot 3f9a2c --dry-run")]
+    #[command(after_long_help = "Examples:\n  locallibrary drive restore REKORDBOX --backup 20261004T165600.123Z\n  \
+locallibrary drive restore Home --playlist \"Sets/2026/Friday\"\n  \
+locallibrary drive restore Home --playlist \"Sets/2026\" --snapshot 3f9a2c --dry-run")]
     Restore(RestoreArgs),
     /// Every drive locallibrary has seen, mounted or not (`drive ls --known`)
     #[command(hide = true)]
@@ -179,8 +181,9 @@ pub enum TopCommand {
     /// backups
     Drive(DriveArgs),
     /// Unmount drives and power them off so they can be pulled out safely
-    #[command(after_long_help = "Examples:\n  locallibrary eject Main Backup\n  \
-locallibrary sync --eject    # sync the drive group, then eject it")]
+    #[command(after_long_help = "Examples:\n  locallibrary eject    # the mounted drives of your library\n  \
+locallibrary eject Home SPARE\n  \
+locallibrary sync --eject    # sync every library's drives, then eject them")]
     Eject(EjectArgs),
     /// Turn a blank drive into a working copy of the library, in one step
     #[command(after_help = PROVISION_HELP, after_long_help = PROVISION_LONG_HELP)]
@@ -228,14 +231,14 @@ locallibrary sync --eject    # sync the drive group, then eject it")]
 
 const FORMAT_HELP: &str = "Everything on the disk is erased, including other partitions. The plan is shown first, \
 and you confirm by typing the drive's name (--yes doesn't skip that; --erase NAME gives it, for scripts). To set a \
-new drive up in one step (format, name, library, settings), see `locallibrary provision`.";
+new drive up in one step (format, identity, library, settings), see `locallibrary provision`.";
 
 const FORMAT_LONG_HELP: &str = "Everything on the disk is erased, including other partitions. The plan is shown \
 first, and you confirm by typing the drive's name (--yes doesn't skip that; --erase NAME gives it, for scripts). To \
-set a new drive up in one step (format, name, library, settings), see `locallibrary provision`.
+set a new drive up in one step (format, identity, library, settings), see `locallibrary provision`.
 
 Examples:
-  locallibrary drive format Backup --dry-run      the plan: what gets erased, what gets created
+  locallibrary drive format BACKUP --dry-run      the plan: what gets erased, what gets created
   locallibrary drive format disk4 --fs exfat      a disk with no mounted volume
   locallibrary drive format disk4 --yes --erase KEYCHAIN    in a script";
 
@@ -246,16 +249,16 @@ the store or the --against drives, verified, and read back.";
 const FSCK_HELP: &str = "macOS: diskutil verifyVolume/repairVolume (the drive is unmounted for the duration). \
 Linux: fsck.vfat/fsck.exfat, as root. Windows: chkdsk, from an elevated prompt.";
 
-const PROVISION_HELP: &str = "Steps: format (with --format), name it, copy the library from --like or write the \
-latest snapshot, write the settings profile, set its role and player name, read everything back, eject (with \
---eject). One plan lists them all.";
+const PROVISION_HELP: &str = "Steps: format (with --format), give it an identity, make it another copy of \
+--like's library or write the latest snapshot, write the settings profile, set its role and player name, read \
+everything back, eject (with --eject). One plan lists them all.";
 
-const PROVISION_LONG_HELP: &str = "Steps: format (with --format), name it, copy the library from --like or write \
-the latest snapshot, write the settings profile, set its role and player name, read everything back, eject (with \
---eject). One plan lists them all.
+const PROVISION_LONG_HELP: &str = "Steps: format (with --format), give it an identity, make it another copy of \
+--like's library or write the latest snapshot, write the settings profile, set its role and player name, read \
+everything back, eject (with --eject). One plan lists them all.
 
 Examples:
-  locallibrary provision /Volumes/NEW --like Main --name \"Backup 2\" --role backup --eject
+  locallibrary provision /Volumes/NEW --like Home --role backup --eject
   locallibrary provision disk4 --format --check-capacity --name Spare";
 
 /// One drive, or every mounted one.
@@ -299,6 +302,7 @@ pub struct AdoptArgs {
 #[derive(Args)]
 pub struct FormatArgs {
     /// Mounted drive (path, or an adopted drive's name or id), or a disk: disk4 (macOS), /dev/sdb (Linux), PhysicalDrive2 (Windows)
+    #[arg(add = DriveOnly)]
     drive: String,
     /// File system [default: fat32, which every player reads]
     #[arg(long = "fs", value_enum)]
@@ -329,7 +333,7 @@ pub struct VerifyArgs {
     #[arg(long)]
     snapshot: Option<String>,
     /// Another mounted drive with the same library, for good copies (repeatable)
-    #[arg(long = "against", value_name = "DRIVE")]
+    #[arg(long = "against", value_name = "DRIVE", add = DriveOnly)]
     against: Vec<String>,
     /// Rewrite what's damaged or missing
     #[arg(long)]
@@ -435,7 +439,8 @@ pub struct RestoreArgs {
 /// `eject`.
 #[derive(Args)]
 pub struct EjectArgs {
-    /// The drives: mount paths, names or id prefixes [default: the mounted drives of one library]
+    /// The drives: mount paths, names or id prefixes, or a library's name for its mounted drives
+    /// [default: the mounted drives of one library]
     #[arg(value_name = "DRIVE")]
     drives: Vec<String>,
 }
@@ -444,14 +449,16 @@ pub struct EjectArgs {
 #[derive(Args)]
 pub struct ProvisionArgs {
     /// The new drive (with --format, a disk such as disk4 or /dev/sdb works too)
+    #[arg(add = DriveOnly)]
     target: String,
-    /// Copy the library from this drive [default: write the library's latest snapshot]
+    /// Make it another copy of this drive's library, or of a library by name (copied from its
+    /// newest drive) [default: write the library's latest snapshot]
     #[arg(long, value_name = "DRIVE")]
     like: Option<String>,
     /// The library to write [default: --like's, else the only library in the store]
     #[arg(long, short)]
     library: Option<String>,
-    /// locallibrary name for the drive
+    /// A name for the drive [default: its volume name]
     #[arg(long)]
     name: Option<String>,
     /// Erase and format it first
@@ -764,13 +771,16 @@ fn ls(a: LsArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> 
         out.emit(&list, |l| known_drives(l));
     } else {
         let drives = api::list_drives(&api::ListDrives { all: a.all });
-        out.emit(&drives, |d| render::drives(d));
+        let libraries =
+            crate::diff_cmd::existing_store(store_path).and_then(|s| s.libraries().ok()).unwrap_or_default();
+        let names = libraries.into_iter().map(|l| (l.id, l.name)).collect();
+        out.emit(&drives, |d| render::drives(d, &names));
     }
     Ok(ExitCode::SUCCESS)
 }
 
 fn info(drive: Option<String>, out: Output) -> Result<ExitCode> {
-    let reads = each_drive::read(drive, |drive| api::drive_info(&api::DriveRef { drive }))?;
+    let reads = each_drive::read_each_drive(drive, |drive| api::drive_info(&api::DriveRef { drive }))?;
     Ok(reads.emit(out, render::info).exit())
 }
 
@@ -876,7 +886,7 @@ fn confirm_erase(out: &Output, plan: &FormatPlan, erase: Option<&str>) -> Option
 }
 
 fn backups(drive: Option<String>, out: Output) -> Result<ExitCode> {
-    let reads = each_drive::read(drive, |drive| api::list_backups(&api::DriveRef { drive }))?;
+    let reads = each_drive::read_each_drive(drive, |drive| api::list_backups(&api::DriveRef { drive }))?;
     let outcome = reads.emit_headed(out, |l| {
         if l.is_empty() {
             say!("no backups");
@@ -1016,7 +1026,7 @@ fn render_fsck(r: &locallibrary::fscheck::FsCheckReport) {
 
 fn space(drive: Option<String>, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let store = open_store(store_path).ok();
-    let reads = each_drive::read(drive, |drive| api::drive_space(store.as_ref(), &DriveRef { drive }, ctx))?;
+    let reads = each_drive::read_each_drive(drive, |drive| api::drive_space(store.as_ref(), &DriveRef { drive }, ctx))?;
     Ok(reads.emit(out, space_report).exit())
 }
 
@@ -1324,35 +1334,73 @@ fn drive_log(l: &DriveLog) {
     }
 }
 
+/// Each library, a line saying how its clones stand together, then a line for each clone (those
+/// not plugged in too); the drives of no library last.
 pub fn fleet_status(s: &api::FleetStatus) {
-    let statuses: Vec<api::DriveStatus> = s.mounted.iter().map(|d| d.status.clone()).collect();
-    render::status(&statuses);
-    for d in &s.mounted {
-        let name = d.status.drive.name.clone().unwrap_or_else(|| d.status.drive.volume_name.clone());
-        let mut notes = Vec::new();
-        if let Some(r) = d.role {
-            notes.push(r.name().to_string());
+    let in_library = |root: &PathBuf| s.libraries.iter().any(|l| l.mounted.contains(root));
+    let loose: Vec<&api::FleetDrive> = s.mounted.iter().filter(|d| !in_library(&d.status.drive.root)).collect();
+    let loose_away: Vec<&KnownDrive> = s.offline.iter().filter(|k| k.library.is_none()).collect();
+    if s.libraries.is_empty() && loose.is_empty() && loose_away.is_empty() {
+        say!("No rekordbox drives mounted.");
+        return;
+    }
+    let away = s.libraries.iter().flat_map(|l| &l.offline).chain(loose_away.iter().copied());
+    let name_w = (s.mounted.iter().map(|d| drive_name(&d.status.drive).chars().count()))
+        .chain(away.clone().map(|k| k.name.chars().count()))
+        .max()
+        .unwrap_or(0);
+    let role_w = (s.mounted.iter().map(|d| d.role)).chain(away.map(|k| k.role)).flatten().map(|r| r.name().len()).max();
+    let clone = |name: &str, role: Option<Role>, state: &str| {
+        let role = role_w.map(|w| format!("{:<w$}  ", role.map_or("", Role::name))).unwrap_or_default();
+        say!("  {name:<name_w$}  {role}{state}");
+    };
+    let plugged_in = |d: &api::FleetDrive| {
+        let name = drive_name(&d.status.drive);
+        let mut state = render::drive_state(&d.status);
+        if d.status.settings_drift > 0 {
+            state.push_str(&style(format!("  {} setting(s) differ", d.status.settings_drift)).yellow().to_string());
         }
-        if d.read_only {
-            notes.push(style("write-protected: players can't save history or cues").yellow().to_string());
+        if d.status.drive.drift.as_ref().is_some_and(|d| !d.is_empty()) {
+            state.push_str(&style("  export.pdb and OneLibrary differ (locallibrary drive info)").yellow().to_string());
         }
-        if d.low_space {
-            notes.push(style("nearly full: players need room for history and cues").yellow().to_string());
-        }
-        if d.exported_over_edits > 0 {
-            let n = d.exported_over_edits;
-            notes.push(
-                style(format!("rekordbox exported over {n} recorded edit(s): run `locallibrary refresh {name:?}`"))
-                    .yellow()
-                    .to_string(),
-            );
-        }
-        if let Some(c) = d.log.as_ref().and_then(|l| l.last_scrub.as_ref()).filter(|c| !c.ok) {
-            notes.push(style(format!("last check: {}", c.summary)).red().to_string());
-        }
+        clone(&name, d.role, &state);
+        let notes = drive_notes(d, &name);
         if !notes.is_empty() {
-            say!("  {}  {}", dim(&name), notes.join(", "));
+            say!("    {}", notes.join(", "));
         }
+    };
+    let unplugged = |k: &KnownDrive| {
+        let mut state = dim("not plugged in").to_string();
+        if !matches!(k.standing, Standing::Unknown) {
+            state.push_str(&format!(" · {}", standing(&k.standing)));
+        }
+        if k.log.retired.is_some() {
+            state.push_str(&dim(" · retired").to_string());
+        }
+        clone(&k.name, k.role, &state);
+    };
+    let mounted = |root: &PathBuf| s.mounted.iter().find(|d| d.status.drive.root == *root);
+    for lib in &s.libraries {
+        let clones = lib.mounted.len() + lib.offline.len();
+        let mut about = vec![format!("{} of {} plugged in", lib.mounted.len(), output::plural(clones, "clone"))];
+        match lib.identical {
+            Some(true) => about.push(style("identical").green().to_string()),
+            Some(false) => about.push(style("not identical").yellow().to_string()),
+            None => {}
+        }
+        about.push(match (&lib.head, lib.unsaved) {
+            (None, _) => dim("no snapshots yet").to_string(),
+            (Some(_), true) => style("changes not saved").yellow().to_string(),
+            (Some(h), false) => format!("saved ({})", h.short_id),
+        });
+        say!("{}  {}", style(&lib.name).bold(), about.join(" · "));
+        lib.mounted.iter().filter_map(mounted).for_each(plugged_in);
+        lib.offline.iter().for_each(unplugged);
+    }
+    if !loose.is_empty() || !loose_away.is_empty() {
+        heading("No library");
+        loose.into_iter().for_each(plugged_in);
+        loose_away.into_iter().for_each(unplugged);
     }
     for dup in &s.duplicates {
         warn(format!(
@@ -1363,10 +1411,38 @@ pub fn fleet_status(s: &api::FleetStatus) {
             dup.original.as_ref().map(|o| format!(" ({} is the original)", o.display())).unwrap_or_default()
         ));
     }
-    if !s.offline.is_empty() {
-        heading("Not mounted");
-        known_drives(&s.offline);
+    let unsaved = s.mounted.iter().any(|d| d.status.relation == Some(Relation::RightNewer));
+    if unsaved && !crate::autostart::installed() && crate::autostart::path().is_some() {
+        output::hint("`locallibrary watch --install` saves drives into the store as they're plugged in");
     }
+}
+
+fn drive_name(d: &locallibrary::DeviceInfo) -> String {
+    d.name.clone().unwrap_or_else(|| d.volume_name.clone())
+}
+
+/// What else to know of a mounted drive: write protection, space, an export over recorded edits,
+/// a failed check.
+fn drive_notes(d: &api::FleetDrive, name: &str) -> Vec<String> {
+    let mut notes = Vec::new();
+    if d.read_only {
+        notes.push(style("write-protected: players can't save history or cues").yellow().to_string());
+    }
+    if d.low_space {
+        notes.push(style("nearly full: players need room for history and cues").yellow().to_string());
+    }
+    if d.exported_over_edits > 0 {
+        let n = d.exported_over_edits;
+        notes.push(
+            style(format!("rekordbox exported over {n} recorded edit(s): run `locallibrary refresh {name:?}`"))
+                .yellow()
+                .to_string(),
+        );
+    }
+    if let Some(c) = d.log.as_ref().and_then(|l| l.last_scrub.as_ref()).filter(|c| !c.ok) {
+        notes.push(style(format!("last check: {}", c.summary)).red().to_string());
+    }
+    notes
 }
 
 pub fn scrub_report(r: &ScrubReport) {
@@ -1477,7 +1553,8 @@ pub fn space_report(r: &SpaceReport) {
     }
 }
 
-/// `sync` with no drives: the mounted drive group.
+/// `sync` with a library, or no drives: the library's mounted drive group, or each mounted
+/// library's, the newest drive of each onto the others, with one question for them all.
 pub fn sync_set(
     store_path: &Option<PathBuf>,
     library: Option<String>,
@@ -1487,15 +1564,48 @@ pub fn sync_set(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     let store: Store = open_store(store_path)?;
-    let req = api::SyncSetRequest {
+    let req = |library| api::SyncSetRequest {
         library,
         allow_low_confidence: allow_guess,
         verify: f.verify,
         keep_extra: f.keep_extra,
         delete_first: f.delete_first,
     };
-    // A group has two or more mounted drives: `resolve` refuses fewer.
-    crate::run_sync_many(store_path, req.resolve(&store)?.drives, f, allow_guess, out, ctx)
+    let mut libraries: Vec<String> = match library {
+        Some(l) => vec![l],
+        None => {
+            let sets = api::drive_sets(&store)?.into_iter().filter(|s| s.members.len() >= 2);
+            sets.filter_map(|s| s.library).collect()
+        }
+    };
+    if libraries.len() < 2 {
+        // A group has two or more mounted drives: `resolve` refuses fewer.
+        return crate::run_sync_many(
+            store_path,
+            req(libraries.pop()).resolve(&store)?.drives,
+            f,
+            allow_guess,
+            out,
+            ctx,
+        );
+    }
+    // Every mounted library: one that can't be planned (its drives diverged, say) is left out.
+    let (mut previews, mut left_out) = (Vec::new(), None);
+    for library in libraries {
+        let many = req(Some(library.clone())).resolve(&store);
+        match many.and_then(|many| api::sync_many_plan(&many, ctx)) {
+            Ok(p) => previews.push(p),
+            Err(locallibrary::Error::Cancelled) => return Err(locallibrary::Error::Cancelled.into()),
+            Err(e) => {
+                warn(format!("{library} left out: {e}"));
+                left_out = Some(e);
+            }
+        }
+    }
+    match (previews.is_empty(), left_out) {
+        (true, Some(e)) => Err(e.into()),
+        (_, left_out) => crate::many_targets(previews, left_out.is_some(), store_path, f, out, ctx),
+    }
 }
 
 pub fn target_results(results: &[api::TargetResult]) {

@@ -4,7 +4,10 @@
 
 use crate::common;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
+
+use rustc_hash::FxHashMap;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -112,12 +115,12 @@ struct Node {
 #[derive(Clone, Debug, PartialEq)]
 struct Shape {
     top: Vec<Node>,
-    tracks: BTreeMap<String, Details>,
+    tracks: IndexMap<String, Details>,
     history: Vec<(String, Vec<String>)>,
 }
 
 fn shape(lib: &Library) -> Shape {
-    let keys: HashMap<u32, String> = lib.tracks.iter().map(|t| (t.id, tkey(&t.file_path))).collect();
+    let keys: FxHashMap<u32, String> = lib.tracks.iter().map(|t| (t.id, tkey(&t.file_path))).collect();
     let entries = |ids: &[u32]| -> Vec<String> {
         ids.iter().map(|id| keys.get(id).cloned().unwrap_or_else(|| format!("<no track #{id}>"))).collect()
     };
@@ -206,7 +209,7 @@ fn assert_rekordcrate_agrees(root: &Path, lib: &Library) {
         row(&mut c);
         c.into_inner().chunks_exact(4).take(5).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect()
     };
-    let mut tree = BTreeMap::new();
+    let mut tree = IndexMap::new();
     for r in rows(PageType::PlaylistTree) {
         let Row::PlaylistTreeNode(n) = r else { panic!("not a playlist tree row: {r:?}") };
         let fields = raw(&|c| n.write(c).unwrap());
@@ -220,26 +223,26 @@ fn assert_rekordcrate_agrees(root: &Path, lib: &Library) {
             node.3.clone_from(&p.name);
         }
     }
-    let ours: BTreeMap<u32, (u32, u32, bool, String)> = lib
+    let ours: IndexMap<u32, (u32, u32, bool, String)> = lib
         .playlists
         .iter()
         .map(|p| (p.id, (p.parent_id.unwrap_or(0), p.sort_order, p.is_folder, p.name.clone())))
         .collect();
     assert_eq!(tree, ours, "the playlist tree as rekordcrate reads it");
-    let mut entries: BTreeMap<u32, Vec<(u32, u32)>> = BTreeMap::new();
+    let mut entries: IndexMap<u32, Vec<(u32, u32)>> = IndexMap::new();
     for r in rows(PageType::PlaylistEntries) {
         let Row::PlaylistEntry(e) = r else { panic!("not a playlist entry row: {r:?}") };
         let f = raw(&|c| e.write(c).unwrap());
         entries.entry(f[2]).or_default().push((f[0], f[1]));
     }
-    let mut theirs = BTreeMap::new();
+    let mut theirs = IndexMap::new();
     for (playlist, mut list) in entries {
         list.sort_unstable();
         let numbers: Vec<u32> = list.iter().map(|(i, _)| *i).collect();
         assert_eq!(numbers, (1..=list.len() as u32).collect::<Vec<_>>(), "entry numbers of playlist #{playlist}");
         theirs.insert(playlist, list.into_iter().map(|(_, t)| t).collect::<Vec<u32>>());
     }
-    let ours: BTreeMap<u32, Vec<u32>> =
+    let ours: IndexMap<u32, Vec<u32>> =
         lib.playlists.iter().filter(|p| !p.track_ids.is_empty()).map(|p| (p.id, p.track_ids.clone())).collect();
     assert_eq!(theirs, ours, "playlist entries as rekordcrate reads them");
     assert_eq!(rows(PageType::Tracks).len(), lib.tracks.len(), "track rows as rekordcrate reads them");
@@ -388,7 +391,7 @@ fn details_fit(others: usize, d: &Details) -> bool {
 
 /// What each track's export.pdb row takes besides its title, comment and mix name: 136 bytes of
 /// fields and string offsets, its other 18 strings (each padded to four) and 4 bytes more.
-fn track_rows(root: &Path) -> BTreeMap<String, usize> {
+fn track_rows(root: &Path) -> IndexMap<String, usize> {
     let db = rekordbox_pdb::Database::from_file(root.join(paths::EXPORT_PDB)).unwrap();
     let edited = ["title", "comment", "mix_name"];
     db.tracks
@@ -413,7 +416,7 @@ struct Model {
     /// Audio files (track keys) that edits deleted.
     audio_gone: BTreeSet<String>,
     /// [`track_rows`] as the drive started: edits never change the strings counted there.
-    track_rows: BTreeMap<String, usize>,
+    track_rows: IndexMap<String, usize>,
 }
 
 type Outcome<T = ()> = Result<T, String>;
@@ -493,7 +496,7 @@ impl Model {
 
     fn delete_tracks(&mut self, keys: &[String], keep_files: bool) {
         for k in keys {
-            self.shape.tracks.remove(k);
+            self.shape.tracks.shift_remove(k);
             if !keep_files {
                 self.audio_gone.insert(k.clone());
             }

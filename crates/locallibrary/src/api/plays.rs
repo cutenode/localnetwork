@@ -41,7 +41,8 @@ pub fn history_archive(store: &Store, req: &HistoryArchiveRequest, ctx: &Ctx<'_>
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct PlayStatsRequest {
-    /// A drive, `snapshot:<id prefix>`, or a library (its latest snapshot).
+    /// A library (its newest drive plugged in, else its latest snapshot), a drive, or
+    /// `snapshot:<id prefix>`.
     pub source: String,
     /// Also report what was played since this snapshot (a label, `snapshot:<id prefix>` or an id
     /// prefix), or since this date (`2026`, `2026-09` or `2026-09-30`: since the newest snapshot

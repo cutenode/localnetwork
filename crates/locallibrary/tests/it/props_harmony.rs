@@ -1,12 +1,11 @@
 //! Properties of Camelot keys, tempo gaps and set ordering (`harmony`).
 
-use std::collections::HashMap;
-
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
 use locallibrary::Track;
 use locallibrary::harmony::{self, Camelot, Relation};
 use locallibrary::progress::Ctx;
+use rustc_hash::FxHashMap;
 
 fn all_keys() -> Vec<Camelot> {
     (1..=12).flat_map(|number| [false, true].map(|major| Camelot { number, major })).collect()
@@ -152,7 +151,8 @@ fn order_set_is_a_permutation_starting_where_asked(tc: TestCase) {
     let start = tc.draw(gs::optional(gs::integers::<usize>().max_value(n)));
     let n = keys.len();
     let tracks: Vec<Track> = (0..n).map(|i| track(i as u32, &keys[i], bpms[i])).collect();
-    let energy: HashMap<u32, f64> = energies.iter().enumerate().filter_map(|(i, e)| e.map(|e| (i as u32, e))).collect();
+    let energy: FxHashMap<u32, f64> =
+        energies.iter().enumerate().filter_map(|(i, e)| e.map(|e| (i as u32, e))).collect();
     let refs: Vec<&Track> = tracks.iter().collect();
     let start = start.map(|s| s as u32);
 

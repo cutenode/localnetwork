@@ -15,7 +15,7 @@
 //! URIs and chrono checks times; a `uri` only gets the light check the protocol's reference
 //! implementation gives one (a scheme, then no spaces).
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::LazyLock;
 
 use jacquard_common::SmolStr;
@@ -45,7 +45,7 @@ pub const DOCUMENTS: [(&str, &str); 4] = [
     (ADDRESS, include_str!("../../../../lexicons/community/lexicon/location/address.json")),
 ];
 
-static PARSED: LazyLock<HashMap<&'static str, Value>> = LazyLock::new(|| {
+static PARSED: LazyLock<FxHashMap<&'static str, Value>> = LazyLock::new(|| {
     DOCUMENTS
         .iter()
         .map(|(id, text)| (*id, serde_json::from_str(text).expect("the Lexicon documents are JSON")))

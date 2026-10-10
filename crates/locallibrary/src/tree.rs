@@ -5,7 +5,9 @@
 //! database and analysis files are small and always hashed; audio files are hashed lazily, only
 //! when a comparison or a store import actually needs their content identity.
 
-use std::collections::{BTreeMap, HashMap};
+use indexmap::IndexMap;
+
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
@@ -43,11 +45,12 @@ impl FileEntry {
 #[derive(Debug, Clone, Default)]
 pub struct FileTree {
     pub root: PathBuf,
-    pub entries: BTreeMap<String, FileEntry>,
+    /// Sorted by key.
+    pub entries: IndexMap<String, FileEntry>,
     /// Actual on-disk relative path when it differs from the key (Unicode normalisation).
-    actual: HashMap<String, PathBuf>,
-    /// Lower-cased key -> key, for case-insensitive lookups.
-    folded: BTreeMap<String, String>,
+    actual: FxHashMap<String, PathBuf>,
+    /// Lower-cased key -> key, for case-insensitive lookups. Sorted, so a prefix is a binary search.
+    folded: IndexMap<String, String>,
 }
 
 impl FileTree {
@@ -65,8 +68,9 @@ impl FileTree {
     /// Entries whose key starts with `prefix`, ignoring case.
     pub fn with_prefix(&self, prefix: &str) -> Vec<&FileEntry> {
         let p = prefix.to_lowercase();
-        self.folded
-            .range(p.clone()..)
+        let start = self.folded.partition_point(|f, _| *f < p);
+        self.folded[start..]
+            .iter()
             .take_while(|(f, _)| f.starts_with(&p))
             .filter_map(|(_, k)| self.entries.get(k))
             .collect()
@@ -172,6 +176,8 @@ pub fn scan(root: &Path, opts: &ScanOptions, ctx: &Ctx<'_>) -> Result<FileTree> 
             add_entry_as(&mut tree, &rel, &p, FileClass::Audio)?;
         }
     }
+    tree.entries.sort_unstable_keys();
+    tree.folded.sort_unstable_keys();
     ctx.phase_end(Phase::Scan);
     Ok(tree)
 }
@@ -201,7 +207,7 @@ fn add_entry_as(tree: &mut FileTree, rel: &Path, abs: &Path, class: FileClass) -
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct HashIndex {
     #[serde(default)]
-    entries: HashMap<String, IndexEntry>,
+    entries: FxHashMap<String, IndexEntry>,
     #[serde(skip)]
     dirty: bool,
 }

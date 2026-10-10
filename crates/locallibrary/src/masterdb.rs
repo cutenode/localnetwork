@@ -35,7 +35,9 @@
 //!   `ColorTableIndex` as a code of rekordbox's hot cue palette, like OneLibrary's
 //!   `colorTableIndex` (inferred, not documented).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use indexmap::IndexMap;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -110,7 +112,7 @@ pub struct Collection {
     /// files' paths on this computer.
     pub library: Library,
     /// Hot cues, memory cues and loops by track id, as the analysis files would list them.
-    pub cues: BTreeMap<u32, Vec<Cue>>,
+    pub cues: IndexMap<u32, Vec<Cue>>,
     /// My Tags: categories in rekordbox's order, each with its tags and their tracks.
     pub tags: Vec<TagCategory>,
     /// Ids of intelligent playlists, whose rules aren't evaluated.
@@ -302,7 +304,7 @@ impl Db<'_> {
     }
 
     /// A table's columns, lower-cased; empty when there's no such table.
-    fn columns(&self, table: &str) -> Result<HashSet<String>> {
+    fn columns(&self, table: &str) -> Result<FxHashSet<String>> {
         let mut stmt = self.conn.prepare(&format!("PRAGMA table_info(\"{table}\")")).map_err(|e| self.sql(e))?;
         let names = stmt.query_map([], |r| r.get::<_, String>(1)).map_err(|e| self.sql(e))?;
         names.map(|n| n.map(|n| n.to_lowercase()).map_err(|e| self.sql(e))).collect()
@@ -330,7 +332,7 @@ impl Db<'_> {
     }
 
     /// `ID` -> `column` of a lookup table.
-    fn names(&self, table: &str, column: &str) -> Result<HashMap<String, String>> {
+    fn names(&self, table: &str, column: &str) -> Result<FxHashMap<String, String>> {
         Ok(self.select(table, &["ID", column])?.into_iter().map(|r| (text(&r[0]), text(&r[1]))).collect())
     }
 
@@ -339,12 +341,12 @@ impl Db<'_> {
         let genres = self.names("djmdGenre", "Name")?;
         let labels = self.names("djmdLabel", "Name")?;
         let keys = self.names("djmdKey", "ScaleName")?;
-        let albums: HashMap<String, (String, String)> = self
+        let albums: FxHashMap<String, (String, String)> = self
             .select("djmdAlbum", &["ID", "Name", "AlbumArtistID"])?
             .into_iter()
             .map(|r| (text(&r[0]), (text(&r[1]), text(&r[2]))))
             .collect();
-        let name = |map: &HashMap<String, String>, id: &Value| map.get(&text(id)).cloned().unwrap_or_default();
+        let name = |map: &FxHashMap<String, String>, id: &Value| map.get(&text(id)).cloned().unwrap_or_default();
 
         const CONTENT: &[&str] = &[
             "ID",
@@ -382,7 +384,7 @@ impl Db<'_> {
         ];
         let rows = self.select("djmdContent", CONTENT)?;
         let track_ids = id_map(rows.iter().map(|r| text(&r[0])));
-        let mut images: HashMap<String, u32> = HashMap::new();
+        let mut images: FxHashMap<String, u32> = FxHashMap::default();
         let mut tracks = Vec::with_capacity(rows.len());
         for r in &rows {
             let v = |c: &str| &r[CONTENT.iter().position(|x| *x == c).expect("known column")];
@@ -439,7 +441,7 @@ impl Db<'_> {
         let library =
             Library { tracks, playlists, history_playlists: history.iter().filter(|h| !h.is_folder).count(), history };
 
-        let mut cues: BTreeMap<u32, Vec<Cue>> = BTreeMap::new();
+        let mut cues: IndexMap<u32, Vec<Cue>> = IndexMap::new();
         for r in self.select("djmdCue", &["ContentID", "InMsec", "OutMsec", "Kind", "ColorTableIndex", "Comment"])? {
             let Some(&track) = track_ids.get(&text(&r[0])) else { continue };
             let start = int(&r[1]).max(0);
@@ -461,6 +463,7 @@ impl Db<'_> {
         for list in cues.values_mut() {
             list.sort_by_key(|c| (c.hot_cue.map_or(0, |h| h as u32 + 1), c.start_ms));
         }
+        cues.sort_unstable_keys();
 
         Ok(Collection {
             path: self.path.to_path_buf(),
@@ -483,11 +486,11 @@ impl Db<'_> {
         table: &str,
         entries: &str,
         list_column: &str,
-        tracks: &HashMap<String, u32>,
+        tracks: &FxHashMap<String, u32>,
     ) -> Result<(Vec<Playlist>, Vec<u32>)> {
         let rows = self.select(table, &["ID", "Seq", "Name", "Attribute", "ParentID"])?;
         let ids = id_map(rows.iter().map(|r| text(&r[0])));
-        let mut songs: HashMap<u32, Vec<(i64, usize, u32)>> = HashMap::new();
+        let mut songs: FxHashMap<u32, Vec<(i64, usize, u32)>> = FxHashMap::default();
         for (n, r) in self.select(entries, &[list_column, "ContentID", "TrackNo"])?.into_iter().enumerate() {
             if let (Some(&list), Some(&track)) = (ids.get(&text(&r[0])), tracks.get(&text(&r[1]))) {
                 songs.entry(list).or_default().push((int(&r[2]), n, track));
@@ -516,9 +519,9 @@ impl Db<'_> {
     }
 
     /// My Tags: categories hang off `"root"`, tags off their category.
-    fn tags(&self, tracks: &HashMap<String, u32>) -> Result<Vec<TagCategory>> {
+    fn tags(&self, tracks: &FxHashMap<String, u32>) -> Result<Vec<TagCategory>> {
         let rows = self.select("djmdMyTag", &["ID", "Seq", "Name", "ParentID"])?;
-        let mut links: HashMap<String, Vec<(i64, usize, u32)>> = HashMap::new();
+        let mut links: FxHashMap<String, Vec<(i64, usize, u32)>> = FxHashMap::default();
         for (n, r) in self.select("djmdSongMyTag", &["MyTagID", "ContentID", "TrackNo"])?.into_iter().enumerate() {
             if let Some(&track) = tracks.get(&text(&r[1])) {
                 links.entry(text(&r[0])).or_default().push((int(&r[2]), n, track));
@@ -540,7 +543,7 @@ impl Db<'_> {
                         .map(|(_, tag, name)| {
                             let mut l = links.remove(&tag).unwrap_or_default();
                             l.sort_unstable();
-                            let mut seen = HashSet::new();
+                            let mut seen = FxHashSet::default();
                             TagEntry {
                                 name,
                                 track_ids: l.into_iter().map(|x| x.2).filter(|t| seen.insert(*t)).collect(),
@@ -559,10 +562,10 @@ fn is_root(parent: &str) -> bool {
 
 /// rekordbox's text ids as the model's numbers: the ids themselves when every one is a distinct,
 /// non-zero 32-bit number, otherwise 1, 2, 3... in order.
-fn id_map(ids: impl Iterator<Item = String>) -> HashMap<String, u32> {
+fn id_map(ids: impl Iterator<Item = String>) -> FxHashMap<String, u32> {
     let ids: Vec<String> = ids.collect();
     let parsed: Vec<Option<u32>> = ids.iter().map(|s| s.trim().parse().ok().filter(|n| *n != 0)).collect();
-    let distinct: HashSet<u32> = parsed.iter().flatten().copied().collect();
+    let distinct: FxHashSet<u32> = parsed.iter().flatten().copied().collect();
     if parsed.iter().all(Option::is_some) && distinct.len() == ids.len() {
         ids.into_iter().zip(parsed.into_iter().flatten()).collect()
     } else {
@@ -613,7 +616,7 @@ impl Collection {
     pub fn info(&self) -> CollectionInfo {
         let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();
         let all = || self.cues.values().flatten();
-        let mut tagged = HashSet::new();
+        let mut tagged = FxHashSet::default();
         for t in self.tags.iter().flat_map(|c| &c.tags) {
             tagged.extend(t.track_ids.iter().copied());
         }
@@ -635,10 +638,10 @@ impl Collection {
     }
 
     /// My Tags as `Category/Tag` by lower-cased file key, the shape track filters (`tag:`) take.
-    pub fn tags_by_file(&self) -> HashMap<String, Vec<String>> {
-        let files: HashMap<u32, String> =
+    pub fn tags_by_file(&self) -> FxHashMap<String, Vec<String>> {
+        let files: FxHashMap<u32, String> =
             self.library.tracks.iter().map(|t| (t.id, paths::key(&t.file_path).to_lowercase())).collect();
-        let mut out: HashMap<String, Vec<String>> = HashMap::new();
+        let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
         for c in &self.tags {
             for tag in &c.tags {
                 for id in &tag.track_ids {
@@ -1106,7 +1109,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_drive_is_compared_with_the_collection() {
-        use crate::model::tests::track;
+        use loclib_model::test_util::track;
         let dir = tempfile::tempdir().unwrap();
         let c = open(&write(dir.path(), &sample().encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
         // Exported earlier: the same file under /Contents, Floorplan's track under another file

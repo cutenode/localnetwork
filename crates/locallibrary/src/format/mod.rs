@@ -50,6 +50,7 @@ use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result};
 
+pub use loclib_equipment::FsKind;
 pub use players::{Compatibility, Verdict};
 
 thread_local! {
@@ -58,7 +59,7 @@ thread_local! {
 }
 
 /// The warning for `what` (formatting, ejecting...) on Linux and Windows: it drives the
-/// operating system's disk tools, which have only ever run on macOS (README "Platforms"). The
+/// operating system's disk tools, which have only ever run on macOS (docs/install.md, "Platforms"). The
 /// plans that do it carry this. Delete it and its uses once each has had a run there.
 pub fn untested_here(what: &str) -> Option<String> {
     let os = match THREAD_OS.with(Cell::get).unwrap_or(std::env::consts::OS) {
@@ -146,20 +147,6 @@ impl Filesystem {
             }
         }
     }
-}
-
-/// A file system found on a volume.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum FsKind {
-    Fat12,
-    Fat16,
-    Fat32,
-    Exfat,
-    Hfsplus,
-    Apfs,
-    Ntfs,
-    Other,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -438,7 +425,7 @@ pub fn plan(
             if let Some(state) = d.state() {
                 // An archive or retired drive is kept as it is, by a format too.
                 crate::fleet::check_target(store, &d, false)?;
-                if let Some(rec) = store.map(|s| s.drives()).transpose()?.and_then(|mut r| r.remove(&state.id)) {
+                if let Some(rec) = store.map(|s| s.drives()).transpose()?.and_then(|mut r| r.shift_remove(&state.id)) {
                     (e.role, e.retired) = (rec.role, rec.log.retired.is_some());
                 }
                 e.drive_name = Some(state.name.clone());

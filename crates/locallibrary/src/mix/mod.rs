@@ -8,19 +8,22 @@
 //! it too. The [`MixReport`] adds the library's metadata, the transitions between tracks and a
 //! waveform of the whole mix.
 //!
+//! Decoding, fingerprinting, the index and the matcher are loclib-mixid's ([`audio`],
+//! [`fingerprint`], [`matcher`] and part of [`index`] re-export it); this module brings the
+//! drive, the store's fingerprint cache, Audacity projects and the report.
+//!
 //! ```text
 //! locallibrary mix "Live at the Warehouse.wav" --drive DNA --html set.html
 //! ```
 
-pub mod audio;
 pub mod aup;
 pub mod export;
-pub mod fingerprint;
 pub mod index;
-pub mod matcher;
 pub mod report;
 
-use std::collections::HashMap;
+pub use loclib_mixid::{Heard, audio, fingerprint, matcher};
+
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -32,7 +35,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 
 use self::aup::{Label, Project};
-use self::fingerprint::{Analyzer, FRAMES_PER_SEC, FrameLevels, QUERY};
+use self::fingerprint::{Analyzer, FRAMES_PER_SEC, FrameLevels, QUERY, RATE};
 use self::index::{Cache, IndexReport, LibraryIndex};
 use self::matcher::Found;
 use crate::device::Device;
@@ -40,7 +43,7 @@ use crate::error::IoContext;
 use crate::harmony::Camelot;
 use crate::model::{Library, Track};
 use crate::progress::{Ctx, Phase};
-use crate::{Error, Result};
+use crate::{Error, Result, probe};
 
 /// What a mix file is: `audio` or `audacity`. (An alias, so serde doesn't take the `&str` as
 /// borrowed from what a report is read back from.)
@@ -246,7 +249,7 @@ pub struct Identifier {
     pub report: IndexReport,
     index: LibraryIndex,
     /// Each indexed track's slot, by its file's key ([`Cache::key`]).
-    slots: HashMap<String, u32>,
+    slots: FxHashMap<String, u32>,
 }
 
 impl Identifier {
@@ -302,7 +305,7 @@ impl Identifier {
     fn play(&self, f: &Found) -> Option<Play> {
         let id = *self.index.track_ids.get(f.slot as usize)?;
         let track = self.library.track(id)?.clone();
-        let semitones = if f.key_lock == Some(true) { 0.0 } else { 12.0 * f.tempo.log2() };
+        let semitones = f.semitones();
         let key = Camelot::parse(&track.key).map(Camelot::code);
         let played_key = Camelot::parse(&track.key).map(|k| {
             // Without key lock the key moves; a semitone is seven steps round the wheel.
@@ -310,9 +313,6 @@ impl Identifier {
             let number = (k.number as i32 - 1 + 7 * shift).rem_euclid(12) + 1;
             Camelot { number: number as u8, major: k.major }.code()
         });
-        let density = f.votes as f64 / f.spanned.max(1) as f64;
-        let continuity = f.heard as f64 / f.spanned.max(1) as f64;
-        let confidence = ((1.0 - (-density / 14.0).exp()) * continuity.sqrt()).clamp(0.0, 1.0);
         let alternates = f
             .alternates
             .iter()
@@ -334,7 +334,7 @@ impl Identifier {
             semitones,
             key,
             played_key,
-            confidence: (confidence * 100.0).round() / 100.0,
+            confidence: (f.confidence() * 100.0).round() / 100.0,
             votes: f.votes,
             presence: f.presence.clone(),
             presence_step: matcher::PRESENCE_STEP,
@@ -342,13 +342,6 @@ impl Identifier {
             alternates,
         })
     }
-}
-
-/// A mix decoded and fingerprinted.
-pub struct Heard {
-    pub peaks: Vec<fingerprint::Peak>,
-    pub levels: Vec<FrameLevels>,
-    pub frames: u32,
 }
 
 /// Whether `path` is something [`Identifier::identify`] can read.
@@ -377,7 +370,6 @@ pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
     if !path.is_file() {
         return Err(Error::NotFound(path.display().to_string()));
     }
-    let mut analyzer = Analyzer::new(QUERY, true);
     ctx.phase_start(Phase::Listen, 0, 0);
     let mut info = MixInfo {
         path: path.to_path_buf(),
@@ -399,7 +391,9 @@ pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
         let project = Project::open(path)?;
         tags = project.tags.clone();
         info.labels = project.labels.clone();
-        project.render(fingerprint::RATE, ctx, &mut |s| analyzer.push(s))
+        let mut analyzer = Analyzer::new(QUERY, true);
+        let rendered = project.render(RATE, ctx, &mut |s| analyzer.push(s));
+        rendered.map(|format| (format, Heard::from(analyzer)))
     } else {
         if let Ok(tagged) = lofty::read_from_path(path)
             && let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag())
@@ -418,10 +412,12 @@ pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
                 info.cover = Some(CoverSource::Embedded(path.to_path_buf()));
             }
         }
-        audio::decode(path, fingerprint::RATE, ctx, &mut |s| analyzer.push(s))
+        // loclib-mixid turns a decoder's panic into an error, but the panic still prints: guarded,
+        // it doesn't.
+        probe::guarded(path, || loclib_mixid::listen(path, ctx).map_err(Error::from))
     };
     ctx.phase_end(Phase::Listen);
-    let format = result?;
+    let (format, heard) = result?;
     info.duration_secs = format.duration_secs;
     info.sample_rate = format.sample_rate;
     info.channels = format.channels;
@@ -429,9 +425,7 @@ pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(MixInfo, Heard)> {
     if info.cover.is_none() {
         info.cover = cover_next_to(path).map(CoverSource::File);
     }
-    let frames = analyzer.frames();
-    let (peaks, levels) = analyzer.finish();
-    Ok((info, Heard { peaks, levels, frames }))
+    Ok((info, heard))
 }
 
 /// Title, artist and so on from tags. Pioneer DJ's recorders write `REC046` as the title,
@@ -572,9 +566,10 @@ mod tests {
     /// tracks heard in it: it would match the whole mix and swallow them.
     #[test]
     fn a_recording_on_the_drive_is_left_out_of_its_own_tracks() {
-        use crate::mix::fingerprint::{RATE, tests::synth};
-        use crate::model::tests::track;
+        use crate::mix::fingerprint::RATE;
         use crate::probe::tests::wav_of;
+        use loclib_mixid::test_util::synth;
+        use loclib_model::test_util::track;
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("drive");
         std::fs::create_dir_all(root.join("Contents")).unwrap();
@@ -741,7 +736,7 @@ mod tests {
     /// was on, and the other tracks matching the same stretch are named.
     #[test]
     fn plays_hear_the_key_moved_by_the_speed() {
-        use crate::model::tests::track;
+        use loclib_model::test_util::track;
         let mut t = track(1, "A", "One", "/Contents/one.wav");
         (t.key, t.bpm) = ("Am".into(), 125.0);
         // Unanalysed: no key or tempo.
@@ -755,7 +750,7 @@ mod tests {
             library: Arc::new(Library { tracks, ..Default::default() }),
             report: IndexReport::default(),
             index: LibraryIndex::build(vec![(1, print()), (2, print())]),
-            slots: HashMap::new(),
+            slots: FxHashMap::default(),
         };
         let semitone_up = 2f64.powf(1.0 / 12.0);
         let found = |slot, key_lock| Found {
@@ -791,7 +786,7 @@ mod tests {
     /// Each transition says how the keys heard relate and how the tempo moved.
     #[test]
     fn transitions_say_how_keys_and_tempos_move() {
-        use crate::model::tests::track;
+        use loclib_model::test_util::track;
         let play = |start: f64, end: f64, key: Option<&str>, bpm: Option<f64>| Play {
             start,
             end,

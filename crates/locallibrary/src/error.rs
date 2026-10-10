@@ -401,6 +401,69 @@ impl From<rekordbox_pdb::PdbError> for Error {
     }
 }
 
+impl From<loclib_mysettings::Error> for Error {
+    fn from(e: loclib_mysettings::Error) -> Self {
+        use loclib_mysettings::Error as E;
+        match e {
+            E::UnknownSetting(ref key) => Error::invalid(e.to_string())
+                .because(Reason::UnknownSetting)
+                .with("key", key)
+                .action(Action::call("settings.schema", serde_json::json!({}), "List the settings")),
+            E::InvalidValue { .. } => Error::invalid(e.to_string()),
+            E::Parse { file, message } => Error::parse(file.file_name(), message),
+            // A variant a newer loclib-mysettings adds keeps its message.
+            other => Error::invalid(other.to_string()),
+        }
+    }
+}
+
+impl From<loclib_equipment::UnknownModels> for Error {
+    fn from(e: loclib_equipment::UnknownModels) -> Self {
+        let known: Vec<&str> = loclib_equipment::MODELS.iter().map(|m| m.name).collect();
+        Error::invalid(format!("not a model locallibrary knows: {} (it knows {})", e.0.join(", "), known.join(", ")))
+    }
+}
+
+impl From<loclib_interop::Error> for Error {
+    fn from(e: loclib_interop::Error) -> Self {
+        use loclib_interop::Error as E;
+        match e {
+            E::Cancelled(_) => Error::Cancelled,
+            E::Invalid(message) => Error::Invalid(message),
+            E::Io { path, source } => Error::Io { path, source },
+            E::Tags(message) => Error::Tags(message),
+            // A variant a newer loclib-interop adds keeps its message.
+            other => Error::invalid(other.to_string()),
+        }
+    }
+}
+
+impl From<loclib_progress::Cancelled> for Error {
+    fn from(_: loclib_progress::Cancelled) -> Self {
+        Error::Cancelled
+    }
+}
+
+impl From<loclib_tracklist::Error> for Error {
+    fn from(e: loclib_tracklist::Error) -> Self {
+        Error::invalid(e.to_string())
+    }
+}
+
+impl From<loclib_mixid::Error> for Error {
+    fn from(e: loclib_mixid::Error) -> Self {
+        use loclib_mixid::Error as E;
+        match e {
+            E::Io { path, source } => Error::Io { path, source },
+            E::Parse { path, message } => Error::Parse { path, message },
+            E::Invalid(message) => Error::Invalid(message),
+            E::Cancelled(_) => Error::Cancelled,
+            // A variant a newer loclib-mixid adds keeps its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
 /// What a panic said, from its payload (as `catch_unwind` or a thread's `join` hands it back).
 pub fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     match (payload.downcast_ref::<&str>(), payload.downcast_ref::<String>()) {

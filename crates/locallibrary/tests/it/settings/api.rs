@@ -4,7 +4,7 @@
 
 use crate::common::{self, path};
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 
 use locallibrary::Error;
@@ -36,7 +36,7 @@ fn setup() -> Setup {
     Setup { dir, store, volumes, main }
 }
 
-fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+fn values(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
     pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
 }
 

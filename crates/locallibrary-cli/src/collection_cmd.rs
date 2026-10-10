@@ -56,7 +56,7 @@ pub enum CollectionCommand {
     Playlists,
     /// What a drive lacks against the collection: tracks, playlists and playlist entries
     Diff {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         /// Only this playlist, or the playlists in this folder
         #[arg(long, short)]

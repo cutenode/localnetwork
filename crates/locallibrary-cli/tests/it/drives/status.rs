@@ -1,14 +1,14 @@
 //! What `drive ls`, `drive info` and `status` say of each drive: what it holds, where it stands
 //! against the store, and whether its two databases agree.
 
-use crate::support::{Env, PDB, line, path};
+use crate::support::{Env, PDB, line, path, play};
 
 #[test]
 fn drives_are_described_in_words() {
     let env = Env::new();
     let a = env.demo("A");
     let listed = env.ok(&["drive", "ls"]);
-    assert!(line(&listed, path(&a)).starts_with("A  ") && listed.contains("2 tracks, 0 playlists"), "{listed}");
+    assert!(line(&listed, path(&a)).starts_with("  A  ") && listed.contains("2 tracks, 0 playlists"), "{listed}");
 
     let info = env.ok(&["drive", "info", "A"]);
     for fact in [
@@ -25,11 +25,11 @@ fn drives_are_described_in_words() {
     // Saved, then changed.
     env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);
     env.ok(&["pull", "Main"]);
-    assert!(line(&env.ok(&["status"]), "Main").ends_with("up to date"));
+    assert!(line(&env.ok(&["status"]), "  Main ").ends_with("up to date"));
     let info = env.ok(&["drive", "info", "Main"]);
     assert!(!info.contains("not adopted") && info.contains("last seen   Pull at "), "{info}");
     env.ok(&["--yes", "track", "set", "Main", "--track", "1", "--rating", "2"]);
-    assert!(line(&env.ok(&["status"]), "Main").contains("has changes not in the store"));
+    assert!(line(&env.ok(&["status"]), "  Main ").contains("has changes not in the store"));
 
     // With --all, folders without a library are listed too.
     env.blank("Empty");
@@ -58,16 +58,25 @@ fn drives_are_described_in_words() {
 fn status_says_where_each_drive_stands() {
     let env = Env::new();
     let b = env.blank("B");
-    env.demo("A");
+    let a = env.demo("A");
     env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);
     env.ok(&["pull", "Main"]);
     env.ok(&["--yes", "sync", "--from", "Main", path(&b)]);
     assert!(line(&env.ok(&["status"]), "B ").ends_with("up to date"));
-    // The store moves on without B.
-    env.ok(&["--yes", "track", "set", "Main", "--track", "1", "--rating", "3"]);
+    // The store moves on without B (unplugged, or the edit would reach it too).
+    let unplugged = |drive: &std::path::Path, run: &dyn Fn()| {
+        std::fs::rename(drive, env.outside("away")).unwrap();
+        run();
+        std::fs::rename(env.outside("away"), drive).unwrap();
+    };
+    unplugged(&b, &|| {
+        env.ok(&["--yes", "track", "set", "Main", "--track", "1", "--rating", "3"]);
+    });
     env.ok(&["pull", "Main"]);
     assert!(line(&env.ok(&["status"]), "B ").contains("behind the store (locallibrary library push)"));
-    env.ok(&["--yes", "track", "set", "B", "--track", "2", "--rating", "1"]);
+    unplugged(&a, &|| {
+        env.ok(&["--yes", "track", "set", "B", "--track", "2", "--rating", "1"]);
+    });
     assert!(line(&env.ok(&["status"]), "B ").contains("diverged from the store"));
 
     // Syncing the group needs a decision now, and the error says how to make each one.
@@ -115,4 +124,87 @@ fn a_drive_says_when_its_two_databases_differ() {
     std::fs::remove_file(&pdb).unwrap();
     let info = env.ok(&["drive", "info", "A"]);
     assert!(info.contains("  format      OneLibrary only (exportLibrary.db): CDJ-3000X"), "{info}");
+}
+
+#[test]
+fn status_offers_to_save_drives_as_theyre_plugged_in() {
+    let env = Env::new();
+    env.demo("A");
+    env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);
+    env.ok(&["pull", "Main"]);
+    // A home of its own, so what's installed for whoever runs the tests doesn't count.
+    let home = env.store.with_file_name("home");
+    let run = |args: &[&str]| {
+        let out = env.command().env("HOME", &home).env_remove("XDG_CONFIG_HOME").args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let hint = "`locallibrary watch --install` saves drives into the store as they're plugged in";
+    assert!(!run(&["status"]).contains(hint), "nothing to save yet");
+    env.ok(&["--yes", "track", "set", "Main", "--track", "1", "--rating", "2"]);
+    let supported = cfg!(any(target_os = "macos", target_os = "linux"));
+    assert_eq!(run(&["status"]).contains(hint), supported);
+
+    let out: serde_json::Value = serde_json::from_str(&run(&["--json", "watch", "--uninstall"])).unwrap();
+    assert_eq!(out["report"].get("uninstalled"), Some(&serde_json::Value::Null), "{out}");
+    assert!(run(&["watch", "--uninstall"]).contains("wasn't set to run at log in"));
+    assert!(env.fails(2, &["watch", "--install", "--once"]).contains("cannot be used with"));
+}
+
+/// `status` shows each library with its clones under it: how many are plugged in, whether they
+/// hold the same, where each stands (one back from a set, one not plugged in); drives of no
+/// library come last. `drive ls` groups the mounted drives the same way.
+#[test]
+fn status_shows_each_library_with_its_clones() {
+    let env = Env::new();
+    let main = env.drive("REKORDBOX");
+    env.ok(&["--yes", "adopt", path(&main), "--name", "REKORDBOX"]);
+    env.ok(&["pull", "REKORDBOX", "--library", "Home", "--new-library"]);
+    env.ok(&["--yes", "drive", "role", "REKORDBOX", "primary"]);
+    for (name, role) in [("BACKUP", "backup"), ("SD", "set"), ("Spare", "backup")] {
+        let blank = env.blank(name);
+        env.ok(&["--yes", "provision", path(&blank), "--name", name, "--role", role, "--no-verify"]);
+    }
+    let out = env.ok(&["status"]);
+    assert!(line(&out, "Home").starts_with("Home  4 of 4 clones plugged in · identical · saved ("), "{out}");
+
+    // SD comes back from a set, Spare is unplugged, and a drive of no library is plugged in.
+    play(&env.volumes.join("SD"), "HISTORY 001", &[1]);
+    play(&env.volumes.join("SD"), "HISTORY 002", &[1]);
+    std::fs::rename(env.volumes.join("Spare"), env.outside("Spare")).unwrap();
+    env.demo("LOOSE");
+    let out = env.ok(&["status"]);
+    let expected = "\
+Home  3 of 4 clones plugged in · not identical · changes not saved
+  REKORDBOX  primary  up to date
+  BACKUP     backup   up to date
+  SD         set      back from a set: 2 new sessions (pull saves them)
+  Spare      backup   not plugged in · up to date
+No library
+  LOOSE               not in the store (locallibrary pull)
+";
+    assert!(out.starts_with(expected), "{out}");
+
+    let v = env.json(&["status"]);
+    let home = &v["libraries"][0];
+    assert_eq!(
+        (&home["name"], &home["identical"], &home["offline"][0]["name"]),
+        (&"Home".into(), &false.into(), &"Spare".into()),
+        "{v}"
+    );
+    let sd = v["mounted"].as_array().unwrap().iter().find(|d| d["drive"]["name"] == "SD").unwrap();
+    assert_eq!(sd["back_from_set"], 2, "{v}");
+
+    let ls = env.ok(&["drive", "ls"]);
+    assert!(ls.starts_with("Home\n  "), "{ls}");
+    let (home, loose) = (ls.find("  SD  ").unwrap(), ls.find("No library\n  LOOSE  ").unwrap());
+    assert!(home < loose, "{ls}");
+
+    // A library with none of its clones plugged in shows with --all.
+    let club = env.pulled("Club");
+    std::fs::rename(&club, env.outside("Club")).unwrap();
+    assert!(!env.ok(&["status"]).contains("Club"));
+    let all = env.ok(&["status", "--all"]);
+    assert!(line(&all, "Club").starts_with("Club  0 of 1 clone plugged in · saved ("), "{all}");
+    assert!(line(&all, "  Club ").ends_with("not plugged in · up to date"), "{all}");
 }

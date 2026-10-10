@@ -1,13 +1,13 @@
 //! Editing playlists and tracks, track queries, harmonic matches, rule-based playlists and the
 //! drive's journal of edits.
 
-use std::collections::HashMap;
-
+use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::{DriveRef, LibraryCache, resolve_drive};
-use crate::anlz::{Mood, TrackAnalysis};
+use crate::anlz::{self, Mood, TrackAnalysis};
 use crate::device::Device;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport, journal::JournalEntry};
 use crate::error::{Action, Reason};
@@ -35,7 +35,7 @@ pub struct EditRequest {
 /// What edits would do to a drive.
 pub fn edit_plan(req: &EditRequest, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
     let d = resolve_drive(&req.drive)?;
-    planned_edit("edit", edit::plan(&d, &req.edits, &req.options, ctx)?, Touched::library(&d, true))
+    planned_edit("edit", edit::plan(&d, &req.edits, &req.options, ctx)?, Touched::library(&d, true), ctx)
 }
 
 /// Plan and apply edits in one go, for callers that don't confirm (see [`edit_plan`]).
@@ -44,8 +44,14 @@ pub fn edit_apply(req: &EditRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
 }
 
 /// An edit plan, as the operation `operation`, for the drive `touched` measured (its library, see
-/// [`Touched::library`], and whatever else the plan was made from).
-pub(crate) fn planned_edit(operation: &'static str, plan: EditPlan, touched: Touched) -> Result<Planned<EditPlan>> {
+/// [`Touched::library`], and whatever else the plan was made from), reaching its library's other
+/// clones (see `Planned::reaching_clones`).
+pub(crate) fn planned_edit(
+    operation: &'static str,
+    plan: EditPlan,
+    touched: Touched,
+    ctx: &Ctx<'_>,
+) -> Result<Planned<EditPlan>> {
     let mut summary = plan.changes.clone();
     if !plan.tracks_removed.is_empty() {
         summary.push(format!(
@@ -66,6 +72,7 @@ pub(crate) fn planned_edit(operation: &'static str, plan: EditPlan, touched: Tou
         .destructive(destructive)
         .noop(noop)
         .touches(touched)
+        .reaching_clones(ctx)?
         .guard(None)
 }
 
@@ -90,7 +97,7 @@ pub fn edits_replay_plan(req: &DriveRef, ctx: &Ctx<'_>) -> Result<Planned<EditPl
     let plan = edit::plan(&d, &edit::journal::edits(&d)?, &replay_options(), ctx)?;
     // Made from the journal too: one cleared or added to since is another plan.
     let probes = vec![Probe::Databases, Probe::Identity, Probe::Content(vec![edit::journal::key()])];
-    planned_edit("edits.replay", plan, Touched::drive(&d, true, probes))
+    planned_edit("edits.replay", plan, Touched::drive(&d, true, probes), ctx)
 }
 
 pub fn edits_replay_apply(req: &DriveRef, ctx: &Ctx<'_>) -> Result<EditReport> {
@@ -174,7 +181,7 @@ pub struct ImportRequest {
     pub append: bool,
     /// Decisions for ambiguous entries: entry index (in the report) -> track id.
     #[serde(default)]
-    pub choices: std::collections::BTreeMap<usize, u32>,
+    pub choices: indexmap::IndexMap<usize, u32>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -243,6 +250,7 @@ pub fn import_plan(req: &ImportRequest, ctx: &Ctx<'_>) -> Result<Planned<ImportP
         .noop(noop)
         .touches(Touched::library(&d, true))
         .touches(Touched::path(&req.file, false, vec![crate::op::Probe::Content(vec![String::new()])]))
+        .reaching_clones(ctx)?
         .guard(None)
 }
 
@@ -315,8 +323,8 @@ pub fn dedupe_plan(req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<Planned<EditPla
          artist, title and length"
             .to_string()
     });
-    Ok(planned_edit("dedupe", edit::plan(&d, &edits, &EditOptions::default(), ctx)?, Touched::library(&d, true))?
-        .warnings(none))
+    let plan = edit::plan(&d, &edits, &EditOptions::default(), ctx)?;
+    Ok(planned_edit("dedupe", plan, Touched::library(&d, true), ctx)?.warnings(none))
 }
 
 pub fn dedupe_apply(req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
@@ -386,7 +394,8 @@ pub fn delete_history_plan(
 ) -> Result<Planned<EditPlan>> {
     let edits = delete_history_edits(store, req, ctx)?;
     let d = resolve_drive(&req.drive)?;
-    planned_edit("history.delete", edit::plan(&d, &edits, &EditOptions::default(), ctx)?, Touched::library(&d, true))
+    let plan = edit::plan(&d, &edits, &EditOptions::default(), ctx)?;
+    planned_edit("history.delete", plan, Touched::library(&d, true), ctx)
 }
 
 pub fn delete_history_apply(store: Option<&Store>, req: &DeleteHistoryRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
@@ -466,7 +475,7 @@ pub fn track_analysis(req: &TrackRequest) -> Result<TrackAnalysis> {
     let d = resolve_drive(&req.drive)?;
     let lib = d.library()?;
     let t = lib.track(req.track).ok_or_else(|| Error::NotFound(format!("track #{}", req.track)))?;
-    Ok(TrackAnalysis::load(&d, t))
+    Ok(anlz::load(&d, t))
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -566,7 +575,7 @@ pub fn track_details_cached(cache: &LibraryCache, req: &TrackDetailsRequest) -> 
     // Rekordbox's fingerprint; untitled tracks without an artist aren't compared.
     let fingerprint =
         |t: &Track| (!(t.artist.trim().is_empty() && t.title.trim().is_empty())).then(|| t.fingerprint_key());
-    let mut recordings: HashMap<String, Vec<&Track>> = HashMap::new();
+    let mut recordings: FxHashMap<String, Vec<&Track>> = FxHashMap::default();
     for t in &lib.tracks {
         if let Some(k) = fingerprint(t) {
             recordings.entry(k).or_default().push(t);
@@ -593,7 +602,7 @@ pub fn track_details_cached(cache: &LibraryCache, req: &TrackDetailsRequest) -> 
                 copies: fingerprint(t)
                     .and_then(|k| recordings.get(&k))
                     .map_or_else(Vec::new, |v| v.iter().filter(|o| o.id != t.id).map(|o| TrackRef::from(*o)).collect()),
-                analysis: AnalysisSummary::of(&TrackAnalysis::load(&d, t), analysed),
+                analysis: AnalysisSummary::of(&anlz::load(&d, t), analysed),
                 track: t.clone(),
             }
         })
@@ -725,7 +734,8 @@ pub struct SetSmartPlaylist {
     pub sort: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
-    /// Only for these drives (names, ids or mount paths); every drive when empty.
+    /// Only for these libraries, or the libraries of these drives (names, ids or mount paths);
+    /// every drive when empty.
     #[serde(default)]
     pub drives: Vec<String>,
 }
@@ -734,7 +744,11 @@ pub fn smart_set(store: &Store, req: &SetSmartPlaylist) -> Result<SmartPlaylists
     let _lock = store.lock()?;
     let mut drives = Vec::new();
     for d in &req.drives {
-        drives.push(super::override_target(store, d)?.0);
+        drives.push(match super::override_target(store, d) {
+            Ok((id, _)) => id,
+            Err(e @ Error::NotFound(_)) => store.find_library(d)?.ok_or(e)?.id,
+            Err(e) => return Err(e),
+        });
     }
     let mut all = store.smart_playlists()?;
     all.set(SmartPlaylist {
@@ -763,7 +777,13 @@ pub fn smart_remove(store: &Store, req: &RemoveSmartPlaylist) -> Result<SmartPla
 
 fn smart_request(store: &Store, drive: &str) -> Result<EditRequest> {
     let d = resolve_drive(drive)?;
-    let edits = store.smart_playlists()?.edits_for(d.id());
+    // A rule limited to a drive is limited to its library: its clones are kept identical.
+    let mut ids: Vec<Uuid> = d.id().into_iter().collect();
+    if let Some(library) = d.state().and_then(|s| s.library_id) {
+        let drives = store.drives()?.into_values();
+        ids.extend(drives.filter(|r| r.library_id == Some(library)).map(|r| r.id).chain([library]));
+    }
+    let edits = store.smart_playlists()?.edits_for(&ids);
     if edits.is_empty() {
         return Err(Error::NotFound("no smart playlists apply to this drive (add one with `smart add`)".into()));
     }
@@ -774,7 +794,7 @@ fn smart_request(store: &Store, drive: &str) -> Result<EditRequest> {
 pub fn smart_apply_plan(store: &Store, req: &DriveRef, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
     let req = smart_request(store, &req.drive)?;
     let d = resolve_drive(&req.drive)?;
-    planned_edit("smart.write", edit::plan(&d, &req.edits, &req.options, ctx)?, Touched::library(&d, true))
+    planned_edit("smart.write", edit::plan(&d, &req.edits, &req.options, ctx)?, Touched::library(&d, true), ctx)
 }
 
 pub fn smart_apply(store: &Store, req: &DriveRef, ctx: &Ctx<'_>) -> Result<EditReport> {

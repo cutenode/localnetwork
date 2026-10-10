@@ -3,7 +3,7 @@
 use crate::common;
 
 use locallibrary::Device;
-use locallibrary::anlz::{Mood, PhraseKind, TrackAnalysis, WaveformStyle};
+use locallibrary::anlz::{self, Mood, PhraseKind, WaveformStyle};
 
 #[test]
 fn reads_waveforms_and_grid_from_demo_tracks() {
@@ -12,7 +12,7 @@ fn reads_waveforms_and_grid_from_demo_tracks() {
     let lib = d.library().unwrap();
     assert!(!lib.tracks.is_empty());
     for t in &lib.tracks {
-        let a = TrackAnalysis::load(&d, t);
+        let a = anlz::load(&d, t);
         // Colour preview from .EXT wins over the .DAT's blue one.
         let preview = a.preview.as_ref().expect("preview waveform");
         assert_eq!(preview.style, WaveformStyle::Rgb);
@@ -40,7 +40,7 @@ fn reads_waveforms_and_grid_from_demo_tracks() {
         assert!(st.phrases.last().unwrap().end_beat as usize <= a.beats.len());
 
         // Grid-only loading skips the waveforms and phrases.
-        let g = TrackAnalysis::load_grid(&d, t);
+        let g = anlz::load_grid(&d, t);
         assert!(g.preview.is_none() && g.detail.is_none() && g.structure.is_none());
         assert_eq!(g.beats, a.beats);
     }
@@ -55,7 +55,7 @@ fn falls_back_to_blue_preview_without_ext() {
     let t = &lib.tracks[0];
     let dat = d.path(&locallibrary::paths::key(&t.analyze_path));
     std::fs::remove_file(dat.with_extension("EXT")).unwrap();
-    let a = TrackAnalysis::load(&d, t);
+    let a = anlz::load(&d, t);
     let preview = a.preview.expect("blue preview from .DAT");
     assert_eq!(preview.style, WaveformStyle::Blue);
     assert_eq!(preview.columns.len(), 400);
@@ -68,7 +68,7 @@ fn names_phrases_like_rekordbox() {
     let d = Device::open_export(common::demo_drive(dir.path(), "USB")).unwrap();
     let lib = d.library().unwrap();
     let t = lib.tracks.iter().find(|t| t.title == "Demo Track 2").unwrap();
-    let st = TrackAnalysis::load(&d, t).structure.unwrap();
+    let st = anlz::load(&d, t).structure.unwrap();
     let kinds: Vec<PhraseKind> = st.phrases.iter().map(|p| p.kind).collect();
     assert_eq!(kinds.len(), 11);
     assert_eq!(kinds[0], PhraseKind::Intro);

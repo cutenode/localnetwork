@@ -2,14 +2,15 @@
 //! tracks by id, artwork as files or in batches, and analysis with compact waveforms. Each takes
 //! a [`LibraryCache`], so a long-running caller parses a library once rather than per request.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::PathBuf;
 
+use base64::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{ArtworkImage, DriveRef, IdentifiedMix, IdentifyMixRequest, LibraryCache, ListCues, base64};
-use crate::anlz::{Beat, Cue, SongStructure, TrackAnalysis, Waveform, WaveformStyle};
+use super::{ArtworkImage, DriveRef, IdentifiedMix, IdentifyMixRequest, LibraryCache, ListCues};
+use crate::anlz::{self, Beat, Cue, SongStructure, TrackAnalysis, Waveform, WaveformStyle};
 use crate::artwork;
 use crate::cue_edit::{self, TrackCues};
 use crate::device::Device;
@@ -103,8 +104,8 @@ pub struct PlaylistTree {
     pub history: Vec<PlaylistNode>,
 }
 
-fn tree(nodes: &[Playlist], durations: &HashMap<u32, u32>) -> Vec<PlaylistNode> {
-    let mut children: HashMap<Option<u32>, Vec<&Playlist>> = HashMap::new();
+fn tree(nodes: &[Playlist], durations: &FxHashMap<u32, u32>) -> Vec<PlaylistNode> {
+    let mut children: FxHashMap<Option<u32>, Vec<&Playlist>> = FxHashMap::default();
     for p in nodes {
         children.entry(p.parent_id).or_default().push(p);
     }
@@ -115,8 +116,8 @@ fn tree(nodes: &[Playlist], durations: &HashMap<u32, u32>) -> Vec<PlaylistNode> 
     fn build(
         parent: Option<u32>,
         prefix: &str,
-        children: &HashMap<Option<u32>, Vec<&Playlist>>,
-        durations: &HashMap<u32, u32>,
+        children: &FxHashMap<Option<u32>, Vec<&Playlist>>,
+        durations: &FxHashMap<u32, u32>,
     ) -> Vec<PlaylistNode> {
         let Some(nodes) = children.get(&parent) else { return Vec::new() };
         nodes
@@ -142,7 +143,7 @@ fn tree(nodes: &[Playlist], durations: &HashMap<u32, u32>) -> Vec<PlaylistNode> 
 pub fn playlists_tree(cache: &LibraryCache, req: &DriveRef) -> Result<PlaylistTree> {
     let (_, cached) = cache.open(&req.drive)?;
     let lib = &cached.library;
-    let durations: HashMap<u32, u32> = lib.tracks.iter().map(|t| (t.id, t.duration_secs)).collect();
+    let durations: FxHashMap<u32, u32> = lib.tracks.iter().map(|t| (t.id, t.duration_secs)).collect();
     Ok(PlaylistTree { playlists: tree(&lib.playlists, &durations), history: tree(&lib.history, &durations) })
 }
 
@@ -163,7 +164,7 @@ pub struct TracksById {
 /// Tracks by id (a playlist's entries, say, from [`playlists_tree`] and `tracks.query`).
 pub fn tracks_get(cache: &LibraryCache, req: &TracksGet) -> Result<TracksById> {
     let (_, cached) = cache.open(&req.drive)?;
-    let by_id: HashMap<u32, &Track> = cached.library.tracks.iter().rev().map(|t| (t.id, t)).collect();
+    let by_id: FxHashMap<u32, &Track> = cached.library.tracks.iter().rev().map(|t| (t.id, t)).collect();
     let mut out = TracksById { tracks: Vec::new(), missing: Vec::new() };
     for id in &req.ids {
         match by_id.get(id) {
@@ -244,7 +245,7 @@ impl ArtworkRequest {
 pub fn artwork_get_cached(cache: &LibraryCache, req: &ArtworkRequest) -> Result<OneOrMany<ArtworkImage>> {
     req.each(cache, |d, lib, track| {
         let bytes = artwork::read_from_drive(d, lib, track)?;
-        Ok(bytes.map(|b| ArtworkImage { mime: "image/jpeg", base64: base64(&b) }))
+        Ok(bytes.map(|b| ArtworkImage { mime: "image/jpeg", base64: BASE64_STANDARD.encode(&b) }))
     })
 }
 
@@ -349,7 +350,7 @@ impl PackedWaveform {
             let heights: Vec<u8> =
                 w.columns.iter().map(|c| (pick(c).height.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
             let colors: Vec<u8> = w.columns.iter().flat_map(|c| pick(c).color).collect();
-            PackedLayer { heights: base64(&heights), colors: base64(&colors) }
+            PackedLayer { heights: BASE64_STANDARD.encode(&heights), colors: BASE64_STANDARD.encode(&colors) }
         };
         let has_front = w.columns.iter().any(|c| c.front.height > 0.0);
         PackedWaveform {
@@ -387,7 +388,7 @@ pub struct AnalysisView {
 pub fn track_analysis_cached(cache: &LibraryCache, req: &AnalysisRequest) -> Result<AnalysisView> {
     let (d, cached) = cache.open(&req.drive)?;
     let t = cached.library.track(req.track).ok_or_else(|| Error::NotFound(format!("track #{}", req.track)))?;
-    let a = TrackAnalysis::load(&d, t);
+    let a: TrackAnalysis = anlz::load(&d, t);
     let encode = |w: Waveform| match req.encoding {
         WaveformEncoding::Json => WaveformData::Json(w),
         WaveformEncoding::Base64 => WaveformData::Packed(PackedWaveform::pack(&w)),

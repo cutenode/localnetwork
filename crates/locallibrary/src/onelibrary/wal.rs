@@ -11,7 +11,7 @@
 //! frames up to the last commit among those are applied. With SQLCipher the page images are
 //! encrypted like the main file's pages, and the checksums cover the encrypted bytes.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use crate::{Error, Result};
 
@@ -24,7 +24,7 @@ const MAGIC_BE: u32 = 0x377f_0683;
 #[derive(Debug, Default)]
 pub struct Committed<'a> {
     /// Latest committed image of each page, by 1-based page number.
-    pub pages: BTreeMap<u32, &'a [u8]>,
+    pub pages: IndexMap<u32, &'a [u8]>,
     pub db_pages: u32,
 }
 
@@ -68,7 +68,7 @@ pub fn committed(wal: &[u8], page_size: usize) -> Result<Option<Committed<'_>>> 
     let salts = (be32(wal, 16), be32(wal, 20));
 
     let mut out = Committed::default();
-    let mut pending: BTreeMap<u32, &[u8]> = BTreeMap::new();
+    let mut pending: IndexMap<u32, &[u8]> = IndexMap::new();
     let mut sum = seed;
     for frame in wal[HEADER..].chunks_exact(FRAME_HEADER + page_size) {
         let (head, page) = frame.split_at(FRAME_HEADER);

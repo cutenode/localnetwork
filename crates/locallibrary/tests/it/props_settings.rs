@@ -3,7 +3,7 @@
 
 use crate::common;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -29,9 +29,9 @@ fn data_len(file: SettingsFile) -> usize {
 
 /// Every real file of each kind: rekordcrate's per-setting fixtures and the demo export's.
 fn real_files(file: SettingsFile) -> &'static [Vec<u8>] {
-    static FILES: OnceLock<BTreeMap<SettingsFile, Vec<Vec<u8>>>> = OnceLock::new();
+    static FILES: OnceLock<IndexMap<SettingsFile, Vec<Vec<u8>>>> = OnceLock::new();
     &FILES.get_or_init(|| {
-        let mut out: BTreeMap<SettingsFile, Vec<Vec<u8>>> = BTreeMap::new();
+        let mut out: IndexMap<SettingsFile, Vec<Vec<u8>>> = IndexMap::new();
         for f in SettingsFile::ALL {
             let dir = common::fixtures()
                 .join("rekordcrate/settings")
@@ -256,7 +256,7 @@ fn apply_reaches_the_wanted_values_and_is_idempotent(tc: TestCase) {
     for (f, s) in SettingsFile::ALL.iter().zip(&seeds) {
         plant(&loc, *f, s);
     }
-    let mut desired = BTreeMap::new();
+    let mut desired = IndexMap::new();
     let wanted = tc.draw(gs::integers::<usize>().max_value(6));
     for _ in 0..wanted {
         let (def, c) = setting(&tc, None);

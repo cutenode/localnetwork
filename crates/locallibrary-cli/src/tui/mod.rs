@@ -23,7 +23,6 @@ mod screens;
 mod state;
 mod theme;
 mod ui;
-mod widgets;
 
 use std::io::stdout;
 use std::path::PathBuf;

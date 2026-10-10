@@ -15,11 +15,11 @@ use crate::output::{Outcome, Output, bytes, dim, heading, ok, warn};
 
 #[derive(Args)]
 #[command(after_long_help = "Examples:
-  locallibrary export Main \"Sets/2026/Friday\" -o friday.m3u8
-  locallibrary export Main Sets --split -o ~/Desktop/sets          a file per playlist
-  locallibrary export Main --format traktor -o ~/Desktop/for-traktor --dry-run")]
+  locallibrary export Home \"Sets/2026/Friday\" -o friday.m3u8
+  locallibrary export Home Sets --split -o ~/Desktop/sets          a file per playlist
+  locallibrary export Home --format traktor -o ~/Desktop/for-traktor --dry-run")]
 pub struct ExportArgs {
-    #[arg(help = crate::DRIVE_HELP)]
+    #[arg(help = crate::LIBRARY_HELP)]
     drive: String,
     /// Playlist or folder (Folder/Name, or a unique name) [default: the whole library]
     playlist: Option<String>,

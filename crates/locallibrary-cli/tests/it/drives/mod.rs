@@ -3,6 +3,7 @@
 //! `players`, and the reports that read drives, run as a DJ runs them in a terminal: what they
 //! print, how they exit, and what they leave on the drives and in the store.
 
+mod clones;
 mod health;
 mod identity;
 mod library;

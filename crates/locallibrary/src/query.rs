@@ -25,11 +25,10 @@
 //! to look for: as text it would match no track, and negated, every one. Quoted, the colon is
 //! text (`"re:zero"`), as it is in a link (`https://...`).
 
-use std::cell::{OnceCell, RefCell};
-use std::collections::{HashMap, HashSet};
-
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::cell::{OnceCell, RefCell};
 
 use crate::device::Device;
 use crate::harmony::{self, Camelot};
@@ -524,16 +523,16 @@ impl Term {
 pub struct QueryContext<'a> {
     pub library: &'a Library,
     /// My Tags by lowercase file key (see [`crate::paths::key`]), as `Category/Tag`.
-    pub tags: Option<&'a HashMap<String, Vec<String>>>,
+    pub tags: Option<&'a FxHashMap<String, Vec<String>>>,
     /// The drive's history lists, from both its databases (see [`DriveContext`]); without them,
     /// the library's own.
     history: Option<&'a [HistoryList]>,
-    playlists: OnceCell<HashMap<u32, Vec<String>>>,
-    haystacks: OnceCell<HashMap<u32, String>>,
+    playlists: OnceCell<FxHashMap<u32, Vec<String>>>,
+    haystacks: OnceCell<FxHashMap<u32, String>>,
     /// Track ids by lowercase file key (of several rows for one file, the last).
-    files: OnceCell<HashMap<String, u32>>,
+    files: OnceCell<FxHashMap<String, u32>>,
     /// The tracks of each playlist a `playlist:` term names (or below each folder).
-    members: RefCell<HashMap<String, HashSet<u32>>>,
+    members: RefCell<FxHashMap<String, FxHashSet<u32>>>,
 }
 
 impl<'a> QueryContext<'a> {
@@ -549,7 +548,7 @@ impl<'a> QueryContext<'a> {
         }
     }
 
-    pub fn with_tags(mut self, tags: &'a HashMap<String, Vec<String>>) -> Self {
+    pub fn with_tags(mut self, tags: &'a FxHashMap<String, Vec<String>>) -> Self {
         self.tags = Some(tags);
         self
     }
@@ -575,9 +574,9 @@ impl<'a> QueryContext<'a> {
             return ids.contains(&id);
         }
         let lib = self.library;
-        let mut ids = HashSet::new();
+        let mut ids = FxHashSet::default();
         let mut queue: Vec<&Playlist> = lib.find_playlist(spec).into_iter().collect();
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         while let Some(p) = queue.pop() {
             // A cyclic tree (corrupt data) ends here.
             if seen.insert(p.id) {
@@ -595,10 +594,10 @@ impl<'a> QueryContext<'a> {
     /// Paths of the playlists a track is in.
     pub fn playlists_of(&self, id: u32) -> &[String] {
         let map = self.playlists.get_or_init(|| {
-            let mut map: HashMap<u32, Vec<String>> = HashMap::new();
+            let mut map: FxHashMap<u32, Vec<String>> = FxHashMap::default();
             for p in self.library.playlists.iter().filter(|p| !p.is_folder) {
                 let path = self.library.playlist_path(p.id);
-                let mut seen = HashSet::new();
+                let mut seen = FxHashSet::default();
                 for t in p.track_ids.iter().filter(|t| seen.insert(**t)) {
                     map.entry(*t).or_default().push(path.clone());
                 }
@@ -829,7 +828,7 @@ impl TrackSelector {
     /// a query, album or filter that matches nothing (or fields no track fits together) selects
     /// nothing instead of failing.
     pub fn select_ordered(&self, ctx: &QueryContext<'_>, allow_empty: bool) -> Result<Vec<u32>> {
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         Ok(self.collect(ctx, allow_empty)?.into_iter().filter(|id| seen.insert(*id)).collect())
     }
 
@@ -915,7 +914,7 @@ impl TrackSelector {
         let (first, mut ids) = parts.next().expect("a field is set");
         let mut names = vec![first];
         for (name, part) in parts {
-            let part: HashSet<u32> = part.into_iter().collect();
+            let part: FxHashSet<u32> = part.into_iter().collect();
             ids.retain(|id| part.contains(id));
             names.push(name);
         }
@@ -933,7 +932,7 @@ impl TrackSelector {
 /// read only OneLibrary record theirs there, not in `export.pdb`).
 #[derive(Debug, Default)]
 pub struct DriveContext {
-    tags: Option<HashMap<String, Vec<String>>>,
+    tags: Option<FxHashMap<String, Vec<String>>>,
     history: Option<Vec<HistoryList>>,
 }
 
@@ -969,7 +968,7 @@ fn given(what: &str, value: &str) -> Result<()> {
 mod tests {
     use super::*;
     use crate::model::Playlist;
-    use crate::model::tests::track;
+    use loclib_model::test_util::track;
 
     fn lib() -> Library {
         let mut a = track(1, "Daft Punk", "Around the World", "/Contents/a.mp3");
@@ -1153,7 +1152,7 @@ mod tests {
     #[test]
     fn tags_filter_uses_the_tag_map() {
         let lib = lib();
-        let tags = HashMap::from([("contents/b.mp3".to_string(), vec!["Genre/Deep".to_string()])]);
+        let tags = FxHashMap::from_iter([("contents/b.mp3".to_string(), vec!["Genre/Deep".to_string()])]);
         let ctx = QueryContext::new(&lib).with_tags(&tags);
         let f = Filter::parse("tag:deep").unwrap();
         assert!(f.uses_tags());

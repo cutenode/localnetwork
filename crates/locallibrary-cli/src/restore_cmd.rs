@@ -30,6 +30,7 @@ pub fn playlist(
     }
     if !out.json {
         render_plan(&preview.plan.plan);
+        output::clones(&preview);
     }
     if let Some(o) = out.decide(dry_run, &format!("Restore {}?", preview.path)) {
         return Ok(out.not_applied(&preview, o));
@@ -81,6 +82,7 @@ pub fn undo(req: api::UndoRequest, dry_run: bool, out: Output, ctx: &Ctx<'_>) ->
     let plan = api::undo_plan(&req)?;
     if !out.json {
         render_undo(&plan);
+        output::clones(&plan);
     }
     if plan.noop {
         return Ok(out.not_applied(&plan, Outcome::NothingToDo));

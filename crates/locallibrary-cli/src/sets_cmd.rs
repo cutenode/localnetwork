@@ -88,11 +88,11 @@ enum SetsCommand {
         /// Part of "Artist - Title", or the track's path on the drive (/Contents/...)
         query: String,
     },
-    /// A playlist on a drive with a set's tracks, in set order
+    /// A playlist in a library with a set's tracks, in set order
     Playlist {
         #[arg(value_name = "SET")]
         set: String,
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         /// The playlist [default: Sets/<date> <title or venue>]
         #[arg(long, value_name = "PATH")]
@@ -101,7 +101,7 @@ enum SetsCommand {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Publish a set on your Atmosphere account, where anyone can read it
+    /// Publish a set on your Atmosphere account, where anyone can read it (alpha)
     #[cfg(feature = "account")]
     Publish {
         #[arg(value_name = "SET")]
@@ -147,7 +147,7 @@ less; otherwise each is suggested on its own.";
 const EXPORT_HELP: &str = "Examples:
   locallibrary sets export last --format mixcloud           paste into Mixcloud's tracklist
   locallibrary sets export last --format cue -o friday.cue  needs the recording attached
-  locallibrary sets export last --format m3u8 -o friday.m3u8 --drive Main
+  locallibrary sets export last --format m3u8 -o friday.m3u8 --drive Home
 
 Every format but csv and m3u8 is for publishing: a track marked unnamed is `ID - ID` there.";
 
@@ -621,7 +621,7 @@ fn played(query: &str, found: &[Appearance]) {
         let at = a.start_seconds.map(|s| format!(" at {}", clock(s.into()))).unwrap_or_default();
         say!("  {}  {:<30} {}", a.date, fit(&what, 30), dim(format!("track {}{at} · {}", a.position, a.track)));
     }
-    let tracks = found.iter().map(|a| a.track.as_str()).collect::<std::collections::HashSet<_>>().len();
+    let tracks = found.iter().map(|a| a.track.as_str()).collect::<rustc_hash::FxHashSet<_>>().len();
     let times = if found.len() == 1 { "once".to_string() } else { format!("{} times", found.len()) };
     let what = if tracks > 1 { format!("{tracks} tracks matching {query:?}") } else { latest.track.clone() };
     let place = latest.venue.as_deref().map(|v| format!(" at {v}")).unwrap_or_default();

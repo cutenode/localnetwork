@@ -23,9 +23,10 @@ mod document;
 
 pub use document::*;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use indexmap::IndexMap;
 
 use chrono::{DateTime, Datelike, Local, NaiveDate, Utc};
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -71,7 +72,7 @@ pub struct ProfileOptions {
     pub analysis: bool,
     /// The DJ's genre spellings, e.g. `{"dnb": "Drum & Bass"}` (see [`ProfilePrefs`]).
     #[serde(default)]
-    pub genre_aliases: BTreeMap<String, String>,
+    pub genre_aliases: IndexMap<String, String>,
 }
 
 fn default_min_set_tracks() -> usize {
@@ -94,7 +95,7 @@ impl Default for ProfileOptions {
             min_set_tracks: DEFAULT_MIN_SET_TRACKS,
             top: DEFAULT_TOP,
             analysis: true,
-            genre_aliases: BTreeMap::new(),
+            genre_aliases: IndexMap::new(),
         }
     }
 }
@@ -462,8 +463,8 @@ struct Files<'a> {
     drives: &'a [Device],
     store: Option<&'a Store>,
     /// Lower-cased path key to object, per loaded snapshot.
-    snapshots: Vec<HashMap<String, Hash>>,
-    by_id: HashMap<Hash, usize>,
+    snapshots: Vec<FxHashMap<String, Hash>>,
+    by_id: FxHashMap<Hash, usize>,
 }
 
 impl<'a> Files<'a> {
@@ -554,12 +555,12 @@ struct Builder<'a> {
     options: &'a ProfileOptions,
     files: Files<'a>,
     recs: Vec<Rec>,
-    by_key: HashMap<String, usize>,
+    by_key: FxHashMap<String, usize>,
     /// Every file of every library read ([`plays::file_key`]), to find a set's entries by.
-    by_file: HashMap<String, usize>,
+    by_file: FxHashMap<String, usize>,
     lists: Vec<ListData>,
     sets: Vec<SetData>,
-    playlists: HashSet<(bool, String)>,
+    playlists: FxHashSet<(bool, String)>,
     duplicate_files: usize,
     sources: Vec<SourceInfo>,
     warnings: Vec<String>,
@@ -615,7 +616,7 @@ impl<'a> Builder<'a> {
     }
 
     fn add_collection(&mut self, lib: &Library, origin: Origin) {
-        let mut distinct = HashSet::new();
+        let mut distinct = FxHashSet::default();
         for t in &lib.tracks {
             let i = self.rec(t, Some(origin));
             self.recs[i].in_collection = true;
@@ -697,7 +698,7 @@ impl<'a> Builder<'a> {
         short.len()
     }
 
-    fn read_analysis(&mut self, played: &HashSet<usize>, ctx: &Ctx<'_>) -> Result<()> {
+    fn read_analysis(&mut self, played: &FxHashSet<usize>, ctx: &Ctx<'_>) -> Result<()> {
         let todo: Vec<usize> = (0..self.recs.len())
             .filter(|&i| self.recs[i].origin.is_some() && (played.contains(&i) || self.recs[i].in_collection))
             .collect();
@@ -740,13 +741,18 @@ impl<'a> Builder<'a> {
 pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> Result<ProfileReport> {
     let mut b = Builder {
         options,
-        files: Files { drives: &sources.drives, store: sources.store, snapshots: Vec::new(), by_id: HashMap::new() },
+        files: Files {
+            drives: &sources.drives,
+            store: sources.store,
+            snapshots: Vec::new(),
+            by_id: FxHashMap::default(),
+        },
         recs: Vec::new(),
-        by_key: HashMap::new(),
-        by_file: HashMap::new(),
+        by_key: FxHashMap::default(),
+        by_file: FxHashMap::default(),
         lists: Vec::new(),
         sets: Vec::new(),
-        playlists: HashSet::new(),
+        playlists: FxHashSet::default(),
         duplicate_files: 0,
         sources: Vec::new(),
         warnings: Vec::new(),
@@ -778,7 +784,7 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
             None => vec![None],
             Some(_) => libraries.iter().map(|l| Some(l.id)).collect(),
         };
-        let mut snapshots: HashMap<Hash, Snapshot> = HashMap::new();
+        let mut snapshots: FxHashMap<Hash, Snapshot> = FxHashMap::default();
         for filter in filters {
             let archive = plays::archive(store, filter, ctx)?;
             b.warnings.extend(archive.warnings);
@@ -865,7 +871,7 @@ pub fn build(sources: &Sources<'_>, options: &ProfileOptions, ctx: &Ctx<'_>) -> 
     let (counted, too_short) =
         if book.sets.is_empty() { (Basis::Sessions, b.sessions_as_sets()) } else { (Basis::Plays, 0) };
 
-    let played: HashSet<usize> = b.sets.iter().flat_map(|s| s.tracks.iter().copied()).collect();
+    let played: FxHashSet<usize> = b.sets.iter().flat_map(|s| s.tracks.iter().copied()).collect();
     if options.analysis {
         b.read_analysis(&played, ctx)?;
     }
@@ -906,7 +912,7 @@ fn decile(i: usize, n: usize) -> usize {
     (i * 10 / n.max(1)).min(9)
 }
 
-fn ranked(counts: HashMap<String, (usize, HashMap<String, usize>)>, known: usize, top: usize) -> RankedSection {
+fn ranked(counts: FxHashMap<String, (usize, FxHashMap<String, usize>)>, known: usize, top: usize) -> RankedSection {
     let distinct = counts.len();
     let mut v: Vec<Share> = counts
         .into_values()
@@ -922,7 +928,7 @@ fn ranked(counts: HashMap<String, (usize, HashMap<String, usize>)>, known: usize
     RankedSection { known, distinct, top: v }
 }
 
-fn tally(counts: &mut HashMap<String, (usize, HashMap<String, usize>)>, name: &str) {
+fn tally(counts: &mut FxHashMap<String, (usize, FxHashMap<String, usize>)>, name: &str) {
     let e = counts.entry(normalize(name)).or_default();
     e.0 += 1;
     *e.1.entry(name.trim().to_string()).or_default() += 1;
@@ -977,7 +983,7 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
     let set_section = SetsSection {
         count: sets.len(),
         plays: if basis == Basis::Collection { 0 } else { pool.len() },
-        distinct_tracks: sets.iter().flat_map(|s| s.tracks.iter()).collect::<HashSet<_>>().len(),
+        distinct_tracks: sets.iter().flat_map(|s| s.tracks.iter()).collect::<FxHashSet<_>>().len(),
         median_tracks: median(&lengths).map_or(0, |m| m.round() as usize),
         longest: sets.iter().map(|s| s.tracks.len()).max().unwrap_or(0),
         oldest: dated.iter().min().copied(),
@@ -1121,7 +1127,7 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
     });
 
     // Genres, labels, artists.
-    let (mut g, mut l, mut a) = (HashMap::new(), HashMap::new(), HashMap::new());
+    let (mut g, mut l, mut a) = (FxHashMap::default(), FxHashMap::default(), FxHashMap::default());
     let (mut g_known, mut l_known, mut a_known) = (0, 0, 0);
     for &(i, _) in &pool {
         let r = &recs[i];
@@ -1156,10 +1162,11 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
         era.oldest = years.iter().map(|y| y.0).min();
         era.newest = years.iter().map(|y| y.0).max();
         era.recent_share = share(years.iter().filter(|(y, played)| *y >= played - 1).count(), years.len());
-        let mut decades: BTreeMap<i32, usize> = BTreeMap::new();
+        let mut decades: IndexMap<i32, usize> = IndexMap::new();
         for (y, _) in &years {
             *decades.entry(y / 10 * 10).or_default() += 1;
         }
+        decades.sort_unstable_keys();
         era.decades = decades.into_iter().map(|(decade, count)| DecadeCount { decade, count }).collect();
     }
 
@@ -1184,7 +1191,7 @@ fn compute(b: &Builder<'_>, counted: Basis, too_short: usize, now: DateTime<Utc>
     // Collection.
     let in_collection: Vec<&Rec> = recs.iter().filter(|r| r.in_collection).collect();
     let n = in_collection.len();
-    let played: HashSet<usize> = sets.iter().flat_map(|s| s.tracks.iter().copied()).collect();
+    let played: FxHashSet<usize> = sets.iter().flat_map(|s| s.tracks.iter().copied()).collect();
     let collection = CollectionSection {
         tracks: n,
         playlists: b.playlists.iter().filter(|(folder, _)| !folder).count(),
@@ -1268,10 +1275,10 @@ fn signature_section(recs: &[Rec], sets: &[SetData], top: usize) -> SignatureSec
         opened: usize,
         closed: usize,
     }
-    let mut per: HashMap<usize, Counts> = HashMap::new();
-    let mut moves: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut per: FxHashMap<usize, Counts> = FxHashMap::default();
+    let mut moves: FxHashMap<(usize, usize), usize> = FxHashMap::default();
     for s in sets {
-        for &i in s.tracks.iter().collect::<HashSet<_>>() {
+        for &i in s.tracks.iter().collect::<FxHashSet<_>>() {
             per.entry(i).or_default().sets += 1;
         }
         for &i in &s.tracks {
@@ -1281,7 +1288,7 @@ fn signature_section(recs: &[Rec], sets: &[SetData], top: usize) -> SignatureSec
             per.entry(first).or_default().opened += 1;
             per.entry(last).or_default().closed += 1;
         }
-        for m in s.transitions().collect::<HashSet<_>>() {
+        for m in s.transitions().collect::<FxHashSet<_>>() {
             *moves.entry(m).or_default() += 1;
         }
     }
@@ -1561,7 +1568,7 @@ fn title_case(s: &str) -> String {
 }
 
 /// A track's genre text as genres: split at `/ , ; |` (not `&`: "Drum & Bass"), spelled one way.
-pub fn genres(raw: &str, aliases: &BTreeMap<String, String>) -> Vec<String> {
+pub fn genres(raw: &str, aliases: &IndexMap<String, String>) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for part in raw.split(['/', ',', ';', '|']) {
         let part = part.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -1637,13 +1644,13 @@ mod tests {
 
     #[test]
     fn genres_are_split_and_spelled_one_way() {
-        let none = BTreeMap::new();
+        let none = IndexMap::new();
         assert_eq!(genres("deep house / Tech-House", &none), ["Deep House", "Tech House"]);
         assert_eq!(genres("DnB", &none), ["Drum & Bass"]);
         assert_eq!(genres("Drum & Bass", &none), ["Drum & Bass"]);
         assert_eq!(genres("UK garage; ukg", &none), ["UK Garage"]);
         assert_eq!(genres("Unknown", &none), Vec::<String>::new());
-        let mine = BTreeMap::from([("minimal".to_string(), "Minimal / Deep Tech".to_string())]);
+        let mine = IndexMap::from([("minimal".to_string(), "Minimal / Deep Tech".to_string())]);
         assert_eq!(genres("MINIMAL", &mine), ["Minimal / Deep Tech"]);
     }
 

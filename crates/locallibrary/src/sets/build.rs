@@ -7,9 +7,8 @@
 //! headphones. When a set has both, the recording's tracklist is the set's, and the logged tracks
 //! it doesn't hear are pointed out (likely previews).
 
-use std::collections::HashSet;
-
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
+use rustc_hash::FxHashSet;
 
 use super::{EntryOrigin, Session, SetEntry};
 use crate::mix::{MixReport, Play};
@@ -89,7 +88,7 @@ pub(crate) fn from_recording(report: &MixReport) -> Tracklist {
 /// the recording doesn't hear. Tracks the DJ marked unnamed stay unnamed.
 pub(crate) fn with_recording(before: &[SetEntry], report: &MixReport) -> Tracklist {
     let mut out = from_recording(report);
-    let unnamed: HashSet<String> = before.iter().filter(|e| e.unnamed).filter_map(SetEntry::file_key).collect();
+    let unnamed: FxHashSet<String> = before.iter().filter(|e| e.unnamed).filter_map(SetEntry::file_key).collect();
     for e in &mut out.tracks {
         e.unnamed = e.file_key().is_some_and(|k| unnamed.contains(&k));
     }
@@ -101,8 +100,8 @@ pub(crate) fn with_recording(before: &[SetEntry], report: &MixReport) -> Trackli
 /// A note for each track of `logged` (by file, once each) that isn't among `heard`. Logged tracks
 /// a recording doesn't hear were most likely previewed in headphones.
 pub(crate) fn not_heard(logged: &[SetEntry], heard: &[SetEntry]) -> Vec<String> {
-    let heard: HashSet<String> = heard.iter().filter_map(SetEntry::file_key).collect();
-    let mut told = HashSet::new();
+    let heard: FxHashSet<String> = heard.iter().filter_map(SetEntry::file_key).collect();
+    let mut told = FxHashSet::default();
     let mut out = Vec::new();
     for e in logged {
         let key = e.file_key();
@@ -154,8 +153,8 @@ fn recorded_on(r: &MixReport) -> Option<NaiveDate> {
 mod tests {
     use super::*;
     use crate::mix::{MixInfo, Play};
-    use crate::model::tests::track;
     use crate::sets::Window;
+    use loclib_model::test_util::track;
 
     fn at(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)

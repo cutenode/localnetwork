@@ -5,7 +5,10 @@ pub mod media;
 #[path = "../support/sqlcipher.rs"]
 pub mod sqlcipher;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
+
+use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -247,10 +250,10 @@ pub fn library_files(root: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 /// Every file on the drive outside locallibrary's own directory.
-pub type Files = BTreeMap<String, Vec<u8>>;
+pub type Files = IndexMap<String, Vec<u8>>;
 
 pub fn drive_files(root: &Path) -> Files {
-    let mut out = BTreeMap::new();
+    let mut out = IndexMap::new();
     for e in walkdir::WalkDir::new(root).into_iter().filter_entry(|e| e.file_name() != paths::STATE_DIR) {
         let e = e.unwrap();
         if e.file_type().is_file() {
@@ -258,6 +261,7 @@ pub fn drive_files(root: &Path) -> Files {
             out.insert(key, fs::read(e.path()).unwrap());
         }
     }
+    out.sort_unstable_keys();
     out
 }
 
@@ -331,13 +335,13 @@ pub fn b_image(artwork_path: &str) -> String {
 pub fn onelibrary_for(lib: &Library) -> OneLibrary {
     let mut one = OneLibrary::from_encrypted(&fs::read(fixtures().join("onelibrary/empty.db")).unwrap(), None).unwrap();
     let defaults = one.content_defaults().unwrap();
-    let mut ids = HashMap::new();
+    let mut ids = FxHashMap::default();
     for t in &lib.tracks {
         let image = t.artwork_path.as_ref().map(|p| one.add_image(&b_image(p)).unwrap());
         let rec = ContentRecord::from_track(t, !t.analyze_path.is_empty(), &defaults);
         ids.insert(t.id, one.add_track(&rec, &t.file_path, &t.analyze_path, image).unwrap());
     }
-    let mut playlists = HashMap::new();
+    let mut playlists = FxHashMap::default();
     let mut queue = vec![None];
     while let Some(parent) = queue.pop() {
         for p in lib.children(parent) {

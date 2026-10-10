@@ -964,9 +964,10 @@ impl App {
     // -----------------------------------------------------------------------------------------
 
     /// The drive actions work on in the view shown: the open one in the library, the selected
-    /// one in the Drives view.
+    /// one in the Drives view (none while a library's row is).
     pub(super) fn action_drive(&self) -> Option<PathBuf> {
         match self.view {
+            View::Drives if self.drive_header.is_some() => None,
             View::Drives => self.drive_state.selected().and_then(|i| self.drives.get(i)).map(|d| d.root.clone()),
             _ => self.loaded.as_ref().map(|l| l.root().to_path_buf()),
         }

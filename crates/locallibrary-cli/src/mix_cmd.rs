@@ -23,7 +23,7 @@ Fingerprints are cached in the store, so each track is only decoded once."
 pub struct MixArgs {
     /// Recordings: WAV, AIFF, MP3, M4A or FLAC files, or Audacity projects (.aup3, .aup4)
     mixes: Vec<PathBuf>,
-    /// Drive whose library to look in [default: the mounted rekordbox drive]
+    /// Library or drive to look in [default: the mounted rekordbox drive]
     #[arg(long, short)]
     drive: Option<String>,
     /// Write the interactive report here (a folder when there are several mixes)
@@ -195,7 +195,7 @@ fn tracklist(r: &MixReport) {
                     lock,
                     dim(played(p))
                 );
-                let mut seen = std::collections::HashSet::new();
+                let mut seen = rustc_hash::FxHashSet::default();
                 for a in p.alternates.iter().filter(|a| seen.insert(a.name.clone())) {
                     let note = if a.name == p.track.display_name() {
                         format!("duplicate file: {}", a.file_path)

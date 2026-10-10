@@ -4,13 +4,13 @@
 //! selected track's own waveform with the stretch that was played. The set plays in the player,
 //! and the timeline and tracklist follow along.
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use locallibrary::anlz::{TrackAnalysis, Waveform};
+use locallibrary::anlz::{self, TrackAnalysis, Waveform};
 use locallibrary::api;
 use locallibrary::mix::export;
 use locallibrary::mix::index::Cache;
@@ -19,6 +19,7 @@ use locallibrary::mix::{self, Identifier, MixReport, MixWaveform, Play, Transiti
 use locallibrary::profile::ProfilePrefs;
 use locallibrary::progress::{CancelToken, Ctx, Event, Phase};
 use locallibrary::{Device, Library, Store, Track, fsutil};
+use loclib_waveform::{Art, Pixels, cue_letter};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
@@ -32,7 +33,6 @@ use super::keymap::Act;
 use super::keys::Camelot;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
 use super::ui::clip;
-use super::widgets::{Art, Pixels, cue_color, cue_letter};
 use crate::output::clock;
 
 /// Recordings remembered between runs.
@@ -167,6 +167,9 @@ pub struct MixTab {
     following: Option<usize>,
     /// The drive whose recordings are listed.
     drive: Option<PathBuf>,
+    /// The latest listing of the drive asked for: one started earlier can finish later, with
+    /// what was there then, and is dropped.
+    pub drive_listing: u64,
     drive_sources: Vec<Source>,
     areas: Areas,
 }
@@ -191,6 +194,7 @@ impl MixTab {
             zoom: 1,
             following: None,
             drive: None,
+            drive_listing: 0,
             drive_sources: Vec::new(),
             areas: Areas::default(),
         }
@@ -238,7 +242,7 @@ impl MixTab {
     fn rebuild_sources(&mut self) {
         let selected = self.list.selected().and_then(|i| self.sources.get(i)).map(|s| s.path.clone());
         let recent = self.recent.iter().map(|p| Source::recent(p.clone()));
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         self.sources = (self.drive_sources.iter().chain(&self.folder_sources).cloned().chain(recent))
             .filter(|s| seen.insert(s.path.clone()))
             .collect();
@@ -302,6 +306,8 @@ fn list_drive(app: &mut App) {
     let name = root.as_ref().map(|r| app.drive_label(r)).unwrap_or_default();
     let t = &mut app.mix;
     t.drive = root.clone();
+    t.drive_listing += 1;
+    let listing = t.drive_listing;
     t.drive_sources.clear();
     t.rebuild_sources();
     let Some(root) = root else { return };
@@ -320,7 +326,7 @@ fn list_drive(app: &mut App) {
                     .collect()
             })
             .unwrap_or_default();
-        Msg::MixSources(root, sources)
+        Msg::MixSources(listing, root, sources)
     });
 }
 
@@ -502,7 +508,7 @@ fn identify(
     let store = Store::open_or_init(store_root)?;
     let id = Identifier::with_library(&device, library.clone(), &Cache::in_store(&store), &ctx)?;
     let report = id.identify(path, &mix::Options::default(), &ctx)?;
-    let analyses = report.plays.iter().map(|p| TrackAnalysis::load(&device, &p.track)).collect();
+    let analyses = report.plays.iter().map(|p| anlz::load(&device, &p.track)).collect();
     let cover = report.mix.cover.as_ref().and_then(|c| c.read().ok()).and_then(|b| Art::decode(&b));
     // The player plays the recording itself; for a project, the audio exported from it.
     let audio = match mix::aup::is_project(&report.mix.path) {
@@ -1154,7 +1160,10 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     if let Some(art) = o.cover.as_mut().filter(|_| head.width >= 80) {
         let [cover, rest] = Layout::horizontal([Constraint::Length(7), Constraint::Min(0)]).areas(head);
         let pixels = art.pixels(6, 3);
-        f.render_widget(Pixels { width: 6, pixels }, Rect { x: cover.x + 1, width: 6, ..cover });
+        f.render_widget(
+            Pixels { width: 6, pixels, palette: theme::palette() },
+            Rect { x: cover.x + 1, width: 6, ..cover },
+        );
         text_area = rest;
     }
     let m = &r.mix;
@@ -1604,7 +1613,8 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
             cues.sort_by_key(|c| c.hot_cue.is_some());
             for c in cues {
                 let x = x_of(c.start_ms as f64 / 1000.0);
-                let color = if played(x) { cue_color(c) } else { theme::scale(cue_color(c), 0.5) };
+                let color = theme::palette().cue_color(c);
+                let color = if played(x) { color } else { theme::scale(color, 0.5) };
                 match cue_letter(c) {
                     Some(l) => put(buf, marks.x + x, marks.y, &l.to_string(), INK, Some(color)),
                     None => put(buf, marks.x + x, marks.y, "▼", color, None),
@@ -1697,7 +1707,7 @@ fn draw_detail(f: &mut Frame, r: &MixReport, analyses: &[TrackAnalysis], i: usiz
         ));
     }
     lines.push(Line::from(sure));
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = rustc_hash::FxHashSet::default();
     for a in p.alternates.iter().filter(|a| seen.insert(a.name.clone())) {
         let note = if a.name == t.display_name() {
             format!("Also on the drive as {}", a.file_path)
@@ -2177,6 +2187,21 @@ pub(super) mod tests {
         assert_eq!((s.name.as_str(), s.place.as_str(), s.folder.as_ref()), ("REC001.wav", "DNA", None));
         let s = screen(&mut app, 120, 30);
         assert!(s.contains("REC001.wav") && s.contains("0:00 · DNA ·"), "{s}");
+    }
+
+    /// A listing of the drive that finishes after a newer one is dropped.
+    #[test]
+    fn an_older_listing_of_the_drive_is_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let drive = dir.path().join("DNA");
+        let rec = wav_at(&drive.join("PIONEER REC/REC001.wav"));
+        let mut app = App::with_library(&drive, library());
+        app.view = View::Mixes;
+        press(&mut app, "R");
+        let older = app.mix.drive_listing - 1;
+        let root = app.mix.drive.clone().unwrap();
+        app.handle_msg(Msg::MixSources(older, root, vec![Source::recent(rec)]));
+        assert!(app.mix.sources.is_empty());
     }
 
     /// Enter on the set already shown goes to its tracks, without identifying it again.

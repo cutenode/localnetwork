@@ -16,7 +16,8 @@ use crate::{Error, Result};
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct CheckRequest {
-    /// The drives going to the set; the first is the reference the others must match.
+    /// The drives going to the set (a library's name: its mounted clones, but archive and retired
+    /// ones); the first is the reference the others must match.
     pub drives: Vec<String>,
     #[serde(default, flatten)]
     pub options: CheckOptions,
@@ -27,7 +28,7 @@ pub fn check(store: Option<&Store>, req: &CheckRequest, ctx: &Ctx<'_>) -> Result
         return Err(Error::invalid("give at least one drive"));
     }
     let mut devices: Vec<Device> = Vec::new();
-    for spec in &req.drives {
+    for spec in &super::expand_libraries(&req.drives)?.0 {
         let d = resolve_drive(spec)?;
         if devices.iter().any(|x| x.root() == d.root()) {
             return Err(Error::invalid(format!("{spec:?} is listed twice")));
@@ -169,7 +170,7 @@ impl Operation for PlayersPlan {
                 r.libraries.insert(id, change.models.clone());
             }
             (Some(id), true) => {
-                r.libraries.remove(&id);
+                r.libraries.shift_remove(&id);
             }
             (None, _) => r.default = change.models.clone(),
         }

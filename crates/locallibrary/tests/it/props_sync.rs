@@ -3,7 +3,7 @@
 //! are built from the fixtures, with the DJ's own files around their libraries, and runs are
 //! cancelled at any progress checkpoint, or cut off there as by a pulled plug, then run again.
 //!
-//! What must hold (README "Safety"):
+//! What must hold (docs/how-it-works.md, "Safety"):
 //! * nothing outside `PIONEER/`, `Contents/` and `.locallibrary/` is written or deleted, except
 //!   audio a library references there;
 //! * after a sync the drives compare as identical, and the next sync never runs the other way;
@@ -14,7 +14,8 @@
 
 use crate::common;
 
-use std::collections::{BTreeMap, BTreeSet};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -41,7 +42,7 @@ use rekordbox_pdb::{NewTrack, PdbEditor};
 // ---------------------------------------------------------------------------------------------
 
 /// Files by key, lower-cased: FAT32 and exFAT ignore letter case.
-type Folded = BTreeMap<String, Vec<u8>>;
+type Folded = IndexMap<String, Vec<u8>>;
 
 fn fold(files: impl IntoIterator<Item = (String, Vec<u8>)>) -> Folded {
     files.into_iter().map(|(k, b)| (k.to_lowercase(), b)).collect()
@@ -630,7 +631,7 @@ impl Copies {
         tc.assume(!keys.is_empty());
         let key = &keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))];
         fs::remove_file(paths::to_fs(&self.drives[d], key)).unwrap();
-        self.user[d].remove(key);
+        self.user[d].shift_remove(key);
     }
 
     /// A file appears in a copy's `Contents/` that Main doesn't have.

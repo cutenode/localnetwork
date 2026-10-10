@@ -16,7 +16,9 @@
 //! Every applied edit is recorded in the drive's journal of edits (as a [`TagChange`], tracks
 //! named by file), so `edits replay` makes it again after rekordbox exports to the drive.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::BTreeSet;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
 use rekordbox_pdb::{ExtDatabase, ExtEditor, ExtTableType};
@@ -139,7 +141,7 @@ impl TagChange {
     /// The edit for `library`'s tracks ([`Device::library`]), and the recorded files it has no
     /// track for.
     fn edit(&self, library: &Library) -> (Edit, Vec<String>) {
-        let by_key: HashMap<String, u32> = library.tracks.iter().map(|t| (track_key(&t.file_path), t.id)).collect();
+        let by_key: FxHashMap<String, u32> = library.tracks.iter().map(|t| (track_key(&t.file_path), t.id)).collect();
         let mut gone = Vec::new();
         let mut ids = |files: &[String]| -> Vec<u32> {
             files
@@ -333,7 +335,7 @@ impl Tree {
 }
 
 /// `track id -> key` for a library.
-fn keys_by_id(library: &Library) -> HashMap<u32, String> {
+fn keys_by_id(library: &Library) -> FxHashMap<u32, String> {
     library.tracks.iter().map(|t| (t.id, track_key(&t.file_path))).collect()
 }
 
@@ -400,8 +402,8 @@ struct Db {
     tree: Tree,
     /// The tracks this database lists (`export.pdb`'s for `exportExt.pdb`).
     library: Library,
-    keys: HashMap<u32, String>,
-    ids_by_key: HashMap<String, Vec<u32>>,
+    keys: FxHashMap<u32, String>,
+    ids_by_key: FxHashMap<String, Vec<u32>>,
     handle: Handle,
 }
 
@@ -414,7 +416,7 @@ enum Handle {
 impl Db {
     fn new(source: Source, tree: Tree, library: Library, handle: Handle) -> Db {
         let keys = keys_by_id(&library);
-        let mut ids_by_key: HashMap<String, Vec<u32>> = HashMap::new();
+        let mut ids_by_key: FxHashMap<String, Vec<u32>> = FxHashMap::default();
         for (id, key) in &keys {
             ids_by_key.entry(key.clone()).or_default().push(*id);
         }
@@ -631,8 +633,8 @@ fn differences(dbs: &[Db]) -> Vec<String> {
 
 /// Display references for track keys: the main library's tracks, then any only another
 /// database lists.
-fn track_refs(opened: &Opened) -> HashMap<String, TrackRef> {
-    let mut refs = HashMap::new();
+fn track_refs(opened: &Opened) -> FxHashMap<String, TrackRef> {
+    let mut refs = FxHashMap::default();
     for lib in std::iter::once(&opened.primary).chain(opened.dbs.iter().map(|d| &d.library)) {
         for t in &lib.tracks {
             refs.entry(track_key(&t.file_path)).or_insert_with(|| TrackRef::from(t));
@@ -678,9 +680,9 @@ pub fn read(device: &Device) -> Result<MyTags> {
 
 /// Every tagged track's tags, as `Category/Tag` in display order, keyed by the track's file key
 /// in lower case (`paths::key(&track.file_path).to_lowercase()`). Tags from both databases.
-pub fn by_track(device: &Device) -> Result<HashMap<String, Vec<String>>> {
+pub fn by_track(device: &Device) -> Result<FxHashMap<String, Vec<String>>> {
     let opened = open(device)?;
-    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+    let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
     for c in merged(&opened.dbs) {
         for t in &c.tags {
             for key in &t.tracks {
@@ -1251,7 +1253,7 @@ fn apply_locked(
 pub(crate) struct DbTags {
     tree: Tree,
     /// Keys of the tracks the database lists.
-    tracks: HashSet<String>,
+    tracks: FxHashSet<String>,
 }
 
 impl DbTags {
@@ -1295,7 +1297,7 @@ impl DbTags {
 
     /// How many tracks have a tag.
     pub(crate) fn tagged(&self) -> usize {
-        self.tree.categories.iter().flat_map(|c| &c.tags).flat_map(|t| &t.tracks).collect::<HashSet<_>>().len()
+        self.tree.categories.iter().flat_map(|c| &c.tags).flat_map(|t| &t.tracks).collect::<FxHashSet<_>>().len()
     }
 }
 
@@ -1497,7 +1499,7 @@ pub(crate) fn remap_ext(bytes: Vec<u8>, old: Option<&Library>, new: &Library) ->
             return Ok((None, 0));
         }
         let old_keys = old.map(keys_by_id).unwrap_or_default();
-        let mut new_ids: HashMap<String, Vec<u32>> = HashMap::new();
+        let mut new_ids: FxHashMap<String, Vec<u32>> = FxHashMap::default();
         for t in &new.tracks {
             new_ids.entry(track_key(&t.file_path)).or_default().push(t.id);
         }

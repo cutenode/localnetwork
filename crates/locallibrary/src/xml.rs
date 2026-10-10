@@ -12,6 +12,8 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use schemars::JsonSchema;
 use serde::Serialize;
 
+pub(crate) use loclib_interop::encode::xml_escape as esc;
+
 use crate::anlz;
 use crate::device::Device;
 use crate::model::{Library, Track, TrackColor};
@@ -47,29 +49,6 @@ fn location(root: &Path, file_path: &str) -> String {
     let s = abs.to_string_lossy().replace('\\', "/");
     let s = if s.starts_with('/') { s } else { format!("/{s}") };
     format!("file://localhost{}", utf8_percent_encode(&s, PATH_ENCODE))
-}
-
-/// `s` as XML text or a quoted attribute value. Characters XML 1.0 can't hold (other control
-/// characters, U+FFFE, U+FFFF) are dropped: one would make the whole file unreadable. Tab, LF
-/// and CR are written as references, since a reader turns them into spaces when they stand as
-/// they are in an attribute value.
-pub(crate) fn esc(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&apos;"),
-            '\t' | '\n' | '\r' => {
-                let _ = write!(out, "&#{};", c as u32);
-            }
-            c if (c as u32) < 0x20 || c == '\u{FFFE}' || c == '\u{FFFF}' => {}
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 fn kind(path: &str) -> &'static str {
@@ -117,7 +96,7 @@ pub fn export(device: &Device, opts: &XmlOptions, ctx: &Ctx<'_>) -> Result<(Stri
             &mut x,
             t,
             &root,
-            if opts.skip_analysis { None } else { Some(anlz::TrackAnalysis::load_grid(device, t)) },
+            if opts.skip_analysis { None } else { Some(anlz::load_grid(device, t)) },
             &mut report,
         );
     }
@@ -134,7 +113,7 @@ pub(crate) fn subset(mut library: Library, only: &[String]) -> Result<Library> {
     if only.is_empty() {
         return Ok(library);
     }
-    let mut keep = std::collections::HashSet::new();
+    let mut keep = rustc_hash::FxHashSet::default();
     for query in only {
         let p = library.find_playlist(query).ok_or_else(|| Error::NotFound(format!("playlist {query:?}")))?;
         // The node and everything below it...
@@ -151,8 +130,7 @@ pub(crate) fn subset(mut library: Library, only: &[String]) -> Result<Library> {
         }
     }
     library.playlists.retain(|p| keep.contains(&p.id));
-    let used: std::collections::HashSet<u32> =
-        library.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
+    let used: rustc_hash::FxHashSet<u32> = library.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
     library.tracks.retain(|t| used.contains(&t.id));
     Ok(library)
 }
@@ -287,7 +265,7 @@ mod tests {
     }
 
     /// Each element's attributes, by element name, in order, as quick-xml reads them.
-    fn elements(xml: &str) -> Vec<(String, std::collections::HashMap<String, String>)> {
+    fn elements(xml: &str) -> Vec<(String, rustc_hash::FxHashMap<String, String>)> {
         let mut reader = quick_xml::Reader::from_str(xml);
         let mut out = Vec::new();
         loop {
@@ -312,7 +290,7 @@ mod tests {
     /// their ends, hot cues with their numbers and colours, memory cues without either.
     #[test]
     fn tracks_carry_their_colour_kind_tempos_and_cues() {
-        let mut t = crate::model::tests::track(7, "A & B", "Title", "/Contents/a.flac");
+        let mut t = loclib_model::test_util::track(7, "A & B", "Title", "/Contents/a.flac");
         (t.color, t.year, t.release_date, t.rating) = (Some(TrackColor::Aqua), 0, "2019-05-01".into(), 9);
         let beat = |time_ms, bpm, beat_number| anlz::Beat { beat_number, bpm, time_ms };
         let cue = |hot_cue, start_ms, end_ms, color| anlz::Cue {
@@ -378,7 +356,7 @@ mod tests {
         };
         let library = Library {
             tracks: (1..=4)
-                .map(|id| crate::model::tests::track(id, "A", "T", &format!("/Contents/{id}.mp3")))
+                .map(|id| loclib_model::test_util::track(id, "A", "T", &format!("/Contents/{id}.mp3")))
                 .collect(),
             playlists: vec![
                 node(1, None, "Shows", vec![]),
@@ -397,11 +375,5 @@ mod tests {
         assert_eq!(kept(&["Friday"]), (vec![1, 2], vec![1]));
         assert_eq!(kept(&[]), (vec![1, 2, 3, 4], vec![1, 2, 3, 4]));
         assert!(matches!(subset(library, &["Sunday".into()]), Err(Error::NotFound(_))));
-    }
-
-    #[test]
-    fn escaping() {
-        assert_eq!(esc("a&b<\"c\">'\u{1}"), "a&amp;b&lt;&quot;c&quot;&gt;&apos;");
-        assert_eq!(esc("t\tl\nc\r\u{FFFE}\u{FFFF}\u{FFFD}"), "t&#9;l&#10;c&#13;\u{FFFD}");
     }
 }

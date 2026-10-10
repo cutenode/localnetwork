@@ -11,7 +11,6 @@ use ratatui::widgets::ListState;
 
 use super::app::{App, Level, View};
 use super::theme;
-use super::widgets::cue_color;
 
 /// Hot cues the digit row plays: 1-8 for A-H, as many as a CDJ has pads.
 pub const PADS: u8 = 8;
@@ -104,7 +103,7 @@ pub fn toggle_quantize(app: &mut App) {
 pub fn toggle_single(app: &mut App) {
     app.drop_upcoming();
     app.deck.single = !app.deck.single;
-    let msg = if app.deck.single { "single play: stops after each track" } else { "continuous play" };
+    let msg = if app.deck.single { "autoplay off: stops after each track" } else { "autoplay on" };
     app.toast(msg, Level::Info);
 }
 
@@ -131,7 +130,7 @@ pub fn hot_cue(app: &mut App, slot: u8) {
         return;
     };
     let at = cue_jump(&now.analysis.beats, app.position_ms(), cue.start_ms as f64, app.snap());
-    let (color, bounds) = (cue_color(cue), cue.end_ms.map(|end| (cue.start_ms as f64, end as f64)));
+    let (color, bounds) = (theme::palette().cue_color(cue), cue.end_ms.map(|end| (cue.start_ms as f64, end as f64)));
     // The jump first: it leaves the loop playing, if any, and may land a little before this one.
     app.jump(at, Some(color));
     if let Some((start, end)) = bounds {

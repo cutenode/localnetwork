@@ -1,6 +1,6 @@
 # Release: build locallibrary for macOS, Linux and Windows with dist
 # (https://axodotdev.github.io/cargo-dist/), publish a GitHub Release and update the Homebrew
-# formula. See "Releasing" in README.md.
+# formula. See "Releasing" in CONTRIBUTING.md.
 #
 # This is dist 0.33.0's generated workflow (configured in dist-workspace.toml), edited by hand,
 # which is why dist-workspace.toml sets `allow-dirty = ["ci"]`:

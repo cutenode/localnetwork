@@ -36,3 +36,20 @@ fn provision_lists_its_steps_then_makes_a_ready_drive() {
     let out = env.ok(&["provision", path(&spare), "--like", "Main", "--no-settings", "--no-verify", "--dry-run"]);
     assert!(out.contains("already holds a rekordbox library; it will be replaced"), "{out}");
 }
+
+/// Like a library: the new drive is another copy of it, made from its newest drive, and keeps
+/// its volume name when given none.
+#[test]
+fn provision_makes_another_copy_of_a_library_named() {
+    let env = Env::new();
+    let main = env.drive("MAIN");
+    env.ok(&["pull", path(&main), "--library", "Home", "--new-library"]);
+    let spare = env.blank("SPARE");
+    let like = ["provision", path(&spare), "--like", "Home", "--no-settings", "--no-verify"];
+    let out = env.ok(&[&like[..], &["--dry-run"]].concat());
+    assert!(line(&out, "1. ").ends_with("/SPARE an identity"), "{out}");
+    assert_eq!(line(&out, "2. "), "  2. make it another copy of \"Home\", from MAIN", "{out}");
+    env.ok(&[&["--yes"], &like[..]].concat());
+    let libraries = env.json(&["library", "ls"]);
+    assert_eq!(libraries[0]["drives"], serde_json::json!(["MAIN", "SPARE"]), "{libraries}");
+}

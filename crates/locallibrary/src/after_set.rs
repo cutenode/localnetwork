@@ -17,8 +17,7 @@
 //! cues are kept. Anything this can't classify still counts as a real change, so the rule never
 //! overwrites an export.
 
-use std::collections::{HashMap, HashSet};
-
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -59,6 +58,13 @@ impl DriveChanges {
         self.history_lists.is_empty() && self.cue_files == 0 && self.tag_lists.is_empty() && self.other.is_empty()
     }
 
+    /// A change players don't make (the first 20 are kept).
+    fn note(&mut self, what: String) {
+        if self.other.len() < 20 {
+            self.other.push(what);
+        }
+    }
+
     /// Only changes players make.
     pub fn player_only(&self) -> bool {
         self.other.is_empty() && !self.is_empty()
@@ -86,68 +92,16 @@ fn is_tag_list(path: &str) -> bool {
 
 /// Sort a drive's changes since `ancestor`.
 pub fn changes_since(store: &Store, device: &Device, ancestor: &Snapshot, ctx: &Ctx<'_>) -> Result<DriveChanges> {
-    let mut out = DriveChanges { drive: device.name(), ..Default::default() };
     let then: Library = Side::from_snapshot(store, ancestor, "then")?.library;
     let now = device.library()?;
-
-    // The library: players add history lists and TAG LIST playlists, nothing else.
-    let diff = LibraryDiff::between(&then, &now);
-    let mut note = |what: String| {
-        if out.other.len() < 20 {
-            out.other.push(what);
-        }
-    };
-    for t in &diff.added_tracks {
-        note(format!("track added: {}", t.name));
-    }
-    for t in &diff.removed_tracks {
-        note(format!("track removed: {}", t.name));
-    }
-    for c in &diff.changed_tracks {
-        note(format!(
-            "track changed: {} ({})",
-            c.track.name,
-            c.fields.iter().map(|f| f.field.as_str()).collect::<Vec<_>>().join(", ")
-        ));
-    }
-    for p in &diff.removed_playlists {
-        note(format!("playlist removed: {p}"));
-    }
-    for p in &diff.changed_playlists {
-        note(format!("playlist changed: {p}"));
-    }
-    for p in &diff.added_playlists {
-        if is_tag_list(p) {
-            out.tag_lists.push(p.clone());
-        } else {
-            note(format!("playlist added: {p}"));
-        }
-    }
-    let old_history: HashSet<(&str, usize)> =
-        then.history.iter().map(|h| (h.name.as_str(), h.track_ids.len())).collect();
-    let old_names: HashSet<&str> = then.history.iter().map(|h| h.name.as_str()).collect();
-    let new_names: HashSet<&str> = now.history.iter().map(|h| h.name.as_str()).collect();
-    for h in &now.history {
-        if !old_names.contains(h.name.as_str()) {
-            out.history_lists.push(h.name.clone());
-        } else if !old_history.contains(&(h.name.as_str(), h.track_ids.len())) {
-            // A player adds to the list of the session it's in.
-            out.history_lists.push(h.name.clone());
-        }
-    }
-    for h in &then.history {
-        if !new_names.contains(h.name.as_str()) {
-            // rekordbox deletes history lists when it imports them.
-            note(format!("history list removed: {}", h.name));
-        }
-    }
+    let mut out = DriveChanges { drive: device.name(), ..library_changes(&then, &now) };
 
     // The files.
     let library = Some(&now);
     let scanned = device.scan_fingerprinted(library, ctx)?;
-    let old_files: HashMap<String, &crate::tree::FileEntry> =
+    let old_files: FxHashMap<String, &crate::tree::FileEntry> =
         ancestor.files.iter().map(|f| (f.path.to_lowercase(), f)).collect();
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
     for e in scanned.tree.library_entries() {
         let key = e.path.to_lowercase();
         seen.insert(key.clone());
@@ -163,26 +117,79 @@ pub fn changes_since(store: &Store, device: &Device, ancestor: &Snapshot, ctx: &
             continue;
         }
         if LIBRARY_DATABASES.contains(&key.as_str()) {
-            continue; // judged by the library diff above
+            continue; // judged by the library diff (see `library_changes`)
         }
         match (e.class, old.is_some()) {
             (FileClass::Analysis, true) => out.cue_files += 1,
-            (_, true) => note(format!("file changed: {}", e.path)),
-            (_, false) => note(format!("file added: {}", e.path)),
+            (_, true) => out.note(format!("file changed: {}", e.path)),
+            (_, false) => out.note(format!("file added: {}", e.path)),
         }
     }
     for (key, f) in &old_files {
         if f.is_library() && !seen.contains(key) && !LIBRARY_DATABASES.contains(&key.as_str()) {
-            note(format!("file removed: {}", f.path));
+            out.note(format!("file removed: {}", f.path));
         }
     }
     Ok(out)
 }
 
+/// Sort the library changes from `then` to `now` (a drive's files aside: see [`changes_since`]):
+/// cheap enough for `status`, which has both libraries at hand.
+pub fn library_changes(then: &Library, now: &Library) -> DriveChanges {
+    let mut out = DriveChanges::default();
+    // Players add history lists and TAG LIST playlists, nothing else.
+    let diff = LibraryDiff::between(then, now);
+    for t in &diff.added_tracks {
+        out.note(format!("track added: {}", t.name));
+    }
+    for t in &diff.removed_tracks {
+        out.note(format!("track removed: {}", t.name));
+    }
+    for c in &diff.changed_tracks {
+        out.note(format!(
+            "track changed: {} ({})",
+            c.track.name,
+            c.fields.iter().map(|f| f.field.as_str()).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    for p in &diff.removed_playlists {
+        out.note(format!("playlist removed: {p}"));
+    }
+    for p in &diff.changed_playlists {
+        out.note(format!("playlist changed: {p}"));
+    }
+    for p in &diff.added_playlists {
+        if is_tag_list(p) {
+            out.tag_lists.push(p.clone());
+        } else {
+            out.note(format!("playlist added: {p}"));
+        }
+    }
+    let old_history: FxHashSet<(&str, usize)> =
+        then.history.iter().map(|h| (h.name.as_str(), h.track_ids.len())).collect();
+    let old_names: FxHashSet<&str> = then.history.iter().map(|h| h.name.as_str()).collect();
+    let new_names: FxHashSet<&str> = now.history.iter().map(|h| h.name.as_str()).collect();
+    for h in &now.history {
+        if !old_names.contains(h.name.as_str()) {
+            out.history_lists.push(h.name.clone());
+        } else if !old_history.contains(&(h.name.as_str(), h.track_ids.len())) {
+            // A player adds to the list of the session it's in.
+            out.history_lists.push(h.name.clone());
+        }
+    }
+    for h in &then.history {
+        if !new_names.contains(h.name.as_str()) {
+            // rekordbox deletes history lists when it imports them.
+            out.note(format!("history list removed: {}", h.name));
+        }
+    }
+    out
+}
+
 /// The last library state both drives held, as a stored snapshot.
 pub fn common_snapshot(store: &Store, a: &Device, b: &Device) -> Result<Option<Snapshot>> {
     let (Some(sa), Some(sb)) = (a.state(), b.state()) else { return Ok(None) };
-    let b_fps: HashSet<_> = sb.lineage.iter().map(|e| e.fingerprint).collect();
+    let b_fps: FxHashSet<_> = sb.lineage.iter().map(|e| e.fingerprint).collect();
     let Some(common) = sa.lineage.iter().rev().find(|e| b_fps.contains(&e.fingerprint)) else { return Ok(None) };
     // A snapshot id recorded with that state, on either drive.
     let recorded =

@@ -52,7 +52,7 @@ pub fn collection_info(req: &CollectionRef) -> Result<CollectionInfo> {
 pub struct CollectionView {
     pub info: CollectionInfo,
     pub library: Library,
-    pub cues: std::collections::BTreeMap<u32, Vec<crate::anlz::Cue>>,
+    pub cues: indexmap::IndexMap<u32, Vec<crate::anlz::Cue>>,
     pub tags: Vec<TagCategory>,
 }
 

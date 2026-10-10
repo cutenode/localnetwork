@@ -9,7 +9,9 @@
 //! track in either database references. They are backed up first (see [`crate::backup`]), so
 //! `locallibrary undo` takes it back.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use indexmap::IndexMap;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
@@ -393,14 +395,15 @@ pub fn volume_of(root: &Path) -> Option<(Disk, Volume)> {
 
 /// Tracks in no playlist.
 pub fn unfiled(library: &Library) -> Vec<TrackRef> {
-    let filed: HashSet<u32> =
+    let filed: FxHashSet<u32> =
         library.playlists.iter().filter(|p| !p.is_folder).flat_map(|p| p.track_ids.iter().copied()).collect();
     library.tracks.iter().filter(|t| !filed.contains(&t.id)).map(TrackRef::from).collect()
 }
 
 /// Library files of 4 GiB or more, which FAT32 can't hold.
 pub fn large_files(library: &Library, tree: &FileTree) -> Vec<LargeFile> {
-    let by_key: HashMap<String, &Track> = library.tracks.iter().map(|t| (fold(&paths::key(&t.file_path)), t)).collect();
+    let by_key: FxHashMap<String, &Track> =
+        library.tracks.iter().map(|t| (fold(&paths::key(&t.file_path)), t)).collect();
     tree.library_entries()
         .filter(|e| e.size >= FAT32_MAX_FILE)
         .map(|e| LargeFile {
@@ -430,7 +433,7 @@ pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree, ctx: &C
     };
     let mut out = Vec::new();
     // (problem, file, the track's audio file)
-    let mut seen: HashSet<(Problem, String, String)> = HashSet::new();
+    let mut seen: FxHashSet<(Problem, String, String)> = FxHashSet::default();
     let mut smaller = Library::default();
     for (database, library) in dbs.all() {
         for t in &library.tracks {
@@ -483,12 +486,12 @@ pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree, ctx: &C
 /// `PIONEER/Artwork/` that nothing in either database references. Analysis files go by their
 /// stem (a track's `.DAT` keeps its `.EXT` and `.2EX`), artwork with its `_m` variant.
 fn orphans(dbs: &Databases, tree: &FileTree) -> Vec<OrphanFile> {
-    fn use_image(key: &str, in_use: &mut HashSet<String>) {
+    fn use_image(key: &str, in_use: &mut FxHashSet<String>) {
         in_use.insert(fold(key));
         in_use.insert(fold(&crate::artwork::medium_variant(key)));
     }
-    let mut in_use: HashSet<String> = HashSet::new();
-    let mut analysis_stems: HashSet<String> = HashSet::new();
+    let mut in_use: FxHashSet<String> = FxHashSet::default();
+    let mut analysis_stems: FxHashSet<String> = FxHashSet::default();
     for (_, library) in dbs.all() {
         for t in &library.tracks {
             in_use.insert(fold(&paths::key(&t.file_path)));
@@ -595,7 +598,7 @@ fn duplicates(
         .collect();
 
     let mut edges: Vec<(usize, usize, DuplicateReason)> = Vec::new();
-    let mut link = |groups: BTreeMap<_, Vec<usize>>, reason: DuplicateReason, distinct_files: bool| {
+    let mut link = |groups: IndexMap<_, Vec<usize>>, reason: DuplicateReason, distinct_files: bool| {
         for members in groups.into_values() {
             for pair in members.windows(2) {
                 if !distinct_files || keys[pair[0]] != keys[pair[1]] {
@@ -605,7 +608,7 @@ fn duplicates(
         }
     };
     let group_by = |f: &dyn Fn(usize) -> Option<String>| {
-        let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut groups: IndexMap<String, Vec<usize>> = IndexMap::new();
         for i in 0..tracks.len() {
             if let Some(k) = f(i) {
                 groups.entry(k).or_default().push(i);
@@ -632,13 +635,13 @@ fn duplicates(
     );
     if opts.hash_audio {
         // Only files whose size matches another file's can have identical content.
-        let mut by_size: HashMap<u64, HashSet<&str>> = HashMap::new();
+        let mut by_size: FxHashMap<u64, FxHashSet<&str>> = FxHashMap::default();
         for k in files.iter().flatten() {
             if let Some(e) = tree.get(k) {
                 by_size.entry(e.size).or_default().insert(k);
             }
         }
-        let candidates: HashSet<String> =
+        let candidates: FxHashSet<String> =
             by_size.into_values().filter(|s| s.len() > 1).flatten().map(str::to_string).collect();
         let mut index = device.load_index();
         tree.ensure_hashes(&mut index, |e| candidates.contains(&e.path), ctx)?;
@@ -652,7 +655,7 @@ fn duplicates(
     for (a, b, _) in &edges {
         uf.union(*a, *b);
     }
-    let mut groups: BTreeMap<usize, (Vec<usize>, Vec<DuplicateReason>)> = BTreeMap::new();
+    let mut groups: IndexMap<usize, (Vec<usize>, Vec<DuplicateReason>)> = IndexMap::new();
     for i in 0..tracks.len() {
         groups.entry(uf.find(i)).or_default().0.push(i);
     }
@@ -663,9 +666,9 @@ fn duplicates(
         }
     }
 
-    let mut memberships: HashMap<u32, usize> = HashMap::new();
+    let mut memberships: FxHashMap<u32, usize> = FxHashMap::default();
     for p in library.playlists.iter().filter(|p| !p.is_folder) {
-        for id in p.track_ids.iter().collect::<HashSet<_>>() {
+        for id in p.track_ids.iter().collect::<FxHashSet<_>>() {
             *memberships.entry(*id).or_default() += 1;
         }
     }
@@ -814,7 +817,7 @@ pub fn apply_orphans(plan: &OrphanPlan, device: &mut Device, ctx: &Ctx<'_>) -> R
     let _lock = commit::lock(device, None)?;
     // Under the lock, every planned file must still be orphaned (rekordbox may have exported a
     // track that uses it since).
-    let still: HashSet<String> = find_orphans(device, ctx)?.iter().map(|f| fold(&f.path)).collect();
+    let still: FxHashSet<String> = find_orphans(device, ctx)?.iter().map(|f| fold(&f.path)).collect();
     if plan.files.iter().any(|f| !still.contains(&fold(&f.path)) && device.path(&f.path).exists()) {
         return Err(Error::stale(device.name(), "changed"));
     }
@@ -860,7 +863,7 @@ mod tests {
         let d = Device::open(dir.path()).unwrap();
         let track = |id, path: &str| Track {
             artwork_path: Some("/PIONEER/Artwork/00001/a1.jpg".into()),
-            ..crate::model::tests::track(id, "A", "T", path)
+            ..loclib_model::test_util::track(id, "A", "T", path)
         };
         let lib =
             Library { tracks: vec![track(1, "/Contents/a.mp3"), track(2, "/Contents/b.mp3")], ..Default::default() };

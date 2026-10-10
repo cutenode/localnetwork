@@ -1,6 +1,6 @@
 //! macOS: `diskutil` (no administrator rights needed for external disks).
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -108,7 +108,7 @@ fn whole_of(part: &str) -> String {
 fn describe(id: &str, boot: &[String], usb: &str) -> Result<Disk> {
     let info = diskutil(&["info", id])?;
     let listing = diskutil(&["list", id])?;
-    let mut parts = HashMap::new();
+    let mut parts = FxHashMap::default();
     let entry = json::array(listing.get("AllDisksAndPartitions")).into_iter().next().cloned().unwrap_or(Value::Null);
     for p in json::array(entry.get("Partitions")) {
         if let Some(pid) = json::str(p, "DeviceIdentifier")
@@ -131,7 +131,7 @@ fn describe(id: &str, boot: &[String], usb: &str) -> Result<Disk> {
 /// Build a [`Disk`] from `diskutil info` of the whole disk, `diskutil list` of it, and `info`
 /// of each partition (keyed by identifier; `<id>/apfs` holds `list` of an APFS container). The
 /// serial number isn't there ([`usb_serial`] has it).
-pub(super) fn parse_disk(info: &Value, listing: &Value, parts: &HashMap<String, Value>, boot: &[String]) -> Disk {
+pub(super) fn parse_disk(info: &Value, listing: &Value, parts: &FxHashMap<String, Value>, boot: &[String]) -> Disk {
     let id = json::str(info, "DeviceIdentifier").unwrap_or_default();
     let model = json::str(info, "IORegistryEntryName")
         .map(|n| n.trim_end_matches(" Media").to_string())
@@ -281,7 +281,7 @@ mod tests {
     use serde_json::json;
 
     /// `diskutil info -plist`/`list -plist` of a 128 GB USB drive, trimmed.
-    fn usb_drive() -> (Value, Value, HashMap<String, Value>) {
+    fn usb_drive() -> (Value, Value, FxHashMap<String, Value>) {
         let info = json!({
             "DeviceIdentifier": "disk4", "DeviceNode": "/dev/disk4", "Content": "FDisk_partition_scheme",
             "IORegistryEntryName": "DJ TechTools Media", "MediaName": "TechTools", "Size": 127984988672u64,
@@ -297,7 +297,7 @@ mod tests {
             "DeviceIdentifier": "disk4s1", "FilesystemType": "msdos", "FilesystemName": "MS-DOS FAT32",
             "VolumeAllocationBlockSize": 32768, "VolumeName": "DNA", "MountPoint": "/Volumes/DNA"
         });
-        (info, listing, HashMap::from([("disk4s1".to_string(), part)]))
+        (info, listing, FxHashMap::from_iter([("disk4s1".to_string(), part)]))
     }
 
     #[test]
@@ -436,7 +436,7 @@ mod tests {
                   "DiskUUID": "A1B2C3D4-0000-4000-8000-000000000002" }
             ]
         }]});
-        let parts = HashMap::from([
+        let parts = FxHashMap::from_iter([
             (
                 "disk5s1".to_string(),
                 json!({ "FilesystemType": "msdos", "FilesystemName": "MS-DOS FAT32", "VolumeAllocationBlockSize": 512,
@@ -483,7 +483,7 @@ mod tests {
             "DeviceIdentifier": "disk7", "Content": "DOS_FAT_16", "Size": 1973420032u64, "VolumeName": "CARD",
             "MountPoint": "/Volumes/CARD"
         }]});
-        let d = parse_disk(&info, &listing, &HashMap::new(), &[]);
+        let d = parse_disk(&info, &listing, &FxHashMap::default(), &[]);
         assert_eq!(d.model, "SD Card Reader", "the media name, without an IORegistry name");
         assert_eq!(d.scheme, None);
         assert!(d.read_only && d.removable);

@@ -8,9 +8,8 @@
 //! (one past the last appends). Tracks landing in one place keep the order they were given in,
 //! inserted ones first.
 
-use std::collections::HashSet;
-
 use chrono::NaiveDate;
+use rustc_hash::FxHashSet;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -165,7 +164,7 @@ impl Changes {
                 len + 1
             )));
         }
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         if let Some(p) = moved.iter().find(|p| !seen.insert(**p)) {
             return Err(Error::invalid(format!("track {p} is moved twice")));
         }
@@ -244,7 +243,7 @@ pub(crate) fn lookup(text: &str, library: Option<&Library>) -> Result<(SetEntry,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::tests::track;
+    use loclib_model::test_util::track;
 
     fn tracks(n: u32) -> Vec<SetEntry> {
         (1..=n).map(|i| SetEntry::added(&format!("A - {i}"))).collect()

@@ -1535,7 +1535,7 @@
           "type": "boolean"
         },
         "drives": {
-          "description": "The drives going to the set; the first is the reference the others must match.",
+          "description": "The drives going to the set (a library's name: its mounted clones, but archive and retired\nones); the first is the reference the others must match.",
           "items": {
             "type": "string"
           },
@@ -1848,6 +1848,29 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "CloneTarget": {
+      "description": "A mounted clone of the library a plan writes, which applying the plan copies the drive it wrote\nonto unless it's left alone (see `Planned::reaching_clones`).",
+      "properties": {
+        "left_alone": {
+          "description": "Why it isn't copied onto (it's newer, diverged, or back from a set), also among the\nplan's warnings.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "root"
+      ],
       "type": "object"
     },
     "Codec": {
@@ -3665,7 +3688,7 @@
     "DiffRequest": {
       "properties": {
         "left": {
-          "description": "A drive, `snapshot:<id prefix>`, or a library (its latest snapshot).",
+          "description": "A library (its newest drive plugged in, else its latest snapshot), a drive, or\n`snapshot:<id prefix>`.",
           "type": "string"
         },
         "playlist": {
@@ -4865,6 +4888,15 @@
     "DriveStatus": {
       "description": "One drive's standing relative to its library's latest snapshot.",
       "properties": {
+        "back_from_set": {
+          "description": "Back from a set: the drive is newer than the head only by what players add (history\nlists, TAG LIST playlists), with this many history lists new or longer. Pulling saves them.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "drive": {
           "$ref": "#/$defs/DeviceInfo"
         },
@@ -4913,6 +4945,7 @@
         "library",
         "relation",
         "head",
+        "back_from_set",
         "settings_drift",
         "error"
       ],
@@ -6507,6 +6540,7 @@
     "EjectDrives": {
       "properties": {
         "drives": {
+          "description": "Drives, or a library's name for its mounted clones (but archive and retired ones).",
           "items": {
             "type": "string"
           },
@@ -8208,6 +8242,15 @@
     "FleetDrive": {
       "description": "A mounted drive's status, with what the registry knows about it.",
       "properties": {
+        "back_from_set": {
+          "description": "Back from a set: the drive is newer than the head only by what players add (history\nlists, TAG LIST playlists), with this many history lists new or longer. Pulling saves them.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "drive": {
           "$ref": "#/$defs/DeviceInfo"
         },
@@ -8297,6 +8340,7 @@
         "library",
         "relation",
         "head",
+        "back_from_set",
         "settings_drift",
         "error",
         "role",
@@ -8304,6 +8348,64 @@
         "low_space",
         "log",
         "exported_over_edits"
+      ],
+      "type": "object"
+    },
+    "FleetLibrary": {
+      "description": "A library and its clones, the drives holding it: those plugged in, and those that aren't.",
+      "properties": {
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SnapshotInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its latest snapshot."
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "identical": {
+          "description": "Whether its clones plugged in hold the same library: `None` with fewer than two, or when\none couldn't be compared with the store.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "mounted": {
+          "description": "Where its clones that are plugged in are mounted (each is in `mounted`), by role: the\nprimary first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "offline": {
+          "description": "Its registered clones that aren't plugged in (retired ones with `retired`).",
+          "items": {
+            "$ref": "#/$defs/KnownDrive"
+          },
+          "type": "array"
+        },
+        "unsaved": {
+          "description": "Whether a clone plugged in holds changes the store doesn't have (it's newer than the latest\nsnapshot, or diverged from it).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "head",
+        "mounted",
+        "offline",
+        "identical",
+        "unsaved"
       ],
       "type": "object"
     },
@@ -8352,6 +8454,13 @@
           },
           "type": "array"
         },
+        "libraries": {
+          "description": "The libraries of the mounted drives (with `all`, of every registered drive too), by name:\neach with its clones. Drives of no library in the store are in none.",
+          "items": {
+            "$ref": "#/$defs/FleetLibrary"
+          },
+          "type": "array"
+        },
         "mounted": {
           "items": {
             "$ref": "#/$defs/FleetDrive"
@@ -8369,7 +8478,8 @@
       "required": [
         "mounted",
         "offline",
-        "duplicates"
+        "duplicates",
+        "libraries"
       ],
       "type": "object"
     },
@@ -12811,12 +12921,19 @@
     "PlanFields": {
       "description": "What every plan says besides its own fields, as `*.plan` returns it (see [`Planned`]).",
       "properties": {
+        "clones": {
+          "description": "The library's other mounted clones, which applying copies the drive it writes onto, but\nthose `left_alone`.",
+          "items": {
+            "$ref": "#/$defs/CloneTarget"
+          },
+          "type": "array"
+        },
         "destructive": {
           "description": "It deletes or overwrites something (files, tracks, a library, a disk): a dialog should\nsay so.",
           "type": "boolean"
         },
         "drives": {
-          "description": "The drives (and files on this computer) it reads or writes.",
+          "description": "The drives (and files on this computer) it reads or writes, its clones included.",
           "items": {
             "$ref": "#/$defs/Touched"
           },
@@ -12827,7 +12944,7 @@
           "type": "boolean"
         },
         "operation": {
-          "description": "The RPC method's name without `.plan`.",
+          "description": "The RPC method's name without `.plan`, except `undo` for `drive.restore.plan`, `eject` for\n`drive.eject.plan` and `set` for `prep.plan`.",
           "type": "string"
         },
         "plan_id": {
@@ -13287,7 +13404,7 @@
           ]
         },
         "source": {
-          "description": "A drive, `snapshot:<id prefix>`, or a library (its latest snapshot).",
+          "description": "A library (its newest drive plugged in, else its latest snapshot), a drive, or\n`snapshot:<id prefix>`.",
           "type": "string"
         }
       },
@@ -17347,7 +17464,7 @@
         },
         "drives": {
           "default": [],
-          "description": "The drives you're taking [default: the mounted drives of one library, see [`drive_group`]].",
+          "description": "The drives you're taking, or a library's name for its mounted clones [default: the mounted\ndrives of one library, see [`drive_group`]].",
           "items": {
             "type": "string"
           },
@@ -17558,7 +17675,7 @@
       "properties": {
         "drives": {
           "default": [],
-          "description": "Only for these drives (names, ids or mount paths); every drive when empty.",
+          "description": "Only for these libraries, or the libraries of these drives (names, ids or mount paths);\nevery drive when empty.",
           "items": {
             "type": "string"
           },
@@ -17820,7 +17937,7 @@
         },
         "drives": {
           "default": [],
-          "description": "Drives [default: every mounted rekordbox drive but archive and retired ones].",
+          "description": "Drives, or libraries: each of a library's mounted clones (settings are each drive's own) but\narchive and retired ones [default: every mounted rekordbox drive but archive and retired\nones].",
           "items": {
             "type": "string"
           },
@@ -18175,7 +18292,7 @@
     "SmartPlaylist": {
       "properties": {
         "drives": {
-          "description": "Drives it applies to; every drive when empty.",
+          "description": "The libraries it's limited to, by a library's id or one of its drives' (any clone of that\ndrive's library takes it, as clones are kept identical); every drive when empty.",
           "items": {
             "format": "uuid",
             "type": "string"
@@ -19217,6 +19334,7 @@
           "type": "boolean"
         },
         "drives": {
+          "description": "Drives, or a library's name for its mounted clones (but archive and retired ones).",
           "items": {
             "type": "string"
           },
@@ -19526,7 +19644,7 @@
         },
         "library": {
           "default": null,
-          "description": "The library whose group to sync [default: the only group with two or more drives mounted].",
+          "description": "The library whose group to sync [default: the only group with two or more drives mounted;\nwith several, refused as `choose_library`, listing them].",
           "type": [
             "string",
             "null"
@@ -19825,7 +19943,7 @@
       "type": "object"
     },
     "TagsEdit": {
-      "description": "A My Tag edit: `{\"drive\": \"Main\", \"action\": \"add\", \"tag\": \"Genre/Deep House\", \"query\": \"...\"}`.",
+      "description": "A My Tag edit: `{\"drive\": \"Home\", \"action\": \"add\", \"tag\": \"Genre/Deep House\", \"query\": \"...\"}`.",
       "oneOf": [
         {
           "description": "Give the selected tracks a tag (`Category/Tag`), creating it where it's missing.",
@@ -21995,7 +22113,7 @@
           "type": "object"
         },
         {
-          "description": "A mounted drive, as cheaply as it can be described: no database is read.",
+          "description": "The drive's state was pulled into the store as a new snapshot.",
           "properties": {
             "beside": {
               "description": "Saved beside the library's newest snapshot, which stays the newest.",
@@ -22179,7 +22297,7 @@
           "type": "object"
         },
         {
-          "description": "A mounted drive, as cheaply as it can be described: no database is read.",
+          "description": "Looking at the drive failed (other than waiting on a lock): `kind` is the error's code.",
           "properties": {
             "event": {
               "const": "watch.failed",

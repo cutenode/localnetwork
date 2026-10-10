@@ -130,7 +130,7 @@ impl Account {
                 Span::styled(" ○ Not signed in", dim()),
                 key("L"),
                 Span::styled(
-                    "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps)",
+                    "sign in with your Atmosphere account (the one for Bluesky and other AT Protocol apps; alpha)",
                     dim(),
                 ),
             ]),

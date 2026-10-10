@@ -1,15 +1,16 @@
 //! TUI state and input handling. Drawing lives in `ui.rs`, the sidebar tree and sorting in
 //! `browse.rs`, the crate in `crate_list.rs`, and changing the drive in `edits.rs`.
 
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use locallibrary::anlz::{PhraseKind, TrackAnalysis};
+use locallibrary::anlz::{self, PhraseKind, TrackAnalysis};
 use locallibrary::api;
 use locallibrary::error::panic_text;
 use locallibrary::model::normalize;
@@ -19,20 +20,21 @@ use locallibrary::sets::{Set, SetBook};
 use locallibrary::store::{LibraryRecord, SnapshotInfo};
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
 use locallibrary::{Ctx, Device, DeviceInfo, Error, Library, Store, Track, artwork, paths};
+use loclib_waveform::{Art, bar_layout};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 use ratatui::widgets::{ListState, TableState};
+use uuid::Uuid;
 
 use super::analyzer::Analyzer;
 use super::audio::{self, Audio, Outputs};
 use super::browse::{self, Category, Group, Node, NodeId, Problems, SavedNode};
 use super::crate_list::{Crate, CrateTrack};
-use super::drives::DriveKey;
+use super::drives::{DriveKey, DriveRow};
 use super::edits::{Action, Job, Menu, Modal, Pick};
 use super::keymap::{self, Act};
 use super::keys::{self, Camelot, Relation};
 use super::state::{self, Saved, SavedCrateTrack, SavedQueue};
-use super::widgets::{Art, bar_layout, cue_color};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -142,7 +144,7 @@ pub enum MyTags {
     #[default]
     Unread,
     Reading,
-    Read(Arc<HashMap<String, Vec<String>>>),
+    Read(Arc<FxHashMap<String, Vec<String>>>),
     Failed(String),
 }
 
@@ -151,17 +153,17 @@ pub struct Loaded {
     pub device: Device,
     pub library: Arc<Library>,
     pub generation: u64,
-    by_id: HashMap<u32, usize>,
-    by_path: HashMap<String, usize>,
+    by_id: FxHashMap<u32, usize>,
+    by_path: FxHashMap<String, usize>,
     /// Every playlist's path, by id.
-    paths: HashMap<u32, String>,
+    paths: FxHashMap<u32, String>,
     haystack: Vec<String>,
-    expanded: HashSet<NodeId>,
+    expanded: FxHashSet<NodeId>,
     pub tree: Vec<Node>,
     /// The list in the track pane: all tracks, a playlist, or one value of a category.
     pub node: NodeId,
     /// Each category's values, worked out when Browse is first opened.
-    groups: HashMap<Category, Vec<Group>>,
+    groups: FxHashMap<Category, Vec<Group>>,
     /// Each track's place under a sort field, worked out when first sorted by it.
     ranks: Vec<(SortField, Vec<u32>)>,
     pub problems: Problems,
@@ -188,10 +190,10 @@ impl Loaded {
             by_path,
             paths,
             haystack,
-            expanded: HashSet::new(),
+            expanded: FxHashSet::default(),
             tree: Vec::new(),
             node: NodeId::All,
-            groups: HashMap::new(),
+            groups: FxHashMap::default(),
             ranks: Vec::new(),
             problems: Problems { missing: None, copy_of, copies },
             my_tags: MyTags::Unread,
@@ -430,7 +432,7 @@ pub struct TrackInfo {
 
 fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>) -> TrackInfo {
     let device = Device::open(root).ok();
-    let analysis = device.as_ref().map(|d| TrackAnalysis::load(d, track)).unwrap_or_default();
+    let analysis = device.as_ref().map(|d| anlz::load(d, track)).unwrap_or_default();
     let art = device.as_ref().and_then(|d| read_art(d, track)).and_then(|b| Art::decode(&b));
     let playlists = library.as_deref().map(|lib| playlists_of(lib, track)).unwrap_or_default();
     let matches = library.map(|lib| Matches::find(lib, root.to_path_buf(), track, 40));
@@ -648,7 +650,7 @@ fn file_duration(track: &Track, file: &audio::OpenedFile) -> Duration {
 /// the first sort by a column and opening Browse don't hold up the screen.
 pub struct Index {
     ranks: Vec<(SortField, Vec<u32>)>,
-    groups: HashMap<Category, Vec<Group>>,
+    groups: FxHashMap<Category, Vec<Group>>,
 }
 
 /// Where things were drawn last frame, for mouse hit-testing.
@@ -693,7 +695,7 @@ pub enum Msg {
     /// Which tracks' audio files are missing, for the library load with this generation.
     Missing(u64, Vec<bool>),
     /// The drive's My Tags, for the library load with this generation.
-    MyTags(u64, Result<HashMap<String, Vec<String>>, String>),
+    MyTags(u64, Result<FxHashMap<String, Vec<String>>, String>),
     /// Sort ranks and Browse's groups, for the library load with this generation.
     Indexed(u64, Box<Index>),
     /// The store's sets, for the library load with this generation.
@@ -705,7 +707,7 @@ pub enum Msg {
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
-    Status(Result<Vec<api::FleetDrive>, String>),
+    Status(Result<api::FleetStatus, String>),
     History(Result<History, String>),
     /// A profile build: which one, and its result.
     Profile(u64, Box<Result<api::ProfileView, String>>),
@@ -714,8 +716,8 @@ pub enum Msg {
     Account(super::account::AccountEvent),
     /// A recorded set identified: which identification, and its result.
     Mix(u64, Box<Result<super::mix::Opened, String>>),
-    /// The recordings on a drive.
-    MixSources(PathBuf, Vec<super::mix::Source>),
+    /// The recordings on a drive, from which listing of it.
+    MixSources(u64, PathBuf, Vec<super::mix::Source>),
     /// The recordings in the folders opened in the Mixes view (which ones, and what's in them).
     MixFolders(Vec<PathBuf>, Vec<super::mix::Source>),
     Planned {
@@ -893,13 +895,13 @@ pub struct App {
     /// The track list's order; the list's own when `None`.
     pub sort: Option<SortKey>,
     /// Marked tracks on the open drive, by file path.
-    pub marks: HashSet<String>,
+    pub marks: FxHashSet<String>,
     /// Playlists and folders marked in the tree (to pack), by path, in the order marked.
     pub list_marks: Vec<String>,
     /// Replaying edits rekordbox exported over, offered.
     pub replay_offer: Option<ReplayOffer>,
     /// Drives whose offer to replay was put away this run.
-    replay_dismissed: HashSet<PathBuf>,
+    replay_dismissed: FxHashSet<PathBuf>,
     /// The library load whose edits were last looked at for replaying.
     replay_checked: u64,
     pub crate_list: Crate,
@@ -928,6 +930,17 @@ pub struct App {
     /// Every mounted drive's status, role, logbook and copies (the Drives view).
     pub status: Option<Result<Vec<api::FleetDrive>, String>>,
     pub status_loading: bool,
+    /// The mounted drives' libraries, each with its clones (those not plugged in too): read with
+    /// `status`.
+    pub fleet_libraries: Vec<api::FleetLibrary>,
+    /// The store's libraries' names by id, read with the drive list (a small file) so the Drives
+    /// view groups the drives under them at once.
+    pub library_names: FxHashMap<Uuid, String>,
+    /// The Drives view's row of a library (or of the drives of none) when that's what's selected
+    /// rather than a drive.
+    pub drive_header: Option<DriveRow>,
+    /// The Drives view's rows, scrolled.
+    pub drive_rows: ListState,
     pub history: Option<Result<History, String>>,
     pub history_state: TableState,
     pub profile: super::profile::ProfileTab,
@@ -955,6 +968,8 @@ pub struct App {
     flash: Option<([u8; 3], Instant)>,
     last_pos_ms: f64,
     pub fullscreen: bool,
+    /// Full screen: the pick among the tracks that mix into the playing one, to play next.
+    pub next_pick: ListState,
     pub help: bool,
     pub help_scroll: u16,
     /// The latest message, in the footer: an info for a few seconds (see `reading_time`), an
@@ -1073,10 +1088,10 @@ impl App {
             filter_note: None,
             search_due: None,
             sort: None,
-            marks: HashSet::new(),
+            marks: FxHashSet::default(),
             list_marks: Vec::new(),
             replay_offer: None,
-            replay_dismissed: HashSet::new(),
+            replay_dismissed: FxHashSet::default(),
             replay_checked: 0,
             crate_list: Crate::default(),
             crate_state: ListState::default(),
@@ -1096,6 +1111,10 @@ impl App {
             last_backup: None,
             status: None,
             status_loading: false,
+            fleet_libraries: Vec::new(),
+            library_names: FxHashMap::default(),
+            drive_header: None,
+            drive_rows: ListState::default(),
             history: None,
             history_state: TableState::default(),
             profile: super::profile::ProfileTab::new(tx.clone()),
@@ -1117,6 +1136,7 @@ impl App {
             flash: None,
             last_pos_ms: 0.0,
             fullscreen: false,
+            next_pick: ListState::default(),
             help: false,
             help_scroll: 0,
             toast: None,
@@ -1413,7 +1433,7 @@ impl App {
                 .map_err(|_| "no store yet: saving a snapshot of a drive (e) makes one".to_string())
                 .and_then(|s| {
                     let req = api::FleetRequest::default();
-                    api::fleet_status(&s, &req, &Ctx::silent()).map(|f| f.mounted).map_err(|e| e.to_string())
+                    api::fleet_status(&s, &req, &Ctx::silent()).map_err(|e| e.to_string())
                 });
             Msg::Status(r)
         };
@@ -1443,17 +1463,23 @@ impl App {
     /// Opening one drive and then another shows the other, even if the first takes longer.
     pub(super) fn load_library(&mut self, root: PathBuf) {
         let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        self.read_from(name, root.clone(), move || root);
+    }
+
+    /// Read `name` in the background from the drive `pick` answers (`first` when picking fails),
+    /// and show it.
+    pub(super) fn read_from(&mut self, name: String, first: PathBuf, pick: impl FnOnce() -> PathBuf + Send + 'static) {
         self.loading = Some(format!("Reading {name}…"));
         self.load += 1;
         let load = self.load;
-        let failed_root = root.clone();
         let job = move || {
+            let root = pick();
             let drive = api::DriveRef { drive: root.display().to_string() };
             let r = api::drive_library(&drive)
                 .and_then(|view| Ok(Box::new(Loaded::prepare(Device::open_export(&root)?, view.library))));
             Msg::Library(load, root, r.map_err(|e| e.to_string()))
         };
-        self.spawn_or(job, move |e| Msg::Library(load, failed_root, Err(e)));
+        self.spawn_or(job, move |e| Msg::Library(load, first, Err(e)));
     }
 
     /// Look for tracks whose audio file is missing, in the background.
@@ -1525,7 +1551,7 @@ impl App {
                 .iter()
                 .filter(|c| (c.start_ms as f64) > prev && (c.start_ms as f64) <= pos_ms)
                 .max_by_key(|c| c.hot_cue.is_some())
-                .map(cue_color)
+                .map(|c| super::theme::palette().cue_color(c))
         });
         if let Some(color) = crossed {
             self.flash = Some((color, Instant::now()));
@@ -1601,6 +1627,13 @@ impl App {
                     .map(|d| d.root.clone())
                     .collect();
                 self.drives = list;
+                self.library_names = (Store::open(&self.store_root).and_then(|s| s.libraries()).unwrap_or_default())
+                    .into_iter()
+                    .map(|l| (l.id, l.name))
+                    .collect();
+                if self.drive_header.is_some_and(|h| !self.drive_rows().contains(&h)) {
+                    self.drive_header = None;
+                }
                 // The drive changed last has gone (ejected, unplugged): `u` goes back to the open or
                 // selected drive. Mounted somewhere else since, it's followed there.
                 let last = self.last_backup.take().and_then(|k| Some(DriveKey { root: self.mounted(&k)?, ..k }));
@@ -1616,17 +1649,28 @@ impl App {
                 if changed && self.status.is_some() {
                     self.refresh_status();
                 }
-                // Open a drive while none is (on startup, or when the first is plugged in): the
-                // one open last time when it's here, else the first.
+                // Open a library while none is (on startup, or when the first drive is plugged in):
+                // the drive open last time when it's here, else the first library (its lead
+                // clone), else the first drive with an export.
                 if self.loaded.is_none() && self.loading.is_none() {
-                    let pick = (self.preferred_root.as_ref())
-                        .and_then(|r| self.drives.iter().find(|d| d.has_export && d.root == *r))
-                        .or_else(|| self.drives.iter().find(|d| d.has_export));
-                    if let Some(d) = pick {
-                        let root = d.root.clone();
-                        self.preferred_root = None;
-                        self.drive_state.select(self.drives.iter().position(|x| x.root == root));
-                        self.load_library(root);
+                    let with_export = |r: &PathBuf| self.drives.iter().any(|d| d.has_export && d.root == *r);
+                    let last = self.preferred_root.clone().filter(with_export);
+                    let library = self.drive_rows().into_iter().find_map(|r| match r {
+                        DriveRow::Library(id) => Some(id),
+                        _ => None,
+                    });
+                    let first = self.drives.iter().find(|d| d.has_export).map(|d| d.root.clone());
+                    match (last, library, first) {
+                        (Some(root), ..) | (None, None, Some(root)) => {
+                            self.preferred_root = None;
+                            self.drive_state.select(self.drives.iter().position(|x| x.root == root));
+                            self.load_library(root);
+                        }
+                        (None, Some(id), _) => {
+                            self.preferred_root = None;
+                            self.open_library(id);
+                        }
+                        (None, None, None) => {}
                     }
                 }
                 if std::mem::take(&mut self.drives_again) {
@@ -1710,6 +1754,9 @@ impl App {
                     now.playlists = info.playlists;
                     now.loading = false;
                 }
+                if self.now.as_ref().is_some_and(|n| n.id == id) {
+                    self.reset_next_pick();
+                }
             }
             Msg::Details(d) => {
                 if self.details_asked == Some((d.generation, d.index)) {
@@ -1723,6 +1770,10 @@ impl App {
             }
             Msg::Status(r) => {
                 self.status_loading = false;
+                let r = r.map(|s| {
+                    self.fleet_libraries = s.libraries;
+                    s.mounted
+                });
                 self.status = Some(r);
             }
             Msg::History(r) => {
@@ -1735,7 +1786,11 @@ impl App {
             #[cfg(feature = "account")]
             Msg::Account(e) => super::account::on_event(self, e),
             Msg::Mix(generation, r) => super::mix::loaded(self, generation, *r),
-            Msg::MixSources(root, sources) => self.mix.drive_listed(root, sources),
+            Msg::MixSources(listing, root, sources) => {
+                if listing == self.mix.drive_listing {
+                    self.mix.drive_listed(root, sources);
+                }
+            }
             Msg::MixFolders(folders, sources) => super::mix::folders_listed(self, folders, sources),
             Msg::Planned { job, root, result } => self.on_planned(job, root, result),
             Msg::Applied { job, root, result } => self.on_applied(job, root, result),
@@ -1958,7 +2013,7 @@ impl App {
                 }
                 let lib = l.library.clone();
                 // My Tags as `tracks --filter` reads them; until they're in, `tag:` matches nothing.
-                let none = HashMap::new();
+                let none = FxHashMap::default();
                 let my_tags = match &l.my_tags {
                     MyTags::Read(t) => Some(t.clone()),
                     _ if !tags => None,
@@ -2066,7 +2121,7 @@ impl App {
         if self.marks.is_empty() {
             return self.selected_track().into_iter().collect();
         }
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         let marked = |i: &usize| self.marks.contains(&l.library.tracks[*i].file_path);
         let mut out: Vec<usize> = self.visible.iter().copied().filter(marked).filter(|i| seen.insert(*i)).collect();
         out.extend((0..l.library.tracks.len()).filter(marked).filter(|i| seen.insert(*i)));
@@ -2190,6 +2245,35 @@ impl App {
         self.play_tracks(library, items, root, sel);
     }
 
+    /// Full screen: the pick among the playing track's matches back on the best one.
+    fn reset_next_pick(&mut self) {
+        let any = self.now.as_ref().and_then(|n| n.matches.as_ref()).is_some_and(|m| !m.items.is_empty());
+        self.next_pick = ListState::default().with_selected(any.then_some(0));
+    }
+
+    /// Full screen: queue the picked match to play after the playing track.
+    fn play_next(&mut self) {
+        if !self.playing_queue() {
+            return;
+        }
+        let Some(m) = self.now.as_ref().and_then(|n| n.matches.as_ref()) else { return };
+        let Some(mix) = self.next_pick.selected().and_then(|i| m.items.get(i)) else { return };
+        let track = m.track(mix);
+        // The matches index the library as it was read when the track started; the queue's
+        // copy is older when the drive was read again since.
+        let index = if Arc::ptr_eq(&m.library, &self.queue.library) {
+            Some(mix.index)
+        } else {
+            self.queue.library.tracks.iter().position(|t| t.id == track.id)
+        };
+        let Some(index) = index else { return };
+        let name = track.display_name();
+        self.queue.items.push(index);
+        self.queue.order.insert(self.queue.pos + 1, self.queue.items.len() - 1);
+        self.drop_upcoming();
+        self.toast(format!("next: {name}"), Level::Info);
+    }
+
     /// Play the crate from the selected entry (the entries on its drive).
     fn play_crate(&mut self) {
         let Some(sel) = self.crate_state.selected().filter(|&i| i < self.crate_list.len()) else { return };
@@ -2307,7 +2391,7 @@ impl App {
             let file = Device::open(&r).map_err(anyhow::Error::from).and_then(|d| {
                 let mut file = audio::open_file(&d.checked_path(&paths::key(&t.file_path))?)?;
                 if auto_cue {
-                    file.start = super::deck::auto_cue(&TrackAnalysis::load_grid(&d, &t));
+                    file.start = super::deck::auto_cue(&anlz::load_grid(&d, &t));
                 }
                 Ok(file)
             });
@@ -2379,6 +2463,7 @@ impl App {
     fn went_on(&mut self, up: Upcoming) {
         self.queue.pos = up.pos;
         self.now = Some(up.now);
+        self.reset_next_pick();
         self.deck.looped = None;
         self.last_pos_ms = 0.0;
         self.failed_in_row = 0;
@@ -2668,7 +2753,7 @@ impl App {
         let color = (now.analysis.cues.iter())
             .filter(|c| f64::from(c.start_ms) == t)
             .max_by_key(|c| c.hot_cue.is_some())
-            .map(cue_color);
+            .map(|c| super::theme::palette().cue_color(c));
         self.jump(at, color);
     }
 
@@ -3051,7 +3136,7 @@ impl App {
             Act::Page(dir) if in_mixes => mix::move_by(self, 10 * dir as isize),
             Act::Page(dir) => {
                 let page = match self.focus {
-                    Focus::Tracks if self.view == View::Library => {
+                    Focus::Tracks if self.view == View::Library && !self.fullscreen => {
                         self.areas.tracks.height.saturating_sub(3).max(1) as isize
                     }
                     _ => 10,
@@ -3244,11 +3329,13 @@ impl App {
 
     fn activate(&mut self) {
         match (self.view, self.focus) {
+            (View::Library, _) if self.fullscreen => self.play_next(),
             (View::Library, Focus::Tracks) => self.play_selected(),
             (View::Library, Focus::Playlists) => self.open_playlist(),
             (View::Library, Focus::Details) => self.play_match(),
             (View::Library, Focus::Crate) => self.play_crate(),
             (View::Snapshots, _) => self.restore_from_selected_snapshot(),
+            (View::Drives, _) if self.drive_header.is_some() => self.activate_header(),
             (View::Library, Focus::Drives) | (View::Drives, _) => {
                 if let Some(d) = self.drive_state.selected().and_then(|i| self.drives.get(i)) {
                     if !d.has_export {
@@ -3288,6 +3375,9 @@ impl App {
 
     fn list_len(&self) -> usize {
         match (self.view, self.focus) {
+            (View::Library, _) if self.fullscreen => {
+                self.now.as_ref().and_then(|n| n.matches.as_ref()).map_or(0, |m| m.items.len())
+            }
             (View::Library, Focus::Tracks) => self.visible.len(),
             (View::Library, Focus::Playlists) => self.loaded.as_ref().map_or(0, |l| l.tree.len()),
             (View::Library, Focus::Details) => {
@@ -3311,6 +3401,7 @@ impl App {
     fn list_selection(&mut self) -> (&mut Option<usize>, usize) {
         let len = self.list_len();
         let sel = match (self.view, self.focus) {
+            (View::Library, _) if self.fullscreen => self.next_pick.selected_mut(),
             (View::Library, Focus::Tracks) => self.track_state.selected_mut(),
             (View::Library, Focus::Playlists) => self.playlist_state.selected_mut(),
             (View::Library, Focus::Details) => self.details_state.selected_mut(),
@@ -3324,6 +3415,9 @@ impl App {
     }
 
     fn move_selection(&mut self, delta: isize) {
+        if self.view == View::Drives {
+            return self.move_drive_row(delta);
+        }
         let (sel, len) = self.list_selection();
         if len == 0 {
             *sel = None;
@@ -3395,6 +3489,14 @@ impl App {
                     }
                 } else if self.areas.overview.contains(p) {
                     self.seek_click(m.column);
+                } else if self.fullscreen && self.areas.matches.contains(p) {
+                    let i = self.next_pick.offset() + (m.row - self.areas.matches.y) as usize;
+                    if i < self.list_len() {
+                        self.next_pick.select(Some(i));
+                        if double {
+                            self.play_next();
+                        }
+                    }
                 } else if let Some(&(field, _)) = self.areas.columns.iter().find(|(_, r)| r.contains(p)) {
                     self.sort = browse::click(self.sort, field);
                     self.refresh_visible();
@@ -3491,19 +3593,24 @@ impl App {
             (View::Library, Focus::Playlists) => (self.areas.playlists.y + 1, self.playlist_state.offset()),
             (View::Library, Focus::Details) => (self.areas.matches.y, self.details_state.offset()),
             (View::Library, Focus::Crate) => (self.areas.crate_rows.y, self.crate_state.offset()),
-            (View::Library, Focus::Drives) | (View::Drives, _) => {
-                let area = if self.view == View::Drives { self.areas.drive_list } else { self.areas.drives };
-                (area.y + 1, self.drive_state.offset())
-            }
+            (View::Library, Focus::Drives) => (self.areas.drives.y + 1, self.drive_state.offset()),
+            (View::Drives, _) => (self.areas.drive_list.y + 1, self.drive_rows.offset()),
             (View::Snapshots, _) => (self.areas.history.y + 2, self.history_state.offset()),
             (View::Profile | View::Mixes, _) => return,
         };
         if row < top || (f == Focus::Details && self.areas.matches.height == 0) {
             return;
         }
-        // The Drives view shows each drive on two lines: its name, then where it's mounted.
+        // The Drives view shows each row on two lines: a drive's name, then where it's mounted (a
+        // library's, then how its clones stand).
         let lines = if self.view == View::Drives { 2 } else { 1 };
         let i = offset + (row - top) as usize / lines;
+        if self.view == View::Drives {
+            if let Some(&r) = self.drive_rows().get(i) {
+                self.select_drive_row(r);
+            }
+            return;
+        }
         let (sel, len) = self.list_selection();
         if i < len {
             *sel = Some(i);
@@ -4931,6 +5038,35 @@ mod tests {
 
     /// Single play: nothing's opened ahead, and at the end of a track the player stops, with the
     /// next one ready for space.
+    /// Full screen, the best match is picked as the matches arrive; ↑↓ pick another and enter
+    /// queues it to play next, marked in the list. S turns autoplay off there too.
+    #[test]
+    fn full_screen_queues_a_match_to_play_next() {
+        let (_dir, mut app, _out) = playing_wavs(&[8000, 8000, 8000]);
+        wait(&mut app, |a| a.now.as_ref().is_some_and(|n| !n.loading));
+        let mix = |index| Mix { index, key: Camelot::parse("8A").unwrap(), relation: Relation::Same, tempo_gap: 0.0 };
+        let (library, root) = (app.queue.library.clone(), app.queue.root.clone());
+        let id = app.now.as_ref().unwrap().id;
+        let info =
+            TrackInfo { matches: Some(Matches { library, root, items: vec![mix(2), mix(1)] }), ..Default::default() };
+        app.handle_msg(Msg::TrackInfo(id, Box::new(info)));
+        app.fullscreen = true;
+        assert_eq!(app.next_pick.selected(), Some(0));
+        press(&mut app, "j\n");
+        assert_eq!(last_message(&app), "next: DJ - Track 2");
+        press(&mut app, "k\n");
+        let order: Vec<&str> = app.queue.order.iter().map(|&i| app.queue.track(i).title.as_str()).collect();
+        assert_eq!(order, ["Track 1", "Track 3", "Track 2", "Track 2", "Track 3"]);
+        let screen = super::super::ui::screen(&mut app, 200, 50);
+        assert!(screen.contains("Track 3 next"), "{screen}");
+        let hints = super::super::keymap::hints(&app, 200);
+        assert!(hints.iter().any(|h| h.1 == "play next") && hints.iter().any(|h| h.1 == "autoplay"), "{hints:?}");
+        press(&mut app, "S");
+        assert_eq!(last_message(&app), "autoplay off: stops after each track");
+        press(&mut app, "n");
+        assert_eq!(app.now.as_ref().unwrap().track.title, "Track 3");
+    }
+
     #[test]
     fn single_play_stops_after_each_track() {
         let (_dir, mut app, mut out) = playing_wavs(&[8000, 8000]);
@@ -5637,6 +5773,28 @@ mod tests {
         wait(&mut app, |a| a.job.is_none());
     }
 
+    /// With no drive open last time here, the drive list arriving opens the first library, read
+    /// from its lead clone; a library's row selected goes once none of its drives is listed.
+    #[test]
+    fn the_first_library_opens_when_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_or_init(dir.path().join("store")).unwrap();
+        let home = store.create_library("Home").unwrap().id;
+        let mut app = App::blank(dir.path().join("store"), None);
+        let drive = |name: &str, library_id| {
+            let root = dir.path().join(name);
+            std::fs::create_dir_all(&root).unwrap();
+            DeviceInfo { has_export: true, library_id, ..Device::open(&root).unwrap().info() }
+        };
+        let loose = drive("A", None);
+        app.handle_msg(Msg::Drives(vec![loose.clone(), drive("MAIN", Some(home))]));
+        assert_eq!(app.loading.as_deref(), Some("Reading Home…"));
+        app.drive_header = Some(DriveRow::Library(home));
+        wait(&mut app, |a| a.loading.is_none());
+        app.handle_msg(Msg::Drives(vec![loose]));
+        assert_eq!(app.drive_header, None);
+    }
+
     /// The Drives view: a click selects a drive, a second opens it; one with no export says so.
     /// Enter on a drive with one reads it and shows it in the library.
     #[test]
@@ -5830,7 +5988,7 @@ mod tests {
     fn background_results_are_shown_or_said() {
         let (mut app, _dir) = app_with(library());
         let generation = app.loaded.as_ref().unwrap().generation;
-        app.handle_msg(Msg::Status(Ok(Vec::new())));
+        app.handle_msg(Msg::Status(Ok(Default::default())));
         assert!(matches!(app.status, Some(Ok(ref v)) if v.is_empty()) && !app.status_loading);
         app.history_state.select(None);
         app.handle_msg(Msg::History(Err("no store yet".into())));
@@ -5851,7 +6009,7 @@ mod tests {
         assert_eq!(last_message(&app), "can't read the sets: a broken set book");
 
         // Another load's index is dropped; a details lookup for a track no longer asked about too.
-        let index = Index { ranks: vec![(SortField::Title, vec![0; 4])], groups: HashMap::new() };
+        let index = Index { ranks: vec![(SortField::Title, vec![0; 4])], groups: FxHashMap::default() };
         app.handle_msg(Msg::Indexed(generation + 1, Box::new(index)));
         assert!(app.loaded.as_ref().unwrap().ranks.is_empty());
         let l = app.loaded.as_ref().unwrap();

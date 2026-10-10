@@ -297,7 +297,7 @@ mod tests {
         let mut one = OneLibrary::create().unwrap();
         let defaults = one.content_defaults().unwrap();
         let rec = super::super::ContentRecord::from_track(
-            &crate::model::tests::track(1, "A", "B", "/Contents/A/B.mp3"),
+            &loclib_model::test_util::track(1, "A", "B", "/Contents/A/B.mp3"),
             true,
             &defaults,
         );

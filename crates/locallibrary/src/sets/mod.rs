@@ -507,7 +507,7 @@ mod tests {
         );
         assert_eq!(e.name(), "Floorplan - Never Grow Old");
         assert_eq!(SetEntry::added("ID").name(), "ID");
-        let t = crate::model::tests::track(1, "", "A", "/Contents/X/A.mp3");
+        let t = loclib_model::test_util::track(1, "", "A", "/Contents/X/A.mp3");
         assert_eq!(
             SetEntry::from_track(&t, EntryOrigin::Session, Some("ab")).file_key().as_deref(),
             Some("contents/x/a.mp3")

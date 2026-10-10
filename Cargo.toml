@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/locallibrary", "crates/locallibrary-cli", "vendor/rekordbox-pdb"]
+members = ["crates/locallibrary", "crates/locallibrary-cli", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-waveform", "vendor/rekordbox-pdb"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,10 +12,20 @@ repository = "https://github.com/cutenode/locallibrary"
 [workspace.dependencies]
 # Without its default features (the Atmosphere account): the CLI turns them on with its own.
 locallibrary = { path = "crates/locallibrary", default-features = false }
+loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
+loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
+loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }
+loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
+loclib-mysettings = { path = "crates/loclib-mysettings", version = "0.1.0" }
+loclib-progress = { path = "crates/loclib-progress", version = "0.1.0" }
+loclib-tracklist = { path = "crates/loclib-tracklist", version = "0.1.0" }
+loclib-waveform = { path = "crates/loclib-waveform", version = "0.1.0" }
 rekordbox-pdb = { path = "vendor/rekordbox-pdb" }
 rekordcrate = { version = "0.3", default-features = false }
 aes = "0.8"
 anyhow = "1"
+# Base64 for data URIs, packed waveforms, PowerShell's -EncodedCommand and Serato's cue tag.
+base64 = "0.22"
 blake3 = "1.8"
 cbc = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
@@ -44,6 +54,9 @@ http = "1"
 # added for computers whose networks need a root installed there (a company or venue proxy).
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "bmp", "gif"] }
+# The ordered map, in place of BTreeMap (clippy.toml bans it): keeps insertion order, so code that
+# needs keys sorted sorts them where it does.
+indexmap = { version = "2.14", features = ["serde"] }
 indicatif = "0.18"
 lofty = "0.25"
 pbkdf2 = "0.12"
@@ -53,8 +66,11 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 # without an identity is told apart from another mounted at the same path by it.
 same-file = "1"
 rustfft = "6.4"
+# FxHash for the HashMaps and HashSets: faster than std's SipHash on the integer ids and short
+# strings they're keyed by, and nothing hashed comes from an untrusted network peer.
+rustc-hash = "2.1"
 # JSON Schema for the API's requests and results: the RPC sidecar's machine-readable contract.
-schemars = { version = "1.2", default-features = false, features = ["derive", "std", "chrono04", "uuid1"] }
+schemars = { version = "1.2", default-features = false, features = ["derive", "std", "chrono04", "indexmap2", "uuid1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Where in a request a bad parameter is (`edits[0].op`), for the RPC sidecar's invalid_params errors.

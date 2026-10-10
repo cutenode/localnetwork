@@ -11,7 +11,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,9 +25,9 @@ pub struct Request {
     pub method: String,
     /// Without the query.
     pub path: String,
-    pub query: BTreeMap<String, String>,
+    pub query: IndexMap<String, String>,
     /// Lowercase names.
-    pub headers: BTreeMap<String, String>,
+    pub headers: IndexMap<String, String>,
     pub body: Vec<u8>,
 }
 
@@ -65,7 +65,7 @@ pub enum Writes {
 #[derive(Debug)]
 struct State {
     /// `(repo, collection, rkey)` → (record, CID).
-    records: BTreeMap<(String, String, String), (Value, String)>,
+    records: IndexMap<(String, String, String), (Value, String)>,
     writes: Writes,
     nonce: String,
     /// The account `getSession` answers for: `(did, handle)`.
@@ -88,7 +88,7 @@ impl MockPds {
         let port = listener.local_addr().unwrap().port();
         let url = format!("http://127.0.0.1:{port}");
         let state = Arc::new(Mutex::new(State {
-            records: BTreeMap::new(),
+            records: IndexMap::new(),
             writes: Writes::Accept,
             nonce: "nonce-1".into(),
             account: None,
@@ -248,7 +248,7 @@ fn read_request(conn: &mut TcpStream) -> Option<Request> {
     reader.read_line(&mut line).ok()?;
     let mut parts = line.split_whitespace();
     let (method, target) = (parts.next()?.to_string(), parts.next()?.to_string());
-    let mut headers = BTreeMap::new();
+    let mut headers = IndexMap::new();
     loop {
         let mut h = String::new();
         reader.read_line(&mut h).ok()?;

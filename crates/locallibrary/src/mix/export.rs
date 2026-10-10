@@ -14,6 +14,7 @@
 //! cues and phrases), rounded to hundredths. A version only ever gains optional fields; anything
 //! else is a new version. Version 2 dropped `library` (the drive's name and track count).
 
+use base64::prelude::*;
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -224,7 +225,7 @@ fn non_empty(s: &str) -> Option<String> {
 }
 
 fn data_url(jpeg: &[u8]) -> String {
-    format!("data:image/jpeg;base64,{}", crate::api::base64(jpeg))
+    format!("data:image/jpeg;base64,{}", BASE64_STANDARD.encode(jpeg))
 }
 
 fn thumbnail(bytes: &[u8], px: u32) -> Option<String> {

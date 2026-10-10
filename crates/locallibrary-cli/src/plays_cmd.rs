@@ -2,7 +2,7 @@
 //! archived in the store), play counts, writing a session out and importing one from Beat Link
 //! Trigger. `history` and `stats` are the old names of `plays lists` and `plays stats`.
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -32,7 +32,7 @@ pub struct PlaysArgs {
     command: Option<PlaysCommand>,
     /// A drive whose sessions to list, as `plays lists` does [default: every mounted rekordbox
     /// drive]
-    #[arg(value_name = "DRIVE")]
+    #[arg(value_name = "DRIVE", add = crate::completion::DriveOnly)]
     drive: Option<String>,
 }
 
@@ -56,10 +56,10 @@ that plays for about a minute, practice too: each is a session. A session's id i
 every drive and in the store; its date is a window, as players have no clock.
 
 Examples:
-  locallibrary plays lists Main                     the sessions on the drive
-  locallibrary plays lists Main --all               and every one the store kept
-  locallibrary plays lists Main \"HISTORY 012\"       one session's tracks (or give its id)
-  locallibrary plays lists Main --delete --dry-run  what clearing the drive's lists would remove";
+  locallibrary plays lists SD                       the sessions on the drive
+  locallibrary plays lists SD --all                 and every one the store kept
+  locallibrary plays lists SD \"HISTORY 012\"         one session's tracks (or give its id)
+  locallibrary plays lists SD --delete --dry-run    what clearing the drive's lists would remove";
 
 /// `history`: `plays lists`.
 #[derive(Args)]
@@ -144,7 +144,8 @@ pub struct ImportArgs {
 
 #[derive(Args)]
 pub struct StatsArgs {
-    /// A drive (its mount path, name or id prefix), a library in the store, or snapshot:<id prefix>
+    /// A library (its newest drive plugged in, else its latest snapshot), a drive (its mount
+    /// path, name or id prefix), or snapshot:<id prefix>
     source: String,
     /// Also what was played since this snapshot (a label or id prefix) or this date (2026, 2026-09
     /// or 2026-09-30: since the newest snapshot from before it)
@@ -261,7 +262,8 @@ pub fn lists(args: ListsArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
     if args.all && store.is_none() && !out.json {
         warn("there's no store yet, so nothing is archived (locallibrary pull <drive> starts one)");
     }
-    let reads = each_drive::read(args.drive.clone(), |drive| histories(drive, args.all, store.as_ref(), ctx))?;
+    let reads =
+        each_drive::read_each_drive(args.drive.clone(), |drive| histories(drive, args.all, store.as_ref(), ctx))?;
     // A list comes after its drive on the command line, so it's looked for on that drive.
     if let (Reads::One(h), Some(query)) = (&reads, &args.list) {
         let list = plays::find_list(&h.drive.lists, query)
@@ -290,7 +292,7 @@ struct Histories {
     sessions: Vec<Session>,
     /// The sets the sessions are in, by id, as they're named.
     #[serde(skip)]
-    sets: BTreeMap<String, String>,
+    sets: IndexMap<String, String>,
 }
 
 fn histories(drive: String, all: bool, store: Option<&Store>, ctx: &Ctx<'_>) -> locallibrary::Result<Histories> {

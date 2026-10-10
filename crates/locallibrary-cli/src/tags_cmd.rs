@@ -17,7 +17,8 @@ use crate::output::{Outcome, Output, dim, ok, warn};
 pub struct TagsArgs {
     #[command(subcommand)]
     command: Option<TagsCommand>,
-    /// Drive whose My Tags to list (same as `tags list`) [default: every mounted rekordbox drive]
+    /// Library or drive whose My Tags to list (same as `tags list`) [default: each library plugged
+    /// in, and each rekordbox drive of none]
     drive: Option<String>,
     /// Also list the tracks carrying each tag
     #[arg(long)]
@@ -28,7 +29,7 @@ pub struct TagsArgs {
 enum TagsCommand {
     /// Categories and tags, how many tracks carry each, and where the two databases disagree
     List {
-        #[arg(help = crate::DEFAULT_DRIVE_HELP)]
+        #[arg(help = crate::DEFAULT_LIBRARY_HELP)]
         drive: Option<String>,
         /// Also list the tracks carrying each tag
         #[arg(long)]
@@ -37,7 +38,7 @@ enum TagsCommand {
     /// Give tracks a tag, creating it (and its category) where it's missing
     #[command(after_help = crate::FILTER_HELP)]
     Add {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         /// Category/Tag, like "Genre/Deep House"
         tag: String,
@@ -50,7 +51,7 @@ enum TagsCommand {
     /// Take a tag off tracks (`delete` deletes the tag itself)
     #[command(alias = "remove", after_help = crate::FILTER_HELP)]
     Untag {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         /// Category/Tag
         tag: String,
@@ -62,7 +63,7 @@ enum TagsCommand {
     },
     /// Rename a tag ("Genre/Deep" "Deep House") or a category ("Untitled Column" "Mood")
     Rename {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         /// Category/Tag, or Category
         tag: String,
@@ -74,7 +75,7 @@ enum TagsCommand {
     },
     /// Delete a tag, taking it off every track
     Delete {
-        #[arg(help = crate::DRIVE_HELP)]
+        #[arg(help = crate::LIBRARY_HELP)]
         drive: String,
         /// Category/Tag
         tag: String,
@@ -114,6 +115,7 @@ pub fn run(args: TagsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     }
     if !out.json {
         render_plan(&plan);
+        crate::output::clones(&plan);
     }
     if let Some(o) = out.decide(dry_run, "Apply?") {
         return Ok(out.not_applied(&plan, o));

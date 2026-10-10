@@ -95,3 +95,21 @@ fn the_script_runs_the_binary_the_shell_found() {
     let found = script(&mut by_name);
     assert!(found.contains("locallibrary") && !found.contains(exe.to_str().unwrap()), "{found}");
 }
+
+/// Where a library's name is taken, Tab offers the store's libraries beside the drives; an
+/// argument about one particular drive offers drives only.
+#[test]
+fn libraries_complete_where_a_library_is_taken() {
+    let env = with_a_drive();
+    env.ok(&["--yes", "drive", "adopt", "A", "--name", "Main"]);
+    env.ok(&["pull", "Main", "--library", "Club", "--new-library"]);
+    for words in [&["playlist", "new", ""][..], &["sync", ""], &["mix", "--drive", ""]] {
+        let offers = complete(&env, words);
+        assert_eq!(offered(&offers, "Club"), Some("library"), "{words:?}: {offers:?}");
+        assert!(offered(&offers, "Main").is_some(), "{words:?}: {offers:?}");
+    }
+    for words in [&["drive", "rename", ""][..], &["settings", "set", "quantize=off", "--drive", ""]] {
+        let offers = complete(&env, words);
+        assert!(offered(&offers, "Main").is_some() && offered(&offers, "Club").is_none(), "{words:?}: {offers:?}");
+    }
+}

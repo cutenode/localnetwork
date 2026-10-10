@@ -21,7 +21,7 @@ pub mod wal;
 pub use cues::{CueRow, CueRowChanges};
 pub use edit::Tree;
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::config::DbConfig;
@@ -603,8 +603,8 @@ impl OneLibrary {
     }
 
     /// `<table>_content` rows by list, in order.
-    fn entries(&self, table: &str) -> Result<HashMap<u32, Vec<u32>>> {
-        let mut entries: HashMap<u32, Vec<u32>> = HashMap::new();
+    fn entries(&self, table: &str) -> Result<FxHashMap<u32, Vec<u32>>> {
+        let mut entries: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {table}_id, content_id FROM {table}_content ORDER BY {table}_id, sequenceNo, rowid"
         ))?;
@@ -616,7 +616,7 @@ impl OneLibrary {
     }
 
     /// A playlist-shaped tree (`playlist`, `history`): attribute 1 is a folder.
-    fn tree(&self, table: &str, mut entries: HashMap<u32, Vec<u32>>) -> Result<Vec<Playlist>> {
+    fn tree(&self, table: &str, mut entries: FxHashMap<u32, Vec<u32>>) -> Result<Vec<Playlist>> {
         let mut stmt = self
             .conn
             .prepare(&format!("SELECT {table}_id, {table}_id_parent, name, attribute, sequenceNo FROM {table}"))?;
@@ -666,9 +666,9 @@ impl OneLibrary {
     // -- removing tracks --------------------------------------------------------------------
 
     /// Lookup rows (artists, albums, genres, labels, keys, images) only the `removed` tracks use.
-    fn unused_lookups(&self, removed: &HashSet<u32>) -> Result<Vec<(Lookup, Vec<i64>)>> {
-        let mut gone: HashMap<Lookup, HashSet<i64>> = HashMap::new();
-        let mut kept: HashMap<Lookup, HashSet<i64>> = HashMap::new();
+    fn unused_lookups(&self, removed: &FxHashSet<u32>) -> Result<Vec<(Lookup, Vec<i64>)>> {
+        let mut gone: FxHashMap<Lookup, FxHashSet<i64>> = FxHashMap::default();
+        let mut kept: FxHashMap<Lookup, FxHashSet<i64>> = FxHashMap::default();
         let mut stmt = self.conn.prepare(
             "SELECT content_id, artist_id_artist, artist_id_remixer, artist_id_originalArtist, artist_id_composer,
                     artist_id_lyricist, album_id, genre_id, label_id, key_id, image_id FROM content",
@@ -693,7 +693,7 @@ impl OneLibrary {
                 side.entry(table).or_default().insert(int(row.get_ref(col)?));
             }
         }
-        let unused = |t: Lookup, gone: &HashMap<Lookup, HashSet<i64>>, kept: &HashMap<Lookup, HashSet<i64>>| {
+        let unused = |t: Lookup, gone: &FxHashMap<Lookup, FxHashSet<i64>>, kept: &FxHashMap<Lookup, FxHashSet<i64>>| {
             let used = kept.get(&t);
             let mut ids: Vec<i64> = gone
                 .get(&t)
@@ -735,7 +735,7 @@ impl OneLibrary {
     /// lookup rows nothing else uses. Playlists and histories are renumbered without gaps.
     pub fn remove_tracks(&mut self, ids: &[u32]) -> Result<()> {
         self.check_no_unknown_references()?;
-        let removed: HashSet<u32> = ids.iter().copied().collect();
+        let removed: FxHashSet<u32> = ids.iter().copied().collect();
         let lookups = self.unused_lookups(&removed)?;
         let tx = self.conn.transaction()?;
         let mut touched_lists: Vec<(&str, &str, i64)> = Vec::new();
@@ -848,7 +848,7 @@ impl OneLibrary {
         else {
             return Ok(None);
         };
-        let row: HashMap<&str, &Value> = names.iter().map(String::as_str).zip(values.iter()).collect();
+        let row: FxHashMap<&str, &Value> = names.iter().map(String::as_str).zip(values.iter()).collect();
         let reference = |col: &str| match row.get(col) {
             Some(Value::Integer(i)) if *i > 0 => Some(*i),
             _ => None,
@@ -968,7 +968,7 @@ impl OneLibrary {
     /// Refuse to delete tracks or cues while a table rekordbox 7 doesn't have (`schema.sql`) has
     /// a column naming them: a newer rekordbox's, whose rows would be left pointing at nothing.
     pub(super) fn check_no_unknown_references(&self) -> Result<()> {
-        let known: HashSet<&str> = include_str!("schema.sql")
+        let known: FxHashSet<&str> = include_str!("schema.sql")
             .lines()
             .filter_map(|l| l.strip_prefix("CREATE TABLE ")?.split('(').next())
             .collect();
@@ -986,7 +986,7 @@ impl OneLibrary {
         Ok(())
     }
 
-    fn columns(&self, table: &str) -> Result<HashSet<String>> {
+    fn columns(&self, table: &str) -> Result<FxHashSet<String>> {
         let mut stmt = self.conn.prepare(&format!("PRAGMA table_info({table})"))?;
         let names = stmt.query_map([], |r| r.get::<_, String>(1))?.collect::<rusqlite::Result<_>>()?;
         Ok(names)
@@ -1012,7 +1012,7 @@ impl OneLibrary {
         path: &str,
         analyze_path: &str,
         image: Option<u32>,
-    ) -> Result<(u32, HashMap<i64, i64>)> {
+    ) -> Result<(u32, FxHashMap<i64, i64>)> {
         let artist = |n: &Option<String>| n.as_deref().map(|n| self.named(Lookup::Artist, n)).transpose();
         let file_name = path.rsplit('/').next().unwrap_or(path).to_string();
         let album_artist = rec.album.as_ref().and_then(|(_, a)| a.clone());
@@ -1039,7 +1039,7 @@ impl OneLibrary {
             ("fileName".into(), Value::Text(file_name)),
             ("analysisDataFilePath".into(), Value::Text(analyze_path.to_string())),
         ];
-        let set: HashSet<String> = values.iter().map(|(k, _)| k.clone()).collect();
+        let set: FxHashSet<String> = values.iter().map(|(k, _)| k.clone()).collect();
         values.extend(rec.values.iter().filter(|(k, _)| !set.contains(k)).cloned());
         let columns = self.columns("content")?;
         values.retain(|(k, _)| columns.contains(k));
@@ -1051,7 +1051,7 @@ impl OneLibrary {
         self.conn.execute(&sql, rusqlite::params_from_iter(values.iter().map(|(_, v)| v)))?;
 
         let cue_columns = self.columns("cue")?;
-        let mut cue_ids = HashMap::new();
+        let mut cue_ids = FxHashMap::default();
         for (source_id, cue) in &rec.cues {
             let cue_id = self.next_id("cue", "cue_id")?;
             cue_ids.insert(*source_id, cue_id);
@@ -1146,7 +1146,7 @@ impl OneLibrary {
 
     /// Hot cue bank lists (and folders), shaped like playlists; `track_ids` are `cue_id`s.
     pub fn hot_cue_bank_lists(&self) -> Result<Vec<Playlist>> {
-        let mut entries: HashMap<u32, Vec<u32>> = HashMap::new();
+        let mut entries: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
         let mut stmt = self.conn.prepare(
             "SELECT hotCueBankList_id, cue_id FROM hotCueBankList_cue ORDER BY hotCueBankList_id, sequenceNo, rowid",
         )?;
@@ -1209,8 +1209,11 @@ pub(crate) mod tests {
         assert_eq!(menus, 27);
         let p = one.create_playlist("Set", 0, false).unwrap();
         let defaults = one.content_defaults().unwrap();
-        let rec =
-            ContentRecord::from_track(&crate::model::tests::track(1, "A", "B", "/Contents/A/B.mp3"), true, &defaults);
+        let rec = ContentRecord::from_track(
+            &loclib_model::test_util::track(1, "A", "B", "/Contents/A/B.mp3"),
+            true,
+            &defaults,
+        );
         let t = one.add_track(&rec, "/Contents/A/B.mp3", "", None).unwrap();
         one.add_to_playlist(p, t).unwrap();
         let bytes = one.to_encrypted().unwrap();

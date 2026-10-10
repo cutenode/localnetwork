@@ -1,9 +1,8 @@
 //! Sets the sessions suggest: sessions from one night grouped, with the reasons they look like a
 //! performance.
 
-use std::collections::{HashMap, HashSet};
-
 use chrono::TimeDelta;
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -50,7 +49,7 @@ const WHICH_NIGHT: &str = "locallibrary can't tell which night: pull after each 
 /// pull's lists could be from any time before it), so each long enough is a candidate of its own.
 pub(crate) fn suggest(store: &Store, sessions: &[Session], drives: &[Device]) -> Result<Vec<Candidate>> {
     let open: Vec<&Session> = sessions.iter().filter(|s| s.sets.is_empty() && !s.dismissed).collect();
-    let library: HashMap<String, String> = drives
+    let library: FxHashMap<String, String> = drives
         .iter()
         .map(|d| (d.name(), d.state().and_then(|s| s.library_id).map_or_else(|| d.name(), |l| l.to_string())))
         .collect();
@@ -74,7 +73,7 @@ pub(crate) fn suggest(store: &Store, sessions: &[Session], drives: &[Device]) ->
         }
     }
     // In the order of their newest sessions, so candidates from one window keep that order.
-    let (mut groups, mut slot): (Vec<Vec<&Session>>, HashMap<usize, usize>) = (Vec::new(), HashMap::new());
+    let (mut groups, mut slot): (Vec<Vec<&Session>>, FxHashMap<usize, usize>) = (Vec::new(), FxHashMap::default());
     for (i, s) in open.iter().enumerate() {
         let g = *slot.entry(root(&mut parent, i)).or_insert_with(|| {
             groups.push(Vec::new());
@@ -83,10 +82,10 @@ pub(crate) fn suggest(store: &Store, sessions: &[Session], drives: &[Device]) ->
         groups[g].push(s);
     }
 
-    let set_drives: HashSet<String> =
+    let set_drives: FxHashSet<String> =
         store.drives()?.into_values().filter(|r| r.role == Some(Role::Set)).map(|r| r.name).collect();
     // A report that can't be read is no evidence either way.
-    let recordings: Vec<(String, HashSet<String>)> = report::list(store.root())?
+    let recordings: Vec<(String, FxHashSet<String>)> = report::list(store.root())?
         .into_iter()
         .filter_map(|r| report::load(store.root(), &r.id).ok())
         .map(|r| (r.mix.title, r.plays.iter().map(|p| plays::file_key(&p.track.file_path)).collect()))
@@ -117,10 +116,14 @@ fn overlap(a: &Window, b: &Window) -> bool {
     matches!((a.after, a.before, b.after, b.before), (Some(a0), Some(a1), Some(b0), Some(b1)) if a0 < b1 && b0 < a1)
 }
 
-fn candidate(group: &[&Session], set_drives: &HashSet<String>, recordings: &[(String, HashSet<String>)]) -> Candidate {
+fn candidate(
+    group: &[&Session],
+    set_drives: &FxHashSet<String>,
+    recordings: &[(String, FxHashSet<String>)],
+) -> Candidate {
     let entries = group.iter().flat_map(|s| &s.tracks);
-    let files: HashSet<String> = entries.clone().filter_map(|e| e.file_key()).collect();
-    let tracks = entries.map(|e| e.file_key().unwrap_or_else(|| normalize(&e.name()))).collect::<HashSet<_>>().len();
+    let files: FxHashSet<String> = entries.clone().filter_map(|e| e.file_key()).collect();
+    let tracks = entries.map(|e| e.file_key().unwrap_or_else(|| normalize(&e.name()))).collect::<FxHashSet<_>>().len();
     let window = combined(group);
     let mut score = tracks.min(40) as u32;
     // Players log a track once it has played for about a minute.
@@ -130,7 +133,8 @@ fn candidate(group: &[&Session], set_drives: &HashSet<String>, recordings: &[(St
     }];
     // The drive each session was recorded on, as far as can be told: a list copied to another
     // drive is still one drive's.
-    let drives: HashSet<&String> = group.iter().filter_map(|s| s.first_seen_on.as_ref().or(s.drives.first())).collect();
+    let drives: FxHashSet<&String> =
+        group.iter().filter_map(|s| s.first_seen_on.as_ref().or(s.drives.first())).collect();
     if group.iter().flat_map(|s| s.drives.iter().chain(&s.first_seen_on)).any(|d| set_drives.contains(d)) {
         score += 20;
         reasons.push("from a drive you take to sets".into());

@@ -3,7 +3,7 @@ mod edits;
 
 use crate::common;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -60,10 +60,10 @@ fn add(tag: &str, tracks: Vec<u32>) -> Edit {
 }
 
 /// `Category/Tag` -> titles of the tracks carrying it, in exportExt.pdb.
-fn ext_tags(root: &Path) -> BTreeMap<String, Vec<String>> {
+fn ext_tags(root: &Path) -> IndexMap<String, Vec<String>> {
     let ext = ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
     let lib = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
-    let mut out = BTreeMap::new();
+    let mut out = IndexMap::new();
     for c in ext.categories() {
         for t in ext.tags_in(c.id) {
             let mut titles: Vec<String> = ext
@@ -82,12 +82,12 @@ fn ext_tags(root: &Path) -> BTreeMap<String, Vec<String>> {
 }
 
 /// The same, in exportLibrary.db.
-fn plus_tags(root: &Path) -> BTreeMap<String, Vec<String>> {
+fn plus_tags(root: &Path) -> IndexMap<String, Vec<String>> {
     let one = OneLibrary::open_root(root).unwrap();
     let lib = one.library().unwrap();
     let rows = one.my_tag_rows().unwrap();
     let name = |id: i64| rows.iter().find(|r| r.id == id).unwrap();
-    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut out: IndexMap<String, Vec<String>> = IndexMap::new();
     for (tag, track) in one.my_tag_links().unwrap() {
         let t = name(tag);
         let path = format!("{}/{}", name(t.parent).name, t.name);
@@ -112,7 +112,7 @@ fn order(root: &Path, category: &str) -> (Vec<String>, Vec<String>) {
     )
 }
 
-fn map(entries: &[(&str, &[&str])]) -> BTreeMap<String, Vec<String>> {
+fn map(entries: &[(&str, &[&str])]) -> IndexMap<String, Vec<String>> {
     entries.iter().map(|(k, v)| (k.to_string(), v.iter().map(|s| s.to_string()).collect())).collect()
 }
 

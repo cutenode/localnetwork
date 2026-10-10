@@ -9,7 +9,7 @@
 //! [`Project::render`] mixes every audible channel to mono, which is all fingerprinting needs.
 //! Gain and mute/solo are honoured; pan, envelopes, effects and pitch shifts are not.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
@@ -162,7 +162,7 @@ impl Element {
 /// Reads Audacity's binary XML. Names are shared between the dictionary and the document, as is
 /// the character size of strings (1, 2 or 4 bytes).
 struct Reader {
-    names: HashMap<u16, String>,
+    names: FxHashMap<u16, String>,
     char_size: u8,
 }
 
@@ -327,7 +327,7 @@ impl Project {
                 .map_err(|e| Error::parse(path, e))?
                 .ok_or_else(|| Error::parse(path, "the project is empty"))?,
         };
-        let mut reader = Reader { names: HashMap::new(), char_size: 1 };
+        let mut reader = Reader { names: FxHashMap::default(), char_size: 1 };
         let mut stack = vec![Element::default()];
         reader.read(&dict, &mut stack).map_err(|e| Error::parse(path, format!("project dictionary: {e}")))?;
         reader.read(&doc, &mut stack).map_err(|e| Error::parse(path, format!("project document: {e}")))?;
@@ -404,7 +404,7 @@ impl Project {
         let mut stmt = db
             .prepare("SELECT sampleformat, samples FROM sampleblocks WHERE blockid = ?1")
             .map_err(|e| Error::parse(&self.path, e))?;
-        let mut cache: HashMap<i64, Vec<f32>> = HashMap::new();
+        let mut cache: FxHashMap<i64, Vec<f32>> = FxHashMap::default();
         let mut load = |id: i64| -> Result<Vec<f32>> {
             let (format, bytes): (i64, Vec<u8>) = stmt
                 .query_row([id], |r| Ok((r.get(0)?, r.get(1)?)))

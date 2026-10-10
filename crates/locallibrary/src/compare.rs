@@ -17,9 +17,8 @@
 //! If the libraries barely overlap they are reported as *unrelated*, which is the cue to merge
 //! rather than sync.
 
-use std::collections::HashSet;
-
 use chrono::{DateTime, Utc};
+use rustc_hash::FxHashSet;
 use schemars::JsonSchema;
 use serde::Serialize;
 use uuid::Uuid;
@@ -370,7 +369,7 @@ fn decide(left: &Side, right: &Side, overlap: f64, ev: &mut Vec<Evidence>) -> (R
         ev.push(evidence("library", Favors::Neither, "the drives are linked to different libraries in the store", 0));
         return (Relation::Unrelated, Confidence::High);
     }
-    let r_fps: HashSet<Hash> = right.lineage.iter().map(|e| e.fingerprint).collect();
+    let r_fps: FxHashSet<Hash> = right.lineage.iter().map(|e| e.fingerprint).collect();
     if let Some(common) = left.lineage.iter().rev().find(|e| r_fps.contains(&e.fingerprint)) {
         ev.push(evidence(
             "lineage",
@@ -387,8 +386,8 @@ fn decide(left: &Side, right: &Side, overlap: f64, ev: &mut Vec<Evidence>) -> (R
         return (Relation::Unrelated, if overlap < 0.2 { Confidence::High } else { Confidence::Medium });
     }
 
-    let lp: HashSet<String> = left.library.tracks.iter().map(|t| paths::key(&t.file_path)).collect();
-    let rp: HashSet<String> = right.library.tracks.iter().map(|t| paths::key(&t.file_path)).collect();
+    let lp: FxHashSet<String> = left.library.tracks.iter().map(|t| paths::key(&t.file_path)).collect();
+    let rp: FxHashSet<String> = right.library.tracks.iter().map(|t| paths::key(&t.file_path)).collect();
     let only_l = lp.difference(&rp).count();
     let only_r = rp.difference(&lp).count();
     match (only_l, only_r) {
@@ -489,8 +488,8 @@ fn evidence(signal: &'static str, favors: Favors, detail: impl Into<String>, wei
 
 /// Fraction of the smaller library's tracks (by path) also present in the other.
 pub fn track_overlap(a: &Library, b: &Library) -> f64 {
-    let pa: HashSet<String> = a.tracks.iter().map(|t| paths::key(&t.file_path)).collect();
-    let pb: HashSet<String> = b.tracks.iter().map(|t| paths::key(&t.file_path)).collect();
+    let pa: FxHashSet<String> = a.tracks.iter().map(|t| paths::key(&t.file_path)).collect();
+    let pb: FxHashSet<String> = b.tracks.iter().map(|t| paths::key(&t.file_path)).collect();
     let smaller = pa.len().min(pb.len());
     if smaller == 0 {
         return if pa.len() == pb.len() { 1.0 } else { 0.0 };

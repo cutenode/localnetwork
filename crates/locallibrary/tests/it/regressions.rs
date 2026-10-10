@@ -1,7 +1,7 @@
 //! Regression tests for bugs found in review.
 use crate::common;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 
 use binrw::BinRead;
 
@@ -207,7 +207,7 @@ fn isrcs_read_as_rekordbox_writes_them() {
     use rekordcrate::pdb::{Header, PageType, Row};
     let bytes = std::fs::read(common::fixtures().join("rekordcrate/large/export.pdb")).unwrap();
     let lib = pdb::library_from_database(&pdb::parse_database(bytes.clone(), std::path::Path::new("x")).unwrap());
-    let ours: BTreeMap<u32, String> = lib.tracks.iter().map(|t| (t.id, t.isrc.clone())).collect();
+    let ours: IndexMap<u32, String> = lib.tracks.iter().map(|t| (t.id, t.isrc.clone())).collect();
     assert_eq!(ours.values().filter(|i| !i.is_empty()).count(), 763);
     assert!(ours.values().all(|i| i.is_empty() || (i.len() == 12 && i.chars().all(|c| c.is_ascii_alphanumeric()))));
     assert_eq!(ours[&1], "DEOQ91710032");
@@ -221,7 +221,7 @@ fn isrcs_read_as_rekordbox_writes_them() {
         let start = row.find(name).unwrap() + name.len();
         row[start..start + row[start..].find(close).unwrap()].to_string()
     };
-    let theirs: BTreeMap<u32, String> = pages
+    let theirs: IndexMap<u32, String> = pages
         .iter()
         .flat_map(|p| p.row_groups.iter())
         .flat_map(|g| g.present_rows())

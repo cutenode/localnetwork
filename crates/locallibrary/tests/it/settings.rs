@@ -2,7 +2,7 @@ mod api;
 
 use crate::common;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::io::Cursor;
 
 use binrw::BinWrite;
@@ -107,7 +107,7 @@ fn every_fixture_differs_from_defaults_in_exactly_its_setting() {
             let entry = entry.unwrap();
             let name = entry.file_name().to_string_lossy().into_owned();
             let (key, value) = expectation(file, &name);
-            let blob = SettingsBlob::read(file, &entry.path().join(file.file_name())).unwrap();
+            let blob = settings::read_blob(file, &entry.path().join(file.file_name())).unwrap();
             assert!(blob.checksum_ok(), "{name}: checksum");
             for def in settings::SCHEMA.iter().filter(|d| d.file == file) {
                 let want = if def.key == key { value } else { def.default };
@@ -190,7 +190,7 @@ fn profile_applies_base_and_per_drive_overrides() {
     assert!(d[0].overridden);
 
     // Dry run writes nothing.
-    let mut want = BTreeMap::new();
+    let mut want = IndexMap::new();
     want.insert("sync".to_string(), "on".to_string());
     let before = std::fs::read(a.join("PIONEER/MYSETTING.DAT")).unwrap();
     let r = settings::apply(&DriveSettings(&a), &want, false, true).unwrap();

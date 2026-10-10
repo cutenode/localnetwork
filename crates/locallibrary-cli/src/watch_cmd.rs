@@ -11,14 +11,18 @@ use locallibrary::api::{WatchAction, WatchOptions, Watched, Watching};
 use locallibrary::progress::Ctx;
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
 use locallibrary::{Error, Store};
+use serde_json::json;
 
-use crate::output::{Output, dim, with_schema};
+use crate::autostart;
+use crate::output::{Output, dim, ok, with_schema};
 
 #[derive(Args)]
 #[command(after_long_help = "Examples:
   locallibrary watch                       say which drives hold changes the store lacks
   locallibrary watch --pull --sync-group   pull them, then sync the rest of their group
-  locallibrary watch --pull --once         look at what's plugged in now, then stop")]
+  locallibrary watch --pull --once         look at what's plugged in now, then stop
+  locallibrary watch --install             pull drives as they're plugged in and sync the rest of their
+                                           group, whenever you're logged in")]
 pub struct WatchArgs {
     /// Pull drives holding changes the store lacks (without it, only say which)
     #[arg(long)]
@@ -31,13 +35,65 @@ pub struct WatchArgs {
     #[arg(long)]
     once: bool,
     /// Seconds a drive must go unchanged before it's looked at (it may still be being written)
-    #[arg(long, value_name = "SECS", default_value_t = 5)]
+    #[arg(long, value_name = "SECS", default_value_t = SETTLE)]
     settle: u64,
+    /// Run `watch --pull --sync-group` (with --settle as given) whenever you log in, starting now
+    /// (macOS and Linux)
+    #[arg(long, conflicts_with_all = ["once", "uninstall"])]
+    install: bool,
+    /// With --install: only pull, without syncing the rest of the group
+    #[arg(long, requires = "install", conflicts_with = "sync_group")]
+    no_sync_group: bool,
+    /// Stop running it at log in
+    #[arg(long, conflicts_with_all = ["pull", "sync_group", "once"])]
+    uninstall: bool,
+}
+
+pub const SETTLE: u64 = 5;
+
+/// The arguments `watch --install` runs this executable with: `watch --pull --sync-group` (a
+/// library's drives are clones of it, so one plugged in with changes brings the others up to
+/// date), the store when it's not the default, and the options given.
+pub fn agent_args(store: &Option<PathBuf>, no_sync_group: bool, settle: u64) -> Result<Vec<String>> {
+    let mut args = Vec::new();
+    if let Some(s) = store {
+        args.extend(["--store".into(), std::path::absolute(s)?.display().to_string()]);
+    }
+    args.extend(["watch".into(), "--pull".into()]);
+    if !no_sync_group {
+        args.push("--sync-group".into());
+    }
+    if settle != SETTLE {
+        args.extend(["--settle".into(), settle.to_string()]);
+    }
+    Ok(args)
+}
+
+/// `watch --install`, also offered by `setup`: says what it did. Where the agent was written.
+pub fn install(args: &[String], out: Output) -> Result<PathBuf> {
+    let path = autostart::install(args)?;
+    if !out.json {
+        ok("Drives are now saved into the store as they're plugged in, whenever you're logged in");
+        say!("  {}", dim(format!("log: {}; `locallibrary watch --uninstall` stops it", autostart::log_location())));
+    }
+    Ok(path)
 }
 
 /// Runs until Ctrl-C (or, with `--once`, until the mounted drives have been looked at). With
 /// `--json`, each event is one line of JSON.
 pub fn run(args: WatchArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+    if args.install {
+        let command = agent_args(store, args.no_sync_group, args.settle)?;
+        let path = install(&command, out)?;
+        return Ok(out.done(&json!({ "installed": path, "command": command }), |_| {}));
+    }
+    if args.uninstall {
+        let path = autostart::uninstall()?;
+        return Ok(out.done(&json!({ "uninstalled": path }), |_| match path {
+            Some(_) => ok("Drives are no longer saved as they're plugged in"),
+            None => say!("`watch` wasn't set to run at log in"),
+        }));
+    }
     let store_root = store.clone().unwrap_or_else(Store::default_root);
     let options = WatchOptions { pull: args.pull, sync_set: args.sync_group, settle: Duration::from_secs(args.settle) };
     let mut watching = Watching::new(VolumeWatcher::new(), options);
@@ -124,5 +180,17 @@ fn lists(names: &[String]) -> String {
         0 => String::new(),
         1 => format!(" (new history list {})", names[0]),
         n => format!(" ({n} new history lists: {})", names.join(", ")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The installed watch syncs a drive's group after pulling it, unless told not to.
+    #[test]
+    fn the_installed_watch_syncs_groups_unless_told_not_to() {
+        assert_eq!(agent_args(&None, false, SETTLE).unwrap(), ["watch", "--pull", "--sync-group"]);
+        assert_eq!(agent_args(&None, true, 9).unwrap(), ["watch", "--pull", "--settle", "9"]);
     }
 }

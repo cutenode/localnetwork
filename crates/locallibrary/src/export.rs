@@ -9,12 +9,14 @@
 //! elsewhere), as the drive's own absolute path (`/Contents/...`), or as an absolute path on this
 //! computer through the drive's mount point.
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::fmt::Write as _;
 use std::path::{Component, Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+pub use loclib_model::paths::PathStyle;
 
 use crate::model::{Library, Playlist, Track};
 use crate::paths;
@@ -49,20 +51,6 @@ impl Format {
             _ => None,
         }
     }
-}
-
-/// How file paths are written.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PathStyle {
-    /// Relative to the output file's folder (absolute when there is no relative path, e.g. on
-    /// another Windows drive letter).
-    #[default]
-    Relative,
-    /// The drive's own path, `/Contents/Artist/Track.mp3`.
-    Drive,
-    /// Absolute on this computer, through the drive's mount point.
-    Absolute,
 }
 
 /// Turns a track's drive path into the path written to a file.
@@ -287,11 +275,11 @@ pub fn select<'a>(
     }
     let below = playlists_below(lib, p);
     if !split {
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         let tracks = below.iter().flat_map(|(q, _)| playlist_tracks(lib, q)).filter(|t| seen.insert(t.id)).collect();
         return Ok(vec![Selection { file: PathBuf::from(paths::sanitize_component(&p.name)), name: path, tracks }]);
     }
-    let mut used = HashSet::new();
+    let mut used = FxHashSet::default();
     Ok(below
         .into_iter()
         .map(|(q, parts)| {
@@ -314,7 +302,7 @@ pub fn select<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::tests::track;
+    use loclib_model::test_util::track;
 
     #[test]
     fn relative_paths() {

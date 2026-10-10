@@ -5,34 +5,22 @@ use std::path::{Path, PathBuf};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{known_drives, resolve_drive};
+use super::{default_drive, known_drives, registry, resolve_drive};
 use crate::device::Device;
-use crate::error::Reason;
 use crate::mix::index::{Cache, IndexReport};
 use crate::mix::report::{self, Drive, PlayExtras, SavedReport};
 use crate::mix::{Identifier, MixReport};
 use crate::profile::ProfilePrefs;
 use crate::progress::Ctx;
 use crate::store::Store;
-use crate::{Error, Result, fsutil};
+use crate::{Result, fsutil};
 
-/// The drive whose library mixes are matched against: the one named, else the only mounted
-/// rekordbox drive.
+/// The drive whose library mixes are matched against: the one named, else the one a command
+/// takes when given none (see [`default_drive`]).
 pub fn mix_drive(spec: Option<&str>) -> Result<Device> {
-    if let Some(spec) = spec {
-        return resolve_drive(spec);
-    }
-    let mut drives: Vec<Device> =
-        known_drives(false).into_iter().filter(|d| d.has_export() || d.has_library_plus()).collect();
-    match drives.len() {
-        0 => Err(Error::NotFound("no rekordbox drive is mounted; plug one in or name one".into())),
-        1 => Ok(drives.remove(0)),
-        _ => Err(Error::invalid(format!(
-            "several rekordbox drives are mounted ({}); name the one to match against",
-            drives.iter().map(Device::name).collect::<Vec<_>>().join(", ")
-        ))
-        .because(Reason::ChooseDrive)
-        .with("drives", drives.iter().map(|d| d.root().display().to_string()).collect::<Vec<_>>())),
+    match spec {
+        Some(spec) => resolve_drive(spec),
+        None => default_drive(registry().as_ref(), "match against"),
     }
 }
 

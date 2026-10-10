@@ -9,7 +9,9 @@
 //! library's newest snapshot ([`crate::sync::pull_beside`]). It never starts a library, and
 //! leaves archive and retired drives alone.
 
-use std::collections::{BTreeMap, HashSet};
+use indexmap::IndexMap;
+
+use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -77,6 +79,7 @@ pub enum WatchAction {
         /// It would be saved beside the library's newest snapshot (back from a set).
         beside: bool,
     },
+    /// The drive's state was pulled into the store as a new snapshot.
     #[serde(rename = "watch.pulled")]
     Pulled {
         #[serde(flatten)]
@@ -111,6 +114,7 @@ pub enum WatchAction {
         drive: MountedDrive,
         reason: String,
     },
+    /// Looking at the drive failed (other than waiting on a lock): `kind` is the error's code.
     #[serde(rename = "watch.failed")]
     Failed {
         #[serde(flatten)]
@@ -146,9 +150,9 @@ pub enum Watched<'a> {
 pub struct AutoPull {
     pub options: WatchOptions,
     /// Drives to look at, and when they'll have settled.
-    due: BTreeMap<PathBuf, Instant>,
+    due: IndexMap<PathBuf, Instant>,
     /// Drives found held by another operation, and since when.
-    waiting: BTreeMap<PathBuf, Instant>,
+    waiting: IndexMap<PathBuf, Instant>,
     /// How long to wait for a drive another operation holds before failing; `None` waits as long
     /// as it takes.
     pub patience: Option<Duration>,
@@ -156,7 +160,7 @@ pub struct AutoPull {
 
 impl AutoPull {
     pub fn new(options: WatchOptions) -> AutoPull {
-        AutoPull { options, due: BTreeMap::new(), waiting: BTreeMap::new(), patience: None }
+        AutoPull { options, due: IndexMap::new(), waiting: IndexMap::new(), patience: None }
     }
 
     /// Look at these drives (the ones mounted when watching starts) once they've settled, as
@@ -183,8 +187,8 @@ impl AutoPull {
                     self.due.insert(drive.root.clone(), settled);
                 }
                 WatchEvent::Detached(d) => {
-                    self.due.remove(&d.root);
-                    self.waiting.remove(&d.root);
+                    self.due.shift_remove(&d.root);
+                    self.waiting.shift_remove(&d.root);
                 }
                 _ => {}
             }
@@ -207,9 +211,10 @@ impl AutoPull {
         on: &mut dyn FnMut(&WatchAction),
     ) -> Result<()> {
         let now = Instant::now();
-        let ready: Vec<PathBuf> = self.due.iter().filter(|(_, at)| **at <= now).map(|(r, _)| r.clone()).collect();
+        let mut ready: Vec<PathBuf> = self.due.iter().filter(|(_, at)| **at <= now).map(|(r, _)| r.clone()).collect();
+        ready.sort_unstable();
         for root in in_save_order(store_root, ready, ctx)? {
-            self.due.remove(&root);
+            self.due.shift_remove(&root);
             let Some(drive) = mounted.iter().find(|d| d.root == root) else { continue };
             match look(store_root, drive, mounted, &self.options, ctx, on) {
                 Ok(()) => {}
@@ -231,7 +236,7 @@ impl AutoPull {
                 }
                 Err(e) => on(&WatchAction::Failed { drive: drive.clone(), kind: e.code(), message: e.to_string() }),
             }
-            self.waiting.remove(&root);
+            self.waiting.shift_remove(&root);
         }
         Ok(())
     }
@@ -368,7 +373,7 @@ fn look(
         on(&skipped(drive, "not linked to a library in the store (pull it once to start one)"));
         return Ok(());
     };
-    if let Some(rec) = store.drives()?.remove(&id) {
+    if let Some(rec) = store.drives()?.shift_remove(&id) {
         if rec.log.retired.is_some() {
             on(&skipped(drive, "retired"));
             return Ok(());
@@ -537,7 +542,7 @@ fn shared_snapshot(store: &Store, lib: &LibraryRecord, d: &Device) -> Result<Opt
 /// History lists on the drive that `ancestor` lacks (every one without an ancestor), by name.
 pub(super) fn new_history(store: &Store, d: &Device, ancestor: Option<&Snapshot>) -> Result<Vec<String>> {
     let then = ancestor.map(|a| Side::from_snapshot(store, a, "then")).transpose()?.map(|s| s.library);
-    let known: HashSet<(String, Vec<u32>)> =
+    let known: FxHashSet<(String, Vec<u32>)> =
         then.iter().flat_map(|l| &l.history).map(|h| (h.name.clone(), h.track_ids.clone())).collect();
     Ok(d.library()?
         .history

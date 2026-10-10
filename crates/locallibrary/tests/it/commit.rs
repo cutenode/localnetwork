@@ -4,7 +4,7 @@
 
 use crate::common::{self, media::png};
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::Path;
 
 use locallibrary::artwork::{self, Artwork};
@@ -20,8 +20,8 @@ use locallibrary::sync::{self, PullOptions};
 use locallibrary::{Device, Result, Store, clean, doctor, firmware, paths, player, settings, tags};
 
 /// Every file and folder below `root` but locallibrary's lock file and hash cache, by path.
-fn snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
-    let mut out = BTreeMap::new();
+fn snapshot(root: &Path) -> IndexMap<String, Option<Vec<u8>>> {
+    let mut out = IndexMap::new();
     for e in walkdir::WalkDir::new(root).min_depth(1) {
         let e = e.unwrap();
         let key = paths::key(&e.path().strip_prefix(root).unwrap().to_string_lossy());
@@ -260,7 +260,7 @@ fn settings_files() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "Main");
     let mut d = Device::open(&root).unwrap();
-    let want: BTreeMap<String, String> = [("quantize".to_string(), "off".to_string())].into();
+    let want: IndexMap<String, String> = [("quantize".to_string(), "off".to_string())].into();
     let report = fails_cleanly_and_undoes(&root, || settings::apply_to_drive(&mut d, &want, true, &Ctx::silent()));
     assert!(!report.files_written.is_empty(), "{report:?}");
 }

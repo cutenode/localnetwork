@@ -18,7 +18,9 @@
 //! pulled into, labelled, given player models...) isn't copied over unless forced: `copy.json`
 //! keeps a hash of what the last finished copy left there.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use indexmap::IndexMap;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -132,14 +134,14 @@ pub fn marker(root: &Path) -> Result<Option<CopyRecord>> {
 /// The copies a store has made, most recent first.
 pub fn copies(store: &Store) -> Result<Vec<CopyStatus>> {
     let id = store.id()?;
-    let heads: BTreeMap<Uuid, Option<Hash>> = store.libraries()?.into_iter().map(|l| (l.id, l.head)).collect();
+    let heads: IndexMap<Uuid, Option<Hash>> = store.libraries()?.into_iter().map(|l| (l.id, l.head)).collect();
     let mut out: Vec<CopyStatus> = records(store)?
         .into_iter()
         .map(|record| {
             let copy = Store::open(&record.path).ok().filter(|c| c.id().is_ok_and(|c| c == id));
             let up_to_date = copy.as_ref().map(|c| {
                 c.libraries()
-                    .map(|libs| libs.into_iter().map(|l| (l.id, l.head)).collect::<BTreeMap<_, _>>() == heads)
+                    .map(|libs| libs.into_iter().map(|l| (l.id, l.head)).collect::<IndexMap<_, _>>() == heads)
                     .unwrap_or(false)
             });
             CopyStatus { available: copy.is_some(), up_to_date, record }
@@ -191,8 +193,8 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
     // What the store holds: snapshots and the files each lists.
     let libraries = store.libraries()?;
     let pruned = store.pruned()?;
-    let mut snapshots: BTreeMap<Hash, Vec<Hash>> = BTreeMap::new();
-    let mut wanted: BTreeMap<Hash, (u64, String)> = BTreeMap::new();
+    let mut snapshots: IndexMap<Hash, Vec<Hash>> = IndexMap::new();
+    let mut wanted: IndexMap<Hash, (u64, String)> = IndexMap::new();
     for sid in store.snapshot_ids()? {
         let s = store.load_snapshot(&sid)?;
         let mut hashes = Vec::new();
@@ -241,13 +243,13 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
             .action(Action::retry(serde_json::json!({ "force": true }), "Replace them")));
         }
     }
-    let present: HashMap<Hash, u64> = match &existing {
+    let present: FxHashMap<Hash, u64> = match &existing {
         Some(copy) => copy.objects()?.into_iter().collect(),
-        None => HashMap::new(),
+        None => FxHashMap::default(),
     };
-    let copy_snapshots: HashSet<Hash> = match &existing {
+    let copy_snapshots: FxHashSet<Hash> = match &existing {
         Some(copy) => copy.snapshot_ids()?.into_iter().collect(),
-        None => HashSet::new(),
+        None => FxHashSet::default(),
     };
     let mut report = CopyReport { path: dest.clone(), dry_run: opts.dry_run, ..Default::default() };
 
@@ -263,8 +265,8 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
         report.snapshots_copied = snapshots.keys().filter(|s| !copy_snapshots.contains(s)).count();
         report.snapshots = snapshots.len();
         if opts.mirror {
-            report.removed_snapshots = copy_snapshots.iter().filter(|s| !snapshots.contains_key(s)).count();
-            report.removed_objects = present.keys().filter(|h| !wanted.contains_key(h)).count();
+            report.removed_snapshots = copy_snapshots.iter().filter(|s| !snapshots.contains_key(*s)).count();
+            report.removed_objects = present.keys().filter(|h| !wanted.contains_key(*h)).count();
         }
         return Ok(report);
     }
@@ -326,7 +328,7 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
         }
     }
     ctx.phase_start(Phase::Copy, todo.len() as u64, todo.iter().map(|(_, size, _)| size).sum());
-    let mut broken: HashMap<Hash, String> = HashMap::new();
+    let mut broken: FxHashMap<Hash, String> = FxHashMap::default();
     let mut written = Vec::new();
     for (h, size, path) in todo {
         ctx.check()?;
@@ -353,7 +355,7 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
     ctx.phase_end(Phase::Copy);
 
     // Snapshots whose files are all there.
-    let mut copied: HashSet<Hash> = HashSet::new();
+    let mut copied: FxHashSet<Hash> = FxHashSet::default();
     for (sid, hashes) in &snapshots {
         if let Some(why) = hashes.iter().find_map(|h| broken.get(h)) {
             report.problems.push(format!("snapshot {} left out: {why}", sid.short()));
@@ -390,11 +392,11 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
 
     // What the store no longer has.
     if opts.mirror && report.problems.is_empty() {
-        for sid in copy_snapshots.iter().filter(|s| !snapshots.contains_key(s)) {
+        for sid in copy_snapshots.iter().filter(|s| !snapshots.contains_key(*s)) {
             fsutil::remove_if_exists(&copy.snapshot_path(sid))?;
             report.removed_snapshots += 1;
         }
-        for h in present.keys().filter(|h| !wanted.contains_key(h)) {
+        for h in present.keys().filter(|h| !wanted.contains_key(*h)) {
             fsutil::remove_if_exists(&copy.object_path(h))?;
             report.removed_objects += 1;
         }

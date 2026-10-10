@@ -5,11 +5,13 @@ use std::path::PathBuf;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::{
     ApplySettings, Direction, DriveRef, DriveStatus, FormatApply, FormatRequest, PushRequest, SyncManyPreview,
-    SyncManyRequest, SyncRequest, TargetResult, known_drives, resolve_drive,
+    SyncManyRequest, SyncRequest, TargetResult, known_drives, resolve_drive, resolve_one_drive,
 };
+use crate::compare::Relation;
 use crate::device::{Device, DeviceInfo};
 use crate::eject::{self, EjectReport};
 use crate::error::{Action, Reason};
@@ -17,6 +19,7 @@ use crate::firmware::{self, FirmwarePlan, FirmwareReport};
 use crate::fleet::{self, Check, DriveSet, Duplicate, KnownDrive, Recognition, RenameReport, Role};
 use crate::format::{self, FormatOptions, FormatPlan, FormatReport};
 use crate::fscheck::{self, FsCheckReport};
+use crate::hash::Hash;
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::player::{self, ContactReport, PlayerIdentity};
 use crate::progress::{Ctx, Steps};
@@ -24,7 +27,7 @@ use crate::recordings::{self, CollectOptions, CollectReport, Recording};
 use crate::scrub::{self, FileProblem, RepairReport, ScrubOptions, ScrubReport};
 use crate::settings::ApplyReport;
 use crate::space::{self, SpaceReport};
-use crate::store::{DriveRecord, Store};
+use crate::store::{DriveRecord, SnapshotInfo, Store};
 use crate::sync::SyncReport;
 use crate::tidy::{self, TidyOptions, TidyPlan, TidyReport};
 use crate::{Error, Result};
@@ -52,13 +55,36 @@ pub struct FleetDrive {
     pub exported_over_edits: usize,
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct FleetStatus {
     pub mounted: Vec<FleetDrive>,
     /// Registered drives that aren't mounted (with `all`).
     pub offline: Vec<KnownDrive>,
     /// Mounted drives sharing one identity (copies of each other).
     pub duplicates: Vec<Duplicate>,
+    /// The libraries of the mounted drives (with `all`, of every registered drive too), by name:
+    /// each with its clones. Drives of no library in the store are in none.
+    pub libraries: Vec<FleetLibrary>,
+}
+
+/// A library and its clones, the drives holding it: those plugged in, and those that aren't.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct FleetLibrary {
+    pub id: Uuid,
+    pub name: String,
+    /// Its latest snapshot.
+    pub head: Option<SnapshotInfo>,
+    /// Where its clones that are plugged in are mounted (each is in `mounted`), by role: the
+    /// primary first.
+    pub mounted: Vec<PathBuf>,
+    /// Its registered clones that aren't plugged in (retired ones with `retired`).
+    pub offline: Vec<KnownDrive>,
+    /// Whether its clones plugged in hold the same library: `None` with fewer than two, or when
+    /// one couldn't be compared with the store.
+    pub identical: Option<bool>,
+    /// Whether a clone plugged in holds changes the store doesn't have (it's newer than the latest
+    /// snapshot, or diverged from it).
+    pub unsaved: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -71,14 +97,16 @@ pub struct FleetRequest {
     pub retired: bool,
 }
 
-/// [`super::status`] for mounted drives, plus roles, write protection, space, copies and (with
-/// `all`) every registered drive that isn't mounted.
+/// [`super::status`] for mounted drives, plus roles, write protection, space, copies, each
+/// library with its clones (those not plugged in too) and (with `all`) every registered drive
+/// that isn't mounted.
 pub fn fleet_status(store: &Store, req: &FleetRequest, ctx: &Ctx<'_>) -> Result<FleetStatus> {
     let registry = store.drives()?;
     let devices = known_drives(false);
     let duplicates = fleet::duplicates(&devices, &fleet::Hardware::of);
     let mut mounted = Vec::new();
-    for status in super::status(store, ctx)? {
+    let mut states = Vec::new();
+    for (status, state) in super::statuses(store, ctx)? {
         let same_identity_as = duplicates
             .iter()
             .filter(|d| d.roots.contains(&status.drive.root))
@@ -98,13 +126,49 @@ pub fn fleet_status(store: &Store, req: &FleetRequest, ctx: &Ctx<'_>) -> Result<
             same_identity_as,
             status,
         });
+        states.push(state);
     }
-    let offline = if req.all {
-        fleet::known(store, &devices, req.retired)?.into_iter().filter(|k| k.mounted.is_none()).collect()
-    } else {
-        Vec::new()
+    let linked: Vec<Uuid> =
+        (mounted.iter()).filter(|f| f.status.library.is_some()).filter_map(|f| f.status.drive.library_id).collect();
+    // Reading every library's history for where the drives not plugged in stand takes a while:
+    // only when there's one to show.
+    let listed = |r: &DriveRecord| {
+        (req.retired || r.log.retired.is_none())
+            && !devices.iter().any(|d| d.id() == Some(r.id))
+            && (req.all || r.library_id.is_some_and(|id| linked.contains(&id)))
     };
-    Ok(FleetStatus { mounted, offline, duplicates })
+    let known = match registry.values().any(listed) {
+        true => fleet::known(store, &devices, req.retired)?,
+        false => Vec::new(),
+    };
+    let offline: Vec<KnownDrive> = known.into_iter().filter(|k| k.mounted.is_none()).collect();
+    let mut libraries = Vec::new();
+    for lib in store.libraries()? {
+        let mut clones: Vec<usize> = (0..mounted.len())
+            .filter(|&i| mounted[i].status.library.is_some() && mounted[i].status.drive.library_id == Some(lib.id))
+            .collect();
+        clones.sort_by_key(|&i| (mounted[i].role.is_none(), mounted[i].role));
+        let away: Vec<KnownDrive> = offline.iter().filter(|k| k.library.as_ref() == Some(&lib.name)).cloned().collect();
+        let shown = !clones.is_empty() || (req.all && !away.is_empty());
+        if !shown {
+            continue;
+        }
+        let held: Option<Vec<Hash>> = clones.iter().map(|&i| states[i]).collect();
+        libraries.push(FleetLibrary {
+            id: lib.id,
+            head: lib.head.map(|h| store.load_info(&h)).transpose()?,
+            mounted: clones.iter().map(|&i| mounted[i].status.drive.root.clone()).collect(),
+            offline: away,
+            identical: held.filter(|h| h.len() > 1).map(|h| h.iter().all(|x| *x == h[0])),
+            unsaved: clones
+                .iter()
+                .any(|&i| matches!(mounted[i].status.relation, Some(Relation::RightNewer | Relation::Diverged))),
+            name: lib.name,
+        });
+    }
+    libraries.sort_by_key(|l| l.name.to_lowercase());
+    let offline = if req.all { offline } else { Vec::new() };
+    Ok(FleetStatus { mounted, offline, duplicates, libraries })
 }
 
 /// Every registered drive, mounted or not.
@@ -127,7 +191,7 @@ enum Named {
 }
 
 fn named(store: &Store, spec: &str) -> Result<Named> {
-    match resolve_drive(spec) {
+    match resolve_one_drive(spec) {
         Ok(d) if d.is_adopted() => Ok(Named::Mounted(d)),
         Ok(_) | Err(Error::NotFound(_)) => fleet::find_record(store, spec).map(Named::Registered),
         Err(e) => Err(e),
@@ -144,7 +208,7 @@ fn drive_record(store: &Store, spec: &str) -> Result<DriveRecord> {
     fleet::note_hardware(&mut d)?;
     crate::sync::register_drive(store, &d, None)?;
     let id = d.id().expect("adopted");
-    store.drives()?.remove(&id).ok_or_else(|| Error::NotFound(format!("drive {id}")))
+    store.drives()?.shift_remove(&id).ok_or_else(|| Error::NotFound(format!("drive {id}")))
 }
 
 /// The drive [`drive_role`] and [`drive_retire`] change, as the registry has it or, for a mounted
@@ -155,7 +219,10 @@ pub fn drive_to_change(store: &Store, req: &DriveRef) -> Result<DriveRecord> {
         Named::Registered(rec) => Ok(rec),
         Named::Mounted(d) => {
             let id = d.id().expect("adopted");
-            Ok(store.drives()?.remove(&id).unwrap_or_else(|| DriveRecord::new(id, d.name(), d.root().to_path_buf())))
+            Ok(store
+                .drives()?
+                .shift_remove(&id)
+                .unwrap_or_else(|| DriveRecord::new(id, d.name(), d.root().to_path_buf())))
         }
     }
 }
@@ -181,7 +248,7 @@ pub struct RenamePlan {
 }
 
 pub fn drive_rename_plan(req: &RenameDrive) -> Result<Planned<RenamePlan, RenameDrive>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let to = req.name.trim().to_string();
     if to.is_empty() {
         return Err(Error::invalid("the name is empty"));
@@ -226,7 +293,7 @@ pub fn drive_find(store: &Store, req: &DriveRef) -> Result<DriveRecord> {
         Named::Mounted(d) => d,
         Named::Registered(rec) => return Ok(rec),
     };
-    if let Some(rec) = store.drives()?.remove(&mounted.id().expect("adopted")) {
+    if let Some(rec) = store.drives()?.shift_remove(&mounted.id().expect("adopted")) {
         return Ok(rec);
     }
     let others = fleet::records_named(store, &req.drive)?;
@@ -277,7 +344,7 @@ pub fn drive_log(store: &Store, req: &DriveRef) -> Result<DriveRecord> {
 }
 
 pub fn drive_recognise(store: &Store, req: &DriveRef, ctx: &Ctx<'_>) -> Result<Recognition> {
-    fleet::recognise(store, &resolve_drive(&req.drive)?, ctx)
+    fleet::recognise(store, &resolve_one_drive(&req.drive)?, ctx)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -297,7 +364,7 @@ pub struct AdoptAsPlan {
 }
 
 pub fn drive_adopt_as_plan(store: &Store, req: &AdoptAs) -> Result<Planned<AdoptAsPlan, AdoptAs>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let known = fleet::find_record(store, &req.known)?;
     let line = format!("give {} the identity of {} ({})", d.root().display(), known.name, known.id);
     let plan = AdoptAsPlan { drive: d.name(), root: d.root().into(), known };
@@ -351,7 +418,7 @@ pub fn drive_reidentify_plan(store: Option<&Store>, req: &Reidentify) -> Result<
     if !std::path::Path::new(&req.drive).is_dir() {
         return Err(Error::invalid("give the copy's mount path (both copies answer to the same name)"));
     }
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let id = d.id().ok_or_else(|| Error::invalid(format!("{} has no identity yet", d.name())))?;
     if !req.force && !fleet::is_copy(&d, &known_drives(false)) {
         let drive = d.root().display().to_string();
@@ -368,7 +435,7 @@ pub fn drive_reidentify_plan(store: Option<&Store>, req: &Reidentify) -> Result<
     }
     let name = req.name.clone().unwrap_or_else(|| fleet::copy_name(&d));
     // Roles live on the registry's record of the identity, which stays with the original.
-    let kept = store.and_then(|s| s.drives().ok()).and_then(|mut r| r.remove(&id));
+    let kept = store.and_then(|s| s.drives().ok()).and_then(|mut r| r.shift_remove(&id));
     let warnings = kept.and_then(|rec| rec.role.map(|role| (rec.name, role))).map(|(was, role)| {
         format!("its role ({}) stays with {was}'s identity: give the copy one with `drive role`", role.name())
     });
@@ -405,7 +472,8 @@ pub fn drive_sets(store: &Store) -> Result<Vec<DriveSet>> {
 /// from the newest of them, which should be the primary.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 pub struct SyncSetRequest {
-    /// The library whose group to sync [default: the only group with two or more drives mounted].
+    /// The library whose group to sync [default: the only group with two or more drives mounted;
+    /// with several, refused as `choose_library`, listing them].
     #[serde(default)]
     pub library: Option<String>,
     #[serde(default)]
@@ -483,6 +551,7 @@ pub fn sync_set_apply(store: &Store, req: &SyncSetRequest, ctx: &Ctx<'_>) -> Res
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct EjectDrives {
+    /// Drives, or a library's name for its mounted clones (but archive and retired ones).
     pub drives: Vec<String>,
 }
 
@@ -490,7 +559,7 @@ pub struct EjectDrives {
 /// [`super::drive_eject_plan`] says.
 pub fn drive_eject(store: Option<&Store>, req: &EjectDrives) -> Result<Vec<EjectReport>> {
     let mut out = Vec::new();
-    for spec in &req.drives {
+    for spec in &super::expand_libraries(&req.drives)?.0 {
         let (d, _) = super::tui::eject_target(spec, store.map(Store::root))?;
         let id = d.id();
         let report = eject::eject(&d)?;
@@ -520,7 +589,7 @@ pub struct VerifyRequest {
 fn siblings(specs: &[String], exclude: &Device) -> Result<Vec<Device>> {
     let mut out = Vec::new();
     for s in specs {
-        let d = resolve_drive(s)?;
+        let d = resolve_one_drive(s)?;
         if d.root() != exclude.root() {
             out.push(d);
         }
@@ -530,7 +599,7 @@ fn siblings(specs: &[String], exclude: &Device) -> Result<Vec<Device>> {
 
 /// Re-read every library file on a drive and compare it with a known-good copy.
 pub fn drive_verify(store: Option<&Store>, req: &VerifyRequest, ctx: &Ctx<'_>) -> Result<ScrubReport> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let against = siblings(&req.against, &d)?;
     let snapshot = match (&req.snapshot, store) {
         (Some(prefix), Some(store)) => Some(store.resolve_snapshot(prefix)?),
@@ -563,7 +632,7 @@ pub struct RepairRequest {
 }
 
 pub fn drive_repair(store: Option<&Store>, req: &RepairRequest, ctx: &Ctx<'_>) -> Result<RepairReport> {
-    let mut d = resolve_drive(&req.drive)?;
+    let mut d = resolve_one_drive(&req.drive)?;
     let against = siblings(&req.against, &d)?;
     let report = scrub::repair(&mut d, store, &against, &req.problems, ctx)?;
     if let (Some(store), Some(id)) = (store, d.id()) {
@@ -588,7 +657,7 @@ pub struct FsCheckRequest {
 }
 
 pub fn drive_fs_check(store: Option<&Store>, req: &FsCheckRequest) -> Result<FsCheckReport> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let id = d.id();
     let report = fscheck::check(&d, req.repair)?;
     if let (Some(store), Some(id)) = (store, id) {
@@ -606,7 +675,7 @@ pub fn drive_fs_check(store: Option<&Store>, req: &FsCheckRequest) -> Result<FsC
 
 /// What's using a drive, its growth and whether its library fits on the rest of its group.
 pub fn drive_space(store: Option<&Store>, req: &DriveRef, ctx: &Ctx<'_>) -> Result<SpaceReport> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let mut report = space::breakdown(&d, ctx)?;
     if let Some(store) = store {
         report.forecast = space::forecast(store, &d, report.free)?;
@@ -629,7 +698,7 @@ pub struct TidyRequest {
 
 /// The OS clutter (and with `empty_trash`, the trash) a tidy would remove.
 pub fn tidy_plan(req: &TidyRequest, ctx: &Ctx<'_>) -> Result<Planned<TidyPlan>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let plan = tidy::plan(&d, &req.options, ctx)?;
     let line = format!("remove {} item(s) of clutter ({}) from {}", plan.items.len(), bytes(plan.bytes), d.name());
     let keys = plan.items.iter().map(|i| i.path.clone()).collect();
@@ -657,7 +726,7 @@ pub fn tidy_apply(req: &TidyRequest, ctx: &Ctx<'_>) -> Result<TidyReport> {
 }
 
 pub fn recordings_list(req: &DriveRef) -> Result<Vec<Recording>> {
-    recordings::list(&resolve_drive(&req.drive)?)
+    recordings::list(&resolve_one_drive(&req.drive)?)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -680,7 +749,7 @@ pub struct CollectPlan {
 }
 
 pub fn recordings_collect_plan(req: &CollectRecordings) -> Result<Planned<CollectPlan, CollectOptions>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let all = recordings::list(&d)?;
     let chosen: Vec<Recording> = match req.options.only.is_empty() {
         true => all,
@@ -760,7 +829,7 @@ pub struct FirmwareRequest {
 
 /// Whether an update file can go on a drive, and what copying it would replace.
 pub fn firmware_plan(req: &FirmwareRequest) -> Result<Planned<FirmwarePlan, bool>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let plan = firmware::plan(&d, &req.file, req.replace)?;
     let mut summary = vec![format!("copy {} ({}) to the root of {}", plan.file_name, bytes(plan.size), d.name())];
     if !plan.existing.is_empty() {
@@ -802,7 +871,7 @@ pub struct FirmwareRemovePlan {
 }
 
 pub fn firmware_remove_plan(req: &DriveRef) -> Result<Planned<FirmwareRemovePlan>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     let files = firmware::existing_updates(d.root());
     let total = files.iter().map(|f| std::fs::metadata(d.root().join(f)).map(|m| m.len()).unwrap_or(0)).sum();
     let line =
@@ -836,7 +905,7 @@ pub fn firmware_remove(req: &DriveRef, ctx: &Ctx<'_>) -> Result<Vec<String>> {
 // ---------------------------------------------------------------------------------------------
 
 pub fn player_show(req: &DriveRef) -> Result<PlayerIdentity> {
-    Ok(player::read(&resolve_drive(&req.drive)?))
+    Ok(player::read(&resolve_one_drive(&req.drive)?))
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -861,7 +930,7 @@ pub struct PlayerPlan {
 }
 
 pub fn player_set_plan(req: &SetPlayerIdentity) -> Result<Planned<PlayerPlan>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     player::check(&d, req.name.as_deref(), req.colour)?;
     let now = player::read(&d);
     let mut summary = Vec::new();
@@ -911,7 +980,7 @@ pub struct ContactPlan {
 }
 
 pub fn drive_contact_plan(req: &SetContact) -> Result<Planned<ContactPlan, SetContact>> {
-    let d = resolve_drive(&req.drive)?;
+    let d = resolve_one_drive(&req.drive)?;
     if req.contact.trim().is_empty() || req.contact.chars().any(char::is_control) {
         return Err(Error::invalid("give an email address, phone number or name to contact"));
     }
@@ -1024,21 +1093,28 @@ pub fn provision_plan(
         warnings.extend(p.warnings.iter().cloned());
         Some(p.plan)
     } else {
-        let d = resolve_drive(&req.target)?;
+        let d = resolve_one_drive(&req.target)?;
         if d.has_export() {
             warnings.push(format!("{} already holds a rekordbox library; it will be replaced", d.name()));
         }
         touched = Some(Touched::library(&d, true));
         None
     };
-    let name = req.name.clone().unwrap_or_else(|| "the new drive".into());
     // Without a format (whose plan shows the disk), the steps say which drive they're for.
     let it = touched.as_ref().map_or("it".into(), |t| format!("the drive at {}", t.root.display()));
-    steps.push(format!("give {it} the name {name:?}"));
+    // Without a name, it keeps its volume's, as every drive does.
+    steps.push(match &req.name {
+        Some(name) => format!("give {it} the name {name:?}"),
+        None => format!("give {it} an identity"),
+    });
     match &req.like {
         Some(spec) => {
             let src = resolve_drive(spec)?;
-            steps.push(format!("copy {}'s library onto it", src.name()));
+            let library = src.state().and_then(|s| s.library_id).map(|id| store.library_by_id(id)).transpose()?;
+            steps.push(match library.flatten() {
+                Some(l) => format!("make it another copy of {:?}, from {}", l.name, src.name()),
+                None => format!("copy {}'s library onto it", src.name()),
+            });
         }
         None => {
             let lib = match &req.library {
@@ -1212,7 +1288,7 @@ fn provision_steps(
             ),
         ))?
     } else {
-        resolve_drive(&req.target).map_err(|e| ("find the drive", e))?.root().to_path_buf()
+        resolve_one_drive(&req.target).map_err(|e| ("find the drive", e))?.root().to_path_buf()
     };
     let target = root.display().to_string();
 

@@ -35,7 +35,7 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       pipeline with `v0.1.0-rc.1` (which skips the Homebrew push) before tagging v0.1.0.
 - [ ] Third-party notices for the release archives and the Homebrew formula: generate them with
       `cargo about` in `release.yml`, plus rekordbox-pdb's MIT notice for the vendored code and
-      `crates/locallibrary/src/convert/template.pdb`. Keep the task here or in the README's release
+      `crates/locallibrary/src/convert/template.pdb`. Keep the task here or in CONTRIBUTING.md's release
       checklist, not both.
 - [ ] Jobs (`refresh`, `prep`) re-plan later steps on any `StalePlan`, including a rekordbox export
       mid-job, which breaks `op.rs`'s promise that the confirmed plan is what runs. Re-plan only
@@ -46,6 +46,24 @@ and hardware checks are grouped into test days. Tick items off or delete them as
 - [ ] `clean` backs up only the databases. It deletes only rekordbox's demo samples, which every
       export brings back, yet `refresh` runs it after every export, so audio backups pile up and a
       full drive can't be cleaned at all.
+
+## Split-out crates
+
+- [ ] Decide whether and when to publish the eight crates in `crates/` (loclib-progress,
+      loclib-model, loclib-equipment, loclib-mysettings, loclib-tracklist, loclib-mixid,
+      loclib-interop, loclib-waveform) to crates.io. The names were free on 2026-10-09, and `cargo
+      publish --dry-run` packages all eight. Publish in dependency order (loclib-progress, then
+      loclib-model, then the rest); each `test-util` feature would ship as public API.
+      locallibrary itself can't be published while it depends on the vendored rekordbox-pdb
+      (`publish = false`; crates.io's 0.1.0 lacks the patches), which the next item decides.
+- [ ] Upstream rekordbox-pdb PRs, waiting on your go-ahead: 13 branches drafted against
+      fragmede/rekordbox-pdb-rs, unsigned (re-create them signed), nothing pushed. Recommendation:
+      open the first four bug fixes (`bnb/corrupt-file-guards`, `bnb/slot-cap-new-page`,
+      `bnb/isrc`, `bnb/export-ext-reader`) as a probe, since the repo has had no activity since
+      July. If there's no answer in three or four weeks, publish the fork under a new crate name
+      (MIT, keeping fragmede's copyright line) and depend on that, which also lets locallibrary go
+      on crates.io. The branches are in `~/GitHub/fragmede/rekordbox-pdb-rs`, with their titles and
+      bodies in `~/GitHub/fragmede/PRS.md`.
 
 ## Test days
 
@@ -69,6 +87,13 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       sticks leaves each stick only its own tracks.
 
 ### 2. Mac desk
+- [ ] Clones on real sticks: with three drives of one library plugged in, a playlist edit, an
+      `undo` and a `refresh` after a rekordbox export each end with the drives identical
+      (`status` says so), and each loads on a player. Time an edit: every write now also syncs
+      the other clones.
+- [ ] `watch --install` on a real login: the agent loads (`launchctl print gui/$(id -u)/local.locallibrary.watch`),
+      survives a log out and in, pulls a drive plugged in afterwards, and `--uninstall` removes it.
+      The systemd user service on Linux has never run.
 - [ ] What rekordbox's automatic playlist sync (`playlists3.sync` / `playlists3Plus.sync`) does
       with playlists that `merge` added. If it drops them, merge should warn harder.
 - [ ] `format` one real stick, and two sticks of one model to confirm the macOS USB serial from
@@ -92,10 +117,10 @@ and hardware checks are grouped into test days. Tick items off or delete them as
 ### 3. Linux box
 - [ ] `format`, `fsck`, `eject`, `drive rename --label` and `format --check-capacity` on a stick.
       Once each has run, drop its "untested on this platform" warning, and once CI is green there
-      too, the README's "experimental" label.
+      too, the "experimental" labels in the README and docs/install.md.
 - [ ] `fsck`'s udisks unmount and remount under polkit (as `$SUDO_USER` under sudo) comes back at
       the same path.
-- [ ] `watch` with a stick, and the systemd unit from the README.
+- [ ] `watch` with a stick, and the systemd unit from docs/store.md.
 
 ### 4. Windows box
 - [ ] The same disk commands, including the erase script's check of the disk's size, serial and
@@ -134,10 +159,10 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       copy` refuses instead (without `--force`).
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
-- [ ] `check.rs` findings and the interop notes (`engine.rs`, `serato.rs`) name CLI commands and
-      flags; structured actions like errors have would let the TUI offer one-key fixes.
+- [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would
+      let the TUI offer one-key fixes.
 - [ ] Loops rekordbox marks active (PCPT status 4) don't engage on their own: `anlz::cues` takes the
-      .EXT list, which doesn't carry the flag (fixing it changes `anlz::Cue`).
+      .EXT list, which doesn't carry the flag (fixing it changes loclib-model's `analysis::Cue`).
 - [ ] `d` lists the outputs (cpal asks each device for its configs) and opens the chosen one on the
       UI thread, so a slow Bluetooth or AirPlay device can stall it briefly: move both to a worker.
 - [ ] `mix`: riding the pitch fader splits a play into chains with slightly different speeds; the
@@ -168,13 +193,16 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       Profile view (`L`) too. Tests use session files and an in-memory keychain, so the computer's
       keychain hasn't been used anywhere. Also check that a first real publish's `swapRecord:
       null` is taken as "must not exist", and what a real revocation answers.
+- [ ] Once a real sign-in and publish have worked, drop the "alpha" labels: the `account` and
+      `publish` help, the player's `L`, README, docs/account.md, docs/commands.md, docs/sidecar.md
+      and CHANGELOG.
 - [ ] **Put `https://locallibrary.localnetwork.computer` online** (served by the Local Network web
       app). Regenerate the hosted client document with `locallibrary account client-metadata -o
       oauth-client-metadata.json` and deploy it there, so it lists the narrowed publish scopes
       (`repo:<nsid>?action=create&action=update`) before releasing publishing. The copy waiting
-      in localnetwork asks only for `atproto`, so it would break publish sign-ins as it is. While
-      it's offline, sign-in falls back to the development client; online without those scopes, a
-      publish sign-in stops and points at `--dev-client`. jacquard sends `application_type: web`
+      in localnetwork has them now; it only needs deploying. While it's offline, sign-in falls
+      back to the development client; online without those scopes, a publish sign-in stops and
+      points at `--dev-client`. jacquard sends `application_type: web`
       for a hosted ID while the document says `native`: untested.
 - [ ] Publish the three Lexicons (`lexicons/computer/localnetwork/locallibrary/`) as
       `com.atproto.lexicon.schema` records and add the `_lexicon.locallibrary.localnetwork.computer`

@@ -4,14 +4,12 @@
 //! rewritten when a merge relocates a track), the beat grid (`PQTZ`) and cue points
 //! (`PCOB`/`PCO2`) for XML export and editing (see [`write_cue_points`]), and the waveforms
 //! (`PWAV`/`PWV3`/`PWV4`/`PWV5`) and phrase analysis (`PSSI`) for display. Everything else is
-//! passed through byte for byte.
+//! passed through byte for byte. What they decode to is [`loclib_model::analysis`]'s, re-exported
+//! here, and [`load`] reads it all for a track.
 //!
 //! All integers are big-endian. A file is a `PMAI` header followed by tagged sections, each
 //! starting with `tag[4] header_len:u32 total_len:u32`. Layouts follow
 //! [crate-digger](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/anlz.html).
-
-use schemars::JsonSchema;
-use serde::Serialize;
 
 use crate::device::Device;
 use crate::model::Track;
@@ -20,9 +18,8 @@ use crate::{Error, Result};
 
 mod write;
 
-pub use write::{
-    CueFile, CuePoint, DEFAULT_HOT_CUE_RGB, HOT_CUE_PALETTE, RawCue, hot_cue_palette, read_cue_points, write_cue_points,
-};
+pub use loclib_model::analysis::*;
+pub use write::{CueFile, CuePoint, RawCue, read_cue_points, write_cue_points};
 
 #[derive(Debug, Clone, Copy)]
 struct SectionRef {
@@ -115,14 +112,6 @@ pub fn rewrite_path(bytes: &[u8], new_path: &str) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, JsonSchema)]
-pub struct Beat {
-    /// Position in the bar, 1-4.
-    pub beat_number: u16,
-    pub bpm: f64,
-    pub time_ms: u32,
-}
-
 pub fn beat_grid(bytes: &[u8]) -> Result<Vec<Beat>> {
     let secs = sections(bytes)?;
     let Some(s) = find(&secs, b"PQTZ") else { return Ok(Vec::new()) };
@@ -143,34 +132,6 @@ pub fn beat_grid(bytes: &[u8]) -> Result<Vec<Beat>> {
         });
     }
     Ok(beats)
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
-pub struct Cue {
-    /// `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ...
-    pub hot_cue: Option<u8>,
-    pub start_ms: u32,
-    /// End of the loop, for loops.
-    pub end_ms: Option<u32>,
-    pub comment: String,
-    pub color: Option<[u8; 3]>,
-    /// A memory cue's or loop's colour: a row of rekordbox's colour table (1 pink ... 8 purple,
-    /// as [`crate::model::TrackColor`]), 0 for none. Only the extended list has it.
-    pub color_id: u8,
-    /// A loop's length in beats as rekordbox stored it, numerator and denominator (4/1, 1/2),
-    /// when it was set on the grid. Only the extended list has it.
-    #[schemars(with = "Option<LoopBeats>")]
-    pub loop_beats: Option<(u16, u16)>,
-}
-
-crate::schema::labelled_tuple! {
-    /// A loop's length in beats as a fraction, `[numerator, denominator]`: `[4, 1]` is 4 beats,
-    /// `[1, 2]` half a beat. Only describes `loop_beats` in the schema; the code uses the pair.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct LoopBeats {
-        pub numerator: u16,
-        pub denominator: u16,
-    }
 }
 
 /// Cue points. Uses the extended list (`PCO2`, in `.EXT`) when present, which carries names and
@@ -262,39 +223,6 @@ fn parse_pcp2(b: &[u8], o: usize, len: usize) -> Option<Cue> {
 // ---------------------------------------------------------------------------------------------
 // Waveforms
 // ---------------------------------------------------------------------------------------------
-
-/// One drawn layer of a waveform column.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, JsonSchema)]
-pub struct WaveLayer {
-    /// 0.0-1.0 of the waveform's full height.
-    pub height: f32,
-    pub color: [u8; 3],
-}
-
-/// One column of a waveform: a back layer and a (shorter, brighter) front layer drawn over it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, JsonSchema)]
-pub struct WaveColumn {
-    pub back: WaveLayer,
-    pub front: WaveLayer,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum WaveformStyle {
-    /// Monochrome blue, older players (`PWAV`, `PWV3`).
-    Blue,
-    /// Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`).
-    Rgb,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
-pub struct Waveform {
-    pub style: WaveformStyle,
-    /// Columns per second of audio for scrolling (detail) waveforms; `None` for previews, whose
-    /// columns span the whole track.
-    pub columns_per_sec: Option<f64>,
-    pub columns: Vec<WaveColumn>,
-}
 
 /// Fixed-size entries of a waveform section: `entry_len` bytes each, after the section header.
 /// Uses the declared count when the header has one (at `count_at`), bounded by the section.
@@ -399,77 +327,22 @@ pub fn detail(bytes: &[u8]) -> Result<Option<Waveform>> {
 // Phrases
 // ---------------------------------------------------------------------------------------------
 
-/// rekordbox's overall classification of a track, which decides how phrases are named.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Mood {
-    High,
-    Mid,
-    Low,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PhraseKind {
-    Intro,
-    /// Build-ups, in high-mood tracks.
-    Up,
-    /// Breakdowns, in high-mood tracks.
-    Down,
-    Verse(u8),
-    Bridge,
-    Chorus,
-    Outro,
-    Unknown(u16),
-}
-
-impl PhraseKind {
-    fn from_raw(mood: Mood, kind: u16) -> PhraseKind {
-        match (mood, kind) {
-            (_, 1) => PhraseKind::Intro,
-            (Mood::High, 2) => PhraseKind::Up,
-            (Mood::High, 3) => PhraseKind::Down,
-            (Mood::High, 5) => PhraseKind::Chorus,
-            (Mood::High, 6) => PhraseKind::Outro,
-            (Mood::Mid, 2..=7) => PhraseKind::Verse(kind as u8 - 1),
-            (Mood::Low, 2..=4) => PhraseKind::Verse(1),
-            (Mood::Low, 5..=7) => PhraseKind::Verse(2),
-            (Mood::Mid | Mood::Low, 8) => PhraseKind::Bridge,
-            (Mood::Mid | Mood::Low, 9) => PhraseKind::Chorus,
-            (Mood::Mid | Mood::Low, 10) => PhraseKind::Outro,
-            _ => PhraseKind::Unknown(kind),
-        }
+/// What rekordbox's phrase kind number means in a track of `mood`.
+fn phrase_kind(mood: Mood, kind: u16) -> PhraseKind {
+    match (mood, kind) {
+        (_, 1) => PhraseKind::Intro,
+        (Mood::High, 2) => PhraseKind::Up,
+        (Mood::High, 3) => PhraseKind::Down,
+        (Mood::High, 5) => PhraseKind::Chorus,
+        (Mood::High, 6) => PhraseKind::Outro,
+        (Mood::Mid, 2..=7) => PhraseKind::Verse(kind as u8 - 1),
+        (Mood::Low, 2..=4) => PhraseKind::Verse(1),
+        (Mood::Low, 5..=7) => PhraseKind::Verse(2),
+        (Mood::Mid | Mood::Low, 8) => PhraseKind::Bridge,
+        (Mood::Mid | Mood::Low, 9) => PhraseKind::Chorus,
+        (Mood::Mid | Mood::Low, 10) => PhraseKind::Outro,
+        _ => PhraseKind::Unknown(kind),
     }
-
-    pub fn name(self) -> String {
-        match self {
-            PhraseKind::Intro => "Intro".into(),
-            PhraseKind::Up => "Up".into(),
-            PhraseKind::Down => "Down".into(),
-            PhraseKind::Verse(n) => format!("Verse {n}"),
-            PhraseKind::Bridge => "Bridge".into(),
-            PhraseKind::Chorus => "Chorus".into(),
-            PhraseKind::Outro => "Outro".into(),
-            PhraseKind::Unknown(k) => format!("Phrase {k}"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
-pub struct Phrase {
-    pub kind: PhraseKind,
-    /// 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`.
-    pub start_beat: u16,
-    pub end_beat: u16,
-    /// Beat where a fill-in leads into the next phrase.
-    pub fill_beat: Option<u16>,
-}
-
-/// rekordbox's phrase analysis (`PSSI`, in `.EXT`).
-#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
-pub struct SongStructure {
-    pub mood: Mood,
-    pub phrases: Vec<Phrase>,
 }
 
 /// rekordbox 6 obfuscates `PSSI` bodies with this XOR mask (offset by the entry count), per
@@ -509,67 +382,56 @@ pub fn song_structure(bytes: &[u8]) -> Result<Option<SongStructure>> {
         if let Some(prev) = phrases.last_mut() {
             prev.end_beat = beat;
         }
-        phrases.push(Phrase { kind: PhraseKind::from_raw(mood, kind), start_beat: beat, end_beat: end, fill_beat });
+        phrases.push(Phrase { kind: phrase_kind(mood, kind), start_beat: beat, end_beat: end, fill_beat });
     }
     // Entries come in order; anything else is corrupt.
     phrases.retain(|p| p.end_beat > p.start_beat);
     Ok(Some(SongStructure { mood, phrases }))
 }
 
-/// Everything a player shows about a track, from its analysis files.
-#[derive(Debug, Clone, Default, Serialize, JsonSchema)]
-pub struct TrackAnalysis {
-    pub beats: Vec<Beat>,
-    pub cues: Vec<Cue>,
-    pub preview: Option<Waveform>,
-    pub detail: Option<Waveform>,
-    pub structure: Option<SongStructure>,
+/// A track's beat grid, cues, waveforms and phrases. Missing or unreadable files leave fields
+/// empty.
+pub fn load(device: &Device, track: &Track) -> TrackAnalysis {
+    read_track(device, track, true)
 }
 
-impl TrackAnalysis {
-    /// Beat grid, cues, waveforms and phrases. Missing or unreadable files leave fields empty.
-    pub fn load(device: &Device, track: &Track) -> TrackAnalysis {
-        Self::read(device, track, true)
-    }
+/// A track's beat grid and cues only, for bulk work such as XML export.
+pub fn load_grid(device: &Device, track: &Track) -> TrackAnalysis {
+    read_track(device, track, false)
+}
 
-    /// Beat grid and cues only, for bulk work such as XML export.
-    pub fn load_grid(device: &Device, track: &Track) -> TrackAnalysis {
-        Self::read(device, track, false)
+fn read_track(device: &Device, track: &Track, waveforms: bool) -> TrackAnalysis {
+    let mut a = TrackAnalysis::default();
+    if track.analyze_path.is_empty() {
+        return a;
     }
-
-    fn read(device: &Device, track: &Track, waveforms: bool) -> TrackAnalysis {
-        let mut a = TrackAnalysis::default();
-        if track.analyze_path.is_empty() {
-            return a;
+    let dat = paths::key(&track.analyze_path);
+    let read = |key: &str| device.checked_path(key).ok().and_then(|p| std::fs::read(p).ok());
+    let ext = dat.strip_suffix(".DAT").map(|s| format!("{s}.EXT")).and_then(|k| read(&k));
+    if let Some(bytes) = read(&dat) {
+        a.beats = beat_grid(&bytes).unwrap_or_default();
+        a.cues = cues(&bytes).unwrap_or_default();
+        if waveforms {
+            a.preview = preview(&bytes).ok().flatten();
         }
-        let dat = paths::key(&track.analyze_path);
-        let read = |key: &str| device.checked_path(key).ok().and_then(|p| std::fs::read(p).ok());
-        let ext = dat.strip_suffix(".DAT").map(|s| format!("{s}.EXT")).and_then(|k| read(&k));
-        if let Some(bytes) = read(&dat) {
-            a.beats = beat_grid(&bytes).unwrap_or_default();
-            a.cues = cues(&bytes).unwrap_or_default();
-            if waveforms {
-                a.preview = preview(&bytes).ok().flatten();
-            }
-        }
-        if let Some(bytes) = ext {
-            // The .EXT file's extended cue list has names and colours; prefer it when present.
-            if let Ok(cues) = cues(&bytes)
-                && !cues.is_empty()
-            {
-                a.cues = cues;
-            }
-            if waveforms {
-                // Colour waveforms live in .EXT; keep the .DAT's blue preview otherwise.
-                if let Some(p) = preview(&bytes).ok().flatten() {
-                    a.preview = Some(p);
-                }
-                a.detail = detail(&bytes).ok().flatten();
-                a.structure = song_structure(&bytes).ok().flatten();
-            }
-        }
-        a
     }
+    if let Some(bytes) = ext {
+        // The .EXT file's extended cue list has names and colours; prefer it when present.
+        if let Ok(cues) = cues(&bytes)
+            && !cues.is_empty()
+        {
+            a.cues = cues;
+        }
+        if waveforms {
+            // Colour waveforms live in .EXT; keep the .DAT's blue preview otherwise.
+            if let Some(p) = preview(&bytes).ok().flatten() {
+                a.preview = Some(p);
+            }
+            a.detail = detail(&bytes).ok().flatten();
+            a.structure = song_structure(&bytes).ok().flatten();
+        }
+    }
+    a
 }
 
 #[cfg(test)]

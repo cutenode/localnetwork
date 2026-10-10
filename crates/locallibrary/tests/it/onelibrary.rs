@@ -3,7 +3,7 @@
 
 use crate::common::{self, media::png};
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fs;
 
 use std::path::Path;
@@ -241,7 +241,7 @@ fn artwork_goes_into_both_databases() {
     common::add_onelibrary(&root);
     let mut d = Device::open_export(&root).unwrap();
     let lib = d.library().unwrap();
-    let by_path: HashMap<String, u32> =
+    let by_path: FxHashMap<String, u32> =
         common::plus_library(&root).tracks.iter().map(|t| (t.file_path.clone(), t.id)).collect();
     let ids: Vec<u32> = lib.tracks.iter().take(2).map(|t| t.id).collect();
 

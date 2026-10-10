@@ -16,7 +16,9 @@
 //! recorded for that are forgotten (see [`crate::edit::journal`]), but the target keeps the player
 //! name and colour it had (see [`crate::player::stash`]).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use indexmap::IndexMap;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
@@ -147,7 +149,7 @@ pub struct PackPlan {
     plus: Option<Vec<u8>>,
     /// Source file for each key to copy.
     #[serde(skip)]
-    sources: BTreeMap<String, (PathBuf, i64)>,
+    sources: IndexMap<String, (PathBuf, i64)>,
     #[serde(skip)]
     history: bool,
     /// Files on the target the pack overwrites or removes that its backup keeps: analysis and
@@ -190,8 +192,8 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     let everything =
         Library { tracks: libraries.iter().flat_map(|l| l.tracks.iter().cloned()).collect(), ..Default::default() };
     let src_tree = source.scan(Some(&everything), ctx)?;
-    let mut wanted: BTreeMap<String, (PathBuf, u64, i64)> = BTreeMap::new();
-    let add = |key: &str, tree: &FileTree, wanted: &mut BTreeMap<String, (PathBuf, u64, i64)>| {
+    let mut wanted: IndexMap<String, (PathBuf, u64, i64)> = IndexMap::new();
+    let add = |key: &str, tree: &FileTree, wanted: &mut IndexMap<String, (PathBuf, u64, i64)>| {
         if let Some(e) = tree.resolve(key) {
             wanted.insert(e.path.clone(), (tree.fs_path(&e.path), e.size, e.mtime));
         }
@@ -217,6 +219,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     if subset.ext.is_none() {
         add(paths::EXPORT_EXT_PDB, &src_tree, &mut wanted);
     }
+    wanted.sort_unstable_keys();
     let missing = libraries[0].tracks.iter().filter(|t| src_tree.resolve(&paths::key(&t.file_path)).is_none()).count();
     if missing > 0 {
         warnings.push(format!("{missing} track(s) have no audio file on {}; players won't load them", source.name()));
@@ -227,10 +230,10 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     let scanned = target.scan_fingerprinted(target_lib.as_ref(), ctx)?;
     let unsaved = unsaved(target, &scanned, same_source, &subset)?;
     let tgt_tree = scanned.tree;
-    let target_by_fold: HashMap<String, &crate::tree::FileEntry> =
+    let target_by_fold: FxHashMap<String, &crate::tree::FileEntry> =
         tgt_tree.library_entries().map(|e| (fold(&e.path), e)).collect();
     let mut copies = Vec::new();
-    let mut sources = BTreeMap::new();
+    let mut sources = IndexMap::new();
     let mut unchanged = 0;
     let mut backed_up = Vec::new();
     let backs_up = |class: FileClass| matches!(class, FileClass::Analysis | FileClass::Artwork);
@@ -254,7 +257,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
             }
         }
     }
-    let written: HashSet<String> = [
+    let written: FxHashSet<String> = [
         subset.pdb.as_ref().map(|_| fold(paths::EXPORT_PDB)),
         subset.ext.as_ref().map(|_| fold(paths::EXPORT_EXT_PDB)),
         subset.plus.as_ref().map(|_| fold(paths::LIBRARY_PLUS_DB)),
@@ -263,7 +266,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     .into_iter()
     .flatten()
     .collect();
-    let wanted_folds: HashSet<String> = wanted.keys().map(|k| fold(k)).collect();
+    let wanted_folds: FxHashSet<String> = wanted.keys().map(|k| fold(k)).collect();
     let deletes: Vec<PackCopy> = if opts.keep_extra {
         Vec::new()
     } else {
@@ -298,7 +301,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
             u.describe()
         ));
     }
-    warnings.extend(edit::journal::forget_warning(target, "packing"));
+    warnings.extend(edit::journal::forget_warning(target, None, "packing"));
     let cluster = fsutil::cluster_size(target.root());
     let round = |n: u64| n.div_ceil(cluster) * cluster;
     let db_bytes = round(subset.pdb.as_ref().map_or(0, |b| b.len() as u64))
@@ -354,7 +357,7 @@ fn unsaved(target: &Device, scanned: &Scanned, same_source: bool, subset: &edit:
     let files = |tracks: &mut dyn Iterator<Item = &crate::model::Track>| -> Vec<String> {
         tracks.map(|t| paths::key(&t.file_path).to_lowercase()).collect()
     };
-    let mut packed: HashSet<(String, Vec<String>)> = HashSet::new();
+    let mut packed: FxHashSet<(String, Vec<String>)> = FxHashSet::default();
     for lib in std::iter::once(&subset.library).chain(subset.second.iter()) {
         for h in lib.history.iter().filter(|h| !h.is_folder) {
             packed.insert((h.name.clone(), files(&mut lib.tracks_by_id(&h.track_ids).into_iter())));

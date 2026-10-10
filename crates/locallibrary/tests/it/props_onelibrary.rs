@@ -7,7 +7,7 @@
 
 use crate::common;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::sync::OnceLock;
 
 use hegel::generators as gs;
@@ -17,7 +17,7 @@ use locallibrary::onelibrary::{self, CueRow, OneLibrary, wal};
 use locallibrary::{paths, pdb};
 
 fn fixture(name: &str) -> &'static [u8] {
-    static FILES: OnceLock<BTreeMap<&'static str, Vec<u8>>> = OnceLock::new();
+    static FILES: OnceLock<IndexMap<&'static str, Vec<u8>>> = OnceLock::new();
     &FILES.get_or_init(|| {
         ["empty.db", "wal.db", "wal.db-wal"]
             .into_iter()
@@ -166,8 +166,8 @@ fn build_wal(big_endian: bool, page_size: usize, salts: (u32, u32), frames: &[Fr
 
 /// What SQLite applies from `frames`: the last image of each page up to the last commit frame,
 /// and that commit's database size; nothing without a commit.
-fn committed_model(frames: &[Frame]) -> Option<(BTreeMap<u32, Vec<u8>>, u32)> {
-    let (mut pages, mut pending, mut db_pages) = (BTreeMap::new(), BTreeMap::new(), 0);
+fn committed_model(frames: &[Frame]) -> Option<(IndexMap<u32, Vec<u8>>, u32)> {
+    let (mut pages, mut pending, mut db_pages) = (IndexMap::new(), IndexMap::new(), 0);
     for (pgno, commit, page) in frames {
         pending.insert(*pgno, page.clone());
         if *commit != 0 {
@@ -178,7 +178,7 @@ fn committed_model(frames: &[Frame]) -> Option<(BTreeMap<u32, Vec<u8>>, u32)> {
     (db_pages > 0).then_some((pages, db_pages))
 }
 
-fn committed_owned(wal: &[u8], page_size: usize) -> Option<(BTreeMap<u32, Vec<u8>>, u32)> {
+fn committed_owned(wal: &[u8], page_size: usize) -> Option<(IndexMap<u32, Vec<u8>>, u32)> {
     wal::committed(wal, page_size)
         .unwrap()
         .map(|c| (c.pages.into_iter().map(|(n, p)| (n, p.to_vec())).collect(), c.db_pages))
@@ -535,7 +535,7 @@ impl CueTable {
         let lost: Vec<i64> = bank_before.iter().filter(|e| removed.contains(&e.1)).map(|e| e.0).collect();
         let mut expect: Vec<(i64, i64, i64)> =
             bank_before.iter().filter(|e| !removed.contains(&e.1)).copied().collect();
-        let mut seq = BTreeMap::new();
+        let mut seq = IndexMap::new();
         for e in expect.iter_mut().filter(|e| lost.contains(&e.0)) {
             let n = seq.entry(e.0).or_insert(0);
             *n += 1;
@@ -607,7 +607,7 @@ impl CueTable {
     #[invariant]
     fn bank_lists_are_whole(&self, _: TestCase) {
         assert_eq!(self.one.dangling_bank_list_entries().unwrap(), 0);
-        let mut seq: BTreeMap<i64, i64> = BTreeMap::new();
+        let mut seq: IndexMap<i64, i64> = IndexMap::new();
         for (list, _, n) in bank_entries(&self.one) {
             let next = seq.entry(list).or_insert(0);
             *next += 1;

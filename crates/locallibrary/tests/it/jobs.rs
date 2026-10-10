@@ -6,7 +6,7 @@ mod refresh_and_prep;
 
 use crate::common::{self, path};
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -35,7 +35,7 @@ fn add_demo_sample(root: &Path) {
 }
 
 /// The database files of an export, to put back as rekordbox's next export would.
-fn databases(root: &Path) -> BTreeMap<&'static str, Vec<u8>> {
+fn databases(root: &Path) -> IndexMap<&'static str, Vec<u8>> {
     [paths::EXPORT_PDB, paths::EXPORT_EXT_PDB, paths::LIBRARY_PLUS_DB]
         .into_iter()
         .filter_map(|k| Some((k, std::fs::read(root.join(k)).ok()?)))
@@ -43,7 +43,7 @@ fn databases(root: &Path) -> BTreeMap<&'static str, Vec<u8>> {
 }
 
 /// rekordbox exports to the drive again: its own databases (one more track), a minute later.
-fn export_again(root: &Path, export: &BTreeMap<&'static str, Vec<u8>>) {
+fn export_again(root: &Path, export: &IndexMap<&'static str, Vec<u8>>) {
     for (k, bytes) in export {
         std::fs::write(root.join(k), bytes).unwrap();
     }
@@ -116,7 +116,7 @@ fn jobs_through_the_api() {
         .unwrap();
     let remembered = Device::open(&main).unwrap().state().unwrap().player.clone().expect("remembered on the drive");
     assert_eq!((remembered.name.as_deref(), remembered.colour), (Some("MAIN A"), Some(3)));
-    let values = BTreeMap::from([("quantize".to_string(), "off".to_string())]);
+    let values = IndexMap::from([("quantize".to_string(), "off".to_string())]);
     api::settings_set(&store, &api::SetSettings { values, drive: None }).unwrap();
     let rule = api::SetSmartPlaylist {
         path: "Smart/Everything".into(),
@@ -194,9 +194,13 @@ fn jobs_through_the_api() {
     common::adopt(Some(&store), &backup, "Backup");
     api::pull(&store, &api::PullRequest { drive: path(&backup), ..Default::default() }, &ctx).unwrap();
 
-    // Two drives: which one?
-    let err = api::default_drive(Some(&store), "refresh").unwrap_err().to_string();
-    assert!(err.contains("say which drive to refresh") && err.contains("Backup") && err.contains("Home"), "{err}");
+    // Two clones of one library: either will do while they're identical, so neither is asked about.
+    let either = api::default_drive(Some(&store), "refresh").unwrap();
+    assert!([dunce_canonicalize(&main), dunce_canonicalize(&backup)].contains(&either.root().to_path_buf()));
+    // A library's name means the library.
+    let lead = api::resolve_drive("home").unwrap();
+    assert!([dunce_canonicalize(&main), dunce_canonicalize(&backup)].contains(&lead.root().to_path_buf()));
+    assert!(api::resolve_one_drive("Home").is_err(), "a drive's own commands take a drive");
     let group = api::drive_group(Some(&store), None).unwrap();
     assert_eq!((group.library.as_deref(), group.drives.len()), (Some("Home"), 2));
     let main_id = Device::open(&main).unwrap().id().unwrap();
@@ -283,14 +287,15 @@ fn jobs_through_the_api() {
     assert!(check.items.iter().any(|i| i.check == "history" && i.level == Level::Problem), "{:?}", check.items);
     fleet::retire(&store, backup_id, true).unwrap();
 
-    // rekordbox exported over an edit recorded on Backup: `refresh` with no drive means Backup,
-    // though Main is the primary.
+    // rekordbox exported over an edit recorded on Backup: `refresh` with no drive means Backup.
     let before = databases(&backup);
     common::apply(&backup, &[Edit::CreatePlaylist { path: "Backup only".into(), folder: false }]);
     export_again(&backup, &before);
     assert_eq!(status_of(&store, &main).exported_over_edits, 0);
-    assert_eq!(status_of(&store, &backup).exported_over_edits, 1);
-    assert_eq!(api::default_drive(Some(&store), "refresh").unwrap().root(), dunce_canonicalize(&main));
+    // Backup's journal came with Main's library: Main's two edits, and its own.
+    assert_eq!(status_of(&store, &backup).exported_over_edits, 3);
+    // The library's lead is the newest clone, Backup now, primary or not.
+    assert_eq!(api::default_drive(Some(&store), "refresh").unwrap().root(), dunce_canonicalize(&backup));
     let plan = api::refresh_plan(&store, &api::RefreshRequest::default(), &ctx).unwrap();
     assert_eq!(plan.targets[0].root, dunce_canonicalize(&backup));
 

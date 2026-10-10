@@ -1,0 +1,95 @@
+name: Bug report
+description: Something locallibrary got wrong, or a drive it couldn't read or write
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A few things that look like bugs but aren't:
+
+        - **rekordbox's export undid my edits.** Every export replaces the drive's databases. `locallibrary edits replay <drive>` (or `refresh`) makes the edits again, see [When rekordbox exports again](https://github.com/cutenode/locallibrary/blob/main/docs/editing.md#when-rekordbox-exports-again).
+        - **A command wrote nothing and said to plan again.** The drive changed between the plan and the write, so it refused on purpose.
+        - **Formatting, ejecting or fsck misbehaved on Linux or Windows.** Those are [experimental](https://github.com/cutenode/locallibrary/blob/main/docs/install.md#platforms). Reports are still welcome; say what the OS's own tools show.
+
+        If a command left a drive broken, `locallibrary undo <drive>` or `locallibrary drive restore <drive>` puts back the backup taken before the change. Say below whether that worked.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you were doing and what went wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands you ran, in order. A bug that can't be reproduced is hard to fix.
+      placeholder: |
+        1. Export from rekordbox to a USB drive
+        2. `locallibrary refresh Main`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: |
+        Everything the failing command printed, with the command. For a crash, run it again with `RUST_BACKTRACE=1` in front. Track and playlist names show up here, so edit out anything you'd rather keep private.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `locallibrary --version`. Built from source? Add the commit (`git rev-parse --short HEAD`).
+      placeholder: locallibrary 0.1.0 (69bc77d)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Built from source (cargo install)
+        - Installer script
+        - Homebrew
+        - Release archive
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 26.1, Apple silicon
+    validations:
+      required: true
+
+  - type: textarea
+    id: drive
+    attributes:
+      label: The drive
+      description: |
+        The rekordbox version that exported it and the output of `locallibrary drive info <drive>`. If the drive's database would help, say so here instead of attaching it.
+      render: text
+
+  - type: input
+    id: players
+    attributes:
+      label: Players and mixers
+      description: If it's about what a player loads or shows.
+      placeholder: CDJ-3000, DJM-A9

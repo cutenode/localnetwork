@@ -173,6 +173,7 @@ pub fn fleet(drive: DeviceInfo, library: Option<&str>) -> FleetDrive {
             library: library.map(Into::into),
             relation: None,
             head: None,
+            back_from_set: None,
             settings_drift: 0,
             error: None,
         },
@@ -259,9 +260,10 @@ pub fn playing_files(files: &[(u32, usize)]) -> (TempDir, App, rodio::mixer::Mix
     (dir, app, out)
 }
 
-/// Wait for the track playing to be open.
+/// Wait for the track playing to be open and its analysis read, so what a test sets on it
+/// isn't replaced by the analysis arriving after.
 pub fn opened(app: &mut App) {
-    wait(app, |a| a.now.as_ref().is_some_and(|n| !n.opening));
+    wait(app, |a| a.now.as_ref().is_some_and(|n| !n.opening && !n.loading));
 }
 
 /// A job as the player runs one: planning, or writing (and whether it's too late to stop).

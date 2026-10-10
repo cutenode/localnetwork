@@ -14,7 +14,7 @@ use locallibrary::progress::Ctx;
 use locallibrary::query::TrackSelector;
 
 use crate::output::{self, Outcome, Output, bytes, dim, warn};
-use crate::{DRIVE_HELP, SelectArgs, render};
+use crate::{LIBRARY_HELP, SelectArgs, render};
 
 #[derive(Args)]
 pub struct DryRun {
@@ -23,33 +23,33 @@ pub struct DryRun {
     dry_run: bool,
 }
 
-/// `playlist`: with a drive and no subcommand, its playlist tree.
+/// `playlist`: with a library or drive and no subcommand, its playlist tree.
 #[derive(Args)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct PlaylistArgs {
     #[command(subcommand)]
     command: Option<PlaylistCommand>,
-    /// A drive whose playlist tree to show, as `playlist ls` does [default: every mounted
-    /// rekordbox drive]
+    /// A library (or drive) whose playlist tree to show, as `playlist ls` does [default: each
+    /// library plugged in, and each rekordbox drive of none]
     #[arg(value_name = "DRIVE")]
     drive: Option<String>,
 }
 
 #[derive(Subcommand)]
 pub enum PlaylistCommand {
-    /// A drive's playlist tree: folders, playlists and how many tracks each holds
+    /// A library's playlist tree: folders, playlists and how many tracks each holds
     #[command(visible_alias = "tree", alias = "list")]
     Ls {
-        #[arg(help = crate::DEFAULT_DRIVE_HELP)]
+        #[arg(help = crate::DEFAULT_LIBRARY_HELP)]
         drive: Option<String>,
     },
     /// Create a playlist (or a folder), creating the folders above it
     #[command(
-        after_long_help = "Examples:\n  locallibrary playlist new Main \"Sets/2026/Friday\" --filter \"bpm:122-128 key:8A~\"\n  \
-locallibrary playlist new Main Archive --folder"
+        after_long_help = "Examples:\n  locallibrary playlist new Home \"Sets/2026/Friday\" --filter \"bpm:122-128 key:8A~\"\n  \
+locallibrary playlist new Home Archive --folder"
     )]
     New {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// Path like Sets/2026/Friday
         path: String,
@@ -64,7 +64,7 @@ locallibrary playlist new Main Archive --folder"
     },
     /// Rename a playlist or folder
     Rename {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist or folder (path like Folder/Name, or a unique name)
         playlist: String,
@@ -77,7 +77,7 @@ locallibrary playlist new Main Archive --folder"
     /// the tracks in a playlist)
     #[command(alias = "mv")]
     Move {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist or folder (path like Folder/Name, or a unique name)
         playlist: String,
@@ -100,10 +100,10 @@ locallibrary playlist new Main Archive --folder"
         #[command(flatten)]
         dry: DryRun,
     },
-    /// Delete a playlist, or a folder and everything in it (the tracks stay on the drive)
+    /// Delete a playlist, or a folder and everything in it (the tracks stay in the library)
     #[command(alias = "rm")]
     Delete {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist or folder (path like Folder/Name, or a unique name)
         playlist: String,
@@ -115,11 +115,11 @@ locallibrary playlist new Main Archive --folder"
     },
     /// Add tracks to a playlist
     #[command(
-        after_long_help = "Examples:\n  locallibrary playlist add Main \"Sets/2026/Friday\" --query \"floorplan\" --position 1\n  \
-locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -rating"
+        after_long_help = "Examples:\n  locallibrary playlist add Home \"Sets/2026/Friday\" --query \"floorplan\" --position 1\n  \
+locallibrary playlist add Home Peak --filter \"bpm:126-130 rating:>=4\" --sort -rating"
     )]
     Add {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist (path like Folder/Name, or a unique name)
         #[arg(id = "target", value_name = "PLAYLIST")]
@@ -140,7 +140,7 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
     /// Remove tracks from a playlist, by track or by position
     Remove {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist (path like Folder/Name, or a unique name)
         #[arg(id = "target", value_name = "PLAYLIST")]
@@ -155,10 +155,10 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
     /// Move tracks within a playlist, by position
     #[command(
-        after_long_help = "Example:\n  locallibrary playlist reorder Main Friday --at 7,8 --to 1    # tracks 7 and 8 open the playlist"
+        after_long_help = "Example:\n  locallibrary playlist reorder Home Friday --at 7,8 --to 1    # tracks 7 and 8 open the playlist"
     )]
     Reorder {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist (path like Folder/Name, or a unique name)
         playlist: String,
@@ -173,7 +173,7 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
     /// Sort a playlist, e.g. --sort key,bpm or --sort -rating
     Sort {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist (path like Folder/Name, or a unique name)
         playlist: String,
@@ -185,7 +185,7 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
     /// Drop repeated entries from a playlist
     Dedupe {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist (path like Folder/Name, or a unique name)
         playlist: String,
@@ -198,7 +198,7 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     /// Order a playlist for mixing: compatible keys, close tempos, energy that builds
     #[command(alias = "plan")]
     Order {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist (path like Folder/Name, or a unique name)
         playlist: String,
@@ -213,7 +213,7 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
     /// Make a playlist hold the tracks matching a filter (created if needed)
     Fill {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist's path, like Folder/Name, letter case included (made there if missing)
         playlist: String,
@@ -231,7 +231,7 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
     /// Make a playlist from a tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or "Artist - Title" lines
     Import {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The tracklist: .m3u/.m3u8, .csv, .txt or rekordbox .xml
         file: std::path::PathBuf,
@@ -252,7 +252,7 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
     /// Collect the tracks that are in no playlist into one, so players can find them
     Unfiled {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The playlist's path, letter case included (made there if missing)
         #[arg(long, default_value = "Unfiled")]
@@ -262,13 +262,13 @@ locallibrary playlist add Main Peak --filter \"bpm:126-130 rating:>=4\" --sort -
     },
 }
 
-/// `track`: with a drive and no subcommand, the chosen tracks' details.
+/// `track`: with a library or drive and no subcommand, the chosen tracks' details.
 #[derive(Args)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct TrackArgs {
     #[command(subcommand)]
     command: Option<TrackCommand>,
-    /// A drive whose tracks to show, as `track show` does
+    /// A library (or drive) whose tracks to show, as `track show` does
     #[arg(value_name = "DRIVE")]
     drive: Option<String>,
     #[command(flatten)]
@@ -281,11 +281,11 @@ pub struct TrackArgs {
 pub enum TrackCommand {
     /// Change track details: rating, colour, genre, title, artist...
     #[command(
-        after_long_help = "Examples:\n  locallibrary track set Main --filter \"bpm:>=128 genre:techno\" --rating 5 --colour red\n  \
-locallibrary track set Main --track 12 --title \"One More Time\" --artist \"Daft Punk\""
+        after_long_help = "Examples:\n  locallibrary track set Home --filter \"bpm:>=128 genre:techno\" --rating 5 --colour red\n  \
+locallibrary track set Home --track 12 --title \"One More Time\" --artist \"Daft Punk\""
     )]
     Set {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         select: SelectArgs,
@@ -296,7 +296,7 @@ locallibrary track set Main --track 12 --title \"One More Time\" --artist \"Daft
     },
     /// Delete tracks with their playlist entries, and their files unless another track uses them
     Rm {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         select: SelectArgs,
@@ -308,7 +308,7 @@ locallibrary track set Main --track 12 --title \"One More Time\" --artist \"Daft
     },
     /// Replace one copy of a recording with another everywhere, then delete it
     Replace {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// Track id of the copy to replace
         duplicate: u32,
@@ -322,7 +322,7 @@ locallibrary track set Main --track 12 --title \"One More Time\" --artist \"Daft
     },
     /// Replace duplicate copies with the one `doctor` suggests keeping (most playlists, best bitrate)
     Dedupe {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// Also find copies by audio content (hashes audio files that share a size)
         #[arg(long)]
@@ -336,14 +336,14 @@ locallibrary track set Main --track 12 --title \"One More Time\" --artist \"Daft
     /// Everything about tracks: details, playlists and history lists holding them, My Tags, other
     /// copies, a missing audio file, and what their analysis holds
     Show {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         select: SelectArgs,
     },
     /// Tracks that mix into a track: compatible key, close tempo
     Matches {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The track's id
         track: u32,
@@ -441,7 +441,7 @@ pub enum SmartCommand {
         /// At most this many tracks (the first, in --sort's order)
         #[arg(long)]
         limit: Option<usize>,
-        /// Only for this drive (repeatable) [default: every drive]
+        /// Only for this library, or this drive's library (repeatable) [default: every drive]
         #[arg(long = "drive")]
         drives: Vec<String>,
     },
@@ -452,7 +452,8 @@ pub enum SmartCommand {
     },
     /// Write the rule-based playlists to drives, filled from each drive's library
     Apply {
-        /// Drives [default: every mounted rekordbox drive but archive and retired ones]
+        /// Libraries or drives [default: each library plugged in, and each rekordbox drive of none,
+        /// but archive and retired ones]
         drives: Vec<String>,
         #[command(flatten)]
         dry: DryRun,
@@ -465,29 +466,29 @@ pub enum SmartCommand {
 pub struct EditsArgs {
     #[command(subcommand)]
     command: Option<EditsCommand>,
-    /// A drive whose recorded edits to list, as `edits list` does [default: every mounted
-    /// rekordbox drive]
+    /// A library (or drive) whose recorded edits to list, as `edits list` does [default: each
+    /// library plugged in, and each rekordbox drive of none]
     #[arg(value_name = "DRIVE")]
     drive: Option<String>,
 }
 
 #[derive(Subcommand)]
 pub enum EditsCommand {
-    /// The edits recorded on a drive
+    /// The edits recorded on a library's drives
     List {
-        #[arg(help = crate::DEFAULT_DRIVE_HELP)]
+        #[arg(help = crate::DEFAULT_LIBRARY_HELP)]
         drive: Option<String>,
     },
     /// Make the recorded edits again, e.g. after rekordbox exported to the drive
     Replay {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         #[command(flatten)]
         dry: DryRun,
     },
     /// Forget the recorded edits
     Clear {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = crate::DRIVE_HELP)]
         drive: String,
         #[command(flatten)]
         dry: DryRun,
@@ -528,8 +529,11 @@ pub(crate) fn confirm_and_apply(
     }
     if !out.json {
         render_plan(&planned);
-        // What the plan says besides the edit's own (a set's tracks not on the drive, say).
-        for w in planned.warnings.iter().filter(|w| !planned.plan.warnings.contains(w)) {
+        output::clones(&planned);
+        // What the plan says besides the edit's own and its clones' (a set's tracks not on the
+        // drive, say).
+        let about_clones = |w: &String| planned.clones.iter().any(|c| c.left_alone.as_ref() == Some(w));
+        for w in planned.warnings.iter().filter(|w| !planned.plan.warnings.contains(w) && !about_clones(w)) {
             warn(w);
         }
     }
@@ -602,7 +606,7 @@ pub(crate) fn render_report(r: &EditReport, drive: &str) {
         }
     ));
     crate::output::hint(format!(
-        "Undo with `locallibrary undo {drive}`. rekordbox's next export to this drive replaces these changes; \
+        "Undo with `locallibrary undo {drive}`. rekordbox's next export replaces these changes; \
              `locallibrary edits replay {drive}` makes them again."
     ));
 }
@@ -629,7 +633,7 @@ pub fn playlist(args: PlaylistArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCo
     let (drive, edits, dry) = match command {
         PlaylistCommand::Ls { drive } => return tree(drive, out),
         PlaylistCommand::Import { drive, file, into, from, append, choose, dry } => {
-            let mut choices = std::collections::BTreeMap::new();
+            let mut choices = indexmap::IndexMap::new();
             for c in choose {
                 let parsed = c.split_once('=').and_then(|(e, t)| {
                     Some((e.trim().parse::<usize>().ok()?, t.trim().trim_start_matches('#').parse::<u32>().ok()?))
@@ -739,7 +743,7 @@ pub fn track(args: TrackArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
         }
         (None, None) => {
             return Err(crate::jobs_cmd::usage(
-                "give a drive and the tracks: `locallibrary track DRIVE --query ...` shows them",
+                "give a library or drive and the tracks: `locallibrary track LIBRARY --query ...` shows them",
             ));
         }
     };
@@ -808,7 +812,7 @@ pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Resu
                 extra.push(format!("at most {n}"));
             }
             if !p.drives.is_empty() {
-                extra.push(format!("{} drive(s) only", p.drives.len()));
+                extra.push("some libraries only".to_string());
             }
             say!("{}  {}  {}", style(&p.path).bold(), p.filter, dim(extra.join(", ")));
         }
@@ -846,7 +850,10 @@ pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Resu
             return out.one_step(&change, "Remove it?", || Ok(api::smart_remove(store, &req)?), show);
         }
         SmartCommand::Apply { drives, dry } => {
-            let targets = if drives.is_empty() { crate::each_drive::targets(Some(store))? } else { drives };
+            let targets = match drives.is_empty() {
+                true => crate::each_drive::targets(Some(store))?,
+                false => api::libraries_once(drives)?,
+            };
             return smart_apply(store, targets, dry.dry_run, out, ctx);
         }
     }
@@ -866,7 +873,10 @@ fn smart_apply(store: &Store, drives: Vec<String>, dry_run: bool, out: Output, c
             }
             output::ok(format!("{drive}: nothing to change"));
         }
-        false => render_plan(p),
+        false => {
+            render_plan(p);
+            output::clones(p);
+        }
     };
     crate::each_drive::apply_each(plans, dry_run, "Make these changes", out, ctx, show, |drive, r| {
         render_report(r, drive)
@@ -1018,6 +1028,7 @@ fn import(req: api::ImportRequest, dry_run: bool, out: Output, ctx: &Ctx<'_>) ->
     };
     if !out.json {
         render_plan(plan);
+        output::clones(&preview);
     }
     if let Some(o) = out.decide(dry_run, "Make this playlist?") {
         return Ok(out.not_applied(&preview, o));

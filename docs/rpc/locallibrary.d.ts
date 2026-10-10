@@ -514,7 +514,10 @@ export type CheckRequest = {
    * or don't decode. It reads a little of every file, so it takes a while on a big drive.
    */
   audio?: boolean;
-  /** The drives going to the set; the first is the reference the others must match. */
+  /**
+   * The drives going to the set (a library's name: its mounted clones, but archive and retired
+   * ones); the first is the reference the others must match.
+   */
   drives: string[];
   /**
    * Player models to check the drives against (`CDJ-2000NXS2`, `CDJ-3000X`...). Without any,
@@ -607,6 +610,20 @@ export type ClientMetadataRequest = {
   client_id?: string;
   /** Scopes to allow besides `atproto` and the publish scopes, which every document allows. */
   scopes?: string[];
+};
+
+/**
+ * A mounted clone of the library a plan writes, which applying the plan copies the drive it wrote
+ * onto unless it's left alone (see `Planned::reaching_clones`).
+ */
+export type CloneTarget = {
+  /**
+   * Why it isn't copied onto (it's newer, diverged, or back from a set), also among the
+   * plan's warnings.
+   */
+  left_alone?: string | null;
+  name: string;
+  root: string;
 };
 
 /** An audio format players list. */
@@ -970,8 +987,12 @@ export type CueMark = {
  * `{"op": "copy", "from": {"ids": [12]}}`.
  */
 export type CueOp =
-  | SetCue
-  | UpdateCue
+  | (SetCue & {
+    op: "set";
+  })
+  | (UpdateCue & {
+    op: "update";
+  })
   | {
     cue: CueRef;
     op: "delete";
@@ -1106,7 +1127,10 @@ export type DiffEntry = {
 };
 
 export type DiffRequest = {
-  /** A drive, `snapshot:<id prefix>`, or a library (its latest snapshot). */
+  /**
+   * A library (its newest drive plugged in, else its latest snapshot), a drive, or
+   * `snapshot:<id prefix>`.
+   */
   left: string;
   /** Only this playlist, or the playlists in this folder. */
   playlist?: string | null;
@@ -1451,6 +1475,11 @@ export type DriveSettingsView = {
 
 /** One drive's standing relative to its library's latest snapshot. */
 export type DriveStatus = {
+  /**
+   * Back from a set: the drive is newer than the head only by what players add (history
+   * lists, TAG LIST playlists), with this many history lists new or longer. Pulling saves them.
+   */
+  back_from_set: number | null;
   drive: DeviceInfo;
   error: string | null;
   head: SnapshotInfo | null;
@@ -1666,7 +1695,9 @@ export type Edit =
    * A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
    * this way; only a replay takes them.
    */
-  | TagChange
+  | (TagChange & {
+    op: "my_tag";
+  })
   /**
    * A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).
    * `cues` edits are recorded this way; only a replay takes them.
@@ -1860,7 +1891,9 @@ export type EditOutput =
    * A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
    * this way; only a replay takes them.
    */
-  | TagChange
+  | (TagChange & {
+    op: "my_tag";
+  })
   /**
    * A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).
    * `cues` edits are recorded this way; only a replay takes them.
@@ -1969,6 +2002,7 @@ export type EditSet = {
 };
 
 export type EjectDrives = {
+  /** Drives, or a library's name for its mounted clones (but archive and retired ones). */
   drives: string[];
 };
 
@@ -2487,6 +2521,11 @@ export type FirmwareRequest = {
 
 /** A mounted drive's status, with what the registry knows about it. */
 export type FleetDrive = {
+  /**
+   * Back from a set: the drive is newer than the head only by what players add (history
+   * lists, TAG LIST playlists), with this many history lists new or longer. Pulling saves them.
+   */
+  back_from_set: number | null;
   drive: DeviceInfo;
   error: string | null;
   /**
@@ -2514,6 +2553,31 @@ export type FleetDrive = {
   settings_drift: number;
 };
 
+/** A library and its clones, the drives holding it: those plugged in, and those that aren't. */
+export type FleetLibrary = {
+  /** Its latest snapshot. */
+  head: SnapshotInfo | null;
+  id: string;
+  /**
+   * Whether its clones plugged in hold the same library: `None` with fewer than two, or when
+   * one couldn't be compared with the store.
+   */
+  identical: boolean | null;
+  /**
+   * Where its clones that are plugged in are mounted (each is in `mounted`), by role: the
+   * primary first.
+   */
+  mounted: string[];
+  name: string;
+  /** Its registered clones that aren't plugged in (retired ones with `retired`). */
+  offline: KnownDrive[];
+  /**
+   * Whether a clone plugged in holds changes the store doesn't have (it's newer than the latest
+   * snapshot, or diverged from it).
+   */
+  unsaved: boolean;
+};
+
 export type FleetProblem = {
   at: string;
   detail: string;
@@ -2531,6 +2595,11 @@ export type FleetRequest = {
 export type FleetStatus = {
   /** Mounted drives sharing one identity (copies of each other). */
   duplicates: Duplicate[];
+  /**
+   * The libraries of the mounted drives (with `all`, of every registered drive too), by name:
+   * each with its clones. Drives of no library in the store are in none.
+   */
+  libraries: FleetLibrary[];
   mounted: FleetDrive[];
   /** Registered drives that aren't mounted (with `all`). */
   offline: KnownDrive[];
@@ -3882,15 +3951,23 @@ export type PhraseSummary = {
 /** What every plan says besides its own fields, as `*.plan` returns it (see [`Planned`]). */
 export type PlanFields = {
   /**
+   * The library's other mounted clones, which applying copies the drive it writes onto, but
+   * those `left_alone`.
+   */
+  clones?: CloneTarget[];
+  /**
    * It deletes or overwrites something (files, tracks, a library, a disk): a dialog should
    * say so.
    */
   destructive: boolean;
-  /** The drives (and files on this computer) it reads or writes. */
+  /** The drives (and files on this computer) it reads or writes, its clones included. */
   drives: Touched[];
   /** Applying it changes nothing. */
   noop: boolean;
-  /** The RPC method's name without `.plan`. */
+  /**
+   * The RPC method's name without `.plan`, except `undo` for `drive.restore.plan`, `eject` for
+   * `drive.eject.plan` and `set` for `prep.plan`.
+   */
   operation: string;
   /** Names the plan in `*.apply {"plan_id": ...}`. */
   plan_id: string;
@@ -4033,7 +4110,10 @@ export type PlayStatsRequest = {
    * of the source's library from before it).
    */
   since?: string | null;
-  /** A drive, `snapshot:<id prefix>`, or a library (its latest snapshot). */
+  /**
+   * A library (its newest drive plugged in, else its latest snapshot), a drive, or
+   * `snapshot:<id prefix>`.
+   */
   source: string;
 };
 
@@ -5313,7 +5393,10 @@ export type SetInfo = {
 export type SetJobRequest = {
   /** Also decode the end of every audio file (slow). */
   audio?: boolean;
-  /** The drives you're taking [default: the mounted drives of one library, see [`drive_group`]]. */
+  /**
+   * The drives you're taking, or a library's name for its mounted clones [default: the mounted
+   * drives of one library, see [`drive_group`]].
+   */
   drives?: string[];
   /** Eject the drives once everything passed [default: yes]. */
   eject?: boolean;
@@ -5382,7 +5465,10 @@ export type SetSettings = {
 };
 
 export type SetSmartPlaylist = {
-  /** Only for these drives (names, ids or mount paths); every drive when empty. */
+  /**
+   * Only for these libraries, or the libraries of these drives (names, ids or mount paths);
+   * every drive when empty.
+   */
   drives?: string[];
   filter: string;
   limit?: number | null;
@@ -5456,7 +5542,11 @@ export type SettingsApplyPlan = {
 export type SettingsApplyRequest = {
   /** Write all four files even when the profile doesn't mention their settings. */
   create_missing?: boolean;
-  /** Drives [default: every mounted rekordbox drive but archive and retired ones]. */
+  /**
+   * Drives, or libraries: each of a library's mounted clones (settings are each drive's own) but
+   * archive and retired ones [default: every mounted rekordbox drive but archive and retired
+   * ones].
+   */
   drives?: string[];
 };
 
@@ -5554,7 +5644,10 @@ export type SignatureTransition = {
 export type Skip = [path: string, reason: string];
 
 export type SmartPlaylist = {
-  /** Drives it applies to; every drive when empty. */
+  /**
+   * The libraries it's limited to, by a library's id or one of its drives' (any clone of that
+   * drive's library takes it, as clones are kept identical); every drive when empty.
+   */
   drives?: string[];
   /** See [`crate::query`]. */
   filter: string;
@@ -5908,6 +6001,7 @@ export type SyncManyPreview = {
 export type SyncManyRequest = {
   allow_low_confidence?: boolean;
   delete_first?: boolean;
+  /** Drives, or a library's name for its mounted clones (but archive and retired ones). */
   drives: string[];
   keep_extra?: boolean;
   overwrite_archive?: boolean;
@@ -5993,7 +6087,10 @@ export type SyncSetRequest = {
   allow_low_confidence?: boolean;
   delete_first?: boolean;
   keep_extra?: boolean;
-  /** The library whose group to sync [default: the only group with two or more drives mounted]. */
+  /**
+   * The library whose group to sync [default: the only group with two or more drives mounted;
+   * with several, refused as `choose_library`, listing them].
+   */
   library?: string | null;
   verify?: boolean;
 };
@@ -6075,7 +6172,7 @@ export type TagReport = {
   tracks_changed: number;
 };
 
-/** A My Tag edit: `{"drive": "Main", "action": "add", "tag": "Genre/Deep House", "query": "..."}`. */
+/** A My Tag edit: `{"drive": "Home", "action": "add", "tag": "Genre/Deep House", "query": "..."}`. */
 export type TagsEdit = {
   drive: string;
 } & (
@@ -6699,7 +6796,7 @@ export type WatchAction =
     name: string;
     root: string;
   }
-  /** A mounted drive, as cheaply as it can be described: no database is read. */
+  /** The drive's state was pulled into the store as a new snapshot. */
   | {
     /** Saved beside the library's newest snapshot, which stays the newest. */
     beside: boolean;
@@ -6756,7 +6853,7 @@ export type WatchAction =
     reason: string;
     root: string;
   }
-  /** A mounted drive, as cheaply as it can be described: no database is read. */
+  /** Looking at the drive failed (other than waiting on a lock): `kind` is the error's code. */
   | {
     event: "watch.failed";
     /** Whether it holds a rekordbox export (either database). */
@@ -6773,9 +6870,13 @@ export type WatchAction =
 /** What a poll noticed. */
 export type WatchEvent =
   /** A volume was mounted (or a different one mounted where another was). */
-  | MountedDrive
+  | (MountedDrive & {
+    event: "drive.attached";
+  })
   /** A volume went away; the drive as it was last seen. */
-  | MountedDrive
+  | (MountedDrive & {
+    event: "drive.detached";
+  })
   /** A mounted drive's databases or state changed. */
   | {
     changed: DriveChange[];

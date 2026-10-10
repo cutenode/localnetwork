@@ -22,7 +22,7 @@ pub fn doctor(req: &DoctorRequest, ctx: &Ctx<'_>) -> Result<DoctorReport> {
     doctor::run(&resolve_drive(&req.drive)?, &req.options, ctx)
 }
 
-/// Orphaned files a cleanup would delete.
+/// Orphaned files a cleanup would delete, from the drive and (as a sync would) its clones.
 pub fn doctor_orphans_plan(req: &DriveRef, ctx: &Ctx<'_>) -> Result<Planned<OrphanPlan>> {
     let d = resolve_drive(&req.drive)?;
     let plan = doctor::plan_orphans(&d, ctx)?;
@@ -35,6 +35,7 @@ pub fn doctor_orphans_plan(req: &DriveRef, ctx: &Ctx<'_>) -> Result<Planned<Orph
         .destructive(!noop)
         .noop(noop)
         .touches(Touched::drive(&d, true, vec![Probe::Databases, Probe::Identity, Probe::Stamp(keys)]))
+        .reaching_clones(ctx)?
         .guard(None)
 }
 

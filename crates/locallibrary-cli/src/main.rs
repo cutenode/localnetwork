@@ -6,6 +6,7 @@ mod output;
 
 #[cfg(feature = "account")]
 mod account_cmd;
+mod autostart;
 mod check_cmd;
 mod collection_cmd;
 mod completion;
@@ -37,7 +38,7 @@ mod tags_cmd;
 mod tui;
 mod watch_cmd;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 #[cfg(feature = "tui")]
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -53,18 +54,28 @@ use locallibrary::progress::{CancelToken, Ctx};
 
 use crate::output::{Outcome, Output};
 
-/// The help of every `<DRIVE>` argument.
+/// The help of a `<DRIVE>` argument of a command about one particular drive (its name, role,
+/// backups, file system...): a library's name isn't taken.
 pub const DRIVE_HELP: &str = "The drive: its mount path, name or id prefix";
 
-/// The help of a `[DRIVE]` argument that can be left out: the command then reads every mounted
-/// rekordbox drive.
+/// The help of a `<DRIVE>` argument that takes a library: its name means its lead clone, and a
+/// change to it is copied onto the library's other drives plugged in.
+pub const LIBRARY_HELP: &str = "A library's name, or a drive's mount path, name or id prefix";
+
+/// The help of a `[DRIVE]` argument of a read that can be left out: the command then reads each
+/// mounted library once, from its lead clone, and each mounted rekordbox drive of no library.
+pub const DEFAULT_LIBRARY_HELP: &str = "A library's name, or a drive's mount path, name or id prefix \
+[default: each library plugged in, and each rekordbox drive of none]";
+
+/// The help of a `[DRIVE]` argument that can be left out, of a read of what each drive keeps for
+/// itself: the command then reads every mounted rekordbox drive.
 pub const DEFAULT_DRIVE_HELP: &str = "The drive: its mount path, name or id prefix [default: every mounted \
 rekordbox drive]";
 
 /// The help of a `[DRIVE]` argument that can be left out for one drive (see
 /// [`jobs_cmd::drive_or_default`]).
 pub const ONE_DRIVE_HELP: &str = "The drive: its mount path, name or id prefix [default: the only mounted \
-rekordbox drive, or the library's primary]";
+rekordbox drive, or the newest drive of the one library plugged in]";
 
 /// Where the global flags show in every command's help.
 const GLOBAL: &str = "Global options";
@@ -88,16 +99,18 @@ macro_rules! after_help {
     () => {
         concat!(
             "Common tasks:
-  locallibrary setup                      first run: name your drives, start your library
-  locallibrary status                     every mounted drive at a glance
+  locallibrary setup                      first run: start your library from your drives
+  locallibrary status                     your libraries and their drives at a glance
   locallibrary refresh                    after a rekordbox export: put back what it replaced
   locallibrary prep                       the night before a set: save, sync, check, eject
-  locallibrary sync                       bring the drive group up to date from its newest drive
-  locallibrary sync --from Main Backup    copy one drive onto another
+  locallibrary sync                       bring each library's drives up to date from its newest
+  locallibrary sync --from REKORDBOX SD   copy one drive onto another
   locallibrary pull                       save the mounted drives in the store
-  locallibrary undo Main                  take back the last change to a drive
+  locallibrary undo Home                  take back the last change to a library
 
-Drives are a mount path (/Volumes/USB), a name (\"Club drive\") or an id prefix.",
+Each drive holds a copy of a library. Most commands that take a drive take a library's name (Home) \
+too: its newest drive plugged in, and a change to it is copied onto the others. A drive is a mount \
+path (/Volumes/USB), a name (REKORDBOX) or an id prefix.",
             on_its_own!(),
             " `locallibrary help COMMAND` (or COMMAND --help) says more."
         )
@@ -155,11 +168,12 @@ pub struct Cli {
 #[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum Command {
-    /// Every mounted drive against its library's latest snapshot, plus settings drift, roles and
-    /// problems
+    /// Each library with its drives: where each stands against the library's latest snapshot,
+    /// plus settings drift, roles and problems
     Status {
-        /// Also every registered drive that isn't mounted, and how far behind it was (`offline` in
-        /// --json's `{mounted, offline, duplicates}`)
+        /// Also libraries with no drive plugged in, and drives of no library that aren't (`offline`
+        /// in --json's `{mounted, offline, duplicates, libraries}` lists every registered drive
+        /// that isn't)
         #[arg(long)]
         all: bool,
         /// With --all, retired drives too
@@ -170,13 +184,15 @@ enum Command {
     /// another)
     #[command(after_help = SYNC_HELP, after_long_help = SYNC_LONG_HELP)]
     Sync {
-        /// Two or more drives [default: the mounted drive group]; with --from, the drive to copy onto
+        /// Two or more drives, or a library for its mounted drives [default: every mounted library];
+        /// with --from, the drive to copy onto
         #[arg(value_name = "DRIVE")]
         drives: Vec<String>,
         /// Copy this drive onto the drive given, overwriting its library, whichever is newer
         #[arg(long, value_name = "DRIVE", conflicts_with_all = ["library", "allow_guess"])]
         from: Option<String>,
-        /// The library whose drive group to sync (with no drives given)
+        /// The library whose drive group to sync (with no drives given) [default: every mounted
+        /// library]
         #[arg(long, short)]
         library: Option<String>,
         #[command(flatten)]
@@ -185,14 +201,16 @@ enum Command {
         #[arg(long)]
         allow_guess: bool,
     },
-    /// Snapshot a drive into the store (with no drive: every mounted drive of one library)
-    #[command(after_long_help = "Examples:\n  locallibrary pull Main\n  \
-locallibrary pull    # every mounted drive of the library\n  \
-locallibrary pull Main -m \"after Friday's export\" --label \"before NYE\"\n  \
-locallibrary pull /Volumes/NEW --library Main    # into an existing library")]
+    /// Snapshot a drive into the store (with a library, or no drive: every mounted drive of one
+    /// library)
+    #[command(after_long_help = "Examples:\n  locallibrary pull    # every mounted drive of the library\n  \
+locallibrary pull Home    # the library Home's mounted drives\n  \
+locallibrary pull REKORDBOX -m \"after Friday's export\" --label \"before NYE\"\n  \
+locallibrary pull /Volumes/NEW --library Home    # into an existing library")]
     Pull {
-        /// The drive: its mount path, name or id prefix [default: the mounted drives of one
-        /// library, the newest export first, then drives back from a set beside it]
+        /// The drive: its mount path, name or id prefix, or a library's name for its mounted drives
+        /// [default: the mounted drives of one library, the newest export first, then drives back
+        /// from a set beside it]
         drive: Option<String>,
         /// Library to pull into [default: the drive's, else a new one named after the drive]
         #[arg(long, short)]
@@ -219,14 +237,14 @@ locallibrary pull /Volumes/NEW --library Main    # into an existing library")]
     /// The night before a set: save the drives, sync them, check them for the players, eject them
     #[command(after_help = jobs_cmd::PREP_HELP)]
     Prep(jobs_cmd::PrepArgs),
-    /// First run: name your drives, start your library, import My Settings, remember your players
+    /// First run: start your library from your drives, import My Settings, remember your players
     #[command(after_help = jobs_cmd::SETUP_HELP)]
     Setup(jobs_cmd::SetupArgs),
-    /// Take back the last change locallibrary made to a drive (again: the one before it)
+    /// Take back the last change locallibrary made to a library or drive (again: the one before it)
     #[command(after_help = UNDO_HELP, after_long_help = UNDO_LONG_HELP)]
     Undo {
-        /// The drive: its mount path, name or id prefix [default: the only mounted drive with
-        /// something to undo]
+        /// A library's name, or a drive's mount path, name or id prefix [default: the only mounted
+        /// drive with something to undo]
         drive: Option<String>,
         /// What can be undone, on every mounted drive (or this one), newest first
         #[arg(long)]
@@ -241,10 +259,10 @@ locallibrary pull /Volumes/NEW --library Main    # into an existing library")]
     },
     /// Health report: duplicates, missing and orphaned files, unfiled tracks, database drift, files too big for FAT32
     Doctor(doctor_cmd::DoctorArgs),
-    /// List, search, filter and sort a drive's tracks
+    /// List, search, filter and sort a library's tracks
     #[command(after_help = FILTER_HELP, after_long_help = TRACKS_LONG_HELP)]
     Tracks(TracksArgs),
-    /// Show a drive's playlist tree, or edit its playlists and folders: create, rename, move,
+    /// Show a library's playlist tree, or edit its playlists and folders: create, rename, move,
     /// delete, add and remove tracks, sort
     #[command(after_help = FILTER_HELP)]
     Playlist(edit_cmd::PlaylistArgs),
@@ -254,7 +272,7 @@ locallibrary pull /Volumes/NEW --library Main    # into an existing library")]
     /// Interactive player: browse drives and playlists, play tracks with their rekordbox waveforms
     #[cfg(feature = "tui")]
     Tui {
-        /// Drive to open [default: the first mounted rekordbox drive]
+        /// Library or drive to open [default: the first mounted rekordbox drive]
         drive: Option<String>,
     },
     #[command(flatten)]
@@ -277,22 +295,22 @@ locallibrary pull /Volumes/NEW --library Main    # into an existing library")]
     Cues(cues_cmd::CuesArgs),
     /// Cover art on drives and in audio files
     Art(ArtArgs),
-    /// The edits made to a drive, to make them again after rekordbox exports over them
+    /// The edits made to a library, to make them again after rekordbox exports over them
     Edits(edit_cmd::EditsArgs),
     /// Rule-based playlists: kept in the store, written to drives as ordinary playlists
     #[command(after_help = FILTER_HELP)]
     Smart(edit_cmd::SmartArgs),
     /// Player/mixer "My Settings": one profile for every drive, with per-drive overrides
     Settings(SettingsArgs),
-    /// Merge another library's tracks, analysis, artwork and playlists into a drive
+    /// Merge another library's tracks, analysis, artwork and playlists into a library
     #[command(
-        after_long_help = "Examples:\n  locallibrary merge \"Friend's USB\" Main --folder Sam --only \"Sets/Saturday\"\n  \
-locallibrary merge Backup Main --playlists by-name --dry-run"
+        after_long_help = "Examples:\n  locallibrary merge \"Friend's USB\" Home --folder Sam --only \"Sets/Saturday\"\n  \
+locallibrary merge BACKUP REKORDBOX --playlists by-name --dry-run"
     )]
     Merge {
-        /// The drive to take tracks and playlists from
+        /// The library or drive to take tracks and playlists from
         source: String,
-        /// The drive to add them to
+        /// The library or drive to add them to
         target: String,
         /// How to bring playlists across
         #[arg(long, value_enum, default_value_t = PlaylistArg::Folder)]
@@ -313,13 +331,13 @@ locallibrary merge Backup Main --playlists by-name --dry-run"
         #[arg(long)]
         dry_run: bool,
     },
-    /// Put only some playlists of a drive (and the tracks they use) on another drive, e.g. for a set
+    /// Put only some playlists of a library (and the tracks they use) on another drive, e.g. for a set
     #[command(
-        after_long_help = "Examples:\n  locallibrary pack Main /Volumes/TONIGHT --playlist \"Sets/2026/Friday\" --playlist Classics\n  \
-locallibrary pack Main /Volumes/TONIGHT    # later: the same playlists, copying only what changed"
+        after_long_help = "Examples:\n  locallibrary pack Home /Volumes/TONIGHT --playlist \"Sets/2026/Friday\" --playlist Classics\n  \
+locallibrary pack Home /Volumes/TONIGHT    # later: the same playlists, copying only what changed"
     )]
     Pack {
-        /// The drive to take the playlists from
+        /// The library or drive to take the playlists from
         source: String,
         /// The drive to write them to
         target: String,
@@ -338,7 +356,7 @@ locallibrary pack Main /Volumes/TONIGHT    # later: the same playlists, copying 
     },
     /// Build OneLibrary (CDJ-3000X, OPUS-QUAD, XDJ-AZ...) from export.pdb, or the reverse
     Convert {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// Database to build
         #[arg(long, value_enum)]
@@ -350,9 +368,9 @@ locallibrary pack Main /Volumes/TONIGHT    # later: the same playlists, copying 
         #[arg(long)]
         dry_run: bool,
     },
-    /// Remove useless tracks (rekordbox's bundled demo samples) and their files from a drive
+    /// Remove useless tracks (rekordbox's bundled demo samples) and their files from a library
     Clean {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// Show what would be removed without removing anything
         #[arg(long)]
@@ -363,7 +381,7 @@ locallibrary pack Main /Volumes/TONIGHT    # later: the same playlists, copying 
     /// What your sets, collection and settings say about how you play, and what a public profile would show
     #[command(after_help = PROFILE_HELP)]
     Profile(profile_cmd::ProfileArgs),
-    /// Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps), or sign out
+    /// Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps), or sign out (alpha)
     #[cfg(feature = "account")]
     Account(account_cmd::AccountArgs),
     /// rekordbox's own collection on this computer (master.db), read only: info, tracks, playlists, and what a drive lacks
@@ -381,7 +399,8 @@ locallibrary pack Main /Volumes/TONIGHT    # later: the same playlists, copying 
     Export(export_cmd::ExportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
     Xml {
-        #[arg(help = ONE_DRIVE_HELP)]
+        #[arg(help = "A library's name, or a drive's mount path, name or id prefix [default: the only mounted \
+rekordbox drive, or the one library plugged in]")]
         drive: Option<String>,
         /// The file to write
         #[arg(long, short, default_value = "rekordbox.xml")]
@@ -430,7 +449,7 @@ locallibrary pack Main /Volumes/TONIGHT    # later: the same playlists, copying 
     /// `playlist ls`
     #[command(hide = true)]
     Playlists {
-        #[arg(help = DEFAULT_DRIVE_HELP)]
+        #[arg(help = DEFAULT_LIBRARY_HELP)]
         drive: Option<String>,
     },
     /// `sync --from SOURCE TARGET`
@@ -459,35 +478,39 @@ impl Command {
     }
 }
 
-const SYNC_HELP: &str = "With no drives, syncs the mounted drives of one library's group (see `locallibrary \
+const SYNC_HELP: &str = "With no drives, syncs each mounted library's group, its newest drive onto the others (see `locallibrary \
 drive groups`); archive and retired drives are left out. A drive back from a set whose only changes are the \
 players' (history lists, cues) is saved in the store, then updated.";
 
-const SYNC_LONG_HELP: &str = "With no drives, syncs the mounted drives of one library's group (see `locallibrary \
+const SYNC_LONG_HELP: &str =
+    "With no drives, syncs each mounted library's group, its newest drive onto the others (see `locallibrary \
 drive groups`); archive and retired drives are left out. A drive back from a set whose only changes are the \
 players' (history lists, cues) is saved in the store, then updated.
 
 Examples:
-  locallibrary sync                       the drive group: the newest drive onto the others
-  locallibrary sync Main Backup \"Club\"    these drives, whichever is newest
-  locallibrary sync --from Main Backup    Main onto Backup, whichever is newer";
+  locallibrary sync                       every mounted library: its newest drive onto the others
+  locallibrary sync Home                  the library Home's mounted drives
+  locallibrary sync REKORDBOX BACKUP SD   these drives, whichever is newest
+  locallibrary sync --from REKORDBOX SD   REKORDBOX onto SD, whichever is newer";
 
-const UNDO_HELP: &str = "Every command that changes a drive in place backs it up first: playlist, track, \
-My Tag and cue edits, merge, clean, convert, artwork, settings, the player name, the contact file, orphan \
-removal and pack. The plan shows the files and databases that change, how the playlists and tracks change, and \
+const UNDO_HELP: &str = "Backed up first, so they can be undone: playlist, track, My Tag and cue edits, \
+merge, clean, convert, artwork, settings, the player name, the contact file, orphan removal and pack. Not \
+backed up: repairs (`drive verify --repair`, `drive fsck --repair`), `drive tidy`'s deletions, firmware files \
+and collected recordings. The plan shows the files and databases that change, how the playlists and tracks change, and \
 the recorded edits that come off the journal (so `edits replay` doesn't make them again). A drive that changed \
 since (a rekordbox export, a sync, history players recorded) is refused unless --force. Older backups: \
 `locallibrary drive restore --backup ID`. Art embedded in files on this computer: `locallibrary art unembed`.";
 
-const UNDO_LONG_HELP: &str = "Every command that changes a drive in place backs it up first: playlist, track, \
-My Tag and cue edits, merge, clean, convert, artwork, settings, the player name, the contact file, orphan \
-removal and pack. The plan shows the files and databases that change, how the playlists and tracks change, and \
+const UNDO_LONG_HELP: &str = "Backed up first, so they can be undone: playlist, track, My Tag and cue edits, \
+merge, clean, convert, artwork, settings, the player name, the contact file, orphan removal and pack. Not \
+backed up: repairs (`drive verify --repair`, `drive fsck --repair`), `drive tidy`'s deletions, firmware files \
+and collected recordings. The plan shows the files and databases that change, how the playlists and tracks change, and \
 the recorded edits that come off the journal (so `edits replay` doesn't make them again). A drive that changed \
 since (a rekordbox export, a sync, history players recorded) is refused unless --force. Older backups: \
 `locallibrary drive restore --backup ID`. Art embedded in files on this computer: `locallibrary art unembed`.
 
 Examples:
-  locallibrary undo Main --dry-run    what taking back the last change would change
+  locallibrary undo Home --dry-run    what taking back the last change would change
   locallibrary undo --list            what can be undone on every mounted drive";
 
 /// The filter syntax, shown after the help of every command that takes `--filter`; `playlist`,
@@ -509,9 +532,9 @@ const TRACKS_LONG_HELP: &str = concat!(
     "
 
 Examples:
-  locallibrary tracks Main -s \"daft punk\"
-  locallibrary tracks Main -f \"bpm:120-128 key:8A~ rating:>=4\" --sort key,bpm
-  locallibrary tracks Main -p \"Sets/2026/Friday\" -n 20"
+  locallibrary tracks -s \"daft punk\"
+  locallibrary tracks -f \"bpm:120-128 key:8A~ rating:>=4\" --sort key,bpm
+  locallibrary tracks Home -p \"Sets/2026/Friday\" -n 20"
 );
 
 const PROFILE_HELP: &str = "Built from your sets (`locallibrary sets`; until you declare one, the sessions players
@@ -521,7 +544,7 @@ naming tracks only when you include `signature`. Choose what it shows with inclu
 headline and precision.
 
   locallibrary profile                      your mounted drives and the store
-  locallibrary profile Main --since 2026    one drive, sets played this year
+  locallibrary profile Home --since 2026    one library, sets played this year
   locallibrary profile -s tempo,mixing      just those sections
   locallibrary profile include signature    name your most-played tracks
   locallibrary profile hide \"ID - ID\" --exact
@@ -532,7 +555,7 @@ const FILTER_HELP: &str = filter_help!();
 /// `tracks`.
 #[derive(Args)]
 struct TracksArgs {
-    #[arg(help = DEFAULT_DRIVE_HELP)]
+    #[arg(help = DEFAULT_LIBRARY_HELP)]
     drive: Option<String>,
     /// Words each track must have in its artist, title, album, genre, label, key, comment, remixer,
     /// mix name or path (free text, as in --filter)
@@ -639,7 +662,7 @@ struct SettingsArgs {
     command: Option<SettingsCommand>,
     /// A drive whose settings to show, as `settings show` does [default: the profile, as
     /// `settings base` shows it]
-    #[arg(value_name = "DRIVE")]
+    #[arg(value_name = "DRIVE", add = completion::DriveOnly)]
     drive: Option<String>,
 }
 
@@ -656,7 +679,7 @@ enum SettingsCommand {
         #[arg(required = true, value_name = "KEY=VALUE")]
         values: Vec<String>,
         /// Only for this drive: an override of the profile's value
-        #[arg(long)]
+        #[arg(long, add = completion::DriveOnly)]
         drive: Option<String>,
     },
     /// Remove values from the profile (or a drive's overrides)
@@ -665,7 +688,7 @@ enum SettingsCommand {
         #[arg(required = true, value_name = "KEY")]
         keys: Vec<String>,
         /// Only this drive's overrides
-        #[arg(long)]
+        #[arg(long, add = completion::DriveOnly)]
         drive: Option<String>,
     },
     /// A drive's current settings and how they differ from the profile
@@ -675,7 +698,8 @@ enum SettingsCommand {
     },
     /// Write the profile to drives
     Apply {
-        /// Drives [default: every mounted rekordbox drive but archive and retired ones]
+        /// Drives, or libraries for each of their mounted drives [default: every mounted rekordbox
+        /// drive but archive and retired ones]
         drives: Vec<String>,
         /// Also write settings files the profile doesn't touch (fills blank drives completely)
         #[arg(long)]
@@ -689,11 +713,11 @@ enum SettingsCommand {
     Import {
         /// The drive to take them from [default: rekordbox's settings on this computer]
         drive: Option<String>,
-        /// The My Settings this account published (a handle or DID)
+        /// The My Settings this account published (a handle or DID; alpha)
         #[cfg(feature = "account")]
         #[arg(long, value_name = "HANDLE", conflicts_with_all = ["drive", "from_account"])]
         from_handle: Option<String>,
-        /// The My Settings your signed-in Atmosphere account published
+        /// The My Settings your signed-in Atmosphere account published (alpha)
         #[cfg(feature = "account")]
         #[arg(long, conflicts_with = "drive")]
         from_account: bool,
@@ -710,7 +734,7 @@ enum SettingsCommand {
         dry_run: bool,
     },
     /// Publish the profile's base to your Atmosphere account, for any computer to import
-    /// (per-drive overrides stay here)
+    /// (per-drive overrides stay here; alpha)
     #[cfg(feature = "account")]
     Publish {
         /// Show what would be published without publishing
@@ -737,13 +761,13 @@ struct ArtArgs {
 enum ArtCommand {
     /// Tracks with no artwork
     Missing {
-        #[arg(help = DEFAULT_DRIVE_HELP)]
+        #[arg(help = DEFAULT_LIBRARY_HELP)]
         drive: Option<String>,
     },
-    /// Set artwork for tracks on a drive (image file, or an audio file with embedded art)
+    /// Set artwork for tracks in a library (image file, or an audio file with embedded art)
     #[command(after_help = FILTER_HELP)]
     Set {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// An image, or an audio file whose embedded art to use
         image: PathBuf,
@@ -755,8 +779,8 @@ enum ArtCommand {
     },
     /// Fill in missing artwork from embedded tags or cover.jpg/folder.jpg next to the audio
     Auto {
-        /// The drive: its mount path, name or id prefix [default: every mounted rekordbox drive but
-        /// archive and retired ones]
+        /// A library's name, or a drive's mount path, name or id prefix [default: each library
+        /// plugged in, and each rekordbox drive of none, but archive and retired ones]
         drive: Option<String>,
         /// Show what would be set without changing anything
         #[arg(long)]
@@ -789,7 +813,7 @@ them back (the last 5 embeds are kept).")]
     },
     /// Save a track's artwork from a drive to a file
     Get {
-        #[arg(help = DRIVE_HELP)]
+        #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// The track's id
         track: u32,
@@ -1096,12 +1120,22 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             return mirror(&cli.store, source, target, &opts, out, &ctx);
         }
         Command::Sync { mut drives, from: None, library, opts, allow_guess } => {
+            // A library's name means its mounted drives.
+            let library = match drives.as_slice() {
+                [one] if matches!(api::library_clones(one), Ok(Some(_))) => {
+                    if library.is_some() {
+                        return Err(jobs_cmd::usage(format!("{one} is a library: give it or --library, not both")));
+                    }
+                    drives.pop()
+                }
+                _ => library,
+            };
             if drives.is_empty() {
                 return drive_cmd::sync_set(&cli.store, library, &opts, allow_guess, out, &ctx);
             }
             if drives.len() == 1 {
                 return Err(jobs_cmd::usage(format!(
-                    "give two or more drives, or none to sync the mounted drive group (`sync --from {} DRIVE` copies it onto another)",
+                    "give two or more drives, or none to sync every mounted library (a library's name syncs its drives; `sync --from {} DRIVE` copies it onto another)",
                     drives[0]
                 )));
             }
@@ -1132,6 +1166,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             }
             if !out.json {
                 render::merge_plan(&plan);
+                output::clones(&plan);
             }
             if let Some(o) = out.decide(dry_run, "Merge now?") {
                 return Ok(out.not_applied(&plan, o));
@@ -1148,6 +1183,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             let plan = api::convert_plan(&req, &ctx)?;
             if !out.json {
                 render::convert_plan(&plan);
+                output::clones(&plan);
             }
             if let Some(o) = out.decide(dry_run, "Convert now?") {
                 return Ok(out.not_applied(&plan, o));
@@ -1163,6 +1199,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             }
             if !out.json {
                 render::clean_plan(&plan);
+                output::clones(&plan);
             }
             if let Some(o) = out.decide(dry_run, "Remove them?") {
                 return Ok(out.not_applied(&plan, o));
@@ -1171,16 +1208,24 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             return Ok(out.applied(&plan, &report, Outcome::Applied, || render::clean_report(&report, &req.drive)));
         }
         Command::Tags(args) => return tags_cmd::run(args, out, &ctx),
-        Command::Pull { drive: None, library, new_library, message, label, force } => {
-            if new_library || label.is_some() || force {
-                return Err(jobs_cmd::usage("--new-library, --label and --force go with one drive: name it"));
+        Command::Pull { drive, library, new_library, message, label, force } => match drive {
+            Some(drive) if !matches!(api::library_clones(&drive), Ok(Some(_))) => {
+                let req = api::PullRequest { drive, library, new_library, message, label, force };
+                return store_cmd::pull(&store()?, req, out, &ctx);
             }
-            return jobs_cmd::pull_group(&store()?, library, message, out, &ctx);
-        }
-        Command::Pull { drive: Some(drive), library, new_library, message, label, force } => {
-            let req = api::PullRequest { drive, library, new_library, message, label, force };
-            return store_cmd::pull(&store()?, req, out, &ctx);
-        }
+            // None, or a library's name: its mounted drives.
+            drive => {
+                if new_library || label.is_some() || force {
+                    return Err(jobs_cmd::usage("--new-library, --label and --force go with one drive: name it"));
+                }
+                if let (Some(name), Some(_)) = (&drive, &library) {
+                    return Err(jobs_cmd::usage(format!(
+                        "--library picks the library a drive is pulled into; {name} is already a library"
+                    )));
+                }
+                return jobs_cmd::pull_group(&store()?, drive.or(library), message, out, &ctx);
+            }
+        },
         Command::Library(a) => return library_cmd::run(a, &cli.store, out, &ctx),
         Command::Push(a) => return library_cmd::push(a, &cli.store, out, &ctx),
         Command::Log(a) => return library_cmd::log(a, &store()?, out),
@@ -1438,50 +1483,66 @@ fn run_sync_many(
         overwrite_archive: false,
     };
     let preview = api::sync_many_plan(&req, ctx)?;
-    many_targets(preview, store_path, f, out, ctx)
+    many_targets(vec![preview], false, store_path, f, out, ctx)
 }
 
-/// Show, confirm and apply a plan that copies one drive onto several.
+/// Show, confirm and apply plans that each copy one drive onto several (one for each library, for
+/// `sync` with no drives): one question for them all. `left_out`: a library couldn't be planned,
+/// so it comes out partial. `--json` prints one plan and its results as they are, several as a
+/// list of plans and the list of every target's result.
 pub(crate) fn many_targets(
-    preview: locallibrary::op::Planned<api::SyncManyPreview, api::SyncManyRequest>,
+    previews: Vec<locallibrary::op::Planned<api::SyncManyPreview, api::SyncManyRequest>>,
+    left_out: bool,
     store_path: &Option<PathBuf>,
     f: &SyncFlags,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
-    let pending = preview.targets.iter().filter(|t| t.plan.as_ref().is_some_and(|p| !p.is_noop())).count();
+    let pending: usize = previews
+        .iter()
+        .map(|p| p.targets.iter().filter(|t| t.plan.as_ref().is_some_and(|p| !p.is_noop())).count())
+        .sum();
     if !out.json {
-        output::heading(&format!("{} is the newest", preview.source_name));
-        for t in &preview.targets {
-            match &t.plan {
-                Some(p) if !p.is_noop() => render::sync_plan(p),
-                _ => output::ok(format!("{} already matches", t.comparison.right.label)),
+        for preview in &previews {
+            output::heading(&format!("{} is the newest", preview.source_name));
+            for t in &preview.targets {
+                match &t.plan {
+                    Some(p) if !p.is_noop() => render::sync_plan(p),
+                    _ => output::ok(format!("{} already matches", t.comparison.right.label)),
+                }
             }
         }
     }
+    let shown = match previews.as_slice() {
+        [one] => serde_json::to_value(one)?,
+        all => serde_json::to_value(all)?,
+    };
     if pending == 0 {
-        return Ok(out.not_applied(&preview, Outcome::NothingToDo));
+        return Ok(out.not_applied(&shown, if left_out { Outcome::Partial } else { Outcome::NothingToDo }));
     }
     if let Some(o) = out.decide(f.dry_run, &format!("Update {pending} drive(s)?")) {
-        return Ok(out.not_applied(&preview, o));
+        return Ok(out.not_applied(&shown, o));
     }
     let store = open_store(store_path).ok();
-    let results = preview.apply(store.as_ref(), ctx)?;
-    let failed = results.iter().any(|r| r.error.is_some());
+    let mut results = Vec::new();
+    for preview in &previews {
+        results.extend(preview.apply(store.as_ref(), ctx)?);
+    }
+    let failed = left_out || results.iter().any(|r| r.error.is_some());
     let outcome = if failed { Outcome::Partial } else { Outcome::Applied };
-    let code = out.applied(&preview, &results, outcome, || {
+    let code = out.applied(&shown, &results, outcome, || {
         drive_cmd::target_results(&results);
         // Drives back from a set were saved before they were overwritten.
-        let saved = preview
-            .targets
+        let saved = previews
             .iter()
+            .flat_map(|p| &p.targets)
             .filter(|t| results.iter().any(|r| r.report.is_some() && Some(&r.target) == t.target.as_ref()));
         hints::new_sessions(
             saved.filter_map(|t| t.after_set.as_ref()).map(|g| g.back_from_set.history_lists.len()).sum(),
         );
     });
     if f.eject {
-        let mut all = vec![preview.source.display().to_string()];
+        let mut all: Vec<String> = previews.iter().map(|p| p.source.display().to_string()).collect();
         all.extend(results.iter().filter(|r| r.error.is_none()).map(|r| r.target.display().to_string()));
         drive_cmd::eject_after(store_path, all, out);
     }
@@ -1511,7 +1572,7 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
         }
         SettingsCommand::Set { values, drive } => {
             let store = open_store(store_path)?;
-            let mut map = BTreeMap::new();
+            let mut map = IndexMap::new();
             let mut set = Vec::new();
             for kv in values {
                 let Some((k, v)) = kv.split_once('=') else { bail!("expected KEY=VALUE, got {kv:?}") };
@@ -1543,17 +1604,19 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
         }
         SettingsCommand::Show { drive } => {
             let store = open_store(store_path)?;
-            let reads = each_drive::read(drive, |drive| api::settings_show(&store, &api::DriveRef { drive }))?;
+            let reads =
+                each_drive::read_each_drive(drive, |drive| api::settings_show(&store, &api::DriveRef { drive }))?;
             return Ok(reads.emit(out, render::drive_settings).exit());
         }
         SettingsCommand::Apply { drives, create_missing, dry_run } => {
             let store = open_store(store_path)?;
             let plan = api::settings_apply_plan(&store, &api::SettingsApplyRequest { drives, create_missing })?;
-            let planned: BTreeMap<String, locallibrary::settings::ApplyReport> = plan
+            let mut planned: IndexMap<String, locallibrary::settings::ApplyReport> = plan
                 .targets
                 .iter()
                 .map(|d| (d.drive.clone(), locallibrary::settings::ApplyReport { dry_run: true, ..d.changes.clone() }))
                 .collect();
+            planned.sort_unstable_keys();
             if plan.noop {
                 if !out.json {
                     render::settings_apply(&planned);
@@ -1568,8 +1631,9 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             }
             let results = plan.apply(Some(&store), ctx)?;
             let failed = results.iter().any(|r| r.error.is_some());
-            let reports: BTreeMap<String, locallibrary::settings::ApplyReport> =
+            let mut reports: IndexMap<String, locallibrary::settings::ApplyReport> =
                 results.iter().filter_map(|r| Some((r.drive.clone(), r.report.clone()?))).collect();
+            reports.sort_unstable_keys();
             return Ok(out.applied(&plan, &results, if failed { Outcome::Partial } else { Outcome::Applied }, || {
                 render::settings_apply(&reports);
                 for r in &results {
@@ -1670,7 +1734,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             for drive in drives {
                 plans.push((drive.clone(), api::artwork_auto_plan(&api::DriveRef { drive })?));
             }
-            let show = |p: &locallibrary::artwork::AutoArtworkPlan| {
+            let show = |p: &locallibrary::op::Planned<locallibrary::artwork::AutoArtworkPlan>| {
                 for f in &p.found {
                     say!(
                         "{:>6}  {}  {}",
@@ -1680,6 +1744,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
                     );
                 }
                 say!("{} found, {} still missing", p.found.len(), p.not_found.len());
+                output::clones(p);
             };
             let done = |r: &locallibrary::artwork::ArtworkReport| {
                 output::ok(format!("artwork set on {} track(s)", r.tracks_updated))

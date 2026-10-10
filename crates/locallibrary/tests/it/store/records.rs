@@ -2,7 +2,7 @@
 
 use crate::common;
 
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::fs;
 
 use locallibrary::device::Device;
@@ -70,7 +70,7 @@ fn stats_count_each_stored_file_once() {
     let mut d = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
     let r = sync::pull(&store, &mut d, &PullOptions::default(), &Ctx::silent()).unwrap();
     let snap = store.load_snapshot(&r.snapshot.unwrap().id).unwrap();
-    let objects: BTreeMap<Hash, u64> = snap.files.iter().map(|f| (f.hash.unwrap(), f.size)).collect();
+    let objects: IndexMap<Hash, u64> = snap.files.iter().map(|f| (f.hash.unwrap(), f.size)).collect();
 
     let stats = store.stats().unwrap();
     assert_eq!((stats.libraries, stats.snapshots, stats.drives), (1, 1, 1));

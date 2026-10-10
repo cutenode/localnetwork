@@ -86,6 +86,7 @@ pub fn cues_plan(req: &EditCues, ctx: &Ctx<'_>) -> Result<Planned<CuePlan>> {
         .destructive(destructive)
         .noop(noop)
         .touches(Touched::drive(&d, true, vec![Probe::Databases, Probe::Identity, Probe::Content(files)]))
+        .reaching_clones(ctx)?
         .guard(None)
 }
 

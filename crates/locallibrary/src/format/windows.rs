@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use base64::prelude::*;
 use serde_json::Value;
 
 use super::{Cmd, Disk, Filesystem, FsKind, Scheme, Target, Volume, fat32, json};
@@ -41,7 +42,7 @@ ConvertTo-Json -InputObject $disks -Depth 5 -Compress
 fn powershell(script: &str) -> Cmd {
     let script = format!("$ProgressPreference = 'SilentlyContinue'\n{script}");
     let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    let encoded = crate::api::base64(&utf16);
+    let encoded = BASE64_STANDARD.encode(&utf16);
     Cmd::new(
         "powershell",
         &["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", &encoded],

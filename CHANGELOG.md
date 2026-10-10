@@ -17,7 +17,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
 - **Drive sync and history.** `drives`, `adopt` and `status`; `compare` says which drive is
   newer and why, from each drive's lineage or from the evidence; `sync`, `mirror` and `push`
   copy only what changed, to several drives at once, crash-safely; `pull` keeps
-  content-addressed snapshots in a store that holds each audio file once. Files players and
+  content-addressed snapshots in a store that holds each audio file once, and `watch --pull`
+  saves drives as they're plugged in (`watch --install`, which `setup` offers, runs it whenever
+  you log in with `--sync-group`, so the library's other drives plugged in follow, as a launchd
+  agent or systemd user service). Files players and
   rekordbox keep for one drive (`PIONEER/LOG`, `CDJ`, `MPJ`, `RBFLTR.DAT`...) stay with that
   drive. `store prune` removes old snapshots, keeping each library's latest, the state each drive
   was last seen holding and the newest snapshot of every history list.
@@ -63,9 +66,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   per-drive overrides. `settings publish` puts the profile's base on your Atmosphere account, and
   `settings import --from-account` (or `--from-handle`, for someone else's) adds published
   settings to yours; `--replace` makes them the whole base.
-- **Cover art** on drives and in audio files (`art auto` given no drive fills in every mounted
-  drive's, with one question), and rekordbox XML export (`xml`) to take a drive's library back into
-  rekordbox.
+- **Cover art** on drives and in audio files (`art auto` given no drive fills in each library
+  plugged in, with one question), and rekordbox XML export (`xml`) to take a drive's library back
+  into rekordbox.
 - **Mixes.** `mix` finds which of a drive's tracks a recorded set plays, when, at what speed and
   in what key (marking the matches it's unsure of), and writes an interactive report. The report
   and `--export` (the same as data, for showing elsewhere) hold only what they show: no file
@@ -75,7 +78,7 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   drives named, the mounted drives the store knows), with a rounded public view; `account` signs
   in with an Atmosphere (AT Protocol) account, and `profile publish`, `sets publish` and
   `settings publish` write locallibrary's own records there, asking only to create and update
-  them.
+  them. Signing in and publishing are alpha.
 - **Sets and sessions.** A history list a player recorded (or a Beat Link Trigger log, `plays
   import`) is a *session*: raw, private, never counted or published as a set. `plays` lists sessions
   with an id that's the same on every drive and in the store (any list name argument takes one), the
@@ -96,18 +99,20 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   now; over RPC `prep.plan/apply`, and `set.*` still works).
 - **Player.** A terminal UI to browse a drive the way players show it and listen to it: search
   and filters, track details, harmonic suggestions, history and mixes. It does the drive work
-  too, each change planned and confirmed as on the command line: the Drives view pulls, checks
-  (alone, or a set's drives together), syncs a drive group, packs a set (from playlists or the
+  too, each change planned and confirmed as on the command line: the Drives view lists each library
+  with its drives under it, opens a library at its newest drive, and pulls, checks (alone, or a
+  set's drives together), syncs a library's drives, packs a set (from playlists or the
   crate, the CDJ's TAG LIST), brings back playlists from snapshots, replays edits and ejects;
   `u` undoes the last change, on the drive it was made to; after a rekordbox export it offers to
   replay the edits it went over; My Tags show in a column and under Browse, and `T` gives tracks
   one; rule-based playlists come from the search box; `N` and `P` jump to the next and previous
-  phrase, quantized like cue jumps. Every key is in one table that also draws
+  phrase, quantized like cue jumps; in full screen, `enter` queues a harmonic suggestion to play
+  next, and `S` turns autoplay off. Every key is in one table that also draws
   the help (the view's own keys first) and the footer's hints, and `:` opens a command palette
   with every action by name.
 - **For GUIs.** Every operation is a serde request and response in the library's `api` module,
   and `locallibrary rpc` serves them as newline-delimited JSON-RPC 2.0, to a trusted parent
-  process only (see the README). Its contract is machine-readable: `rpc.describe` and
+  process only (see docs/sidecar.md). Its contract is machine-readable: `rpc.describe` and
   `locallibrary rpc --emit-schema DIR` give every method's kind, pairing, aliases and JSON
   Schemas, and TypeScript types are made from them (`docs/rpc/`). Method names follow `noun.verb`
   with `<op>.plan` / `<op>.apply`; older names (`sync_many.*`, `drive.adopt`, `store.gc`,
@@ -117,14 +122,28 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   the CLI, which prints them as hints. The mix report lives in the library: `mix.identify` can
   answer each play's waveform, cues and phrases and keep the report in the store, and
   `mix.reports.list`, `.get` and `.html` find kept reports and write their pages.
-- **The drive you mean.** Commands that read a drive (`tracks`, `playlist ls`, `drive info`,
-  `doctor`, `tags`, `plays lists`...) read every mounted one when given none, each under its name
-  (with `--json`, a list, one entry per drive), and a drive that can't be read doesn't stop the
-  others. `xml` and `doctor --fix-orphans` take the only mounted drive, or the primary of the one
-  library whose drives are mounted; when that can't be told, the error lists the mounted drives
-  (name, mount path, role, library) and exits with status 2. A name that matches no mounted drive
-  lists the ones that are, and says when it's a drive you own that isn't plugged in, and when it
-  was last seen.
+- **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
+  matter much: a library's name works where a drive does (but in commands about one particular
+  drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
+  identical). A change to a library (playlist, track, My Tag, cue and artwork edits, `clean`,
+  `convert`, `merge`, `smart apply`, `edits replay`, `doctor --fix-orphans`, `undo`...) is one plan,
+  made on the lead clone and then copied onto its other drives plugged in ("then copied onto BACKUP
+  and SD"; `clones` in the plan's JSON); a drive that's newer, diverged or back from a set is left
+  alone with a warning, and archive and retired drives aren't written. Recorded edits travel with
+  the library on a sync, so `refresh` replays edits made on any of its drives. Reads (`tracks`,
+  `playlist ls`, `doctor`, `tags`...) given nothing show each library plugged in once, and reads of
+  what each drive keeps (`drive info`, `drive space`, `settings show`, `plays lists`...) show every
+  drive, under its name (with `--json`, a list), and one that can't be read doesn't stop the others.
+  `sync` with no drives syncs every library plugged in; it and `check`, `eject`, `pull` and `prep`
+  take a library's name for its drives, and `settings apply LIB` writes each of them. `status` and
+  `drive ls` show each library with its drives under it (`status` also those not plugged in, and
+  which are back from a set), then the drives of no library. `xml`, `mix`, `sets export` and `doctor
+  --fix-orphans` take the only mounted drive, or the lead clone of the one library plugged in; when
+  that can't be told, the error lists the mounted drives (name, mount path, role, library) and exits
+  with status 2. A name that matches no mounted drive lists the ones that are, and says when it's a
+  drive you own that isn't plugged in, and when it was last seen. A rule-based playlist limited to a
+  drive (`smart add --drive`, which takes a library's name too) is limited to its library, so every
+  clone gets it. Tab offers library names wherever one is taken.
 - **After an export.** `refresh [DRIVE]` (with none, the drive rekordbox exported over recorded
   edits on) puts back what rekordbox's export replaced, in one plan with each step only when
   needed: demo samples out, recorded edits made again, rule-based playlists filled, the name and
@@ -137,12 +156,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   ejects them when everything passed; a check with problems, or history lists it couldn't save,
   leaves them mounted (exit status 4). `check`, `eject` and `pull` with no drives take the mounted
   drives of one library. Over RPC, `prep.plan` and `prep.apply`.
-- **First run.** `setup [DRIVES...]` names the drives you pick, chooses their roles (the first one
-  named is the primary unless `--primary` says), starts your library with a first pull (run again,
-  it saves them in the library they're in and keeps their roles), imports My Settings from the
-  primary drive, and (if you like) sets the name players show, your contact details and the player
-  models you play on, each shown before it's applied. It asks in a terminal, and takes flags with
-  `--yes` elsewhere. Commands run before there's a store suggest it.
+- **First run.** `setup [DRIVES...]` asks which drives are copies of your library and what to call
+  it (the library they're in, else "My library"; drives keep their volume names unless `--name`),
+  chooses their roles (the first one named is the primary unless `--primary` says), starts your
+  library with a first pull (run again, it saves them in the library they're in and keeps their
+  roles), imports My Settings from the primary drive, and (if you like) sets the name players show,
+  your contact details and the player models you play on, each shown before it's applied. It asks in
+  a terminal, and takes flags with `--yes` elsewhere. Commands run before there's a store suggest
+  it.
 - **Releases.** Prebuilt binaries for macOS (Apple silicon and Intel), Linux (x86_64) and
   Windows (x86_64), with shell and PowerShell installers and a Homebrew formula.
 - **Smaller builds.** Cargo features: `account` (the Atmosphere account and publishing, in the
@@ -155,11 +176,44 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   paths, My Tags and history lists, the store's libraries, sets and sessions, player models and
   `refresh --skip` steps complete too (`--static` for commands and flags only).
   `locallibrary man -o DIR` writes a man page for every command.
+- **Crates for other DJ tools.** Parts of the library that other tools can use without
+  locallibrary are crates of their own in `crates/`, each with a README and an example, and
+  JSON Schema behind a `schemars` feature in the ones whose types are serialisable. locallibrary re-exports them
+  where they used to live (`model`, `harmony`, `progress`, `anlz`, `settings`, `equipment`,
+  `format::FsKind`, `import`, `mix`, `interop`), so the CLI, the RPC contract, the files written
+  and the error messages are unchanged.
+  - `loclib-progress`: progress events and cooperative cancellation (`Ctx`, `CancelToken`,
+    `Event`, `Cancelled`).
+  - `loclib-model`: tracks, playlists and the diff between two exports, Camelot keys and mix
+    costs, a track's decoded analysis (beat grid, cues, waveforms, phrases, the hot cue palette)
+    and the path keys tracks are matched by.
+  - `loclib-equipment`: what each Pioneer DJ / AlphaTheta player, all-in-one system and mixer
+    reads (databases, file systems, audio formats), with each value's source, and the same
+    table as `equipment.json` for other languages.
+  - `loclib-mysettings`: reading and writing `MYSETTING.DAT`, `MYSETTING2.DAT`,
+    `DJMMYSETTING.DAT` and `DEVSETTING.DAT`, with every known setting's schema and edits that
+    patch single bytes and recompute the checksum.
+  - `loclib-tracklist`: reading M3U, CSV and other tables, rekordbox's text export and XML, and
+    plain "Artist - Title" text, and finding the tracks in a library by path, ISRC, artist and
+    title, then fuzzily.
+  - `loclib-mixid`: which known tracks a recording plays, when, at what speed and with or without
+    key lock, from any audio files (decoding, landmark fingerprints, the index and the matcher).
+    locallibrary keeps the drive, the fingerprint cache, Audacity projects and the report.
+  - `loclib-interop`: writing a library as Traktor's `collection.nml`, Serato crates (with the
+    `Serato Markers2` cue tag in copies of the audio) and a new Engine DJ library, a feature per
+    format, so a build for NML alone needs no SQLite.
+  - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
+    phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
+    caller passes.
 
 ### Changed
 
 For anyone who used a development build. Commands and flags that were renamed still work under
 their old names.
+
+- Reading a track's analysis from a drive is `anlz::load` and `anlz::load_grid` in the library
+  (they were `TrackAnalysis::load` and `TrackAnalysis::load_grid`), now that `TrackAnalysis` is
+  loclib-model's.
 
 - "Set" now means a DJ set. The drives of one library that `sync` syncs together are a drive
   *group*: `drive sets` is `drive groups`, `watch --sync-set` is `watch --sync-group`, and over
@@ -175,7 +229,7 @@ their old names.
   `stats`, `export`, `import`), the playlist tree is `playlist ls`, `sync --from` replaces `mirror`
   and `diff --summary` replaces `compare`. The old names still work and aren't listed. `drive`,
   `library`, `plays`, `playlist`, `track`, `settings`, `art`, `edits` and `smart` with no subcommand
-  list or show (`drive Main` is `drive info Main`).
+  list or show (`drive REKORDBOX` is `drive info REKORDBOX`).
 - Names that clashed are told apart: `playlist delete` deletes a playlist (`playlist rm` before) and
   `playlist remove` takes tracks out of one; `playlist move` moves a playlist (`playlist mv`) and
   `playlist reorder` moves tracks within one (`playlist move --at --to` still does); `playlist
@@ -201,14 +255,14 @@ their old names.
   `doctor`, `drive verify`, `diff` and `plays stats`. `-q` also leaves out tips; `--color
   auto|always|never` and `--ascii` (the default when the locale isn't UTF-8). Progress bars
   count in GB like plans do, and show the time left.
-- `--json` has one shape for every command that writes: `{schema, plan, report, applied,
-  outcome}` (sync printed `{preview, result}` or `{preview, results}`, `drive verify --repair`
-  `{report, repaired}`, publishing `{plan, published}`, and changes made in one step, such as
-  `pull` or `drive role`, only their result). Every top-level JSON object has `"schema": 1`,
-  `status --json` is always `{mounted, offline, duplicates}`, `smart apply --json` prints one
-  document for every drive, and errors are `{"error": {"kind", "reason", "fields", "actions",
-  "message"}, "outcome"}` with the sidecar's kinds and detail (`code` is still there). A
-  `provision` that stops part way exits with status 5.
+- `--json` has one shape for every command that writes: `{schema, plan, report, applied, outcome}`
+  (sync printed `{preview, result}` or `{preview, results}`, `drive verify --repair` `{report,
+  repaired}`, publishing `{plan, published}`, and changes made in one step, such as `pull` or `drive
+  role`, only their result). Every top-level JSON object has `"schema": 1`, `status --json` is
+  always `{mounted, offline, duplicates, libraries}`, `smart apply --json` prints one document for
+  every drive, and errors are `{"error": {"kind", "reason", "fields", "actions", "message"},
+  "outcome"}` with the sidecar's kinds and detail (`code` is still there). A `provision` that stops
+  part way exits with status 5.
 - `library log --json` nests the libraries under `libraries`, and `profile document --json`
   carries `schema`. Incomplete or mistyped command lines (`library WORD` included) exit with
   status 2 and kind `usage` (they exited 1 with `invalid`), and under `--json` a command line that

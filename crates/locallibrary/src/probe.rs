@@ -7,8 +7,7 @@
 //! [`guarded`], so one bad file is that file's error rather than a crash. The player catches a
 //! panic while decoding as it plays on its own audio thread.
 
-use std::collections::HashSet;
-use std::fs::File;
+use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,18 +15,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use schemars::JsonSchema;
 use serde::Serialize;
 use symphonia::core::codecs::{
-    CODEC_TYPE_AAC, CODEC_TYPE_ALAC, CODEC_TYPE_FLAC, CODEC_TYPE_MP3, CODEC_TYPE_NULL, CodecType, DecoderOptions,
+    CODEC_TYPE_AAC, CODEC_TYPE_ALAC, CODEC_TYPE_FLAC, CODEC_TYPE_MP3, CodecType, DecoderOptions,
 };
 use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, Track};
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::units::{Time, TimeBase};
+
+use loclib_mixid::audio::{CRASHED, open};
 
 use crate::device::Device;
 use crate::equipment::Codec;
-use crate::error::IoContext;
 use crate::model::{Library, TrackRef};
 use crate::paths;
 use crate::progress::Ctx;
@@ -53,9 +50,6 @@ fn is_pcm(c: CodecType) -> bool {
     symphonia::default::get_codecs().get_codec(c).is_some_and(|d| d.short_name.starts_with("pcm"))
 }
 
-/// What a decoder that panicked on a file is reported as.
-const CRASHED: &str = "the decoder crashed on it";
-
 /// Run `f`, which opens or decodes the audio file at `path`, with a panic in it turned into an
 /// error about that file.
 pub fn guarded<T, E: From<Error>>(
@@ -65,35 +59,9 @@ pub fn guarded<T, E: From<Error>>(
     crate::pdb::catch_quietly(f).unwrap_or_else(|_| Err(Error::parse(path, CRASHED).into()))
 }
 
-/// Open `path` and read its first audio track's format, refusing one no decoder can play (call
-/// it inside [`guarded`]).
-pub(crate) fn open(path: &Path) -> Result<(Box<dyn FormatReader>, Track)> {
-    let file = File::open(path).at(path)?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-    let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-    let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
-        .map_err(|e| Error::parse(path, e))?;
-    let track = probed
-        .format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-        .cloned()
-        .ok_or_else(|| Error::parse(path, "no audio track"))?;
-    let p = &track.codec_params;
-    if p.sample_rate == Some(0) || p.channels.is_some_and(|c| c.count() == 0) {
-        return Err(Error::parse(path, "its header says 0 Hz or no channels"));
-    }
-    Ok((probed.format, track))
-}
-
 /// The format of the audio in `path`, from its headers (nothing is decoded).
 pub fn format(path: &Path) -> Result<Format> {
-    let track = guarded(path, || open(path).map(|(_, track)| track))?;
+    let track = guarded(path, || open(path).map(|(_, track)| track).map_err(Error::from))?;
     let p = &track.codec_params;
     let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
     let codec = match p.codec {
@@ -375,7 +343,7 @@ pub fn check_tracks(
     tree: &FileTree,
     ctx: &Ctx<'_>,
 ) -> Result<(usize, Vec<AudioFinding>)> {
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
     // (track, file, its size, the database's length and size)
     let mut todo: Vec<(TrackRef, PathBuf, u64, f64, u64)> = Vec::new();
     for t in &library.tracks {
@@ -413,36 +381,7 @@ pub fn check_tracks(
 pub(crate) mod tests {
     use super::*;
 
-    /// A WAV file of `secs` seconds of a quiet tone.
-    pub fn wav(rate: u32, bits: u16, secs: f64) -> Vec<u8> {
-        let frames = (rate as f64 * secs) as u32;
-        wav_of(rate, bits, (0..frames).map(|i| ((i as f64 * 0.05).sin() * 1000.0) as i32))
-    }
-
-    /// A stereo WAV file holding `samples` in both channels.
-    pub fn wav_of(rate: u32, bits: u16, samples: impl ExactSizeIterator<Item = i32>) -> Vec<u8> {
-        let bytes = bits as u32 / 8;
-        let data_len = samples.len() as u32 * bytes * 2;
-        let mut out = Vec::new();
-        out.extend_from_slice(b"RIFF");
-        out.extend_from_slice(&(36 + data_len).to_le_bytes());
-        out.extend_from_slice(b"WAVEfmt ");
-        out.extend_from_slice(&16u32.to_le_bytes());
-        out.extend_from_slice(&1u16.to_le_bytes());
-        out.extend_from_slice(&2u16.to_le_bytes());
-        out.extend_from_slice(&rate.to_le_bytes());
-        out.extend_from_slice(&(rate * bytes * 2).to_le_bytes());
-        out.extend_from_slice(&((bytes * 2) as u16).to_le_bytes());
-        out.extend_from_slice(&bits.to_le_bytes());
-        out.extend_from_slice(b"data");
-        out.extend_from_slice(&data_len.to_le_bytes());
-        for v in samples {
-            for _ in 0..2 {
-                out.extend_from_slice(&v.to_le_bytes()[..bytes as usize]);
-            }
-        }
-        out
-    }
+    pub use loclib_mixid::test_util::{wav, wav_of};
 
     #[test]
     fn formats_from_headers() {

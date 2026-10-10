@@ -13,7 +13,8 @@
 //! for, and only if what's published hasn't changed since the plan read it (a first publish only
 //! if there's still nothing there). [`import_plan`] reads someone's published My Settings.
 
-use std::collections::{BTreeMap, BTreeSet};
+use indexmap::IndexMap;
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -83,8 +84,8 @@ const GROUPS: [&str; 3] = ["player", "display", "mixer"];
 // ---------------------------------------------------------------------------------------------
 
 /// The settings record for a settings profile's base values (setting key → value id).
-pub fn settings_record(base: &BTreeMap<String, String>, now: DateTime<Utc>) -> Value {
-    let mut groups: BTreeMap<&str, Map<String, Value>> = BTreeMap::new();
+pub fn settings_record(base: &IndexMap<String, String>, now: DateTime<Utc>) -> Value {
+    let mut groups: IndexMap<&str, Map<String, Value>> = IndexMap::new();
     for (key, value) in base {
         if let Ok((def, choice)) = settings::validate(key, value) {
             groups.entry(group(def.category)).or_default().insert(camel(def.key), choice.id.into());
@@ -103,7 +104,7 @@ pub fn settings_record(base: &BTreeMap<String, String>, now: DateTime<Utc>) -> V
 /// The settings a published settings record holds, as a settings profile's base values.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, JsonSchema)]
 pub struct PublishedSettings {
-    pub values: BTreeMap<String, String>,
+    pub values: IndexMap<String, String>,
     /// `group.field = value` entries this version of locallibrary doesn't know (newer firmware,
     /// or a newer locallibrary), left out.
     pub skipped: Vec<String>,
@@ -349,7 +350,7 @@ pub const SET_KEYS_FILE: &str = "atmosphere-sets.json";
 /// The key `did` published the history list (session) `fingerprint` under with `plays publish`,
 /// if it did.
 pub fn published_set_key(root: &Path, did: &str, fingerprint: &str) -> Result<Option<String>> {
-    let keys: BTreeMap<String, BTreeMap<String, String>> =
+    let keys: IndexMap<String, IndexMap<String, String>> =
         crate::fsutil::read_json_opt(&root.join(SET_KEYS_FILE))?.unwrap_or_default();
     Ok(keys.get(did).and_then(|k| k.get(fingerprint)).cloned())
 }
@@ -491,16 +492,17 @@ pub struct SettingsImportPlan {
 
 impl SettingsImportPlan {
     /// `base` with the published settings imported.
-    pub fn imported(&self, base: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-        let mut after = if self.replace { BTreeMap::new() } else { base.clone() };
+    pub fn imported(&self, base: &IndexMap<String, String>) -> IndexMap<String, String> {
+        let mut after = if self.replace { IndexMap::new() } else { base.clone() };
         after.extend(self.published.values.clone());
+        after.sort_unstable_keys();
         after
     }
 }
 
 /// Read the My Settings `from` published, and work out how importing them (adding them to `base`,
 /// or with `replace` replacing it) changes `base`.
-pub fn import_plan(from: Resolved, base: &BTreeMap<String, String>, replace: bool) -> Result<SettingsImportPlan> {
+pub fn import_plan(from: Resolved, base: &IndexMap<String, String>, replace: bool) -> Result<SettingsImportPlan> {
     let fetched = repo::get_record(&from.pds, &from.did, lexicon::SETTINGS, "self")?
         .ok_or_else(|| Error::NotFound(format!("My Settings published by {}", from.name())))?;
     let published = settings_from_record(&fetched.value)?;
@@ -543,7 +545,7 @@ mod tests {
 
     #[test]
     fn every_setting_fits_the_settings_lexicon_and_reads_back() {
-        let base: BTreeMap<String, String> =
+        let base: IndexMap<String, String> =
             settings::SCHEMA.iter().map(|d| (d.key.to_string(), d.choices.last().unwrap().id.to_string())).collect();
         let record = settings_record(&base, now());
         lexicon::validate(lexicon::SETTINGS, &record).unwrap();
@@ -555,7 +557,7 @@ mod tests {
         assert_eq!(back.updated_at.as_deref(), Some("2026-10-05T12:00:00.123Z"));
 
         // A partial profile publishes only what it sets.
-        let partial: BTreeMap<String, String> = [("quantize".to_string(), "off".to_string())].into();
+        let partial: IndexMap<String, String> = [("quantize".to_string(), "off".to_string())].into();
         let record = settings_record(&partial, now());
         lexicon::validate(lexicon::SETTINGS, &record).unwrap();
         assert!(record.get("display").is_none() && record.get("mixer").is_none());
@@ -645,7 +647,7 @@ mod tests {
 
     #[test]
     fn a_set_fits_the_set_lexicon_and_unidentified_tracks_say_nothing() {
-        let mut track = crate::model::tests::track(1, "Bicep", "Glue", "/Contents/Bicep/Glue.mp3");
+        let mut track = loclib_model::test_util::track(1, "Bicep", "Glue", "/Contents/Bicep/Glue.mp3");
         track.isrc = "GB-AHT-17-00123".into();
         track.bpm = 129.98;
         track.key = "Am".into();
