@@ -41,7 +41,8 @@ describe('parseMixReport', () => {
 		expect('secret' in report.report).toBe(false);
 	});
 
-	// The fixture is what `locallibrary mix … --export` wrote for a mix of rekordcrate's two demo tracks.
+	// The fixture is what `locallibrary mix … --export` writes for a mix of rekordcrate's two demo
+	// tracks. Regenerate it with `pnpm fixtures:mix` (scripts/mix-fixture.ts) when the format changes.
 	it('reads version 2, which has no library', () => {
 		expect(parseMixReportText(JSON.stringify(exported))).toMatchObject({
 			ok: true,

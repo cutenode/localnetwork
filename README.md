@@ -213,7 +213,7 @@ Until the host answers, locallibrary signs in as a local development app instead
 ```
 lexicons/computer/localnetwork/ Lexicons: project record, space types, space records, permission set, directory queries
 lua/                            HappyView scripts: the project record gate and the directory queries
-scripts/                        dev-network (local atproto network), publish-lexicons, seed data
+scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth

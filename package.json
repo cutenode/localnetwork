@@ -28,6 +28,7 @@
 		"test:coverage": "vitest run --coverage",
 		"test:e2e": "playwright test",
 		"lexicons:publish": "tsx scripts/publish-lexicons.ts",
+		"fixtures:mix": "tsx scripts/mix-fixture.ts",
 		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build"
 	},
 	"dependencies": {
