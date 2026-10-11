@@ -52,8 +52,8 @@
 				<div><label class="label" for="capacity">Capacity</label><input id="capacity" type="number" name="capacity" min="1" class="input" value={v.capacity ?? ''} /></div>
 			</div>
 			<div class="grid gap-4 sm:grid-cols-2">
-				<div><label class="label" for="budgetTier">Budget</label><select id="budgetTier" name="budgetTier" class="input"><option value="">—</option>{#each FEE_TIERS as o (o.value)}<option value={o.value} selected={v.budgetTier === o.value}>{o.label}</option>{/each}</select></div>
-				<div><label class="label" for="setType">Main slot</label><select id="setType" name="setType" class="input"><option value="">—</option>{#each SET_TYPES as o (o.value)}<option value={o.value} selected={v.setType === o.value}>{o.label}</option>{/each}</select></div>
+				<div><label class="label" for="budgetTier">Budget</label><select id="budgetTier" name="budgetTier" class="input"><option value="">Not set</option>{#each FEE_TIERS as o (o.value)}<option value={o.value} selected={v.budgetTier === o.value}>{o.label}</option>{/each}</select></div>
+				<div><label class="label" for="setType">Main slot</label><select id="setType" name="setType" class="input"><option value="">Not set</option>{#each SET_TYPES as o (o.value)}<option value={o.value} selected={v.setType === o.value}>{o.label}</option>{/each}</select></div>
 			</div>
 			<div><label class="label" for="genres">Sound</label><GenreInput value={v.genres ?? ''} /></div>
 			<div><label class="label" for="notes">Notes</label><textarea id="notes" name="notes" class="input min-h-24" maxlength="2000">{v.notes ?? ''}</textarea></div>

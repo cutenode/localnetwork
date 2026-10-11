@@ -6,6 +6,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
+use crate::tokens::{Rgb, track_colors};
+
 /// A rekordbox library as seen on a device export.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -108,6 +110,20 @@ impl TrackColor {
 
     pub fn id(self) -> u8 {
         self as u8 + 1
+    }
+
+    /// Roughly how rekordbox's players show it.
+    pub const fn rgb(self) -> Rgb {
+        match self {
+            Self::Pink => track_colors::PINK,
+            Self::Red => track_colors::RED,
+            Self::Orange => track_colors::ORANGE,
+            Self::Yellow => track_colors::YELLOW,
+            Self::Green => track_colors::GREEN,
+            Self::Aqua => track_colors::AQUA,
+            Self::Blue => track_colors::BLUE,
+            Self::Purple => track_colors::PURPLE,
+        }
     }
 }
 

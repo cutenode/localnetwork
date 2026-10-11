@@ -1,4 +1,5 @@
 use loclib_model::analysis::{Beat, Cue, WaveColumn, Waveform};
+use loclib_model::tokens::PLAYHEAD;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
@@ -78,7 +79,7 @@ impl Widget for Overview<'_> {
             let played = x < head;
             let shade = |c: Rgb| {
                 if x == head {
-                    [255, 255, 255]
+                    PLAYHEAD
                 } else if played {
                     scale(c, 0.5)
                 } else {
@@ -175,7 +176,7 @@ impl Widget for Detail<'_> {
         for x in 0..area.width {
             let t0 = start + x as f64 * secs_per_col;
             let Some(col) = column(self.wave, t0 * cps, (t0 + secs_per_col) * cps) else { continue };
-            let color = if x == centre { [255, 255, 255] } else { col.back.color };
+            let color = if x == centre { PLAYHEAD } else { col.back.color };
             let past = x < centre;
             let color = if past { scale(color, 0.7) } else { color };
             let a = col.back.height;

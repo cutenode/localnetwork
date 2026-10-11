@@ -144,7 +144,7 @@ pub mod testing {
     }
 }
 
-pub use loclib_model::{harmony, model};
+pub use loclib_model::{harmony, model, tokens};
 
 pub use device::{Device, DeviceInfo};
 pub use error::{Error, Result};

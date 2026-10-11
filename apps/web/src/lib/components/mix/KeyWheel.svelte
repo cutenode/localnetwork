@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { keysPlayed, parseCamelot, type Camelot, type MixReport } from '#lib/mix/report.ts';
+	import { colors, keysPlayed, parseCamelot, type Camelot, type MixReport } from '#lib/mix/report.ts';
 
 	let { report, selected = $bindable(null) }: { report: MixReport; selected?: number | null } = $props();
 
@@ -61,7 +61,7 @@
 		{/each}
 	{/each}
 	{#each moves as m (m.key)}
-		<path d={m.d} class="fill-none {m.clash ? 'stroke-ansi-bright-red' : 'stroke-ansi-bright-cyan'}" stroke-width="3" stroke-dasharray={m.clash ? '6 4' : undefined} />
+		<path d={m.d} class="fill-none stroke-ansi-bright-cyan" style:stroke={m.clash ? colors.status.dark.critical : undefined} stroke-width="3" stroke-dasharray={m.clash ? '6 4' : undefined} />
 	{/each}
 	{#each [...used] as [id, plays] (id)}
 		{@const k = parseCamelot(id)!}
@@ -89,7 +89,7 @@
 </svg>
 <div class="mt-2 flex flex-wrap gap-x-4 text-sm">
 	<span class="flex items-center gap-1.5"><span class="inline-block h-1 w-4 bg-ansi-bright-cyan"></span>Harmonic move</span>
-	<span class="flex items-center gap-1.5"><span class="inline-block h-1 w-4 bg-ansi-bright-red"></span>Clash</span>
+	<span class="flex items-center gap-1.5"><span class="inline-block h-1 w-4" style:background-color={colors.status.dark.critical}></span>Clash</span>
 </div>
 <p class="mt-1 min-h-6 text-sm text-ansi-cyan" aria-live="polite">
 	{#if focus}

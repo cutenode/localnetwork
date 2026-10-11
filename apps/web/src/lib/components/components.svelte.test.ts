@@ -40,6 +40,10 @@ describe('DiffTable', () => {
 		await expect.element(page.getByText('location › city')).toBeInTheDocument();
 		await expect.element(page.getByText('York')).toBeInTheDocument();
 	});
+	it('marks a missing before value as none', async () => {
+		await render(DiffTable, { changes: [{ field: 'profile.description', after: 'Late-night jungle' }] });
+		await expect.element(page.getByRole('cell', { name: 'none' })).toBeInTheDocument();
+	});
 	it('shows an empty message', async () => {
 		await render(DiffTable, { changes: [], empty: 'Nothing changed' });
 		await expect.element(page.getByText('Nothing changed')).toBeInTheDocument();

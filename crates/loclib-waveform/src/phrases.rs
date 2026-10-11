@@ -1,3 +1,4 @@
+use loclib_model::tokens::PLAYHEAD;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
@@ -45,7 +46,7 @@ impl Widget for PhraseStrip<'_> {
             }
         }
         if let Some(cell) = buf.cell_mut((area.x + head, y)) {
-            cell.set_symbol("┃").set_fg(paint([255, 255, 255]));
+            cell.set_symbol("┃").set_fg(paint(PLAYHEAD));
         }
     }
 }

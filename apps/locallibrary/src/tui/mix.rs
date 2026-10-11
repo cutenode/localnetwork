@@ -18,6 +18,8 @@ use locallibrary::mix::report::{self, Drive};
 use locallibrary::mix::{self, Identifier, MixReport, MixWaveform, Play, Transition};
 use locallibrary::profile::ProfilePrefs;
 use locallibrary::progress::{CancelToken, Ctx, Event, Phase};
+use locallibrary::tokens::PLAYHEAD;
+use locallibrary::tokens::bands::{self, HIGH, LOW, MID};
 use locallibrary::{Device, Library, Store, Track, fsutil};
 use loclib_waveform::{Art, Pixels, cue_letter};
 use ratatui::Frame;
@@ -38,13 +40,6 @@ use crate::output::clock;
 /// Recordings remembered between runs.
 const RECENT: usize = 20;
 
-/// The 3-band waveform's colours (the HTML report's): lows, mids, highs.
-const LOW: [u8; 3] = [57, 135, 229];
-const MID: [u8; 3] = [217, 89, 38];
-const HIGH: [u8; 3] = [236, 233, 223];
-/// Each band's height against the lows', as the report layers them: lows outermost, the highs a
-/// bright core.
-const BAND_SCALE: [f32; 3] = [1.0, 0.66, 0.32];
 /// Each play's lane colour, by its number.
 const LANES: [[u8; 3]; 5] = [theme::PINK, theme::CYAN, theme::AMBER, theme::VIOLET, theme::GREEN];
 const INK: [u8; 3] = [14, 14, 20];
@@ -1273,7 +1268,7 @@ fn draw_report(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
 /// The colour drawn for `c` at time `t`: dimmed once played, white at the playhead.
 fn shade(c: [u8; 3], played: bool, head: bool) -> [u8; 3] {
     if head {
-        [255, 255, 255]
+        PLAYHEAD
     } else if played {
         theme::scale(c, 0.5)
     } else {
@@ -1314,8 +1309,9 @@ fn draw_wave(buf: &mut Buffer, area: Rect, w: &MixWaveform, (from, to): (f64, f6
         let t0 = from + x as f64 * per_col;
         let a = ((t0 * w.columns_per_sec) as usize).min(n - 1);
         let b = (((t0 + per_col) * w.columns_per_sec).ceil() as usize).clamp(a + 1, n);
-        let max =
-            |v: &[u8], band: usize| v[a..b].iter().copied().max().unwrap_or(0) as f32 / 255.0 * rows * BAND_SCALE[band];
+        let max = |v: &[u8], band: usize| {
+            v[a..b].iter().copied().max().unwrap_or(0) as f32 / 255.0 * rows * bands::SCALES[band]
+        };
         let bands = [(max(&w.low, 0), LOW), (max(&w.mid, 1), MID), (max(&w.high, 2), HIGH)];
         let played = head.is_some_and(|h| t0 + per_col <= h);
         let is_head = head_col == Some(x);
@@ -1406,7 +1402,7 @@ fn draw_lanes(
     if let Some(x) = head_x(area, (from, to), head) {
         for y in [area.y, area.y + 1] {
             if let Some(cell) = buf.cell_mut((area.x + x, y)) {
-                cell.set_symbol("▏").set_fg(rgb3([255, 255, 255]));
+                cell.set_symbol("▏").set_fg(rgb3(PLAYHEAD));
             }
         }
     }
@@ -1755,7 +1751,7 @@ fn draw_track_wave(
         let lit = played(x);
         let tone = |c: [u8; 3]| {
             if head == Some(x) {
-                [255, 255, 255]
+                PLAYHEAD
             } else if lit {
                 theme::scale(c, 1.2)
             } else {

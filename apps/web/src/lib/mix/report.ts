@@ -11,6 +11,10 @@
  */
 import type { JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
+import colors from '../../../../../packages/tokens/colors.json' with { type: 'json' };
+
+/** Colours that mean the same here as in locallibrary's player and HTML report. */
+export { colors };
 
 export const MIX_REPORT_FORMAT = 'locallibrary.mix-report';
 
@@ -357,55 +361,31 @@ export function timeStep(duration: number, target: number): number {
 	return [30, 60, 120, 300, 600, 900, 1200, 1800].find((s) => duration / s <= target) ?? 3600;
 }
 
-/** The 16 VGA colours, to draw rekordbox's waveform colours in the site's palette. */
-const ANSI = [
-	['ansi-black', 0x00, 0x00, 0x00],
-	['ansi-blue', 0x00, 0x00, 0xaa],
-	['ansi-green', 0x00, 0xaa, 0x00],
-	['ansi-cyan', 0x00, 0xaa, 0xaa],
-	['ansi-red', 0xaa, 0x00, 0x00],
-	['ansi-magenta', 0xaa, 0x00, 0xaa],
-	['ansi-brown', 0xaa, 0x55, 0x00],
-	['ansi-gray', 0xaa, 0xaa, 0xaa],
-	['ansi-dark', 0x55, 0x55, 0x55],
-	['ansi-bright-blue', 0x55, 0x55, 0xff],
-	['ansi-bright-green', 0x55, 0xff, 0x55],
-	['ansi-bright-cyan', 0x55, 0xff, 0xff],
-	['ansi-bright-red', 0xff, 0x55, 0x55],
-	['ansi-bright-magenta', 0xff, 0x55, 0xff],
-	['ansi-yellow', 0xff, 0xff, 0x55],
-	['ansi-white', 0xff, 0xff, 0xff]
-] as const;
-
 /**
- * rekordbox's colour waveforms draw lows blue, mids orange and highs white. Mapped onto the mix
+ * rekordbox's colour waveforms draw lows blue, mids orange and highs white. Snapped to the mix
  * waveform's own band colours, a track's overview reads the same way as the mix above it.
  */
-export function bandColor(hex: string): 'low' | 'mid' | 'high' {
+export function bandColor(hex: string): string {
 	const n = Number.parseInt(hex.slice(1), 16);
 	const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 
-	if (Math.min(r, g, b) >= 160) return 'high';
+	if (Math.min(r, g, b) >= 160) return colors.bands.high;
 
-	return b > r ? 'low' : 'mid';
+	return b > r ? colors.bands.low : colors.bands.mid;
 }
 
-/** The palette colour nearest `#rrggbb` (never black, which would vanish on the page). */
-export function nearestAnsi(hex: string): string {
-	const n = Number.parseInt(hex.slice(1), 16);
-	const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-	let best: string = 'ansi-gray';
-	let bestDistance = Infinity;
+export type PhraseRole = keyof typeof colors.phrases;
 
-	for (const [name, cr, cg, cb] of ANSI) {
-		if (name === 'ansi-black') continue;
-		const d = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+const isPhraseRole = (word: string): word is PhraseRole => Object.hasOwn(colors.phrases, word);
 
-		if (d < bestDistance) {
-			bestDistance = d;
-			best = name;
-		}
-	}
+/** What a phrase kind does in the track: `Verse 2` is a verse, a kind rekordbox doesn't name is unknown. */
+export function phraseRole(kind: string): PhraseRole {
+	const word = kind.split(' ')[0].toLowerCase();
 
-	return best;
+	return isPhraseRole(word) ? word : 'unknown';
+}
+
+/** A phrase's colour, by its role, as the player and locallibrary's report draw it. */
+export function phraseColor(kind: string): string {
+	return colors.phrases[phraseRole(kind)];
 }

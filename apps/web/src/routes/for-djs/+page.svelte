@@ -34,7 +34,7 @@
 		<ListMusic class="size-6 shrink-0 text-ansi-bright-magenta" />
 		<div class="min-w-0 flex-1">
 			<h2 class="text-lg">Tracklists for your mixes</h2>
-			<p class="muted text-sm">Export a mix from locallibrary and attach it to the mix on your profile. Visitors see what you played, the tempo, the key moves, and every transition.</p>
+			<p class="muted text-sm">Export a mix from <a class="link" href="/tools/locallibrary">locallibrary</a> and attach it to the mix on your profile. Visitors see what you played, the tempo, the key moves, and every transition.</p>
 		</div>
 		<a href="/mixes/preview" class="btn-secondary">Preview an export</a>
 	</div>

@@ -23,6 +23,10 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
 - Every claim and change is reviewed by a moderator, so profiles can't be hijacked.
 
+### Tools
+
+- `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` with what it does, how to install it, and its guides (its README and `docs/*.md`), which are bundled from the repo at build time. See [Tools' pages and hosts](#tools-pages-and-hosts).
+
 ### Staff
 
 - Admins add and edit projects directly, change visibility, manage managers, and grant moderator/admin roles.
@@ -166,7 +170,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
 - `ADMIN_DIDS`: accounts that are always admins. Everyone else is managed in-app.
 - `HAPPYVIEW_URL`: the HappyView instance that serves the directory. Use its public URL: HappyView only answers the host its own `PUBLIC_URL` names. If HappyView is down, the app still starts, and pages that need projects say the directory is offline.
 - `HAPPYVIEW_API_KEY`: a HappyView API key with `lexicons:read`, `lexicons:create`, `scripts:read`, `scripts:manage`, `backfill:create`, and `backfill:read`. Optional; without it, upload the lexicons and scripts yourself.
-- `LOCALLIBRARY_HOST`: the host that serves [locallibrary](#locallibrarys-site)'s site (default `locallibrary.localnetwork.computer`).
+- `LOCALLIBRARY_HOST`: [locallibrary's own host](#tools-pages-and-hosts) (default `locallibrary.localnetwork.computer`).
 
 ## Deploying
 
@@ -184,18 +188,22 @@ See [`.env.example`](.env.example) for every option. The essentials:
    docker run -p 3000:3000 -v localnetwork-data:/data --env-file .env localnetwork
    ```
 5. Run **one** instance (SQLite and in-process background jobs). Back up `/data`: it holds OAuth sessions and the audit outbox; everything else can be re-synced from atproto.
-6. Point `locallibrary.localnetwork.computer` at the same deployment (a DNS record, plus the custom domain on your host) for [locallibrary's site](#locallibrarys-site).
+6. Point `locallibrary.localnetwork.computer` at the same deployment (a DNS record, plus the custom domain on your host) for [its client document](#tools-pages-and-hosts).
 
 `/healthz` reports database, root-account, and HappyView status.
 
-### locallibrary's site
+### Tools' pages and hosts
 
-[locallibrary](../locallibrary), the DJ drive tool (a CLI and terminal player, with a JSON-RPC sidecar for desktop apps), signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json`. This app serves that host from `src/lib/server/locallibrary/` before anything else runs (so it works even while the app isn't configured): the client document at `/oauth-client-metadata.json` and a short page about locallibrary at `/` (what it does, where to get it, and what signing in and publishing ask for). Every other path on that host is a 404. It's separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. The document lists every scope locallibrary may ask for: `atproto` to sign in, and create/update on the records it publishes (`computer.localnetwork.locallibrary.settings`, `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`).
+Each tool has an entry in `src/lib/tools/` (name, tagline, what it does, install steps) and a page at `/tools/<id>`. Its guides are the tool's own `README.md` and `docs/*.md` in `apps/<tool>/`, bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`.
+
+A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
+
+[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, and create/update on the records it publishes (`computer.localnetwork.locallibrary.settings`, `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`).
 
 locallibrary writes the document; after changing its scopes, regenerate it here before releasing the locallibrary version that asks for them:
 
 ```bash
-locallibrary account client-metadata -o src/lib/server/locallibrary/oauth-client-metadata.json
+locallibrary account client-metadata -o src/lib/tools/locallibrary/oauth-client-metadata.json
 ```
 
 Until the host answers, locallibrary signs in as a local development app instead (servers ask about it every time).
@@ -220,9 +228,10 @@ src/lib/                        Shared code: matching, genre taxonomy, geo, form
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
 src/lib/server/happyview/       HappyView client, script bundling, and boot sync
-src/lib/server/locallibrary/    locallibrary's site: its OAuth client document and page, served on its own host
 src/lib/server/services/        Projects, requests, staff, bookings, planner
 src/lib/server/sync/            Space syncer and record projections
+src/lib/server/tools/           The tools' own hosts, and their guides rendered to HTML
+src/lib/tools/                  The tools: one entry per tool, with its guides bundled from apps/<tool>/
 src/routes/                     SvelteKit 3 pages, form actions, and endpoints
 tests/integration/              Flows against an in-process spaces PDS and a HappyView container
 tests/e2e/                      Playwright

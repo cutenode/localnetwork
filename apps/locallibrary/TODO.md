@@ -201,7 +201,7 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       and CHANGELOG.
 - [ ] **Put `https://locallibrary.localnetwork.computer` online** (served by the Local Network web
       app). Regenerate the hosted client document with `locallibrary account client-metadata -o
-      oauth-client-metadata.json` and deploy it there, so it lists the narrowed publish scopes
+      apps/web/src/lib/tools/locallibrary/oauth-client-metadata.json` and deploy it there, so it lists the narrowed publish scopes
       (`repo:<nsid>?action=create&action=update`) before releasing publishing. The copy waiting
       in localnetwork has them now; it only needs deploying. While it's offline, sign-in falls
       back to the development client; online without those scopes, a publish sign-in stops and

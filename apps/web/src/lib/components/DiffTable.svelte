@@ -21,8 +21,8 @@
 				{#each changes as change (change.field)}
 					<tr>
 						<td class="whitespace-nowrap text-ansi-white">{pretty(change.field)}</td>
-						<td class="max-w-xs break-words text-ansi-bright-red">{#if change.before}<del class="decoration-ansi-red">{change.before}</del>{:else}<span class="muted">—</span>{/if}</td>
-						<td class="max-w-xs break-words text-ansi-bright-green">{#if change.after}{change.after}{:else}<span class="muted">—</span>{/if}</td>
+						<td class="max-w-xs break-words text-ansi-bright-red">{#if change.before}<del class="decoration-ansi-red">{change.before}</del>{:else}<span class="muted">none</span>{/if}</td>
+						<td class="max-w-xs break-words text-ansi-bright-green">{#if change.after}{change.after}{:else}<span class="muted">none</span>{/if}</td>
 					</tr>
 				{/each}
 			</tbody>

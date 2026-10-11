@@ -28,12 +28,12 @@
 		},
 		{
 			label: 'Tempo',
-			value: s.tempo ? `${s.tempo.median.toFixed(0)} BPM` : '—',
+			value: s.tempo ? `${s.tempo.median.toFixed(0)} BPM` : '?',
 			sub: s.tempo ? (s.tempo.steady ? 'held steady all set' : `${s.tempo.low.toFixed(0)}–${s.tempo.high.toFixed(0)} across the set`) : 'no BPMs in the library'
 		},
 		{
 			label: 'Harmonic transitions',
-			value: s.harmonic.known ? `${s.harmonic.good} of ${s.harmonic.known}` : '—',
+			value: s.harmonic.known ? `${s.harmonic.good} of ${s.harmonic.known}` : '?',
 			sub: s.harmonic.known ? 'by the keys as played' : 'keys unknown'
 		}
 	]);

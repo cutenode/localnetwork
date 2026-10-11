@@ -1,10 +1,11 @@
 use loclib_model::TrackColor;
 use loclib_model::analysis::Cue;
+use loclib_model::tokens::cues;
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 
 /// An 8-bit sRGB colour, as rekordbox stores them.
-pub type Rgb = [u8; 3];
+pub use loclib_model::tokens::Rgb;
 
 /// The colours the widgets draw in, and how a colour becomes what the terminal draws. Every
 /// widget takes one; `Palette::default()` is [`Palette::DARK`].
@@ -55,19 +56,10 @@ impl Palette {
         accent: [255, 92, 160],
         spectrum: &[[64, 140, 255], [158, 112, 255], [255, 92, 160], [255, 196, 86]],
         scope: &[[92, 214, 255], [158, 112, 255], [255, 92, 160]],
-        hot_cue: [40, 226, 20],
-        memory_cue: [232, 48, 48],
-        loop_cue: [255, 140, 30],
-        track_color: |c| match c {
-            TrackColor::Pink => [248, 82, 201],
-            TrackColor::Red => [232, 48, 48],
-            TrackColor::Orange => [255, 140, 30],
-            TrackColor::Yellow => [240, 220, 40],
-            TrackColor::Green => [60, 200, 80],
-            TrackColor::Aqua => [40, 200, 220],
-            TrackColor::Blue => [48, 96, 240],
-            TrackColor::Purple => [150, 72, 230],
-        },
+        hot_cue: cues::HOT,
+        memory_cue: cues::MEMORY,
+        loop_cue: cues::LOOP,
+        track_color: TrackColor::rgb,
         paint: |[r, g, b]| Color::Rgb(r, g, b),
         image: |[r, g, b]| Color::Rgb(r, g, b),
         plain: false,

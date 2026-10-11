@@ -16,6 +16,7 @@
 		{ key: 'F', href: '/projects', label: 'Find DJs' },
 		{ key: 'M', href: '/match', label: 'Match a show' },
 		{ key: 'D', href: '/for-djs', label: 'For DJs' },
+		{ key: 'O', href: '/tools', label: 'Tools' },
 		...(data.viewer
 			? [
 					{ key: 'B', href: '/bookings', label: 'Bookings' },

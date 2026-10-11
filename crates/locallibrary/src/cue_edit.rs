@@ -312,16 +312,16 @@ const HOT_CUE_COLORS: [(&str, u8); 15] = [
     ("violet", 0x3c),
 ];
 
-/// The memory cue colours (rekordbox's colour table) and roughly how they look.
-const MEMORY_COLORS: [(TrackColor, &str, [u8; 3]); 8] = [
-    (TrackColor::Pink, "pink", [248, 82, 201]),
-    (TrackColor::Red, "red", [232, 48, 48]),
-    (TrackColor::Orange, "orange", [255, 140, 30]),
-    (TrackColor::Yellow, "yellow", [240, 220, 40]),
-    (TrackColor::Green, "green", [60, 200, 80]),
-    (TrackColor::Aqua, "aqua", [40, 200, 220]),
-    (TrackColor::Blue, "blue", [48, 96, 240]),
-    (TrackColor::Purple, "purple", [150, 72, 230]),
+/// The memory cue colours (rekordbox's colour table) by name.
+const MEMORY_COLORS: [(TrackColor, &str); 8] = [
+    (TrackColor::Pink, "pink"),
+    (TrackColor::Red, "red"),
+    (TrackColor::Orange, "orange"),
+    (TrackColor::Yellow, "yellow"),
+    (TrackColor::Green, "green"),
+    (TrackColor::Aqua, "aqua"),
+    (TrackColor::Blue, "blue"),
+    (TrackColor::Purple, "purple"),
 ];
 
 fn parse_rgb(s: &str) -> Option<[u8; 3]> {
@@ -362,10 +362,10 @@ pub fn set_color(c: &mut CuePoint, spec: &str) -> Result<()> {
             "violet" | "magenta" => "purple",
             other => other,
         };
-        c.color_id = match (MEMORY_COLORS.iter().find(|(_, n, _)| *n == alias), parse_rgb(&s), s.parse::<u8>()) {
+        c.color_id = match (MEMORY_COLORS.iter().find(|(_, n)| *n == alias), parse_rgb(&s), s.parse::<u8>()) {
             _ if matches!(alias, "none" | "default" | "") => 0,
-            (Some((color, _, _)), _, _) => color.id(),
-            (_, Some(rgb), _) => MEMORY_COLORS[nearest(rgb, MEMORY_COLORS.iter().map(|(_, _, c)| *c))].0.id(),
+            (Some((color, _)), _, _) => color.id(),
+            (_, Some(rgb), _) => MEMORY_COLORS[nearest(rgb, MEMORY_COLORS.iter().map(|(c, _)| c.rgb()))].0.id(),
             (_, _, Ok(n @ 1..=8)) => n,
             _ => return Err(bad()),
         };
@@ -383,7 +383,7 @@ fn color_label(c: &CuePoint) -> Option<String> {
         }
     } else {
         let color = TrackColor::from_id(c.color_id)?;
-        MEMORY_COLORS.iter().find(|(m, _, _)| *m == color).map(|(_, name, _)| name.to_string())
+        MEMORY_COLORS.iter().find(|(m, _)| *m == color).map(|(_, name)| name.to_string())
     }
 }
 

@@ -1,0 +1,39 @@
+{
+	"$schema": "./colors.schema.json",
+	"bands": {
+		"low": "#3987e5",
+		"mid": "#d95926",
+		"high": "#ece9df",
+		"scales": { "low": 1, "mid": 0.66, "high": 0.32 }
+	},
+	"phrases": {
+		"intro": "#4670e8",
+		"up": "#e8a83c",
+		"verse": "#e8a83c",
+		"chorus": "#ec528e",
+		"down": "#40b8de",
+		"bridge": "#40b8de",
+		"outro": "#845cde",
+		"unknown": "#5a5a70"
+	},
+	"cues": {
+		"hot": "#28e214",
+		"memory": "#e83030",
+		"loop": "#ff8c1e"
+	},
+	"trackColors": {
+		"pink": "#f852c9",
+		"red": "#e83030",
+		"orange": "#ff8c1e",
+		"yellow": "#f0dc28",
+		"green": "#3cc850",
+		"aqua": "#28c8dc",
+		"blue": "#3060f0",
+		"purple": "#9648e6"
+	},
+	"status": {
+		"dark": { "good": "#78de8c", "warning": "#ffc456", "critical": "#ff6464" },
+		"light": { "good": "#1e7b34", "warning": "#8a5a00", "critical": "#c62828" }
+	},
+	"playhead": "#ffffff"
+}

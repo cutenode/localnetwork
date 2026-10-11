@@ -1,6 +1,9 @@
 {
 	"$schema": "./node_modules/oxlint/configuration_schema.json",
 	"plugins": ["typescript", "unicorn", "oxc", "import", "vitest", "promise", "node"],
+	"options": {
+		"reportUnusedDisableDirectives": "error"
+	},
 	"jsPlugins": [
 		{
 			"name": "anti-slop",

@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use locallibrary::anlz::PhraseKind;
 use locallibrary::model::TrackColor;
+use locallibrary::tokens::{phrases, status};
 use loclib_waveform::Palette;
 pub use loclib_waveform::color::{gradient, mix, scale};
 use ratatui::style::{Color, Modifier, Style};
@@ -210,10 +211,10 @@ pub const DIM: [u8; 3] = DARK.dim;
 pub const FAINT: [u8; 3] = DARK.faint;
 pub const PINK: [u8; 3] = DARK.accent;
 pub const CYAN: [u8; 3] = DARK.scope[0];
-pub const AMBER: [u8; 3] = DARK.spectrum[3];
+pub const AMBER: [u8; 3] = status::dark::WARNING;
 pub const VIOLET: [u8; 3] = DARK.spectrum[1];
-pub const GREEN: [u8; 3] = [120, 222, 140];
-pub const RED: [u8; 3] = [255, 100, 100];
+pub const GREEN: [u8; 3] = status::dark::GOOD;
+pub const RED: [u8; 3] = status::dark::CRITICAL;
 pub const SELECTION: [u8; 3] = [44, 44, 70];
 pub const VINYL: [u8; 3] = [40, 40, 52];
 
@@ -298,12 +299,14 @@ pub fn track_color(c: TrackColor) -> [u8; 3] {
 /// light.
 pub fn phrase_color(kind: PhraseKind) -> [u8; 3] {
     match kind {
-        PhraseKind::Intro => [70, 112, 232],
-        PhraseKind::Up | PhraseKind::Verse(_) => [232, 168, 60],
-        PhraseKind::Chorus => [236, 82, 142],
-        PhraseKind::Down | PhraseKind::Bridge => [64, 184, 222],
-        PhraseKind::Outro => [132, 92, 222],
-        PhraseKind::Unknown(_) => [90, 90, 112],
+        PhraseKind::Intro => phrases::INTRO,
+        PhraseKind::Up => phrases::UP,
+        PhraseKind::Verse(_) => phrases::VERSE,
+        PhraseKind::Chorus => phrases::CHORUS,
+        PhraseKind::Down => phrases::DOWN,
+        PhraseKind::Bridge => phrases::BRIDGE,
+        PhraseKind::Outro => phrases::OUTRO,
+        PhraseKind::Unknown(_) => phrases::UNKNOWN,
     }
 }
 

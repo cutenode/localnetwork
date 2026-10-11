@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
 	bandColor,
 	clock,
+	colors,
 	handoff,
 	keysPlayed,
 	lanes,
-	nearestAnsi,
 	niceTicks,
 	parseMixReport,
 	parseMixReportText,
 	phraseAt,
+	phraseColor,
+	phraseRole,
 	speed,
 	summarize,
 	tracklist
@@ -154,10 +156,35 @@ describe('display helpers', () => {
 			['3B', [4]]
 		]);
 		expect(phraseAt(report.plays[0].track, 70)).toBe('Up');
-		expect(nearestAnsi('#2050ff')).toBe('ansi-bright-blue');
-		expect(nearestAnsi('#ff7a1a')).toBe('ansi-bright-red');
-		expect(nearestAnsi('#000000')).not.toBe('ansi-black');
-		expect([bandColor('#2050ff'), bandColor('#ff7a1a'), bandColor('#f0f0f0')]).toEqual(['low', 'mid', 'high']);
 		expect(niceTicks(118, 132, 4)).toEqual([120, 125, 130]);
+	});
+
+	// rekordbox's overview colours, snapped to the mix waveform's bands.
+	it('snaps overview colours to the band colours', () => {
+		const { low, mid, high } = colors.bands;
+
+		expect(['#2050ff', '#0000bf', '#ff7a1a', '#bf0904', '#f0f0f0'].map(bandColor)).toEqual([low, low, mid, mid, high]);
+	});
+
+	it('colours phrases by what they do, as the player does', () => {
+		const kinds = ['Intro', 'Up', 'Verse 1', 'Verse 6', 'Chorus', 'Down', 'Bridge', 'Outro', 'Phrase 9', ''];
+
+		expect(kinds.map(phraseRole)).toEqual([
+			'intro',
+			'up',
+			'verse',
+			'verse',
+			'chorus',
+			'down',
+			'bridge',
+			'outro',
+			'unknown',
+			'unknown'
+		]);
+		expect(['Verse 3', 'Phrase 9', 'toString'].map(phraseColor)).toEqual([
+			colors.phrases.verse,
+			colors.phrases.unknown,
+			colors.phrases.unknown
+		]);
 	});
 });

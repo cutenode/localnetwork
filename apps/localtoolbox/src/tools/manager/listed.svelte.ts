@@ -213,9 +213,7 @@ class Listed {
 		// Plain Map and Set on purpose: both are local to this call, nothing ever
 		// reads them back through the markup, and a reactive one would only cost a
 		// proxy on every write while a page of five hundred is being folded in.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const held = new Map(this.#items.map((item) => [item.permalink, item]));
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const seen = new Set();
 		let added = 0;
 		let refreshed = 0;
@@ -263,7 +261,6 @@ class Listed {
 	 */
 	async replace(tracks: SavedListedEntry[]) {
 		const at = Date.now();
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const held = new Map<string, ListedEntry>();
 		let refused = 0;
 

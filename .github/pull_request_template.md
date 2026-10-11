@@ -1,5 +1,5 @@
 <!--
-CONTRIBUTING.md has the checks CI runs. Running the ones for what you touched first saves a round trip.
+apps/locallibrary/CONTRIBUTING.md has the checks CI runs for locallibrary. Running the ones for what you touched first saves a round trip.
 
 locallibrary (Rust, from the repo root):
 cargo fmt --all --check

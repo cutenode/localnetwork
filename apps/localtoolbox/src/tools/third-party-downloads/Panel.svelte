@@ -163,7 +163,6 @@
 
   // A plain Map on purpose: a lookup table the markup never reads, so making
   // it reactive would only cost a proxy on every write.
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const byDownloadId = new Map<number, Row>();
 
   const STATES = {

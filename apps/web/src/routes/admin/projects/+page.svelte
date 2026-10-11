@@ -37,7 +37,7 @@
 						</div>
 					</td>
 					<td>{project.profile.location.city}, {project.profile.location.country}</td>
-					<td>{project.managers.length || '—'}</td>
+					<td>{project.managers.length || 'none'}</td>
 					<td>{project.revision}</td>
 					<td class="whitespace-nowrap">{formatDate(project.updatedAt)}</td>
 					<td><StatusPill status={project.status} /></td>

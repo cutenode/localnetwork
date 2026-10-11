@@ -184,9 +184,7 @@ class Artists {
 		const at = Date.now();
 		// Plain Map and Set on purpose: local to this call, never read through
 		// the markup, and a reactive one would cost a proxy per write.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const held = new Map(this.#items.map((item) => [item.permalink, item]));
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const seen = new Set();
 		let added = 0;
 		let refreshed = 0;
@@ -229,7 +227,6 @@ class Artists {
 	 */
 	async replace(artists: SavedArtistEntry[]) {
 		const at = Date.now();
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const held: Map<string, ArtistEntry> = new Map();
 		let refused = 0;
 
@@ -270,7 +267,6 @@ class Artists {
 	learn(profiles: ProfileAnswer[]) {
 		let taken = 0;
 		const at = Date.now();
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const answers: Map<string, ProfileEntry> = new Map();
 
 		for (const profile of Array.isArray(profiles) ? profiles : []) {

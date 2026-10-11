@@ -386,7 +386,43 @@ pub fn page(
     // way JSON allows.
     let json = serde_json::to_string(&data).expect("serialisable").replace('<', "\\u003c");
     let title = r.mix.title.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-    TEMPLATE.replace("{{TITLE}}", &title).replace("/*{{DATA}}*/null", &json)
+    TEMPLATE.replace("{{TITLE}}", &title).replace("/*{{TOKENS}}*/", &tokens_css()).replace("/*{{DATA}}*/null", &json)
+}
+
+/// The colours the page shares with the player and the website, as CSS custom properties: the
+/// waveform's bands, phrases by kind, cue defaults and the playhead, and good, warning and
+/// critical for the light page and the dark one (both ways it goes dark).
+fn tokens_css() -> String {
+    use crate::tokens::{PLAYHEAD, Rgb, bands, cues, phrases, status};
+    let props = |vars: &[(&str, Rgb)]| {
+        vars.iter().map(|(name, [r, g, b])| format!("  --{name}: #{r:02x}{g:02x}{b:02x};\n")).collect::<String>()
+    };
+    let status = |s: [Rgb; 3]| props(&[("good", s[0]), ("warning", s[1]), ("critical", s[2])]);
+    let [low, mid, high] = bands::SCALES;
+    let shared = props(&[
+        ("band-low", bands::LOW),
+        ("band-mid", bands::MID),
+        ("band-high", bands::HIGH),
+        ("phrase-intro", phrases::INTRO),
+        ("phrase-up", phrases::UP),
+        ("phrase-verse", phrases::VERSE),
+        ("phrase-chorus", phrases::CHORUS),
+        ("phrase-down", phrases::DOWN),
+        ("phrase-bridge", phrases::BRIDGE),
+        ("phrase-outro", phrases::OUTRO),
+        ("phrase-unknown", phrases::UNKNOWN),
+        ("cue-hot", cues::HOT),
+        ("cue-memory", cues::MEMORY),
+        ("cue-loop", cues::LOOP),
+        ("playhead", PLAYHEAD),
+    ]);
+    let light = status([status::light::GOOD, status::light::WARNING, status::light::CRITICAL]);
+    let dark = status([status::dark::GOOD, status::dark::WARNING, status::dark::CRITICAL]);
+    format!(
+        ":root {{\n{shared}  --band-scale-low: {low};\n  --band-scale-mid: {mid};\n  --band-scale-high: {high};\n{light}}}\n\
+         @media (prefers-color-scheme: dark) {{\n  :root:where(:not([data-theme=\"light\"])) {{\n{dark}  }}\n}}\n\
+         :root[data-theme=\"dark\"] {{\n{dark}}}"
+    )
 }
 
 /// A report kept in the store's `reports` folder.
@@ -682,6 +718,21 @@ pub(crate) mod tests {
         let data = data.split_once("</script>").unwrap().0;
         let v: serde_json::Value = serde_json::from_str(data).unwrap_or_else(|e| panic!("{e}: {data}"));
         assert_eq!(v["report"]["mix"]["title"], title);
+    }
+
+    /// The page draws in the colours the player does: the bands and phrases, and good, warning
+    /// and critical for the light page and both ways it goes dark.
+    #[test]
+    fn the_page_shares_the_players_colours() {
+        use crate::tokens::{Rgb, bands, phrases, status};
+        let html = page(&report("x"), None, None, Path::new("/r/x.html"), &ProfilePrefs::default(), true);
+        let prop = |name: &str, [r, g, b]: Rgb| format!("--{name}: #{r:02x}{g:02x}{b:02x};");
+        assert!(!html.contains("{{TOKENS}}"));
+        for (name, rgb) in [("band-low", bands::LOW), ("phrase-verse", phrases::VERSE), ("good", status::light::GOOD)] {
+            assert_eq!(html.matches(&prop(name, rgb)).count(), 1, "{name}");
+        }
+        assert!(html.contains("--band-scale-mid: 0.66;"));
+        assert_eq!(html.matches(&prop("critical", status::dark::CRITICAL)).count(), 2, "both dark blocks");
     }
 
     /// A page made to be shared holds what it shows and nothing that only makes sense here (the

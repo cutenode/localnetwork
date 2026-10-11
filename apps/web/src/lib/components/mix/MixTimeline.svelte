@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { clock, CONFIDENT, lanes, playingAt, timeStep, type MixReport } from '#lib/mix/report.ts';
+	import { clock, colors, CONFIDENT, lanes, playingAt, timeStep, type MixReport } from '#lib/mix/report.ts';
 
 	let { report, selected = $bindable(null) }: { report: MixReport; selected?: number | null } = $props();
 
@@ -31,7 +31,9 @@
 			return d;
 		};
 
-		return { n, low: band(w.low, 1), mid: band(w.mid, 0.66), high: band(w.high, 0.32) };
+		const { scales } = colors.bands;
+
+		return { n, low: band(w.low, scales.low), mid: band(w.mid, scales.mid), high: band(w.high, scales.high) };
 	});
 
 	const ticks = $derived.by(() => {
@@ -72,9 +74,9 @@
 <div class="space-y-2">
 	<div class="flex flex-wrap items-center justify-between gap-2 text-sm">
 		<ul class="flex flex-wrap gap-x-4 gap-y-1" aria-label="Waveform colours">
-			<li class="flex items-center gap-1.5"><span class="inline-block size-3 bg-ansi-bright-blue"></span>Lows</li>
-			<li class="flex items-center gap-1.5"><span class="inline-block size-3 bg-ansi-bright-magenta"></span>Mids</li>
-			<li class="flex items-center gap-1.5"><span class="inline-block size-3 bg-ansi-white"></span>Highs</li>
+			<li class="flex items-center gap-1.5"><span class="inline-block size-3" style:background-color={colors.bands.low}></span>Lows</li>
+			<li class="flex items-center gap-1.5"><span class="inline-block size-3" style:background-color={colors.bands.mid}></span>Mids</li>
+			<li class="flex items-center gap-1.5"><span class="inline-block size-3" style:background-color={colors.bands.high}></span>Highs</li>
 			<li class="flex items-center gap-1.5"><span class="inline-block h-0.5 w-4 bg-ansi-bright-green"></span>How clearly each track is heard</li>
 		</ul>
 		<div class="flex gap-1" role="group" aria-label="Zoom">
@@ -88,9 +90,9 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative" style="width: {zoom * 100}%; min-width: 100%" {onpointermove} onpointerleave={() => (hover = null)}>
 			<svg viewBox="0 0 {bands.n} {HEIGHT}" preserveAspectRatio="none" class="block h-28 w-full" role="img" aria-label="The mix's loudness in three bands, {clock(duration)} long" shape-rendering="crispEdges">
-				<path d={bands.low} class="fill-ansi-bright-blue" />
-				<path d={bands.mid} class="fill-ansi-bright-magenta" />
-				<path d={bands.high} class="fill-ansi-white" />
+				<path d={bands.low} style:fill={colors.bands.low} />
+				<path d={bands.mid} style:fill={colors.bands.mid} />
+				<path d={bands.high} style:fill={colors.bands.high} />
 			</svg>
 
 			<div class="relative border-t-2 border-dashed border-ansi-blue" style="height: {laneCount * 3.75}rem">

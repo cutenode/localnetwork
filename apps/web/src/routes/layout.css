@@ -308,3 +308,25 @@
 .prose-ansi :where(h2):not(:where(.not-prose *)) {
 	@apply text-ansi-yellow;
 }
+/*
+ * Long guides: a long command or path wraps instead of widening the page, code and tables keep the
+ * body size (VT323 is small already), inline code drops the plugin's backticks, code blocks look
+ * like .code-block, and a table too wide for a phone scrolls in its own box instead of squeezing.
+ */
+.prose-ansi {
+	overflow-wrap: break-word;
+}
+.prose-ansi :where(code, pre, table):not(:where(.not-prose *)) {
+	font-size: inherit;
+}
+.prose-ansi :where(code):not(:where(.not-prose *))::before,
+.prose-ansi :where(code):not(:where(.not-prose *))::after {
+	content: none;
+}
+.prose-ansi :where(pre):not(:where(.not-prose *)) {
+	@apply rounded-none border-2 border-dashed border-ansi-blue leading-tight;
+}
+.prose-ansi :where(table):not(:where(.not-prose *)) {
+	min-width: 32rem;
+	line-height: 1.25;
+}

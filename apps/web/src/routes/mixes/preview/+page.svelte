@@ -46,7 +46,7 @@
 		<section class="card card-pad max-w-3xl space-y-4">
 			<h1 class="text-3xl">Preview a mix report</h1>
 			<p>
-				Your tracklist, as locallibrary found it in a recording of your set: when each track plays, at what tempo and key, and how you mixed
+				Your tracklist, as <a class="link" href="/tools/locallibrary">locallibrary</a> found it in a recording of your set: when each track plays, at what tempo and key, and how you mixed
 				between them. Open the file here to see it the way it will look on your profile. It stays on this computer; nothing is uploaded.
 			</p>
 			<pre class="code-block">locallibrary mix "My set.wav" --drive Main --export my-set.mix.json</pre>

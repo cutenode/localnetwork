@@ -45,7 +45,7 @@
 				<tbody>
 					{#each data.requests as request (request.uri)}
 						<tr class="hover:bg-ansi-blue">
-							<td><a class="menu-link" href="/admin/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? '—'}</a>{#if request.record.onBehalfOf}<p class="muted text-xs">filed by root on their behalf</p>{/if}</td>
+							<td><a class="menu-link" href="/admin/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? 'Unnamed'}</a>{#if request.record.onBehalfOf}<p class="muted text-xs">filed by root on their behalf</p>{/if}</td>
 							<td><Handle account={request.requester} /></td>
 							<td class="whitespace-nowrap">{timeAgo(request.createdAt)}</td>
 							<td><StatusPill status={request.status} /></td>

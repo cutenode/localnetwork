@@ -3,8 +3,8 @@ import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks'
 import { getApp } from '#lib/server/app.ts';
 import { HappyViewError } from '#lib/server/happyview/client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
-import { locallibrarySite } from '#lib/server/locallibrary/site.ts';
 import { createLogger } from '#lib/server/logger.ts';
+import { toolSite } from '#lib/server/tools/site.ts';
 
 const fallbackLogger = createLogger({
 	level: process.env.LOG_LEVEL ?? 'info',
@@ -27,11 +27,10 @@ const setupPage = (message: string) =>
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 export const handle: Handle = async ({ event, resolve }) => {
-	// locallibrary's site has its own host and needs nothing from the app, so it answers even
-	// while the app isn't configured.
-	const locallibrary = locallibrarySite(event.request, event.url.pathname);
+	// The tools' own hosts need nothing from the app, so they answer even while it isn't configured.
+	const tool = toolSite(event.request, event.url.pathname);
 
-	if (locallibrary) return locallibrary;
+	if (tool) return tool;
 
 	const started = performance.now();
 	const requestId = event.request.headers.get('x-request-id')?.slice(0, 64) || randomUUID();

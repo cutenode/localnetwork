@@ -43,11 +43,11 @@
 			<div><label class="label" for="currency">Currency</label><input id="currency" name="currency" class="input uppercase" maxlength="3" value={v.currency ?? 'USD'} /></div>
 			<div>
 				<label class="label" for="budgetTier">Tier</label>
-				<select id="budgetTier" name="budgetTier" class="input"><option value="">—</option>{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={v.budgetTier === option.value}>{option.label}</option>{/each}</select>
+				<select id="budgetTier" name="budgetTier" class="input"><option value="">Not set</option>{#each FEE_TIERS as option (option.value)}<option value={option.value} selected={v.budgetTier === option.value}>{option.label}</option>{/each}</select>
 			</div>
 			<div>
 				<label class="label" for="setType">Slot</label>
-				<select id="setType" name="setType" class="input"><option value="">—</option>{#each SET_TYPES as option (option.value)}<option value={option.value} selected={v.setType === option.value}>{option.label}</option>{/each}</select>
+				<select id="setType" name="setType" class="input"><option value="">Not set</option>{#each SET_TYPES as option (option.value)}<option value={option.value} selected={v.setType === option.value}>{option.label}</option>{/each}</select>
 			</div>
 		</div>
 		<div><label class="label" for="genres">Sound of the night</label><GenreInput value={v.genres ?? ''} /></div>

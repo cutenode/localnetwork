@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{TITLE}}</title>
 <style>
+/* Colours shared with locallibrary's player and the website, filled in by report.rs. */
+/*{{TOKENS}}*/
 :root {
   color-scheme: light;
   --page: #f9f9f7;
@@ -18,8 +20,6 @@
   --ring: rgba(11, 11, 11, 0.10);
   --accent: #2a78d6;
   --accent-wash: rgba(42, 120, 214, 0.10);
-  --good: #006300;
-  --critical: #d03b3b;
   --shadow: 0 1px 2px rgba(11, 11, 11, 0.04), 0 8px 24px rgba(11, 11, 11, 0.06);
   /* The mix display is dark in both themes, like a player's screen. */
   --deck: #141413;
@@ -28,9 +28,6 @@
   --deck-ink: #ffffff;
   --deck-ink-2: #c3c2b7;
   --deck-muted: #898781;
-  --low: #3987e5;
-  --mid: #d95926;
-  --high: #ece9df;
   --lane: #3987e5;
 }
 @media (prefers-color-scheme: dark) {
@@ -47,8 +44,6 @@
     --ring: rgba(255, 255, 255, 0.10);
     --accent: #3987e5;
     --accent-wash: rgba(57, 135, 229, 0.14);
-    --good: #0ca30c;
-    --critical: #e66767;
     --shadow: none;
     --deck: #111110;
   }
@@ -66,8 +61,6 @@
   --ring: rgba(255, 255, 255, 0.10);
   --accent: #3987e5;
   --accent-wash: rgba(57, 135, 229, 0.14);
-  --good: #0ca30c;
-  --critical: #e66767;
   --shadow: none;
   --deck: #111110;
 }
@@ -158,7 +151,7 @@ h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .axis span { position: absolute; top: 4px; transform: translateX(-50%); font-size: 11px; color: var(--deck-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .axis span::before { content: ""; position: absolute; left: 50%; top: -6px; width: 1px; height: 4px; background: var(--deck-3); }
 .playhead, .hoverline { position: absolute; top: 0; bottom: 28px; width: 2px; margin-left: -1px; pointer-events: none; }
-.playhead { background: #ffffff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); display: none; }
+.playhead { background: var(--playhead); box-shadow: 0 0 0 1px rgba(0,0,0,.4); display: none; }
 .hoverline { background: rgba(255,255,255,.35); width: 1px; display: none; }
 .deck-foot { display: flex; justify-content: space-between; padding: 6px 18px 0; font-size: 12px; color: var(--deck-muted); gap: 12px; flex-wrap: wrap; }
 
@@ -204,6 +197,7 @@ svg text { font-family: inherit; }
 .track .artist { color: var(--ink-2); overflow-wrap: anywhere; }
 .track .meta { color: var(--muted); font-size: 12.5px; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 2px 10px; }
 .track .meta .when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.badge.warn { color: var(--warning); }
 .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; border-radius: 999px; padding: 1px 8px; background: var(--surface-2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--ring); white-space: nowrap; }
 .used canvas { width: 280px; height: 44px; display: block; }
 .used .cap { font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; display: flex; justify-content: space-between; gap: 8px; }
@@ -273,9 +267,9 @@ footer button { background: none; border: 0; color: var(--ink-2); cursor: pointe
       <div class="deck-head">
         <h2>The mix</h2>
         <div class="legend" aria-label="Waveform legend">
-          <span class="key"><span class="sw" style="background:var(--low)"></span>Lows</span>
-          <span class="key"><span class="sw" style="background:var(--mid)"></span>Mids</span>
-          <span class="key"><span class="sw" style="background:var(--high)"></span>Highs</span>
+          <span class="key"><span class="sw" style="background:var(--band-low)"></span>Lows</span>
+          <span class="key"><span class="sw" style="background:var(--band-mid)"></span>Mids</span>
+          <span class="key"><span class="sw" style="background:var(--band-high)"></span>Highs</span>
           <span class="key"><span class="ln" style="background:var(--lane)"></span>How clearly each track is heard</span>
         </div>
         <div class="zoom" role="group" aria-label="Zoom">
@@ -395,16 +389,16 @@ function drawDisc(c) {
   // No cover: draw the mix's own waveform as a disc.
   const s = c.clientWidth * devicePixelRatio; c.width = c.height = s;
   const g = c.getContext("2d"); const w = R.waveform; const n = w.peak.length || 1;
-  g.fillStyle = "#141413"; g.fillRect(0, 0, s, s); g.translate(s / 2, s / 2);
-  const rings = 180;
+  g.fillStyle = css("--deck"); g.fillRect(0, 0, s, s); g.translate(s / 2, s / 2);
+  const rings = 180, low = css("--band-low"), mid = css("--band-mid");
   for (let i = 0; i < rings; i++) {
     const k = Math.floor(i / rings * n), a = i / rings * Math.PI * 2 - Math.PI / 2;
     const lo = (w.low[k] || 0) / 255, mi = (w.mid[k] || 0) / 255;
     const r0 = s * 0.16, r1 = r0 + s * 0.30 * Math.max(lo, mi * 0.9);
-    g.strokeStyle = lo > mi ? "#3987e5" : "#d95926"; g.globalAlpha = 0.85; g.lineWidth = Math.max(1, s / 260);
+    g.strokeStyle = lo > mi ? low : mid; g.globalAlpha = 0.85; g.lineWidth = Math.max(1, s / 260);
     g.beginPath(); g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); g.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); g.stroke();
   }
-  g.globalAlpha = 1; g.fillStyle = "#ece9df"; g.beginPath(); g.arc(0, 0, s * 0.035, 0, Math.PI * 2); g.fill();
+  g.globalAlpha = 1; g.fillStyle = css("--band-high"); g.beginPath(); g.arc(0, 0, s * 0.035, 0, Math.PI * 2); g.fill();
 }
 
 /* ---------- Stat tiles ---------- */
@@ -417,10 +411,10 @@ function drawDisc(c) {
   if (bpms.length) {
     const lo = bpms[0], hi = bpms[bpms.length - 1], mid = bpms[Math.floor(bpms.length / 2)];
     tile("Tempo", `${mid.toFixed(0)} BPM`, Math.round(hi) - Math.round(lo) >= 2 ? `${lo.toFixed(0)}–${hi.toFixed(0)} across the set` : "held steady all set");
-  } else tile("Tempo", "—", "no BPM in the library");
+  } else tile("Tempo", "?", "no BPM in the library");
   const known = R.transitions.filter(t => t.harmony);
   const good = known.filter(t => t.harmony !== "clash").length;
-  tile("Harmonic transitions", known.length ? `${good} of ${known.length}` : "—", known.length ? "by the keys as played" : "keys unknown");
+  tile("Harmonic transitions", known.length ? `${good} of ${known.length}` : "?", known.length ? "by the keys as played" : "keys unknown");
 })();
 
 /* ---------- Timeline ---------- */
@@ -453,7 +447,7 @@ function drawWave() {
   const mid = h / 2;
   const cols = Math.min(n, Math.round(w));
   // Layered like a player's 3-band waveform: lows outermost, highs a bright core.
-  const layers = [["low", css("--low"), 1], ["mid", css("--mid"), 0.66], ["high", css("--high"), 0.32]];
+  const layers = ["low", "mid", "high"].map((band) => [band, css(`--band-${band}`), +css(`--band-scale-${band}`)]);
   for (const [band, color, scale] of layers) {
     g.fillStyle = color;
     for (let x = 0; x < cols; x++) {
@@ -684,6 +678,9 @@ function drawWheel() {
 }
 
 /* ---------- Tracklist ---------- */
+/* A phrase's colour by its kind's role: "Verse 2" is a verse, a kind rekordbox didn't name is unknown. */
+const PHRASE_ROLES = ["intro", "up", "verse", "chorus", "down", "bridge", "outro"];
+function phraseColor(kind) { const role = String(kind).split(" ")[0].toLowerCase(); return css("--phrase-" + (PHRASE_ROLES.includes(role) ? role : "unknown")); }
 function phraseAt(i, secs) { const ph = (X[i] && X[i].phrases) || []; const f = ph.find(p => p.start <= secs && secs < p.end); return f && f.kind; }
 function drawUsed(c, i) {
   const p = plays[i], ex = X[i] || {}, dpr = devicePixelRatio || 1;
@@ -702,12 +699,12 @@ function drawUsed(c, i) {
     g.fillRect(x, base - bh, ww, bh);
   }
   // Phrases: a thin strip under the waveform.
-  (ex.phrases || []).forEach((ph, k) => {
+  (ex.phrases || []).forEach((ph) => {
     const x0 = ph.start / total * w, x1 = Math.min(w, ph.end / total * w);
-    g.fillStyle = k % 2 ? css("--grid") : css("--axis"); g.fillRect(x0, base + 6, Math.max(1, x1 - x0 - 2), 3);
+    g.fillStyle = phraseColor(ph.kind); g.fillRect(x0, base + 6, Math.max(1, x1 - x0 - 2), 3);
   });
   // Hot cues: small flags along the top.
-  (ex.cues || []).forEach((cu) => { const x = cu.t / total * w; g.fillStyle = cu.color || css("--ink-2"); g.fillRect(x - 0.5, 0, 2, 6); });
+  (ex.cues || []).forEach((cu) => { const x = cu.t / total * w; g.fillStyle = cu.color || css("--cue-hot"); g.fillRect(x - 0.5, 0, 2, 6); });
   // In and out points.
   g.fillStyle = css("--ink"); g.fillRect(a - 1, 0, 2, base); g.fillRect(b - 1, 0, 2, base);
 }
@@ -731,7 +728,7 @@ function drawTracks() {
     if (p.key_lock === true) meta.append(el("span", "badge", "Key lock"));
     if (p.key_lock === false && Math.abs(p.semitones) >= 0.05) meta.append(el("span", "badge", `Pitched ${p.semitones > 0 ? "+" : "−"}${Math.abs(p.semitones).toFixed(1)} st`));
     if (p.jumps > 0) meta.append(el("span", "badge", `${p.jumps} jump${p.jumps > 1 ? "s" : ""}/loop${p.jumps > 1 ? "s" : ""}`));
-    if (p.tentative) meta.append(el("span", "badge", "Tentative"));
+    if (p.tentative) meta.append(el("span", "badge warn", "Tentative"));
     who.append(meta); li.append(who);
 
     const used = el("div", "used"); const c = el("canvas"); c.setAttribute("aria-label", `Played ${clock(p.track_start)} to ${clock(p.track_end)} of ${clock(t.duration_secs)}`); used.append(c);
@@ -742,9 +739,9 @@ function drawTracks() {
     cap.append(left, right); used.append(cap); li.append(used);
 
     const nums = el("div", "nums");
-    const bpm = el("div", "bpm"); bpm.textContent = p.played_bpm ? p.played_bpm.toFixed(1) + " " : "— "; bpm.append(el("small", null, "BPM")); nums.append(bpm);
+    const bpm = el("div", "bpm"); bpm.textContent = p.played_bpm ? p.played_bpm.toFixed(1) + " " : "? "; bpm.append(el("small", null, "BPM")); nums.append(bpm);
     nums.append(el("div", "speed", t.bpm ? `${t.bpm.toFixed(1)} ${pct(p.tempo)}` : pct(p.tempo)));
-    const key = el("div", "key", p.key && p.played_key && p.played_key !== p.key ? `${p.key} → ${p.played_key}` : (p.played_key || t.key || "—"));
+    const key = el("div", "key", p.key && p.played_key && p.played_key !== p.key ? `${p.key} → ${p.played_key}` : (p.played_key || t.key || "?"));
     if (t.key && t.key !== (p.played_key || "")) key.title = `${t.key} in rekordbox`;
     const conf = el("span", "conf"); conf.title = `Confidence ${Math.round(p.confidence * 100)}%`; const fill = el("i"); fill.style.width = Math.round(p.confidence * 100) + "%"; conf.append(fill); key.append(conf);
     nums.append(key); li.append(nums);

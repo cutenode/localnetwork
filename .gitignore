@@ -5,6 +5,11 @@
 .hegel/
 node_modules/
 .DS_Store
+Thumbs.db
+# Local secrets, in any app.
+.env
+.env.*
+!.env.example
 # Claude Code's per-machine settings.
 .claude/launch.json
 .claude/settings.local.json

@@ -34,7 +34,7 @@ enum AccountCommand {
     /// Sign out: revoke the session and remove it from this computer
     Logout,
     /// Write the client metadata document servers fetch to learn who's signing in (Local
-    /// Network's web app serves locallibrary's, from src/lib/server/locallibrary/). For
+    /// Network's web app serves locallibrary's, from apps/web/src/lib/tools/locallibrary/). For
     /// locallibrary's developers: not in `--help`.
     #[command(hide = true)]
     ClientMetadata {

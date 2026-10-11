@@ -1,0 +1,102 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "colors.schema.json",
+	"title": "Shared colours",
+	"description": "Colours that mean the same thing wherever DJ data is drawn: the website's mix report, locallibrary's HTML report and its terminal player. Each surface keeps its own chrome and accent.",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["bands", "phrases", "cues", "trackColors", "status", "playhead"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"bands": {
+			"description": "The 3-band waveform, layered lows outermost and highs a bright core.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["low", "mid", "high", "scales"],
+			"properties": {
+				"low": { "$ref": "#/$defs/hex" },
+				"mid": { "$ref": "#/$defs/hex" },
+				"high": { "$ref": "#/$defs/hex" },
+				"scales": {
+					"description": "Each band's height against the lows'.",
+					"type": "object",
+					"additionalProperties": false,
+					"required": ["low", "mid", "high"],
+					"properties": {
+						"low": { "$ref": "#/$defs/scale" },
+						"mid": { "$ref": "#/$defs/scale" },
+						"high": { "$ref": "#/$defs/scale" }
+					}
+				}
+			}
+		},
+		"phrases": {
+			"description": "rekordbox's phrase kinds by role. Verse 1 to 6 share verse; anything else is unknown.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["intro", "up", "verse", "chorus", "down", "bridge", "outro", "unknown"],
+			"properties": {
+				"intro": { "$ref": "#/$defs/hex" },
+				"up": { "$ref": "#/$defs/hex" },
+				"verse": { "$ref": "#/$defs/hex" },
+				"chorus": { "$ref": "#/$defs/hex" },
+				"down": { "$ref": "#/$defs/hex" },
+				"bridge": { "$ref": "#/$defs/hex" },
+				"outro": { "$ref": "#/$defs/hex" },
+				"unknown": { "$ref": "#/$defs/hex" }
+			}
+		},
+		"cues": {
+			"description": "Cues without a colour of their own. A colour from the drive wins.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["hot", "memory", "loop"],
+			"properties": {
+				"hot": { "$ref": "#/$defs/hex" },
+				"memory": { "$ref": "#/$defs/hex" },
+				"loop": { "$ref": "#/$defs/hex" }
+			}
+		},
+		"trackColors": {
+			"description": "rekordbox's eight track colours (also the memory cue colour table), roughly as its players show them.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["pink", "red", "orange", "yellow", "green", "aqua", "blue", "purple"],
+			"properties": {
+				"pink": { "$ref": "#/$defs/hex" },
+				"red": { "$ref": "#/$defs/hex" },
+				"orange": { "$ref": "#/$defs/hex" },
+				"yellow": { "$ref": "#/$defs/hex" },
+				"green": { "$ref": "#/$defs/hex" },
+				"aqua": { "$ref": "#/$defs/hex" },
+				"blue": { "$ref": "#/$defs/hex" },
+				"purple": { "$ref": "#/$defs/hex" }
+			}
+		},
+		"status": {
+			"description": "Good, warning and critical, for a dark background and a light one. The light ones reach 4.5:1 on a near-white page so they work as text.",
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["dark", "light"],
+			"properties": {
+				"dark": { "$ref": "#/$defs/status" },
+				"light": { "$ref": "#/$defs/status" }
+			}
+		},
+		"playhead": { "$ref": "#/$defs/hex" }
+	},
+	"$defs": {
+		"hex": { "type": "string", "pattern": "^#[0-9a-f]{6}$" },
+		"scale": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+		"status": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["good", "warning", "critical"],
+			"properties": {
+				"good": { "$ref": "#/$defs/hex" },
+				"warning": { "$ref": "#/$defs/hex" },
+				"critical": { "$ref": "#/$defs/hex" }
+			}
+		}
+	}
+}

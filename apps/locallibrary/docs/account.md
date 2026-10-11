@@ -39,17 +39,17 @@ nothing else in the account. `account login --publish` asks for it up front.
 - **Sessions last up to two weeks** on Bluesky's servers, however often they're refreshed; then
   sign in again. `account` shows the date. One account is signed in at a time.
 - **Servers know locallibrary as `locallibrary.localnetwork.computer`**: they fetch its client
-  document from `https://locallibrary.localnetwork.computer/oauth-client-metadata.json`, show
-  that name when you approve, and remember the approval. The Local Network web app (a separate
-  project) serves that host: the document (in its `src/lib/server/locallibrary/`; `locallibrary
-  account client-metadata -o …` regenerates it) and a short page about locallibrary. Until it's
-  online, sign-in says so and falls back to the `http://localhost` development client, which
-  servers show as "a local app" and ask about every time (`account` says when a session is the
-  development client's). The document lists every scope a sign-in may ask for, publishing's
-  included, and servers refuse a sign-in that asks for more: a release that asks for new scopes
-  needs the hosted document updated first. Until it allows them, sign-in stops and says so.
-  `--dev-client` chooses that client on purpose; `--client-id` (or
-  `LOCALLIBRARY_OAUTH_CLIENT_ID`) another document.
+  document from `https://locallibrary.localnetwork.computer/oauth-client-metadata.json`, show that
+  name when you approve, and remember the approval. The Local Network web app
+  ([`apps/web`](../../web)) serves that host: the document (in its `src/lib/tools/locallibrary/`;
+  `locallibrary account client-metadata -o …` regenerates it), and a redirect from the host's
+  front page to locallibrary's page on localnetwork.computer. Until it's online, sign-in says so
+  and falls back to the `http://localhost` development client, which servers show as "a local app"
+  and ask about every time (`account` says when a session is the development client's). The
+  document lists every scope a sign-in may ask for, publishing's included, and servers refuse a
+  sign-in that asks for more: a release that asks for new scopes needs the hosted document updated
+  first. Until it allows them, sign-in stops and says so. `--dev-client` chooses that client on
+  purpose; `--client-id` (or `LOCALLIBRARY_OAUTH_CLIENT_ID`) another document.
 
 The OAuth itself (finding your server, the authorization request, PKCE, DPoP-bound tokens, the
 checks on the server's answer, refresh and revocation) is the
