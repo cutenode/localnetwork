@@ -25,7 +25,7 @@ The shell and PowerShell installers put `locallibrary` in `~/.cargo/bin` (`%USER
 on Windows). The Linux build needs glibc 2.35 or newer (Ubuntu 22.04, Debian 12) and ALSA's library
 (`libasound2`, which desktops already have) for the player's audio.
 
-From source, with Rust 1.89 or newer, in a clone of the repository:
+From source, with Rust 1.91 or newer, in a clone of the repository:
 
 ```bash
 cargo install --path apps/locallibrary --locked

@@ -11,7 +11,7 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       signed on a `bnb/` branch from `main`. Then create `github.com/cutenode/localnetwork`
       (already set as `repository` in the root `Cargo.toml`) and push.
 - [ ] **CI has never run.** On pull requests and pushes to `main` (Markdown-only changes skip it):
-      fmt, clippy, nextest on macOS/Linux/Windows, the msrv job (`cargo +1.89 check`, not yet run
+      fmt, clippy, nextest on macOS/Linux/Windows, the msrv job (`cargo +1.91 check`, not yet run
       against the updated lockfile), docs, cargo-deny, and a slim `features` job (clippy on the
       headless CLI without ALSA headers). Linux runs the tests under coverage, with thresholds
       (`.cargo/config.toml`) measured in an arm64 Linux container: set them just under what the
