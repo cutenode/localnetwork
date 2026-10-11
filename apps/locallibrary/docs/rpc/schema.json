@@ -2129,7 +2129,7 @@
           "type": "array"
         },
         "replaces_library": {
-          "description": "The target holds a library that wasn't exported from the collection.",
+          "description": "The target holds a library that wasn't exported from the collection, or files the export\nremoves though it holds no library.",
           "type": "boolean"
         },
         "syncing": {
@@ -2155,12 +2155,23 @@
           "minimum": 0,
           "type": "integer"
         },
-        "unsaved_history": {
-          "description": "History lists players recorded on the target that the export replaces: saved in the\nstore first.",
+        "unreadable": {
+          "description": "Tracks with an analysis file that can't be read: exported without it.",
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "unsaved": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Unsaved"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the target holds that the export replaces and only it has (history lists players\nrecorded, changes since the last export): saved in the store first."
         },
         "warnings": {
           "items": {
@@ -2186,8 +2197,9 @@
         "download_bytes",
         "missing",
         "syncing",
+        "unreadable",
         "replaces_library",
-        "unsaved_history",
+        "unsaved",
         "needed_bytes",
         "free_space",
         "fits",
@@ -2254,7 +2266,7 @@
               "type": "null"
             }
           ],
-          "description": "The target's state, saved in the store before the export (see\n[`CollectionExportPlan::unsaved_history`])."
+          "description": "The target's state, saved in the store before the export (see\n[`CollectionExportPlan::unsaved`])."
         },
         "tagged_tracks": {
           "description": "Tracks with My Tags.",
@@ -2286,6 +2298,11 @@
     "CollectionExportRequest": {
       "description": "Which `master.db` to read, and how.",
       "properties": {
+        "all": {
+          "default": false,
+          "description": "Export every track and playlist, whatever the target was exported with last.",
+          "type": "boolean"
+        },
         "db": {
           "default": null,
           "description": "Default: `$LOCALLIBRARY_MASTERDB`, else rekordbox's own (see [`masterdb::default_path`]).",
@@ -2321,7 +2338,7 @@
         },
         "replace": {
           "default": false,
-          "description": "Replace a library the target holds that wasn't exported from the collection.",
+          "description": "Replace a library the target holds that wasn't exported from the collection, or the\nfiles on a target with no library.",
           "type": "boolean"
         }
       },
@@ -22069,7 +22086,7 @@
       "description": "What the target holds that packing would replace and that nothing else keeps: it is saved in\nthe store first, as `sync` saves a drive back from a set before overwriting it.",
       "properties": {
         "changed": {
-          "description": "The drive changed since it was last packed from this source (memory cues, TAG LIST\nplaylists or history lists players saved, or edits).",
+          "description": "The drive changed since it was last written this way (packed from this source, or exported\nfrom the collection): memory cues, TAG LIST playlists or history lists players saved, or\nedits.",
           "type": "boolean"
         },
         "history_lists": {

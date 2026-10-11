@@ -38,7 +38,7 @@ without a drive it exported to. A folder exported to works like a drive: `locall
 Exporting again copies only what changed, and a stopped export finishes when you run it again.
 
 It exports every track and playlist, or the playlists you name (`--playlist`, repeatable, with the
-tracks they use), which it remembers for next time. Audio goes in `Contents/<artist>/<album>/`, and
+tracks they use), which it remembers for next time; `--all` goes back to everything. Audio goes in `Contents/<artist>/<album>/`, and
 each track gets the analysis files rekordbox made on this computer (beat grid, waveforms, cues,
 phrases), with artwork and My Tags. A few things don't come along:
 
@@ -50,13 +50,17 @@ phrases), with artwork and My Tags. A few things don't come along:
 With Cloud Library Sync on, tracks kept in Dropbox or Google Drive are read from the folder
 rekordbox records for the service, and the plan says how many are online only and download as
 they're copied. A track whose audio isn't on this computer is left out, and one whose analysis
-Cloud Library Sync hasn't finished bringing over is exported as it is; the plan names both. So on
+Cloud Library Sync hasn't finished bringing over is exported as it is; the plan names both, and
+tracks with an analysis file that can't be read, which are exported without it. So on
 a second computer signed in to the same rekordbox account, `collection export` gets you the
 library with no drive at all.
 
-A drive holding a library that wasn't exported from the collection is only written over with
-`--replace`. History lists players recorded on the target are saved in the store first, and its
-databases, analysis and artwork are backed up, so `undo` takes the export back.
+A drive holding a library that wasn't exported from the collection, or files the export would
+remove from a drive with no library, is only written over with `--replace`. What only the target
+has is saved in the store first: history lists players recorded, and anything that changed since
+the last export (cues players saved, edits, an `undo`). Its databases, analysis and artwork are
+backed up, so `undo` puts back the library it held, but audio isn't: audio the export removed
+stays gone unless it's in the store.
 
 ## Other DJ software
 

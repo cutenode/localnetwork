@@ -69,9 +69,13 @@ files are downloaded). Exporting again copies only what changed. A folder export
         /// The drive or folder to write to (a folder: its path)
         drive: String,
         /// Playlist or folder to export (repeatable) [default: everything, or what it was exported with last]
-        #[arg(long = "playlist", value_name = "PLAYLIST")]
+        #[arg(long = "playlist", value_name = "PLAYLIST", conflicts_with = "all")]
         playlists: Vec<String>,
-        /// Replace a library on it that wasn't exported from the collection
+        /// Export everything, whatever it was exported with last
+        #[arg(long)]
+        all: bool,
+        /// Replace a library on it that wasn't exported from the collection, or files on a drive with no
+        /// library
         #[arg(long)]
         replace: bool,
         /// Show the plan without changing anything
@@ -131,8 +135,8 @@ pub fn run(args: CollectionArgs, store: Option<&Store>, out: Output, ctx: &Ctx<'
             let c = api::open_collection(&req)?;
             out.emit_paged(&c.library.playlists, |_| crate::render::playlist_tree(&c.library));
         }
-        CollectionCommand::Export { drive, playlists, replace, dry_run } => {
-            let options = CollectionExportOptions { playlists, replace, overwrite_archive: false };
+        CollectionCommand::Export { drive, playlists, all, replace, dry_run } => {
+            let options = CollectionExportOptions { playlists, all, replace, overwrite_archive: false };
             return export(api::CollectionExportRequest { collection: req, drive, options }, dry_run, store, out, ctx);
         }
         CollectionCommand::Diff { drive, playlist } => {

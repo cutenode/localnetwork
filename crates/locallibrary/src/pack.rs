@@ -89,8 +89,9 @@ pub fn forget(device: &Device) -> Result<()> {
 pub struct Unsaved {
     /// History lists players recorded that the packed library won't have.
     pub history_lists: Vec<String>,
-    /// The drive changed since it was last packed from this source (memory cues, TAG LIST
-    /// playlists or history lists players saved, or edits).
+    /// The drive changed since it was last written this way (packed from this source, or exported
+    /// from the collection): memory cues, TAG LIST playlists or history lists players saved, or
+    /// edits.
     pub changed: bool,
 }
 
@@ -104,7 +105,7 @@ impl Unsaved {
             parts.push(format!("{} history list(s) ({}{more})", self.history_lists.len(), shown.join(", ")));
         }
         if self.changed {
-            parts.push("changes since it was last packed".to_string());
+            parts.push("changes since locallibrary last wrote it".to_string());
         }
         parts.join(" and ")
     }
@@ -209,7 +210,8 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     // Against the target.
     let target_lib = target.library().ok();
     let scanned = target.scan_fingerprinted(target_lib.as_ref(), ctx)?;
-    let unsaved = unsaved(target, &scanned, same_source, &subset)?;
+    let kept: Vec<&Library> = std::iter::once(&subset.library).chain(subset.second.iter()).collect();
+    let unsaved = unsaved(target, &scanned, same_source, LineageOp::Pack, &kept)?;
     let databases = Databases { pdb: subset.pdb.clone(), ext: subset.ext.clone(), plus: subset.plus.clone() };
     let written = library_write::plan(target, &scanned.tree, &wanted, databases.written(), opts.keep_extra);
     let replaces_library = target.has_export() && !same_source;
@@ -261,7 +263,17 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
 }
 
 /// What the target holds that the pack would replace and only the target has (see [`Unsaved`]).
-fn unsaved(target: &Device, scanned: &Scanned, same_source: bool, subset: &edit::Subset) -> Result<Option<Unsaved>> {
+/// What `target` holds that writing a whole library over it would replace and only it has: history
+/// lists players recorded that none of `kept` (the libraries written) has, and, when it was written
+/// by the same kind of write (`op`) last (`rewrites`), changes since. Shared with
+/// [`crate::collection_export`].
+pub(crate) fn unsaved(
+    target: &Device,
+    scanned: &Scanned,
+    rewrites: bool,
+    op: LineageOp,
+    kept: &[&Library],
+) -> Result<Option<Unsaved>> {
     if !target.has_export() {
         return Ok(None);
     }
@@ -269,24 +281,24 @@ fn unsaved(target: &Device, scanned: &Scanned, same_source: bool, subset: &edit:
     let files = |tracks: &mut dyn Iterator<Item = &crate::model::Track>| -> Vec<String> {
         tracks.map(|t| paths::key(&t.file_path).to_lowercase()).collect()
     };
-    let mut packed: FxHashSet<(String, Vec<String>)> = FxHashSet::default();
-    for lib in std::iter::once(&subset.library).chain(subset.second.iter()) {
+    let mut written: FxHashSet<(String, Vec<String>)> = FxHashSet::default();
+    for lib in kept {
         for h in lib.history.iter().filter(|h| !h.is_folder) {
-            packed.insert((h.name.clone(), files(&mut lib.tracks_by_id(&h.track_ids).into_iter())));
+            written.insert((h.name.clone(), files(&mut lib.tracks_by_id(&h.track_ids).into_iter())));
         }
     }
     let mut history_lists: Vec<String> = crate::plays::drive_history(target)?
         .lists
         .iter()
-        .filter(|l| !packed.contains(&(l.name.clone(), files(&mut l.tracks.iter()))))
+        .filter(|l| !written.contains(&(l.name.clone(), files(&mut l.tracks.iter()))))
         .map(|l| l.name.clone())
         .collect();
     history_lists.dedup();
-    // Changed since the last pack: players wrote to it. An interrupted pack's own writes don't
-    // count (the state before it was saved first, if it needed to be).
+    // Changed since it was last written: players wrote to it, or an edit or undo. An interrupted
+    // write's own changes don't count (the state before it was saved first, if it needed to be).
     let state = target.state();
-    let interrupted = state.and_then(|s| s.pending.as_ref()).is_some_and(|p| p.op == LineageOp::Pack);
-    let changed = same_source
+    let interrupted = state.and_then(|s| s.pending.as_ref()).is_some_and(|p| p.op == op);
+    let changed = rewrites
         && !interrupted
         && state.and_then(|s| s.head()).is_some_and(|h| !scanned.fingerprints().any(|fp| fp == h.fingerprint));
     Ok((changed || !history_lists.is_empty()).then_some(Unsaved { history_lists, changed }))

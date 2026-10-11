@@ -707,7 +707,10 @@ export type CollectionExportPlan = {
   playlist_count: number;
   /** The playlists chosen; empty for the whole collection. */
   playlists: string[];
-  /** The target holds a library that wasn't exported from the collection. */
+  /**
+   * The target holds a library that wasn't exported from the collection, or files the export
+   * removes though it holds no library.
+   */
   replaces_library: boolean;
   /**
    * Tracks whose analysis or artwork Cloud Library Sync hasn't finished bringing to this
@@ -718,11 +721,13 @@ export type CollectionExportPlan = {
   target_root: string;
   tracks: number;
   unchanged: number;
+  /** Tracks with an analysis file that can't be read: exported without it. */
+  unreadable: string[];
   /**
-   * History lists players recorded on the target that the export replaces: saved in the
-   * store first.
+   * What the target holds that the export replaces and only it has (history lists players
+   * recorded, changes since the last export): saved in the store first.
    */
-  unsaved_history: string[];
+  unsaved: Unsaved | null;
   warnings: string[];
 };
 
@@ -739,7 +744,7 @@ export type CollectionExportReport = {
   playlists: number;
   /**
    * The target's state, saved in the store before the export (see
-   * [`CollectionExportPlan::unsaved_history`]).
+   * [`CollectionExportPlan::unsaved`]).
    */
   saved: SnapshotInfo | null;
   /** Tracks with My Tags. */
@@ -749,6 +754,8 @@ export type CollectionExportReport = {
 
 /** Which `master.db` to read, and how. */
 export type CollectionExportRequest = {
+  /** Export every track and playlist, whatever the target was exported with last. */
+  all?: boolean;
   /** Default: `$LOCALLIBRARY_MASTERDB`, else rekordbox's own (see [`masterdb::default_path`]). */
   db?: string | null;
   /** The drive or folder to export to. */
@@ -765,7 +772,10 @@ export type CollectionExportRequest = {
    * playlist, or the selection the target was last exported with.
    */
   playlists?: string[];
-  /** Replace a library the target holds that wasn't exported from the collection. */
+  /**
+   * Replace a library the target holds that wasn't exported from the collection, or the
+   * files on a target with no library.
+   */
   replace?: boolean;
 };
 
@@ -6793,8 +6803,9 @@ export type Unplayable =
  */
 export type Unsaved = {
   /**
-   * The drive changed since it was last packed from this source (memory cues, TAG LIST
-   * playlists or history lists players saved, or edits).
+   * The drive changed since it was last written this way (packed from this source, or exported
+   * from the collection): memory cues, TAG LIST playlists or history lists players saved, or
+   * edits.
    */
   changed: boolean;
   /** History lists players recorded that the packed library won't have. */

@@ -20,9 +20,10 @@
 //! run again. The databases are built on the target from what was copied (see
 //! `convert::build_databases`); `exportExt.pdb` isn't made, so players that read
 //! `export.pdb` don't show My Tags (OneLibrary has them). The target remembers what it was
-//! exported from (`.locallibrary/collection.json`), and a library it held that wasn't exported
-//! from the collection is only replaced when asked; history lists players recorded on it are
-//! saved in the store first.
+//! exported from (`.locallibrary/collection.json`) and which image got which key, so images keep
+//! theirs. A library it held that wasn't exported from the collection (or loose files the export
+//! would remove) is only replaced when asked, and what only it has (history lists players
+//! recorded, changes since the last export) is saved in the store first, as [`crate::pack`] does.
 
 use indexmap::IndexMap;
 use rustc_hash::FxHashSet;
@@ -39,6 +40,7 @@ use crate::hash::Hash;
 use crate::library_write::{self, FileCopy, Planned, Source, Written};
 use crate::masterdb::{CloudFolders, Collection, TagCategory};
 use crate::model::{Library, Track};
+use crate::pack::Unsaved;
 use crate::paths;
 use crate::progress::{Ctx, Event, Phase};
 use crate::store::{SnapshotInfo, Store};
@@ -58,7 +60,11 @@ pub struct CollectionExportOptions {
     /// playlist, or the selection the target was last exported with.
     #[serde(default)]
     pub playlists: Vec<String>,
-    /// Replace a library the target holds that wasn't exported from the collection.
+    /// Export every track and playlist, whatever the target was exported with last.
+    #[serde(default)]
+    pub all: bool,
+    /// Replace a library the target holds that wasn't exported from the collection, or the
+    /// files on a target with no library.
     #[serde(default)]
     pub replace: bool,
     /// Write to an archive or retired drive (see [`crate::fleet::check_target`]).
@@ -74,6 +80,10 @@ pub struct CollectionExportRecord {
     /// The playlists chosen; empty for the whole collection.
     pub playlists: Vec<String>,
     pub at: DateTime<Utc>,
+    /// The key each image got, by its path in rekordbox's `share` folder (lower-cased), so an
+    /// image keeps its key from one export to the next.
+    #[serde(default)]
+    pub artwork: IndexMap<String, String>,
 }
 
 pub fn record(device: &Device) -> Result<Option<CollectionExportRecord>> {
@@ -114,11 +124,14 @@ pub struct CollectionExportPlan {
     /// Tracks whose analysis or artwork Cloud Library Sync hasn't finished bringing to this
     /// computer.
     pub syncing: Vec<String>,
-    /// The target holds a library that wasn't exported from the collection.
+    /// Tracks with an analysis file that can't be read: exported without it.
+    pub unreadable: Vec<String>,
+    /// The target holds a library that wasn't exported from the collection, or files the export
+    /// removes though it holds no library.
     pub replaces_library: bool,
-    /// History lists players recorded on the target that the export replaces: saved in the
-    /// store first.
-    pub unsaved_history: Vec<String>,
+    /// What the target holds that the export replaces and only it has (history lists players
+    /// recorded, changes since the last export): saved in the store first.
+    pub unsaved: Option<Unsaved>,
     /// Space the export needs on the target: the files it copies, its new databases and the
     /// backup of what it replaces.
     pub needed_bytes: u64,
@@ -130,6 +143,8 @@ pub struct CollectionExportPlan {
     library: Library,
     #[serde(skip)]
     tags: Vec<TagCategory>,
+    #[serde(skip)]
+    artwork: IndexMap<String, String>,
     #[serde(skip)]
     written: Planned,
 }
@@ -154,7 +169,7 @@ pub struct CollectionExportReport {
     pub tagged_tracks: usize,
     pub fingerprint: Option<Hash>,
     /// The target's state, saved in the store before the export (see
-    /// [`CollectionExportPlan::unsaved_history`]).
+    /// [`CollectionExportPlan::unsaved`]).
     pub saved: Option<SnapshotInfo>,
     /// The backup of what the export replaced (its databases, analysis and artwork).
     pub backup: Option<String>,
@@ -169,27 +184,19 @@ pub fn plan(
     ctx: &Ctx<'_>,
 ) -> Result<CollectionExportPlan> {
     let previous = record(target)?;
-    let replaces_library = target.has_export() && previous.is_none();
-    if replaces_library && !opts.replace {
-        return Err(Error::conflict(
-            Reason::Exists,
-            format!(
-                "{} holds a library that wasn't exported from rekordbox's collection; replace it to export over it \
-                 (pull it into the store first to keep it)",
-                target.name()
-            ),
-        )
-        .with("drive", target.root().display().to_string())
-        .action(Action::retry(serde_json::json!({ "replace": true }), "Replace it")));
-    }
+    // An export cut off before it recorded itself counts as one.
+    let interrupted = target.state().and_then(|s| s.pending.as_ref()).is_some_and(|p| p.op == LineageOp::Export);
+    let exported = previous.is_some() || interrupted;
     let playlists = match (&opts.playlists[..], &previous) {
+        _ if opts.all => Vec::new(),
         ([], Some(r)) => r.playlists.clone(),
         (p, _) => p.to_vec(),
     };
     let mut warnings = Vec::new();
     let chosen = choose(collection, &playlists, &mut warnings)?;
     // Each track's analysis files are read to write its path into them, which takes a while.
-    let mut layout = Layout::default();
+    let mut layout = Layout { artwork: previous.map(|r| r.artwork).unwrap_or_default(), ..Default::default() };
+    layout.used_keys = layout.artwork.values().map(|k| k.to_lowercase()).collect();
     ctx.phase_start(Phase::Scan, chosen.tracks.len() as u64, 0);
     for t in &chosen.tracks {
         ctx.check()?;
@@ -217,28 +224,49 @@ pub fn plan(
             layout.syncing.len()
         ));
     }
+    if let Some(first) = layout.unreadable.first() {
+        warnings.push(format!(
+            "{} track(s) have analysis files that can't be read (e.g. {first}); they're exported without them",
+            layout.unreadable.len()
+        ));
+    }
     let tags = collection.tags.clone();
 
     let target_lib = target.library().ok();
     let scanned = target.scan_fingerprinted(target_lib.as_ref(), ctx)?;
-    let unsaved_history = unsaved_history(target, &library)?;
+    let unsaved = crate::pack::unsaved(target, &scanned, exported, LineageOp::Export, &[&library])?;
     // Rows take well under 1 KiB per track or entry, including lookups and page slack.
     let entries: usize = library.playlists.iter().map(|p| p.track_ids.len()).sum();
     let database = 256 * 1024 + (library.tracks.len() + entries) as u64 * 1024;
     let databases = Written { pdb: Some(database), ext: None, plus: Some(database) };
     let written = library_write::plan(target, &scanned.tree, &layout.files, databases, false);
     let downloads: Vec<&FileCopy> = written.copies.iter().filter(|c| layout.online_only.contains(&c.path)).collect();
-    if replaces_library {
-        warnings.push(format!(
-            "{} holds a library that wasn't exported from the collection; the export replaces it",
-            target.name()
-        ));
+    // Without a record of an earlier export, whatever the target holds (a library, or loose audio
+    // the export would remove) is only replaced when asked.
+    let replaces_library = !exported && (target.has_export() || !written.deletes.is_empty());
+    if replaces_library && !opts.replace {
+        let what = match target.has_export() {
+            true => "a library that wasn't exported from rekordbox's collection",
+            false => "files the export would remove",
+        };
+        return Err(Error::conflict(
+            Reason::Exists,
+            format!(
+                "{} holds {what}; replace it to export over it (pull it into the store first to keep a library)",
+                target.name()
+            ),
+        )
+        .with("drive", target.root().display().to_string())
+        .action(Action::retry(serde_json::json!({ "replace": true }), "Replace it")));
     }
-    if !unsaved_history.is_empty() {
+    if replaces_library {
+        warnings.push(format!("{} holds a library or files the export replaces", target.name()));
+    }
+    if let Some(u) = &unsaved {
         warnings.push(format!(
-            "{} holds {} history list(s) players recorded that the export replaces; they're saved in the store first",
+            "{} holds {} that the export replaces; it's saved in the store first",
             target.name(),
-            unsaved_history.len()
+            u.describe()
         ));
     }
     warnings.extend(edit::journal::forget_warning(target, None, "exporting the collection"));
@@ -267,14 +295,16 @@ pub fn plan(
         download_bytes: downloads.iter().map(|c| c.size).sum(),
         missing: layout.missing,
         syncing: layout.syncing,
+        unreadable: layout.unreadable,
         replaces_library,
-        unsaved_history,
+        unsaved,
         needed_bytes: written.needed_bytes,
         free_space: written.free_space,
         fits: written.fits,
         warnings,
         library,
         tags,
+        artwork: layout.artwork,
         written,
     })
 }
@@ -316,12 +346,16 @@ struct Layout {
     files: IndexMap<String, Source>,
     /// Keys (lower-cased) taken on the target.
     taken: FxHashSet<String>,
-    /// Artwork key on the target by image path in the `share` folder.
+    /// Artwork key on the target by image path in the `share` folder (lower-cased): the last
+    /// export's, then new ones.
     artwork: IndexMap<String, String>,
+    /// Artwork keys (lower-cased) given out, the last export's included.
+    used_keys: FxHashSet<String>,
     /// Audio keys whose source is online only.
     online_only: FxHashSet<String>,
     missing: Vec<String>,
     syncing: Vec<String>,
+    unreadable: Vec<String>,
 }
 
 impl Layout {
@@ -353,7 +387,7 @@ impl Layout {
         track.file_path = device_path.clone();
         track.analyze_path = String::new();
         track.artwork_path = None;
-        let mut syncing = false;
+        let (mut syncing, mut unreadable) = (false, false);
         if let Some((stem, _)) = t.analyze_path.rsplit_once('.').filter(|_| !t.analyze_path.is_empty()) {
             let mut salt = 0;
             let mut dir = merge::analysis_dir(&device_path, salt);
@@ -366,9 +400,12 @@ impl Layout {
                 syncing |= collection.still_syncing(&share);
                 let Ok(meta) = std::fs::metadata(collection.share_file(&share)) else { continue };
                 let to = format!("{dir}/ANLZ0000.{ext}");
+                let Ok(source) = Source::analysis(collection.share_file(&share), mtime(&meta), &device_path) else {
+                    unreadable = true;
+                    continue;
+                };
                 self.taken.insert(to.to_lowercase());
-                self.files
-                    .insert(to.clone(), Source::analysis(collection.share_file(&share), mtime(&meta), &device_path)?);
+                self.files.insert(to.clone(), source);
                 if ext == "DAT" {
                     track.analyze_path = format!("/{to}");
                 }
@@ -381,6 +418,9 @@ impl Layout {
         if syncing {
             self.syncing.push(t.display_name());
         }
+        if unreadable {
+            self.unreadable.push(t.display_name());
+        }
         self.tracks.push(track);
         Ok(())
     }
@@ -388,36 +428,35 @@ impl Layout {
     /// The key of the image at `image` in the `share` folder on the target (with its `_m` copy,
     /// when rekordbox made one), or `None` if it isn't there.
     fn artwork(&mut self, collection: &Collection, image: &str) -> Option<String> {
-        if let Some(key) = self.artwork.get(&image.to_lowercase()) {
-            return Some(key.clone());
-        }
         let src = collection.share_file(image);
         let meta = std::fs::metadata(&src).ok().filter(|m| m.is_file())?;
-        let ext = image.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_else(|| "jpg".into());
-        let key = image_key('a', self.artwork.len() as u32 + 1, &ext);
+        let key = match self.artwork.get(&image.to_lowercase()) {
+            Some(key) => key.clone(),
+            None => {
+                let ext = image.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_else(|| "jpg".into());
+                let key = (1..)
+                    .map(|n| image_key('a', n, &ext))
+                    .find(|k| !self.used_keys.contains(&k.to_lowercase()))
+                    .expect("unbounded");
+                self.used_keys.insert(key.to_lowercase());
+                self.artwork.insert(image.to_lowercase(), key.clone());
+                key
+            }
+        };
+        if self.files.contains_key(&key) {
+            return Some(key);
+        }
         self.files.insert(key.clone(), Source::file(src, meta.len(), mtime(&meta)));
         let medium = collection.share_file(&medium_variant(image));
         if let Ok(m) = std::fs::metadata(&medium) {
             self.files.insert(medium_variant(&key), Source::file(medium, m.len(), mtime(&m)));
         }
-        self.artwork.insert(image.to_lowercase(), key.clone());
         Some(key)
     }
 }
 
 fn mtime(meta: &std::fs::Metadata) -> i64 {
     filetime::FileTime::from_last_modification_time(meta).unix_seconds()
-}
-
-/// History lists players recorded on `target` that `library` (which has none) would replace.
-fn unsaved_history(target: &Device, library: &Library) -> Result<Vec<String>> {
-    if !target.has_export() {
-        return Ok(Vec::new());
-    }
-    debug_assert!(library.history.is_empty());
-    let mut names: Vec<String> = crate::plays::drive_history(target)?.lists.into_iter().map(|l| l.name).collect();
-    names.dedup();
-    Ok(names)
 }
 
 /// Write the export: the target's history lists saved in the store first when it has some
@@ -437,16 +476,16 @@ pub fn apply(
         });
     }
     let mut report = CollectionExportReport::default();
-    if !plan.unsaved_history.is_empty() {
+    if let Some(u) = &plan.unsaved {
         let drive = plan.target_root.display().to_string();
         let store =
             store.ok_or_else(|| {
                 Error::conflict(
                 Reason::NotSaved,
                 format!(
-                    "{} holds history lists the export would replace; keeping them needs the store, so pull the drive \
-                     first",
-                    plan.target
+                    "{} holds {} that the export would replace; keeping it needs the store, so pull the drive first",
+                    plan.target,
+                    u.describe()
                 ),
             )
             .with("drive", &drive)
@@ -454,7 +493,7 @@ pub fn apply(
             })?;
         let opts = PullOptions {
             library: None,
-            message: Some(format!("{} before exporting rekordbox's collection to it", plan.target)),
+            message: Some(format!("{} before exporting rekordbox's collection to it: {}", plan.target, u.describe())),
             force: true,
         };
         report.saved = crate::sync::pull(store, target, &opts, ctx)?.snapshot;
@@ -496,6 +535,7 @@ pub fn apply(
         collection: plan.collection.clone(),
         playlists: plan.playlists.clone(),
         at: Utc::now(),
+        artwork: plan.artwork.clone(),
     };
     fsutil::write_json_atomic(&target.state_dir().join(RECORD_FILE), &rec)?;
     crate::pack::forget(target)?;
@@ -705,6 +745,106 @@ mod tests {
         assert!(plan.replaces_library);
         assert!(report.backup.is_some(), "what it replaced is backed up");
         assert_eq!(target.library().unwrap().tracks.len(), 2);
+    }
+
+    #[test]
+    fn loose_files_are_only_removed_when_asked_and_all_brings_everything_back() {
+        let pc = Computer::new();
+        let mut target = pc.folder("Stick");
+        std::fs::create_dir_all(target.path("Contents/Mine")).unwrap();
+        std::fs::write(target.path("Contents/Mine/demo.mp3"), b"mine").unwrap();
+        let err = plan_err(&pc, &target, &CollectionExportOptions::default());
+        assert!(err.to_string().contains("files the export would remove"), "{err}");
+        assert!(target.path("Contents/Mine/demo.mp3").is_file());
+        pc.export(&mut target, &CollectionExportOptions { replace: true, ..Default::default() });
+        assert!(!target.path("Contents/Mine/demo.mp3").exists());
+
+        pc.export(&mut target, &CollectionExportOptions { playlists: vec!["Shows".into()], ..Default::default() });
+        let (all, _) = pc.export(&mut target, &CollectionExportOptions { all: true, ..Default::default() });
+        assert!(all.playlists.is_empty());
+        assert!(record(&target).unwrap().unwrap().playlists.is_empty(), "everything, from now on");
+    }
+
+    #[test]
+    fn changes_since_the_last_export_are_saved_first() {
+        let pc = Computer::new();
+        let mut target = pc.folder("Export");
+        pc.export(&mut target, &CollectionExportOptions::default());
+        // A player wrote to it: the analysis file of a track it played.
+        let lib = target.library().unwrap();
+        let dat = target.path(&paths::key(&lib.tracks[0].analyze_path));
+        let mut bytes = std::fs::read(&dat).unwrap();
+        bytes.push(0);
+        std::fs::write(&dat, bytes).unwrap();
+
+        let planned = plan(&pc.collection(), &pc.cloud(), &target, &Default::default(), &Ctx::silent()).unwrap();
+        assert!(planned.unsaved.as_ref().is_some_and(|u| u.changed), "{:?}", planned.unsaved);
+        let err = apply(&planned, &mut target, None, &Ctx::silent()).unwrap_err();
+        assert!(err.to_string().contains("keeping it needs the store"), "{err}");
+        let store = crate::store::Store::open_or_init(pc.dir.path().join("store")).unwrap();
+        let report = apply(&planned, &mut target, Some(&store), &Ctx::silent()).unwrap();
+        assert!(report.saved.is_some(), "the changed state is in the store");
+        let again = plan(&pc.collection(), &pc.cloud(), &target, &Default::default(), &Ctx::silent()).unwrap();
+        assert!(again.unsaved.is_none());
+    }
+
+    #[test]
+    fn an_unreadable_analysis_file_leaves_its_track_without_it() {
+        let pc = Computer::new();
+        let ext = pc.dir.path().join("rekordbox/share/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.EXT");
+        std::fs::write(&ext, b"not an analysis file").unwrap();
+        let mut target = pc.folder("Export");
+        let (planned, _) = pc.export(&mut target, &CollectionExportOptions::default());
+        assert_eq!(planned.unreadable, ["Daft Punk - One More Time"]);
+        let lib = target.library().unwrap();
+        let t = lib.tracks.iter().find(|t| t.title == "One More Time").unwrap();
+        assert!(target.path(&paths::key(&t.analyze_path)).is_file(), "its .DAT still comes");
+        assert!(!target.path(&paths::key(&t.analyze_path.replace(".DAT", ".EXT"))).exists());
+    }
+
+    #[test]
+    fn an_image_keeps_its_key_from_one_export_to_the_next() {
+        let pc = Computer::new();
+        let art = pc.dir.path().join("rekordbox/share/PIONEER/Artwork/00002");
+        std::fs::create_dir_all(&art).unwrap();
+        std::fs::write(art.join("b.jpg"), b"floorplan").unwrap();
+        let with_art = |first: bool| {
+            let mut c = pc.collection();
+            for t in &mut c.library.tracks {
+                t.artwork_path = match t.title.as_str() {
+                    "One More Time" if first => None,
+                    "Never Grow Old" => Some("/PIONEER/Artwork/00002/b.jpg".into()),
+                    _ => t.artwork_path.clone(),
+                };
+            }
+            c
+        };
+        let mut target = pc.folder("Export");
+        let first = plan(&with_art(true), &pc.cloud(), &target, &Default::default(), &Ctx::silent()).unwrap();
+        apply(&first, &mut target, None, &Ctx::silent()).unwrap();
+        let art_of = |target: &Device, title: &str| {
+            target.library().unwrap().tracks.into_iter().find(|t| t.title == title).unwrap().artwork_path
+        };
+        assert_eq!(art_of(&target, "Never Grow Old").as_deref(), Some("/PIONEER/Artwork/00001/a1.jpg"));
+        // One More Time, earlier in the collection, gets artwork: Never Grow Old's keeps its key.
+        let second = plan(&with_art(false), &pc.cloud(), &target, &Default::default(), &Ctx::silent()).unwrap();
+        assert!(second.copies.iter().all(|c| c.path != "PIONEER/Artwork/00001/a1.jpg"), "{:?}", second.copies);
+        apply(&second, &mut target, None, &Ctx::silent()).unwrap();
+        assert_eq!(art_of(&target, "Never Grow Old").as_deref(), Some("/PIONEER/Artwork/00001/a1.jpg"));
+        assert_eq!(art_of(&target, "One More Time").as_deref(), Some("/PIONEER/Artwork/00001/a2.jpg"));
+    }
+
+    #[test]
+    fn an_export_cut_off_before_it_was_recorded_is_finished_without_asking() {
+        let pc = Computer::new();
+        let mut target = pc.folder("Export");
+        pc.export(&mut target, &CollectionExportOptions::default());
+        forget(&target).unwrap();
+        target.begin(LineageOp::Export, "export rekordbox's collection", None).unwrap();
+        let planned = plan(&pc.collection(), &pc.cloud(), &target, &Default::default(), &Ctx::silent()).unwrap();
+        assert!(!planned.replaces_library);
+        apply(&planned, &mut target, None, &Ctx::silent()).unwrap();
+        assert!(target.finished().is_ok() && record(&target).unwrap().is_some());
     }
 
     #[test]
