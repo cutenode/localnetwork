@@ -594,6 +594,10 @@ impl Db<'_> {
                 smart.push(id);
             }
             let mut entries = songs.remove(&id).unwrap_or_default();
+            // rekordbox leaves entries on some folders, which it doesn't show; a folder holds none.
+            if attribute == 1 {
+                entries.clear();
+            }
             entries.sort_unstable();
             out.push(Playlist {
                 id,
@@ -1450,6 +1454,16 @@ pub(crate) mod tests {
         std::fs::write(c.share_file(dat), b"PMAI").unwrap();
         assert!(!c.still_syncing(dat));
         assert!(!c.still_syncing("/PIONEER/Artwork/00001/a1.jpg"), "a file Cloud Library Sync doesn't list");
+    }
+
+    #[test]
+    fn entries_rekordbox_left_on_a_folder_are_ignored() {
+        let f = sample();
+        f.exec("INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo) VALUES ('z', '10', '4', 1);");
+        let dir = tempfile::tempdir().unwrap();
+        let c = open(&write(dir.path(), &f.encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+        let shows = c.library.find_playlist("Shows").unwrap();
+        assert!(shows.is_folder && shows.track_ids.is_empty(), "{:?}", shows.track_ids);
     }
 
     #[test]
