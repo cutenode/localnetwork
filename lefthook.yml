@@ -1,28 +1,43 @@
-# Git hooks (installed by `pnpm install`). The jobs cover the web app (each runs in apps/web and
-# only sees the files under it) and the lexicons.
+# Git hooks (installed by `pnpm install`). Each TypeScript app has its own jobs, which run in the
+# app's folder and only see the files under it; the lexicons have one of their own.
 pre-commit:
   parallel: true
   jobs:
-    - name: format
+    - name: format web
       root: apps/web/
       glob: '*.{ts,js,json,css}'
       run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
       stage_fixed: true
+    - name: format localtoolbox
+      root: apps/localtoolbox/
+      glob: '*.{ts,mts,js,json,css,md}'
+      run: pnpm exec oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
     - name: format lexicons
       glob: 'lexicons/computer/**/*.json'
-      run: pnpm exec oxfmt -c apps/web/.oxfmtrc.json {staged_files}
+      run: pnpm exec oxfmt {staged_files}
       stage_fixed: true
-    - name: lint
+    - name: lint web
       root: apps/web/
       glob: '*.{ts,js,svelte}'
+      run: pnpm exec oxlint {staged_files}
+    - name: lint localtoolbox
+      root: apps/localtoolbox/
+      glob: '*.{ts,mts,js,svelte}'
       run: pnpm exec oxlint {staged_files}
 
 pre-push:
   parallel: true
   jobs:
-    - name: typecheck
+    - name: typecheck web
       root: apps/web/
       run: pnpm check
-    - name: unit tests
+    - name: unit tests web
       root: apps/web/
+      run: pnpm test
+    - name: typecheck localtoolbox
+      root: apps/localtoolbox/
+      run: pnpm check
+    - name: tests localtoolbox
+      root: apps/localtoolbox/
       run: pnpm test

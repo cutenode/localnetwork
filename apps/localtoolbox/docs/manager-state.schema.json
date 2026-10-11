@@ -1,0 +1,402 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://bnb.im/schemas/toolbox/manager-state/v1.json",
+	"title": "Toolbox — Manager state",
+	"description": "A backup of everything the extension holds: the Manager's own list of tracks, the ones marked as downloaded, the cached download details, the artists tool's list, the session queue, and the panels' remembered options. Written by the settings sheet's Export button and read by its Import button; both hold to this schema exactly, so a file that validates here imports, and one that does not is refused with the same reason.",
+	"type": "object",
+	"required": ["format", "version"],
+	"additionalProperties": false,
+	"properties": {
+		"format": {
+			"description": "Identifies the file, so a JSON file of some other kind is refused rather than half-read. Two names are accepted and the first is the one written: `toolbox.soundcloud-downloads.state` is what the tool was called before it was renamed to Manager, and files carrying it are read exactly as current ones are, since only the name changed.",
+			"enum": ["toolbox.manager.state", "toolbox.soundcloud-downloads.state"]
+		},
+		"version": {
+			"description": "Schema version of this file. A reader that does not know a version refuses the file instead of guessing.",
+			"const": 1
+		},
+		"exportedAt": {
+			"description": "When the file was written. Informational only — nothing is decided by it.",
+			"type": "string",
+			"format": "date-time"
+		},
+		"downloaded": {
+			"description": "The tracks marked as downloaded: permalink path -> the time the mark was made. Mirrors chrome.storage.local key `downloaded`.",
+			"type": "object",
+			"propertyNames": { "$ref": "#/$defs/permalink" },
+			"additionalProperties": { "type": "string", "format": "date-time" },
+			"default": {}
+		},
+		"details": {
+			"description": "The cached download details: permalink path -> what SoundCloud said about the track, or a remembered lookup failure. Mirrors chrome.storage.local key `details`. Restoring these is what saves the API lookups after a reinstall.",
+			"type": "object",
+			"propertyNames": { "$ref": "#/$defs/permalink" },
+			"additionalProperties": { "$ref": "#/$defs/detailsEntry" },
+			"default": {}
+		},
+		"listed": {
+			"description": "The Manager's own list: the tracks put on it, in the order they were added. Mirrors chrome.storage.local key `listed`, though the panel reads it from and gives it back to the store that owns that key rather than to storage itself. Absent in files written before the tool kept a list, which still import — an old backup restores the marks and the lookups and leaves the list alone. An entry is a queue entry plus what only the list knows: the row's own like and repost state, the uploader's wording for a purchase link, the page the track came in from and when it was added.",
+			"type": "array",
+			"items": { "$ref": "#/$defs/listedEntry" },
+			"default": []
+		},
+		"artists": {
+			"description": "The artists tool's own list: the uploaders behind the tracks somebody has added, in the order they came in, each with what SoundCloud said about the account and the links on its profile. Mirrors chrome.storage.local key `artists`, though the sheet reads it from and gives it back to the store that owns that key rather than to storage itself. Absent in files written before the tool existed, which still import — an old backup restores everything else and leaves the artists alone.",
+			"type": "array",
+			"items": { "$ref": "#/$defs/artistEntry" },
+			"default": []
+		},
+		"queue": {
+			"description": "The session queue: the tracks picked out but not yet worked through, in the order they were added. Mirrors chrome.storage.session key `queue`, though the panel reads it from and gives it back to the store that owns that key rather than to storage itself. Unlike everything else in this file the queue is session-scoped — the browser closing ends it — so exporting it is the only way a batch outlives the day it was picked, and importing one restores a working list rather than part of the library: its tracks are queued, which is what drops one the queue already holds, however often a file names it.",
+			"type": "array",
+			"items": { "$ref": "#/$defs/queueEntry" },
+			"default": []
+		},
+		"prefs": {
+			"description": "The panel options, as remembered in the extension pages' own localStorage. Every one is optional; an absent option keeps whatever the browser already has.",
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"background": {
+					"description": "Open download links in background tabs (localStorage `pref:background`).",
+					"type": "boolean"
+				},
+				"sort": {
+					"description": "List layout (localStorage `pref:sort`): grouped by site, or in the order tracks were added.",
+					"enum": ["site", "page"]
+				},
+				"hideDownloaded": {
+					"description": "The filter bar's \"Hide downloaded\" toggle (localStorage `pref:hide-downloaded`), shared with the Cover Art tool.",
+					"type": "boolean"
+				}
+			},
+			"default": {}
+		}
+	},
+	"$defs": {
+		"permalink": {
+			"description": "A track's permalink path — its identity throughout the extension: a leading slash, the uploader, the track, no query or fragment (e.g. \"/bicep/glue\").",
+			"type": "string",
+			"pattern": "^/[^/?#\\s]+/[^/?#\\s]+$"
+		},
+		"timestamp": {
+			"description": "When something was learned, in milliseconds since the epoch (as Date.now() reports it).",
+			"type": "integer",
+			"minimum": 0
+		},
+		"artistPath": {
+			"description": "An artist's path — an uploader's profile, and the artists tool's identity for one: a leading slash and the account name, nothing else (e.g. \"/bicep\"). It is the first segment of every one of that uploader's track permalinks.",
+			"type": "string",
+			"pattern": "^/[^/?#\\s]+$"
+		},
+		"detailsEntry": {
+			"description": "One entry of the details cache: either what SoundCloud said about a track, or a remembered failure to look it up. An entry carrying `unavailable` is the second kind.",
+			"type": "object",
+			"if": {
+				"$comment": "Presence alone chooses the kind, so an entry carrying `unavailable: false` is reported as a bad failure entry rather than as known details missing every field.",
+				"properties": { "unavailable": true },
+				"required": ["unavailable"]
+			},
+			"then": { "$ref": "#/$defs/unavailableDetails" },
+			"else": { "$ref": "#/$defs/knownDetails" }
+		},
+		"queueEntry": {
+			"description": "One track in the session queue, kept as the tools that read the queue need it: enough to list it, to fetch its artwork, to find its download gate and to mark it, plus what only the page it was queued from could say (its genre, and whether the row's own like and repost buttons were on) — the Manager's list adds from the queue, and by then that page is gone. Only the permalink is required — it is the queue's identity for a track, and what gets marked when its turn comes; a track queued from a page that showed no title or artwork carries neither.",
+			"type": "object",
+			"required": ["permalink"],
+			"additionalProperties": false,
+			"properties": {
+				"permalink": { "description": "The track's permalink path.", "$ref": "#/$defs/permalink" },
+				"title": { "description": "The track's title, as the page showed it.", "type": "string" },
+				"artist": { "description": "The uploader, as the page showed it.", "type": "string" },
+				"artworkUrl": {
+					"description": "The cover art URL the page carried, at whatever size it used.",
+					"type": "string"
+				},
+				"details": {
+					"description": "The download details the track was queued with, which is how the Downloader finds its gate without a page to read. `null` when none were known. They are that track's: the importer refuses details naming another, which is a thing this schema cannot say.",
+					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/queueDetails" }]
+				},
+				"genre": {
+					"description": "What the uploader filed the track under, as the page rendered it beside the row (a Likes row and a track page carry the tag; a playlist row and the badge tiles do not). `null` where the page said nothing, which is not the same as \"no genre set\".",
+					"type": ["string", "null"]
+				},
+				"liked": {
+					"description": "Whether the page's own like button said the track was liked. `null` where the row rendered no such button (the badge tiles of /you/likes render none), which is not the same as \"no\".",
+					"type": ["boolean", "null"]
+				},
+				"reposted": {
+					"description": "The same, for the repost button.",
+					"type": ["boolean", "null"]
+				}
+			}
+		},
+		"listedEntry": {
+			"description": "One track on the Manager's list. Everything a queue entry carries, plus the fields the list keeps that a queue does not: the uploader's wording for a purchase link, the page the track was added from, and when. Only the permalink is required — it is the list's identity for a track, what gets marked when its turn comes, and what takes it off again.",
+			"type": "object",
+			"required": ["permalink"],
+			"additionalProperties": false,
+			"properties": {
+				"permalink": { "description": "The track's permalink path.", "$ref": "#/$defs/permalink" },
+				"title": { "description": "The track's title, as the page showed it.", "type": "string" },
+				"artist": { "description": "The uploader, as the page showed it.", "type": "string" },
+				"artworkUrl": {
+					"description": "The cover art URL the page carried, at whatever size it used.",
+					"type": "string"
+				},
+				"details": {
+					"description": "The download details known for the track: what SoundCloud said, or the partial answer a Likes row renders by itself. `null` when nobody has asked — a track put on the list from the session queue on a tab that was not SoundCloud, say. They are that track's: the importer refuses details naming another, which is a thing this schema cannot say.",
+					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/queueDetails" }]
+				},
+				"genre": {
+					"description": "What the uploader filed the track under, as the page rendered it beside the row (a Likes row and a track page carry the tag; a playlist row and the badge tiles do not). `null` where the page said nothing, which is not the same as \"no genre set\".",
+					"type": ["string", "null"]
+				},
+				"liked": {
+					"description": "Whether the page's own like button said the track was liked. `null` where the row rendered no such button (the badge tiles of /you/likes render none), which is not the same as \"no\".",
+					"type": ["boolean", "null"]
+				},
+				"reposted": {
+					"description": "The same, for the repost button.",
+					"type": ["boolean", "null"]
+				},
+				"domPurchaseTitle": {
+					"description": "The uploader's own wording for the purchase link, as the page's button carried it (\"Free Download\", \"Buy\", \"🎧 Stream / Download\"), or \"\" when there was none. Used for a link button's tooltip where the details carry no label of their own.",
+					"type": "string"
+				},
+				"from": {
+					"description": "What the track was added from: the playlist or Likes page's own name, or \"the session queue\". \"\" when nothing named it, which reads as unknown in the panel.",
+					"type": "string"
+				},
+				"at": {
+					"description": "When the track was put on the list. A second sighting of the same track does not move it.",
+					"$ref": "#/$defs/timestamp"
+				}
+			}
+		},
+		"queueDetails": {
+			"description": "The download details of a queued track: either what SoundCloud said about it, or the partial details a Likes row shows by itself. An entry carrying `partial` is the second kind, and both carry the permalink of the track they answer for. A remembered lookup failure is never queued with a track — it is not an answer about the track.",
+			"type": "object",
+			"if": {
+				"$comment": "Presence alone chooses the kind, as it does for detailsEntry.",
+				"properties": { "partial": true },
+				"required": ["partial"]
+			},
+			"then": { "$ref": "#/$defs/partialDetails" },
+			"else": { "$ref": "#/$defs/knownDetails" }
+		},
+		"partialDetails": {
+			"description": "What a Likes row renders by itself: the purchase link and its label, with SoundCloud's own download unasked about. The nulls say what is unknown rather than false. These are never filed in the details cache — they are not an answer — so they carry no time and never expire.",
+			"type": "object",
+			"required": ["partial", "permalink", "downloadable", "hasDownloadsLeft", "purchaseUrl", "purchaseTitle"],
+			"additionalProperties": false,
+			"properties": {
+				"partial": { "description": "Marks the entry as this kind.", "const": true },
+				"id": {
+					"description": "Always null: the numeric id comes from the API, which was not asked.",
+					"type": "null"
+				},
+				"permalink": {
+					"description": "The track's permalink path. Repeats the queue entry carrying it, and must equal it.",
+					"$ref": "#/$defs/permalink"
+				},
+				"downloadable": {
+					"description": "Unknown, because only the API says whether SoundCloud offers a \"Download file\".",
+					"type": "null"
+				},
+				"hasDownloadsLeft": { "description": "Unknown, for the same reason.", "type": "null" },
+				"purchaseUrl": { "description": "The purchase link the row rendered.", "type": "string" },
+				"purchaseTitle": {
+					"description": "The uploader's own label for that link, or \"\" when they gave none.",
+					"type": "string"
+				},
+				"genre": {
+					"description": "Unknown: these are what SoundCloud was asked for, and it was not asked. What the row itself rendered is not lost by being absent here — it is on the track, in its own `genre`. Optional: queued tracks in files written before the genre was kept carry no such key.",
+					"type": "null"
+				},
+				"artworkUrl": {
+					"description": "\"\" rather than null: the cover was read off the same row this entry was, so there is nothing here the queued track does not already carry. Optional: queued tracks in files written before the cover was kept carry no such key.",
+					"const": ""
+				}
+			}
+		},
+		"knownDetails": {
+			"description": "What SoundCloud said about a track.",
+			"type": "object",
+			"required": ["permalink", "downloadable", "hasDownloadsLeft", "purchaseUrl", "purchaseTitle", "at"],
+			"additionalProperties": false,
+			"properties": {
+				"id": {
+					"description": "SoundCloud's numeric track id, used to look several tracks up in one request.",
+					"type": ["integer", "null"]
+				},
+				"permalink": {
+					"description": "The track's permalink path. Repeats the track the entry is about — the key it is filed under in `details`, or the queue entry carrying it — and must equal it.",
+					"$ref": "#/$defs/permalink"
+				},
+				"downloadable": {
+					"description": "Whether SoundCloud itself offers a \"Download file\" for the track.",
+					"type": "boolean"
+				},
+				"hasDownloadsLeft": {
+					"description": "Whether that download's limit is still unspent.",
+					"type": "boolean"
+				},
+				"purchaseUrl": {
+					"description": "The track's purchase link (the \"Buy\" / \"Free Download\" button), or \"\" when the uploader set none.",
+					"type": "string"
+				},
+				"purchaseTitle": {
+					"description": "The uploader's own label for that link, or \"\" when they gave none.",
+					"type": "string"
+				},
+				"genre": {
+					"description": "What the uploader filed the track under, or \"\" when they set no genre. Optional, and only because of the files that already exist: details cached before the genre was kept have no such key, and a backup taken then still has to read back.",
+					"type": "string"
+				},
+				"artworkUrl": {
+					"description": "The cover SoundCloud named: the track's own artwork, else its uploader's avatar, which is what the site's own rows fall back to; \"\" when it has neither. It is what a row whose thumbnail never lazy-loaded shows instead of a placeholder. Optional, for the same reason as the genre: details cached before the cover was kept have no such key.",
+					"type": "string"
+				},
+				"at": {
+					"description": "When these details were learned. They expire thirty days later.",
+					"$ref": "#/$defs/timestamp"
+				}
+			}
+		},
+		"unavailableDetails": {
+			"description": "A remembered failure: SoundCloud did not answer for this track, so it is not asked about again for a day.",
+			"type": "object",
+			"required": ["unavailable", "at"],
+			"additionalProperties": false,
+			"properties": {
+				"unavailable": { "const": true },
+				"at": {
+					"description": "When the lookup failed. The failure is forgotten a day later.",
+					"$ref": "#/$defs/timestamp"
+				}
+			}
+		},
+		"artistEntry": {
+			"description": "One artist on the artists tool's list. Only the path is required — it is what SoundCloud resolves to a profile, what the list holds an artist once under, and what takes one off again.",
+			"type": "object",
+			"required": ["permalink"],
+			"additionalProperties": false,
+			"properties": {
+				"permalink": { "description": "The artist's path.", "$ref": "#/$defs/artistPath" },
+				"name": {
+					"description": "The artist as the page showed it — a row's artist, which on a Likes row can be a display name rather than the account's. \"\" when no row named one.",
+					"type": "string"
+				},
+				"tracks": {
+					"description": "The tracks that brought the artist onto the list, in the order they were seen, capped at fifty. What the row says the artist is here for.",
+					"type": "array",
+					"items": { "$ref": "#/$defs/artistTrack" }
+				},
+				"profile": {
+					"description": "What SoundCloud said about the account when it was asked, a remembered failure to find one (`unavailable`), or `null` when nobody has asked.",
+					"oneOf": [{ "type": "null" }, { "$ref": "#/$defs/profileEntry" }]
+				},
+				"from": {
+					"description": "What the artist was added from: a page's own name, \"the Manager’s list\" or \"the session queue\". \"\" when nothing named it.",
+					"type": "string"
+				},
+				"at": {
+					"description": "When the artist was put on the list. A second sighting does not move it.",
+					"$ref": "#/$defs/timestamp"
+				}
+			}
+		},
+		"artistTrack": {
+			"description": "One of the tracks an artist is on the list for: its permalink, and its title as the page showed it.",
+			"type": "object",
+			"required": ["permalink"],
+			"additionalProperties": false,
+			"properties": {
+				"permalink": { "description": "The track's permalink path.", "$ref": "#/$defs/permalink" },
+				"title": {
+					"description": "The track's title, or \"\" when the row showed none.",
+					"type": "string"
+				}
+			}
+		},
+		"profileEntry": {
+			"description": "What is known about an artist's account: what SoundCloud said, or a remembered failure to find a public profile behind the path. An entry carrying `unavailable` is the second kind.",
+			"type": "object",
+			"if": {
+				"$comment": "Presence alone chooses the kind, as it does for detailsEntry.",
+				"properties": { "unavailable": true },
+				"required": ["unavailable"]
+			},
+			"then": { "$ref": "#/$defs/unavailableProfile" },
+			"else": { "$ref": "#/$defs/artistProfile" }
+		},
+		"artistProfile": {
+			"description": "What SoundCloud said about an account, as the artists tool keeps it: who they are, where they are, how many follow them, what they wrote about themselves, and the links they put on the profile. Everything but the time is optional, since an older file may carry less.",
+			"type": "object",
+			"required": ["at"],
+			"additionalProperties": false,
+			"properties": {
+				"id": { "description": "SoundCloud's numeric user id.", "type": ["integer", "null"] },
+				"permalink": {
+					"description": "The artist's path — the one the profile was asked for under.",
+					"$ref": "#/$defs/artistPath"
+				},
+				"username": { "description": "The account's display name.", "type": "string" },
+				"fullName": { "description": "The name the account gives, or \"\".", "type": "string" },
+				"city": { "description": "The city the account gives, or \"\".", "type": "string" },
+				"country": { "description": "The account's country code, or \"\".", "type": "string" },
+				"followers": {
+					"description": "How many follow the account, or null when SoundCloud did not say.",
+					"type": ["integer", "null"]
+				},
+				"trackCount": {
+					"description": "How many tracks the account has uploaded, or null when SoundCloud did not say.",
+					"type": ["integer", "null"]
+				},
+				"verified": {
+					"description": "Whether SoundCloud marks the account verified.",
+					"type": "boolean"
+				},
+				"avatarUrl": { "description": "The account's picture, or \"\".", "type": "string" },
+				"bio": {
+					"description": "The account's description, cut off at a thousand characters, or \"\". The panel reads addresses out of it as links.",
+					"type": "string"
+				},
+				"links": {
+					"description": "The links the account lists on its profile, in SoundCloud's order, at most twenty.",
+					"type": "array",
+					"items": { "$ref": "#/$defs/profileLink" }
+				},
+				"at": { "description": "When the profile was learned.", "$ref": "#/$defs/timestamp" }
+			}
+		},
+		"profileLink": {
+			"description": "One link an account lists on its profile.",
+			"type": "object",
+			"required": ["url"],
+			"additionalProperties": false,
+			"properties": {
+				"network": {
+					"description": "What SoundCloud files the link under (\"instagram\", \"personal\", …), lower-cased, or \"\".",
+					"type": "string"
+				},
+				"title": {
+					"description": "The uploader's own title for the link, or \"\".",
+					"type": "string"
+				},
+				"url": { "description": "The address.", "type": "string" }
+			}
+		},
+		"unavailableProfile": {
+			"description": "A remembered failure: SoundCloud had no public profile behind the path when it was asked, so it is not asked again until somebody presses the row's own button.",
+			"type": "object",
+			"required": ["unavailable", "at"],
+			"additionalProperties": false,
+			"properties": {
+				"unavailable": { "const": true },
+				"at": { "description": "When the lookup failed.", "$ref": "#/$defs/timestamp" }
+			}
+		}
+	}
+}

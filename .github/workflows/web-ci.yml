@@ -1,6 +1,7 @@
 name: Web CI
 
-# Runs for changes to the web app (apps/web) and the pnpm workspace around it.
+# Runs for changes to the web app (apps/web), the lint and format config it shares, and the pnpm
+# workspace around it.
 on:
   push:
     branches: [main]
@@ -11,6 +12,9 @@ on:
       - pnpm-workspace.yaml
       - .node-version
       - lexicons/**
+      - .oxlintrc.json
+      - .oxfmtrc.json
+      - tools/oxlint/**
       - .github/workflows/web-ci.yml
   pull_request:
     paths: *paths

@@ -1,0 +1,34 @@
+[
+	{
+		"id": "beatport",
+		"name": "Beatport",
+		"badge": "BP",
+		"url": "https://www.beatport.com/search?q={artist}",
+		"background": "#1e1e1e",
+		"color": "#01ff95"
+	},
+	{
+		"id": "bandcamp",
+		"name": "Bandcamp",
+		"badge": "bc",
+		"url": "https://bandcamp.com/search?q={artist}",
+		"background": "#1da0c3",
+		"color": "#ffffff"
+	},
+	{
+		"id": "zipdj",
+		"name": "ZIPDJ",
+		"badge": "Z",
+		"url": "https://www.zipdj.com/app/search?q={artist}",
+		"background": "#2b4c9b",
+		"color": "#ffffff"
+	},
+	{
+		"id": "mp3pool",
+		"name": "MyMP3Pool",
+		"badge": "M",
+		"url": "https://mp3poolonline.com/results/artists?search={artist}",
+		"background": "#d32f2f",
+		"color": "#ffffff"
+	}
+]

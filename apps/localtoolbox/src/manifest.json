@@ -1,0 +1,38 @@
+{
+	"manifest_version": 3,
+	"name": "localtoolbox",
+	"version": "2.11.0",
+	"description": "small tools for SoundCloud: track lists, download links, cover art, and a queue to batch them.",
+	"permissions": ["activeTab", "clipboardWrite", "storage", "downloads"],
+	"host_permissions": [
+		"https://hypeddit.com/*",
+		"https://*.toneden.io/*",
+		"https://fanlink.tv/*",
+		"https://droploud.com/*",
+		"https://api.droploud.com/*",
+		"https://pumpyoursound.com/*",
+		"https://laylo.com/*",
+		"https://d21i0hc4hl3bvt.cloudfront.net/*",
+		"https://d3oyaxbt9vo0fg.cloudfront.net/*",
+		"https://events.laylo.com/*",
+		"https://ffm.to/*"
+	],
+	"content_scripts": [
+		{
+			"matches": ["https://soundcloud.com/*"],
+			"js": ["downloaded-store.js", "content.js"],
+			"css": ["content.css"],
+			"run_at": "document_idle",
+			"all_frames": true
+		}
+	],
+	"action": {
+		"default_popup": "popup.html",
+		"default_title": "localtoolbox"
+	},
+	"icons": {
+		"16": "icons/icon16.png",
+		"48": "icons/icon48.png",
+		"128": "icons/icon128.png"
+	}
+}

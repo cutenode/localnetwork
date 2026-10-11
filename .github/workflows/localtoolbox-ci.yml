@@ -1,0 +1,54 @@
+name: localtoolbox CI
+
+# Runs for changes to the Chrome extension (apps/localtoolbox), the lint and format config it shares
+# with the web app, and the pnpm workspace around it.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - apps/localtoolbox/**
+      - .oxlintrc.json
+      - .oxfmtrc.json
+      - tools/oxlint/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .node-version
+      - .github/workflows/localtoolbox-ci.yml
+  pull_request:
+    paths: *paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/localtoolbox
+
+jobs:
+  verify:
+    name: Format, lint, types, tests with coverage, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm check
+      - run: pnpm knip
+      # The suite runs the real build too (test/build.test.ts) and checks what lands in dist/.
+      - run: pnpm test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: localtoolbox-coverage
+          path: apps/localtoolbox/coverage/

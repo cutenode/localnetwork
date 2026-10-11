@@ -1,0 +1,17 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": [
+		"content.ts",
+		"downloaded-store.ts",
+		"state-transfer.ts",
+		"svelte.config.ts",
+		"scripts/*.mts",
+		"test/**/*.test.ts"
+	],
+	"project": ["*.ts", "src/**/*.{ts,svelte}", "scripts/**/*.mts", "test/**/*.{ts,svelte}"],
+	"ignoreDependencies": ["tailwindcss", "tw-animate-css"],
+	"ignoreIssues": {
+		"src/lib/components/ui/**": ["exports", "types"]
+	},
+	"ignoreExportsUsedInFile": true
+}

@@ -1,0 +1,162 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the exported state file > says the same thing about every document it refuses 1`] = `
+[
+  "that’s not JSON. export a file from this panel, then import that.",
+  "that’s not JSON. export a file from this panel, then import that.",
+  "the file must be a JSON object.",
+  "the file doesn’t say what it is — it wasn’t exported by this tool.",
+  "that’s a “something.else”, not a Manager state file.",
+  "that file is version 2; this reads version 1.",
+  "“extra” is not part of this format",
+  "“exportedAt” is not a time",
+  "downloaded bad: not a permalink path",
+  "downloaded /a/b: “whenever” is not a time",
+  "details /a/b: “unavailable” must be true",
+  "details /a/b: “permalink” says /c/d, but it is filed under /a/b",
+  "“queue” must be an array",
+  "queue #1: “permalink” is missing",
+  "queue #2: “permalink” must be a permalink path",
+  "queue #1 details: a remembered lookup failure is not what a track is queued with",
+  "queue #1 details: “downloadable” must be null",
+  "queue #1 details: “permalink” says /c/d, but the track queued is /a/b",
+  "prefs: “sort” must be “site” or “page”",
+  "prefs: “nope” is not an option of this tool",
+]
+`;
+
+exports[`the names files are saved under > makes any name into one Chrome will take 1`] = `
+[
+  "-..-etc-passwd",
+  "hidden",
+  "a-b-c",
+  "tabhere",
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "Smalé - Lose My Breath (baile flip)[Wile Out] -FREE DL-.mp3",
+  "Remix- -Radio- Edit -v2--final-.mp3",
+  "zerowidthsoft.mp3",
+  "trailing dots",
+  "_NUL.mp3",
+]
+`;
+
+exports[`the names files are saved under > names an unlocked download after what the link says it is 1`] = `
+[
+  "KAKU - FE!N (Remix).wav",
+  "my song.mp3",
+  "",
+  "passwd.mp3",
+  "",
+]
+`;
+
+exports[`the text formats > names the downloaded file after the page 1`] = `
+[
+  "my-playlist.csv",
+  "your-likes.csv",
+  "likes-by-dj-someone.csv",
+  "ambient-2026.csv",
+  "soundcloud-tracks.csv",
+  "soundcloud-tracks.csv",
+]
+`;
+
+exports[`the text formats > renders artist-title 1`] = `
+"Bicep - Glue
+Channel Uploads - Justin Timberlake — SexyBack (EDIT)
+Björk - Jóga, "Live"
+Bicep - Glue
+Two Lines - Tab	here"
+`;
+
+exports[`the text formats > renders csv 1`] = `
+"Artist,Title
+Bicep,Glue
+Channel Uploads,Justin Timberlake — SexyBack (EDIT)
+Björk,"Jóga, ""Live"""
+Bicep,Glue
+"Two
+Lines",Tab	here"
+`;
+
+exports[`the text formats > renders deduped, and with both options at once > csv, split and deduped 1`] = `
+"Artist,Title
+Bicep,Glue
+Justin Timberlake,SexyBack (EDIT)
+Björk,"Jóga, ""Live"""
+"Two
+Lines",Tab	here"
+`;
+
+exports[`the text formats > renders deduped, and with both options at once > numbered, deduped 1`] = `
+"1. Bicep - Glue
+2. Channel Uploads - Justin Timberlake — SexyBack (EDIT)
+3. Björk - Jóga, "Live"
+4. Two Lines - Tab	here"
+`;
+
+exports[`the text formats > renders json 1`] = `
+"[
+  {
+    "artist": "Bicep",
+    "title": "Glue"
+  },
+  {
+    "artist": "Channel Uploads",
+    "title": "Justin Timberlake — SexyBack (EDIT)"
+  },
+  {
+    "artist": "Björk",
+    "title": "Jóga, \\"Live\\""
+  },
+  {
+    "artist": "Bicep",
+    "title": "Glue"
+  },
+  {
+    "artist": "Two\\nLines",
+    "title": "Tab\\there"
+  }
+]"
+`;
+
+exports[`the text formats > renders numbered 1`] = `
+"1. Bicep - Glue
+2. Channel Uploads - Justin Timberlake — SexyBack (EDIT)
+3. Björk - Jóga, "Live"
+4. Bicep - Glue
+5. Two Lines - Tab	here"
+`;
+
+exports[`the text formats > renders title-artist 1`] = `
+"Glue - Bicep
+Justin Timberlake — SexyBack (EDIT) - Channel Uploads
+Jóga, "Live" - Björk
+Glue - Bicep
+Tab	here - Two Lines"
+`;
+
+exports[`the text formats > renders title-only 1`] = `
+"Glue
+Justin Timberlake — SexyBack (EDIT)
+Jóga, "Live"
+Glue
+Tab	here"
+`;
+
+exports[`the text formats > renders tsv 1`] = `
+"Artist	Title
+Bicep	Glue
+Channel Uploads	Justin Timberlake — SexyBack (EDIT)
+Björk	Jóga, "Live"
+Bicep	Glue
+Two Lines	Tab here"
+`;
+
+exports[`the text formats > renders with the artist split out of the title 1`] = `
+"Bicep - Glue
+Justin Timberlake - SexyBack (EDIT)
+Björk - Jóga, "Live"
+Bicep - Glue
+Two Lines - Tab	here"
+`;

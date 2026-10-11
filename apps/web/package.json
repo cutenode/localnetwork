@@ -53,7 +53,6 @@
 	"devDependencies": {
 		"@atproto/dev-env": "0.0.0-spaces-alpha-20261001173819",
 		"@atproto/sync": "0.0.0-spaces-alpha-20261001173819",
-		"@oxlint/plugins": "1.86.0",
 		"@playwright/test": "^1.63.0",
 		"@sveltejs/adapter-node": "^6.0.0",
 		"@sveltejs/kit": "^3.0.0",

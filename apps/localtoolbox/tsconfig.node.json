@@ -1,0 +1,7 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"types": ["node", "chrome"]
+	},
+	"include": ["*.config.ts", "scripts/**/*.mts", "test/**/*.ts", "test/**/*.svelte", "src/**/*.d.ts"]
+}

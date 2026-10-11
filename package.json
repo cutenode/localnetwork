@@ -1,21 +1,24 @@
 {
 	"name": "localnetwork-monorepo",
 	"private": true,
+	"type": "module",
 	"scripts": {
-		"dev": "pnpm --filter localnetwork dev",
-		"build": "pnpm --filter localnetwork build",
-		"check": "pnpm --filter localnetwork check",
-		"lint": "pnpm --filter localnetwork lint",
-		"format": "pnpm lexicons:format && pnpm --filter localnetwork format",
-		"format:check": "pnpm lexicons:format --check && pnpm --filter localnetwork format:check",
-		"lexicons:format": "oxfmt -c apps/web/.oxfmtrc.json lexicons/computer",
-		"test": "pnpm --filter localnetwork test",
-		"knip": "pnpm --filter localnetwork knip",
-		"verify": "pnpm lexicons:format --check && pnpm --filter localnetwork verify"
+		"dev": "pnpm -r --parallel dev",
+		"build": "pnpm -r build",
+		"check": "pnpm -r check",
+		"lint": "pnpm -r lint",
+		"format": "pnpm lexicons:format && pnpm -r format",
+		"format:check": "pnpm lexicons:format --check && pnpm -r format:check",
+		"lexicons:format": "oxfmt lexicons/computer",
+		"test": "pnpm -r test",
+		"knip": "pnpm -r knip",
+		"verify": "pnpm lexicons:format --check && pnpm -r verify"
 	},
 	"devDependencies": {
+		"@oxlint/plugins": "1.86.0",
 		"lefthook": "^2.1.16",
-		"oxfmt": "^0.71.0"
+		"oxfmt": "^0.71.0",
+		"oxlint": "1.86.0"
 	},
 	"engines": {
 		"node": ">=24.12"

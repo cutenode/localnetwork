@@ -1,0 +1,310 @@
+/* Injected on soundcloud.com by the Manager tool: the markers painted over
+   cover art — "Downloaded" for tracks the user has downloaded, "nodl" for
+   tracks that turned out to have no download link at all — and the queue
+   button, which comes up when the art is hovered and stays up by itself on a
+   track that is in the queue. They go on every picture of a track the page
+   has: list rows and tiles, a track page's hero, the player bar. The markers
+   are purely visual: the overlay ignores pointer events, so play buttons and
+   links beneath it keep working. All class names are prefixed to stay clear of
+   SoundCloud's own. */
+
+.tbx-mark {
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	pointer-events: none;
+	border-radius: inherit;
+}
+
+/* An artwork element SoundCloud already positions in every layout the script
+   marks — but the overlay is only in the right box while that holds, and one
+   of them (the player bar's) cannot be checked without a track playing. So
+   marked artwork — and artwork carrying the queue button — is made the
+   containing block. On an element with no offsets of its own, `relative`
+   moves nothing: it changes where our overlay lands, not where SoundCloud's
+   own artwork sits.
+
+   The class is put on by the script, which knows which artwork it just
+   marked. This rule used to be `.sc-artwork:has(> .tbx-mark)`, and that one
+   selector was the slowest thing in the extension: `:has()` makes every
+   `.sc-artwork` on the page a candidate to restyle whenever any `.tbx-mark`
+   is added or removed, so painting a marked-up playlist inserted five hundred
+   markers one at a time and invalidated the document on each. Measured on a
+   479-track playlist, a single repaint took 17 seconds — during which the
+   content script's main thread was blocked, and with it every answer coming
+   back from SoundCloud and every progress message going out to the panel. A
+   plain class touches the one element it is on. */
+.tbx-mark-host {
+	position: relative;
+}
+
+/* Downloaded: dim the artwork and add a white pill. */
+.tbx-mark--downloaded {
+	background: rgba(0, 0, 0, 0.38);
+}
+
+.tbx-mark__pill {
+	position: absolute;
+	right: 6px;
+	bottom: 6px;
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: #ffffff;
+	color: #111111;
+	font:
+		600 11px/16px -apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		Roboto,
+		Helvetica,
+		Arial,
+		sans-serif;
+	letter-spacing: 0;
+	text-transform: none;
+	white-space: nowrap;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+/* No download link: just a dark pill in the same corner, artwork untouched. */
+.tbx-mark--nodl .tbx-mark__pill {
+	background: rgba(20, 20, 20, 0.8);
+	color: #ffffff;
+}
+
+/* Playlist rows show 32 px thumbnails and the player bar a 30 px one: the
+   pill shrinks, and "Downloaded" becomes a check mark (set from the script). */
+.tbx-mark--small .tbx-mark__pill {
+	right: 1px;
+	bottom: 1px;
+	padding: 0 3px;
+	font-size: 9px;
+	line-height: 13px;
+}
+
+/* ---- The queue button ------------------------------------------------------
+
+   Hovering cover art brings up a button in its top-right corner that puts the
+   track in the session queue — and on a track already in it, the button is
+   there without hovering, reading "queued": this is where the page says a
+   track is in the queue. Hovering that one turns it into the "unqueue" it
+   would become, word and colour together. The corner opposite the pills; the
+   centre is left to SoundCloud's own play button.
+
+   Hidden rather than absent, so it can be reached by keyboard: `opacity` and
+   `pointer-events` take it out of the way without taking it out of the tab
+   order, and focusing it brings it up exactly as hovering the art does.
+
+   Doubled class selectors throughout, and the host named on the rules that
+   have to hold — the same reason `.tbx-dl` doubles its own further down. This
+   element is the extension's, but the page can still reach it as a plain
+   `button` inside SoundCloud's own artwork, and a rule of SoundCloud's that
+   hides whatever it did not put there (`.sound__coverArt .sc-artwork > button`
+   is (0,2,1)) would otherwise beat a single class of ours (0,1,0) — and beat
+   `.tbx-queue[data-state$=":yes"]` (0,2,0) with it. That one matters most: it
+   is what holds a queued track's button up without a pointer on it, and it is
+   the only thing on the artwork that says the track is in the queue. The
+   symptom is exactly what it sounds like — the button turns up on hover (that
+   rule was already (0,3,0) and survived) and never otherwise. */
+
+.tbx-queue.tbx-queue {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	z-index: 3;
+	margin: 0;
+	padding: 2px 8px;
+	border: 0;
+	border-radius: 999px;
+	background: oklch(0.66 0.16 162);
+	color: oklch(0.16 0.02 162);
+	font:
+		600 11px/16px -apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		Roboto,
+		Helvetica,
+		Arial,
+		sans-serif;
+	letter-spacing: 0;
+	text-transform: none;
+	white-space: nowrap;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+	cursor: pointer;
+	opacity: 0;
+	pointer-events: none;
+	transition:
+		opacity 120ms ease-out,
+		background-color 120ms ease-out,
+		color 120ms ease-out;
+}
+
+/* A track in the queue shows its button without being asked: it is the only
+   thing on the artwork that says so. */
+.tbx-mark-host:hover > .tbx-queue.tbx-queue,
+.tbx-mark-host > .tbx-queue.tbx-queue[data-state$=':yes'],
+.tbx-queue.tbx-queue:focus-visible {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.tbx-queue.tbx-queue:hover {
+	background: oklch(0.72 0.16 162);
+}
+
+.tbx-queue.tbx-queue:focus-visible {
+	outline: 2px solid #ffffff;
+	outline-offset: 1px;
+}
+
+/* Hovering a queued track's button is the offer to take it back out, so it
+   leaves the queue's green for the plain white of the pills: the colour goes
+   as the word does, and going means the track would be leaving the queue. The
+   script puts the hovered word in `data-hover` and the resting one in a span
+   of its own, so the swap costs no listener and the button's own text is
+   always the word it is showing. */
+.tbx-queue.tbx-queue[data-state$=':yes']:hover {
+	background: #ffffff;
+	color: #111111;
+}
+
+.tbx-queue.tbx-queue[data-hover]:hover > .tbx-queue__text {
+	display: none;
+}
+
+.tbx-queue.tbx-queue[data-hover]:hover::after {
+	content: attr(data-hover);
+}
+
+/* The same shrink the pills take on 32 px thumbnails and the player bar's
+   30 px one, where the word is a sign instead: "+" for a queued track, and
+   "−" under the pointer. */
+.tbx-queue.tbx-queue--small {
+	top: 1px;
+	right: 1px;
+	padding: 0 3px;
+	font-size: 9px;
+	line-height: 13px;
+}
+
+/* ---- Our download button, where SoundCloud's own was ----------------------
+
+   Turned on in the popup's settings sheet (the default), the content script
+   hides SoundCloud's "Download file" item and its "Buy" / "Free Download"
+   link and puts this beside each one. It is the Manager tool's own colour
+   rather than SoundCloud's orange, on purpose: a button that does something
+   SoundCloud's did not — queueing the track — should not look like the one it
+   replaced.
+
+   It says one word, "Download", behind a download icon, and its height comes
+   from the script, which measures SoundCloud's own control before hiding it —
+   so ours is as tall as the rest of the row it joins. The padding below is
+   what stands in when there was nothing laid out to measure. */
+
+/* `!important` for once, and only here. Which of two class rules of the same
+   weight wins is which comes last, and where a content script's stylesheet
+   lands among the page's own is not this extension's to decide. Everything
+   else the script adds is an element of its own, where nothing can disagree;
+   this is the one rule that has to beat SoundCloud's styling of SoundCloud's
+   element. */
+.tbx-dl-replaced {
+	display: none !important;
+}
+
+/* Doubled class selectors, here and on the two variants below: this element
+   is the extension's, but the page's own rules can still reach it by tag —
+   SoundCloud's More menu styles `button`s inside it, and its rows style their
+   `a`s, both of which are a class *and* a tag (0,1,1) and would win over a
+   plain class (0,1,0). Repeating the class costs nothing and takes ours to
+   (0,2,0), above anything that matches our element without naming a class of
+   ours — which nothing outside this file can. The states below already carry
+   a pseudo-class and are there on their own. */
+.tbx-dl.tbx-dl {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	box-sizing: border-box;
+	max-width: 100%;
+	border: 0;
+	border-radius: 4px;
+	background: oklch(0.72 0.17 68);
+	color: #ffffff;
+	font:
+		600 12px/16px -apple-system,
+		BlinkMacSystemFont,
+		'Segoe UI',
+		Roboto,
+		Helvetica,
+		Arial,
+		sans-serif;
+	text-align: center;
+	text-decoration: none;
+	text-transform: none;
+	letter-spacing: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	cursor: pointer;
+}
+
+/* The icon keeps its size whatever happens to the word beside it: a narrow
+   row shortens the text, never the picture that says what the button is. */
+.tbx-dl__icon {
+	flex: none;
+	width: 14px;
+	height: 14px;
+}
+
+.tbx-dl__text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.tbx-dl:hover {
+	background: oklch(0.66 0.17 68);
+	color: #ffffff;
+	text-decoration: none;
+}
+
+.tbx-dl:focus-visible {
+	outline: 2px solid oklch(0.72 0.17 68);
+	outline-offset: 2px;
+}
+
+.tbx-dl:active {
+	transform: translateY(1px);
+}
+
+/* In the More menu, which is a column of full-width rows: this is one of
+   them, not a pill floating in the middle of it. */
+.tbx-dl--soundcloud.tbx-dl--soundcloud {
+	display: flex;
+	justify-content: flex-start;
+	width: 100%;
+	padding: 7px 12px;
+	border-radius: 0;
+}
+
+/* Beside a Likes row's title, and in a track page's action bar, where
+   SoundCloud's own purchase link is a small pill. */
+.tbx-dl--external.tbx-dl--external {
+	padding: 3px 9px;
+}
+
+/* In the signed-in track page's action row (the frame the content script
+   reaches through `all_frames`; content.js says why). That row is MUI's:
+   40 px round icon buttons with a gap of their own, and the script measures
+   one of them for the height. The padding is wider than the small pill's
+   because the button it stands among is that much bigger, and the radius
+   follows MUI's rather than SoundCloud's 4 px so it does not read as a
+   different toolkit's control sitting in their row.
+
+   Two rules ours has to win here, and neither is about colour. MUI gives
+   every `MuiStack-root` child `margin: 0` through a `> :not(style) ~ :not(style)`
+   selector (0,1,0 plus the gap it sets on the stack), which ours is — it is
+   inserted into that stack — so the gap is the stack's and there is nothing
+   to add. And the frame's reset styles `a` at (0,0,1). The doubled class is
+   already (0,2,0) and clears both. */
+.tbx-dl--v2.tbx-dl--v2 {
+	padding: 0 12px;
+	border-radius: 8px;
+}

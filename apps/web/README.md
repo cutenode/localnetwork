@@ -226,7 +226,6 @@ src/lib/server/sync/            Space syncer and record projections
 src/routes/                     SvelteKit 3 pages, form actions, and endpoints
 tests/integration/              Flows against an in-process spaces PDS and a HappyView container
 tests/e2e/                      Playwright
-tools/oxlint/anti-slop/         Vendored anti-slop Oxlint plugin (provenance in its UPSTREAM.md)
 ```
 
 ## Known limitations
