@@ -160,6 +160,7 @@ fn track_formats_against_players() {
     assert_eq!((flac.drive.as_str(), flac.player.as_str(), flac.format.as_str()), ("A", "CDJ-2000NXS", "FLAC"));
     assert_eq!(flac.tracks.len(), 3);
     assert!(flac.tracks.iter().all(|t| t.file_path.ends_with(".flac")));
+    assert!(r.unloadable.iter().all(|u| u.transcodable), "lossless: packing them as copies the player plays fixes it");
     // Every group is also an item, so the checklist and the exit code count it.
     for u in &r.unloadable {
         assert!(r.items.iter().any(|i| i.check == "formats" && i.message == u.message));

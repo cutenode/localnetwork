@@ -21,6 +21,12 @@
 //! With [`CheckOptions::audio`], every audio file is opened and its last seconds decoded (see
 //! [`probe::check_tracks`]), not only the smaller ones, which also finds files that don't decode.
 //!
+//! Tracks over 0 dBTP, clipped, or far from the library's level are a warning, from analyses
+//! already in the store's cache (see [`crate::sound`]): the check decodes nothing for them, and
+//! says nothing about levels on a library never analysed. It's here rather than in the DJ's
+//! profile because this is the report read before a set, when a track that will clip the
+//! mixer or need the trim cranked can still be swapped.
+//!
 //! Nothing is written to the drives (beyond the hash cache every scan of an adopted drive keeps).
 
 use indexmap::IndexMap;
@@ -43,6 +49,7 @@ use crate::paths;
 use crate::plays;
 use crate::probe;
 use crate::progress::{Ctx, Phase};
+use crate::sound;
 use crate::store::Store;
 use crate::tree::FileTree;
 use crate::{Error, Result};
@@ -54,6 +61,7 @@ const CHECKS: &[&str] = &[
     "databases",
     "files",
     "audio",
+    "loudness",
     "large_files",
     "interrupted",
     "history",
@@ -74,8 +82,8 @@ pub enum Level {
 pub struct CheckItem {
     /// The drive it's about.
     pub drive: String,
-    /// What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `large_files`,
-    /// `interrupted`, `history`, `file_system`, `players` or `formats`.
+    /// What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,
+    /// `large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.
     pub check: &'static str,
     pub level: Level,
     pub message: String,
@@ -94,6 +102,15 @@ pub struct CheckReport {
     /// With [`CheckOptions::audio`]: audio files with a problem, grouped as the `audio` items
     /// describe them.
     pub audio: Vec<AudioIssues>,
+    /// Tracks whose level may be a problem, as the `loudness` items describe them.
+    pub loudness: Vec<DriveLoudness>,
+}
+
+/// One drive's tracks whose level may be a problem.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DriveLoudness {
+    pub drive: String,
+    pub tracks: Vec<sound::LoudnessFinding>,
 }
 
 /// Audio files with one kind of problem.
@@ -152,6 +169,9 @@ pub struct Unloadable {
     pub message: String,
     /// One per audio file.
     pub tracks: Vec<TrackRef>,
+    /// The files are lossless, so packing them as lossless copies the player plays fixes this
+    /// (see [`crate::pack::Transcode`]).
+    pub transcodable: bool,
 }
 
 impl CheckReport {
@@ -212,6 +232,7 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
     let mut archives: FxHashMap<Option<Uuid>, plays::HistoryArchive> = FxHashMap::default();
     let mut unloadable: Vec<Unloadable> = Vec::new();
     let mut audio_issues: Vec<AudioIssues> = Vec::new();
+    let mut loudness: Vec<DriveLoudness> = Vec::new();
     for device in devices {
         let name = device.name();
         let players = choose_players(&name, device, opts, &remembered, store)?;
@@ -243,6 +264,10 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
                     let (checked, findings) = probe::check_tracks(device, &dbs.everything(), &tree, ctx)?;
                     let issues = audio_items(checked, findings, &mut item);
                     audio_issues.extend(issues.into_iter().map(|g| AudioIssues { drive: name.clone(), ..g }));
+                }
+                let tracks = loudness_item(device, dbs.primary(), store, &mut item);
+                if !tracks.is_empty() {
+                    loudness.push(DriveLoudness { drive: name.clone(), tracks });
                 }
                 d.side = Some(side);
                 d.dbs = Some(dbs);
@@ -309,6 +334,7 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
         players: chosen,
         unloadable,
         audio: audio_issues,
+        loudness,
     })
 }
 
@@ -567,6 +593,47 @@ fn choose_players(
     Ok(players)
 }
 
+/// The `loudness` item, from the analyses cached in `store` (none without a store, or when none
+/// of the library's tracks were analysed). Returns the tracks it warns about.
+fn loudness_item(
+    device: &Device,
+    library: &Library,
+    store: Option<&Store>,
+    item: &mut impl FnMut(&'static str, Level, String),
+) -> Vec<sound::LoudnessFinding> {
+    let Some(store) = store else { return Vec::new() };
+    let cached = sound::Cache::in_store(store).cached(device, &library.tracks);
+    if cached.is_empty() {
+        return Vec::new();
+    }
+    let found = sound::loudness_findings(
+        library.tracks.iter().filter_map(|t| cached.get(&t.id).map(|a| (t, a.loudness.as_ref()))),
+    );
+    match found.is_empty() {
+        true => item(
+            "loudness",
+            Level::Ok,
+            format!(
+                "none of the {} analysed track(s) is over 0 dBTP, clipped or far from the rest's level",
+                cached.len()
+            ),
+        ),
+        false => {
+            let names: Vec<String> = found.iter().map(|f| f.track.name.clone()).collect();
+            item(
+                "loudness",
+                Level::Warning,
+                format!(
+                    "{} track(s) are over 0 dBTP, clipped or far from the rest's level: {}",
+                    found.len(),
+                    self::names(&names, 3)
+                ),
+            )
+        }
+    }
+    found
+}
+
 /// The `audio` items: one per kind of problem the files have, or one saying they're all fine.
 /// Returns the groups.
 fn audio_items(
@@ -607,15 +674,15 @@ struct Layout {
 
 /// A track's audio as players see it.
 #[derive(Debug, Clone)]
-struct TrackAudio {
+pub(crate) struct TrackAudio {
     track: TrackRef,
     /// The format, or the extension of a file in no format players list; `None` when it can't
     /// be told (an `.m4a` file the database and the file both leave open).
-    codec: Option<std::result::Result<Codec, String>>,
+    pub codec: Option<std::result::Result<Codec, String>>,
     /// Hz, 0 when unknown.
-    rate: u32,
+    pub rate: u32,
     /// Bits, 0 when unknown.
-    depth: u16,
+    pub depth: u16,
 }
 
 /// The audio of each database's tracks (one row per file), for the databases a chosen player
@@ -637,7 +704,7 @@ fn m4a_codec(bitrate: u32) -> Option<Codec> {
 }
 
 /// Whether a track's row leaves something about its audio to the file.
-fn needs_probe(t: &Track) -> bool {
+pub(crate) fn needs_probe(t: &Track) -> bool {
     match Codec::from_path(&t.file_path) {
         FromPath::Unknown => false,
         FromPath::AacOrAlac => m4a_codec(t.bitrate).is_none() || t.sample_rate == 0,
@@ -645,7 +712,7 @@ fn needs_probe(t: &Track) -> bool {
     }
 }
 
-fn track_audio(t: &Track, probed: Option<&probe::Format>) -> TrackAudio {
+pub(crate) fn track_audio(t: &Track, probed: Option<&probe::Format>) -> TrackAudio {
     let codec = match Codec::from_path(&t.file_path) {
         FromPath::Codec(c) => Some(Ok(c)),
         FromPath::AacOrAlac => match probed.and_then(|f| f.codec) {
@@ -929,6 +996,7 @@ fn format_items(
             let message =
                 format!("{} {format} {files}{at} {probably}won't load on the {}: {why}", tracks.len(), m.name);
             Unloadable {
+                transcodable: Codec::ALL.iter().any(|c| c.name() == format && c.lossless()),
                 drive: String::new(),
                 player: m.name.to_string(),
                 level: if inferred { Level::Warning } else { Level::Problem },
@@ -1069,8 +1137,13 @@ mod tests {
         let a = track_audio(&row("/Contents/a.m4a", 900, 96_000, 24), None);
         assert_eq!((a.codec, a.rate, a.depth), (Some(Ok(Codec::Alac)), 96_000, 24));
         // The file has the last word on an .m4a, and fills in what the row leaves out.
-        let probed =
-            probe::Format { codec: Some(Codec::Alac), sample_rate: 48_000, bit_depth: 24, duration_secs: None };
+        let probed = probe::Format {
+            codec: Some(Codec::Alac),
+            sample_rate: 48_000,
+            bit_depth: 24,
+            channels: 2,
+            duration_secs: None,
+        };
         let a = track_audio(&row("/Contents/a.m4a", 0, 0, 0), Some(&probed));
         assert_eq!((a.codec, a.rate, a.depth), (Some(Ok(Codec::Alac)), 48_000, 24));
         assert_eq!(track_audio(&row("/Contents/a.m4a", 360, 44_100, 16), None).codec, None);

@@ -27,6 +27,19 @@ fn set_rating_in_place() {
     assert_eq!(byte_diff(&orig, &out), 1); // exactly one byte changed
 }
 
+/// The format code, for a track pointed at a file of another format: one-song's MP3 (code 1)
+/// becomes an AIFF (12), and only that byte changes.
+#[test]
+fn set_file_type_in_place() {
+    let orig = std::fs::read(ONE_SONG).unwrap();
+    let mut ed = PdbEditor::from_bytes(orig.clone());
+    ed.set_track_field(1, "file_type", 0x0c).unwrap();
+    let out = ed.to_bytes();
+    let changed: Vec<usize> = (0..orig.len()).filter(|&i| orig[i] != out[i]).collect();
+    assert_eq!(changed.len(), 1);
+    assert_eq!((orig[changed[0]], out[changed[0]]), (0x01, 0x0c));
+}
+
 #[test]
 fn set_field_rejects_bad_input() {
     let mut ed = PdbEditor::from_file(ONE_SONG).unwrap();

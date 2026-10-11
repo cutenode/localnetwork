@@ -3,6 +3,7 @@
 //! profile), run as a DJ runs them in a terminal: what they print, and what they leave behind. One
 //! module per command or group; their `--json` output is tested in the modules beside this folder.
 
+mod analysis;
 mod art;
 mod cues;
 mod edit;
@@ -14,3 +15,4 @@ mod profile;
 mod sets;
 mod settings;
 mod tags;
+mod upgrade;

@@ -81,3 +81,44 @@ fn my_tag_edits_on_tracks_that_are_gone_are_skipped_with_warnings() {
     assert!(report.warnings.contains(&gone), "{:?}", report.warnings);
     assert!(report.warnings.iter().any(|w| w.starts_with(&skipped)), "{:?}", report.warnings);
 }
+
+/// rekordbox can export over one database and leave the other: replaying makes the edits again in
+/// the one that lost them, though the other still has them, and isn't taken for a plan that
+/// changes nothing.
+#[test]
+fn a_replay_makes_edits_again_in_the_one_database_that_lost_them() {
+    use locallibrary::edit::Edit;
+    use locallibrary::onelibrary::OneLibrary;
+    use locallibrary::pdb;
+    use locallibrary::query::TrackSelector;
+    use std::path::Path;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    let lenient = EditOptions { lenient: true, no_journal: true };
+    for lost in [paths::LIBRARY_PLUS_DB, paths::EXPORT_PDB] {
+        let before = std::fs::read(root.join(lost)).unwrap();
+        let ids = TrackSelector { ids: vec![1, 2], ..Default::default() };
+        let name = format!("Set {}", lost.len());
+        let set = Edit::SetTracks { playlist: name.clone(), tracks: ids, sort: None, limit: None, create: true };
+        common::apply(&root, &[set]);
+        std::fs::write(root.join(lost), &before).unwrap();
+        let has = |root: &Path| {
+            let pdb = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
+            let plus = OneLibrary::open_root(root).unwrap().library().unwrap();
+            (pdb.find_playlist(&name).is_some(), plus.find_playlist(&name).is_some())
+        };
+        assert_ne!(has(&root), (true, true), "{lost} lost it");
+
+        let mut d = Device::open_export(&root).unwrap();
+        let plan = edit::plan(&d, &edit::journal::edits(&d).unwrap(), &lenient, &Ctx::silent()).unwrap();
+        assert!(!plan.is_noop(), "{lost}: {plan:?}");
+        let said = plan.changes.iter().any(|c| c.ends_with("exportLibrary.db, which lacks them"));
+        assert_eq!(said, lost == paths::LIBRARY_PLUS_DB, "{:?}", plan.changes);
+        edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+        assert_eq!(has(&root), (true, true), "{lost}");
+        let d = Device::open_export(&root).unwrap();
+        let again = edit::plan(&d, &edit::journal::edits(&d).unwrap(), &lenient, &Ctx::silent()).unwrap();
+        assert!(again.is_noop(), "{lost}: {:?}", again.changes);
+    }
+}

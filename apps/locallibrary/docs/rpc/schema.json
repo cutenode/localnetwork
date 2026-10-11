@@ -374,6 +374,122 @@
       ],
       "type": "object"
     },
+    "Ambiguous": {
+      "description": "A track and every file of its name found for it, none picked.",
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/RelocateCandidate"
+          },
+          "type": "array"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        }
+      },
+      "required": [
+        "track",
+        "candidates"
+      ],
+      "type": "object"
+    },
+    "AnalysisBenchRequest": {
+      "properties": {
+        "audio": {
+          "default": null,
+          "description": "The datasets' audio to analyse. Without it, the drive's tracks are.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "drive": {
+          "default": null,
+          "description": "A drive (or library) whose stored keys and tempos are scored too, and whose tracks are\nanalysed when no `audio` folder is given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "keys": {
+          "default": null,
+          "description": "Key annotations: GiantSteps Key's `annotations/key` folder (`<id>.LOFI.key` files), or the\nGiantSteps MTG Key dataset's `annotations.txt` (its tracks with one key at confidence 2).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tempos": {
+          "default": null,
+          "description": "Tempo annotations: GiantSteps Tempo's `annotations/tempo` or `annotations_v2/tempo` folder\n(`<id>.LOFI.bpm` files).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "AnalysisReport": {
+      "description": "Tracks whose stored tempo or key the estimates question, and tracks whose level may be a\nproblem.",
+      "properties": {
+        "analyzed": {
+          "description": "Tracks with an analysis (cached or new).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "decoded": {
+          "description": "Analysed just now (the rest came from the cache).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed": {
+          "description": "Tracks whose audio couldn't be analysed.",
+          "items": {
+            "$ref": "#/$defs/TrackFailure"
+          },
+          "type": "array"
+        },
+        "key": {
+          "items": {
+            "$ref": "#/$defs/KeyFinding"
+          },
+          "type": "array"
+        },
+        "loudness": {
+          "items": {
+            "$ref": "#/$defs/LoudnessFinding"
+          },
+          "type": "array"
+        },
+        "median_lufs": {
+          "description": "The median integrated loudness of the analysed tracks (LUFS).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tempo": {
+          "items": {
+            "$ref": "#/$defs/TempoFinding"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "analyzed",
+        "decoded",
+        "failed",
+        "tempo",
+        "key",
+        "loudness",
+        "median_lufs"
+      ],
+      "type": "object"
+    },
     "AnalysisRequest": {
       "properties": {
         "drive": {
@@ -964,6 +1080,40 @@
       ],
       "type": "object"
     },
+    "AudioFile": {
+      "description": "What a track's rows say about its audio file, for a track pointed at another encoding.",
+      "properties": {
+        "bit_depth": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bitrate": {
+          "description": "kbps.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sample_rate": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "sample_rate",
+        "bit_depth",
+        "bitrate"
+      ],
+      "type": "object"
+    },
     "AudioFinding": {
       "description": "A track whose audio file has a problem.",
       "properties": {
@@ -1303,6 +1453,64 @@
       ],
       "type": "object"
     },
+    "BenchReport": {
+      "description": "Each analyzer's scores.",
+      "properties": {
+        "accuracy2": {
+          "additionalProperties": {
+            "format": "double",
+            "type": "number"
+          },
+          "description": "Tempo Accuracy2 (percent) by analyzer.",
+          "type": "object"
+        },
+        "failed": {
+          "description": "Audio files that couldn't be analysed: `[name, error]`.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "keys": {
+          "additionalProperties": {
+            "$ref": "#/$defs/KeyOutcomeReport"
+          },
+          "description": "Key reports by analyzer (`rekordbox`, `stratum-dsp`): `score` is MIREX's weighted score.",
+          "type": "object"
+        },
+        "tempos": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TempoOutcomeReport"
+          },
+          "description": "Tempo reports by analyzer: `score` is Accuracy1.",
+          "type": "object"
+        },
+        "unmatched": {
+          "description": "Annotated tracks the analysis had no audio for: not on the drive, missing from it, or not in\nthe audio folder.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "keys",
+        "tempos",
+        "accuracy2",
+        "unmatched",
+        "failed"
+      ],
+      "type": "object"
+    },
     "BpmRange": {
       "maxItems": 2,
       "minItems": 2,
@@ -1448,7 +1656,7 @@
     "CheckItem": {
       "properties": {
         "check": {
-          "description": "What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `large_files`,\n`interrupted`, `history`, `file_system`, `players` or `formats`.",
+          "description": "What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,\n`large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.",
           "type": "string"
         },
         "drive": {
@@ -1491,6 +1699,13 @@
           },
           "type": "array"
         },
+        "loudness": {
+          "description": "Tracks whose level may be a problem, as the `loudness` items describe them.",
+          "items": {
+            "$ref": "#/$defs/DriveLoudness"
+          },
+          "type": "array"
+        },
         "players": {
           "description": "The player models each drive was checked against, and where they came from.",
           "items": {
@@ -1523,7 +1738,8 @@
         "warnings",
         "players",
         "unloadable",
-        "audio"
+        "audio",
+        "loudness"
       ],
       "type": "object"
     },
@@ -2399,8 +2615,29 @@
       ],
       "type": "object"
     },
+    "Container": {
+      "description": "A lossless container a copy is written in.",
+      "oneOf": [
+        {
+          "enum": [
+            "wav",
+            "flac"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "aiff",
+          "description": "rekordbox and every player read its ID3 tags.",
+          "type": "string"
+        }
+      ]
+    },
     "ConvertPlan": {
       "properties": {
+        "adds": {
+          "description": "The drive already has that database, and it keeps what it has. The counts below are then\nwhat it gains: tracks it lacks, playlists it lacks or that gain entries, folders made for\nthem, and history lists it lacks.",
+          "type": "boolean"
+        },
         "artwork": {
           "description": "Artwork images copied under the other database's file names.",
           "format": "uint",
@@ -2443,14 +2680,14 @@
           "type": "integer"
         },
         "replaces": {
-          "description": "The drive already has that database, and it's rebuilt.",
+          "description": "The drive already has that database, and it's rebuilt, dropping what only it has (the\nwarnings name it).",
           "type": "boolean"
         },
         "root": {
           "type": "string"
         },
         "tagged_tracks": {
-          "description": "Tracks whose My Tags come along from the other database's tags.",
+          "description": "Tracks whose My Tags come along from the other database's tags (that gain some, when\nadding).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -2475,6 +2712,7 @@
         "root",
         "to",
         "replaces",
+        "adds",
         "tracks",
         "playlists",
         "folders",
@@ -2489,6 +2727,7 @@
       "type": "object"
     },
     "ConvertReport": {
+      "description": "What a conversion made (added, when the drive had the database: see [`ConvertPlan::adds`]).",
       "properties": {
         "artwork": {
           "format": "uint",
@@ -2528,7 +2767,7 @@
           "type": "integer"
         },
         "tagged_tracks": {
-          "description": "Tracks with My Tags in the converted database's tags.",
+          "description": "Tracks with My Tags in the converted database's tags (that gained some, when adding).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -2558,7 +2797,7 @@
         },
         "replace": {
           "default": false,
-          "description": "Rebuild the target database if the drive already has one.",
+          "description": "Rebuild the target database if the drive already has one, dropping what only it has.\nOtherwise it keeps what it has and gains what it lacks.",
           "type": "boolean"
         },
         "to": {
@@ -3048,6 +3287,31 @@
             "copy"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "carry": {
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "shift_ms": {
+                  "format": "int32",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "from",
+                "shift_ms"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "carry"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -3454,6 +3718,11 @@
     },
     "DedupeRequest": {
       "properties": {
+        "by_sound": {
+          "default": false,
+          "description": "Also find copies by their sound: the same recording in another file or encoding (see\n[`crate::doctor`]).",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -4151,6 +4420,17 @@
     },
     "DoctorReport": {
       "properties": {
+        "analysis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalysisReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What an analysis of the audio says about stored tempos, keys and levels (with\n[`DoctorOptions::analyze`]). Opinions to look into, not problems."
+        },
         "audio": {
           "anyOf": [
             {
@@ -4268,6 +4548,7 @@
         "drift",
         "large_files",
         "audio",
+        "analysis",
         "compatibility",
         "file_system",
         "warnings"
@@ -4276,9 +4557,19 @@
     },
     "DoctorRequest": {
       "properties": {
+        "analyze": {
+          "default": false,
+          "description": "Also run [`Section::Analysis`].",
+          "type": "boolean"
+        },
         "audio": {
           "default": false,
           "description": "Also run [`Section::Audio`].",
+          "type": "boolean"
+        },
+        "by_sound": {
+          "default": false,
+          "description": "Also find the same recording in other files and encodings (a FLAC and an MP3 of it) by its\nsound: every track is fingerprinted (once: the store keeps the prints) and tracks of about\nthe same length are compared. Decoding a library's audio the first time takes a while.",
           "type": "boolean"
         },
         "drive": {
@@ -4299,7 +4590,7 @@
         },
         "sure_only": {
           "default": false,
-          "description": "Duplicates only by file, audio or Sync Manager copy: leave out tracks that only share\nartist, title and length (they may be different edits), also from groups the others join.",
+          "description": "Duplicates only by file, audio, sound or Sync Manager copy: leave out tracks that only share\nartist, title and length (they may be different edits), also from groups the others join.",
           "type": "boolean"
         }
       },
@@ -4325,6 +4616,11 @@
         {
           "const": "audio",
           "description": "Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`\nnaming it): it reads every file's last seconds.",
+          "type": "string"
+        },
+        {
+          "const": "analysis",
+          "description": "Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,\nclipped or far from the library's level. Only when asked for (`analyze`, or `only` naming\nit): it decodes every track not analysed before.",
           "type": "string"
         }
       ]
@@ -4603,6 +4899,25 @@
         "bytes_written",
         "writes",
         "clean_ejects"
+      ],
+      "type": "object"
+    },
+    "DriveLoudness": {
+      "description": "One drive's tracks whose level may be a problem.",
+      "properties": {
+        "drive": {
+          "type": "string"
+        },
+        "tracks": {
+          "items": {
+            "$ref": "#/$defs/LoudnessFinding"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "drive",
+        "tracks"
       ],
       "type": "object"
     },
@@ -4986,10 +5301,14 @@
     "DuplicateGroup": {
       "properties": {
         "keep": {
-          "description": "Id of the suggested keeper: most playlist memberships, then the higher bitrate, then the\nearliest date added.",
+          "description": "Id of the suggested keeper: the best audio (lossless over lossy, then the higher bitrate,\nsample rate and bit depth), then the most cues, playlists and history lists, then the\nearliest date added.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "keep_reason": {
+          "description": "What put the keeper ahead of the next copy (`lossless over lossy`, `320 kbps over 192`).",
+          "type": "string"
         },
         "reasons": {
           "items": {
@@ -5008,7 +5327,8 @@
       "required": [
         "reasons",
         "tracks",
-        "keep"
+        "keep",
+        "keep_reason"
       ],
       "type": "object"
     },
@@ -5026,6 +5346,11 @@
           "type": "string"
         },
         {
+          "const": "same_recording",
+          "description": "The same recording in another file or encoding (with `by_sound`): their fingerprints line\nup over most of both, and their lengths agree (an extended mix and its radio edit share\nmost of their audio, but not their length).",
+          "type": "string"
+        },
+        {
           "const": "sync_manager_copy",
           "description": "rekordbox Sync Manager copies: `Name-1.mp3` or `Name (1).mp3` next to `Name.mp3`, same size.",
           "type": "string"
@@ -5039,8 +5364,20 @@
     },
     "DuplicateTrack": {
       "properties": {
+        "bit_depth": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
         "bitrate": {
           "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cues": {
+          "description": "Hot cues, memory cues and loops in its analysis files.",
+          "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
@@ -5051,6 +5388,16 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "history": {
+          "description": "History lists (what players recorded) the track is in.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lossless": {
+          "description": "FLAC, WAV, AIFF or Apple Lossless.",
+          "type": "boolean"
         },
         "play_count": {
           "format": "uint16",
@@ -5064,6 +5411,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "sample_rate": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
         "track": {
           "$ref": "#/$defs/TrackRef"
         }
@@ -5071,8 +5423,13 @@
       "required": [
         "track",
         "playlists",
+        "history",
+        "cues",
         "play_count",
+        "lossless",
         "bitrate",
+        "sample_rate",
+        "bit_depth",
         "file_size",
         "date_added"
       ],
@@ -5397,7 +5754,7 @@
           "type": "object"
         },
         {
-          "description": "Order a playlist for mixing (see [`harmony::order_set`]): in place, or into a new\nplaylist at `into`.",
+          "description": "Order a playlist for mixing (see [`harmony::order_set`], with how sure\neach key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in\nplace, or into a new playlist at `into`.",
           "properties": {
             "into": {
               "default": null,
@@ -5494,6 +5851,41 @@
             "op",
             "duplicate",
             "keep"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Point one track at another audio file on the drive (a device path), as when its file was\nmoved or renamed: in both databases and in the analysis files that record it. With `file`,\nthe file is another encoding of the recording (a lossless copy of an MP3): the rows take\nits format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and\nbeat grid move by that much, for audio that starts at another point.",
+          "properties": {
+            "file": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AudioFile"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "const": "set_path",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "shift_ms": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "track": {
+              "$ref": "#/$defs/TrackSelector"
+            }
+          },
+          "required": [
+            "op",
+            "track",
+            "path"
           ],
           "type": "object"
         },
@@ -5977,7 +6369,7 @@
           "type": "object"
         },
         {
-          "description": "Order a playlist for mixing (see [`harmony::order_set`]): in place, or into a new\nplaylist at `into`.",
+          "description": "Order a playlist for mixing (see [`harmony::order_set`], with how sure\neach key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in\nplace, or into a new playlist at `into`.",
           "properties": {
             "into": {
               "default": null,
@@ -6078,6 +6470,41 @@
             "duplicate",
             "keep",
             "keep_duplicate"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Point one track at another audio file on the drive (a device path), as when its file was\nmoved or renamed: in both databases and in the analysis files that record it. With `file`,\nthe file is another encoding of the recording (a lossless copy of an MP3): the rows take\nits format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and\nbeat grid move by that much, for audio that starts at another point.",
+          "properties": {
+            "file": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AudioFile"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "const": "set_path",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "shift_ms": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "track": {
+              "$ref": "#/$defs/TrackSelector"
+            }
+          },
+          "required": [
+            "op",
+            "track",
+            "path"
           ],
           "type": "object"
         },
@@ -6219,6 +6646,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "onelibrary_changes": {
+          "description": "OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they\nleave out edits only OneLibrary lacks, as after rekordbox exported over it alone.",
+          "type": "boolean"
+        },
         "playlists_changed": {
           "items": {
             "$ref": "#/$defs/PlaylistChange"
@@ -6282,7 +6713,8 @@
         "free_space",
         "fits",
         "warnings",
-        "recorded"
+        "recorded",
+        "onelibrary_changes"
       ],
       "type": "object"
     },
@@ -10202,6 +10634,119 @@
       ],
       "type": "array"
     },
+    "KeyFinding": {
+      "description": "A track whose stored key the estimate doesn't agree with.",
+      "properties": {
+        "confidence": {
+          "description": "0 to 1.",
+          "format": "float",
+          "type": "number"
+        },
+        "estimate": {
+          "description": "The analyzer's key, as a Camelot code (`8A`).",
+          "type": "string"
+        },
+        "relation": {
+          "$ref": "#/$defs/KeyOutcome",
+          "description": "The estimate against the stored key: `fifth`, `relative`, `parallel` or `other`."
+        },
+        "stored": {
+          "description": "The library's key, as it stores it.",
+          "type": "string"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        }
+      },
+      "required": [
+        "track",
+        "stored",
+        "estimate",
+        "confidence",
+        "relation"
+      ],
+      "type": "object"
+    },
+    "KeyOutcome": {
+      "description": "MIREX's key categories, from the [Audio Key Detection task](https://music-ir.org/mirex/wiki/2021:Audio_Key_Detection).\nA fifth counts either way round, as MIREX has scored it since 2017 (mir_eval's\n`allow_descending_fifths`, [key.py](https://github.com/mir-evaluation/mir_eval/blob/main/mir_eval/key.py)).",
+      "oneOf": [
+        {
+          "enum": [
+            "correct",
+            "other"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "fifth",
+          "description": "A fifth above or below in the same mode: a neighbour on the Camelot wheel.",
+          "type": "string"
+        },
+        {
+          "const": "relative",
+          "description": "Major for its relative minor or back: same Camelot number.",
+          "type": "string"
+        },
+        {
+          "const": "parallel",
+          "description": "Major for minor on the same tonic.",
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "The analyzer gave no key.",
+          "type": "string"
+        }
+      ]
+    },
+    "KeyOutcomeReport": {
+      "description": "How one analyzer did.",
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Tracks with each outcome, every outcome listed.",
+          "type": "object"
+        },
+        "misses": {
+          "description": "The tracks it didn't get fully right, in the order they came, with what it did instead.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/KeyOutcome"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "score": {
+          "description": "The mean credit, 0 to 1: MIREX's weighted key score, or tempo Accuracy1.",
+          "format": "double",
+          "type": "number"
+        },
+        "tracks": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tracks",
+        "counts",
+        "misses",
+        "score"
+      ],
+      "type": "object"
+    },
     "KeysSection": {
       "properties": {
         "minor_share": {
@@ -11068,6 +11613,65 @@
         "size"
       ],
       "type": "object"
+    },
+    "LoudnessFinding": {
+      "description": "A track whose level may be a problem.",
+      "properties": {
+        "clipped_runs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "integrated_lufs": {
+          "description": "LUFS (`None` for silence).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "problems": {
+          "items": {
+            "$ref": "#/$defs/LoudnessProblem"
+          },
+          "type": "array"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        },
+        "true_peak_dbtp": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "track",
+        "problems",
+        "integrated_lufs",
+        "true_peak_dbtp",
+        "clipped_runs"
+      ],
+      "type": "object"
+    },
+    "LoudnessProblem": {
+      "description": "What may be wrong with a track's level.",
+      "oneOf": [
+        {
+          "const": "over_zero",
+          "description": "Its true peak is above 0 dBTP: a player's converter or a lossy encode can clip it.",
+          "type": "string"
+        },
+        {
+          "const": "clipped",
+          "description": "Runs of samples at full scale: clipped when it was mastered or converted.",
+          "type": "string"
+        },
+        {
+          "const": "far_from_median",
+          "description": "Its integrated loudness is more than [`FAR_FROM_MEDIAN_LU`] from the library's median.",
+          "type": "string"
+        }
+      ]
     },
     "MatchKind": {
       "description": "How an entry was found.",
@@ -12126,6 +12730,26 @@
       "description": "No parameters (any object is accepted).",
       "type": "object"
     },
+    "NotUpgraded": {
+      "description": "A track with a lossless file of its recording that isn't upgraded, and why.",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "track",
+        "file",
+        "why"
+      ],
+      "type": "object"
+    },
     "Notice": {
       "anyOf": [
         {
@@ -12381,7 +13005,7 @@
           "type": "integer"
         },
         "needed_bytes": {
-          "description": "Space the pack needs on the target: the files it copies, its new databases and the backup\nof what it replaces.",
+          "description": "Space the pack needs on the target: the files it copies, the copies it makes, its new\ndatabases and the backup of what it replaces.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -12410,10 +13034,41 @@
           "minimum": 0,
           "type": "integer"
         },
+        "transcode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TranscodeOutput"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The copies' players and how they're made, as the target will remember them."
+        },
+        "transcode_bytes": {
+          "description": "About how much the copies to make take (not those current already).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "transcodes": {
+          "description": "Tracks the players can't play, packed as copies they can.",
+          "items": {
+            "$ref": "#/$defs/PackTranscode"
+          },
+          "type": "array"
+        },
         "unchanged": {
           "format": "uint",
           "minimum": 0,
           "type": "integer"
+        },
+        "unplayable": {
+          "description": "Tracks none of the players play that the pack leaves as they are.",
+          "items": {
+            "$ref": "#/$defs/PackUnplayable"
+          },
+          "type": "array"
         },
         "unsaved": {
           "anyOf": [
@@ -12447,6 +13102,10 @@
         "unchanged",
         "replaces_library",
         "unsaved",
+        "transcodes",
+        "transcode_bytes",
+        "transcode",
+        "unplayable",
         "needed_bytes",
         "free_space",
         "fits",
@@ -12503,11 +13162,18 @@
             }
           ],
           "description": "The target's state, saved in the store before packing (see [`PackPlan::unsaved`])."
+        },
+        "transcoded": {
+          "description": "Copies made for the players (see [`PackPlan::transcodes`]).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
         "copied",
         "copied_bytes",
+        "transcoded",
         "deleted",
         "deleted_bytes",
         "fingerprint",
@@ -12546,11 +13212,81 @@
         },
         "target": {
           "type": "string"
+        },
+        "transcode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Transcode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Pack tracks the players can't play as lossless copies they can.\nWithout playlists, as the target was last packed."
         }
       },
       "required": [
         "source",
         "target"
+      ],
+      "type": "object"
+    },
+    "PackTranscode": {
+      "description": "A track packed as a copy its players play.",
+      "properties": {
+        "current": {
+          "description": "A copy of the same audio by the same recipe is on the target already, and stays.",
+          "type": "boolean"
+        },
+        "from": {
+          "description": "The source's audio file and the copy's, as keys.",
+          "type": "string"
+        },
+        "recipe": {
+          "description": "What the copy is (`aiff-48000-24-tpdf-v1`): container, rate, depth, dither, version.",
+          "type": "string"
+        },
+        "size": {
+          "description": "The copy's size: estimated, or what it is when `current`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "type": "string"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        },
+        "why": {
+          "description": "The players that don't play the source, and why.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "track",
+        "from",
+        "to",
+        "why",
+        "recipe",
+        "size",
+        "current"
+      ],
+      "type": "object"
+    },
+    "PackUnplayable": {
+      "description": "A track none of the players play that packing leaves as it is.",
+      "properties": {
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        },
+        "why": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "track",
+        "why"
       ],
       "type": "object"
     },
@@ -12783,6 +13519,11 @@
         {
           "const": "match",
           "description": "Looking for library tracks in a mix.",
+          "type": "string"
+        },
+        {
+          "const": "analyze",
+          "description": "Decoding library tracks to estimate their tempo, key and loudness.",
           "type": "string"
         }
       ]
@@ -13132,6 +13873,14 @@
         "size"
       ],
       "type": "object"
+    },
+    "Plausible": {
+      "description": "Which of two tempos a [`TempoPrior`] finds more likely.",
+      "enum": [
+        "stored",
+        "estimate"
+      ],
+      "type": "string"
     },
     "Play": {
       "description": "One track heard in the mix.",
@@ -16124,6 +16873,160 @@
           "type": "string"
         }
       ]
+    },
+    "RelocateCandidate": {
+      "description": "A file a missing track could be.",
+      "properties": {
+        "duration_secs": {
+          "description": "Seconds, when its headers say.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "on_drive": {
+          "type": "boolean"
+        },
+        "path": {
+          "description": "A key on the drive, or a path on this computer.",
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "on_drive",
+        "size",
+        "duration_secs"
+      ],
+      "type": "object"
+    },
+    "RelocatePlan": {
+      "properties": {
+        "ambiguous": {
+          "items": {
+            "$ref": "#/$defs/Ambiguous"
+          },
+          "type": "array"
+        },
+        "copied": {
+          "description": "Tracks whose file is copied to the path they have.",
+          "items": {
+            "$ref": "#/$defs/Relocation"
+          },
+          "type": "array"
+        },
+        "copy_bytes": {
+          "description": "Audio copied onto the drive.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "drive": {
+          "type": "string"
+        },
+        "fits": {
+          "type": "boolean"
+        },
+        "free_space": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "needed_bytes": {
+          "description": "Space needed for that, the backup and the new databases.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_found": {
+          "description": "Missing tracks with no file of their name.",
+          "items": {
+            "$ref": "#/$defs/TrackRef"
+          },
+          "type": "array"
+        },
+        "repointed": {
+          "description": "Tracks pointed at their file where it is on the drive.",
+          "items": {
+            "$ref": "#/$defs/Relocation"
+          },
+          "type": "array"
+        },
+        "root": {
+          "type": "string"
+        },
+        "unfit": {
+          "description": "Tracks whose files of their name are none of them as long as the track: none picked.",
+          "items": {
+            "$ref": "#/$defs/Ambiguous"
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "drive",
+        "root",
+        "repointed",
+        "copied",
+        "ambiguous",
+        "unfit",
+        "not_found",
+        "copy_bytes",
+        "needed_bytes",
+        "free_space",
+        "fits",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "RelocateRequest": {
+      "properties": {
+        "drive": {
+          "type": "string"
+        },
+        "folders": {
+          "default": [],
+          "description": "Folders to look in besides the drive (on this computer or another drive), with\neverything below them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "type": "object"
+    },
+    "Relocation": {
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/RelocateCandidate"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        }
+      },
+      "required": [
+        "track",
+        "file"
+      ],
+      "type": "object"
     },
     "RememberedPlayers": {
       "description": "The player models `check` uses when none are given.",
@@ -20215,6 +21118,170 @@
       ],
       "type": "array"
     },
+    "TempoFinding": {
+      "description": "A track whose stored tempo the estimate doesn't agree with.",
+      "properties": {
+        "confidence": {
+          "description": "0 to 1.",
+          "format": "float",
+          "type": "number"
+        },
+        "estimate": {
+          "description": "The analyzer's BPM.",
+          "format": "float",
+          "type": "number"
+        },
+        "likelier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Plausible"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Which of the two the library's other tempos make more likely, if either."
+        },
+        "relation": {
+          "$ref": "#/$defs/TempoRelation",
+          "description": "The stored tempo against the estimate: `half`, `double`, `two_thirds`, `three_halves` or\n`disagrees`."
+        },
+        "stored": {
+          "description": "The library's BPM.",
+          "format": "double",
+          "type": "number"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        }
+      },
+      "required": [
+        "track",
+        "stored",
+        "estimate",
+        "confidence",
+        "relation",
+        "likelier"
+      ],
+      "type": "object"
+    },
+    "TempoOutcome": {
+      "description": "A tempo estimate against the annotation, within [`TOLERANCE`] (4%) of the annotation times the\nfactor (Gouyon et al. 2006). Accuracy1 counts [`TempoOutcome::Correct`]; Accuracy2 also counts\nthe double, half, triple and third tempos.",
+      "oneOf": [
+        {
+          "enum": [
+            "correct",
+            "other"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "double",
+          "description": "The estimate is double the annotated tempo.",
+          "type": "string"
+        },
+        {
+          "const": "half",
+          "description": "The estimate is half the annotated tempo.",
+          "type": "string"
+        },
+        {
+          "const": "triple",
+          "description": "The estimate is three times the annotated tempo.",
+          "type": "string"
+        },
+        {
+          "const": "third",
+          "description": "The estimate is a third of the annotated tempo.",
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "The analyzer gave no tempo.",
+          "type": "string"
+        }
+      ]
+    },
+    "TempoOutcomeReport": {
+      "description": "How one analyzer did.",
+      "properties": {
+        "counts": {
+          "additionalProperties": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Tracks with each outcome, every outcome listed.",
+          "type": "object"
+        },
+        "misses": {
+          "description": "The tracks it didn't get fully right, in the order they came, with what it did instead.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/TempoOutcome"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "score": {
+          "description": "The mean credit, 0 to 1: MIREX's weighted key score, or tempo Accuracy1.",
+          "format": "double",
+          "type": "number"
+        },
+        "tracks": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tracks",
+        "counts",
+        "misses",
+        "score"
+      ],
+      "type": "object"
+    },
+    "TempoRelation": {
+      "description": "A stored tempo against an estimate of it.",
+      "oneOf": [
+        {
+          "enum": [
+            "agrees",
+            "disagrees"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "half",
+          "description": "The stored tempo is half the estimate.",
+          "type": "string"
+        },
+        {
+          "const": "double",
+          "description": "The stored tempo is double the estimate.",
+          "type": "string"
+        },
+        {
+          "const": "two_thirds",
+          "description": "The stored tempo is two thirds of the estimate.",
+          "type": "string"
+        },
+        {
+          "const": "three_halves",
+          "description": "The stored tempo is three halves of the estimate.",
+          "type": "string"
+        }
+      ]
+    },
     "TempoSection": {
       "properties": {
         "bin_width": {
@@ -21337,6 +22404,59 @@
       ],
       "type": "object"
     },
+    "Transcode": {
+      "description": "Which players a packed drive's copies are for, and how they're made.",
+      "properties": {
+        "container": {
+          "$ref": "#/$defs/Container",
+          "default": "aiff",
+          "description": "The container copies are written in: AIFF unless given."
+        },
+        "decode_lossy": {
+          "default": false,
+          "description": "Also decode lossy files the players can't play (an MP3 at 22.05 kHz) into lossless copies:\nbigger, but no further loss. Lossy files are never encoded lossy again.",
+          "type": "boolean"
+        },
+        "players": {
+          "default": [],
+          "description": "Player models (see `players models`); none: the ones remembered for the source's library.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "TranscodeOutput": {
+      "description": "Which players a packed drive's copies are for, and how they're made.",
+      "properties": {
+        "container": {
+          "$ref": "#/$defs/Container",
+          "default": "aiff",
+          "description": "The container copies are written in: AIFF unless given."
+        },
+        "decode_lossy": {
+          "default": false,
+          "description": "Also decode lossy files the players can't play (an MP3 at 22.05 kHz) into lossless copies:\nbigger, but no further loss. Lossy files are never encoded lossy again.",
+          "type": "boolean"
+        },
+        "players": {
+          "default": [],
+          "description": "Player models (see `players models`); none: the ones remembered for the source's library.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "players",
+        "container",
+        "decode_lossy"
+      ],
+      "type": "object"
+    },
     "Transition": {
       "description": "The change from one play to the next.",
       "properties": {
@@ -21743,6 +22863,10 @@
             "$ref": "#/$defs/TrackRef"
           },
           "type": "array"
+        },
+        "transcodable": {
+          "description": "The files are lossless, so packing them as lossless copies the player plays fixes this\n(see [`crate::pack::Transcode`]).",
+          "type": "boolean"
         }
       },
       "required": [
@@ -21752,7 +22876,8 @@
         "format",
         "reason",
         "message",
-        "tracks"
+        "tracks",
+        "transcodable"
       ],
       "type": "object"
     },
@@ -21787,11 +22912,16 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "unreadable_onelibrary": {
+          "description": "Its OneLibrary database can't be read, so history lists players that read only OneLibrary\nrecorded there can't be told apart: it's kept whole.",
+          "type": "boolean"
         }
       },
       "required": [
         "history_lists",
-        "changed"
+        "changed",
+        "unreadable_onelibrary"
       ],
       "type": "object"
     },
@@ -21849,6 +22979,154 @@
       },
       "required": [
         "cue"
+      ],
+      "type": "object"
+    },
+    "Upgrade": {
+      "description": "A track pointed at a lossless file of its recording.",
+      "properties": {
+        "file": {
+          "description": "The lossless file found, on this computer.",
+          "type": "string"
+        },
+        "on_drive": {
+          "description": "The file is on the drive already (left by an upgrade since undone): it isn't copied.",
+          "type": "boolean"
+        },
+        "shift_ms": {
+          "description": "How much later its cues and beat grid fall in the new file (ms; earlier when negative).",
+          "format": "int32",
+          "type": "integer"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "description": "Where it goes on the drive (a key): beside the track's file.",
+          "type": "string"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        }
+      },
+      "required": [
+        "track",
+        "file",
+        "to",
+        "size",
+        "shift_ms",
+        "on_drive"
+      ],
+      "type": "object"
+    },
+    "UpgradePlan": {
+      "properties": {
+        "copy_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "drive": {
+          "type": "string"
+        },
+        "fits": {
+          "type": "boolean"
+        },
+        "free_space": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "needed_bytes": {
+          "description": "Space for the copies, the backup and the new databases.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_upgraded": {
+          "items": {
+            "$ref": "#/$defs/NotUpgraded"
+          },
+          "type": "array"
+        },
+        "removed": {
+          "description": "Lossy files deleted (with `remove_old`), as keys.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "root": {
+          "type": "string"
+        },
+        "unmatched": {
+          "description": "Lossy tracks with no lossless file of their recording in the folders.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upgrades": {
+          "items": {
+            "$ref": "#/$defs/Upgrade"
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "drive",
+        "root",
+        "upgrades",
+        "not_upgraded",
+        "unmatched",
+        "removed",
+        "copy_bytes",
+        "needed_bytes",
+        "free_space",
+        "fits",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "UpgradeRequest": {
+      "properties": {
+        "drive": {
+          "type": "string"
+        },
+        "folders": {
+          "description": "Folders of lossless files (on this computer or another drive), with everything below them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "players": {
+          "default": [],
+          "description": "The players the drive is for: a lossless file one of them can't play isn't used. None: the\nones remembered for the drive's library (none remembered: not checked).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "remove_old": {
+          "default": false,
+          "description": "Delete the lossy files the tracks used (they're backed up first).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "drive",
+        "folders"
       ],
       "type": "object"
     },
@@ -24332,6 +25610,122 @@
       "aliases": [],
       "destructive": true,
       "kind": "plan",
+      "long_running": true,
+      "name": "relocate.plan",
+      "operation": "relocate",
+      "pair": "relocate.apply",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RelocateRequest"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RelocatePlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "apply",
+      "long_running": true,
+      "name": "relocate.apply",
+      "operation": "relocate",
+      "pair": "relocate.plan",
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/RelocateRequest"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "plan",
+      "long_running": true,
+      "name": "upgrade.plan",
+      "operation": "upgrade",
+      "pair": "upgrade.apply",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/UpgradeRequest"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/UpgradePlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "apply",
+      "long_running": true,
+      "name": "upgrade.apply",
+      "operation": "upgrade",
+      "pair": "upgrade.plan",
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/UpgradeRequest"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "plan",
       "long_running": false,
       "name": "history.delete.plan",
       "operation": "history.delete",
@@ -25336,6 +26730,19 @@
       },
       "result": {
         "$ref": "#/$defs/CheckReport"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "read",
+      "long_running": true,
+      "name": "analysis.bench",
+      "params": {
+        "$ref": "#/$defs/AnalysisBenchRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/BenchReport"
       }
     },
     {

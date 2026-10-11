@@ -2,8 +2,8 @@
 
 use rusqlite::{OptionalExtension, params};
 
-use super::{Lookup, OneLibrary, id32, int};
-use crate::edit::TrackFields;
+use super::{CueRow, Lookup, OneLibrary, id32, int};
+use crate::edit::{AudioFile, TrackFields};
 use crate::{Error, Result};
 
 /// The playlist-shaped trees edits can change.
@@ -90,6 +90,38 @@ impl OneLibrary {
         )?;
         tx.commit()?;
         Ok(n)
+    }
+
+    /// Point track `id` at the audio file at `path` (a device path), as when its file was moved;
+    /// with `file`, another encoding (its format, size, rate, depth and bit rate), whose cues are
+    /// `shift_ms` later.
+    pub fn set_track_path(&mut self, id: u32, path: &str, file: Option<&AudioFile>, shift_ms: i32) -> Result<()> {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        let n = self
+            .conn
+            .execute("UPDATE content SET path = ?1, fileName = ?2 WHERE content_id = ?3", params![path, name, id])?;
+        if n != 1 {
+            return Err(Error::NotFound(format!("track #{id} in exportLibrary.db")));
+        }
+        self.conn
+            .execute("UPDATE content SET fileType = ?1 WHERE content_id = ?2", params![super::file_type(path), id])?;
+        if let Some(f) = file {
+            self.conn.execute(
+                "UPDATE content SET fileSize = ?1, samplingRate = ?2, bitDepth = ?3, bitrate = ?4 WHERE content_id = ?5",
+                params![f.size as i64, f.sample_rate, f.bit_depth, f.bitrate, id],
+            )?;
+            self.clear_cue_seeks(id)?;
+        }
+        if shift_ms != 0 {
+            let shift = |usec: i64| (usec + i64::from(shift_ms) * 1000).max(0);
+            let rows: Vec<CueRow> = self
+                .cue_rows(id)?
+                .into_iter()
+                .map(|r| CueRow { in_usec: shift(r.in_usec), out_usec: r.out_usec.map(shift), ..r })
+                .collect();
+            self.replace_cues(id, &rows)?;
+        }
+        Ok(())
     }
 
     /// Change tracks' details. Artists, albums, genres, labels and keys are found or created by

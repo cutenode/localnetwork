@@ -1,4 +1,6 @@
+mod analysis;
 mod checks;
+mod sound;
 
 use crate::common;
 
@@ -19,38 +21,24 @@ fn write(root: &Path, key: &str, bytes: &[u8]) {
     fs::write(p, bytes).unwrap();
 }
 
-/// Add a track to export.pdb with its audio (`audio` bytes) and analysis files. Returns its id.
-fn add(root: &Path, track: NewTrack, audio: &[u8]) -> u32 {
-    let pdb = root.join(paths::EXPORT_PDB);
-    let mut ed = PdbEditor::from_file(&pdb).unwrap();
-    let id = ed.add_track(&NewTrack { file_size: audio.len() as u32, ..track.clone() }).unwrap();
-    ed.save(&pdb).unwrap();
-    write(root, &track.file_path, audio);
-    if !track.analyze_path.is_empty() {
-        write(root, &track.analyze_path, &common::synthetic_anlz(&track.file_path));
-        write(root, &track.analyze_path.replace(".DAT", ".EXT"), &common::synthetic_anlz(&track.file_path));
-    }
-    id
-}
-
 /// The bigger fixture plus: a Sync Manager copy of track 1, a second "A2 - In Charge" in its own
 /// playlist, files nothing uses, and a few missing files.
 fn sick_drive(dir: &Path) -> std::path::PathBuf {
     let root = common::bigger_drive(dir, "Main");
     let original = fs::read(paths::to_fs(&root, &paths::key(A1))).unwrap();
-    let copy = add(
+    let copy = common::add_track(
         &root,
         NewTrack {
             artist: Some("[a]pendics.shuffle".into()),
             analyze_path: "/PIONEER/USBANLZ/P0AA/00000001/ANLZ0000.DAT".into(),
             date_added: "2021-02-01".into(),
-            bitrate: 320,
+            // The original's file, so its bitrate (the fixture's track 1 has none).
             duration: 100,
             ..NewTrack::new("A1 (copy)", A1.replace("Eyes.mp3", "Eyes-1.mp3"))
         },
         &original,
     );
-    let other = add(
+    let other = common::add_track(
         &root,
         NewTrack {
             artist: Some("[a]pendics.shuffle".into()),
@@ -213,7 +201,7 @@ fn files_over_4_gib() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let big = "/Contents/Mixes/Five hours.wav";
-    let id = add(&root, NewTrack::new("Five hours", big), b"");
+    let id = common::add_track(&root, NewTrack::new("Five hours", big), b"");
     // A sparse file: export.pdb's 32-bit size field holds the size modulo 4 GiB.
     let size = doctor::FAT32_MAX_FILE + 1000;
     fs::File::options().write(true).open(paths::to_fs(&root, &paths::key(big))).unwrap().set_len(size).unwrap();

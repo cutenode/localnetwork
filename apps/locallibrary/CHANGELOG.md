@@ -28,6 +28,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `exportLibrary.db` (the only one the CDJ-3000X, CDJ-1500X, OPUS-QUAD, OMNIS-DUO, XDJ-AZ and
   XDJ-AN read), and warns and changes `export.pdb` alone when `exportLibrary.db` can't be read;
   `convert` builds either from the other, and drives exported for OneLibrary only work too.
+  Players write only the database they read, so neither loses what only it has: converting into
+  a drive that has the database adds what it lacks (tracks, playlists and their entries, history
+  lists, My Tags) where rekordbox's "Convert from Device Library" overwrites it, `--replace`
+  names what a rebuild drops and keeps the player name, a playlist edit is made in
+  OneLibrary's own entries, so what a CDJ-3000X added, took out or reordered there stays, and a drive back from a set is judged by what changed in
+  both databases, so a sync doesn't take a CDJ-3000X's playlist edits for player-only changes and
+  copy over them. `status`, `diff`, sync and undo previews, `drive restore --playlist`, `edits
+  replay` and exports for other software look at OneLibrary too, and `pack` keeps a drive whose
+  OneLibrary can't be read in the store before packing over it, and refuses a source whose
+  OneLibrary can't be read rather than leave the packed drive without one.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
   order for mixing, import), track details, ratings and colours, My Tags, hot cues, memory cues
   and loops, replacing duplicates and deleting tracks, with a backup before every change and a
@@ -55,6 +65,51 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   big for FAT32), `check` before a set, `clean` for rekordbox's demo tracks, `verify` and `fsck`,
   `space`, `tidy`, `recordings`, and the history lists players recorded, kept even after
   rekordbox removes them.
+- **A second opinion on tempo, key and level.** `doctor --analyze` estimates each track's tempo
+  and key from its audio (stratum-dsp, through the new loclib-analysis crate) and its loudness,
+  caches the results in the store, and lists stored tempos that look half, double or 3/2 of the
+  estimate (with which one the library's other tempos favour), stored keys heard as a fifth, the
+  relative or the parallel key, and tracks over 0 dBTP, clipped, or far from the library's level.
+  `check` warns about those levels from what's cached, and `playlist order` trusts keys the
+  analysis questions less. `analysis bench` scores rekordbox's keys and tempos, and the analysis,
+  against the GiantSteps datasets (MIREX's weighted key score, tempo Accuracy1 and Accuracy2).
+- **Duplicates by sound.** `doctor --by-sound` and `track dedupe --by-sound` find the same
+  recording in another file or encoding (a FLAC and an MP3 made from it) from the fingerprints
+  `mix` keeps in the store, so a library is decoded once; tracks of different lengths, such as an
+  extended mix and its radio edit, are never copies. The suggested keeper has the best audio
+  (lossless, then bitrate, sample rate and bit depth), then the most cues, playlists and history
+  lists, and `doctor` says what decided it. Replacing a copy carries its hot cues, memory cues and
+  loops onto a keeper that has none, moved by the offset between their audio (an MP3's encoder
+  delay is about 25 ms), measured to a fraction of a sample by cross-correlating the two files'
+  audio. A copy whose cues can't be carried, or that has cues the keeper lacks, stays, with a
+  warning saying why.
+- **Missing files.** `track relocate` finds the audio of tracks whose file is missing, on the drive
+  and in folders given with `--look-in`, by name, narrowing several by size and then length, and
+  changes a track only when exactly one file fits, of the track's length when that's known
+  (rekordbox's Relocate All takes the first). A
+  file on the drive is used where it is, in both databases and the analysis files; one elsewhere is
+  copied to where the track expects it.
+- **Player-safe copies.** `pack --transcode` packs lossless tracks the drive's players can't play
+  (a 24/96 FLAC on a CDJ-2000NXS, a 96 kHz WAV on an OMNIS-DUO) as copies they can: AIFF by default
+  (`--container wav|flac`), at the highest rate and depth they take in the same family (96 kHz
+  becomes 48), dithered, starting at the master's first sample so cues and beat grids stay
+  where they were. The copy keeps the track's row, playlists, history, My Tags and analysis, with
+  its path, format, size, rate, depth and bit rate in both databases. Lossy files are never
+  encoded lossy again: an MP3 a player can't play stays as it is unless `--decode-lossy` asks for
+  a lossless copy, whose cues move by the decoder's lead as `track upgrade` times it. The players are `--players`, or those `players set` remembered; the plan says
+  which tracks are copied, why, the space they need, and which stay unplayable. Each copy is
+  recorded on the drive with its master's content hash and its recipe, so packing again keeps
+  current copies and makes them again when the master or the recipe changed. `check` points to
+  it when lossless tracks won't load.
+- **Upgrading to lossless.** `track upgrade <library> --from DIR` finds, by their sound, lossless
+  files of the recordings the drive holds as MP3 or AAC, copies each beside the old file and
+  points the track at it, keeping its row (playlists, history, My Tags, rating), with its cues,
+  beat grid and detail waveforms moved by the offset between the two files' audio, measured to
+  the sample. An MP3 is timed as rekordbox times it: from its first decoded frame, or for some a
+  frame earlier, told apart by its waveform; an AAC among its likely encoder delays the same way.
+  Each track that can't be upgraded is listed with why, and `--players` leaves out files the
+  players can't play. The old file stays unless `--remove-old`. It's recorded, so `edits replay`
+  does it again after rekordbox exports the old row.
 - **Drive management.** A registry of every drive you own (`drive ...`): names, roles, a
   logbook, copies, recognising a drive after it was reformatted (by its contents, or its disk's
   serial number, which on macOS is a USB disk's), `provision`, `eject` and `firmware`.
@@ -200,8 +255,13 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     plain "Artist - Title" text, and finding the tracks in a library by path, ISRC, artist and
     title, then fuzzily.
   - `loclib-mixid`: which known tracks a recording plays, when, at what speed and with or without
-    key lock, from any audio files (decoding, landmark fingerprints, the index and the matcher).
+    key lock, from any audio files (decoding, landmark fingerprints, the index and the matcher),
+    and how two files of one recording line up, to a fraction of a sample (`refine`).
     locallibrary keeps the drive, the fingerprint cache, Audacity projects and the report.
+  - `loclib-transcode`: which copy a set of players needs of a file (as it is, a lossless copy at
+    a rate and depth they all take, or none), and making it: AIFF, WAV or FLAC, resampled with
+    the timing kept to the sample, TPDF-dithered, with tags and artwork; recipes to store with a
+    master's hash, and size estimates.
   - `loclib-interop`: writing a library as Traktor's `collection.nml`, Serato crates (with the
     `Serato Markers2` cue tag in copies of the audio) and a new Engine DJ library, a feature per
     format, so a build for NML alone needs no SQLite.

@@ -317,7 +317,7 @@ impl Store {
     /// store was made: fingerprints, mix reports, the profile document).
     pub fn open_or_init(root: impl AsRef<Path>) -> Result<Store> {
         const OURS: [&str; 4] =
-            [crate::mix::index::CACHE_DIR, crate::mix::report::REPORTS_DIR, "profile-document.json", "tui.json"];
+            [crate::audio_cache::CACHE_DIR, crate::mix::report::REPORTS_DIR, "profile-document.json", "tui.json"];
         let root = root.as_ref().to_path_buf();
         let meta_path = root.join("store.json");
         if !meta_path.exists() {

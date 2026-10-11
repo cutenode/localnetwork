@@ -9,7 +9,7 @@
 
 use indexmap::IndexMap;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -35,9 +35,41 @@ pub struct PlaylistDiff {
     pub changed_playlists: Vec<PlaylistChanges>,
     /// Playlists on both sides with the same entries in the same order.
     pub unchanged_playlists: usize,
+    /// Their paths, for [`PlaylistDiff::add`].
+    #[serde(skip)]
+    unchanged: Vec<String>,
+}
+
+/// Add `$other`'s tracks and playlists that `$into` doesn't list, field by field: the fields a
+/// [`PlaylistDiff`] and a [`LibraryDiff`] share, and changed playlists by `$path`.
+macro_rules! add_new {
+    ($into:expr, $other:expr, $path:expr) => {
+        extend_new(&mut $into.added_tracks, $other.added_tracks, |t| &t.file_path);
+        extend_new(&mut $into.removed_tracks, $other.removed_tracks, |t| &t.file_path);
+        extend_new(&mut $into.changed_tracks, $other.changed_tracks, |c| &c.track.file_path);
+        extend_new(&mut $into.added_playlists, $other.added_playlists, |p| p);
+        extend_new(&mut $into.removed_playlists, $other.removed_playlists, |p| p);
+        extend_new(&mut $into.changed_playlists, $other.changed_playlists, $path);
+    };
 }
 
 impl PlaylistDiff {
+    /// Add what `other`, the same comparison of the drives' other database, shows that this one
+    /// doesn't (a CDJ-3000X writes only to OneLibrary).
+    /// A playlist is the same only where it's the same in both.
+    pub fn add(&mut self, other: PlaylistDiff) {
+        let mut unchanged = std::mem::take(&mut self.unchanged);
+        extend_new(&mut unchanged, other.unchanged, |p| p);
+        add_new!(self, other, |c| &c.path);
+        let differs: FxHashSet<&str> = (self.added_playlists.iter().chain(&self.removed_playlists))
+            .map(String::as_str)
+            .chain(self.changed_playlists.iter().map(|c| c.path.as_str()))
+            .collect();
+        unchanged.retain(|p| !differs.contains(p.as_str()));
+        self.unchanged_playlists = unchanged.len();
+        self.unchanged = unchanged;
+    }
+
     pub fn is_empty(&self) -> bool {
         self.added_tracks.is_empty()
             && self.removed_tracks.is_empty()
@@ -72,6 +104,17 @@ pub struct Move {
     pub from: usize,
     /// 1-based position on the right.
     pub to: usize,
+}
+
+/// [`PlaylistDiff::add`] for a [`LibraryDiff`].
+pub(crate) fn add_library_diff(into: &mut LibraryDiff, other: LibraryDiff) {
+    add_new!(into, other, |p| p);
+}
+
+/// Append the items of `from` whose `key` none in `into` has.
+fn extend_new<T>(into: &mut Vec<T>, from: Vec<T>, key: impl Fn(&T) -> &str) {
+    let have: FxHashSet<String> = into.iter().map(|t| key(t).to_string()).collect();
+    into.extend(from.into_iter().filter(|t| !have.contains(key(t))));
 }
 
 /// Playlist key -> its path and tracks in order (`None` for folders, whose path ends in `/`).
@@ -121,6 +164,7 @@ pub fn between(left: &Library, right: &Library, labels: (&str, &str), playlist: 
         removed_playlists: Vec::new(),
         changed_playlists: Vec::new(),
         unchanged_playlists: 0,
+        unchanged: Vec::new(),
     };
     if playlist.is_none() {
         let d = LibraryDiff::between(left, right);
@@ -135,13 +179,14 @@ pub fn between(left: &Library, right: &Library, labels: (&str, &str), playlist: 
             (None, _) => diff.added_playlists.push(path.clone()),
             (Some((_, Some(a))), Some(b)) => match entries_diff(path, a, b) {
                 Some(changes) => diff.changed_playlists.push(changes),
-                None => diff.unchanged_playlists += 1,
+                None => diff.unchanged.push(path.clone()),
             },
             _ => {}
         }
     }
     diff.removed_playlists =
         old.iter().filter(|(k, (p, _))| keep(p) && !new.contains_key(*k)).map(|(_, (p, _))| p.clone()).collect();
+    diff.unchanged_playlists = diff.unchanged.len();
     diff
 }
 

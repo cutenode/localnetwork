@@ -30,7 +30,9 @@ library, or for every library) it checks:
 - **Every track's format, sample rate and bit depth:** "12 FLAC files at 96 kHz won't load on the
   OMNIS-DUO". They come from the database rows; a file's header is read only when its row doesn't
   say (or for an `.m4a` whose bit rate doesn't tell AAC from Apple Lossless). `--verbose` lists the
-  tracks, and `--json` gives them to scripts (`unloadable`, grouped by player and reason).
+  tracks, and `--json` gives them to scripts (`unloadable`, grouped by player and reason, with
+  `transcodable` when they're lossless). For lossless ones, `pack --transcode` makes a drive with
+  copies the players play (see [Drives for a set](editing.md#drives-for-a-set)).
 
 What each model reads comes from its instruction manual (`players models MODEL` names the page) and
 AlphaTheta's notice on which units read OneLibrary (March 2026). Players differ more than you'd
@@ -46,6 +48,12 @@ on every core, with progress: a file that doesn't open, stops short of the lengt
 recorded (a copy interrupted part way), or doesn't decode at the end is a problem; one whose own
 header gives another length is a warning (replaced since the export?). It reads a little of every
 file, so it takes a while on a big drive.
+
+Once `doctor --analyze` has measured a library's tracks (see [Doctor](drives.md#doctor)), `check`
+warns about tracks whose true peak is over 0 dBTP, that have clipped runs, or whose loudness is more
+than 6 LU from the library's median, from what the store already holds: it decodes nothing for
+this, and says nothing about levels it never measured. `--verbose` lists the tracks with their
+loudness and peak.
 
 `check` exits with status 4 when it finds a problem, so a script can stop there; `doctor` does
 too.

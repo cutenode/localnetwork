@@ -671,6 +671,46 @@ fn convert_to_device_library_moves_exportext_links_to_the_new_ids() {
     assert!(tags::read(&d).unwrap().differences.is_empty());
 }
 
+/// Converting into a drive that has the database adds the My Tags only the other one has, and
+/// keeps its own.
+#[test]
+fn converting_into_a_database_the_drive_has_adds_the_other_ones_tags() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = both_drive(dir.path());
+    let mut d = Device::open_export(&root).unwrap();
+    tag(&mut d, "Genre/Techno", "Demo Track 2");
+    tag(&mut d, "Situation/Lounge", "Demo Track 1");
+    // OneLibrary loses Demo Track 1's Lounge and gains Synth on NOISE.
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let lib = one.library().unwrap();
+    let id = |title: &str| lib.tracks.iter().find(|t| t.title == title).unwrap().id;
+    one.unlink_my_tags_of(&[id("Demo Track 1")]).unwrap();
+    let synth = one.my_tag_rows().unwrap().into_iter().find(|r| r.name == "Synth").unwrap().id;
+    one.link_my_tag(synth, &[id("NOISE")]).unwrap();
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    for to in [Target::DeviceLibrary, Target::OneLibrary] {
+        let opts = ConvertOptions { to, replace: false };
+        let plan = convert::plan(&d, &opts, &Ctx::silent()).unwrap();
+        assert!(plan.adds && plan.tagged_tracks == 1, "{plan:?}");
+        let report = convert::apply(&plan, &mut d, &opts, &Ctx::silent()).unwrap();
+        assert_eq!(report.tagged_tracks, 1);
+    }
+    let want = map(&[
+        ("Genre/Techno", &["Demo Track 2"]),
+        ("Components/Synth", &["NOISE"]),
+        ("Situation/Lounge", &["Demo Track 1"]),
+    ]);
+    let sorted = |m: IndexMap<String, Vec<String>>| -> Vec<(String, Vec<String>)> {
+        let mut v: Vec<_> = m.into_iter().collect();
+        v.sort();
+        v
+    };
+    assert_eq!(sorted(ext_tags(&root)), sorted(want.clone()));
+    assert_eq!(sorted(plus_tags(&root)), sorted(want));
+    common::sqlcipher_reads(&root);
+}
+
 #[test]
 fn convert_to_device_library_drops_links_it_cant_place() {
     // exportExt.pdb left behind on a OneLibrary-only drive: its links name tracks of an

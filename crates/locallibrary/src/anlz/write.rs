@@ -518,6 +518,87 @@ pub fn write_cue_points(bytes: &[u8], file: CueFile, cues: &[CuePoint]) -> Resul
     Ok(out)
 }
 
+/// A copy of an analysis file with every time in it `ms` later (earlier when negative), for a
+/// track pointed at another file of its recording whose audio starts elsewhere: the beat grid
+/// (`PQTZ`, and the first and last beat `PQT2` repeats), each cue's position and loop end (`PCPT`,
+/// `PCP2`), and the detail waveforms (`PWV3`, `PWV5`, `PWV7`, 150 columns a second, moved by
+/// whole columns and kept as long). Times that would come before the start go to the start: a
+/// beat isn't dropped, since phrases (`PSSI`) and `PQT2`'s body count beats. Everything else is
+/// copied unchanged; whole-track previews move by under a column.
+pub fn shift_times(bytes: &[u8], ms: i32) -> Result<Vec<u8>> {
+    let secs = sections(bytes)?;
+    let shifted = |t: u32| (i64::from(t) + i64::from(ms)).clamp(0, i64::from(u32::MAX)) as u32;
+    let shift_at = |section: &mut Vec<u8>, at: usize| {
+        if let Some(t) = be_u32(section, at) {
+            put_u32(section, at, shifted(t));
+        }
+    };
+    let header_len = be_u32(bytes, 4).expect("checked by sections") as usize;
+    let file_len = be_u32(bytes, 8).expect("checked by sections") as usize;
+    let mut out = bytes[..header_len].to_vec();
+    for s in &secs {
+        let mut section = bytes[s.start..s.start + s.total_len].to_vec();
+        match &s.tag {
+            b"PQTZ" => {
+                // The count comes from the file: never trust it past the section's end.
+                let count = (be_u32(&section, 20).unwrap_or(0) as usize).min((s.total_len - s.header_len) / 8);
+                for i in 0..count {
+                    shift_at(&mut section, s.header_len + i * 8 + 4);
+                }
+            }
+            b"PQT2" => {
+                shift_at(&mut section, 0x1c);
+                shift_at(&mut section, 0x24);
+            }
+            b"PWV3" | b"PWV5" | b"PWV7" => shift_waveform(&mut section, s.header_len, ms, detail_rate(bytes, s)),
+            _ if list_type(bytes, s).is_some() => {
+                let mut at = s.header_len;
+                for e in list_entries(bytes, s) {
+                    // Where the type (2 for a loop), position and loop end are.
+                    let fields = match &e[..4] {
+                        b"PCPT" => Some((0x1c, 0x20, 0x24)),
+                        b"PCP2" => Some((0x10, 0x14, 0x18)),
+                        _ => None,
+                    };
+                    if let Some((kind, time, end)) = fields.filter(|(_, _, end)| e.len() >= end + 4) {
+                        shift_at(&mut section, at + time);
+                        if e[kind] == 2 {
+                            shift_at(&mut section, at + end);
+                        }
+                    }
+                    at += e.len();
+                }
+            }
+            _ => {}
+        }
+        out.extend_from_slice(&section);
+    }
+    let last_end = secs.last().map_or(header_len, |s| s.start + s.total_len);
+    out.extend_from_slice(&bytes[last_end..file_len]);
+    let len = u32::try_from(out.len()).map_err(|_| malformed("file too large"))?;
+    put_u32(&mut out, 8, len);
+    out.extend_from_slice(&bytes[file_len..]);
+    Ok(out)
+}
+
+/// A detail waveform section's columns moved `ms` later at `rate` columns a second: silent
+/// columns in front and as many dropped from the end, or the reverse, so its length stays the
+/// one the other waveforms have.
+fn shift_waveform(section: &mut [u8], header_len: usize, ms: i32, rate: f64) {
+    let (Some(width), Some(count)) = (be_u32(section, 12), be_u32(section, 16)) else { return };
+    let body = &mut section[header_len..];
+    let len = (width as usize * count as usize).min(body.len());
+    let body = &mut body[..len];
+    let by = ((f64::from(ms) * rate / 1000.0).round() as isize * width as isize).clamp(-(len as isize), len as isize);
+    if by > 0 {
+        body.rotate_right(by as usize);
+        body[..by as usize].fill(0);
+    } else if by < 0 {
+        body.rotate_left(by.unsigned_abs());
+        body[len - by.unsigned_abs()..].fill(0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -553,6 +634,67 @@ mod tests {
             .filter(|s| matches!(&s.tag, b"PCOB" | b"PCO2"))
             .map(|s| bytes[s.start..s.start + s.total_len].to_vec())
             .collect()
+    }
+
+    /// A section: tag, `header` (header length, total length and `fields`), then `body`.
+    fn section(tag: &[u8; 4], fields: &[u32], header: usize, body: &[u8]) -> Vec<u8> {
+        let mut s = tag.to_vec();
+        s.extend((header as u32).to_be_bytes());
+        s.extend(((header + body.len()) as u32).to_be_bytes());
+        for f in fields {
+            s.extend(f.to_be_bytes());
+        }
+        s.resize(header, 0);
+        s.extend(body);
+        s
+    }
+
+    /// Shifting a file (PPTH and beats 1 and 2 at 100 and 569 ms) moves its beat grid, `PQT2`'s
+    /// first and last beat, every cue's position and loop end in each list, and its detail
+    /// waveform by whole columns; times before the start go to the start.
+    #[test]
+    fn shifting_moves_grid_cues_and_waveforms() {
+        let mut lp = hot(1, 2000);
+        lp.end_ms = Some(4000);
+        let cues = vec![memory(10), hot(0, 1000), lp];
+        let mut pqt2 = section(b"PQT2", &[0, 0x0100_0002, 0], 0x38, &[0, 7, 0, 9]);
+        pqt2[0x18..0x28].copy_from_slice(&[0, 1, 0x2e, 0xe0, 0, 0, 0, 100, 0, 2, 0x2e, 0xe0, 0, 0, 2, 0x39]);
+        // One byte a column, 150 columns a second: column 3 is loud.
+        let pwv3 = section(b"PWV3", &[1, 6, 0x0096_0000], 0x18, &[0, 0, 0, 31, 0, 0]);
+        let others = [pqt2, pwv3];
+        for kind in [CueFile::DatAlone, CueFile::Ext] {
+            let f = write_cue_points(&file(&others), kind, &cues).unwrap();
+            let later = shift_times(&f, 14).unwrap();
+            let read = |b: &[u8]| -> Vec<(u32, Option<u32>)> {
+                read_cue_points(b, None).unwrap().iter().map(|c| (c.start_ms, c.end_ms)).collect()
+            };
+            assert_eq!(read(&later), [(24, None), (1014, None), (2014, Some(4014))], "{kind:?}");
+            let times = |b: &[u8]| beat_grid(b).unwrap().iter().map(|b| b.time_ms).collect::<Vec<_>>();
+            assert_eq!(times(&later), [114, 583]);
+            let tagged = |b: &[u8], tag: &[u8; 4]| {
+                let s = *sections(b).unwrap().iter().find(|s| &s.tag == tag).unwrap();
+                b[s.start..s.start + s.total_len].to_vec()
+            };
+            let p = tagged(&later, b"PQT2");
+            assert_eq!((be_u32(&p, 0x1c), be_u32(&p, 0x24)), (Some(114), Some(583)));
+            // 14 ms is 2.1 columns: two silent columns in front.
+            assert_eq!(&tagged(&later, b"PWV3")[0x18..], &[0, 0, 0, 0, 0, 31]);
+            let earlier = shift_times(&f, -150).unwrap();
+            assert_eq!(read(&earlier), [(0, None), (850, None), (1850, Some(3850))], "{kind:?}");
+            assert_eq!(times(&earlier), [0, 419], "a beat isn't dropped");
+            assert_eq!(&tagged(&earlier, b"PWV3")[0x18..], &[0; 6]);
+            assert_eq!(be_u32(&earlier, 8).unwrap() as usize, earlier.len());
+            assert_eq!(read_path(&earlier).unwrap().as_deref(), Some("/Contents/a.mp3"));
+            assert_eq!(shift_times(&f, 0).unwrap(), f);
+        }
+        // A beat count past the section's end (a damaged file) stops at its end.
+        let mut lying = file(&[]);
+        let at = sections(&lying).unwrap().iter().find(|s| &s.tag == b"PQTZ").unwrap().start;
+        put_u32(&mut lying, at + 20, u32::MAX);
+        let started = std::time::Instant::now();
+        let shifted = shift_times(&lying, 5).unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "{:?}", started.elapsed());
+        assert_eq!(be_u32(&shifted, at + 24 + 4), Some(105));
     }
 
     /// Byte-level fixtures from a real rekordbox 7 export, as published in baken's tests (MIT):

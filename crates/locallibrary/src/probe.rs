@@ -41,6 +41,8 @@ pub struct Format {
     pub sample_rate: u32,
     /// Bits per sample; 0 when the file doesn't say.
     pub bit_depth: u16,
+    /// 0 when the file doesn't say.
+    pub channels: u16,
     /// Seconds, when the file says how many frames it holds.
     pub duration_secs: Option<f64>,
 }
@@ -85,6 +87,7 @@ pub fn format(path: &Path) -> Result<Format> {
         codec,
         sample_rate,
         bit_depth: p.bits_per_sample.or(p.bits_per_coded_sample).unwrap_or(0).min(u16::MAX.into()) as u16,
+        channels: p.channels.map_or(0, |c| c.count() as u16),
         duration_secs,
     })
 }

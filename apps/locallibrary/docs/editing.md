@@ -63,7 +63,9 @@ locallibrary playlist import Home spotify.csv --into "From Spotify"
 locallibrary track set Home --filter "bpm:>=128 genre:techno" --rating 5 --colour red
 locallibrary track rm Home --filter "is:unfiled plays:0" --dry-run
 locallibrary track dedupe Home                       # replace Sync Manager copies (--hash-audio: identical audio too)
+locallibrary track dedupe Home --by-sound            # ...and a FLAC and an MP3 of one recording
 locallibrary track replace Home 812 77               # duplicate 812 -> keep 77, everywhere
+locallibrary track relocate Home --look-in ~/Music   # find missing tracks' files, see Missing files below
 locallibrary track show Home --query "daft punk - one more time"   # details, playlists, tags, copies, analysis
 locallibrary track matches Home 77                   # what mixes into track 77
 ```
@@ -74,7 +76,10 @@ back), and is checked by reading the edited databases back before they replace t
 or a track's title, comment and mix name together, too long for one `export.pdb` row (about 4,000
 characters, half that outside ASCII) is refused in the plan. A playlist or track one database lacks
 (they can drift apart) is skipped there with a warning, and My Tags in `exportExt.pdb` follow tracks
-that are removed or replaced. Of two playlists with one name in a folder (rekordbox allows that),
+that are removed or replaced. A playlist edit is made in each database's own entries (a CDJ-3000X
+saves its playlist edits to OneLibrary alone, and the plan warns when they differ): entries the
+player added or took out stay that way, its order stays unless the edit reorders the playlist, and
+an added entry goes after the one it follows in export.pdb. Of two playlists with one name in a folder (rekordbox allows that),
 edits change the one shown first. A playlist and a folder can share a path too: the path names the
 playlist, and the path with a `/` after it (`Sets/`) the folder.
 
@@ -84,6 +89,45 @@ phrase analysis that holds or builds. Over 2,000 tracks it skips the last tidyin
 stops it. `track replace` moves a duplicate's playlist and history
 entries and My Tags to the copy you keep, then deletes the duplicate and its files.
 
+`track dedupe` does that for every duplicate `doctor` finds (see [Doctor](drives.md#doctor)),
+keeping the copy with the best audio (lossless over lossy, then the higher bitrate, sample rate
+and bit depth), then the one with the most cues, playlists and history lists; `doctor` says what
+decided it. A copy's hot cues, memory cues and loops never go with it. When the copy it keeps has
+no cues, it gets those of the best copy that has some, moved by the offset between their audio:
+an MP3 made from a WAV or FLAC starts its audio about 25 ms later (its encoder's delay), so a cue
+copied as it is lands that much early. The fingerprints line the two files up, their decoded audio
+then gives the offset to a fraction of a sample, and for an MP3 whose timeline in rekordbox starts
+a frame before its decoded audio, that frame is allowed for. A copy whose cues the keeper then has
+goes. One stays, with a warning saying why, when its cues can't be carried: the two don't sound
+like one recording (copies by artist, title and length alone can be different edits), their audio
+doesn't line up closely enough to measure the offset, or the keeper has cues of its own that
+aren't these. The carried cues are recorded with the replacement, so `edits replay` carries them
+again first.
+
+### Missing files
+
+```bash
+locallibrary track relocate Home                     # files moved or renamed on the drive
+locallibrary track relocate Home --look-in ~/Music --look-in /Volumes/NAS/Music --dry-run
+```
+
+`track relocate` looks for the audio of tracks whose file isn't on the drive, by file name (any
+letter case or Unicode form): among the drive's audio files no track uses, and with `--look-in`,
+in those folders and everything below them. A track changes only when exactly one file fits it.
+Of several, those of the size the database recorded are kept, then those of its length (within a
+second); one with more than one file left is listed with every file found and left as it is, and
+so is one whose only file left isn't as long as the track (another recording of the name) and a
+file two tracks could each be. rekordbox's Relocate All takes the first match instead,
+which can be another album's `Intro.mp3`.
+
+A file found on the drive stays where it is: the track is pointed at it in `export.pdb`,
+OneLibrary and its analysis files, and no audio is copied. A file found elsewhere is copied to the
+path the track has (only under `Contents/`), so the databases stay as rekordbox wrote them and its
+next export finds the file in place. That export writes the paths rekordbox's collection has, so a
+track pointed at a moved file has its old path again after it. Both are backed up first, so
+`locallibrary undo` takes back what changed in the databases and analysis files (a copied file
+stays on the drive), and neither is recorded for `edits replay`.
+
 `playlist import` reads M3U/M3U8, CSV and other tables (Spotify via Exportify, TuneMyMusic,
 Soundiiz, Beatport-style exports, Apple Music's text export, and any table with a title or file
 column), rekordbox's playlist text export, rekordbox XML (`--from` picks one of its playlists) and
@@ -91,6 +135,48 @@ plain "Artist - Title" lists. Tracks are matched by file path, then ISRC, then a
 length (within 2 s), then artist and title alone, then fuzzily; entries that fit several
 tracks are listed instead of guessed (settle them with `--choose ENTRY=TRACK`). It works offline:
 export a streaming playlist to CSV first.
+
+### Upgrading to lossless
+
+```bash
+locallibrary track upgrade Home --from ~/Music/Lossless --dry-run
+locallibrary track upgrade Home --from ~/Music/Lossless --from /Volumes/NAS/Bandcamp --remove-old
+```
+
+`track upgrade` finds lossless files (FLAC, WAV, AIFF, Apple Lossless) of the recordings the drive
+holds as MP3 or AAC, in the folders given and below them, by their sound, as `doctor --by-sound`
+finds duplicates (the store keeps the fingerprints): lengths within 2 seconds, so an extended mix
+never stands in for a radio edit, and prints that line up over most of both. Each is copied beside
+the track's file and the track is pointed at it, in both databases and its analysis files, with
+its format, size, rate, depth and bit rate. The track keeps its row, so its playlists, history
+lists, My Tags, rating and play count stay. Its cues and beat grid move by the offset between the
+two files' audio (an MP3 starts its audio some 25 ms later than the file it was made from),
+measured to a fraction of a sample by cross-correlating the audio. The detail waveforms move with
+them, by whole columns (6.7 ms); the rest of the analysis stays as it was. The copy goes beside the
+track's file under its own name made safe for FAT, or `Name (2).flac` when that's taken; a copy
+already there from an upgrade that was undone is used again. With `--players` (or the ones
+`players set` remembered), a lossless file they can't play is no upgrade.
+
+A track is listed with why and left as it is when its offset can't be measured that closely,
+another row of the drive uses its file, its file isn't under `Contents/`, its analysis files can't
+be rewritten, or its timing can't be told (below).
+
+rekordbox times an MP3 from its first decoded frame: it doesn't trim the encoder's delay the way
+gapless players do. Some MP3s (those with a complete LAME tag, and some made by FFmpeg) it times
+from one frame earlier, 26 ms at 44.1 kHz, and no tag says which. Measured against the
+waveforms rekordbox drew for 1,072 MP3s, 85% start at the first frame and 14% a frame early, so
+`track upgrade` tells the two apart for each track by its waveform, and a track without one is
+taken to start at the first frame. AAC (M4A) is timed the same way among three starts (the first
+frame, and 1,024 or 2,112 samples before it, the encoder delays AAC files carry), and an AAC track
+without a waveform is listed rather than guessed. Unlike the MP3 figures, these haven't been
+measured against rekordbox's own analysis.
+
+The old file stays unless `--remove-old`. It's backed up first, like everything the upgrade
+changes, so `locallibrary undo` points the track back at it; the lossless copy stays on the drive
+for the next upgrade. The upgrade is recorded, so after rekordbox's
+next export, which writes the old file's row and cues again, `edits replay` points the track at
+the lossless file and moves its cues again. Upgrading in rekordbox's own collection too (Relocate)
+keeps the two in step.
 
 ### Filters
 
@@ -142,7 +228,8 @@ with a warning, instead of skipping the whole edit. It makes the My Tag and cue 
 the order they were made, then the others, and backs the drive up once before all of it, so
 `undo` takes back the whole replay. Removing and moving entries are recorded as the files removed
 or moved, and deleting a playlist with its tracks as the tracks it deleted, so a replay keeps
-entries the new export added. The recorded edits travel with the library: a sync copies the
+entries the new export added. rekordbox can export over one database and leave the other, so a
+replay makes edits again in whichever lacks them. The recorded edits travel with the library: a sync copies the
 source drive's onto the drives it updates, so `refresh` makes edits made on any of the library's
 drives again. A push or pack, which gives a drive a library from a snapshot or a selection, forgets
 the edits recorded for the one it held (its plan says so). `edits.json` says which version of its
@@ -163,7 +250,9 @@ locallibrary drive restore REKORDBOX --playlist "Friday" --backup 20261004T16560
 snapshot (`pull` keeps them) or one of the drive's backups has it, without touching the rest of the
 library. Without `--snapshot` or `--backup` it uses the newest snapshot of the drive's library that
 has the playlist. It's an ordinary playlist edit: shown first, backed up, recorded for `edits
-replay`, and taken back by `undo`. Missing playlists and folders are made again next to their old
+replay`, and taken back by `undo`. A playlist only OneLibrary had (a CDJ-3000X makes its
+playlists there alone) is found there too, and comes back into both databases. Missing playlists
+and folders are made again next to their old
 neighbours; existing ones get the old entries back, in their old order. Entries whose track isn't on
 the drive any more are listed and left out, and playlists you've added to the folder since are left
 as they are.
@@ -196,18 +285,49 @@ locallibrary pack Home /Volumes/TONIGHT           # later: the same selection, c
 use, with their analysis and artwork, to another drive, and removes files the packed library
 doesn't use from it (`--keep-extra` keeps them). The databases are cut down from the source's
 own, so cues, grids, My Tags and details come across unchanged; history lists stay behind unless
-`--history`. A packed drive holds a different library from its source, so `sync` won't copy one
-over the other, and `check` says whether it's up to date with the drive it was packed from.
+`--history`. A source whose OneLibrary database can't be read is refused (rebuild it with
+`convert --to onelibrary --replace`): the packed drive would have none, and players that read only
+OneLibrary couldn't browse it. A packed drive holds a different library from its source, so `sync`
+won't copy one over the other, and `check` says whether it's up to date with the drive it was packed from.
 
 A packed drive comes back from a set with history lists and memory cues the players saved on it.
 Before packing it again, `pack` saves its state in the store when it holds history lists the new
-pack won't have, or changed since it was last packed (it refuses when there's no store), and
+pack won't have, or changed since it was last packed, or its OneLibrary database can't be read
+(so history lists players recorded there can't be checked; it refuses when there's no store), and
 backs up the databases, analysis and artwork it replaces on the drive, so `locallibrary undo`
 puts them back (it says which snapshot and backup; the plan counts the backup's space). The drive
 keeps its own player name and colour. Audio it removed isn't kept (it's on the source): tracks it
 removed come back by packing again with the old selection, or with `undo --force` without their
 audio. Packing forgets the edits recorded on the drive. Like every command that writes, it won't
 write to an archive or retired drive without `--overwrite-archive`.
+
+```bash
+locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players CDJ-2000NXS,OMNIS-DUO
+locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --container flac --decode-lossy
+```
+
+`--transcode` packs lossless tracks the players can't play as copies they can: a 24/96 FLAC goes
+to a CDJ-2000NXS (no FLAC, nothing over 48 kHz) as a 48 kHz, 24-bit AIFF. The players are
+`--players`, or the ones `players set` remembered for the source's library. A copy is AIFF unless
+`--container wav` or `flac` (if the players don't take that, the next of AIFF, WAV and FLAC they
+do), keeps the master's rate and depth when the players take them, and otherwise takes the highest
+they do below it in the same family (88.2 kHz becomes 44.1, 96 becomes 48), with dither. It starts
+at the master's first sample and is as long, to the sample, so cue points and beat grids, which
+rekordbox keeps in milliseconds from the start, still land. The copy keeps the track's row:
+playlists, history, My Tags, cues and grid stay, and both databases give its path, format, size,
+rate, depth and bit rate, as the analysis files give its path. Its master isn't packed. Tags and
+artwork come along.
+
+Lossy files are never encoded lossy again. An MP3 or AAC file a player can't play (an MP3 at
+22.05 kHz on a CDJ-3000) stays as it is unless `--decode-lossy` asks for a lossless copy, bigger
+but no worse. Its cues and grid move by the decoder's lead the way `track upgrade` times it, so an
+AAC without a waveform stays unplayable. So does a copy too long for AIFF or WAV (4 GiB), or one
+whose name is another track's file. The plan lists the copies, which players don't play each master and why, the space
+they need (the pack is refused when it doesn't fit), and the tracks that stay unplayable. Each
+copy is recorded on the drive (`.locallibrary/transcodes.json`) with its master's content hash
+and how it was made, so packing again keeps current copies and makes them again when a master was
+replaced, even by a file of the same name, or the way copies are made changed. Packing again
+without `--playlist` keeps the copies' players and options too.
 
 ## My Tags
 
@@ -298,14 +418,26 @@ collection too.
 locallibrary convert Home --to onelibrary            # give older drives OneLibrary, for CDJ-3000X, OPUS-QUAD, XDJ-AZ...
 locallibrary convert Home --to device-library        # give OneLibrary-only drives export.pdb, for every other player
 locallibrary drive info REKORDBOX                    # "export.pdb and OneLibrary differ" when they drift apart...
-locallibrary convert Home --to onelibrary --replace  # ...rebuild OneLibrary from export.pdb
+locallibrary convert Home --to onelibrary            # ...give each what the other has
+locallibrary convert Home --to device-library
+locallibrary convert Home --to onelibrary --replace  # or rebuild OneLibrary from export.pdb
 ```
 
 Tracks, artwork (copied to the other database's `a`/`b` file names), playlists and history
 playlists are converted; audio and analysis files are shared, and OneLibrary's `cue` rows
-(players that read only OneLibrary use them) are made from the analysis files. Rebuilding
+(players that read only OneLibrary use them) are made from the analysis files.
+
+Players write only the database they read: a CDJ-3000X's history lists and playlist edits go to
+OneLibrary alone, an older player's to `export.pdb`. So converting into a drive that has the
+database already keeps everything in it and adds what it lacks: tracks (matched by file), playlists
+and the entries they're missing, history lists and My Tags. Its own entries stay, and one a player took
+out of a playlist comes back if the other database still has it. With nothing to add, it says so. rekordbox's own "Convert from Device Library" overwrites the drive's OneLibrary
+instead, losing what only it had.
+
+`--replace` rebuilds the database from the other one, dropping what only it has: the plan names
+those playlists, entries and history lists, and OneLibrary's hot cue bank lists. Rebuilding
 OneLibrary keeps the rows it already has for tracks `export.pdb` lists (every column, cues, My
-Tags and artwork). A
+Tags and artwork) and the drive's player name and colour. A
 new `export.pdb` starts from a real rekordbox export (rekordbox-pdb's test file) with its rows
 removed, so it has rekordbox's colours and browse columns; a new OneLibrary database starts from
 rekordbox 7's schema and default menus. My Tags come along:

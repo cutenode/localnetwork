@@ -116,10 +116,20 @@ fn a_drive_says_when_its_two_databases_differ() {
     assert!(info.contains("    1 track(s) only in OneLibrary, hidden from older players: Loopmasters - Demo Track 2"));
     assert!(info.contains("    1 track(s) with different details"), "{info}");
     assert!(info.contains("    1 playlist(s) differ: Older Players"), "{info}");
-    assert!(
-        line(&info, "rebuild one from the other: locallibrary convert ").ends_with("A\" --to onelibrary --replace")
-    );
+    let hint = line(&info, "give each what the other has: locallibrary convert ");
+    assert!(hint.ends_with("A\" --to onelibrary, then --to device-library"), "{hint}");
     assert!(line(&env.ok(&["status"]), "A ").ends_with("export.pdb and OneLibrary differ (locallibrary drive info)"));
+
+    // Following it leaves only the changed title: each database gains the other's track and
+    // playlist, and keeps its own.
+    env.ok(&["--yes", "convert", "A", "--to", "onelibrary"]);
+    env.ok(&["--yes", "convert", "A", "--to", "device-library"]);
+    let info = env.ok(&["drive", "info", "A"]);
+    assert!(!info.contains("only in"), "{info}");
+    assert!(!info.contains("playlist(s) differ"), "{info}");
+    assert!(info.contains("    1 track(s) with different details"), "{info}");
+    let again = env.ok(&["convert", "A", "--to", "onelibrary"]);
+    assert!(again.contains("nothing to add"), "{again}");
 
     std::fs::remove_file(&pdb).unwrap();
     let info = env.ok(&["drive", "info", "A"]);

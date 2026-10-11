@@ -585,6 +585,7 @@ fn phase_label(p: Phase) -> &'static str {
         Phase::Index => "Indexing",
         Phase::Listen => "Listening",
         Phase::Match => "Matching",
+        Phase::Analyze => "Analysing",
         _ => "Working",
     }
 }

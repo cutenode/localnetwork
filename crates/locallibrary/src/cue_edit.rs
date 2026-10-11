@@ -140,6 +140,13 @@ pub enum CueEdit {
     Copy {
         from: u32,
     },
+    /// Copy this track's cues onto the tracks that have none, each `shift_ms` later (earlier
+    /// when negative): for another file of the same recording whose audio starts at another
+    /// point (an MP3's encoder delay). Tracks with cues keep theirs.
+    Carry {
+        from: u32,
+        shift_ms: i32,
+    },
 }
 
 /// A cue edit as the drive's journal records it (see [`crate::edit::journal`]): a copy's source
@@ -152,17 +159,18 @@ pub enum CueChange {
     Update(UpdateCue),
     Delete(CueRef),
     Copy { from: String },
+    Carry { from: String, shift_ms: i32 },
 }
 
 impl CueChange {
     fn of(edit: &CueEdit, library: &Library) -> CueChange {
+        let file = |id: u32| library.track(id).map(|t| t.file_path.clone()).unwrap_or_default();
         match edit {
             CueEdit::Set(s) => CueChange::Set(s.clone()),
             CueEdit::Update(u) => CueChange::Update(u.clone()),
             CueEdit::Delete(r) => CueChange::Delete(r.clone()),
-            CueEdit::Copy { from } => {
-                CueChange::Copy { from: library.track(*from).map(|t| t.file_path.clone()).unwrap_or_default() }
-            }
+            CueEdit::Copy { from } => CueChange::Copy { from: file(*from) },
+            CueEdit::Carry { from, shift_ms } => CueChange::Carry { from: file(*from), shift_ms: *shift_ms },
         }
     }
 
@@ -176,6 +184,9 @@ impl CueChange {
             CueChange::Update(u) => format!("rename or recolour {} on {tracks} track(s)", describe(&u.cue)),
             CueChange::Delete(r) => format!("delete {} on {tracks} track(s)", describe(r)),
             CueChange::Copy { from } => format!("copy the cues of {from} to {tracks} track(s)"),
+            CueChange::Carry { from, shift_ms } => {
+                format!("carry the cues of {from} onto {tracks} track(s) without any, {shift_ms:+} ms")
+            }
         }
     }
 }
@@ -681,14 +692,28 @@ fn edited(t: &Track, loaded: &Loaded, edit: &CueEdit, source: Option<&Loaded>) -
                 !gone.contains(&(i - 1))
             });
         }
-        CueEdit::Copy { .. } => {
+        CueEdit::Carry { .. } if !loaded.cues.is_empty() => {}
+        CueEdit::Copy { .. } | CueEdit::Carry { .. } => {
             let source = source.expect("copy has a source");
+            let shift = match edit {
+                CueEdit::Carry { shift_ms, .. } => i64::from(*shift_ms),
+                _ => 0,
+            };
+            let moved = |ms: u32| {
+                u32::try_from(i64::from(ms) + shift)
+                    .map_err(|_| Error::invalid(format!("a cue would move before the start of {}", t.display_name())))
+            };
             let mut used = vec![false; loaded.cues.len()];
             drafts = source
                 .cues
                 .iter()
                 .enumerate()
                 .map(|(s, c)| {
+                    let c = &CuePoint {
+                        start_ms: moved(c.start_ms)?,
+                        end_ms: c.end_ms.map(moved).transpose()?,
+                        ..c.clone()
+                    };
                     // A cue the track already has (same slot and position) keeps its identity.
                     let origin = (0..loaded.cues.len()).find(|o| {
                         !used[*o]
@@ -813,7 +838,7 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
     if track_ids.is_empty() {
         return Err(Error::invalid("no tracks selected"));
     }
-    let one_track = !matches!(edit, CueEdit::Copy { .. } | CueEdit::Delete(CueRef::All));
+    let one_track = !matches!(edit, CueEdit::Copy { .. } | CueEdit::Carry { .. } | CueEdit::Delete(CueRef::All));
     if one_track && track_ids.len() > 1 {
         return Err(Error::invalid(format!("{} tracks selected; pick one", track_ids.len())));
     }
@@ -825,7 +850,7 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
     let plus_id = |t: &Track| by_path.as_ref().and_then(|m| m.get(&paths::key(&t.file_path).to_lowercase()).copied());
 
     let source = match edit {
-        CueEdit::Copy { from } => {
+        CueEdit::Copy { from } | CueEdit::Carry { from, .. } => {
             let s = track(*from)?;
             let loaded = load(device, s)?;
             let rows: SourceRows = match (plus_id(s), &plus) {
@@ -1008,9 +1033,10 @@ pub(crate) fn replay(device: &mut Device, files: &[String], change: &CueChange, 
         CueChange::Set(s) => CueEdit::Set(s.clone()),
         CueChange::Update(u) => CueEdit::Update(u.clone()),
         CueChange::Delete(r) => CueEdit::Delete(r.clone()),
-        CueChange::Copy { from } => match id(from) {
-            Some(from) => CueEdit::Copy { from },
-            None => {
+        CueChange::Copy { from } | CueChange::Carry { from, .. } => match (id(from), change) {
+            (Some(from), CueChange::Carry { shift_ms, .. }) => CueEdit::Carry { from, shift_ms: *shift_ms },
+            (Some(from), _) => CueEdit::Copy { from },
+            (None, _) => {
                 out.warnings.push(skip(&format!("{from} isn't on the drive any more")));
                 return Ok(out);
             }

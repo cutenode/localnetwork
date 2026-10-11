@@ -83,3 +83,8 @@ so they can be offered upstream.
 21. `rust-version` is the workspace's (1.89) instead of upstream's 1.73: Cargo's resolver picks
     dependency versions for the lowest `rust-version` in the workspace, so 1.73 held the
     workspace's dependencies back.
+22. Track format codes: `set_track_field` takes `file_type` (the u16 at 0x5a), so a track pointed
+    at a file of another format (a lossless copy of an MP3) gets the code that format has, and
+    `file_type_code` is public, rekordbox's one table of codes by extension: `.flac` gets FLAC's
+    (5) where `add_track` gave it MP3's (1), `.mp4` and `.aac` get 4, and an extension rekordbox
+    doesn't list gets 0 rather than MP3's code.

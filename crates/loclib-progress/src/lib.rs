@@ -25,6 +25,8 @@ pub enum Phase {
     Listen,
     /// Looking for library tracks in a mix.
     Match,
+    /// Decoding library tracks to estimate their tempo, key and loudness.
+    Analyze,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -25,6 +25,7 @@ use crate::clean;
 use crate::compare::{self, Comparison, Relation, Side};
 use crate::convert;
 use crate::device::{self, Device, DeviceInfo};
+use crate::doctor::Databases;
 use crate::error::{Action, Reason};
 use crate::format::{self, DiskView, FormatOptions, FormatPlan, FormatReport};
 use crate::hash::Hash;
@@ -1215,8 +1216,11 @@ fn statuses(store: &Store, ctx: &Ctx<'_>) -> Result<Vec<(DriveStatus, Option<Has
                         st.relation = Some(relation);
                         state = if relation == Relation::Identical { left.fingerprint } else { right.fingerprint };
                         if relation == Relation::RightNewer {
-                            let changes = crate::after_set::library_changes(&left.library, &right.library);
-                            st.back_from_set = changes.player_only().then_some(changes.history_lists.len());
+                            let (then, now) = (Databases::from_snapshot(store, &snap), Databases::read(&d));
+                            match then.and_then(|then| Ok(crate::after_set::database_changes(&then, &now?))) {
+                                Ok(c) => st.back_from_set = c.player_only().then_some(c.history_lists.len()),
+                                Err(e) => st.error = Some(e.to_string()),
+                            }
                         }
                     }
                     Err(e) => st.error = Some(e.to_string()),
@@ -1342,21 +1346,29 @@ pub fn convert_plan(
 ) -> Result<Planned<convert::ConvertPlan, convert::ConvertOptions>> {
     let d = resolve_drive(&req.drive)?;
     let plan = convert::plan(&d, &req.options, ctx)?;
-    let mut line = format!(
-        "build {} from {} on {} ({} tracks, {} playlists)",
-        plan.to.file(),
-        plan.to.source_file(),
-        d.name(),
-        plan.tracks,
-        plan.playlists
-    );
-    if plan.replaces {
-        line.push_str(&format!(", replacing the {} it has", plan.to.file()));
-    }
-    let (replaces, warnings) = (plan.replaces, plan.warnings.clone());
+    let (to, from) = (plan.to.file(), plan.to.source_file());
+    let line = if plan.adds {
+        format!(
+            "add what {from} has to the {to} on {} ({} tracks, {} playlists, {} history lists)",
+            d.name(),
+            plan.tracks,
+            plan.playlists,
+            plan.history_playlists
+        )
+    } else {
+        let replacing = if plan.replaces { format!(", replacing the {to} it has") } else { String::new() };
+        format!(
+            "build {to} from {from} on {} ({} tracks, {} playlists){replacing}",
+            d.name(),
+            plan.tracks,
+            plan.playlists
+        )
+    };
+    let (replaces, noop, warnings) = (plan.replaces, plan.is_noop(), plan.warnings.clone());
     Planned::new("convert", plan, req.options.clone())
         .line(line)
         .warnings(warnings)
+        .noop(noop)
         .destructive(replaces)
         .touches(Touched::library(&d, true))
         .reaching_clones(ctx)?
@@ -2212,6 +2224,8 @@ mod account;
 #[cfg(feature = "account")]
 pub use account::*;
 mod restore;
+mod sound;
+pub use sound::*;
 mod undo;
 pub use restore::*;
 pub use undo::*;

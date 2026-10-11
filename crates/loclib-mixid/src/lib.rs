@@ -5,6 +5,7 @@ mod error;
 pub mod fingerprint;
 pub mod index;
 pub mod matcher;
+mod refine;
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_util;
 
@@ -16,6 +17,7 @@ pub use audio::SourceFormat;
 pub use error::{Error, Result};
 pub use index::{LibraryIndex, TrackPrint, fingerprint_file};
 pub use matcher::Found;
+pub use refine::{REFINE_MIN_CORRELATION, Refined, refine};
 
 use fingerprint::{Analyzer, FrameLevels, Peak};
 
@@ -47,7 +49,7 @@ pub fn listen(path: &Path, ctx: &Ctx<'_>) -> Result<(SourceFormat, Heard)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::{synth, wav, wav_of};
+    use crate::test_util::{resample, synth, wav, wav_of};
 
     /// Fingerprint `x` as a library track would be.
     fn print(x: &[f32]) -> TrackPrint {
@@ -64,10 +66,7 @@ mod tests {
         let index = LibraryIndex::build(vec![(10, print(&a)), (20, print(&b)), (30, print(&c))]);
         let dir = tempfile::tempdir().unwrap();
         let set = dir.path().join("set.wav");
-        let mut resampler = audio::Resampler::new(fingerprint::RATE, 44_100);
-        let mut pcm = Vec::new();
-        resampler.push(&[&a[..], &c[..]].concat(), &mut |s| pcm.extend_from_slice(s));
-        resampler.finish(&mut |s| pcm.extend_from_slice(s));
+        let pcm = resample(&[&a[..], &c[..]].concat(), fingerprint::RATE, 44_100);
         std::fs::write(&set, wav_of(44_100, 16, pcm.iter().map(|s| (s * 12_000.0) as i32))).unwrap();
 
         let (format, heard) = listen(&set, &Ctx::silent()).unwrap();

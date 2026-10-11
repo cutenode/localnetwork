@@ -13,7 +13,7 @@ use crate::audio;
 use crate::fingerprint::{self, Analyzer, HASH_BITS, LIBRARY, Peak};
 
 /// Landmarks per library peak.
-const LIBRARY_FANOUT: usize = 3;
+pub(crate) const LIBRARY_FANOUT: usize = 3;
 
 /// A track's fingerprint.
 #[derive(Debug, Clone, PartialEq)]

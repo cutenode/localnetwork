@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use loclib_progress::{Ctx, Event, Phase};
 
 use crate::fingerprint::{self, FRAMES_PER_SEC, Landmark, Peak, Variant};
-use crate::index::LibraryIndex;
+use crate::index::{LibraryIndex, TrackPrint};
 use crate::{Error, Result};
 
 /// Landmarks per mix peak: more than the library's, so its pairs are among them even when the
@@ -799,6 +799,98 @@ pub fn find(
     Ok(resolve(found))
 }
 
+/// Peaks a slice needs before [`align`] counts it towards a track's coverage: a quarter of what
+/// [`crate::fingerprint::LIBRARY`] keeps per slice. Fewer is near silence (a fade, a gap before a
+/// hidden track), which neither encoding has anything to be heard in.
+const ALIGN_SLICE_PEAKS: usize =
+    (SLICE as f64 / FRAMES_PER_SEC * crate::fingerprint::LIBRARY.per_sec as f64 / 4.0) as usize;
+/// Pairs an [`Alignment`] needs before its offset counts as measured.
+const ALIGN_PAIRS: usize = 200;
+/// How far apart (seconds) the offsets over the two halves of a track may be for the offset to
+/// count as measured: under a fifth of a frame. Two encodings of one recording agree to within a
+/// millisecond or two; one at another speed (a file resampled without its rate being changed)
+/// drifts by far more over a track.
+const ALIGN_DRIFT: f64 = 0.004;
+
+/// How two library tracks' prints line up at their original speed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Alignment {
+    /// Seconds to add to a time in the first track for the same moment in the second (an MP3
+    /// made from a WAV starts its audio ~25 ms later: its encoder's delay). Frames are 23 ms
+    /// apart, but a shift of part of one moves some peaks into the next frame, so the mean over
+    /// many pairs measures a fraction of a frame: to within 4 ms on copies shifted by 2 to 70 ms
+    /// and copies made as MP3, AAC and 48 kHz FLAC.
+    pub offset: f64,
+    /// The offset over the second half of the pairs minus that over the first (seconds).
+    pub drift: f64,
+    /// Matching landmark pairs at `offset`.
+    pub pairs: usize,
+    /// Of each track's ~4 s slices with something in them, the fraction heard at `offset`.
+    pub coverage: (f64, f64),
+}
+
+impl Alignment {
+    /// Whether `offset` was measured (to within a few milliseconds, see above): enough pairs,
+    /// agreeing over the whole track.
+    pub fn is_precise(&self) -> bool {
+        self.pairs >= ALIGN_PAIRS && self.drift.abs() <= ALIGN_DRIFT
+    }
+}
+
+/// How `b` lines up with `a`, as the same recording or one sharing a stretch of it (an edit, a
+/// remix): the offset most of their landmarks agree on, and how much of each is heard there.
+/// `None` when they share less than one slice's worth of landmarks.
+pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
+    let mut in_b: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+    for lm in fingerprint::landmarks(&b.peaks, crate::index::LIBRARY_FANOUT) {
+        in_b.entry(lm.hash()).or_default().push(lm.t);
+    }
+    // (frame in a, frame in b minus frame in a) for every hash they share.
+    let mut votes: Vec<(u32, i64)> = Vec::new();
+    for lm in fingerprint::landmarks(&a.peaks, QUERY_FANOUT) {
+        for &tau in in_b.get(&lm.hash()).into_iter().flatten() {
+            votes.push((lm.t, i64::from(tau) - i64::from(lm.t)));
+        }
+    }
+    // The offset with the most votes within a frame either side: a fraction of a frame splits
+    // its votes between two neighbours.
+    let mut counts: FxHashMap<i64, u32> = FxHashMap::default();
+    for (_, d) in &votes {
+        *counts.entry(*d).or_default() += 1;
+    }
+    let near = |d: i64| (d - 1..=d + 1).map(|x| counts.get(&x).copied().unwrap_or(0)).sum::<u32>();
+    let best = counts.keys().copied().max_by_key(|&d| (near(d), std::cmp::Reverse(d)))?;
+    let mut kept: Vec<(u32, i64)> = votes.into_iter().filter(|(_, d)| (d - best).abs() <= 1).collect();
+    if kept.len() < SLICE_VOTES as usize {
+        return None;
+    }
+    kept.sort_unstable();
+    let mean = |pairs: &[(u32, i64)]| pairs.iter().map(|p| p.1 as f64).sum::<f64>() / pairs.len().max(1) as f64;
+    let (first, second) = kept.split_at(kept.len() / 2);
+    let coverage = |peaks: &[Peak], heard: &mut dyn Iterator<Item = u32>| {
+        let slices = |frames: &mut dyn Iterator<Item = u32>| {
+            let mut n: FxHashMap<u32, usize> = FxHashMap::default();
+            for t in frames {
+                *n.entry(t / SLICE).or_default() += 1;
+            }
+            n
+        };
+        let (present, heard) = (slices(&mut peaks.iter().map(|p| p.t)), slices(heard));
+        let full: Vec<u32> = present.iter().filter(|(_, n)| **n >= ALIGN_SLICE_PEAKS).map(|(s, _)| *s).collect();
+        let heard = full.iter().filter(|s| heard.get(s).is_some_and(|n| *n >= SLICE_VOTES as usize)).count();
+        heard as f64 / full.len().max(1) as f64
+    };
+    Some(Alignment {
+        offset: mean(&kept) / FRAMES_PER_SEC,
+        drift: (mean(second) - mean(first)) / FRAMES_PER_SEC,
+        pairs: kept.len(),
+        coverage: (
+            coverage(&a.peaks, &mut kept.iter().map(|p| p.0)),
+            coverage(&b.peaks, &mut kept.iter().map(|p| (i64::from(p.0) + p.1).max(0) as u32)),
+        ),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -943,6 +1035,36 @@ mod tests {
             &variants,
         );
         assert_eq!(skip.iter().map(|p| (p.fits.len(), p.jumps)).collect::<Vec<_>>(), [(2, 1)], "{skip:#?}");
+    }
+
+    /// `x` at the fingerprint rate as a library print.
+    fn print(x: &[f32]) -> TrackPrint {
+        TrackPrint { duration_secs: x.len() as f32 / RATE as f32, peaks: peaks(x, LIBRARY).0 }
+    }
+
+    /// A copy shifted by an encoder's delay (26 ms) is the whole of the original, and its offset
+    /// is measured to within a few milliseconds. An edit with 16 s cut out of its middle shares
+    /// only part of it at any one offset, a copy 0.5% fast drifts, and another track shares
+    /// nothing.
+    #[test]
+    fn copies_line_up_and_edits_dont() {
+        let secs = |s: f64| (s * RATE as f64) as usize;
+        let x = synth(120.0, 7919);
+        let original = print(&x);
+        let delayed: Vec<f32> = std::iter::repeat_n(0.0, secs(0.026)).chain(x.iter().map(|s| s * 0.7)).collect();
+        let copy = align(&original, &print(&delayed)).unwrap();
+        assert!((copy.offset - 0.026).abs() < 0.005 && copy.is_precise(), "{copy:?}");
+        assert!(copy.coverage.0 > 0.95 && copy.coverage.1 > 0.95, "{copy:?}");
+        let back = align(&print(&delayed), &original).unwrap();
+        assert!((back.offset + copy.offset).abs() < 0.005, "{back:?}");
+
+        let edit = print(&[&x[..secs(50.0)], &x[secs(66.0)..]].concat());
+        let cut = align(&original, &edit).unwrap();
+        assert!(cut.coverage.0 < 0.7 && cut.coverage.1 < 0.8, "{cut:?}");
+
+        let fast = align(&original, &print(&faster(&x, 1.005))).unwrap();
+        assert!(!fast.is_precise() && fast.coverage.0 < 0.8, "{fast:?}");
+        assert!(align(&original, &print(&synth(120.0, 3 * 7919))).is_none_or(|a| a.coverage.0 < 0.1));
     }
 
     #[test]

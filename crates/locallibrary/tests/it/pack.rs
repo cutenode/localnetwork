@@ -1,4 +1,5 @@
 mod files;
+mod transcode;
 
 use crate::common;
 
@@ -314,4 +315,55 @@ fn packs_space_check_counts_the_backup() {
         again.needed_bytes,
         again.copy_bytes
     );
+}
+
+/// A target whose OneLibrary database can't be read may hold history lists a CDJ-3000X recorded
+/// there, which the check for unsaved history can't see: packing over it saves the drive in the
+/// store first (refused without one), as it does history lists it can read.
+#[test]
+fn a_onelibrary_that_cant_be_read_is_saved_before_packing_over_it() {
+    use locallibrary::Error;
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = source(dir.path());
+    let mut src = Device::open_export(&src_root).unwrap();
+    src.adopt(None).unwrap();
+    let club_root = common::bigger_drive(dir.path(), "Club");
+    common::add_onelibrary(&club_root);
+    fs::write(club_root.join(paths::LIBRARY_PLUS_DB), b"not a database").unwrap();
+    let mut club = Device::open(&club_root).unwrap();
+    let opts = PackOptions { playlists: vec!["Other".into()], ..Default::default() };
+    let plan = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    let unsaved = plan.unsaved.clone().expect("what OneLibrary holds can't be checked");
+    assert!(unsaved.history_lists.is_empty() && unsaved.describe().contains("exportLibrary.db"), "{unsaved:?}");
+    assert!(plan.warnings.iter().any(|w| w.contains("an exportLibrary.db that can't be read")), "{:?}", plan.warnings);
+    let err = pack::apply(&plan, &src, &mut club, None, &Ctx::silent()).unwrap_err();
+    assert!(matches!(err.inner(), Error::Conflict(_)), "{err}");
+}
+
+/// A source whose OneLibrary database can't be read used to pack with export.pdb alone, taking
+/// the target's exportLibrary.db away with only a warning, so players that read only OneLibrary
+/// couldn't browse the packed drive. It's refused, naming them, and the target is left as it was.
+#[test]
+fn a_source_whose_onelibrary_cant_be_read_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = source(dir.path());
+    let club_root = dir.path().join("Club");
+    fs::create_dir_all(&club_root).unwrap();
+    let mut src = Device::open_export(&src_root).unwrap();
+    src.adopt(None).unwrap();
+    let mut club = Device::open(&club_root).unwrap();
+    let opts = PackOptions { playlists: vec!["Other".into()], ..Default::default() };
+    let plan = pack::plan(&src, &club, &opts, &Ctx::silent()).unwrap();
+    pack::apply(&plan, &src, &mut club, None, &Ctx::silent()).unwrap();
+    let packed = fs::read(club_root.join(paths::LIBRARY_PLUS_DB)).unwrap();
+
+    fs::write(src_root.join(paths::LIBRARY_PLUS_DB), b"not a database").unwrap();
+    let src = Device::open_export(&src_root).unwrap();
+    let err = pack::plan(&src, &Device::open(&club_root).unwrap(), &opts, &Ctx::silent()).unwrap_err();
+    let message = err.to_string();
+    assert!(message.contains("exportLibrary.db can't be read") && message.contains("CDJ-3000X"), "{message}");
+    let offered =
+        err.detail().actions.into_iter().map(|a| (a.method, a.params.get("replace").cloned())).collect::<Vec<_>>();
+    assert_eq!(offered, [(Some("convert.plan".to_string()), Some(serde_json::Value::Bool(true)))]);
+    assert_eq!(fs::read(club_root.join(paths::LIBRARY_PLUS_DB)).unwrap(), packed);
 }

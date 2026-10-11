@@ -1,5 +1,6 @@
 //! Converting between export.pdb and OneLibrary, and spotting when the two disagree.
 
+mod existing;
 mod imperfect_drives;
 
 use crate::common::{self, media::png};
@@ -10,10 +11,9 @@ use locallibrary::api;
 use locallibrary::artwork::{self, Artwork};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift, LineageOp};
-use locallibrary::error::Reason;
 use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
-use locallibrary::{Error, anlz, backup, paths, pdb};
+use locallibrary::{anlz, backup, paths, pdb};
 
 fn opts(to: Target, replace: bool) -> ConvertOptions {
     ConvertOptions { to, replace }
@@ -60,9 +60,9 @@ fn builds_onelibrary_from_export_pdb() {
     // SQLCipher accepts the new file.
     common::sqlcipher_reads(&root);
 
-    // A second conversion needs --replace; undoing removes the new database.
-    let refused = convert::plan(&d, &opts(Target::OneLibrary, false), &Ctx::silent());
-    assert!(refused.is_err_and(|e| matches!(e.inner(), Error::Conflict(_)) && e.reason() == Some(Reason::Exists)));
+    // A second conversion has nothing to add; undoing removes the new database.
+    let again = convert::plan(&d, &opts(Target::OneLibrary, false), &Ctx::silent()).unwrap();
+    assert!(again.adds && again.is_noop(), "{again:?}");
     backup::restore(&mut d, report.backup.as_deref(), false).unwrap();
     assert!(!d.has_library_plus());
 }
@@ -239,8 +239,8 @@ fn replacing_onelibrary_fixes_drift_and_keeps_its_rows() {
     assert_eq!(kept, 11, "rows OneLibrary had are kept whole; the missing one is rebuilt");
 }
 
-/// OneLibrary's database is built from export.pdb; building it again replaces it only when asked,
-/// and the plan says it does.
+/// OneLibrary's database is built from export.pdb; converting again adds to it, and replaces it
+/// only when asked, and the plan says it does.
 #[test]
 fn onelibrary_is_built_from_export_pdb_and_replaced_only_when_asked() {
     let dir = tempfile::tempdir().unwrap();
@@ -256,7 +256,8 @@ fn onelibrary_is_built_from_export_pdb_and_replaced_only_when_asked() {
     assert_eq!(api::convert_apply(&convert(false), &Ctx::silent()).unwrap().tracks, 2);
     assert!(Device::open(&main).unwrap().has_library_plus());
 
-    assert!(api::convert_plan(&convert(false), &Ctx::silent()).is_err(), "there's one already");
+    let again = api::convert_plan(&convert(false), &Ctx::silent()).unwrap();
+    assert!(again.noop && !again.destructive, "there's one already, with every track");
     let again = api::convert_plan(&convert(true), &Ctx::silent()).unwrap();
     assert!(again.destructive);
     assert!(again.summary[0].ends_with(", replacing the exportLibrary.db it has"), "{:?}", again.summary);

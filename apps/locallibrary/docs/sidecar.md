@@ -206,12 +206,19 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by
   `op` (`create_playlist`, `rename_playlist`, `move_playlist`, `delete_playlist`, `add_tracks`,
   `remove_tracks`, `move_tracks`, `set_tracks`, `set_entries`, `sort_playlist`, `dedupe`,
-  `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `delete_history`; see `edit::Edit`),
-  applied as one change with one backup. Tracks are chosen with selectors (`{"ids": [12]}`,
+  `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `set_path`, `delete_history`; see
+  `edit::Edit`), applied as one change with one backup. Tracks are chosen with selectors (`{"ids": [12]}`,
   `{"filter": "bpm:>=128"}`, `{"paths": ["/Contents/..."]}`, `playlist`, `album`, `query`,
   `history`; a track must fit every field given). Also `edits.list`, `edits.replay.plan/apply`,
-  `edits.clear`, `import.plan/apply`, `dedupe.plan/apply`, `history.delete.plan/apply`,
-  `smart.list/set/remove`, `smart.write.plan/apply`, `pack.plan/apply`, `tags.list`,
+  `edits.clear`, `import.plan/apply`, `dedupe.plan/apply` (`by_sound` also finds the same
+  recording in another file or encoding), `relocate.plan/apply` (`{drive, folders}`, absolute
+  paths: finds missing tracks' files, `ambiguous` lists those with several, `unfit` those whose
+  only file isn't as long), `upgrade.plan/apply`
+  (`{drive, folders, remove_old}`: lossy tracks pointed at lossless files of their recording,
+  `not_upgraded` says why the others weren't), `history.delete.plan/apply`,
+  `smart.list/set/remove`, `smart.write.plan/apply`, `pack.plan/apply` (`transcode: {players,
+  container, decode_lossy}` packs copies the players play; `transcodes` and `unplayable` in the
+  plan), `tags.list`,
   `tags.plan/apply`, `cues.list`, `cues.plan/apply`, `playlist.restore.plan/apply` (`{drive,
   playlist}`, with `snapshot` or `backup` to choose the source; the plan lists the `missing` entries
   left out).
@@ -231,7 +238,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   webview to load directly.
 - Reading: `tracks.query` (filter, sort, paging), `track.analysis` (beat grid, cues, waveforms,
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
-  (harmonic matches), `doctor`, `doctor.orphans.plan/apply`, `plays.history`, `plays.archive`,
+  (harmonic matches), `doctor` (`analyze`: the analysis section), `doctor.orphans.plan/apply`,
+  `analysis.bench` (scoring rekordbox and the analysis against GiantSteps annotations), `plays.history`, `plays.archive`,
   `plays.stats`, `profile.build` (the report, preferences and document), `profile.document`,
   `profile.prefs`, `profile.prefs.set`, `export`, `diff`, `check`, `players.models` (what each model
   reads), `players.show/set/clear` (`{models, library}`; the models `check` uses without `players`),

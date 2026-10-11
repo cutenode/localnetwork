@@ -114,3 +114,53 @@ fn restore_preview_shows_what_a_clean_would_bring_back() {
         Err(Error::NotFound(_))
     ));
 }
+
+/// A CDJ-3000X writes only to OneLibrary: diffs between drives, and what restoring a backup
+/// would change, show its playlists too.
+#[test]
+fn diffs_show_what_changed_in_onelibrary() {
+    use locallibrary::edit::Edit;
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let a = common::bigger_drive(dir.path(), "A");
+    common::add_onelibrary(&a);
+    let b = dir.path().join("B");
+    common::copy_dir(&a, &b);
+    common::apply(&b, &[Edit::CreatePlaylist { path: "Mine".into(), folder: false }]);
+    let mut one = OneLibrary::open_root(&b).unwrap();
+    one.create_playlist("Booth", 0, false).unwrap();
+    fs::write(b.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let d = api::diff(None, &req(path(&a), path(&b), None)).unwrap();
+    let mut added = d.added_playlists.clone();
+    added.sort();
+    assert_eq!(added, ["Booth", "Mine"], "{d:?}");
+    let p = api::restore_preview(&RestoreBackup { drive: path(&b), backup: None, force: false }).unwrap();
+    let mut removed = p.diff.removed_playlists.clone();
+    removed.sort();
+    assert_eq!(removed, ["Booth", "Mine"], "{:?}", p.diff);
+}
+
+/// `diff --playlist` finds a playlist only OneLibrary has, and a playlist whose entries changed
+/// only in OneLibrary isn't counted as the same.
+#[test]
+fn a_playlist_only_onelibrary_has_or_changed_is_diffed() {
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let a = common::bigger_drive(dir.path(), "A");
+    common::add_onelibrary(&a);
+    let b = dir.path().join("B");
+    common::copy_dir(&a, &b);
+    let mut one = OneLibrary::open_root(&b).unwrap();
+    let booth = one.create_playlist("Booth", 0, false).unwrap();
+    one.add_to_playlist(booth, 1).unwrap();
+    let aab = one.library().unwrap().find_playlist("aab").unwrap().id;
+    one.add_to_playlist(aab, 1).unwrap();
+    fs::write(b.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let d = api::diff(None, &req(path(&a), path(&b), Some("Booth"))).unwrap();
+    assert_eq!(d.added_playlists, ["Booth"], "{d:?}");
+    let d = api::diff(None, &req(path(&a), path(&b), None)).unwrap();
+    assert_eq!(d.changed_playlists.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(), ["aab"], "{d:?}");
+    assert_eq!(d.unchanged_playlists, 0, "{d:?}");
+}

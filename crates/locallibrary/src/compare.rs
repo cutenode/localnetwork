@@ -24,9 +24,9 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::device::{Device, LineageEntry, LineageOp};
+use crate::doctor::Databases;
 use crate::hash::Hash;
 use crate::model::{Library, LibraryDiff};
-use crate::onelibrary::OneLibrary;
 use crate::paths;
 use crate::pdb;
 use crate::progress::Ctx;
@@ -57,6 +57,19 @@ pub struct Side {
     pub packed_from: Option<Uuid>,
 }
 
+/// A file of `snapshot` from the store: where it is and its bytes (`None`: the snapshot lacks it).
+pub(crate) fn snapshot_object(
+    store: &Store,
+    snapshot: &Snapshot,
+    key: &str,
+) -> Result<Option<(std::path::PathBuf, Vec<u8>)>> {
+    let Some(entry) = snapshot.files.iter().find(|f| f.path == key) else { return Ok(None) };
+    let hash = entry.hash.ok_or_else(|| Error::invalid(format!("{} has no hash", entry.path)))?;
+    let path = store.object_path(&hash);
+    let bytes = std::fs::read(&path).map_err(|e| Error::Io { path: path.clone(), source: e })?;
+    Ok(Some((path, bytes)))
+}
+
 impl Side {
     pub fn from_device(device: &Device, ctx: &Ctx<'_>) -> Result<Side> {
         let library = device.library()?;
@@ -81,25 +94,13 @@ impl Side {
     }
 
     pub fn from_snapshot(store: &Store, snapshot: &Snapshot, label: impl Into<String>) -> Result<Side> {
-        let object = |key: &str| -> Result<Option<(std::path::PathBuf, Vec<u8>)>> {
-            let Some(entry) = snapshot.files.iter().find(|f| f.path == key) else { return Ok(None) };
-            let path = store.object_path(&entry.hash.expect("snapshot files are hashed"));
-            let bytes = std::fs::read(&path).map_err(|e| Error::Io { path: path.clone(), source: e })?;
-            Ok(Some((path, bytes)))
-        };
         // Like a drive: export.pdb when the snapshot has one, otherwise OneLibrary.
-        let (library, sequence) = match object(paths::EXPORT_PDB)? {
+        let (library, sequence) = match snapshot_object(store, snapshot, paths::EXPORT_PDB)? {
             Some((path, bytes)) => {
                 let sequence = pdb::read_header(&bytes).map(|h| h.sequence);
                 (pdb::library_from_database(&pdb::parse_database(bytes, &path)?), sequence)
             }
-            None => {
-                let (_, db) = object(paths::LIBRARY_PLUS_DB)?.ok_or_else(|| {
-                    Error::NotFound(format!("export.pdb or exportLibrary.db in snapshot {}", snapshot.id.short()))
-                })?;
-                let wal = object(paths::LIBRARY_PLUS_WAL)?.map(|(_, b)| b);
-                (OneLibrary::from_encrypted(&db, wal.as_deref())?.library()?, None)
-            }
+            None => (Databases::from_snapshot(store, snapshot)?.primary().clone(), None),
         };
         Ok(Side {
             label: label.into(),
@@ -256,7 +257,22 @@ impl Comparison {
 }
 
 pub fn compare_devices(left: &Device, right: &Device, ctx: &Ctx<'_>) -> Result<Comparison> {
-    Ok(compare(&Side::from_device(left, ctx)?, &Side::from_device(right, ctx)?))
+    let mut c = compare(&Side::from_device(left, ctx)?, &Side::from_device(right, ctx)?);
+    // A side holds export.pdb's library when the drive has it, and OneLibrary players write only
+    // to OneLibrary: its differences count too.
+    let (l, r) = (Databases::read(left).ok(), Databases::read(right).ok());
+    if let (Some(l), Some(r)) = (l.as_ref().and_then(Databases::beside), r.as_ref().and_then(Databases::beside)) {
+        crate::diff::add_library_diff(&mut c.diff, older_to_newer(c.relation, l, r));
+    }
+    Ok(c)
+}
+
+/// How `left` and `right` differ, from the older to the newer as `relation` has them.
+fn older_to_newer(relation: Relation, left: &Library, right: &Library) -> LibraryDiff {
+    match relation {
+        Relation::LeftNewer => LibraryDiff::between(right, left),
+        _ => LibraryDiff::between(left, right),
+    }
 }
 
 pub fn compare(left: &Side, right: &Side) -> Comparison {
@@ -287,11 +303,7 @@ pub fn compare(left: &Side, right: &Side) -> Comparison {
         Relation::Diverged | Relation::Undetermined => Suggestion::ChooseOrMerge,
         Relation::Unrelated => Suggestion::Merge,
     };
-    let diff = match relation {
-        Relation::RightNewer => LibraryDiff::between(&left.library, &right.library),
-        Relation::LeftNewer => LibraryDiff::between(&right.library, &left.library),
-        _ => LibraryDiff::between(&left.library, &right.library),
-    };
+    let diff = older_to_newer(relation, &left.library, &right.library);
     Comparison {
         relation,
         confidence,

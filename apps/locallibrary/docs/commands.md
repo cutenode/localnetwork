@@ -91,9 +91,9 @@ its drives.
 | `locallibrary sync [<library> \| <a> <b> ...] [--allow-guess]` | Copy the newest drive over the others, all at once (refuses if any diverged or hold different libraries, except a drive [back from a set](drives.md#back-from-a-set); `--allow-guess` goes with a low-confidence verdict on which is newer); with no drives, every library plugged in, each from its newest drive, with one question |
 | `locallibrary sync --from <source> <target>` | Copy one drive onto another, overwriting the target's library whichever is newer |
 | `locallibrary pull [<library> \| <drive>] [-l LIB] [-m MSG] [--label L]` | Snapshot a drive into the store (with a library, or no drive, every mounted drive of one library), see [The store](store.md) |
-| `locallibrary check [<library> \| <drive>...] [--players MODEL,...] [--audio] [--verbose]` | Check the drives you're taking to a set, down to tracks a player won't load (`--audio`: and audio files cut short); exit status 4 on problems, see [Before a set](sets.md#before-a-set) |
+| `locallibrary check [<library> \| <drive>...] [--players MODEL,...] [--audio] [--verbose]` | Check the drives you're taking to a set, down to tracks a player won't load (`--audio`: and audio files cut short; tracks too loud or clipped, once `doctor --analyze` has measured them); exit status 4 on problems, see [Before a set](sets.md#before-a-set) |
 | `locallibrary eject [<library> \| <drive>...]` | Unmount drives and power them off (experimental on Linux and Windows), see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
-| `locallibrary undo [<library> \| <drive>] [--list]` | Take back the last change locallibrary made to a library or drive (run again, the one before), after a plan of the files, playlists, history lists and recorded edits that change; refused if the drive changed since, unless `--force`; `--list` shows what can be undone on every mounted drive |
+| `locallibrary undo [<library> \| <drive>] [--list]` | Take back the last change locallibrary made to a library or drive (run again, the one before), after a plan of the files, playlists (in both databases), history lists and recorded edits that change; refused if the drive changed since, unless `--force`; `--list` shows what can be undone on every mounted drive |
 | `locallibrary` / `locallibrary tui [<library>]` | Interactive player, see [Player](player.md) |
 
 **Drives**
@@ -112,7 +112,8 @@ its drives.
 | `locallibrary drive firmware <drive> [file.UPD] [--remove]` | Stage a player or mixer firmware update, see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
 | `locallibrary drive backups [<drive>]` / `drive restore <library> \| <drive>` | The backups taken before every change to a drive; put any of them back (`--backup ID`; `--dry-run` shows what would change; refuses a backup whose audio has since been removed, unless `--force`). `--playlist P` brings back one playlist or folder from a snapshot or backup, see [Bringing back a playlist](editing.md#bringing-back-a-playlist) |
 | `locallibrary provision <target>` | Set up a new drive in one step, see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
-| `locallibrary doctor [<library>] [--hash-audio] [--audio] [--only SECTION,...]` | Health report: duplicates with a suggested keeper, missing or cut-short files, orphaned files, tracks in no playlist, database drift, files over 4 GB, how players read the drive (`--audio`: audio files cut short or that don't decode); `--fix-orphans` deletes orphans after a backup |
+| `locallibrary doctor [<library>] [--hash-audio] [--by-sound] [--audio] [--analyze] [--only SECTION,...]` | Health report: duplicates with a suggested keeper (`--by-sound`: also the same recording in another file or encoding), missing or cut-short files, orphaned files, tracks in no playlist, database drift, files over 4 GB, how players read the drive (`--audio`: audio files cut short or that don't decode; `--analyze`: tempos and keys an analysis of the audio disagrees with, and tracks too loud, clipped or far from the library's level); `--fix-orphans` deletes orphans after a backup |
+| `locallibrary analysis bench [<library> \| <drive>] [--keys PATH] [--tempos DIR] [--audio DIR]` | Score rekordbox's stored keys and tempos, and the analysis `doctor --analyze` runs, against the GiantSteps datasets (`--keys`, `--tempos` or both), see [Checking the analysis](drives.md#checking-the-analysis) |
 | `locallibrary watch [--pull] [--sync-group] [--once] [--install \| --uninstall]` | Pull drives into the store as they're plugged in, so their history lists outlive rekordbox's import, and sync the rest of their group; `--install` runs that whenever you log in (`--no-sync-group`: only pull), see [Saving drives as they're plugged in](store.md#saving-drives-as-theyre-plugged-in) |
 
 **Library and store**
@@ -128,7 +129,7 @@ its drives.
 | `locallibrary store [info\|gc\|verify\|label\|unlabel\|prune]` | Store size, garbage collection, integrity check, snapshot labels, removing old snapshots |
 | `locallibrary store copy <dir>` / `store copies` | Copy the store somewhere else (a NAS, another disk, a cloud-synced folder), only what's new; where copies were made, see [Off-site copies](store.md#off-site-copies) |
 | `locallibrary diff <a> <b> [--playlist P]` | Playlist entries added, removed and moved between libraries (a library's newest drive plugged in, else its latest snapshot), drives or `snapshot:<id>`s |
-| `locallibrary diff <a> <b> --summary` | Which drive is newer, the evidence, and the differences |
+| `locallibrary diff <a> <b> --summary` | Which drive is newer, the evidence, and the differences (in both databases) |
 | `locallibrary collection [info\|tracks\|playlists\|diff <library>]` | rekordbox's own collection on this computer (`master.db`), read only, and what a drive lacks against it, see [rekordbox's collection](other-software.md#rekordboxs-collection) |
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--dry-run]` | The library for other DJ software, written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
@@ -140,15 +141,15 @@ its drives.
 | --- | --- |
 | `locallibrary playlist [<library>]` | A library's playlist tree (`playlist ls`) |
 | `locallibrary playlist ...` | Create, rename, move, delete, fill, sort, order for mixing and import playlists, see [Editing playlists and tracks](editing.md#editing-playlists-and-tracks) |
-| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find harmonic matches |
+| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), swap MP3s for lossless files of their recording (`track upgrade`, see [Upgrading to lossless](editing.md#upgrading-to-lossless)), find harmonic matches |
 | `locallibrary tags ...` | My Tags: list, `add`/`untag` tracks, `rename`, `delete` a tag, see [My Tags](editing.md#my-tags) |
 | `locallibrary cues ...` | Hot cues, memory cues and loops: list, set, rename, recolour, delete, copy, see [Cues](editing.md#cues) |
 | `locallibrary art [<library>] ...` | Tracks without artwork (`art missing`), and setting it, see [Cover art](editing.md#cover-art) |
 | `locallibrary edits [list\|replay\|clear] [<library>]` | The edits made to a library; make them again after rekordbox exports over them |
 | `locallibrary smart ...` | Rule-based playlists kept in the store and written to drives, see [Rule-based playlists](editing.md#rule-based-playlists) |
 | `locallibrary merge <source> <target>` | Add the source's missing tracks and playlists to the target library (`--history`: and its history playlists) |
-| `locallibrary pack <library> <drive> --playlist P` | A drive for a set holding only some playlists, see [Drives for a set](editing.md#drives-for-a-set) |
-| `locallibrary convert <library> --to onelibrary\|device-library` | Build OneLibrary from `export.pdb` or the reverse (`--replace` rebuilds an existing one), see [Convert](editing.md#convert) |
+| `locallibrary pack <library> <drive> --playlist P` | A drive for a set holding only some playlists, with `--transcode` as copies its players play, see [Drives for a set](editing.md#drives-for-a-set) |
+| `locallibrary convert <library> --to onelibrary\|device-library` | Build OneLibrary from `export.pdb` or the reverse; one the drive has gains what it lacks (`--replace` rebuilds it), see [Convert](editing.md#convert) |
 | `locallibrary clean <library>` | Remove useless tracks (rekordbox's bundled demo samples, which pile up with every export) with their files, analysis and playlist entries |
 | `locallibrary settings [<drive>] ...` | The settings profile, or a drive's settings, see [Settings](settings.md) |
 
@@ -305,6 +306,6 @@ locallibrary playlist delete Home Sam --with-tracks   # after the set: the folde
 **A drive for tonight**
 
 ```bash
-locallibrary pack Home /Volumes/TONIGHT --playlist "Sets/2026/Friday" --playlist Classics
+locallibrary pack Home /Volumes/TONIGHT --playlist "Sets/2026/Friday" --playlist Classics --transcode
 locallibrary check REKORDBOX /Volumes/TONIGHT --players CDJ-3000X,CDJ-2000NXS2
 ```

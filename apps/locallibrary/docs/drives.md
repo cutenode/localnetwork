@@ -162,7 +162,8 @@ sets). When one drive's changes are only things players do (new history lists, r
 files of tracks that were already there, player state files, TAG LIST playlists), it saves that
 drive as a snapshot, so its history lists and cues stay in the store, copies the newer library
 over it, and saves the result as the newest snapshot. Any other change still counts, and the sync
-refuses as before.
+refuses as before. On a drive with both databases it looks at both, since a CDJ-3000X writes
+only to OneLibrary: its playlist edits count as changes of the drive's own.
 
 ## Formatting a drive
 
@@ -239,12 +240,62 @@ sync REKORDBOX BACKUP` works right after.
 `locallibrary doctor` (or `doctor Home`) reports problems in a library and changes nothing
 (`--hash-audio` keeps the hashes it makes in a named drive's `.locallibrary/` file index):
 duplicates (several rows for one file, Sync Manager's `Name-1.mp3` copies, the same
-artist/title/length, and with `--hash-audio` identical audio) with a suggested keeper, missing or
-cut-short audio, missing analysis and artwork, orphaned files, tracks in no playlist, drift between
-the two databases, files of 4 GB or more, and how players read the drive. `track dedupe` replaces
-the duplicates; `--fix-orphans` deletes audio under `Contents/`, analysis under `PIONEER/USBANLZ/`
+artist/title/length, with `--hash-audio` identical audio, and with `--by-sound` the same recording
+in another file or encoding) with a suggested keeper and what decided it, missing or cut-short
+audio, missing analysis and artwork, orphaned files, tracks in no playlist, drift between the two
+databases, files of 4 GB or more, and how players read the drive. `track dedupe` replaces the
+duplicates and `track relocate` finds missing audio (see [Editing](editing.md#missing-files));
+`--fix-orphans` deletes audio under `Contents/`, analysis under `PIONEER/USBANLZ/`
 and images under `PIONEER/Artwork/` that no track in either database uses, after backing them up.
 Files other than audio under `Contents/` are never touched. `--audio` adds audio files that don't
 open, are cut short or don't decode at the end (see [Before a set](sets.md#before-a-set)). `--only
 duplicates,unfiled` runs just those sections, `--all` lists every group and file instead of the
 first few, and `--fix-orphans --dry-run` shows what it would delete.
+
+`--by-sound` fingerprints every track's audio the first time (the store keeps the prints, as
+`mix` does, so later runs decode only new files) and compares tracks whose lengths are within 2
+seconds: two are one recording when their fingerprints line up at one offset over at least 80% of
+each. A FLAC, an MP3 made from it and a 48 kHz copy all do; an extended mix and its radio edit share
+most of their audio but not their length, so they never count as copies, and nor does an edit with
+a stretch cut out, which lines up only in part.
+
+`--analyze` (or `--only analysis`) decodes every track the first time (the store keeps the
+results, so later runs decode only new files) and estimates its tempo and key with
+[stratum-dsp](https://github.com/HLLMR/stratum-dsp) and its loudness (EBU R 128), then lists:
+
+- stored tempos the estimate doesn't agree with (within 4%): half, double, 2/3 or 3/2 of it, or
+  different, and which of the two the library's other tempos make likelier. rekordbox's x2 and /2
+  buttons fix a tempo that's half or double;
+- stored keys the estimate doesn't agree with: a fifth away, the relative or parallel key, or
+  unrelated;
+- tracks whose true peak is over 0 dBTP, that have runs of three or more samples at full scale, or
+  whose integrated loudness is more than 6 LU from the library's median.
+
+The estimates are a second opinion, not a correction: on the GiantSteps datasets rekordbox gets
+about 72% of keys right and about 75% of tempos within 4%, and stratum-dsp's own figures are
+similar. Where they disagree, listen. Ordering a set (`playlist order`) uses what's cached: a key
+the analysis heard a fifth away, or as its relative or parallel, counts as less sure (and one it
+heard as unrelated, least sure), so a clash it causes weighs less.
+None of this counts as a problem for doctor's exit status.
+
+### Checking the analysis
+
+```bash
+locallibrary analysis bench GIANTSTEPS --keys giantsteps-key-dataset/annotations/key \
+  --tempos giantsteps-tempo-dataset/annotations_v2/tempo
+locallibrary analysis bench --keys giantsteps-mtg-key-dataset/annotations/annotations.txt --audio audio/
+```
+
+`analysis bench` scores rekordbox's stored keys and tempos on a drive, and the analysis doctor runs
+on the same audio (or the files in `--audio`), against the annotations of the
+[GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset),
+[GiantSteps MTG Key](https://github.com/GiantSteps/giantsteps-mtg-key-dataset) (its tracks with one
+key at confidence 2) and [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset)
+datasets (`annotations_v2` holds the revised tempos). Clone them and run their download scripts
+for the audio; to score rekordbox, import the audio into rekordbox and export it to a drive. Tracks
+match annotations by file name up to the first dot (`1004923.LOFI.mp3` and `1004923.LOFI.key`).
+Keys get MIREX's weighted score (1 for the right key, 0.5 a fifth away, 0.3 the relative key, 0.2
+the parallel one) and the share of each mistake; tempos get Accuracy1 (within 4%) and Accuracy2
+(also double, half, triple or a third), and the share of each octave mistake. Fifths count in
+either direction, as MIREX has scored them since 2017; weighted scores published before then,
+such as the 2015 GiantSteps paper's, counted only a fifth above, so don't compare them directly.

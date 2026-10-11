@@ -1,6 +1,7 @@
 //! Synthetic audio for tests, behind the `test-util` feature. Not part of the stable API: it
 //! changes with the tests that use it.
 
+use crate::audio::Resampler;
 use crate::fingerprint::RATE;
 
 /// Deterministic noise-like test signal with structure: chirps and clicks, at [`RATE`].
@@ -57,5 +58,14 @@ pub fn wav_of(rate: u32, bits: u16, samples: impl ExactSizeIterator<Item = i32>)
             out.extend_from_slice(&v.to_le_bytes()[..bytes as usize]);
         }
     }
+    out
+}
+
+/// `x` resampled from `from` Hz to `to` Hz.
+pub fn resample(x: &[f32], from: u32, to: u32) -> Vec<f32> {
+    let mut r = Resampler::new(from, to);
+    let mut out = Vec::new();
+    r.push(x, &mut |s| out.extend_from_slice(s));
+    r.finish(&mut |s| out.extend_from_slice(s));
     out
 }

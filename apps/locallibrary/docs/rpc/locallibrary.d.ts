@@ -148,6 +148,50 @@ export type Alternate = {
   track_id: number;
 };
 
+/** A track and every file of its name found for it, none picked. */
+export type Ambiguous = {
+  candidates: RelocateCandidate[];
+  track: TrackRef;
+};
+
+export type AnalysisBenchRequest = {
+  /** The datasets' audio to analyse. Without it, the drive's tracks are. */
+  audio?: string | null;
+  /**
+   * A drive (or library) whose stored keys and tempos are scored too, and whose tracks are
+   * analysed when no `audio` folder is given.
+   */
+  drive?: string | null;
+  /**
+   * Key annotations: GiantSteps Key's `annotations/key` folder (`<id>.LOFI.key` files), or the
+   * GiantSteps MTG Key dataset's `annotations.txt` (its tracks with one key at confidence 2).
+   */
+  keys?: string | null;
+  /**
+   * Tempo annotations: GiantSteps Tempo's `annotations/tempo` or `annotations_v2/tempo` folder
+   * (`<id>.LOFI.bpm` files).
+   */
+  tempos?: string | null;
+};
+
+/**
+ * Tracks whose stored tempo or key the estimates question, and tracks whose level may be a
+ * problem.
+ */
+export type AnalysisReport = {
+  /** Tracks with an analysis (cached or new). */
+  analyzed: number;
+  /** Analysed just now (the rest came from the cache). */
+  decoded: number;
+  /** Tracks whose audio couldn't be analysed. */
+  failed: TrackFailure[];
+  key: KeyFinding[];
+  loudness: LoudnessFinding[];
+  /** The median integrated loudness of the analysed tracks (LUFS). */
+  median_lufs: number | null;
+  tempo: TempoFinding[];
+};
+
 export type AnalysisRequest = {
   drive: string;
   encoding?: WaveformEncoding;
@@ -313,6 +357,15 @@ export type Audio = {
   rates: number[];
 };
 
+/** What a track's rows say about its audio file, for a track pointed at another encoding. */
+export type AudioFile = {
+  bit_depth: number;
+  /** kbps. */
+  bitrate: number;
+  sample_rate: number;
+  size: number;
+};
+
 /** A track whose audio file has a problem. */
 export type AudioFinding = {
   problem: AudioProblem;
@@ -431,6 +484,23 @@ export type Beat = {
   time_ms: number;
 };
 
+/** Each analyzer's scores. */
+export type BenchReport = {
+  /** Tempo Accuracy2 (percent) by analyzer. */
+  accuracy2: { [key: string]: number };
+  /** Audio files that couldn't be analysed: `[name, error]`. */
+  failed: [string, string][];
+  /** Key reports by analyzer (`rekordbox`, `stratum-dsp`): `score` is MIREX's weighted score. */
+  keys: { [key: string]: KeyOutcomeReport };
+  /** Tempo reports by analyzer: `score` is Accuracy1. */
+  tempos: { [key: string]: TempoOutcomeReport };
+  /**
+   * Annotated tracks the analysis had no audio for: not on the drive, missing from it, or not in
+   * the audio folder.
+   */
+  unmatched: number;
+};
+
 export type BpmRange = [low: number, high: number];
 
 export type BrokenTrack = {
@@ -482,8 +552,8 @@ export type CheckEntry = {
 
 export type CheckItem = {
   /**
-   * What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `large_files`,
-   * `interrupted`, `history`, `file_system`, `players` or `formats`.
+   * What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,
+   * `large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.
    */
   check: string;
   /** The drive it's about. */
@@ -500,6 +570,8 @@ export type CheckReport = {
   audio: AudioIssues[];
   drives: string[];
   items: CheckItem[];
+  /** Tracks whose level may be a problem, as the `loudness` items describe them. */
+  loudness: DriveLoudness[];
   /** The player models each drive was checked against, and where they came from. */
   players: DrivePlayers[];
   problems: number;
@@ -779,7 +851,19 @@ export type ContactReport = {
   playlist: string | null;
 };
 
+/** A lossless container a copy is written in. */
+export type Container =
+  | ("wav" | "flac")
+  /** rekordbox and every player read its ID3 tags. */
+  | "aiff";
+
 export type ConvertPlan = {
+  /**
+   * The drive already has that database, and it keeps what it has. The counts below are then
+   * what it gains: tracks it lacks, playlists it lacks or that gain entries, folders made for
+   * them, and history lists it lacks.
+   */
+  adds: boolean;
   /** Artwork images copied under the other database's file names. */
   artwork: number;
   drive: string;
@@ -790,16 +874,23 @@ export type ConvertPlan = {
   /** Space needed: the new database, copied artwork, and the backup of the database files. */
   needed_bytes: number;
   playlists: number;
-  /** The drive already has that database, and it's rebuilt. */
+  /**
+   * The drive already has that database, and it's rebuilt, dropping what only it has (the
+   * warnings name it).
+   */
   replaces: boolean;
   root: string;
-  /** Tracks whose My Tags come along from the other database's tags. */
+  /**
+   * Tracks whose My Tags come along from the other database's tags (that gain some, when
+   * adding).
+   */
   tagged_tracks: number;
   to: Target;
   tracks: number;
   warnings: string[];
 };
 
+/** What a conversion made (added, when the drive had the database: see [`ConvertPlan::adds`]). */
 export type ConvertReport = {
   artwork: number;
   backup: string | null;
@@ -808,14 +899,17 @@ export type ConvertReport = {
   fingerprint: Hash | null;
   history_playlists: number;
   playlists: number;
-  /** Tracks with My Tags in the converted database's tags. */
+  /** Tracks with My Tags in the converted database's tags (that gained some, when adding). */
   tagged_tracks: number;
   tracks: number;
 };
 
 export type ConvertRequest = {
   drive: string;
-  /** Rebuild the target database if the drive already has one. */
+  /**
+   * Rebuild the target database if the drive already has one, dropping what only it has.
+   * Otherwise it keeps what it has and gains what it lacks.
+   */
   replace?: boolean;
   to: Target;
 };
@@ -952,6 +1046,11 @@ export type CueChange = {
   copy: {
     from: string;
   };
+} | {
+  carry: {
+    from: string;
+    shift_ms: number;
+  };
 };
 
 /** A cue as shown to people. */
@@ -1066,6 +1165,11 @@ export type DbIdentity = {
 export type DecadeCount = [decade: number, count: number];
 
 export type DedupeRequest = {
+  /**
+   * Also find copies by their sound: the same recording in another file or encoding (see
+   * [`crate::doctor`]).
+   */
+  by_sound?: boolean;
   drive: string;
   /** Also find copies by audio content (see [`crate::doctor`]). */
   hash_audio?: boolean;
@@ -1269,6 +1373,11 @@ export type DoctorProblem =
   | "missing_artwork";
 
 export type DoctorReport = {
+  /**
+   * What an analysis of the audio says about stored tempos, keys and levels (with
+   * [`DoctorOptions::analyze`]). Opinions to look into, not problems.
+   */
+  analysis: AnalysisReport | null;
   /** Audio files cut short or that don't decode (with [`DoctorOptions::audio`]). */
   audio: AudioReport | null;
   /** How players get on with the drive's disk, when it is a mounted volume's root. */
@@ -1292,8 +1401,16 @@ export type DoctorReport = {
 };
 
 export type DoctorRequest = {
+  /** Also run [`Section::Analysis`]. */
+  analyze?: boolean;
   /** Also run [`Section::Audio`]. */
   audio?: boolean;
+  /**
+   * Also find the same recording in other files and encodings (a FLAC and an MP3 of it) by its
+   * sound: every track is fingerprinted (once: the store keeps the prints) and tracks of about
+   * the same length are compared. Decoding a library's audio the first time takes a while.
+   */
+  by_sound?: boolean;
   drive: string;
   /**
    * Also find duplicates by audio content. Only files whose size matches another track's are
@@ -1303,7 +1420,7 @@ export type DoctorRequest = {
   /** Sections to run (all but [`Section::Audio`] when empty). */
   only?: DoctorSection[];
   /**
-   * Duplicates only by file, audio or Sync Manager copy: leave out tracks that only share
+   * Duplicates only by file, audio, sound or Sync Manager copy: leave out tracks that only share
    * artist, title and length (they may be different edits), also from groups the others join.
    */
   sure_only?: boolean;
@@ -1315,7 +1432,13 @@ export type DoctorSection =
    * Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`
    * naming it): it reads every file's last seconds.
    */
-  | "audio";
+  | "audio"
+  /**
+   * Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,
+   * clipped or far from the library's level. Only when asked for (`analyze`, or `only` naming
+   * it): it decodes every track not analysed before.
+   */
+  | "analysis";
 
 /** How a drive's current settings deviate from what the profile wants. */
 export type Drift = {
@@ -1403,6 +1526,12 @@ export type DriveLog = {
   retired?: string | null;
   /** Operations that wrote to it. */
   writes: number;
+};
+
+/** One drive's tracks whose level may be a problem. */
+export type DriveLoudness = {
+  drive: string;
+  tracks: LoudnessFinding[];
 };
 
 export type DriveOverrides = {
@@ -1505,10 +1634,13 @@ export type Duplicate = {
 
 export type DuplicateGroup = {
   /**
-   * Id of the suggested keeper: most playlist memberships, then the higher bitrate, then the
+   * Id of the suggested keeper: the best audio (lossless over lossy, then the higher bitrate,
+   * sample rate and bit depth), then the most cues, playlists and history lists, then the
    * earliest date added.
    */
   keep: number;
+  /** What put the keeper ahead of the next copy (`lossless over lossy`, `320 kbps over 192`). */
+  keep_reason: string;
   reasons: DuplicateReason[];
   /** Suggested keeper first. */
   tracks: DuplicateTrack[];
@@ -1520,18 +1652,32 @@ export type DuplicateReason =
   | "same_file"
   /** Different files with identical audio (with `hash_audio`). */
   | "same_audio"
+  /**
+   * The same recording in another file or encoding (with `by_sound`): their fingerprints line
+   * up over most of both, and their lengths agree (an extended mix and its radio edit share
+   * most of their audio, but not their length).
+   */
+  | "same_recording"
   /** rekordbox Sync Manager copies: `Name-1.mp3` or `Name (1).mp3` next to `Name.mp3`, same size. */
   | "sync_manager_copy"
   /** Same artist, title and duration. */
   | "same_metadata";
 
 export type DuplicateTrack = {
+  bit_depth: number;
   bitrate: number;
+  /** Hot cues, memory cues and loops in its analysis files. */
+  cues: number;
   date_added: string;
   file_size: number;
+  /** History lists (what players recorded) the track is in. */
+  history: number;
+  /** FLAC, WAV, AIFF or Apple Lossless. */
+  lossless: boolean;
   play_count: number;
   /** Playlists the track is in. */
   playlists: number;
+  sample_rate: number;
   track: TrackRef;
 };
 
@@ -1643,8 +1789,9 @@ export type Edit =
     recordings?: boolean;
   }
   /**
-   * Order a playlist for mixing (see [`harmony::order_set`]): in place, or into a new
-   * playlist at `into`.
+   * Order a playlist for mixing (see [`harmony::order_set`], with how sure
+   * each key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in
+   * place, or into a new playlist at `into`.
    */
   | {
     into?: string | null;
@@ -1675,6 +1822,20 @@ export type Edit =
     keep: TrackSelector;
     keep_duplicate?: boolean;
     op: "replace_track";
+  }
+  /**
+   * Point one track at another audio file on the drive (a device path), as when its file was
+   * moved or renamed: in both databases and in the analysis files that record it. With `file`,
+   * the file is another encoding of the recording (a lossless copy of an MP3): the rows take
+   * its format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and
+   * beat grid move by that much, for audio that starts at another point.
+   */
+  | {
+    file?: AudioFile | null;
+    op: "set_path";
+    path: string;
+    shift_ms?: number;
+    track: TrackSelector;
   }
   /** Delete history lists (what players recorded) by name, or all of them. */
   | {
@@ -1839,8 +2000,9 @@ export type EditOutput =
     recordings: boolean;
   }
   /**
-   * Order a playlist for mixing (see [`harmony::order_set`]): in place, or into a new
-   * playlist at `into`.
+   * Order a playlist for mixing (see [`harmony::order_set`], with how sure
+   * each key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in
+   * place, or into a new playlist at `into`.
    */
   | {
     into: string | null;
@@ -1871,6 +2033,20 @@ export type EditOutput =
     keep: TrackSelector;
     keep_duplicate: boolean;
     op: "replace_track";
+  }
+  /**
+   * Point one track at another audio file on the drive (a device path), as when its file was
+   * moved or renamed: in both databases and in the analysis files that record it. With `file`,
+   * the file is another encoding of the recording (a lossless copy of an MP3): the rows take
+   * its format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and
+   * beat grid move by that much, for audio that starts at another point.
+   */
+  | {
+    file?: AudioFile | null;
+    op: "set_path";
+    path: string;
+    shift_ms?: number;
+    track: TrackSelector;
   }
   /** Delete history lists (what players recorded) by name, or all of them. */
   | {
@@ -1917,6 +2093,11 @@ export type EditPlan = {
   free_space: number | null;
   history_removed: number;
   needed_bytes: number;
+  /**
+   * OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they
+   * leave out edits only OneLibrary lacks, as after rekordbox exported over it alone.
+   */
+  onelibrary_changes: boolean;
   playlists_changed: PlaylistChange[];
   playlists_created: string[];
   playlists_deleted: string[];
@@ -3171,6 +3352,46 @@ export type KeptSnapshot = {
 
 export type KeyCount = [key: string, count: number];
 
+/** A track whose stored key the estimate doesn't agree with. */
+export type KeyFinding = {
+  /** 0 to 1. */
+  confidence: number;
+  /** The analyzer's key, as a Camelot code (`8A`). */
+  estimate: string;
+  /** The estimate against the stored key: `fifth`, `relative`, `parallel` or `other`. */
+  relation: KeyOutcome;
+  /** The library's key, as it stores it. */
+  stored: string;
+  track: TrackRef;
+};
+
+/**
+ * MIREX's key categories, from the [Audio Key Detection task](https://music-ir.org/mirex/wiki/2021:Audio_Key_Detection).
+ * A fifth counts either way round, as MIREX has scored it since 2017 (mir_eval's
+ * `allow_descending_fifths`, [key.py](https://github.com/mir-evaluation/mir_eval/blob/main/mir_eval/key.py)).
+ */
+export type KeyOutcome =
+  | ("correct" | "other")
+  /** A fifth above or below in the same mode: a neighbour on the Camelot wheel. */
+  | "fifth"
+  /** Major for its relative minor or back: same Camelot number. */
+  | "relative"
+  /** Major for minor on the same tonic. */
+  | "parallel"
+  /** The analyzer gave no key. */
+  | "missing";
+
+/** How one analyzer did. */
+export type KeyOutcomeReport = {
+  /** Tracks with each outcome, every outcome listed. */
+  counts: { [key: string]: number };
+  /** The tracks it didn't get fully right, in the order they came, with what it did instead. */
+  misses: [string, KeyOutcome][];
+  /** The mean credit, 0 to 1: MIREX's weighted key score, or tempo Accuracy1. */
+  score: number;
+  tracks: number;
+};
+
 export type KeysSection = {
   minor_share: number | null;
   top: Share[];
@@ -3421,6 +3642,25 @@ export type LooseFile = {
   path: string;
   size: number;
 };
+
+/** A track whose level may be a problem. */
+export type LoudnessFinding = {
+  clipped_runs: number;
+  /** LUFS (`None` for silence). */
+  integrated_lufs: number | null;
+  problems: LoudnessProblem[];
+  track: TrackRef;
+  true_peak_dbtp: number;
+};
+
+/** What may be wrong with a track's level. */
+export type LoudnessProblem =
+  /** Its true peak is above 0 dBTP: a player's converter or a lossy encode can clip it. */
+  | "over_zero"
+  /** Runs of samples at full scale: clipped when it was mastered or converted. */
+  | "clipped"
+  /** Its integrated loudness is more than [`FAR_FROM_MEDIAN_LU`] from the library's median. */
+  | "far_from_median";
 
 /** How an entry was found. */
 export type MatchKind =
@@ -3723,6 +3963,13 @@ export type NewSet = {
 /** No parameters (any object is accepted). */
 export type NoParams = { [key: string]: unknown };
 
+/** A track with a lossless file of its recording that isn't upgraded, and why. */
+export type NotUpgraded = {
+  file: string;
+  track: TrackRef;
+  why: string;
+};
+
 /**
  * An `event` notification's parameters: drives and the store (after `events.subscribe`),
  * requests starting and finishing, and what `watch.start` does.
@@ -3783,8 +4030,8 @@ export type PackPlan = {
   /** Size of the packed library's files. */
   library_bytes: number;
   /**
-   * Space the pack needs on the target: the files it copies, its new databases and the backup
-   * of what it replaces.
+   * Space the pack needs on the target: the files it copies, the copies it makes, its new
+   * databases and the backup of what it replaces.
    */
   needed_bytes: number;
   playlists: string[];
@@ -3794,7 +4041,15 @@ export type PackPlan = {
   target: string;
   target_root: string;
   tracks: number;
+  /** The copies' players and how they're made, as the target will remember them. */
+  transcode: TranscodeOutput | null;
+  /** About how much the copies to make take (not those current already). */
+  transcode_bytes: number;
+  /** Tracks the players can't play, packed as copies they can. */
+  transcodes: PackTranscode[];
   unchanged: number;
+  /** Tracks none of the players play that the pack leaves as they are. */
+  unplayable: PackUnplayable[];
   /** What the target holds that only it has: saved in the store before packing. */
   unsaved: Unsaved | null;
   warnings: string[];
@@ -3815,6 +4070,8 @@ export type PackReport = {
   fingerprint: Hash | null;
   /** The target's state, saved in the store before packing (see [`PackPlan::unsaved`]). */
   saved: SnapshotInfo | null;
+  /** Copies made for the players (see [`PackPlan::transcodes`]). */
+  transcoded: number;
 };
 
 export type PackRequest = {
@@ -3831,6 +4088,33 @@ export type PackRequest = {
   playlists?: string[];
   source: string;
   target: string;
+  /**
+   * Pack tracks the players can't play as lossless copies they can.
+   * Without playlists, as the target was last packed.
+   */
+  transcode?: Transcode | null;
+};
+
+/** A track packed as a copy its players play. */
+export type PackTranscode = {
+  /** A copy of the same audio by the same recipe is on the target already, and stays. */
+  current: boolean;
+  /** The source's audio file and the copy's, as keys. */
+  from: string;
+  /** What the copy is (`aiff-48000-24-tpdf-v1`): container, rate, depth, dither, version. */
+  recipe: string;
+  /** The copy's size: estimated, or what it is when `current`. */
+  size: number;
+  to: string;
+  track: TrackRef;
+  /** The players that don't play the source, and why. */
+  why: string;
+};
+
+/** A track none of the players play that packing leaves as it is. */
+export type PackUnplayable = {
+  track: TrackRef;
+  why: string;
 };
 
 /** One layer of a [`PackedWaveform`]. */
@@ -3911,7 +4195,9 @@ export type Phase =
   /** Decoding and fingerprinting a mix. */
   | "listen"
   /** Looking for library tracks in a mix. */
-  | "match";
+  | "match"
+  /** Decoding library tracks to estimate their tempo, key and loudness. */
+  | "analyze";
 
 export type Phrase = {
   end_beat: number;
@@ -4019,6 +4305,9 @@ export type PlannedTrack = {
   size: number;
   source_id: number;
 };
+
+/** Which of two tempos a [`TempoPrior`] finds more likely. */
+export type Plausible = "stored" | "estimate";
 
 /** One track heard in the mix. */
 export type Play = {
@@ -4933,6 +5222,51 @@ export type Relation =
   | "unrelated"
   /** Same library, no way to tell which is newer. */
   | "undetermined";
+
+/** A file a missing track could be. */
+export type RelocateCandidate = {
+  /** Seconds, when its headers say. */
+  duration_secs: number | null;
+  on_drive: boolean;
+  /** A key on the drive, or a path on this computer. */
+  path: string;
+  size: number;
+};
+
+export type RelocatePlan = {
+  ambiguous: Ambiguous[];
+  /** Tracks whose file is copied to the path they have. */
+  copied: Relocation[];
+  /** Audio copied onto the drive. */
+  copy_bytes: number;
+  drive: string;
+  fits: boolean;
+  free_space: number | null;
+  /** Space needed for that, the backup and the new databases. */
+  needed_bytes: number;
+  /** Missing tracks with no file of their name. */
+  not_found: TrackRef[];
+  /** Tracks pointed at their file where it is on the drive. */
+  repointed: Relocation[];
+  root: string;
+  /** Tracks whose files of their name are none of them as long as the track: none picked. */
+  unfit: Ambiguous[];
+  warnings: string[];
+};
+
+export type RelocateRequest = {
+  drive: string;
+  /**
+   * Folders to look in besides the drive (on this computer or another drive), with
+   * everything below them.
+   */
+  folders?: string[];
+};
+
+export type Relocation = {
+  file: RelocateCandidate;
+  track: TrackRef;
+};
 
 /** The player models `check` uses when none are given. */
 export type RememberedPlayers = {
@@ -6246,6 +6580,65 @@ export type TargetResult = {
 
 export type TempoBin = [bpm: number, count: number];
 
+/** A track whose stored tempo the estimate doesn't agree with. */
+export type TempoFinding = {
+  /** 0 to 1. */
+  confidence: number;
+  /** The analyzer's BPM. */
+  estimate: number;
+  /** Which of the two the library's other tempos make more likely, if either. */
+  likelier: Plausible | null;
+  /**
+   * The stored tempo against the estimate: `half`, `double`, `two_thirds`, `three_halves` or
+   * `disagrees`.
+   */
+  relation: TempoRelation;
+  /** The library's BPM. */
+  stored: number;
+  track: TrackRef;
+};
+
+/**
+ * A tempo estimate against the annotation, within [`TOLERANCE`] (4%) of the annotation times the
+ * factor (Gouyon et al. 2006). Accuracy1 counts [`TempoOutcome::Correct`]; Accuracy2 also counts
+ * the double, half, triple and third tempos.
+ */
+export type TempoOutcome =
+  | ("correct" | "other")
+  /** The estimate is double the annotated tempo. */
+  | "double"
+  /** The estimate is half the annotated tempo. */
+  | "half"
+  /** The estimate is three times the annotated tempo. */
+  | "triple"
+  /** The estimate is a third of the annotated tempo. */
+  | "third"
+  /** The analyzer gave no tempo. */
+  | "missing";
+
+/** How one analyzer did. */
+export type TempoOutcomeReport = {
+  /** Tracks with each outcome, every outcome listed. */
+  counts: { [key: string]: number };
+  /** The tracks it didn't get fully right, in the order they came, with what it did instead. */
+  misses: [string, TempoOutcome][];
+  /** The mean credit, 0 to 1: MIREX's weighted key score, or tempo Accuracy1. */
+  score: number;
+  tracks: number;
+};
+
+/** A stored tempo against an estimate of it. */
+export type TempoRelation =
+  | ("agrees" | "disagrees")
+  /** The stored tempo is half the estimate. */
+  | "half"
+  /** The stored tempo is double the estimate. */
+  | "double"
+  /** The stored tempo is two thirds of the estimate. */
+  | "two_thirds"
+  /** The stored tempo is three halves of the estimate. */
+  | "three_halves";
+
 export type TempoSection = {
   bin_width: number;
   /** Where the middle 80% sits: the 10th and 90th percentiles. */
@@ -6547,6 +6940,32 @@ export type TracksQuery = {
   sort?: string | null;
 };
 
+/** Which players a packed drive's copies are for, and how they're made. */
+export type Transcode = {
+  /** The container copies are written in: AIFF unless given. */
+  container?: Container;
+  /**
+   * Also decode lossy files the players can't play (an MP3 at 22.05 kHz) into lossless copies:
+   * bigger, but no further loss. Lossy files are never encoded lossy again.
+   */
+  decode_lossy?: boolean;
+  /** Player models (see `players models`); none: the ones remembered for the source's library. */
+  players?: string[];
+};
+
+/** Which players a packed drive's copies are for, and how they're made. */
+export type TranscodeOutput = {
+  /** The container copies are written in: AIFF unless given. */
+  container: Container;
+  /**
+   * Also decode lossy files the players can't play (an MP3 at 22.05 kHz) into lossless copies:
+   * bigger, but no further loss. Lossy files are never encoded lossy again.
+   */
+  decode_lossy: boolean;
+  /** Player models (see `players models`); none: the ones remembered for the source's library. */
+  players: string[];
+};
+
 /** The change from one play to the next. */
 export type Transition = {
   /** When the incoming track is first heard. */
@@ -6685,6 +7104,11 @@ export type Unloadable = {
   sample_rate?: number | null;
   /** One per audio file. */
   tracks: TrackRef[];
+  /**
+   * The files are lossless, so packing them as lossless copies the player plays fixes this
+   * (see [`crate::pack::Transcode`]).
+   */
+  transcodable: boolean;
 };
 
 /** How a model gets on with a file. */
@@ -6705,6 +7129,11 @@ export type Unsaved = {
   changed: boolean;
   /** History lists players recorded that the packed library won't have. */
   history_lists: string[];
+  /**
+   * Its OneLibrary database can't be read, so history lists players that read only OneLibrary
+   * recorded there can't be told apart: it's kept whole.
+   */
+  unreadable_onelibrary: boolean;
 };
 
 export type UnsetSettings = {
@@ -6722,6 +7151,50 @@ export type UpdateCue = {
   color?: string | null;
   cue: CueRef;
   name?: string | null;
+};
+
+/** A track pointed at a lossless file of its recording. */
+export type Upgrade = {
+  /** The lossless file found, on this computer. */
+  file: string;
+  /** The file is on the drive already (left by an upgrade since undone): it isn't copied. */
+  on_drive: boolean;
+  /** How much later its cues and beat grid fall in the new file (ms; earlier when negative). */
+  shift_ms: number;
+  size: number;
+  /** Where it goes on the drive (a key): beside the track's file. */
+  to: string;
+  track: TrackRef;
+};
+
+export type UpgradePlan = {
+  copy_bytes: number;
+  drive: string;
+  fits: boolean;
+  free_space: number | null;
+  /** Space for the copies, the backup and the new databases. */
+  needed_bytes: number;
+  not_upgraded: NotUpgraded[];
+  /** Lossy files deleted (with `remove_old`), as keys. */
+  removed: string[];
+  root: string;
+  /** Lossy tracks with no lossless file of their recording in the folders. */
+  unmatched: number;
+  upgrades: Upgrade[];
+  warnings: string[];
+};
+
+export type UpgradeRequest = {
+  drive: string;
+  /** Folders of lossless files (on this computer or another drive), with everything below them. */
+  folders: string[];
+  /**
+   * The players the drive is for: a lossless file one of them can't play isn't used. None: the
+   * ones remembered for the drive's library (none remembered: not checked).
+   */
+  players?: string[];
+  /** Delete the lossy files the tracks used (they're backed up first). */
+  remove_old?: boolean;
 };
 
 export type Verdict =
@@ -7168,6 +7641,14 @@ export interface Methods {
   "dedupe.plan": { params: DedupeRequest & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `dedupe.plan`; can delete or overwrite something */
   "dedupe.apply": { params: ApplyPlan | (DedupeRequest & WriteOptions); result: EditReport };
+  /** plan method; paired with `relocate.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "relocate.plan": { params: RelocateRequest & WriteOptions; result: RelocatePlan & PlanFields };
+  /** apply method; paired with `relocate.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "relocate.apply": { params: ApplyPlan | (RelocateRequest & WriteOptions); result: EditReport };
+  /** plan method; paired with `upgrade.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "upgrade.plan": { params: UpgradeRequest & WriteOptions; result: UpgradePlan & PlanFields };
+  /** apply method; paired with `upgrade.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "upgrade.apply": { params: ApplyPlan | (UpgradeRequest & WriteOptions); result: EditReport };
   /** plan method; paired with `history.delete.apply`; can delete or overwrite something */
   "history.delete.plan": { params: DeleteHistoryRequest & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `history.delete.plan`; can delete or overwrite something */
@@ -7264,6 +7745,8 @@ export interface Methods {
   "doctor.orphans.apply": { params: ApplyPlan | (DriveRef & WriteOptions); result: OrphanCleanReport };
   /** read method; long running: sends `progress`, can be cancelled */
   check: { params: CheckRequest; result: CheckReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "analysis.bench": { params: AnalysisBenchRequest; result: BenchReport };
   /** read method */
   "plays.history": { params: DriveRef; result: DriveHistory };
   /** read method; long running: sends `progress`, can be cancelled */

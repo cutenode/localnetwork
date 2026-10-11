@@ -464,6 +464,38 @@ impl From<loclib_mixid::Error> for Error {
     }
 }
 
+impl From<loclib_analysis::Error> for Error {
+    fn from(e: loclib_analysis::Error) -> Self {
+        use loclib_analysis::Error as E;
+        match e {
+            E::Audio(e) => e.into(),
+            // Audio that decoded but the analyzer couldn't measure: remembered like audio that
+            // doesn't decode, as it won't measure next time either.
+            E::Analyzer { path, message } => Error::Parse { path, message },
+            E::Annotation { line, message } => Error::invalid(format!("line {line}: {message}")),
+            E::Cancelled(_) => Error::Cancelled,
+            // A variant a newer loclib-analysis adds keeps its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
+impl From<loclib_transcode::Error> for Error {
+    fn from(e: loclib_transcode::Error) -> Self {
+        use loclib_transcode::Error as E;
+        match e {
+            E::Decode(e) => e.into(),
+            E::Io { path, source } => Error::Io { path, source },
+            // Audio the container can't hold, or tags it can't take: this file's problem.
+            E::Encode { path, message } | E::Tags { path, message } => Error::Parse { path, message },
+            E::Invalid(message) => Error::Invalid(message),
+            E::Cancelled(_) => Error::Cancelled,
+            // A variant a newer loclib-transcode adds keeps its message.
+            other => Error::Invalid(other.to_string()),
+        }
+    }
+}
+
 /// What a panic said, from its payload (as `catch_unwind` or a thread's `join` hands it back).
 pub fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
     match (payload.downcast_ref::<&str>(), payload.downcast_ref::<String>()) {

@@ -583,6 +583,10 @@ fn build() -> Registry {
         .destructive();
     r.plan("dedupe.plan", |c, req| Ok(api::dedupe_plan(&req, c.ctx)?)).destructive();
     r.apply("dedupe.apply", PlanStore::None, |c, req| Ok(api::dedupe_apply(&req, c.ctx)?)).destructive();
+    r.plan("relocate.plan", |c, req| Ok(api::relocate_plan(&req, c.ctx)?)).long().destructive();
+    r.apply("relocate.apply", PlanStore::None, |c, req| Ok(api::relocate_apply(&req, c.ctx)?)).long().destructive();
+    r.plan("upgrade.plan", |c, req| Ok(api::upgrade_plan(&req, c.ctx)?)).long().destructive();
+    r.apply("upgrade.apply", PlanStore::None, |c, req| Ok(api::upgrade_apply(&req, c.ctx)?)).long().destructive();
     r.plan("history.delete.plan", |c, req| Ok(api::delete_history_plan(c.existing().as_ref(), &req, c.ctx)?))
         .destructive();
     r.apply("history.delete.apply", Existing, |c, req| {
@@ -662,6 +666,7 @@ fn build() -> Registry {
         .long()
         .destructive();
     r.read("check", |c, req| Ok(api::check(c.existing().as_ref(), &req, c.ctx)?)).long();
+    r.read("analysis.bench", |c, req| Ok(api::analysis_bench(&req, c.ctx)?)).long();
     r.read("plays.history", |_, req| Ok(api::drive_history(&req)?)).quick();
     r.read("plays.archive", |c, req| Ok(api::history_archive(&Store::open(c.root)?, &req, c.ctx)?)).long();
     r.read("plays.stats", |c, req| Ok(api::play_stats(c.existing().as_ref(), &req)?));

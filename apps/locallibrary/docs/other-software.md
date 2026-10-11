@@ -41,6 +41,8 @@ locallibrary export Home --format engine -o out --paths drive                   
  `export --format` with another DJ program's name reads the drive and writes that program's files
 into a folder on this computer (`-o`); nothing is written to the drive, and an output folder on the
 drive is refused. A playlist or folder given after the drive limits the export to it and its tracks.
+On a drive with both databases, playlists and tracks only OneLibrary has (a CDJ-3000X makes its
+playlists there alone) come across too.
 Tracks point at their audio on the drive where it's mounted now, or, with `--location-root`, in a
 folder holding a copy of the drive's `Contents/`. Files the folder already holds are replaced only
 with `--replace` (the folder could be the program's own), and only once every new file is written

@@ -726,3 +726,32 @@ fn a_library_for_other_software_is_written_once_unless_replacing() {
     assert!(api::interop_plan(&req(true), &Ctx::silent()).unwrap().destructive);
     api::interop_apply(&req(true), &Ctx::silent()).unwrap();
 }
+
+/// A CDJ-3000X makes its playlists in OneLibrary alone, and the exports carry them too.
+#[test]
+fn playlists_only_onelibrary_has_are_exported() {
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive(dir.path());
+    common::add_onelibrary(&root);
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let booth = one.create_playlist("Booth", 0, false).unwrap();
+    let first = one.library().unwrap().tracks[0].id;
+    one.add_to_playlist(booth, first).unwrap();
+    let history = one.create_history("HISTORY 002", 0, false).unwrap();
+    one.add_to_history(history, first).unwrap();
+    std::fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    let d = Device::open(&root).unwrap();
+    // The library exports are made from, history lists included (for the formats that take them).
+    let both = locallibrary::convert::combined_library(&d).unwrap();
+    let names: Vec<&str> = both.history.iter().map(|h| h.name.as_str()).collect();
+    assert_eq!((names.as_slice(), both.history[0].track_ids.len()), (&["HISTORY 002"][..], 1));
+    for software in [Software::Traktor, Software::Serato, Software::Engine] {
+        let out = dir.path().join(software.name());
+        let plan = interop::plan(&d, software, &out, &options(), &Ctx::silent()).unwrap();
+        assert_eq!(plan.playlists, 3, "{software:?}: Friday, All and Booth");
+    }
+    let out = dir.path().join("nml");
+    interop::apply(&d, Software::Traktor, &out, &options(), &Ctx::silent()).unwrap();
+    assert!(std::fs::read_to_string(out.join("collection.nml")).unwrap().contains("NAME=\"Booth\""));
+}

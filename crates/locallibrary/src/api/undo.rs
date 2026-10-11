@@ -15,11 +15,10 @@ use super::{known_drives, resolve_drive};
 use crate::artwork::{self, EmbedBackup};
 use crate::backup::{self, BackupInfo};
 use crate::device::Device;
-use crate::diff::{self, PlaylistDiff};
+use crate::diff::PlaylistDiff;
 use crate::edit::journal::{self, JournalEntry};
 use crate::error::{Action, Reason};
 use crate::hash::{self, Hash};
-use crate::model::Library;
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::paths;
 use crate::progress::{Ctx, Phase};
@@ -141,9 +140,8 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
         }
     }
     let put_back = Device::open(&dir)?;
-    let restored = put_back.library().unwrap_or_default();
     let label = format!("backup {}", info.id);
-    let diff = diff::between(&d.library().unwrap_or_else(|_| Library::default()), &restored, (&d.name(), &label), None);
+    let diff = super::diff::to_backup(&d, &put_back, &label);
     let journal = journal::taken_off(&d, &info)?;
     // Players record history in either database: every list of the drive's the backup lacks.
     let kept = crate::plays::drive_history(&put_back).map(|h| h.lists).unwrap_or_default();

@@ -812,6 +812,7 @@ mod tests {
             players: Vec::new(),
             unloadable: Vec::new(),
             audio: Vec::new(),
+            loudness: Vec::new(),
         }
     }
 
@@ -855,6 +856,7 @@ mod tests {
             bit_depth: None,
             message: "FLAC".into(),
             tracks: (1..=7).map(|id| TrackRef { id, name: format!("Track {id}"), file_path: String::new() }).collect(),
+            transcodable: true,
         }];
         let lines: Vec<String> = check_lines(&r).into_iter().map(|(_, l)| l).collect();
         let at = |l: &str| lines.iter().position(|x| x == l).unwrap_or_else(|| panic!("{l}: {lines:#?}"));
