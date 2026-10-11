@@ -28,6 +28,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `exportLibrary.db` (the only one the CDJ-3000X, CDJ-1500X, OPUS-QUAD, OMNIS-DUO, XDJ-AZ and
   XDJ-AN read), and warns and changes `export.pdb` alone when `exportLibrary.db` can't be read;
   `convert` builds either from the other, and drives exported for OneLibrary only work too.
+  Players write only the database they read, so neither loses what only it has: converting into
+  a drive that has the database adds what it lacks (tracks, playlists and their entries, history
+  lists, My Tags) where rekordbox's "Convert from Device Library" overwrites it, `--replace`
+  names what a rebuild drops and keeps the player name, a playlist edit is made in
+  OneLibrary's own entries, so what a CDJ-3000X added, took out or reordered there stays, and a drive back from a set is judged by what changed in
+  both databases, so a sync doesn't take a CDJ-3000X's playlist edits for player-only changes and
+  copy over them. `status`, `diff`, sync and undo previews, `drive restore --playlist`, `edits
+  replay` and exports for other software look at OneLibrary too, and `pack` keeps a drive whose
+  OneLibrary can't be read in the store before packing over it, and refuses a source whose
+  OneLibrary can't be read rather than leave the packed drive without one.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
   order for mixing, import), track details, ratings and colours, My Tags, hot cues, memory cues
   and loops, replacing duplicates and deleting tracks, with a backup before every change and a

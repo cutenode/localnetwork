@@ -162,7 +162,8 @@ sets). When one drive's changes are only things players do (new history lists, r
 files of tracks that were already there, player state files, TAG LIST playlists), it saves that
 drive as a snapshot, so its history lists and cues stay in the store, copies the newer library
 over it, and saves the result as the newest snapshot. Any other change still counts, and the sync
-refuses as before.
+refuses as before. On a drive with both databases it looks at both, since a CDJ-3000X writes
+only to OneLibrary: its playlist edits count as changes of the drive's own.
 
 ## Formatting a drive
 

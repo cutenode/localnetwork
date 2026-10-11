@@ -398,9 +398,13 @@ enum Op {
         node: NodePath,
         folder: bool,
     },
+    /// `before`: the entries the edit was planned on, for an edit that changes them rather than
+    /// saying what they are. A database whose entries differ (a CDJ-3000X writes its playlist
+    /// edits to OneLibrary alone) gets the edit made in its own (see [`rebase_entries`]).
     SetEntries {
         node: NodePath,
         tracks: Vec<String>,
+        before: Option<Vec<String>>,
     },
     SetFields {
         tracks: Vec<String>,
@@ -433,6 +437,77 @@ fn find_node(lib: &Library, path: &[String], folder: Option<bool>) -> Option<u32
             .find_map(|p| below(lib, Some(p.id), rest, folder))
     }
     below(lib, None, path, folder)
+}
+
+/// A playlist's entries (track keys) in a database whose own, `current`, differ from the ones an
+/// edit was planned on: `before`, which the edit turned into `after`. The edit's removals and
+/// additions are made in `current`; an added entry goes after the entry it follows in `after`, or
+/// first when it follows none. Entries only `current` has stay where they are, and the ones it
+/// shares with `after` keep its order unless the edit reordered them, which orders them as `after`
+/// does.
+fn rebase_entries<'a>(current: &'a [String], before: &[String], after: &'a [String]) -> Vec<&'a str> {
+    let counts = |keys: &[String]| -> FxHashMap<String, usize> {
+        let mut out = FxHashMap::default();
+        for k in keys {
+            *out.entry(k.clone()).or_default() += 1;
+        }
+        out
+    };
+    let (planned, edited) = (counts(before), counts(after));
+    // The edit's removals: the occurrences `before` has beyond `after`'s.
+    let mut removed: FxHashMap<&str, usize> =
+        planned.iter().map(|(k, n)| (k.as_str(), n.saturating_sub(edited.get(k).copied().unwrap_or(0)))).collect();
+    let kept: Vec<&str> = current
+        .iter()
+        .map(String::as_str)
+        .filter(|k| match removed.get_mut(k) {
+            Some(n) if *n > 0 => {
+                *n -= 1;
+                false
+            }
+            _ => true,
+        })
+        .collect();
+    // Each entry of `after` was in `before` (its places, in order, by key) or the edit adds it.
+    let (mut seen, mut places, mut added) =
+        (FxHashMap::default(), FxHashMap::<&str, Vec<usize>>::default(), Vec::new());
+    for (i, k) in after.iter().enumerate() {
+        let n: &mut usize = seen.entry(k.as_str()).or_default();
+        *n += 1;
+        match *n > planned.get(k).copied().unwrap_or(0) {
+            true => added.push(i),
+            false => places.entry(k.as_str()).or_default().push(i),
+        }
+    }
+    // `current`'s entries, each with its place in `after` (`None`: only `current` has it).
+    let mut taken: FxHashMap<&str, usize> = FxHashMap::default();
+    let mut out: Vec<(Option<usize>, &str)> = kept
+        .into_iter()
+        .map(|k| {
+            let n = taken.entry(k).or_default();
+            let place = places.get(k).and_then(|p| p.get(*n)).copied();
+            *n += 1;
+            (place, k)
+        })
+        .collect();
+    fn in_other<'k>(keys: &'k [String], other: &FxHashMap<String, usize>) -> Vec<&'k str> {
+        keys.iter().filter(|k| other.contains_key(*k)).map(String::as_str).collect()
+    }
+    if in_other(before, &edited) != in_other(after, &planned) {
+        let mut shared: Vec<(Option<usize>, &str)> = out.iter().filter(|(p, _)| p.is_some()).copied().collect();
+        shared.sort();
+        let mut shared = shared.into_iter();
+        for slot in out.iter_mut().filter(|(p, _)| p.is_some()) {
+            *slot = shared.next().expect("as many as the slots");
+        }
+    }
+    for i in added {
+        let follows =
+            out.iter().enumerate().filter(|(_, (p, _))| p.is_some_and(|p| p < i)).max_by_key(|(_, (p, _))| *p);
+        let at = follows.map_or(0, |(at, _)| at + 1);
+        out.insert(at, (Some(i), after[i].as_str()));
+    }
+    out.into_iter().map(|(_, k)| k).collect()
 }
 
 fn kind(folder: bool) -> &'static str {
@@ -957,13 +1032,13 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
             db.delete(&doomed)?;
             db.lib().playlists.retain(|p| !doomed.contains(&p.id));
         }
-        Op::SetEntries { node, tracks } => {
+        Op::SetEntries { node, tracks, before } => {
             let id = match (find_node(db.lib(), node, Some(false)), find_node(db.lib(), node, Some(true))) {
                 (Some(id), _) => id,
                 (None, Some(_)) => return Err(Error::invalid(format!("{} is a folder", shown(node)))),
                 (None, None) => return skip(format!("no playlist {}", shown(node))),
             };
-            let (ids, missing) = ids_of(db.lib(), tracks);
+            let (mut ids, missing) = ids_of(db.lib(), tracks);
             if !missing.is_empty() {
                 skip(format!(
                     "{} track(s) for {} aren't in this database (e.g. {})",
@@ -971,6 +1046,22 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
                     shown(node),
                     missing[0]
                 ))?;
+            }
+            if let Some(before) = before {
+                let lib = db.lib();
+                let own: Vec<String> = lib
+                    .playlist(id)
+                    .map(|p| lib.tracks_by_id(&p.track_ids).into_iter().map(tkey).collect())
+                    .unwrap_or_default();
+                if own != *before {
+                    warnings.push(format!(
+                        "{label}: {}'s entries differ from the ones the edit was planned on; it's made in its own",
+                        shown(node)
+                    ));
+                    let rebased: Vec<String> =
+                        rebase_entries(&own, before, tracks).into_iter().map(String::from).collect();
+                    ids = ids_of(lib, &rebased).0;
+                }
             }
             if db.lib().playlist(id).is_some_and(|p| p.track_ids == ids) {
                 return Ok(());
@@ -1173,8 +1264,11 @@ impl<'a> Resolver<'a> {
         // A playlist or folder as the journal names it: by its path, which a folder's ends in `/`
         // (a playlist and a folder can share one).
         let named = |p: &Playlist| lib.playlist_path(p.id) + if p.is_folder { "/" } else { "" };
-        let set =
-            |p: &Playlist, ids: &[u32]| Op::SetEntries { node: lib.playlist_names(p.id), tracks: Self::keys(lib, ids) };
+        let set = |p: &Playlist, ids: &[u32]| Op::SetEntries {
+            node: lib.playlist_names(p.id),
+            tracks: Self::keys(lib, ids),
+            before: Some(Self::keys(lib, &p.track_ids)),
+        };
         // An edit that rewrites entries as the journal keeps it: the entries themselves, by file.
         // With `create`, a replay makes the playlist at its path if it's missing, so only when
         // that path names it (a name with a slash, or spaces around it, doesn't).
@@ -1423,8 +1517,14 @@ impl<'a> Resolver<'a> {
                     true => find_exact(lib, spec)?,
                     false => lib.find_playlist_of_kind(spec, false),
                 };
+                // The rule says what the playlist holds, so no database keeps entries of its own.
+                let fill = |p: &Playlist| Op::SetEntries {
+                    node: lib.playlist_names(p.id),
+                    tracks: Self::keys(lib, &ids),
+                    before: None,
+                };
                 match found {
-                    Some(p) => (vec![set(p, &ids)], desc(&lib.playlist_path(p.id)), record(p, &ids, *create)),
+                    Some(p) => (vec![fill(p)], desc(&lib.playlist_path(p.id)), record(p, &ids, *create)),
                     None if *create => {
                         let (ops, _, canonical) = fill_new(spec, &ids)?;
                         return Ok((ops, desc(&split_path(spec)?.join("/")), canonical));
@@ -1447,7 +1547,7 @@ impl<'a> Resolver<'a> {
                 let files = self.present(lib, files, &format!("recorded in {}", node.join("/")));
                 let tracks = files.iter().map(|f| paths::key(f).to_lowercase()).collect();
                 let desc = format!("fill {} with {} entr(ies)", node.join("/"), files.len());
-                ops.push(Op::SetEntries { node, tracks });
+                ops.push(Op::SetEntries { node, tracks, before: None });
                 (ops, desc, edit.clone())
             }
             Edit::SortPlaylist { playlist: spec, by } => {
@@ -1700,6 +1800,9 @@ pub struct EditPlan {
     pub warnings: Vec<String>,
     /// The edits as recorded in the drive's journal.
     pub recorded: Vec<Edit>,
+    /// OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they
+    /// leave out edits only OneLibrary lacks, as after rekordbox exported over it alone.
+    pub onelibrary_changes: bool,
     /// Replaying recorded My Tag and cue edits too.
     #[serde(skip)]
     replay: Option<Box<Steps>>,
@@ -1719,6 +1822,7 @@ impl EditPlan {
             && self.tracks_removed.is_empty()
             && self.history_removed == 0
             && !self.uncounted_ops()
+            && !self.onelibrary_changes
             && self.replay.is_none()
     }
 
@@ -1852,16 +1956,22 @@ fn plan_with(
             Err(e) => return Err(e),
         }
     }
-    // The second database, as far as a model can tell (its own warnings).
+    // The second database, as far as a model can tell (its own warnings). It can lack edits the
+    // first has (rekordbox exported over it alone), which then change only it.
+    let mut onelibrary_changes = false;
     if let (Some(_), Some((plus_lib, _))) = (&dbs.pdb, &dbs.plus) {
         let mut second = ModelDb { lib: plus_lib.clone(), pdb: None };
         for op in &ops {
             apply_op(&mut second, op, false, "exportLibrary.db", &mut warnings)?;
         }
+        onelibrary_changes = second.lib != *plus_lib;
     }
 
     // What changes, on the main database.
     let after = &model.lib;
+    if onelibrary_changes && after == primary {
+        changes.push("make them in exportLibrary.db, which lacks them".into());
+    }
     let diff = LibraryDiff::between(primary, after);
     // Playlists matched by key, as the diff matches them: same-named siblings share a path, and
     // each reports its own numbers.
@@ -1991,6 +2101,7 @@ fn plan_with(
         fits,
         warnings: dedup(warnings),
         recorded: if opts.no_journal { Vec::new() } else { recorded },
+        onelibrary_changes,
         replay: (!steps.is_empty()).then(|| Box::new(Steps { steps, rest, opts: opts.clone() })),
         ops,
         state,
@@ -2841,7 +2952,11 @@ mod tests {
         let (ops, _, _) = r.resolve(&fill("Gigs/Warmup"), &twins).unwrap();
         assert_eq!(
             ops,
-            [Op::SetEntries { node: vec!["Gigs".into(), "Warmup".into()], tracks: vec!["contents/5.mp3".into()] }]
+            [Op::SetEntries {
+                node: vec!["Gigs".into(), "Warmup".into()],
+                tracks: vec!["contents/5.mp3".into()],
+                before: None
+            }]
         );
     }
 

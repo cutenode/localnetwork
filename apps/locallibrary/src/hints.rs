@@ -91,7 +91,8 @@ fn command(a: &Action) -> Option<String> {
         "convert.plan" => {
             let to = p("to")?.replace('_', "");
             let to = if to == "devicelibrary" { "device-library".to_string() } else { to };
-            format!("locallibrary convert {} --to {to}", p("drive")?)
+            let replace = if yes("replace") { " --replace" } else { "" };
+            format!("locallibrary convert {} --to {to}{replace}", p("drive")?)
         }
         "account.login.begin" if yes("publish") => "locallibrary account login --publish".into(),
         "account.login.begin" => "locallibrary account login".into(),
@@ -181,7 +182,12 @@ mod tests {
             .action(Action::call("sync.plan", json!({ "left": "A", "right": "B" }), "Sync"))
             .action(Action::call("drive.role", json!({ "role": "backup" }), "Make it a backup"))
             .action(Action::call("convert.plan", json!({ "drive": "A", "to": "device_library" }), "Rebuild"))
-            .action(Action::call("convert.plan", json!({ "drive": "A", "to": "one_library" }), "Convert"));
+            .action(Action::call("convert.plan", json!({ "drive": "A", "to": "one_library" }), "Convert"))
+            .action(Action::call(
+                "convert.plan",
+                json!({ "drive": "A", "to": "one_library", "replace": true }),
+                "Redo",
+            ));
         assert_eq!(
             hints(&e),
             [
@@ -190,6 +196,7 @@ mod tests {
                 "Make it a backup: locallibrary drive role <DRIVE> backup",
                 "Rebuild: locallibrary convert A --to device-library",
                 "Convert: locallibrary convert A --to onelibrary",
+                "Redo: locallibrary convert A --to onelibrary --replace",
             ]
         );
     }

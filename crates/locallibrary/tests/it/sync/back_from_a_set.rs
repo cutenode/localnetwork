@@ -173,3 +173,116 @@ fn a_drive_back_from_a_set_is_synced_as_a_pair_first() {
     let offered: Vec<String> = err.detail().actions.into_iter().map(|a| a.label).collect();
     assert_eq!(offered, ["Sync Main and Club first"]);
 }
+
+/// OneLibrary players write only to OneLibrary: on a drive with both databases, what a CDJ-3000X
+/// did is sorted from OneLibrary's changes too. A history list it recorded makes the drive one
+/// back from a set; a playlist it made is a change of the drive's own, so no sync copies over it.
+#[test]
+fn a_onelibrary_players_changes_are_sorted_too() {
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let home = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&home);
+    let mut main = Device::open(&home).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    let club_root = synced(&store, &mut main, &dir.path().join("Club")).root().to_path_buf();
+    let on_the_cdj = |change: &dyn Fn(&mut OneLibrary)| {
+        let mut one = OneLibrary::open_root(&club_root).unwrap();
+        change(&mut one);
+        std::fs::write(club_root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    };
+    on_the_cdj(&|one| {
+        let ids: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
+        let history = one.create_history("HISTORY 001", 0, false).unwrap();
+        for id in ids {
+            one.add_to_history(history, id).unwrap();
+        }
+        one.create_playlist("TAG LIST 001", 0, false).unwrap();
+    });
+    common::export_new_track(&home, "Artist", "Fresh");
+
+    let (main, club) = (Device::open(&home).unwrap(), Device::open(&club_root).unwrap());
+    let set = after_set::resolve(&store, &main, &club, &Ctx::silent()).unwrap().expect("the CDJ-3000X's");
+    assert_eq!(set.back_from_set.history_lists, ["HISTORY 001"]);
+    assert_eq!(set.back_from_set.tag_lists, ["TAG LIST 001"]);
+
+    on_the_cdj(&|one| {
+        one.create_playlist("Friday", 0, false).unwrap();
+    });
+    let club = Device::open(&club_root).unwrap();
+    let changes = after_set::changes_since(
+        &store,
+        &club,
+        &after_set::common_snapshot(&store, &main, &club).unwrap().unwrap(),
+        &Ctx::silent(),
+    )
+    .unwrap();
+    assert_eq!(changes.other, ["playlist added: Friday"]);
+    assert!(after_set::resolve(&store, &main, &club, &Ctx::silent()).unwrap().is_none());
+}
+
+/// A OneLibrary database the last common state didn't have is no player's doing.
+#[test]
+fn a_onelibrary_database_added_since_is_a_drives_own_change() {
+    use locallibrary::convert::{self, ConvertOptions, Target};
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut main = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    let mut club = synced(&store, &mut main, &dir.path().join("Club"));
+    let to = ConvertOptions { to: Target::OneLibrary, replace: false };
+    let plan = convert::plan(&club, &to, &Ctx::silent()).unwrap();
+    convert::apply(&plan, &mut club, &to, &Ctx::silent()).unwrap();
+    let common = after_set::common_snapshot(&store, &main, &club).unwrap().unwrap();
+    let changes = after_set::changes_since(&store, &club, &common, &Ctx::silent()).unwrap();
+    assert_eq!(changes.other, ["exportLibrary.db added"]);
+}
+
+/// `status` tells a drive back from a set by the history lists a CDJ-3000X recorded in OneLibrary
+/// too.
+#[test]
+fn status_counts_history_lists_a_onelibrary_player_recorded() {
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    locallibrary::testing::store_root_on_this_thread(Some(store.root().to_path_buf()));
+    locallibrary::testing::volumes_on_this_thread(Some(vec![dir.path().to_path_buf()]));
+    let ctx = Ctx::silent();
+    let main = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&main);
+    common::adopt(Some(&store), &main, "Main");
+    api::pull(&store, &api::PullRequest { drive: path(&main), ..Default::default() }, &ctx).unwrap();
+    let mut one = OneLibrary::open_root(&main).unwrap();
+    let ids: Vec<u32> = one.library().unwrap().tracks.iter().map(|t| t.id).collect();
+    let history = one.create_history("HISTORY 001", 0, false).unwrap();
+    for id in ids {
+        one.add_to_history(history, id).unwrap();
+    }
+    std::fs::write(main.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let status = api::status(&store, &ctx).unwrap();
+    let s = status.iter().find(|s| s.drive.name.as_deref() == Some("Main")).unwrap();
+    assert_eq!((s.relation, s.back_from_set), (Some(Relation::RightNewer), Some(1)), "{s:?}");
+}
+
+/// An exportLibrary.db that can't be read doesn't stop the sort: it's a change of the drive's own
+/// (no player makes one), so no sync copies over it.
+#[test]
+fn a_onelibrary_that_cant_be_read_is_a_drives_own_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let home = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&home);
+    let mut main = Device::open(&home).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    let club_root = synced(&store, &mut main, &dir.path().join("Club")).root().to_path_buf();
+    std::fs::write(club_root.join(paths::LIBRARY_PLUS_DB), b"not a database").unwrap();
+    common::export_new_track(&home, "Artist", "Fresh");
+
+    let (main, club) = (Device::open(&home).unwrap(), Device::open(&club_root).unwrap());
+    let common = after_set::common_snapshot(&store, &main, &club).unwrap().unwrap();
+    let changes = after_set::changes_since(&store, &club, &common, &Ctx::silent()).unwrap();
+    assert_eq!(changes.other, ["exportLibrary.db can't be read"]);
+    assert!(after_set::resolve(&store, &main, &club, &Ctx::silent()).unwrap().is_none());
+}

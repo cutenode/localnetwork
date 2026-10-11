@@ -256,13 +256,7 @@ impl Databases {
 
     /// Read the databases stored in a snapshot.
     pub fn from_snapshot(store: &Store, snapshot: &Snapshot) -> Result<Databases> {
-        let object = |key: &str| -> Result<Option<(PathBuf, Vec<u8>)>> {
-            let Some(entry) = snapshot.files.iter().find(|f| f.path == key) else { return Ok(None) };
-            let hash = entry.hash.ok_or_else(|| Error::invalid(format!("{} has no hash", entry.path)))?;
-            let path = store.object_path(&hash);
-            let bytes = std::fs::read(&path).map_err(|e| Error::Io { path: path.clone(), source: e })?;
-            Ok(Some((path, bytes)))
-        };
+        let object = |key: &str| crate::compare::snapshot_object(store, snapshot, key);
         let pdb = match object(paths::EXPORT_PDB)? {
             Some((path, bytes)) => Some(pdb::library_from_database(&pdb::parse_database(bytes, &path)?)),
             None => None,
@@ -287,6 +281,12 @@ impl Databases {
     /// The library players see: `export.pdb`'s when there is one, otherwise OneLibrary's.
     pub fn primary(&self) -> &Library {
         self.pdb.as_ref().or(self.plus.as_ref()).expect("one database was read")
+    }
+
+    /// OneLibrary's library when it's beside `export.pdb`'s (the primary): a CDJ-3000X writes
+    /// only to OneLibrary, so what only it holds is read from here.
+    pub fn beside(&self) -> Option<&Library> {
+        self.pdb.as_ref().and(self.plus.as_ref())
     }
 
     /// Each readable database's library, primary first, with its name (`device_library` or

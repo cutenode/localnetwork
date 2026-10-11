@@ -6,11 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{RestoreBackup, resolve_drive};
 use crate::backup::{self, BackupInfo};
-use crate::compare::Side;
 use crate::device::Device;
 use crate::diff::{self, PlaylistDiff};
 use crate::doctor::Databases;
-use crate::model::Library;
 use crate::paths;
 use crate::store::{Snapshot, Store};
 use crate::{Error, Result};
@@ -26,14 +24,6 @@ impl Endpoint<'_> {
         match self {
             Endpoint::Drive(d) => d.name(),
             Endpoint::Snapshot(_, s) => format!("snapshot {}", s.id.short()),
-        }
-    }
-
-    /// The library as players see it.
-    pub(super) fn library(&self) -> Result<Library> {
-        match self {
-            Endpoint::Drive(d) => d.library(),
-            Endpoint::Snapshot(store, s) => Ok(Side::from_snapshot(store, s, self.label())?.library),
         }
     }
 
@@ -88,9 +78,24 @@ pub struct DiffRequest {
 pub fn diff(store: Option<&Store>, req: &DiffRequest) -> Result<PlaylistDiff> {
     let left = resolve_endpoint(store, &req.left)?;
     let right = resolve_endpoint(store, &req.right)?;
-    let (l, r) = (left.library()?, right.library()?);
-    diff::check_playlist(&l, &r, req.playlist.as_deref())?;
-    Ok(diff::between(&l, &r, (&left.label(), &right.label()), req.playlist.as_deref()))
+    let (l, r) = (left.databases()?, right.databases()?);
+    let playlist = req.playlist.as_deref();
+    // A playlist only OneLibrary has (a CDJ-3000X makes them there) is found there.
+    let in_onelibrary = l.beside().zip(r.beside()).is_some_and(|(a, b)| diff::check_playlist(a, b, playlist).is_ok());
+    if !in_onelibrary {
+        diff::check_playlist(l.primary(), r.primary(), playlist)?;
+    }
+    Ok(both_between(&l, &r, (&left.label(), &right.label()), playlist))
+}
+
+/// [`diff::between`] the libraries players see, with the differences of the OneLibrary databases
+/// beside them added where both sides have one (a CDJ-3000X writes only to OneLibrary).
+fn both_between(left: &Databases, right: &Databases, labels: (&str, &str), playlist: Option<&str>) -> PlaylistDiff {
+    let mut out = diff::between(left.primary(), right.primary(), labels, playlist);
+    if let (Some(a), Some(b)) = (left.beside(), right.beside()) {
+        out.add(diff::between(a, b, labels, playlist));
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -111,7 +116,8 @@ pub fn restore_preview(req: &RestoreBackup) -> Result<RestorePreview> {
         Some(id) => backups.into_iter().find(|b| &b.id == id).ok_or_else(|| Error::NotFound(format!("backup {id}")))?,
         None => backups.into_iter().next().ok_or_else(|| Error::NotFound("no backups on this drive".into()))?,
     };
-    let restored = Device::open(backup::dir(&d, &info.id))?.library()?;
+    let backed_up = Device::open(backup::dir(&d, &info.id))?;
+    let restored = backed_up.library()?;
     let saved: FxHashSet<String> = info.files.iter().map(|f| f.to_lowercase()).collect();
     let missing_audio = restored
         .tracks
@@ -122,7 +128,18 @@ pub fn restore_preview(req: &RestoreBackup) -> Result<RestorePreview> {
         })
         .map(|t| t.display_name())
         .collect();
-    let label = format!("backup {}", info.id);
-    let diff = diff::between(&d.library()?, &restored, (&d.name(), &label), None);
+    let diff = to_backup(&d, &backed_up, &format!("backup {}", info.id));
     Ok(RestorePreview { backup: info, diff, missing_audio })
+}
+
+/// How `d` would differ with the backup `backed_up` put back (a database that can't be read
+/// counts as empty).
+pub(super) fn to_backup(d: &Device, backed_up: &Device, label: &str) -> PlaylistDiff {
+    match (Databases::read(d), Databases::read(backed_up)) {
+        (Ok(now), Ok(then)) => both_between(&now, &then, (&d.name(), label), None),
+        (now, then) => {
+            let library = |dbs: Result<Databases>| dbs.map(|d| d.primary().clone()).unwrap_or_default();
+            diff::between(&library(now), &library(then), (&d.name(), label), None)
+        }
+    }
 }

@@ -178,7 +178,9 @@ fn drift_lines(drift: &locallibrary::device::LibraryDrift, drive: &str) {
     }
     say!(
         "    {}",
-        dim(format!("rebuild one from the other: locallibrary convert \"{drive}\" --to onelibrary --replace"))
+        dim(format!(
+            "give each what the other has: locallibrary convert \"{drive}\" --to onelibrary, then --to device-library"
+        ))
     );
 }
 
@@ -732,13 +734,19 @@ pub fn convert_plan(p: &ConvertPlan) {
         Target::OneLibrary => ("OneLibrary (exportLibrary.db)", "export.pdb"),
         Target::DeviceLibrary => ("export.pdb", "OneLibrary (exportLibrary.db)"),
     };
-    let verb = if p.replaces { "rebuild" } else { "create" };
-    say!("{}: {verb} {to} from {from}", style(&p.drive).bold());
+    let what = match (p.adds, p.replaces) {
+        (true, _) => format!("add to {to} what {from} has that it lacks"),
+        (_, true) => format!("rebuild {to} from {from}"),
+        _ => format!("create {to} from {from}"),
+    };
+    say!("{}: {what}", style(&p.drive).bold());
+    let playlists = match p.adds {
+        true => format!("{} playlist(s) new or gaining entries, {} new folder(s)", p.playlists, p.folders),
+        false => format!("{} playlist(s) in {} folder(s)", p.playlists, p.folders),
+    };
     say!(
-        "  {} track(s), {} playlist(s) in {} folder(s), {} history playlist(s), {} artwork image(s)",
+        "  {} track(s), {playlists}, {} history playlist(s), {} artwork image(s)",
         p.tracks,
-        p.playlists,
-        p.folders,
         p.history_playlists,
         p.artwork
     );

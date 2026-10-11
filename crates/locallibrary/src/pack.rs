@@ -30,6 +30,7 @@ use crate::backup;
 use crate::commit::Swap;
 use crate::device::{Device, LineageEntry, LineageOp, Scanned};
 use crate::edit;
+use crate::equipment::MODELS;
 use crate::error::{Action, Reason};
 use crate::fsutil;
 use crate::hash::Hash;
@@ -98,6 +99,9 @@ pub struct Unsaved {
     /// The drive changed since it was last packed from this source (memory cues, TAG LIST
     /// playlists or history lists players saved, or edits).
     pub changed: bool,
+    /// Its OneLibrary database can't be read, so history lists players that read only OneLibrary
+    /// recorded there can't be told apart: it's kept whole.
+    pub unreadable_onelibrary: bool,
 }
 
 impl Unsaved {
@@ -111,6 +115,9 @@ impl Unsaved {
         }
         if self.changed {
             parts.push("changes since it was last packed".to_string());
+        }
+        if self.unreadable_onelibrary {
+            parts.push("an exportLibrary.db that can't be read (it may hold history lists)".to_string());
         }
         parts.join(" and ")
     }
@@ -185,6 +192,24 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         (p, _) => (p.to_vec(), opts.history),
     };
     let subset = edit::subset(source, &playlists, history, ctx)?;
+    // Packing export.pdb alone would take the target's OneLibrary away, and the drive with it from
+    // the players that read nothing else.
+    if source.has_library_plus() && subset.plus.is_none() {
+        let only: Vec<&str> = MODELS.iter().filter(|m| !m.is_mixer() && m.onelibrary_only()).map(|m| m.name).collect();
+        let drive = source.root().display().to_string();
+        return Err(Error::invalid(format!(
+            "{}'s exportLibrary.db can't be read, so the packed drive would have no OneLibrary database and {} \
+             couldn't browse it",
+            source.name(),
+            only.join(", ")
+        ))
+        .with("drive", &drive)
+        .action(Action::call(
+            "convert.plan",
+            serde_json::json!({ "drive": drive, "to": "one_library", "replace": true }),
+            format!("Rebuild {}'s OneLibrary from export.pdb", source.name()),
+        )));
+    }
     let mut warnings = subset.warnings.clone();
 
     // The files the packed library uses, found on the source.
@@ -363,7 +388,8 @@ fn unsaved(target: &Device, scanned: &Scanned, same_source: bool, subset: &edit:
             packed.insert((h.name.clone(), files(&mut lib.tracks_by_id(&h.track_ids).into_iter())));
         }
     }
-    let mut history_lists: Vec<String> = crate::plays::drive_history(target)?
+    let on_drive = crate::plays::drive_history(target)?;
+    let mut history_lists: Vec<String> = on_drive
         .lists
         .iter()
         .filter(|l| !packed.contains(&(l.name.clone(), files(&mut l.tracks.iter()))))
@@ -377,7 +403,10 @@ fn unsaved(target: &Device, scanned: &Scanned, same_source: bool, subset: &edit:
     let changed = same_source
         && !interrupted
         && state.and_then(|s| s.head()).is_some_and(|h| !scanned.fingerprints().any(|fp| fp == h.fingerprint));
-    Ok((changed || !history_lists.is_empty()).then_some(Unsaved { history_lists, changed }))
+    // Its warnings say OneLibrary couldn't be read.
+    let unreadable_onelibrary = !on_drive.warnings.is_empty();
+    let unsaved = changed || unreadable_onelibrary || !history_lists.is_empty();
+    Ok(unsaved.then_some(Unsaved { history_lists, changed, unreadable_onelibrary }))
 }
 
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]

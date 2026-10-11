@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use super::resolve_drive;
 use crate::backup::{self, BackupInfo};
-use crate::compare::Side;
+use crate::convert;
 use crate::device::Device;
+use crate::doctor::Databases;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
 use crate::error::{Action, Reason};
 use crate::hash::Hash;
@@ -146,14 +147,14 @@ fn prepare(store: Option<&Store>, req: &PlaylistRestoreRequest, d: &Device) -> R
                 .into_iter()
                 .find(|b| &b.id == id)
                 .ok_or_else(|| Error::NotFound(format!("backup {id} on {}", d.name())))?;
-            let library = Device::open(backup::dir(d, &info.id))?.library()?;
+            let library = convert::combined(&Databases::read(&Device::open(backup::dir(d, &info.id))?)?)?;
             (RestoreSource::Backup { backup: Box::new(info) }, library)
         }
         (Some(prefix), None) => {
             let store = store.ok_or_else(|| Error::invalid("restoring from a snapshot needs the store"))?;
             let prefix = prefix.strip_prefix("snapshot:").unwrap_or(prefix);
             let snap = store.load_snapshot(&store.resolve_snapshot(prefix)?)?;
-            let library = Side::from_snapshot(store, &snap, "")?.library;
+            let library = convert::combined(&Databases::from_snapshot(store, &snap)?)?;
             let name = store.library_by_id(snap.library_id)?.map(|l| l.name);
             (RestoreSource::Snapshot { snapshot: Box::new(store.snapshot_info(&snap)?), library: name }, library)
         }
@@ -166,6 +167,7 @@ fn prepare(store: Option<&Store>, req: &PlaylistRestoreRequest, d: &Device) -> R
             newest_with(store, d, spec)?
         }
     };
+    // What either database had: a CDJ-3000X makes playlists and adds entries in OneLibrary alone.
     let node = library.find_playlist(spec).ok_or_else(|| {
         Error::NotFound(format!("playlist {spec:?} in {} (give its path, like Folder/Name)", describe(&source)))
     })?;
@@ -200,7 +202,7 @@ fn newest_with(store: &Store, d: &Device, spec: &str) -> Result<(RestoreSource, 
         if !read.insert(databases) {
             continue;
         }
-        let library = Side::from_snapshot(store, &snap, "")?.library;
+        let library = convert::combined(&Databases::from_snapshot(store, &snap)?)?;
         if library.find_playlist(spec).is_some() {
             return Ok((
                 RestoreSource::Snapshot { snapshot: Box::new(info), library: Some(lib.name.clone()) },

@@ -2401,6 +2401,10 @@
     },
     "ConvertPlan": {
       "properties": {
+        "adds": {
+          "description": "The drive already has that database, and it keeps what it has. The counts below are then\nwhat it gains: tracks it lacks, playlists it lacks or that gain entries, folders made for\nthem, and history lists it lacks.",
+          "type": "boolean"
+        },
         "artwork": {
           "description": "Artwork images copied under the other database's file names.",
           "format": "uint",
@@ -2443,14 +2447,14 @@
           "type": "integer"
         },
         "replaces": {
-          "description": "The drive already has that database, and it's rebuilt.",
+          "description": "The drive already has that database, and it's rebuilt, dropping what only it has (the\nwarnings name it).",
           "type": "boolean"
         },
         "root": {
           "type": "string"
         },
         "tagged_tracks": {
-          "description": "Tracks whose My Tags come along from the other database's tags.",
+          "description": "Tracks whose My Tags come along from the other database's tags (that gain some, when\nadding).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -2475,6 +2479,7 @@
         "root",
         "to",
         "replaces",
+        "adds",
         "tracks",
         "playlists",
         "folders",
@@ -2489,6 +2494,7 @@
       "type": "object"
     },
     "ConvertReport": {
+      "description": "What a conversion made (added, when the drive had the database: see [`ConvertPlan::adds`]).",
       "properties": {
         "artwork": {
           "format": "uint",
@@ -2528,7 +2534,7 @@
           "type": "integer"
         },
         "tagged_tracks": {
-          "description": "Tracks with My Tags in the converted database's tags.",
+          "description": "Tracks with My Tags in the converted database's tags (that gained some, when adding).",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -2558,7 +2564,7 @@
         },
         "replace": {
           "default": false,
-          "description": "Rebuild the target database if the drive already has one.",
+          "description": "Rebuild the target database if the drive already has one, dropping what only it has.\nOtherwise it keeps what it has and gains what it lacks.",
           "type": "boolean"
         },
         "to": {
@@ -6219,6 +6225,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "onelibrary_changes": {
+          "description": "OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they\nleave out edits only OneLibrary lacks, as after rekordbox exported over it alone.",
+          "type": "boolean"
+        },
         "playlists_changed": {
           "items": {
             "$ref": "#/$defs/PlaylistChange"
@@ -6282,7 +6292,8 @@
         "free_space",
         "fits",
         "warnings",
-        "recorded"
+        "recorded",
+        "onelibrary_changes"
       ],
       "type": "object"
     },
@@ -21787,11 +21798,16 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "unreadable_onelibrary": {
+          "description": "Its OneLibrary database can't be read, so history lists players that read only OneLibrary\nrecorded there can't be told apart: it's kept whole.",
+          "type": "boolean"
         }
       },
       "required": [
         "history_lists",
-        "changed"
+        "changed",
+        "unreadable_onelibrary"
       ],
       "type": "object"
     },

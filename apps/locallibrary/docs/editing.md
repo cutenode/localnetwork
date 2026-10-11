@@ -74,7 +74,10 @@ back), and is checked by reading the edited databases back before they replace t
 or a track's title, comment and mix name together, too long for one `export.pdb` row (about 4,000
 characters, half that outside ASCII) is refused in the plan. A playlist or track one database lacks
 (they can drift apart) is skipped there with a warning, and My Tags in `exportExt.pdb` follow tracks
-that are removed or replaced. Of two playlists with one name in a folder (rekordbox allows that),
+that are removed or replaced. A playlist edit is made in each database's own entries (a CDJ-3000X
+saves its playlist edits to OneLibrary alone, and the plan warns when they differ): entries the
+player added or took out stay that way, its order stays unless the edit reorders the playlist, and
+an added entry goes after the one it follows in export.pdb. Of two playlists with one name in a folder (rekordbox allows that),
 edits change the one shown first. A playlist and a folder can share a path too: the path names the
 playlist, and the path with a `/` after it (`Sets/`) the folder.
 
@@ -142,7 +145,8 @@ with a warning, instead of skipping the whole edit. It makes the My Tag and cue 
 the order they were made, then the others, and backs the drive up once before all of it, so
 `undo` takes back the whole replay. Removing and moving entries are recorded as the files removed
 or moved, and deleting a playlist with its tracks as the tracks it deleted, so a replay keeps
-entries the new export added. The recorded edits travel with the library: a sync copies the
+entries the new export added. rekordbox can export over one database and leave the other, so a
+replay makes edits again in whichever lacks them. The recorded edits travel with the library: a sync copies the
 source drive's onto the drives it updates, so `refresh` makes edits made on any of the library's
 drives again. A push or pack, which gives a drive a library from a snapshot or a selection, forgets
 the edits recorded for the one it held (its plan says so). `edits.json` says which version of its
@@ -163,7 +167,9 @@ locallibrary drive restore REKORDBOX --playlist "Friday" --backup 20261004T16560
 snapshot (`pull` keeps them) or one of the drive's backups has it, without touching the rest of the
 library. Without `--snapshot` or `--backup` it uses the newest snapshot of the drive's library that
 has the playlist. It's an ordinary playlist edit: shown first, backed up, recorded for `edits
-replay`, and taken back by `undo`. Missing playlists and folders are made again next to their old
+replay`, and taken back by `undo`. A playlist only OneLibrary had (a CDJ-3000X makes its
+playlists there alone) is found there too, and comes back into both databases. Missing playlists
+and folders are made again next to their old
 neighbours; existing ones get the old entries back, in their old order. Entries whose track isn't on
 the drive any more are listed and left out, and playlists you've added to the folder since are left
 as they are.
@@ -196,12 +202,15 @@ locallibrary pack Home /Volumes/TONIGHT           # later: the same selection, c
 use, with their analysis and artwork, to another drive, and removes files the packed library
 doesn't use from it (`--keep-extra` keeps them). The databases are cut down from the source's
 own, so cues, grids, My Tags and details come across unchanged; history lists stay behind unless
-`--history`. A packed drive holds a different library from its source, so `sync` won't copy one
-over the other, and `check` says whether it's up to date with the drive it was packed from.
+`--history`. A source whose OneLibrary database can't be read is refused (rebuild it with
+`convert --to onelibrary --replace`): the packed drive would have none, and players that read only
+OneLibrary couldn't browse it. A packed drive holds a different library from its source, so `sync`
+won't copy one over the other, and `check` says whether it's up to date with the drive it was packed from.
 
 A packed drive comes back from a set with history lists and memory cues the players saved on it.
 Before packing it again, `pack` saves its state in the store when it holds history lists the new
-pack won't have, or changed since it was last packed (it refuses when there's no store), and
+pack won't have, or changed since it was last packed, or its OneLibrary database can't be read
+(so history lists players recorded there can't be checked; it refuses when there's no store), and
 backs up the databases, analysis and artwork it replaces on the drive, so `locallibrary undo`
 puts them back (it says which snapshot and backup; the plan counts the backup's space). The drive
 keeps its own player name and colour. Audio it removed isn't kept (it's on the source): tracks it
@@ -298,14 +307,26 @@ collection too.
 locallibrary convert Home --to onelibrary            # give older drives OneLibrary, for CDJ-3000X, OPUS-QUAD, XDJ-AZ...
 locallibrary convert Home --to device-library        # give OneLibrary-only drives export.pdb, for every other player
 locallibrary drive info REKORDBOX                    # "export.pdb and OneLibrary differ" when they drift apart...
-locallibrary convert Home --to onelibrary --replace  # ...rebuild OneLibrary from export.pdb
+locallibrary convert Home --to onelibrary            # ...give each what the other has
+locallibrary convert Home --to device-library
+locallibrary convert Home --to onelibrary --replace  # or rebuild OneLibrary from export.pdb
 ```
 
 Tracks, artwork (copied to the other database's `a`/`b` file names), playlists and history
 playlists are converted; audio and analysis files are shared, and OneLibrary's `cue` rows
-(players that read only OneLibrary use them) are made from the analysis files. Rebuilding
+(players that read only OneLibrary use them) are made from the analysis files.
+
+Players write only the database they read: a CDJ-3000X's history lists and playlist edits go to
+OneLibrary alone, an older player's to `export.pdb`. So converting into a drive that has the
+database already keeps everything in it and adds what it lacks: tracks (matched by file), playlists
+and the entries they're missing, history lists and My Tags. Its own entries stay, and one a player took
+out of a playlist comes back if the other database still has it. With nothing to add, it says so. rekordbox's own "Convert from Device Library" overwrites the drive's OneLibrary
+instead, losing what only it had.
+
+`--replace` rebuilds the database from the other one, dropping what only it has: the plan names
+those playlists, entries and history lists, and OneLibrary's hot cue bank lists. Rebuilding
 OneLibrary keeps the rows it already has for tracks `export.pdb` lists (every column, cues, My
-Tags and artwork). A
+Tags and artwork) and the drive's player name and colour. A
 new `export.pdb` starts from a real rekordbox export (rekordbox-pdb's test file) with its rows
 removed, so it has rekordbox's colours and browse columns; a new OneLibrary database starts from
 rekordbox 7's schema and default menus. My Tags come along:

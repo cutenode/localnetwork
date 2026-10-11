@@ -22,8 +22,8 @@ use schemars::JsonSchema;
 use serde::Serialize;
 
 use crate::Result;
-use crate::compare::Side;
 use crate::device::Device;
+use crate::doctor::Databases;
 use crate::fsutil;
 use crate::model::{Library, LibraryDiff};
 use crate::paths::FileClass;
@@ -60,8 +60,26 @@ impl DriveChanges {
 
     /// A change players don't make (the first 20 are kept).
     fn note(&mut self, what: String) {
-        if self.other.len() < 20 {
+        if self.other.len() < 20 && !self.other.contains(&what) {
             self.other.push(what);
+        }
+    }
+
+    /// Add the changes sorted from the drive's other database (one export makes the same changes
+    /// to both, counted once).
+    fn add(&mut self, other: DriveChanges) {
+        for name in other.history_lists {
+            if !self.history_lists.contains(&name) {
+                self.history_lists.push(name);
+            }
+        }
+        for name in other.tag_lists {
+            if !self.tag_lists.contains(&name) {
+                self.tag_lists.push(name);
+            }
+        }
+        for what in other.other {
+            self.note(what);
         }
     }
 
@@ -92,13 +110,11 @@ fn is_tag_list(path: &str) -> bool {
 
 /// Sort a drive's changes since `ancestor`.
 pub fn changes_since(store: &Store, device: &Device, ancestor: &Snapshot, ctx: &Ctx<'_>) -> Result<DriveChanges> {
-    let then: Library = Side::from_snapshot(store, ancestor, "then")?.library;
-    let now = device.library()?;
-    let mut out = DriveChanges { drive: device.name(), ..library_changes(&then, &now) };
+    let (then, now) = (Databases::from_snapshot(store, ancestor)?, Databases::read(device)?);
+    let mut out = DriveChanges { drive: device.name(), ..database_changes(&then, &now) };
 
     // The files.
-    let library = Some(&now);
-    let scanned = device.scan_fingerprinted(library, ctx)?;
+    let scanned = device.scan_fingerprinted(Some(now.primary()), ctx)?;
     let old_files: FxHashMap<String, &crate::tree::FileEntry> =
         ancestor.files.iter().map(|f| (f.path.to_lowercase(), f)).collect();
     let mut seen = FxHashSet::default();
@@ -133,8 +149,23 @@ pub fn changes_since(store: &Store, device: &Device, ancestor: &Snapshot, ctx: &
     Ok(out)
 }
 
-/// Sort the library changes from `then` to `now` (a drive's files aside: see [`changes_since`]):
-/// cheap enough for `status`, which has both libraries at hand.
+/// [`library_changes`] from `then`, the databases of the last state both drives held, to `now`, a
+/// drive's. The library players see is export.pdb's on a drive with both, and OneLibrary players
+/// write only to OneLibrary, so its changes are sorted too; one that can't be read counts as a
+/// change no player makes.
+pub(crate) fn database_changes(then: &Databases, now: &Databases) -> DriveChanges {
+    let mut out = library_changes(then.primary(), now.primary());
+    match (then.beside(), now.beside()) {
+        (Some(then), Some(now)) => out.add(library_changes(then, now)),
+        _ if then.plus_error.is_some() || now.plus_error.is_some() => out.note("exportLibrary.db can't be read".into()),
+        (None, Some(_)) => out.note("exportLibrary.db added".into()),
+        (Some(_), None) => out.note("exportLibrary.db removed".into()),
+        (None, None) => {}
+    }
+    out
+}
+
+/// Sort the library changes from `then` to `now` (a drive's files aside: see [`changes_since`]).
 pub fn library_changes(then: &Library, now: &Library) -> DriveChanges {
     let mut out = DriveChanges::default();
     // Players add history lists and TAG LIST playlists, nothing else.

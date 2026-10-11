@@ -361,7 +361,8 @@ locallibrary pack Home /Volumes/TONIGHT    # later: the same playlists, copying 
         /// Database to build
         #[arg(long, value_enum)]
         to: ConvertArg,
-        /// Rebuild it if the drive already has one (fixes drift between the two)
+        /// Rebuild it if the drive already has one, dropping what only it has (otherwise it gains
+        /// what it lacks)
         #[arg(long)]
         replace: bool,
         /// Show the plan without changing anything
@@ -1181,6 +1182,9 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             };
             let req = api::ConvertRequest { drive, options: locallibrary::convert::ConvertOptions { to, replace } };
             let plan = api::convert_plan(&req, &ctx)?;
+            if plan.noop {
+                return Ok(out.nothing(&plan, "nothing to add: it has everything the other database has"));
+            }
             if !out.json {
                 render::convert_plan(&plan);
                 output::clones(&plan);

@@ -208,15 +208,25 @@ fn with_identity(one: &OneLibrary, want: &DbIdentity, keep_others: bool) -> Resu
     let current = db_identity_of(one)?;
     let name = if keep_others { want.name.clone().or(current.name) } else { want.name.clone() };
     let colour = if keep_others { want.colour.or(current.colour) } else { want.colour };
-    one.connection().execute(
-        "UPDATE property SET deviceName = ?1, backGroundColorType = ?2",
-        rusqlite::params![name.unwrap_or_default(), colour.unwrap_or(0)],
-    )?;
+    write_identity(one, &DbIdentity { name, colour })?;
     let bytes = one.to_encrypted()?;
     if db_identity_of(&OneLibrary::from_encrypted(&bytes, None)?)? != db_identity_of(one)? {
         return Err(Error::OneLibrary("the edited database failed verification; drive left unchanged".into()));
     }
     Ok(bytes)
+}
+
+fn write_identity(one: &OneLibrary, identity: &DbIdentity) -> Result<()> {
+    one.connection().execute(
+        "UPDATE property SET deviceName = ?1, backGroundColorType = ?2",
+        rusqlite::params![identity.name.clone().unwrap_or_default(), identity.colour.unwrap_or(0)],
+    )?;
+    Ok(())
+}
+
+/// Give `to`, a OneLibrary database built to replace `from`, the name and colour `from` has.
+pub(crate) fn keep_identity(from: &OneLibrary, to: &OneLibrary) -> Result<()> {
+    write_identity(to, &db_identity_of(from)?)
 }
 
 /// The name and colour to put back with [`preserve`] once a sync, push or pack (marked with

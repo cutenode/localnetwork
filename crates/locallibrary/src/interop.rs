@@ -162,7 +162,7 @@ fn build(
     }
     // The drive's, its trees untangled as they were read (see `model::untangle`): every walk down
     // them ends.
-    let library = crate::xml::subset(device.library()?, &opts.only)?;
+    let library = crate::xml::subset(crate::convert::combined_library(device)?, &opts.only)?;
     let root = opts.location_root.clone().unwrap_or_else(|| device.root().to_path_buf());
     let load = |t: &Track| anlz::load_grid(device, t);
     let analysis: &dyn Fn(&Track) -> anlz::TrackAnalysis = &load;

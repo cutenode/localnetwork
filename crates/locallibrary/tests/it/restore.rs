@@ -508,3 +508,79 @@ fn an_interrupted_undo_is_taken_back_by_undo() {
     assert_eq!(playlist_names(&root), edited);
     assert!(Device::open(&root).unwrap().state().unwrap().pending.is_none());
 }
+
+/// A CDJ-3000X makes its playlists in OneLibrary alone: one deleted since comes back from the
+/// snapshot that has it there, into both databases.
+#[test]
+fn a_playlist_only_onelibrary_had_comes_back() {
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    let without = std::fs::read(root.join(paths::LIBRARY_PLUS_DB)).unwrap();
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let booth = one.create_playlist("Booth", 0, false).unwrap();
+    for t in [7, 2] {
+        one.add_to_playlist(booth, t).unwrap();
+    }
+    std::fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    let want = files(&common::plus_library(&root), "Booth");
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let ctx = Ctx::silent();
+    let mut d = Device::open_export(&root).unwrap();
+    sync::pull(&store, &mut d, &PullOptions::default(), &ctx).unwrap();
+    std::fs::write(root.join(paths::LIBRARY_PLUS_DB), &without).unwrap();
+
+    let preview = api::playlist_restore_plan(Some(&store), &request(&root, "Booth"), &ctx).unwrap();
+    assert_eq!(preview.plan.plan.playlists_created, ["Booth"]);
+    api::playlist_restore_apply(Some(&store), &request(&root, "Booth"), &ctx).unwrap();
+    for lib in [pdb_library(&root), common::plus_library(&root)] {
+        assert_eq!(files(&lib, "Booth"), want);
+    }
+}
+
+/// Undoing shows what it changes in OneLibrary too: here a playlist a CDJ-3000X made there since.
+#[test]
+fn undoing_shows_what_it_changes_in_onelibrary() {
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    apply(&root, &[Edit::CreatePlaylist { path: "Mine".into(), folder: false }]);
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    one.create_playlist("Booth", 0, false).unwrap();
+    std::fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let plan = api::undo_plan(&api::UndoRequest { force: true, ..undo_request(&root) }).unwrap();
+    let mut removed = plan.diff.removed_playlists.clone();
+    removed.sort();
+    assert_eq!(removed, ["Booth", "Mine"], "{:?}", plan.diff);
+}
+
+/// A playlist both databases have comes back with the entries either had: here one only
+/// OneLibrary had (a CDJ-3000X added it).
+#[test]
+fn a_restored_playlist_has_the_entries_either_database_had() {
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let root = drive_with_gigs(dir.path());
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let plus = one.library().unwrap();
+    let pdb = pdb_library(&root);
+    let extra = &pdb.tracks[9].file_path;
+    let warmup = plus.find_playlist("Shows/Warmup").unwrap().id;
+    one.add_to_playlist(warmup, plus.tracks.iter().find(|t| &t.file_path == extra).unwrap().id).unwrap();
+    std::fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    let want = files(&common::plus_library(&root), "Shows/Warmup");
+    assert_eq!(want.len(), files(&pdb, "Shows/Warmup").len() + 1);
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let ctx = Ctx::silent();
+    let mut d = Device::open_export(&root).unwrap();
+    sync::pull(&store, &mut d, &PullOptions::default(), &ctx).unwrap();
+    apply(&root, &[Edit::DeletePlaylist { playlist: "Shows/Warmup".into(), with_tracks: false }]);
+
+    api::playlist_restore_apply(Some(&store), &request(&root, "Shows/Warmup"), &ctx).unwrap();
+    for lib in [pdb_library(&root), common::plus_library(&root)] {
+        assert_eq!(files(&lib, "Shows/Warmup"), want);
+    }
+}

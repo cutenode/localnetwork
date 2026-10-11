@@ -780,6 +780,12 @@ export type ContactReport = {
 };
 
 export type ConvertPlan = {
+  /**
+   * The drive already has that database, and it keeps what it has. The counts below are then
+   * what it gains: tracks it lacks, playlists it lacks or that gain entries, folders made for
+   * them, and history lists it lacks.
+   */
+  adds: boolean;
   /** Artwork images copied under the other database's file names. */
   artwork: number;
   drive: string;
@@ -790,16 +796,23 @@ export type ConvertPlan = {
   /** Space needed: the new database, copied artwork, and the backup of the database files. */
   needed_bytes: number;
   playlists: number;
-  /** The drive already has that database, and it's rebuilt. */
+  /**
+   * The drive already has that database, and it's rebuilt, dropping what only it has (the
+   * warnings name it).
+   */
   replaces: boolean;
   root: string;
-  /** Tracks whose My Tags come along from the other database's tags. */
+  /**
+   * Tracks whose My Tags come along from the other database's tags (that gain some, when
+   * adding).
+   */
   tagged_tracks: number;
   to: Target;
   tracks: number;
   warnings: string[];
 };
 
+/** What a conversion made (added, when the drive had the database: see [`ConvertPlan::adds`]). */
 export type ConvertReport = {
   artwork: number;
   backup: string | null;
@@ -808,14 +821,17 @@ export type ConvertReport = {
   fingerprint: Hash | null;
   history_playlists: number;
   playlists: number;
-  /** Tracks with My Tags in the converted database's tags. */
+  /** Tracks with My Tags in the converted database's tags (that gained some, when adding). */
   tagged_tracks: number;
   tracks: number;
 };
 
 export type ConvertRequest = {
   drive: string;
-  /** Rebuild the target database if the drive already has one. */
+  /**
+   * Rebuild the target database if the drive already has one, dropping what only it has.
+   * Otherwise it keeps what it has and gains what it lacks.
+   */
   replace?: boolean;
   to: Target;
 };
@@ -1917,6 +1933,11 @@ export type EditPlan = {
   free_space: number | null;
   history_removed: number;
   needed_bytes: number;
+  /**
+   * OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they
+   * leave out edits only OneLibrary lacks, as after rekordbox exported over it alone.
+   */
+  onelibrary_changes: boolean;
   playlists_changed: PlaylistChange[];
   playlists_created: string[];
   playlists_deleted: string[];
@@ -6705,6 +6726,11 @@ export type Unsaved = {
   changed: boolean;
   /** History lists players recorded that the packed library won't have. */
   history_lists: string[];
+  /**
+   * Its OneLibrary database can't be read, so history lists players that read only OneLibrary
+   * recorded there can't be told apart: it's kept whole.
+   */
+  unreadable_onelibrary: boolean;
 };
 
 export type UnsetSettings = {

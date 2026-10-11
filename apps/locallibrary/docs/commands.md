@@ -93,7 +93,7 @@ its drives.
 | `locallibrary pull [<library> \| <drive>] [-l LIB] [-m MSG] [--label L]` | Snapshot a drive into the store (with a library, or no drive, every mounted drive of one library), see [The store](store.md) |
 | `locallibrary check [<library> \| <drive>...] [--players MODEL,...] [--audio] [--verbose]` | Check the drives you're taking to a set, down to tracks a player won't load (`--audio`: and audio files cut short); exit status 4 on problems, see [Before a set](sets.md#before-a-set) |
 | `locallibrary eject [<library> \| <drive>...]` | Unmount drives and power them off (experimental on Linux and Windows), see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
-| `locallibrary undo [<library> \| <drive>] [--list]` | Take back the last change locallibrary made to a library or drive (run again, the one before), after a plan of the files, playlists, history lists and recorded edits that change; refused if the drive changed since, unless `--force`; `--list` shows what can be undone on every mounted drive |
+| `locallibrary undo [<library> \| <drive>] [--list]` | Take back the last change locallibrary made to a library or drive (run again, the one before), after a plan of the files, playlists (in both databases), history lists and recorded edits that change; refused if the drive changed since, unless `--force`; `--list` shows what can be undone on every mounted drive |
 | `locallibrary` / `locallibrary tui [<library>]` | Interactive player, see [Player](player.md) |
 
 **Drives**
@@ -128,7 +128,7 @@ its drives.
 | `locallibrary store [info\|gc\|verify\|label\|unlabel\|prune]` | Store size, garbage collection, integrity check, snapshot labels, removing old snapshots |
 | `locallibrary store copy <dir>` / `store copies` | Copy the store somewhere else (a NAS, another disk, a cloud-synced folder), only what's new; where copies were made, see [Off-site copies](store.md#off-site-copies) |
 | `locallibrary diff <a> <b> [--playlist P]` | Playlist entries added, removed and moved between libraries (a library's newest drive plugged in, else its latest snapshot), drives or `snapshot:<id>`s |
-| `locallibrary diff <a> <b> --summary` | Which drive is newer, the evidence, and the differences |
+| `locallibrary diff <a> <b> --summary` | Which drive is newer, the evidence, and the differences (in both databases) |
 | `locallibrary collection [info\|tracks\|playlists\|diff <library>]` | rekordbox's own collection on this computer (`master.db`), read only, and what a drive lacks against it, see [rekordbox's collection](other-software.md#rekordboxs-collection) |
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--dry-run]` | The library for other DJ software, written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
@@ -148,7 +148,7 @@ its drives.
 | `locallibrary smart ...` | Rule-based playlists kept in the store and written to drives, see [Rule-based playlists](editing.md#rule-based-playlists) |
 | `locallibrary merge <source> <target>` | Add the source's missing tracks and playlists to the target library (`--history`: and its history playlists) |
 | `locallibrary pack <library> <drive> --playlist P` | A drive for a set holding only some playlists, see [Drives for a set](editing.md#drives-for-a-set) |
-| `locallibrary convert <library> --to onelibrary\|device-library` | Build OneLibrary from `export.pdb` or the reverse (`--replace` rebuilds an existing one), see [Convert](editing.md#convert) |
+| `locallibrary convert <library> --to onelibrary\|device-library` | Build OneLibrary from `export.pdb` or the reverse; one the drive has gains what it lacks (`--replace` rebuilds it), see [Convert](editing.md#convert) |
 | `locallibrary clean <library>` | Remove useless tracks (rekordbox's bundled demo samples, which pile up with every export) with their files, analysis and playlist entries |
 | `locallibrary settings [<drive>] ...` | The settings profile, or a drive's settings, see [Settings](settings.md) |
 

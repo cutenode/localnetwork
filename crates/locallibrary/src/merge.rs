@@ -552,7 +552,12 @@ fn plan_my_tags(
 
 /// Source history playlists worth bringing across: ones holding a track the merge carries, that
 /// the target doesn't already have (same name, same tracks).
-fn plan_history(src: &Library, dst: &Library, matches: &FxHashMap<u32, u32>, new_ids: &FxHashSet<u32>) -> Vec<u32> {
+pub(crate) fn plan_history(
+    src: &Library,
+    dst: &Library,
+    matches: &FxHashMap<u32, u32>,
+    new_ids: &FxHashSet<u32>,
+) -> Vec<u32> {
     let existing: FxHashSet<(String, Vec<u32>)> =
         dst.history.iter().filter(|h| !h.is_folder).map(|h| (fold(&h.name), h.track_ids.clone())).collect();
     src.history
@@ -644,11 +649,11 @@ fn unique_top_level_name(lib: &Library, base: &str) -> String {
 /// nodes of its kind, the one [`model::pick`] picks in display order, so plan and apply agree when
 /// the target has names that differ only in case, or same-named siblings. Only its kind counts,
 /// unlike in edits: a folder shown before a playlist of the same name doesn't hide it.
-fn merge_target<'a>(dst: &'a Library, path: &str, folder: bool) -> Option<&'a Playlist> {
+pub(crate) fn merge_target<'a>(dst: &'a Library, path: &str, folder: bool) -> Option<&'a Playlist> {
     model::pick(dst.display_order().into_iter().filter(|(_, d)| d.is_folder == folder), path)
 }
 
-fn plan_playlists(
+pub(crate) fn plan_playlists(
     src: &Library,
     dst: &Library,
     selected: &FxHashSet<u32>,
@@ -821,10 +826,11 @@ pub fn apply(
                 id_map.insert(t.source_id, new_id);
                 report.tracks_added += 1;
             }
-            let (created, entries) = write_playlists(&mut editor, &src_lib, &target_lib, plan, opts, &id_map)?;
+            let (created, entries) =
+                write_playlists(&mut editor, &src_lib, &target_lib, opts, &plan.folder_name, &id_map)?;
             report.playlists_created = created;
             report.playlist_entries_added = entries;
-            report.history_playlists_added = write_history(&mut editor, &src_lib, plan, &id_map)?;
+            report.history_playlists_added = write_history(&mut editor, &src_lib, &plan.history_ids, &id_map)?;
             Ok(editor.to_bytes())
         })?;
         // Never write a database we can't read back.
@@ -1041,8 +1047,8 @@ impl PlusMerge<'_> {
                 report.tracks_added += 1;
             }
         }
-        let (created, entries) = write_playlists(one, self.src_lib, self.plus_lib, plan, opts, &id_map)?;
-        let history = write_history(one, self.src_lib, plan, &id_map)?;
+        let (created, entries) = write_playlists(one, self.src_lib, self.plus_lib, opts, &plan.folder_name, &id_map)?;
+        let history = write_history(one, self.src_lib, &plan.history_ids, &id_map)?;
         if self.primary {
             report.playlists_created = created;
             report.playlist_entries_added = entries;
@@ -1201,20 +1207,67 @@ impl PlaylistDb for OneLibrary {
     }
 }
 
-/// Add the planned history playlists (at the top level). Returns how many.
-fn write_history(
+/// A library in memory, as [`crate::convert::combined_library`] adds to it.
+impl PlaylistDb for Library {
+    fn add_playlist(&mut self, name: &str, parent: u32, is_folder: bool) -> Result<u32> {
+        let parent_id = (parent != 0).then_some(parent);
+        let (id, sort_order) = next_node(&self.playlists, parent_id);
+        self.playlists.push(Playlist {
+            id,
+            parent_id,
+            name: name.into(),
+            is_folder,
+            sort_order,
+            track_ids: Vec::new(),
+        });
+        Ok(id)
+    }
+
+    fn add_entry(&mut self, playlist: u32, track: u32) -> Result<()> {
+        append(&mut self.playlists, playlist, track)
+    }
+
+    fn add_history(&mut self, name: &str) -> Result<u32> {
+        let (id, sort_order) = next_node(&self.history, None);
+        let list =
+            Playlist { id, parent_id: None, name: name.into(), is_folder: false, sort_order, track_ids: Vec::new() };
+        self.history.push(list);
+        self.history_playlists += 1;
+        Ok(id)
+    }
+
+    fn add_history_entry(&mut self, history: u32, track: u32) -> Result<()> {
+        append(&mut self.history, history, track)
+    }
+}
+
+/// A free id among `nodes`, and the place after the last child of `parent`.
+fn next_node(nodes: &[Playlist], parent: Option<u32>) -> (u32, u32) {
+    let id = nodes.iter().map(|p| p.id).max().unwrap_or(0) + 1;
+    let place = nodes.iter().filter(|p| p.parent_id == parent).map(|p| p.sort_order + 1).max().unwrap_or(0);
+    (id, place)
+}
+
+fn append(nodes: &mut [Playlist], list: u32, track: u32) -> Result<()> {
+    let list = nodes.iter_mut().find(|p| p.id == list).ok_or_else(|| Error::NotFound(format!("list {list}")))?;
+    list.track_ids.push(track);
+    Ok(())
+}
+
+/// Add `src`'s history playlists `ids` (at the top level). Returns how many.
+pub(crate) fn write_history(
     db: &mut impl PlaylistDb,
     src: &Library,
-    plan: &MergePlan,
+    ids: &[u32],
     id_map: &FxHashMap<u32, u32>,
 ) -> Result<usize> {
-    for h in plan.history_ids.iter().filter_map(|id| src.history.iter().find(|h| h.id == *id)) {
+    for h in ids.iter().filter_map(|id| src.history.iter().find(|h| h.id == *id)) {
         let id = db.add_history(&h.name)?;
         for t in h.track_ids.iter().filter_map(|t| id_map.get(t)) {
             db.add_history_entry(id, *t)?;
         }
     }
-    Ok(plan.history_ids.len())
+    Ok(ids.len())
 }
 
 /// Recreate the source's hot cue bank lists that use the copied cues (`cue_ids`: source ->
@@ -1263,14 +1316,14 @@ fn copy_hot_cue_bank_lists(
     Ok(added)
 }
 
-/// Recreate the source's playlists in `db`, whose library is `dst`. `id_map` maps source track
-/// ids to `db`'s.
-fn write_playlists(
+/// Recreate the source's playlists in `db`, whose library is `dst`, as `opts` says (in a folder named
+/// `folder_name`, or by name). `id_map` maps source track ids to `db`'s.
+pub(crate) fn write_playlists(
     editor: &mut impl PlaylistDb,
     src: &Library,
     dst: &Library,
-    plan: &MergePlan,
     opts: &MergeOptions,
+    folder_name: &str,
     id_map: &FxHashMap<u32, u32>,
 ) -> Result<(usize, usize)> {
     let selected = selected_playlists(src, opts)?;
@@ -1292,7 +1345,7 @@ fn write_playlists(
     match opts.playlists {
         PlaylistMode::None => {}
         PlaylistMode::Folder => {
-            let root_folder = editor.add_playlist(&plan.folder_name, 0, true)?;
+            let root_folder = editor.add_playlist(folder_name, 0, true)?;
             created += 1;
             // Recreate the selected part of the tree, parents before children.
             let mut new_ids: FxHashMap<u32, u32> = FxHashMap::default();

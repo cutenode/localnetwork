@@ -198,6 +198,18 @@ fn an_exportext_pdb_that_cant_be_read_is_left_as_it_is() {
     assert!(warnings.iter().any(|w| w.ends_with(left)), "{warnings:?}");
     assert_eq!(report.tagged_tracks, 0);
     assert_eq!(fs::read(root.join(paths::EXPORT_EXT_PDB)).unwrap(), b"not a database");
+
+    // Into the export.pdb the drive has: the same, and the rest is added.
+    let root = common::bigger_drive(dir.path(), "C");
+    common::add_onelibrary(&root);
+    tag_first_track(&root);
+    fs::write(root.join(paths::EXPORT_EXT_PDB), b"not a database").unwrap();
+    let (plan, report, warnings) = convert(&root, &opts(Target::DeviceLibrary, false));
+    let left = "; its My Tags aren't converted";
+    assert!(plan.adds && plan.warnings.iter().any(|w| w.ends_with(left)), "{:?}", plan.warnings);
+    assert!(warnings.iter().any(|w| w.ends_with(left)), "{warnings:?}");
+    assert_eq!(report.tagged_tracks, 0);
+    assert_eq!(fs::read(root.join(paths::EXPORT_EXT_PDB)).unwrap(), b"not a database");
 }
 
 /// Rebuilding OneLibrary keeps a track's own row, My Tags included, though exportExt.pdb lacks
