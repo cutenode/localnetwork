@@ -12,6 +12,30 @@ use crate::paths;
 use crate::progress::{Ctx, Phase};
 use crate::{Error, Result};
 
+/// Whether a file is a cloud storage placeholder whose contents aren't on this computer (an
+/// online-only file in Dropbox or Google Drive): reading it downloads it first.
+pub fn is_online_only(meta: &fs::Metadata) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::macos::fs::MetadataExt;
+        // SF_DATALESS: the file's data is fetched when it's first read.
+        const SF_DATALESS: u32 = 0x4000_0000;
+        meta.st_flags() & SF_DATALESS != 0
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_OFFLINE: u32 = 0x1000;
+        const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS: u32 = 0x0040_0000;
+        meta.file_attributes() & (FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS) != 0
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = meta;
+        false
+    }
+}
+
 /// Write `bytes` to `path` atomically (temp file in the same directory, fsync, rename).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = stage_bytes(path, bytes)?;

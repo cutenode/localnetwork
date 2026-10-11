@@ -1426,7 +1426,10 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
         Command::Diff(args) => return diff_cmd::run(args, &cli.store, out, &ctx),
-        Command::Collection(args) => return collection_cmd::run(args, out),
+        Command::Collection(args) => {
+            let store = open_store(&cli.store).ok();
+            return collection_cmd::run(args, store.as_ref(), out, &ctx);
+        }
         Command::Check(args) => return check_cmd::run(args, &cli.store, out, &ctx),
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
         Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),

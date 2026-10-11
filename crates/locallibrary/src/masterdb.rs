@@ -24,8 +24,16 @@
 //!   distinct 32-bit number, otherwise tracks and playlists are numbered in order.
 //! * `djmdContent.BPM` is hundredths of a beat per minute, `Length` seconds, `Rating` 0-5 stars,
 //!   `ColorID` a row of rekordbox's colour table (1 pink ... 8 purple), `FolderPath` the audio
-//!   file's full path on this computer (`/Users/me/Music/x.mp3`, `C:/Users/me/Music/x.mp3`),
+//!   file's full path on this computer (`/Users/me/Music/x.mp3`, `C:/Users/me/Music/x.mp3`), or,
+//!   for a track Cloud Library Sync keeps in Dropbox or Google Drive, its path in the service's
+//!   `rekordbox` folder (`/contents_2354715273/Artist/x.mp3`, see [`CloudFolders`]),
 //!   `StockDate` the date it was added.
+//! * `AnalysisDataPath` and `ImagePath` are paths in rekordbox's `share` folder beside
+//!   `master.db` (`/PIONEER/USBANLZ/d48/899a4-.../ANLZ0000.DAT`, `/PIONEER/Artwork/...`).
+//! * `djmdCloudProperty` names the storage service Cloud Library Sync uses (`Reserved1`
+//!   `SyncService`, `Reserved2` `Dropbox`), and `contentFile` lists the analysis and artwork files
+//!   it syncs, with their sizes; a file there whose copy on this computer has another size (or
+//!   none) hasn't finished syncing.
 //! * playlists and My Tags hang off `ParentID` `"root"`; a playlist's `Attribute` is 0 for a
 //!   playlist, 1 for a folder and 4 for an intelligent playlist, whose rules (`SmartList`) aren't
 //!   evaluated here, so it reads as empty.
@@ -117,6 +125,76 @@ pub struct Collection {
     pub tags: Vec<TagCategory>,
     /// Ids of intelligent playlists, whose rules aren't evaluated.
     pub smart_playlists: Vec<u32>,
+    /// The storage service Cloud Library Sync keeps audio in (`Dropbox`), if it's on.
+    pub sync_service: Option<String>,
+    /// Sizes of the files Cloud Library Sync syncs (`contentFile`), by lower-cased path in the
+    /// `share` folder (`/pioneer/usbanlz/...`).
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub synced_sizes: FxHashMap<String, u64>,
+}
+
+/// The folders Cloud Library Sync keeps audio in on this computer: rekordbox's `rekordbox` folder
+/// sits in each. rekordbox records them in its settings (`rekordbox3.settings`), as
+/// `DropboxSharingPath` and `GoogleDriveSharingPath`; nothing else in that file is read (it also
+/// holds the services' sign-in tokens).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CloudFolders {
+    pub dropbox: Option<PathBuf>,
+    pub google_drive: Option<PathBuf>,
+}
+
+impl CloudFolders {
+    /// The folders rekordbox on this computer recorded; none when it has no settings file.
+    pub fn this_computer() -> CloudFolders {
+        settings_path().and_then(|p| CloudFolders::from_settings(&p).ok()).unwrap_or_default()
+    }
+
+    /// The folders a `rekordbox3.settings` file names.
+    pub fn from_settings(path: &Path) -> Result<CloudFolders> {
+        let xml = std::fs::read_to_string(path).at(path)?;
+        let mut reader = quick_xml::Reader::from_str(&xml);
+        let mut out = CloudFolders::default();
+        loop {
+            let event = reader.read_event().map_err(|e| Error::parse(path, e))?;
+            let e = match &event {
+                quick_xml::events::Event::Empty(e) | quick_xml::events::Event::Start(e) => e,
+                quick_xml::events::Event::Eof => break,
+                _ => continue,
+            };
+            if e.name().as_ref() != b"VALUE" {
+                continue;
+            }
+            let attr = |name: &[u8]| -> Option<String> {
+                let a = e.attributes().flatten().find(|a| a.key.as_ref() == name)?;
+                a.unescape_value().ok().map(|v| v.into_owned())
+            };
+            let slot = match attr(b"name").as_deref() {
+                Some("DropboxSharingPath") => &mut out.dropbox,
+                Some("GoogleDriveSharingPath") => &mut out.google_drive,
+                _ => continue,
+            };
+            *slot = attr(b"val").filter(|v| !v.is_empty()).map(PathBuf::from);
+        }
+        Ok(out)
+    }
+
+    /// The folders to look in for `service` (`Dropbox`, `GoogleDrive`): its own first, then the
+    /// other, should the name be one this doesn't know.
+    fn for_service(&self, service: Option<&str>) -> Vec<&Path> {
+        let google = service.is_some_and(|s| s.to_lowercase().contains("google"));
+        let order = if google { [&self.google_drive, &self.dropbox] } else { [&self.dropbox, &self.google_drive] };
+        order.into_iter().flatten().map(PathBuf::as_path).collect()
+    }
+}
+
+/// rekordbox 6 and 7's settings file: `~/Library/Application Support/Pioneer/rekordbox6/` on
+/// macOS, `%APPDATA%\Pioneer\rekordbox6\` on Windows.
+fn settings_path() -> Option<PathBuf> {
+    let base = directories::BaseDirs::new()?;
+    // The application support folder on macOS, %APPDATA% (roaming) on Windows.
+    let dir = if cfg!(any(target_os = "macos", windows)) { base.config_dir().to_path_buf() } else { return None };
+    Some(dir.join("Pioneer").join("rekordbox6").join("rekordbox3.settings"))
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -476,6 +554,17 @@ impl Db<'_> {
             cues,
             tags: self.tags(&track_ids)?,
             smart_playlists,
+            sync_service: self
+                .select("djmdCloudProperty", &["Reserved1", "Reserved2"])?
+                .into_iter()
+                .find(|r| text(&r[0]) == "SyncService")
+                .map(|r| text(&r[1]))
+                .filter(|v| !v.is_empty()),
+            synced_sizes: self
+                .select("contentFile", &["Path", "Size"])?
+                .into_iter()
+                .map(|r| (text(&r[0]).to_lowercase(), int(&r[1]).max(0) as u64))
+                .collect(),
         })
     }
 
@@ -505,6 +594,10 @@ impl Db<'_> {
                 smart.push(id);
             }
             let mut entries = songs.remove(&id).unwrap_or_default();
+            // rekordbox leaves entries on some folders, which it doesn't show; a folder holds none.
+            if attribute == 1 {
+                entries.clear();
+            }
             entries.sort_unstable();
             out.push(Playlist {
                 id,
@@ -635,6 +728,40 @@ impl Collection {
             tags: self.tags.iter().map(|c| c.tags.len()).sum(),
             tagged_tracks: tagged.len(),
         }
+    }
+
+    /// rekordbox's `share` folder beside `master.db`, which `AnalysisDataPath` and `ImagePath`
+    /// are paths in.
+    pub fn share_dir(&self) -> PathBuf {
+        self.path.parent().unwrap_or(Path::new(".")).join("share")
+    }
+
+    /// Where a file the collection names in its `share` folder is on this computer.
+    pub fn share_file(&self, path: &str) -> PathBuf {
+        paths::to_fs(&self.share_dir(), &paths::key(path))
+    }
+
+    /// Whether Cloud Library Sync is still bringing `path` (in the `share` folder) to this
+    /// computer: it lists the file with a size the copy here doesn't have yet.
+    pub fn still_syncing(&self, path: &str) -> bool {
+        let Some(&size) = self.synced_sizes.get(&path.to_lowercase()) else { return false };
+        std::fs::metadata(self.share_file(path)).map_or(true, |m| m.len() != size)
+    }
+
+    /// Where `track`'s audio file is on this computer: its path as it is, or, for a track Cloud
+    /// Library Sync keeps in a storage service (`/contents_<id>/...`), that path in the service's
+    /// `rekordbox` folder, the first of `cloud`'s that has it. `None` when it's in none of them.
+    pub fn audio_file(&self, track: &Track, cloud: &CloudFolders) -> Option<PathBuf> {
+        let path = &track.file_path;
+        let first = path.trim_start_matches('/').split('/').next().unwrap_or("");
+        if !first.starts_with("contents_") {
+            return Some(PathBuf::from(path));
+        }
+        cloud
+            .for_service(self.sync_service.as_deref())
+            .into_iter()
+            .map(|folder| paths::to_fs(&folder.join("rekordbox"), &paths::key(path)))
+            .find(|p| p.exists())
     }
 
     /// My Tags as `Category/Tag` by lower-cased file key, the shape track filters (`tag:`) take.
@@ -1258,6 +1385,85 @@ pub(crate) mod tests {
         let titles: Vec<String> =
             open(&copy.join("master.db"), "unused").unwrap().library.tracks.into_iter().map(|t| t.title).collect();
         assert!(titles.contains(&"Never Grow Old (WAL)".to_string()), "{titles:?}");
+    }
+
+    #[test]
+    fn cloud_folders_come_from_rekordbox_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rekordbox3.settings");
+        std::fs::write(
+            &path,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<PROPERTIES>
+  <VALUE name="DropboxSharingPath" val="/Users/dj/Library/CloudStorage/Dropbox &amp; Co"/>
+  <VALUE name="GoogleDriveSharingPath" val=""/>
+  <VALUE name="DropboxToken" val="not-for-us"/>
+</PROPERTIES>"#,
+        )
+        .unwrap();
+        let folders = CloudFolders::from_settings(&path).unwrap();
+        assert_eq!(folders.dropbox, Some(PathBuf::from("/Users/dj/Library/CloudStorage/Dropbox & Co")));
+        assert_eq!(folders.google_drive, None, "an empty value is no folder");
+        assert!(CloudFolders::from_settings(&dir.path().join("missing")).is_err());
+    }
+
+    /// A collection whose second track Cloud Library Sync keeps in Dropbox, with the analysis
+    /// file it lists for the first.
+    fn cloud_sample() -> Fixture {
+        let f = sample();
+        f.exec(&format!(
+            "CREATE TABLE djmdCloudProperty (ID VARCHAR(255) PRIMARY KEY, Reserved1 TEXT, Reserved2 TEXT, {STATS});
+             INSERT INTO djmdCloudProperty (ID, Reserved1, Reserved2) VALUES ('1', 'SyncService', 'Dropbox');
+             CREATE TABLE contentFile (ID VARCHAR(255) PRIMARY KEY, ContentID VARCHAR(255), Path VARCHAR(255),
+                 Hash VARCHAR(255), Size INTEGER, {STATS});
+             INSERT INTO contentFile (ID, ContentID, Path, Size) VALUES
+                 ('f1', '84935471', '/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.DAT', 4);
+             UPDATE djmdContent SET FolderPath = '/contents_2354715273/Floorplan/ngo.mp3' WHERE ID = '205356547';"
+        ));
+        f
+    }
+
+    #[test]
+    fn finds_audio_cloud_library_sync_keeps_in_a_storage_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let rb = dir.path().join("rekordbox");
+        std::fs::create_dir(&rb).unwrap();
+        let c = open(&write(&rb, &cloud_sample().encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+        assert_eq!(c.sync_service.as_deref(), Some("Dropbox"));
+        let local = c.library.track(84935471).unwrap();
+        let synced = c.library.track(205356547).unwrap();
+        let (dropbox, drive) = (dir.path().join("Dropbox"), dir.path().join("Google Drive"));
+        let audio = dropbox.join("rekordbox/contents_2354715273/Floorplan/ngo.mp3");
+        std::fs::create_dir_all(audio.parent().unwrap()).unwrap();
+        std::fs::write(&audio, b"mp3").unwrap();
+
+        let both = CloudFolders { dropbox: Some(dropbox.clone()), google_drive: Some(drive.clone()) };
+        assert_eq!(c.audio_file(local, &both), Some(PathBuf::from(&local.file_path)), "a full path stays as it is");
+        assert_eq!(c.audio_file(synced, &both), Some(audio.clone()));
+        let only_drive = CloudFolders { dropbox: None, google_drive: Some(drive) };
+        assert_eq!(c.audio_file(synced, &only_drive), None, "not in any folder rekordbox syncs to");
+        assert_eq!(c.audio_file(synced, &CloudFolders::default()), None);
+
+        // The analysis file contentFile lists, missing, then a partial copy, then all of it.
+        let dat = "/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.DAT";
+        assert_eq!(c.share_file(dat), rb.join("share/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.DAT"));
+        assert!(c.still_syncing(dat));
+        std::fs::create_dir_all(c.share_file(dat).parent().unwrap()).unwrap();
+        std::fs::write(c.share_file(dat), b"PM").unwrap();
+        assert!(c.still_syncing(dat));
+        std::fs::write(c.share_file(dat), b"PMAI").unwrap();
+        assert!(!c.still_syncing(dat));
+        assert!(!c.still_syncing("/PIONEER/Artwork/00001/a1.jpg"), "a file Cloud Library Sync doesn't list");
+    }
+
+    #[test]
+    fn entries_rekordbox_left_on_a_folder_are_ignored() {
+        let f = sample();
+        f.exec("INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo) VALUES ('z', '10', '4', 1);");
+        let dir = tempfile::tempdir().unwrap();
+        let c = open(&write(dir.path(), &f.encrypted(DEFAULT_KEY)), DEFAULT_KEY).unwrap();
+        let shows = c.library.find_playlist("Shows").unwrap();
+        assert!(shows.is_folder && shows.track_ids.is_empty(), "{:?}", shows.track_ids);
     }
 
     #[test]

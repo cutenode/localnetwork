@@ -315,6 +315,7 @@ fn copy_library(
     let ctx = &ctx.uncancellable();
     report.fingerprint = Some(holds.entry.fingerprint);
     crate::pack::forget(target)?;
+    crate::collection_export::forget(target)?;
     if crate::commit::database_state(target) != databases {
         match source {
             Source::Drive { device, .. } => crate::edit::journal::copy(device, target)?,

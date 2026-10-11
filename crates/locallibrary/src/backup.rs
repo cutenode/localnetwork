@@ -287,7 +287,8 @@ fn changed_since(device: &Device, info: &BackupInfo) -> Error {
             // Whole libraries copied onto it since take no backup of their own: name them.
             let copied = device.state().and_then(|s| {
                 s.lineage.iter().rev().find(|e| {
-                    e.at > info.created && matches!(e.op, LineageOp::Sync | LineageOp::Push | LineageOp::Pack)
+                    e.at > info.created
+                        && matches!(e.op, LineageOp::Sync | LineageOp::Push | LineageOp::Pack | LineageOp::Export)
                 })
             });
             let by = match copied {

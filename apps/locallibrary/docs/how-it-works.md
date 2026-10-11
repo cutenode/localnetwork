@@ -63,6 +63,8 @@ crates/locallibrary/src/    the library, built on the crates above
   smart.rs     rule-based playlists
   pack.rs      drives for a set, cut down from another drive's library; pack/transcode.rs: copies of
                tracks the set's players can't play, and their record on the drive
+  collection_export.rs  rekordbox's collection written to a drive or folder, as rekordbox's Export does
+  library_write.rs      writing a whole library to a drive: incremental copies, the database swap, removal
   import.rs    loclib-tracklist, re-exported
   tags.rs      My Tags in exportExt.pdb and OneLibrary
   cue_edit.rs  hot cues, memory cues and loops in analysis files and OneLibrary's cue table

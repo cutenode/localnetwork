@@ -491,6 +491,7 @@ pub fn apply(plan: &ConvertPlan, device: &mut Device, opts: &ConvertOptions, ctx
         made: &mut made,
         report: &mut report,
         ctx,
+        keep_images: false,
     };
     let bytes = match opts.to {
         Target::OneLibrary => {
@@ -547,6 +548,9 @@ struct Builder<'a, 'c> {
     made: &'a mut Vec<u32>,
     report: &'a mut ConvertReport,
     ctx: &'a Ctx<'c>,
+    /// Images keep the keys the tracks give them, which both databases share, instead of being
+    /// copied to the database's own names.
+    keep_images: bool,
 }
 
 impl Builder<'_, '_> {
@@ -558,6 +562,10 @@ impl Builder<'_, '_> {
         let Ok(src) = self.device.checked_path(&from) else { return Ok(None) };
         if !src.is_file() || paths::classify(&from) != Some(paths::FileClass::Artwork) {
             return Ok(None);
+        }
+        if self.keep_images {
+            self.report.artwork += 1;
+            return Ok(Some(from));
         }
         let ext = from.rsplit_once('.').map(|(_, e)| e).unwrap_or("jpg");
         let to = free_image_key(self.device.root(), prefix, id, ext);
@@ -797,9 +805,35 @@ impl Builder<'_, '_> {
     }
 }
 
+/// OneLibrary and `export.pdb` (in that order) for `source`, a library whose files are on `device`
+/// already, as [`crate::collection_export`] writes it: images keep their keys, OneLibrary's cues
+/// come from the analysis files, and it gets `tags`' My Tags.
+pub(crate) fn build_databases(
+    device: &Device,
+    source: &Library,
+    tags: Option<&DbTags>,
+    ctx: &Ctx<'_>,
+) -> Result<(Vec<u8>, Vec<u8>, ConvertReport)> {
+    let (mut report, mut copies, mut made) = (ConvertReport::default(), Vec::new(), Vec::new());
+    let mut builder = Builder {
+        device,
+        source,
+        target: None,
+        additions: None,
+        copies: &mut copies,
+        made: &mut made,
+        report: &mut report,
+        ctx,
+        keep_images: true,
+    };
+    let plus = builder.onelibrary(None, tags)?;
+    let pdb = builder.device_library()?;
+    Ok((plus, pdb, report))
+}
+
 /// Refuse, naming it, a track or name in `source` (OneLibrary, which takes any length) that a new
 /// `export.pdb` can't hold, as building it would.
-fn check_device_library(source: &Library) -> Result<()> {
+pub(crate) fn check_device_library(source: &Library) -> Result<()> {
     let db = pdb::parse_database(PDB_TEMPLATE.to_vec(), Path::new(paths::EXPORT_PDB))?;
     let refuse =
         |what: String, e: rekordbox_pdb::PdbError| Error::invalid(format!("{what} can't be stored in export.pdb: {e}"));

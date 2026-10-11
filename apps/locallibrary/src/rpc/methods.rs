@@ -841,6 +841,12 @@ fn build() -> Registry {
     r.read("collection.info", |_, req| Ok(api::collection_info(&req)?)).long();
     r.read("collection.library", |_, req| Ok(api::collection_library(&req)?)).long();
     r.read("collection.diff", |_, req| Ok(api::collection_diff(&req)?)).long();
+    r.plan("collection.export.plan", |c, req| Ok(api::collection_export_plan(&req, c.ctx)?)).long().destructive();
+    r.apply("collection.export.apply", Optional, |c, req| {
+        Ok(api::collection_export_apply(c.store_opt().as_ref(), &req, c.ctx)?)
+    })
+    .long()
+    .destructive();
     r.plan("interop.plan", |c, req| Ok(api::interop_plan(&req, c.ctx)?)).long().destructive().writes_to("output");
     r.apply("interop.apply", PlanStore::None, |c, req| Ok(api::interop_apply(&req, c.ctx)?))
         .long()

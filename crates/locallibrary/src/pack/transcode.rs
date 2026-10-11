@@ -27,6 +27,7 @@ use crate::equipment::{self, Codec, Model, Unplayable};
 use crate::error::IoContext;
 use crate::fsutil;
 use crate::hash::Hash;
+use crate::library_write;
 use crate::model::{Track, TrackRef};
 use crate::paths;
 use crate::progress::{Ctx, Event, Phase};
@@ -96,22 +97,10 @@ pub(super) struct Copies {
     pub warnings: Vec<String>,
     /// Source audio files (keys) the copies stand in for: not packed themselves.
     pub replaced: FxHashSet<String>,
-    /// The analysis files (keys) of those tracks, and how they change.
-    pub rewrites: IndexMap<String, Rewrite>,
-}
-
-/// How a track's analysis file changes on its way to the target when it's packed as a copy.
-#[derive(Debug, Clone)]
-pub(super) struct Rewrite {
-    /// The copy's device path, which the file records.
-    pub path: String,
-    /// How much later the copy's times are (a decoded lossy file: see [`crate::timeline`]).
-    pub shift_ms: i32,
-    /// Bytes the file grows by (the paths' lengths differ): what tells a rewritten file on the
-    /// target from a stale one.
-    pub grow: i64,
-    /// The copy is new: its analysis is written whether or not it looks current.
-    pub force: bool,
+    /// The analysis files (keys) of those tracks, recording their copies' paths and times (a
+    /// decoded lossy file's are later: see [`crate::timeline`]). A new copy's are written whether
+    /// or not they look current.
+    pub rewrites: IndexMap<String, library_write::Source>,
 }
 
 /// A copy as recorded on the target.
@@ -286,12 +275,12 @@ pub(super) fn plan(
                 && r.recipe == w.recipe.to_string()
                 && tgt_tree.resolve(&w.to).is_some_and(|e| e.size == r.file.size)
         });
-        let utf16 = |p: &str| p.encode_utf16().count() as i64;
         let copy_path = paths::device_path(&w.to);
-        let grow = 2 * (utf16(&copy_path) - utf16(&t.file_path));
         for analysis in crate::clean::analysis_files(&t.analyze_path, src_tree) {
-            let rewrite = Rewrite { path: copy_path.clone(), shift_ms: w.shift_ms, grow, force: kept.is_none() };
-            out.rewrites.insert(analysis, rewrite);
+            let e = src_tree.resolve(&analysis).expect("listed from the tree");
+            let rewritten =
+                library_write::Source::analysis(src_tree.fs_path(&e.path), e.mtime, &copy_path, w.shift_ms)?;
+            out.rewrites.insert(analysis, library_write::Source { force: kept.is_none(), ..rewritten });
         }
         out.replaced.insert(entry.path.clone());
         out.transcodes.push(PackTranscode {

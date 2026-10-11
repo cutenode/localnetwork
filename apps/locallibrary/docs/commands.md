@@ -132,6 +132,7 @@ its drives.
 | `locallibrary diff <a> <b> [--playlist P]` | Playlist entries added, removed and moved between libraries (a library's newest drive plugged in, else its latest snapshot), drives or `snapshot:<id>`s |
 | `locallibrary diff <a> <b> --summary` | Which drive is newer, the evidence, and the differences (in both databases) |
 | `locallibrary collection [info\|tracks\|playlists\|diff <library>]` | rekordbox's own collection on this computer (`master.db`), read only, and what a drive lacks against it, see [rekordbox's collection](other-software.md#rekordboxs-collection) |
+| `locallibrary collection export <drive or folder> [--playlist P]...` | Write the collection to a drive or folder as rekordbox's Export does, Cloud Library Sync tracks included, see [Exporting it without rekordbox](other-software.md#exporting-it-without-rekordbox) |
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--dry-run]` | The library for other DJ software, written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
 | `locallibrary xml [<library>] -o rekordbox.xml [--only PLAYLIST]` | Export as rekordbox XML (`--only`: just those playlists or folders and their tracks) |

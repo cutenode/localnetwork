@@ -63,9 +63,18 @@ pub fn free_artwork_key(root: &Path, id: u32, ext: &str) -> String {
 /// Like [`free_artwork_key`] with another file prefix: OneLibrary's images are `b<id>.jpg`.
 pub fn free_image_key(root: &Path, prefix: char, id: u32, ext: &str) -> String {
     (id.saturating_sub(1) / 20 + 1..)
-        .map(|folder| format!("PIONEER/Artwork/{folder:05}/{prefix}{id}.{ext}"))
+        .map(|folder| image_key_in(folder, prefix, id, ext))
         .find(|k| !paths::to_fs(root, k).exists() && !paths::to_fs(root, &medium_variant(k)).exists())
         .expect("unbounded")
+}
+
+/// Where rekordbox's layout puts image `id` (see [`free_artwork_key`]), taken or not.
+pub fn image_key(prefix: char, id: u32, ext: &str) -> String {
+    image_key_in(id.saturating_sub(1) / 20 + 1, prefix, id, ext)
+}
+
+fn image_key_in(folder: u32, prefix: char, id: u32, ext: &str) -> String {
+    format!("PIONEER/Artwork/{folder:05}/{prefix}{id}.{ext}")
 }
 
 /// Decoded source image.

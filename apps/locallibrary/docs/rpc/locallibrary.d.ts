@@ -750,6 +750,112 @@ export type CollectionDiffRequest = {
   playlist?: string | null;
 };
 
+export type CollectionExportPlan = {
+  /** The `master.db` exported. */
+  collection: string;
+  copies: FileCopy[];
+  copy_bytes: number;
+  delete_bytes: number;
+  /** Files on the target the exported library doesn't use. */
+  deletes: FileCopy[];
+  download_bytes: number;
+  /**
+   * Audio files to copy that are online only in Dropbox or Google Drive: copying downloads
+   * them.
+   */
+  downloads: number;
+  fits: boolean;
+  free_space: number | null;
+  /** Size of the exported library's files. */
+  library_bytes: number;
+  /**
+   * The folder exported to was made for this export (see
+   * [`crate::api::collection_export_plan`]): a caller that doesn't apply the plan takes it away.
+   */
+  made_folder: boolean;
+  /** Tracks left out because their audio isn't on this computer ("Artist - Title"). */
+  missing: string[];
+  /**
+   * Space the export needs on the target: the files it copies, its new databases and the
+   * backup of what it replaces.
+   */
+  needed_bytes: number;
+  /** Playlists exported (not counting folders). */
+  playlist_count: number;
+  /** The playlists chosen; empty for the whole collection. */
+  playlists: string[];
+  /**
+   * The target holds a library that wasn't exported from the collection, or files the export
+   * removes though it holds no library.
+   */
+  replaces_library: boolean;
+  /**
+   * Tracks whose analysis or artwork Cloud Library Sync hasn't finished bringing to this
+   * computer.
+   */
+  syncing: string[];
+  target: string;
+  target_root: string;
+  tracks: number;
+  unchanged: number;
+  /** Tracks with an analysis file that can't be read: exported without it. */
+  unreadable: string[];
+  /**
+   * What the target holds that the export replaces and only it has (history lists players
+   * recorded, changes since the last export): saved in the store first.
+   */
+  unsaved: Unsaved | null;
+  warnings: string[];
+};
+
+export type CollectionExportReport = {
+  /** The backup of what the export replaced (its databases, analysis and artwork). */
+  backup: string | null;
+  copied: number;
+  copied_bytes: number;
+  /** OneLibrary cue rows made from the analysis files. */
+  cues: number;
+  deleted: number;
+  deleted_bytes: number;
+  fingerprint: Hash | null;
+  playlists: number;
+  /**
+   * The target's state, saved in the store before the export (see
+   * [`CollectionExportPlan::unsaved`]).
+   */
+  saved: SnapshotInfo | null;
+  /** Tracks with My Tags. */
+  tagged_tracks: number;
+  tracks: number;
+};
+
+/** Which `master.db` to read, and how. */
+export type CollectionExportRequest = {
+  /** Export every track and playlist, whatever the target was exported with last. */
+  all?: boolean;
+  /** Default: `$LOCALLIBRARY_MASTERDB`, else rekordbox's own (see [`masterdb::default_path`]). */
+  db?: string | null;
+  /** The drive or folder to export to. */
+  drive: string;
+  /**
+   * SQLCipher passphrase. Default: `$LOCALLIBRARY_MASTERDB_KEY`, else the one every rekordbox
+   * 6/7 installation uses.
+   */
+  key?: string | null;
+  /** Write to an archive or retired drive (see [`crate::fleet::check_target`]). */
+  overwrite_archive?: boolean;
+  /**
+   * Playlists or folders (paths) to export, with the tracks they use. Empty: every track and
+   * playlist, or the selection the target was last exported with.
+   */
+  playlists?: string[];
+  /**
+   * Replace a library the target holds that wasn't exported from the collection, or the
+   * files on a target with no library.
+   */
+  replace?: boolean;
+};
+
 /** What `master.db` holds, in numbers. */
 export type CollectionInfo = {
   /** Size of `master.db`, and of its WAL when there is one. */
@@ -2610,6 +2716,12 @@ export type FileClass =
   /** Anything else under `PIONEER/` (e.g. `djprofile.nxs`). */
   | "other";
 
+/** A file a write copies or removes. */
+export type FileCopy = {
+  path: string;
+  size: number;
+};
+
 export type FileProblem = {
   actual?: Hash | null;
   class: FileClass;
@@ -3574,6 +3686,8 @@ export type LineageOp =
   | "edit"
   /** A subset of another drive's library written to this one (see [`crate::pack`]). */
   | "pack"
+  /** rekordbox's collection written to this drive (see [`crate::collection_export`]). */
+  | "export"
   /** Damaged files rewritten from a known-good copy (see [`crate::scrub`]). */
   | "repair"
   /** An operation from a newer version of locallibrary. */
@@ -4014,17 +4128,12 @@ export type Overview = {
   heights: number[];
 };
 
-export type PackCopy = {
-  path: string;
-  size: number;
-};
-
 export type PackPlan = {
-  copies: PackCopy[];
+  copies: FileCopy[];
   copy_bytes: number;
   delete_bytes: number;
   /** Files on the target the packed library doesn't use. */
-  deletes: PackCopy[];
+  deletes: FileCopy[];
   fits: boolean;
   free_space: number | null;
   /** Size of the packed library's files. */
@@ -7123,8 +7232,9 @@ export type Unplayable =
  */
 export type Unsaved = {
   /**
-   * The drive changed since it was last packed from this source (memory cues, TAG LIST
-   * playlists or history lists players saved, or edits).
+   * The drive changed since it was last written this way (packed from this source, or exported
+   * from the collection): memory cues, TAG LIST playlists or history lists players saved, or
+   * edits.
    */
   changed: boolean;
   /** History lists players recorded that the packed library won't have. */
@@ -7961,6 +8071,10 @@ export interface Methods {
   "collection.library": { params: CollectionRef; result: CollectionView };
   /** read method; long running: sends `progress`, can be cancelled */
   "collection.diff": { params: CollectionDiffRequest; result: DriveDiff };
+  /** plan method; paired with `collection.export.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "collection.export.plan": { params: CollectionExportRequest & WriteOptions; result: CollectionExportPlan & PlanFields };
+  /** apply method; paired with `collection.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "collection.export.apply": { params: ApplyPlan | (CollectionExportRequest & WriteOptions); result: CollectionExportReport };
   /** plan method; paired with `interop.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "interop.plan": { params: InteropRequest & WriteOptions; result: InteropPlan & PlanFields };
   /** apply method; paired with `interop.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

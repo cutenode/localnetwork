@@ -1282,6 +1282,35 @@ impl DbTags {
         Ok(DbTags::new(plus_tree(one, library)?, library))
     }
 
+    /// rekordbox's collection's (see [`crate::masterdb`]), whose track ids are `library`'s. Ids
+    /// are numbered in order.
+    pub(crate) fn collection(categories: &[crate::masterdb::TagCategory], library: &Library) -> DbTags {
+        let keys = keys_by_id(library);
+        let mut tree = Tree::default();
+        let mut next: i64 = 0;
+        let mut id = || {
+            next += 1;
+            next
+        };
+        for c in categories {
+            let category = id();
+            let tags = c
+                .tags
+                .iter()
+                .map(|t| TagNode {
+                    id: id(),
+                    name: t.name.clone(),
+                    tracks: t.track_ids.iter().filter_map(|i| keys.get(i).cloned()).collect(),
+                    strays: 0,
+                })
+                .collect();
+            tree.categories.push(CategoryNode { id: category, name: c.name.clone(), tags });
+        }
+        tree.ids =
+            tree.categories.iter().flat_map(|c| std::iter::once(c.id).chain(c.tags.iter().map(|t| t.id))).collect();
+        DbTags::new(tree, library)
+    }
+
     /// A track's tags as (category, tag), in display order; `None` if the database doesn't list
     /// the track.
     pub(crate) fn of(&self, key: &str) -> Option<TagNames> {
