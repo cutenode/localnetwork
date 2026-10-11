@@ -2429,6 +2429,12 @@ export type FileClass =
   /** Anything else under `PIONEER/` (e.g. `djprofile.nxs`). */
   | "other";
 
+/** A file a write copies or removes. */
+export type FileCopy = {
+  path: string;
+  size: number;
+};
+
 export type FileProblem = {
   actual?: Hash | null;
   class: FileClass;
@@ -3767,17 +3773,12 @@ export type Overview = {
   heights: number[];
 };
 
-export type PackCopy = {
-  path: string;
-  size: number;
-};
-
 export type PackPlan = {
-  copies: PackCopy[];
+  copies: FileCopy[];
   copy_bytes: number;
   delete_bytes: number;
   /** Files on the target the packed library doesn't use. */
-  deletes: PackCopy[];
+  deletes: FileCopy[];
   fits: boolean;
   free_space: number | null;
   /** Size of the packed library's files. */

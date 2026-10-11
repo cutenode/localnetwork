@@ -85,6 +85,7 @@ pub mod fsutil;
 pub mod hash;
 pub mod import;
 pub mod interop;
+pub mod library_write;
 pub mod masterdb;
 pub mod merge;
 pub mod mix;

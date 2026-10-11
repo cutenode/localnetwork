@@ -7903,6 +7903,24 @@
         }
       ]
     },
+    "FileCopy": {
+      "description": "A file a write copies or removes.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "size"
+      ],
+      "type": "object"
+    },
     "FileProblem": {
       "properties": {
         "actual": {
@@ -12321,28 +12339,11 @@
       ],
       "type": "object"
     },
-    "PackCopy": {
-      "properties": {
-        "path": {
-          "type": "string"
-        },
-        "size": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "path",
-        "size"
-      ],
-      "type": "object"
-    },
     "PackPlan": {
       "properties": {
         "copies": {
           "items": {
-            "$ref": "#/$defs/PackCopy"
+            "$ref": "#/$defs/FileCopy"
           },
           "type": "array"
         },
@@ -12359,7 +12360,7 @@
         "deletes": {
           "description": "Files on the target the packed library doesn't use.",
           "items": {
-            "$ref": "#/$defs/PackCopy"
+            "$ref": "#/$defs/FileCopy"
           },
           "type": "array"
         },

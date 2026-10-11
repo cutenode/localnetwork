@@ -18,7 +18,7 @@
 
 use indexmap::IndexMap;
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
@@ -27,15 +27,15 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::backup;
-use crate::commit::Swap;
 use crate::device::{Device, LineageEntry, LineageOp, Scanned};
 use crate::edit;
 use crate::error::{Action, Reason};
 use crate::fsutil;
 use crate::hash::Hash;
+use crate::library_write::{self, Databases, FileCopy, Source};
 use crate::model::Library;
-use crate::paths::{self, FileClass};
-use crate::progress::{Ctx, Event, Phase};
+use crate::paths;
+use crate::progress::Ctx;
 use crate::store::{SnapshotInfo, Store};
 use crate::sync::PullOptions;
 use crate::tree::FileTree;
@@ -83,12 +83,6 @@ pub fn forget(device: &Device) -> Result<()> {
     fsutil::remove_if_exists(&device.state_dir().join(PACK_FILE)).map(|_| ())
 }
 
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct PackCopy {
-    pub path: String,
-    pub size: u64,
-}
-
 /// What the target holds that packing would replace and that nothing else keeps: it is saved in
 /// the store first, as `sync` saves a drive back from a set before overwriting it.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -125,10 +119,10 @@ pub struct PackPlan {
     pub tracks: usize,
     /// Size of the packed library's files.
     pub library_bytes: u64,
-    pub copies: Vec<PackCopy>,
+    pub copies: Vec<FileCopy>,
     pub copy_bytes: u64,
     /// Files on the target the packed library doesn't use.
-    pub deletes: Vec<PackCopy>,
+    pub deletes: Vec<FileCopy>,
     pub delete_bytes: u64,
     pub unchanged: usize,
     /// The target holds a library that isn't an earlier pack of this source.
@@ -142,30 +136,17 @@ pub struct PackPlan {
     pub fits: bool,
     pub warnings: Vec<String>,
     #[serde(skip)]
-    pdb: Option<Vec<u8>>,
-    #[serde(skip)]
-    ext: Option<Vec<u8>>,
-    #[serde(skip)]
-    plus: Option<Vec<u8>>,
-    /// Source file for each key to copy.
-    #[serde(skip)]
-    sources: IndexMap<String, (PathBuf, i64)>,
+    databases: Databases,
     #[serde(skip)]
     history: bool,
-    /// Files on the target the pack overwrites or removes that its backup keeps: analysis and
-    /// artwork (audio isn't backed up).
     #[serde(skip)]
-    backed_up: Vec<String>,
+    written: library_write::Planned,
 }
 
 impl PackPlan {
     pub fn is_noop(&self) -> bool {
         false // the databases are always rewritten
     }
-}
-
-fn fold(s: &str) -> String {
-    s.to_lowercase()
 }
 
 pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>) -> Result<PackPlan> {
@@ -192,10 +173,10 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     let everything =
         Library { tracks: libraries.iter().flat_map(|l| l.tracks.iter().cloned()).collect(), ..Default::default() };
     let src_tree = source.scan(Some(&everything), ctx)?;
-    let mut wanted: IndexMap<String, (PathBuf, u64, i64)> = IndexMap::new();
-    let add = |key: &str, tree: &FileTree, wanted: &mut IndexMap<String, (PathBuf, u64, i64)>| {
+    let mut wanted: IndexMap<String, Source> = IndexMap::new();
+    let add = |key: &str, tree: &FileTree, wanted: &mut IndexMap<String, Source>| {
         if let Some(e) = tree.resolve(key) {
-            wanted.insert(e.path.clone(), (tree.fs_path(&e.path), e.size, e.mtime));
+            wanted.insert(e.path.clone(), Source::file(tree.fs_path(&e.path), e.size, e.mtime));
         }
     };
     for t in libraries.iter().flat_map(|l| l.tracks.iter()) {
@@ -229,63 +210,8 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     let target_lib = target.library().ok();
     let scanned = target.scan_fingerprinted(target_lib.as_ref(), ctx)?;
     let unsaved = unsaved(target, &scanned, same_source, &subset)?;
-    let tgt_tree = scanned.tree;
-    let target_by_fold: FxHashMap<String, &crate::tree::FileEntry> =
-        tgt_tree.library_entries().map(|e| (fold(&e.path), e)).collect();
-    let mut copies = Vec::new();
-    let mut sources = IndexMap::new();
-    let mut unchanged = 0;
-    let mut backed_up = Vec::new();
-    let backs_up = |class: FileClass| matches!(class, FileClass::Analysis | FileClass::Artwork);
-    // After a pack cut off on the target, a file modified since it started may be torn.
-    let cut_off = crate::sync::cut_off_since(target);
-    for (key, (src, size, mtime)) in &wanted {
-        match target_by_fold.get(&fold(key)) {
-            Some(e)
-                if e.size == *size
-                    && fsutil::mtime_eq(e.mtime, *mtime)
-                    && cut_off.is_none_or(|since| e.mtime < since) =>
-            {
-                unchanged += 1
-            }
-            existing => {
-                if let Some(e) = existing.filter(|e| backs_up(e.class)) {
-                    backed_up.push(e.path.clone());
-                }
-                copies.push(PackCopy { path: key.clone(), size: *size });
-                sources.insert(key.clone(), (src.clone(), *mtime));
-            }
-        }
-    }
-    let written: FxHashSet<String> = [
-        subset.pdb.as_ref().map(|_| fold(paths::EXPORT_PDB)),
-        subset.ext.as_ref().map(|_| fold(paths::EXPORT_EXT_PDB)),
-        subset.plus.as_ref().map(|_| fold(paths::LIBRARY_PLUS_DB)),
-        subset.plus.as_ref().map(|_| fold(paths::LIBRARY_PLUS_WAL)),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    let wanted_folds: FxHashSet<String> = wanted.keys().map(|k| fold(k)).collect();
-    let deletes: Vec<PackCopy> = if opts.keep_extra {
-        Vec::new()
-    } else {
-        tgt_tree
-            .library_entries()
-            .filter(|e| !wanted_folds.contains(&fold(&e.path)) && !written.contains(&fold(&e.path)))
-            // Library files only, and of those not what's under PIONEER/ besides the library's
-            // databases, analysis and artwork. (Settings, and what players and rekordbox keep for
-            // the drive, aren't library files.)
-            .filter(|e| {
-                matches!(
-                    paths::classify(&e.path),
-                    Some(FileClass::Audio | FileClass::Analysis | FileClass::Artwork | FileClass::Database)
-                )
-            })
-            .map(|e| PackCopy { path: e.path.clone(), size: e.size })
-            .collect()
-    };
-    backed_up.extend(deletes.iter().filter(|d| paths::classify(&d.path).is_some_and(backs_up)).map(|d| d.path.clone()));
+    let databases = Databases { pdb: subset.pdb.clone(), ext: subset.ext.clone(), plus: subset.plus.clone() };
+    let written = library_write::plan(target, &scanned.tree, &wanted, &databases, opts.keep_extra);
     let replaces_library = target.has_export() && !same_source;
     if replaces_library {
         warnings.push(format!(
@@ -302,22 +228,11 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         ));
     }
     warnings.extend(edit::journal::forget_warning(target, None, "packing"));
-    let cluster = fsutil::cluster_size(target.root());
-    let round = |n: u64| n.div_ceil(cluster) * cluster;
-    let db_bytes = round(subset.pdb.as_ref().map_or(0, |b| b.len() as u64))
-        + round(subset.plus.as_ref().map_or(0, |b| b.len() as u64));
-    let copy_bytes: u64 = copies.iter().map(|c| c.size).sum();
-    // The backup `apply` takes of a target that holds a library is on the target too.
-    let backup_bytes =
-        if target.has_export() { backup::needed_bytes(target, backed_up.iter().map(String::as_str)) } else { 0 };
-    let needed_bytes = copies.iter().map(|c| round(c.size)).sum::<u64>() + db_bytes + backup_bytes;
-    let free_space = fsutil::available_space(target.root());
-    let fits = free_space.is_none_or(|f| needed_bytes <= f);
-    if !fits {
+    if !written.fits {
         warnings.push(format!(
             "the pack needs about {} bytes (its files, databases and backup) but only {} are free on {}",
-            needed_bytes,
-            free_space.unwrap_or(0),
+            written.needed_bytes,
+            written.free_space.unwrap_or(0),
             target.name()
         ));
     }
@@ -327,24 +242,21 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         target_root: target.root().to_path_buf(),
         playlists,
         tracks: subset.library.tracks.len(),
-        library_bytes: wanted.values().map(|(_, s, _)| s).sum::<u64>() + db_bytes,
-        copy_bytes,
-        delete_bytes: deletes.iter().map(|d| d.size).sum(),
-        copies,
-        deletes,
-        unchanged,
+        library_bytes: written.library_bytes,
+        copy_bytes: written.copy_bytes,
+        delete_bytes: written.delete_bytes,
+        copies: written.copies.clone(),
+        deletes: written.deletes.clone(),
+        unchanged: written.unchanged,
         replaces_library,
         unsaved,
-        needed_bytes,
-        free_space,
-        fits,
+        needed_bytes: written.needed_bytes,
+        free_space: written.free_space,
+        fits: written.fits,
         warnings,
-        pdb: subset.pdb,
-        ext: subset.ext,
-        plus: subset.plus,
-        sources,
+        databases,
         history,
-        backed_up,
+        written,
     })
 }
 
@@ -444,91 +356,20 @@ pub fn apply(
     let _lock = crate::commit::lock(target, None)?;
     if target.has_export() {
         let reason = format!("before packing from {}", plan.source);
-        report.backup = Some(backup::create(target, &reason, &plan.backed_up, None)?.id);
+        report.backup = Some(backup::create(target, &reason, &plan.written.backed_up, None)?.id);
     }
     target.begin(LineageOp::Pack, format!("pack from {}", plan.source), report.backup.clone())?;
-    let identity = crate::player::stash(target, plan.plus.is_some())?;
+    let identity = crate::player::stash(target, plan.databases.plus.is_some())?;
 
-    // Files are flushed before they get their source's modification time, which tells the next
-    // pack they're complete (see `fsutil::copy_file`); a pack stopped part way still does both
-    // for what it copied.
-    ctx.phase_start(Phase::Copy, plan.copies.len() as u64, plan.copy_bytes);
-    let mut written: Vec<(PathBuf, i64)> = Vec::new();
-    let mut stopped = None;
-    for c in &plan.copies {
-        let copied = (|| -> Result<(PathBuf, i64)> {
-            ctx.check()?;
-            let (src, mtime) = plan.sources.get(&c.path).ok_or_else(|| Error::NotFound(c.path.clone()))?;
-            let dst = target.checked_path(&c.path)?;
-            ctx.emit(Event::Item { phase: Phase::Copy, path: c.path.clone(), bytes: c.size });
-            fsutil::copy_file(src, &dst, None, None, false, ctx)?;
-            Ok((dst, *mtime))
-        })();
-        match copied {
-            Ok(w) => {
-                written.push(w);
-                report.copied += 1;
-                report.copied_bytes += c.size;
-            }
-            Err(e) => {
-                stopped = Some(e);
-                break;
-            }
-        }
-    }
-    fsutil::flush(&written.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>())?;
-    for (path, mtime) in &written {
-        fsutil::set_mtime(path, *mtime)?;
-    }
-    if let Some(e) = stopped {
-        return Err(e);
-    }
-    ctx.phase_end(Phase::Copy);
+    let (copied, copied_bytes) = library_write::copy(target, &plan.written, ctx)?;
+    (report.copied, report.copied_bytes) = (copied, copied_bytes);
 
-    // The databases, staged, then swapped in back to back (`commit::swap`); OneLibrary's old WAL
-    // goes before its new database (see `onelibrary::write`). A source without one of them leaves
-    // none on the target. The pack is made from here: recording it isn't cancellable.
+    // The databases, then removal of what the pack no longer uses. The pack is made from here:
+    // recording it isn't cancellable.
     let ctx = &ctx.uncancellable();
-    let at = |key: &str| target.checked_path(key);
-    let mut steps = Vec::new();
-    if let Some(bytes) = &plan.pdb {
-        steps.push(Swap::bytes(at(paths::EXPORT_PDB)?, bytes)?);
-    }
-    if let Some(bytes) = &plan.ext {
-        steps.push(Swap::bytes(at(paths::EXPORT_EXT_PDB)?, bytes)?);
-    }
-    for key in [paths::LIBRARY_PLUS_WAL, paths::LIBRARY_PLUS_SHM] {
-        steps.push(Swap::Remove(at(key)?));
-    }
-    steps.push(match &plan.plus {
-        Some(bytes) => Swap::bytes(at(paths::LIBRARY_PLUS_DB)?, bytes)?,
-        None => Swap::Remove(at(paths::LIBRARY_PLUS_DB)?),
-    });
-    if plan.pdb.is_none() {
-        steps.push(Swap::Remove(at(paths::EXPORT_PDB)?));
-    }
-    crate::commit::swap(steps)?;
+    library_write::swap_databases(target, &plan.databases)?;
     crate::player::preserve(target, identity.as_ref())?;
-
-    if !plan.deletes.is_empty() {
-        ctx.phase_start(Phase::Delete, plan.deletes.len() as u64, plan.delete_bytes);
-        for d in &plan.deletes {
-            let p = target.checked_path(&d.path)?;
-            ctx.emit(Event::Item { phase: Phase::Delete, path: d.path.clone(), bytes: d.size });
-            match std::fs::remove_file(&p) {
-                Ok(()) => {
-                    report.deleted += 1;
-                    report.deleted_bytes += d.size;
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(Error::Io { path: p, source: e }),
-            }
-            if let Some(parent) = p.parent() {
-                fsutil::prune_empty_dirs(parent, target.root());
-            }
-        }
-        ctx.phase_end(Phase::Delete);
-    }
+    (report.deleted, report.deleted_bytes) = library_write::delete(target, &plan.written, ctx)?;
 
     if let Some(id) = &report.backup {
         backup::seal(target, id)?;
