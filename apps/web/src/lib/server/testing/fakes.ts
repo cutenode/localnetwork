@@ -141,6 +141,7 @@ export class FakeRootClient implements RootRepoClient {
 	}
 
 	async createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig): Promise<string> {
+		this.net.maybeFail(this.did);
 		const uri = `at://${this.did}/space/${input.spaceType}/${input.skey}`;
 
 		if (this.net.spaces.has(uri)) throw new XRPCError(400, 'SpaceAlreadyExists');

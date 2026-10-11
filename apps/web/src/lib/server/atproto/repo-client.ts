@@ -86,6 +86,26 @@ export function xrpcErrorName(cause: unknown): string | undefined {
 	return cause instanceof XRPCError ? cause.error : undefined;
 }
 
+/**
+ * Creates a space, resolving false when it already exists. Callers look it up
+ * first, but two requests can both find it missing; the host decides which one
+ * created it.
+ */
+export async function createSpaceIfMissing(
+	client: RepoClient,
+	input: { spaceType: string; skey: string } & SimpleSpaceConfig
+): Promise<boolean> {
+	try {
+		await client.createSpace(input);
+
+		return true;
+	} catch (error) {
+		if (xrpcErrorName(error) === 'SpaceAlreadyExists') return false;
+
+		throw error;
+	}
+}
+
 const NOT_FOUND = new Set(['RecordNotFound', 'SpaceNotFound', 'RepoNotFound']);
 
 // XRPCError types `status` as its ResponseType enum, where an HTTP 404 is the member `XRPCNotSupported` (404).
