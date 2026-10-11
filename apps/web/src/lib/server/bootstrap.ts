@@ -1,5 +1,5 @@
 import { ROOT_SPACE_KEY, SPACE_TYPE } from '#lib/nsid.ts';
-import type { SimpleSpaceConfig } from './atproto/repo-client';
+import { createSpaceIfMissing, type SimpleSpaceConfig } from './atproto/repo-client';
 import { parseSpaceUri } from './atproto/spaces';
 import type { Core } from './core';
 
@@ -48,18 +48,20 @@ export async function ensureRootSpaces(core: Core): Promise<string[]> {
 		const existing = await root.getSpace(space);
 
 		if (!existing) {
-			await root.createSpace({ spaceType: ref.type, skey: ROOT_SPACE_KEY, ...config });
-			core.logger.info({ space }, 'created root space');
-			await core.audit.record({
-				actor: core.rootDid,
-				actorRole: 'system',
-				action: 'system.space',
-				subject: space,
-				subjectKind: 'space',
-				summary: `Created the ${name} space`,
-				via: 'system',
-				details: { readPolicy: config.readPolicy.$type, writePolicy: config.writePolicy.$type }
-			});
+			// A bootstrap still running at startup can overlap the retry timer or an admin's resync; one of them creates it.
+			if (await createSpaceIfMissing(root, { spaceType: ref.type, skey: ROOT_SPACE_KEY, ...config })) {
+				core.logger.info({ space }, 'created root space');
+				await core.audit.record({
+					actor: core.rootDid,
+					actorRole: 'system',
+					action: 'system.space',
+					subject: space,
+					subjectKind: 'space',
+					summary: `Created the ${name} space`,
+					via: 'system',
+					details: { readPolicy: config.readPolicy.$type, writePolicy: config.writePolicy.$type }
+				});
+			}
 		} else if (
 			!sameType(existing.readPolicy, config.readPolicy) ||
 			!sameType(existing.writePolicy, config.writePolicy) ||

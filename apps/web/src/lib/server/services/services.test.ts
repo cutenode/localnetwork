@@ -617,6 +617,22 @@ describe('services', () => {
 			await expect(t.planner.saves(await t.viewer(LEGACY))).rejects.toThrow(/spaces/);
 		});
 
+		it('creates the planner space when a fresh account loads saves and shows at once', async () => {
+			const promoter = await t.viewer(PROMOTER);
+
+			// The planner page loads both in parallel, so both find no space and both try to create it.
+			expect(await Promise.all([t.planner.saves(promoter), t.planner.shows(promoter)])).toEqual([[], []]);
+			expect(t.net.spaces.has(plannerSpace(PROMOTER))).toBe(true);
+		});
+
+		it('surfaces a failed planner space creation and tries again on the next load', async () => {
+			const promoter = await t.viewer(PROMOTER);
+			t.net.failWrites(PROMOTER);
+
+			await expect(t.planner.saves(promoter)).rejects.toThrow('UpstreamFailure');
+			expect(await t.planner.saves(promoter)).toEqual([]);
+		});
+
 		it('skips planner records that fail their lexicon', async () => {
 			const project = await t.projectAdmin.create({ actor: await t.viewer(ADMIN), profile: profile('Kept') });
 			const promoter = await t.viewer(PROMOTER);

@@ -1,0 +1,28 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ensureRootSpaces } from './bootstrap';
+import { createTestServices } from './testing/core';
+
+describe('ensureRootSpaces', () => {
+	let t: Awaited<ReturnType<typeof createTestServices>>;
+
+	beforeEach(async () => {
+		t = await createTestServices();
+	});
+	afterEach(async () => {
+		await t.audit.idle();
+		await t.db.destroy();
+	});
+
+	it('creates each root space once when two bootstraps overlap', async () => {
+		const spaces = Object.values(t.spaces);
+
+		for (const space of spaces) t.net.spaces.delete(space);
+
+		await Promise.all([ensureRootSpaces(t.core), ensureRootSpaces(t.core)]);
+
+		expect(spaces.filter((space) => !t.net.spaces.has(space))).toEqual([]);
+
+		// One creation entry per space from the test setup, and one from whichever overlapping run created it.
+		for (const space of spaces) expect(await t.audit.list({ action: 'system.space', subject: space })).toHaveLength(2);
+	});
+});
