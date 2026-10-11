@@ -89,6 +89,11 @@ pub enum Error {
     #[error("{0}")]
     Account(String),
 
+    /// Reaching another computer's store over the network failed: it couldn't be reached, it
+    /// refused the share code, or it stopped serving part way.
+    #[error("{0}")]
+    Peer(String),
+
     /// Another error, with what a front end needs to act on it (see [`Error::detail`]). Its
     /// code and message are the other error's.
     #[error("{error}")]
@@ -275,6 +280,7 @@ impl Error {
             Error::External { .. } => "external",
             Error::Permission(_) => "permission",
             Error::Account(_) => "account",
+            Error::Peer(_) => "peer",
             Error::Detailed { error, .. } => error.code(),
         }
     }
@@ -530,6 +536,7 @@ mod tests {
             (Error::Image("x".into()), "image", json!({})),
             (Error::Tags("x".into()), "tags", json!({})),
             (Error::Account("x".into()), "account", json!({})),
+            (Error::Peer("x".into()), "peer", json!({})),
             (Error::Cancelled, "cancelled", json!({})),
             (
                 Error::NoSpace { path: "/f".into(), needed: 2, available: 1 },

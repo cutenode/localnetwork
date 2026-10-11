@@ -33,6 +33,8 @@ mod merge;
 mod mixes;
 mod onelibrary;
 mod pack;
+#[cfg(feature = "peers")]
+mod peers;
 mod plans;
 mod plays;
 mod profile;

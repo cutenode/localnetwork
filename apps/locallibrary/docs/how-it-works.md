@@ -48,6 +48,8 @@ crates/locallibrary/src/    the library, built on the crates above
   store.rs     content-addressed objects, snapshot DAG, libraries, labels, drive registry
   retention.rs which snapshots `store prune` keeps
   offsite.rs   copies of the store elsewhere (`store copy`)
+  peers/       fetching snapshots from another computer's store over iroh (`store serve`, `store fetch`; only
+               with the `peers` feature)
   merge.rs     semantic merge via export.pdb and OneLibrary editing
   edit.rs      playlist and track edits in both databases, verified against a model; the edit journal
   query.rs     the track filter and sort language, track selectors

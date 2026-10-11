@@ -20,6 +20,8 @@ mod completion_candidates;
 mod drives;
 mod interop;
 mod jobs;
+#[cfg(feature = "peers")]
+mod peers;
 mod profile;
 mod publish;
 mod reports;

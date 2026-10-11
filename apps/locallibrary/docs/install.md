@@ -34,18 +34,20 @@ cargo install --path apps/locallibrary --locked
 This installs `locallibrary`. On Linux, the player's audio output needs the ALSA headers
 (`sudo apt install libasound2-dev pkg-config` on Debian/Ubuntu).
 
-Cargo features choose what's built. All three are on unless `--no-default-features` turns them
+Cargo features choose what's built. All four are on unless `--no-default-features` turns them
 off:
 
 - `account`: the Atmosphere account and publishing to it (`account`, `profile publish`, `sets
   publish`, `settings publish`, `settings import --from-handle` and `--from-account`, the player's
   sign-in, and the sidecar's `account.*` and `*.publish.*` methods). Half the dependencies are for
-  this alone (an HTTP client, an async runtime, TLS, DNS, the system keychain): about 220 of the 430
+  this alone (an HTTP client, an async runtime, TLS, DNS, the system keychain): about 220 of the 530
   crates the command builds. Without it the profile and its document are still made, just not
   published.
 - `tui`: the player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
 - `playback`: the player's audio output, and with it ALSA on Linux. Without it the player
   browses, edits and shows waveforms, but has no output to play through.
+- `peers`: `store serve` and `store fetch`, copying snapshots between computers over the network
+  ([iroh](https://iroh.computer)'s QUIC connections, about 80 more crates).
 
 ```bash
 # A headless sidecar for a desktop app: no player, no account (about 160 crates)
@@ -56,7 +58,7 @@ cargo install --path apps/locallibrary --locked --no-default-features --features
 cargo install --path apps/locallibrary --locked --no-default-features --features tui,account
 ```
 
-The library (`crates/locallibrary` at the repository root) has the `account` feature too, on by default.
+The library (`crates/locallibrary` at the repository root) has the `account` and `peers` features too, on by default.
 
 ### Shell completion and man pages
 Tab completes commands and flags, and also the drives mounted now, their playlist paths, My Tags and

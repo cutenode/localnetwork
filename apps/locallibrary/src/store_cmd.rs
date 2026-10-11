@@ -1,4 +1,4 @@
-//! `pull` and the store's upkeep: `store label|unlabel|prune|copy|copies`.
+//! `pull` and the store's upkeep: `store label|unlabel|prune|copy|copies|serve|fetch`.
 
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -245,4 +245,76 @@ pub fn label(store: &Store, req: api::LabelRequest, out: Output) -> Result<ExitC
             false => output::ok(format!("snapshot {} is {:?}", l.snapshot.short(), l.name)),
         },
     )
+}
+
+/// `store serve`: the code to give, then a line for each computer that fetches (`--json`: one JSON
+/// object per event), until Ctrl-C.
+#[cfg(feature = "peers")]
+pub fn serve(store: &Store, opts: &locallibrary::peers::ServeOptions, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+    use locallibrary::peers::ServeEvent;
+    let report = locallibrary::peers::serve(store, opts, ctx, &mut |e| {
+        if out.json {
+            say!("{}", output::with_schema(serde_json::to_value(e).expect("serialisable")));
+            return;
+        }
+        match e {
+            ServeEvent::Ready { code } => {
+                say!("On the other computer, run:\n\n  locallibrary store fetch {code}\n");
+                output::hint("Serving until Ctrl-C. Anyone with the code can read the store while it's served.");
+            }
+            ServeEvent::Connected { peer } => output::ok(format!("{peer} connected")),
+            ServeEvent::Refused { peer } => output::warn(format!("{peer} gave the wrong code and was turned away")),
+            ServeEvent::Done { peer, snapshots, files, bytes } => output::ok(format!(
+                "{peer} fetched {snapshots} snapshot(s) and {files} file(s) ({})",
+                output::bytes(*bytes)
+            )),
+        }
+    })?;
+    Ok(out.done(&report, |_| {}))
+}
+
+/// `store fetch`.
+#[cfg(feature = "peers")]
+pub fn fetch(
+    store: &Store,
+    code: &str,
+    opts: &locallibrary::peers::FetchOptions,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    use locallibrary::peers::LibraryOutcome;
+    let r = locallibrary::peers::fetch(store, &code.parse()?, opts, ctx)?;
+    let outcome = if r.dry_run { Outcome::DryRun } else { Outcome::Applied };
+    Ok(out.report(&r, outcome, |r| {
+        let verb = if r.dry_run { "would copy" } else { "copied" };
+        output::ok(format!(
+            "{verb} {} snapshot(s) and {} file(s) ({}) from {}; {} file(s) were here already",
+            r.snapshots,
+            r.files,
+            output::bytes(r.bytes),
+            r.peer,
+            r.present
+        ));
+        for l in &r.libraries {
+            let name = style(&l.name).bold();
+            match (l.outcome, &l.was) {
+                (LibraryOutcome::Added, Some(was)) => {
+                    say!("  {name}: new here (called {was:?} there, a name this store uses)")
+                }
+                (LibraryOutcome::Added, None) => say!("  {name}: new here"),
+                (LibraryOutcome::Updated, _) => say!("  {name}: now at the other computer's latest snapshot"),
+                (LibraryOutcome::UpToDate, _) => say!("  {name}: up to date"),
+                (LibraryOutcome::Unavailable, _) => output::warn(format!(
+                    "{}: the other computer's latest snapshot couldn't be had, so it's left as it was",
+                    l.name
+                )),
+                (LibraryOutcome::Diverged, _) => output::warn(format!(
+                    "{} changed on both computers: it keeps this store's latest; push the other's with \
+                     `locallibrary library push --snapshot {}`",
+                    l.name,
+                    l.head.map(|h| h.short()).unwrap_or_default()
+                )),
+            }
+        }
+    }))
 }

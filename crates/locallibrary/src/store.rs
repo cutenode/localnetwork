@@ -181,7 +181,7 @@ impl Snapshot {
         .info()
     }
 
-    fn compute_id(&self) -> Hash {
+    pub(crate) fn compute_id(&self) -> Hash {
         #[derive(Serialize)]
         struct Content<'a> {
             library_id: &'a Uuid,
@@ -384,7 +384,7 @@ impl Store {
     /// Whether the store holds the object `h` at its full `size`. New objects are renamed into
     /// place before they're flushed (see [`Store::import_file`]), so a crash can leave one cut
     /// short under its right name: imports check the size before trusting it.
-    fn holds(&self, h: &Hash, size: u64) -> bool {
+    pub(crate) fn holds(&self, h: &Hash, size: u64) -> bool {
         fs::metadata(self.object_path(h)).is_ok_and(|m| m.is_file() && m.len() == size)
     }
 
@@ -477,6 +477,20 @@ impl Store {
         libs.push(rec.clone());
         self.save_libraries(&libs)?;
         Ok(rec)
+    }
+
+    /// Add a library another store has, keeping its id (see `crate::peers`). Refused when this
+    /// store has a library of that id or name.
+    #[cfg(feature = "peers")]
+    pub(crate) fn add_library(&self, id: Uuid, name: &str, head: Option<Hash>) -> Result<()> {
+        let mut libs = self.libraries()?;
+        if libs.iter().any(|l| l.id == id || l.name.eq_ignore_ascii_case(name)) {
+            return Err(
+                Error::conflict(Reason::Exists, format!("a library named {name:?} already exists")).with("name", name)
+            );
+        }
+        libs.push(LibraryRecord { id, name: name.to_string(), head, created: Utc::now(), updated: Utc::now() });
+        self.save_libraries(&libs)
     }
 
     pub fn set_head(&self, library: Uuid, head: Hash) -> Result<()> {
