@@ -28,6 +28,7 @@ mod plays_cmd;
 mod profile_cmd;
 #[cfg(feature = "account")]
 mod publish_cmd;
+mod relocate_cmd;
 mod render;
 mod restore_cmd;
 mod rpc;
@@ -266,7 +267,8 @@ locallibrary pull /Volumes/NEW --library Home    # into an existing library")]
     /// delete, add and remove tracks, sort
     #[command(after_help = FILTER_HELP)]
     Playlist(edit_cmd::PlaylistArgs),
-    /// Show tracks, change their details (rating, colour, genre...), delete them, replace duplicates
+    /// Show tracks, change their details (rating, colour, genre...), delete them, replace duplicates,
+    /// find their missing files
     #[command(after_help = FILTER_HELP)]
     Track(edit_cmd::TrackArgs),
     /// Interactive player: browse drives and playlists, play tracks with their rekordbox waveforms

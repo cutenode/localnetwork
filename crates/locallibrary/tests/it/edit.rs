@@ -2,6 +2,7 @@ mod api;
 mod drifted_databases;
 mod journal_replay;
 mod refusals;
+mod set_path;
 
 use crate::common;
 

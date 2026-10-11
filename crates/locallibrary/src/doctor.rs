@@ -19,17 +19,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::commit::{self, Changes, Options};
 use crate::device::{Device, LibraryDrift, LineageOp};
+use crate::equipment::{Codec, FromPath};
 use crate::error::Reason;
 use crate::format::{self, Compatibility, Disk, Volume, players};
 use crate::fsutil;
 use crate::hash::Hash;
+use crate::mix::index::{Cache, fingerprint_library};
 use crate::model::{Library, Track, TrackRef, normalize};
 use crate::paths::{self, FileClass};
 use crate::pdb;
-use crate::progress::Ctx;
+use crate::progress::{Ctx, Phase};
 use crate::store::{Snapshot, Store};
+use crate::timeline;
 use crate::tree::FileTree;
 use crate::{Error, Result};
+use loclib_mixid::matcher;
 
 /// FAT32 stores file sizes in 32 bits: a file of 4 GiB or more can't be stored on it (or copied
 /// to it).
@@ -37,7 +41,7 @@ pub const FAT32_MAX_FILE: u64 = 1 << 32;
 
 /// Extensions of the audio files rekordbox exports. Anything else under `Contents/` (a
 /// `cover.jpg`, notes) is never reported as orphaned.
-const AUDIO_EXTENSIONS: &[&str] = &["mp3", "m4a", "mp4", "aac", "wav", "aif", "aiff", "flac", "ogg", "alac"];
+pub(crate) const AUDIO_EXTENSIONS: &[&str] = &["mp3", "m4a", "mp4", "aac", "wav", "aif", "aiff", "flac", "ogg", "alac"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "DoctorSection")]
@@ -61,13 +65,18 @@ pub struct DoctorOptions {
     /// hashed, through the drive's hash cache.
     #[serde(default)]
     pub hash_audio: bool,
+    /// Also find the same recording in other files and encodings (a FLAC and an MP3 of it) by its
+    /// sound: every track is fingerprinted (once: the store keeps the prints) and tracks of about
+    /// the same length are compared. Decoding a library's audio the first time takes a while.
+    #[serde(default)]
+    pub by_sound: bool,
     /// Sections to run (all but [`Section::Audio`] when empty).
     #[serde(default)]
     pub only: Vec<Section>,
     /// Also run [`Section::Audio`].
     #[serde(default)]
     pub audio: bool,
-    /// Duplicates only by file, audio or Sync Manager copy: leave out tracks that only share
+    /// Duplicates only by file, audio, sound or Sync Manager copy: leave out tracks that only share
     /// artist, title and length (they may be different edits), also from groups the others join.
     #[serde(default)]
     pub sure_only: bool,
@@ -135,6 +144,10 @@ pub enum DuplicateReason {
     SameFile,
     /// Different files with identical audio (with `hash_audio`).
     SameAudio,
+    /// The same recording in another file or encoding (with `by_sound`): their fingerprints line
+    /// up over most of both, and their lengths agree (an extended mix and its radio edit share
+    /// most of their audio, but not their length).
+    SameRecording,
     /// rekordbox Sync Manager copies: `Name-1.mp3` or `Name (1).mp3` next to `Name.mp3`, same size.
     SyncManagerCopy,
     /// Same artist, title and duration.
@@ -146,9 +159,12 @@ pub struct DuplicateGroup {
     pub reasons: Vec<DuplicateReason>,
     /// Suggested keeper first.
     pub tracks: Vec<DuplicateTrack>,
-    /// Id of the suggested keeper: most playlist memberships, then the higher bitrate, then the
+    /// Id of the suggested keeper: the best audio (lossless over lossy, then the higher bitrate,
+    /// sample rate and bit depth), then the most cues, playlists and history lists, then the
     /// earliest date added.
     pub keep: u32,
+    /// What put the keeper ahead of the next copy (`lossless over lossy`, `320 kbps over 192`).
+    pub keep_reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -156,10 +172,56 @@ pub struct DuplicateTrack {
     pub track: TrackRef,
     /// Playlists the track is in.
     pub playlists: usize,
+    /// History lists (what players recorded) the track is in.
+    pub history: usize,
+    /// Hot cues, memory cues and loops in its analysis files.
+    pub cues: usize,
     pub play_count: u16,
+    /// FLAC, WAV, AIFF or Apple Lossless.
+    pub lossless: bool,
     pub bitrate: u32,
+    pub sample_rate: u32,
+    pub bit_depth: u16,
     pub file_size: u64,
     pub date_added: String,
+}
+
+impl DuplicateTrack {
+    /// What decides between copies, best first: the audio (for a lossless file its bitrate says
+    /// how well it compressed, not how it sounds), then what the DJ put into the track.
+    fn rank(&self) -> impl Ord {
+        let bitrate = if self.lossless { 0 } else { self.bitrate };
+        (self.lossless, bitrate, self.sample_rate, self.bit_depth, self.cues, self.playlists, self.history)
+    }
+
+    /// Why `self` ranks ahead of `next`.
+    fn reason_over(&self, next: &DuplicateTrack) -> String {
+        if self.lossless != next.lossless {
+            return "lossless over lossy".into();
+        }
+        if !self.lossless && self.bitrate != next.bitrate {
+            return format!("{} kbps over {}", self.bitrate, next.bitrate);
+        }
+        if self.sample_rate != next.sample_rate {
+            return format!("{} Hz over {}", self.sample_rate, next.sample_rate);
+        }
+        if self.bit_depth != next.bit_depth {
+            return format!("{}-bit over {}-bit", self.bit_depth, next.bit_depth);
+        }
+        for (a, b, what) in [
+            (self.cues, next.cues, "cue(s)"),
+            (self.playlists, next.playlists, "playlist(s)"),
+            (self.history, next.history, "history list(s)"),
+        ] {
+            if a != b {
+                return format!("{a} {what} over {b}");
+            }
+        }
+        match self.date_added.is_empty() || self.date_added == next.date_added {
+            true => "no other difference: the lowest id".into(),
+            false => format!("added first ({})", self.date_added),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, JsonSchema)]
@@ -321,7 +383,7 @@ fn image_paths(one: &crate::onelibrary::OneLibrary) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn fold(s: &str) -> String {
+pub(crate) fn fold(s: &str) -> String {
     s.to_lowercase()
 }
 
@@ -338,7 +400,7 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         warnings.push(format!("{e}; only export.pdb was checked"));
     }
     let duplicates = match opts.wants(Section::Duplicates) {
-        true => Some(duplicates(device, library, &mut tree, opts, ctx)?),
+        true => Some(duplicates(device, library, &mut tree, opts, &mut warnings, ctx)?),
         false => None,
     };
     let orphans = match (opts.wants(Section::Orphans), &dbs.plus_error) {
@@ -422,10 +484,7 @@ pub fn large_files(library: &Library, tree: &FileTree) -> Vec<LargeFile> {
 /// copy is always smaller, though: only files smaller than recorded have their end decoded
 /// (see [`crate::probe::check_tracks`]), and only those whose audio stops early are reported.
 pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree, ctx: &Ctx<'_>) -> Result<Vec<BrokenTrack>> {
-    let exists = |key: &str| {
-        tree.resolve(key).is_some()
-            || (paths::classify(key).is_none() && device.checked_path(key).is_ok_and(|p| p.is_file()))
-    };
+    let exists = |key: &str| present(device, tree, key);
     let size = |key: &str| {
         tree.resolve(key)
             .map(|e| e.size)
@@ -482,10 +541,16 @@ pub(crate) fn missing(device: &Device, dbs: &Databases, tree: &FileTree, ctx: &C
     Ok(out)
 }
 
+/// Whether the file `key` is on the drive: in the scan, or outside the folders it covers.
+pub(crate) fn present(device: &Device, tree: &FileTree, key: &str) -> bool {
+    tree.resolve(key).is_some()
+        || (paths::classify(key).is_none() && device.checked_path(key).is_ok_and(|p| p.is_file()))
+}
+
 /// Audio under `Contents/`, analysis under `PIONEER/USBANLZ/` and images under
 /// `PIONEER/Artwork/` that nothing in either database references. Analysis files go by their
 /// stem (a track's `.DAT` keeps its `.EXT` and `.2EX`), artwork with its `_m` variant.
-fn orphans(dbs: &Databases, tree: &FileTree) -> Vec<OrphanFile> {
+pub(crate) fn orphans(dbs: &Databases, tree: &FileTree) -> Vec<OrphanFile> {
     fn use_image(key: &str, in_use: &mut FxHashSet<String>) {
         in_use.insert(fold(key));
         in_use.insert(fold(&crate::artwork::medium_variant(key)));
@@ -580,12 +645,140 @@ impl UnionFind {
     }
 }
 
+/// Tracks whose lengths differ by more than this (seconds) aren't compared by sound. Two
+/// encodings of one recording differ by an encoder's padding (tens of milliseconds) or silence a
+/// rip trimmed or added (a second or so); an edit differs by whole bars, over 5 s even for 4 bars
+/// at 174 BPM. So an extended mix and its radio edit, which share most of their audio, never meet.
+pub(crate) const SAME_LENGTH_SECS: f32 = 2.0;
+/// Of each track's stretches with sound in them, the share heard at one offset for two tracks to
+/// be one recording ([`matcher::align`]'s coverage). A re-encoded or shifted copy is heard in
+/// all of them, and quiet passages keep a few from counting; an edit cut or moved a stretch, so
+/// only part of it lines up at any one offset (about half of each, with 16 s cut from the middle).
+pub(crate) const SAME_RECORDING_COVERAGE: f64 = 0.8;
+
+/// Pairs of `library`'s tracks (indexes) that are one recording by their sound: every track is
+/// fingerprinted (through the store's cache, so only new files are decoded) and those of about
+/// the same length compared. Tracks that couldn't be fingerprinted are left out with a warning.
+fn same_recordings(
+    device: &Device,
+    library: &Library,
+    warnings: &mut Vec<String>,
+    ctx: &Ctx<'_>,
+) -> Result<Vec<(usize, usize)>> {
+    let (cache, _temp) = Cache::of_default_store()?;
+    let (mut prints, report) = fingerprint_library(device, library, &cache, ctx)?;
+    if let Some(f) = report.failed.first() {
+        warnings.push(format!(
+            "{} track(s) couldn't be decoded, so they weren't compared by sound (e.g. {}: {})",
+            report.failed.len(),
+            f.track.name,
+            f.error
+        ));
+    }
+    prints.sort_by(|a, b| a.print.duration_secs.total_cmp(&b.print.duration_secs));
+    let index: FxHashMap<u32, usize> = library.tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
+    // Rows for one file are duplicates by file already. (Two files can share a cache key: one
+    // file in two folders, with its name and time.)
+    let file = |id: u32| fold(&paths::key(&library.tracks[index[&id]].file_path));
+    let mut pairs = Vec::new();
+    for (i, a) in prints.iter().enumerate() {
+        for b in
+            prints[i + 1..].iter().take_while(|b| b.print.duration_secs - a.print.duration_secs <= SAME_LENGTH_SECS)
+        {
+            if file(a.id) != file(b.id) {
+                pairs.push((a, b));
+            }
+        }
+    }
+    let path = |id: u32| library.tracks[index[&id]].file_path.clone();
+    let aligned = crate::probe::parallel(
+        &pairs,
+        Phase::Match,
+        |(a, _)| (path(a.id), 0),
+        |(a, b)| matcher::align(&a.print, &b.print),
+        ctx,
+    )?;
+    Ok(pairs
+        .iter()
+        .zip(aligned)
+        .filter(|(_, al)| {
+            al.is_some_and(|al| al.coverage.0 >= SAME_RECORDING_COVERAGE && al.coverage.1 >= SAME_RECORDING_COVERAGE)
+        })
+        .map(|((a, b), _)| (index[&a.id], index[&b.id]))
+        .collect())
+}
+
+/// Seconds to add to a time in `a` for the same moment in `b`, when the two are one recording by
+/// their sound and the offset between them was measured to the sample (see [`measured_offset`]);
+/// otherwise why not.
+pub(crate) fn offset_between(
+    device: &Device,
+    a: &Track,
+    b: &Track,
+    ctx: &Ctx<'_>,
+) -> Result<std::result::Result<f64, &'static str>> {
+    let (cache, _temp) = Cache::of_default_store()?;
+    let both = Library { tracks: vec![a.clone(), b.clone()], ..Default::default() };
+    let (prints, _) = fingerprint_library(device, &both, &cache, ctx)?;
+    let [pa, pb] = prints.as_slice() else { return Ok(Err("one of them couldn't be decoded")) };
+    let file = |t: &Track| device.checked_path(&paths::key(&t.file_path));
+    match matcher::align(&pa.print, &pb.print) {
+        Some(al) if al.coverage.0 >= SAME_RECORDING_COVERAGE && al.coverage.1 >= SAME_RECORDING_COVERAGE => {
+            // Refining searches a few milliseconds around the prints' estimate, so it needs one.
+            if !al.is_precise() {
+                return Ok(Err("the offset between them couldn't be estimated"));
+            }
+            // From one decode to the other, then from each decode to rekordbox's timeline.
+            let (Some(lead_a), Some(lead_b)) = (timeline::lead(device, a, ctx)?, timeline::lead(device, b, ctx)?)
+            else {
+                return Ok(Err(timeline::UNTOLD));
+            };
+            Ok(measured_offset(&file(a)?, &file(b)?, al.offset, ctx)?.map(|secs| secs + lead_a - lead_b))
+        }
+        _ => Ok(Err("they don't sound like one recording")),
+    }
+}
+
+/// Seconds to add to a time in file `a` for the same moment in file `b`, two files of one
+/// recording whose prints line up at `coarse` ([`matcher::Alignment::offset`], good to a few
+/// milliseconds): measured to a fraction of a sample from their audio
+/// ([`loclib_mixid::refine`]). Cues and beat grids are moved by it, so audio that doesn't line up
+/// closely there (a different edit or master) is why not, rather than an estimate.
+pub(crate) fn measured_offset(
+    a: &Path,
+    b: &Path,
+    coarse: f64,
+    ctx: &Ctx<'_>,
+) -> Result<std::result::Result<f64, &'static str>> {
+    match loclib_mixid::refine(a, b, coarse, ctx) {
+        Ok(r) if r.correlation >= loclib_mixid::REFINE_MIN_CORRELATION => Ok(Ok(r.offset)),
+        Ok(_) => Ok(Err("their audio doesn't line up closely enough to move cues by")),
+        Err(loclib_mixid::Error::Cancelled(_)) => Err(Error::Cancelled),
+        Err(_) => Ok(Err("their audio couldn't be compared")),
+    }
+}
+
+/// Whether the audio of `t` is lossless: by its extension, or for an MPEG-4 file (AAC or Apple
+/// Lossless), by its header.
+pub(crate) fn lossless(device: &Device, t: &Track) -> bool {
+    match Codec::from_path(&t.file_path) {
+        FromPath::Codec(c) => c.lossless(),
+        FromPath::AacOrAlac => device
+            .checked_path(&paths::key(&t.file_path))
+            .ok()
+            .and_then(|p| crate::probe::format(&p).ok())
+            .is_some_and(|f| f.codec == Some(Codec::Alac)),
+        FromPath::Unknown => false,
+    }
+}
+
 /// Groups of tracks that are the same recording, each with a suggested keeper.
 fn duplicates(
     device: &Device,
     library: &Library,
     tree: &mut FileTree,
     opts: &DoctorOptions,
+    warnings: &mut Vec<String>,
     ctx: &Ctx<'_>,
 ) -> Result<Vec<DuplicateGroup>> {
     let tracks = &library.tracks;
@@ -650,6 +843,10 @@ fn duplicates(
             files.iter().map(|k| k.as_ref().and_then(|k| tree.get(k)).and_then(|e| e.hash)).collect();
         link(group_by(&|i| hashes[i].map(|h| h.to_hex())), DuplicateReason::SameAudio, true);
     }
+    if opts.by_sound {
+        let pairs = same_recordings(device, library, warnings, ctx)?;
+        edges.extend(pairs.into_iter().map(|(a, b)| (a, b, DuplicateReason::SameRecording)));
+    }
 
     let mut uf = UnionFind((0..tracks.len()).collect());
     for (a, b, _) in &edges {
@@ -666,12 +863,16 @@ fn duplicates(
         }
     }
 
-    let mut memberships: FxHashMap<u32, usize> = FxHashMap::default();
-    for p in library.playlists.iter().filter(|p| !p.is_folder) {
-        for id in p.track_ids.iter().collect::<FxHashSet<_>>() {
-            *memberships.entry(*id).or_default() += 1;
+    let count_lists = |lists: &[crate::model::Playlist]| {
+        let mut n: FxHashMap<u32, usize> = FxHashMap::default();
+        for p in lists.iter().filter(|p| !p.is_folder) {
+            for id in p.track_ids.iter().collect::<FxHashSet<_>>() {
+                *n.entry(*id).or_default() += 1;
+            }
         }
-    }
+        n
+    };
+    let (memberships, history) = (count_lists(&library.playlists), count_lists(&library.history));
     let mut out: Vec<DuplicateGroup> = groups
         .into_values()
         .filter(|(members, _)| members.len() > 1)
@@ -684,19 +885,23 @@ fn duplicates(
                     DuplicateTrack {
                         track: t.into(),
                         playlists: memberships.get(&t.id).copied().unwrap_or(0),
+                        history: history.get(&t.id).copied().unwrap_or(0),
+                        cues: crate::anlz::load_grid(device, t).cues.len(),
                         play_count: t.play_count,
+                        lossless: lossless(device, t),
                         bitrate: t.bitrate,
+                        sample_rate: t.sample_rate,
+                        bit_depth: t.sample_depth,
                         file_size: sizes[i],
                         date_added: t.date_added.clone(),
                     }
                 })
                 .collect();
-            // Keeper first: most playlists, then higher bitrate, then earliest date added (tracks
-            // without a date last).
+            // Keeper first (see `DuplicateTrack::rank`), then earliest date added (tracks without
+            // a date last).
             tracks.sort_by(|a, b| {
-                b.playlists
-                    .cmp(&a.playlists)
-                    .then(b.bitrate.cmp(&a.bitrate))
+                b.rank()
+                    .cmp(&a.rank())
                     .then_with(|| match (a.date_added.is_empty(), b.date_added.is_empty()) {
                         (false, true) => std::cmp::Ordering::Less,
                         (true, false) => std::cmp::Ordering::Greater,
@@ -704,7 +909,7 @@ fn duplicates(
                     })
                     .then(a.track.id.cmp(&b.track.id))
             });
-            DuplicateGroup { reasons, keep: tracks[0].track.id, tracks }
+            DuplicateGroup { reasons, keep: tracks[0].track.id, keep_reason: tracks[0].reason_over(&tracks[1]), tracks }
         })
         .collect();
     out.sort_by(|a, b| a.tracks[0].track.name.to_lowercase().cmp(&b.tracks[0].track.name.to_lowercase()));

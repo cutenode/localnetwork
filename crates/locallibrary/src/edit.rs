@@ -1,6 +1,6 @@
 //! Editing a drive's playlists and tracks in place: create, rename, move and delete playlists
 //! and folders, change what's in them and in what order, change track details, delete tracks,
-//! replace duplicates and clear player histories.
+//! point tracks at moved audio files, replace duplicates and clear player histories.
 //!
 //! An edit is planned against the drive's main library (`export.pdb`, else OneLibrary) and
 //! resolved into operations that name playlists by their path and tracks by their audio file,
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::backup;
 use crate::clean;
-use crate::commit::{Changes, NewDatabases, Options};
+use crate::commit::{Changes, NewDatabases, NewFile, Options};
 use crate::device::{Device, LineageOp};
 use crate::error::{Action, Reason};
 use crate::fsutil;
@@ -166,6 +166,19 @@ pub enum Edit {
         keep: TrackSelector,
         #[serde(default)]
         keep_duplicate: bool,
+    },
+    /// Point one track at another audio file on the drive (a device path), as when its file was
+    /// moved or renamed: in both databases and in the analysis files that record it. With `file`,
+    /// the file is another encoding of the recording (a lossless copy of an MP3): the rows take
+    /// its format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and
+    /// beat grid move by that much, for audio that starts at another point.
+    SetPath {
+        track: TrackSelector,
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file: Option<AudioFile>,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        shift_ms: i32,
     },
     /// Delete history lists (what players recorded) by name, or all of them.
     DeleteHistory {
@@ -417,6 +430,14 @@ enum Op {
         from: String,
         to: String,
     },
+    /// The track of audio file `track` (a key, lower-cased) points at `path` (a device path), a
+    /// file `file` describes when it's another encoding, whose times are `shift_ms` later.
+    SetPath {
+        track: String,
+        path: String,
+        file: Option<AudioFile>,
+        shift_ms: i32,
+    },
     /// History lists by name and which of the lists with that name (0 = the first).
     DeleteHistory {
         lists: Vec<(String, usize)>,
@@ -530,7 +551,14 @@ trait EditDb {
     fn set_fields(&mut self, ids: &[u32], fields: &TrackFields) -> Result<()>;
     fn delete_tracks(&mut self, ids: &[u32]) -> Result<()>;
     fn repoint(&mut self, from: u32, to: u32) -> Result<()>;
+    /// Point a track at `path`; with `file`, a file of another encoding, whose cues are
+    /// `shift_ms` later.
+    fn set_path(&mut self, id: u32, path: &str, file: Option<&AudioFile>, shift_ms: i32) -> Result<()>;
     fn delete_history(&mut self, ids: &[u32]) -> Result<()>;
+    /// A file's size as this database keeps it: OneLibrary whole, export.pdb modulo 2^32.
+    fn stored_size(&self, size: u64) -> u64 {
+        size
+    }
 }
 
 /// A library on its own: the expected result of an edit.
@@ -635,9 +663,26 @@ impl EditDb for ModelDb<'_> {
     fn repoint(&mut self, _: u32, _: u32) -> Result<()> {
         Ok(())
     }
+    fn set_path(&mut self, id: u32, path: &str, _: Option<&AudioFile>, _: i32) -> Result<()> {
+        let row = self.pdb.and_then(|db| db.tracks.iter().find(|t| t.id == id).map(|row| (db, row)));
+        if let Some((db, row)) = row
+            && db.check_track_strings(row, &[("file_path", path), ("filename", file_name(path))]).is_err()
+        {
+            return Err(too_long("the audio file's path", path));
+        }
+        Ok(())
+    }
+    fn stored_size(&self, size: u64) -> u64 {
+        if self.pdb.is_some() { size % (1 << 32) } else { size }
+    }
     fn delete_history(&mut self, _: &[u32]) -> Result<()> {
         Ok(())
     }
+}
+
+/// The last part of a device path.
+fn file_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 struct PdbDb {
@@ -824,6 +869,21 @@ impl EditDb for PdbDb {
         self.repointed.push((from, to));
         Ok(())
     }
+    fn set_path(&mut self, id: u32, path: &str, file: Option<&AudioFile>, _: i32) -> Result<()> {
+        self.editor.set_track_strings(id, &[("file_path", path), ("filename", file_name(path))])?;
+        self.editor.set_track_field(id, "file_type", rekordbox_pdb::file_type_code(path).into())?;
+        if let Some(f) = file {
+            self.editor.set_track_field(id, "file_size", self.stored_size(f.size) as u32)?;
+            self.editor.set_track_field(id, "sample_rate", f.sample_rate)?;
+            self.editor.set_track_field(id, "sample_depth", f.bit_depth.into())?;
+            self.editor.set_track_field(id, "bitrate", f.bitrate)?;
+        }
+        Ok(())
+    }
+    // export.pdb keeps sizes modulo 2^32, as rekordbox writes them.
+    fn stored_size(&self, size: u64) -> u64 {
+        size % (1 << 32)
+    }
     fn delete_history(&mut self, ids: &[u32]) -> Result<()> {
         Ok(self.editor.remove_history_playlists(ids)?)
     }
@@ -862,6 +922,9 @@ impl EditDb for PlusDb {
     fn repoint(&mut self, from: u32, to: u32) -> Result<()> {
         self.one.repoint_track(from, to)?;
         Ok(())
+    }
+    fn set_path(&mut self, id: u32, path: &str, file: Option<&AudioFile>, shift_ms: i32) -> Result<()> {
+        self.one.set_track_path(id, path, file, shift_ms)
     }
     fn delete_history(&mut self, ids: &[u32]) -> Result<()> {
         self.one.remove_nodes(Tree::History, ids)
@@ -1113,6 +1176,21 @@ fn apply_op(db: &mut dyn EditDb, op: &Op, strict: bool, label: &str, warnings: &
                 }
             }
         }
+        Op::SetPath { track, path, file, shift_ms } => {
+            let (ids, missing) = ids_of(db.lib(), std::slice::from_ref(track));
+            if !missing.is_empty() {
+                return skip(format!("track {track} isn't in this database"));
+            }
+            db.set_path(ids[0], path, file.as_ref(), *shift_ms)?;
+            let size = file.map(|f| db.stored_size(f.size));
+            if let Some(t) = db.lib().tracks.iter_mut().find(|t| t.id == ids[0]) {
+                t.file_path = path.clone();
+                if let (Some(f), Some(size)) = (file, size) {
+                    (t.file_size, t.sample_rate, t.sample_depth, t.bitrate) =
+                        (size, f.sample_rate, f.bit_depth, f.bitrate);
+                }
+            }
+        }
         Op::DeleteHistory { lists } => {
             let mut ids = Vec::new();
             for (name, nth) in lists {
@@ -1148,6 +1226,8 @@ struct Resolver<'a> {
     notes: std::cell::RefCell<Vec<String>>,
     /// Stops an edit that takes a while (ordering a long playlist for mixing) when cancelled.
     ctx: Ctx<'a>,
+    /// Audio files (keys) the edit writes, which a track may be pointed at before they exist.
+    incoming: &'a [String],
 }
 
 fn split_path(path: &str) -> Result<NodePath> {
@@ -1213,7 +1293,7 @@ fn indexes(positions: &[usize], len: usize) -> Result<Vec<usize>> {
 
 impl<'a> Resolver<'a> {
     fn new(device: &'a Device, extra: &'a DriveContext, lenient: bool, ctx: Ctx<'a>) -> Resolver<'a> {
-        Resolver { device, extra, lenient, notes: Default::default(), ctx }
+        Resolver { device, extra, lenient, notes: Default::default(), ctx, incoming: &[] }
     }
 
     fn note(&self, warning: String) {
@@ -1646,6 +1726,46 @@ impl<'a> Resolver<'a> {
                 };
                 (ops, desc, canonical)
             }
+            Edit::SetPath { track, path, file, shift_ms } => {
+                let t = match self.select(lib, track, false)?.as_slice() {
+                    [id] => lib.track(*id).expect("selected"),
+                    ids => {
+                        return Err(Error::invalid(format!(
+                            "select exactly one track to point ({} selected)",
+                            ids.len()
+                        )));
+                    }
+                };
+                // An audio file on the drive, never one of locallibrary's or rekordbox's own.
+                let key = paths::key(path);
+                let audio = paths::is_safe_key(&key)
+                    && !key.split('/').any(paths::is_ignored_name)
+                    && matches!(paths::classify(&key), None | Some(paths::FileClass::Audio))
+                    && (self.incoming.contains(&key) || self.device.checked_path(&key).is_ok_and(|p| p.is_file()));
+                if !audio {
+                    return Err(Error::NotFound(format!("audio file {path:?} on the drive")));
+                }
+                if let Some(other) = lib.tracks.iter().find(|o| o.id != t.id && tkey(o) == key.to_lowercase()) {
+                    return Err(Error::invalid(format!("{path} is the audio file of {}", other.display_name())));
+                }
+                // Each database's edit finds the track by its file: two rows of it can't be told apart.
+                if lib.tracks.iter().filter(|o| tkey(o) == tkey(t)).count() > 1 {
+                    return Err(Error::invalid(format!(
+                        "{} is the file of several tracks, which can't be told apart",
+                        t.file_path
+                    )));
+                }
+                let path = paths::device_path(&key);
+                let desc = format!("point {} at {path}", t.display_name());
+                let (file, shift_ms) = (*file, *shift_ms);
+                let canonical = Edit::SetPath {
+                    track: TrackSelector::paths([t.file_path.clone()]),
+                    path: path.clone(),
+                    file,
+                    shift_ms,
+                };
+                (vec![Op::SetPath { track: tkey(t), path, file, shift_ms }], desc, canonical)
+            }
             Edit::DeleteHistory { names, all } => {
                 let lists: Vec<&Playlist> = lib.history.iter().filter(|h| !h.is_folder).collect();
                 let mut picked = Vec::new();
@@ -1765,6 +1885,20 @@ pub struct EditOptions {
     pub no_journal: bool,
 }
 
+/// What a track's rows say about its audio file, for a track pointed at another encoding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AudioFile {
+    pub size: u64,
+    pub sample_rate: u32,
+    pub bit_depth: u16,
+    /// kbps.
+    pub bitrate: u32,
+}
+
+fn is_zero(n: &i32) -> bool {
+    *n == 0
+}
+
 /// A playlist whose contents change.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct PlaylistChange {
@@ -1826,10 +1960,12 @@ impl EditPlan {
             && self.replay.is_none()
     }
 
-    /// Ops whose changes the counts above can miss: renames, moves, and repoints (which can
-    /// change only history entries or My Tag links).
+    /// Ops whose changes the counts above can miss: renames, moves, repoints (which can change
+    /// only history entries or My Tag links) and new audio paths.
     fn uncounted_ops(&self) -> bool {
-        self.ops.iter().any(|op| matches!(op, Op::Rename { .. } | Op::Place { .. } | Op::Repoint { .. }))
+        self.ops
+            .iter()
+            .any(|op| matches!(op, Op::Rename { .. } | Op::Place { .. } | Op::Repoint { .. } | Op::SetPath { .. }))
     }
 }
 
@@ -1858,8 +1994,29 @@ fn open_databases(device: &Device, warnings: &mut Vec<String>) -> Result<Databas
 
 /// Work out what `edits` do to the drive (none: a plan that changes nothing).
 pub fn plan(device: &Device, edits: &[Edit], opts: &EditOptions, ctx: &Ctx<'_>) -> Result<EditPlan> {
+    if !opts.lenient && edits.iter().any(|e| matches!(e, Edit::MyTag(_) | Edit::Cues { .. })) {
+        return Err(Error::invalid("My Tag and cue edits are made with `tags` and `cues` (a replay makes them again)"));
+    }
+    plan_with_steps(device, edits, opts, ctx)
+}
+
+/// [`plan`], taking My Tag and cue edits whatever `opts` says: made first, after the plan's one
+/// backup, each planned again as it's made (a replace carrying cues onto its keeper).
+pub(crate) fn plan_with_steps(device: &Device, edits: &[Edit], opts: &EditOptions, ctx: &Ctx<'_>) -> Result<EditPlan> {
+    plan_writing(device, edits, opts, &[], ctx)
+}
+
+/// [`plan`] for edits that point tracks at `incoming` audio files (keys), which the apply writes
+/// (see [`apply_with`]).
+pub(crate) fn plan_writing(
+    device: &Device,
+    edits: &[Edit],
+    opts: &EditOptions,
+    incoming: &[String],
+    ctx: &Ctx<'_>,
+) -> Result<EditPlan> {
     let extra = DriveContext::read(device, edits.iter().flat_map(Edit::selectors))?;
-    plan_with(device, edits, opts, &extra, ctx)
+    plan_with(device, edits, opts, &extra, incoming, ctx)
 }
 
 impl Edit {
@@ -1873,6 +2030,7 @@ impl Edit {
             Edit::RemoveTracks { tracks, .. } => tracks.iter().collect(),
             Edit::PlanSet { start, .. } => start.iter().collect(),
             Edit::ReplaceTrack { duplicate, keep, .. } => vec![duplicate, keep],
+            Edit::SetPath { track, .. } => vec![track],
             _ => Vec::new(),
         }
     }
@@ -1884,6 +2042,7 @@ fn plan_with(
     edits: &[Edit],
     opts: &EditOptions,
     extra: &DriveContext,
+    incoming: &[String],
     ctx: &Ctx<'_>,
 ) -> Result<EditPlan> {
     let mut warnings = Vec::new();
@@ -1899,21 +2058,23 @@ fn plan_with(
     };
     // A replay makes the recorded My Tag and cue edits first: they change neither tracks nor
     // playlists, which the others are planned on, and the others can only remove tracks they
-    // name (a tag on a duplicate replaced later then moves to the keeper, as it did).
-    let (steps, rest): (Vec<Edit>, Vec<Edit>) =
-        edits.iter().cloned().partition(|e| matches!(e, Edit::MyTag(_) | Edit::Cues { .. }));
-    if !steps.is_empty() && !opts.lenient {
-        return Err(Error::invalid("My Tag and cue edits are made with `tags` and `cues` (a replay makes them again)"));
-    }
+    // name (a tag on a duplicate replaced later then moves to the keeper, as it did). Pointing a
+    // track at another file goes with them, in the order recorded: a cue edit made after it names
+    // the new file, one before it the old.
+    let (steps, rest): (Vec<Edit>, Vec<Edit>) = edits.iter().cloned().partition(|e| {
+        matches!(e, Edit::MyTag(_) | Edit::Cues { .. }) || (opts.lenient && matches!(e, Edit::SetPath { .. }))
+    });
     let mut changes: Vec<String> = steps
         .iter()
         .map(|e| match e {
             Edit::MyTag(change) => change.describe(),
             Edit::Cues { tracks, change } => change.describe(tracks.len()),
+            Edit::SetPath { track, path, .. } => format!("point {} at {path}", track.paths.join(", ")),
             _ => unreachable!("partitioned above"),
         })
         .collect();
-    let resolver = Resolver::new(device, extra, opts.lenient, ctx.clone());
+    let mut resolver = Resolver::new(device, extra, opts.lenient, ctx.clone());
+    resolver.incoming = incoming;
     let mut model = ModelDb { lib: primary.clone(), pdb: dbs.pdb.as_ref().map(|(_, db, _)| db) };
     let mut ops = Vec::new();
     let mut recorded = Vec::new();
@@ -2053,7 +2214,8 @@ fn plan_with(
             ));
         }
     }
-    let playlist_ops = ops.iter().any(|op| !matches!(op, Op::SetFields { .. } | Op::DeleteHistory { .. }));
+    let playlist_ops =
+        ops.iter().any(|op| !matches!(op, Op::SetFields { .. } | Op::SetPath { .. } | Op::DeleteHistory { .. }));
     if playlist_ops {
         warnings
             .extend(device.rekordbox_sync_warning("its next sync may undo these changes to the playlists it syncs"));
@@ -2100,7 +2262,9 @@ fn plan_with(
         free_space,
         fits,
         warnings: dedup(warnings),
-        recorded: if opts.no_journal { Vec::new() } else { recorded },
+        // My Tag and cue edits a plan makes along with the others (a replace carrying cues onto
+        // its keeper) are recorded first, as a replay makes them.
+        recorded: if opts.no_journal { Vec::new() } else { steps.iter().cloned().chain(recorded).collect() },
         onelibrary_changes,
         replay: (!steps.is_empty()).then(|| Box::new(Steps { steps, rest, opts: opts.clone() })),
         ops,
@@ -2178,6 +2342,43 @@ fn verify(expected: &Library, actual: &Library) -> std::result::Result<(), Strin
     }
 }
 
+/// The analysis files (`.DAT`, `.EXT`, `.2EX`) at `analyze_path` (a device path) that record an
+/// audio file, recording `path` instead, with their beat grid and cues `shift_ms` later. One that
+/// records `path` already is left as it is (its times moved with it), so a replay moves them
+/// once; one in a format this can't rewrite is left as it is, with a warning.
+pub(crate) fn analysis_pointed_at(
+    device: &Device,
+    analyze_path: &str,
+    path: &str,
+    shift_ms: i32,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<NewFile<'static>>> {
+    let dat = paths::key(analyze_path);
+    let Some(stem) = dat.strip_suffix(".DAT") else { return Ok(Vec::new()) };
+    let mut out = Vec::new();
+    for key in ["DAT", "EXT", "2EX"].map(|ext| format!("{stem}.{ext}")) {
+        if !paths::is_safe_key(&key) || paths::classify(&key) != Some(paths::FileClass::Analysis) {
+            continue;
+        }
+        let file = device.checked_path(&key)?;
+        let bytes = match std::fs::read(&file) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(Error::Io { path: file, source: e }),
+        };
+        if crate::anlz::read_path(&bytes).is_ok_and(|p| p.as_deref() == Some(path)) {
+            continue;
+        }
+        let rewritten = crate::anlz::rewrite_path(&bytes, path).and_then(|b| crate::anlz::shift_times(&b, shift_ms));
+        match rewritten {
+            Ok(new) if new != bytes => out.push(NewFile::bytes(key, new)),
+            Ok(_) => {}
+            Err(_) => warnings.push(format!("{key}: unrecognised analysis format, left as it was")),
+        }
+    }
+    Ok(out)
+}
+
 /// `exportExt.pdb` once export.pdb tracks were removed or replaced: My Tag links follow them
 /// (they name export.pdb track ids, and a removed id gets reused by the next track added).
 /// `None` when nothing needs changing or the drive has no such file.
@@ -2236,7 +2437,18 @@ pub(crate) struct Replayed {
 }
 
 pub fn apply(plan: &EditPlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<EditReport> {
-    if plan.is_noop() {
+    apply_with(plan, device, Vec::new(), ctx)
+}
+
+/// [`apply`], writing `files` (audio a relocation copies, say) along with the databases, under
+/// the same backup. A plan that replays recorded My Tag and cue edits takes none.
+pub(crate) fn apply_with(
+    plan: &EditPlan,
+    device: &mut Device,
+    files: Vec<NewFile<'_>>,
+    ctx: &Ctx<'_>,
+) -> Result<EditReport> {
+    if plan.is_noop() && files.is_empty() {
         return Ok(EditReport::default());
     }
     if !plan.fits {
@@ -2251,9 +2463,9 @@ pub fn apply(plan: &EditPlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<Edit
         Some(steps) => replay(plan, steps, device, ctx),
         None if !plan.recorded.is_empty() => {
             journal::list(device)?; // one this build can add to
-            apply_locked(plan, device, true, ctx)
+            apply_locked(plan, device, true, files, ctx)
         }
-        None => apply_locked(plan, device, true, ctx),
+        None => apply_locked(plan, device, true, files, ctx),
     }
 }
 
@@ -2276,13 +2488,19 @@ fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) ->
     let library = device.library()?;
     let mut extra = plan.files.clone();
     for step in &steps.steps {
-        if let Edit::Cues { tracks, .. } = step {
-            extra.extend(crate::cue_edit::analysis_files(device, &library, tracks));
-        }
+        // The analysis files the step rewrites: a cue edit's, and a pointed track's.
+        let tracks = match step {
+            Edit::Cues { tracks, .. } => tracks,
+            Edit::SetPath { track, .. } => &track.paths,
+            _ => continue,
+        };
+        extra.extend(crate::cue_edit::analysis_files(device, &library, tracks));
     }
     extra.sort();
     extra.dedup();
-    let backup = backup::create(device, "before replaying edits", &extra, None)?;
+    // A plan of new edits (a replace carrying cues) is an edit like any other to undo.
+    let label = if steps.opts.no_journal { "before replaying edits" } else { "before editing" };
+    let backup = backup::create(device, label, &extra, None)?;
     let mut report = EditReport { backup: Some(backup.id.clone()), changes: plan.changes.len(), ..Default::default() };
     let replayed = replay_steps(steps, &extra, device, &mut report, ctx);
     backup::seal(device, &backup.id)?;
@@ -2319,7 +2537,8 @@ fn replay_steps(
         let replayed = match step {
             Edit::MyTag(change) => crate::tags::replay(device, change, ctx),
             Edit::Cues { tracks, change } => crate::cue_edit::replay(device, tracks, change, ctx),
-            _ => unreachable!("only My Tag and cue edits are steps"),
+            Edit::SetPath { .. } => replay_set_path(device, step, ctx),
+            _ => unreachable!("only My Tag, cue and pointing edits are steps"),
         };
         let replayed = replayed.map_err(|e| stopped(e, done))?;
         report.databases.extend(replayed.databases);
@@ -2331,12 +2550,15 @@ fn replay_steps(
     }
     if !steps.rest.is_empty() {
         let done = steps.steps.len();
-        let again = crate::edit::plan(device, &steps.rest, &steps.opts, ctx).map_err(|e| stopped(e, done))?;
+        let mut again = crate::edit::plan(device, &steps.rest, &steps.opts, ctx).map_err(|e| stopped(e, done))?;
+        if !again.recorded.is_empty() {
+            again.recorded.splice(0..0, steps.steps.iter().cloned());
+        }
         if again.files.iter().any(|f| !extra.contains(f)) {
             return Err(stopped(Error::conflict(Reason::Changed, "the drive changed while replaying"), done));
         }
         if !again.is_noop() {
-            let r = apply_locked(&again, device, false, ctx).map_err(|e| stopped(e, done))?;
+            let r = apply_locked(&again, device, false, Vec::new(), ctx).map_err(|e| stopped(e, done))?;
             report.databases.extend(r.databases);
             report.files_deleted = r.files_deleted;
             report.freed_bytes = r.freed_bytes;
@@ -2347,11 +2569,59 @@ fn replay_steps(
     Ok(())
 }
 
-/// [`apply`] with the drive locked already, backing it up first only with `backup`.
-fn apply_locked(plan: &EditPlan, device: &mut Device, backup: bool, ctx: &Ctx<'_>) -> Result<EditReport> {
+/// One recorded pointing of a track at another file, made in a replay (see [`replay`]): skipped,
+/// with a warning, when it no longer applies (rekordbox's export no longer has the old file).
+fn replay_set_path(device: &mut Device, step: &Edit, ctx: &Ctx<'_>) -> Result<Replayed> {
+    let opts = EditOptions { lenient: false, no_journal: true };
+    let plan = match plan(device, std::slice::from_ref(step), &opts, ctx) {
+        Ok(plan) => plan,
+        Err(e) if matches!(e.inner(), Error::Cancelled) => return Err(e),
+        Err(e) => {
+            return Ok(Replayed { warnings: vec![format!("a track's new file: {e}; skipped")], ..Default::default() });
+        }
+    };
+    if plan.is_noop() {
+        return Ok(Replayed::default());
+    }
+    let r = apply_locked(&plan, device, false, Vec::new(), ctx)?;
+    Ok(Replayed { databases: r.databases, fingerprint: r.fingerprint, warnings: r.warnings })
+}
+
+/// [`apply_with`] with the drive locked already, backing it up first only with `backup`.
+fn apply_locked(
+    plan: &EditPlan,
+    device: &mut Device,
+    backup: bool,
+    mut files: Vec<NewFile<'_>>,
+    ctx: &Ctx<'_>,
+) -> Result<EditReport> {
     let mut warnings = Vec::new();
-    let dbs = open_databases(device, &mut warnings)?;
+    // A plan of no edits only writes `files`.
+    let dbs = match plan.ops.is_empty() {
+        true => Databases { pdb: None, plus: None },
+        false => open_databases(device, &mut warnings)?,
+    };
     ctx.check()?;
+    // Analysis files record the audio file they belong to: a track pointed at another records it.
+    let primary = dbs.pdb.as_ref().map(|(_, _, l)| l).or(dbs.plus.as_ref().map(|(l, _)| l));
+    for op in &plan.ops {
+        // The row the databases' edit takes: the last of the file's (see `apply_op`).
+        if let Op::SetPath { track, path, shift_ms, .. } = op
+            && let Some(t) = primary.and_then(|l| l.tracks.iter().rev().find(|t| tkey(t) == *track))
+        {
+            let mut unreadable = Vec::new();
+            files.extend(analysis_pointed_at(device, &t.analyze_path, path, *shift_ms, &mut unreadable)?);
+            // Cues move in the analysis files and OneLibrary together, or not at all.
+            if *shift_ms != 0 && !unreadable.is_empty() {
+                return Err(Error::invalid(format!(
+                    "{}: its cues can't be moved: {}",
+                    t.display_name(),
+                    unreadable.join("; ")
+                )));
+            }
+            warnings.extend(unreadable);
+        }
+    }
 
     // 1. Databases, both edited and verified in memory before anything on the drive changes (an
     // edit a database can't take fails here, leaving no backup and no interrupted operation).
@@ -2412,7 +2682,7 @@ fn apply_locked(plan: &EditPlan, device: &mut Device, backup: bool, ctx: &Ctx<'_
     ctx.phase_end(Phase::Write);
     let changes = Changes {
         databases: NewDatabases { pdb: pdb_bytes, ext: ext_bytes, plus: plus_bytes },
-        files: Vec::new(),
+        files,
         deletes: plan.files.clone(),
         remove_first: Vec::new(),
     };

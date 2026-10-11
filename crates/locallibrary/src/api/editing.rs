@@ -4,6 +4,7 @@
 use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use uuid::Uuid;
 
 use super::{DriveRef, LibraryCache, resolve_drive};
@@ -16,6 +17,7 @@ use crate::model::{BpmRange, Track, TrackRef};
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::progress::Ctx;
 use crate::query::{self, Filter, QueryContext, TrackSelector};
+use crate::relocate::{self, RelocateOptions, RelocatePlan};
 use crate::smart::{SmartPlaylist, SmartPlaylists};
 use crate::store::Store;
 use crate::{Error, Result};
@@ -282,6 +284,10 @@ pub struct DedupeRequest {
     /// Also find copies by audio content (see [`crate::doctor`]).
     #[serde(default)]
     pub hash_audio: bool,
+    /// Also find copies by their sound: the same recording in another file or encoding (see
+    /// [`crate::doctor`]).
+    #[serde(default)]
+    pub by_sound: bool,
     /// Also replace tracks that only share artist, title and duration (they may be different
     /// edits of a recording).
     #[serde(default)]
@@ -290,45 +296,216 @@ pub struct DedupeRequest {
 
 /// Replace every copy of a recording with the copy doctor suggests keeping: playlist and history
 /// entries and My Tags move to it, and the copies (and files nothing else uses) go. Without
-/// `metadata`, copies are only those joined to the others by file, audio or Sync Manager's
+/// `metadata`, copies are only those joined to the others by file, audio, sound or Sync Manager's
 /// naming: a track that only shares artist, title and length stays, in a group with those too.
-fn dedupe_edits(d: &Device, req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<Vec<Edit>> {
+///
+/// A copy's hot cues, memory cues and loops never go with it. A keeper without cues gets those of
+/// the best copy that has some, moved by the offset between their audio (an MP3 made from a WAV
+/// starts ~25 ms later), when the two sound like one recording and the offset was measured. A copy
+/// whose cues the keeper then has (at that offset) goes; one with cues that can't be carried or
+/// that the keeper lacks stays, and a warning says why. Returns the edits and those warnings.
+fn dedupe_edits(d: &Device, req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<(Vec<Edit>, Vec<String>)> {
+    use crate::cue_edit::{self, CueChange, CueEdit};
     use crate::doctor::{self, DoctorOptions, DuplicateReason, Section};
     let opts = DoctorOptions {
         hash_audio: req.hash_audio,
+        by_sound: req.by_sound,
         only: vec![Section::Duplicates],
         sure_only: !req.metadata,
         ..Default::default()
     };
-    let mut edits = Vec::new();
-    for g in doctor::run(d, &opts, ctx)?.duplicates.unwrap_or_default() {
+    let groups = doctor::run(d, &opts, ctx)?.duplicates.unwrap_or_default();
+    let library = d.library()?;
+    let track = |id: u32| library.track(id).ok_or_else(|| Error::NotFound(format!("track #{id}")));
+    let (mut edits, mut warnings) = (Vec::new(), Vec::new());
+    for g in groups {
         // Several rows for one file can't be told apart by file: rekordbox's next export fixes those.
         if g.reasons == [DuplicateReason::SameFile] {
             continue;
         }
+        let keep = track(g.keep)?;
+        // The keeper's cues as the plan leaves them.
+        let mut kept = cue_spots(d, keep);
         let one = |id: u32| crate::query::TrackSelector { ids: vec![id], ..Default::default() };
         for t in g.tracks.iter().filter(|t| t.track.id != g.keep) {
-            edits.push(Edit::ReplaceTrack { duplicate: one(t.track.id), keep: one(g.keep), keep_duplicate: false });
+            let from = track(t.track.id)?;
+            let theirs = cue_spots(d, from);
+            // Byte-identical copies' cues line up as they are; others need the offset measured.
+            let kept_already = theirs.is_empty() || covered(&theirs, &kept, 0);
+            let carried = match kept_already {
+                true => Ok(None),
+                false => match doctor::offset_between(d, from, keep, ctx)? {
+                    Err(why) => Err(why.to_string()),
+                    Ok(secs) => {
+                        let shift_ms = (secs * 1000.0).round() as i32;
+                        match kept.is_empty() {
+                            true => {
+                                // Planned now too, so a carry that can't be made keeps the copy.
+                                let carry = CueEdit::Carry { from: from.id, shift_ms };
+                                match cue_edit::plan(d, &[keep.id], &carry, ctx) {
+                                    Ok(plan) => Ok(Some((shift_ms, plan.warnings))),
+                                    Err(e) if matches!(e.inner(), Error::Cancelled) => return Err(e),
+                                    Err(e) => Err(e.to_string()),
+                                }
+                            }
+                            false if covered(&theirs, &kept, i64::from(shift_ms)) => Ok(None),
+                            false => Err("it has cues of its own, and not all of these".to_string()),
+                        }
+                    }
+                },
+            };
+            match carried {
+                Ok(carry) => {
+                    if let Some((shift_ms, plan_warnings)) = carry {
+                        warnings.extend(plan_warnings);
+                        kept = theirs
+                            .iter()
+                            .map(|&(h, s, e)| (h, s + i64::from(shift_ms), e.map(|e| e + i64::from(shift_ms))))
+                            .collect();
+                        let change = CueChange::Carry { from: from.file_path.clone(), shift_ms };
+                        edits.push(Edit::Cues { tracks: vec![keep.file_path.clone()], change });
+                    }
+                    edits.push(Edit::ReplaceTrack {
+                        duplicate: one(from.id),
+                        keep: one(keep.id),
+                        keep_duplicate: false,
+                    });
+                }
+                Err(why) => warnings.push(format!(
+                    "{} stays: its cues couldn't be carried onto {}: {why}",
+                    from.file_path, keep.file_path
+                )),
+            }
         }
     }
-    Ok(edits)
+    Ok((edits, warnings))
+}
+
+/// A cue as copies are compared by: hot cue slot (`None`: a memory cue), start and loop end (ms).
+type CueSpot = (Option<u8>, i64, Option<i64>);
+
+fn cue_spots(d: &Device, t: &crate::model::Track) -> Vec<CueSpot> {
+    anlz::load_grid(d, t).cues.iter().map(|c| (c.hot_cue, i64::from(c.start_ms), c.end_ms.map(i64::from))).collect()
+}
+
+/// Whether every cue of `theirs`, `shift_ms` later, is one of `kept`: in its slot, and within
+/// 2 ms (positions are whole milliseconds, and so is the shift).
+fn covered(theirs: &[CueSpot], kept: &[CueSpot], shift_ms: i64) -> bool {
+    let near = |a: i64, b: i64| (a - b).abs() <= 2;
+    theirs.iter().all(|&(slot, start, end)| {
+        kept.iter().any(|&(k_slot, k_start, k_end)| {
+            k_slot == slot
+                && near(k_start, start + shift_ms)
+                && match (end, k_end) {
+                    (None, None) => true,
+                    (Some(e), Some(k)) => near(k, e + shift_ms),
+                    _ => false,
+                }
+        })
+    })
 }
 
 /// Replacing duplicates: a plan with nothing to do when there are none.
 pub fn dedupe_plan(req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
     let d = resolve_drive(&req.drive)?;
-    let edits = dedupe_edits(&d, req, ctx)?;
+    let (edits, kept) = dedupe_edits(&d, req, ctx)?;
+    let by = if req.by_sound { "file, audio, sound" } else { "file, audio" };
     let none = (edits.is_empty() && !req.metadata).then(|| {
-        "no copies by file, audio or Sync Manager's naming; `metadata` also replaces tracks that only share \
-         artist, title and length"
-            .to_string()
+        format!(
+            "no copies by {by} or Sync Manager's naming; `metadata` also replaces tracks that only share artist, \
+             title and length"
+        )
     });
-    let plan = edit::plan(&d, &edits, &EditOptions::default(), ctx)?;
-    Ok(planned_edit("dedupe", plan, Touched::library(&d, true), ctx)?.warnings(none))
+    // Carried cues are made first, after the plan's one backup; the replacements stay strict.
+    let plan = edit::plan_with_steps(&d, &edits, &EditOptions::default(), ctx)?;
+    // The analysis files carrying writes and reads: one changed since is another plan.
+    let carrying: Vec<String> = edits
+        .iter()
+        .filter_map(|e| match e {
+            Edit::Cues { tracks, change: crate::cue_edit::CueChange::Carry { from, .. } } => {
+                Some(tracks.iter().chain([from]).cloned().collect::<Vec<_>>())
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    let analysis = crate::cue_edit::analysis_files(&d, &d.library()?, &carrying);
+    let touched = Touched::drive(&d, true, vec![Probe::Databases, Probe::Identity, Probe::Content(analysis)]);
+    Ok(planned_edit("dedupe", plan, touched, ctx)?.warnings(none).warnings(kept))
 }
 
 pub fn dedupe_apply(req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
     dedupe_plan(req, ctx)?.apply(None, ctx)
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct RelocateRequest {
+    pub drive: String,
+    #[serde(default, flatten)]
+    pub options: RelocateOptions,
+}
+
+/// Where the drive's tracks whose audio file is missing have it, each only when exactly one file
+/// fits (see [`crate::relocate`]).
+pub fn relocate_plan(req: &RelocateRequest, ctx: &Ctx<'_>) -> Result<Planned<RelocatePlan>> {
+    let d = resolve_drive(&req.drive)?;
+    let plan = relocate::plan(&d, &req.options, ctx)?;
+    let mut summary = vec![format!(
+        "relocate {} track(s) on {}: {} to their file where it is on the drive, {} with their file copied ({})",
+        plan.repointed.len() + plan.copied.len(),
+        d.name(),
+        plan.repointed.len(),
+        plan.copied.len(),
+        bytes(plan.copy_bytes)
+    )];
+    if !plan.ambiguous.is_empty() {
+        summary.push(format!("{} track(s) with several files that fit are left as they are", plan.ambiguous.len()));
+    }
+    if !plan.unfit.is_empty() {
+        summary
+            .push(format!("{} track(s) whose file of that name isn't as long are left as they are", plan.unfit.len()));
+    }
+    if !plan.not_found.is_empty() {
+        summary.push(format!("{} track(s) have no file of their name to be found", plan.not_found.len()));
+    }
+    // The files it uses and the paths it copies to, as planned.
+    let stamps = plan.repointed.iter().map(|r| r.file.path.clone());
+    let stamps = stamps.chain(plan.copied.iter().map(|r| crate::paths::key(&r.track.file_path))).collect();
+    let sources: Vec<PathBuf> = plan.copied.iter().map(|r| PathBuf::from(&r.file.path)).collect();
+    let (noop, warnings) = (plan.is_noop(), plan.warnings.clone());
+    let planned = Planned::new("relocate", plan, ()).summary(summary).warnings(warnings).noop(noop);
+    copying_onto(planned, &d, stamps, sources, ctx)
+}
+
+/// `planned`, which copies `sources` (files on this computer) onto drive `d` at `stamps` (keys)
+/// along with an edit: what it touches, checked again before it's made, and the drive's clones.
+fn copying_onto<P: Operation>(
+    planned: Planned<P>,
+    d: &Device,
+    stamps: Vec<String>,
+    sources: Vec<PathBuf>,
+    ctx: &Ctx<'_>,
+) -> Result<Planned<P>> {
+    let mut planned =
+        planned.touches(Touched::drive(d, true, vec![Probe::Databases, Probe::Identity, Probe::Stamp(stamps)]));
+    for source in sources {
+        planned = planned.touches(Touched::path(&source, false, vec![Probe::Stamp(vec![String::new()])]));
+    }
+    planned.reaching_clones(ctx)?.guard(None)
+}
+
+impl Operation for RelocatePlan {
+    type Request = ();
+    type Report = EditReport;
+
+    fn apply(planned: &Planned<Self>, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<EditReport> {
+        relocate::apply(&planned.plan, &mut planned.drive(0)?, ctx)
+    }
+}
+
+/// Plan and relocate in one go, for callers that don't confirm (see [`relocate_plan`]).
+pub fn relocate_apply(req: &RelocateRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
+    relocate_plan(req, ctx)?.apply(None, ctx)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

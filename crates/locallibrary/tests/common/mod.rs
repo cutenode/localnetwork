@@ -155,6 +155,21 @@ pub fn populate(root: &Path) {
     populate_library(root, &pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap());
 }
 
+/// Add a track to export.pdb with its audio (`audio` bytes) and analysis files. Returns its id.
+pub fn add_track(root: &Path, track: NewTrack, audio: &[u8]) -> u32 {
+    let pdb = root.join(paths::EXPORT_PDB);
+    let mut ed = PdbEditor::from_file(&pdb).unwrap();
+    let id = ed.add_track(&NewTrack { file_size: audio.len() as u32, ..track.clone() }).unwrap();
+    ed.save(&pdb).unwrap();
+    let at = |key: &str| paths::to_fs(root, &paths::key(key));
+    write(&at(&track.file_path), audio);
+    if !track.analyze_path.is_empty() {
+        write(&at(&track.analyze_path), &synthetic_anlz(&track.file_path));
+        write(&at(&track.analyze_path.replace(".DAT", ".EXT")), &synthetic_anlz(&track.file_path));
+    }
+    id
+}
+
 /// Create audio (and missing analysis files) for every track of `lib` below `root`.
 pub fn populate_library(root: &Path, lib: &Library) {
     for t in &lib.tracks {

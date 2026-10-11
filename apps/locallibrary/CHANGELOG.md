@@ -65,6 +65,22 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   big for FAT32), `check` before a set, `clean` for rekordbox's demo tracks, `verify` and `fsck`,
   `space`, `tidy`, `recordings`, and the history lists players recorded, kept even after
   rekordbox removes them.
+- **Duplicates by sound.** `doctor --by-sound` and `track dedupe --by-sound` find the same
+  recording in another file or encoding (a FLAC and an MP3 made from it) from the fingerprints
+  `mix` keeps in the store, so a library is decoded once; tracks of different lengths, such as an
+  extended mix and its radio edit, are never copies. The suggested keeper has the best audio
+  (lossless, then bitrate, sample rate and bit depth), then the most cues, playlists and history
+  lists, and `doctor` says what decided it. Replacing a copy carries its hot cues, memory cues and
+  loops onto a keeper that has none, moved by the offset between their audio (an MP3's encoder
+  delay is about 25 ms), measured to a fraction of a sample by cross-correlating the two files'
+  audio. A copy whose cues can't be carried, or that has cues the keeper lacks, stays, with a
+  warning saying why.
+- **Missing files.** `track relocate` finds the audio of tracks whose file is missing, on the drive
+  and in folders given with `--look-in`, by name, narrowing several by size and then length, and
+  changes a track only when exactly one file fits, of the track's length when that's known
+  (rekordbox's Relocate All takes the first). A
+  file on the drive is used where it is, in both databases and the analysis files; one elsewhere is
+  copied to where the track expects it.
 - **Drive management.** A registry of every drive you own (`drive ...`): names, roles, a
   logbook, copies, recognising a drive after it was reformatted (by its contents, or its disk's
   serial number, which on macOS is a USB disk's), `provision`, `eject` and `firmware`.
@@ -210,7 +226,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     plain "Artist - Title" text, and finding the tracks in a library by path, ISRC, artist and
     title, then fuzzily.
   - `loclib-mixid`: which known tracks a recording plays, when, at what speed and with or without
-    key lock, from any audio files (decoding, landmark fingerprints, the index and the matcher).
+    key lock, from any audio files (decoding, landmark fingerprints, the index and the matcher),
+    and how two files of one recording line up, to a fraction of a sample (`refine`).
     locallibrary keeps the drive, the fingerprint cache, Audacity projects and the report.
   - `loclib-interop`: writing a library as Traktor's `collection.nml`, Serato crates (with the
     `Serato Markers2` cue tag in copies of the audio) and a new Engine DJ library, a feature per

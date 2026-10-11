@@ -63,7 +63,9 @@ locallibrary playlist import Home spotify.csv --into "From Spotify"
 locallibrary track set Home --filter "bpm:>=128 genre:techno" --rating 5 --colour red
 locallibrary track rm Home --filter "is:unfiled plays:0" --dry-run
 locallibrary track dedupe Home                       # replace Sync Manager copies (--hash-audio: identical audio too)
+locallibrary track dedupe Home --by-sound            # ...and a FLAC and an MP3 of one recording
 locallibrary track replace Home 812 77               # duplicate 812 -> keep 77, everywhere
+locallibrary track relocate Home --look-in ~/Music   # find missing tracks' files, see Missing files below
 locallibrary track show Home --query "daft punk - one more time"   # details, playlists, tags, copies, analysis
 locallibrary track matches Home 77                   # what mixes into track 77
 ```
@@ -86,6 +88,45 @@ energy-boost moves), close tempos (half and double time count), and energy from 
 phrase analysis that holds or builds. Over 2,000 tracks it skips the last tidying pass; Ctrl-C
 stops it. `track replace` moves a duplicate's playlist and history
 entries and My Tags to the copy you keep, then deletes the duplicate and its files.
+
+`track dedupe` does that for every duplicate `doctor` finds (see [Doctor](drives.md#doctor)),
+keeping the copy with the best audio (lossless over lossy, then the higher bitrate, sample rate
+and bit depth), then the one with the most cues, playlists and history lists; `doctor` says what
+decided it. A copy's hot cues, memory cues and loops never go with it. When the copy it keeps has
+no cues, it gets those of the best copy that has some, moved by the offset between their audio:
+an MP3 made from a WAV or FLAC starts its audio about 25 ms later (its encoder's delay), so a cue
+copied as it is lands that much early. The fingerprints line the two files up, their decoded audio
+then gives the offset to a fraction of a sample, and for an MP3 whose timeline in rekordbox starts
+a frame before its decoded audio, that frame is allowed for. A copy whose cues the keeper then has
+goes. One stays, with a warning saying why, when its cues can't be carried: the two don't sound
+like one recording (copies by artist, title and length alone can be different edits), their audio
+doesn't line up closely enough to measure the offset, or the keeper has cues of its own that
+aren't these. The carried cues are recorded with the replacement, so `edits replay` carries them
+again first.
+
+### Missing files
+
+```bash
+locallibrary track relocate Home                     # files moved or renamed on the drive
+locallibrary track relocate Home --look-in ~/Music --look-in /Volumes/NAS/Music --dry-run
+```
+
+`track relocate` looks for the audio of tracks whose file isn't on the drive, by file name (any
+letter case or Unicode form): among the drive's audio files no track uses, and with `--look-in`,
+in those folders and everything below them. A track changes only when exactly one file fits it.
+Of several, those of the size the database recorded are kept, then those of its length (within a
+second); one with more than one file left is listed with every file found and left as it is, and
+so is one whose only file left isn't as long as the track (another recording of the name) and a
+file two tracks could each be. rekordbox's Relocate All takes the first match instead,
+which can be another album's `Intro.mp3`.
+
+A file found on the drive stays where it is: the track is pointed at it in `export.pdb`,
+OneLibrary and its analysis files, and no audio is copied. A file found elsewhere is copied to the
+path the track has (only under `Contents/`), so the databases stay as rekordbox wrote them and its
+next export finds the file in place. That export writes the paths rekordbox's collection has, so a
+track pointed at a moved file has its old path again after it. Both are backed up first, so
+`locallibrary undo` takes back what changed in the databases and analysis files (a copied file
+stays on the drive), and neither is recorded for `edits replay`.
 
 `playlist import` reads M3U/M3U8, CSV and other tables (Spotify via Exportify, TuneMyMusic,
 Soundiiz, Beatport-style exports, Apple Music's text export, and any table with a title or file

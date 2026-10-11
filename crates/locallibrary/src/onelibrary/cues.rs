@@ -161,6 +161,14 @@ impl CueRow {
 }
 
 impl OneLibrary {
+    /// Zero a track's cues' seek columns, which point into its old file's MPEG frames: for a
+    /// track pointed at another file (0 means seek by the time).
+    pub fn clear_cue_seeks(&mut self, content_id: u32) -> Result<()> {
+        let columns: Vec<String> = IN_SEEK.iter().chain(&OUT_SEEK).map(|c| format!("{} = 0", ident(c))).collect();
+        self.conn.execute(&format!("UPDATE cue SET {} WHERE content_id = ?1", columns.join(", ")), [content_id])?;
+        Ok(())
+    }
+
     /// A track's cue rows, oldest first.
     pub fn cue_rows(&self, content_id: u32) -> Result<Vec<CueRow>> {
         let mut stmt = self.conn.prepare("SELECT * FROM cue WHERE content_id = ?1 ORDER BY cue_id")?;
@@ -328,6 +336,38 @@ mod tests {
             (Some(7), None, 1_500_250, None)
         );
         assert_eq!((rows[1].hot_cue, rows[1].comment.as_str(), rows[1].color), (Some(1), "Drop", 42));
+    }
+
+    /// Pointed at another file, a track's row takes the file's details and its cues lose the old
+    /// file's seek columns; with a shift, they move, the start clamped at 0.
+    #[test]
+    fn pointing_at_another_file_moves_cues_and_clears_seeks() {
+        let (mut one, t) = library_with_cues();
+        let file = crate::edit::AudioFile { size: 9_000_000, sample_rate: 48_000, bit_depth: 24, bitrate: 2304 };
+        one.set_track_path(t, "/Contents/A/B.aiff", Some(&file), 0).unwrap();
+        let row: (String, i64, i64, i64, i64, i64) = one
+            .conn
+            .query_row(
+                "SELECT path, fileSize, fileType, samplingRate, bitDepth, bitrate FROM content WHERE content_id = ?1",
+                [t],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            )
+            .unwrap();
+        assert_eq!(row, ("/Contents/A/B.aiff".into(), 9_000_000, 12, 48_000, 24, 2304));
+        let seeks: (i64, i64, i64) = one
+            .conn
+            .query_row(
+                "SELECT inMpegFrameNumber, inFileOffsetInBlock, inNumberOfSampleInBlock FROM cue WHERE cue_id = 7",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(seeks, (0, 0, 0));
+        assert_eq!(one.cue_rows(t).unwrap()[0].in_usec, 1_500_250, "no shift, no move");
+
+        one.set_track_path(t, "/Contents/A/B.aiff", None, -2000).unwrap();
+        let starts: Vec<i64> = one.cue_rows(t).unwrap().iter().map(|r| r.in_usec).collect();
+        assert_eq!(starts, [0, 28_000_000]);
     }
 
     #[test]

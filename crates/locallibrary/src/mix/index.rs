@@ -2,86 +2,47 @@
 //! (loclib-mixid's [`TrackPrint`] and [`LibraryIndex`], re-exported here).
 //!
 //! Fingerprinting decodes every track once, which takes minutes for a few thousand tracks. The
-//! peaks are cached per audio file (keyed by name, size and modification time, so the same file
-//! on two drives is fingerprinted once) and the index is rebuilt from the cache in seconds. A
-//! file that doesn't decode is remembered too, so it isn't decoded again on every run.
-
-use std::fs;
-use std::path::{Path, PathBuf};
+//! peaks are cached per audio file (see [`crate::audio_cache`]) and the index is rebuilt from the
+//! cache in seconds.
 
 use schemars::JsonSchema;
 use serde::Serialize;
 
 pub use loclib_mixid::index::*;
 
+pub use crate::audio_cache::TrackFailure;
+use crate::audio_cache::{self, Kind};
 use crate::device::Device;
-use crate::model::{Library, TrackRef};
+use crate::model::{Library, Track, TrackRef};
 use crate::progress::{Ctx, Phase, WarningLimiter};
-use crate::store::Store;
-use crate::{Error, Result, fsutil, paths, probe};
+use crate::{Error, Result};
 
 /// Library tracks longer than this (seconds) aren't indexed: they're recorded sets or
 /// continuous-mix albums, which match a whole mix and swallow the tracks heard in it.
 pub const LONGEST_TRACK_SECS: u32 = 20 * 60;
 
-/// The name of the store's folder the fingerprint cache is in.
-pub(crate) const CACHE_DIR: &str = "cache";
+/// Fingerprints, in `<store>/cache/fingerprints`.
+#[derive(Debug, Clone, Copy)]
+pub struct Prints;
+
+impl Kind for Prints {
+    const DIR: &'static str = "fingerprints";
+    const EXT: &'static str = "fp";
+    const WHAT: &'static str = "a fingerprint";
+    const VERSION: u32 = VERSION as u32;
+    type Value = TrackPrint;
+
+    fn encode(print: &TrackPrint) -> Vec<u8> {
+        print.encode()
+    }
+
+    fn decode(bytes: &[u8]) -> Option<TrackPrint> {
+        TrackPrint::decode(bytes)
+    }
+}
 
 /// Fingerprints on disk, one small file per audio file.
-#[derive(Debug, Clone)]
-pub struct Cache {
-    root: PathBuf,
-}
-
-impl Cache {
-    pub fn new(root: impl Into<PathBuf>) -> Cache {
-        Cache { root: root.into() }
-    }
-
-    /// The store's fingerprint cache, `<store>/cache/fingerprints`.
-    pub fn in_store(store: &Store) -> Cache {
-        Cache::new(store.root().join(CACHE_DIR).join("fingerprints"))
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
-    /// Key for an audio file as it is now, or `None` if it can't be read.
-    pub fn key(path: &Path) -> Option<String> {
-        let meta = fs::metadata(path).ok()?;
-        let mtime =
-            meta.modified().ok().and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
-        let name = path.file_name()?.to_string_lossy().to_lowercase();
-        let mut h = blake3::Hasher::new();
-        h.update(format!("{VERSION}\u{1f}{name}\u{1f}{}\u{1f}{mtime}", meta.len()).as_bytes());
-        Some(h.finalize().to_hex()[..32].to_string())
-    }
-
-    fn file(&self, key: &str, ext: &str) -> PathBuf {
-        self.root.join(&key[..2]).join(format!("{key}.{ext}"))
-    }
-
-    pub fn get(&self, key: &str) -> Option<TrackPrint> {
-        TrackPrint::decode(&fs::read(self.file(key, "fp")).ok()?)
-    }
-
-    pub fn put(&self, key: &str, print: &TrackPrint) -> Result<()> {
-        fsutil::write_deferred(&self.file(key, "fp"), &print.encode())
-    }
-
-    /// Why the file couldn't be fingerprinted, when this version of locallibrary tried (a newer
-    /// one may decode it).
-    pub fn failure(&self, key: &str) -> Option<String> {
-        let text = fs::read_to_string(self.file(key, "err")).ok()?;
-        let (version, error) = text.split_once('\n')?;
-        (version == env!("CARGO_PKG_VERSION")).then(|| error.to_string())
-    }
-
-    pub fn put_failure(&self, key: &str, error: &str) -> Result<()> {
-        fsutil::write_deferred(&self.file(key, "err"), format!("{}\n{error}", env!("CARGO_PKG_VERSION")).as_bytes())
-    }
-}
+pub type Cache = audio_cache::Cache<Prints>;
 
 #[derive(Debug, Clone, Default, Serialize, serde::Deserialize, JsonSchema)]
 pub struct IndexReport {
@@ -101,15 +62,6 @@ pub struct IndexReport {
     pub hashes: usize,
 }
 
-crate::schema::labelled_tuple! {
-    /// A track whose audio couldn't be fingerprinted, and why: `[track, error]`.
-    #[derive(Debug, Clone)]
-    pub struct TrackFailure {
-        pub track: TrackRef,
-        pub error: String,
-    }
-}
-
 /// A library track's fingerprint.
 pub struct Fingerprinted {
     pub id: u32,
@@ -125,76 +77,31 @@ pub fn fingerprint_library(
     cache: &Cache,
     ctx: &Ctx<'_>,
 ) -> Result<(Vec<Fingerprinted>, IndexReport)> {
-    let mut report = IndexReport { tracks: library.tracks.len(), ..Default::default() };
-    let mut prints = Vec::with_capacity(library.tracks.len());
-    let mut todo = Vec::new();
-    ctx.phase_start(Phase::Scan, library.tracks.len() as u64, 0);
-    for t in &library.tracks {
-        ctx.check()?;
-        if t.duration_secs > LONGEST_TRACK_SECS {
-            report.long.push(t.into());
-            continue;
-        }
-        let file = device.checked_path(&paths::key(&t.file_path)).ok().filter(|p| p.is_file());
-        let Some((file, key)) = file.and_then(|f| Cache::key(&f).map(|k| (f, k))) else {
-            report.missing.push(t.into());
-            continue;
-        };
-        if let Some(p) = cache.get(&key) {
-            prints.push(Fingerprinted { id: t.id, key, print: p });
-        } else if let Some(error) = cache.failure(&key) {
-            report.failed.push(TrackFailure { track: t.into(), error });
-        } else {
-            todo.push((t, file, key));
-        }
-    }
-    ctx.phase_end(Phase::Scan);
-
-    // Cached as each finishes, so a cancelled run keeps what it did.
-    let results = probe::parallel(
-        &todo,
+    let (long, tracks): (Vec<&Track>, Vec<&Track>) =
+        library.tracks.iter().partition(|t| t.duration_secs > LONGEST_TRACK_SECS);
+    let run = audio_cache::for_tracks(
+        device,
+        &tracks,
+        cache,
         Phase::Fingerprint,
-        |(t, ..)| (t.file_path.clone(), t.file_size),
-        |(_, file, key)| {
-            // Guarded for the quiet, as `listen` is.
-            let r = probe::guarded(file, || fingerprint_file(file, ctx).map_err(Error::from));
-            let cached = match &r {
-                Ok(p) => cache.put(key, p),
-                // What a file holds doesn't change until the file does (and its key with it). One
-                // that couldn't be read, or went away or changed while it was (a drive pulled
-                // out), is tried again next time: a failed read can look like a file that doesn't
-                // decode.
-                Err(e) if matches!(e.inner(), Error::Parse { .. }) && Cache::key(file).as_ref() == Some(key) => {
-                    cache.put_failure(key, &e.to_string())
-                }
-                Err(_) => Ok(()),
-            };
-            if let Err(e) = cached {
-                ctx.warn(format!("couldn't cache a fingerprint: {e}"));
-            }
-            r
-        },
+        |file, ctx| fingerprint_file(file, ctx).map_err(Error::from),
         ctx,
     )?;
-    for ((t, _, key), r) in todo.into_iter().zip(results) {
-        match r {
-            Ok(p) => {
-                prints.push(Fingerprinted { id: t.id, key, print: p });
-                report.fingerprinted += 1;
-            }
-            Err(e) if matches!(e.inner(), Error::Cancelled) => return Err(e),
-            Err(e) => report.failed.push(TrackFailure { track: t.into(), error: e.to_string() }),
-        }
-    }
     let mut warn = WarningLimiter::new(ctx, 3);
-    for f in &report.failed {
+    for f in &run.failed {
         warn.warn("unreadable tracks", format!("couldn't fingerprint {}: {}", f.track.name, f.error));
     }
     warn.finish();
-    // Keep the index in library order, whatever order the workers finished in.
-    let order: rustc_hash::FxHashMap<u32, usize> = library.tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
-    prints.sort_by_key(|f| order.get(&f.id).copied().unwrap_or(usize::MAX));
-    report.indexed = prints.len();
+    let report = IndexReport {
+        tracks: library.tracks.len(),
+        indexed: run.done.len(),
+        fingerprinted: run.computed,
+        missing: run.missing.iter().filter_map(|id| library.track(*id)).map(TrackRef::from).collect(),
+        failed: run.failed,
+        long: long.into_iter().map(TrackRef::from).collect(),
+        hashes: 0,
+    };
+    let prints = run.done.into_iter().map(|d| Fingerprinted { id: d.id, key: d.key, print: d.value }).collect();
     Ok((prints, report))
 }
 

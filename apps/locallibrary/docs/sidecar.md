@@ -206,11 +206,14 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by
   `op` (`create_playlist`, `rename_playlist`, `move_playlist`, `delete_playlist`, `add_tracks`,
   `remove_tracks`, `move_tracks`, `set_tracks`, `set_entries`, `sort_playlist`, `dedupe`,
-  `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `delete_history`; see `edit::Edit`),
-  applied as one change with one backup. Tracks are chosen with selectors (`{"ids": [12]}`,
+  `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `set_path`, `delete_history`; see
+  `edit::Edit`), applied as one change with one backup. Tracks are chosen with selectors (`{"ids": [12]}`,
   `{"filter": "bpm:>=128"}`, `{"paths": ["/Contents/..."]}`, `playlist`, `album`, `query`,
   `history`; a track must fit every field given). Also `edits.list`, `edits.replay.plan/apply`,
-  `edits.clear`, `import.plan/apply`, `dedupe.plan/apply`, `history.delete.plan/apply`,
+  `edits.clear`, `import.plan/apply`, `dedupe.plan/apply` (`by_sound` also finds the same
+  recording in another file or encoding), `relocate.plan/apply` (`{drive, folders}`, absolute
+  paths: finds missing tracks' files, `ambiguous` lists those with several, `unfit` those whose
+  only file isn't as long), `history.delete.plan/apply`,
   `smart.list/set/remove`, `smart.write.plan/apply`, `pack.plan/apply`, `tags.list`,
   `tags.plan/apply`, `cues.list`, `cues.plan/apply`, `playlist.restore.plan/apply` (`{drive,
   playlist}`, with `snapshot` or `backup` to choose the source; the plan lists the `missing` entries

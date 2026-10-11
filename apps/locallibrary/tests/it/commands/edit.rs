@@ -242,3 +242,64 @@ fn a_pack_is_shown_and_not_made_unconfirmed() {
     assert!(r.out.contains("! 12 track(s) have no audio file on Club; players won't load them"), "{}", r.out);
     assert!(r.err.contains("not confirmed") && !stick.join(PDB).exists(), "{}", r.err);
 }
+
+/// The demo drive's two tracks are one recording (as WAVs): `--by-sound` finds them, says why it
+/// keeps the one it does, and dedupe replaces the other.
+#[test]
+fn duplicates_are_found_by_sound_and_replaced() {
+    let env = Env::ascii();
+    let (drive, _) = super::mix::drive_and_recording(&env);
+    let d = path(&drive);
+    let out = env.exits(4, &["doctor", d, "--only", "duplicates", "--by-sound"]);
+    assert!(out.contains("(same recording, by sound)"), "{out}");
+    let keep = out.lines().find(|l| l.contains("keep")).unwrap();
+    assert!(keep.contains("#1  320 kbps, 0 cue(s)") && keep.ends_with("(no other difference: the lowest id)"), "{out}");
+    let report: serde_json::Value =
+        serde_json::from_str(&env.exits(4, &["--json", "doctor", d, "--only", "duplicates", "--by-sound"])).unwrap();
+    assert_eq!(report["duplicates"][0]["reasons"], serde_json::json!(["same_recording"]), "{report}");
+
+    let out = env.ok(&["track", "dedupe", d, "--by-sound", "--dry-run"]);
+    assert!(out.contains("    - 1 track(s) removed"), "{out}");
+    let out = env.ok(&["track", "dedupe", d, "--dry-run"]);
+    assert!(out.contains("nothing to change"), "without --by-sound the two aren't copies: {out}");
+}
+
+/// A file moved on the drive is pointed at; a file found twice in a folder is listed, not picked.
+#[test]
+fn relocate_points_at_moved_files_and_lists_the_ones_it_cant_tell_apart() {
+    let env = Env::ascii();
+    let demo = env.demo("Demo");
+    let d = path(&demo);
+    let dir = demo.join("Contents/Loopmasters/UnknownAlbum");
+    std::fs::create_dir_all(demo.join("Contents/Moved")).unwrap();
+    std::fs::rename(dir.join("Demo Track 1.mp3"), demo.join("Contents/Moved/Demo Track 1.mp3")).unwrap();
+    let music = env.outside("Music");
+    for sub in ["a", "b"] {
+        std::fs::create_dir_all(music.join(sub)).unwrap();
+        std::fs::copy(dir.join("Demo Track 2.mp3"), music.join(sub).join("Demo Track 2.mp3")).unwrap();
+    }
+    std::fs::remove_file(dir.join("Demo Track 2.mp3")).unwrap();
+
+    let out = env.ok(&["track", "relocate", d, "--look-in", path(&music), "--dry-run"]);
+    assert!(out.contains("~ Loopmasters - Demo Track 1  now Contents/Moved/Demo Track 1.mp3"), "{out}");
+    assert!(out.contains("? Loopmasters - Demo Track 2  more than one file fits"), "{out}");
+    assert!(out.contains(&format!("{}  ", music.join("a/Demo Track 2.mp3").display())), "{out}");
+    let out = env.ok(&["--yes", "track", "relocate", d, "--look-in", path(&music)]);
+    assert!(out.contains("relocated 1 track(s)"), "{out}");
+    let v = env.json(&["track", "relocate", d, "--look-in", path(&music)]);
+    assert_eq!(
+        (&v["outcome"], v["plan"]["ambiguous"].as_array().map(Vec::len)),
+        (&"nothing_to_do".into(), Some(1)),
+        "{v}"
+    );
+
+    // With one copy left in the folder, that one is copied back.
+    std::fs::remove_dir_all(music.join("b")).unwrap();
+    let out = env.ok(&["--yes", "track", "relocate", d, "--look-in", path(&music)]);
+    let copied = format!("+ Loopmasters - Demo Track 2  copied from {}", music.join("a/Demo Track 2.mp3").display());
+    assert!(out.contains(&copied) && out.contains("relocated 1 track(s)"), "{out}");
+    std::fs::remove_file(demo.join("Contents/Moved/Demo Track 1.mp3")).unwrap();
+    let out = env.ok(&["track", "relocate", d]);
+    assert!(out.contains("- 1 track(s) with no file of their name, e.g. Loopmasters - Demo Track 1"), "{out}");
+    assert!(out.contains("no track can be relocated"), "{out}");
+}

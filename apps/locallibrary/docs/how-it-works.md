@@ -23,7 +23,9 @@ crates/loclib-mysettings/   My Settings files (MYSETTING.DAT and the rest): ever
 crates/loclib-tracklist/    reading outside tracklists (M3U, CSV, rekordbox text and XML, plain text) and
                             matching them to a library: by path, ISRC, artist and title, then fuzzily
 crates/loclib-mixid/        which known tracks a recorded mix plays: decoding and resampling, landmark
-                            fingerprints, the hash index and its print format, the matcher
+                            fingerprints, the hash index and its print format, the matcher, and how
+                            two tracks line up, refined to a fraction of a sample from their audio
+                            (doctor's duplicates by sound, cues carried or moved by the offset)
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
                             tags, an Engine DJ library (engine.sql)
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
@@ -56,13 +58,16 @@ crates/locallibrary/src/    the library, built on the crates above
   import.rs    loclib-tracklist, re-exported
   tags.rs      My Tags in exportExt.pdb and OneLibrary
   cue_edit.rs  hot cues, memory cues and loops in analysis files and OneLibrary's cue table
-  doctor.rs    duplicates, missing and orphaned files, drift
+  doctor.rs    duplicates (by file, name, metadata, audio and sound), missing and orphaned files, drift
+  relocate.rs  finding missing tracks' audio on the drive and in folders, used only when one file fits
   plays.rs     history lists on drives and in the store, play statistics
   sets/        the DJ's sets (sets.json): sessions and their windows, suggestions, building a set from
                sessions and recordings, editing, exports, Beat Link Trigger logs
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
+  audio_cache.rs  what's worked out from each audio file (fingerprints), cached in the store
+               by file name, size and modification time, and worked out in parallel when it isn't
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
-               store's fingerprint cache (index.rs), Audacity projects (aup.rs), the report (the
+               store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
                interactive page, the mix's playable audio, the reports kept in the store: report.rs and
                report.html) and the export for Local Network (export.rs)
   atmosphere/  Atmosphere account sign-in around jacquard-oauth: browser callback, keychain storage, lock,

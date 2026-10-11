@@ -240,12 +240,21 @@ sync REKORDBOX BACKUP` works right after.
 `locallibrary doctor` (or `doctor Home`) reports problems in a library and changes nothing
 (`--hash-audio` keeps the hashes it makes in a named drive's `.locallibrary/` file index):
 duplicates (several rows for one file, Sync Manager's `Name-1.mp3` copies, the same
-artist/title/length, and with `--hash-audio` identical audio) with a suggested keeper, missing or
-cut-short audio, missing analysis and artwork, orphaned files, tracks in no playlist, drift between
-the two databases, files of 4 GB or more, and how players read the drive. `track dedupe` replaces
-the duplicates; `--fix-orphans` deletes audio under `Contents/`, analysis under `PIONEER/USBANLZ/`
+artist/title/length, with `--hash-audio` identical audio, and with `--by-sound` the same recording
+in another file or encoding) with a suggested keeper and what decided it, missing or cut-short
+audio, missing analysis and artwork, orphaned files, tracks in no playlist, drift between the two
+databases, files of 4 GB or more, and how players read the drive. `track dedupe` replaces the
+duplicates and `track relocate` finds missing audio (see [Editing](editing.md#missing-files));
+`--fix-orphans` deletes audio under `Contents/`, analysis under `PIONEER/USBANLZ/`
 and images under `PIONEER/Artwork/` that no track in either database uses, after backing them up.
 Files other than audio under `Contents/` are never touched. `--audio` adds audio files that don't
 open, are cut short or don't decode at the end (see [Before a set](sets.md#before-a-set)). `--only
 duplicates,unfiled` runs just those sections, `--all` lists every group and file instead of the
 first few, and `--fix-orphans --dry-run` shows what it would delete.
+
+`--by-sound` fingerprints every track's audio the first time (the store keeps the prints, as
+`mix` does, so later runs decode only new files) and compares tracks whose lengths are within 2
+seconds: two are one recording when their fingerprints line up at one offset over at least 80% of
+each. A FLAC, an MP3 made from it and a 48 kHz copy all do; an extended mix and its radio edit share
+most of their audio but not their length, so they never count as copies, and nor does an edit with
+a stretch cut out, which lines up only in part.

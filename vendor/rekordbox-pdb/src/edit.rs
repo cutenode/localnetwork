@@ -42,6 +42,8 @@ fn field_spec(field: &str) -> Option<(usize, usize)> {
         "duration" => (0x54, 2),
         "color_id" => (0x58, 1),
         "rating" => (0x59, 1),
+        // The format code rekordbox derives from the extension (locallibrary patch).
+        "file_type" => (0x5a, 2),
         _ => return None,
     })
 }
@@ -55,14 +57,18 @@ const TRACK_STRINGS: usize = 0x88;
 /// gets one past the end once `allocate_page` uses it. (locallibrary patch.)
 const MAX_PAGES_PAST_END: usize = 64;
 
-fn file_type_code(path: &str) -> u16 {
-    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    match ext.as_str() {
-        "mp3" => 0x01,
-        "m4a" => 0x04,
-        "wav" => 0x0b,
-        "aiff" | "aif" => 0x0c,
-        _ => 0x01,
+/// rekordbox's format code for an audio file, by its extension: the track row's `file_type`
+/// (OneLibrary's `content.fileType` uses the same codes). 0 for an extension rekordbox doesn't
+/// list. (locallibrary patch.)
+pub fn file_type_code(path: &str) -> u16 {
+    let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+    match ext.as_deref() {
+        Some("mp3") => 0x01,
+        Some("m4a" | "mp4" | "aac") => 0x04,
+        Some("flac") => 0x05,
+        Some("wav") => 0x0b,
+        Some("aiff" | "aif") => 0x0c,
+        _ => 0,
     }
 }
 

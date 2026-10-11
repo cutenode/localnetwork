@@ -374,6 +374,25 @@
       ],
       "type": "object"
     },
+    "Ambiguous": {
+      "description": "A track and every file of its name found for it, none picked.",
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/RelocateCandidate"
+          },
+          "type": "array"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        }
+      },
+      "required": [
+        "track",
+        "candidates"
+      ],
+      "type": "object"
+    },
     "AnalysisRequest": {
       "properties": {
         "drive": {
@@ -961,6 +980,40 @@
         "rates",
         "depths",
         "inferred"
+      ],
+      "type": "object"
+    },
+    "AudioFile": {
+      "description": "What a track's rows say about its audio file, for a track pointed at another encoding.",
+      "properties": {
+        "bit_depth": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bitrate": {
+          "description": "kbps.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sample_rate": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "size",
+        "sample_rate",
+        "bit_depth",
+        "bitrate"
       ],
       "type": "object"
     },
@@ -3054,6 +3107,31 @@
             "copy"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "carry": {
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "shift_ms": {
+                  "format": "int32",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "from",
+                "shift_ms"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "carry"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -3460,6 +3538,11 @@
     },
     "DedupeRequest": {
       "properties": {
+        "by_sound": {
+          "default": false,
+          "description": "Also find copies by their sound: the same recording in another file or encoding (see\n[`crate::doctor`]).",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -4287,6 +4370,11 @@
           "description": "Also run [`Section::Audio`].",
           "type": "boolean"
         },
+        "by_sound": {
+          "default": false,
+          "description": "Also find the same recording in other files and encodings (a FLAC and an MP3 of it) by its\nsound: every track is fingerprinted (once: the store keeps the prints) and tracks of about\nthe same length are compared. Decoding a library's audio the first time takes a while.",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -4305,7 +4393,7 @@
         },
         "sure_only": {
           "default": false,
-          "description": "Duplicates only by file, audio or Sync Manager copy: leave out tracks that only share\nartist, title and length (they may be different edits), also from groups the others join.",
+          "description": "Duplicates only by file, audio, sound or Sync Manager copy: leave out tracks that only share\nartist, title and length (they may be different edits), also from groups the others join.",
           "type": "boolean"
         }
       },
@@ -4992,10 +5080,14 @@
     "DuplicateGroup": {
       "properties": {
         "keep": {
-          "description": "Id of the suggested keeper: most playlist memberships, then the higher bitrate, then the\nearliest date added.",
+          "description": "Id of the suggested keeper: the best audio (lossless over lossy, then the higher bitrate,\nsample rate and bit depth), then the most cues, playlists and history lists, then the\nearliest date added.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "keep_reason": {
+          "description": "What put the keeper ahead of the next copy (`lossless over lossy`, `320 kbps over 192`).",
+          "type": "string"
         },
         "reasons": {
           "items": {
@@ -5014,7 +5106,8 @@
       "required": [
         "reasons",
         "tracks",
-        "keep"
+        "keep",
+        "keep_reason"
       ],
       "type": "object"
     },
@@ -5032,6 +5125,11 @@
           "type": "string"
         },
         {
+          "const": "same_recording",
+          "description": "The same recording in another file or encoding (with `by_sound`): their fingerprints line\nup over most of both, and their lengths agree (an extended mix and its radio edit share\nmost of their audio, but not their length).",
+          "type": "string"
+        },
+        {
           "const": "sync_manager_copy",
           "description": "rekordbox Sync Manager copies: `Name-1.mp3` or `Name (1).mp3` next to `Name.mp3`, same size.",
           "type": "string"
@@ -5045,8 +5143,20 @@
     },
     "DuplicateTrack": {
       "properties": {
+        "bit_depth": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
         "bitrate": {
           "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cues": {
+          "description": "Hot cues, memory cues and loops in its analysis files.",
+          "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
@@ -5057,6 +5167,16 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "history": {
+          "description": "History lists (what players recorded) the track is in.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lossless": {
+          "description": "FLAC, WAV, AIFF or Apple Lossless.",
+          "type": "boolean"
         },
         "play_count": {
           "format": "uint16",
@@ -5070,6 +5190,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "sample_rate": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
         "track": {
           "$ref": "#/$defs/TrackRef"
         }
@@ -5077,8 +5202,13 @@
       "required": [
         "track",
         "playlists",
+        "history",
+        "cues",
         "play_count",
+        "lossless",
         "bitrate",
+        "sample_rate",
+        "bit_depth",
         "file_size",
         "date_added"
       ],
@@ -5500,6 +5630,41 @@
             "op",
             "duplicate",
             "keep"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Point one track at another audio file on the drive (a device path), as when its file was\nmoved or renamed: in both databases and in the analysis files that record it. With `file`,\nthe file is another encoding of the recording (a lossless copy of an MP3): the rows take\nits format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and\nbeat grid move by that much, for audio that starts at another point.",
+          "properties": {
+            "file": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AudioFile"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "const": "set_path",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "shift_ms": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "track": {
+              "$ref": "#/$defs/TrackSelector"
+            }
+          },
+          "required": [
+            "op",
+            "track",
+            "path"
           ],
           "type": "object"
         },
@@ -6084,6 +6249,41 @@
             "duplicate",
             "keep",
             "keep_duplicate"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Point one track at another audio file on the drive (a device path), as when its file was\nmoved or renamed: in both databases and in the analysis files that record it. With `file`,\nthe file is another encoding of the recording (a lossless copy of an MP3): the rows take\nits format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and\nbeat grid move by that much, for audio that starts at another point.",
+          "properties": {
+            "file": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AudioFile"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "const": "set_path",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "shift_ms": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "track": {
+              "$ref": "#/$defs/TrackSelector"
+            }
+          },
+          "required": [
+            "op",
+            "track",
+            "path"
           ],
           "type": "object"
         },
@@ -16136,6 +16336,160 @@
         }
       ]
     },
+    "RelocateCandidate": {
+      "description": "A file a missing track could be.",
+      "properties": {
+        "duration_secs": {
+          "description": "Seconds, when its headers say.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "on_drive": {
+          "type": "boolean"
+        },
+        "path": {
+          "description": "A key on the drive, or a path on this computer.",
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "on_drive",
+        "size",
+        "duration_secs"
+      ],
+      "type": "object"
+    },
+    "RelocatePlan": {
+      "properties": {
+        "ambiguous": {
+          "items": {
+            "$ref": "#/$defs/Ambiguous"
+          },
+          "type": "array"
+        },
+        "copied": {
+          "description": "Tracks whose file is copied to the path they have.",
+          "items": {
+            "$ref": "#/$defs/Relocation"
+          },
+          "type": "array"
+        },
+        "copy_bytes": {
+          "description": "Audio copied onto the drive.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "drive": {
+          "type": "string"
+        },
+        "fits": {
+          "type": "boolean"
+        },
+        "free_space": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "needed_bytes": {
+          "description": "Space needed for that, the backup and the new databases.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_found": {
+          "description": "Missing tracks with no file of their name.",
+          "items": {
+            "$ref": "#/$defs/TrackRef"
+          },
+          "type": "array"
+        },
+        "repointed": {
+          "description": "Tracks pointed at their file where it is on the drive.",
+          "items": {
+            "$ref": "#/$defs/Relocation"
+          },
+          "type": "array"
+        },
+        "root": {
+          "type": "string"
+        },
+        "unfit": {
+          "description": "Tracks whose files of their name are none of them as long as the track: none picked.",
+          "items": {
+            "$ref": "#/$defs/Ambiguous"
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "drive",
+        "root",
+        "repointed",
+        "copied",
+        "ambiguous",
+        "unfit",
+        "not_found",
+        "copy_bytes",
+        "needed_bytes",
+        "free_space",
+        "fits",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "RelocateRequest": {
+      "properties": {
+        "drive": {
+          "type": "string"
+        },
+        "folders": {
+          "default": [],
+          "description": "Folders to look in besides the drive (on this computer or another drive), with\neverything below them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "type": "object"
+    },
+    "Relocation": {
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/RelocateCandidate"
+        },
+        "track": {
+          "$ref": "#/$defs/TrackRef"
+        }
+      },
+      "required": [
+        "track",
+        "file"
+      ],
+      "type": "object"
+    },
     "RememberedPlayers": {
       "description": "The player models `check` uses when none are given.",
       "properties": {
@@ -24332,6 +24686,64 @@
             "allOf": [
               {
                 "$ref": "#/$defs/DedupeRequest"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "plan",
+      "long_running": true,
+      "name": "relocate.plan",
+      "operation": "relocate",
+      "pair": "relocate.apply",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RelocateRequest"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/RelocatePlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "apply",
+      "long_running": true,
+      "name": "relocate.apply",
+      "operation": "relocate",
+      "pair": "relocate.plan",
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/RelocateRequest"
               },
               {
                 "$ref": "#/$defs/WriteOptions"

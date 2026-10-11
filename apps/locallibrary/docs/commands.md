@@ -112,7 +112,7 @@ its drives.
 | `locallibrary drive firmware <drive> [file.UPD] [--remove]` | Stage a player or mixer firmware update, see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
 | `locallibrary drive backups [<drive>]` / `drive restore <library> \| <drive>` | The backups taken before every change to a drive; put any of them back (`--backup ID`; `--dry-run` shows what would change; refuses a backup whose audio has since been removed, unless `--force`). `--playlist P` brings back one playlist or folder from a snapshot or backup, see [Bringing back a playlist](editing.md#bringing-back-a-playlist) |
 | `locallibrary provision <target>` | Set up a new drive in one step, see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
-| `locallibrary doctor [<library>] [--hash-audio] [--audio] [--only SECTION,...]` | Health report: duplicates with a suggested keeper, missing or cut-short files, orphaned files, tracks in no playlist, database drift, files over 4 GB, how players read the drive (`--audio`: audio files cut short or that don't decode); `--fix-orphans` deletes orphans after a backup |
+| `locallibrary doctor [<library>] [--hash-audio] [--by-sound] [--audio] [--only SECTION,...]` | Health report: duplicates with a suggested keeper (`--by-sound`: also the same recording in another file or encoding), missing or cut-short files, orphaned files, tracks in no playlist, database drift, files over 4 GB, how players read the drive (`--audio`: audio files cut short or that don't decode); `--fix-orphans` deletes orphans after a backup |
 | `locallibrary watch [--pull] [--sync-group] [--once] [--install \| --uninstall]` | Pull drives into the store as they're plugged in, so their history lists outlive rekordbox's import, and sync the rest of their group; `--install` runs that whenever you log in (`--no-sync-group`: only pull), see [Saving drives as they're plugged in](store.md#saving-drives-as-theyre-plugged-in) |
 
 **Library and store**
@@ -140,7 +140,7 @@ its drives.
 | --- | --- |
 | `locallibrary playlist [<library>]` | A library's playlist tree (`playlist ls`) |
 | `locallibrary playlist ...` | Create, rename, move, delete, fill, sort, order for mixing and import playlists, see [Editing playlists and tracks](editing.md#editing-playlists-and-tracks) |
-| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find harmonic matches |
+| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), find harmonic matches |
 | `locallibrary tags ...` | My Tags: list, `add`/`untag` tracks, `rename`, `delete` a tag, see [My Tags](editing.md#my-tags) |
 | `locallibrary cues ...` | Hot cues, memory cues and loops: list, set, rename, recolour, delete, copy, see [Cues](editing.md#cues) |
 | `locallibrary art [<library>] ...` | Tracks without artwork (`art missing`), and setting it, see [Cover art](editing.md#cover-art) |

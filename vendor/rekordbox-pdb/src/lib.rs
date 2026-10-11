@@ -25,7 +25,7 @@ pub mod edit;
 pub mod ext;
 pub mod pdb;
 
-pub use edit::{NewTrack, PdbEditor};
+pub use edit::{NewTrack, PdbEditor, file_type_code};
 pub use ext::{ExtDatabase, ExtEditor, ExtTableType, Tag, TagTrack};
 pub use pdb::{
     Album, Artist, Artwork, Color, Column, Database, Genre, HistoryEntry, HistoryPlaylist, Key,

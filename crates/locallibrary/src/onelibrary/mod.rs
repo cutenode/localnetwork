@@ -262,16 +262,9 @@ fn empty_database() -> Vec<u8> {
     page
 }
 
-/// rekordbox's file type codes (`content.fileType`).
-fn file_type(path: &str) -> i64 {
-    match path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref() {
-        Some("mp3") => 1,
-        Some("m4a" | "mp4" | "aac") => 4,
-        Some("flac") => 5,
-        Some("wav") => 11,
-        Some("aif" | "aiff") => 12,
-        _ => 0,
-    }
+/// rekordbox's file type code (`content.fileType`): export.pdb's table.
+pub(crate) fn file_type(path: &str) -> i64 {
+    rekordbox_pdb::file_type_code(path).into()
 }
 
 fn int(v: ValueRef<'_>) -> i64 {

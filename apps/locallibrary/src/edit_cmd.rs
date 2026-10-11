@@ -320,16 +320,35 @@ locallibrary track set Home --track 12 --title \"One More Time\" --artist \"Daft
         #[command(flatten)]
         dry: DryRun,
     },
-    /// Replace duplicate copies with the one `doctor` suggests keeping (most playlists, best bitrate)
+    /// Replace duplicate copies with the one `doctor` suggests keeping (best audio, then most cues
+    /// and playlists), carrying cues onto it when it has none
     Dedupe {
         #[arg(help = LIBRARY_HELP)]
         drive: String,
         /// Also find copies by audio content (hashes audio files that share a size)
         #[arg(long)]
         hash_audio: bool,
+        /// Also find the same recording in other files and encodings by its sound (decodes every
+        /// track the first time; the store keeps the fingerprints)
+        #[arg(long)]
+        by_sound: bool,
         /// Also tracks that only share artist, title and length (they may be different edits)
         #[arg(long)]
         metadata: bool,
+        #[command(flatten)]
+        dry: DryRun,
+    },
+    /// Find the audio of tracks whose file is missing: on the drive (moved or renamed) and in the
+    /// folders given, by file name. A track changes only when exactly one file fits it
+    #[command(after_long_help = "Examples:\n  locallibrary track relocate Home\n  \
+locallibrary track relocate Home --look-in ~/Music --dry-run")]
+    Relocate {
+        #[arg(help = LIBRARY_HELP)]
+        drive: String,
+        /// Also look in this folder and everything below it (repeatable); files found there are
+        /// copied to where their track expects them
+        #[arg(long = "look-in", value_name = "DIR")]
+        folders: Vec<std::path::PathBuf>,
         #[command(flatten)]
         dry: DryRun,
     },
@@ -759,9 +778,12 @@ pub fn track(args: TrackArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
             let one = |id| TrackSelector { ids: vec![id], ..Default::default() };
             (drive, vec![Edit::ReplaceTrack { duplicate: one(duplicate), keep: one(keep), keep_duplicate }], dry)
         }
-        TrackCommand::Dedupe { drive, hash_audio, metadata, dry } => {
-            let req = api::DedupeRequest { drive: drive.clone(), hash_audio, metadata };
+        TrackCommand::Dedupe { drive, hash_audio, by_sound, metadata, dry } => {
+            let req = api::DedupeRequest { drive: drive.clone(), hash_audio, by_sound, metadata };
             return confirm_and_apply(&drive, api::dedupe_plan(&req, ctx)?, dry.dry_run, out, ctx);
+        }
+        TrackCommand::Relocate { drive, folders, dry } => {
+            return crate::relocate_cmd::run(drive, folders, dry.dry_run, out, ctx);
         }
         TrackCommand::Show { drive, select } => {
             let list = api::track_details(&api::TrackDetailsRequest { drive, tracks: selector(&select)? })?;

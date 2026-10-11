@@ -148,6 +148,12 @@ export type Alternate = {
   track_id: number;
 };
 
+/** A track and every file of its name found for it, none picked. */
+export type Ambiguous = {
+  candidates: RelocateCandidate[];
+  track: TrackRef;
+};
+
 export type AnalysisRequest = {
   drive: string;
   encoding?: WaveformEncoding;
@@ -311,6 +317,15 @@ export type Audio = {
   depths: number[];
   inferred: boolean;
   rates: number[];
+};
+
+/** What a track's rows say about its audio file, for a track pointed at another encoding. */
+export type AudioFile = {
+  bit_depth: number;
+  /** kbps. */
+  bitrate: number;
+  sample_rate: number;
+  size: number;
 };
 
 /** A track whose audio file has a problem. */
@@ -968,6 +983,11 @@ export type CueChange = {
   copy: {
     from: string;
   };
+} | {
+  carry: {
+    from: string;
+    shift_ms: number;
+  };
 };
 
 /** A cue as shown to people. */
@@ -1082,6 +1102,11 @@ export type DbIdentity = {
 export type DecadeCount = [decade: number, count: number];
 
 export type DedupeRequest = {
+  /**
+   * Also find copies by their sound: the same recording in another file or encoding (see
+   * [`crate::doctor`]).
+   */
+  by_sound?: boolean;
   drive: string;
   /** Also find copies by audio content (see [`crate::doctor`]). */
   hash_audio?: boolean;
@@ -1310,6 +1335,12 @@ export type DoctorReport = {
 export type DoctorRequest = {
   /** Also run [`Section::Audio`]. */
   audio?: boolean;
+  /**
+   * Also find the same recording in other files and encodings (a FLAC and an MP3 of it) by its
+   * sound: every track is fingerprinted (once: the store keeps the prints) and tracks of about
+   * the same length are compared. Decoding a library's audio the first time takes a while.
+   */
+  by_sound?: boolean;
   drive: string;
   /**
    * Also find duplicates by audio content. Only files whose size matches another track's are
@@ -1319,7 +1350,7 @@ export type DoctorRequest = {
   /** Sections to run (all but [`Section::Audio`] when empty). */
   only?: DoctorSection[];
   /**
-   * Duplicates only by file, audio or Sync Manager copy: leave out tracks that only share
+   * Duplicates only by file, audio, sound or Sync Manager copy: leave out tracks that only share
    * artist, title and length (they may be different edits), also from groups the others join.
    */
   sure_only?: boolean;
@@ -1521,10 +1552,13 @@ export type Duplicate = {
 
 export type DuplicateGroup = {
   /**
-   * Id of the suggested keeper: most playlist memberships, then the higher bitrate, then the
+   * Id of the suggested keeper: the best audio (lossless over lossy, then the higher bitrate,
+   * sample rate and bit depth), then the most cues, playlists and history lists, then the
    * earliest date added.
    */
   keep: number;
+  /** What put the keeper ahead of the next copy (`lossless over lossy`, `320 kbps over 192`). */
+  keep_reason: string;
   reasons: DuplicateReason[];
   /** Suggested keeper first. */
   tracks: DuplicateTrack[];
@@ -1536,18 +1570,32 @@ export type DuplicateReason =
   | "same_file"
   /** Different files with identical audio (with `hash_audio`). */
   | "same_audio"
+  /**
+   * The same recording in another file or encoding (with `by_sound`): their fingerprints line
+   * up over most of both, and their lengths agree (an extended mix and its radio edit share
+   * most of their audio, but not their length).
+   */
+  | "same_recording"
   /** rekordbox Sync Manager copies: `Name-1.mp3` or `Name (1).mp3` next to `Name.mp3`, same size. */
   | "sync_manager_copy"
   /** Same artist, title and duration. */
   | "same_metadata";
 
 export type DuplicateTrack = {
+  bit_depth: number;
   bitrate: number;
+  /** Hot cues, memory cues and loops in its analysis files. */
+  cues: number;
   date_added: string;
   file_size: number;
+  /** History lists (what players recorded) the track is in. */
+  history: number;
+  /** FLAC, WAV, AIFF or Apple Lossless. */
+  lossless: boolean;
   play_count: number;
   /** Playlists the track is in. */
   playlists: number;
+  sample_rate: number;
   track: TrackRef;
 };
 
@@ -1691,6 +1739,20 @@ export type Edit =
     keep: TrackSelector;
     keep_duplicate?: boolean;
     op: "replace_track";
+  }
+  /**
+   * Point one track at another audio file on the drive (a device path), as when its file was
+   * moved or renamed: in both databases and in the analysis files that record it. With `file`,
+   * the file is another encoding of the recording (a lossless copy of an MP3): the rows take
+   * its format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and
+   * beat grid move by that much, for audio that starts at another point.
+   */
+  | {
+    file?: AudioFile | null;
+    op: "set_path";
+    path: string;
+    shift_ms?: number;
+    track: TrackSelector;
   }
   /** Delete history lists (what players recorded) by name, or all of them. */
   | {
@@ -1887,6 +1949,20 @@ export type EditOutput =
     keep: TrackSelector;
     keep_duplicate: boolean;
     op: "replace_track";
+  }
+  /**
+   * Point one track at another audio file on the drive (a device path), as when its file was
+   * moved or renamed: in both databases and in the analysis files that record it. With `file`,
+   * the file is another encoding of the recording (a lossless copy of an MP3): the rows take
+   * its format, size, sample rate, bit depth and bit rate, and with `shift_ms` its cues and
+   * beat grid move by that much, for audio that starts at another point.
+   */
+  | {
+    file?: AudioFile | null;
+    op: "set_path";
+    path: string;
+    shift_ms?: number;
+    track: TrackSelector;
   }
   /** Delete history lists (what players recorded) by name, or all of them. */
   | {
@@ -4955,6 +5031,51 @@ export type Relation =
   /** Same library, no way to tell which is newer. */
   | "undetermined";
 
+/** A file a missing track could be. */
+export type RelocateCandidate = {
+  /** Seconds, when its headers say. */
+  duration_secs: number | null;
+  on_drive: boolean;
+  /** A key on the drive, or a path on this computer. */
+  path: string;
+  size: number;
+};
+
+export type RelocatePlan = {
+  ambiguous: Ambiguous[];
+  /** Tracks whose file is copied to the path they have. */
+  copied: Relocation[];
+  /** Audio copied onto the drive. */
+  copy_bytes: number;
+  drive: string;
+  fits: boolean;
+  free_space: number | null;
+  /** Space needed for that, the backup and the new databases. */
+  needed_bytes: number;
+  /** Missing tracks with no file of their name. */
+  not_found: TrackRef[];
+  /** Tracks pointed at their file where it is on the drive. */
+  repointed: Relocation[];
+  root: string;
+  /** Tracks whose files of their name are none of them as long as the track: none picked. */
+  unfit: Ambiguous[];
+  warnings: string[];
+};
+
+export type RelocateRequest = {
+  drive: string;
+  /**
+   * Folders to look in besides the drive (on this computer or another drive), with
+   * everything below them.
+   */
+  folders?: string[];
+};
+
+export type Relocation = {
+  file: RelocateCandidate;
+  track: TrackRef;
+};
+
 /** The player models `check` uses when none are given. */
 export type RememberedPlayers = {
   /** For drives of a library without models of its own. */
@@ -7194,6 +7315,10 @@ export interface Methods {
   "dedupe.plan": { params: DedupeRequest & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `dedupe.plan`; can delete or overwrite something */
   "dedupe.apply": { params: ApplyPlan | (DedupeRequest & WriteOptions); result: EditReport };
+  /** plan method; paired with `relocate.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "relocate.plan": { params: RelocateRequest & WriteOptions; result: RelocatePlan & PlanFields };
+  /** apply method; paired with `relocate.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "relocate.apply": { params: ApplyPlan | (RelocateRequest & WriteOptions); result: EditReport };
   /** plan method; paired with `history.delete.apply`; can delete or overwrite something */
   "history.delete.plan": { params: DeleteHistoryRequest & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `history.delete.plan`; can delete or overwrite something */
