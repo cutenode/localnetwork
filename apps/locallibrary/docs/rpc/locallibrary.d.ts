@@ -154,6 +154,44 @@ export type Ambiguous = {
   track: TrackRef;
 };
 
+export type AnalysisBenchRequest = {
+  /** The datasets' audio to analyse. Without it, the drive's tracks are. */
+  audio?: string | null;
+  /**
+   * A drive (or library) whose stored keys and tempos are scored too, and whose tracks are
+   * analysed when no `audio` folder is given.
+   */
+  drive?: string | null;
+  /**
+   * Key annotations: GiantSteps Key's `annotations/key` folder (`<id>.LOFI.key` files), or the
+   * GiantSteps MTG Key dataset's `annotations.txt` (its tracks with one key at confidence 2).
+   */
+  keys?: string | null;
+  /**
+   * Tempo annotations: GiantSteps Tempo's `annotations/tempo` or `annotations_v2/tempo` folder
+   * (`<id>.LOFI.bpm` files).
+   */
+  tempos?: string | null;
+};
+
+/**
+ * Tracks whose stored tempo or key the estimates question, and tracks whose level may be a
+ * problem.
+ */
+export type AnalysisReport = {
+  /** Tracks with an analysis (cached or new). */
+  analyzed: number;
+  /** Analysed just now (the rest came from the cache). */
+  decoded: number;
+  /** Tracks whose audio couldn't be analysed. */
+  failed: TrackFailure[];
+  key: KeyFinding[];
+  loudness: LoudnessFinding[];
+  /** The median integrated loudness of the analysed tracks (LUFS). */
+  median_lufs: number | null;
+  tempo: TempoFinding[];
+};
+
 export type AnalysisRequest = {
   drive: string;
   encoding?: WaveformEncoding;
@@ -446,6 +484,23 @@ export type Beat = {
   time_ms: number;
 };
 
+/** Each analyzer's scores. */
+export type BenchReport = {
+  /** Tempo Accuracy2 (percent) by analyzer. */
+  accuracy2: { [key: string]: number };
+  /** Audio files that couldn't be analysed: `[name, error]`. */
+  failed: [string, string][];
+  /** Key reports by analyzer (`rekordbox`, `stratum-dsp`): `score` is MIREX's weighted score. */
+  keys: { [key: string]: KeyOutcomeReport };
+  /** Tempo reports by analyzer: `score` is Accuracy1. */
+  tempos: { [key: string]: TempoOutcomeReport };
+  /**
+   * Annotated tracks the analysis had no audio for: not on the drive, missing from it, or not in
+   * the audio folder.
+   */
+  unmatched: number;
+};
+
 export type BpmRange = [low: number, high: number];
 
 export type BrokenTrack = {
@@ -497,8 +552,8 @@ export type CheckEntry = {
 
 export type CheckItem = {
   /**
-   * What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `large_files`,
-   * `interrupted`, `history`, `file_system`, `players` or `formats`.
+   * What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,
+   * `large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.
    */
   check: string;
   /** The drive it's about. */
@@ -515,6 +570,8 @@ export type CheckReport = {
   audio: AudioIssues[];
   drives: string[];
   items: CheckItem[];
+  /** Tracks whose level may be a problem, as the `loudness` items describe them. */
+  loudness: DriveLoudness[];
   /** The player models each drive was checked against, and where they came from. */
   players: DrivePlayers[];
   problems: number;
@@ -1310,6 +1367,11 @@ export type DoctorProblem =
   | "missing_artwork";
 
 export type DoctorReport = {
+  /**
+   * What an analysis of the audio says about stored tempos, keys and levels (with
+   * [`DoctorOptions::analyze`]). Opinions to look into, not problems.
+   */
+  analysis: AnalysisReport | null;
   /** Audio files cut short or that don't decode (with [`DoctorOptions::audio`]). */
   audio: AudioReport | null;
   /** How players get on with the drive's disk, when it is a mounted volume's root. */
@@ -1333,6 +1395,8 @@ export type DoctorReport = {
 };
 
 export type DoctorRequest = {
+  /** Also run [`Section::Analysis`]. */
+  analyze?: boolean;
   /** Also run [`Section::Audio`]. */
   audio?: boolean;
   /**
@@ -1362,7 +1426,13 @@ export type DoctorSection =
    * Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`
    * naming it): it reads every file's last seconds.
    */
-  | "audio";
+  | "audio"
+  /**
+   * Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,
+   * clipped or far from the library's level. Only when asked for (`analyze`, or `only` naming
+   * it): it decodes every track not analysed before.
+   */
+  | "analysis";
 
 /** How a drive's current settings deviate from what the profile wants. */
 export type Drift = {
@@ -1450,6 +1520,12 @@ export type DriveLog = {
   retired?: string | null;
   /** Operations that wrote to it. */
   writes: number;
+};
+
+/** One drive's tracks whose level may be a problem. */
+export type DriveLoudness = {
+  drive: string;
+  tracks: LoudnessFinding[];
 };
 
 export type DriveOverrides = {
@@ -1707,8 +1783,9 @@ export type Edit =
     recordings?: boolean;
   }
   /**
-   * Order a playlist for mixing (see [`harmony::order_set`]): in place, or into a new
-   * playlist at `into`.
+   * Order a playlist for mixing (see [`harmony::order_set`], with how sure
+   * each key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in
+   * place, or into a new playlist at `into`.
    */
   | {
     into?: string | null;
@@ -1917,8 +1994,9 @@ export type EditOutput =
     recordings: boolean;
   }
   /**
-   * Order a playlist for mixing (see [`harmony::order_set`]): in place, or into a new
-   * playlist at `into`.
+   * Order a playlist for mixing (see [`harmony::order_set`], with how sure
+   * each key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in
+   * place, or into a new playlist at `into`.
    */
   | {
     into: string | null;
@@ -3268,6 +3346,46 @@ export type KeptSnapshot = {
 
 export type KeyCount = [key: string, count: number];
 
+/** A track whose stored key the estimate doesn't agree with. */
+export type KeyFinding = {
+  /** 0 to 1. */
+  confidence: number;
+  /** The analyzer's key, as a Camelot code (`8A`). */
+  estimate: string;
+  /** The estimate against the stored key: `fifth`, `relative`, `parallel` or `other`. */
+  relation: KeyOutcome;
+  /** The library's key, as it stores it. */
+  stored: string;
+  track: TrackRef;
+};
+
+/**
+ * MIREX's key categories, from the [Audio Key Detection task](https://music-ir.org/mirex/wiki/2021:Audio_Key_Detection).
+ * A fifth counts either way round, as MIREX has scored it since 2017 (mir_eval's
+ * `allow_descending_fifths`, [key.py](https://github.com/mir-evaluation/mir_eval/blob/main/mir_eval/key.py)).
+ */
+export type KeyOutcome =
+  | ("correct" | "other")
+  /** A fifth above or below in the same mode: a neighbour on the Camelot wheel. */
+  | "fifth"
+  /** Major for its relative minor or back: same Camelot number. */
+  | "relative"
+  /** Major for minor on the same tonic. */
+  | "parallel"
+  /** The analyzer gave no key. */
+  | "missing";
+
+/** How one analyzer did. */
+export type KeyOutcomeReport = {
+  /** Tracks with each outcome, every outcome listed. */
+  counts: { [key: string]: number };
+  /** The tracks it didn't get fully right, in the order they came, with what it did instead. */
+  misses: [string, KeyOutcome][];
+  /** The mean credit, 0 to 1: MIREX's weighted key score, or tempo Accuracy1. */
+  score: number;
+  tracks: number;
+};
+
 export type KeysSection = {
   minor_share: number | null;
   top: Share[];
@@ -3518,6 +3636,25 @@ export type LooseFile = {
   path: string;
   size: number;
 };
+
+/** A track whose level may be a problem. */
+export type LoudnessFinding = {
+  clipped_runs: number;
+  /** LUFS (`None` for silence). */
+  integrated_lufs: number | null;
+  problems: LoudnessProblem[];
+  track: TrackRef;
+  true_peak_dbtp: number;
+};
+
+/** What may be wrong with a track's level. */
+export type LoudnessProblem =
+  /** Its true peak is above 0 dBTP: a player's converter or a lossy encode can clip it. */
+  | "over_zero"
+  /** Runs of samples at full scale: clipped when it was mastered or converted. */
+  | "clipped"
+  /** Its integrated loudness is more than [`FAR_FROM_MEDIAN_LU`] from the library's median. */
+  | "far_from_median";
 
 /** How an entry was found. */
 export type MatchKind =
@@ -4008,7 +4145,9 @@ export type Phase =
   /** Decoding and fingerprinting a mix. */
   | "listen"
   /** Looking for library tracks in a mix. */
-  | "match";
+  | "match"
+  /** Decoding library tracks to estimate their tempo, key and loudness. */
+  | "analyze";
 
 export type Phrase = {
   end_beat: number;
@@ -4116,6 +4255,9 @@ export type PlannedTrack = {
   size: number;
   source_id: number;
 };
+
+/** Which of two tempos a [`TempoPrior`] finds more likely. */
+export type Plausible = "stored" | "estimate";
 
 /** One track heard in the mix. */
 export type Play = {
@@ -6388,6 +6530,65 @@ export type TargetResult = {
 
 export type TempoBin = [bpm: number, count: number];
 
+/** A track whose stored tempo the estimate doesn't agree with. */
+export type TempoFinding = {
+  /** 0 to 1. */
+  confidence: number;
+  /** The analyzer's BPM. */
+  estimate: number;
+  /** Which of the two the library's other tempos make more likely, if either. */
+  likelier: Plausible | null;
+  /**
+   * The stored tempo against the estimate: `half`, `double`, `two_thirds`, `three_halves` or
+   * `disagrees`.
+   */
+  relation: TempoRelation;
+  /** The library's BPM. */
+  stored: number;
+  track: TrackRef;
+};
+
+/**
+ * A tempo estimate against the annotation, within [`TOLERANCE`] (4%) of the annotation times the
+ * factor (Gouyon et al. 2006). Accuracy1 counts [`TempoOutcome::Correct`]; Accuracy2 also counts
+ * the double, half, triple and third tempos.
+ */
+export type TempoOutcome =
+  | ("correct" | "other")
+  /** The estimate is double the annotated tempo. */
+  | "double"
+  /** The estimate is half the annotated tempo. */
+  | "half"
+  /** The estimate is three times the annotated tempo. */
+  | "triple"
+  /** The estimate is a third of the annotated tempo. */
+  | "third"
+  /** The analyzer gave no tempo. */
+  | "missing";
+
+/** How one analyzer did. */
+export type TempoOutcomeReport = {
+  /** Tracks with each outcome, every outcome listed. */
+  counts: { [key: string]: number };
+  /** The tracks it didn't get fully right, in the order they came, with what it did instead. */
+  misses: [string, TempoOutcome][];
+  /** The mean credit, 0 to 1: MIREX's weighted key score, or tempo Accuracy1. */
+  score: number;
+  tracks: number;
+};
+
+/** A stored tempo against an estimate of it. */
+export type TempoRelation =
+  | ("agrees" | "disagrees")
+  /** The stored tempo is half the estimate. */
+  | "half"
+  /** The stored tempo is double the estimate. */
+  | "double"
+  /** The stored tempo is two thirds of the estimate. */
+  | "two_thirds"
+  /** The stored tempo is three halves of the estimate. */
+  | "three_halves";
+
 export type TempoSection = {
   bin_width: number;
   /** Where the middle 80% sits: the 10th and 90th percentiles. */
@@ -7415,6 +7616,8 @@ export interface Methods {
   "doctor.orphans.apply": { params: ApplyPlan | (DriveRef & WriteOptions); result: OrphanCleanReport };
   /** read method; long running: sends `progress`, can be cancelled */
   check: { params: CheckRequest; result: CheckReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "analysis.bench": { params: AnalysisBenchRequest; result: BenchReport };
   /** read method */
   "plays.history": { params: DriveRef; result: DriveHistory };
   /** read method; long running: sends `progress`, can be cancelled */

@@ -26,6 +26,9 @@ crates/loclib-mixid/        which known tracks a recorded mix plays: decoding an
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
                             (doctor's duplicates by sound, cues carried or moved by the offset)
+crates/loclib-analysis/     a second opinion on a track's tempo, key and beats (stratum-dsp), its loudness, peaks and
+                            clipping (ebur128), half/double tempo checks, and scoring analyzers against
+                            the GiantSteps annotations
 crates/loclib-interop/      a library for other DJ software: Traktor's collection.nml, Serato's crates and cue
                             tags, an Engine DJ library (engine.sql)
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
@@ -64,8 +67,10 @@ crates/locallibrary/src/    the library, built on the crates above
   sets/        the DJ's sets (sets.json): sessions and their windows, suggestions, building a set from
                sessions and recordings, editing, exports, Beat Link Trigger logs
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
-  audio_cache.rs  what's worked out from each audio file (fingerprints), cached in the store
+  audio_cache.rs  what's worked out from each audio file (fingerprints, analyses), cached in the store
                by file name, size and modification time, and worked out in parallel when it isn't
+  sound/       tempo, key and loudness through loclib-analysis: doctor's analysis section, how sure each
+               key is for the set planner, the check's loudness item, and `analysis bench` (bench.rs)
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the
                store's fingerprints (index.rs), Audacity projects (aup.rs), the report (the
                interactive page, the mix's playable audio, the reports kept in the store: report.rs and

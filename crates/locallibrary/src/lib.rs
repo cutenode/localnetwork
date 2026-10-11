@@ -113,6 +113,7 @@ pub mod scrub;
 pub mod sets;
 pub mod settings;
 pub mod smart;
+pub mod sound;
 pub mod space;
 pub mod store;
 pub mod sync;

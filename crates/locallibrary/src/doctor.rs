@@ -1,7 +1,9 @@
 //! A health report for one drive: duplicate tracks, missing and broken files, files nothing
 //! references any more, tracks in no playlist, drift between the two databases, files FAT32 can't
 //! hold, and how players get on with the drive's file system. On request ([`Section::Audio`]),
-//! also audio files that are cut short or don't decode (see [`crate::probe::check_tracks`]).
+//! also audio files that are cut short or don't decode (see [`crate::probe::check_tracks`]), and
+//! ([`Section::Analysis`]) stored tempos and keys an analysis of the audio disagrees with, and
+//! tracks whose level may be a problem (see [`crate::sound`]).
 //!
 //! The report never writes to the drive (with `hash_audio`, the hash cache is kept on adopted
 //! drives, as every scan does). [`plan_orphans`] / [`apply_orphans`] remove orphaned files: audio
@@ -57,6 +59,10 @@ pub enum Section {
     /// Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`
     /// naming it): it reads every file's last seconds.
     Audio,
+    /// Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,
+    /// clipped or far from the library's level. Only when asked for (`analyze`, or `only` naming
+    /// it): it decodes every track not analysed before.
+    Analysis,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -76,6 +82,9 @@ pub struct DoctorOptions {
     /// Also run [`Section::Audio`].
     #[serde(default)]
     pub audio: bool,
+    /// Also run [`Section::Analysis`].
+    #[serde(default)]
+    pub analyze: bool,
     /// Duplicates only by file, audio, sound or Sync Manager copy: leave out tracks that only share
     /// artist, title and length (they may be different edits), also from groups the others join.
     #[serde(default)]
@@ -86,6 +95,7 @@ impl DoctorOptions {
     fn wants(&self, s: Section) -> bool {
         match s {
             Section::Audio => self.audio || self.only.contains(&s),
+            Section::Analysis => self.analyze || self.only.contains(&s),
             _ => self.only.is_empty() || self.only.contains(&s),
         }
     }
@@ -108,6 +118,9 @@ pub struct DoctorReport {
     pub large_files: Option<Vec<LargeFile>>,
     /// Audio files cut short or that don't decode (with [`DoctorOptions::audio`]).
     pub audio: Option<AudioReport>,
+    /// What an analysis of the audio says about stored tempos, keys and levels (with
+    /// [`DoctorOptions::analyze`]). Opinions to look into, not problems.
+    pub analysis: Option<crate::sound::AnalysisReport>,
     /// How players get on with the drive's disk, when it is a mounted volume's root.
     pub compatibility: Option<Compatibility>,
     /// The volume's file system as the OS names it.
@@ -427,6 +440,8 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         }
         false => None,
     };
+    let analysis =
+        opts.wants(Section::Analysis).then(|| crate::sound::analyze_library(device, library, ctx)).transpose()?;
     let volume = opts.wants(Section::Compatibility).then(|| volume_of(device.root())).flatten();
     Ok(DoctorReport {
         drive: device.name(),
@@ -439,6 +454,7 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         drift: opts.wants(Section::Drift).then(|| dbs.drift()).flatten(),
         large_files: opts.wants(Section::LargeFiles).then(|| large_files(library, &tree)),
         audio,
+        analysis,
         file_system: volume.as_ref().and_then(|(_, v)| v.filesystem_name.clone()),
         compatibility: volume.as_ref().map(|(disk, _)| players::assess_disk(disk)),
         warnings,

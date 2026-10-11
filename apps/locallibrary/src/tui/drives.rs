@@ -812,6 +812,7 @@ mod tests {
             players: Vec::new(),
             unloadable: Vec::new(),
             audio: Vec::new(),
+            loudness: Vec::new(),
         }
     }
 

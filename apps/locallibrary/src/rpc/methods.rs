@@ -664,6 +664,7 @@ fn build() -> Registry {
         .long()
         .destructive();
     r.read("check", |c, req| Ok(api::check(c.existing().as_ref(), &req, c.ctx)?)).long();
+    r.read("analysis.bench", |c, req| Ok(api::analysis_bench(&req, c.ctx)?)).long();
     r.read("plays.history", |_, req| Ok(api::drive_history(&req)?)).quick();
     r.read("plays.archive", |c, req| Ok(api::history_archive(&Store::open(c.root)?, &req, c.ctx)?)).long();
     r.read("plays.stats", |c, req| Ok(api::play_stats(c.existing().as_ref(), &req)?));

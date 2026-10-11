@@ -62,6 +62,7 @@ mod restore;
 mod sessions;
 mod sets;
 mod settings;
+mod sound;
 mod store;
 mod sync;
 mod tags;

@@ -47,6 +47,12 @@ recorded (a copy interrupted part way), or doesn't decode at the end is a proble
 header gives another length is a warning (replaced since the export?). It reads a little of every
 file, so it takes a while on a big drive.
 
+Once `doctor --analyze` has measured a library's tracks (see [Doctor](drives.md#doctor)), `check`
+warns about tracks whose true peak is over 0 dBTP, that have clipped runs, or whose loudness is more
+than 6 LU from the library's median, from what the store already holds: it decodes nothing for
+this, and says nothing about levels it never measured. `--verbose` lists the tracks with their
+loudness and peak.
+
 `check` exits with status 4 when it finds a problem, so a script can stop there; `doctor` does
 too.
 

@@ -6,7 +6,9 @@ use loclib_progress::{Cancelled, Ctx};
 use crate::model::{Library, Track};
 
 /// A key on the Camelot wheel: 1-12, minor (A) or major (B). Neighbours on the wheel mix well.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Serialised as its code (`"8A"`), and read back from any notation [`Camelot::parse`] takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "String", try_from = "String")]
 pub struct Camelot {
     pub number: u8,
     pub major: bool,
@@ -82,9 +84,20 @@ impl Camelot {
             "m" | "min" | "minor" => false,
             _ => return None,
         };
-        let semitone = (root + shift) % 12;
+        Some(Camelot::from_pitch(root + shift, major))
+    }
+
+    /// The key on `pitch` (semitones above C, taken mod 12): `from_pitch(9, false)` is A minor, 8A.
+    pub fn from_pitch(pitch: u32, major: bool) -> Camelot {
         let offset = if major { MAJOR_OFFSET } else { MINOR_OFFSET };
-        Some(Camelot { number: ((semitone * 7 + offset) % 12 + 1) as u8, major })
+        Camelot { number: ((pitch % 12 * 7 + offset) % 12 + 1) as u8, major }
+    }
+
+    /// Semitones above C of the key's tonic: 9 for 8A (A minor).
+    pub fn pitch(self) -> u32 {
+        let offset = if self.major { MAJOR_OFFSET } else { MINOR_OFFSET };
+        // 7 is its own inverse mod 12, so stepping back round the wheel is another multiply by 7.
+        ((self.number as u32 - 1 + 12 - offset) * 7) % 12
     }
 
     /// `8A`.
@@ -94,10 +107,17 @@ impl Camelot {
 
     /// `Am`.
     pub fn note(self) -> String {
-        let offset = if self.major { MAJOR_OFFSET } else { MINOR_OFFSET };
-        // 7 is its own inverse mod 12, so stepping back round the wheel is another multiply by 7.
-        let semitone = ((self.number as u32 - 1 + 12 - offset) * 7) % 12;
-        format!("{}{}", NOTES[semitone as usize], if self.major { "" } else { "m" })
+        format!("{}{}", NOTES[self.pitch() as usize], if self.major { "" } else { "m" })
+    }
+
+    /// The relative key, sharing this one's notes: 8A (A minor) and 8B (C major).
+    pub fn relative(self) -> Camelot {
+        Camelot { major: !self.major, ..self }
+    }
+
+    /// The parallel key, on the same tonic: 8A (A minor) and 11B (A major).
+    pub fn parallel(self) -> Camelot {
+        Camelot::from_pitch(self.pitch(), !self.major)
     }
 
     /// How (and whether) a track in `other` mixes harmonically into this key.
@@ -125,26 +145,60 @@ impl Camelot {
     }
 }
 
+impl From<Camelot> for String {
+    fn from(key: Camelot) -> String {
+        key.code()
+    }
+}
+
+impl TryFrom<String> for Camelot {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Camelot, String> {
+        Camelot::parse(&text).ok_or_else(|| format!("{text:?} isn't a key"))
+    }
+}
+
 /// Sort position of a key text (unparseable keys last).
 pub fn key_order(key: &str) -> u8 {
     Camelot::parse(key).map_or(u8::MAX, Camelot::order)
 }
 
+/// What a mix between two keys costs when either is unknown.
+const UNKNOWN_KEY_COST: f64 = 3.0;
+
 /// How rough a mix from a track in key `a` at `a_bpm` into one in key `b` at `b_bpm` is, for
 /// ordering a set: 0 is ideal. Key: same 0, ±1 or relative 1, energy boost 2, anything else 6
 /// (unknown keys 3). Tempo: one point per 2% apart, allowing for half and double time.
-pub fn mix_cost(a: Option<Camelot>, a_bpm: f64, b: Option<Camelot>, b_bpm: f64) -> f64 {
-    let key = match (a, b) {
-        (Some(x), Some(y)) => match x.relation_with_boost(y) {
-            Some(Relation::Same) => 0.0,
-            Some(Relation::Adjacent | Relation::Relative) => 1.0,
-            Some(Relation::EnergyBoost) => 2.0,
-            None => 6.0,
-        },
-        _ => 3.0,
-    };
+///
+/// `sure` is how likely both keys are right, from 0 to 1: their analyses' confidences multiplied,
+/// or 1 for keys taken as given. Below 1 the key part leans toward what the mix would cost if a key
+/// were its relative or parallel instead (the mistakes key detection makes most, besides fifths,
+/// which already mix as neighbours), and never costs more than an unknown key, so a clash that
+/// may only be a wrong label weighs less.
+pub fn mix_cost(a: Option<Camelot>, a_bpm: f64, b: Option<Camelot>, b_bpm: f64, sure: f64) -> f64 {
     let gap = tempo_gap(a_bpm, b_bpm);
-    key + if gap.is_finite() { gap / 0.02 } else { 3.0 }
+    key_cost(a, b, sure) + if gap.is_finite() { gap / 0.02 } else { 3.0 }
+}
+
+fn key_cost(a: Option<Camelot>, b: Option<Camelot>, sure: f64) -> f64 {
+    let labelled = |x: Camelot, y: Camelot| match x.relation_with_boost(y) {
+        Some(Relation::Same) => 0.0,
+        Some(Relation::Adjacent | Relation::Relative) => 1.0,
+        Some(Relation::EnergyBoost) => 2.0,
+        None => 6.0,
+    };
+    let (Some(a), Some(b)) = (a, b) else { return UNKNOWN_KEY_COST };
+    let as_labelled = labelled(a, b);
+    // A NaN confidence is taken as certain too.
+    if sure >= 1.0 || sure.is_nan() {
+        return as_labelled;
+    }
+    let alternates = |k: Camelot| [k, k.relative(), k.parallel()];
+    let if_mislabelled =
+        alternates(a).into_iter().flat_map(|x| alternates(b).map(|y| labelled(x, y))).fold(UNKNOWN_KEY_COST, f64::min);
+    let sure = sure.max(0.0);
+    sure * as_labelled + (1.0 - sure) * if_mislabelled
 }
 
 /// How far apart two tempos are, allowing for half and double time: 0.02 is 2%.
@@ -191,11 +245,14 @@ const TIDY_LIMIT: usize = 2000;
 /// the track that mixes in most smoothly ([`mix_cost`]), preferring energy that holds or rises,
 /// and finally (up to 2,000 tracks) tidy the order by reversing stretches that make the whole set
 /// smoother (2-opt). `energy` (e.g. from rekordbox's phrase analysis: 1 low, 2 mid, 3 high) is
-/// optional per track.
+/// optional per track. `key_confidence` says how sure each track's key is, 0 to 1 (from a key
+/// analyzer); tracks it leaves out have keys taken as given, and a pairing that clashes only on a
+/// key that may be wrong costs less (see [`mix_cost`]).
 pub fn order_set(
     tracks: &[&Track],
     start: Option<u32>,
     energy: &rustc_hash::FxHashMap<u32, f64>,
+    key_confidence: &rustc_hash::FxHashMap<u32, f64>,
     ctx: &Ctx<'_>,
 ) -> Result<Vec<u32>, Cancelled> {
     if tracks.is_empty() {
@@ -204,9 +261,11 @@ pub fn order_set(
     // Each key parsed once: a set of n tracks weighs n² steps.
     let keys: Vec<Option<Camelot>> = tracks.iter().map(|t| Camelot::parse(&t.key)).collect();
     let e: Vec<f64> = tracks.iter().map(|t| energy.get(&t.id).copied().unwrap_or(2.0)).collect();
+    let sure: Vec<f64> = tracks.iter().map(|t| key_confidence.get(&t.id).copied().unwrap_or(1.0)).collect();
     // Cost of playing b straight after a.
-    let step =
-        |a: usize, b: usize| mix_cost(keys[a], tracks[a].bpm, keys[b], tracks[b].bpm) + 1.5 * (e[a] - e[b]).max(0.0);
+    let step = |a: usize, b: usize| {
+        mix_cost(keys[a], tracks[a].bpm, keys[b], tracks[b].bpm, sure[a] * sure[b]) + 1.5 * (e[a] - e[b]).max(0.0)
+    };
     let n = tracks.len();
     let first = start.and_then(|id| tracks.iter().position(|t| t.id == id)).unwrap_or_else(|| {
         // total_cmp: a NaN tempo or energy (corrupt analysis) mustn't panic.
@@ -323,6 +382,96 @@ mod tests {
         assert_eq!(a.relation_with_boost(Camelot::parse("10A").unwrap()), None);
     }
 
+    fn any_key(tc: &hegel::TestCase) -> Camelot {
+        use hegel::generators as gs;
+        let (number, major) = tc.draw(gs::tuples!(gs::integers::<u8>().min_value(1).max_value(12), gs::booleans()));
+        Camelot { number, major }
+    }
+
+    #[test]
+    fn relative_and_parallel_keys() {
+        let am = Camelot::parse("Am").unwrap();
+        assert_eq!(am.relative().note(), "C");
+        assert_eq!(am.parallel().note(), "A");
+        assert_eq!(am.parallel().code(), "11B");
+        assert_eq!(Camelot::parse("C").unwrap().parallel().note(), "Cm");
+        assert_eq!(Camelot::from_pitch(9 + 12, false), am);
+        assert_eq!(am.pitch(), 9);
+    }
+
+    /// Relative and parallel are each their own inverse; the relative key shares the number, the
+    /// parallel one the tonic, and neither keeps the mode.
+    #[hegel::test(test_cases = 100)]
+    fn relative_and_parallel_are_involutions(tc: hegel::TestCase) {
+        let k = any_key(&tc);
+        assert_eq!(k.relative().relative(), k);
+        assert_eq!(k.parallel().parallel(), k);
+        assert_eq!(k.relative().number, k.number);
+        assert_eq!(k.parallel().pitch(), k.pitch());
+        assert_ne!(k.relative().major, k.major);
+        assert_ne!(k.parallel().major, k.major);
+        assert_eq!(Camelot::from_pitch(k.pitch(), k.major), k);
+    }
+
+    /// Keys serialise as their code and read back; text that isn't a key is refused.
+    #[test]
+    fn keys_serialise_as_codes() {
+        let am = Camelot::parse("Am").unwrap();
+        assert_eq!(serde_json::to_string(&am).unwrap(), "\"8A\"");
+        assert_eq!(serde_json::from_str::<Camelot>("\"Am\"").unwrap(), am);
+        assert!(serde_json::from_str::<Camelot>("\"13A\"").is_err());
+    }
+
+    /// A certain key costs exactly what it always did, an unsure one never more, and the less sure
+    /// it is the less a clash weighs, down to an unknown key's cost or what its relative or
+    /// parallel pairing would cost.
+    #[hegel::test(test_cases = 300)]
+    fn unsure_keys_cost_less(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let (a, b) = (any_key(&tc), any_key(&tc));
+        let sure = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
+        let less_sure = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(sure));
+        let certain = mix_cost(Some(a), 124.0, Some(b), 124.0, 1.0);
+        let unsure = mix_cost(Some(a), 124.0, Some(b), 124.0, sure);
+        assert!(unsure <= certain && unsure >= 0.0, "{certain} {unsure}");
+        assert!(mix_cost(Some(a), 124.0, Some(b), 124.0, less_sure) <= unsure);
+        assert!(mix_cost(Some(a), 124.0, Some(b), 124.0, 0.0) <= UNKNOWN_KEY_COST);
+        assert_eq!(mix_cost(Some(a), 124.0, Some(b), 124.0, f64::NAN), certain);
+        assert_eq!(mix_cost(None, 124.0, Some(b), 124.0, sure), UNKNOWN_KEY_COST);
+    }
+
+    #[test]
+    fn a_clash_that_may_be_a_mislabel_costs_less() {
+        let (am, a_major, e_flat_minor) =
+            (Some(Camelot::parse("8A").unwrap()), Camelot::parse("11B"), Camelot::parse("2A"));
+        // A minor into A major clashes as labelled; if either were its parallel, it'd be the same key.
+        assert_eq!(mix_cost(am, 124.0, a_major, 124.0, 1.0), 6.0);
+        assert_eq!(mix_cost(am, 124.0, a_major, 124.0, 0.5), 3.0);
+        assert_eq!(mix_cost(am, 124.0, a_major, 124.0, 0.0), 0.0);
+        // A clash no alternate fixes eases only to an unknown key's cost.
+        assert_eq!(mix_cost(am, 124.0, e_flat_minor, 124.0, 0.0), UNKNOWN_KEY_COST);
+    }
+
+    /// With no confidences the planner orders as it always did; an unsure key that may be the
+    /// parallel of the one before it moves up to follow it.
+    #[test]
+    fn unsure_keys_change_the_set_order() {
+        let t = |id, key: &str| {
+            let mut t = crate::test_util::track(id, "A", &id.to_string(), &format!("/Contents/{id}.mp3"));
+            t.key = key.into();
+            t.bpm = 124.0;
+            t
+        };
+        let tracks = [t(1, "8A"), t(2, "3A"), t(3, "11B")];
+        let refs: Vec<&Track> = tracks.iter().collect();
+        let ctx = Ctx::silent();
+        let energy = Default::default();
+        assert_eq!(order_set(&refs, Some(1), &energy, &Default::default(), &ctx).unwrap(), [1, 2, 3]);
+        let unsure = [(3, 0.2)].into_iter().collect();
+        assert_eq!(order_set(&refs, Some(1), &energy, &unsure, &ctx).unwrap(), [1, 3, 2]);
+        assert!(order_set(&[], None, &energy, &unsure, &ctx).unwrap().is_empty());
+    }
+
     #[test]
     fn set_order_walks_the_wheel_and_tempo() {
         let t = |id, key: &str, bpm| {
@@ -334,9 +483,9 @@ mod tests {
         let tracks = [t(1, "10A", 126.0), t(2, "8A", 122.0), t(3, "9A", 124.0), t(4, "11A", 128.0), t(5, "8A", 121.0)];
         let refs: Vec<&Track> = tracks.iter().collect();
         let ctx = Ctx::silent();
-        let order = order_set(&refs, None, &Default::default(), &ctx).unwrap();
+        let order = order_set(&refs, None, &Default::default(), &Default::default(), &ctx).unwrap();
         assert_eq!(order, [5, 2, 3, 1, 4]);
-        assert_eq!(order_set(&refs, Some(4), &Default::default(), &ctx).unwrap()[0], 4);
+        assert_eq!(order_set(&refs, Some(4), &Default::default(), &Default::default(), &ctx).unwrap()[0], 4);
     }
 
     /// `n` made-up tracks: keys round the whole wheel, tempos from 118 to 134 BPM, every energy.
@@ -359,7 +508,7 @@ mod tests {
         let (tracks, energy) = made_up_set(600);
         let refs: Vec<&Track> = tracks.iter().collect();
         let started = std::time::Instant::now();
-        assert_eq!(order_set(&refs, None, &energy, &Ctx::silent()).unwrap().len(), 600);
+        assert_eq!(order_set(&refs, None, &energy, &Default::default(), &Ctx::silent()).unwrap().len(), 600);
         assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
     }
 
@@ -370,7 +519,7 @@ mod tests {
         let refs: Vec<&Track> = tracks.iter().collect();
         let ctx = Ctx::silent();
         ctx.cancel.cancel();
-        assert!(matches!(order_set(&refs, None, &energy, &ctx), Err(Cancelled)));
+        assert!(matches!(order_set(&refs, None, &energy, &Default::default(), &ctx), Err(Cancelled)));
         assert!(matches!(tidy(&mut [0, 1, 2], |_, _| 0.0, &ctx), Err(Cancelled)));
     }
 

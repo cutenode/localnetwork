@@ -2224,6 +2224,8 @@ mod account;
 #[cfg(feature = "account")]
 pub use account::*;
 mod restore;
+mod sound;
+pub use sound::*;
 mod undo;
 pub use restore::*;
 pub use undo::*;

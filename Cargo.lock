@@ -1130,6 +1130,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-deque"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "622f3fc73690be383c7214310406f28a90e6edeadc3cea882f9d71e495b9711a"
+dependencies = [
+ "crossbeam-epoch",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-epoch"
 version = "0.9.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1332,6 +1342,15 @@ dependencies = [
  "dashu-base",
  "num-modular",
  "static_assertions",
+]
+
+[[package]]
+name = "dasp_frame"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2a3937f5fe2135702897535c8d4a5553f8b116f76c1529088797f2eee7c5cd6"
+dependencies = [
+ "dasp_sample",
 ]
 
 [[package]]
@@ -1557,6 +1576,18 @@ name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
+
+[[package]]
+name = "ebur128"
+version = "0.1.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e227cc62d64d6fe01abbef48134b9c1f17d470cef1e7a56337ad05b1f81df7f9"
+dependencies = [
+ "bitflags 1.3.2",
+ "dasp_frame",
+ "dasp_sample",
+ "smallvec",
+]
 
 [[package]]
 name = "ecdsa"
@@ -3218,6 +3249,7 @@ dependencies = [
  "jacquard-oauth",
  "keyring",
  "keyring-core",
+ "loclib-analysis",
  "loclib-equipment",
  "loclib-interop",
  "loclib-mixid",
@@ -3292,6 +3324,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
+]
+
+[[package]]
+name = "loclib-analysis"
+version = "0.1.0"
+dependencies = [
+ "ebur128",
+ "hegeltest",
+ "indexmap",
+ "loclib-mixid",
+ "loclib-model",
+ "loclib-progress",
+ "schemars",
+ "serde",
+ "serde_json",
+ "stratum-dsp",
+ "symphonia",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4858,6 +4909,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "rayon"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
+dependencies = [
+ "either",
+ "rayon-core",
+]
+
+[[package]]
+name = "rayon-core"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
+dependencies = [
+ "crossbeam-deque",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5663,6 +5734,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "stratum-dsp"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3307cfb4b43dc10db80f8e9b95079bf82288e0c2a4c6f4f811321f5cdc2818e7"
+dependencies = [
+ "log",
+ "rayon",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "symphonia",
+]
+
+[[package]]
 name = "strength_reduce"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5734,10 +5819,15 @@ dependencies = [
  "symphonia-bundle-flac",
  "symphonia-bundle-mp3",
  "symphonia-codec-aac",
+ "symphonia-codec-adpcm",
  "symphonia-codec-alac",
  "symphonia-codec-pcm",
+ "symphonia-codec-vorbis",
  "symphonia-core",
+ "symphonia-format-caf",
  "symphonia-format-isomp4",
+ "symphonia-format-mkv",
+ "symphonia-format-ogg",
  "symphonia-format-riff",
  "symphonia-metadata",
 ]
@@ -5778,6 +5868,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "symphonia-codec-adpcm"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2dddc50e2bbea4cfe027441eece77c46b9f319748605ab8f3443350129ddd07f"
+dependencies = [
+ "log",
+ "symphonia-core",
+]
+
+[[package]]
 name = "symphonia-codec-alac"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5798,6 +5898,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "symphonia-codec-vorbis"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f025837c309cd69ffef572750b4a2257b59552c5399a5e49707cc5b1b85d1c73"
+dependencies = [
+ "log",
+ "symphonia-core",
+ "symphonia-utils-xiph",
+]
+
+[[package]]
 name = "symphonia-core"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5811,12 +5922,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "symphonia-format-caf"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8faf379316b6b6e6bbc274d00e7a592e0d63ff1a7e182ce8ba25e24edd3d096"
+dependencies = [
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+]
+
+[[package]]
 name = "symphonia-format-isomp4"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "243739585d11f81daf8dac8d9f3d18cc7898f6c09a259675fc364b382c30e0a5"
 dependencies = [
  "encoding_rs",
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+ "symphonia-utils-xiph",
+]
+
+[[package]]
+name = "symphonia-format-mkv"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "122d786d2c43a49beb6f397551b4a050d8229eaa54c7ddf9ee4b98899b8742d0"
+dependencies = [
+ "lazy_static",
+ "log",
+ "symphonia-core",
+ "symphonia-metadata",
+ "symphonia-utils-xiph",
+]
+
+[[package]]
+name = "symphonia-format-ogg"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b4955c67c1ed3aa8ae8428d04ca8397fbef6a19b2b051e73b5da8b1435639cb"
+dependencies = [
  "log",
  "symphonia-core",
  "symphonia-metadata",

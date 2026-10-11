@@ -156,7 +156,7 @@ fn order_set_is_a_permutation_starting_where_asked(tc: TestCase) {
     let refs: Vec<&Track> = tracks.iter().collect();
     let start = start.map(|s| s as u32);
 
-    let order = harmony::order_set(&refs, start, &energy, &Ctx::silent()).unwrap();
+    let order = harmony::order_set(&refs, start, &energy, &FxHashMap::default(), &Ctx::silent()).unwrap();
     let mut sorted = order.clone();
     sorted.sort_unstable();
     assert_eq!(sorted, (0..n as u32).collect::<Vec<_>>(), "a permutation");

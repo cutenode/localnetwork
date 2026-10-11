@@ -234,7 +234,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   webview to load directly.
 - Reading: `tracks.query` (filter, sort, paging), `track.analysis` (beat grid, cues, waveforms,
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
-  (harmonic matches), `doctor`, `doctor.orphans.plan/apply`, `plays.history`, `plays.archive`,
+  (harmonic matches), `doctor` (`analyze`: the analysis section), `doctor.orphans.plan/apply`,
+  `analysis.bench` (scoring rekordbox and the analysis against GiantSteps annotations), `plays.history`, `plays.archive`,
   `plays.stats`, `profile.build` (the report, preferences and document), `profile.document`,
   `profile.prefs`, `profile.prefs.set`, `export`, `diff`, `check`, `players.models` (what each model
   reads), `players.show/set/clear` (`{models, library}`; the models `check` uses without `players`),

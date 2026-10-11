@@ -12,6 +12,7 @@ use locallibrary::doctor::{
 use locallibrary::format::Verdict;
 use locallibrary::paths::FileClass;
 use locallibrary::progress::Ctx;
+use locallibrary::sound::{AnalysisReport, KeyOutcome, LoudnessProblem, Plausible, TempoRelation};
 
 use crate::each_drive::{self, Reads};
 use crate::output::{self, Outcome, Output, bytes, cap, dim, heading, ok, warn};
@@ -21,6 +22,7 @@ use crate::output::{self, Outcome, Output, bytes, cap, dim, heading, ok, warn};
   locallibrary doctor
   locallibrary doctor Home --only duplicates,unfiled --hash-audio
   locallibrary doctor Home --only duplicates --by-sound   also a FLAC and an MP3 of one recording
+  locallibrary doctor Home --only analysis   tempos and keys to recheck, tracks too loud or clipped
   locallibrary doctor Home --fix-orphans --dry-run    what deleting the orphaned files would remove")]
 pub struct DoctorArgs {
     #[arg(help = crate::DEFAULT_LIBRARY_HELP)]
@@ -36,6 +38,11 @@ pub struct DoctorArgs {
     /// copy (reads a little of every file: slow on a big drive)
     #[arg(long)]
     audio: bool,
+    /// Also analyse every track's audio for its tempo, key and loudness, and list stored tempos
+    /// and keys the analysis disagrees with and tracks too loud, clipped or far from the library's
+    /// level (decodes every track the first time; the store keeps the results)
+    #[arg(long)]
+    analyze: bool,
     /// Only these sections (repeatable, or comma-separated)
     #[arg(long, value_enum, value_delimiter = ',')]
     only: Vec<SectionArg>,
@@ -69,6 +76,8 @@ enum SectionArg {
     Compatibility,
     /// Audio files cut short or that don't decode (only when named, or with --audio)
     Audio,
+    /// Tempos, keys and levels by an analysis of the audio (only when named, or with --analyze)
+    Analysis,
 }
 
 impl From<SectionArg> for Section {
@@ -82,6 +91,7 @@ impl From<SectionArg> for Section {
             SectionArg::LargeFiles => Section::LargeFiles,
             SectionArg::Compatibility => Section::Compatibility,
             SectionArg::Audio => Section::Audio,
+            SectionArg::Analysis => Section::Analysis,
         }
     }
 }
@@ -98,6 +108,7 @@ pub fn run(args: DoctorArgs, store: &Option<std::path::PathBuf>, out: Output, ct
         by_sound: args.by_sound,
         only,
         audio: args.audio,
+        analyze: args.analyze,
         ..Default::default()
     };
     let reads = each_drive::read(args.drive, |drive| {
@@ -335,6 +346,9 @@ pub fn render(r: &DoctorReport) {
             });
         }
     }
+    if let Some(a) = &r.analysis {
+        analysis(a);
+    }
     if let Some(c) = &r.compatibility {
         let fs = r.file_system.clone().unwrap_or_else(|| "file system".into());
         let line = format!("{fs}: {}", c.summary);
@@ -349,5 +363,90 @@ pub fn render(r: &DoctorReport) {
     }
     for w in &r.warnings {
         output::warn(w);
+    }
+}
+
+fn tempo_relation(r: TempoRelation) -> &'static str {
+    match r {
+        TempoRelation::Half => "half",
+        TempoRelation::Double => "double",
+        TempoRelation::TwoThirds => "2/3",
+        TempoRelation::ThreeHalves => "3/2",
+        _ => "different",
+    }
+}
+
+fn key_relation(r: KeyOutcome) -> &'static str {
+    match r {
+        KeyOutcome::Fifth => "a fifth away",
+        KeyOutcome::Relative => "relative",
+        KeyOutcome::Parallel => "parallel",
+        _ => "unrelated",
+    }
+}
+
+fn analysis(a: &AnalysisReport) {
+    let fresh = if a.decoded > 0 { format!(", {} just now", a.decoded) } else { String::new() };
+    heading(&format!("Analysis ({} track(s) analysed{fresh})", a.analyzed));
+    if a.tempo.is_empty() {
+        ok("every stored tempo agrees with the analysis");
+    } else {
+        say!("  Tempo ({}): stored, then heard", a.tempo.len());
+        capped(&a.tempo, 15, |f| {
+            let likelier = match f.likelier {
+                Some(Plausible::Stored) => ", the library's tempos favour the stored one",
+                Some(Plausible::Estimate) => ", the library's tempos favour the analysis",
+                None => "",
+            };
+            format!(
+                "{}  {}",
+                f.track.name,
+                dim(format!("{:.2} vs {:.0} BPM ({}{likelier})", f.stored, f.estimate, tempo_relation(f.relation)))
+            )
+        });
+        crate::output::hint_at("    ", "rekordbox's x2 and /2 buttons fix a tempo that's half or double");
+    }
+    if a.key.is_empty() {
+        ok("every stored key agrees with the analysis");
+    } else {
+        say!("  Key ({}): stored, then heard", a.key.len());
+        capped(&a.key, 15, |f| {
+            format!(
+                "{}  {}",
+                f.track.name,
+                dim(format!("{} vs {} ({})", f.stored, f.estimate, key_relation(f.relation)))
+            )
+        });
+    }
+    if a.loudness.is_empty() {
+        ok("no track is over 0 dBTP, clipped or far from the library's level");
+    } else {
+        let median = a.median_lufs.map(|m| format!(", the library's median is {m:.1} LUFS")).unwrap_or_default();
+        say!("  Level ({}{median})", a.loudness.len());
+        capped(&a.loudness, 15, |f| {
+            let lufs = f.integrated_lufs.map_or("silent".into(), |l| format!("{l:.1} LUFS"));
+            let problems: Vec<&str> = f
+                .problems
+                .iter()
+                .map(|p| match p {
+                    LoudnessProblem::OverZero => "over 0 dBTP",
+                    LoudnessProblem::Clipped => "clipped",
+                    LoudnessProblem::FarFromMedian => "far from the rest",
+                })
+                .collect();
+            format!(
+                "{}  {}",
+                f.track.name,
+                dim(format!(
+                    "{} ({lufs}, {:+.1} dBTP, {} clipped run(s))",
+                    problems.join(", "),
+                    f.true_peak_dbtp,
+                    f.clipped_runs
+                ))
+            )
+        });
+    }
+    if let Some(f) = a.failed.first() {
+        warn(format!("{} track(s) couldn't be analysed (e.g. {}: {})", a.failed.len(), f.track.name, f.error));
     }
 }

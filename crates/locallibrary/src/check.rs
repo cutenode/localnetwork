@@ -21,6 +21,12 @@
 //! With [`CheckOptions::audio`], every audio file is opened and its last seconds decoded (see
 //! [`probe::check_tracks`]), not only the smaller ones, which also finds files that don't decode.
 //!
+//! Tracks over 0 dBTP, clipped, or far from the library's level are a warning, from analyses
+//! already in the store's cache (see [`crate::sound`]): the check decodes nothing for them, and
+//! says nothing about levels on a library never analysed. It's here rather than in the DJ's
+//! profile because this is the report read before a set, when a track that will clip the
+//! mixer or need the trim cranked can still be swapped.
+//!
 //! Nothing is written to the drives (beyond the hash cache every scan of an adopted drive keeps).
 
 use indexmap::IndexMap;
@@ -43,6 +49,7 @@ use crate::paths;
 use crate::plays;
 use crate::probe;
 use crate::progress::{Ctx, Phase};
+use crate::sound;
 use crate::store::Store;
 use crate::tree::FileTree;
 use crate::{Error, Result};
@@ -54,6 +61,7 @@ const CHECKS: &[&str] = &[
     "databases",
     "files",
     "audio",
+    "loudness",
     "large_files",
     "interrupted",
     "history",
@@ -74,8 +82,8 @@ pub enum Level {
 pub struct CheckItem {
     /// The drive it's about.
     pub drive: String,
-    /// What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `large_files`,
-    /// `interrupted`, `history`, `file_system`, `players` or `formats`.
+    /// What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,
+    /// `large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.
     pub check: &'static str,
     pub level: Level,
     pub message: String,
@@ -94,6 +102,15 @@ pub struct CheckReport {
     /// With [`CheckOptions::audio`]: audio files with a problem, grouped as the `audio` items
     /// describe them.
     pub audio: Vec<AudioIssues>,
+    /// Tracks whose level may be a problem, as the `loudness` items describe them.
+    pub loudness: Vec<DriveLoudness>,
+}
+
+/// One drive's tracks whose level may be a problem.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct DriveLoudness {
+    pub drive: String,
+    pub tracks: Vec<sound::LoudnessFinding>,
 }
 
 /// Audio files with one kind of problem.
@@ -212,6 +229,7 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
     let mut archives: FxHashMap<Option<Uuid>, plays::HistoryArchive> = FxHashMap::default();
     let mut unloadable: Vec<Unloadable> = Vec::new();
     let mut audio_issues: Vec<AudioIssues> = Vec::new();
+    let mut loudness: Vec<DriveLoudness> = Vec::new();
     for device in devices {
         let name = device.name();
         let players = choose_players(&name, device, opts, &remembered, store)?;
@@ -243,6 +261,10 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
                     let (checked, findings) = probe::check_tracks(device, &dbs.everything(), &tree, ctx)?;
                     let issues = audio_items(checked, findings, &mut item);
                     audio_issues.extend(issues.into_iter().map(|g| AudioIssues { drive: name.clone(), ..g }));
+                }
+                let tracks = loudness_item(device, dbs.primary(), store, &mut item);
+                if !tracks.is_empty() {
+                    loudness.push(DriveLoudness { drive: name.clone(), tracks });
                 }
                 d.side = Some(side);
                 d.dbs = Some(dbs);
@@ -309,6 +331,7 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
         players: chosen,
         unloadable,
         audio: audio_issues,
+        loudness,
     })
 }
 
@@ -565,6 +588,47 @@ fn choose_players(
         players.library = store.library_by_id(id)?.map(|l| l.name);
     }
     Ok(players)
+}
+
+/// The `loudness` item, from the analyses cached in `store` (none without a store, or when none
+/// of the library's tracks were analysed). Returns the tracks it warns about.
+fn loudness_item(
+    device: &Device,
+    library: &Library,
+    store: Option<&Store>,
+    item: &mut impl FnMut(&'static str, Level, String),
+) -> Vec<sound::LoudnessFinding> {
+    let Some(store) = store else { return Vec::new() };
+    let cached = sound::Cache::in_store(store).cached(device, &library.tracks);
+    if cached.is_empty() {
+        return Vec::new();
+    }
+    let found = sound::loudness_findings(
+        library.tracks.iter().filter_map(|t| cached.get(&t.id).map(|a| (t, a.loudness.as_ref()))),
+    );
+    match found.is_empty() {
+        true => item(
+            "loudness",
+            Level::Ok,
+            format!(
+                "none of the {} analysed track(s) is over 0 dBTP, clipped or far from the rest's level",
+                cached.len()
+            ),
+        ),
+        false => {
+            let names: Vec<String> = found.iter().map(|f| f.track.name.clone()).collect();
+            item(
+                "loudness",
+                Level::Warning,
+                format!(
+                    "{} track(s) are over 0 dBTP, clipped or far from the rest's level: {}",
+                    found.len(),
+                    self::names(&names, 3)
+                ),
+            )
+        }
+    }
+    found
 }
 
 /// The `audio` items: one per kind of problem the files have, or one saying they're all fine.

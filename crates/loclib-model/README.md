@@ -8,7 +8,8 @@ reads and writes these from rekordbox USB exports, so the fields follow what rek
 - `model`: `Library`, `Track`, `Playlist` and `TrackColor`, finding playlists by path, searching
   tracks, `LibraryDiff` between two exports of one library, and `untangle` for a playlist tree read
   from a damaged file.
-- `harmony`: keys on the Camelot wheel in any notation rekordbox shows, which keys mix, mix costs,
+- `harmony`: keys on the Camelot wheel in any notation rekordbox shows, their relative and
+  parallel keys, which keys mix, mix costs (going easier on keys an analyzer isn't sure of),
   harmonic suggestions and set ordering (cancellable through a loclib-progress `Ctx`).
 - `analysis`: `TrackAnalysis` and its parts, and rekordbox's hot cue palette.
 - `paths`: the normalised path keys tracks are matched by, finding them below a folder, names

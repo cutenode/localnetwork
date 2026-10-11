@@ -86,17 +86,10 @@ fn date(s: &str) -> Option<String> {
     (y > 0 && (1..=12).contains(&m) && (1..=31).contains(&d)).then(|| format!("{y}/{m}/{d}"))
 }
 
-/// The semitone (0 = C) of a key's tonic.
-fn semitone(c: Camelot) -> u8 {
-    // Inverse of Camelot::parse: number - 1 = (semitone * 7 + offset) % 12, and 7 * 7 = 1 mod 12.
-    let offset = if c.major { 7 } else { 4 };
-    ((u32::from(c.number) - 1 + 12 - offset) * 7 % 12) as u8
-}
-
 /// `MUSICAL_KEY VALUE`: 0-11 for C to B major, 12-23 for C to B minor.
 fn key_value(key: &str) -> Option<u8> {
     let c = Camelot::parse(key)?;
-    Some(semitone(c) + if c.major { 0 } else { 12 })
+    Some(c.pitch() as u8 + if c.major { 0 } else { 12 })
 }
 
 fn colour(c: TrackColor) -> u8 {

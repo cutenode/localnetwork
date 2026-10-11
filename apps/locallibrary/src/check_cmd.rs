@@ -71,17 +71,28 @@ pub(crate) fn render(r: &CheckReport, verbose: bool) {
         };
         say!("  {mark} {:<13} {}", dim(i.check), i.message);
         let same = |drive: &str, message: &str| drive == i.drive && message == i.message;
+        let loudness = r.loudness.iter().find(|l| i.check == "loudness" && l.drive == i.drive);
         let lines: Vec<(String, String)> = match (
             r.unloadable.iter().find(|u| same(&u.drive, &u.message)),
             r.audio.iter().find(|a| same(&a.drive, &a.message)),
+            loudness,
         ) {
-            (Some(u), _) => u.tracks.iter().map(|t| (t.name.clone(), t.file_path.clone())).collect(),
-            (None, Some(a)) => a
+            (Some(u), ..) => u.tracks.iter().map(|t| (t.name.clone(), t.file_path.clone())).collect(),
+            (None, Some(a), _) => a
                 .files
                 .iter()
                 .map(|f| (f.track.name.clone(), format!("{}  {}", f.problem, f.track.file_path)))
                 .collect(),
-            (None, None) => continue,
+            (None, None, Some(l)) => l
+                .tracks
+                .iter()
+                .map(|f| {
+                    let lufs = f.integrated_lufs.map_or("silent".into(), |l| format!("{l:.1} LUFS"));
+                    let detail = format!("{lufs}, {:+.1} dBTP, {} clipped run(s)", f.true_peak_dbtp, f.clipped_runs);
+                    (f.track.name.clone(), detail)
+                })
+                .collect(),
+            (None, None, None) => continue,
         };
         if !verbose {
             unlisted += 1;

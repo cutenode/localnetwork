@@ -195,7 +195,8 @@ locallibrary playlist add Home Peak --filter \"bpm:126-130 rating:>=4\" --sort -
         #[command(flatten)]
         dry: DryRun,
     },
-    /// Order a playlist for mixing: compatible keys, close tempos, energy that builds
+    /// Order a playlist for mixing: compatible keys, close tempos, energy that builds (keys the
+    /// analysis `doctor --analyze` cached questions count less)
     #[command(alias = "plan")]
     Order {
         #[arg(help = LIBRARY_HELP)]

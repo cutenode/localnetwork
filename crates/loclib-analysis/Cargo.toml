@@ -1,0 +1,32 @@
+[package]
+name = "loclib-analysis"
+description = "A second opinion on DJ tracks' tempo and key, loudness and clipping, and benchmark scoring against annotated datasets"
+readme = "README.md"
+keywords = ["dj", "bpm", "key-detection", "loudness", "audio"]
+categories = ["multimedia::audio"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ebur128 = "0.1"
+indexmap.workspace = true
+loclib-mixid.workspace = true
+loclib-model.workspace = true
+loclib-progress.workspace = true
+schemars = { version = "1.2", default-features = false, features = ["derive", "indexmap2", "std"], optional = true }
+serde.workspace = true
+stratum-dsp = "1"
+symphonia.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-mixid = { workspace = true, features = ["test-util"] }
+serde_json.workspace = true
+tempfile.workspace = true
+
+[features]
+schemars = ["dep:schemars"]

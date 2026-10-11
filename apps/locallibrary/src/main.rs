@@ -6,6 +6,7 @@ mod output;
 
 #[cfg(feature = "account")]
 mod account_cmd;
+mod analysis_cmd;
 mod autostart;
 mod check_cmd;
 mod collection_cmd;
@@ -391,6 +392,8 @@ locallibrary pack Home /Volumes/TONIGHT    # later: the same playlists, copying 
     Collection(collection_cmd::CollectionArgs),
     /// The player models `check` uses when none are given, and what each model reads
     Players(players_cmd::PlayersArgs),
+    /// How well rekordbox's keys and tempos, and the analysis doctor runs, match annotated datasets
+    Analysis(analysis_cmd::AnalysisArgs),
     /// Inspect and maintain the store
     Store {
         #[command(subcommand)]
@@ -1339,6 +1342,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Collection(args) => return collection_cmd::run(args, out),
         Command::Check(args) => return check_cmd::run(args, &cli.store, out, &ctx),
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
+        Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),
         Command::Mix(args) => return mix_cmd::run(args, &cli.store, out, &ctx),
         #[cfg(feature = "tui")]
         Command::Tui { drive } => {

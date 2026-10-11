@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/locallibrary", "crates/locallibrary", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-waveform", "vendor/rekordbox-pdb"]
+members = ["apps/locallibrary", "crates/locallibrary", "crates/loclib-analysis", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-waveform", "vendor/rekordbox-pdb"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +12,7 @@ repository = "https://github.com/cutenode/localnetwork"
 [workspace.dependencies]
 # Without its default features (the Atmosphere account): the CLI turns them on with its own.
 locallibrary = { path = "crates/locallibrary", default-features = false }
+loclib-analysis = { path = "crates/loclib-analysis", version = "0.1.0" }
 loclib-equipment = { path = "crates/loclib-equipment", version = "0.1.0" }
 loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
 loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }

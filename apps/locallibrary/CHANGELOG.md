@@ -65,6 +65,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   big for FAT32), `check` before a set, `clean` for rekordbox's demo tracks, `verify` and `fsck`,
   `space`, `tidy`, `recordings`, and the history lists players recorded, kept even after
   rekordbox removes them.
+- **A second opinion on tempo, key and level.** `doctor --analyze` estimates each track's tempo
+  and key from its audio (stratum-dsp, through the new loclib-analysis crate) and its loudness,
+  caches the results in the store, and lists stored tempos that look half, double or 3/2 of the
+  estimate (with which one the library's other tempos favour), stored keys heard as a fifth, the
+  relative or the parallel key, and tracks over 0 dBTP, clipped, or far from the library's level.
+  `check` warns about those levels from what's cached, and `playlist order` trusts keys the
+  analysis questions less. `analysis bench` scores rekordbox's keys and tempos, and the analysis,
+  against the GiantSteps datasets (MIREX's weighted key score, tempo Accuracy1 and Accuracy2).
 - **Duplicates by sound.** `doctor --by-sound` and `track dedupe --by-sound` find the same
   recording in another file or encoding (a FLAC and an MP3 made from it) from the fingerprints
   `mix` keeps in the store, so a library is decoded once; tracks of different lengths, such as an

@@ -1,5 +1,5 @@
 //! What's worked out from tracks' audio, cached on the computer: fingerprints
-//! ([`crate::mix::index`]).
+//! ([`crate::mix::index`]) and tempo, key and loudness estimates ([`crate::sound`]).
 //!
 //! Decoding a library's audio takes minutes for a few thousand tracks, so each result is kept in
 //! a small file per audio file, keyed by the file's name, size and modification time (the same
@@ -270,6 +270,7 @@ pub fn for_tracks<K: Kind>(
 mod tests {
     use super::*;
     use crate::mix::index::Prints;
+    use crate::sound::Analyses;
 
     /// Keys and paths stay what fingerprint caches were written with, so users' caches still read,
     /// and each kind keeps to its own folder and version.
@@ -288,5 +289,17 @@ mod tests {
         let prints = Cache::<Prints>::in_store(&store);
         assert_eq!(prints.root(), store.root().join("cache/fingerprints"));
         assert_eq!(prints.file("abcdef", "fp"), prints.root().join("ab/abcdef.fp"));
+        let analyses = Cache::<Analyses>::in_store(&store).clone();
+        assert_eq!(analyses.root(), store.root().join("cache/analysis"));
+    }
+
+    /// A cached value that can't be read back (cut short) counts as not cached.
+    #[test]
+    fn unreadable_values_are_not_cached() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::<Analyses>::new(dir.path());
+        fs::create_dir_all(dir.path().join("ab")).unwrap();
+        fs::write(cache.file("abcdef", "json"), b"{\"version\":").unwrap();
+        assert!(cache.get("abcdef").is_none());
     }
 }
