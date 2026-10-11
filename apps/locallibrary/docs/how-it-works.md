@@ -26,6 +26,8 @@ crates/loclib-mixid/        which known tracks a recorded mix plays: decoding an
                             fingerprints, the hash index and its print format, the matcher, and how
                             two tracks line up, refined to a fraction of a sample from their audio
                             (doctor's duplicates by sound, cues carried or moved by the offset)
+crates/loclib-transcode/    which copy of a file a set of players needs, and making it: AIFF, WAV or
+                            FLAC, resampled with the timing kept to the sample, dithered, with tags
 crates/loclib-analysis/     a second opinion on a track's tempo, key and beats (stratum-dsp), its loudness, peaks and
                             clipping (ebur128), half/double tempo checks, and scoring analyzers against
                             the GiantSteps annotations
@@ -57,12 +59,15 @@ crates/locallibrary/src/    the library, built on the crates above
   edit.rs      playlist and track edits in both databases, verified against a model; the edit journal
   query.rs     the track filter and sort language, track selectors
   smart.rs     rule-based playlists
-  pack.rs      drives for a set, cut down from another drive's library
+  pack.rs      drives for a set, cut down from another drive's library; pack/transcode.rs: copies of
+               tracks the set's players can't play, and their record on the drive
   import.rs    loclib-tracklist, re-exported
   tags.rs      My Tags in exportExt.pdb and OneLibrary
   cue_edit.rs  hot cues, memory cues and loops in analysis files and OneLibrary's cue table
   doctor.rs    duplicates (by file, name, metadata, audio and sound), missing and orphaned files, drift
   relocate.rs  finding missing tracks' audio on the drive and in folders, used only when one file fits
+  upgrade.rs   pointing lossy tracks at lossless files of their recording, found by sound, cues and
+               grid moved by the offset between them
   plays.rs     history lists on drives and in the store, play statistics
   sets/        the DJ's sets (sets.json): sessions and their windows, suggestions, building a set from
                sessions and recordings, editing, exports, Beat Link Trigger logs

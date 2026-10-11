@@ -585,6 +585,8 @@ fn build() -> Registry {
     r.apply("dedupe.apply", PlanStore::None, |c, req| Ok(api::dedupe_apply(&req, c.ctx)?)).destructive();
     r.plan("relocate.plan", |c, req| Ok(api::relocate_plan(&req, c.ctx)?)).long().destructive();
     r.apply("relocate.apply", PlanStore::None, |c, req| Ok(api::relocate_apply(&req, c.ctx)?)).long().destructive();
+    r.plan("upgrade.plan", |c, req| Ok(api::upgrade_plan(&req, c.ctx)?)).long().destructive();
+    r.apply("upgrade.apply", PlanStore::None, |c, req| Ok(api::upgrade_apply(&req, c.ctx)?)).long().destructive();
     r.plan("history.delete.plan", |c, req| Ok(api::delete_history_plan(c.existing().as_ref(), &req, c.ctx)?))
         .destructive();
     r.apply("history.delete.apply", Existing, |c, req| {

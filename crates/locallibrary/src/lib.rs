@@ -121,6 +121,7 @@ pub mod tags;
 pub mod tidy;
 mod timeline;
 pub mod tree;
+pub mod upgrade;
 pub mod watch;
 pub mod xml;
 

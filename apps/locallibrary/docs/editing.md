@@ -136,6 +136,48 @@ length (within 2 s), then artist and title alone, then fuzzily; entries that fit
 tracks are listed instead of guessed (settle them with `--choose ENTRY=TRACK`). It works offline:
 export a streaming playlist to CSV first.
 
+### Upgrading to lossless
+
+```bash
+locallibrary track upgrade Home --from ~/Music/Lossless --dry-run
+locallibrary track upgrade Home --from ~/Music/Lossless --from /Volumes/NAS/Bandcamp --remove-old
+```
+
+`track upgrade` finds lossless files (FLAC, WAV, AIFF, Apple Lossless) of the recordings the drive
+holds as MP3 or AAC, in the folders given and below them, by their sound, as `doctor --by-sound`
+finds duplicates (the store keeps the fingerprints): lengths within 2 seconds, so an extended mix
+never stands in for a radio edit, and prints that line up over most of both. Each is copied beside
+the track's file and the track is pointed at it, in both databases and its analysis files, with
+its format, size, rate, depth and bit rate. The track keeps its row, so its playlists, history
+lists, My Tags, rating and play count stay. Its cues and beat grid move by the offset between the
+two files' audio (an MP3 starts its audio some 25 ms later than the file it was made from),
+measured to a fraction of a sample by cross-correlating the audio. The detail waveforms move with
+them, by whole columns (6.7 ms); the rest of the analysis stays as it was. The copy goes beside the
+track's file under its own name made safe for FAT, or `Name (2).flac` when that's taken; a copy
+already there from an upgrade that was undone is used again. With `--players` (or the ones
+`players set` remembered), a lossless file they can't play is no upgrade.
+
+A track is listed with why and left as it is when its offset can't be measured that closely,
+another row of the drive uses its file, its file isn't under `Contents/`, its analysis files can't
+be rewritten, or its timing can't be told (below).
+
+rekordbox times an MP3 from its first decoded frame: it doesn't trim the encoder's delay the way
+gapless players do. Some MP3s (those with a complete LAME tag, and some made by FFmpeg) it times
+from one frame earlier, 26 ms at 44.1 kHz, and no tag says which. Measured against the
+waveforms rekordbox drew for 1,072 MP3s, 85% start at the first frame and 14% a frame early, so
+`track upgrade` tells the two apart for each track by its waveform, and a track without one is
+taken to start at the first frame. AAC (M4A) is timed the same way among three starts (the first
+frame, and 1,024 or 2,112 samples before it, the encoder delays AAC files carry), and an AAC track
+without a waveform is listed rather than guessed. Unlike the MP3 figures, these haven't been
+measured against rekordbox's own analysis.
+
+The old file stays unless `--remove-old`. It's backed up first, like everything the upgrade
+changes, so `locallibrary undo` points the track back at it; the lossless copy stays on the drive
+for the next upgrade. The upgrade is recorded, so after rekordbox's
+next export, which writes the old file's row and cues again, `edits replay` points the track at
+the lossless file and moves its cues again. Upgrading in rekordbox's own collection too (Relocate)
+keeps the two in step.
+
 ### Filters
 
 Tracks are chosen with `--track ID`, `--query TEXT`, `--playlist P`, `--album A`, `--history
@@ -258,6 +300,34 @@ keeps its own player name and colour. Audio it removed isn't kept (it's on the s
 removed come back by packing again with the old selection, or with `undo --force` without their
 audio. Packing forgets the edits recorded on the drive. Like every command that writes, it won't
 write to an archive or retired drive without `--overwrite-archive`.
+
+```bash
+locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players CDJ-2000NXS,OMNIS-DUO
+locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --container flac --decode-lossy
+```
+
+`--transcode` packs lossless tracks the players can't play as copies they can: a 24/96 FLAC goes
+to a CDJ-2000NXS (no FLAC, nothing over 48 kHz) as a 48 kHz, 24-bit AIFF. The players are
+`--players`, or the ones `players set` remembered for the source's library. A copy is AIFF unless
+`--container wav` or `flac` (if the players don't take that, the next of AIFF, WAV and FLAC they
+do), keeps the master's rate and depth when the players take them, and otherwise takes the highest
+they do below it in the same family (88.2 kHz becomes 44.1, 96 becomes 48), with dither. It starts
+at the master's first sample and is as long, to the sample, so cue points and beat grids, which
+rekordbox keeps in milliseconds from the start, still land. The copy keeps the track's row:
+playlists, history, My Tags, cues and grid stay, and both databases give its path, format, size,
+rate, depth and bit rate, as the analysis files give its path. Its master isn't packed. Tags and
+artwork come along.
+
+Lossy files are never encoded lossy again. An MP3 or AAC file a player can't play (an MP3 at
+22.05 kHz on a CDJ-3000) stays as it is unless `--decode-lossy` asks for a lossless copy, bigger
+but no worse. Its cues and grid move by the decoder's lead the way `track upgrade` times it, so an
+AAC without a waveform stays unplayable. So does a copy too long for AIFF or WAV (4 GiB), or one
+whose name is another track's file. The plan lists the copies, which players don't play each master and why, the space
+they need (the pack is refused when it doesn't fit), and the tracks that stay unplayable. Each
+copy is recorded on the drive (`.locallibrary/transcodes.json`) with its master's content hash
+and how it was made, so packing again keeps current copies and makes them again when a master was
+replaced, even by a file of the same name, or the way copies are made changed. Packing again
+without `--playlist` keeps the copies' players and options too.
 
 ## My Tags
 

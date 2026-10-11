@@ -106,6 +106,12 @@ pub(crate) fn render(r: &CheckReport, verbose: bool) {
     if unlisted > 0 {
         crate::output::hint("--verbose lists the tracks.");
     }
+    if r.unloadable.iter().any(|u| u.transcodable) {
+        crate::output::hint(
+            "`locallibrary pack <library> <drive> --playlist <set> --transcode` packs lossless tracks the players \
+             can't play as copies they can.",
+        );
+    }
     match (r.problems, r.warnings) {
         (0, 0) => say!("{}", style("Ready.").green().bold()),
         (0, w) => say!("{} {}", style("Ready,").green().bold(), format_args!("with {w} warning(s).")),

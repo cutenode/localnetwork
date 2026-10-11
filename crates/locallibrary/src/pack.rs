@@ -3,6 +3,9 @@
 //! in memory from the source's (see [`crate::edit`]), so tracks keep their analysis, cues and
 //! artwork; then only the files the subset needs are copied, and the rest removed from the target.
 //!
+//! Tracks the set's players can't play can be packed as lossless copies they can ([`Transcode`]),
+//! in place of their masters.
+//!
 //! The target remembers what it was packed from (`.locallibrary/pack.json`), so packing it again
 //! without naming playlists updates it with the same selection. A packed drive holds a different
 //! library state from its source: `sync` treats the two as different libraries.
@@ -42,6 +45,11 @@ use crate::sync::PullOptions;
 use crate::tree::FileTree;
 use crate::{Error, Result};
 
+mod transcode;
+
+pub use loclib_transcode::Container;
+pub use transcode::{PackTranscode, PackUnplayable};
+
 const PACK_FILE: &str = "pack.json";
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -59,6 +67,25 @@ pub struct PackOptions {
     /// Write to an archive or retired drive (see [`crate::fleet::check_target`]).
     #[serde(default)]
     pub overwrite_archive: bool,
+    /// Pack tracks the players can't play as lossless copies they can.
+    /// Without playlists, as the target was last packed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcode: Option<Transcode>,
+}
+
+/// Which players a packed drive's copies are for, and how they're made.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Transcode {
+    /// Player models (see `players models`); none: the ones remembered for the source's library.
+    #[serde(default)]
+    pub players: Vec<String>,
+    /// The container copies are written in: AIFF unless given.
+    #[serde(default)]
+    pub container: loclib_transcode::Container,
+    /// Also decode lossy files the players can't play (an MP3 at 22.05 kHz) into lossless copies:
+    /// bigger, but no further loss. Lossy files are never encoded lossy again.
+    #[serde(default)]
+    pub decode_lossy: bool,
 }
 
 /// What a target was packed with, kept on the target.
@@ -73,6 +100,9 @@ pub struct PackRecord {
     /// still up to date.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_fingerprint: Option<Hash>,
+    /// The copies it was packed with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcode: Option<Transcode>,
 }
 
 pub fn record(device: &Device) -> Result<Option<PackRecord>> {
@@ -81,6 +111,7 @@ pub fn record(device: &Device) -> Result<Option<PackRecord>> {
 
 /// The drive no longer holds a pack: a sync or push wrote a whole library over it.
 pub fn forget(device: &Device) -> Result<()> {
+    transcode::forget(device)?;
     fsutil::remove_if_exists(&device.state_dir().join(PACK_FILE)).map(|_| ())
 }
 
@@ -142,8 +173,16 @@ pub struct PackPlan {
     pub replaces_library: bool,
     /// What the target holds that only it has: saved in the store before packing.
     pub unsaved: Option<Unsaved>,
-    /// Space the pack needs on the target: the files it copies, its new databases and the backup
-    /// of what it replaces.
+    /// Tracks the players can't play, packed as copies they can.
+    pub transcodes: Vec<PackTranscode>,
+    /// About how much the copies to make take (not those current already).
+    pub transcode_bytes: u64,
+    /// The copies' players and how they're made, as the target will remember them.
+    pub transcode: Option<Transcode>,
+    /// Tracks none of the players play that the pack leaves as they are.
+    pub unplayable: Vec<PackUnplayable>,
+    /// Space the pack needs on the target: the files it copies, the copies it makes, its new
+    /// databases and the backup of what it replaces.
     pub needed_bytes: u64,
     pub free_space: Option<u64>,
     pub fits: bool,
@@ -163,6 +202,9 @@ pub struct PackPlan {
     /// artwork (audio isn't backed up).
     #[serde(skip)]
     backed_up: Vec<String>,
+    /// Analysis files of tracks packed as copies, and how they change.
+    #[serde(skip)]
+    rewrites: IndexMap<String, transcode::Rewrite>,
 }
 
 impl PackPlan {
@@ -191,6 +233,10 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         }
         (p, _) => (p.to_vec(), opts.history),
     };
+    let choice = match (&opts.playlists[..], &previous) {
+        ([], Some(r)) if same_source => opts.transcode.clone().or_else(|| r.transcode.clone()),
+        _ => opts.transcode.clone(),
+    };
     let subset = edit::subset(source, &playlists, history, ctx)?;
     // Packing export.pdb alone would take the target's OneLibrary away, and the drive with it from
     // the players that read nothing else.
@@ -216,7 +262,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     let libraries: Vec<&Library> = std::iter::once(&subset.library).chain(subset.second.iter()).collect();
     let everything =
         Library { tracks: libraries.iter().flat_map(|l| l.tracks.iter().cloned()).collect(), ..Default::default() };
-    let src_tree = source.scan(Some(&everything), ctx)?;
+    let mut src_tree = source.scan(Some(&everything), ctx)?;
     let mut wanted: IndexMap<String, (PathBuf, u64, i64)> = IndexMap::new();
     let add = |key: &str, tree: &FileTree, wanted: &mut IndexMap<String, (PathBuf, u64, i64)>| {
         if let Some(e) = tree.resolve(key) {
@@ -255,6 +301,16 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     let scanned = target.scan_fingerprinted(target_lib.as_ref(), ctx)?;
     let unsaved = unsaved(target, &scanned, same_source, &subset)?;
     let tgt_tree = scanned.tree;
+    let made = match &choice {
+        None => transcode::Copies::default(),
+        Some(c) => {
+            let tracks: Vec<&crate::model::Track> = libraries.iter().flat_map(|l| l.tracks.iter()).collect();
+            transcode::plan(source, target, &mut src_tree, &tgt_tree, &tracks, c, ctx)?
+        }
+    };
+    // The copies stand in for their sources, and analysis files record the copies' paths.
+    wanted.retain(|key, _| !made.replaced.contains(key));
+    warnings.extend(made.warnings.iter().cloned());
     let target_by_fold: FxHashMap<String, &crate::tree::FileEntry> =
         tgt_tree.library_entries().map(|e| (fold(&e.path), e)).collect();
     let mut copies = Vec::new();
@@ -265,11 +321,14 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     // After a pack cut off on the target, a file modified since it started may be torn.
     let cut_off = crate::sync::cut_off_since(target);
     for (key, (src, size, mtime)) in &wanted {
+        // A rewritten analysis file is as much bigger as its new path is longer.
+        let size = &made.rewrites.get(key).map_or(*size, |r| size.saturating_add_signed(r.grow));
         match target_by_fold.get(&fold(key)) {
             Some(e)
                 if e.size == *size
                     && fsutil::mtime_eq(e.mtime, *mtime)
-                    && cut_off.is_none_or(|since| e.mtime < since) =>
+                    && cut_off.is_none_or(|since| e.mtime < since)
+                    && made.rewrites.get(key).is_none_or(|r| !r.force) =>
             {
                 unchanged += 1
             }
@@ -291,7 +350,8 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     .into_iter()
     .flatten()
     .collect();
-    let wanted_folds: FxHashSet<String> = wanted.keys().map(|k| fold(k)).collect();
+    let wanted_folds: FxHashSet<String> =
+        wanted.keys().chain(made.transcodes.iter().map(|t| &t.to)).map(|k| fold(k)).collect();
     let deletes: Vec<PackCopy> = if opts.keep_extra {
         Vec::new()
     } else {
@@ -335,12 +395,17 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     // The backup `apply` takes of a target that holds a library is on the target too.
     let backup_bytes =
         if target.has_export() { backup::needed_bytes(target, backed_up.iter().map(String::as_str)) } else { 0 };
-    let needed_bytes = copies.iter().map(|c| round(c.size)).sum::<u64>() + db_bytes + backup_bytes;
+    let new_copies = made.transcodes.iter().filter(|t| !t.current);
+    let transcode_bytes: u64 = new_copies.clone().map(|t| t.size).sum();
+    let needed_bytes = copies.iter().map(|c| round(c.size)).sum::<u64>()
+        + new_copies.map(|t| round(t.size)).sum::<u64>()
+        + db_bytes
+        + backup_bytes;
     let free_space = fsutil::available_space(target.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
     if !fits {
         warnings.push(format!(
-            "the pack needs about {} bytes (its files, databases and backup) but only {} are free on {}",
+            "the pack needs about {} bytes (its files, copies, databases and backup) but only {} are free on {}",
             needed_bytes,
             free_space.unwrap_or(0),
             target.name()
@@ -352,7 +417,9 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         target_root: target.root().to_path_buf(),
         playlists,
         tracks: subset.library.tracks.len(),
-        library_bytes: wanted.values().map(|(_, s, _)| s).sum::<u64>() + db_bytes,
+        library_bytes: wanted.values().map(|(_, s, _)| s).sum::<u64>()
+            + made.transcodes.iter().map(|t| t.size).sum::<u64>()
+            + db_bytes,
         copy_bytes,
         delete_bytes: deletes.iter().map(|d| d.size).sum(),
         copies,
@@ -370,6 +437,11 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
         sources,
         history,
         backed_up,
+        transcode: choice,
+        transcode_bytes,
+        transcodes: made.transcodes,
+        unplayable: made.unplayable,
+        rewrites: made.rewrites,
     })
 }
 
@@ -413,6 +485,8 @@ fn unsaved(target: &Device, scanned: &Scanned, same_source: bool, subset: &edit:
 pub struct PackReport {
     pub copied: usize,
     pub copied_bytes: u64,
+    /// Copies made for the players (see [`PackPlan::transcodes`]).
+    pub transcoded: usize,
     pub deleted: usize,
     pub deleted_bytes: u64,
     pub fingerprint: Option<Hash>,
@@ -481,7 +555,12 @@ pub fn apply(
     // Files are flushed before they get their source's modification time, which tells the next
     // pack they're complete (see `fsutil::copy_file`); a pack stopped part way still does both
     // for what it copied.
-    ctx.phase_start(Phase::Copy, plan.copies.len() as u64, plan.copy_bytes);
+    let new_copies: Vec<&PackTranscode> = plan.transcodes.iter().filter(|t| !t.current).collect();
+    ctx.phase_start(
+        Phase::Copy,
+        (plan.copies.len() + new_copies.len()) as u64,
+        plan.copy_bytes + new_copies.iter().map(|t| t.job.source_size).sum::<u64>(),
+    );
     let mut written: Vec<(PathBuf, i64)> = Vec::new();
     let mut stopped = None;
     for c in &plan.copies {
@@ -490,7 +569,17 @@ pub fn apply(
             let (src, mtime) = plan.sources.get(&c.path).ok_or_else(|| Error::NotFound(c.path.clone()))?;
             let dst = target.checked_path(&c.path)?;
             ctx.emit(Event::Item { phase: Phase::Copy, path: c.path.clone(), bytes: c.size });
-            fsutil::copy_file(src, &dst, None, None, false, ctx)?;
+            match plan.rewrites.get(&c.path) {
+                // The analysis of a track packed as a copy records the copy's path and times.
+                Some(r) => {
+                    let bytes = std::fs::read(src).map_err(|e| Error::Io { path: src.clone(), source: e })?;
+                    let rewritten = crate::anlz::rewrite_path(&bytes, &r.path)?;
+                    fsutil::write_atomic(&dst, &crate::anlz::shift_times(&rewritten, r.shift_ms)?)?;
+                }
+                None => {
+                    fsutil::copy_file(src, &dst, None, None, false, ctx)?;
+                }
+            }
             Ok((dst, *mtime))
         })();
         match copied {
@@ -512,7 +601,13 @@ pub fn apply(
     if let Some(e) = stopped {
         return Err(e);
     }
+    let moves = transcode::make(&plan.transcodes, target, ctx)?;
+    report.transcoded = new_copies.len();
     ctx.phase_end(Phase::Copy);
+    let (pdb, plus) = match moves.is_empty() {
+        true => (plan.pdb.clone(), plan.plus.clone()),
+        false => edit::repoint_in_memory(source, plan.pdb.as_deref(), plan.plus.as_deref(), &moves)?,
+    };
 
     // The databases, staged, then swapped in back to back (`commit::swap`); OneLibrary's old WAL
     // goes before its new database (see `onelibrary::write`). A source without one of them leaves
@@ -520,7 +615,7 @@ pub fn apply(
     let ctx = &ctx.uncancellable();
     let at = |key: &str| target.checked_path(key);
     let mut steps = Vec::new();
-    if let Some(bytes) = &plan.pdb {
+    if let Some(bytes) = &pdb {
         steps.push(Swap::bytes(at(paths::EXPORT_PDB)?, bytes)?);
     }
     if let Some(bytes) = &plan.ext {
@@ -529,11 +624,11 @@ pub fn apply(
     for key in [paths::LIBRARY_PLUS_WAL, paths::LIBRARY_PLUS_SHM] {
         steps.push(Swap::Remove(at(key)?));
     }
-    steps.push(match &plan.plus {
+    steps.push(match &plus {
         Some(bytes) => Swap::bytes(at(paths::LIBRARY_PLUS_DB)?, bytes)?,
         None => Swap::Remove(at(paths::LIBRARY_PLUS_DB)?),
     });
-    if plan.pdb.is_none() {
+    if pdb.is_none() {
         steps.push(Swap::Remove(at(paths::EXPORT_PDB)?));
     }
     crate::commit::swap(steps)?;
@@ -580,6 +675,7 @@ pub fn apply(
         history: plan.history,
         at: Utc::now(),
         source_fingerprint,
+        transcode: plan.transcode.clone(),
     };
     fsutil::write_json_atomic(&target.state_dir().join(PACK_FILE), &rec)?;
     edit::journal::forget(target)?;

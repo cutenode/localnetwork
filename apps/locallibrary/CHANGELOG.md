@@ -89,6 +89,27 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   (rekordbox's Relocate All takes the first). A
   file on the drive is used where it is, in both databases and the analysis files; one elsewhere is
   copied to where the track expects it.
+- **Player-safe copies.** `pack --transcode` packs lossless tracks the drive's players can't play
+  (a 24/96 FLAC on a CDJ-2000NXS, a 96 kHz WAV on an OMNIS-DUO) as copies they can: AIFF by default
+  (`--container wav|flac`), at the highest rate and depth they take in the same family (96 kHz
+  becomes 48), dithered, starting at the master's first sample so cues and beat grids stay
+  where they were. The copy keeps the track's row, playlists, history, My Tags and analysis, with
+  its path, format, size, rate, depth and bit rate in both databases. Lossy files are never
+  encoded lossy again: an MP3 a player can't play stays as it is unless `--decode-lossy` asks for
+  a lossless copy, whose cues move by the decoder's lead as `track upgrade` times it. The players are `--players`, or those `players set` remembered; the plan says
+  which tracks are copied, why, the space they need, and which stay unplayable. Each copy is
+  recorded on the drive with its master's content hash and its recipe, so packing again keeps
+  current copies and makes them again when the master or the recipe changed. `check` points to
+  it when lossless tracks won't load.
+- **Upgrading to lossless.** `track upgrade <library> --from DIR` finds, by their sound, lossless
+  files of the recordings the drive holds as MP3 or AAC, copies each beside the old file and
+  points the track at it, keeping its row (playlists, history, My Tags, rating), with its cues,
+  beat grid and detail waveforms moved by the offset between the two files' audio, measured to
+  the sample. An MP3 is timed as rekordbox times it: from its first decoded frame, or for some a
+  frame earlier, told apart by its waveform; an AAC among its likely encoder delays the same way.
+  Each track that can't be upgraded is listed with why, and `--players` leaves out files the
+  players can't play. The old file stays unless `--remove-old`. It's recorded, so `edits replay`
+  does it again after rekordbox exports the old row.
 - **Drive management.** A registry of every drive you own (`drive ...`): names, roles, a
   logbook, copies, recognising a drive after it was reformatted (by its contents, or its disk's
   serial number, which on macOS is a USB disk's), `provision`, `eject` and `firmware`.
@@ -237,6 +258,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     key lock, from any audio files (decoding, landmark fingerprints, the index and the matcher),
     and how two files of one recording line up, to a fraction of a sample (`refine`).
     locallibrary keeps the drive, the fingerprint cache, Audacity projects and the report.
+  - `loclib-transcode`: which copy a set of players needs of a file (as it is, a lossless copy at
+    a rate and depth they all take, or none), and making it: AIFF, WAV or FLAC, resampled with
+    the timing kept to the sample, TPDF-dithered, with tags and artwork; recipes to store with a
+    master's hash, and size estimates.
   - `loclib-interop`: writing a library as Traktor's `collection.nml`, Serato crates (with the
     `Serato Markers2` cue tag in copies of the audio) and a new Engine DJ library, a feature per
     format, so a build for NML alone needs no SQLite.

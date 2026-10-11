@@ -1,5 +1,5 @@
 //! Decoding audio: [`decode_native`] at a file's own rate and channel count (the one loop over
-//! symphonia, which loclib-analysis uses too), and [`decode`] to mono at a
+//! symphonia, which loclib-analysis and loclib-transcode use too), and [`decode`] to mono at a
 //! given rate: fingerprints' low one, or 44.1 kHz for [`refine`](fn@crate::refine).
 //!
 //! Everything a drive or a recorder produces (MP3, AAC/ALAC in `.m4a`, FLAC, WAV, AIFF) decodes

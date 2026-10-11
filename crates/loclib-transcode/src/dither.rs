@@ -1,0 +1,81 @@
+//! Rounding samples to a bit depth, with TPDF dither when the recipe asks for it: noise of ±1 LSB
+//! with a triangular distribution, added before rounding, makes the rounding error a steady hiss
+//! independent of the music instead of distortion that follows it.
+
+use crate::Dither;
+
+/// A fixed seed: the same source and recipe always make the same copy, byte for byte.
+const SEED: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/// Rounds samples in [-1, 1) to integers of a bit depth.
+pub(crate) struct Quantizer {
+    /// Steps per unit: 2^(depth - 1).
+    scale: f64,
+    /// xorshift64* state, when dithering.
+    rng: Option<u64>,
+}
+
+impl Quantizer {
+    pub(crate) fn new(depth: u16, dither: Dither) -> Quantizer {
+        let rng = match dither {
+            Dither::None => None,
+            Dither::Tpdf => Some(SEED),
+        };
+        Quantizer { scale: f64::from(1u32 << (depth - 1)), rng }
+    }
+
+    pub(crate) fn quantize(&mut self, sample: f64) -> i32 {
+        let noise = match &mut self.rng {
+            // Two uniform values of ±½ LSB sum to the triangle.
+            Some(state) => uniform(state) + uniform(state),
+            None => 0.0,
+        };
+        (sample * self.scale + noise).round().clamp(-self.scale, self.scale - 1.0) as i32
+    }
+}
+
+/// Uniform in [-0.5, 0.5), from xorshift64*.
+fn uniform(state: &mut u64) -> f64 {
+    *state ^= *state >> 12;
+    *state ^= *state << 25;
+    *state ^= *state >> 27;
+    let bits = state.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 11;
+    bits as f64 / (1u64 << 53) as f64 - 0.5
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A quarter of a 16-bit step, held for a second.
+    fn quarter_step(dither: Dither) -> Vec<i32> {
+        let mut q = Quantizer::new(16, dither);
+        (0..96_000).map(|_| q.quantize(0.25 / 32_768.0)).collect()
+    }
+
+    fn share(values: &[i32], v: i32) -> f64 {
+        values.iter().filter(|&&x| x == v).count() as f64 / values.len() as f64
+    }
+
+    /// Rounding alone loses a signal under half a step; dithered, it survives as the average of
+    /// steps of -1, 0 and 1 in the proportions a ±1 LSB triangle gives (P(1) = 0.75²/2,
+    /// P(-1) = 0.25²/2), and the same run gives the same samples.
+    #[test]
+    fn tpdf_keeps_what_rounding_loses() {
+        assert!(quarter_step(Dither::None).iter().all(|&v| v == 0));
+        let dithered = quarter_step(Dither::Tpdf);
+        assert!(dithered.iter().all(|v| (-1..=1).contains(v)));
+        let mean = dithered.iter().map(|&v| f64::from(v)).sum::<f64>() / dithered.len() as f64;
+        assert!((mean - 0.25).abs() < 0.01, "mean {mean}");
+        assert!((share(&dithered, 1) - 0.28125).abs() < 0.01, "{}", share(&dithered, 1));
+        assert!((share(&dithered, -1) - 0.03125).abs() < 0.005, "{}", share(&dithered, -1));
+        assert_eq!(dithered, quarter_step(Dither::Tpdf));
+    }
+
+    /// Full scale clips to the depth's range instead of wrapping.
+    #[test]
+    fn clips_at_full_scale() {
+        let mut q = Quantizer::new(24, Dither::None);
+        assert_eq!([q.quantize(1.5), q.quantize(-1.5), q.quantize(0.5)], [8_388_607, -8_388_608, 4_194_304]);
+    }
+}

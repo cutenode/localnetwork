@@ -1,4 +1,5 @@
 mod files;
+mod transcode;
 
 use crate::common;
 

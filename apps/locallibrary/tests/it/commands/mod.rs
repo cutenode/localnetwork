@@ -15,3 +15,4 @@ mod profile;
 mod sets;
 mod settings;
 mod tags;
+mod upgrade;

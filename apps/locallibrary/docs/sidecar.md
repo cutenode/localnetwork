@@ -213,8 +213,12 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `edits.clear`, `import.plan/apply`, `dedupe.plan/apply` (`by_sound` also finds the same
   recording in another file or encoding), `relocate.plan/apply` (`{drive, folders}`, absolute
   paths: finds missing tracks' files, `ambiguous` lists those with several, `unfit` those whose
-  only file isn't as long), `history.delete.plan/apply`,
-  `smart.list/set/remove`, `smart.write.plan/apply`, `pack.plan/apply`, `tags.list`,
+  only file isn't as long), `upgrade.plan/apply`
+  (`{drive, folders, remove_old}`: lossy tracks pointed at lossless files of their recording,
+  `not_upgraded` says why the others weren't), `history.delete.plan/apply`,
+  `smart.list/set/remove`, `smart.write.plan/apply`, `pack.plan/apply` (`transcode: {players,
+  container, decode_lossy}` packs copies the players play; `transcodes` and `unplayable` in the
+  plan), `tags.list`,
   `tags.plan/apply`, `cues.list`, `cues.plan/apply`, `playlist.restore.plan/apply` (`{drive,
   playlist}`, with `snapshot` or `backup` to choose the source; the plan lists the `missing` entries
   left out).

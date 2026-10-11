@@ -30,7 +30,9 @@ library, or for every library) it checks:
 - **Every track's format, sample rate and bit depth:** "12 FLAC files at 96 kHz won't load on the
   OMNIS-DUO". They come from the database rows; a file's header is read only when its row doesn't
   say (or for an `.m4a` whose bit rate doesn't tell AAC from Apple Lossless). `--verbose` lists the
-  tracks, and `--json` gives them to scripts (`unloadable`, grouped by player and reason).
+  tracks, and `--json` gives them to scripts (`unloadable`, grouped by player and reason, with
+  `transcodable` when they're lossless). For lossless ones, `pack --transcode` makes a drive with
+  copies the players play (see [Drives for a set](editing.md#drives-for-a-set)).
 
 What each model reads comes from its instruction manual (`players models MODEL` names the page) and
 AlphaTheta's notice on which units read OneLibrary (March 2026). Players differ more than you'd

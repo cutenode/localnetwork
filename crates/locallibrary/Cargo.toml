@@ -74,6 +74,7 @@ loclib-mixid.workspace = true
 loclib-interop = { workspace = true, features = ["schemars"] }
 base64.workspace = true
 loclib-analysis = { workspace = true, features = ["schemars"] }
+loclib-transcode = { workspace = true, features = ["schemars"] }
 
 [dev-dependencies]
 hegeltest.workspace = true

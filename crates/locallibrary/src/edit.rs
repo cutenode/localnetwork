@@ -2794,6 +2794,67 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
     for op in &ops {
         apply_op(&mut model, op, true, "plan", &mut warnings)?;
     }
+    let (pdb, ext, plus, second) = edit_in_memory(device, dbs, &ops, true, &mut warnings)?;
+    Ok(Subset { pdb, ext, plus, library: model.lib, second, warnings: dedup(warnings) })
+}
+
+/// A track pointed at a copy of its audio (see [`repoint_in_memory`]).
+#[derive(Debug, Clone)]
+pub(crate) struct Move {
+    /// The track's audio file, a lower-cased key.
+    pub track: String,
+    /// The copy's device path.
+    pub path: String,
+    pub file: AudioFile,
+    /// How much later the copy's times are.
+    pub shift_ms: i32,
+}
+
+/// Databases a pack wrote (`pdb` and `plus`, see [`subset`]) with tracks pointed at the copies
+/// made for them. A track one database lacks is left out of it. Returns the new `export.pdb` and
+/// `exportLibrary.db`.
+#[allow(clippy::type_complexity)]
+pub(crate) fn repoint_in_memory(
+    device: &Device,
+    pdb: Option<&[u8]>,
+    plus: Option<&[u8]>,
+    moves: &[Move],
+) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>)> {
+    let pdb = match pdb {
+        Some(bytes) => {
+            let db = pdb::parse_database(bytes.to_vec(), &device.path(paths::EXPORT_PDB))?;
+            let lib = pdb::library_from_database(&db);
+            Some((bytes.to_vec(), db, lib))
+        }
+        None => None,
+    };
+    let plus = match plus {
+        Some(bytes) => {
+            let one = OneLibrary::from_encrypted(bytes, None)?;
+            Some((one.library()?, one))
+        }
+        None => None,
+    };
+    let ops: Vec<Op> = moves
+        .iter()
+        .map(|m| Op::SetPath { track: m.track.clone(), path: m.path.clone(), file: Some(m.file), shift_ms: m.shift_ms })
+        .collect();
+    let (pdb, _, plus, _) = edit_in_memory(device, Databases { pdb, plus }, &ops, false, &mut Vec::new())?;
+    Ok((pdb, plus))
+}
+
+/// `dbs` with `ops` made, verified against their models, as bytes: `export.pdb`, the drive's
+/// `exportExt.pdb` when its My Tag links changed, `exportLibrary.db`, and OneLibrary's library
+/// when the drive has both. With `strict`, anything an op names that the main database lacks is
+/// an error (the other skips it). Nothing on the drive changes.
+#[allow(clippy::type_complexity)]
+fn edit_in_memory(
+    device: &Device,
+    dbs: Databases,
+    ops: &[Op],
+    strict: bool,
+    warnings: &mut Vec<String>,
+) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>, Option<Vec<u8>>, Option<Library>)> {
     let has_pdb = dbs.pdb.is_some();
     let mut ext = None;
     let pdb = match dbs.pdb {
@@ -2808,8 +2869,8 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
                 original,
             };
             let bytes = pdb::guard_editor(|| {
-                for op in &ops {
-                    apply_op(&mut db, op, true, "export.pdb", &mut warnings)?;
+                for op in ops {
+                    apply_op(&mut db, op, strict, "export.pdb", warnings)?;
                 }
                 db.prune()?;
                 Ok(db.editor.to_bytes())
@@ -2826,8 +2887,8 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
         None => (None, None),
         Some((lib, one)) => {
             let mut db = PlusDb { one, lib };
-            for op in &ops {
-                apply_op(&mut db, op, !has_pdb, "exportLibrary.db", &mut warnings)?;
+            for op in ops {
+                apply_op(&mut db, op, strict && !has_pdb, "exportLibrary.db", warnings)?;
             }
             let bytes = db.one.to_encrypted()?;
             let check = OneLibrary::from_encrypted(&bytes, None)?.library()?;
@@ -2837,7 +2898,7 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
             (Some(bytes), has_pdb.then_some(db.lib))
         }
     };
-    Ok(Subset { pdb, ext, plus, library: model.lib, second, warnings: dedup(warnings) })
+    Ok((pdb, ext, plus, second))
 }
 
 // ---------------------------------------------------------------------------------------------

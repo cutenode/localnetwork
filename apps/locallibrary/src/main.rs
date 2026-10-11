@@ -38,6 +38,7 @@ mod store_cmd;
 mod tags_cmd;
 #[cfg(feature = "tui")]
 mod tui;
+mod upgrade_cmd;
 mod watch_cmd;
 
 use indexmap::IndexMap;
@@ -337,7 +338,8 @@ locallibrary merge BACKUP REKORDBOX --playlists by-name --dry-run"
     /// Put only some playlists of a library (and the tracks they use) on another drive, e.g. for a set
     #[command(
         after_long_help = "Examples:\n  locallibrary pack Home /Volumes/TONIGHT --playlist \"Sets/2026/Friday\" --playlist Classics\n  \
-locallibrary pack Home /Volumes/TONIGHT    # later: the same playlists, copying only what changed"
+locallibrary pack Home /Volumes/TONIGHT    # later: the same playlists, copying only what changed\n  \
+locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players CDJ-2000NXS  # AIFF copies of the FLACs"
     )]
     Pack {
         /// The library or drive to take the playlists from
@@ -353,6 +355,18 @@ locallibrary pack Home /Volumes/TONIGHT    # later: the same playlists, copying 
         /// Keep files on the target that the packed library doesn't use
         #[arg(long)]
         keep_extra: bool,
+        /// Pack lossless tracks the players can't play (a 96 kHz FLAC on a CDJ-2000NXS) as copies they can
+        #[arg(long)]
+        transcode: bool,
+        /// The players the drive is for, comma-separated [default: the ones `locallibrary players set` remembered]
+        #[arg(long, value_delimiter = ',', requires = "transcode")]
+        players: Vec<String>,
+        /// The copies' format [default: aiff, whose tags rekordbox and every player read]
+        #[arg(long, value_enum, requires = "transcode")]
+        container: Option<ContainerArg>,
+        /// Also decode lossy files the players can't play into lossless copies (bigger, no further loss)
+        #[arg(long, requires = "transcode")]
+        decode_lossy: bool,
         /// Show the plan without changing anything
         #[arg(long)]
         dry_run: bool,
@@ -905,6 +919,23 @@ fn parse_size(s: &str) -> std::result::Result<u32, String> {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum ContainerArg {
+    Aiff,
+    Wav,
+    Flac,
+}
+
+impl From<ContainerArg> for locallibrary::pack::Container {
+    fn from(c: ContainerArg) -> Self {
+        match c {
+            ContainerArg::Aiff => Self::Aiff,
+            ContainerArg::Wav => Self::Wav,
+            ContainerArg::Flac => Self::Flac,
+        }
+    }
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum ConvertArg {
     /// exportLibrary.db, from export.pdb: for CDJ-3000X, CDJ-1500X, OPUS-QUAD, OMNIS-DUO, XDJ-AZ, XDJ-AN
     Onelibrary,
@@ -1113,8 +1144,25 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Track(a) => return edit_cmd::track(a, out, &ctx),
         Command::Smart(a) => return edit_cmd::smart(a, &store()?, out, &ctx),
         Command::Edits(a) => return edit_cmd::edits(a, out, &ctx),
-        Command::Pack { source, target, playlists, history, keep_extra, dry_run } => {
-            let options = locallibrary::pack::PackOptions { playlists, history, keep_extra, overwrite_archive: false };
+        Command::Pack {
+            source,
+            target,
+            playlists,
+            history,
+            keep_extra,
+            transcode,
+            players,
+            container,
+            decode_lossy,
+            dry_run,
+        } => {
+            let transcode = transcode.then(|| locallibrary::pack::Transcode {
+                players,
+                container: container.map(Into::into).unwrap_or_default(),
+                decode_lossy,
+            });
+            let options =
+                locallibrary::pack::PackOptions { playlists, history, keep_extra, overwrite_archive: false, transcode };
             let store = open_store(&cli.store).ok();
             return edit_cmd::pack(api::PackRequest { source, target, options }, dry_run, store.as_ref(), out, &ctx);
         }

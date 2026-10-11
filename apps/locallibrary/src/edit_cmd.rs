@@ -353,6 +353,27 @@ locallibrary track relocate Home --look-in ~/Music --dry-run")]
         #[command(flatten)]
         dry: DryRun,
     },
+    /// Point MP3 and AAC tracks at lossless files of their recording (found by their sound in the
+    /// folders given): copied beside the old file, with cues and beat grid moved to match
+    #[command(after_long_help = "Examples:\n  locallibrary track upgrade Home --from ~/Music/Lossless --dry-run\n  \
+locallibrary track upgrade Home --from ~/Music/Lossless --remove-old")]
+    Upgrade {
+        #[arg(help = LIBRARY_HELP)]
+        drive: String,
+        /// A folder of lossless files (FLAC, WAV, AIFF, Apple Lossless) to look in, with everything
+        /// below it (repeatable)
+        #[arg(long = "from", value_name = "DIR", required = true)]
+        folders: Vec<std::path::PathBuf>,
+        /// Delete the lossy files the tracks used (backed up first, so undo brings them back)
+        #[arg(long)]
+        remove_old: bool,
+        /// The players the drive is for, comma-separated: a lossless file one of them can't play
+        /// isn't used [default: the ones `locallibrary players set` remembered]
+        #[arg(long, value_delimiter = ',')]
+        players: Vec<String>,
+        #[command(flatten)]
+        dry: DryRun,
+    },
     /// Everything about tracks: details, playlists and history lists holding them, My Tags, other
     /// copies, a missing audio file, and what their analysis holds
     Show {
@@ -786,6 +807,10 @@ pub fn track(args: TrackArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
         TrackCommand::Relocate { drive, folders, dry } => {
             return crate::relocate_cmd::run(drive, folders, dry.dry_run, out, ctx);
         }
+        TrackCommand::Upgrade { drive, folders, remove_old, players, dry } => {
+            let options = locallibrary::upgrade::UpgradeOptions { folders, remove_old, players };
+            return crate::upgrade_cmd::run(drive, options, dry.dry_run, out, ctx);
+        }
         TrackCommand::Show { drive, select } => {
             let list = api::track_details(&api::TrackDetailsRequest { drive, tracks: selector(&select)? })?;
             out.emit_paged(&list, |l| {
@@ -980,6 +1005,21 @@ pub fn pack(
             bytes(plan.delete_bytes),
             plan.unchanged
         );
+        if let Some(t) = &plan.transcode {
+            let current = plan.transcodes.iter().filter(|t| t.current).count();
+            say!(
+                "  for {}: {} copy(ies) to make ({}), {current} current",
+                t.players.join(", "),
+                plan.transcodes.len() - current,
+                bytes(plan.transcode_bytes)
+            );
+            for t in plan.transcodes.iter().filter(|t| !t.current) {
+                say!("    {}: {} ({})", t.track.name, t.recipe, dim(&t.why));
+            }
+            for u in &plan.unplayable {
+                say!("    {}: stays as it is ({})", u.track.name, dim(&u.why));
+            }
+        }
         for w in &plan.warnings {
             warn(w);
         }
@@ -998,10 +1038,11 @@ pub fn pack(
             output::ok(format!("saved snapshot {} ({})", s.short_id, s.message.as_deref().unwrap_or("")));
         }
         output::ok(format!(
-            "packed {}: {} file(s) copied ({}), {} removed",
+            "packed {}: {} file(s) copied ({}), {} copy(ies) made for the players, {} removed",
             plan.target,
             report.copied,
             bytes(report.copied_bytes),
+            report.transcoded,
             report.deleted
         ));
         crate::output::hint(format!("Run the same command without --playlist to update {} later.", plan.target));

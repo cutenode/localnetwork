@@ -509,6 +509,59 @@ pub fn relocate_apply(req: &RelocateRequest, ctx: &Ctx<'_>) -> Result<EditReport
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct UpgradeRequest {
+    pub drive: String,
+    #[serde(default, flatten)]
+    pub options: crate::upgrade::UpgradeOptions,
+}
+
+/// Which lossy tracks have a lossless file of their recording in the folders, and pointing them
+/// at it (see [`crate::upgrade`]).
+pub fn upgrade_plan(req: &UpgradeRequest, ctx: &Ctx<'_>) -> Result<Planned<crate::upgrade::UpgradePlan>> {
+    let d = resolve_drive(&req.drive)?;
+    let mut options = req.options.clone();
+    // No players named: those remembered for the drive's library.
+    if options.players.is_empty()
+        && let Some(store) = super::registry()
+    {
+        options.players = store.player_models()?.for_library(d.state().and_then(|s| s.library_id)).0.to_vec();
+    }
+    let plan = crate::upgrade::plan(&d, &options, ctx)?;
+    let mut summary = vec![format!(
+        "upgrade {} track(s) on {} to lossless files ({})",
+        plan.upgrades.len(),
+        d.name(),
+        bytes(plan.copy_bytes)
+    )];
+    if !plan.not_upgraded.is_empty() {
+        summary.push(format!("{} track(s) with a lossless file are left as they are", plan.not_upgraded.len()));
+    }
+    if !plan.removed.is_empty() {
+        summary.push(format!("delete {} lossy file(s), after backing them up", plan.removed.len()));
+    }
+    let stamps = plan.upgrades.iter().map(|u| u.to.clone()).collect();
+    let sources: Vec<PathBuf> = plan.upgrades.iter().map(|u| u.file.clone()).collect();
+    let (noop, warnings, destructive) = (plan.is_noop(), plan.warnings.clone(), !plan.removed.is_empty());
+    let planned =
+        Planned::new("upgrade", plan, ()).summary(summary).warnings(warnings).noop(noop).destructive(destructive);
+    copying_onto(planned, &d, stamps, sources, ctx)
+}
+
+impl Operation for crate::upgrade::UpgradePlan {
+    type Request = ();
+    type Report = EditReport;
+
+    fn apply(planned: &Planned<Self>, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<EditReport> {
+        crate::upgrade::apply(&planned.plan, &mut planned.drive(0)?, ctx)
+    }
+}
+
+/// Plan and upgrade in one go, for callers that don't confirm (see [`upgrade_plan`]).
+pub fn upgrade_apply(req: &UpgradeRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
+    upgrade_plan(req, ctx)?.apply(None, ctx)
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct DeleteHistoryRequest {
     pub drive: String,
     /// History lists by name; all of them when empty.
@@ -842,7 +895,15 @@ pub struct PackRequest {
 pub fn pack_plan(req: &PackRequest, ctx: &Ctx<'_>) -> Result<Planned<crate::pack::PackPlan, crate::pack::PackOptions>> {
     let src = resolve_drive(&req.source)?;
     let dst = resolve_drive(&req.target)?;
-    let plan = crate::pack::plan(&src, &dst, &req.options, ctx)?;
+    let mut options = req.options.clone();
+    // Copies for no players named are for those remembered for the source's library.
+    if let Some(t) = options.transcode.as_mut().filter(|t| t.players.is_empty())
+        && let Some(store) = super::registry()
+    {
+        let library = src.state().and_then(|s| s.library_id);
+        t.players = store.player_models()?.for_library(library).0.to_vec();
+    }
+    let plan = crate::pack::plan(&src, &dst, &options, ctx)?;
     let mut summary = vec![format!(
         "pack {} from {} onto {} ({} track(s))",
         plan.playlists.join(", "),
@@ -857,13 +918,26 @@ pub fn pack_plan(req: &PackRequest, ctx: &Ctx<'_>) -> Result<Planned<crate::pack
         plan.deletes.len(),
         bytes(plan.delete_bytes)
     ));
+    if !plan.transcodes.is_empty() {
+        let current = plan.transcodes.iter().filter(|t| t.current).count();
+        summary.push(format!(
+            "pack {} track(s) the players can't play as copies they can: make {} (about {}), keep {current}",
+            plan.transcodes.len(),
+            plan.transcodes.len() - current,
+            bytes(plan.transcode_bytes)
+        ));
+    }
+    if !plan.unplayable.is_empty() {
+        summary.push(format!("{} track(s) stay unplayable on these players", plan.unplayable.len()));
+    }
     let destructive = !plan.deletes.is_empty() || plan.replaces_library;
     let warnings = plan.warnings.clone();
-    Planned::new("pack", plan, req.options.clone())
+    let overwrite_archive = options.overwrite_archive;
+    Planned::new("pack", plan, options)
         .summary(summary)
         .warnings(warnings)
         .destructive(destructive)
-        .overwrite_archive(req.options.overwrite_archive)
+        .overwrite_archive(overwrite_archive)
         .touches(Touched::library(&dst, true))
         .touches(Touched::library(&src, false))
         .guard(None)

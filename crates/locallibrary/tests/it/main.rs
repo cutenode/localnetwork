@@ -67,4 +67,5 @@ mod store;
 mod sync;
 mod tags;
 mod tui_api;
+mod upgrade;
 mod watch;

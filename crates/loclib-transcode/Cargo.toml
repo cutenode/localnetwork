@@ -1,0 +1,32 @@
+[package]
+name = "loclib-transcode"
+description = "Player-safe copies of a lossless DJ library: decide what each CDJ/XDJ plays, and make AIFF, WAV or FLAC copies with cues kept in time"
+readme = "README.md"
+keywords = ["dj", "transcode", "cdj", "rekordbox", "audio"]
+categories = ["multimedia::audio", "multimedia::encoding"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+flacenc = { version = "0.5", default-features = false }
+loclib-equipment.workspace = true
+loclib-mixid.workspace = true
+loclib-progress.workspace = true
+lofty.workspace = true
+rubato = { version = "5", default-features = false }
+schemars = { version = "1.2", default-features = false, features = ["derive", "std"], optional = true }
+serde.workspace = true
+symphonia.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-mixid = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true
+
+[features]
+# `JsonSchema` for the types.
+schemars = ["dep:schemars"]

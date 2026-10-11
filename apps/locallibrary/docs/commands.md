@@ -141,14 +141,14 @@ its drives.
 | --- | --- |
 | `locallibrary playlist [<library>]` | A library's playlist tree (`playlist ls`) |
 | `locallibrary playlist ...` | Create, rename, move, delete, fill, sort, order for mixing and import playlists, see [Editing playlists and tracks](editing.md#editing-playlists-and-tracks) |
-| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), find harmonic matches |
+| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), swap MP3s for lossless files of their recording (`track upgrade`, see [Upgrading to lossless](editing.md#upgrading-to-lossless)), find harmonic matches |
 | `locallibrary tags ...` | My Tags: list, `add`/`untag` tracks, `rename`, `delete` a tag, see [My Tags](editing.md#my-tags) |
 | `locallibrary cues ...` | Hot cues, memory cues and loops: list, set, rename, recolour, delete, copy, see [Cues](editing.md#cues) |
 | `locallibrary art [<library>] ...` | Tracks without artwork (`art missing`), and setting it, see [Cover art](editing.md#cover-art) |
 | `locallibrary edits [list\|replay\|clear] [<library>]` | The edits made to a library; make them again after rekordbox exports over them |
 | `locallibrary smart ...` | Rule-based playlists kept in the store and written to drives, see [Rule-based playlists](editing.md#rule-based-playlists) |
 | `locallibrary merge <source> <target>` | Add the source's missing tracks and playlists to the target library (`--history`: and its history playlists) |
-| `locallibrary pack <library> <drive> --playlist P` | A drive for a set holding only some playlists, see [Drives for a set](editing.md#drives-for-a-set) |
+| `locallibrary pack <library> <drive> --playlist P` | A drive for a set holding only some playlists, with `--transcode` as copies its players play, see [Drives for a set](editing.md#drives-for-a-set) |
 | `locallibrary convert <library> --to onelibrary\|device-library` | Build OneLibrary from `export.pdb` or the reverse; one the drive has gains what it lacks (`--replace` rebuilds it), see [Convert](editing.md#convert) |
 | `locallibrary clean <library>` | Remove useless tracks (rekordbox's bundled demo samples, which pile up with every export) with their files, analysis and playlist entries |
 | `locallibrary settings [<drive>] ...` | The settings profile, or a drive's settings, see [Settings](settings.md) |
@@ -306,6 +306,6 @@ locallibrary playlist delete Home Sam --with-tracks   # after the set: the folde
 **A drive for tonight**
 
 ```bash
-locallibrary pack Home /Volumes/TONIGHT --playlist "Sets/2026/Friday" --playlist Classics
+locallibrary pack Home /Volumes/TONIGHT --playlist "Sets/2026/Friday" --playlist Classics --transcode
 locallibrary check REKORDBOX /Volumes/TONIGHT --players CDJ-3000X,CDJ-2000NXS2
 ```

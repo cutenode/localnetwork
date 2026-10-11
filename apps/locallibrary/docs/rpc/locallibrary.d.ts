@@ -851,6 +851,12 @@ export type ContactReport = {
   playlist: string | null;
 };
 
+/** A lossless container a copy is written in. */
+export type Container =
+  | ("wav" | "flac")
+  /** rekordbox and every player read its ID3 tags. */
+  | "aiff";
+
 export type ConvertPlan = {
   /**
    * The drive already has that database, and it keeps what it has. The counts below are then
@@ -3957,6 +3963,13 @@ export type NewSet = {
 /** No parameters (any object is accepted). */
 export type NoParams = { [key: string]: unknown };
 
+/** A track with a lossless file of its recording that isn't upgraded, and why. */
+export type NotUpgraded = {
+  file: string;
+  track: TrackRef;
+  why: string;
+};
+
 /**
  * An `event` notification's parameters: drives and the store (after `events.subscribe`),
  * requests starting and finishing, and what `watch.start` does.
@@ -4017,8 +4030,8 @@ export type PackPlan = {
   /** Size of the packed library's files. */
   library_bytes: number;
   /**
-   * Space the pack needs on the target: the files it copies, its new databases and the backup
-   * of what it replaces.
+   * Space the pack needs on the target: the files it copies, the copies it makes, its new
+   * databases and the backup of what it replaces.
    */
   needed_bytes: number;
   playlists: string[];
@@ -4028,7 +4041,15 @@ export type PackPlan = {
   target: string;
   target_root: string;
   tracks: number;
+  /** The copies' players and how they're made, as the target will remember them. */
+  transcode: TranscodeOutput | null;
+  /** About how much the copies to make take (not those current already). */
+  transcode_bytes: number;
+  /** Tracks the players can't play, packed as copies they can. */
+  transcodes: PackTranscode[];
   unchanged: number;
+  /** Tracks none of the players play that the pack leaves as they are. */
+  unplayable: PackUnplayable[];
   /** What the target holds that only it has: saved in the store before packing. */
   unsaved: Unsaved | null;
   warnings: string[];
@@ -4049,6 +4070,8 @@ export type PackReport = {
   fingerprint: Hash | null;
   /** The target's state, saved in the store before packing (see [`PackPlan::unsaved`]). */
   saved: SnapshotInfo | null;
+  /** Copies made for the players (see [`PackPlan::transcodes`]). */
+  transcoded: number;
 };
 
 export type PackRequest = {
@@ -4065,6 +4088,33 @@ export type PackRequest = {
   playlists?: string[];
   source: string;
   target: string;
+  /**
+   * Pack tracks the players can't play as lossless copies they can.
+   * Without playlists, as the target was last packed.
+   */
+  transcode?: Transcode | null;
+};
+
+/** A track packed as a copy its players play. */
+export type PackTranscode = {
+  /** A copy of the same audio by the same recipe is on the target already, and stays. */
+  current: boolean;
+  /** The source's audio file and the copy's, as keys. */
+  from: string;
+  /** What the copy is (`aiff-48000-24-tpdf-v1`): container, rate, depth, dither, version. */
+  recipe: string;
+  /** The copy's size: estimated, or what it is when `current`. */
+  size: number;
+  to: string;
+  track: TrackRef;
+  /** The players that don't play the source, and why. */
+  why: string;
+};
+
+/** A track none of the players play that packing leaves as it is. */
+export type PackUnplayable = {
+  track: TrackRef;
+  why: string;
 };
 
 /** One layer of a [`PackedWaveform`]. */
@@ -6890,6 +6940,32 @@ export type TracksQuery = {
   sort?: string | null;
 };
 
+/** Which players a packed drive's copies are for, and how they're made. */
+export type Transcode = {
+  /** The container copies are written in: AIFF unless given. */
+  container?: Container;
+  /**
+   * Also decode lossy files the players can't play (an MP3 at 22.05 kHz) into lossless copies:
+   * bigger, but no further loss. Lossy files are never encoded lossy again.
+   */
+  decode_lossy?: boolean;
+  /** Player models (see `players models`); none: the ones remembered for the source's library. */
+  players?: string[];
+};
+
+/** Which players a packed drive's copies are for, and how they're made. */
+export type TranscodeOutput = {
+  /** The container copies are written in: AIFF unless given. */
+  container: Container;
+  /**
+   * Also decode lossy files the players can't play (an MP3 at 22.05 kHz) into lossless copies:
+   * bigger, but no further loss. Lossy files are never encoded lossy again.
+   */
+  decode_lossy: boolean;
+  /** Player models (see `players models`); none: the ones remembered for the source's library. */
+  players: string[];
+};
+
 /** The change from one play to the next. */
 export type Transition = {
   /** When the incoming track is first heard. */
@@ -7028,6 +7104,11 @@ export type Unloadable = {
   sample_rate?: number | null;
   /** One per audio file. */
   tracks: TrackRef[];
+  /**
+   * The files are lossless, so packing them as lossless copies the player plays fixes this
+   * (see [`crate::pack::Transcode`]).
+   */
+  transcodable: boolean;
 };
 
 /** How a model gets on with a file. */
@@ -7070,6 +7151,50 @@ export type UpdateCue = {
   color?: string | null;
   cue: CueRef;
   name?: string | null;
+};
+
+/** A track pointed at a lossless file of its recording. */
+export type Upgrade = {
+  /** The lossless file found, on this computer. */
+  file: string;
+  /** The file is on the drive already (left by an upgrade since undone): it isn't copied. */
+  on_drive: boolean;
+  /** How much later its cues and beat grid fall in the new file (ms; earlier when negative). */
+  shift_ms: number;
+  size: number;
+  /** Where it goes on the drive (a key): beside the track's file. */
+  to: string;
+  track: TrackRef;
+};
+
+export type UpgradePlan = {
+  copy_bytes: number;
+  drive: string;
+  fits: boolean;
+  free_space: number | null;
+  /** Space for the copies, the backup and the new databases. */
+  needed_bytes: number;
+  not_upgraded: NotUpgraded[];
+  /** Lossy files deleted (with `remove_old`), as keys. */
+  removed: string[];
+  root: string;
+  /** Lossy tracks with no lossless file of their recording in the folders. */
+  unmatched: number;
+  upgrades: Upgrade[];
+  warnings: string[];
+};
+
+export type UpgradeRequest = {
+  drive: string;
+  /** Folders of lossless files (on this computer or another drive), with everything below them. */
+  folders: string[];
+  /**
+   * The players the drive is for: a lossless file one of them can't play isn't used. None: the
+   * ones remembered for the drive's library (none remembered: not checked).
+   */
+  players?: string[];
+  /** Delete the lossy files the tracks used (they're backed up first). */
+  remove_old?: boolean;
 };
 
 export type Verdict =
@@ -7520,6 +7645,10 @@ export interface Methods {
   "relocate.plan": { params: RelocateRequest & WriteOptions; result: RelocatePlan & PlanFields };
   /** apply method; paired with `relocate.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "relocate.apply": { params: ApplyPlan | (RelocateRequest & WriteOptions); result: EditReport };
+  /** plan method; paired with `upgrade.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "upgrade.plan": { params: UpgradeRequest & WriteOptions; result: UpgradePlan & PlanFields };
+  /** apply method; paired with `upgrade.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "upgrade.apply": { params: ApplyPlan | (UpgradeRequest & WriteOptions); result: EditReport };
   /** plan method; paired with `history.delete.apply`; can delete or overwrite something */
   "history.delete.plan": { params: DeleteHistoryRequest & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `history.delete.plan`; can delete or overwrite something */
