@@ -696,6 +696,11 @@ export type CollectionExportPlan = {
   free_space: number | null;
   /** Size of the exported library's files. */
   library_bytes: number;
+  /**
+   * The folder exported to was made for this export (see
+   * [`crate::api::collection_export_plan`]): a caller that doesn't apply the plan takes it away.
+   */
+  made_folder: boolean;
   /** Tracks left out because their audio isn't on this computer ("Artist - Title"). */
   missing: string[];
   /**

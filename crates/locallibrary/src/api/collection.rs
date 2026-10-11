@@ -1,7 +1,7 @@
 //! rekordbox's own collection (`master.db`) on this computer: read only, what a drive lacks
 //! against it, and exporting it to a drive or folder.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -157,8 +157,20 @@ pub fn collection_export_plan(
     ctx: &Ctx<'_>,
 ) -> Result<Planned<CollectionExportPlan, CollectionExportOptions>> {
     let collection = open_collection(&req.collection)?;
-    let d = resolve_drive(&req.drive)?;
-    let plan = collection_export::plan(&collection, &CloudFolders::this_computer(), &d, &req.options, ctx)?;
+    let made = make_folder(&req.drive)?;
+    let planned = resolve_drive(&req.drive).and_then(|d| {
+        Ok((collection_export::plan(&collection, &CloudFolders::this_computer(), &d, &req.options, ctx)?, d))
+    });
+    let (mut plan, d) = match planned {
+        Ok(p) => p,
+        Err(e) => {
+            if let Some(dir) = &made {
+                let _ = std::fs::remove_dir(dir);
+            }
+            return Err(e);
+        }
+    };
+    plan.made_folder = made.is_some();
     let what = match plan.playlists.as_slice() {
         [] => "rekordbox's collection".to_string(),
         p => p.join(", "),
@@ -192,6 +204,24 @@ pub fn collection_export_plan(
         .touches(Touched::library(&d, true))
         .touches(db)
         .guard(None)
+}
+
+/// A folder `spec` names that isn't there yet, made to export into; not the folders above it, as a
+/// missing `/Volumes/USB` means a drive that isn't mounted.
+fn make_folder(spec: &str) -> Result<Option<PathBuf>> {
+    let path = Path::new(spec);
+    let path_like = path.is_absolute() || spec.contains(['/', '\\']) || spec.starts_with('.');
+    if !path_like || path.exists() {
+        return Ok(None);
+    }
+    match std::fs::create_dir(path) {
+        Ok(()) => Ok(Some(path.to_path_buf())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(Error::NotFound(format!(
+            "{}, the folder to export into (is its drive mounted?)",
+            path.parent().unwrap_or(path).display()
+        ))),
+        Err(e) => Err(Error::Io { path: path.to_path_buf(), source: e }),
+    }
 }
 
 impl Operation for CollectionExportPlan {

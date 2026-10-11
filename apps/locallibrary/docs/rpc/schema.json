@@ -2102,6 +2102,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "made_folder": {
+          "description": "The folder exported to was made for this export (see\n[`crate::api::collection_export_plan`]): a caller that doesn't apply the plan takes it away.",
+          "type": "boolean"
+        },
         "missing": {
           "description": "Tracks left out because their audio isn't on this computer (\"Artist - Title\").",
           "items": {
@@ -2199,6 +2203,7 @@
         "syncing",
         "unreadable",
         "replaces_library",
+        "made_folder",
         "unsaved",
         "needed_bytes",
         "free_space",

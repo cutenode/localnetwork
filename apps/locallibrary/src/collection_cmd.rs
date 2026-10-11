@@ -212,6 +212,10 @@ fn export(
         false => format!("Export to {}?", plan.target),
     };
     if let Some(o) = out.decide(dry_run, &question) {
+        // A folder made for the export goes again, as nothing was written to it.
+        if plan.made_folder {
+            let _ = std::fs::remove_dir(&plan.target_root);
+        }
         return Ok(out.not_applied(&plan, o));
     }
     let report = plan.apply(store, ctx)?;

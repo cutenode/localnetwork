@@ -33,7 +33,8 @@ should rekordbox change its key, `LOCALLIBRARY_MASTERDB_KEY` gives the new one.
 
 `collection export` writes the collection to a drive or a folder the way rekordbox's Export does,
 so you can get your library onto this computer's store, or onto a stick, without rekordbox and
-without a drive it exported to. A folder exported to works like a drive: `locallibrary pull
+without a drive it exported to. A folder that isn't there yet is made (not the folders above it, so
+an unplugged drive isn't mistaken for one), and a folder exported to works like a drive: `locallibrary pull
 ~/rekordbox-export` saves it in the store, and `library push` writes it to any USB drive later.
 Exporting again copies only what changed, and a stopped export finishes when you run it again.
 

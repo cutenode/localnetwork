@@ -153,8 +153,13 @@ fn the_collection_is_exported_to_a_folder_and_pulled() {
             .execute("UPDATE djmdContent SET FolderPath = ?1 WHERE ID = ?2", (path(&music.join(name)), id))
             .unwrap();
     }
+    // The folder isn't there yet: a dry run leaves it that way, an export makes it.
     let folder = env.outside("rekordbox-export");
-    std::fs::create_dir_all(&folder).unwrap();
+    let dry = collection(&env, &db, &["export", path(&folder), "--dry-run"]);
+    assert!(dry.contains("2 track(s), 1 playlist(s)"), "{dry}");
+    assert!(!folder.exists(), "a dry run makes nothing");
+    let r = env.run(&["collection", "--db", path(&db), "export", path(&env.outside("gone/rekordbox-export"))]);
+    assert!(r.code != 0 && r.err.contains("the folder to export into (is its drive mounted?)"), "{}", r.err);
 
     let out = collection(&env, &db, &["export", path(&folder), "--yes"]);
     assert!(out.contains("rekordbox's collection -> rekordbox-export: 2 track(s), 1 playlist(s)"), "{out}");

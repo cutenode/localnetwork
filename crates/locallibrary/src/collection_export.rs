@@ -129,6 +129,9 @@ pub struct CollectionExportPlan {
     /// The target holds a library that wasn't exported from the collection, or files the export
     /// removes though it holds no library.
     pub replaces_library: bool,
+    /// The folder exported to was made for this export (see
+    /// [`crate::api::collection_export_plan`]): a caller that doesn't apply the plan takes it away.
+    pub made_folder: bool,
     /// What the target holds that the export replaces and only it has (history lists players
     /// recorded, changes since the last export): saved in the store first.
     pub unsaved: Option<Unsaved>,
@@ -297,6 +300,7 @@ pub fn plan(
         syncing: layout.syncing,
         unreadable: layout.unreadable,
         replaces_library,
+        made_folder: false,
         unsaved,
         needed_bytes: written.needed_bytes,
         free_space: written.free_space,
