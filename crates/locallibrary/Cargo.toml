@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [features]
-default = ["account"]
+default = ["account", "peers"]
 # The Atmosphere account (AT Protocol OAuth sign-in, the keychain) and publishing to it: the
 # `atmosphere` and `publish` modules and the `account_*` and `*_publish_*` API. Most of the
 # library's dependencies (an HTTP client, an async runtime, TLS, DNS) are for this alone.
@@ -23,6 +23,10 @@ account = [
     "dep:reqwest",
     "dep:tokio",
 ]
+# Fetching snapshots from another computer's store (`store serve`, `store fetch`): iroh's
+# encrypted QUIC connections, which reach the other computer through n0's relays when they can't
+# connect directly, or stay on the local network.
+peers = ["dep:iroh", "dep:iroh-tickets", "dep:tokio"]
 
 [dependencies]
 rekordbox-pdb.workspace = true
@@ -60,7 +64,7 @@ strsim.workspace = true
 symphonia.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["macros", "sync"] }
 uuid.workspace = true
 walkdir.workspace = true
 rustc-hash.workspace = true
@@ -75,6 +79,8 @@ loclib-interop = { workspace = true, features = ["schemars"] }
 base64.workspace = true
 loclib-analysis = { workspace = true, features = ["schemars"] }
 loclib-transcode = { workspace = true, features = ["schemars"] }
+iroh = { version = "1.3", optional = true }
+iroh-tickets = { version = "1", optional = true }
 
 [dev-dependencies]
 hegeltest.workspace = true

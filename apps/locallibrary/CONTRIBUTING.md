@@ -38,7 +38,7 @@ skips changes to Markdown alone.
 release builds use (1.96.1, with clippy and rustfmt), and rustup installs it the first time
 cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
 file, and its clippy may disagree with CI's. The oldest Rust locallibrary supports (its MSRV) is
-`rust-version` in Cargo.toml, 1.89; check it with `cargo +1.89 check --workspace --locked`.
+`rust-version` in Cargo.toml, 1.91; check it with `cargo +1.91 check --workspace --locked`.
 Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
 finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
 

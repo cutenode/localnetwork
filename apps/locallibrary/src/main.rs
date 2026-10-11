@@ -672,6 +672,31 @@ enum StoreCommand {
     },
     /// Where the store has been copied, when, and whether each copy is up to date
     Copies,
+    /// Let another computer fetch this store's snapshots: prints a code to give it, and serves
+    /// until Ctrl-C
+    #[cfg(feature = "peers")]
+    Serve {
+        /// Stay on the local network (no relays: only a computer that can reach this one directly
+        /// can fetch)
+        #[arg(long)]
+        local: bool,
+    },
+    /// Fetch the snapshots another computer's store has that this one lacks (run `store serve`
+    /// there for the code)
+    #[cfg(feature = "peers")]
+    Fetch {
+        /// The code `store serve` printed
+        code: String,
+        /// Library to fetch, by its name there (repeatable) [default: all of them]
+        #[arg(long = "library", value_name = "LIBRARY")]
+        libraries: Vec<String>,
+        /// Stay on the local network (no relays)
+        #[arg(long)]
+        local: bool,
+        /// Show what would be copied without copying
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// `settings`: with no subcommand, the profile; with a drive, its settings.
@@ -1324,6 +1349,20 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
                     return store_cmd::copy(&store, api::StoreCopyRequest { path: dir, options }, out, &ctx);
                 }
                 StoreCommand::Copies => return store_cmd::copies(&store, out),
+                #[cfg(feature = "peers")]
+                StoreCommand::Serve { local } => {
+                    return store_cmd::serve(
+                        &store,
+                        &locallibrary::peers::ServeOptions { local_only: local },
+                        out,
+                        &ctx,
+                    );
+                }
+                #[cfg(feature = "peers")]
+                StoreCommand::Fetch { code, libraries, local, dry_run } => {
+                    let options = locallibrary::peers::FetchOptions { libraries, local_only: local, dry_run };
+                    return store_cmd::fetch(&store, &code, &options, out, &ctx);
+                }
                 StoreCommand::Verify => {
                     let r = store.verify(&ctx)?;
                     let bad = !r.corrupt.is_empty() || !r.missing.is_empty();

@@ -80,7 +80,7 @@ so they can be offered upstream.
 20. `allocate_page` refuses a table's next free page that its last page doesn't lead to, or that
     lies more than 64 pages past the end of the file (`PdbError::Malformed`), instead of growing
     the file to wherever a corrupt header field points.
-21. `rust-version` is the workspace's (1.89) instead of upstream's 1.73: Cargo's resolver picks
+21. `rust-version` is the workspace's (1.91) instead of upstream's 1.73: Cargo's resolver picks
     dependency versions for the lowest `rust-version` in the workspace, so 1.73 held the
     workspace's dependencies back.
 22. Track format codes: `set_track_field` takes `file_type` (the u16 at 0x5a), so a track pointed

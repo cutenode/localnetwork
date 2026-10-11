@@ -97,6 +97,8 @@ pub mod opener;
 pub mod pack;
 pub mod paths;
 pub mod pdb;
+#[cfg(feature = "peers")]
+pub mod peers;
 pub mod player;
 pub mod plays;
 pub mod probe;

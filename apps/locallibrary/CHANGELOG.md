@@ -38,6 +38,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   replay` and exports for other software look at OneLibrary too, and `pack` keeps a drive whose
   OneLibrary can't be read in the store before packing over it, and refuses a source whose
   OneLibrary can't be read rather than leave the packed drive without one.
+- **Between computers.** `store serve` prints a code and `store fetch <code>` on another
+  computer copies the snapshots and files its store lacks over the network (iroh, directly or
+  through relays, or `--local` for the local network alone), checking each file's hash; libraries
+  it lacks are added and ones it has move to the other's newer snapshot.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
   order for mixing, import), track details, ratings and colours, My Tags, hot cues, memory cues
   and loops, replacing duplicates and deleting tracks, with a backup before every change and a

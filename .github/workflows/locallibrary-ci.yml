@@ -103,15 +103,15 @@ jobs:
     timeout-minutes: 30
     env:
       # Wins over rust-toolchain.toml in every step, rust-cache's included.
-      RUSTUP_TOOLCHAIN: "1.89"
+      RUSTUP_TOOLCHAIN: "1.91"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup toolchain install 1.89 --profile minimal
+      - run: rustup toolchain install 1.91 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - run: cargo +1.89 check --workspace --locked
+      - run: cargo +1.91 check --workspace --locked
 
   docs:
     runs-on: ubuntu-latest

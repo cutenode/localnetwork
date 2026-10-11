@@ -127,6 +127,7 @@ its drives.
 | `locallibrary library push <drive> [--snapshot ID]` | Write the latest (or any) snapshot onto a drive |
 | `locallibrary library prune [--keep-last N] ...` | Remove old snapshots (as `store prune`), see [Pruning old snapshots](store.md#pruning-old-snapshots) |
 | `locallibrary store [info\|gc\|verify\|label\|unlabel\|prune]` | Store size, garbage collection, integrity check, snapshot labels, removing old snapshots |
+| `locallibrary store serve` / `store fetch <code>` | Copy snapshots between computers over the network: one serves its store, the other fetches what it lacks, see [From another computer](store.md#from-another-computer) |
 | `locallibrary store copy <dir>` / `store copies` | Copy the store somewhere else (a NAS, another disk, a cloud-synced folder), only what's new; where copies were made, see [Off-site copies](store.md#off-site-copies) |
 | `locallibrary diff <a> <b> [--playlist P]` | Playlist entries added, removed and moved between libraries (a library's newest drive plugged in, else its latest snapshot), drives or `snapshot:<id>`s |
 | `locallibrary diff <a> <b> --summary` | Which drive is newer, the evidence, and the differences (in both databases) |

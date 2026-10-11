@@ -91,6 +91,7 @@ Every change shows what it will do and asks first. It ends with the commands you
 | You want to see your library, its drives and whether they're up to date | `locallibrary status` |
 | rekordbox just exported to your primary drive | `locallibrary refresh` (puts back your edits and settings, saves it in the store; `--sync` also updates your other drives) |
 | You want every drive to match the newest one | `locallibrary sync` |
+| You want your library on another computer | `locallibrary store serve` here, then `locallibrary store fetch <code>` there |
 | You want every drive saved in the store as soon as it's plugged in | `locallibrary watch --install` |
 | It's the night before a set | `locallibrary prep` (saves, syncs, checks and ejects your library's drives) |
 | You want to check your drives for a particular player | `locallibrary check --players CDJ-3000X,CDJ-2000NXS2` |

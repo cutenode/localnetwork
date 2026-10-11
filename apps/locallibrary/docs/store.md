@@ -107,6 +107,32 @@ The plan is shown first, and exactly that is removed (a pull or label in between
 again); history still runs through what was removed (`library log` skips it), and a removed
 snapshot's id says when it was pruned.
 
+## From another computer
+
+```bash
+locallibrary store serve                  # on the computer that has the library: prints a code
+locallibrary store fetch <code>           # on the other one: copies what this store lacks
+locallibrary store fetch <code> --library Home --dry-run
+locallibrary library push REKORDBOX       # then onto a drive, as from any snapshot
+```
+
+`store serve` lets other computers fetch the store's snapshots until you press Ctrl-C. It prints a code to give the other computer; anyone with the code can read the
+store's libraries while it's served, and a new code is made each time. It doesn't need the drives,
+and it only reads the store. `store fetch` copies the snapshots it lacks and the files they list
+that it lacks, each checked against its hash as it arrives, so a fetch that stops part way picks up
+where it left off next time.
+
+The computers connect directly when they can, on the same network or across the internet, and
+through n0's public relays when they can't (the connection is encrypted end to end either way).
+`--local` on both keeps it on the local network, with no relays.
+
+A library this store doesn't have is added under the other computer's name (with a number when
+the name is taken here, as when both computers started a library of that name on their own). One it
+has moves to the other computer's latest snapshot when that's newer. When the library changed on
+both computers since they last matched, this store keeps its own latest, and `store fetch` names
+the other's snapshot so you can `library push --snapshot` it. Labels come along unless the name is
+taken here.
+
 ## Off-site copies
 
 ```bash

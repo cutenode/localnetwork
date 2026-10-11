@@ -19,12 +19,14 @@ doc = false
 formula = "locallibrary"
 
 [features]
-default = ["account", "tui", "playback"]
+default = ["account", "tui", "playback", "peers"]
 # The Atmosphere account: `account`, publishing (`profile publish`, `sets publish`, `settings
 # publish`, `settings import --from-handle`), the `account.*` and `*.publish.*` RPC methods and
 # signing in from the player's Profile view. Most of the dependencies (an HTTP client, an async
 # runtime, TLS, the keychain) are for this alone.
 account = ["locallibrary/account"]
+# `store serve` and `store fetch`: copying snapshots between computers over the network.
+peers = ["locallibrary/peers"]
 # The interactive player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
 tui = ["dep:ratatui", "dep:rodio", "dep:rustfft", "dep:loclib-waveform"]
 # The player's audio output: cpal, and ALSA on Linux. Without it the player browses, edits and
