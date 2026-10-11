@@ -104,6 +104,8 @@ pub enum LineageOp {
     Edit,
     /// A subset of another drive's library written to this one (see [`crate::pack`]).
     Pack,
+    /// rekordbox's collection written to this drive (see [`crate::collection_export`]).
+    Export,
     /// Damaged files rewritten from a known-good copy (see [`crate::scrub`]).
     Repair,
     /// An operation from a newer version of locallibrary.
@@ -134,6 +136,7 @@ impl PendingOp {
             LineageOp::Push => Some("library push"),
             LineageOp::Pull => Some("pull"),
             LineageOp::Pack => Some("pack"),
+            LineageOp::Export => Some("collection export"),
             LineageOp::Merge => Some("merge"),
             LineageOp::Clean => Some("clean"),
             LineageOp::Convert => Some("convert"),
@@ -153,6 +156,7 @@ impl PendingOp {
         match (self.op, &self.backup) {
             (LineageOp::Sync | LineageOp::Push, _) => "sync onto it again to finish it",
             (LineageOp::Pack, _) => "pack it again to finish it",
+            (LineageOp::Export, _) => "export the collection to it again to finish it",
             (_, Some(_)) => "`locallibrary undo` puts back the backup it made",
             _ => "run it again, or make any other change to the drive, to finish it",
         }
@@ -625,7 +629,7 @@ impl Device {
     /// library is half written.
     pub fn begin(&mut self, op: LineageOp, description: impl Into<String>, backup: Option<String>) -> Result<()> {
         self.reload_state()?;
-        let copies = |op| matches!(op, LineageOp::Sync | LineageOp::Push | LineageOp::Pack);
+        let copies = |op| matches!(op, LineageOp::Sync | LineageOp::Push | LineageOp::Pack | LineageOp::Export);
         let (started, player) = match self.state.as_ref().and_then(|s| s.pending.as_ref()) {
             None => (Utc::now(), None),
             Some(p) if copies(op) || op == LineageOp::Restore || (p.backup.is_none() && !copies(p.op)) => {

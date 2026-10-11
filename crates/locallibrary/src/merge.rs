@@ -569,7 +569,7 @@ fn plan_history(src: &Library, dst: &Library, matches: &FxHashMap<u32, u32>, new
 
 /// `key`, or `key` with ` (2)`, ` (3)`... before the extension, whichever is free: not `taken`
 /// and not `on_disk`.
-fn unique_key(key: &str, taken: &mut FxHashSet<String>, on_disk: &dyn Fn(&str) -> bool) -> String {
+pub(crate) fn unique_key(key: &str, taken: &mut FxHashSet<String>, on_disk: &dyn Fn(&str) -> bool) -> String {
     let mut candidate = key.to_string();
     let (stem, ext) = match key.rsplit_once('.') {
         Some((s, e)) if !e.contains('/') => (s.to_string(), format!(".{e}")),
@@ -613,11 +613,7 @@ fn plan_analysis(
     let mut target_dir = dir.to_string();
     let mut salt = 0u32;
     while dir_taken(&target_dir, taken) {
-        let h = Hash::of(format!("{target_audio}\0{salt}").as_bytes());
-        let b = h.as_bytes();
-        let p = u16::from_be_bytes([b[0], b[1]]) & 0x0fff;
-        let q = u32::from_be_bytes([b[2], b[3], b[4], b[5]]);
-        target_dir = format!("PIONEER/USBANLZ/P{p:03X}/{q:08X}");
+        target_dir = analysis_dir(target_audio, salt);
         salt += 1;
     }
     let pairs: Vec<(String, String)> =
@@ -627,6 +623,16 @@ fn plan_analysis(
     }
     let analyze_path = format!("{target_dir}/{file}");
     (pairs, analyze_path)
+}
+
+/// An analysis folder for the audio file `audio` (a key), as rekordbox lays them out
+/// (`PIONEER/USBANLZ/Pxxx/xxxxxxxx`): from a hash of its path, another for each `salt`.
+pub(crate) fn analysis_dir(audio: &str, salt: u32) -> String {
+    let h = Hash::of(format!("{audio}\0{salt}").as_bytes());
+    let b = h.as_bytes();
+    let p = u16::from_be_bytes([b[0], b[1]]) & 0x0fff;
+    let q = u32::from_be_bytes([b[2], b[3], b[4], b[5]]);
+    format!("PIONEER/USBANLZ/P{p:03X}/{q:08X}")
 }
 
 fn unique_top_level_name(lib: &Library, base: &str) -> String {

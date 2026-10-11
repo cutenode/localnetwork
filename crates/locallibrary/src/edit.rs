@@ -2346,6 +2346,26 @@ pub(crate) struct Subset {
 /// The source drive's databases holding only `playlists` (paths of playlists or folders; a
 /// folder brings everything in it), the folders above them and the tracks they use, plus the
 /// history lists when `history`. Nothing on the drive changes.
+/// The playlists and folders `specs` name in `lib`, with everything below them and the folders
+/// above them.
+pub(crate) fn chosen_nodes(lib: &Library, specs: &[String]) -> Result<FxHashSet<u32>> {
+    let mut keep: FxHashSet<u32> = FxHashSet::default();
+    for spec in specs {
+        let p = playlist(lib, spec)?;
+        let mut queue = vec![p.id];
+        while let Some(id) = queue.pop() {
+            if keep.insert(id) {
+                queue.extend(lib.children(Some(id)).iter().map(|c| c.id));
+            }
+        }
+        let mut up = p.parent_id;
+        while let Some(id) = up.filter(|id| keep.insert(*id)) {
+            up = lib.playlist(id).and_then(|q| q.parent_id);
+        }
+    }
+    Ok(keep)
+}
+
 pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: &Ctx<'_>) -> Result<Subset> {
     let mut warnings = Vec::new();
     let dbs = open_databases(device, &mut warnings)?;
@@ -2356,21 +2376,7 @@ pub(crate) fn subset(device: &Device, playlists: &[String], history: bool, ctx: 
     if playlists.is_empty() {
         return Err(Error::invalid("choose at least one playlist or folder to pack"));
     }
-    // Chosen nodes with everything below them, and the folders above them.
-    let mut keep: FxHashSet<u32> = FxHashSet::default();
-    for spec in playlists {
-        let p = playlist(&primary, spec)?;
-        let mut queue = vec![p.id];
-        while let Some(id) = queue.pop() {
-            if keep.insert(id) {
-                queue.extend(primary.children(Some(id)).iter().map(|c| c.id));
-            }
-        }
-        let mut up = p.parent_id;
-        while let Some(id) = up.filter(|id| keep.insert(*id)) {
-            up = primary.playlist(id).and_then(|q| q.parent_id);
-        }
-    }
+    let keep = chosen_nodes(&primary, playlists)?;
     let mut ops = Vec::new();
     // Whole subtrees that go: a dropped node whose parent stays (or that is top level).
     for p in primary.playlists.iter().filter(|p| !keep.contains(&p.id)) {

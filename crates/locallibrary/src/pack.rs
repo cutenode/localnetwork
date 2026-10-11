@@ -211,7 +211,7 @@ pub fn plan(source: &Device, target: &Device, opts: &PackOptions, ctx: &Ctx<'_>)
     let scanned = target.scan_fingerprinted(target_lib.as_ref(), ctx)?;
     let unsaved = unsaved(target, &scanned, same_source, &subset)?;
     let databases = Databases { pdb: subset.pdb.clone(), ext: subset.ext.clone(), plus: subset.plus.clone() };
-    let written = library_write::plan(target, &scanned.tree, &wanted, &databases, opts.keep_extra);
+    let written = library_write::plan(target, &scanned.tree, &wanted, databases.written(), opts.keep_extra);
     let replaces_library = target.has_export() && !same_source;
     if replaces_library {
         warnings.push(format!(
@@ -394,6 +394,7 @@ pub fn apply(
         source_fingerprint,
     };
     fsutil::write_json_atomic(&target.state_dir().join(PACK_FILE), &rec)?;
+    crate::collection_export::forget(target)?;
     edit::journal::forget(target)?;
     if report.backup.is_some() {
         backup::prune(target)?;

@@ -48,6 +48,13 @@ impl Source {
     pub(crate) fn file(path: PathBuf, size: u64, mtime: i64) -> Source {
         Source { path, size, mtime, audio_path: None }
     }
+
+    /// An analysis file copied with `audio_path` written into it: its size on the drive is
+    /// worked out from its contents.
+    pub(crate) fn analysis(path: PathBuf, mtime: i64, audio_path: &str) -> Result<Source> {
+        let size = analysis_bytes(&path, audio_path)?.len() as u64;
+        Ok(Source { path, size, mtime, audio_path: Some(audio_path.to_string()) })
+    }
 }
 
 fn analysis_bytes(path: &Path, audio_path: &str) -> Result<Vec<u8>> {
@@ -79,13 +86,30 @@ pub(crate) struct Databases {
 }
 
 impl Databases {
-    /// The database files written (lower-cased keys), which the drive keeps.
-    fn written(&self) -> FxHashSet<String> {
+    /// What [`plan`] takes of them: which are written, and their size.
+    pub(crate) fn written(&self) -> Written {
+        let size = |b: &Option<Vec<u8>>| b.as_ref().map(|b| b.len() as u64);
+        Written { pdb: size(&self.pdb), ext: size(&self.ext), plus: size(&self.plus) }
+    }
+}
+
+/// The databases a write makes, by size (an estimate, when they're built after the files are
+/// copied); `None` for one it doesn't make.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Written {
+    pub(crate) pdb: Option<u64>,
+    pub(crate) ext: Option<u64>,
+    pub(crate) plus: Option<u64>,
+}
+
+impl Written {
+    /// Their files (lower-cased keys), which the drive keeps.
+    fn keys(&self) -> FxHashSet<String> {
         [
-            self.pdb.as_ref().map(|_| fold(paths::EXPORT_PDB)),
-            self.ext.as_ref().map(|_| fold(paths::EXPORT_EXT_PDB)),
-            self.plus.as_ref().map(|_| fold(paths::LIBRARY_PLUS_DB)),
-            self.plus.as_ref().map(|_| fold(paths::LIBRARY_PLUS_WAL)),
+            self.pdb.map(|_| fold(paths::EXPORT_PDB)),
+            self.ext.map(|_| fold(paths::EXPORT_EXT_PDB)),
+            self.plus.map(|_| fold(paths::LIBRARY_PLUS_DB)),
+            self.plus.map(|_| fold(paths::LIBRARY_PLUS_WAL)),
         ]
         .into_iter()
         .flatten()
@@ -115,13 +139,13 @@ pub(crate) struct Planned {
     pub(crate) backed_up: Vec<String>,
 }
 
-/// Plan writing `wanted` (the library's files by key) and `databases` to `target`, whose files are
-/// `tree`. Library files the target has that `wanted` doesn't are removed unless `keep_extra`.
+/// Plan writing `wanted` (the library's files by key) and the `databases` to `target`, whose files
+/// are `tree`. Library files the target has that `wanted` doesn't are removed unless `keep_extra`.
 pub(crate) fn plan(
     target: &Device,
     tree: &FileTree,
     wanted: &IndexMap<String, Source>,
-    databases: &Databases,
+    databases: Written,
     keep_extra: bool,
 ) -> Planned {
     let by_fold: FxHashMap<String, &crate::tree::FileEntry> =
@@ -148,7 +172,7 @@ pub(crate) fn plan(
             }
         }
     }
-    let written = databases.written();
+    let written = databases.keys();
     let wanted_folds: FxHashSet<String> = wanted.keys().map(|k| fold(k)).collect();
     if !keep_extra {
         out.deletes = tree
@@ -170,10 +194,7 @@ pub(crate) fn plan(
         .extend(out.deletes.iter().filter(|d| paths::classify(&d.path).is_some_and(backs_up)).map(|d| d.path.clone()));
     let cluster = fsutil::cluster_size(target.root());
     let round = |n: u64| n.div_ceil(cluster) * cluster;
-    let db_bytes = [&databases.pdb, &databases.ext, &databases.plus]
-        .into_iter()
-        .map(|b| round(b.as_ref().map_or(0, |b| b.len() as u64)))
-        .sum::<u64>();
+    let db_bytes = [databases.pdb, databases.ext, databases.plus].into_iter().flatten().map(round).sum::<u64>();
     out.copy_bytes = out.copies.iter().map(|c| c.size).sum();
     out.delete_bytes = out.deletes.iter().map(|d| d.size).sum();
     out.library_bytes = wanted.values().map(|s| s.size).sum::<u64>() + db_bytes;

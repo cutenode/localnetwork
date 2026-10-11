@@ -8,6 +8,8 @@ locallibrary collection tracks -f "bpm:>=128 tag:Situation/Peak" --sort -rating
 locallibrary collection playlists
 locallibrary collection diff Home               # what Home lacks against the collection
 locallibrary collection --db ~/old/master.db info
+locallibrary collection export ~/rekordbox-export --dry-run         # the collection as a drive, in a folder
+locallibrary collection export REKORDBOX --playlist Sets/Friday     # some playlists, onto a drive
 ```
 
 rekordbox 6 and 7 keep the collection on the computer in `master.db`
@@ -26,6 +28,35 @@ title and length, and shows (with `+`) the tracks, playlists and playlist entrie
 lacks, (with `-`) what only the drive has, and the tracks whose details differ, such as a rating
 changed since the last export. `--db` (or `LOCALLIBRARY_MASTERDB`) reads another `master.db`;
 should rekordbox change its key, `LOCALLIBRARY_MASTERDB_KEY` gives the new one.
+
+### Exporting it without rekordbox
+
+`collection export` writes the collection to a drive or a folder the way rekordbox's Export does,
+so you can get your library onto this computer's store, or onto a stick, without rekordbox and
+without a drive it exported to. A folder exported to works like a drive: `locallibrary pull
+~/rekordbox-export` saves it in the store, and `library push` writes it to any USB drive later.
+Exporting again copies only what changed, and a stopped export finishes when you run it again.
+
+It exports every track and playlist, or the playlists you name (`--playlist`, repeatable, with the
+tracks they use), which it remembers for next time. Audio goes in `Contents/<artist>/<album>/`, and
+each track gets the analysis files rekordbox made on this computer (beat grid, waveforms, cues,
+phrases), with artwork and My Tags. A few things don't come along:
+
+- intelligent playlists, whose rules aren't read;
+- history lists from rekordbox's own History;
+- My Tags on players that read `export.pdb` (CDJ-3000 and older): `exportExt.pdb` isn't made, so
+  only OneLibrary players show them.
+
+With Cloud Library Sync on, tracks kept in Dropbox or Google Drive are read from the folder
+rekordbox records for the service, and the plan says how many are online only and download as
+they're copied. A track whose audio isn't on this computer is left out, and one whose analysis
+Cloud Library Sync hasn't finished bringing over is exported as it is; the plan names both. So on
+a second computer signed in to the same rekordbox account, `collection export` gets you the
+library with no drive at all.
+
+A drive holding a library that wasn't exported from the collection is only written over with
+`--replace`. History lists players recorded on the target are saved in the store first, and its
+databases, analysis and artwork are backed up, so `undo` takes the export back.
 
 ## Other DJ software
 

@@ -1,5 +1,5 @@
-//! rekordbox's own collection (`master.db`) on this computer, read only, and what a drive lacks
-//! against it.
+//! rekordbox's own collection (`master.db`) on this computer: read only, what a drive lacks
+//! against it, and exporting it to a drive or folder.
 
 use std::path::PathBuf;
 
@@ -7,8 +7,12 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::resolve_drive;
-use crate::masterdb::{self, Collection, CollectionInfo, DriveDiff, TagCategory};
+use crate::collection_export::{self, CollectionExportOptions, CollectionExportPlan, CollectionExportReport};
+use crate::masterdb::{self, CloudFolders, Collection, CollectionInfo, DriveDiff, TagCategory};
 use crate::model::Library;
+use crate::op::{Operation, Planned, Probe, Touched, bytes};
+use crate::progress::Ctx;
+use crate::store::Store;
 use crate::{Error, Result};
 
 /// Which `master.db` to read, and how.
@@ -135,4 +139,86 @@ mod tests {
         let err = diff(Some("Nowhere")).unwrap_err();
         assert_eq!(err.to_string(), Error::NotFound("playlist \"Nowhere\" on either side".into()).to_string());
     }
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct CollectionExportRequest {
+    #[serde(flatten)]
+    pub collection: CollectionRef,
+    /// The drive or folder to export to.
+    pub drive: String,
+    #[serde(default, flatten)]
+    pub options: CollectionExportOptions,
+}
+
+/// What exporting the collection to a drive or folder would copy and remove.
+pub fn collection_export_plan(
+    req: &CollectionExportRequest,
+    ctx: &Ctx<'_>,
+) -> Result<Planned<CollectionExportPlan, CollectionExportOptions>> {
+    let collection = open_collection(&req.collection)?;
+    let d = resolve_drive(&req.drive)?;
+    let plan = collection_export::plan(&collection, &CloudFolders::this_computer(), &d, &req.options, ctx)?;
+    let what = match plan.playlists.as_slice() {
+        [] => "rekordbox's collection".to_string(),
+        p => p.join(", "),
+    };
+    let mut summary = vec![
+        format!("export {what} to {} ({} track(s), {} playlist(s))", plan.target, plan.tracks, plan.playlist_count),
+        format!(
+            "copy {} file(s) ({}), remove {} file(s) ({})",
+            plan.copies.len(),
+            bytes(plan.copy_bytes),
+            plan.deletes.len(),
+            bytes(plan.delete_bytes)
+        ),
+    ];
+    if plan.downloads > 0 {
+        summary.push(format!(
+            "download {} online-only file(s) ({}) from cloud storage",
+            plan.downloads,
+            bytes(plan.download_bytes)
+        ));
+    }
+    let destructive = !plan.deletes.is_empty() || plan.replaces_library;
+    let warnings = plan.warnings.clone();
+    // rekordbox saving its collection in between makes the plan stale.
+    let db = Touched::path(&collection.path, false, vec![Probe::Stamp(vec![String::new()])]);
+    Planned::new("collection export", plan, req.options.clone())
+        .summary(summary)
+        .warnings(warnings)
+        .destructive(destructive)
+        .overwrite_archive(req.options.overwrite_archive)
+        .touches(Touched::library(&d, true))
+        .touches(db)
+        .guard(None)
+}
+
+impl Operation for CollectionExportPlan {
+    type Request = CollectionExportOptions;
+    type Report = CollectionExportReport;
+
+    fn apply(
+        planned: &Planned<Self, CollectionExportOptions>,
+        store: Option<&Store>,
+        ctx: &Ctx<'_>,
+    ) -> Result<CollectionExportReport> {
+        let mut dst = planned.drive(0)?;
+        crate::fleet::check_target(store, &dst, planned.request().overwrite_archive)?;
+        let report = collection_export::apply(&planned.plan, &mut dst, store, ctx)?;
+        if let Some(store) = store {
+            crate::sync::register_drive(store, &dst, report.fingerprint)?;
+            crate::fleet::record_write(store, &dst, report.copied_bytes)?;
+        }
+        Ok(report)
+    }
+}
+
+/// Plan and export in one go, for callers that don't confirm (see [`collection_export_plan`]).
+pub fn collection_export_apply(
+    store: Option<&Store>,
+    req: &CollectionExportRequest,
+    ctx: &Ctx<'_>,
+) -> Result<CollectionExportReport> {
+    collection_export_plan(req, ctx)?.apply(store, ctx)
 }

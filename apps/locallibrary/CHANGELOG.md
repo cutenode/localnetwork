@@ -28,6 +28,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `exportLibrary.db` (the only one the CDJ-3000X, CDJ-1500X, OPUS-QUAD, OMNIS-DUO, XDJ-AZ and
   XDJ-AN read), and warns and changes `export.pdb` alone when `exportLibrary.db` can't be read;
   `convert` builds either from the other, and drives exported for OneLibrary only work too.
+- **Exporting without rekordbox.** `collection export` writes rekordbox's collection to a drive or
+  a folder as rekordbox's Export does (tracks, playlists, analysis, cues, artwork and My Tags), so
+  a library can be had without a drive rekordbox exported to; tracks Cloud Library Sync keeps in
+  Dropbox or Google Drive come along, online-only ones downloaded as they're copied.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
   order for mixing, import), track details, ratings and colours, My Tags, hot cues, memory cues
   and loops, replacing duplicates and deleting tracks, with a backup before every change and a

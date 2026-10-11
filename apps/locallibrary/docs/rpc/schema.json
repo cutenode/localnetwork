@@ -2045,6 +2045,291 @@
       ],
       "type": "object"
     },
+    "CollectionExportPlan": {
+      "properties": {
+        "collection": {
+          "description": "The `master.db` exported.",
+          "type": "string"
+        },
+        "copies": {
+          "items": {
+            "$ref": "#/$defs/FileCopy"
+          },
+          "type": "array"
+        },
+        "copy_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delete_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deletes": {
+          "description": "Files on the target the exported library doesn't use.",
+          "items": {
+            "$ref": "#/$defs/FileCopy"
+          },
+          "type": "array"
+        },
+        "download_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "downloads": {
+          "description": "Audio files to copy that are online only in Dropbox or Google Drive: copying downloads\nthem.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fits": {
+          "type": "boolean"
+        },
+        "free_space": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "library_bytes": {
+          "description": "Size of the exported library's files.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "missing": {
+          "description": "Tracks left out because their audio isn't on this computer (\"Artist - Title\").",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "needed_bytes": {
+          "description": "Space the export needs on the target: the files it copies, its new databases and the\nbackup of what it replaces.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "playlist_count": {
+          "description": "Playlists exported (not counting folders).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "playlists": {
+          "description": "The playlists chosen; empty for the whole collection.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "replaces_library": {
+          "description": "The target holds a library that wasn't exported from the collection.",
+          "type": "boolean"
+        },
+        "syncing": {
+          "description": "Tracks whose analysis or artwork Cloud Library Sync hasn't finished bringing to this\ncomputer.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "target": {
+          "type": "string"
+        },
+        "target_root": {
+          "type": "string"
+        },
+        "tracks": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unchanged": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unsaved_history": {
+          "description": "History lists players recorded on the target that the export replaces: saved in the\nstore first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "collection",
+        "target",
+        "target_root",
+        "playlists",
+        "tracks",
+        "playlist_count",
+        "library_bytes",
+        "copies",
+        "copy_bytes",
+        "deletes",
+        "delete_bytes",
+        "unchanged",
+        "downloads",
+        "download_bytes",
+        "missing",
+        "syncing",
+        "replaces_library",
+        "unsaved_history",
+        "needed_bytes",
+        "free_space",
+        "fits",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "CollectionExportReport": {
+      "properties": {
+        "backup": {
+          "description": "The backup of what the export replaced (its databases, analysis and artwork).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "copied": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "copied_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cues": {
+          "description": "OneLibrary cue rows made from the analysis files.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deleted": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deleted_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "playlists": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "saved": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SnapshotInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The target's state, saved in the store before the export (see\n[`CollectionExportPlan::unsaved_history`])."
+        },
+        "tagged_tracks": {
+          "description": "Tracks with My Tags.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tracks": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tracks",
+        "playlists",
+        "copied",
+        "copied_bytes",
+        "deleted",
+        "deleted_bytes",
+        "cues",
+        "tagged_tracks",
+        "fingerprint",
+        "saved",
+        "backup"
+      ],
+      "type": "object"
+    },
+    "CollectionExportRequest": {
+      "description": "Which `master.db` to read, and how.",
+      "properties": {
+        "db": {
+          "default": null,
+          "description": "Default: `$LOCALLIBRARY_MASTERDB`, else rekordbox's own (see [`masterdb::default_path`]).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "drive": {
+          "description": "The drive or folder to export to.",
+          "type": "string"
+        },
+        "key": {
+          "default": null,
+          "description": "SQLCipher passphrase. Default: `$LOCALLIBRARY_MASTERDB_KEY`, else the one every rekordbox\n6/7 installation uses.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "overwrite_archive": {
+          "default": false,
+          "description": "Write to an archive or retired drive (see [`crate::fleet::check_target`]).",
+          "type": "boolean"
+        },
+        "playlists": {
+          "default": [],
+          "description": "Playlists or folders (paths) to export, with the tracks they use. Empty: every track and\nplaylist, or the selection the target was last exported with.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "replace": {
+          "default": false,
+          "description": "Replace a library the target holds that wasn't exported from the collection.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "type": "object"
+    },
     "CollectionInfo": {
       "description": "What `master.db` holds, in numbers.",
       "properties": {
@@ -10892,6 +11177,11 @@
         {
           "const": "pack",
           "description": "A subset of another drive's library written to this one (see [`crate::pack`]).",
+          "type": "string"
+        },
+        {
+          "const": "export",
+          "description": "rekordbox's collection written to this drive (see [`crate::collection_export`]).",
           "type": "string"
         },
         {
@@ -27435,6 +27725,64 @@
       },
       "result": {
         "$ref": "#/$defs/DriveDiff"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "plan",
+      "long_running": true,
+      "name": "collection.export.plan",
+      "operation": "collection.export",
+      "pair": "collection.export.apply",
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CollectionExportRequest"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CollectionExportPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": true,
+      "kind": "apply",
+      "long_running": true,
+      "name": "collection.export.apply",
+      "operation": "collection.export",
+      "pair": "collection.export.plan",
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/CollectionExportRequest"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CollectionExportReport"
       }
     },
     {

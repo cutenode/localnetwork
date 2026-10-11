@@ -42,7 +42,13 @@ fn rpc_lists_and_answers_the_collection_methods() {
     let mut rpc = Rpc::start(without_rekordbox(&env));
     let version = rpc.call(1, "version", Value::Null);
     let methods = version["result"]["methods"].as_array().unwrap();
-    for m in ["collection.info", "collection.library", "collection.diff"] {
+    for m in [
+        "collection.info",
+        "collection.library",
+        "collection.diff",
+        "collection.export.plan",
+        "collection.export.apply",
+    ] {
         assert!(methods.iter().any(|x| x == m), "{m}");
     }
     let info = rpc.call(2, "collection.info", json!({}));
@@ -132,4 +138,33 @@ fn a_drive_is_compared_with_the_collection() {
     assert!(out.contains("  - playlists (1):\n    Set"), "{out}");
     let loose = line(&out, "only loosely match a track on the drive");
     assert!(loose.starts_with("! 1 collection track(s)") && loose.ends_with("e.g. Demo Track 2"), "{out}");
+}
+
+#[test]
+fn the_collection_is_exported_to_a_folder_and_pulled() {
+    let env = Env::new();
+    let db = master_db(&env);
+    let music = env.outside("Music");
+    std::fs::create_dir_all(&music).unwrap();
+    for (id, name) in [("1", "Demo Track 1.mp3"), ("2", "Never Grow Old.mp3")] {
+        std::fs::write(music.join(name), name.as_bytes()).unwrap();
+        rusqlite::Connection::open(&db)
+            .unwrap()
+            .execute("UPDATE djmdContent SET FolderPath = ?1 WHERE ID = ?2", (path(&music.join(name)), id))
+            .unwrap();
+    }
+    let folder = env.outside("rekordbox-export");
+    std::fs::create_dir_all(&folder).unwrap();
+
+    let out = collection(&env, &db, &["export", path(&folder), "--yes"]);
+    assert!(out.contains("rekordbox's collection -> rekordbox-export: 2 track(s), 1 playlist(s)"), "{out}");
+    assert!(line(&out, "aren't exported: their audio isn't on this computer").starts_with("! 2 track(s)"), "{out}");
+    assert!(line(&out, "intelligent playlist").contains("Recent"), "{out}");
+    assert!(out.contains("exported 2 track(s) to rekordbox-export"), "{out}");
+    assert!(folder.join("Contents/Floorplan/UnknownAlbum/Never Grow Old.mp3").is_file());
+
+    let again = collection(&env, &db, &["export", path(&folder), "--dry-run"]);
+    assert!(again.contains("copy 0 file(s), 0 B; remove 0 file(s), 0 B"), "{again}");
+    let out = env.ok(&["pull", path(&folder), "--yes"]);
+    assert!(out.contains("snapshot") && out.contains("2 tracks"), "{out}");
 }
