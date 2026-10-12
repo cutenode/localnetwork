@@ -19,6 +19,8 @@ mod mytags;
 mod palette;
 mod profile;
 #[cfg(test)]
+mod props;
+#[cfg(test)]
 mod screens;
 mod state;
 mod theme;

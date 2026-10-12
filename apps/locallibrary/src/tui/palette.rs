@@ -385,4 +385,27 @@ mod tests {
             assert!(b.shown.contains(&key_name(k)), "{:?}: {} isn't in {:?}", b.act, key_name(k), b.shown);
         }
     }
+
+    /// A query matches just when its letters (spaces aside, any case) are in the text in order.
+    /// Neither case nor the query's spaces change the score, and a letter the query doesn't have,
+    /// put anywhere in the text, never makes it match better: it can only split a run, push a
+    /// letter further in or stop one starting a word.
+    #[hegel::test(test_cases = 300)]
+    fn fuzzy_matches_letters_in_order(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let text: String = tc.draw(gs::text().alphabet("abcAB -").max_size(12));
+        let query: String = tc.draw(gs::text().alphabet("abcAB ").max_size(5));
+        let lower = |s: &str| s.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect::<Vec<_>>();
+        let (q, t) = (lower(&query), text.chars().flat_map(char::to_lowercase).collect::<Vec<_>>());
+        let mut rest = t.iter();
+        let in_order = q.iter().all(|c| rest.any(|x| x == c));
+        let score = fuzzy(&query, &text);
+        assert_eq!(score.is_some(), in_order, "{query:?} in {text:?}");
+        assert_eq!(fuzzy(&query.to_uppercase(), &text.to_lowercase()), score, "{query:?} in {text:?}");
+        assert_eq!(fuzzy(&query.replace(' ', ""), &text), score, "{query:?} in {text:?}");
+        for at in 0..=text.len() {
+            let padded = format!("{}x{}", &text[..at], &text[at..]);
+            assert!(fuzzy(&query, &padded) <= score, "{query:?} in {padded:?} beats {text:?}");
+        }
+    }
 }

@@ -751,4 +751,25 @@ mod tests {
             assert!(global.last().is_some_and(|(t, _)| t.starts_with("Commands")), "{view:?}");
         }
     }
+
+    /// The footer's hints fit the width they're given, in any view and pane, and a wider footer
+    /// keeps every hint a narrower one shows.
+    #[hegel::test(test_cases = 200)]
+    fn hints_fit_the_footer_and_widen_with_it(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let (mut app, _dir) = app_with(library());
+        app.view = View::ALL[tc.draw(gs::integers::<usize>().max_value(4))];
+        app.focus = [Focus::Drives, Focus::Playlists, Focus::Tracks, Focus::Details, Focus::Crate]
+            [tc.draw(gs::integers::<usize>().max_value(4))];
+        app.fullscreen = tc.draw(gs::booleans());
+        app.deck.pads = tc.draw(gs::booleans());
+        let width = tc.draw(gs::integers::<usize>().max_value(200));
+        let wider = width + tc.draw(gs::integers::<usize>().max_value(100));
+        let shown = hints(&app, width);
+        let used: usize = shown.iter().map(|(k, l)| k.width() + l.width() + 3).sum();
+        // Each takes its keys, a space, its label and two spaces, after the footer's one.
+        assert!(shown.is_empty() || used < width, "{shown:?} in {width}");
+        let more = hints(&app, wider);
+        assert!(shown.iter().all(|h| more.contains(h)), "{shown:?} at {width}, {more:?} at {wider}");
+    }
 }

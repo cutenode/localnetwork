@@ -385,10 +385,12 @@ pub fn tree(lib: &Library, expanded: &FxHashSet<NodeId>, groups: &FxHashMap<Cate
         }
     }
     // Each folder's children, in display order (as `Library::children` gives them), found in one
-    // pass: asking the library for each folder's scans every playlist each time.
+    // pass: asking the library for each folder's scans every playlist each time. One whose folder
+    // isn't there is at the top level.
+    let ids: FxHashSet<u32> = lib.playlists.iter().map(|p| p.id).collect();
     let mut children: FxHashMap<Option<u32>, Vec<&Playlist>> = FxHashMap::default();
     for p in &lib.playlists {
-        children.entry(p.parent_id).or_default().push(p);
+        children.entry(p.parent_id.filter(|id| ids.contains(id))).or_default().push(p);
     }
     for v in children.values_mut() {
         v.sort_by_key(|p| (p.sort_order, p.id));
@@ -635,14 +637,16 @@ impl Search {
         }
         // A token that's only quotes is nothing, as in the filter language.
         for (typed, token) in tokens.into_iter().filter(|(_, t)| !t.is_empty()) {
-            let alts = |t: &str| t.split('|').map(normalize).filter(|w| !w.is_empty()).collect();
+            let alts = |t: &str| t.split('|').map(normalize).filter(|w| !w.is_empty()).collect::<Vec<_>>();
             // `-word` leaves out, but `-5` is a word; anything with a colon is for the filter.
             let negated =
                 token.strip_prefix('-').filter(|r| !r.is_empty() && !r.starts_with(|c: char| c.is_ascii_digit()));
+            // So is a word with nothing to look for (`|`, as `a|b` is being typed): kept, it would
+            // match no track, and negated, leave none out.
             match negated {
                 _ if token.contains(':') => rest.push(typed),
-                Some(word) => out.not.push(alts(word)),
-                None => out.words.push(alts(&token)),
+                Some(word) => out.not.extend(Some(alts(word)).filter(|a| !a.is_empty())),
+                None => out.words.extend(Some(alts(&token)).filter(|a| !a.is_empty())),
             }
         }
         out.rest = rest.join(" ");
@@ -931,5 +935,105 @@ mod tests {
         let looped = Library { playlists: vec![folder(1, Some(2)), folder(2, Some(1))], ..library() };
         let paths = playlist_paths(&looped);
         assert!(paths[&1].starts_with("F") && paths[&1].ends_with("F1"), "{}", paths[&1]);
+    }
+
+    /// Playlists and folders, each under any folder (or none: some under folders that aren't
+    /// there, or in a loop, as a damaged database has them), in any order on the drive.
+    #[hegel::test_helper]
+    fn any_playlists(tc: &hegel::TestCase) -> Vec<Playlist> {
+        use hegel::generators as gs;
+        let n = tc.draw(gs::integers::<u32>().max_value(12));
+        (1..=n)
+            .map(|id| Playlist {
+                id,
+                parent_id: tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u32>().max_value(n + 1))),
+                name: format!("P{id}"),
+                is_folder: tc.draw(gs::booleans()),
+                sort_order: tc.draw(gs::integers::<u32>().max_value(3)),
+                track_ids: vec![1; tc.draw(gs::integers::<usize>().max_value(2))],
+            })
+            .collect()
+    }
+
+    /// The tree lists the playlists as the library orders them: a folder's children (in their
+    /// order) straight after it, one deeper, when it's open; and each path is the library's.
+    #[hegel::test(test_cases = 300)]
+    fn the_tree_and_its_paths_are_the_librarys(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let lib = Library { playlists: any_playlists(&tc), ..library() };
+        let mut open = FxHashSet::default();
+        for p in &lib.playlists {
+            if tc.draw(gs::booleans()) {
+                open.insert(NodeId::Playlist(p.id));
+            }
+        }
+        fn walk(
+            lib: &Library,
+            parent: Option<u32>,
+            depth: usize,
+            open: &FxHashSet<NodeId>,
+            out: &mut Vec<(u32, usize)>,
+        ) {
+            for p in lib.children(parent) {
+                out.push((p.id, depth));
+                if p.is_folder && open.contains(&NodeId::Playlist(p.id)) && depth < 32 {
+                    walk(lib, Some(p.id), depth + 1, open, out);
+                }
+            }
+        }
+        let mut want = Vec::new();
+        walk(&lib, None, 0, &open, &mut want);
+        let t = tree(&lib, &open, &FxHashMap::default());
+        assert_eq!((&t[0].id, &t[1].id), (&NodeId::All, &NodeId::Browse));
+        let got: Vec<(u32, usize)> = (t[2..].iter())
+            .map(|n| match n.id {
+                NodeId::Playlist(id) => (id, n.depth),
+                _ => panic!("{:?} among the playlists", n.id),
+            })
+            .collect();
+        assert_eq!(got, want);
+        let paths = playlist_paths(&lib);
+        for p in &lib.playlists {
+            if lib.playlist_names(p.id).len() <= 32 {
+                assert_eq!(paths[&p.id], lib.playlist_path(p.id), "playlist {}", p.id);
+            }
+        }
+    }
+
+    /// Sorting a list by rank orders it by rank, either way, ties kept in the list's order; the
+    /// sort key cycles through every column and back to the list's order; and clicking a column
+    /// sorts by it, then the other way, then not.
+    #[hegel::test(test_cases = 300)]
+    fn sorting_orders_by_rank_and_keeps_ties(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let ranks: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(4)).max_size(12));
+        let mut list: Vec<usize> = (0..ranks.len()).collect();
+        list.reverse();
+        list.rotate_left(tc.draw(gs::integers::<usize>().max_value(ranks.len())).min(ranks.len()));
+        let descending = tc.draw(gs::booleans());
+        let mut sorted = list.clone();
+        sort_list(&mut sorted, &ranks, descending);
+        let place = |v: &[usize], i: usize| v.iter().position(|&x| x == i).unwrap();
+        for w in sorted.windows(2) {
+            let (a, b) = (ranks[w[0]], ranks[w[1]]);
+            assert!(if descending { a >= b } else { a <= b }, "{sorted:?} by {ranks:?}");
+            if a == b {
+                assert!(place(&list, w[0]) < place(&list, w[1]), "a tie out of the list's order");
+            }
+        }
+        let mut seen = Vec::new();
+        let mut k = cycle(None);
+        while let Some(key) = k {
+            assert_eq!(key.descending, first_descending(key.field));
+            seen.push(key.field);
+            k = cycle(k);
+        }
+        assert_eq!(seen, SORT_FIELDS);
+        let field = SORT_FIELDS[tc.draw(gs::integers::<usize>().max_value(SORT_FIELDS.len() - 1))];
+        let first = click(cycle(None).filter(|k| k.field != field), field);
+        assert_eq!(first.map(|k| (k.field, k.descending)), Some((field, first_descending(field))));
+        let second = click(first, field);
+        assert_eq!(second.map(|k| (k.field, k.descending)), Some((field, !first_descending(field))));
+        assert_eq!(click(second, field), None);
     }
 }

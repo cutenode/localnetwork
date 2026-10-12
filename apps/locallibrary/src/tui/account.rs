@@ -70,6 +70,13 @@ impl Account {
         matches!(self.sign_in, Some(SignIn::Typing(_)))
     }
 
+    /// Put away the handle being typed, as esc does (signing in already under way goes on).
+    pub fn stop_typing(&mut self) {
+        if self.typing() {
+            self.sign_in = None;
+        }
+    }
+
     /// The bar at the top of the view.
     pub fn line(&self, width: u16) -> Line<'static> {
         let key = |k: &str| Span::styled(format!("  {k} "), theme::key());
@@ -370,6 +377,23 @@ mod tests {
         assert!(!bar.contains("likely ended"), "{bar}");
     }
 
+    /// A tab clicked while a handle is typed shows its view and puts the handle away, as esc
+    /// does, so the keys go to the view shown.
+    #[test]
+    fn a_tab_clicked_while_typing_a_handle_puts_it_away() {
+        use super::super::app::testing::{LEFT, point, press};
+        use super::super::ui::screen;
+        let (mut app, _dir) = blank(View::Profile);
+        super::press(&mut app);
+        assert!(screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
+        point(&mut app, LEFT, "1 Library");
+        assert_eq!(app.view, View::Library);
+        press(&mut app, "4");
+        assert!(!screen(&mut app, 120, 30).contains("Atmosphere handle or server:"));
+        press(&mut app, "q");
+        assert!(app.quit, "q quits, not typed");
+    }
+
     #[test]
     fn typing_a_handle_edits_it_and_enter_wants_one() {
         let (mut app, _dir) = blank(View::Profile);
@@ -456,5 +480,88 @@ mod tests {
         wait(&mut app, |a| !a.profile.account.busy());
         assert!(matches!(&app.toast, Some((m, Level::Info, _)) if m == "not signed in"), "{:?}", app.toast);
         assert!(app.profile.account.info.is_none(), "read again from the store");
+    }
+
+    /// Typing a handle (L, then letters, backspace, ctrl-u) shows what's typed in the bar, as
+    /// much of its end as fits; esc puts it away; a sign-in under way goes from finding the
+    /// server to the browser and stops at esc or when it's done, saying how it went.
+    #[hegel::test(test_cases = 100)]
+    fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        use unicode_width::UnicodeWidthStr;
+        let (mut app, _dir) = blank(View::Profile);
+        let mut typed: Option<String> = None;
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
+            let width = tc.draw(gs::integers::<u16>().max_value(160));
+            match tc.draw(gs::integers::<u8>().max_value(9)) {
+                0 => {
+                    app.on_key(KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT));
+                    match &mut typed {
+                        Some(t) => t.push('L'),
+                        None => typed = Some(String::new()),
+                    }
+                }
+                1..=4 if typed.is_some() => {
+                    let c = tc.draw(gs::sampled_from(&['a', 'b', '.', '日', '😹', ' '][..]));
+                    assert!(input(&mut app, KeyCode::Char(c), KeyModifiers::NONE));
+                    typed.as_mut().unwrap().push(c);
+                }
+                5 if typed.is_some() => {
+                    assert!(input(&mut app, KeyCode::Backspace, KeyModifiers::NONE));
+                    typed.as_mut().unwrap().pop();
+                }
+                6 if typed.is_some() => {
+                    assert!(input(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL));
+                    typed.as_mut().unwrap().clear();
+                }
+                // Enter on nothing typed only says what to type (with something, it would sign in).
+                7 if typed.as_ref().is_some_and(|t| t.trim().is_empty()) => {
+                    assert!(input(&mut app, KeyCode::Enter, KeyModifiers::NONE));
+                    assert!(last_message(&app).starts_with("type your handle"));
+                }
+                8 => {
+                    let taken = input(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+                    assert_eq!(taken, typed.is_some(), "esc is the typing's");
+                    typed = None;
+                }
+                9 if typed.is_none() => {
+                    // A sign-in under way, as the thread reports it.
+                    let cancel = starting(&mut app);
+                    assert!(app.profile.account.busy() && shown(&app.profile.account, width).contains("server"));
+                    if tc.draw(gs::booleans()) {
+                        let opened = tc.draw(gs::booleans());
+                        let (server, url) = ("https://pds.example".to_string(), "https://pds.example/a".to_string());
+                        on_event(&mut app, AccountEvent::Started { server, url, opened, local_app: false });
+                        let bar = shown(&app.profile.account, 200);
+                        assert!(
+                            bar.contains("Approve in your browser") && bar.contains("didn't open") != opened,
+                            "{bar}"
+                        );
+                    }
+                    if tc.draw(gs::booleans()) {
+                        assert!(input(&mut app, KeyCode::Esc, KeyModifiers::NONE));
+                        assert!(cancel.is_cancelled());
+                    }
+                    let error = tc.draw(gs::booleans());
+                    on_event(&mut app, AccountEvent::Done { message: "sign-in stopped".into(), error });
+                    assert!(!app.profile.account.busy());
+                    assert_eq!(
+                        app.toast.as_ref().map(|t| (t.0.as_str(), t.1 == Level::Error)),
+                        Some(("sign-in stopped", error))
+                    );
+                }
+                _ => continue,
+            }
+            assert_eq!(app.profile.account.typing(), typed.is_some());
+            let bar = shown(&app.profile.account, width);
+            match &typed {
+                Some(t) => {
+                    let tail = typed_tail(t, (width as usize).saturating_sub(31));
+                    assert!(t.ends_with(tail) && bar.contains(&format!("server: {tail}▏")), "{bar:?} for {t:?}");
+                    assert!(tail.width() <= (width as usize).saturating_sub(31));
+                }
+                None => assert!(bar.contains("Not signed in"), "{bar:?}"),
+            }
+        }
     }
 }

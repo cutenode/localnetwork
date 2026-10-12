@@ -473,14 +473,15 @@ pub struct PhraseSpan {
 }
 
 /// Phrases with times: a phrase's beats are 1-based indexes into the grid; one that runs past the
-/// grid ends with the track.
+/// grid ends with the track. One that doesn't end after it starts isn't drawn (the reader drops
+/// those, but made-up data can hold them).
 fn phrase_spans(analysis: &TrackAnalysis, duration: Duration) -> Vec<PhraseSpan> {
     let Some(st) = &analysis.structure else { return Vec::new() };
     let at = |beat: u16| analysis.beats.get(beat as usize - 1).map(|b| b.time_ms as f64);
     let end_of_track = duration.as_secs_f64() * 1000.0;
     st.phrases
         .iter()
-        .filter(|p| p.start_beat > 0)
+        .filter(|p| p.start_beat > 0 && p.end_beat > p.start_beat)
         .filter_map(|p| {
             Some(PhraseSpan {
                 kind: p.kind,
@@ -1777,10 +1778,11 @@ impl App {
                 self.status = Some(r);
             }
             Msg::History(r) => {
-                if self.history_state.selected().is_none() {
-                    self.history_state.select(Some(0));
-                }
                 self.history = Some(r);
+                // Read again, the list can be shorter, or empty.
+                let n = self.history_rows();
+                let sel = self.history_state.selected().unwrap_or(0).min(n.saturating_sub(1));
+                self.history_state.select((n > 0).then_some(sel));
             }
             Msg::Profile(generation, r) => self.profile.loaded(generation, *r),
             #[cfg(feature = "account")]
@@ -3316,6 +3318,14 @@ impl App {
         // The search box is the library's: keys typed in another view aren't for it.
         if self.searching && v != View::Library {
             self.close_search();
+        }
+        // So are the lines typed in the Mixes and Profile views: left open behind another view
+        // (a tab clicked while typing), they'd take its every key, esc included.
+        if v != View::Mixes {
+            self.mix.input = None;
+        }
+        if v != View::Profile {
+            self.profile.account.stop_typing();
         }
         self.view = v;
         self.fullscreen = false;
@@ -5982,6 +5992,47 @@ mod tests {
         assert_eq!(app.focus, Focus::Tracks);
     }
 
+    /// The snapshots read again keep the one selected while it's there, the last when the list
+    /// got shorter, and none of none; the first once there are some again.
+    #[test]
+    fn the_snapshot_selected_is_one_there_is() {
+        use locallibrary::hash::Hash;
+        use locallibrary::store::{LibraryRecord, SnapshotInfo};
+        let at = chrono::Utc::now();
+        let snapshot = |i: usize| SnapshotInfo {
+            id: Hash::of(&[i as u8]),
+            short_id: format!("snap{i:02}"),
+            library_id: uuid::Uuid::nil(),
+            parents: Vec::new(),
+            created: at,
+            message: None,
+            source: None,
+            fingerprint: Hash::of(b"library"),
+            summary: Default::default(),
+            files: 0,
+            bytes: 0,
+            labels: Vec::new(),
+            beside: false,
+        };
+        let record = LibraryRecord { id: uuid::Uuid::nil(), name: "Demo".into(), head: None, created: at, updated: at };
+        let history = |n: usize| Msg::History(Ok(vec![(record.clone(), (0..n).map(snapshot).collect())]));
+        let (mut app, _dir) = app_with(library());
+        press(&mut app, "3");
+        app.handle_msg(history(4));
+        assert_eq!(app.history_state.selected(), Some(0));
+        press(&mut app, "jj");
+        app.handle_msg(history(4));
+        assert_eq!(app.history_state.selected(), Some(2), "still there");
+        app.handle_msg(history(2));
+        assert_eq!(app.history_state.selected(), Some(1), "the last");
+        assert!(super::super::ui::screen(&mut app, 120, 30).contains("snap01"));
+        app.handle_msg(history(0));
+        assert_eq!(app.history_state.selected(), None);
+        assert!(super::super::ui::screen(&mut app, 120, 30).contains("The store has no snapshots yet."));
+        app.handle_msg(history(3));
+        assert_eq!(app.history_state.selected(), Some(0));
+    }
+
     /// What comes back from the background for a read nobody waits for any more changes
     /// nothing; what does is shown, and a failure is said.
     #[test]
@@ -5992,7 +6043,8 @@ mod tests {
         assert!(matches!(app.status, Some(Ok(ref v)) if v.is_empty()) && !app.status_loading);
         app.history_state.select(None);
         app.handle_msg(Msg::History(Err("no store yet".into())));
-        assert_eq!(app.history_state.selected(), Some(0));
+        assert!(matches!(app.history, Some(Err(_))));
+        assert_eq!(app.history_state.selected(), None, "no snapshot to select");
         app.handle_msg(Msg::Note("a report was written".into(), Level::Info));
         assert_eq!(last_message(&app), "a report was written");
         app.handle_msg(Msg::Library(app.load, PathBuf::from("/Volumes/GONE"), Err("can't read it".into())));
@@ -6562,5 +6614,130 @@ mod tests {
         assert_eq!(selected(&app), Some(10));
         mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
         assert_eq!(selected(&app), Some(13));
+    }
+
+    /// What the player remembers (the list shown, the view, the sort, the panels and columns,
+    /// playback's modes and volume, the crate, the queue), however it was set, reads back as it
+    /// was saved and is what the next run starts with.
+    #[hegel::test(test_cases = 50)]
+    fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        const KEYS: &[&str] =
+            &["b", "B", "i", "t", "*", "#", "s", "r", "v", "Q", "S", "A", "+", "-", "a", "j", "\n", "2", "3", "1"];
+        let (mut app, _dir) = app_with(library());
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
+            press(&mut app, tc.draw(gs::sampled_from(KEYS)));
+        }
+        let saved = app.saved_state();
+        state::save(&app.store_root, &saved);
+        let read = state::load(&app.store_root);
+        assert_eq!(read, saved);
+        let mut next = App::blank(app.store_root.clone(), None);
+        next.apply_saved(&read, true);
+        if let Some(v) = read.view.as_deref().and_then(View::from_title) {
+            next.view = v;
+        }
+        assert_eq!(next.preferred_root.as_ref(), saved.root.as_ref(), "the drive to open first");
+        assert_eq!(next.restore.as_ref().map(|r| &r.1), saved.node.as_ref(), "the list to show on it");
+        // Before its drive is read, the next run has all the rest.
+        assert_eq!(next.saved_state(), Saved { root: None, node: None, ..saved });
+    }
+
+    /// A track with any analysis (a beat grid, hot and memory cues and loops anywhere, phrases
+    /// that may run past the grid, waveforms) plays on the deck: its phrases start on their
+    /// beats and end after, a hot cue pad goes to just where the cue is (a loop's plays it), and
+    /// the deck draws at any size in every visualiser, full screen or not, as its keys jump,
+    /// loop and zoom about.
+    #[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+    fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
+        use super::super::ui::screen;
+        use hegel::generators as gs;
+        let n = tc.draw(gs::integers::<u32>().max_value(64));
+        let beats = grid(
+            tc.draw(gs::integers::<u32>().max_value(2_000)),
+            tc.draw(gs::sampled_from(&[90.0, 124.0, 174.0][..])),
+            n,
+        );
+        let cues: Vec<locallibrary::anlz::Cue> = (0..tc.draw(gs::integers::<usize>().max_value(6)))
+            .map(|_| {
+                let start = tc.draw(gs::integers::<u32>().max_value(310_000));
+                let end = tc
+                    .draw(gs::booleans())
+                    .then(|| start + tc.draw(gs::integers::<u32>().min_value(1).max_value(20_000)));
+                cue(tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().max_value(7))), start, end)
+            })
+            .collect();
+        let kinds = [PhraseKind::Intro, PhraseKind::Up, PhraseKind::Down, PhraseKind::Chorus, PhraseKind::Outro];
+        // As the reader leaves them (each ends after it starts, though maybe past the grid), and
+        // as it never does: on beat 0, or ending where or before it starts.
+        let phrases = (0..tc.draw(gs::integers::<usize>().max_value(4)))
+            .map(|_| {
+                let start_beat = tc.draw(gs::integers::<u16>().max_value(n as u16 + 4));
+                let end_beat = match tc.draw(gs::booleans()) {
+                    true => start_beat + tc.draw(gs::integers::<u16>().min_value(1).max_value(40)),
+                    false => tc.draw(gs::integers::<u16>().max_value(start_beat)),
+                };
+                Phrase {
+                    kind: kinds[tc.draw(gs::integers::<usize>().max_value(4))],
+                    start_beat,
+                    end_beat,
+                    fill_beat: None,
+                }
+            })
+            .collect();
+        let analysis = TrackAnalysis {
+            beats,
+            cues,
+            preview: tc.draw(gs::booleans()).then(|| wave(400)),
+            detail: tc.draw(gs::booleans()).then(|| wave(3_000)),
+            structure: tc.draw(gs::booleans()).then_some(SongStructure { mood: Mood::Mid, phrases }),
+        };
+        let (mut app, _dir) = playing(analysis.clone());
+        let now = app.now.as_mut().unwrap();
+        now.phrases = phrase_spans(&analysis, now.duration);
+        // Only those that start on the grid and end after they start are drawn.
+        let placed: Vec<&Phrase> = (analysis.structure.iter().flat_map(|s| &s.phrases))
+            .filter(|p| p.start_beat > 0 && (p.start_beat as usize) <= n as usize && p.end_beat > p.start_beat)
+            .collect();
+        assert_eq!(now.phrases.len(), placed.len(), "{:?}", analysis.structure);
+        for (p, span) in placed.iter().zip(&now.phrases) {
+            assert_eq!(span.start_ms, analysis.beats[p.start_beat as usize - 1].time_ms as f64);
+            assert!(span.start_ms < span.end_ms, "{p:?} at {} to {}", span.start_ms, span.end_ms);
+        }
+        now.opening = tc.draw(gs::booleans());
+        let end = now.duration - Duration::from_millis(250);
+        const KEYS: &[&str] = &[
+            "1", "2", "3", "4", "5", "6", "7", "8", "c", "C", "N", "P", ",", ".", "<", ">", "{", "}", "l", "(", ")",
+            "Q", "v", "f", "[", "]", "'",
+        ];
+        press(&mut app, "'");
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
+            let key = tc.draw(gs::sampled_from(KEYS));
+            app.pending_seek = None;
+            press(&mut app, key);
+            let slot = key.parse::<u8>().ok().filter(|_| app.pads_on()).map(|d| d - 1);
+            let hot = slot.and_then(|s| analysis.cues.iter().find(|c| c.hot_cue == Some(s)));
+            if let (Some(c), true) = (hot, app.now.as_ref().is_some_and(|n| n.opening)) {
+                assert_eq!(app.pending_seek, Some(Duration::from_millis(c.start_ms as u64).min(end)), "pad {key}");
+                if let Some(e) = c.end_ms {
+                    let l = app.deck.looped.unwrap();
+                    assert_eq!((l.start, l.end, l.on), (c.start_ms as f64, e as f64, true), "pad {key}'s loop");
+                }
+            }
+            if let Some(at) = app.pending_seek {
+                assert!(at <= end, "a jump to {at:?}, past {end:?}");
+            }
+            if let Some(l) = app.deck.looped {
+                assert!(l.start < l.end, "{l:?}");
+            }
+            let (w, h) = (
+                tc.draw(gs::integers::<u16>().min_value(1).max_value(200)),
+                tc.draw(gs::integers::<u16>().min_value(1).max_value(60)),
+            );
+            let s = screen(&mut app, w, h);
+            if w >= 100 && h >= 30 && app.view == View::Library {
+                assert!(s.contains("Around the World") && s.contains("BPM"), "the deck at {w}x{h}:\n{s}");
+            }
+        }
     }
 }

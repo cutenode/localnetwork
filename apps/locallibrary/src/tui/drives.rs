@@ -1075,4 +1075,76 @@ mod tests {
         let Some(Modal::Pick(p)) = app.modal.take() else { panic!("no picker") };
         assert_eq!(p.items[0].label, "the playlist Sets/Friday");
     }
+
+    /// A check's report of any drives, items and tracks the players won't load reads: the
+    /// verdict first, as the counts say; then each drive under its name, in order, with its
+    /// items problems first and each group of tracks it won't load (five named, the rest
+    /// counted).
+    #[hegel::test(test_cases = 200)]
+    fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let drives: Vec<String> = ["DNA", "SD", "USB"][..tc.draw(gs::integers::<usize>().min_value(1).max_value(3))]
+            .iter()
+            .map(|d| d.to_string())
+            .collect();
+        let pick = |tc: &hegel::TestCase| drives[tc.draw(gs::integers::<usize>().max_value(drives.len() - 1))].clone();
+        let levels = [CheckLevel::Ok, CheckLevel::Warning, CheckLevel::Problem];
+        let mut r =
+            report(tc.draw(gs::integers::<usize>().max_value(3)), tc.draw(gs::integers::<usize>().max_value(3)));
+        r.drives = drives.clone();
+        r.items = (0..tc.draw(gs::integers::<usize>().max_value(6)))
+            .map(|i| CheckItem {
+                drive: pick(&tc),
+                check: "x",
+                level: levels[tc.draw(gs::integers::<usize>().max_value(2))],
+                message: format!("item {i}"),
+            })
+            .collect();
+        r.unloadable = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+            .map(|i| Unloadable {
+                drive: pick(&tc),
+                player: "CDJ-900".into(),
+                level: CheckLevel::Problem,
+                format: "FLAC".into(),
+                reason: locallibrary::equipment::Unplayable::Format,
+                sample_rate: None,
+                bit_depth: None,
+                message: format!("group {i}"),
+                tracks: (1..=tc.draw(gs::integers::<u32>().max_value(8)))
+                    .map(|id| TrackRef { id, name: format!("Track {i}.{id}"), file_path: String::new() })
+                    .collect(),
+                transcodable: false,
+            })
+            .collect();
+        let lines = check_lines(&r);
+        let tone = match (r.problems, r.warnings) {
+            (0, 0) => Tone::Ok,
+            (0, _) => Tone::Warning,
+            _ => Tone::Problem,
+        };
+        assert_eq!(lines[0].0, tone);
+        let headings: Vec<&String> = lines.iter().filter(|(t, _)| *t == Tone::Heading).map(|(_, l)| l).collect();
+        assert_eq!(headings, drives.iter().collect::<Vec<_>>());
+        let rank = |t: &Tone| match t {
+            Tone::Problem => 0,
+            Tone::Warning => 1,
+            _ => 2,
+        };
+        for d in &drives {
+            let start = lines.iter().position(|(t, l)| *t == Tone::Heading && l == d).unwrap() + 1;
+            let end = lines[start..].iter().position(|(t, _)| *t == Tone::Heading).map_or(lines.len(), |e| start + e);
+            let section = &lines[start..end];
+            let items: Vec<&(Tone, String)> = section.iter().filter(|(_, l)| l.starts_with("item ")).collect();
+            assert_eq!(items.len(), r.items.iter().filter(|i| &i.drive == d).count(), "{d}'s items");
+            assert!(items.windows(2).all(|w| rank(&w[0].0) <= rank(&w[1].0)), "{d}: {items:?}");
+            for u in r.unloadable.iter().filter(|u| &u.drive == d) {
+                let named =
+                    section.iter().filter(|(_, l)| l.starts_with(&format!("    Track {}", &u.message[6..]))).count();
+                assert_eq!(named, u.tracks.len().min(5), "{d}: {}", u.message);
+                let more =
+                    section.iter().any(|(_, l)| *l == format!("    and {} more", u.tracks.len().saturating_sub(5)));
+                assert_eq!(more, u.tracks.len() > 5);
+            }
+        }
+    }
 }

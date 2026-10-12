@@ -34,7 +34,7 @@ use super::app::{App, Level, Msg, edit_line, typed_tail};
 use super::keymap::Act;
 use super::keys::Camelot;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
-use super::ui::clip;
+use super::ui::{Scrolled, clip};
 use crate::output::clock;
 
 /// Recordings remembered between runs.
@@ -1066,6 +1066,8 @@ fn draw_list(f: &mut Frame, t: &mut MixTab, area: Rect, cx: &Context) {
     let list = List::new(items)
         .highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
         .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+    // Two lines a recording.
+    t.list.fit(inner.height as usize / 2, t.sources.len());
     f.render_stateful_widget(list, inner, &mut t.list);
 }
 
@@ -1411,7 +1413,8 @@ fn draw_lanes(
 /// Times along the timeline, at a step that leaves room for the labels; the selected track's
 /// stretch underlined.
 fn draw_axis(buf: &mut Buffer, area: Rect, (from, to): (f64, f64), selected: Option<(f64, f64)>) {
-    if area.width < 8 {
+    // No row (a short screen squeezes the timeline): its labels would go below the screen.
+    if area.width < 8 || area.height == 0 {
         return;
     }
     let w = area.width as f64;
@@ -1554,16 +1557,19 @@ fn draw_tracklist(
         .block(block(title("Tracklist", focused), focused))
         .row_highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
         .highlight_symbol(Text::from(vec![Line::styled("▍", fg(theme::PINK)), Line::styled("▍", fg(theme::PINK))]));
+    // Two lines a track, under the border and the header row.
+    rows.fit(area.height.saturating_sub(3) as usize / 2, r.plays.len());
     f.render_stateful_widget(table, area, rows);
 }
 
-/// Phrase spans with times (ms), from the beat grid; one that runs past it ends with the track.
+/// Phrase spans with times (ms), from the beat grid; one that runs past it ends with the track,
+/// and one that doesn't end after it starts isn't drawn.
 fn phrase_spans(a: &TrackAnalysis, track_ms: f64) -> Vec<(f64, f64, String, [u8; 3])> {
     let Some(st) = &a.structure else { return Vec::new() };
-    let at = |beat: u16| a.beats.get((beat as usize).wrapping_sub(1)).map(|b| b.time_ms as f64);
+    let at = |beat: u16| a.beats.get(beat as usize - 1).map(|b| b.time_ms as f64);
     st.phrases
         .iter()
-        .filter(|p| p.start_beat > 0)
+        .filter(|p| p.start_beat > 0 && p.end_beat > p.start_beat)
         .filter_map(|p| {
             Some((at(p.start_beat)?, at(p.end_beat).unwrap_or(track_ms), p.kind.name(), theme::phrase_color(p.kind)))
         })
@@ -1887,6 +1893,11 @@ pub(super) mod tests {
         t
     }
 
+    /// [`tab`], its background work answering to `tx` (an app's), so what it reads gets back.
+    pub(crate) fn tab_on(tx: Sender<Msg>) -> MixTab {
+        MixTab { tx, ..tab() }
+    }
+
     fn render(t: &mut MixTab, cx: &Context, w: u16, h: u16) -> String {
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
         term.draw(|f| draw_tab(f, t, f.area(), cx)).unwrap();
@@ -1916,6 +1927,48 @@ pub(super) mod tests {
         r.drive_id = Some(uuid::Uuid::new_v4());
         let err = for_writing(&store, &r, &drive).err().unwrap();
         assert!(err.contains("isn't the one"), "{err}");
+    }
+
+    /// The recordings and the tracklist scrolled down to their selection on a short screen come
+    /// back up once they fit again: drawn short, then tall, the first row and the one selected
+    /// show.
+    #[hegel::test(test_cases = 50)]
+    fn the_lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(10));
+        let sel = tc.draw(gs::integers::<usize>().max_value(n - 1));
+        let mut t = tab();
+        let named = |what: &str| (0..n).map(|i| format!("{what} {i:02}")).collect::<Vec<_>>();
+        let rows = match tc.draw(gs::booleans()) {
+            true => {
+                let names = named("Recording");
+                t.drive_sources =
+                    names.iter().map(|n| Source::recent(format!("/Volumes/DNA/{n}.wav").into())).collect();
+                t.rebuild_sources();
+                (t.pane, t.list) = (Pane::Mixes, ListState::default().with_selected(Some(sel)));
+                names
+            }
+            false => {
+                let names = named("Played");
+                let Some(Ok(o)) = &mut t.opened else { unreachable!() };
+                let r = &mut o.report;
+                r.plays = (names.iter().enumerate())
+                    .map(|(i, name)| {
+                        let mut p = r.plays[i % 3].clone();
+                        p.track.title = name.clone();
+                        p
+                    })
+                    .collect();
+                o.analyses = r.plays.iter().map(|_| TrackAnalysis::default()).collect();
+                t.rows.select(Some(sel));
+                names
+            }
+        };
+        render(&mut t, &quiet(), 200, tc.draw(gs::integers::<u16>().min_value(1).max_value(30)));
+        let s = render(&mut t, &quiet(), 200, 80);
+        for row in [&rows[0], &rows[sel]] {
+            assert!(s.contains(row.as_str()), "{row:?} isn't shown:\n{s}");
+        }
     }
 
     #[test]
@@ -2146,6 +2199,22 @@ pub(super) mod tests {
         assert_eq!(app.mix.input.as_deref(), Some(""));
         press(&mut app, "\n");
         assert_eq!(app.mix.input, None);
+    }
+
+    /// A tab clicked while a path is typed shows its view and puts the line away, so esc and the
+    /// keys go to the view shown, and the line isn't there on coming back.
+    #[test]
+    fn a_tab_clicked_while_typing_a_path_puts_the_line_away() {
+        let (mut app, _dir) = blank(View::Mixes);
+        press(&mut app, "O~/Music");
+        assert!(screen(&mut app, 120, 30).contains("Open a recording or folder:"));
+        point(&mut app, LEFT, "1 Library");
+        assert_eq!(app.view, View::Library);
+        press(&mut app, "\u{1b}5");
+        let s = screen(&mut app, 120, 30);
+        assert!(!s.contains("Open a recording or folder:") && !s.contains("~/Music"), "{s}");
+        press(&mut app, "q");
+        assert!(app.quit, "q quits, not typed");
     }
 
     /// A folder's listing that comes back after another folder was opened is too late to count;
@@ -2464,6 +2533,22 @@ pub(super) mod tests {
             }),
         }
     }
+
+    /// A phrase that doesn't end after it starts (made-up analysis: the reader drops those) isn't
+    /// drawn; one on the grid is, from its first beat to its last.
+    #[test]
+    fn only_phrases_that_end_after_they_start_are_drawn() {
+        use locallibrary::anlz::{Mood, Phrase, PhraseKind, SongStructure};
+        let phrase = |start_beat, end_beat| Phrase { kind: PhraseKind::Up, start_beat, end_beat, fill_beat: None };
+        let phrases = vec![phrase(1, 0), phrase(3, 2), phrase(2, 2), phrase(0, 3), phrase(2, 4)];
+        let a = TrackAnalysis {
+            beats: grid(0, 60.0, 4),
+            structure: Some(SongStructure { mood: Mood::High, phrases }),
+            ..Default::default()
+        };
+        let spans: Vec<(f64, f64)> = phrase_spans(&a, 10_000.0).into_iter().map(|s| (s.0, s.1)).collect();
+        assert_eq!(spans, [(1000.0, 3000.0)]);
+    }
     /// A cut, a plain gap, a track pitched without key lock and one with no key, alternates on
     /// the drive, a cover: each is drawn as the set's report says it.
     #[test]
@@ -2548,5 +2633,85 @@ pub(super) mod tests {
             .find_map(|y| row(y).find("1 Night Bus").map(|i| (y, row(y)[..i].chars().count())))
             .expect("the lanes");
         assert!(buf[(x as u16, y)].modifier.contains(Modifier::REVERSED));
+    }
+
+    /// Recordings opened by path stay listed: a folder's (in its subfolders too) until it's
+    /// forgotten, newest folder first; one opened on its own, once identified against the drive,
+    /// among the recent ones until it's forgotten. A folder with none isn't kept, and a path
+    /// that isn't a recording says why and changes nothing.
+    #[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+    fn recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let dir = tempfile::tempdir().unwrap();
+        let drive = dir.path().join("drive");
+        std::fs::create_dir_all(&drive).unwrap();
+        let mut app = App::with_library(&drive, library());
+        app.view = View::Mixes;
+        let sets = dir.path().join("sets");
+        let in_folders = [
+            vec![wav_at(&sets.join("a/one.wav")), wav_at(&sets.join("a/later/two.wav"))],
+            vec![wav_at(&sets.join("b/three.wav"))],
+            Vec::new(),
+        ];
+        let folders = [sets.join("a"), sets.join("b"), sets.join("empty")];
+        std::fs::create_dir_all(&folders[2]).unwrap();
+        std::fs::write(folders[2].join("notes.txt"), "set list").unwrap();
+        let solo = wav_at(&dir.path().join("solo.wav"));
+        let (notes, gone) = (folders[2].join("notes.txt"), dir.path().join("gone.wav"));
+        let (mut kept, mut recent): (Vec<usize>, Vec<PathBuf>) = (Vec::new(), Vec::new());
+        for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
+            app.toast = None;
+            match tc.draw(gs::integers::<u8>().max_value(4)) {
+                0 | 1 => {
+                    let f = tc.draw(gs::integers::<usize>().max_value(2));
+                    press(&mut app, &format!("O{}\n", folders[f].display()));
+                    wait(&mut app, |a| a.mix.announce.is_none());
+                    let said = last_message(&app).to_string();
+                    kept.retain(|&k| k != f);
+                    match in_folders[f].len() {
+                        0 => assert!(said.starts_with("no recordings in"), "{said}"),
+                        n => {
+                            kept.insert(0, f);
+                            assert!(said.starts_with(&format!("{n} recording")), "{said}");
+                        }
+                    }
+                }
+                2 => {
+                    press(&mut app, &format!("O{}\n", solo.display()));
+                    wait(&mut app, |a| !a.mix.is_loading());
+                    assert!(last_message(&app).contains("0 tracks found"), "{}", last_message(&app));
+                    recent.retain(|p| *p != solo);
+                    recent.insert(0, solo.clone());
+                }
+                3 => {
+                    let (path, why) =
+                        if tc.draw(gs::booleans()) { (&notes, "isn't a recording") } else { (&gone, "doesn't exist") };
+                    press(&mut app, &format!("O{}\n", path.display()));
+                    assert!(last_message(&app).contains(why), "{}", last_message(&app));
+                }
+                _ if !app.mix.sources.is_empty() => {
+                    let i = tc.draw(gs::integers::<usize>().max_value(app.mix.sources.len() - 1));
+                    app.mix.pane = Pane::Mixes;
+                    app.mix.list.select(Some(i));
+                    let s = app.mix.sources[i].clone();
+                    press(&mut app, "\u{7f}");
+                    match &s.folder {
+                        Some(d) => kept.retain(|&k| folders[k] != *d),
+                        None => recent.retain(|p| *p != s.path),
+                    }
+                }
+                _ => continue,
+            }
+            let want_folders: Vec<&PathBuf> = kept.iter().map(|&k| &folders[k]).collect();
+            assert_eq!(app.mix.folders.iter().collect::<Vec<_>>(), want_folders);
+            assert_eq!(app.mix.recent, recent);
+            let mut listed: Vec<&PathBuf> = app.mix.sources.iter().map(|s| &s.path).collect();
+            let mut want: Vec<&PathBuf> = kept.iter().flat_map(|&k| &in_folders[k]).chain(&recent).collect();
+            listed.sort();
+            want.sort();
+            want.dedup();
+            assert_eq!(listed, want);
+            assert!(screen(&mut app, 120, 30).lines().count() == 30);
+        }
     }
 }

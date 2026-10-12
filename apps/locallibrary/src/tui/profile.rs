@@ -23,6 +23,7 @@ use super::account::Account;
 use super::app::{App, Level, Msg};
 use super::keymap::Act;
 use super::theme::{self, bold, dim, faint, fg, rgb3, text};
+use super::ui::Scrolled;
 use crate::output::plural;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -658,6 +659,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         .block(block(title("Sections", focused), focused))
         .highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
         .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+    t.sections.fit(side.height.saturating_sub(2) as usize, Section::ALL.len());
     f.render_stateful_widget(list, side, &mut t.sections);
 
     if t.document {
@@ -807,6 +809,8 @@ fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: b
     .column_spacing(2)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
     .highlight_symbol(Span::styled("▍", fg(if focused { theme::PINK } else { theme::FAINT })));
+    // Under the header row.
+    rows.fit(table.height.saturating_sub(1) as usize, s.list.len());
     f.render_stateful_widget(t, table, rows);
 }
 
@@ -1055,6 +1059,7 @@ fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState
     .column_spacing(1)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
     .highlight_symbol(Span::styled("▍", fg(if focused { theme::PINK } else { theme::FAINT })));
+    rows.fit(table.height.saturating_sub(1) as usize, ranked.top.len());
     f.render_stateful_widget(t, table, rows);
 }
 
@@ -1166,6 +1171,7 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
     .column_spacing(1)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
     .highlight_symbol(Span::styled("▍", fg(if focused { theme::PINK } else { theme::FAINT })));
+    rows.fit(table.height.saturating_sub(1) as usize, s.played.len());
     f.render_stateful_widget(t, table, rows);
     if moves > 0 {
         let mut lines = vec![note("Moves played again and again")];
@@ -1855,5 +1861,74 @@ mod tests {
         // Outside the view, the pointer does what it does anywhere.
         mouse(&mut app, MouseEventKind::ScrollDown, (0, 0));
         assert_eq!(app.profile.scroll, 3);
+    }
+
+    /// A full profile (every section filled in, some tracks pinned or hidden) draws at any size,
+    /// whichever section, pane, row or scroll, and with room, lists every section by its title,
+    /// the selected one's numbers beside them; the selected row stays among the section's rows.
+    #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+    fn a_full_profile_draws_whole_at_any_size(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let mut t = full_tab();
+        let basis = t.report().unwrap().basis;
+        for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)) {
+            match tc.draw(gs::integers::<u8>().max_value(4)) {
+                0 => t.select_section(tc.draw(gs::integers::<usize>().max_value(Section::ALL.len() - 1))),
+                1 => {
+                    t.pane = if t.pane == Pane::Sections && t.detail_len() > 0 { Pane::Detail } else { Pane::Sections }
+                }
+                2 => t.document = !t.document,
+                _ => t.move_by(tc.draw(gs::sampled_from(&[-10, -1, 1, 1, 10][..]))),
+            }
+            assert!(
+                t.rows.selected().is_none_or(|r| r < t.detail_len()),
+                "row {:?} of {}",
+                t.rows.selected(),
+                t.detail_len()
+            );
+            let (w, h) = (
+                tc.draw(gs::integers::<u16>().min_value(1).max_value(200)),
+                tc.draw(gs::integers::<u16>().min_value(1).max_value(60)),
+            );
+            // At any size, and at one with room for everything.
+            render(&mut t, w, h);
+            let screen = render(&mut t, 140, 45);
+            if !t.document {
+                for s in Section::ALL {
+                    assert!(screen.contains(s.title_in(basis)), "{s:?} isn't listed:\n{screen}");
+                }
+            }
+        }
+    }
+
+    /// A section's table scrolled down to its selection on a short screen comes back up once it
+    /// fits again: drawn short, then tall, its first row and the one selected show.
+    #[hegel::test(test_cases = 50, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+    fn the_tables_come_back_up_once_they_fit(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let mut t = full_tab();
+        let r = t.report().unwrap();
+        let name = |x: &profile::Share| x.name.clone();
+        let tables: Vec<(Section, Vec<String>)> = [
+            (Section::Sets, r.sets.list.iter().map(|s| s.name.clone()).collect::<Vec<_>>()),
+            (Section::Signature, r.signature.played.iter().map(|p| p.name.clone()).collect()),
+            (Section::Genres, r.genres.top.iter().map(name).collect()),
+            (Section::Labels, r.labels.top.iter().map(name).collect()),
+            (Section::Artists, r.artists.top.iter().map(name).collect()),
+        ]
+        .into_iter()
+        .filter(|(_, names)| !names.is_empty())
+        .collect();
+        let (section, names) = tables[tc.draw(gs::integers::<usize>().max_value(tables.len() - 1))].clone();
+        t.select_section(Section::ALL.iter().position(|s| *s == section).unwrap());
+        let sel = tc.draw(gs::integers::<usize>().max_value(names.len() - 1));
+        (t.pane, t.rows) = (Pane::Detail, TableState::default().with_selected(Some(sel)));
+        render(&mut t, 140, tc.draw(gs::integers::<u16>().min_value(1).max_value(30)));
+        let screen = render(&mut t, 140, 45);
+        for i in [0, sel] {
+            // As much as any column has room for.
+            let name: String = names[i].chars().take(16).collect();
+            assert!(screen.contains(&name), "row {i}, {name:?}, isn't shown:\n{screen}");
+        }
     }
 }

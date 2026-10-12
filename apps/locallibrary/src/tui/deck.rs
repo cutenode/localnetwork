@@ -821,4 +821,115 @@ mod tests {
         press(&mut app, "(");
         assert_eq!(app.deck.looped.map(|l| (l.start, l.end)), Some((0.0, 1000.0)));
     }
+
+    /// A beat grid as rekordbox's can be: from any time, its tempo changing beat to beat.
+    #[hegel::test_helper]
+    fn any_grid(tc: &hegel::TestCase) -> Vec<locallibrary::anlz::Beat> {
+        use hegel::generators as gs;
+        let mut at = tc.draw(gs::integers::<u32>().max_value(5_000));
+        let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(40));
+        (0..n)
+            .map(|i| {
+                let bpm = tc.draw(gs::integers::<u16>().min_value(60).max_value(200)) as f64;
+                let b = locallibrary::anlz::Beat { beat_number: (i % 4 + 1) as u16, bpm, time_ms: at };
+                at += tc.draw(gs::integers::<u32>().min_value(100).max_value(1_500));
+                b
+            })
+            .collect()
+    }
+
+    #[hegel::test_helper]
+    fn any_ms(tc: &hegel::TestCase, beats: &[locallibrary::anlz::Beat]) -> f64 {
+        use hegel::generators as gs;
+        let end = beats.last().unwrap().time_ms as i64 + 5_000;
+        tc.draw(gs::integers::<i64>().min_value(-5_000).max_value(end)) as f64
+    }
+
+    /// A time's place on any grid (before it, along it, past it) and that place's time agree, and
+    /// later times are further along.
+    #[hegel::test(test_cases = 300)]
+    fn places_on_the_grid_and_their_times_agree(tc: hegel::TestCase) {
+        let g = any_grid(&tc);
+        let (a, b) = (any_ms(&tc, &g), any_ms(&tc, &g));
+        let (ia, ib) = (beat_index(&g, a).unwrap(), beat_index(&g, b).unwrap());
+        assert!((beat_time(&g, ia).unwrap() - a).abs() < 1e-6, "{a} is beat {ia}");
+        assert!(a > b || ia <= ib, "{a} is beat {ia}, {b} is beat {ib}");
+        for (i, beat) in g.iter().enumerate() {
+            assert!((beat_index(&g, beat.time_ms as f64).unwrap() - i as f64).abs() < 1e-9, "beat {i}");
+        }
+    }
+
+    /// A beat jump moves the playhead along the grid by the beats asked: keeping its place in the
+    /// beat while playing, onto a beat when paused, and by the beat it's in with quantize off.
+    #[hegel::test(test_cases = 300)]
+    fn beat_jumps_move_by_the_beats_asked(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let g = any_grid(&tc);
+        let ms = any_ms(&tc, &g);
+        let by = tc.draw(gs::sampled_from(&[-32.0, -4.0, -1.0, -0.5, 0.5, 1.0, 4.0, 32.0][..]));
+        let at = beat_index(&g, ms).unwrap();
+        let landed = |snap| beat_index(&g, jump_by(&g, ms, by, snap).unwrap()).unwrap();
+        assert!((landed(Snap::Phase) - (at + by)).abs() < 1e-6, "from beat {at} by {by}");
+        assert!((landed(Snap::Beat) - (at.round() + by)).abs() < 1e-6, "from beat {at} by {by} onto a beat");
+        let i = at.floor().clamp(0.0, (g.len() - 1) as f64) as usize;
+        assert!((jump_by(&g, ms, by, Snap::Off).unwrap() - (ms + by * beat_len(&g, i))).abs() < 1e-6);
+        assert_eq!(jump_by(&[], ms, by, Snap::Phase), None);
+    }
+
+    /// A quantized cue jump while playing lands as far from the cue (within half a beat) as the
+    /// playhead is from its nearest beat; otherwise on the cue. Marks ahead are the first to land
+    /// past the playhead; back, the last to land well before it, or the start.
+    #[hegel::test(test_cases = 300)]
+    fn cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
+        use hegel::Generator;
+        use hegel::generators as gs;
+        let g = any_grid(&tc);
+        let (ms, cue) = (any_ms(&tc, &g), any_ms(&tc, &g).max(0.0));
+        let (at, c) = (beat_index(&g, ms).unwrap(), beat_index(&g, cue).unwrap());
+        let land = cue_jump(&g, ms, cue, Snap::Phase);
+        let off = beat_index(&g, land).unwrap() - c;
+        assert!((off - (at - at.round())).abs() < 1e-6 && off.abs() <= 0.5 + 1e-9, "{off} from the cue");
+        assert_eq!((cue_jump(&g, ms, cue, Snap::Beat), cue_jump(&g, ms, cue, Snap::Off)), (cue, cue));
+
+        let mut marks: Vec<f64> = (0..tc.draw(gs::integers::<usize>().max_value(6))).map(|_| any_ms(&tc, &g)).collect();
+        marks.retain(|m| *m >= 0.0);
+        marks.sort_by(f64::total_cmp);
+        let snap = tc.draw(gs::sampled_from(&[Snap::Off, Snap::Beat, Snap::Phase][..]).print_as_debug());
+        let lands = |m: f64| cue_jump(&g, ms, m, snap);
+        match mark_jump(&g, ms, &marks, true, snap) {
+            Some((m, l)) => {
+                assert_eq!(l, lands(m));
+                assert!(l > ms + 250.0, "{m} lands at {l}, not past {ms}");
+                let first = marks.iter().position(|x| *x == m).unwrap();
+                assert!(marks[..first].iter().all(|x| lands(*x) <= ms + 250.0), "an earlier mark than {m}");
+            }
+            None => assert!(marks.iter().all(|x| lands(*x) <= ms + 250.0), "a mark ahead of {ms}"),
+        }
+        let (m, l) = mark_jump(&g, ms, &marks, false, snap).unwrap();
+        let before: Vec<&f64> = marks.iter().filter(|x| lands(**x) + 1500.0 < ms).collect();
+        assert_eq!(m, before.last().map_or(0.0, |x| **x), "back from {ms}");
+        assert_eq!(l, lands(m));
+    }
+
+    /// A loop made on the grid is as many beats long as asked, from the beat the playhead is in
+    /// (or the playhead itself with quantize off), never from before the track starts.
+    #[hegel::test(test_cases = 300)]
+    fn loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let g = any_grid(&tc);
+        let ms = any_ms(&tc, &g).max(0.0);
+        let len = tc.draw(gs::sampled_from(&[0.25, 1.0, 4.0, 16.0][..]));
+        let on_beat = tc.draw(gs::booleans());
+        let (start, end) = auto_loop(&g, ms, len, on_beat).unwrap();
+        let (s, e) = (beat_index(&g, start).unwrap(), beat_index(&g, end).unwrap());
+        assert!((e - s - len).abs() < 1e-6, "{s}..{e} for {len} beats");
+        let at = beat_index(&g, ms).unwrap();
+        if on_beat {
+            assert!((s - s.round()).abs() < 1e-6 && (s - at).abs() < 1.0 + 1e-6, "beat {s} for the playhead at {at}");
+            assert!(start >= 0.0, "a loop from {start}");
+        } else {
+            assert!((start - ms).abs() < 1e-6);
+        }
+        assert_eq!(auto_loop(&[], ms, len, on_beat), None);
+    }
 }

@@ -26,6 +26,8 @@ impl Account {
         false
     }
 
+    pub fn stop_typing(&mut self) {}
+
     /// The bar at the top of the view.
     pub fn line(&self, _width: u16) -> Line<'static> {
         Line::styled(" ○ No Atmosphere account: this locallibrary was built without it", dim())

@@ -128,4 +128,33 @@ mod tests {
         assert_eq!(list.items[0].track.rating, 1);
         assert_eq!(list.items[1].track.title, "Elsewhere");
     }
+
+    /// Reading a drive again keeps the crate's order, drops its tracks that drive no longer has,
+    /// gives the rest their new details, and leaves other drives' tracks alone.
+    #[hegel::test(test_cases = 200)]
+    fn reading_a_drive_again_keeps_the_crate_in_order(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let (a, b) = (Path::new("/A"), Path::new("/B"));
+        let lib = library();
+        let mut list = Crate::default();
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(8)) {
+            let root = if tc.draw(gs::booleans()) { a } else { b };
+            let t = lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))].clone();
+            list.add(root, "D", [t]);
+        }
+        // The drive read again: some tracks gone, the others rated.
+        let mut again = lib.clone();
+        again.tracks.retain(|_| tc.draw(gs::booleans()));
+        again.tracks.iter_mut().for_each(|t| t.rating = 4);
+        let before: Vec<(PathBuf, Track)> = list.items.iter().map(|t| (t.root.clone(), t.track.clone())).collect();
+        list.refresh(a, &again);
+        let kept: Vec<_> = (before.iter())
+            .filter(|(root, t)| root == b || again.tracks.iter().any(|x| x.file_path == t.file_path))
+            .collect();
+        assert_eq!(list.len(), kept.len());
+        for (now, (root, was)) in list.items.iter().zip(kept) {
+            assert_eq!((&now.root, &now.track.file_path), (root, &was.file_path));
+            assert_eq!(now.track.rating, if now.root == a { 4 } else { was.rating });
+        }
+    }
 }

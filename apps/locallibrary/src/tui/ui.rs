@@ -34,7 +34,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let a = &mut app.areas;
     a.spectra.clear();
     a.columns.clear();
-    (a.drives, a.playlists, a.tracks, a.details, a.matches, a.crate_panel, a.crate_rows, a.menu) = Default::default();
+    (a.drives, a.playlists, a.tracks, a.details, a.matches, a.crate_panel, a.crate_rows, a.menu, a.overview) =
+        Default::default();
     match app.view {
         View::Library if app.fullscreen => draw_player(f, app, body, true),
         View::Library => {
@@ -454,6 +455,7 @@ fn draw_drive_list(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         .map(|d| ListItem::new(drive_line(d, loaded_root.as_deref() == Some(d.root.as_path()), "", inner_w)))
         .collect();
     let list = drive_list(items, focused);
+    app.drive_state.fit(area.height.saturating_sub(2) as usize, app.drives.len());
     f.render_stateful_widget(list, area, &mut app.drive_state);
 }
 
@@ -489,7 +491,7 @@ fn drive_list(items: Vec<ListItem<'static>>, focused: bool) -> List<'static> {
 }
 
 /// Keep `sel` in a window of `page` rows starting at `offset`; returns the new offset.
-fn scroll_window(offset: usize, sel: Option<usize>, page: usize, len: usize) -> usize {
+pub(super) fn scroll_window(offset: usize, sel: Option<usize>, page: usize, len: usize) -> usize {
     let mut offset = offset;
     if let Some(s) = sel {
         if s < offset {
@@ -499,6 +501,26 @@ fn scroll_window(offset: usize, sel: Option<usize>, page: usize, len: usize) -> 
         }
     }
     offset.min(len.saturating_sub(page))
+}
+
+/// A list or table kept to [`scroll_window`] before it's drawn: drawn smaller, then larger, it
+/// comes back up once its rows fit again (ratatui's own scrolling only ever follows the
+/// selection, so rows stayed hidden above empty space).
+pub(super) trait Scrolled {
+    /// Scroll for a window of `page` rows of `len`.
+    fn fit(&mut self, page: usize, len: usize);
+}
+
+impl Scrolled for ListState {
+    fn fit(&mut self, page: usize, len: usize) {
+        *self.offset_mut() = scroll_window(self.offset(), self.selected(), page, len);
+    }
+}
+
+impl Scrolled for TableState {
+    fn fit(&mut self, page: usize, len: usize) {
+        *self.offset_mut() = scroll_window(self.offset(), self.selected(), page, len);
+    }
 }
 
 fn draw_playlists(f: &mut Frame, app: &mut App, area: Rect) {
@@ -783,8 +805,10 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
 
     // Where the headers are, for sorting by clicking one (as the table lays them out: a column
-    // for the highlight symbol, then the columns one space apart).
-    let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height: 1 };
+    // for the highlight symbol, then the columns one space apart). Under 3 rows the pane has no
+    // room for them: the row under its top border is its bottom border, or another pane's.
+    let height = area.height.saturating_sub(2).min(1);
+    let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(2), height };
     let cells = Rect { x: inner.x + 1, width: inner.width.saturating_sub(1), ..inner };
     let rects = Layout::horizontal(widths.clone()).flex(Flex::Start).spacing(1).split(cells);
     app.areas.columns = cols.iter().zip(rects.iter().skip(3)).filter_map(|(c, r)| Some((c.field()?, *r))).collect();
@@ -1072,6 +1096,7 @@ fn draw_crate(f: &mut Frame, app: &mut App, area: Rect) {
         .block(b)
         .highlight_style(if focused { theme::selected() } else { Style::new() })
         .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+    app.crate_state.fit(inner.height as usize, app.crate_list.len());
     f.render_stateful_widget(list, area, &mut app.crate_state);
 }
 
@@ -1534,6 +1559,7 @@ fn draw_matches(
             let list = List::new(items)
                 .highlight_style(if focused { theme::selected() } else { Style::new() })
                 .highlight_symbol(if focused { Span::styled("▍", fg(theme::PINK)) } else { Span::raw("") });
+            state.fit(inner.height as usize, m.items.len());
             if focused {
                 f.render_stateful_widget(list, inner, state);
             } else {
@@ -2067,6 +2093,8 @@ fn draw_drive_rows(f: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
     app.drive_rows.select(app.drive_row(&rows));
+    // Each row takes two lines.
+    app.drive_rows.fit(area.height.saturating_sub(2) as usize / 2, rows.len());
     f.render_stateful_widget(drive_list(items, true), area, &mut app.drive_rows);
 }
 
@@ -2225,6 +2253,8 @@ fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(p, area);
         return;
     }
+    // Under the border and the header row.
+    app.history_state.fit(area.height.saturating_sub(3) as usize, rows.len());
     let header = ["Library", "", "Snapshot", "Created", "Tracks", "Size", "From", "Message"];
     let table = Table::new(
         rows,
@@ -2314,6 +2344,7 @@ fn draw_menu(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let h = items.len() as u16 + 2;
     let r = popup(area, w, h, m.at);
+    state.fit(r.height.saturating_sub(2) as usize, items.len());
     let b = block(title(&heading, true), true)
         .title_bottom(Line::styled(" every change to the drive asks first ", faint()).right_aligned());
     let list = List::new(items)
@@ -2359,6 +2390,7 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
             .collect();
         let l =
             List::new(items).highlight_style(theme::selected()).highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+        p.state.fit(list.height as usize, n);
         f.render_stateful_widget(l, list, &mut p.state);
     }
     app.areas.menu = r;
@@ -2412,6 +2444,7 @@ fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
         items.push(ListItem::new(Line::from(vec![mark(on), Span::styled(clip(n, w as usize - 6), text())])));
     }
     let r = popup(area, w, items.len() as u16 + 2, None);
+    o.state.fit(r.height.saturating_sub(2) as usize, items.len());
     let b = block(title("Output", true), true)
         .title_bottom(Line::styled(" enter play through it · esc close ", faint()).right_aligned());
     let list = List::new(items)
@@ -3693,5 +3726,167 @@ mod tests {
         let s = confirmation_screen(&mut app, &root, Box::new(planned));
         assert!(s.contains("⚠ the drive is nearly full"), "{s}");
         assert!(s.contains("This deletes or replaces what's there now."), "{s}");
+    }
+
+    /// Spans fitted to a width take no more columns than that, start as the line does, and are
+    /// the whole line when it fits.
+    #[hegel::test(test_cases = 300)]
+    fn fitted_spans_keep_to_their_width(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        use unicode_width::UnicodeWidthStr;
+        let parts: Vec<String> = tc.draw(gs::vecs(gs::text().alphabet("ab 日😹").max_size(6)).max_size(5));
+        let max = tc.draw(gs::integers::<usize>().max_value(20));
+        let whole: String = parts.concat();
+        let out: String =
+            fit(parts.into_iter().map(Span::raw).collect(), max).iter().map(|s| s.content.to_string()).collect();
+        assert!(out.width() <= max, "{out:?} is wider than {max}");
+        if whole.width() <= max {
+            assert_eq!(out, whole);
+        } else {
+            assert!(whole.starts_with(out.trim_end_matches('…')), "{out:?} of {whole:?}");
+        }
+    }
+
+    /// A list scrolled to show its selection does: the selected row is in the window, and the
+    /// window doesn't run past the end of the list. A window of no rows (a pane too short for
+    /// any) starts no later than the selection, and never past the end of the list.
+    #[hegel::test(test_cases = 300)]
+    fn the_selection_is_always_in_the_window(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let len = tc.draw(gs::integers::<usize>().max_value(100));
+        // No rows often: the drives list and the profile's sections have none under 4 rows.
+        let page = tc.draw(hegel::one_of!(gs::just(0), gs::integers::<usize>().max_value(40)));
+        let offset = tc.draw(gs::integers::<usize>().max_value(120));
+        let sel = tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<usize>().max_value(len.saturating_sub(1))));
+        let top = scroll_window(offset, sel, page, len);
+        assert!(top <= len.saturating_sub(page), "{top} leaves rows of {len} empty below a page of {page}");
+        if let Some(s) = sel.filter(|_| len > 0) {
+            assert!(top <= s && s < top + page.max(1), "{s} isn't in {top}..{}", top + page);
+        }
+    }
+
+    /// Every list and table scrolled down to its selection on a short screen comes back up once
+    /// it fits again: drawn short, then tall, its first row and the one selected show. (The
+    /// Mixes view's and the profile's have their own, in `mix.rs` and `profile.rs`.)
+    #[hegel::test(test_cases = 100)]
+    fn lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
+        use std::sync::Arc;
+
+        use hegel::generators as gs;
+        use locallibrary::hash::Hash;
+        use locallibrary::store::{LibraryRecord, SnapshotInfo};
+        use locallibrary::{Device, Library};
+
+        use super::super::app::{Details, Mix};
+        use super::super::crate_list::CrateTrack;
+        use super::super::deck::Outputs;
+        use super::super::keymap::Act;
+        use super::super::palette::{Item, Picker, Then};
+
+        let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(16));
+        let sel = tc.draw(gs::integers::<usize>().max_value(n - 1));
+        let (mut app, dir) = app_with(library());
+        let named = |what: &str| (0..n).map(|i| format!("{what} {i:02}")).collect::<Vec<_>>();
+        let (rows, picked) = match tc.draw(gs::integers::<u8>().max_value(6)) {
+            0 => {
+                let rows = named("Drive");
+                app.drives = (rows.iter())
+                    .map(|name| {
+                        let root = dir.path().join(name);
+                        std::fs::create_dir_all(&root).unwrap();
+                        DeviceInfo { name: Some(name.clone()), ..Device::open(&root).unwrap().info() }
+                    })
+                    .collect();
+                app.focus = Focus::Drives;
+                app.drive_state.select(Some(sel));
+                (rows, sel)
+            }
+            1 => {
+                let rows = named("Crated");
+                app.crate_list.items = (rows.iter().zip(100..))
+                    .map(|(title, id)| CrateTrack {
+                        root: dir.path().into(),
+                        drive: "TEST".into(),
+                        track: track(id, "DJ", title),
+                    })
+                    .collect();
+                (app.show_crate, app.show_details, app.focus) = (true, false, Focus::Crate);
+                app.crate_state.select(Some(sel));
+                (rows, sel)
+            }
+            2 => {
+                let rows = named("Match");
+                let tracks = (rows.iter().zip(1..)).map(|(title, id)| track(id, "DJ", title)).collect();
+                let key = Camelot::parse("8A").unwrap();
+                let items =
+                    (0..n).map(|index| Mix { index, key, relation: KeyRelation::Same, tempo_gap: 0.0 }).collect();
+                let matches = Matches {
+                    library: Arc::new(Library { tracks, ..Default::default() }),
+                    root: dir.path().into(),
+                    items,
+                };
+                let generation = app.loaded.as_ref().unwrap().generation;
+                let index = app.selected_track().unwrap();
+                app.details = Some(Details { generation, index, matches, playlists: Vec::new() });
+                (app.show_details, app.show_crate, app.focus) = (true, false, Focus::Details);
+                app.details_state.select(Some(sel));
+                (rows, sel)
+            }
+            3 => {
+                let rows = named("snap");
+                let at = chrono::Utc::now();
+                let snapshot = |short_id: &String| SnapshotInfo {
+                    id: Hash::of(short_id.as_bytes()),
+                    short_id: short_id.clone(),
+                    library_id: Uuid::nil(),
+                    parents: Vec::new(),
+                    created: at,
+                    message: None,
+                    source: None,
+                    fingerprint: Hash::of(b"library"),
+                    summary: Default::default(),
+                    files: 0,
+                    bytes: 0,
+                    labels: Vec::new(),
+                    beside: false,
+                };
+                let record =
+                    LibraryRecord { id: Uuid::nil(), name: "Demo".into(), head: None, created: at, updated: at };
+                app.history = Some(Ok(vec![(record, rows.iter().map(snapshot).collect())]));
+                app.view = View::Snapshots;
+                app.history_state.select(Some(sel));
+                (rows, sel)
+            }
+            4 => {
+                let rows = named("Command");
+                let items = rows.iter().map(|r| Item::new(r, "")).collect();
+                let mut p = Picker::new("Pick", items, Then::Act(vec![Act::Help; n]));
+                p.state.select(Some(sel));
+                app.modal = Some(Modal::Pick(p));
+                (rows, sel)
+            }
+            5 => {
+                let names = named("Output");
+                app.deck.outputs = Some(Outputs {
+                    names: names.clone(),
+                    default: None,
+                    state: ListState::default().with_selected(Some(sel)),
+                });
+                ([vec!["the system's default".to_string()], names].concat(), sel)
+            }
+            _ => {
+                app.on_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+                let Some(Modal::Menu(m)) = &mut app.modal else { panic!("no menu") };
+                let picked = sel.min(m.items.len() - 1);
+                m.state.select(Some(picked));
+                (m.items.iter().map(|i| clip(&i.label, 41)).collect(), picked)
+            }
+        };
+        let short = tc.draw(gs::integers::<u16>().min_value(1).max_value(40));
+        screen(&mut app, 200, short);
+        let s = screen(&mut app, 200, 70);
+        for row in [&rows[0], &rows[picked]] {
+            assert!(s.contains(row.as_str()), "{row:?} isn't shown after drawing {short} rows high:\n{s}");
+        }
     }
 }
