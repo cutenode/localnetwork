@@ -39,7 +39,7 @@ fn setup() -> Setup {
 }
 
 /// A report of a recording that plays `tracks` from these seconds, at this confidence.
-fn report(plays: &[(&Track, f64, f64)], date: Option<&str>) -> MixReport {
+pub(crate) fn report(plays: &[(&Track, f64, f64)], date: Option<&str>) -> MixReport {
     let play = |&(t, start, confidence): &(&Track, f64, f64)| Play {
         track: t.clone(),
         start,

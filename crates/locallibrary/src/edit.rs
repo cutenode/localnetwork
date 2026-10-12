@@ -1253,6 +1253,18 @@ fn list<'l>(lib: &'l Library, spec: &str) -> Result<&'l Playlist> {
     }
 }
 
+/// `p`, found for `spec`, unless a replay (`recorded`) finds it elsewhere than at the path `spec`
+/// gives (ignoring case, as lookups do): the journal names a playlist by its path, and once the
+/// one there is gone, a lookup by name alone finds another of that name in some folder.
+fn at_recorded_path<'l>(lib: &Library, p: &'l Playlist, spec: &str, recorded: bool) -> Result<&'l Playlist> {
+    let path: Vec<String> =
+        lib.playlist_names(p.id).iter().map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).collect();
+    if recorded && !path.join("/").eq_ignore_ascii_case(&split_path(spec)?.join("/")) {
+        return Err(Error::NotFound(format!("playlist {spec:?}")));
+    }
+    Ok(p)
+}
+
 /// The playlist at exactly the path `spec`, for an edit that makes it when it's missing: never
 /// one of that name in another folder, nor one whose path differs in case (a rule for `FoO` makes
 /// it next to a `Foo`). When several playlists' paths match ignoring case, which one was meant
@@ -1345,6 +1357,8 @@ impl<'a> Resolver<'a> {
         // A playlist or folder as the journal names it: by its path, which a folder's ends in `/`
         // (a playlist and a folder can share one).
         let named = |p: &Playlist| lib.playlist_path(p.id) + if p.is_folder { "/" } else { "" };
+        let playlist = |spec: &str| playlist(lib, spec).and_then(|p| at_recorded_path(lib, p, spec, self.lenient));
+        let list = |spec: &str| list(lib, spec).and_then(|p| at_recorded_path(lib, p, spec, self.lenient));
         let set = |p: &Playlist, ids: &[u32]| Op::SetEntries {
             node: lib.playlist_names(p.id),
             tracks: Self::keys(lib, ids),
@@ -1391,7 +1405,7 @@ impl<'a> Resolver<'a> {
                 (ops, desc, edit.clone())
             }
             Edit::RenamePlaylist { playlist: spec, name } => {
-                let p = playlist(lib, spec)?;
+                let p = playlist(spec)?;
                 let name = name.trim();
                 if name.is_empty() || name.contains('/') {
                     return Err(Error::invalid("names can't be empty or contain /"));
@@ -1409,13 +1423,16 @@ impl<'a> Resolver<'a> {
                 (vec![Op::Rename { node, folder: p.is_folder, name: name.to_string() }], desc, canonical)
             }
             Edit::MovePlaylist { playlist: spec, into, position } => {
-                let p = playlist(lib, spec)?;
+                let p = playlist(spec)?;
                 let folder = match into.as_deref().map(str::trim).filter(|s| !s.is_empty() && *s != "/") {
                     None => None,
-                    Some(f) => match lib.find_playlist_of_kind(f, true) {
+                    Some(f) => match lib
+                        .find_playlist_of_kind(f, true)
+                        .filter(|x| at_recorded_path(lib, x, f, self.lenient).is_ok())
+                    {
                         Some(folder) => Some(folder),
                         None => {
-                            playlist(lib, f)?;
+                            playlist(f)?;
                             return Err(Error::invalid(format!("{f:?} is a playlist, not a folder")));
                         }
                     },
@@ -1436,7 +1453,7 @@ impl<'a> Resolver<'a> {
                 (vec![place], desc, Edit::MovePlaylist { playlist: named(p), into, position: *position })
             }
             Edit::DeletePlaylist { playlist: spec, with_tracks } => {
-                let p = playlist(lib, spec)?;
+                let p = playlist(spec)?;
                 let node = lib.playlist_names(p.id);
                 let mut desc = if p.is_folder {
                     format!("delete folder {} and everything in it", node.join("/"))
@@ -1484,7 +1501,7 @@ impl<'a> Resolver<'a> {
                 return Ok((ops, desc, recorded));
             }
             Edit::AddTracks { playlist: spec, tracks, position, sort, allow_repeats } => {
-                let p = list(lib, spec)?;
+                let p = list(spec)?;
                 let mut add = self.select(lib, tracks, false)?;
                 if let Some(s) = sort {
                     add = sorted(lib, &add, s)?;
@@ -1501,6 +1518,10 @@ impl<'a> Resolver<'a> {
                 let mut new = old.clone();
                 new.splice(at..at, add.iter().copied());
                 let desc = format!("add {} track(s) to {}", add.len(), lib.playlist_path(p.id));
+                // Adding none records nothing: a replay would select no tracks.
+                if add.is_empty() {
+                    return Ok((Vec::new(), desc, Vec::new()));
+                }
                 let canonical = Edit::AddTracks {
                     playlist: lib.playlist_path(p.id),
                     tracks: TrackSelector::paths(Self::device_paths(lib, &add)),
@@ -1511,7 +1532,7 @@ impl<'a> Resolver<'a> {
                 (vec![set(p, &new)], desc, canonical)
             }
             Edit::RemoveTracks { playlist: spec, tracks, positions } => {
-                let p = list(lib, spec)?;
+                let p = list(spec)?;
                 let old = entries(p);
                 let doomed: FxHashSet<u32> = match tracks {
                     Some(sel) => self.select(lib, sel, true)?.into_iter().collect(),
@@ -1538,6 +1559,10 @@ impl<'a> Resolver<'a> {
                     .collect();
                 let mut seen = FxHashSet::default();
                 removed.retain(|t| seen.insert(*t));
+                // Removing none records nothing: a replay would select no tracks.
+                if removed.is_empty() {
+                    return Ok((Vec::new(), desc, Vec::new()));
+                }
                 let canonical = match removed.iter().any(|t| new.contains(t)) {
                     false => Edit::RemoveTracks {
                         playlist: lib.playlist_path(p.id),
@@ -1549,7 +1574,7 @@ impl<'a> Resolver<'a> {
                 (vec![set(p, &new)], desc, canonical)
             }
             Edit::MoveTracks { playlist: spec, positions, to } => {
-                let p = list(lib, spec)?;
+                let p = list(spec)?;
                 let old = entries(p);
                 let picked = indexes(positions, old.len())?;
                 if picked.is_empty() {
@@ -1603,7 +1628,9 @@ impl<'a> Resolver<'a> {
                 let desc = |path: &str| format!("fill {path} with {} track(s)", ids.len());
                 let found = match create {
                     true => find_exact(lib, spec)?,
-                    false => lib.find_playlist_of_kind(spec, false),
+                    false => lib
+                        .find_playlist_of_kind(spec, false)
+                        .filter(|p| at_recorded_path(lib, p, spec, self.lenient).is_ok()),
                 };
                 // The rule says what the playlist holds, so no database keeps entries of its own.
                 let fill = |p: &Playlist| Op::SetEntries {
@@ -1617,35 +1644,40 @@ impl<'a> Resolver<'a> {
                         let (ops, _, canonical) = fill_new(spec, &ids)?;
                         return Ok((ops, desc(&split_path(spec)?.join("/")), canonical));
                     }
-                    None => return Err(list(lib, spec).err().unwrap_or_else(|| Error::NotFound(spec.clone()))),
+                    None => return Err(list(spec).err().unwrap_or_else(|| Error::NotFound(spec.clone()))),
                 }
             }
-            Edit::SetEntries { playlist: spec, paths: files, create } => {
-                let (mut ops, node) = match create {
+            Edit::SetEntries { playlist: spec, paths: files_given, create } => {
+                // Recorded by the path it was found at, as every edit is: a replay finds a playlist
+                // only there, never another of its name.
+                let (mut ops, node, playlist) = match create {
                     true => {
                         find_exact(lib, spec)?;
                         let (ops, _, _) =
                             self.resolve(&Edit::CreatePlaylist { path: spec.clone(), folder: false }, lib)?;
-                        (ops, split_path(spec)?)
+                        (ops, split_path(spec)?, spec.clone())
                     }
-                    false => (Vec::new(), lib.playlist_names(list(lib, spec)?.id)),
+                    false => {
+                        let p = list(spec)?;
+                        (Vec::new(), lib.playlist_names(p.id), named(p))
+                    }
                 };
                 // A file with no track fails planning, as selecting it by path does (a replay
                 // leaves it out).
-                let files = self.present(lib, files, &format!("recorded in {}", node.join("/")));
+                let files = self.present(lib, files_given, &format!("recorded in {}", node.join("/")));
                 let tracks = files.iter().map(|f| paths::key(f).to_lowercase()).collect();
                 let desc = format!("fill {} with {} entr(ies)", node.join("/"), files.len());
                 ops.push(Op::SetEntries { node, tracks, before: None });
-                (ops, desc, edit.clone())
+                (ops, desc, Edit::SetEntries { playlist, paths: files_given.clone(), create: *create })
             }
             Edit::SortPlaylist { playlist: spec, by } => {
-                let p = list(lib, spec)?;
+                let p = list(spec)?;
                 let new = sorted(lib, &entries(p), by)?;
                 let canonical = Edit::SortPlaylist { playlist: named(p), by: by.clone() };
                 (vec![set(p, &new)], format!("sort {} by {by}", lib.playlist_path(p.id)), canonical)
             }
             Edit::Dedupe { playlist: spec, recordings } => {
-                let p = list(lib, spec)?;
+                let p = list(spec)?;
                 let mut seen = FxHashSet::default();
                 let new: Vec<u32> = entries(p)
                     .into_iter()
@@ -1661,7 +1693,7 @@ impl<'a> Resolver<'a> {
                 (vec![set(p, &new)], desc, Edit::Dedupe { playlist: named(p), recordings: *recordings })
             }
             Edit::PlanSet { playlist: spec, start, into } => {
-                let p = list(lib, spec)?;
+                let p = list(spec)?;
                 let mut seen = FxHashSet::default();
                 let ids: Vec<u32> = p.track_ids.iter().copied().filter(|id| seen.insert(*id)).collect();
                 let tracks = lib.tracks_by_id(&ids);
@@ -1796,6 +1828,10 @@ impl<'a> Resolver<'a> {
                     return Err(Error::invalid("name the history lists to delete, or delete all"));
                 }
                 let desc = format!("delete {} history list(s)", picked.len());
+                // Deleting all of none records nothing: a replay would find no list to delete.
+                if picked.is_empty() {
+                    return Ok((Vec::new(), desc, Vec::new()));
+                }
                 // Recorded as the lists it deletes, by name and entries: replaying `all`, or the
                 // names, would also take lists players recorded since.
                 let lists = picked
@@ -2517,6 +2553,10 @@ fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) ->
     backup::prune(device)?;
     replayed?;
     report.databases = dedup(report.databases);
+    // Recorded edits the drive still has (no export since) change nothing, so write nothing.
+    if report.databases.is_empty() && report.files_deleted == 0 {
+        report.changes = 0;
+    }
     report.warnings = dedup(report.warnings);
     Ok(report)
 }

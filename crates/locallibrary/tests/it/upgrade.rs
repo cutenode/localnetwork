@@ -23,12 +23,12 @@ use loclib_mixid::fingerprint::RATE;
 use loclib_mixid::test_util::{synth, wav_of};
 use rekordbox_pdb::NewTrack;
 
-const MP3: &str = "/Contents/Sound/Song.mp3";
+pub(crate) const MP3: &str = "/Contents/Sound/Song.mp3";
 const OTHER: &str = "/Contents/Sound/Other.mp3";
-const DELAY_MS: i32 = 26;
+pub(crate) const DELAY_MS: i32 = 26;
 
 /// `secs` of test signal `seed` at `rate`, after `delay_ms` of silence.
-fn signal(seed: u32, secs: f64, rate: u32, delay_ms: i32) -> Vec<f32> {
+pub(crate) fn signal(seed: u32, secs: f64, rate: u32, delay_ms: i32) -> Vec<f32> {
     let mut pcm = vec![0.0f32; (rate as i32 * delay_ms / 1000) as usize];
     let mut resampler = Resampler::new(RATE, rate);
     resampler.push(&synth(secs, seed), &mut |s| pcm.extend_from_slice(s));
@@ -44,7 +44,7 @@ pub(crate) fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: i3
 
 /// A blue detail waveform (`PWV3`, 150 columns a second) of `pcm` at 44.1 kHz as rekordbox draws
 /// it when its timeline starts `lead` samples before the decoded audio.
-fn waveform(pcm: &[f32], lead: usize) -> Vec<u8> {
+pub(crate) fn waveform(pcm: &[f32], lead: usize) -> Vec<u8> {
     let columns: Vec<f32> = (0..pcm.len() / 294)
         .map(|i| {
             let (from, to) = ((i * 294).saturating_sub(lead), ((i + 1) * 294).saturating_sub(lead));
@@ -63,7 +63,7 @@ fn waveform(pcm: &[f32], lead: usize) -> Vec<u8> {
 }
 
 /// `section` added to the analysis file at `path`.
-fn append(path: &Path, section: &[u8]) {
+pub(crate) fn append(path: &Path, section: &[u8]) {
     let mut bytes = fs::read(path).unwrap();
     bytes.extend(section);
     let len = bytes.len() as u32;
@@ -90,7 +90,7 @@ fn grid() -> Vec<u8> {
 /// The bigger fixture plus the "MP3" (with cues and a beat grid, in a playlist and a history
 /// list) and another song's, both databases; and a folder holding the song as a 48 kHz 24-bit
 /// WAV whose audio starts at 0. Returns the drive, the folder and the song's id.
-fn setup(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf, u32) {
+pub(crate) fn setup(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf, u32) {
     let root = common::bigger_drive(dir, "Main");
     let track = |path: &str, n: u32| NewTrack {
         artist: Some("Someone".into()),
@@ -149,7 +149,7 @@ fn beats(root: &Path, lib: &Library, id: u32) -> Vec<u32> {
     anlz::beat_grid(&dat).unwrap().iter().map(|b| b.time_ms).collect()
 }
 
-fn store(dir: &Path) -> Store {
+pub(crate) fn store(dir: &Path) -> Store {
     let store = Store::open_or_init(dir.join("store")).unwrap();
     testing::store_root_on_this_thread(Some(store.root().to_path_buf()));
     store

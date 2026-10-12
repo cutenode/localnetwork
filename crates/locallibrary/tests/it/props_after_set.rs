@@ -114,3 +114,51 @@ fn only_a_drive_changed_the_way_players_do_is_back_from_a_set(tc: TestCase) {
         }
     }
 }
+
+/// With OneLibrary beside export.pdb, one export's changes to both are counted once, and a
+/// OneLibrary that appeared, went or can't be read is a change no player makes; what a drive's
+/// players changed reads as one line counting each kind.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn both_databases_count_once_and_say_what_players_did(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    common::add_onelibrary(&root);
+    let mut main = Device::open(&root).unwrap();
+    main.adopt(Some("Main")).unwrap();
+    let club_root = common::blank(dir.path(), "Club");
+    let mut club = Device::open(&club_root).unwrap();
+    sync::sync_drive_to_drive(&mut main, &mut club, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap();
+
+    let done = change(&tc, &club_root, "set", false);
+    // OneLibrary as it was, gone, or unreadable.
+    let plus = tc.draw(gs::integers::<u8>().max_value(2));
+    match plus {
+        0 => {}
+        1 => fs::remove_file(club_root.join(paths::LIBRARY_PLUS_DB)).unwrap(),
+        _ => fs::write(club_root.join(paths::LIBRARY_PLUS_DB), b"not a database").unwrap(),
+    }
+    let club = Device::open(&club_root).unwrap();
+    let common = after_set::common_snapshot(&store, &Device::open(main.root()).unwrap(), &club).unwrap();
+    let common = common.expect("both held what was pulled");
+    let c = after_set::changes_since(&store, &club, &common, &Ctx::silent()).unwrap();
+    assert_eq!(c.tag_lists, done.tag_lists, "a TAG LIST in both databases is one");
+    match plus {
+        0 => assert!(c.other.is_empty(), "{:?}", c.other),
+        1 => assert!(c.other.iter().any(|o| o == "exportLibrary.db removed"), "{:?}", c.other),
+        _ => assert!(c.other.iter().any(|o| o == "exportLibrary.db can't be read"), "{:?}", c.other),
+    }
+    let line = c.describe();
+    let mut want = Vec::new();
+    if !c.history_lists.is_empty() {
+        want.push(format!("{} history list(s)", c.history_lists.len()));
+    }
+    if c.cue_files > 0 {
+        want.push(format!("cues in {} analysis file(s)", c.cue_files));
+    }
+    if !c.tag_lists.is_empty() {
+        want.push(format!("{} TAG LIST playlist(s)", c.tag_lists.len()));
+    }
+    assert_eq!(line, if want.is_empty() { "nothing".to_string() } else { want.join(", ") });
+}

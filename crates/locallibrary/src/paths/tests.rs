@@ -72,3 +72,45 @@ fn unsafe_keys() {
     assert!(is_safe_key("Contents/A/x.mp3"));
     assert!(is_safe_key("Music/x.mp3"));
 }
+
+/// Every key below PIONEER/ is classed by where it is, whatever the case its files' names are
+/// written in (FAT32 and exFAT keep case but don't tell by it): the OneLibrary index is
+/// transient, the track filter and sync records stay with the drive, settings files are the
+/// profile's, and anything under OS clutter or locallibrary's own folder isn't managed.
+#[hegel::test(test_cases = 300)]
+fn pioneer_keys_are_classed_by_where_they_are(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let shout = |s: &str, tc: &hegel::TestCase| -> String {
+        s.chars()
+            .map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c.to_ascii_lowercase() })
+            .collect()
+    };
+    let rows: [(&str, Option<FileClass>); 14] = [
+        ("rekordbox/exportLibrary.db-shm", Some(FileClass::Transient)),
+        ("rekordbox/rbfltr.dat", Some(FileClass::DriveState)),
+        ("rekordbox/playlists3.sync", Some(FileClass::DriveState)),
+        ("rekordbox/export.pdb", Some(FileClass::Database)),
+        ("rekordbox/exportLibrary.db-wal", Some(FileClass::Database)),
+        ("CDJ/x.dat", Some(FileClass::DriveState)),
+        ("TRASHBOX/x", Some(FileClass::DriveState)),
+        ("USBANLZ/P000/0001/ANLZ0000.DAT", Some(FileClass::Analysis)),
+        ("Artwork/00001/a1.jpg", Some(FileClass::Artwork)),
+        ("DeviceLibBackup/x.dat", Some(FileClass::DeviceIdentity)),
+        ("extracted/gcred.dat", Some(FileClass::Private)),
+        ("MYSETTING.DAT", Some(FileClass::Settings)),
+        ("other/x", Some(FileClass::Other)),
+        ("README.TXT", Some(FileClass::Other)),
+    ];
+    let (rest, want) = tc.draw(gs::sampled_from(rows.to_vec()).print_as_debug());
+    // The case-sensitive folders (rekordbox's own, USBANLZ...) are written as rekordbox writes them.
+    let (dir, name) = rest.split_once('/').unwrap_or(("", rest));
+    let fixed_dir = matches!(dir, "rekordbox" | "USBANLZ" | "Artwork" | "DeviceLibBackup" | "extracted" | "other");
+    let dir = if fixed_dir { dir.to_string() } else { shout(dir, &tc) };
+    let name = shout(name, &tc);
+    let key = if dir.is_empty() { format!("PIONEER/{name}") } else { format!("PIONEER/{dir}/{name}") };
+    assert_eq!(classify(&key), want, "{key}");
+    let hidden = tc.draw(gs::sampled_from(vec![".DS_Store", "._x", ".locallibrary-tmp-1"]));
+    assert_eq!(classify(&format!("{key}/{hidden}")), None);
+    assert_eq!(classify(&format!("{}/{key}", shout(STATE_DIR, &tc))), None);
+}

@@ -76,3 +76,71 @@ fn formats() {
     assert!(row.ends_with(",\"says \"\"around\"\", a lot\",/Contents/Daft Punk/atw.mp3"), "{row}");
     assert_eq!(Format::from_path(Path::new("set.M3U")), Some(Format::M3u8));
 }
+
+/// Splitting a folder gives each playlist below it a file of its own, in folders as its folders
+/// are, never two named alike in any case, each holding its playlist's tracks; a folder that holds
+/// itself (a library built by hand can) still ends. Each format is told by its extension in any
+/// case.
+#[hegel::test(test_cases = 100)]
+fn split_folders_give_each_playlist_a_file_of_its_own(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    for f in [Format::M3u8, Format::Csv, Format::Txt] {
+        let ext: String =
+            f.extension().chars().map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c }).collect();
+        assert_eq!(Format::from_path(Path::new(&format!("set.{ext}"))), Some(f));
+    }
+    let names = vec!["Friday", "friday", "FRIDAY", "Sat/urday", "Sat:urday", "Peak"];
+    let tracks: Vec<Track> =
+        (1..=3).map(|id| track(id, "A", &format!("T{id}"), &format!("/Contents/{id}.mp3"))).collect();
+    let mut playlists = vec![crate::model::Playlist {
+        id: 1,
+        parent_id: None,
+        name: "Sets".into(),
+        is_folder: true,
+        sort_order: 0,
+        track_ids: vec![],
+    }];
+    let mut folders = vec![1u32];
+    for id in 2..tc.draw(gs::integers::<u32>().min_value(2).max_value(9)) {
+        let is_folder = tc.draw(gs::weighted_booleans(0.3));
+        playlists.push(crate::model::Playlist {
+            id,
+            parent_id: Some(tc.draw(gs::sampled_from(folders.clone()))),
+            name: tc.draw(gs::sampled_from(names.clone())).into(),
+            is_folder,
+            sort_order: id,
+            track_ids: if is_folder {
+                vec![]
+            } else {
+                tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(3)).max_size(3))
+            },
+        });
+        if is_folder {
+            folders.push(id);
+        }
+    }
+    let looped = folders.len() > 1 && tc.draw(gs::booleans());
+    if looped {
+        playlists[0].parent_id = Some(*folders.last().unwrap());
+    }
+    let lib = Library { tracks, playlists, ..Default::default() };
+    let picked = select(&lib, Some("Sets"), true, "x").unwrap();
+    let mut files = FxHashSet::default();
+    assert!(picked.iter().all(|s| files.insert(s.file.to_string_lossy().to_lowercase())), "two files named alike");
+    if !looped {
+        // Every playlist below once (folders nest as folders), each with its own tracks.
+        let ids = |ts: &[&Track]| ts.iter().map(|t| t.id).collect::<Vec<_>>();
+        let mut want: Vec<Vec<u32>> =
+            lib.playlists.iter().filter(|p| !p.is_folder).map(|p| ids(&playlist_tracks(&lib, p))).collect();
+        let mut got: Vec<Vec<u32>> = picked.iter().map(|s| ids(&s.tracks)).collect();
+        want.sort();
+        got.sort();
+        assert_eq!(got, want);
+        for s in &picked {
+            assert_eq!(
+                s.file.components().count(),
+                lib.find_playlist(&s.name).map_or(0, |p| lib.playlist_names(p.id).len() - 1)
+            );
+        }
+    }
+}

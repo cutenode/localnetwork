@@ -201,3 +201,44 @@ fn comparing_the_other_way_round_swaps_the_answer(tc: hegel::TestCase) {
         .count();
     assert_eq!(ab.diff.added_tracks.len(), added);
 }
+
+/// A drive packed from the other is another library, whichever side it's on and whatever else
+/// says; and a side every other signal says is newer but that holds only some of the other's
+/// tracks isn't copied over it without being asked, either way round.
+#[hegel::test(test_cases = 100)]
+fn packed_drives_and_newer_sides_with_fewer_tracks_are_not_copied_over(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let pool = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(pool.len()));
+    let m = tc.draw(gs::integers::<usize>().min_value(1).max_value(n - 1));
+    let newer_seq = tc.draw(gs::integers::<u32>().min_value(1).max_value(9));
+    let days = tc.draw(gs::integers::<i64>().min_value(1).max_value(30));
+    // Fewer tracks, every other signal newer.
+    let mut fewer = side("Fewer", 1, &[], lib(&pool[..m], "2026-03-01"));
+    let mut more = side("More", 2, &[], lib(&pool[..n], "2026-01-01"));
+    fewer.sequence = Some(newer_seq);
+    more.sequence = Some(newer_seq - 1);
+    fewer.exported_at = Some(Utc::now());
+    more.exported_at = Some(Utc::now() - chrono::Duration::days(days));
+    for (l, r) in [(&fewer, &more), (&more, &fewer)] {
+        let c = compare(l, r);
+        assert_eq!((c.relation, c.confidence), (Relation::Undetermined, Confidence::Low), "{:?}", c.evidence);
+        assert_eq!(c.suggestion, Suggestion::ChooseOrMerge);
+        assert!(c.undetermined().is_some_and(|why| why.contains("fewer tracks")), "{:?}", c.evidence);
+    }
+
+    // Packed from the other: unrelated, even when lineage or tracks say otherwise.
+    let (from, packed) = (Uuid::from_u128(1), Uuid::from_u128(2));
+    let lineage = tc.draw(gs::booleans());
+    let mut source = side("Source", 3, &[], lib(&pool[..n], "2026-01-01"));
+    let mut copy = side("Copy", 4, if lineage { &[3, 4] } else { &[] }, lib(&pool[..m], "2026-01-01"));
+    source.id = Some(from);
+    copy.id = Some(packed);
+    copy.packed_from = Some(from);
+    for (l, r) in [(&source, &copy), (&copy, &source)] {
+        let c = compare(l, r);
+        assert_eq!((c.relation, c.confidence), (Relation::Unrelated, Confidence::High), "{:?}", c.evidence);
+        assert_eq!(c.suggestion, Suggestion::Merge);
+        assert!(c.evidence.iter().any(|e| e.signal == "pack" && e.detail == "Copy was packed from Source"));
+    }
+}

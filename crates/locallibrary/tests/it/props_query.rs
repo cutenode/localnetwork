@@ -541,3 +541,211 @@ fn blank_filters_and_queries_never_select_anything(tc: TestCase) {
     assert!(sel.select_ordered(&QueryContext::new(&lib), true).is_err(), "{sel:?}");
     assert!(sel.select(&lib).is_err(), "{sel:?}");
 }
+
+/// A track's number of some kind.
+type NumberOf = fn(&Track) -> f64;
+
+/// Whether a track is what an `is:` or `has:` value names.
+type Holds<'a> = Box<dyn Fn(&Track) -> bool + 'a>;
+
+/// `rating:`, `plays:`, `year:` and `bitrate:` compare the number as written (`<`, `<=`, `>`,
+/// `>=`, an exact value or a range either way round); `bpm:` widens an exact tempo by half a
+/// beat; dates compare by day, a bare prefix standing for its first or last day as the operator
+/// needs.
+#[hegel::test(test_cases = 300)]
+fn numeric_terms_compare_as_written(tc: TestCase) {
+    let lib = tc.draw(library().print_as_debug());
+    let fields: Vec<(&str, NumberOf)> = vec![
+        ("rating", |t| f64::from(t.rating)),
+        ("plays", |t| f64::from(t.play_count)),
+        ("year", |t| f64::from(t.year)),
+        ("bitrate", |t| f64::from(t.bitrate)),
+        ("bpm", |t| t.bpm),
+    ];
+    let (name, read) = fields[tc.draw(gs::integers::<usize>().max_value(fields.len() - 1))];
+    // Bounds at a track's own value as often as not, where the operators differ.
+    let values: Vec<f64> =
+        lib.tracks.iter().map(read).filter(|v| v.fract() == 0.0 && *v >= 0.0 && *v <= 2030.0).collect();
+    let bound = |tc: &TestCase| match values.is_empty() || tc.draw(gs::booleans()) {
+        true => f64::from(tc.draw(gs::integers::<u16>().max_value(2030))),
+        false => values[tc.draw(gs::integers::<usize>().max_value(values.len() - 1))],
+    };
+    let (x, y) = (bound(&tc), bound(&tc));
+    let tolerance = if name == "bpm" { 0.5 } else { 0.0 };
+    let (q, want): (String, Box<dyn Fn(f64) -> bool>) = match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => (format!("<{x}"), Box::new(move |v| v < x)),
+        1 => (format!("<={x}"), Box::new(move |v| v <= x)),
+        2 => (format!(">{x}"), Box::new(move |v| v > x)),
+        3 => (format!(">={x}"), Box::new(move |v| v >= x)),
+        4 => (format!("{x}..{y}"), Box::new(move |v| v >= x.min(y) && v <= x.max(y))),
+        _ => (format!("{x}"), Box::new(move |v| (v - x).abs() <= tolerance)),
+    };
+    let f = Filter::parse(&format!("{name}:{q}")).unwrap();
+    let expected: Vec<bool> = lib.tracks.iter().map(|t| want(read(t))).collect();
+    assert_eq!(matching(&f, &lib), expected, "{name}:{q}");
+
+    // Dates: a day `YYYY-MM-DD` against a bound that may stop at the month or year.
+    let (by, bm, bd) = (
+        tc.draw(gs::integers::<u32>().min_value(2024).max_value(2026)),
+        tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(12))),
+        tc.draw(gs::integers::<u32>().min_value(1).max_value(28)),
+    );
+    let day = tc.draw(gs::booleans()) && bm.is_some();
+    let bound = match (bm, day) {
+        (Some(m), true) => format!("{by}-{m:02}-{bd:02}"),
+        (Some(m), false) => format!("{by}-{m:02}"),
+        (None, _) => format!("{by}"),
+    };
+    let first = by * 10_000 + bm.unwrap_or(1) * 100 + if day { bd } else { 1 };
+    let last = by * 10_000 + bm.unwrap_or(12) * 100 + if day { bd } else { 31 };
+    let op = tc.draw(gs::sampled_from(vec!["<", "<=", ">", ">="]));
+    let f = Filter::parse(&format!("added:{op}{bound}")).unwrap();
+    for (t, hit) in lib.tracks.iter().zip(matching(&f, &lib)) {
+        let p: Vec<u32> = t.date_added.split('-').filter_map(|x| x.parse().ok()).collect();
+        let well_formed = p.len() == 3
+            && t.date_added.len() == 10
+            && (1000..=9999).contains(&p[0])
+            && (1..=12).contains(&p[1])
+            && (1..=31).contains(&p[2]);
+        if !well_formed {
+            continue;
+        }
+        let v = p[0] * 10_000 + p[1] * 100 + p[2];
+        let want = match op {
+            "<" => v < first,
+            "<=" => v <= last,
+            ">" => v > last,
+            _ => v >= first,
+        };
+        assert_eq!(hit, want, "added:{op}{bound} vs {}", t.date_added);
+    }
+}
+
+/// `is:` and `has:` match what they name: played or not, in a playlist or not, with artwork, a
+/// comment, a key or analysis files; several values separated by `|` match any of them.
+#[hegel::test(test_cases = 300)]
+fn is_and_has_match_what_they_name(tc: TestCase) {
+    let lib = tc.draw(library().print_as_debug());
+    let filed: BTreeSet<u32> = lib.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
+    let all: Vec<(&str, &str, Holds)> = vec![
+        ("is", "played", Box::new(|t: &Track| t.play_count > 0)),
+        ("is", "unplayed", Box::new(|t: &Track| t.play_count == 0)),
+        ("is", "unfiled", Box::new(|t: &Track| !filed.contains(&t.id))),
+        ("has", "artwork", Box::new(|t: &Track| t.artwork_id.is_some())),
+        ("has", "art", Box::new(|t: &Track| t.artwork_id.is_some())),
+        ("has", "comment", Box::new(|t: &Track| !t.comment.trim().is_empty())),
+        ("has", "key", Box::new(|t: &Track| !t.key.trim().is_empty())),
+        ("has", "analysis", Box::new(|t: &Track| !t.analyze_path.is_empty())),
+    ];
+    let field = tc.draw(gs::sampled_from(vec!["is", "has"]));
+    let mine: Vec<&(&str, &str, Holds)> = all.iter().filter(|(f, _, _)| *f == field).collect();
+    let picked: Vec<usize> = (0..mine.len()).filter(|_| tc.draw(gs::booleans())).collect();
+    if picked.is_empty() {
+        return;
+    }
+    let values: Vec<&str> = picked.iter().map(|i| mine[*i].1).collect();
+    let f = Filter::parse(&format!("{field}:{}", values.join("|"))).unwrap();
+    let expected: Vec<bool> = lib.tracks.iter().map(|t| picked.iter().any(|i| (mine[*i].2)(t))).collect();
+    assert_eq!(matching(&f, &lib), expected, "{field}:{}", values.join("|"));
+    assert!(Filter::parse(&format!("{field}:nonsense")).is_err());
+}
+
+/// `tag:` matches a track carrying a My Tag of that path or name, ignoring case and spacing, and
+/// can't be run without the drive's My Tags; `playlist:` names a playlist, or a folder and every
+/// playlist below it.
+#[hegel::test(test_cases = 300)]
+fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
+    use rustc_hash::FxHashMap;
+    let lib = tc.draw(library().print_as_debug());
+    let paths = ["Genre/Deep", "Genre/Peak Time", "Mood/Deep"];
+    let tags: FxHashMap<String, Vec<String>> = lib
+        .tracks
+        .iter()
+        .map(|t| {
+            let mine: Vec<String> = paths.iter().filter(|_| tc.draw(gs::booleans())).map(|p| p.to_string()).collect();
+            (locallibrary::paths::key(&t.file_path).to_lowercase(), mine)
+        })
+        .collect();
+    let want = tc.draw(gs::sampled_from(vec!["deep", "Genre/Deep", "peak  time", "GENRE/PEAK TIME", "mood"]));
+    let f = Filter::parse(&format!("tag:\"{want}\"")).unwrap();
+    assert!(f.check(&QueryContext::new(&lib)).is_err(), "a tag: term without My Tags");
+    let ctx = QueryContext::new(&lib).with_tags(&tags);
+    f.check(&ctx).unwrap();
+    let fold = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    for t in &lib.tracks {
+        let mine = &tags[&locallibrary::paths::key(&t.file_path).to_lowercase()];
+        let hit = mine.iter().any(|p| fold(p) == fold(want) || fold(p.rsplit('/').next().unwrap()) == fold(want));
+        assert_eq!(f.matches(t, &ctx), hit, "tag:{want} on {mine:?}");
+    }
+
+    let (spec, lists): (&str, &[u32]) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => ("Sets", &[2, 3]),
+        1 => ("Sets/Friday", &[2]),
+        _ => ("Deep", &[3]),
+    };
+    let f = Filter::parse(&format!("playlist:{spec}")).unwrap();
+    let held: BTreeSet<u32> =
+        lib.playlists.iter().filter(|p| lists.contains(&p.id)).flat_map(|p| p.track_ids.iter().copied()).collect();
+    let expected: Vec<bool> = lib.tracks.iter().map(|t| held.contains(&t.id)).collect();
+    assert_eq!(matching(&f, &lib), expected, "playlist:{spec}");
+}
+
+/// Selecting a history list's tracks takes the list of that name: the library's own, or with the
+/// drive's lists from both its databases, the tracks of the one it names by file. A list that
+/// isn't there is an error.
+#[hegel::test(test_cases = 200)]
+fn a_history_list_selects_its_tracks(tc: TestCase) {
+    use locallibrary::plays::HistoryList;
+    let mut lib = tc.draw(library().print_as_debug());
+    let n = u32::try_from(lib.tracks.len()).unwrap();
+    if n == 0 {
+        return;
+    }
+    let entries =
+        |tc: &TestCase| tc.draw(gs::vecs(gs::integers::<u32>().min_value(1).max_value(n)).min_size(1).max_size(4));
+    let names = ["HISTORY 001", "HISTORY 002"];
+    lib.history = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| Playlist {
+            id: 10 + u32::try_from(i).unwrap(),
+            parent_id: None,
+            name: name.to_string(),
+            is_folder: false,
+            sort_order: 0,
+            track_ids: entries(&tc),
+        })
+        .collect();
+    let name = tc.draw(gs::sampled_from(vec!["HISTORY 001", "history 002", "HISTORY 009"]));
+    let sel = TrackSelector { history: Some(name.into()), ..Default::default() };
+    let own = lib.history.iter().find(|h| h.name.eq_ignore_ascii_case(name));
+    let sorted = |mut v: Vec<u32>| {
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    match (sel.select_ordered(&QueryContext::new(&lib), false), own) {
+        (Ok(ids), Some(h)) => assert_eq!(sorted(ids), sorted(h.track_ids.clone())),
+        (Err(_), None) => {}
+        (got, own) => panic!("{got:?} for {own:?}"),
+    }
+    // The drive's lists, read from both databases: the tracks by file.
+    let drives: Vec<HistoryList> = names
+        .iter()
+        .map(|name| HistoryList {
+            name: name.to_string(),
+            path: name.to_string(),
+            database: "onelibrary",
+            tracks: entries(&tc).iter().map(|id| lib.track(*id).unwrap().clone()).collect(),
+            missing: 0,
+            missing_at: Vec::new(),
+        })
+        .collect();
+    let ctx = QueryContext::new(&lib).with_history(&drives);
+    let theirs = drives.iter().find(|h| h.name.eq_ignore_ascii_case(name));
+    match (sel.select_ordered(&ctx, false), theirs) {
+        (Ok(ids), Some(h)) => assert_eq!(sorted(ids), sorted(h.tracks.iter().map(|t| t.id).collect())),
+        (Err(_), None) => {}
+        (got, theirs) => panic!("{got:?} for {theirs:?}"),
+    }
+}

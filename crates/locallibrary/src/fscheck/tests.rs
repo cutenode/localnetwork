@@ -223,3 +223,208 @@ fn a_failed_unmount_stops_the_check() {
         other => panic!("{other:?}"),
     }
 }
+
+/// What a check runs, everywhere: diskutil verifies or repairs the volume itself; on Linux the
+/// partition is unmounted, fsck'd with its file system's tool (`-n` to check, `-a` to repair) and
+/// mounted again (for the user who ran sudo, when that's someone); on Windows chkdsk takes the
+/// drive's letter, and `/f /x` to repair.
+#[hegel::test(test_cases = 100)]
+fn every_platform_checks_the_volume_with_its_own_tool(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let repair = tc.draw(gs::booleans());
+    #[cfg(target_os = "macos")]
+    {
+        let root = tc.draw(gs::sampled_from(vec!["/Volumes/USB", "/Volumes/Club Stick"]));
+        let s = steps(Path::new(root), None, None, repair).unwrap();
+        assert_eq!(s, Steps::only(Cmd::new("diskutil", &[if repair { "repairVolume" } else { "verifyVolume" }, root])));
+    }
+    let volume = tc.draw(gs::sampled_from(vec!["/dev/sdb1", "/dev/mmcblk0p1"]));
+    let fs = tc.draw(gs::optional(gs::sampled_from(vec!["vfat", "exfat", "ExFAT"])));
+    let user = tc.draw(gs::optional(gs::sampled_from(vec!["sam", "root", ""])));
+    let s = linux_steps(volume, fs, repair, user);
+    let tool = if fs.is_some_and(|f| f.eq_ignore_ascii_case("exfat")) { "fsck.exfat" } else { "fsck.vfat" };
+    assert_eq!(s.check.display(), format!("{tool} {} {volume}", if repair { "-a" } else { "-n" }));
+    assert_eq!(s.unmount.as_ref().unwrap().display(), format!("udisksctl unmount --no-user-interaction -b {volume}"));
+    let mount = format!("udisksctl mount --no-user-interaction -b {volume}");
+    let as_user = user.filter(|u| !u.is_empty() && *u != "root");
+    assert_eq!(s.mount.as_ref().unwrap().display(), as_user.map_or(mount.clone(), |u| format!("sudo -u {u} {mount}")));
+    let letter = tc.draw(gs::sampled_from(vec!['D', 'E', 'z']));
+    let root = tc.draw(gs::sampled_from(vec![format!("{letter}:\\"), format!("{letter}:"), format!("{letter}:/")]));
+    let w = windows_steps(Path::new(&root), repair).unwrap();
+    let drive = format!("{}:", letter.to_ascii_uppercase());
+    assert_eq!(w.display(), format!("chkdsk {drive}{}", if repair { " /f /x" } else { "" }));
+    assert!(windows_steps(Path::new(&format!("{letter}:\\Music")), repair).is_err());
+}
+
+/// The logbook line says "repaired" only after a repair that left the file system consistent,
+/// "errors" exactly when it isn't, and mentions the repair whenever one ran.
+#[hegel::test(test_cases = 20)]
+#[hegel::explicit_test_case(ok = true, repaired = true)]
+#[hegel::explicit_test_case(ok = true, repaired = false)]
+#[hegel::explicit_test_case(ok = false, repaired = true)]
+#[hegel::explicit_test_case(ok = false, repaired = false)]
+fn the_logbook_line_follows_the_verdict_and_the_repair(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let ok = tc.draw(gs::booleans());
+    let repaired = tc.draw(gs::booleans());
+    let report = FsCheckReport {
+        drive: "Main".into(),
+        root: "/Volumes/MAIN".into(),
+        volume: None,
+        filesystem: None,
+        command: String::new(),
+        ok,
+        repaired,
+        output: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let line = report.summary();
+    assert!(line.starts_with("file system "), "{line}");
+    assert_eq!(line.contains("errors"), !ok, "{line}");
+    assert_eq!(line.contains("repair"), repaired, "{line}");
+    assert_eq!(line == "file system consistent", ok && !repaired);
+}
+
+/// A check tool that fails saying it may not read the partition is a permission error naming
+/// the command; any other failure is the tool's verdict, and a tool that can't be started is an
+/// external error.
+#[cfg(unix)]
+#[hegel::test(test_cases = 30)]
+#[hegel::explicit_test_case(phrase = "Permission denied", status = 6, missing = false, to_stderr = true)]
+#[hegel::explicit_test_case(phrase = "MUST BE ROOT", status = 0, missing = false, to_stderr = false)]
+#[hegel::explicit_test_case(phrase = "", status = 0, missing = true, to_stderr = false)]
+fn a_tool_refused_the_partition_needs_an_administrator(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let phrase = tc.draw(gs::sampled_from(vec![
+        "Permission denied",
+        "PERMISSION DENIED",
+        "Access is denied",
+        "access denied",
+        "fsck.vfat: must be root",
+        "MUST BE ROOT",
+        "Dirty bit is set",
+        "",
+    ]));
+    let status = tc.draw(gs::integers::<i32>().min_value(0).max_value(8));
+    let missing = tc.draw(gs::booleans());
+    let to_stderr = tc.draw(gs::booleans());
+    let program = if missing { "locallibrary-no-such-check-tool" } else { "sh" };
+    let script = format!("echo '{phrase}'{}; exit {status}", if to_stderr { " >&2" } else { "" });
+    let cmd = Cmd::new(program, &["-c", &script]);
+    let lower = phrase.to_lowercase();
+    let refused = ["permission denied", "access denied", "must be root"].iter().any(|p| lower.contains(p));
+    match run_status(&cmd) {
+        Ok((ok, text)) => {
+            assert!(!missing && (!refused || status == 0), "{phrase:?} {status}");
+            assert_eq!(ok, status == 0, "{text:?}");
+            assert_eq!(text.trim_end(), phrase);
+        }
+        Err(Error::Permission(m)) => {
+            assert!(!missing && refused && status != 0, "{phrase:?} {status}: {m}");
+            assert_eq!(m, format!("{} needs administrator rights", cmd.display()));
+        }
+        Err(Error::External { command, .. }) => {
+            assert!(missing);
+            assert_eq!(command, program);
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// Before anything is unmounted: a partition this user may not read stops the check, naming it
+/// and leaving the drive mounted; otherwise the unmount runs, and when it fails the check doesn't,
+/// saying why and what to do (install udisks2 when it's missing, close what holds the drive
+/// otherwise).
+#[cfg(unix)]
+#[hegel::test(test_cases = 30)]
+#[hegel::explicit_test_case(partition = 2u8, unmount_fails = false, missing = false, message = "target is busy")]
+#[hegel::explicit_test_case(partition = 0u8, unmount_fails = true, missing = false, message = "target is busy")]
+#[hegel::explicit_test_case(partition = 1u8, unmount_fails = true, missing = true, message = "no such volume")]
+#[hegel::explicit_test_case(partition = 3u8, unmount_fails = false, missing = false, message = "no such volume")]
+fn the_check_runs_only_on_a_partition_unmounted_for_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::os::unix::fs::PermissionsExt;
+    // None, missing, unreadable, readable.
+    let partition = tc.draw(gs::integers::<u8>().max_value(3));
+    let unmount_fails = tc.draw(gs::booleans());
+    let missing = tc.draw(gs::booleans());
+    let message = tc.draw(gs::sampled_from(vec!["target is busy", "Error unmounting: device busy", "no such volume"]));
+    let dir = tempfile::tempdir().unwrap();
+    let marker = dir.path().join("unmounted");
+    let part = dir.path().join("sdb1");
+    if partition >= 2 {
+        std::fs::write(&part, b"FAT32").unwrap();
+    }
+    if partition == 2 {
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o000)).unwrap();
+    }
+    let part_str = part.to_string_lossy().into_owned();
+    let script = format!(
+        "touch '{}'; {}",
+        marker.display(),
+        if unmount_fails { format!("echo '{message}' >&2; exit 1") } else { "exit 0".into() }
+    );
+    let unmounting = Cmd::new(if missing { "locallibrary-no-such-udisksctl" } else { "sh" }, &["-c", &script]);
+    let check = Cmd::new("fsck.vfat", &["-n", &part_str]);
+    // Root reads anything: what the partition says is what this user may do.
+    let denied =
+        partition == 2 && std::fs::File::open(&part).is_err_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied);
+    let result = unmount(&unmounting, &check, (partition > 0).then_some(part_str.as_str()));
+    if partition == 2 {
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    match result {
+        Ok(()) => {
+            assert!(!denied && !missing && !unmount_fails);
+            assert!(marker.exists(), "the unmount ran");
+        }
+        Err(Error::Permission(m)) => {
+            assert!(denied, "{m}");
+            assert!(m.starts_with(&check.display()) && m.contains("administrator"), "{m}");
+            assert!(!marker.exists(), "nothing was unmounted");
+        }
+        Err(Error::External { message: m, .. }) => {
+            assert!(!denied && (missing || unmount_fails), "{m}");
+            assert!(m.contains("so it didn't run"), "{m}");
+            match missing {
+                true => assert!(
+                    m.starts_with("not found")
+                        && m.ends_with("install udisks2, which unmounts the drive for the check)"),
+                    "{m}"
+                ),
+                false => {
+                    assert!(marker.exists());
+                    assert!(
+                        m.starts_with(message)
+                            && m.ends_with("close any window or program using the drive, then try again)"),
+                        "{m}"
+                    );
+                }
+            }
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// The check asks nothing of the system while it can't run: under the test switch the volume is
+/// the machine's own, and otherwise a drive locallibrary is writing is refused at once.
+#[hegel::test(test_cases = 10)]
+#[hegel::explicit_test_case(switch = true, repair = false)]
+#[hegel::explicit_test_case(switch = false, repair = true)]
+fn a_check_that_cant_run_asks_nothing_of_the_system(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let switch = tc.draw(gs::booleans());
+    let repair = tc.draw(gs::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let d = Device::open(dir.path()).unwrap();
+    // Held throughout: without the switch the check must stop here, never reaching the OS tool.
+    let _writing = d.lock().unwrap();
+    crate::testing::volumes_on_this_thread(switch.then(|| vec![dir.path().to_path_buf()]));
+    let refused = check(&d, repair);
+    crate::testing::volumes_on_this_thread(None);
+    match refused {
+        Err(Error::Invalid(m)) => assert!(switch && m.starts_with("LOCALLIBRARY_VOLUMES is set"), "{m}"),
+        Err(Error::Locked(root)) => assert!(!switch && root == d.root(), "{root:?}"),
+        other => panic!("{other:?}"),
+    }
+}

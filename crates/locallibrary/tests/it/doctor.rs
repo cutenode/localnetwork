@@ -1,6 +1,6 @@
 mod analysis;
 mod checks;
-mod sound;
+pub(crate) mod sound;
 
 use crate::common;
 

@@ -61,7 +61,8 @@ fn wav_files_are_read_and_checked_as_they_are(tc: TestCase) {
             // Missing past the 2 s (and 0.5%) the check allows. Where a file stops is known to a
             // packet, so a cut within half a second of that limit may go either way.
             let short = secs - left - (2.0 + secs * 0.005);
-            if short > 0.5 {
+            // With no audio left at all, nothing decodes: cut short, however little it should hold.
+            if short > 0.5 || keep == 44 {
                 let Some(AudioProblem::Truncated { ends_secs, .. }) = p else { panic!("{p:?}") };
                 assert!((ends_secs - left).abs() < 0.5, "stops at {ends_secs}, not {left}");
                 assert!(!AudioProblem::Truncated { ends_secs, expected_secs: rounded }.is_warning());

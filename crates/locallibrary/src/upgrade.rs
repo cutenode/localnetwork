@@ -384,3 +384,6 @@ pub fn apply(plan: &UpgradePlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<E
     let space = Space { needed_bytes: plan.needed_bytes, free_space: plan.free_space, fits: plan.fits };
     crate::incoming::apply(&plan.edit, space, &plan.incoming(), device, ctx)
 }
+
+#[cfg(test)]
+mod tests;

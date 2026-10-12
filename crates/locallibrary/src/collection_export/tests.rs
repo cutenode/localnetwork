@@ -440,3 +440,179 @@ fn a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
     assert!(again.copies.is_empty() && again.deletes.is_empty(), "{:?} {:?}", again.copies, again.deletes);
     assert_eq!(again.playlists, chosen, "the last selection");
 }
+
+/// What a target can hold before an export, and how the export takes it: nothing (it's made), a
+/// library not exported from the collection or the DJ's own files (refused unless replacing,
+/// then backed up first), or an earlier export a player wrote to or whose OneLibrary can't be
+/// read (saved in the store first, refused without one). A plan with no room is refused; the
+/// collection's artwork and what Cloud Library Sync hasn't brought yet are said.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn an_export_takes_what_the_target_holds_as_it_should(tc: hegel::TestCase) {
+    for variant in 0..5 {
+        an_export_takes_what_the_target_holds_as_it_should_with(&tc, variant);
+    }
+}
+
+/// One case of [`an_export_takes_what_the_target_holds_as_it_should`], `variant` choosing what's drawn.
+#[hegel::test_helper]
+fn an_export_takes_what_the_target_holds_as_it_should_with(tc: &hegel::TestCase, variant: u8) {
+    use hegel::generators as gs;
+    let pc = Computer::new();
+    let mut target = pc.folder("Stick");
+    let before = variant;
+    match before {
+        0 => {}
+        1 => {
+            std::fs::remove_dir(target.root()).unwrap();
+            copy_dir(
+                &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks"),
+                target.root(),
+            );
+            target = Device::open(target.root()).unwrap();
+        }
+        2 => {
+            std::fs::create_dir_all(target.path("Contents/Mine")).unwrap();
+            std::fs::write(target.path("Contents/Mine/demo.mp3"), b"mine").unwrap();
+        }
+        3 => {
+            pc.export(&mut target, &CollectionExportOptions::default());
+            let lib = target.library().unwrap();
+            let dat = target.path(&paths::key(&lib.tracks[0].analyze_path));
+            let mut bytes = std::fs::read(&dat).unwrap();
+            bytes.push(0);
+            std::fs::write(&dat, bytes).unwrap();
+        }
+        _ => {
+            pc.export(&mut target, &CollectionExportOptions::default());
+            std::fs::write(target.path(paths::LIBRARY_PLUS_DB), b"not a database").unwrap();
+        }
+    }
+    let replace = tc.draw(gs::booleans());
+    let store =
+        tc.draw(gs::booleans()).then(|| crate::store::Store::open_or_init(pc.dir.path().join("store")).unwrap());
+    let mut collection = pc.collection();
+    let syncing = tc.draw(gs::booleans());
+    if syncing {
+        collection.synced_sizes.insert("/pioneer/usbanlz/p016/0000875e/anlz0000.ext".into(), 1);
+    }
+    let opts = CollectionExportOptions { replace, ..Default::default() };
+    // Every file below the target and its contents, but for locallibrary's own (its scan index).
+    let files = |root: &Path| -> Vec<(PathBuf, Vec<u8>)> {
+        walkdir::WalkDir::new(root)
+            .sort_by_file_name()
+            .into_iter()
+            .filter_entry(|e| e.file_name() != paths::STATE_DIR)
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .map(|e| (e.path().to_path_buf(), std::fs::read(e.path()).unwrap()))
+            .collect()
+    };
+    let files_before = files(target.root());
+    let planned = plan(&collection, &pc.cloud(), &target, &opts, &Ctx::silent());
+    let not_ours = matches!(before, 1 | 2);
+    let planned = match planned {
+        Err(e) => {
+            assert!(not_ours && !replace, "{e}");
+            assert_eq!(e.reason(), Some(Reason::Exists), "{e}");
+            let retry: Vec<_> = e.detail().actions.iter().map(|a| a.params.get("replace").cloned()).collect();
+            assert_eq!(retry, [Some(serde_json::json!(true))]);
+            return;
+        }
+        Ok(p) => p,
+    };
+    assert!(!not_ours || replace, "planned over what isn't the collection's export");
+    assert_eq!(planned.replaces_library, not_ours);
+    assert_eq!(planned.syncing.is_empty(), !syncing);
+    assert_eq!(
+        planned.warnings.iter().any(|w| w.contains("hasn't finished bringing")),
+        syncing,
+        "{:?}",
+        planned.warnings
+    );
+    assert_eq!(planned.unsaved.is_some(), matches!(before, 3 | 4), "{:?}", planned.unsaved);
+
+    let mut full = planned.clone();
+    full.fits = false;
+    assert!(matches!(apply(&full, &mut target, store.as_ref(), &Ctx::silent()), Err(Error::NoSpace { .. })));
+    match apply(&planned, &mut target, store.as_ref(), &Ctx::silent()) {
+        Err(e) => {
+            assert!(planned.unsaved.is_some() && store.is_none(), "{e}");
+            assert_eq!(e.reason(), Some(Reason::NotSaved), "{e}");
+            let methods: Vec<_> = e.detail().actions.iter().map(|a| a.method.clone()).collect();
+            assert_eq!(methods, [Some("pull".to_string())]);
+            assert!(files(target.root()) == files_before, "refused, it leaves the target alone");
+        }
+        Ok(report) => {
+            assert_eq!(report.saved.is_some(), planned.unsaved.is_some());
+            assert_eq!(report.backup.is_some(), before != 0 && before != 2, "{report:?}");
+            let lib = target.library().unwrap();
+            let t = lib.tracks.iter().find(|t| t.title == "One More Time").unwrap();
+            let art = t.artwork_path.as_deref().expect("its artwork");
+            assert_eq!(std::fs::read(target.path(&paths::key(art))).unwrap(), b"jpeg");
+            assert_eq!(std::fs::read(target.path(&medium_variant(&paths::key(art)))).unwrap(), b"medium jpeg");
+            assert!(!target.path("Contents/Mine/demo.mp3").exists(), "the DJ's files go when replacing");
+        }
+    }
+}
+
+/// What an export plan says it leaves out and needs: analysis files that aren't rekordbox's
+/// (drawn among a track's) are left behind with a warning, the track keeping the ones that read;
+/// an image two tracks share is copied once; a library it replaces is said; `all` exports every
+/// playlist whatever was chosen; and an export too big for the drive says so and is refused
+/// when applied, the drive left as it was.
+#[hegel::test(test_cases = 6)]
+fn an_export_plan_says_what_it_leaves_out_and_what_it_needs(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let pc = Computer::new();
+    let anlz = pc.dir.path().join("rekordbox/share/PIONEER/USBANLZ/P016/0000875E");
+    let mut broken: Vec<&str> = ANALYSIS_EXTENSIONS.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    if broken.is_empty() {
+        broken.push(tc.draw(gs::sampled_from(ANALYSIS_EXTENSIONS.to_vec())));
+    }
+    for ext in &broken {
+        let junk = tc.draw(gs::text().alphabet("xyz \u{0}é").max_size(40));
+        std::fs::write(anlz.join(format!("ANLZ0000.{ext}")), format!("not an analysis file: {junk}")).unwrap();
+    }
+    let mut collection = pc.collection();
+    let image = collection.library.track(84935471).unwrap().artwork_path.clone();
+    let shared = tc.draw(gs::booleans());
+    if shared {
+        collection.library.tracks.iter_mut().find(|t| t.id == 205356547).unwrap().artwork_path = image.clone();
+    }
+    let root = pc.dir.path().join("Stick");
+    copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rekordcrate/demo_tracks"), &root);
+    let target = Device::open(&root).unwrap();
+    let chosen = tc.draw(gs::sampled_from(vec![vec![], vec!["Shows".to_string()], vec!["Nowhere".to_string()]]));
+    let opts = CollectionExportOptions { replace: true, all: true, playlists: chosen, ..Default::default() };
+    let planned = plan(&collection, &pc.cloud(), &target, &opts, &Ctx::silent()).unwrap();
+    assert!(!planned.is_noop(), "the databases are always rebuilt");
+    assert!(planned.playlists.is_empty(), "every playlist, whatever was chosen");
+    assert_eq!(planned.unreadable, ["Daft Punk - One More Time"]);
+    let says = |what: &str| planned.warnings.iter().any(|w| w.contains(what));
+    assert!(says("1 track(s) have analysis files that can't be read (e.g. Daft Punk - One More Time)"));
+    assert!(planned.replaces_library && says("holds a library or files the export replaces"), "{:?}", planned.warnings);
+    let one = planned.library.tracks.iter().find(|t| t.title == "One More Time").unwrap();
+    assert_eq!(one.analyze_path.is_empty(), broken.contains(&"DAT"), "{broken:?}: {}", one.analyze_path);
+    let dir = one.file_path.clone();
+    let analysis: Vec<&str> =
+        planned.copies.iter().filter_map(|c| c.path.rsplit_once("/ANLZ0000.").map(|(_, ext)| ext)).collect();
+    for ext in ANALYSIS_EXTENSIONS {
+        assert_eq!(analysis.contains(&ext), !broken.contains(&ext), "{dir}: {ext} of {analysis:?}");
+    }
+    let images: Vec<&Option<String>> = planned.library.tracks.iter().map(|t| &t.artwork_path).collect();
+    let art_copies = planned.copies.iter().filter(|c| c.path.starts_with("PIONEER/Artwork/")).count();
+    assert_eq!(art_copies, 2, "the image and its larger copy, once: {:?}", planned.copies);
+    if shared {
+        assert!(images[0].is_some() && images[0] == images[1], "{images:?}");
+    }
+
+    // Audio far bigger than any drive.
+    let audio = pc.dir.path().join("Music/One More Time.mp3");
+    std::fs::OpenOptions::new().write(true).open(&audio).unwrap().set_len(1 << 50).unwrap();
+    let mut folder = pc.folder("Small");
+    let planned = plan(&collection, &pc.cloud(), &folder, &CollectionExportOptions::default(), &Ctx::silent()).unwrap();
+    assert!(!planned.fits && planned.needed_bytes > 1 << 50, "{planned:?}");
+    assert!(planned.warnings.iter().any(|w| w.starts_with("the export needs about")), "{:?}", planned.warnings);
+    assert!(matches!(apply(&planned, &mut folder, None, &Ctx::silent()), Err(Error::NoSpace { .. })));
+    assert_eq!(std::fs::read_dir(folder.root()).unwrap().count(), 0, "the drive is left as it was");
+}

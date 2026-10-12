@@ -118,9 +118,9 @@ pub fn plan(device: &Device, ctx: &Ctx<'_>) -> Result<CleanPlan> {
     };
     let pdb_tracks = pdb.as_ref().map(|(l, _)| doomed_in(l)).unwrap_or_default();
     let plus_tracks = plus.as_ref().map(|(l, _)| doomed_in(l)).unwrap_or_default();
-    let doomed: Vec<&Track> = libraries.iter().flat_map(|l| l.tracks.iter()).filter(|t| useless(t)).collect();
+    let nothing_doomed = pdb_tracks.is_empty() && plus_tracks.is_empty();
     let (files, left_in_place) = removable_files(device, &libraries, plus.as_ref().map(|(_, o)| o), &useless, ctx)?;
-    if !doomed.is_empty() {
+    if !nothing_doomed {
         warnings.extend(
             device.rekordbox_sync_warning("its next sync may put removed tracks back into the playlists it syncs"),
         );
@@ -132,17 +132,17 @@ pub fn plan(device: &Device, ctx: &Ctx<'_>) -> Result<CleanPlan> {
         ));
     }
 
-    // What to show: the tracks as the drive's main database lists them, plus any only OneLibrary has.
+    // What to show: every row the drive's main database removes (two rows can share one file),
+    // plus the tracks only OneLibrary has, matched by file as the two databases share audio.
     let primary = libraries[0];
-    let mut tracks: Vec<TrackRef> = Vec::new();
-    let mut shown = FxHashSet::default();
-    for t in &doomed {
-        if shown.insert(fold(&paths::key(&t.file_path))) {
-            tracks.push(TrackRef::from(*t));
-        }
-    }
-    let primary_ids: FxHashSet<u32> =
-        primary.tracks.iter().filter(|t| is_useless(&t.artist, &t.title)).map(|t| t.id).collect();
+    let primary_doomed: Vec<&Track> = primary.tracks.iter().filter(|t| useless(t)).collect();
+    let primary_files: FxHashSet<String> = primary_doomed.iter().map(|t| fold(&paths::key(&t.file_path))).collect();
+    let only_secondary = libraries[1..]
+        .iter()
+        .flat_map(|l| l.tracks.iter())
+        .filter(|t| useless(t) && !primary_files.contains(&fold(&paths::key(&t.file_path))));
+    let tracks: Vec<TrackRef> = primary_doomed.iter().copied().chain(only_secondary).map(TrackRef::from).collect();
+    let primary_ids: FxHashSet<u32> = primary_doomed.iter().map(|t| t.id).collect();
     let playlists = primary
         .playlists
         .iter()
@@ -169,11 +169,8 @@ pub fn plan(device: &Device, ctx: &Ctx<'_>) -> Result<CleanPlan> {
     let size = |key| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
     let staged = if pdb_tracks.is_empty() { 0 } else { round(size(paths::EXPORT_PDB)) }
         + if plus_tracks.is_empty() { 0 } else { round(size(paths::LIBRARY_PLUS_DB) + size(paths::LIBRARY_PLUS_WAL)) };
-    let needed_bytes = if doomed.is_empty() {
-        0
-    } else {
-        crate::backup::needed_bytes(device, files.keys().map(String::as_str)) + staged
-    };
+    let needed_bytes =
+        if nothing_doomed { 0 } else { crate::backup::needed_bytes(device, files.keys().map(String::as_str)) + staged };
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
     if !fits {

@@ -1321,6 +1321,170 @@ fn plan_refuses_what_export_pdb_cannot_hold(tc: TestCase) {
     }
 }
 
+/// A name or detail around what one export.pdb row holds is planned exactly when it fits, and then
+/// applied: a playlist's or folder's name, a new artist, album, genre or label, and a track's title,
+/// comment and mix name, alone or together. Refused, it says what's too long and the drive is as it
+/// was; a lookup name one character longer than one refused is refused too.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn names_and_details_are_planned_exactly_when_export_pdb_holds_them(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = fresh_pdb_drive(dir.path());
+    let lib = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
+    let track = lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))].clone();
+    // Around a row's 4,050 bytes: as ASCII, or as UTF-16 (two bytes a character).
+    let (c, width) = tc.draw(gs::sampled_from(vec![("x", 1), ("é", 2)]));
+    let around =
+        |bytes: usize| c.repeat(tc.draw(gs::integers::<usize>().min_value(bytes - 12).max_value(bytes + 12)) / width);
+    let plan = |edit: &Edit| {
+        edit::plan(
+            &Device::open_export(&root).unwrap(),
+            std::slice::from_ref(edit),
+            &EditOptions::default(),
+            &Ctx::silent(),
+        )
+    };
+    let fields =
+        |f: TrackFields| Edit::EditTracks { tracks: TrackSelector::paths([track.file_path.clone()]), fields: f };
+    for kind in 0..4 {
+        let (edit, fits) = match kind {
+            0 => {
+                let name = around(4030);
+                (
+                    Edit::CreatePlaylist { path: format!("Shows/{name}"), folder: tc.draw(gs::booleans()) },
+                    Some(name_fits(&name)),
+                )
+            }
+            1 => {
+                let name = around(4030);
+                (Edit::RenamePlaylist { playlist: "aab".into(), name: name.clone() }, Some(name_fits(&name)))
+            }
+            2 => {
+                let name = around(4030);
+                let mut f = TrackFields::default();
+                match tc.draw(gs::integers::<u8>().max_value(6)) {
+                    0 => f.genre = Some(name),
+                    1 => f.label = Some(name),
+                    2 => f.artist = Some(name),
+                    3 => f.album = Some(name),
+                    4 => f.remixer = Some(name),
+                    5 => f.composer = Some(name),
+                    _ => f.original_artist = Some(name),
+                }
+                (fields(f), None)
+            }
+            _ => {
+                let others = track_rows(&root)[&tkey(&track.file_path)];
+                // One, two or all three of the strings sharing the track's row, together near the limit.
+                let mut f = TrackFields::default();
+                let budget = 4050 - others;
+                let set = [tc.draw(gs::booleans()), tc.draw(gs::booleans()), true];
+                let short = || c.repeat(tc.draw(gs::integers::<usize>().max_value(40)));
+                let mut d = Details::from(&track);
+                for (i, on) in set.into_iter().enumerate() {
+                    if !on {
+                        continue;
+                    }
+                    let v = if i == 2 { around(budget) } else { short() };
+                    match i {
+                        0 => (f.comment, d.comment) = (Some(v.clone()), v),
+                        1 => (f.mix_name, d.mix_name) = (Some(v.clone()), v),
+                        _ => (f.title, d.title) = (Some(v.clone()), v),
+                    }
+                }
+                (fields(f), Some(details_fit(others, &d)))
+            }
+        };
+        let before = Before::take(&root);
+        match plan(&edit) {
+            Ok(p) => {
+                assert_ne!(fits, Some(false), "plan took {edit:?}, which export.pdb can't hold");
+                edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+                if let Edit::EditTracks { fields: f, .. } = &edit {
+                    let after = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap();
+                    let t = after.tracks.iter().find(|t| t.file_path == track.file_path).unwrap();
+                    for (want, got) in
+                        [(&f.genre, &t.genre), (&f.artist, &t.artist), (&f.title, &t.title), (&f.comment, &t.comment)]
+                    {
+                        if let Some(want) = want {
+                            assert_eq!(got, want);
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                assert_ne!(fits, Some(true), "plan refused {edit:?}, which fits: {err}");
+                assert!(
+                    matches!(err, locallibrary::Error::Invalid(_)) && err.to_string().contains("too long"),
+                    "{err}"
+                );
+                before.untouched(&root).unwrap();
+                // Longer still is refused too.
+                if let Edit::EditTracks { fields: f, .. } = &edit
+                    && fits.is_none()
+                {
+                    let longer = |v: &Option<String>| v.as_ref().map(|v| format!("{v}{c}"));
+                    let f = TrackFields {
+                        genre: longer(&f.genre),
+                        label: longer(&f.label),
+                        artist: longer(&f.artist),
+                        album: longer(&f.album),
+                        remixer: longer(&f.remixer),
+                        composer: longer(&f.composer),
+                        original_artist: longer(&f.original_artist),
+                        ..Default::default()
+                    };
+                    assert!(plan(&fields(f)).is_err());
+                }
+            }
+        }
+    }
+}
+
+/// rekordbox exports again without some of the tracks, playlists and history lists the edits used:
+/// replaying the journal never fails, makes what it still can, and brings none of the missing
+/// tracks back; what it leaves out it says.
+#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_replay_on_an_export_missing_what_the_edits_used_skips_it(tc: TestCase) {
+    let mut drive = Drive::new(false);
+    let pdb_path = drive.root.join(paths::EXPORT_PDB);
+    let exported = fs::read(&pdb_path).unwrap();
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(3).max_value(8)) {
+        if let Attempt::Failed { error, .. } = drive.edit(&tc, Names::Fitting) {
+            panic!("plan took the edits but apply failed: {error}");
+        }
+    }
+    let mut ed = rekordbox_pdb::PdbEditor::from_bytes(exported);
+    let db = ed.database().unwrap();
+    let ids: Vec<u32> = db.tracks.iter().map(|t| t.id).collect();
+    let gone: Vec<u32> = crate::drawn::some(&tc, &ids).into_iter().take(3).collect();
+    let gone_files: BTreeSet<String> =
+        db.tracks.iter().filter(|t| gone.contains(&t.id)).map(|t| tkey(t.file_path())).collect();
+    let lists: Vec<u32> = db.playlist_tree.iter().map(|n| n.id).collect();
+    let history: Vec<u32> = db.history_playlists.iter().map(|h| h.id).collect();
+    ed.remove_tracks(&gone).unwrap();
+    ed.remove_playlists(&crate::drawn::some(&tc, &lists)).unwrap();
+    ed.remove_history_playlists(&crate::drawn::some(&tc, &history)).unwrap();
+    fs::write(&pdb_path, ed.to_bytes()).unwrap();
+    let exported = pdb::read_library(&pdb_path).unwrap();
+
+    let mut d = Device::open_export(&drive.root).unwrap();
+    let edits = edit::journal::edits(&d).unwrap();
+    let plan = edit::plan(&d, &edits, &EditOptions { lenient: true, no_journal: true }, &Ctx::silent()).unwrap();
+    tc.note(&format!("journal: {edits:?}\nwarnings: {:?}", plan.warnings));
+    edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    let after = d.library().unwrap();
+    let files: BTreeSet<String> = after.tracks.iter().map(|t| tkey(&t.file_path)).collect();
+    assert!(files.is_disjoint(&gone_files), "a missing track came back");
+    let before: BTreeSet<String> = exported.tracks.iter().map(|t| tkey(&t.file_path)).collect();
+    assert!(files.is_subset(&before), "a replay adds no tracks");
+    // Each playlist that's left is one the export or the edits made.
+    let made: BTreeSet<String> = drive.model.shape.walk().into_iter().map(|(_, path)| path).collect();
+    for p in &after.playlists {
+        let path = after.playlist_path(p.id);
+        assert!(made.contains(&path) || exported.find_playlist(&path).is_some(), "{path} came from nowhere");
+    }
+}
+
 /// After rekordbox exports over the edits (both databases as they were), replaying the journal
 /// gives the library the edits made.
 #[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]

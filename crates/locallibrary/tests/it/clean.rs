@@ -150,6 +150,24 @@ fn clean_leaves_shared_files_alone() {
     assert_eq!(d.library().unwrap().tracks.len(), 13);
 }
 
+/// Regression: the plan listed one track per file, so two sample rows sharing a file showed (and
+/// reported) as one though both were removed.
+#[test]
+fn two_samples_sharing_a_file_both_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let file = format!("{SAMPLES}/House1.wav");
+    let a = export(&root, "rekordbox", "House 1", None, &file, 1);
+    let b = export(&root, "rekordbox", "House 2", None, &file, 2);
+
+    let mut d = Device::open_export(&root).unwrap();
+    let plan = clean::plan(&d, &Ctx::silent()).unwrap();
+    assert_eq!(plan.tracks.iter().map(|t| t.id).collect::<Vec<_>>(), [a, b]);
+    let report = clean::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    assert_eq!(report.tracks_removed, 2);
+    assert_eq!(d.library().unwrap().tracks.len(), 12);
+}
+
 #[test]
 fn nothing_to_clean() {
     let dir = tempfile::tempdir().unwrap();

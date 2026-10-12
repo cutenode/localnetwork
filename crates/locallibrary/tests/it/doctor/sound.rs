@@ -21,16 +21,16 @@ use loclib_mixid::fingerprint::RATE;
 use loclib_mixid::test_util::{synth, wav_of};
 use rekordbox_pdb::NewTrack;
 
-const ORIGINAL: &str = "/Contents/Sound/Song.wav";
-const HI_RES: &str = "/Contents/Sound/Song (48 kHz).wav";
+pub(crate) const ORIGINAL: &str = "/Contents/Sound/Song.wav";
+pub(crate) const HI_RES: &str = "/Contents/Sound/Song (48 kHz).wav";
 const EDIT: &str = "/Contents/Sound/Song (edit).wav";
 const OTHER: &str = "/Contents/Sound/Other.wav";
 /// How much later the hi-res copy's audio starts.
-const DELAY_MS: u32 = 26;
+pub(crate) const DELAY_MS: u32 = 26;
 
 /// `secs` of test signal `seed` as a stereo WAV at `rate` Hz and `bits` bits, after `delay_ms` of
 /// silence, with the stretch `cut` (seconds) taken out.
-fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: u32, cut: Option<(f64, f64)>) -> Vec<u8> {
+pub(crate) fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: u32, cut: Option<(f64, f64)>) -> Vec<u8> {
     let mut x = synth(secs, seed);
     if let Some((from, to)) = cut {
         x.drain((from * f64::from(RATE)) as usize..(to * f64::from(RATE)) as usize);
@@ -43,7 +43,7 @@ fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: u32, cut: Opt
     wav_of(rate, bits, pcm.iter().map(|s| (s * scale) as i32))
 }
 
-fn track(title: &str, path: &str, n: u32, secs: u16, rate: u32, bits: u16) -> NewTrack {
+pub(crate) fn track(title: &str, path: &str, n: u32, secs: u16, rate: u32, bits: u16) -> NewTrack {
     NewTrack {
         artist: Some("Someone".into()),
         analyze_path: format!("/PIONEER/USBANLZ/P0BB/0000000{n}/ANLZ0000.DAT"),
@@ -77,7 +77,7 @@ fn drive_with_copies(dir: &Path) -> (std::path::PathBuf, [u32; 4]) {
 }
 
 /// A store for this thread's drive lookups, which keeps the fingerprints.
-fn store(dir: &Path) -> Store {
+pub(crate) fn store(dir: &Path) -> Store {
     let store = Store::open_or_init(dir.join("store")).unwrap();
     testing::store_root_on_this_thread(Some(store.root().to_path_buf()));
     store
@@ -144,7 +144,7 @@ fn the_same_recording_in_another_encoding_is_a_duplicate_by_sound() {
 }
 
 /// The cues `id` has in its analysis files: (hot cue slot, start, end).
-fn cues(root: &Path, id: u32) -> Vec<(Option<String>, u32, Option<u32>)> {
+pub(crate) fn cues(root: &Path, id: u32) -> Vec<(Option<String>, u32, Option<u32>)> {
     let listed = cue_edit::list(&Device::open_export(root).unwrap(), &[id]).unwrap();
     listed[0].cues.iter().map(|c| (c.hot_cue.clone(), c.start_ms, c.end_ms)).collect()
 }
@@ -169,7 +169,7 @@ fn set_cues(root: &Path, id: u32) {
 }
 
 /// Give `id` these cues, in both analysis files.
-fn set_points(root: &Path, id: u32, points: &[CuePoint]) {
+pub(crate) fn set_points(root: &Path, id: u32, points: &[CuePoint]) {
     let lib = Device::open_export(root).unwrap().library().unwrap();
     let dat = paths::key(&lib.track(id).unwrap().analyze_path);
     for (key, file) in [(dat.clone(), CueFile::Dat), (dat.replace(".DAT", ".EXT"), CueFile::Ext)] {

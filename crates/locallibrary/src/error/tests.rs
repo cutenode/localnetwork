@@ -178,3 +178,104 @@ fn io_errors_name_their_path(tc: hegel::TestCase) {
     assert_eq!(e.detail().fields["path"], format!("/Volumes/USB/{name}"));
     assert!(e.to_string().ends_with("no such file"), "{e}");
 }
+
+/// What the other crates' errors become: the code their kind says (a file that can't be read is
+/// `io` with its path, one that isn't what it should be `parse`, a stop `cancelled`, a bad
+/// argument `invalid`) and their message, detail added on top or not.
+#[hegel::test(test_cases = 400)]
+fn errors_from_the_other_crates_keep_their_kind_and_message(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let path = PathBuf::from(tc.draw(gs::sampled_from(vec!["/Volumes/A/x.mp3", "/tmp/é.flac"])));
+    let message = tc.draw(gs::text().alphabet("abc é:").min_size(1).max_size(8));
+    let io = || io::Error::other(message.clone());
+    let mixid = |kind: u8| match kind {
+        0 => loclib_mixid::Error::Io { path: path.clone(), source: io() },
+        1 => loclib_mixid::Error::Parse { path: path.clone(), message: message.clone() },
+        2 => loclib_mixid::Error::Invalid(message.clone()),
+        _ => loclib_mixid::Error::Cancelled(loclib_progress::Cancelled),
+    };
+    let mixid_code = |kind: u8| ["io", "parse", "invalid", "cancelled"][usize::from(kind)];
+    let kind = tc.draw(gs::integers::<u8>().max_value(3));
+    // (the error, its code, whether its message (or path) comes through)
+    let (e, code, says): (Error, &str, bool) = match tc.draw(gs::integers::<u8>().max_value(9)) {
+        0 => (mixid(kind).into(), mixid_code(kind), kind < 3),
+        1 => {
+            let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
+                0 => (loclib_analysis::Error::Audio(mixid(kind)), mixid_code(kind), kind < 3),
+                1 => (loclib_analysis::Error::Analyzer { path: path.clone(), message: message.clone() }, "parse", true),
+                2 => (loclib_analysis::Error::Annotation { line: 7, message: message.clone() }, "invalid", true),
+                _ => (loclib_analysis::Error::Cancelled(loclib_progress::Cancelled), "cancelled", false),
+            };
+            (e.0.into(), e.1, e.2)
+        }
+        2 => {
+            use loclib_transcode::Error as T;
+            let e = match tc.draw(gs::integers::<u8>().max_value(6)) {
+                0 => (T::Decode(mixid(kind)), mixid_code(kind), kind < 3),
+                1 => (T::Io { path: path.clone(), source: io() }, "io", true),
+                2 => (T::Encode { path: path.clone(), message: message.clone() }, "parse", true),
+                3 => (T::Tags { path: path.clone(), message: message.clone() }, "parse", true),
+                4 => (T::TooShort { path: path.clone(), frames: 3, source_rate: 8000, rate: 44_100 }, "parse", false),
+                5 => (T::Invalid(message.clone()), "invalid", true),
+                _ => (T::Cancelled(loclib_progress::Cancelled), "cancelled", false),
+            };
+            (e.0.into(), e.1, e.2)
+        }
+        3 => {
+            use loclib_interop::Error as I;
+            let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
+                0 => (I::Cancelled(loclib_progress::Cancelled), "cancelled", false),
+                1 => (I::Invalid(message.clone()), "invalid", true),
+                2 => (I::Io { path: path.clone(), source: io() }, "io", true),
+                _ => (I::Tags(message.clone()), "tags", true),
+            };
+            (e.0.into(), e.1, e.2)
+        }
+        4 => {
+            use loclib_mysettings::Error as M;
+            let e = match tc.draw(gs::integers::<u8>().max_value(2)) {
+                0 => (M::UnknownSetting(message.clone()), "invalid", true),
+                1 => (
+                    M::InvalidValue { key: "jog_mode", value: message.clone(), expected: vec!["vinyl"] },
+                    "invalid",
+                    true,
+                ),
+                _ => (
+                    M::Parse { file: loclib_mysettings::SettingsFile::MySetting, message: message.clone() },
+                    "parse",
+                    true,
+                ),
+            };
+            (e.0.into(), e.1, e.2)
+        }
+        5 => (loclib_progress::Cancelled.into(), "cancelled", false),
+        6 => (loclib_equipment::UnknownModels(vec![message.clone()]).into(), "invalid", true),
+        7 => (loclib_tracklist::Error::NoTitleColumn { found: message.clone() }.into(), "invalid", true),
+        8 => (rekordbox_pdb::PdbError::UnknownField(message.clone()).into(), "pdb", true),
+        _ => (Error::Io { path: path.clone(), source: io() }, "io", true),
+    };
+    let detailed = e.to_string();
+    assert_eq!(e.code(), code, "{e:?}");
+    if says {
+        assert!(detailed.contains(&message) || detailed.contains(&path.display().to_string()), "{detailed:?}");
+    }
+    if code == "io" {
+        assert_eq!(e.detail().fields["path"], path.display().to_string());
+    }
+    // Detail on top changes neither.
+    let with = e.because(Reason::NotSaved).with("drive", "/Volumes/A");
+    assert_eq!((with.code(), with.to_string()), (code, detailed));
+}
+
+/// What a panic said, whether it panicked with a literal or a formatted message.
+#[hegel::test(test_cases = 100)]
+fn a_panics_text_is_what_it_said(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let said = tc.draw(gs::text().max_size(12));
+    let literal = std::panic::catch_unwind(|| std::panic::panic_any("fixed")).unwrap_err();
+    assert_eq!(panic_text(&*literal), "fixed");
+    let formatted = std::panic::catch_unwind(|| std::panic::panic_any(said.clone())).unwrap_err();
+    assert_eq!(panic_text(&*formatted), said);
+    let other = std::panic::catch_unwind(|| std::panic::panic_any(7u8)).unwrap_err();
+    assert_eq!(panic_text(&*other), "a panic");
+}

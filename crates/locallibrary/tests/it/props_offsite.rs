@@ -186,3 +186,38 @@ fn a_copy_holds_the_store_and_catches_up_incrementally(tc: TestCase) {
     assert_eq!(ids(&fresh_copy).len() + left_out.len(), ids(&store).len());
     assert!(!fresh_copy.has_object(&h));
 }
+
+/// A copy goes only where it can: not inside the store or around it, not over another store or a
+/// folder of other things, not under a folder that isn't there (an unmounted share). Over a copy
+/// of it, a stored file that rotted there is put right when verifying.
+#[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_copy_goes_only_where_it_can_and_puts_rot_right(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(&tc, dir.path());
+    let silent = Ctx::silent();
+    let opts = CopyOptions { verify: true, ..Default::default() };
+    let refused = |dest: &std::path::Path| offsite::copy(&store, dest, &opts, &silent).unwrap_err().to_string();
+    assert!(refused(&store.root().join("inside")).contains("can't be inside one another"));
+    assert!(refused(dir.path()).contains("can't be inside one another"));
+    let other = Store::open_or_init(dir.path().join("other")).unwrap();
+    assert!(refused(other.root()).contains("holds a different store"));
+    let notes = dir.path().join("notes");
+    fs::create_dir_all(&notes).unwrap();
+    fs::write(notes.join("todo.txt"), b"x").unwrap();
+    assert!(refused(&notes).contains("isn't empty and isn't a copy of this store"));
+    assert!(refused(&dir.path().join("unmounted/share/copy")).contains("is its disk or share mounted?"));
+
+    let dest = dir.path().join("copy");
+    offsite::copy(&store, &dest, &opts, &silent).unwrap();
+    let rotted: Vec<Hash> =
+        objects(&store).into_iter().filter(|_| tc.draw(gs::booleans())).take(2).map(|(h, _)| h).collect();
+    let copy = Store::open(&dest).unwrap();
+    for h in &rotted {
+        common::rot(&copy.object_path(h));
+    }
+    let again = offsite::copy(&store, &dest, &opts, &silent).unwrap();
+    assert_eq!(again.objects_repaired, rotted.len(), "{again:?}");
+    for h in &rotted {
+        assert_eq!(fs::read(copy.object_path(h)).unwrap(), fs::read(store.object_path(h)).unwrap(), "put right");
+    }
+}

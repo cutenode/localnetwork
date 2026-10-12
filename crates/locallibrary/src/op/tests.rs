@@ -178,3 +178,134 @@ fn serialises_as_the_plan_with_its_details() {
     assert_eq!(any.to_json(), v);
     assert_eq!(any.apply_json(None, &Ctx::silent()).unwrap(), 3);
 }
+
+#[derive(Clone, Serialize, JsonSchema)]
+struct Shaped {
+    tracks: u32,
+    note: String,
+}
+
+impl Operation for Shaped {
+    type Request = ();
+    type Report = ();
+
+    fn apply(_: &Planned<Self>, _: Option<&Store>, _: &Ctx<'_>) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl Operation for () {
+    type Request = ();
+    type Report = ();
+
+    fn apply(_: &Planned<Self>, _: Option<&Store>, _: &Ctx<'_>) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl Operation for Vec<u32> {
+    type Request = ();
+    type Report = usize;
+
+    fn apply(planned: &Planned<Self>, _: Option<&Store>, _: &Ctx<'_>) -> Result<usize> {
+        Ok(planned.plan.len())
+    }
+}
+
+/// `planned` as `*.plan` returns it, checked against the schema its type gives.
+fn described<P: Serialize + JsonSchema>(planned: &Planned<P>) -> serde_json::Value {
+    let json = serde_json::to_value(planned).unwrap();
+    let settings = schemars::generate::SchemaSettings::draft2020_12().for_serialize();
+    let schema = settings.into_generator().into_root_schema_for::<Planned<P>>().to_value();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    assert!(validator.is_valid(&json), "{json:#} isn't described by {schema:#}");
+    json
+}
+
+/// A plan reads as its own fields with every plan's details beside them, whatever shape it is: an
+/// object's fields at the top, nothing for one that's `null`, and anything else under `plan`; its
+/// schema describes it either way. Its details read back as they were given, each warning once.
+#[hegel::test(test_cases = 50)]
+fn a_plan_reads_as_its_own_fields_beside_the_details(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let summary: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(6)).max_size(3));
+    let warnings: Vec<String> = tc.draw(gs::vecs(gs::sampled_from(vec!["a".to_string(), "b".into(), "c".into()])));
+    let (destructive, noop) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let numbers: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>()).max_size(4));
+    let shaped = Shaped { tracks: tc.draw(gs::integers::<u32>()), note: tc.draw(gs::text().max_size(6)) };
+    fn dress<P>(planned: Planned<P>, summary: &[String], warnings: &[String], flags: (bool, bool)) -> Planned<P> {
+        planned.summary(summary.to_vec()).warnings(warnings.to_vec()).destructive(flags.0).noop(flags.1)
+    }
+    let flags = (destructive, noop);
+    let unit = dress(Planned::new("test", (), ()), &summary, &warnings, flags);
+    let list = dress(Planned::new("test", numbers.clone(), ()), &summary, &warnings, flags);
+    let object = dress(Planned::new("test", shaped.clone(), ()), &summary, &warnings, flags);
+    let mut once: Vec<String> = Vec::new();
+    for w in &warnings {
+        if !once.contains(w) {
+            once.push(w.clone());
+        }
+    }
+    let details = ["plan_id", "operation", "summary", "warnings", "destructive", "noop", "drives", "planned_at"];
+    for (json, own) in [
+        (described(&unit), serde_json::json!({})),
+        (described(&list), serde_json::json!({ "plan": numbers })),
+        (described(&object), serde_json::to_value(&shaped).unwrap()),
+    ] {
+        assert_eq!(json["summary"], serde_json::json!(summary));
+        assert_eq!(json["warnings"], serde_json::json!(once));
+        assert_eq!((json["destructive"].as_bool(), json["noop"].as_bool()), (Some(destructive), Some(noop)));
+        let own = own.as_object().unwrap();
+        for (k, v) in own {
+            assert_eq!(&json[k], v, "{k}");
+        }
+        let keys = json.as_object().unwrap().keys();
+        assert!(keys.into_iter().all(|k| details.contains(&k.as_str()) || own.contains_key(k)), "{json}");
+    }
+
+    let json = serde_json::to_value(&list).unwrap();
+    let any: Box<dyn AnyPlanned> = Box::new(list);
+    assert_eq!((any.operation(), any.summary(), any.warnings()), ("test", &summary[..], &once[..]));
+    assert_eq!((any.destructive(), any.is_noop(), any.drives().len()), (destructive, noop, 0));
+    assert_eq!(json["plan_id"], any.id());
+    assert!(any.planned_at() <= Utc::now());
+    assert_eq!(any.to_json(), json);
+    assert_eq!(any.apply_json(None, &Ctx::silent()).unwrap(), numbers.len());
+}
+
+/// A plan that reads files by content is stale exactly when one of them changes: rewritten with
+/// other bytes, deleted, or a folder (which reads as unreadable) turned into a file. Rewriting it
+/// with the same bytes, or changing a file it doesn't read, isn't a change.
+#[hegel::test(test_cases = 20)]
+fn a_plan_reading_files_by_content_sees_exactly_their_changes(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write(root, "a.txt", b"one");
+    write(root, "b.txt", b"two");
+    std::fs::create_dir(root.join("folder")).unwrap();
+    let d = Device::open(root).unwrap();
+    let t = Touched::drive(&d, true, vec![Probe::Content(vec!["a.txt".into(), "folder".into()])]);
+    assert!(!t.changed(), "nothing changed yet");
+    let stale = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => {
+            write(root, "b.txt", b"changed");
+            false
+        }
+        1 => {
+            let bytes: Vec<u8> = tc.draw(gs::sampled_from(vec![b"one".to_vec(), b"once".to_vec(), Vec::new()]));
+            write(root, "a.txt", &bytes);
+            bytes != b"one"
+        }
+        2 => {
+            std::fs::remove_dir(root.join("folder")).unwrap();
+            write(root, "folder", b"a file now");
+            true
+        }
+        _ => {
+            std::fs::remove_file(root.join("a.txt")).unwrap();
+            true
+        }
+    };
+    assert_eq!(t.changed(), stale);
+}

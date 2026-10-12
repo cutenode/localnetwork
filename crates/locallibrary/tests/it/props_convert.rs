@@ -330,3 +330,326 @@ fn xml_holds_the_drives_library(tc: TestCase) {
     }
     assert_eq!(text.matches("<POSITION_MARK").count(), report.cues);
 }
+
+/// Give OneLibrary the categories and tags exportExt.pdb has, as rekordbox exports both.
+fn mirror_tags(root: &Path) {
+    let ext = rekordbox_pdb::ExtDatabase::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
+    let mut one = OneLibrary::open_root(root).unwrap();
+    for c in ext.categories() {
+        one.add_my_tag(c.id.into(), 0, &c.name, true).unwrap();
+        for t in ext.tags_in(c.id) {
+            one.add_my_tag(t.id.into(), c.id.into(), &t.name, false).unwrap();
+        }
+    }
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+}
+
+/// The files of tracks carrying each My Tag, by path, in the database `source` names.
+fn tagged(d: &Device, source: locallibrary::tags::Source) -> BTreeSet<(String, String)> {
+    let mine = locallibrary::tags::read(d).unwrap();
+    mine.categories
+        .iter()
+        .flat_map(|c| &c.tags)
+        .filter(|t| t.sources.contains(&source))
+        .flat_map(|t| t.tracks.iter().map(move |r| (t.path.clone(), fold(&r.file_path))))
+        .collect()
+}
+
+/// Conversions [`converting_keeps_both_sides_and_undoes_exactly`] doesn't draw: rekordbox's demo
+/// export (real analysis files, its My Tags carried across), a track or playlist only one side
+/// has, hot cue bank lists a rebuild drops, artwork missing on the drive, and a target that can't
+/// be read (added to, it's refused with a way on; rebuilt, it's made from scratch).
+#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+fn converting_carries_my_tags_and_says_what_it_leaves(tc: TestCase) {
+    for variant in 0..4 {
+        converting_carries_my_tags_and_says_what_it_leaves_with(&tc, variant);
+    }
+}
+
+/// One case of [`converting_carries_my_tags_and_says_what_it_leaves`], `variant` choosing what's drawn.
+#[hegel::test_helper]
+fn converting_carries_my_tags_and_says_what_it_leaves_with(tc: &TestCase, variant: u8) {
+    use locallibrary::onelibrary::ContentRecord;
+    use locallibrary::tags::{self, Source};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "A");
+    let mut d = Device::open_export(&root).unwrap();
+    let lib = d.library().unwrap();
+    let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    let tag_some = drawn::some(tc, &ids);
+    if !tag_some.is_empty() {
+        let plan = tags::plan(&d, &tags::Edit::Add { tag: "Genre/Deep".into(), tracks: tag_some }).unwrap();
+        tags::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    }
+    let art = tc.draw(gs::booleans());
+    if art {
+        common::media::set_art(&root, &[ids[0]]);
+    }
+    common::add_onelibrary(&root);
+    mirror_tags(&root);
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    // A track only OneLibrary has (a player's own import, say), a hot cue bank list.
+    if tc.draw(gs::booleans()) {
+        let t = &lib.tracks[0];
+        let file = "/Contents/Plus/Only.mp3";
+        fs::create_dir_all(root.join("Contents/Plus")).unwrap();
+        fs::write(root.join("Contents/Plus/Only.mp3"), common::placeholder_audio(file)).unwrap();
+        let rec = ContentRecord::from_track(t, false, &one.content_defaults().unwrap());
+        one.add_track(&rec, file, "", None).unwrap();
+    }
+    let banks = tc.draw(gs::booleans());
+    if banks {
+        let first = one.library().unwrap().tracks[0].id;
+        one.connection()
+            .execute("INSERT INTO cue (cue_id, content_id, kind, inUsec) VALUES (900, ?1, 0, 2000000)", [first])
+            .unwrap();
+        let list = one.create_hot_cue_bank_list("Bank", 0, false).unwrap();
+        one.add_to_hot_cue_bank_list(list, 900).unwrap();
+    }
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    // A playlist only export.pdb has.
+    if tc.draw(gs::booleans()) {
+        let mut ed = PdbEditor::from_file(root.join(paths::EXPORT_PDB)).unwrap();
+        let p = ed.create_playlist("Only Pdb", 0, false).unwrap();
+        ed.add_to_playlist(p, ids[0], None).unwrap();
+        ed.save(root.join(paths::EXPORT_PDB)).unwrap();
+    }
+    // The artwork file gone from the drive.
+    let art_gone = art && tc.draw(gs::booleans());
+    if art_gone {
+        let path = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks[0].artwork_path.clone().unwrap();
+        fs::remove_file(paths::to_fs(&root, &paths::key(&path))).unwrap();
+    }
+    let to = tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary]).print_as_debug());
+    let replace = variant & 2 != 0;
+    let opts = ConvertOptions { to, replace };
+    // At times the target can't be read.
+    let unreadable = variant & 1 != 0;
+    if unreadable {
+        let key = match to {
+            Target::OneLibrary => paths::LIBRARY_PLUS_DB,
+            Target::DeviceLibrary => paths::EXPORT_PDB,
+        };
+        fs::write(root.join(key), b"not a database").unwrap();
+    }
+    let pdb_before = pdb::read_library(&root.join(paths::EXPORT_PDB)).ok();
+    let plus_before = OneLibrary::open_root(&root).ok().and_then(|o| o.library().ok());
+    let d = Device::open_export(&root).unwrap();
+    let from_tags = match to {
+        Target::OneLibrary => tagged(&d, Source::ExportExt),
+        Target::DeviceLibrary => BTreeSet::new(),
+    };
+
+    let plan = match convert::plan(&d, &opts, &Ctx::silent()) {
+        Err(e) => {
+            assert!(unreadable && !replace, "{e}");
+            assert!(e.to_string().contains("can't be read, so nothing can be added to it"), "{e}");
+            let retry: Vec<_> = e.detail().actions.iter().map(|a| a.params.get("replace").cloned()).collect();
+            assert_eq!(retry, [Some(serde_json::json!(true))]);
+            return;
+        }
+        Ok(p) => p,
+    };
+    let says = |what: &str| plan.warnings.iter().any(|w| w.contains(what));
+    assert_eq!(says("can't be read; it's rebuilt from scratch"), unreadable, "{:?}", plan.warnings);
+    // Only tracks it converts need their artwork: added to, OneLibrary has them already.
+    let converts_art = art_gone && to == Target::OneLibrary && replace;
+    assert_eq!(says("artwork image(s) the tracks point at are missing"), converts_art, "{:?}", plan.warnings);
+    if to == Target::OneLibrary && replace && !unreadable {
+        assert_eq!(says("hot cue bank list(s) go too"), banks, "{:?}", plan.warnings);
+    }
+    let mut d = Device::open_export(&root).unwrap();
+    let report = convert::apply(&plan, &mut d, &opts, &Ctx::silent()).unwrap();
+    assert_eq!(report.tracks, plan.tracks);
+
+    let d = Device::open_export(&root).unwrap();
+    let (source, made) = match to {
+        Target::OneLibrary => (pdb_before.unwrap(), common::plus_library(&root)),
+        Target::DeviceLibrary => (plus_before.unwrap(), pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap()),
+    };
+    covers(&held(&made), &held(&source)).unwrap();
+    // Converting to OneLibrary carries exportExt.pdb's My Tags; to export.pdb, exportExt.pdb
+    // keeps the ones whose tracks it still has.
+    if to == Target::OneLibrary {
+        let got = tagged(&d, Source::OneLibrary);
+        assert!(from_tags.is_subset(&got), "{from_tags:?} in {got:?}");
+    }
+    if to == Target::OneLibrary {
+        common::sqlcipher_reads(&root);
+    }
+}
+
+/// Each `TRACK` element's attributes, and its `POSITION_MARK`s' attributes, by `TrackID`.
+type Marks = IndexMap<u32, (IndexMap<String, String>, Vec<IndexMap<String, String>>)>;
+
+fn xml_marks(text: &str) -> Marks {
+    use quick_xml::events::Event;
+    let mut r = quick_xml::Reader::from_str(text);
+    let mut out = Marks::new();
+    let mut current = None;
+    loop {
+        let e = match r.read_event().expect("well-formed XML") {
+            Event::Start(e) | Event::Empty(e) => e.into_owned(),
+            Event::Eof => break,
+            _ => continue,
+        };
+        let attrs: IndexMap<String, String> = e
+            .attributes()
+            .flatten()
+            .map(|a| (String::from_utf8(a.key.as_ref().to_vec()).unwrap(), a.unescape_value().unwrap().into_owned()))
+            .collect();
+        match e.name().as_ref() {
+            b"TRACK" if attrs.contains_key("TrackID") => {
+                let id = attrs["TrackID"].parse().unwrap();
+                out.insert(id, (attrs, Vec::new()));
+                current = Some(id);
+            }
+            b"POSITION_MARK" => out[&current.unwrap()].1.push(attrs),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The XML gives each track the kind of file it is, its colour when it has one (each colour its
+/// own), and its cues as the drive lists them: where each starts and a loop ends, which hot cue
+/// (-1 for a memory cue), and a hot cue's colour.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn xml_tells_each_tracks_kind_colour_and_cues(tc: TestCase) {
+    use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
+    use locallibrary::edit::{Edit, TrackFields};
+    use locallibrary::query::TrackSelector;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "A");
+    for n in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+        drawn::track(&tc, &root, n);
+    }
+    let lib = Device::open_export(&root).unwrap().library().unwrap();
+    let colours = vec!["pink", "red", "orange", "yellow", "green", "aqua", "blue", "purple"];
+    for t in &lib.tracks {
+        if let Some(c) = tc.draw(gs::optional(gs::sampled_from(colours.clone()))) {
+            let fields = TrackFields { color: Some(c.into()), ..Default::default() };
+            common::apply(&root, &[Edit::EditTracks { tracks: TrackSelector::paths([t.file_path.clone()]), fields }]);
+        }
+    }
+    // Cues on the demo export's two tracks, which have beat grids for loops.
+    let mut d = Device::open_export(&root).unwrap();
+    for id in [1, 2] {
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(2)) {
+            let set = SetCue {
+                hot_cue: tc.draw(gs::optional(gs::integers::<u8>().max_value(HotCue::COUNT - 1))).map(HotCue),
+                at: CuePosition::Ms(tc.draw(gs::integers::<u32>().min_value(1000).max_value(60_000))),
+                snap: false,
+                loop_beats: tc.draw(gs::optional(gs::sampled_from(vec![1.0, 4.0]))),
+                name: None,
+                color: tc.draw(gs::optional(gs::sampled_from(vec!["red", "blue"]))).map(String::from),
+            };
+            if let Ok(plan) = cue_edit::plan(&d, &[id], &CueEdit::Set(set), &Ctx::silent()) {
+                cue_edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+            }
+        }
+    }
+    let d = Device::open_export(&root).unwrap();
+    let lib = d.library().unwrap();
+    let (text, report) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
+    let marks = xml_marks(&text);
+    let mut hexes: IndexMap<String, String> = IndexMap::new();
+    for t in &lib.tracks {
+        let (attrs, got) = &marks[&t.id];
+        let ext = t.file_path.rsplit('.').next().unwrap().to_ascii_lowercase();
+        let kind = match ext.as_str() {
+            "m4a" | "mp4" | "aac" => "M4A File",
+            "wav" => "WAV File",
+            "aif" | "aiff" => "AIFF File",
+            "flac" => "FLAC File",
+            _ => "MP3 File",
+        };
+        assert_eq!(attrs["Kind"], kind, "{}", t.file_path);
+        match t.color {
+            Some(c) => {
+                let hex = attrs.get("Colour").expect("a colour").clone();
+                let name = format!("{c:?}");
+                assert_eq!(hexes.entry(name.clone()).or_insert_with(|| hex.clone()), &hex, "{name} is one colour");
+            }
+            None => assert!(!attrs.contains_key("Colour")),
+        }
+        let listed = &cue_edit::list(&d, &[t.id]).unwrap()[0].cues;
+        assert_eq!(got.len(), listed.len(), "{}: {got:?}", t.file_path);
+        let mut listed = listed.clone();
+        listed.sort_by_key(|c| c.start_ms);
+        let mut got = got.clone();
+        got.sort_by(|a, b| a["Start"].parse::<f64>().unwrap().total_cmp(&b["Start"].parse().unwrap()));
+        for (m, c) in got.iter().zip(&listed) {
+            assert_eq!(m["Start"], format!("{:.3}", f64::from(c.start_ms) / 1000.0));
+            assert_eq!(m.get("End").cloned(), c.end_ms.map(|e| format!("{:.3}", f64::from(e) / 1000.0)));
+            assert_eq!(m["Type"], if c.end_ms.is_some() { "4" } else { "0" });
+            let num = c.hot_cue.as_deref().map_or(-1, |h| i32::from(h.as_bytes()[0] - b'A'));
+            assert_eq!(m["Num"], num.to_string());
+            let rgb = c.color.as_deref().filter(|h| h.starts_with('#') && c.hot_cue.is_some()).map(|h| {
+                let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).unwrap().to_string();
+                (byte(1), byte(3), byte(5))
+            });
+            // A hot cue's palette colour is its colour in the XML too (one rekordbox stored without
+            // a palette entry is listed with none).
+            if rgb.is_some() {
+                assert_eq!(m.get("Red").map(|r| (r.clone(), m["Green"].clone(), m["Blue"].clone())), rgb);
+            }
+            if c.hot_cue.is_none() {
+                assert!(!m.contains_key("Red"), "a memory cue has no colour in the XML");
+            }
+        }
+    }
+    let distinct: BTreeSet<&String> = hexes.values().collect();
+    assert_eq!(distinct.len(), hexes.len(), "each colour its own: {hexes:?}");
+    assert_eq!(report.cues, marks.values().map(|(_, m)| m.len()).sum::<usize>());
+}
+
+/// A drive's whole library, both its databases put together: every track either lists (once,
+/// by file), every playlist and folder either has with its entries, and every history list. What
+/// a player added to OneLibrary alone (a track, a playlist in a folder, a history list) is there
+/// beside what export.pdb has.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn the_whole_library_is_both_databases_put_together(tc: TestCase) {
+    use locallibrary::onelibrary::ContentRecord;
+    let dir = tempfile::tempdir().unwrap();
+    let (root, _) = drawn::drive(&tc, dir.path(), "A");
+    common::add_onelibrary(&root);
+    let mut one = OneLibrary::open_root(&root).unwrap();
+    let plus = one.library().unwrap();
+    let ids: Vec<u32> = plus.tracks.iter().map(|t| t.id).collect();
+    // A track only OneLibrary has.
+    let mut entries = drawn::some(&tc, &ids);
+    if tc.draw(gs::booleans()) {
+        let file = "/Contents/Player/Imported.mp3";
+        fs::create_dir_all(root.join("Contents/Player")).unwrap();
+        fs::write(root.join("Contents/Player/Imported.mp3"), common::placeholder_audio(file)).unwrap();
+        let rec = ContentRecord::from_track(&plus.tracks[0], false, &one.content_defaults().unwrap());
+        entries.push(one.add_track(&rec, file, "", None).unwrap());
+    }
+    // A playlist only OneLibrary has (perhaps in a folder of its own), and a history list.
+    let folder = tc.draw(gs::booleans()).then(|| one.create_playlist("Player Folder", 0, true).unwrap());
+    let p = one.create_playlist("Made On The Player", folder.unwrap_or(0), false).unwrap();
+    for id in &entries {
+        one.add_to_playlist(p, *id).unwrap();
+    }
+    if tc.draw(gs::booleans()) {
+        let h = one.create_history("HISTORY P01", 0, false).unwrap();
+        one.add_to_history(h, ids[0]).unwrap();
+    }
+    fs::write(root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+
+    let (pdb, plus) = libraries(&root);
+    let (pdb, plus) = (pdb.unwrap(), plus.unwrap());
+    let whole = convert::combined_library(&Device::open_export(&root).unwrap()).unwrap();
+    let (w, a, b) = (held(&whole), held(&pdb), held(&plus));
+    assert_eq!(w.tracks, &a.tracks | &b.tracks, "every track once, by file");
+    assert_eq!(whole.tracks.len(), w.tracks.len(), "no file twice");
+    covers(&w, &a).unwrap();
+    covers(&w, &b).unwrap();
+    assert_eq!(w.history, &a.history | &b.history);
+    let path = match folder {
+        Some(_) => "player folder/made on the player",
+        None => "made on the player",
+    };
+    assert_eq!(w.playlists[path], b.playlists[path]);
+}

@@ -502,3 +502,6 @@ fn stage(f: NewFile<'_>, dst: &Path, undo: &mut Undo, ctx: &Ctx<'_>) -> Result<(
     };
     Ok((tmp.into_temp_path(), n))
 }
+
+#[cfg(test)]
+mod tests;

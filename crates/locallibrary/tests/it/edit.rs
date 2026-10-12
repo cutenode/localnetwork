@@ -285,6 +285,45 @@ fn recorded_edits_replay_after_a_new_export() {
     assert_eq!(edit::journal::list(&d).unwrap().len(), 2, "a replay isn't recorded again");
 }
 
+/// A replay with no export since changes nothing (the drive has every recorded edit still), so
+/// its report counts no changes and names no database written.
+#[test]
+fn a_replay_of_edits_the_drive_still_has_writes_nothing() {
+    use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
+    use locallibrary::tags;
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let mut d = Device::open_export(&root).unwrap();
+    let first = d.library().unwrap().tracks[0].id;
+    let tag = tags::Edit::Add { tag: "Genre/Deep".into(), tracks: vec![first] };
+    tags::apply(&tags::plan(&d, &tag).unwrap(), &mut d, &Ctx::silent()).unwrap();
+    let set = CueEdit::Set(SetCue {
+        hot_cue: Some(HotCue(2)),
+        at: CuePosition::Beat(17),
+        snap: false,
+        loop_beats: None,
+        name: None,
+        color: None,
+    });
+    cue_edit::apply(&cue_edit::plan(&d, &[first], &set, &Ctx::silent()).unwrap(), &mut d, &Ctx::silent()).unwrap();
+    let before = common::drive_files(&root);
+
+    let edits = edit::journal::edits(&d).unwrap();
+    assert_eq!(edits.len(), 2);
+    let plan = edit::plan(&d, &edits, &EditOptions { lenient: true, no_journal: true }, &Ctx::silent()).unwrap();
+    let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+    assert_eq!((report.changes, report.databases.len()), (0, 0), "{report:?}");
+    let after = common::drive_files(&root);
+    let databases = |files: &common::Files| {
+        files
+            .iter()
+            .filter(|(k, _)| k.starts_with("PIONEER/rekordbox/"))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(databases(&after), databases(&before), "nothing written");
+}
+
 /// `tags` and `cues` edits are recorded too, and a replay after a new export makes them again
 /// with the playlist edits, under one backup that undoes the whole replay.
 #[test]

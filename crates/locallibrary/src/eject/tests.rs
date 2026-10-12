@@ -112,3 +112,128 @@ fn linux_ejects_every_mounted_partition_of_the_disk(tc: hegel::TestCase) {
         assert!(cmd.args.last().unwrap().contains(&format!("'{}:'", letter.to_ascii_uppercase())), "{cmd:?}");
     }
 }
+
+/// Ejecting, everywhere: on Linux every mounted partition of the disk is unmounted and then the
+/// disk powered off (a mount point not on the disk is refused); on Windows Explorer's Eject takes
+/// the drive's letter, and only a drive's root.
+#[hegel::test(test_cases = 100)]
+fn every_platform_ejects_the_whole_drive(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut disk = crate::format::tests::sample_disk();
+    (disk.id, disk.device) = ("/dev/sdb".into(), "/dev/sdb".into());
+    let template = disk.volumes[0].clone();
+    disk.volumes = (1..=tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+        .map(|n| {
+            let mut v = template.clone();
+            v.id = format!("/dev/sdb{n}");
+            v.mount = tc.draw(gs::booleans()).then(|| PathBuf::from(format!("/media/sam/P{n}")));
+            v
+        })
+        .collect();
+    let mounted: Vec<String> = disk.volumes.iter().filter(|v| v.mount.is_some()).map(|v| v.id.clone()).collect();
+    let root = PathBuf::from(format!("/media/sam/P{}", tc.draw(gs::integers::<usize>().min_value(1).max_value(5))));
+    match linux_commands(&disk, &root) {
+        Ok(cmds) => {
+            assert!(disk.volumes.iter().any(|v| v.mount.as_deref() == Some(root.as_path())));
+            let mut want: Vec<String> =
+                mounted.iter().map(|id| format!("udisksctl unmount --no-user-interaction -b {id}")).collect();
+            want.push("udisksctl power-off --no-user-interaction -b /dev/sdb".into());
+            assert_eq!(cmds.iter().map(Cmd::display).collect::<Vec<_>>(), want);
+        }
+        Err(e) => assert!(disk.volumes.iter().all(|v| v.mount.as_deref() != Some(root.as_path())), "{e}"),
+    }
+    let letter = tc.draw(gs::sampled_from(vec!['e', 'F', 'Z']));
+    let cmd = windows_command(Path::new(&format!("{letter}:\\"))).unwrap();
+    assert_eq!(cmd.program, "powershell");
+    assert!(cmd.args.last().unwrap().contains(&format!("'{}:'", letter.to_ascii_uppercase())), "{cmd:?}");
+    assert!(windows_command(Path::new(&format!("{letter}:\\Music"))).is_err());
+    #[cfg(target_os = "macos")]
+    assert_eq!(commands(&root).unwrap()[0].display(), format!("diskutil eject {}", root.display()));
+}
+
+/// A tool's failure gets the hint to close what holds the drive exactly when it says the drive is
+/// busy or in use; the command and the tool's words are kept as they were, and other errors pass
+/// through untouched.
+#[hegel::test(test_cases = 60)]
+#[hegel::explicit_test_case(word = "Resource BUSY", external = true)]
+#[hegel::explicit_test_case(word = "in use", external = true)]
+#[hegel::explicit_test_case(word = "In Use", external = true)]
+#[hegel::explicit_test_case(word = "busy", external = false)]
+fn only_a_busy_drive_gets_the_hint(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let word = tc.draw(gs::sampled_from(vec!["busy", "Resource BUSY", "in use", "In Use", "unmounted", ""]));
+    let external = tc.draw(gs::booleans());
+    let message = format!("Volume DNA failed to eject: {word}");
+    let command = "diskutil eject /Volumes/DNA".to_string();
+    let e = match external {
+        true => Error::External { command: command.clone(), message: message.clone() },
+        false => Error::Locked(PathBuf::from(&message)),
+    };
+    let busy = message.to_lowercase().contains("busy") || message.contains("in use");
+    match busy_hint(e) {
+        Error::External { command: c, message: m } => {
+            assert!(external);
+            assert_eq!(c, command);
+            let hint = " (close any window or program using the drive, then try again)";
+            assert_eq!(m, if busy { format!("{message}{hint}") } else { message.clone() });
+        }
+        Error::Locked(p) => assert!(!external && p == Path::new(&message)),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Waiting for a volume to go answers whether it's gone when the wait ends: at once when it never
+/// was there, after it disappears partway, never while it stays.
+#[hegel::test(test_cases = 8)]
+#[hegel::explicit_test_case(there = false, goes = false)]
+#[hegel::explicit_test_case(there = true, goes = true)]
+#[hegel::explicit_test_case(there = true, goes = false)]
+fn a_volume_is_gone_once_it_disappears(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let there = tc.draw(gs::booleans());
+    let goes = tc.draw(gs::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("DNA");
+    if there {
+        std::fs::create_dir(&root).unwrap();
+    }
+    let remover = (there && goes).then(|| {
+        let root = root.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            std::fs::remove_dir(&root).unwrap();
+        })
+    });
+    let start = Instant::now();
+    let gone = wait_gone(&root, Duration::from_millis(if there && !goes { 300 } else { 2_000 }));
+    if let Some(r) = remover {
+        r.join().unwrap();
+    }
+    assert_eq!(gone, !there || goes);
+    if !there {
+        assert!(start.elapsed() < Duration::from_millis(250), "no wait for a volume never there");
+    }
+    if there && !goes {
+        assert!(start.elapsed() >= Duration::from_millis(300), "waited the whole time");
+    }
+}
+
+/// Ejecting never waits for a running operation, nor asks the system anything meanwhile, whoever
+/// holds the drive's lock.
+#[hegel::test(test_cases = 6)]
+fn a_drive_being_written_is_never_ejected(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let adopted = tc.draw(gs::booleans());
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = Device::open(dir.path()).unwrap();
+    if adopted {
+        d.adopt(Some("DNA")).unwrap();
+    }
+    // Held throughout: were it not, the system's eject would run on this folder's volume.
+    let _writing = d.lock().unwrap();
+    let again = Device::open(dir.path()).unwrap();
+    match eject(&again) {
+        Err(Error::Locked(root)) => assert_eq!(root, d.root()),
+        other => panic!("{other:?}"),
+    }
+}

@@ -114,3 +114,6 @@ pub(crate) fn apply(
     }
     edit::apply_with(edit, device, files, ctx)
 }
+
+#[cfg(test)]
+mod tests;

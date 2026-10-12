@@ -823,3 +823,453 @@ fn a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
     let d = c.diff_drive(&fewer, "Main", None).unwrap();
     assert_eq!(d.diff.added_tracks.iter().map(|t| t.id).collect::<Vec<_>>(), [gone.id]);
 }
+
+/// A file that isn't a rekordbox collection is refused saying why: too short, not whole pages,
+/// SQLite without rekordbox's tables, or encrypted with another key (then with the way on).
+#[hegel::test(test_cases = 15)]
+fn files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let kind = tc.draw(gs::integers::<u8>().max_value(3));
+    let (bytes, why): (Vec<u8>, &str) = match kind {
+        0 => (vec![0; tc.draw(gs::integers::<usize>().max_value(PAGE_SIZE - 1))], "too short for a SQLite database"),
+        1 => {
+            let pages = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+            (
+                vec![0; pages * PAGE_SIZE + tc.draw(gs::integers::<usize>().min_value(1).max_value(PAGE_SIZE - 1))],
+                "whole number of 4096-byte pages",
+            )
+        }
+        2 => {
+            let other = dir.path().join("other.db");
+            Connection::open(&other).unwrap().execute_batch("CREATE TABLE notes (body TEXT)").unwrap();
+            (std::fs::read(&other).unwrap(), "no djmdContent table")
+        }
+        // Few keys: deriving one takes a while, and each is derived once.
+        _ => (sample().encrypted(tc.draw(gs::sampled_from(vec!["another key", "rekordbox 8"]))), KEY_ENV),
+    };
+    let path = write(dir.path(), &bytes);
+    let err = open(&path, DEFAULT_KEY).unwrap_err();
+    assert!(err.to_string().contains(why), "{err}");
+    match kind {
+        3 => {
+            assert_eq!((err.code(), err.reason()), ("invalid", Some(Reason::WrongKey)));
+            assert_eq!(err.detail().fields["env"], KEY_ENV);
+        }
+        _ => assert_eq!(err.code(), "parse", "{err}"),
+    }
+}
+
+/// rekordbox's settings say where its cloud folders are (an empty value is none, other values
+/// are left alone), and a track Cloud Library Sync keeps in a storage service is found in the
+/// first folder that has it, the sync service's own first.
+#[hegel::test(test_cases = 12)]
+fn cloud_folders_and_the_audio_they_hold(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let (dropbox, drive) = (dir.path().join("Dropbox & Co"), dir.path().join("Google Drive"));
+    let given = |tc: &hegel::TestCase, p: &Path| match tc.draw(gs::booleans()) {
+        true => p.display().to_string(),
+        false => String::new(),
+    };
+    let (d, g) = (given(&tc, &dropbox), given(&tc, &drive));
+    let esc = |s: &str| s.replace('&', "&amp;");
+    let settings = dir.path().join("rekordbox3.settings");
+    std::fs::write(
+        &settings,
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<PROPERTIES>\n  <VALUE name=\"DropboxToken\" val=\"x\"/>\n  \
+             <VALUE name=\"DropboxSharingPath\" val=\"{}\"/>\n  <VALUE name=\"GoogleDriveSharingPath\" val=\"{}\"></VALUE>\n</PROPERTIES>",
+            esc(&d),
+            esc(&g)
+        ),
+    )
+    .unwrap();
+    let folders = CloudFolders::from_settings(&settings).unwrap();
+    assert_eq!(folders.dropbox, (!d.is_empty()).then(|| dropbox.clone()));
+    assert_eq!(folders.google_drive, (!g.is_empty()).then(|| drive.clone()));
+
+    // The track's file, in some of the folders.
+    let f = cloud_sample();
+    let service = tc.draw(gs::sampled_from(vec!["Dropbox", "Google Drive", "googledrive"]));
+    f.exec(&format!("UPDATE djmdCloudProperty SET Reserved2 = '{service}'"));
+    let rb = dir.path().join("rekordbox");
+    std::fs::create_dir(&rb).unwrap();
+    let c = open(&write(&rb, &f.plain()), DEFAULT_KEY).unwrap();
+    let synced = c.library.track(205356547).unwrap();
+    let in_folder = |folder: &Path| folder.join("rekordbox/contents_2354715273/Floorplan/ngo.mp3");
+    let mut has = Vec::new();
+    for folder in [&dropbox, &drive] {
+        if tc.draw(gs::booleans()) {
+            std::fs::create_dir_all(in_folder(folder).parent().unwrap()).unwrap();
+            std::fs::write(in_folder(folder), b"mp3").unwrap();
+            has.push(folder.clone());
+        }
+    }
+    let google_first = service.to_lowercase().contains("google");
+    let order = if google_first {
+        [&folders.google_drive, &folders.dropbox]
+    } else {
+        [&folders.dropbox, &folders.google_drive]
+    };
+    let want = order.into_iter().flatten().find(|f| has.contains(f)).map(|f| in_folder(f));
+    assert_eq!(c.audio_file(synced, &folders), want);
+}
+
+/// A copy of rekordbox's folder taken while its WAL holds drawn changes reads with them, the
+/// database plain (SQLite's own WAL) or encrypted (its pages' frames encrypted too), and the copy
+/// is left as it was.
+#[hegel::test(test_cases = 8)]
+fn a_collection_reads_with_the_changes_its_wal_holds(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let f = sample();
+    let titles: Vec<(&str, String)> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
+        .map(|i| {
+            let id = if i % 2 == 0 { "205356547" } else { "84935471" };
+            (id, format!("Changed {i} {}", tc.draw(gs::text().alphabet("ab é").max_size(4))))
+        })
+        .collect();
+    let change = |conn: &Connection| {
+        for (id, title) in &titles {
+            conn.execute("UPDATE djmdContent SET Title = ?2 WHERE ID = ?1", params![id, title]).unwrap();
+        }
+    };
+    let (db, wal) = match tc.draw(gs::booleans()) {
+        false => {
+            let path = write(dir.path(), &f.plain());
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;").unwrap();
+            change(&conn);
+            let copied = (std::fs::read(&path).unwrap(), std::fs::read(dir.path().join("master.db-wal")).unwrap());
+            drop(conn);
+            copied
+        }
+        true => {
+            let codec = Codec::with_passphrase(DEFAULT_KEY.as_bytes(), [9; 16]);
+            let before = f.plain();
+            change(&f.conn);
+            let after = f.plain();
+            let pages = (after.len() / PAGE_SIZE) as u32;
+            let changed: Vec<u32> = (1..=pages)
+                .filter(|&p| {
+                    let at = (p as usize - 1) * PAGE_SIZE;
+                    before.get(at..at + PAGE_SIZE) != Some(&after[at..at + PAGE_SIZE])
+                })
+                .collect();
+            let frames: Vec<(u32, u32, Vec<u8>)> = changed
+                .iter()
+                .enumerate()
+                .map(|(i, &p)| {
+                    let at = (p as usize - 1) * PAGE_SIZE;
+                    let commit = if i + 1 == changed.len() { pages } else { 0 };
+                    (p, commit, codec.encrypt_page(p, &after[at..at + PAGE_SIZE]).unwrap())
+                })
+                .collect();
+            (codec.encrypt(&before).unwrap(), crate::onelibrary::wal::tests::build(PAGE_SIZE, (1, 2), &frames))
+        }
+    };
+    let copy = dir.path().join("copy");
+    std::fs::create_dir(&copy).unwrap();
+    std::fs::write(copy.join("master.db"), &db).unwrap();
+    std::fs::write(copy.join("master.db-wal"), &wal).unwrap();
+    let c = open(&copy.join("master.db"), DEFAULT_KEY).unwrap();
+    for id in ["205356547", "84935471"] {
+        if let Some((_, want)) = titles.iter().rfind(|(i, _)| *i == id) {
+            assert_eq!(&c.library.track(id.parse().unwrap()).unwrap().title, want);
+        }
+    }
+    assert_eq!(std::fs::read(copy.join("master.db")).unwrap(), db, "the copy is left alone");
+}
+
+/// rekordbox's columns hold what SQLite lets them: a lookup whose ids are numbers and whose names
+/// are text, bytes, a whole number or a fraction still names the track, written as the value
+/// reads; numbers stored as fractions (or as text with spaces) are cut to whole ones.
+#[hegel::test(test_cases = 20)]
+fn values_of_any_sqlite_type_read_as_what_they_say(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let f = Fixture::new();
+    // A lookup table with no column types, so SQLite keeps each value as given.
+    f.exec("DROP TABLE djmdGenre; CREATE TABLE djmdGenre (ID, Name, rb_local_deleted);");
+    let word = tc.draw(gs::text().alphabet("ab Üé&'").min_size(1).max_size(8));
+    let bytes = tc.draw(gs::text().alphabet("xy ♪").max_size(6));
+    let whole = tc.draw(gs::integers::<i64>());
+    let fraction = tc.draw(gs::integers::<i32>().min_value(-99_999).max_value(99_999)) as f64
+        + f64::from(tc.draw(gs::integers::<u8>().min_value(1).max_value(99))) / 100.0;
+    let names: [(Value, String); 4] = [
+        (Value::Text(word.clone()), word),
+        (Value::Blob(bytes.clone().into_bytes()), bytes),
+        (Value::Integer(whole), whole.to_string()),
+        (Value::Real(fraction), fraction.to_string()),
+    ];
+    // A count rekordbox keeps as text: a fraction is cut, anything else reads as none.
+    let plays = tc.draw(gs::integers::<u16>().max_value(5000));
+    let (played, want_plays) = match tc.draw(gs::booleans()) {
+        true => (format!(" {plays}.{} ", tc.draw(gs::integers::<u8>().max_value(9))), plays),
+        false => (tc.draw(gs::sampled_from(vec!["", "many", "1e", "-"])).to_string(), 0),
+    };
+    let bpm = tc.draw(gs::integers::<u32>().max_value(30_000));
+    let size = tc.draw(gs::integers::<u32>());
+    let length = tc.draw(gs::integers::<u16>());
+    for (i, (name, _)) in names.iter().enumerate() {
+        let id = i as i64 + 1;
+        f.conn.execute("INSERT INTO djmdGenre (ID, Name) VALUES (?1, ?2)", params![id, name]).unwrap();
+        f.track(&id.to_string(), &format!("/Music/{id}.mp3"), "Artist", &format!("Track {id}"));
+        f.conn
+            .execute(
+                "UPDATE djmdContent SET GenreID = ?2, BPM = ?3, FileSize = ?4, Length = ?5, DJPlayCount = ?6 WHERE ID = ?1",
+                params![
+                    id.to_string(),
+                    id.to_string(),
+                    f64::from(bpm) + 0.5,
+                    f64::from(size) + 0.75,
+                    format!(" {length} "),
+                    played
+                ],
+            )
+            .unwrap();
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let c = open(&write(dir.path(), &f.plain()), DEFAULT_KEY).unwrap();
+    let got: Vec<&str> = c.library.tracks.iter().map(|t| t.genre.as_str()).collect();
+    let want: Vec<&str> = names.iter().map(|(_, s)| s.as_str()).collect();
+    assert_eq!(got, want);
+    for t in &c.library.tracks {
+        let want = (f64::from(bpm) / 100.0, u64::from(size), u32::from(length), want_plays);
+        assert_eq!((t.bpm, t.file_size, t.duration_secs, t.play_count), want, "{played:?}");
+    }
+}
+
+/// A collection SQLite finds damaged (a table's b-tree broken, encrypted or not), with a page
+/// that fails authentication, or whose table can't be read (a view on a table that isn't there,
+/// or any view, which has no row order) is refused as a parse error naming the file, never read
+/// as far as it goes.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_collection_that_cant_be_trusted_is_refused(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let codec = Codec::with_passphrase(DEFAULT_KEY.as_bytes(), [9; 16]);
+    let tables: Vec<&str> = TABLES.iter().map(|(name, _)| *name).collect();
+    // Each kind of damage, once a case.
+    for kind in 0..4 {
+        let f = sample();
+        let (bytes, why) = match kind {
+            0 => {
+                let table = tc.draw(gs::sampled_from(tables.clone()));
+                let root: u32 = f
+                    .conn
+                    .query_row("SELECT rootpage FROM sqlite_master WHERE name = ?1", [table], |r| r.get(0))
+                    .unwrap();
+                let mut plain = f.plain();
+                let at = (root as usize - 1) * PAGE_SIZE;
+                plain[at + 3..at + 5].copy_from_slice(&u16::MAX.to_be_bytes());
+                let bytes = if tc.draw(gs::booleans()) { codec.encrypt(&plain).unwrap() } else { plain };
+                (bytes, "SQLite finds it damaged".to_string())
+            }
+            1 => {
+                let mut bytes = f.encrypted(DEFAULT_KEY);
+                let pages = bytes.len() / PAGE_SIZE;
+                let page = tc.draw(gs::integers::<usize>().min_value(2).max_value(pages));
+                let at = (page - 1) * PAGE_SIZE + tc.draw(gs::integers::<usize>().max_value(PAGE_SIZE - 1));
+                bytes[at] ^= tc.draw(gs::integers::<u8>().min_value(1));
+                (bytes, format!("page {page} fails authentication"))
+            }
+            2 => {
+                let table = tc.draw(gs::sampled_from(vec!["djmdArtist", "djmdKey", "djmdCue", "djmdMyTag"]));
+                f.exec(&format!("DROP TABLE {table}; CREATE VIEW {table} AS SELECT * FROM gone;"));
+                (f.plain(), "no such table: main.gone".to_string())
+            }
+            // A view, which has no row order to read it in.
+            _ => {
+                let table = tc.draw(gs::sampled_from(vec!["djmdGenre", "djmdLabel", "djmdKey"]));
+                f.exec(&format!("DROP TABLE {table}; CREATE VIEW {table} AS SELECT 1 AS ID;"));
+                (f.plain(), "no such column: rowid".to_string())
+            }
+        };
+        let path = write(dir.path(), &bytes);
+        let err = open(&path, DEFAULT_KEY).unwrap_err();
+        assert_eq!(err.code(), "parse", "{err}");
+        let message = err.to_string();
+        assert!(message.starts_with(&format!("could not parse {}: ", path.display())), "{message}");
+        assert!(message.contains(&why), "{message}");
+    }
+}
+
+/// A copy is taken again while the WAL restarts between reading its header and copying (a
+/// checkpoint), so the copy and the WAL read are of one moment: it's the last one after up to two
+/// restarts, and after three the read gives up saying so. A WAL that's there but can't be read
+/// is an error, an empty one none at all.
+#[hegel::test(test_cases = 20)]
+fn a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let (path, to) = (dir.path().join("master.db"), dir.path().join("copy"));
+    let wal_path = dir.path().join("master.db-wal");
+    let generation = |n: u32| crate::onelibrary::wal::tests::build(PAGE_SIZE, (n, n + 1), &[]);
+    std::fs::write(&path, "state 0").unwrap();
+    let start = tc.draw(gs::integers::<u8>().max_value(2));
+    match start {
+        0 => {}
+        1 => std::fs::write(&wal_path, b"").unwrap(),
+        _ => std::fs::write(&wal_path, generation(0)).unwrap(),
+    }
+    let restarts = tc.draw(gs::integers::<u32>().max_value(4));
+    let copies = std::cell::Cell::new(0u32);
+    let got = snapshot(&path, &to, |from: &Path, to: &Path| {
+        let copied = std::fs::copy(from, to);
+        let n = copies.get();
+        copies.set(n + 1);
+        if n < restarts {
+            std::fs::write(from, format!("state {}", n + 1)).unwrap();
+            std::fs::write(&wal_path, generation(2 * n + 2)).unwrap();
+        }
+        copied
+    });
+    match restarts {
+        0..=2 => {
+            let wal = got.unwrap();
+            assert_eq!(copies.get(), restarts + 1);
+            assert_eq!(std::fs::read_to_string(&to).unwrap(), format!("state {restarts}"));
+            let want = match (restarts, start) {
+                (0, 0 | 1) => None,
+                (0, _) => Some(generation(0)),
+                (n, _) => Some(generation(2 * n)),
+            };
+            assert_eq!(wal, want);
+        }
+        _ => {
+            let err = got.unwrap_err();
+            assert!(matches!(err, Error::Conflict(_)) && err.to_string().contains("kept changing"), "{err}");
+            assert_eq!(copies.get(), 3);
+        }
+    }
+    // A WAL that can't be opened (a link to itself): the read stops there.
+    std::fs::remove_file(&wal_path).ok();
+    std::os::unix::fs::symlink(&wal_path, &wal_path).unwrap();
+    let err = snapshot(&path, &to, |from: &Path, to: &Path| std::fs::copy(from, to)).unwrap_err();
+    assert!(matches!(&err, Error::Io { path, .. } if *path == wal_path), "{err}");
+}
+
+/// rekordbox's settings file is read for the two folders only: a `VALUE` without a name, or
+/// another name, is passed over, and a file that isn't well-formed XML (or isn't there) is
+/// refused naming it.
+#[hegel::test(test_cases = 20)]
+fn settings_name_the_cloud_folders_or_are_refused(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let folder = tc.draw(gs::text().alphabet("ab /é").min_size(1).max_size(10));
+    let skipped =
+        tc.draw(gs::sampled_from(vec!["<VALUE/>", "<VALUE val=\"/x\"/>", "<VALUE name=\"Other\" val=\"/y\"/>"]));
+    let settings = dir.path().join("rekordbox3.settings");
+    let xml = format!("<PROPERTIES>{skipped}<VALUE name=\"GoogleDriveSharingPath\" val=\"{folder}\"/></PROPERTIES>");
+    std::fs::write(&settings, &xml).unwrap();
+    let got = CloudFolders::from_settings(&settings).unwrap();
+    assert_eq!(got, CloudFolders { dropbox: None, google_drive: Some(PathBuf::from(&folder)) });
+
+    let broken = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => xml.replace("</PROPERTIES>", "</SETTINGS>"),
+        1 => format!("{xml}</PROPERTIES>"),
+        _ => format!("{xml}<!-- unclosed"),
+    };
+    std::fs::write(&settings, &broken).unwrap();
+    let err = CloudFolders::from_settings(&settings).unwrap_err();
+    assert_eq!(err.code(), "parse", "{broken}: {err}");
+    assert!(err.to_string().contains(&settings.display().to_string()), "{err}");
+    let missing = dir.path().join("rekordbox6/rekordbox3.settings");
+    assert!(matches!(CloudFolders::from_settings(&missing), Err(Error::Io { path, .. }) if path == missing));
+}
+
+/// A drive compared with the collection: tracks at the same file count as found by it, ones moved
+/// on the drive are found by ISRC or artist, title and length, and ones only a title finds are
+/// listed as uncertain and counted, with the ones the drive lacks, as missing from it. A playlist
+/// neither has is refused.
+#[hegel::test(test_cases = 15)]
+fn a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    enum On {
+        Same,
+        Moved,
+        Gone,
+    }
+    const TITLES: &[&str] = &["Aerodynamic", "Nightcall", "Voyager", "Harder", "Veridis"];
+    const ARTISTS: &[&str] = &["Daft Punk", "Kavinsky", "Justice", "Moby", "Air"];
+    let f = Fixture::new();
+    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(TITLES.len()));
+    let mut drawn = Vec::new();
+    for i in 0..n {
+        // The first track has every detail, the second none, the rest drawn.
+        let (artist, isrc, extras) = match i {
+            0 => (true, true, true),
+            1 => (false, false, false),
+            _ => (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans())),
+        };
+        let on = match i {
+            0 | 1 => On::Moved,
+            _ => tc.draw(gs::sampled_from(vec![On::Same, On::Moved, On::Gone]).print_as_debug()),
+        };
+        let id = (i + 1).to_string();
+        f.track(&id, &format!("/Users/dj/Music/{}/{}.mp3", ARTISTS[i], TITLES[i]), ARTISTS[i], TITLES[i]);
+        if !artist {
+            f.conn.execute("UPDATE djmdContent SET ArtistID = NULL WHERE ID = ?1", [&id]).unwrap();
+        }
+        if isrc {
+            f.conn
+                .execute("UPDATE djmdContent SET ISRC = ?2 WHERE ID = ?1", params![id, format!("GBDUW00000{i:02}")])
+                .unwrap();
+        }
+        if extras {
+            f.exec(&format!("INSERT INTO djmdAlbum (ID, Name) VALUES ('{id}', 'Album {id}')"));
+            f.conn
+                .execute("UPDATE djmdContent SET AlbumID = ?1, Subtitle = 'Extended Mix' WHERE ID = ?1", [&id])
+                .unwrap();
+        }
+        drawn.push((i as u32 + 1, on, artist || isrc));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let c = open(&write(dir.path(), &f.plain()), DEFAULT_KEY).unwrap();
+    let mut drive = c.library.clone();
+    drive.tracks.retain(|t| drawn.iter().any(|(id, on, _)| *id == t.id && *on != On::Gone));
+    for t in &mut drive.tracks {
+        if drawn.iter().any(|(id, on, _)| *id == t.id && *on == On::Moved) {
+            t.file_path = format!("/Contents/Moved/{}.mp3", t.id);
+        }
+    }
+    let d = c.diff_drive(&drive, "Main", None).unwrap();
+    let count = |want: &dyn Fn(On, bool) -> bool| drawn.iter().filter(|(_, on, known)| want(*on, *known)).count();
+    assert_eq!(d.matched_by_file, count(&|on, _| on == On::Same));
+    assert_eq!(d.matched_by_details, count(&|on, known| on == On::Moved && known));
+    let uncertain: Vec<u32> = d.uncertain.iter().map(|t| t.id).collect();
+    let loose: Vec<u32> =
+        drawn.iter().filter(|(_, on, known)| *on == On::Moved && !known).map(|(id, ..)| *id).collect();
+    assert_eq!(uncertain, loose);
+    let mut missing: Vec<u32> = d.diff.added_tracks.iter().map(|t| t.id).collect();
+    missing.sort_unstable();
+    let mut lacking: Vec<u32> = drawn
+        .iter()
+        .filter(|(_, on, known)| *on == On::Gone || (*on == On::Moved && !known))
+        .map(|(id, ..)| *id)
+        .collect();
+    lacking.sort_unstable();
+    assert_eq!(missing, lacking);
+    assert!(c.diff_drive(&drive, "Main", Some("Nowhere")).is_err());
+}
+
+/// A key given is the one used, whatever it says; none (or an empty one) falls back to
+/// `LOCALLIBRARY_MASTERDB_KEY`, then the key every rekordbox uses. Without
+/// `LOCALLIBRARY_MASTERDB`, the collection read is rekordbox's own, in this user's folders.
+#[hegel::test(test_cases = 20)]
+fn keys_and_the_collection_default_to_rekordboxs(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let key = tc.draw(gs::text().max_size(70));
+    let fallback = std::env::var(KEY_ENV).ok().filter(|k| !k.is_empty()).unwrap_or_else(|| DEFAULT_KEY.to_string());
+    let want = if key.is_empty() { fallback.clone() } else { key.clone() };
+    assert_eq!(resolve_key(Some(&key)), want);
+    assert_eq!(resolve_key(None), fallback);
+    #[cfg(target_os = "macos")]
+    if std::env::var_os(PATH_ENV).is_none_or(|p| p.is_empty()) {
+        let home = directories::BaseDirs::new().map(|b| b.home_dir().join("Library/Pioneer/rekordbox/master.db"));
+        assert_eq!(default_path(), home);
+    }
+}
