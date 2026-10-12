@@ -303,6 +303,7 @@ pub fn score<O: Outcome>(rows: impl IntoIterator<Item = Row<O::Value>>) -> Index
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hegel::Generator;
     use hegel::generators as gs;
 
     fn key(s: &str) -> Camelot {
@@ -414,5 +415,101 @@ mod tests {
         let report = Report::<KeyOutcome>::new();
         assert_eq!((report.score, report.percent(KeyOutcome::Correct)), (0.0, 0.0));
         assert_eq!(Report::<TempoOutcome>::new().accuracy2(), 0.0);
+    }
+
+    /// Tonics as the GiantSteps annotations spell them.
+    const TONICS: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+    /// `key` as a GiantSteps annotation writes it: `C# minor`.
+    fn spelled(key: Camelot) -> String {
+        format!("{} {}", TONICS[key.pitch() as usize], if key.major { "major" } else { "minor" })
+    }
+
+    /// Any key written as GiantSteps writes it reads back as that key, with any blanks around
+    /// it; any tempo written out reads back, 0 as none, and a negative or unreadable one is an
+    /// error on line 1.
+    #[hegel::test(test_cases = 300)]
+    fn annotations_read_back_what_was_written(tc: hegel::TestCase) {
+        let key = any_key(&tc);
+        let pad = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(vec!["", " ", "\n", "\t \n"]));
+        assert_eq!(parse_key(&format!("{}{}{}", pad(&tc), spelled(key), pad(&tc))).unwrap(), key);
+        let bpm = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1e6));
+        let read = parse_tempo(&format!("{}{bpm}{}", pad(&tc), pad(&tc))).unwrap();
+        assert_eq!(read, (bpm > 0.0).then_some(bpm));
+        let bad = tc.draw(gs::one_of(vec![
+            gs::floats::<f64>().max_value(-1e-9).map(|v| v.to_string()).boxed(),
+            gs::sampled_from(vec!["NaN".to_string(), "inf".into(), "fast".into(), String::new()]).boxed(),
+        ]));
+        assert!(matches!(parse_tempo(&bad), Err(Error::Annotation { line: 1, .. })), "{bad:?}");
+    }
+
+    /// The MTG table reads back the rows it was written from, whatever blank lines and header
+    /// it has; a row without its three fields is an error on its own line.
+    #[hegel::test(test_cases = 200)]
+    fn the_mtg_table_reads_back_its_rows(tc: hegel::TestCase) {
+        let n = tc.draw(gs::integers::<usize>().max_value(8));
+        let rows: Vec<MtgKey> = (0..n)
+            .map(|i| MtgKey {
+                id: format!("{}", 1000 + i),
+                keys: (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|_| any_key(&tc)).collect(),
+                confidence: tc.draw(gs::integers::<u8>().max_value(2)),
+            })
+            .collect();
+        let mut lines = Vec::new();
+        if tc.draw(gs::booleans()) {
+            lines.push("ID\tMANUAL KEY\tC".to_string());
+        }
+        for r in &rows {
+            if tc.draw(gs::booleans()) {
+                lines.push(String::new());
+            }
+            let keys = match &r.keys[..] {
+                [] => "-".to_string(),
+                keys => keys.iter().map(|k| spelled(*k)).collect::<Vec<_>>().join(" / "),
+            };
+            lines.push(format!("{}\t{keys}\t{}", r.id, r.confidence));
+        }
+        let text = lines.join("\n");
+        assert_eq!(parse_mtg_keys(&text).unwrap(), rows);
+        let broken = tc.draw(gs::integers::<usize>().max_value(lines.len()));
+        lines.insert(broken, "1\tC minor".into());
+        assert!(matches!(parse_mtg_keys(&lines.join("\n")), Err(Error::Annotation { line, .. }) if line == broken + 1));
+    }
+
+    /// Key reports count every track once under its analyzer, in the order analyzers first
+    /// answer; the score is the mean credit, and the misses are the tracks not fully right.
+    #[hegel::test(test_cases = 200)]
+    fn key_reports_add_up(tc: hegel::TestCase) {
+        let n = tc.draw(gs::integers::<usize>().max_value(30));
+        let rows: Vec<Row<Camelot>> = (0..n)
+            .map(|i| Row {
+                analyzer: tc.draw(gs::sampled_from(vec!["a", "b", "c"])).to_string(),
+                track: i.to_string(),
+                reference: any_key(&tc),
+                estimate: tc.draw(gs::booleans()).then(|| any_key(&tc)),
+            })
+            .collect();
+        let reports = score::<KeyOutcome>(rows.clone());
+        let mut order: Vec<&str> = Vec::new();
+        for r in &rows {
+            if !order.contains(&r.analyzer.as_str()) {
+                order.push(&r.analyzer);
+            }
+        }
+        assert_eq!(reports.keys().map(String::as_str).collect::<Vec<_>>(), order);
+        for (analyzer, report) in &reports {
+            let mine: Vec<&Row<Camelot>> = rows.iter().filter(|r| &r.analyzer == analyzer).collect();
+            assert_eq!((report.tracks, report.counts.values().sum::<usize>()), (mine.len(), mine.len()));
+            let credit: f64 = mine.iter().map(|r| KeyOutcome::of(r.reference, r.estimate).credit()).sum();
+            assert!((report.score - credit / mine.len() as f64).abs() < 1e-12);
+            let missed: Vec<&str> = mine
+                .iter()
+                .filter(|r| KeyOutcome::of(r.reference, r.estimate) != KeyOutcome::Correct)
+                .map(|r| r.track.as_str())
+                .collect();
+            assert_eq!(report.misses.iter().map(|m| m.0.as_str()).collect::<Vec<_>>(), missed);
+            let percents: f64 = KeyOutcome::ALL.iter().map(|o| report.percent(*o)).sum();
+            assert!((percents - 100.0).abs() < 1e-9);
+        }
     }
 }

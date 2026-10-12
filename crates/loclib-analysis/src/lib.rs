@@ -22,7 +22,7 @@ pub use loudness::Loudness;
 /// Changes whenever [`analyze`] would give different results for the same audio (a new
 /// stratum-dsp or ebur128, different settings, a fix here), so cached analyses made with another
 /// version can be thrown away.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// What [`analyze`] measures. One decode feeds both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

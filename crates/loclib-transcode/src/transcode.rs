@@ -30,7 +30,8 @@ const PROGRESS_BYTES: u64 = 1 << 20;
 /// plain copy reports it. Cancelling the `ctx` stops it with [`Error::Cancelled`].
 ///
 /// The copy starts at the source's first sample and is as long as the source at the new rate,
-/// to the nearest frame, so cue points and beat grids measured from the start still land. Tags
+/// to the nearest frame, so cue points and beat grids measured from the start still land. A
+/// source under one frame at the new rate is refused with [`Error::TooShort`]. Tags
 /// and artwork come along: ID3v2.3 in AIFF and WAV, Vorbis comments and pictures in FLAC. A
 /// source whose tags can't be read is copied without them, with a warning through `ctx`.
 pub fn transcode(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Transcoded> {
@@ -64,7 +65,7 @@ fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Tran
     // (symphonia can panic on a malformed header; the decode below reports that file's error.)
     let header = std::panic::catch_unwind(|| open(source).ok().and_then(|(_, track)| track.codec_params.n_frames));
     let total = header.ok().flatten().filter(|n| *n > 0);
-    let (mut decoded, mut reported) = (0u64, 0u64);
+    let (mut decoded, mut reported, mut source_rate) = (0u64, 0u64, 0);
     let mut pipeline: Option<Pipeline> = None;
     // A damaged packet is an error rather than skipped: leaving it out would move everything after
     // it earlier, and the cues with it.
@@ -74,6 +75,7 @@ fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Tran
         let p = match &mut pipeline {
             Some(p) => p,
             None => {
+                source_rate = rate;
                 let file = file.take().expect("the pipeline is made once");
                 pipeline.insert(Pipeline::new(file, out, recipe, rate, channels, tag.take())?)
             }
@@ -92,7 +94,18 @@ fn run(source: &Path, recipe: &Recipe, out: &Path, ctx: &Ctx<'_>) -> Result<Tran
     ctx.emit(Event::Bytes { phase: Phase::Copy, bytes: size - reported });
     let Some(pipeline) = pipeline else { return Err(parse(source, "it holds no audio")) };
     let channels = pipeline.channels;
-    Ok(Transcoded { frames: pipeline.finish()?, channels })
+    let frames = pipeline.finish()?;
+    // No frame at the new rate is a copy of nothing: a FLAC of only its header, an AIFF whose
+    // SSND symphonia reads as damaged.
+    if frames == 0 {
+        return Err(Error::TooShort {
+            path: source.to_path_buf(),
+            frames: decoded,
+            source_rate,
+            rate: recipe.sample_rate,
+        });
+    }
+    Ok(Transcoded { frames, channels })
 }
 
 /// The frames an AIFF file's COMM chunk says it holds, when `path` is one. symphonia 0.5 takes

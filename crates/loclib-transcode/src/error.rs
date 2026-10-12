@@ -28,6 +28,11 @@ pub enum Error {
     #[error("{0}")]
     Invalid(String),
 
+    /// The source is shorter than one frame at the recipe's rate, so a copy would hold no audio:
+    /// a file nothing reads back.
+    #[error("{} is too short to copy at {rate} Hz: {frames} frame(s) at {source_rate} Hz", path.display())]
+    TooShort { path: PathBuf, frames: u64, source_rate: u32, rate: u32 },
+
     /// The [`Ctx`](loclib_progress::Ctx) was cancelled.
     #[error(transparent)]
     Cancelled(#[from] loclib_progress::Cancelled),

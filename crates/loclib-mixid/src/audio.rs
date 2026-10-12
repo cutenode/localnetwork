@@ -226,16 +226,19 @@ const ZERO_CROSSINGS: f64 = 8.0;
 /// Kernel samples per input sample.
 const PHASES: f64 = 64.0;
 
-/// Streaming windowed-sinc resampler (mono).
+/// Streaming windowed-sinc resampler (mono). Positions are kept exactly, as whole `1/to`ths of
+/// an input sample: the output is the same to the bit however the input is chunked, and an
+/// output on a tie between two of the kernel's phases always takes the same one.
 pub struct Resampler {
-    /// Input samples per output sample.
-    step: f64,
-    /// Kernel half-width in input samples.
-    half: f64,
+    /// Input samples per output sample: `from / to` in lowest terms, as `step / unit`.
+    step: u64,
+    unit: u64,
+    /// Kernel half-width, in units.
+    half: u64,
     table: Vec<f32>,
-    /// Input not yet fully consumed; `pos` indexes into it.
+    /// Input not yet fully consumed; `pos` (in units) indexes into it.
     pending: Vec<f32>,
-    pos: f64,
+    pos: u64,
     out: Vec<f32>,
     passthrough: bool,
 }
@@ -243,9 +246,9 @@ pub struct Resampler {
 impl Resampler {
     pub fn new(from: u32, to: u32) -> Resampler {
         assert!(from > 0 && to > 0, "resampling from {from} Hz to {to} Hz");
-        let step = from as f64 / to as f64;
+        let ratio = from as f64 / to as f64;
         // Low-pass just under the lower of the two Nyquist rates, in cycles per input sample.
-        let cutoff = 0.5 / step.max(1.0) * 0.94;
+        let cutoff = 0.5 / ratio.max(1.0) * 0.94;
         let half = ZERO_CROSSINGS / (2.0 * cutoff);
         let len = (half * PHASES).ceil() as usize + 2;
         let table = (0..len)
@@ -261,7 +264,18 @@ impl Resampler {
                 (2.0 * cutoff * sinc * window) as f32
             })
             .collect();
-        Resampler { step, half, table, pending: Vec::new(), pos: 0.0, out: Vec::new(), passthrough: from == to }
+        let g = gcd(from, to);
+        let (step, unit) = (u64::from(from / g), u64::from(to / g));
+        Resampler {
+            step,
+            unit,
+            half: (half * unit as f64) as u64,
+            table,
+            pending: Vec::new(),
+            pos: 0,
+            out: Vec::new(),
+            passthrough: from == to,
+        }
     }
 
     pub fn push(&mut self, input: &[f32], sink: &mut dyn FnMut(&[f32])) {
@@ -282,14 +296,17 @@ impl Resampler {
 
     fn drain(&mut self, flush: bool, sink: &mut dyn FnMut(&[f32])) {
         let n = self.pending.len();
-        let limit = if flush { n as f64 } else { n as f64 - self.half - 1.0 };
+        let end = n as u64 * self.unit;
         self.out.clear();
-        while self.pos < limit {
-            let lo = (self.pos - self.half).ceil().max(0.0) as usize;
-            let hi = ((self.pos + self.half).floor() as usize).min(n.saturating_sub(1));
+        // Until the input runs out, or (still streaming) until an output's taps would.
+        while if flush { self.pos < end } else { self.pos + self.half < end } {
+            let lo = self.pos.saturating_sub(self.half).div_ceil(self.unit) as usize;
+            let hi = (((self.pos + self.half) / self.unit) as usize).min(n - 1);
             let mut acc = 0.0f32;
             for i in lo..=hi {
-                let k = ((i as f64 - self.pos).abs() * PHASES + 0.5) as usize;
+                // The nearest of the kernel's phases to the tap's distance, ties away from 0.
+                let d = (i as u64 * self.unit).abs_diff(self.pos);
+                let k = ((2 * d * PHASES as u64 + self.unit) / (2 * self.unit)) as usize;
                 acc += self.pending[i] * self.table[k.min(self.table.len() - 1)];
             }
             self.out.push(acc);
@@ -299,10 +316,14 @@ impl Resampler {
             sink(&self.out);
         }
         // Keep what later outputs still need.
-        let keep_from = ((self.pos - self.half).floor().max(0.0) as usize).min(n);
+        let keep_from = ((self.pos.saturating_sub(self.half) / self.unit) as usize).min(n);
         self.pending.drain(..keep_from);
-        self.pos -= keep_from as f64;
+        self.pos -= keep_from as u64 * self.unit;
     }
+}
+
+fn gcd(a: u32, b: u32) -> u32 {
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 
 /// Audio formats [`decode`] reads, by extension.
@@ -391,10 +412,172 @@ mod tests {
         assert!(frames < samples.len(), "{frames}");
     }
 
+    /// Fed a sample at a time, the output is the one fed whole, to the bit: 11025 to 48000 Hz
+    /// puts outputs on exact ties between two of the kernel's phases, which rounding a drifting
+    /// position used to tip either way.
+    #[test]
+    fn chunks_dont_change_the_output() {
+        let x = tone(50.0, 11_025, 0.25);
+        let mut r = Resampler::new(11_025, 48_000);
+        let mut one_by_one = Vec::new();
+        for s in &x {
+            r.push(std::slice::from_ref(s), &mut |s| one_by_one.extend_from_slice(s));
+        }
+        r.finish(&mut |s| one_by_one.extend_from_slice(s));
+        assert!(crate::test_util::resample(&x, 11_025, 48_000) == one_by_one);
+    }
+
     #[test]
     fn removes_what_would_alias() {
         // 9 kHz is above the 5.5 kHz output Nyquist rate: it must not fold back down.
         let out = resample(&tone(9000.0, 44_100, 1.0), 44_100, 11_025);
         assert!(rms(&out[1000..out.len() - 1000]) < 0.01);
+    }
+
+    use hegel::generators as gs;
+    use hegel::{Generator, TestCase};
+
+    const RATES: [u32; 8] = [8_000, 11_025, 16_000, 22_050, 32_000, 44_100, 48_000, 96_000];
+
+    #[hegel::test_helper]
+    fn rate(tc: &TestCase) -> u32 {
+        tc.draw(gs::sampled_from(RATES.to_vec()))
+    }
+
+    /// Between any two rates, whatever the chunks the input comes in: the output is the input's
+    /// length at the new rate (rounded up: an output for every position inside the input), the
+    /// same sample for sample however it was chunked; a tone well inside both rates' bands keeps
+    /// its level.
+    #[hegel::test(test_cases = 40)]
+    fn resampling_keeps_length_and_level(tc: TestCase) {
+        let (from, to) = (rate(&tc), rate(&tc));
+        let freq = tc.draw(gs::floats::<f64>().min_value(50.0).max_value(0.2 * from.min(to) as f64));
+        let x = tone(freq, from, tc.draw(gs::floats::<f64>().min_value(0.0).max_value(0.3)));
+        let chunk = tc.draw(gs::integers::<usize>().min_value(1).max_value(5000));
+        let mut chunked = Vec::new();
+        let mut r = Resampler::new(from, to);
+        for c in x.chunks(chunk) {
+            r.push(c, &mut |s| chunked.extend_from_slice(s));
+        }
+        r.finish(&mut |s| chunked.extend_from_slice(s));
+        let expected = (x.len() as u64 * u64::from(to)).div_ceil(u64::from(from));
+        assert_eq!(chunked.len() as u64, expected);
+        assert!(crate::test_util::resample(&x, from, to) == chunked, "chunks of {chunk} change it");
+        // Away from the ends, where the kernel runs off the signal.
+        let edge = (to as usize / 50).max(64);
+        if chunked.len() > 4 * edge {
+            let level = rms(&chunked[edge..chunked.len() - edge]);
+            assert!((level - std::f32::consts::FRAC_1_SQRT_2).abs() < 0.03, "rms {level} at {freq} Hz");
+        }
+    }
+
+    /// A WAV of any rate, depth and length decodes to its samples exactly, at its own rate and
+    /// to mono at it, and says how long it is; a sink that has heard enough stops the decode a
+    /// packet or so later.
+    #[hegel::test(test_cases = 40)]
+    fn wavs_decode_to_their_samples(tc: TestCase) {
+        let rate = rate(&tc);
+        let bits = tc.draw(gs::sampled_from(vec![16u16, 24, 32]));
+        let top = (1i64 << (bits - 1)) - 1;
+        let samples: Vec<i32> = tc
+            .draw(gs::vecs(gs::integers::<i64>().min_value(-top - 1).max_value(top)).max_size(3000))
+            .into_iter()
+            .map(|v| v as i32)
+            .collect();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x.wav");
+        std::fs::write(&path, crate::test_util::wav_of(rate, bits, samples.iter().copied())).unwrap();
+
+        let mut heard = Vec::new();
+        let format = decode_native(&path, Damaged::Fail, &Ctx::silent(), |s: &[i32], r, channels| -> Result<_> {
+            assert_eq!((r, channels), (rate, 2));
+            heard.extend(s.iter().step_by(2).map(|v| v >> (32 - bits)));
+            Ok(ControlFlow::Continue(()))
+        })
+        .unwrap();
+        assert_eq!(heard, samples);
+        assert_eq!((format.sample_rate, format.channels), (rate, 2));
+        assert_eq!(format.duration_secs, samples.len() as f64 / rate as f64);
+
+        let mut mono = Vec::new();
+        decode(&path, rate, &Ctx::silent(), &mut |s| mono.extend_from_slice(s)).unwrap();
+        let full = (1u64 << (bits - 1)) as f32;
+        assert_eq!(mono.len(), samples.len());
+        assert!(mono.iter().zip(&samples).all(|(m, s)| (m - *s as f32 / full).abs() < 1e-6));
+
+        let enough = tc.draw(gs::integers::<usize>().min_value(1).max_value(samples.len().max(1)));
+        let mut got = 0;
+        let start = decode_until(&path, rate, &Ctx::silent(), &mut |s| {
+            got += s.len();
+            if got < enough { ControlFlow::Continue(()) } else { ControlFlow::Break(()) }
+        })
+        .unwrap();
+        assert!(got >= enough.min(samples.len()) && got < enough + 8192, "{got} for {enough}");
+        assert!(start.duration_secs * rate as f64 <= got as f64 + 0.5);
+    }
+
+    /// A format is told by the file's last extension alone, in any case: not by the rest of its
+    /// name or its folder. rekordbox's formats are decodable; other formats and names without an
+    /// extension aren't.
+    #[hegel::test(test_cases = 200)]
+    fn formats_are_told_by_extension_in_any_case(tc: TestCase) {
+        let named = [
+            ("a.mp3", true),
+            ("B.FLAC", true),
+            ("c.Wave", true),
+            ("d.aif", true),
+            ("e.M4A", true),
+            ("f.ogg", false),
+            ("g.opus", false),
+            ("h.mp3.txt", false),
+            ("i.txt.wav", true),
+            ("mp3", false),
+            (".mp3", false),
+            ("j.mp3 ", false),
+        ];
+        for (name, decodable) in named {
+            assert_eq!(is_decodable(Path::new(name)), decodable, "{name}");
+        }
+        let ext: String = tc.draw(hegel::one_of!(
+            gs::sampled_from(vec!["mp3", "flac", "wave", "aiff", "m4a", "ogg"]).map(str::to_string),
+            gs::text().alphabet("acdefilmopvwx34. ").max_size(6)
+        ));
+        let cased: String =
+            ext.chars().map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c }).collect();
+        let dir = tc.draw(gs::sampled_from(vec!["/music", "/a.flac", "set.mp3"]));
+        let stem = tc.draw(gs::sampled_from(vec!["set", "a.b", "mp3", "x.flac"]));
+        let plain = is_decodable(&Path::new("/music").join(format!("set.{ext}")));
+        let path = Path::new(dir).join(format!("{stem}.{cased}"));
+        assert_eq!(is_decodable(&path), plain, "{} and set.{ext}", path.display());
+    }
+
+    /// A WAV damaged anywhere (bytes changed, cut short) never panics the decoder: it decodes,
+    /// saying how much it decoded, or is that file's error, in either mode.
+    #[hegel::test(test_cases = 60)]
+    fn damaged_files_are_that_files_error(tc: TestCase) {
+        let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(2000));
+        let mut bytes = crate::test_util::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i * 7 - 3000));
+        let flips = tc.draw(gs::vecs(gs::tuples!(gs::integers::<usize>(), gs::integers::<u8>())).max_size(4));
+        for (at, v) in flips {
+            let n = bytes.len();
+            bytes[at % n] = v;
+        }
+        let keep = tc.draw(gs::integers::<usize>().max_value(bytes.len()));
+        bytes.truncate(keep);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("x.wav");
+        std::fs::write(&path, &bytes).unwrap();
+        for damaged in [Damaged::Skip, Damaged::Fail] {
+            let mut heard = 0;
+            let result = decode_native(&path, damaged, &Ctx::silent(), |s: &[i16], _, channels| -> Result<_> {
+                heard += s.len() / channels;
+                Ok(ControlFlow::Continue(()))
+            });
+            match result {
+                Ok(format) => assert!(format.duration_secs * format.sample_rate as f64 <= heard as f64 + 0.5),
+                Err(Error::Parse { path: at, .. }) => assert_eq!(at, path),
+                Err(e) => panic!("{e}"),
+            }
+        }
     }
 }

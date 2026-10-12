@@ -101,7 +101,7 @@ if r.correlation >= REFINE_MIN_CORRELATION {
   the other is listed in `alternates`. A remix and its original can do the same.
 - Loops and cue jumps start a new chain inside one play and are counted in `jumps`.
 - `align`'s offset is measured to within 4 ms (frames are 23 ms apart; the mean over many
-  landmark pairs resolves a fraction of one), on copies shifted by 2 to 70 ms and copies made as
+  matched peaks resolves a fraction of one), on copies shifted by 2 to 70 ms and copies made as
   MP3, AAC and 48 kHz FLAC. `Alignment::is_precise` says whether enough pairs agreed over the
   whole track.
 - `refine`'s offset is within a microsecond of the truth on synthetic copies shifted by

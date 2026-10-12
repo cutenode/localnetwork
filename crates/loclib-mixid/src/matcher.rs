@@ -15,7 +15,7 @@
 //! 5. **Refine.** A line fitted through each chain's matching (mix time, track time) pairs gives
 //!    the playback speed and where the track came in and went out.
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -538,11 +538,13 @@ fn play(slot: u32, chains: Vec<(Chain, Fit)>) -> Option<Found> {
         .iter()
         .flat_map(|(c, _)| &c.detections)
         .fold((0u64, 0u64), |a, d| (a.0 + d.stretch_votes as u64, a.1 + d.pitch_votes as u64));
+    // One kind of speed has to have 15% more votes, compared in whole numbers: `x * 1.15` rounds,
+    // so the same share of votes would tell key lock or not depending on how many there were.
     let key_lock = if (tempo - 1.0).abs() < 0.006 {
         None
-    } else if stretch as f64 > pitch as f64 * 1.15 {
+    } else if stretch * 20 > pitch * 23 {
         Some(true)
-    } else if pitch as f64 > stretch as f64 * 1.15 {
+    } else if pitch * 20 > stretch * 23 {
         Some(false)
     } else {
         None
@@ -769,6 +771,16 @@ fn trace(index: &LibraryIndex, landmarks: &[Landmark], variants: &[Variant], f: 
     f.track_end = line(new_end).track_frame(new_end).max(0.0) / FRAMES_PER_SEC;
 }
 
+/// Refuse a tempo range that isn't a number from 0 to 0.25. NaN is in no range, so it's refused
+/// with infinite and negative ones. [`find`] checks it too; callers check first to refuse before
+/// decoding a whole mix.
+pub fn check_tempo_range(tempo_range: f64) -> Result<()> {
+    if !(0.0..=0.25).contains(&tempo_range) {
+        return Err(Error::Invalid(format!("tempo range {tempo_range} must be between 0 and 0.25")));
+    }
+    Ok(())
+}
+
 /// Run the whole pipeline over a mix's peaks, with the track in slot `itself` (the recording,
 /// when the library has it too) left out: it would match the whole mix and swallow every track
 /// heard in it.
@@ -780,9 +792,7 @@ pub fn find(
     itself: Option<u32>,
     ctx: &Ctx<'_>,
 ) -> Result<Vec<Found>> {
-    if !(0.0..=0.25).contains(&tempo_range) {
-        return Err(Error::Invalid(format!("tempo range {tempo_range} must be between 0 and 0.25")));
-    }
+    check_tempo_range(tempo_range)?;
     let variants = fingerprint::variants(tempo_range);
     let mut detections = detect(index, peaks, frames, &variants, ctx)?;
     detections.retain(|d| Some(d.slot) != itself);
@@ -818,10 +828,10 @@ pub struct Alignment {
     /// Seconds to add to a time in the first track for the same moment in the second (an MP3
     /// made from a WAV starts its audio ~25 ms later: its encoder's delay). Frames are 23 ms
     /// apart, but a shift of part of one moves some peaks into the next frame, so the mean over
-    /// many pairs measures a fraction of a frame: to within 4 ms on copies shifted by 2 to 70 ms
+    /// many peaks measures a fraction of a frame: to within 4 ms on copies shifted by 2 to 70 ms
     /// and copies made as MP3, AAC and 48 kHz FLAC.
     pub offset: f64,
-    /// The offset over the second half of the pairs minus that over the first (seconds).
+    /// The offset over the second half of the peaks matched minus that over the first (seconds).
     pub drift: f64,
     /// Matching landmark pairs at `offset`.
     pub pairs: usize,
@@ -865,8 +875,29 @@ pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
         return None;
     }
     kept.sort_unstable();
+    // The fraction of a frame comes from single peaks: each of `a`'s, in a slice heard at `best`,
+    // with one peak of `b` in its bin within a frame of `best` moved by that much. A landmark
+    // only matches when both its peaks moved the same way, which pulls the mean over pairs
+    // towards a whole frame (by up to a quarter of one); single peaks each move on their own.
+    let heard_slices: FxHashSet<u32> = kept.iter().map(|p| p.0 / SLICE).collect();
+    let in_b: FxHashSet<(i64, u8)> = b.peaks.iter().map(|p| (i64::from(p.t), p.f)).collect();
+    let moved: Vec<(u32, i64)> = a
+        .peaks
+        .iter()
+        .filter(|p| heard_slices.contains(&(p.t / SLICE)))
+        .filter_map(|p| {
+            let mut at = (best - 1..=best + 1).filter(|d| in_b.contains(&(i64::from(p.t) + d, p.f)));
+            match (at.next(), at.next()) {
+                (Some(d), None) => Some((p.t, d)),
+                _ => None,
+            }
+        })
+        .collect();
+    // Every kept pair's first peak has a match in `b`, so only peaks that all match twice leave
+    // none, and then the pairs are all there is.
+    let shifts = if moved.is_empty() { &kept } else { &moved };
     let mean = |pairs: &[(u32, i64)]| pairs.iter().map(|p| p.1 as f64).sum::<f64>() / pairs.len().max(1) as f64;
-    let (first, second) = kept.split_at(kept.len() / 2);
+    let (first, second) = shifts.split_at(shifts.len() / 2);
     let coverage = |peaks: &[Peak], heard: &mut dyn Iterator<Item = u32>| {
         let slices = |frames: &mut dyn Iterator<Item = u32>| {
             let mut n: FxHashMap<u32, usize> = FxHashMap::default();
@@ -881,7 +912,7 @@ pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
         heard as f64 / full.len().max(1) as f64
     };
     Some(Alignment {
-        offset: mean(&kept) / FRAMES_PER_SEC,
+        offset: mean(shifts) / FRAMES_PER_SEC,
         drift: (mean(second) - mean(first)) / FRAMES_PER_SEC,
         pairs: kept.len(),
         coverage: (
@@ -1020,6 +1051,20 @@ mod tests {
         assert_eq!(gaps(&[], 90.0, 30.0), [(0.0, 90.0)]);
     }
 
+    /// A tempo range that isn't a number from 0 to 0.25 (NaN, infinite, negative) is refused
+    /// like one that's too wide, rather than searched.
+    #[test]
+    fn tempo_ranges_that_arent_numbers_are_refused() {
+        let index = LibraryIndex::build(Vec::new());
+        for range in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.01, 0.2501] {
+            let err = find(&index, &[], 0, range, None, &Ctx::silent()).unwrap_err();
+            assert!(matches!(&err, Error::Invalid(m) if m.contains("between 0 and 0.25")), "{range}: {err}");
+        }
+        for range in [0.0, 0.08, 0.25] {
+            assert!(find(&index, &[], 0, range, None, &Ctx::silent()).is_ok(), "{range}");
+        }
+    }
+
     #[test]
     fn a_pitch_ride_carries_on_where_a_cue_jump_jumps() {
         let variants = fingerprint::variants(0.08);
@@ -1067,6 +1112,39 @@ mod tests {
         assert!(align(&original, &print(&synth(120.0, 3 * 7919))).is_none_or(|a| a.coverage.0 < 0.1));
     }
 
+    /// A copy shifted by part of a frame lines up at that fraction: the mean doesn't lean towards
+    /// a whole frame. Over landmark pairs it did, by up to a quarter of one (5 ms here), since a
+    /// pair matches only when both its peaks moved into the next frame or neither did.
+    #[test]
+    fn a_fraction_of_a_frame_is_measured() {
+        let x = synth(30.0, 5);
+        let original = print(&x);
+        for delay in [40, 71, 80, 180] {
+            let copy: Vec<f32> = std::iter::repeat_n(0.0, delay).chain(x.iter().copied()).collect();
+            let truth = delay as f64 / RATE as f64;
+            let a = align(&original, &print(&copy)).unwrap();
+            assert!((a.offset - truth).abs() < 0.0025 && a.is_precise(), "{truth}: {a:?}");
+        }
+    }
+
+    /// Which kind of speed voted more by 15% is the same however many detections share the votes:
+    /// 20 to 23 is even, over 7 slices or 20.
+    #[test]
+    fn key_lock_doesnt_depend_on_how_many_slices_voted() {
+        let variants = fingerprint::variants(0.08);
+        for (to, stretch, pitch, lock) in [
+            (30.0, 20, 23, None),
+            (40.0, 20, 23, None),
+            (80.0, 20, 23, None),
+            (40.0, 20, 24, Some(false)),
+            (40.0, 24, 20, Some(true)),
+        ] {
+            let chain = chain_of(1, chain_at(&variants, 0.0, to, 10.0, 1.04), stretch, pitch);
+            let found = plays(vec![chain], &variants);
+            assert_eq!(found.first().map(|f| f.key_lock), Some(lock), "{to} s, {stretch} to {pitch}");
+        }
+    }
+
     #[test]
     fn finds_tracks_through_a_mix() {
         let secs = |s: f64| (s * RATE as f64) as usize;
@@ -1108,5 +1186,265 @@ mod tests {
         let at_start = second.track_start - (second.start - 40.0) * second.tempo;
         assert!((at_start - 10.0).abs() < 1.5, "track start {}", second.track_start);
         assert!(first.end > second.start, "the crossfade should overlap");
+    }
+
+    use hegel::TestCase;
+    use hegel::generators as gs;
+
+    /// A play of `slot` from `start` to `end` mix seconds with `votes`, as [`plays`] would make
+    /// it.
+    fn heard(slot: u32, start: f64, end: f64, votes: u32) -> Found {
+        Found {
+            slot,
+            start,
+            end,
+            track_start: 0.0,
+            track_end: end - start,
+            tempo: 1.0,
+            key_lock: None,
+            votes,
+            strongest: votes,
+            heard: 10,
+            spanned: 10,
+            presence: Vec::new(),
+            jumps: 0,
+            alternates: Vec::new(),
+            fits: Vec::new(),
+        }
+    }
+
+    /// How far a play's tempo can be from the truth when measured through whole frames, over its
+    /// shortest line: anchors land up to a frame early, which tips a least-squares line over `n`
+    /// frames by up to `1.5 / n` (the early half all a frame out, the late half not), with room
+    /// for the stray anchors dropped before it's fitted again.
+    fn tempo_error(f: &Found) -> f64 {
+        f.fits.iter().map(|fit| 2.0 / (fit.end - fit.start)).fold(0.0, f64::max)
+    }
+
+    #[hegel::test_helper]
+    fn plays_within(tc: &TestCase, duration: f64) -> Vec<Found> {
+        let spans = tc.draw(
+            gs::vecs(gs::tuples!(
+                gs::floats::<f64>().min_value(0.0).max_value(duration),
+                gs::floats::<f64>().min_value(0.0).max_value(duration),
+                gs::integers::<u32>().min_value(1).max_value(2000),
+            ))
+            .max_size(8),
+        );
+        spans.into_iter().enumerate().map(|(i, (a, b, votes))| heard(i as u32, a.min(b), a.max(b), votes)).collect()
+    }
+
+    /// The gaps are the stretches of the mix no play covers, in order: with the plays they make
+    /// up the whole mix, the coverage is what they leave, and a minimum length only drops the
+    /// shorter ones.
+    #[hegel::test(test_cases = 300)]
+    fn gaps_and_plays_make_up_the_mix(tc: TestCase) {
+        let duration = tc.draw(gs::floats::<f64>().min_value(1.0).max_value(7200.0));
+        let found = plays_within(&tc, duration);
+        let all = gaps(&found, duration, 0.0);
+        assert!(all.windows(2).all(|w| w[0].1 <= w[1].0), "{all:?}");
+        for (s, e) in &all {
+            assert!(s <= e && found.iter().all(|f| f.end <= *s || f.start >= *e), "({s}, {e}) is played");
+        }
+        // The plays' union, merged independently.
+        let mut spans: Vec<(f64, f64)> = found.iter().map(|f| (f.start, f.end)).collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut union = 0.0;
+        let mut at = 0.0f64;
+        for (s, e) in spans {
+            union += (e - s.max(at)).max(0.0);
+            at = at.max(e);
+        }
+        let gap: f64 = all.iter().map(|(s, e)| e - s).sum();
+        assert!((gap + union - duration).abs() < 1e-6 * duration, "{gap} + {union} != {duration}");
+        let c = coverage(&found, duration);
+        assert!((0.0..=1.0).contains(&c) && (c - union / duration).abs() < 1e-9, "{c}");
+        let min = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(duration));
+        let long: Vec<(f64, f64)> = all.iter().copied().filter(|(s, e)| e - s >= min).collect();
+        assert_eq!(gaps(&found, duration, min), long);
+    }
+
+    /// Resolving keeps the strongest play and every play nothing else overlaps, in mix order;
+    /// what it names alongside a play are other tracks, each once.
+    #[hegel::test(test_cases = 300)]
+    fn resolving_keeps_the_strongest_and_the_unopposed(tc: TestCase) {
+        let found = plays_within(&tc, 600.0);
+        let resolved = resolve(found.clone());
+        assert!(resolved.windows(2).all(|w| w[0].start <= w[1].start));
+        let kept = |f: &Found| resolved.iter().any(|k| k.slot == f.slot);
+        if let Some(top) = found.iter().max_by(|a, b| a.votes.cmp(&b.votes).then(b.slot.cmp(&a.slot))) {
+            assert!(kept(top), "the strongest, {top:?}");
+        }
+        for f in &found {
+            let alone = found.iter().all(|g| g.slot == f.slot || f.overlap(g) <= 0.0);
+            assert!(!alone || kept(f), "{f:?} overlaps nothing but was dropped");
+        }
+        for k in &resolved {
+            let mut named: Vec<u32> = k.alternates.iter().map(|a| a.0).collect();
+            assert!(!named.contains(&k.slot));
+            named.sort_unstable();
+            named.dedup();
+            assert_eq!(named.len(), k.alternates.len(), "{:?}", k.alternates);
+        }
+    }
+
+    /// A track heard along any line (from any point in the mix, at any point in the track, at
+    /// any speed searched) is one play along that line: its times, speed and key lock are where
+    /// its anchors put them, and its confidence and pitch follow from them.
+    #[hegel::test(test_cases = 150)]
+    fn a_chain_along_any_line_is_one_play(tc: TestCase) {
+        let variants = fingerprint::variants(0.08);
+        let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0));
+        let to = from + tc.draw(gs::floats::<f64>().min_value(24.0).max_value(240.0));
+        let at = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(300.0));
+        let speed = tc.draw(gs::floats::<f64>().min_value(0.93).max_value(1.07));
+        let (stretch, pitch) =
+            (tc.draw(gs::integers::<u32>().max_value(40)), tc.draw(gs::integers::<u32>().max_value(40)));
+        let mut c = chain_of(1, chain_at(&variants, from, to, at, speed), stretch, pitch);
+        // A slice the line only grazes gets no anchors from `chain_at`; the matcher never makes one.
+        c.detections.retain(|d| !d.pairs.is_empty());
+        // Its detections, chained again, are the one chain.
+        let rechained = chain(c.detections.clone(), &variants);
+        assert_eq!(rechained.len(), 1);
+        assert_eq!(rechained[0].detections.len(), c.detections.len());
+
+        let found = plays(rechained, &variants);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        let f = &found[0];
+        let last = ((to * FRAMES_PER_SEC) as u32 / SLICE * SLICE) as f64 / FRAMES_PER_SEC;
+        assert!((f.start - from).abs() < 0.4 && (f.end - last).abs() < 0.4, "{from}..{last}: {f:#?}");
+        assert!((f.tempo - speed).abs() <= tempo_error(f), "{speed}: {}", f.tempo);
+        // The track, `at` seconds in at `from`, is where the line puts it when first and last heard.
+        let track_at = |t: f64| at + speed * (t - from);
+        assert!((f.track_start - track_at(f.start)).abs() < 0.05, "{}: {f:#?}", track_at(f.start));
+        assert!((f.track_end - track_at(f.end)).abs() < 0.05, "{}: {f:#?}", track_at(f.end));
+        let lock = if (f.tempo - 1.0).abs() < 0.006 {
+            None
+        } else if stretch * 20 > pitch * 23 {
+            Some(true)
+        } else if pitch * 20 > stretch * 23 {
+            Some(false)
+        } else {
+            None
+        };
+        assert_eq!(f.key_lock, lock);
+        assert!((0.0..=1.0).contains(&f.confidence()));
+        let semitones = if lock == Some(true) { 0.0 } else { 12.0 * f.tempo.log2() };
+        assert_eq!(f.semitones(), semitones);
+        assert_eq!((f.jumps, f.fits.len()), (0, 1));
+    }
+
+    /// A copy of a track delayed by any amount and at any level lines up with it at that delay,
+    /// heard throughout, and the other way round at minus that delay.
+    #[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+    fn copies_line_up_at_any_delay(tc: TestCase) {
+        let x = synth(30.0, tc.draw(gs::integers::<u32>().min_value(1)));
+        let delay = tc.draw(gs::integers::<usize>().max_value(2 * RATE as usize));
+        let gain = tc.draw(gs::floats::<f32>().min_value(0.2).max_value(1.0));
+        let copy: Vec<f32> = std::iter::repeat_n(0.0, delay).chain(x.iter().map(|s| s * gain)).collect();
+        let (a, b) = (print(&x), print(&copy));
+        let truth = delay as f64 / RATE as f64;
+        let ab = align(&a, &b).unwrap();
+        assert!((ab.offset - truth).abs() < 0.005, "{truth}: {ab:?}");
+        assert!(ab.coverage.0 > 0.9 && ab.coverage.1 > 0.9 && ab.drift.abs() < 0.004, "{ab:?}");
+        let ba = align(&b, &a).unwrap();
+        assert!((ba.offset + truth).abs() < 0.005, "{truth}: {ba:?}");
+        // With enough pairs the offset counts as measured; another track shares next to nothing.
+        assert!(ab.pairs < ALIGN_PAIRS || ab.is_precise(), "{ab:?}");
+        let other = print(&synth(30.0, tc.draw(gs::integers::<u32>().min_value(1)) ^ 0x5555));
+        assert!(align(&a, &other).is_none_or(|o| o.coverage.0 < 0.1 && !o.is_precise()));
+    }
+
+    /// Four tracks of 40 s, and the index of them.
+    fn library() -> &'static (Vec<Vec<f32>>, LibraryIndex) {
+        static LIBRARY: std::sync::OnceLock<(Vec<Vec<f32>>, LibraryIndex)> = std::sync::OnceLock::new();
+        LIBRARY.get_or_init(|| {
+            let tracks: Vec<Vec<f32>> = (1..=4).map(|seed| synth(40.0, seed * 7919)).collect();
+            let index = LibraryIndex::build(tracks.iter().enumerate().map(|(i, x)| (i as u32, print(x))).collect());
+            (tracks, index)
+        })
+    }
+
+    /// A set stitched from any of the library's tracks, each from any point in it, at any level,
+    /// after any silence and with any gap before the next, is heard as those tracks in that
+    /// order, each where it was put in the set and from where it was taken in the track.
+    #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+    fn a_stitched_set_is_heard_as_its_tracks(tc: TestCase) {
+        let (tracks, index) = library();
+        let secs = |s: f64| (s * RATE as f64) as usize;
+        let order =
+            tc.draw(gs::samples((0..tracks.len()).collect::<Vec<_>>()).without_replacement().min_size(2).max_size(3));
+        let mut mix = vec![0.0f32; secs(tc.draw(gs::floats::<f64>().min_value(0.0).max_value(6.0)))];
+        let mut truth = Vec::new();
+        for &i in &order {
+            mix.resize(mix.len() + secs(tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3.0))), 0.0);
+            let from = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(10.0));
+            let len = tc.draw(gs::floats::<f64>().min_value(26.0).max_value(30.0));
+            let gain = tc.draw(gs::floats::<f32>().min_value(0.3).max_value(1.0));
+            let start = mix.len() as f64 / RATE as f64;
+            mix.extend(tracks[i][secs(from)..secs(from + len)].iter().map(|s| s * gain));
+            truth.push((i as u32, start, start + len, from));
+        }
+        let (q, frames) = peaks(&mix, QUERY);
+        let wide = tc.draw(gs::floats::<f64>().min_value(0.2501).max_value(1.0));
+        assert!(matches!(find(index, &q, frames, wide, None, &Ctx::silent()), Err(Error::Invalid(_))));
+        let found = find(index, &q, frames, 0.02, None, &Ctx::silent()).unwrap();
+        let slots: Vec<u32> = found.iter().map(|f| f.slot).collect();
+        assert_eq!(slots, truth.iter().map(|t| t.0).collect::<Vec<_>>(), "{found:#?}");
+        for (f, (_, start, end, from)) in found.iter().zip(&truth) {
+            assert!((f.start - start).abs() < 2.0 && (f.end - end).abs() < 2.0, "{start}..{end}: {f:#?}");
+            assert!((f.track_start - from).abs() < 2.0 && (f.tempo - 1.0).abs() < 0.005, "from {from}: {f:#?}");
+        }
+    }
+
+    /// A track heard in pieces (split by breakdowns, looped or cue-jumped further on, or heard
+    /// again minutes later) is one play for each run of pieces less than 24 s apart: one line for
+    /// the pieces that carry on where the last left off, another after each jump, and the jumps
+    /// counted.
+    #[hegel::test(test_cases = 150)]
+    fn a_track_heard_in_pieces_is_a_play_for_each_stretch(tc: TestCase) {
+        let variants = fingerprint::variants(0.08);
+        let speed = tc.draw(gs::floats::<f64>().min_value(0.95).max_value(1.05));
+        let (mut from, mut at) = (tc.draw(gs::floats::<f64>().min_value(0.0).max_value(100.0)), 30.0);
+        // Per piece: its chain, then whether it starts a play and whether it jumped.
+        let mut pieces: Vec<(Chain, bool, bool)> = Vec::new();
+        for i in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+            // The matcher hears in slices (~4 s), and a slice a piece only partly fills may go
+            // unheard, so a gap can read up to a slice longer at each end: short ones are kept
+            // that far under the play gap, or which side of it they fall on isn't the matcher's
+            // to tell.
+            let short = PLAY_GAP - 2.0 * f64::from(SLICE) / FRAMES_PER_SEC;
+            let gap = tc.draw(hegel::one_of!(
+                gs::floats::<f64>().min_value(2.0).max_value(short),
+                gs::floats::<f64>().min_value(30.0).max_value(90.0)
+            ));
+            let jump = i > 0 && tc.draw(gs::booleans());
+            if i > 0 {
+                at +=
+                    speed * gap + if jump { tc.draw(gs::floats::<f64>().min_value(20.0).max_value(60.0)) } else { 0.0 };
+                from += gap;
+            }
+            let len = tc.draw(gs::floats::<f64>().min_value(24.0).max_value(60.0));
+            let mut c = chain_at(&variants, from, from + len, at, speed);
+            c.detections.retain(|d| !d.pairs.is_empty());
+            pieces.push((c, i == 0 || gap > PLAY_GAP, jump));
+            from += len;
+            at += speed * len;
+        }
+        let mut expected: Vec<(usize, u32)> = Vec::new();
+        for (_, starts, jump) in &pieces {
+            match expected.last_mut() {
+                Some(last) if !starts => {
+                    last.0 += usize::from(*jump);
+                    last.1 += u32::from(*jump);
+                }
+                _ => expected.push((1, 0)),
+            }
+        }
+        let mut found = plays(pieces.into_iter().map(|p| p.0).collect(), &variants);
+        found.sort_by(|a, b| a.start.total_cmp(&b.start));
+        let shapes: Vec<(usize, u32)> = found.iter().map(|f| (f.fits.len(), f.jumps)).collect();
+        assert_eq!(shapes, expected, "{found:#?}");
+        assert!(found.iter().all(|f| (f.tempo - speed).abs() <= tempo_error(f)), "{speed}: {found:#?}");
     }
 }

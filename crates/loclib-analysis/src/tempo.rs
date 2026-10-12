@@ -178,4 +178,18 @@ mod tests {
         };
         assert_eq!(prior.more_plausible(b, a), swap(prior.more_plausible(a, b)));
     }
+
+    /// A tempo that isn't one (zero, negative, not a number, infinite) relates to nothing and is
+    /// never plausible, whatever the library.
+    #[hegel::test(test_cases = 200)]
+    fn tempos_that_arent_relate_to_nothing(tc: hegel::TestCase) {
+        let not = tc
+            .draw(hegel::one_of!(gs::floats::<f64>().max_value(0.0), gs::sampled_from(vec![f64::NAN, f64::INFINITY])));
+        let bpm = tc.draw(gs::floats::<f64>().min_value(20.0).max_value(300.0));
+        assert_eq!((TempoRelation::between(not, bpm), TempoRelation::between(bpm, not)), (None, None));
+        let prior =
+            TempoPrior::library(tc.draw(gs::vecs(gs::floats::<f64>().min_value(60.0).max_value(200.0)).max_size(10)));
+        assert_eq!(prior.plausibility(not), 0.0);
+        assert!((0.0..=1.0).contains(&prior.plausibility(bpm)));
+    }
 }

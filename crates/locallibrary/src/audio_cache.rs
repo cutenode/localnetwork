@@ -280,7 +280,7 @@ mod tests {
         let audio = dir.path().join("Track.MP3");
         fs::write(&audio, b"12345").unwrap();
         let mtime = fs::metadata(&audio).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap();
-        let recipe = format!("1\u{1f}track.mp3\u{1f}5\u{1f}{}", mtime.as_secs());
+        let recipe = format!("2\u{1f}track.mp3\u{1f}5\u{1f}{}", mtime.as_secs());
         let expected = blake3::hash(recipe.as_bytes()).to_hex()[..32].to_string();
         assert_eq!(Cache::<Prints>::key(&audio).as_deref(), Some(expected.as_str()));
         assert_eq!(Cache::<Prints>::key(&dir.path().join("gone.mp3")), None);

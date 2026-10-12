@@ -536,4 +536,222 @@ mod tests {
         assert_eq!(downsample(&[1, 9, 2, 3, 8, 4], 3), [9, 3, 8]);
         assert_eq!(downsample(&[1, 2], 3), [1, 2]);
     }
+
+    use crate::anlz::{
+        Beat, Cue, Mood, Phrase, PhraseKind, SongStructure, TrackAnalysis, WaveColumn, WaveLayer, Waveform,
+        WaveformStyle,
+    };
+    use crate::device::Device;
+    use crate::mix::report::{PlayExtras, extras};
+    use crate::model::Library;
+    use hegel::TestCase;
+    use hegel::generators as gs;
+
+    /// Analysis files as a drive has them: an overview, a beat grid every half second, phrases
+    /// on it (some running past its end) and cues, hot and memory.
+    #[hegel::test_helper]
+    fn analysis(tc: &TestCase) -> TrackAnalysis {
+        let heights = tc.draw(gs::vecs(gs::floats::<f32>().min_value(0.0).max_value(1.2)).max_size(700));
+        let columns = heights
+            .iter()
+            .map(|&h| WaveColumn { back: WaveLayer { height: h, color: [9, 99, 199] }, front: WaveLayer::default() })
+            .collect();
+        let beats: Vec<Beat> = (0..tc.draw(gs::integers::<u32>().max_value(64)))
+            .map(|i| Beat { beat_number: (i % 4) as u16 + 1, bpm: 120.0, time_ms: i * 500 })
+            .collect();
+        let phrases = tc
+            .draw(
+                gs::vecs(gs::tuples!(gs::integers::<u16>().max_value(80), gs::integers::<u16>().max_value(80)))
+                    .max_size(5),
+            )
+            .into_iter()
+            .map(|(start_beat, end_beat)| Phrase { kind: PhraseKind::Chorus, start_beat, end_beat, fill_beat: None })
+            .collect();
+        let cues = tc
+            .draw(
+                gs::vecs(gs::tuples!(
+                    gs::optional(gs::integers::<u8>().max_value(10)),
+                    gs::integers::<u32>().max_value(300_000)
+                ))
+                .max_size(6),
+            )
+            .into_iter()
+            .map(|(hot_cue, start_ms)| Cue {
+                hot_cue,
+                start_ms,
+                end_ms: None,
+                comment: "drop".into(),
+                color: hot_cue.map(|h| [h, 0, 255]),
+                color_id: 0,
+                loop_beats: None,
+            })
+            .collect();
+        TrackAnalysis {
+            beats,
+            cues,
+            preview: tc.draw(gs::booleans()).then_some(Waveform {
+                style: WaveformStyle::Rgb,
+                columns_per_sec: None,
+                columns,
+            }),
+            detail: None,
+            structure: Some(SongStructure { mood: Mood::High, phrases }),
+        }
+    }
+
+    /// Whatever a report found, its export has as many plays, transitions and unidentified
+    /// stretches, every time to the hundredth, a mix waveform of at most 1,200 columns keeping
+    /// its loudest that spans the same time, and each play's presence in percent. The tracks the
+    /// profile hides are "ID - ID", and from the drive each track has its overview (at most 200
+    /// columns), its hot cues and its phrases on the grid, as the HTML report has them.
+    #[hegel::test(test_cases = 60)]
+    fn exports_count_what_the_report_found(tc: TestCase) {
+        let mut r = report();
+        let base = r.plays[0].clone();
+        r.plays = (0..tc.draw(gs::integers::<u32>().max_value(4)))
+            .map(|i| {
+                let start = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3600.0));
+                let mut p = Play {
+                    start,
+                    end: start + tc.draw(gs::floats::<f64>().min_value(0.0).max_value(600.0)),
+                    tempo: tc.draw(gs::floats::<f64>().min_value(0.84).max_value(1.16)),
+                    presence: tc.draw(gs::vecs(gs::floats::<f32>().min_value(-0.5).max_value(1.5)).max_size(20)),
+                    ..base.clone()
+                };
+                p.track.id = i + 1;
+                p.track.artist = format!("Artist {i}");
+                p.track.file_path = format!("/Contents/{i}.mp3");
+                p
+            })
+            .collect();
+        r.transitions = (1..r.plays.len())
+            .map(|i| Transition {
+                from: i - 1,
+                to: i,
+                at: r.plays[i].start,
+                overlap: r.plays[i - 1].end - r.plays[i].start,
+                harmony: None,
+                tempo_change: Some(1.23),
+            })
+            .collect();
+        r.unidentified = tc
+            .draw(gs::vecs(gs::floats::<f64>().min_value(0.0).max_value(3600.0)).max_size(4))
+            .into_iter()
+            .map(|start| Span { start, end: start + 31.0 })
+            .collect();
+        let columns = tc.draw(gs::integers::<usize>().max_value(3000));
+        let seed = tc.draw(gs::integers::<usize>());
+        let band: Vec<u8> = (0..columns).map(|i| (i.wrapping_mul(2_654_435_761) ^ seed) as u8).collect();
+        r.waveform = MixWaveform {
+            columns_per_sec: tc.draw(gs::sampled_from(vec![0.0, 4.0])),
+            peak: band.clone(),
+            low: band.clone(),
+            mid: band.clone(),
+            high: band,
+        };
+        let mut prefs = ProfilePrefs::default();
+        let hidden = tc.draw(gs::vecs(gs::integers::<u32>().max_value(3)).max_size(2));
+        prefs.hidden_artists.extend(hidden.iter().map(|i| format!("Artist {i}")));
+
+        let dir = tempfile::tempdir().unwrap();
+        let device = Device::open(dir.path()).unwrap();
+        let library = Library { tracks: r.plays.iter().map(|p| p.track.clone()).collect(), ..Default::default() };
+        let analyses: Vec<TrackAnalysis> = r.plays.iter().map(|_| analysis(&tc)).collect();
+        let on_drive = tc.draw(gs::booleans());
+        let drive = on_drive.then_some(Drive { device: &device, library: &library, analyses: Some(&analyses) });
+        let e = build(&r, drive, &prefs);
+
+        assert_eq!(
+            (e.plays.len(), e.transitions.len(), e.unidentified.len()),
+            (r.plays.len(), r.transitions.len(), r.unidentified.len())
+        );
+        let n = columns.min(MIX_COLUMNS);
+        assert!([&e.waveform.low, &e.waveform.mid, &e.waveform.high].iter().all(|w| w.len() == n));
+        assert_eq!(e.waveform.low.iter().max(), r.waveform.low.iter().max());
+        if n > 0 && r.waveform.columns_per_sec > 0.0 {
+            let secs = columns as f64 / r.waveform.columns_per_sec;
+            assert!((e.waveform.seconds_per_column * n as f64 - secs).abs() <= 5e-5 * n as f64 + 1e-9, "{secs} s");
+        }
+        let hundredth = |a: f64, b: f64| (a - b).abs() <= 0.005 + 1e-9;
+        for (x, p) in e.plays.iter().zip(&r.plays) {
+            assert!(hundredth(x.start, p.start) && hundredth(x.end, p.end) && (x.tempo - p.tempo).abs() <= 5e-5);
+            let presence: Vec<u8> = p.presence.iter().map(|v| (v.clamp(0.0, 1.0) * 100.0).round() as u8).collect();
+            assert_eq!(x.presence, presence);
+            let named = may_name(&prefs, &p.track);
+            assert_eq!(named, x.track.title != UNNAMED);
+            assert_eq!(x.track.artist.as_deref(), Some(if named { p.track.artist.as_str() } else { UNNAMED }));
+        }
+        assert!(
+            e.transitions
+                .iter()
+                .zip(&r.transitions)
+                .all(|(x, t)| hundredth(x.at, t.at) && hundredth(x.overlap, t.overlap))
+        );
+        assert!(
+            e.unidentified
+                .iter()
+                .zip(&r.unidentified)
+                .all(|(x, s)| hundredth(x.start, s.start) && hundredth(x.end, s.end))
+        );
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(!json.contains("/Contents/") && !json.contains("private note"));
+
+        for (i, (x, a)) in e.plays.iter().zip(&analyses).enumerate() {
+            let hot = a.cues.iter().filter(|c| c.hot_cue.is_some()).count();
+            let phrases = a
+                .structure
+                .as_ref()
+                .unwrap()
+                .phrases
+                .iter()
+                .filter(|ph| (1..=a.beats.len()).contains(&(ph.start_beat as usize).max(1)))
+                .count();
+            let preview = a.preview.as_ref().filter(|w| !w.columns.is_empty());
+            let page =
+                extras(Drive { device: &device, library: &library, analyses: Some(&analyses) }, &r.plays[i], i, false);
+            if !on_drive {
+                assert!(x.track.overview.is_none() && x.track.cues.is_empty() && x.track.phrases.is_empty());
+                continue;
+            }
+            let overview = x.track.overview.as_ref();
+            assert_eq!(overview.map(|o| o.heights.len()), preview.map(|w| w.columns.len().min(TRACK_COLUMNS)));
+            assert_eq!(overview.map(|o| o.colors.len()), overview.map(|o| o.heights.len()));
+            assert_eq!(
+                page.wave.as_ref().map(|w| BASE64_STANDARD.decode(w).unwrap().len()),
+                preview.map(|w| 4 * w.columns.len().min(400))
+            );
+            assert_eq!((x.track.cues.len(), page.cues.len()), (hot, hot));
+            assert_eq!((x.track.phrases.len(), page.phrases.len()), (phrases, phrases));
+            assert!(
+                x.track.phrases.iter().zip(&page.phrases).all(|(a, b)| hundredth(a.start, b.start) && a.kind == b.kind)
+            );
+            assert_eq!(page.art, None, "no art on this drive");
+        }
+        assert_eq!(extras(Drive::new(&device, &library), &play_elsewhere(), 0, true), PlayExtras::default());
+    }
+
+    /// A play of a track the drive doesn't have.
+    fn play_elsewhere() -> Play {
+        let mut p = report().plays.remove(0);
+        p.track.file_path = "/Contents/gone.mp3".into();
+        p
+    }
+
+    /// Downsampling keeps the loudest value, leaves a short series as it is, and makes as many
+    /// columns as asked of a long one, each the loudest of its stretch, stretches in order.
+    #[hegel::test(test_cases = 300)]
+    fn downsampling_keeps_the_loudest(tc: TestCase) {
+        let values = tc.draw(gs::vecs(gs::integers::<u8>()).max_size(500));
+        let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(300));
+        let out = downsample(&values, n);
+        assert_eq!(out.len(), values.len().min(n));
+        assert_eq!(out.iter().max(), values.iter().max());
+        if values.len() <= n {
+            return assert_eq!(out, values);
+        }
+        for (i, v) in out.iter().enumerate() {
+            let (lo, hi) = (i * values.len() / n, ((i + 1) * values.len() / n).max(i * values.len() / n + 1));
+            assert_eq!(Some(v), values[lo..hi].iter().max());
+        }
+    }
 }

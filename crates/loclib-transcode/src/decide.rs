@@ -373,4 +373,46 @@ mod tests {
             Decision::Unplayable(Reason::NoLosslessFormat) => panic!("every player plays some lossless format"),
         }
     }
+
+    /// For a source whose size goes with its length (a header and its samples, a FLAC
+    /// compressing them at some ratio, a lossy file at some bitrate), a longer copy is estimated
+    /// no smaller; and a WAV or AIFF copy of a WAV or AIFF that changes nothing but the container
+    /// is the size of the source.
+    #[hegel::test(test_cases = 300)]
+    fn size_estimates_grow_with_length(tc: hegel::TestCase) {
+        let source = tc.draw(any_source());
+        let recipe = Recipe {
+            container: tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug()),
+            sample_rate: tc.draw(gs::sampled_from(vec![44_100, 48_000, 96_000])),
+            bit_depth: tc.draw(gs::sampled_from(vec![16, 24])),
+            dither: Dither::Tpdf,
+        };
+        let header = tc.draw(gs::integers::<u64>().max_value(1 << 20));
+        let ratio = tc.draw(gs::floats::<f64>().min_value(0.05).max_value(1.0));
+        let master = |secs: f64| {
+            secs * f64::from(source.sample_rate) * f64::from(source.channels) * f64::from(source.bit_depth / 8)
+        };
+        let bytes = |secs: f64| match source.codec {
+            Codec::Wav | Codec::Aiff => master(secs).ceil() as u64 + header,
+            Codec::Flac | Codec::Alac => (master(secs) * ratio) as u64,
+            _ => (secs * 40_000.0 * ratio) as u64,
+        };
+        let (a, b) = (
+            tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3600.0)),
+            tc.draw(gs::floats::<f64>().min_value(0.0).max_value(3600.0)),
+        );
+        let (short, long) = (a.min(b), a.max(b));
+        let estimate = |secs: f64, r: &Recipe| estimate_size(&source, bytes(secs), secs, r);
+        // A byte either way: the source's size is whole bytes.
+        assert!(estimate(short, &recipe) <= estimate(long, &recipe) + 1, "{short} s and {long} s");
+        if matches!(source.codec, Codec::Wav | Codec::Aiff) && recipe.container != Container::Flac {
+            let same = Recipe { sample_rate: source.sample_rate, bit_depth: source.bit_depth, ..recipe };
+            assert!(
+                estimate(a, &same).abs_diff(bytes(a)) <= 1,
+                "{} for a {}-byte source",
+                estimate(a, &same),
+                bytes(a)
+            );
+        }
+    }
 }

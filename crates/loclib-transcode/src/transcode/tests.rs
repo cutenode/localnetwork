@@ -346,6 +346,28 @@ fn size_estimates_match_copies() {
 
 /// A damaged frame in a master fails its copy (leaving it out would move every cue after it),
 /// where decoding to fingerprint it skips the frame.
+/// A source under one frame at the recipe's rate has no copy: one would hold no audio, and
+/// nothing reads that back (a FLAC of only its header, an AIFF symphonia calls damaged).
+#[test]
+fn sources_too_short_for_a_frame_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("blip.flac");
+    flac(&source, &[100, -100], 2, 16, 96_000);
+    for container in Container::ALL {
+        let out = dir.path().join(format!("copy.{}", container.extension()));
+        let err = transcode_quietly(&source, &recipe(container, 44_100, 16, Dither::None), &out).unwrap_err();
+        assert!(
+            matches!(&err, Error::TooShort { path, frames: 1, source_rate: 96_000, rate: 44_100 } if path == &source),
+            "{err}"
+        );
+    }
+    // A frame at the source's own rate is a frame of the copy.
+    let out = dir.path().join("copy.aiff");
+    let made = transcode_quietly(&source, &recipe(Container::Aiff, 96_000, 16, Dither::None), &out).unwrap();
+    assert_eq!(made, Transcoded { frames: 1, channels: 2 });
+    assert_eq!(decode(&out).samples, [100 << 16, -100 << 16]);
+}
+
 #[test]
 fn a_damaged_frame_fails_the_copy() {
     let dir = tempfile::tempdir().unwrap();
@@ -366,4 +388,117 @@ fn a_damaged_frame_fails_the_copy() {
         let skipped = loclib_mixid::audio::decode(&source, 44_100, &Ctx::silent(), &mut |_| {});
         assert!(skipped.is_ok(), "{skipped:?}");
     }
+}
+
+/// Any lossless source, as any recipe a player takes: the copy is at the recipe's rate, as long
+/// as the source at it to the nearest frame, and in the recipe's container and depth. One that
+/// changes neither rate nor depth (nor dithers) holds the source's samples exactly, one that
+/// drops from 24 to 16 bit rounds each to the nearest step, and a copy of a copy made that way
+/// is the copy again. A source under a frame at the recipe's rate is refused.
+#[hegel::test(test_cases = 30)]
+fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let rates = vec![44_100, 48_000, 88_200, 96_000];
+    // Masters come at twice and four times those too.
+    let source_rates = vec![192_000, 176_400, 96_000, 88_200, 48_000, 44_100];
+    let (rate, bits) = (tc.draw(gs::sampled_from(source_rates)), tc.draw(gs::sampled_from(vec![16u16, 24])));
+    // Often a single frame, which at a lower rate can be under one.
+    let frames = tc.draw(hegel::one_of!(gs::just(1), gs::integers::<usize>().min_value(1).max_value(5000)));
+    let dir = tempfile::tempdir().unwrap();
+    // The same in both channels, as `wav_of` writes them.
+    let mono = noise(frames, bits);
+    let samples: Vec<i32> = mono.iter().flat_map(|s| [*s, *s]).collect();
+    // flacenc, which writes the FLAC sources, takes up to 96 kHz.
+    let source = dir.path().join(if rate > 96_000 || tc.draw(gs::booleans()) { "master.wav" } else { "master.flac" });
+    let wav = source.extension().unwrap() == "wav";
+    if wav {
+        std::fs::write(&source, wav_of(rate, bits, mono.iter().copied())).unwrap();
+    } else {
+        flac(&source, &samples, 2, usize::from(bits), rate as usize);
+    }
+    let title = tc.draw(gs::optional(gs::text().alphabet("Night drive é").min_size(1).max_size(9)));
+    if let Some(title) = &title {
+        let mut tag = Tag::new(if wav { TagType::Id3v2 } else { TagType::VorbisComments });
+        tag.set_title(title.clone());
+        tag.save_to_path(&source, WriteOptions::default()).unwrap();
+    }
+    let containers = Container::ALL.to_vec();
+    let r = Recipe {
+        container: tc.draw(gs::sampled_from(containers.clone()).print_as_debug()),
+        sample_rate: tc.draw(gs::sampled_from(rates)),
+        bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
+        dither: tc.draw(gs::sampled_from(vec![Dither::None, Dither::Tpdf]).print_as_debug()),
+    };
+    assert!(r.to_string().starts_with(r.container.extension()) && r.to_string().ends_with("-v1"), "{r}");
+    let copy = dir.path().join(format!("copy.{}", r.container.extension()));
+    let expected = (frames as u64 * u64::from(r.sample_rate) + u64::from(rate) / 2) / u64::from(rate);
+    let recorder = Recorder::default();
+    let made = transcode(&source, &r, &copy, &Ctx::new(&recorder, CancelToken::new()));
+    if expected == 0 {
+        let err = made.unwrap_err();
+        let want = (frames as u64, rate, r.sample_rate);
+        let refused = matches!(&err, Error::TooShort { path, frames, source_rate, rate }
+            if path == &source && (*frames, *source_rate, *rate) == want);
+        return assert!(refused, "{r}: {err}");
+    }
+    let made = made.unwrap();
+    let bytes: u64 = recorder
+        .0
+        .into_inner()
+        .unwrap()
+        .iter()
+        .map(|e| if let Event::Bytes { bytes, .. } = e { *bytes } else { 0 })
+        .sum();
+    assert_eq!(bytes, std::fs::metadata(&source).unwrap().len(), "progress is the source's size");
+    // The tags come along, in the form the container holds them.
+    let kept =
+        lofty::read_from_path(&copy).ok().and_then(|t| t.primary_tag().and_then(|t| t.title().map(|t| t.into_owned())));
+    assert_eq!(kept, title, "{r}");
+    assert_eq!(made, Transcoded { frames: expected, channels: 2 }, "{r}");
+    let back = decode(&copy);
+    assert_eq!((back.rate, back.channels, back.samples.len() as u64), (r.sample_rate, 2, 2 * expected), "{r}");
+    if r.container == Container::Aiff {
+        assert_eq!(aiff_frames(&copy), Some(expected));
+    }
+    let shift = 32 - u32::from(bits);
+    if r.sample_rate == rate && r.dither == Dither::None {
+        let step = 1i64 << (32 - u32::from(r.bit_depth));
+        for (got, s) in back.samples.iter().zip(&samples) {
+            let full = i64::from(*s) << shift;
+            let nearest = ((full as f64 / step as f64).round() as i64)
+                .clamp(i64::from(i32::MIN) / step, i64::from(i32::MAX) / step)
+                * step;
+            assert_eq!(i64::from(*got), nearest, "{r}");
+        }
+    }
+    // Again, changing only the container: the copy's samples exactly.
+    let again = Recipe { container: tc.draw(gs::sampled_from(containers).print_as_debug()), dither: Dither::None, ..r };
+    let second = dir.path().join(format!("again.{}", again.container.extension()));
+    transcode_quietly(&copy, &again, &second).unwrap();
+    assert_eq!(decode(&second).samples, back.samples, "{r} then {again}");
+}
+
+/// A recipe no player takes (a depth other than 16 or 24 bit, an unknown rate) is refused
+/// before anything is written, and a source with no audio has no copy.
+#[hegel::test(test_cases = 30)]
+fn recipes_no_player_takes_are_refused(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let bit_depth = tc.draw(gs::integers::<u16>().max_value(40));
+    let sample_rate = tc.draw(gs::sampled_from(vec![0, 44_100]));
+    tc.assume(!matches!(bit_depth, 16 | 24) || sample_rate == 0);
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("copy.aiff");
+    let r = Recipe { container: Container::Aiff, sample_rate, bit_depth, dither: Dither::None };
+    let err = transcode_quietly(&dir.path().join("master.wav"), &r, &out).unwrap_err();
+    assert!(matches!(&err, Error::Invalid(m) if m.contains(&r.to_string())), "{err}");
+    assert!(!out.exists());
+    let empty = dir.path().join("empty.wav");
+    std::fs::write(&empty, wav_of(44_100, 16, Vec::new().into_iter())).unwrap();
+    let playable = Recipe { sample_rate: 44_100, bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])), ..r };
+    let err = transcode_quietly(&empty, &playable, &out).unwrap_err();
+    assert!(
+        matches!(&err, Error::Decode(loclib_mixid::Error::Parse { message, .. }) if message == "it holds no audio"),
+        "{err}"
+    );
 }

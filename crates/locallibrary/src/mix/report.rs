@@ -251,7 +251,10 @@ fn url_encode(s: &str) -> String {
 /// Windows drive letter, `file://server/share/…` for a network share.
 fn file_url(target: &Path) -> String {
     let mut url = String::from("file://");
+    // A path that is only its root (`/`, `C:\`) still needs the slash that names it.
+    let mut ends_at_root = false;
     for c in target.components() {
+        ends_at_root = matches!(c, Component::RootDir);
         match c {
             Component::Prefix(p) => match p.kind() {
                 Prefix::Disk(d) | Prefix::VerbatimDisk(d) => url.push_str(&format!("/{}:", d as char)),
@@ -268,6 +271,9 @@ fn file_url(target: &Path) -> String {
                 url.push_str(&url_encode(&c.as_os_str().to_string_lossy()));
             }
         }
+    }
+    if ends_at_root {
+        url.push('/');
     }
     url
 }
@@ -836,6 +842,13 @@ pub(crate) mod tests {
         assert_eq!(file_url(Path::new("/Users/dj/Set #1.wav")), "file:///Users/dj/Set%20%231.wav");
     }
 
+    /// The root is a URL of its own, not `file://` with nothing after it.
+    #[test]
+    fn the_root_is_a_file_url() {
+        assert_eq!(file_url(Path::new("/")), "file:///");
+        assert_eq!(file_url(Path::new("/.")), "file:///");
+    }
+
     /// The page on C:, the recording on the USB drive: no folder in common.
     #[cfg(windows)]
     #[test]
@@ -845,5 +858,186 @@ pub(crate) mod tests {
             "file:///E:/PIONEER%20REC/x.wav"
         );
         assert_eq!(file_url(Path::new(r"\\nas\music\set.wav")), "file://nas/music/set.wav");
+    }
+
+    use hegel::TestCase;
+    use hegel::generators as gs;
+
+    /// `%XX` escapes decoded back to the bytes they stand for.
+    fn percent_decoded(url: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut rest = url.as_bytes();
+        while let Some((&b, tail)) = rest.split_first() {
+            if b == b'%' {
+                out.push(u8::from_str_radix(std::str::from_utf8(&tail[..2]).unwrap(), 16).unwrap());
+                rest = &tail[2..];
+            } else {
+                out.push(b);
+                rest = tail;
+            }
+        }
+        out
+    }
+
+    /// Any title makes a slug fit to name a file: letters and digits, each its own lowercase,
+    /// words joined by single dashes, none at either end, within 60 bytes, never empty; and a
+    /// slug is its own.
+    #[hegel::test(test_cases = 500)]
+    fn any_title_slugs_to_a_file_name(tc: TestCase) {
+        let title = tc.draw(gs::text().max_size(80));
+        let s = slug(&title);
+        assert!(!s.is_empty() && s.len() <= SLUG_BYTES, "{s:?}");
+        assert!(!s.starts_with('-') && !s.ends_with('-') && !s.contains("--"), "{s:?}");
+        assert!(
+            s.chars().all(|c| c == '-' || (c.is_alphanumeric() && c.to_lowercase().eq([c]))),
+            "{title:?} slugs to {s:?}"
+        );
+        assert_eq!(slug(&s), s);
+    }
+
+    /// Any URL path piece holds only what URLs take as it is, and reads back as what it stood
+    /// for; a `file:` URL leads to its path.
+    #[hegel::test(test_cases = 300)]
+    fn urls_read_back_as_their_paths(tc: TestCase) {
+        let parts: Vec<String> =
+            tc.draw(gs::vecs(gs::text().min_size(1).max_size(10).exclude_characters("/\0")).min_size(1).max_size(4));
+        for part in &parts {
+            let encoded = url_encode(part);
+            assert!(encoded.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~%".contains(&b)), "{encoded}");
+            assert_eq!(percent_decoded(&encoded), part.as_bytes());
+        }
+        let path: PathBuf = std::iter::once("/".to_string()).chain(parts).collect();
+        let url = file_url(&path);
+        let decoded = String::from_utf8(percent_decoded(url.strip_prefix("file://").unwrap())).unwrap();
+        assert_eq!(Path::new(&decoded), path.components().collect::<PathBuf>(), "{url}");
+    }
+
+    /// A project's audio is the browser-playable file next to it sharing the most of its name
+    /// (four characters at least), the most compact of those; a recording stands for no other.
+    #[hegel::test(test_cases = 25)]
+    fn a_project_plays_the_export_sharing_most_of_its_name(tc: TestCase) {
+        let stems = vec!["set one", "set one export", "set", "set two", "other", "SET ONE final"];
+        let exts = vec!["mp3", "m4a", "wav", "flac", "ogg", "aiff", "txt", "aup3"];
+        let files: Vec<(&str, &str)> =
+            tc.draw(gs::vecs(gs::tuples!(gs::sampled_from(stems), gs::sampled_from(exts))).max_size(8));
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("set one session.aup3");
+        std::fs::write(&project, b"x").unwrap();
+        for (stem, ext) in &files {
+            std::fs::write(dir.path().join(format!("{stem}.{ext}")), b"x").unwrap();
+        }
+        let shared = |p: &Path| {
+            let stem = p.file_stem().unwrap().to_string_lossy().to_lowercase();
+            "set one session".chars().zip(stem.chars()).take_while(|(a, b)| a == b).count()
+        };
+        let playable: Vec<PathBuf> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| browser_format(p).is_some() && shared(p) >= 4)
+            .collect();
+        match playable_audio(&project) {
+            None => assert!(playable.is_empty(), "{playable:?}"),
+            Some(chosen) => {
+                let most = playable.iter().map(|p| shared(p)).max().unwrap();
+                assert_eq!(shared(&chosen), most, "{chosen:?} of {playable:?}");
+                let best = playable.iter().filter(|p| shared(p) == most).filter_map(|p| browser_format(p)).min();
+                assert_eq!(browser_format(&chosen), best, "{chosen:?} of {playable:?}");
+            }
+        }
+        let recording = dir.path().join("set one session.aiff");
+        assert_eq!(project_audio(&recording), None);
+        // A recording a browser plays is its own audio.
+        let mp3 = dir.path().join("set one session.MP3");
+        assert_eq!(playable_audio(&mp3).as_deref(), Some(mp3.as_path()));
+    }
+
+    /// Any report kept in the store is listed with what it found and reads back as it was,
+    /// by an id made only of what ids are made of; nothing else is an id.
+    #[hegel::test(test_cases = 20)]
+    fn kept_reports_read_back_and_list_what_they_found(tc: TestCase) {
+        use loclib_model::test_util::track;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_or_init(dir.path()).unwrap();
+        let mut r = report(&tc.draw(gs::text().max_size(30)));
+        r.mix.path = PathBuf::from(format!("/mixes/{}.wav", tc.draw(gs::text().alphabet("ab ï#").max_size(8))));
+        r.plays =
+            (0..tc.draw(gs::integers::<u32>().max_value(4))).map(|i| play(track(i, "A", "B", "/C/d.mp3"))).collect();
+        r.coverage = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0));
+        let id = save(&store, &r).unwrap();
+        assert_eq!(id, super::id(&r));
+        assert!(id.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'), "{id}");
+        let back = load(dir.path(), &id).unwrap();
+        assert_eq!(
+            (back.mix.title, back.mix.path, back.plays.len()),
+            (r.mix.title.clone(), r.mix.path.clone(), r.plays.len())
+        );
+        let listed = list(dir.path()).unwrap();
+        assert_eq!(listed.len(), 1);
+        let kept = &listed[0];
+        assert_eq!((kept.id.as_str(), kept.tracks), (id.as_str(), Some(r.plays.len())));
+        assert_eq!(kept.coverage, Some(r.coverage), "{kept:?}");
+        assert_eq!((kept.title.as_str(), kept.mix.as_deref()), (r.mix.title.as_str(), Some(r.mix.path.as_path())));
+
+        let other = tc.draw(gs::text().max_size(12));
+        let err = load(dir.path(), &other).unwrap_err();
+        let well_formed = !other.is_empty() && other.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_');
+        match err.inner() {
+            Error::NotFound(_) => assert!(well_formed && other != id, "{other:?}"),
+            Error::Invalid(_) => assert!(!well_formed, "{other:?}"),
+            e => panic!("{other:?}: {e}"),
+        }
+    }
+
+    /// The page reads back any title, holds one entry for each play (and with the drive, what
+    /// it adds to each), names the tracks the profile hides as "ID", and puts in its title
+    /// element only what HTML takes as text.
+    #[hegel::test(test_cases = 100)]
+    fn the_page_holds_the_report_whatever_it_says(tc: TestCase) {
+        use loclib_model::test_util::track;
+        let title = tc.draw(gs::text().alphabet("ab <!-/script>&\"'é").max_size(30));
+        let mut r = report(&title);
+        r.plays =
+            (0..tc.draw(gs::integers::<u32>().max_value(4))).map(|i| play(track(i, "A", &title, "/C/d.mp3"))).collect();
+        for p in &mut r.plays {
+            let artist = tc.draw(gs::sampled_from(vec!["A", "B"]));
+            let name = format!("{artist} - {title} (dub)");
+            p.alternates.push(super::super::Alternate {
+                track_id: 99,
+                name,
+                file_path: "/C/e.mp3".into(),
+                same_audio: false,
+            });
+        }
+        let shared = tc.draw(gs::booleans());
+        let dir = tempfile::tempdir().unwrap();
+        let device = Device::open(dir.path()).unwrap();
+        let library = Library { tracks: r.plays.iter().map(|p| p.track.clone()).collect(), ..Default::default() };
+        let drive = tc.draw(gs::booleans()).then(|| Drive::new(&device, &library));
+        let mut prefs = ProfilePrefs::default();
+        let hidden = tc.draw(gs::booleans());
+        if hidden {
+            prefs.hidden_artists.push("A".into());
+        }
+        let audio = Some(Path::new("/mixes/set one.wav"));
+        let html = page(&r, drive, audio, Path::new("/r/x.html"), &prefs, shared);
+        let data = html.split_once(r#"<script id="data" type="application/json">"#).unwrap().1;
+        let data = data.split_once("</script>").unwrap().0;
+        let v: serde_json::Value = serde_json::from_str(data).unwrap_or_else(|e| panic!("{e}: {data}"));
+        assert_eq!(v["report"]["mix"]["title"], title.as_str());
+        let plays = v["report"]["plays"].as_array().unwrap();
+        assert_eq!(plays.len(), r.plays.len());
+        assert_eq!(v["extras"].as_array().unwrap().len(), if drive.is_some() { r.plays.len() } else { 0 });
+        let named = if hidden { UNNAMED } else { title.as_str() };
+        assert!(plays.iter().all(|p| p["track"]["title"] == named), "{plays:?}");
+        for (p, play) in plays.iter().zip(&r.plays) {
+            let alternate = &play.alternates[0];
+            let hidden_alternate = hidden && alternate.name.starts_with("A - ");
+            let name = if hidden_alternate { format!("{UNNAMED} - {UNNAMED}") } else { alternate.name.clone() };
+            assert_eq!(p["alternates"][0]["name"], name.as_str());
+        }
+        let audio = if shared { "set%20one.wav" } else { "../mixes/set%20one.wav" };
+        assert_eq!((v["audio"].as_str(), v["audioName"].as_str()), (Some(audio), Some("set one.wav")));
+        let head = html.split_once("<title>").unwrap().1.split_once("</title>").unwrap().0;
+        assert!(!head.contains('<') && !head.contains('>'), "{head}");
     }
 }

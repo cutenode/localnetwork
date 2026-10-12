@@ -73,7 +73,9 @@ time. The resampler's delay is taken off the front (a little silence fed in firs
 whole number of frames) and its tail is flushed: the copy's first sample is the master's, to
 within a hundredth of a frame (rubato's filter sits 1/128 of a source sample early), and the copy
 is as long as the master to the nearest frame at the new rate. The tests check both against the
-same tones made at the new rate.
+same tones made at the new rate. A master too short to fill one frame at the new rate (a single
+sample at 96 kHz, copied at 44.1) is refused with `Error::TooShort`: a copy of no frames is a
+file nothing reads back.
 
 Progress is reported as the bytes of the source read, through loclib-progress's `Ctx`, which also
 cancels a copy between packets.

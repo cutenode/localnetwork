@@ -494,6 +494,10 @@ impl From<loclib_transcode::Error> for Error {
             E::Io { path, source } => Error::Io { path, source },
             // Audio the container can't hold, or tags it can't take: this file's problem.
             E::Encode { path, message } | E::Tags { path, message } => Error::Parse { path, message },
+            E::TooShort { path, frames, source_rate, rate } => Error::Parse {
+                path,
+                message: format!("too short to copy at {rate} Hz: {frames} frame(s) at {source_rate} Hz"),
+            },
             E::Invalid(message) => Error::Invalid(message),
             E::Cancelled(_) => Error::Cancelled,
             // A variant a newer loclib-transcode adds keeps its message.
@@ -594,5 +598,103 @@ mod tests {
         assert_eq!(said(|| panic!("plain")), "plain");
         assert_eq!(said(|| panic!("{}", String::from("formatted"))), "formatted");
         assert_eq!(said(|| std::panic::panic_any(7)), "a panic");
+    }
+
+    /// However detail is piled on, an error keeps its code and message; the last reason given
+    /// wins, fields given win over what the kind says (last given first), actions keep their
+    /// order, and a permission error always offers to run elevated.
+    #[hegel::test(test_cases = 300)]
+    fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let kinds: Vec<fn() -> Error> = vec![
+            || Error::Io { path: "/a".into(), source: io::Error::other("gone") },
+            || Error::NotAnExport("/b".into()),
+            || Error::parse("/c", "bad"),
+            || Error::invalid("no"),
+            || Error::NotFound("x".into()),
+            || Error::Conflict("both".into()),
+            || Error::stale("DNA", "changed"),
+            || Error::Corrupt { path: "/e".into(), expected: "ab".into(), actual: "cd".into() },
+            || Error::NoSpace { path: "/f".into(), needed: 2, available: 1 },
+            || Error::Cancelled,
+            || Error::Locked("/d".into()),
+            || Error::Pdb("x".into()),
+            || Error::ExportExt("x".into()),
+            || Error::OneLibrary("x".into()),
+            || Error::Image("x".into()),
+            || Error::Tags("x".into()),
+            || Error::External { command: "diskutil".into(), message: "no".into() },
+            || Error::Permission("root".into()),
+            || Error::Account("x".into()),
+            || Error::Peer("x".into()),
+        ];
+        let k = tc.draw(gs::integers::<usize>().max_value(kinds.len() - 1));
+        let base = kinds[k]();
+        let (code, message) = (base.code(), base.to_string());
+        let own = base.detail();
+        let mut e = base;
+        let mut reason = None;
+        let mut fields: Map<String, Value> = Map::new();
+        let mut actions = Vec::new();
+        let reasons = [Reason::Exists, Reason::NotSaved, Reason::NeedsAdmin, Reason::ChooseDrive];
+        let keys = ["path", "drive", "needed", "command"];
+        for step in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
+            match tc.draw(gs::integers::<u8>().max_value(3)) {
+                0 => {
+                    let r = reasons[tc.draw(gs::integers::<usize>().max_value(reasons.len() - 1))];
+                    e = e.because(r);
+                    reason = Some(r);
+                }
+                1 => {
+                    let key = keys[tc.draw(gs::integers::<usize>().max_value(keys.len() - 1))];
+                    e = e.with(key, step);
+                    fields.insert(key.into(), step.into());
+                }
+                2 => {
+                    let a = Action::call("pull", serde_json::json!({ "step": step }), format!("Step {step}"));
+                    e = e.action(a.clone());
+                    actions.push(a);
+                }
+                _ => {
+                    let a = match tc.draw(gs::booleans()) {
+                        true => Action::elevate("Elevate"),
+                        false => Action::retry(serde_json::json!([step]), "Again"),
+                    };
+                    assert!(a.params.is_empty(), "params are an object, or nothing");
+                    e = e.action(a.clone());
+                    actions.push(a);
+                }
+            }
+        }
+        assert_eq!((e.code(), e.to_string()), (code, message.clone()));
+        assert_eq!((e.inner().code(), e.inner().to_string()), (code, message));
+        let d = e.detail();
+        let permission = matches!(e.inner(), Error::Permission(_));
+        assert_eq!(d.reason, reason.or(own.reason));
+        assert_eq!(e.reason(), d.reason);
+        let mut want = own.fields.clone();
+        for (k, v) in fields {
+            want.insert(k, v);
+        }
+        assert_eq!(d.fields, want);
+        if permission && !actions.iter().any(|a| a.elevate) {
+            actions.push(Action::elevate("Run it as an administrator"));
+        }
+        assert_eq!(d.actions, actions);
+        // Round trips through JSON, as the sidecar sends it.
+        let back: Detail = serde_json::from_value(serde_json::to_value(&d).unwrap()).unwrap();
+        assert_eq!(back, d);
+    }
+
+    /// An I/O error given a path says which, and keeps its cause.
+    #[hegel::test(test_cases = 50)]
+    fn io_errors_name_their_path(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let name = tc.draw(gs::sampled_from(vec!["export.pdb", "Ünï/ANLZ0000.DAT", "a b"]));
+        let r: io::Result<()> = Err(io::Error::new(io::ErrorKind::NotFound, "no such file"));
+        let e = r.at(Path::new("/Volumes/USB").join(name)).unwrap_err();
+        assert_eq!(e.code(), "io");
+        assert_eq!(e.detail().fields["path"], format!("/Volumes/USB/{name}"));
+        assert!(e.to_string().ends_with("no such file"), "{e}");
     }
 }
