@@ -3,6 +3,7 @@
 use locallibrary::api::{DriveStatus, FleetLibrary};
 use locallibrary::compare::Relation;
 use locallibrary::fleet::{Role, Standing};
+use locallibrary::local_time;
 use locallibrary::query::{SortField, SortKey};
 use locallibrary::{DeviceInfo, Track};
 use loclib_waveform::{CueLane, Detail, Overview, PhraseStrip, Pixels, Scope, Spectrum, bar_layout, cue_letter, vinyl};
@@ -1866,7 +1867,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         }
         if let Some(at) = d.exported_at {
             let rev = d.pdb.as_ref().map(|p| format!("  ·  export.pdb rev {}", p.sequence)).unwrap_or_default();
-            lines.push(pane_field("exported", format!("{}{rev}", at.format("%Y-%m-%d %H:%M"))));
+            lines.push(pane_field("exported", format!("{}{rev}", local_time(at, "%Y-%m-%d %H:%M"))));
         }
         if d.has_library_plus {
             lines.push(pane_field("players", "OneLibrary (exportLibrary.db) present".into()));
@@ -1915,7 +1916,8 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
                 lines.push(pane_field("library", format!("{lib}{plugged}")));
             }
             if let Some(h) = &s.head {
-                lines.push(pane_field("latest", format!("{}  {}", h.short_id, h.created.format("%Y-%m-%d %H:%M"))));
+                lines
+                    .push(pane_field("latest", format!("{}  {}", h.short_id, local_time(h.created, "%Y-%m-%d %H:%M"))));
             }
             if s.settings_drift > 0 {
                 lines.push(Line::styled(
@@ -1959,12 +1961,12 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
                 for (what, c) in [("verified", &log.last_scrub), ("fs check", &log.last_fs_check)] {
                     if let Some(c) = c {
                         let mark = if c.ok { "✓" } else { "✖" };
-                        lines.push(pane_field(what, format!("{mark} {}  {}", c.at.format("%Y-%m-%d"), c.summary)));
+                        lines.push(pane_field(what, format!("{mark} {}  {}", local_time(c.at, "%Y-%m-%d"), c.summary)));
                     }
                 }
                 if let Some(p) = log.problems.last() {
                     lines.push(Line::styled(
-                        format!("  ✖ {} {}: {}", p.at.format("%Y-%m-%d"), p.kind.replace('_', " "), p.detail),
+                        format!("  ✖ {} {}: {}", local_time(p.at, "%Y-%m-%d"), p.kind.replace('_', " "), p.detail),
                         fg(theme::RED),
                     ));
                 }
@@ -1986,7 +1988,7 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
         let last = d
             .last_known
             .as_ref()
-            .map(|e| format!(" · last: {:?} {}", e.op, e.at.format("%Y-%m-%d %H:%M")).to_lowercase())
+            .map(|e| format!(" · last: {:?} {}", e.op, local_time(e.at, "%Y-%m-%d %H:%M")).to_lowercase())
             .unwrap_or_default();
         let states = if d.lineage_len == 1 { "state" } else { "states" };
         lines.push(Line::styled(format!("  {} {states} recorded{last}", d.lineage_len), text()));
@@ -1994,7 +1996,11 @@ fn draw_drives(f: &mut Frame, app: &mut App, area: Rect) {
     }
     if let Some(p) = &d.pending {
         lines.push(Line::styled(
-            format!("⚠ interrupted: {} ({}), re-run it to finish", p.description, p.started.format("%Y-%m-%d %H:%M")),
+            format!(
+                "⚠ interrupted: {} ({}), re-run it to finish",
+                p.description,
+                local_time(p.started, "%Y-%m-%d %H:%M")
+            ),
             bold(theme::AMBER),
         ));
         lines.push(Line::raw(""));
@@ -2145,7 +2151,8 @@ fn draw_library_clones(f: &mut Frame, app: &App, id: Uuid, area: Rect) {
     match (&app.status, fleet) {
         (_, Some(l)) => {
             if let Some(h) = &l.head {
-                lines.push(pane_field("latest", format!("{}  {}", h.short_id, h.created.format("%Y-%m-%d %H:%M"))));
+                lines
+                    .push(pane_field("latest", format!("{}  {}", h.short_id, local_time(h.created, "%Y-%m-%d %H:%M"))));
             }
             lines.push(Line::from(
                 [vec![Span::styled(format!("  {:<12}", "clones"), dim())], library_state(l)].concat(),
@@ -2199,7 +2206,7 @@ fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
                     fg(if head { theme::GREEN } else { theme::FAINT }),
                 )),
                 Cell::from(Span::styled(s.short_id.clone(), fg(theme::AMBER))),
-                Cell::from(Span::styled(s.created.format("%Y-%m-%d %H:%M").to_string(), text())),
+                Cell::from(Span::styled(local_time(s.created, "%Y-%m-%d %H:%M").to_string(), text())),
                 Cell::from(Line::styled(s.summary.tracks.to_string(), text()).right_aligned()),
                 Cell::from(Line::styled(bytes(s.bytes), dim()).right_aligned()),
                 Cell::from(Span::styled(source, fg(theme::CYAN))),
@@ -2486,7 +2493,7 @@ fn undo_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
         Span::styled(format!("{}: ", c.drive), bold(theme::PINK)),
         Span::styled(format!("put back the backup ({})", b.reason), text()),
     ]));
-    lines.push(Line::styled(format!("made {}  ·  {}", b.created.format("%Y-%m-%d %H:%M"), b.id), faint()));
+    lines.push(Line::styled(format!("made {}  ·  {}", local_time(b.created, "%Y-%m-%d %H:%M"), b.id), faint()));
     lines.push(Line::raw(""));
     let d = &u.diff;
     for p in &d.added_playlists {
@@ -3151,7 +3158,7 @@ mod tests {
         for said in [
             "120  ·  90 artists",
             "4 tracks (locallibrary art auto)",
-            "2026-10-04 21:30",
+            &local_time(at, "%Y-%m-%d %H:%M").to_string(),
             "OneLibrary (exportLibrary.db) present",
             "75% used",
             "checking…",
@@ -3188,9 +3195,9 @@ mod tests {
             "role        set",
             "3 times, 1.2 GB",
             "2 times cleanly",
-            "✓ 2026-10-04  all 120 tracks read",
-            "✖ 2026-10-04  2 errors",
-            "✖ 2026-10-04 write failed: disk full",
+            &format!("✓ {}  all 120 tracks read", local_time(at, "%Y-%m-%d")),
+            &format!("✖ {}  2 errors", local_time(at, "%Y-%m-%d")),
+            &format!("✖ {} write failed: disk full", local_time(at, "%Y-%m-%d")),
             "write-protected",
             "nearly full",
             "a copy of it (or it of) /Volumes/DNA 1",
@@ -3297,7 +3304,7 @@ mod tests {
             "● REKORDBOX  primary  ✓ up to date",
             "● SD         set      ▲ back from a set: 2 new sessions",
             "○ Spare      backup   not plugged in · 2 snapshots behind",
-            "latest      3f9a2c  2026-10-08 12:00",
+            &format!("latest      3f9a2c  {}", local_time(at_time, "%Y-%m-%d %H:%M")),
             "browse its newest clone in the library",
         ] {
             assert!(s.contains(said), "{said}\n{s}");

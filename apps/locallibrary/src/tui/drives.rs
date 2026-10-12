@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use locallibrary::api::{self, CheckRequest, DriveRef, EjectDrives, FleetDrive, PullRequest};
 use locallibrary::check::{CheckOptions, CheckReport, Level as CheckLevel};
 use locallibrary::export::{self, Format, Locator, PathStyle};
+use locallibrary::local_time;
 use locallibrary::pack::PackOptions;
 use locallibrary::{Ctx, DeviceInfo, Error, Store, Track, fsutil};
 use uuid::Uuid;
@@ -579,9 +580,9 @@ impl App {
                 let mut ids = vec![None];
                 for s in snaps {
                     let label = match (&s.message, s.labels.first()) {
-                        (_, Some(l)) => format!("{}  {l}", s.created.format("%Y-%m-%d %H:%M")),
-                        (Some(m), None) => format!("{}  {m}", s.created.format("%Y-%m-%d %H:%M")),
-                        (None, None) => s.created.format("%Y-%m-%d %H:%M").to_string(),
+                        (_, Some(l)) => format!("{}  {l}", local_time(s.created, "%Y-%m-%d %H:%M")),
+                        (Some(m), None) => format!("{}  {m}", local_time(s.created, "%Y-%m-%d %H:%M")),
+                        (None, None) => local_time(s.created, "%Y-%m-%d %H:%M").to_string(),
                     };
                     items.push(Item::new(label, s.short_id.clone()));
                     ids.push(Some(s.short_id));

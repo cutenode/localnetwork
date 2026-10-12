@@ -26,6 +26,7 @@ use chrono::{DateTime, Local, NaiveDate, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::local_time;
 use crate::model::Track;
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
@@ -302,7 +303,7 @@ impl Window {
     /// `on 3 Oct 2026`, `between 29 Sep and 3 Oct 2026`, `before 3 Oct 2026`, `after ...`, or
     /// `unknown`.
     pub fn label(&self) -> String {
-        let day = |t: DateTime<Utc>| t.with_timezone(&Local).format("%-d %b %Y").to_string();
+        let day = |t: DateTime<Utc>| local_time(t, "%-d %b %Y").to_string();
         if let Some(d) = self.day() {
             return format!("on {}", d.format("%-d %b %Y"));
         }

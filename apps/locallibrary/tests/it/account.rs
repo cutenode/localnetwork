@@ -102,7 +102,11 @@ fn the_status_says_what_the_session_allows_and_until_when() {
     let out = env.ok(&["account"]);
     assert!(out.starts_with("Atmosphere account @dj.example.com\n"), "{out}");
     assert!(out.contains("  did:plc:testdj - data on 127.0.0.1:9 - signed in at 127.0.0.1:9\n"), "{out}");
-    assert!(out.contains("  signed in 2026-10-05 - sign in again by 2099-01-01 ("), "{out}");
+    // The account's details hold UTC; the status shows this computer's calendar.
+    let day =
+        |t: &str| locallibrary::local_time(chrono::DateTime::parse_from_rfc3339(t).unwrap(), "%Y-%m-%d").to_string();
+    let (signed_in, again) = (day("2026-10-05T00:00:00Z"), day("2099-01-01T00:00:00Z"));
+    assert!(out.contains(&format!("  signed in {signed_in} - sign in again by {again} (")), "{out}");
     assert!(out.contains("allowed: atproto transition:generic - session kept "), "{out}");
     if cfg!(target_os = "macos") {
         assert!(out.contains("session kept in the macOS Keychain"), "{out}");

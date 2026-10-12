@@ -9,6 +9,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, ProfileRequest, ProfileView};
+use locallibrary::local_time;
 use locallibrary::model::normalize;
 use locallibrary::profile::{
     self, Basis, DEFAULT_MIN_SET_TRACKS, DEFAULT_TOP, PlayedTrack, Precision, PrefsUpdate, ProfilePrefs, ProfileReport,
@@ -477,7 +478,7 @@ fn render(v: &ProfileView, view: &ViewArgs) {
         }
         Basis::Collection => "no sets found: describing the collection".to_string(),
     };
-    say!("  {}", dim(format!("{basis} · built {}", r.generated.format("%Y-%m-%d %H:%M UTC"))));
+    say!("  {}", dim(format!("{basis} · built {}", local_time(r.generated, "%Y-%m-%d %H:%M"))));
 
     if c.section(Section::Summary, "") {
         let headline = v.prefs.headline.clone().unwrap_or_else(|| r.summary.headline.clone());

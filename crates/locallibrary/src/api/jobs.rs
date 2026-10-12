@@ -33,6 +33,7 @@ use crate::edit::{self, Edit, EditOptions};
 use crate::eject::EjectReport;
 use crate::error::{Action, Reason};
 use crate::fleet::{self, Role};
+use crate::local_time;
 use crate::op::{self, AnyPlanned, CloneTarget, Operation, Planned, Touched};
 use crate::progress::{Ctx, Steps};
 use crate::store::Store;
@@ -1495,7 +1496,7 @@ pub(crate) fn unmatched_drive(spec: &str, mounted: &[Device]) -> Error {
         return Error::NotFound(format!(
             "{} is known but not mounted; last seen {} at {}{listing}",
             rec.name,
-            rec.last_seen.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M"),
+            local_time(rec.last_seen, "%Y-%m-%d %H:%M"),
             rec.last_mount.display()
         ));
     }

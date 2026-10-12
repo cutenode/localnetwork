@@ -22,6 +22,7 @@ use uuid::Uuid;
 use crate::error::{IoContext, Reason};
 use crate::fsutil;
 use crate::hash::Hash;
+use crate::local_time;
 use crate::model::{Library, LibraryDiff, LibrarySummary, TrackChange, TrackRef};
 use crate::onelibrary::OneLibrary;
 use crate::paths::{self, FileClass};
@@ -147,7 +148,7 @@ impl PendingOp {
         };
         let what = command.map_or("a locallibrary operation".into(), |c| format!("a `locallibrary {c}`"));
         let about = if self.description.is_empty() { String::new() } else { format!(" ({})", self.description) };
-        let started = self.started.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M");
+        let started = local_time(self.started, "%Y-%m-%d %H:%M");
         format!("{what}{about} didn't finish (started {started})")
     }
 

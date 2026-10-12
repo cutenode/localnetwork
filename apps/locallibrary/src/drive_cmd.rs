@@ -12,6 +12,7 @@ use locallibrary::api::{self, DriveRef};
 use locallibrary::compare::Relation;
 use locallibrary::fleet::{DriveLog, KnownDrive, Role, Standing};
 use locallibrary::format::{FormatOptions, FormatPlan};
+use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 use locallibrary::recordings::{CollectOptions, Tracklist};
 use locallibrary::scrub::ScrubReport;
@@ -623,7 +624,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                 if let Some(role) = r.role {
                     say!("  role        {}", role.name());
                 }
-                say!("  last seen   {} at {}", r.last_seen.format("%Y-%m-%d %H:%M"), r.last_mount.display());
+                say!("  last seen   {} at {}", local_time(r.last_seen, "%Y-%m-%d %H:%M"), r.last_mount.display());
                 if let Some(c) = r.capacity {
                     say!("  capacity    {}", bytes(c));
                 }
@@ -649,14 +650,14 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                         "holds {:?} as of snapshot {} ({})",
                         m.library,
                         m.snapshot.short_id,
-                        m.snapshot.created.format("%Y-%m-%d %H:%M")
+                        local_time(m.snapshot.created, "%Y-%m-%d %H:%M")
                     );
                 }
                 if let Some(d) = &r.drive_by_content {
                     say!(
                         "holds what {} held when last seen ({})",
                         style(&d.name).bold(),
-                        d.last_seen.format("%Y-%m-%d")
+                        local_time(d.last_seen, "%Y-%m-%d")
                     );
                 }
                 if let Some(d) = &r.drive_by_hardware {
@@ -892,7 +893,13 @@ fn backups(drive: Option<String>, out: Output) -> Result<ExitCode> {
             say!("no backups");
         }
         for b in l {
-            say!("{}  {}  {}  {}", b.id, b.created.format("%Y-%m-%d %H:%M"), b.reason, output::dim(backup_files(b)));
+            say!(
+                "{}  {}  {}  {}",
+                b.id,
+                local_time(b.created, "%Y-%m-%d %H:%M"),
+                b.reason,
+                output::dim(backup_files(b))
+            );
         }
     });
     Ok(outcome.exit())
@@ -1300,7 +1307,7 @@ pub fn known_drives(list: &[KnownDrive]) {
         let role = k.role.map(|r| format!(" [{}]", r.name())).unwrap_or_default();
         let place = match &k.mounted {
             Some(p) => style(format!("mounted at {}", p.display())).green().to_string(),
-            None => format!("last seen {}", k.last_seen.format("%Y-%m-%d")),
+            None => format!("last seen {}", local_time(k.last_seen, "%Y-%m-%d")),
         };
         let retired = if k.log.retired.is_some() { dim(" retired").to_string() } else { String::new() };
         say!(
@@ -1310,27 +1317,27 @@ pub fn known_drives(list: &[KnownDrive]) {
             standing(&k.standing)
         );
         if let Some(p) = k.log.problems.last() {
-            warn(format!("  {}: {} ({})", k.name, p.detail, p.at.format("%Y-%m-%d")));
+            warn(format!("  {}: {} ({})", k.name, p.detail, local_time(p.at, "%Y-%m-%d")));
         }
     }
 }
 
 fn drive_log(l: &DriveLog) {
     if let Some(f) = l.first_seen {
-        say!("  first seen  {}", f.format("%Y-%m-%d"));
+        say!("  first seen  {}", local_time(f, "%Y-%m-%d"));
     }
     say!("  written     {} in {} operation(s), {} clean eject(s)", bytes(l.bytes_written), l.writes, l.clean_ejects);
     for (what, c) in [("last check", &l.last_scrub), ("file system", &l.last_fs_check)] {
         if let Some(c) = c {
             let mark = if c.ok { style("ok").green() } else { style("problems").red() };
-            say!("  {what:<11} {mark}: {} ({})", c.summary, c.at.format("%Y-%m-%d"));
+            say!("  {what:<11} {mark}: {} ({})", c.summary, local_time(c.at, "%Y-%m-%d"));
         }
     }
     if let Some(r) = l.retired {
-        say!("  retired     {}", r.format("%Y-%m-%d"));
+        say!("  retired     {}", local_time(r, "%Y-%m-%d"));
     }
     for p in l.problems.iter().rev().take(10) {
-        warn(format!("{}  {}: {}", p.at.format("%Y-%m-%d"), p.kind, p.detail));
+        warn(format!("{}  {}: {}", local_time(p.at, "%Y-%m-%d"), p.kind, p.detail));
     }
 }
 

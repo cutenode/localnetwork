@@ -13,6 +13,7 @@ use anyhow::{Result, bail};
 use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, PlannedPublish, PublishPlan};
+use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 use locallibrary::publish;
 use locallibrary::settings;
@@ -117,7 +118,7 @@ fn publish_flow(
 /// A record's time stamp as a day on this computer's calendar.
 fn date(v: &Value, field: &str) -> Option<String> {
     let t = chrono::DateTime::parse_from_rfc3339(v[field].as_str()?).ok()?;
-    Some(t.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+    Some(local_time(t, "%Y-%m-%d").to_string())
 }
 
 fn render_plan(p: &PublishPlan, what: &str, show: &impl Fn(&Value, Option<&Value>)) {

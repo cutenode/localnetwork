@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use locallibrary::api::{self, AccountInfo, Client};
 use locallibrary::atmosphere;
 use locallibrary::error::Reason;
+use locallibrary::local_time;
 use locallibrary::progress::{CancelToken, Ctx, NoProgress};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::text::{Line, Span};
@@ -109,7 +110,7 @@ impl Account {
                     Span::styled(
                         format!(
                             " · sign in again by {} ({} days)",
-                            a.sign_in_again_by.format("%Y-%m-%d"),
+                            local_time(a.sign_in_again_by, "%Y-%m-%d"),
                             a.days_left()
                         ),
                         dim(),
@@ -364,7 +365,8 @@ mod tests {
 
         t.info = Some(signed_in("2099-01-01T00:00:00Z"));
         let bar = shown(&t, 200);
-        assert!(bar.contains("sign in again by 2099-01-01"), "{bar}");
+        let by = local_time(t.info.as_ref().unwrap().sign_in_again_by, "%Y-%m-%d");
+        assert!(bar.contains(&format!("sign in again by {by}")), "{bar}");
         assert!(!bar.contains("likely ended"), "{bar}");
     }
 

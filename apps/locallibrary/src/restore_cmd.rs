@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 use locallibrary::api::{self, PlaylistRestorePreview, RestoreSource};
+use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 
 use crate::edit_cmd::{render_plan, render_report};
@@ -46,10 +47,10 @@ fn render(p: &PlaylistRestorePreview) {
             "snapshot {} of {} ({})",
             snapshot.short_id,
             library.as_deref().unwrap_or("an unknown library"),
-            snapshot.created.format("%Y-%m-%d %H:%M")
+            local_time(snapshot.created, "%Y-%m-%d %H:%M")
         ),
         RestoreSource::Backup { backup } => {
-            format!("backup {} ({}, {})", backup.id, backup.reason, backup.created.format("%Y-%m-%d %H:%M"))
+            format!("backup {} ({}, {})", backup.id, backup.reason, local_time(backup.created, "%Y-%m-%d %H:%M"))
         }
     };
     heading(&format!("Restoring {what} from {from}"));
@@ -100,7 +101,7 @@ fn render_undo(p: &api::UndoPlan) {
         p.drive,
         p.backup.id,
         p.backup.reason,
-        p.backup.created.format("%Y-%m-%d %H:%M")
+        local_time(p.backup.created, "%Y-%m-%d %H:%M")
     ));
     if p.files.is_empty() {
         say!("  {}", dim("no file differs from the backup"));
@@ -118,7 +119,7 @@ fn render_undo(p: &api::UndoPlan) {
         say!("Recorded edits taken off the journal (`edits replay` won't make them again):");
         for e in &p.journal {
             for c in &e.changes {
-                say!("  - {c} {}", dim(e.at.format("%Y-%m-%d %H:%M")));
+                say!("  - {c} {}", dim(local_time(e.at, "%Y-%m-%d %H:%M")));
             }
         }
     }
@@ -146,7 +147,7 @@ pub fn undo_list(l: &api::UndoList) {
             say!(
                 "  {}  {}  {}{}",
                 b.backup.id,
-                b.backup.created.format("%Y-%m-%d %H:%M"),
+                local_time(b.backup.created, "%Y-%m-%d %H:%M"),
                 b.backup.reason,
                 dim(format!(" ({}{edits}){next}", crate::drive_cmd::backup_files(&b.backup)))
             );

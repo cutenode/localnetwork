@@ -10,6 +10,7 @@ use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, LibraryListing};
+use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 
 use crate::output::{self, Outcome, Output, dim};
@@ -182,7 +183,7 @@ pub fn push(a: PushArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
             "Snapshot {} ({} tracks, {})",
             preview.snapshot.short_id,
             preview.snapshot.summary.tracks,
-            preview.snapshot.created.format("%Y-%m-%d %H:%M")
+            local_time(preview.snapshot.created, "%Y-%m-%d %H:%M")
         );
         render::sync_plan(&preview.plan.plan);
     }
@@ -203,7 +204,7 @@ fn render_list(libs: &[LibraryListing]) {
     }
     for l in libs {
         let head = match &l.head {
-            Some(h) => format!("latest {} ({})", h.short_id, h.created.format("%Y-%m-%d %H:%M")),
+            Some(h) => format!("latest {} ({})", h.short_id, local_time(h.created, "%Y-%m-%d %H:%M")),
             None => "no snapshots".into(),
         };
         say!("{}  {}", style(&l.name).bold(), dim(format!("{} snapshot(s), {head}", l.snapshots)));

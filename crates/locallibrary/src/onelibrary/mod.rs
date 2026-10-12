@@ -478,7 +478,7 @@ impl OneLibrary {
         one.conn.execute_batch(include_str!("schema.sql"))?;
         one.conn.execute(
             "UPDATE property SET createdDate = ?1, numberOfContents = 0",
-            [chrono::Utc::now().format("%Y-%m-%d").to_string()],
+            [chrono::Local::now().format("%Y-%m-%d").to_string()],
         )?;
         Ok(one)
     }

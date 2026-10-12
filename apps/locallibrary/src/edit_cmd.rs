@@ -8,6 +8,7 @@ use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, DriveRef, EditRequest};
 use locallibrary::edit::{Edit, EditOptions, EditPlan, EditReport, TrackFields};
+use locallibrary::local_time;
 use locallibrary::model::Library;
 use locallibrary::op::Planned;
 use locallibrary::progress::Ctx;
@@ -949,7 +950,7 @@ pub fn edits(args: EditsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
                     say!("no edits recorded on this drive");
                 }
                 for e in l {
-                    say!("{}", style(e.at.format("%Y-%m-%d %H:%M")).bold());
+                    say!("{}", style(local_time(e.at, "%Y-%m-%d %H:%M")).bold());
                     for c in &e.changes {
                         say!("  - {c}");
                     }

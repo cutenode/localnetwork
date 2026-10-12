@@ -40,6 +40,7 @@ use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::fsutil;
 use crate::hash::{self, Hash};
+use crate::local_time;
 use crate::model::LibrarySummary;
 use crate::progress::{Ctx, Event, Phase};
 use crate::settings::SettingsProfile;
@@ -576,7 +577,7 @@ impl Store {
         {
             return Err(Error::NotFound(format!(
                 "snapshot {prefix}: it was pruned on {}",
-                p.pruned.format("%Y-%m-%d %H:%M")
+                local_time(p.pruned, "%Y-%m-%d %H:%M")
             )));
         }
         match found.len() {

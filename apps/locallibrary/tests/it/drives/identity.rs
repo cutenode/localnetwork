@@ -143,6 +143,29 @@ fn the_registry_says_how_far_behind_each_drive_is() {
     assert!(out.contains("rekordbox exported over 2 recorded edit(s): run `locallibrary refresh \"Main\"`"), "{out}");
 }
 
+/// Times print on this computer's calendar, whatever day it is in UTC, and `--json` keeps UTC.
+#[test]
+fn times_print_in_the_local_time_zone() {
+    use chrono::Timelike;
+    // A zone whose date isn't UTC's for at least the next hour: 12 hours behind before 11:00 UTC,
+    // 14 ahead (no daylight saving in either) after.
+    let now = chrono::Utc::now();
+    let (tz, hours) = if now.hour() < 11 { ("Etc/GMT+12", -12) } else { ("Pacific/Kiritimati", 14) };
+    let today = (now + chrono::Duration::hours(hours)).format("%Y-%m-%d").to_string();
+    let env = Env::new();
+    env.pulled("Main");
+    let run = |args: &[&str]| {
+        let out = env.command().env("TZ", tz).args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let out = run(&["drive", "info", "Main"]);
+    assert!(line(&out, "  last seen ").contains(&format!(" {today} ")), "{out}");
+    let info: serde_json::Value = serde_json::from_str(&run(&["--json", "drive", "info", "Main"])).unwrap();
+    let at = chrono::DateTime::parse_from_rfc3339(info["last_known"]["at"].as_str().unwrap()).unwrap();
+    assert_eq!(at.offset().local_minus_utc(), 0, "{info}");
+}
+
 /// The drive commands kept their old top-level names, hidden, and answer the same way.
 #[test]
 fn old_drive_command_names_answer_like_the_drive_ones() {

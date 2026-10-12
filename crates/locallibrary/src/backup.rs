@@ -35,6 +35,7 @@ use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::fsutil;
 use crate::hash::{self, Hash};
+use crate::local_time;
 use crate::paths::{self, FileClass};
 use crate::progress::{Ctx, Phase};
 use crate::{Error, Result};
@@ -293,7 +294,11 @@ fn changed_since(device: &Device, info: &BackupInfo) -> Error {
             });
             let by = match copied {
                 Some(e) => {
-                    format!("after a {} on {}", format!("{:?}", e.op).to_lowercase(), e.at.format("%Y-%m-%d %H:%M"))
+                    format!(
+                        "after a {} on {}",
+                        format!("{:?}", e.op).to_lowercase(),
+                        local_time(e.at, "%Y-%m-%d %H:%M")
+                    )
                 }
                 None => "perhaps by a rekordbox export, a sync or players recording history".into(),
             };
