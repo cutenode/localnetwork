@@ -26,6 +26,7 @@ use uuid::Uuid;
 use crate::device::{Device, LineageEntry, LineageOp};
 use crate::doctor::Databases;
 use crate::hash::Hash;
+use crate::local_time;
 use crate::model::{Library, LibraryDiff};
 use crate::paths;
 use crate::pdb;
@@ -386,7 +387,7 @@ fn decide(left: &Side, right: &Side, overlap: f64, ev: &mut Vec<Evidence>) -> (R
         ev.push(evidence(
             "lineage",
             Favors::Neither,
-            format!("both changed since they were last in sync ({})", common.at.format("%Y-%m-%d %H:%M")),
+            format!("both changed since they were last in sync ({})", local_time(common.at, "%Y-%m-%d %H:%M")),
             0,
         ));
         return (Relation::Diverged, Confidence::High);
@@ -443,7 +444,7 @@ fn decide(left: &Side, right: &Side, overlap: f64, ev: &mut Vec<Evidence>) -> (R
             ev.push(evidence(
                 "exported_at",
                 f,
-                format!("exported {} vs {}", a.format("%Y-%m-%d %H:%M"), b.format("%Y-%m-%d %H:%M")),
+                format!("exported {} vs {}", local_time(a, "%Y-%m-%d %H:%M"), local_time(b, "%Y-%m-%d %H:%M")),
                 1,
             ));
         }

@@ -6,6 +6,7 @@ use serde::Deserialize;
 use super::diff::{Endpoint, resolve_endpoint, snapshot};
 use super::{DriveRef, resolve_drive};
 use crate::error::Reason;
+use crate::local_time;
 use crate::plays::{self, DriveHistory, HistoryArchive, PlayStats};
 use crate::progress::Ctx;
 use crate::store::{Snapshot, Store};
@@ -93,7 +94,7 @@ fn since_snapshot(store: &Store, source: &Endpoint<'_>, since: &str) -> Result<S
     let history = store.history(&lib, None)?;
     let Some(before) = history.iter().find(|s| s.created < start) else {
         let oldest =
-            history.last().map(|s| format!("; the oldest is {} ({})", s.short_id, s.created.format("%Y-%m-%d")));
+            history.last().map(|s| format!("; the oldest is {} ({})", s.short_id, local_time(s.created, "%Y-%m-%d")));
         return Err(Error::NotFound(format!(
             "a snapshot of {} from before {since}{}",
             lib.name,

@@ -10,6 +10,7 @@ use locallibrary::convert::{ConvertPlan, ConvertReport, Target};
 use locallibrary::device::DeviceInfo;
 use locallibrary::format::{Compatibility, DiskView, FormatPlan, FormatReport, Scheme, Verdict, Volume};
 use locallibrary::harmony::Camelot;
+use locallibrary::local_time;
 use locallibrary::merge::{MergePlan, MergeReport};
 use locallibrary::settings::{self, ApplyReport, SettingsProfile};
 use locallibrary::store::SnapshotInfo;
@@ -108,7 +109,7 @@ pub fn info(d: &DeviceInfo) {
         say!("  library     {}", dim("none"));
     }
     if let Some(at) = d.exported_at {
-        say!("  exported    {}", at.format("%Y-%m-%d %H:%M"));
+        say!("  exported    {}", local_time(at, "%Y-%m-%d %H:%M"));
     }
     if let Some(h) = &d.pdb {
         say!("  export.pdb  save #{}", h.sequence);
@@ -133,7 +134,12 @@ pub fn info(d: &DeviceInfo) {
         if d.settings_files.is_empty() { "none".to_string() } else { d.settings_files.join(", ") }
     );
     if let Some(last) = &d.last_known {
-        say!("  last seen   {:?} at {} ({} recorded states)", last.op, last.at.format("%Y-%m-%d %H:%M"), d.lineage_len);
+        say!(
+            "  last seen   {:?} at {} ({} recorded states)",
+            last.op,
+            local_time(last.at, "%Y-%m-%d %H:%M"),
+            d.lineage_len
+        );
     }
     if let Some(p) = &d.pending {
         warn(interrupted(p));
@@ -548,7 +554,7 @@ pub fn comparison(c: &Comparison) {
             side.label,
             side.tracks,
             side.playlists,
-            side.exported_at.map(|t| format!(", exported {}", t.format("%Y-%m-%d %H:%M"))).unwrap_or_default(),
+            side.exported_at.map(|t| format!(", exported {}", local_time(t, "%Y-%m-%d %H:%M"))).unwrap_or_default(),
             if flags.is_empty() { String::new() } else { format!(" ({})", flags.join(", ")) }
         );
     }
@@ -809,7 +815,7 @@ pub fn log(all: &IndexMap<String, Vec<SnapshotInfo>>) {
                 style(&s.short_id).yellow(),
                 labels(&s.labels),
                 if s.beside { format!(" {}", dim("beside")) } else { String::new() },
-                s.created.format("%Y-%m-%d %H:%M"),
+                local_time(s.created, "%Y-%m-%d %H:%M"),
                 s.summary.tracks,
                 bytes(s.bytes),
                 s.source.as_ref().map(|src| format!("from {}", src.drive_name)).unwrap_or_default(),
@@ -823,7 +829,7 @@ pub fn store_info(s: &StoreInfo) {
     heading("Store");
     say!("  location   {}", s.root.display());
     if let Some(c) = &s.copy_of {
-        let when = |t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%d %H:%M").to_string();
+        let when = |t: chrono::DateTime<chrono::Utc>| local_time(t, "%Y-%m-%d %H:%M").to_string();
         let as_of = c.last_complete.map(|t| format!("as of {}", when(t)));
         say!(
             "  copy of    {} ({})",

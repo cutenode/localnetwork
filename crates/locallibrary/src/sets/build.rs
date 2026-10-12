@@ -294,10 +294,10 @@ mod tests {
     fn a_set_is_dated_by_what_knows_best() {
         let today = NaiveDate::from_ymd_opt(2026, 10, 6).unwrap();
         let day = |s: &str| NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
-        let on = |d: &str| Window {
-            after: Some(at(&format!("{d}T11:00:00Z"))),
-            before: Some(at(&format!("{d}T13:00:00Z"))),
-            exact: false,
+        // Between 11:00 and 13:00 on this computer's clock, so on the day `d` in any time zone.
+        let on = |d: &str| {
+            let local = |h| day(d).and_hms_opt(h, 0, 0).unwrap().and_local_timezone(Local).unwrap().with_timezone(&Utc);
+            Window { after: Some(local(11)), before: Some(local(13)), exact: false }
         };
         let (a, b) = (session("aaaa", &[1], on("2026-10-03")), session("bbbb", &[2], on("2026-10-03")));
         let mut r = report(&[]);
@@ -311,7 +311,7 @@ mod tests {
         // Played before the first of them was seen.
         let later = session("cccc", &[3], on("2026-10-05"));
         let (d, note) = date(None, None, &[&later, &a], today);
-        assert_eq!(d, at("2026-10-03T13:00:00Z").with_timezone(&Local).date_naive());
+        assert_eq!(d, day("2026-10-03"));
         assert!(note.unwrap().contains("the day locallibrary first saw it"));
 
         let unknown = session("dddd", &[4], Window::default());

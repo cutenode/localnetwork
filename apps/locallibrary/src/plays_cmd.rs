@@ -12,6 +12,7 @@ use console::style;
 use locallibrary::Store;
 use locallibrary::api;
 use locallibrary::export::{self, Format};
+use locallibrary::local_time;
 use locallibrary::model::Track;
 use locallibrary::plays::{self, DriveHistory, HistoryArchive, HistoryList, PlayStats};
 use locallibrary::progress::Ctx;
@@ -203,7 +204,7 @@ pub fn run(args: PlaysArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
             let log = api::sessions_import(&crate::open_store(store)?, &req)?;
             Ok(out.done(&log, |l| {
                 let id = &l.id[..l.id.len().min(8)];
-                let when = |t: chrono::DateTime<chrono::Utc>| t.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M");
+                let when = |t: chrono::DateTime<chrono::Utc>| local_time(t, "%Y-%m-%d %H:%M");
                 // An imported log has plays: one without is refused.
                 let (first, last) = (&l.plays[0], &l.plays[l.plays.len() - 1]);
                 let span = format!(", {} to {}", when(first.started), when(last.stopped.unwrap_or(last.started)));
@@ -400,7 +401,7 @@ fn render_stats(s: &PlayStats) {
         }
     }
     if let Some(since) = &s.since {
-        heading(&format!("Since snapshot {} ({})", since.short_id, since.created.format("%Y-%m-%d %H:%M")));
+        heading(&format!("Since snapshot {} ({})", since.short_id, local_time(since.created, "%Y-%m-%d %H:%M")));
         if !since.new_histories.is_empty() {
             say!("  {} new history list(s): {}", since.new_histories.len(), since.new_histories.join(", "));
         }

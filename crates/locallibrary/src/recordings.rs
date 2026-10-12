@@ -20,6 +20,7 @@ use crate::error::IoContext;
 use crate::error::Reason;
 use crate::fsutil;
 use crate::hash;
+use crate::local_time;
 use crate::model::Library;
 use crate::progress::{Ctx, Event, Phase};
 use crate::schema::Failure;
@@ -43,7 +44,7 @@ pub struct Recording {
 impl Recording {
     /// When it started (or, if its length is unknown, ended), in this computer's time zone.
     pub fn local_time(&self, format: &str) -> String {
-        self.started.unwrap_or(self.modified).with_timezone(&chrono::Local).format(format).to_string()
+        local_time(self.started.unwrap_or(self.modified), format).to_string()
     }
 }
 

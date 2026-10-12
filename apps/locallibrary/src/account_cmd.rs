@@ -11,6 +11,7 @@ use console::style;
 use locallibrary::Store;
 use locallibrary::api::{self, AccountInfo, AccountStatus, Client, Storage};
 use locallibrary::atmosphere;
+use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 
 use crate::output::{Output, dim, heading, ok, warn};
@@ -296,13 +297,13 @@ fn render_details(a: &AccountInfo) {
     let host = |url: &str| url.split("://").nth(1).unwrap_or(url).trim_end_matches('/').to_string();
     say!("  {}", dim(format!("{} · data on {} · signed in at {}", a.did, host(&a.pds), host(&a.auth_server))));
     let again = if a.days_left() >= 1 {
-        format!("sign in again by {} ({} days)", a.sign_in_again_by.format("%Y-%m-%d"), a.days_left())
+        format!("sign in again by {} ({} days)", local_time(a.sign_in_again_by, "%Y-%m-%d"), a.days_left())
     } else if !a.expired() {
-        format!("sign in again by {} (today)", a.sign_in_again_by.format("%Y-%m-%d %H:%M"))
+        format!("sign in again by {} (today)", local_time(a.sign_in_again_by, "%Y-%m-%d %H:%M"))
     } else {
         "the session has likely ended; sign in again".to_string()
     };
-    say!("  signed in {} · {again}", a.signed_in_at.format("%Y-%m-%d"));
+    say!("  signed in {} · {again}", local_time(a.signed_in_at, "%Y-%m-%d"));
     let can = if a.scopes.iter().all(|s| s == "atproto") {
         "knows who you are; can't post or change anything".to_string()
     } else if a.scopes.iter().all(|s| s == "atproto" || atmosphere::PUBLISH_SCOPES.contains(&s.as_str())) {

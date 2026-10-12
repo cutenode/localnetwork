@@ -43,9 +43,6 @@ and hardware checks are grouped into test days. Tick items off or delete them as
 - [ ] Jobs (`refresh`, `prep`) re-plan later steps on any `StalePlan`, including a rekordbox export
       mid-job, which breaks `op.rs`'s promise that the confirmed plan is what runs. Re-plan only
       drives this job already wrote; refuse otherwise.
-- [ ] Local time in every human-readable string (`log`, `store info`, `store copies` print UTC
-      with no zone; `store prune` prints local), through one library helper. RFC 3339 UTC stays in
-      JSON. Pin `TZ` in tests.
 - [ ] `clean` backs up only the databases. It deletes only rekordbox's demo samples, which every
       export brings back, yet `refresh` runs it after every export, so audio backups pile up and a
       full drive can't be cleaned at all.

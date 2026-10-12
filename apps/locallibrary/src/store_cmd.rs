@@ -7,6 +7,7 @@ use anyhow::Result;
 use console::style;
 use locallibrary::Store;
 use locallibrary::api;
+use locallibrary::local_time;
 use locallibrary::progress::Ctx;
 
 use crate::output::{self, Outcome, Output};
@@ -117,7 +118,7 @@ fn line(s: &locallibrary::store::SnapshotInfo) -> String {
     format!(
         "{}  {}  {:>5} tracks{}",
         style(&s.short_id).yellow(),
-        s.created.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M"),
+        local_time(s.created, "%Y-%m-%d %H:%M"),
         s.summary.tracks,
         s.message.as_ref().map(|m| format!("  {}", output::dim(m))).unwrap_or_default()
     )
@@ -210,7 +211,7 @@ pub fn copies(store: &Store, out: Output) -> Result<ExitCode> {
             };
             say!("{}  {state}", style(r.path.display()).bold());
             let when = |t: Option<chrono::DateTime<chrono::Utc>>| {
-                t.map(|t| t.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_else(|| "never".into())
+                t.map(|t| local_time(t, "%Y-%m-%d %H:%M").to_string()).unwrap_or_else(|| "never".into())
             };
             say!(
                 "  {}",

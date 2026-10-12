@@ -19,6 +19,7 @@ use crate::diff::PlaylistDiff;
 use crate::edit::journal::{self, JournalEntry};
 use crate::error::{Action, Reason};
 use crate::hash::{self, Hash};
+use crate::local_time;
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::paths;
 use crate::progress::{Ctx, Phase};
@@ -157,7 +158,7 @@ pub fn undo_plan(req: &UndoRequest) -> Result<Planned<UndoPlan, bool>> {
         "put back {} ({}, {}) on {}",
         info.id,
         info.reason,
-        info.created.format("%Y-%m-%d %H:%M"),
+        local_time(info.created, "%Y-%m-%d %H:%M"),
         d.name()
     )];
     let put: u64 = files.iter().filter(|f| f.change != "removed").map(|f| f.bytes).sum();
