@@ -438,7 +438,16 @@ fn edits_print_their_plan_and_do_what_it_says(tc: TestCase) {
                 if let Some(e) = edit_plan(p).filter(|_| !replayed_nothing) {
                     let dbs: Vec<&str> =
                         e["databases"].as_array().unwrap().iter().map(|d| d.as_str().unwrap()).collect();
-                    assert!(applied.out.contains(&format!("written to {}", dbs.join(" and "))), "{said}");
+                    if words[..2] == ["edits", "replay"] {
+                        // A recorded edit that no longer applies writes nothing, so a replay writes
+                        // some of the databases its plan names, and none it doesn't.
+                        let line =
+                            applied.out.lines().find(|l| l.contains("written to ")).unwrap_or_else(|| panic!("{said}"));
+                        let written = line.split("written to ").nth(1).unwrap().split(';').next().unwrap();
+                        assert!(written.split(" and ").all(|w| dbs.contains(&w)), "{written}: {said}");
+                    } else {
+                        assert!(applied.out.contains(&format!("written to {}", dbs.join(" and "))), "{said}");
+                    }
                     let drive = words.iter().find(|w| *w == d.name || w.ends_with(&format!("/{}", d.name))).unwrap();
                     assert!(applied.out.contains(&format!("locallibrary undo {drive}")), "{said}");
                 }

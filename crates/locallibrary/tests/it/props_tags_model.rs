@@ -97,7 +97,7 @@ fn after(m: &Model, edit: &Edit, files: &[(u32, String)], ext: bool) -> Result<M
         }
         Edit::Rename { to, .. } => {
             let to = to.trim();
-            if to.is_empty() || (tag.is_none() && to.contains('/')) {
+            if to.is_empty() || to.contains('/') {
                 return Err(());
             }
             let c = c.ok_or(())?;

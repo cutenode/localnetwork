@@ -11834,6 +11834,171 @@
       },
       "type": "object"
     },
+    "ListedDrive": {
+      "description": "A drive [`list_drives`] lists, with the name of the library it's a clone of.",
+      "properties": {
+        "drift": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LibraryDrift"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How `export.pdb` and OneLibrary differ, on a drive that has both (empty when they agree)."
+        },
+        "exported_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "free_space": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "has_device_library": {
+          "description": "`export.pdb` present (the Device Library every player reads, except the newest).",
+          "type": "boolean"
+        },
+        "has_export": {
+          "description": "Either database below.",
+          "type": "boolean"
+        },
+        "has_library_plus": {
+          "description": "OneLibrary `exportLibrary.db` present (the only database CDJ-3000X, OPUS-QUAD, XDJ-AZ...\nread).",
+          "type": "boolean"
+        },
+        "id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_known": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LineageEntry"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "library": {
+          "description": "The store's name for the library `library_id` is, when the store has it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "library_id": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lineage_len": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pdb": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PdbHeader"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pending": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingOp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rekordbox_sync": {
+          "description": "rekordbox's automatic playlist sync to this drive, per database.",
+          "items": {
+            "$ref": "#/$defs/RekordboxSync"
+          },
+          "type": "array"
+        },
+        "root": {
+          "type": "string"
+        },
+        "settings_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LibrarySummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total_space": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "volume_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "volume_name",
+        "id",
+        "name",
+        "library_id",
+        "has_export",
+        "has_device_library",
+        "has_library_plus",
+        "pdb",
+        "exported_at",
+        "summary",
+        "settings_files",
+        "total_space",
+        "free_space",
+        "pending",
+        "lineage_len",
+        "last_known",
+        "drift",
+        "rekordbox_sync",
+        "library"
+      ],
+      "type": "object"
+    },
     "LoginStart": {
       "description": "A sign-in waiting for the browser.",
       "properties": {
@@ -24453,7 +24618,7 @@
       },
       "result": {
         "items": {
-          "$ref": "#/$defs/DeviceInfo"
+          "$ref": "#/$defs/ListedDrive"
         },
         "type": "array"
       }

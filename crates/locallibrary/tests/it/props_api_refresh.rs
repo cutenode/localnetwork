@@ -48,14 +48,15 @@ fn export_again(root: &Path, export: &Template, onelibrary: bool) {
 ///
 /// The explicit cases are those each step's branches need: everything put back and saved, a
 /// drive whose only change is My Settings set since, a name with nowhere to show it, and the
-/// recorded edits unreadable with a rule-based playlist and without, and the steps that write
-/// skipped.
+/// recorded edits unreadable with a rule-based playlist (up to date or dropped) and without, and
+/// the steps that write skipped.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(edit = true, name = Some("MAIN A"), settings = 1u8, smart = true, onelibrary = true, exported = true, unreadable = false, sync = true, skip = Vec::<StepKind>::new(), applied_by_plan = true)]
 #[hegel::explicit_test_case(edit = false, name = Some("Booth"), settings = 2u8, smart = true, onelibrary = true, exported = false, unreadable = false, sync = false, skip = Vec::<StepKind>::new(), applied_by_plan = false)]
 #[hegel::explicit_test_case(edit = true, name = Some("Booth"), settings = 0u8, smart = false, onelibrary = false, exported = true, unreadable = false, sync = true, skip = vec![StepKind::Pull, StepKind::Clean, StepKind::Sync], applied_by_plan = false)]
 #[hegel::explicit_test_case(edit = true, name = None::<&str>, settings = 0u8, smart = false, onelibrary = true, exported = true, unreadable = true, sync = false, skip = Vec::<StepKind>::new(), applied_by_plan = true)]
 #[hegel::explicit_test_case(edit = false, name = None::<&str>, settings = 0u8, smart = true, onelibrary = true, exported = false, unreadable = true, sync = false, skip = Vec::<StepKind>::new(), applied_by_plan = true)]
+#[hegel::explicit_test_case(edit = true, name = None::<&str>, settings = 0u8, smart = true, onelibrary = true, exported = true, unreadable = true, sync = false, skip = Vec::<StepKind>::new(), applied_by_plan = false)]
 #[hegel::explicit_test_case(edit = true, name = Some("Booth"), settings = 1u8, smart = true, onelibrary = true, exported = true, unreadable = false, sync = true, skip = vec![StepKind::Replay, StepKind::Smart, StepKind::Player, StepKind::Settings], applied_by_plan = true)]
 fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
     let edit = tc.draw(gs::booleans());
@@ -144,14 +145,7 @@ fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
 
     let req = api::RefreshRequest { drive: Some(path(&main)), skip: skip.clone(), sync };
     let skipped = |k: StepKind| skip.contains(&k);
-    let planned = api::refresh_plan(&store, &req, &ctx);
-    // Filling a rule's playlist records an edit, which needs the journal read.
-    if unreadable && smart && !skipped(StepKind::Smart) {
-        let e = planned.map(|p| p.noop).unwrap_err();
-        assert!(matches!(e, locallibrary::Error::Parse { .. }), "{e}");
-        return;
-    }
-    let plan = planned.unwrap();
+    let plan = api::refresh_plan(&store, &req, &ctx).unwrap();
     let mut want = Vec::new();
     let clean = if skipped(StepKind::Clean) { "skipped" } else { "no demo samples on the drive" };
     assert_eq!(reason(&plan, StepKind::Clean), Some(clean));
@@ -172,6 +166,13 @@ fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
         _ if !smart => assert_eq!(reason(&plan, StepKind::Smart), Some("no rule-based playlists for this drive")),
         _ if exported => want.push(StepKind::Smart),
         _ => assert_eq!(reason(&plan, StepKind::Smart), Some("the rule-based playlists are up to date")),
+    }
+    // Filling a rule's playlist records an edit, which an unreadable journal can't take: the
+    // playlists are filled all the same, unrecorded.
+    let smart_warnings = &plan.steps.iter().find(|s| s.step == StepKind::Smart).unwrap().warnings;
+    match want.contains(&StepKind::Smart) && unreadable {
+        true => assert_eq!(smart_warnings, &["filling them isn't recorded: the recorded edits can't be read"]),
+        false => assert!(smart_warnings.is_empty(), "{smart_warnings:?}"),
     }
     match (name, skipped(StepKind::Player)) {
         (_, true) => assert_eq!(reason(&plan, StepKind::Player), Some("skipped")),

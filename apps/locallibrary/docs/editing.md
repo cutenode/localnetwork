@@ -346,8 +346,10 @@ name), each with up to 50 tags. Players filter by them (Track Filter) and use th
 Tracks. A drive holds them twice, in `exportExt.pdb` for players that read `export.pdb` and in
 OneLibrary's `exportLibrary.db`. `tags` edits both, matching tracks by file path and creating a tag
 in whichever database lacks it, and lists where the two disagree. Categories can be renamed but not
-deleted (`tags add` makes a missing one only while a database has fewer than four), and a name too
-long for `exportExt.pdb` (about 4,000 characters, half that outside ASCII) is refused. A drive
+deleted (`tags add` makes a missing one only while a database has fewer than four). A new or renamed
+tag or category can't contain `/` (it separates the category from the tag; a tag rekordbox named
+with one is still found), and a name too long for `exportExt.pdb` (about 4,000 characters, half
+that outside ASCII) is refused. A drive
 without `exportExt.pdb` (older exports) only has its OneLibrary tags edited. Tag edits are recorded
 in the drive's journal, so `edits replay` makes them again after rekordbox exports to the drive.
 

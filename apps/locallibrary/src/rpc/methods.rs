@@ -468,7 +468,7 @@ fn build() -> Registry {
 
     // Drives and their libraries.
     r.read("status", |c, _: NoParams| Ok(api::status(&c.store()?, c.ctx)?)).long();
-    r.read("drives.list", |_, req| Ok(api::list_drives(&req))).quick();
+    r.read("drives.list", |c, req| Ok(api::list_drives_in_libraries(c.existing().as_ref(), &req))).quick();
     r.read("drives.mounted", |_, _: NoParams| Ok(api::drives_mounted())).quick();
     r.read("drive.info", |_, req| Ok(api::drive_info(&req)?)).quick();
     r.plan("drive.adopt.plan", |_, req| Ok(api::adopt_plan(&req)?));

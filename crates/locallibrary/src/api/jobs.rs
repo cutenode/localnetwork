@@ -24,7 +24,7 @@ use super::autopull::{PullNext, new_history, pull_next, save_order};
 use super::{
     CheckRequest, Direction, DriveRef, EjectDrives, SetPlayerIdentity, SettingsApplyRequest, StepError, SyncRequest,
     check, clean_plan, drive_eject, edits_replay_plan, known_drives, player_set_plan, registry, resolve_drive,
-    settings_apply_plan, smart_apply_plan, sync_plan,
+    settings_apply_plan, smart_fill_plan, sync_plan,
 };
 use crate::check::{CheckOptions, CheckReport};
 use crate::device::Device;
@@ -738,6 +738,7 @@ pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resul
     // The edits the export replaced.
     let mut s = JobStep::new(StepKind::Replay);
     let journal = edit::journal::list(&d);
+    let journal_read = journal.is_ok();
     let s = match journal {
         _ if skipped(StepKind::Replay) => s.idle("skipped"),
         Err(e) => {
@@ -761,15 +762,20 @@ pub fn refresh_plan(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resul
         s.idle("skipped")
     } else {
         let dr = drive_ref.clone();
+        // Filling them records an edit in the journal. One the replay step couldn't read leaves
+        // out only that record: each refresh fills them from their rules again anyway.
         let again = replan(move |store, ctx| {
             let store = store.ok_or_else(|| Error::invalid("rule-based playlists need the store"))?;
-            smart_apply_plan(store, &dr(), ctx)
+            smart_fill_plan(store, &dr(), journal_read, ctx)
         });
         match again(Some(store), ctx) {
             Err(Error::NotFound(_)) => s.idle("no rule-based playlists for this drive"),
             Err(e) => return Err(e),
             Ok(plan) => {
                 s.op(plan, again);
+                if s.runs && !journal_read {
+                    s.warn("filling them isn't recorded: the recorded edits can't be read");
+                }
                 s.unless_runs("the rule-based playlists are up to date")
             }
         }

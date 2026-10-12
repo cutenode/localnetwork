@@ -3,7 +3,7 @@
 use indexmap::IndexMap;
 
 use console::style;
-use locallibrary::api::{DriveSettingsView, StoreInfo, TrackDetails, TracksPage};
+use locallibrary::api::{DriveSettingsView, ListedDrive, StoreInfo, TrackDetails, TracksPage};
 use locallibrary::clean::{CleanPlan, CleanReport};
 use locallibrary::compare::{Comparison, Favors, Relation, Suggestion};
 use locallibrary::convert::{ConvertPlan, ConvertReport, Target};
@@ -16,22 +16,19 @@ use locallibrary::settings::{self, ApplyReport, SettingsProfile};
 use locallibrary::store::SnapshotInfo;
 use locallibrary::sync::{CopyReason, PullReport, SyncPlan, SyncReport};
 use locallibrary::{Library, Track};
-use rustc_hash::FxHashMap;
-use uuid::Uuid;
 
 use crate::each_drive::DriveRead;
 use crate::output::{self, bytes, dim, duration, heading, ok, warn};
 
-/// The drives, under the library each is a clone of (`libraries`, the store's names by id), those
-/// of none last.
-pub fn drives(list: &[DeviceInfo], libraries: &FxHashMap<Uuid, String>) {
+/// The drives, under the library each is a clone of, those of none last.
+pub fn drives(list: &[ListedDrive]) {
     if list.is_empty() {
         say!("No rekordbox drives mounted. {}", dim("(--all lists every volume)"));
         return;
     }
     let mut groups: IndexMap<(bool, String), (&str, Vec<&DeviceInfo>)> = IndexMap::new();
-    for d in list {
-        let library = d.library_id.and_then(|id| libraries.get(&id)).map(String::as_str);
+    for ListedDrive { drive: d, library } in list {
+        let library = library.as_deref();
         let key = (library.is_none(), library.unwrap_or_default().to_lowercase());
         groups.entry(key).or_insert((library.unwrap_or("No library"), Vec::new())).1.push(d);
     }

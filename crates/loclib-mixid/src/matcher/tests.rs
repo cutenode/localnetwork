@@ -442,6 +442,34 @@ fn library() -> &'static (Vec<Vec<f32>>, LibraryIndex) {
     })
 }
 
+/// Whether the mix holds a slice's worth of votes for any of the `heard` tracks, (slot, start, end,
+/// from) in seconds, outside where it was put but on its line: `SLICE_VOTES` landmarks within a
+/// slice that land within 4 frames of where the line puts the track, as the fit keeps them, each
+/// counted once however many speeds find it. Two tracks share a motif now and then, and one played
+/// where another's line carries on is that track heard for a moment longer, which no matcher can
+/// tell otherwise.
+fn carries_on(index: &LibraryIndex, peaks: &[Peak], heard: &[(u32, f64, f64, f64)]) -> bool {
+    let landmarks = fingerprint::landmarks(peaks, QUERY_FANOUT);
+    let variants = fingerprint::variants(0.02);
+    heard.iter().any(|&(slot, start, end, from)| {
+        let on_line: Vec<u32> = landmarks
+            .iter()
+            .filter(|lm| !(start..=end).contains(&(lm.t as f64 / FRAMES_PER_SEC)))
+            .filter(|lm| {
+                let expect = lm.t as f64 + (from - start) * FRAMES_PER_SEC;
+                variants.iter().filter_map(|v| v.original_hash(lm)).any(|h| {
+                    index
+                        .bucket(h)
+                        .iter()
+                        .any(|&e| (e >> 32) as u32 == slot && ((e as u32) as f64 - expect).abs() <= 4.0)
+                })
+            })
+            .map(|lm| lm.t)
+            .collect();
+        on_line.windows(SLICE_VOTES as usize).any(|w| w[w.len() - 1] - w[0] < SLICE)
+    })
+}
+
 /// A set stitched from any of the library's tracks, each from any point in it, at any level,
 /// after any silence and with any gap before the next, is heard as those tracks in that
 /// order, each where it was put in the set and from where it was taken in the track.
@@ -463,6 +491,7 @@ fn a_stitched_set_is_heard_as_its_tracks(tc: TestCase) {
         truth.push((i as u32, start, start + len, from));
     }
     let (q, frames) = peaks(&mix, QUERY);
+    tc.assume(!carries_on(index, &q, &truth));
     let wide = tc.draw(gs::floats::<f64>().min_value(0.2501).max_value(1.0));
     assert!(matches!(find(index, &q, frames, wide, None, &Ctx::silent()), Err(Error::Invalid(_))));
     let found = find(index, &q, frames, 0.02, None, &Ctx::silent()).unwrap();
@@ -841,4 +870,75 @@ fn a_print_lines_up_with_itself_and_not_with_nothing(tc: TestCase) {
     let Some(itself) = align(&a, &a) else { return assert!(shared < SLICE_VOTES as usize, "{shared} landmarks") };
     assert!(itself.offset.abs() <= 1.0 / FRAMES_PER_SEC && itself.pairs >= SLICE_VOTES as usize, "{itself:?}");
     assert!([itself.coverage.0, itself.coverage.1].iter().all(|c| (0.0..=1.0).contains(c)), "{itself:?}");
+}
+
+/// A vote of other audio that lands on a chain's line, as one can up to a slice past where the
+/// track is heard, isn't where the track came in or went out: along a track every anchor has
+/// another within a second.
+#[hegel::test(test_cases = 100)]
+fn a_stray_vote_on_a_chains_line_isnt_where_it_ends(tc: TestCase) {
+    let variants = fingerprint::variants(0.08);
+    let from = tc.draw(gs::floats::<f64>().min_value(10.0).max_value(600.0));
+    let to = from + tc.draw(gs::floats::<f64>().min_value(24.0).max_value(240.0));
+    let at = tc.draw(gs::floats::<f64>().min_value(10.0).max_value(300.0));
+    let speed = tc.draw(gs::floats::<f64>().min_value(0.93).max_value(1.07));
+    let mut c = chain_at(&variants, from, to, at, speed);
+    c.detections.retain(|d| !d.pairs.is_empty());
+    let clean = fit(&c, &variants);
+    // From over a second to a slice past the first or last anchor, off the line by as much as
+    // the fit keeps.
+    let slice = f64::from(SLICE) / FRAMES_PER_SEC;
+    let away = tc.draw(gs::floats::<f64>().min_value(EDGE_GAP + 0.05).max_value(slice)) * FRAMES_PER_SEC;
+    let off = tc.draw(gs::floats::<f64>().min_value(-2.4).max_value(2.4));
+    let after = tc.draw(gs::booleans());
+    let t = if after { clean.end + away } else { clean.start - away };
+    let stray = (t.round() as u32, (clean.track_frame(t) + off).round() as u32);
+    let edge = if after { c.detections.last_mut() } else { c.detections.first_mut() };
+    edge.expect("a chain of 24 s has anchors").pairs.push(stray);
+    let strayed = fit(&c, &variants);
+    assert_eq!((strayed.start, strayed.end), (clean.start, clean.end), "{stray:?}: {clean:?} {strayed:?}");
+}
+
+/// Past where a track ends, a bin is heard from two matches that share no peak. Landmarks that
+/// share one, or the same peaks a frame apart (an onset spans two frames), are one match of a few
+/// peaks, which a motif two tracks share gives too: counted apiece, they carried a play seconds on
+/// into the next track.
+#[hegel::test(test_cases = 100)]
+fn tracing_hears_a_bin_from_matches_that_share_no_peak(tc: TestCase) {
+    // A track with a peak every 10 frames, each paired in the index with the next.
+    let (base, turn) = (
+        tc.draw(gs::integers::<u8>().min_value(20).max_value(200)),
+        tc.draw(gs::integers::<usize>().min_value(1).max_value(30)),
+    );
+    let peaks: Vec<Peak> = (0..120).map(|i| Peak { t: 10 * i as u32, f: base + (i * turn % 31) as u8 }).collect();
+    let print = TrackPrint { duration_secs: 30.0, peaks: peaks.clone() };
+    let index = LibraryIndex::build(vec![(0, print)]);
+    let pair = |a: Peak, b: Peak| Landmark { t: a.t, f1: a.f, f2: b.f, dt: (b.t - a.t) as u8 };
+    // The mix plays it from the top until bin `last` ends, heard in pairs of peaks of their own.
+    let step = PRESENCE_STEP * FRAMES_PER_SEC;
+    let last = tc.draw(gs::integers::<u32>().min_value(4).max_value(7));
+    let gone = f64::from(last + 1) * step;
+    let mut landmarks: Vec<Landmark> =
+        peaks.chunks(2).filter(|p| f64::from(p[1].t) < gone).map(|p| pair(p[0], p[1])).collect();
+    // Then two landmarks of it in the next bin, where its line puts them.
+    let k = (gone / 10.0).ceil() as usize + tc.draw(gs::integers::<usize>().max_value(3));
+    let apart = tc.draw(gs::integers::<u8>().max_value(2));
+    let second = match apart {
+        // Sharing a peak.
+        0 => pair(peaks[k + 1], peaks[k + 2]),
+        // The same peaks a frame later.
+        1 => Landmark { t: peaks[k].t + 1, ..pair(peaks[k], peaks[k + 1]) },
+        // Peaks of their own.
+        _ => pair(peaks[k + 3], peaks[k + 4]),
+    };
+    landmarks.extend([pair(peaks[k], peaks[k + 1]), second]);
+    let end = (f64::from(last) * step + 10.0) / FRAMES_PER_SEC;
+    let fit = Fit { ratio: 1.0, intercept: 0.0, start: FRAMES_PER_SEC, end: end * FRAMES_PER_SEC, measured: true };
+    let mut f = Found { fits: vec![fit], ..heard(0, 1.0, end, 200) };
+    trace(&index, &landmarks, &fingerprint::variants(0.02), &mut f);
+    if apart == 2 {
+        assert!((f.end * FRAMES_PER_SEC).round() >= f64::from(second.t), "{second:?}: {f:#?}");
+    } else {
+        assert!(f.end * FRAMES_PER_SEC < gone, "{second:?}: {f:#?}");
+    }
 }

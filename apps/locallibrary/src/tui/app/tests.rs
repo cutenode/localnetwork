@@ -1988,6 +1988,34 @@ fn clicks_select_play_sort_and_switch_views() {
     assert_eq!(app.view, View::Library);
 }
 
+/// A second click is one on the row the first was on: a click where another view's row was just
+/// clicked only selects, and so does a third click on a row.
+#[test]
+fn a_second_click_is_on_the_same_row() {
+    let (mut app, _dir) = app_with(library());
+    let info = Device::open(app.loaded.as_ref().unwrap().root()).unwrap().info();
+    app.drives = (0..6).map(|i| DeviceInfo { name: Some(format!("D{i}")), ..info.clone() }).collect();
+    let sets = spot(&mut app, "Sets");
+    press(&mut app, "2");
+    super::super::ui::screen(&mut app, 120, 30);
+    app.drive_state.select(None);
+    mouse(&mut app, LEFT, sets);
+    assert!(app.drive_row(&app.drive_rows()).is_some(), "a drive's row clicked");
+    press(&mut app, "1");
+    super::super::ui::screen(&mut app, 120, 30);
+    let tree = |app: &App| app.loaded.as_ref().unwrap().tree.len();
+    let rows = tree(&app);
+    mouse(&mut app, LEFT, sets);
+    let l = app.loaded.as_ref().unwrap();
+    let selected = app.playlist_state.selected().map(|i| l.tree[i].name.as_str());
+    assert_eq!((app.focus, selected), (Focus::Playlists, Some("Sets")));
+    assert_eq!(tree(&app), rows, "the folder left as it was");
+    mouse(&mut app, LEFT, sets);
+    assert_ne!(tree(&app), rows, "the folder opened or closed");
+    mouse(&mut app, LEFT, sets);
+    assert_ne!(tree(&app), rows, "a third click only selects");
+}
+
 /// A right-click opens the actions menu on what's under the pointer. Its items, and the
 /// rating picker's, are clicked; a click outside closes it.
 #[test]

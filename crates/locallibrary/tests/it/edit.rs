@@ -311,6 +311,8 @@ fn a_replay_of_edits_the_drive_still_has_writes_nothing() {
     let edits = edit::journal::edits(&d).unwrap();
     assert_eq!(edits.len(), 2);
     let plan = edit::plan(&d, &edits, &EditOptions { lenient: true, no_journal: true }, &Ctx::silent()).unwrap();
+    // The My Tag edit is made as the replay is applied, in exportExt.pdb, which the plan names.
+    assert!(plan.databases.iter().any(|db| db == "exportExt.pdb"), "{:?}", plan.databases);
     let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     assert_eq!((report.changes, report.databases.len()), (0, 0), "{report:?}");
     let after = common::drive_files(&root);

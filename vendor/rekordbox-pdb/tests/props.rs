@@ -695,3 +695,102 @@ fn tags_named_in_an_unknown_kind_are_refused(tc: TestCase) {
         assert!(matches!(e, Some(PdbError::UnknownString { kind: k, offset }) if k == kind && offset == at), "{e:?}");
     }
 }
+
+// -- damaged rows and strings ---------------------------------------------------------------------
+
+/// Regression: a long string (`0x40` or `0x90`) whose u16 length was under its own 4-byte header,
+/// or ran past the end of the file, panicked the reader slicing it. Now such a header is refused as
+/// `Malformed`, by the readers and the editors, and a length that fits reads that many bytes.
+#[hegel::test(test_cases = 200)]
+fn long_string_lengths_are_checked(tc: TestCase) {
+    use rekordbox_pdb::TableType as T;
+    let ext = tc.draw(gs::booleans());
+    let mut data = std::fs::read(if ext { ONE_SONG_EXT } else { ONE_SONG }).unwrap();
+    // Where a name starts: a My Tag's, or a track's title, a playlist's or a key's.
+    let at = if ext {
+        let db = ExtDatabase::from_bytes(data.clone()).unwrap();
+        let locs = db.row_locations(rekordbox_pdb::ExtTableType::Tags);
+        let row = locs[tc.draw(gs::integers::<usize>().max_value(locs.len() - 1))];
+        row + data[row + 0x1d] as usize
+    } else {
+        let db = Database::from_bytes(data.clone()).unwrap();
+        let table = tc.draw(gs::sampled_from(vec![T::Tracks, T::PlaylistTree, T::Keys]).print_as_debug());
+        let locs = db.row_locations(table);
+        let row = locs[tc.draw(gs::integers::<usize>().max_value(locs.len() - 1))];
+        row + match table {
+            T::Tracks => u16::from_le_bytes([data[row + 0x5e + 2 * 17], data[row + 0x5f + 2 * 17]]) as usize,
+            T::PlaylistTree => 20,
+            _ => 8,
+        }
+    };
+    let kind = tc.draw(gs::sampled_from(vec![0x40u8, 0x90]));
+    let room = data.len() - at;
+    let total = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => tc.draw(gs::integers::<usize>().max_value(3)),
+        2 if room < 0xffff => tc.draw(gs::integers::<usize>().min_value(room + 1).max_value(0xffff)),
+        _ => tc.draw(gs::integers::<usize>().min_value(4).max_value(room.min(0xffff))),
+    };
+    data[at] = kind;
+    data[at + 1..at + 3].copy_from_slice(&(total as u16).to_le_bytes());
+    let fits = (4..=room).contains(&total);
+    let results = if ext {
+        vec![ExtDatabase::from_bytes(data.clone()).err(), ExtEditor::from_bytes(data).err()]
+    } else {
+        vec![Database::from_bytes(data.clone()).err(), PdbEditor::from_bytes(data).database().err()]
+    };
+    for e in results {
+        match e {
+            None => assert!(fits, "a {total}-byte string read with {room} bytes left"),
+            Some(PdbError::Malformed(what)) => assert!(!fits, "{what}"),
+            Some(e) => panic!("{e}"),
+        }
+    }
+}
+
+/// Regression: the readers trusted every offset and length in a file, so a damaged one panicked
+/// them. Any bytes, a real file cut short anywhere, or one with bytes of its rows or pages
+/// overwritten either read or fail as `Malformed` or `UnknownString`, never panic: the readers,
+/// `PdbEditor`'s first parse and `ExtEditor` alike.
+#[hegel::test(test_cases = 400)]
+fn damaged_files_never_panic_the_readers(tc: TestCase) {
+    let ext = tc.draw(gs::booleans());
+    let orig = std::fs::read(match ext {
+        true => ONE_SONG_EXT,
+        false => tc.draw(gs::sampled_from(vec![ONE_SONG, BIGGER])),
+    })
+    .unwrap();
+    let data = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => tc.draw(gs::binary().max_size(3 * PAGE)),
+        1 => orig[..tc.draw(gs::integers::<usize>().max_value(orig.len()))].to_vec(),
+        _ => {
+            // Overwrites near the start of a page (its header, then rows) or near its end (the row
+            // directory), where the offsets and lengths are.
+            let mut data = orig.clone();
+            for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(8)) {
+                let page = tc.draw(gs::integers::<usize>().max_value(data.len() / PAGE - 1));
+                let within = tc.draw(hegel::one_of!(
+                    gs::integers::<usize>().max_value(0x200),
+                    gs::integers::<usize>().min_value(PAGE - 0x50).max_value(PAGE - 1),
+                ));
+                let bytes = tc.draw(gs::binary().min_size(1).max_size(4));
+                for (i, b) in bytes.into_iter().enumerate() {
+                    if let Some(at) = data.get_mut(page * PAGE + within + i) {
+                        *at = b;
+                    }
+                }
+            }
+            data
+        }
+    };
+    let refused = |e: PdbError| assert!(matches!(e, PdbError::Malformed(_) | PdbError::UnknownString { .. }), "{e}");
+    match ext {
+        true => {
+            _ = ExtDatabase::from_bytes(data.clone()).map_err(refused);
+            _ = ExtEditor::from_bytes(data).map_err(refused);
+        }
+        false => {
+            _ = Database::from_bytes(data.clone()).map_err(refused);
+            _ = PdbEditor::from_bytes(data).database().map_err(refused);
+        }
+    }
+}

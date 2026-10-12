@@ -678,6 +678,9 @@ pub struct Areas {
     pub history: Rect,
 }
 
+/// A row clicked: its view, its pane (none for the full-screen player's matches) and its index.
+type ClickedRow = (View, Option<Focus>, usize);
+
 /// Every library in the store with its snapshots, newest first.
 pub type History = Vec<(LibraryRecord, Vec<SnapshotInfo>)>;
 
@@ -1023,7 +1026,9 @@ pub struct App {
     last_volume_poll: Instant,
     last_tick: Instant,
     last_seek: Instant,
-    last_click: Option<(Instant, u16, u16)>,
+    /// When a row was last clicked, and which. Only a click on that same row soon after is a
+    /// second click.
+    last_click: Option<(Instant, ClickedRow)>,
     rng: u64,
     next_id: u64,
     /// The drive the last run had open: opened first when it's plugged in.
@@ -3489,10 +3494,16 @@ impl App {
                 self.move_selection(delta);
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                let double = self
-                    .last_click
-                    .is_some_and(|(t, x, y)| t.elapsed() < Duration::from_millis(400) && (x, y) == (m.column, m.row));
-                self.last_click = Some((Instant::now(), m.column, m.row));
+                // A second click is one on the row the last click was on (not on the same place in
+                // another view or pane, or with the list scrolled), and a third starts over.
+                let last = self.last_click.take();
+                let again = |app: &mut Self, row| {
+                    let again = last.is_some_and(|(t, was)| t.elapsed() < Duration::from_millis(400) && was == row);
+                    if !again {
+                        app.last_click = Some((Instant::now(), row));
+                    }
+                    again
+                };
                 if let Some(&(v, _)) = self.areas.tabs.iter().find(|(_, r)| r.contains(p)) {
                     if self.picking.is_none() {
                         self.set_view(v);
@@ -3503,7 +3514,7 @@ impl App {
                     let i = self.next_pick.offset() + (m.row - self.areas.matches.y) as usize;
                     if i < self.list_len() {
                         self.next_pick.select(Some(i));
-                        if double {
+                        if again(self, (self.view, None, i)) {
                             self.play_next();
                         }
                     }
@@ -3515,8 +3526,9 @@ impl App {
                         return;
                     }
                     self.focus = f;
-                    self.click_row(f, m.row);
-                    if double {
+                    if let Some(i) = self.click_row(f, m.row)
+                        && again(self, (self.view, Some(f), i))
+                    {
                         if self.picking.is_some() { self.pick() } else { self.activate() }
                     }
                 }
@@ -3596,7 +3608,9 @@ impl App {
         }
     }
 
-    fn click_row(&mut self, f: Focus, row: u16) {
+    /// Select the row of `f` drawn at `row`, returning its index, or none when there's no row
+    /// there.
+    fn click_row(&mut self, f: Focus, row: u16) -> Option<usize> {
         // The first row of each list, and how far it's scrolled.
         let (top, offset) = match (self.view, f) {
             (View::Library, Focus::Tracks) => (self.areas.tracks.y + 2, self.track_state.offset()),
@@ -3606,25 +3620,25 @@ impl App {
             (View::Library, Focus::Drives) => (self.areas.drives.y + 1, self.drive_state.offset()),
             (View::Drives, _) => (self.areas.drive_list.y + 1, self.drive_rows.offset()),
             (View::Snapshots, _) => (self.areas.history.y + 2, self.history_state.offset()),
-            (View::Profile | View::Mixes, _) => return,
+            (View::Profile | View::Mixes, _) => return None,
         };
         if row < top || (f == Focus::Details && self.areas.matches.height == 0) {
-            return;
+            return None;
         }
         // The Drives view shows each row on two lines: a drive's name, then where it's mounted (a
         // library's, then how its clones stand).
         let lines = if self.view == View::Drives { 2 } else { 1 };
         let i = offset + (row - top) as usize / lines;
         if self.view == View::Drives {
-            if let Some(&r) = self.drive_rows().get(i) {
-                self.select_drive_row(r);
-            }
-            return;
+            let &r = self.drive_rows().get(i)?;
+            self.select_drive_row(r);
+            return Some(i);
         }
         let (sel, len) = self.list_selection();
-        if i < len {
+        (i < len).then(|| {
             *sel = Some(i);
-        }
+            i
+        })
     }
 
     fn seek_click(&mut self, column: u16) {

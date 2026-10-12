@@ -1043,7 +1043,15 @@ fn smart_request(store: &Store, drive: &str) -> Result<EditRequest> {
 
 /// Bring a drive's copies of the smart playlists up to date.
 pub fn smart_apply_plan(store: &Store, req: &DriveRef, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
-    let req = smart_request(store, &req.drive)?;
+    smart_fill_plan(store, req, true, ctx)
+}
+
+/// [`smart_apply_plan`], recording the fill in the drive's journal (so `edits replay` makes it
+/// again) or not. A refresh fills them from their rules each time, so it can do without the
+/// journal when that can't be read.
+pub(super) fn smart_fill_plan(store: &Store, req: &DriveRef, record: bool, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
+    let mut req = smart_request(store, &req.drive)?;
+    req.options.no_journal = !record;
     let d = resolve_drive(&req.drive)?;
     planned_edit("smart.write", edit::plan(&d, &req.edits, &req.options, ctx)?, Touched::library(&d, true), ctx)
 }

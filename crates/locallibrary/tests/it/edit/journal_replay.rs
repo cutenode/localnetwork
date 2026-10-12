@@ -40,7 +40,7 @@ fn cue_edits_on_tracks_that_are_gone_are_skipped_with_warnings() {
     let plan = edit::plan(&d, &edits, &opts, &Ctx::silent()).unwrap();
     let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let gone = format!(
-        "1 track(s) the cue edit names aren't on the drive any more (e.g. {}); the rest are replayed",
+        "1 track(s) aren't on the drive any more (e.g. {}), so \"set hot cue A on 1 track(s)\" is replayed without them",
         first.file_path
     );
     let skipped = |what: &str| format!("skipped an edit that no longer applies ({what}): ");
@@ -74,7 +74,7 @@ fn my_tag_edits_on_tracks_that_are_gone_are_skipped_with_warnings() {
     let report = edit::apply(&edit::plan(&d, &edits, &opts, &Ctx::silent()).unwrap(), &mut d, &Ctx::silent()).unwrap();
     let what = "add My Tag Genre/Deep to 1 track(s)";
     let gone = format!(
-        "1 track(s) {what} names aren't on the drive any more (e.g. {}); the rest are replayed",
+        "1 track(s) aren't on the drive any more (e.g. {}), so \"{what}\" is replayed without them",
         first.file_path
     );
     let skipped = format!("skipped an edit that no longer applies ({what}): ");

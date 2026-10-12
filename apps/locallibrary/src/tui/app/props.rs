@@ -1082,8 +1082,6 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                         r.x + 1,
                         r.y + app.next_pick.selected().unwrap_or(0).saturating_sub(app.next_pick.offset()) as u16,
                     );
-                    // (A click a moment ago at the same place would make the first a second.)
-                    app.last_click = None;
                     mouse(&mut app, LEFT, at);
                     mouse(&mut app, LEFT, at);
                 }

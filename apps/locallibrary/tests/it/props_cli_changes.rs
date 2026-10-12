@@ -10,7 +10,7 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
-use crate::props_cli_human::{FLAGS, LISTS_MOUNTED, State, TRACK_1, agree_runs, build, twin, universe, write};
+use crate::props_cli_human::{FLAGS, State, TRACK_1, agree_runs, build, twin, universe, write};
 use crate::support::{Env, Run, path};
 
 /// A tenth of a second of silence, as a WAV file.
@@ -431,9 +431,9 @@ const JOBS_CHANGES: Changes = &[
             "--players",
             "CDJ-3000",
         ],
-        &[LISTS_MOUNTED, "report.notes.[]"],
+        &["report.mounted.[].library", "report.notes.[]"],
     ),
-    (&["setup", "--library", "Fresh", "--no-settings"], &[LISTS_MOUNTED, "report.notes.[]"]),
+    (&["setup", "--library", "Fresh", "--no-settings"], &["report.mounted.[].library", "report.notes.[]"]),
     (&["doctor", "A", "--fix-orphans", "--dry-run"], &["plan.drive", "plan.files.[..20].path"]),
     (&["doctor", "A", "--fix-orphans"], &[]),
     (&["doctor", "A", "--audio", "--analyze"], &["drive", "audio.problems.[].track.name"]),
@@ -444,14 +444,17 @@ const JOBS_CHANGES: Changes = &[
     (&["watch", "--once", "--pull", "--sync-group", "--settle", "0"], &[]),
     (&["watch", "--uninstall"], &[]),
     (&["!clutter"], &[]),
-    (&["?setup", "--library", "Fresh"], &[LISTS_MOUNTED]),
-    (&["setup"], &[LISTS_MOUNTED]),
-    (&["setup", "A", "--library", "A", "--name", "bogus"], &[LISTS_MOUNTED]),
-    (&["setup", "A", "--library", "A", "--role", "A=boss"], &[LISTS_MOUNTED]),
-    (&["setup", "Nope", "--library", "A"], &[LISTS_MOUNTED]),
-    (&["setup", "Club", "--library", "A", "--primary", "Club"], &[LISTS_MOUNTED]),
-    (&["setup", "A", "Blank", "--library", "Fresh2", "--no-settings"], &[LISTS_MOUNTED, "report.notes.[]"]),
-    (&["setup", "Demo", "--library", "Fresh3"], &[LISTS_MOUNTED, "report.notes.[]"]),
+    (&["?setup", "--library", "Fresh"], &[]),
+    (&["setup"], &[]),
+    (&["setup", "A", "--library", "A", "--name", "bogus"], &[]),
+    (&["setup", "A", "--library", "A", "--role", "A=boss"], &[]),
+    (&["setup", "Nope", "--library", "A"], &[]),
+    (&["setup", "Club", "--library", "A", "--primary", "Club"], &[]),
+    (
+        &["setup", "A", "Blank", "--library", "Fresh2", "--no-settings"],
+        &["report.mounted.[].library", "report.notes.[]"],
+    ),
+    (&["setup", "Demo", "--library", "Fresh3"], &["report.mounted.[].library", "report.notes.[]"]),
     (
         &[
             "setup",
@@ -466,14 +469,14 @@ const JOBS_CHANGES: Changes = &[
             "--player-name",
             "Blank=B",
         ],
-        &[LISTS_MOUNTED, "report.notes.[]"],
+        &["report.mounted.[].library", "report.notes.[]"],
     ),
     (&["refresh", "A"], &[]),
     (&["refresh", "Blank"], &[]),
     (&["!erase-club"], &[]),
-    (&["setup", "Club", "--library", "Clubland"], &[LISTS_MOUNTED, "report.notes.[]"]),
-    (&["setup", "A", "Blank", "--library", "A", "--role", "Blank=boss"], &[LISTS_MOUNTED]),
-    (&["setup", "A", "--library", "A", "--players", "NOPE-1"], &[LISTS_MOUNTED]),
+    (&["setup", "Club", "--library", "Clubland"], &["report.mounted.[].library", "report.notes.[]"]),
+    (&["setup", "A", "Blank", "--library", "A", "--role", "Blank=boss"], &[]),
+    (&["setup", "A", "--library", "A", "--players", "NOPE-1"], &[]),
     (
         &[
             "sync",

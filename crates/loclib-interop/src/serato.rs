@@ -18,7 +18,8 @@
 //! Rewriting tags moves the audio data in a file, so tags are only written with [`Copies`], into
 //! copies of the audio below the output folder, never into the files they're copied from; the
 //! crates then list the copies. FLAC and MP4 files keep the same data in
-//! a Vorbis comment or an MP4 atom, which isn't written: their copies get no cues.
+//! a Vorbis comment or an MP4 atom, which isn't written: their copies get no cues. Neither do
+//! copies of files whose content isn't the audio their names say; a warning names one.
 
 use std::path::{Path, PathBuf};
 
@@ -318,12 +319,16 @@ impl Markers {
     }
 }
 
-/// Copies of the audio get tags when they're in these formats (ID3v2 containers).
-fn taggable(path: &str) -> bool {
-    matches!(
-        path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref(),
-        Some("mp3" | "aif" | "aiff" | "wav")
-    )
+/// The kind of audio a file's name says it holds, when that kind keeps an ID3v2 tag: copies of
+/// the audio get Serato's tag only in these formats.
+fn tag_kind(name: &str) -> Option<lofty::file::FileType> {
+    use lofty::file::FileType;
+    match name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref() {
+        Some("mp3") => Some(FileType::Mpeg),
+        Some("aif" | "aiff") => Some(FileType::Aiff),
+        Some("wav") => Some(FileType::Wav),
+        _ => None,
+    }
 }
 
 /// Copies of the audio for the crates to list, with Serato's cue tag in those that can hold one.
@@ -335,7 +340,8 @@ pub struct Copies<'a, E> {
 }
 
 /// A `.crate` file in `output`'s `_Serato_/Subcrates` for every playlist and folder in `src`, and
-/// with `copies`, a copy of every track's audio (tagged with its cues when `src` has analysis).
+/// with `copies`, a copy of every track's audio (tagged with its cues when `src` has analysis and
+/// the audio can take the tag, and planned at its size with the tag's: see [`tag_growth`]).
 /// `copies.audio`'s errors come back as they are.
 pub fn build<E: From<Error>>(
     src: &Source<'_>,
@@ -395,7 +401,9 @@ pub fn build<E: From<Error>>(
     };
 
     // Copies of the audio with Serato's cue tag.
-    let (mut tagged, mut untaggable, mut left_out) = (0, 0, 0);
+    let (mut with_cues, mut untaggable, mut left_out) = (0, 0, 0);
+    // Tracks whose audio isn't what its name says (so lofty can't tag it), and why the first isn't.
+    let (mut not_audio, mut first_reason) = (0, None);
     ctx.phase_start(Phase::Scan, lib.tracks.len() as u64, 0);
     let mut seen = rustc_hash::FxHashSet::default();
     for t in &lib.tracks {
@@ -408,19 +416,32 @@ pub fn build<E: From<Error>>(
         let from = (copies.audio)(t)?;
         let Ok(meta) = std::fs::metadata(&from) else { continue };
         let to = located(t);
-        let markers = match (taggable(&key), src.analysis) {
-            (true, Some(load)) => {
+        let (markers, bytes) = match (tag_kind(&key), src.analysis) {
+            (Some(_), Some(load)) => {
                 let m = Markers::from_rekordbox(t.color, &load(t).cues);
-                left_out += m.left_out;
-                export.cues += m.cues.len() + m.loops.len();
-                tagged += 1;
-                Some(m.encode())
+                let encoded = m.encode();
+                // Checked now so the plan shows which copies go untagged, before anything is
+                // copied: one file that isn't real audio shouldn't stop every other copy.
+                match tag_growth(&from, &from, &encoded) {
+                    Ok(growth) => {
+                        left_out += m.left_out;
+                        export.cues += m.cues.len() + m.loops.len();
+                        with_cues += usize::from(!m.cues.is_empty() || !m.loops.is_empty());
+                        (Some(encoded), meta.len() + growth)
+                    }
+                    Err(Error::Tags(reason)) => {
+                        not_audio += 1;
+                        first_reason.get_or_insert(reason);
+                        (None, meta.len())
+                    }
+                    Err(e) => return Err(e.into()),
+                }
             }
-            (false, Some(_)) => {
+            (None, Some(_)) => {
                 untaggable += 1;
-                None
+                (None, meta.len())
             }
-            _ => None,
+            _ => (None, meta.len()),
         };
         let what = match markers {
             Some(_) => "copy of the audio, with Serato's cue tag",
@@ -428,17 +449,22 @@ pub fn build<E: From<Error>>(
         };
         export.copy_bytes += meta.len();
         let content = Content::TaggedCopy { from, markers };
-        export.files.push(File { path: to, what: what.into(), bytes: meta.len(), content });
+        export.files.push(File { path: to, what: what.into(), bytes, content });
     }
     ctx.phase_end(Phase::Scan);
     export.notes.push(format!(
-        "The audio is copied into {} (the drive's files are never changed) and the crates list the copies; {tagged} \
+        "The audio is copied into {} (the drive's files are never changed) and the crates list the copies; {with_cues} \
          of them get rekordbox's hot cues and loops in their Serato Markers2 tag.",
         output.join("Contents").display()
     ));
     if untaggable > 0 {
         export.warnings.push(format!(
             "{untaggable} track(s) aren't MP3, AIFF or WAV; their copies get no cues (FLAC and MP4 tags aren't written)"
+        ));
+    }
+    if let Some(reason) = first_reason {
+        export.warnings.push(format!(
+            "{not_audio} track(s) can't take Serato's cue tag, so their copies get no cues (e.g. {reason})"
         ));
     }
     if left_out > 0 {
@@ -449,29 +475,57 @@ pub fn build<E: From<Error>>(
     Ok(export)
 }
 
-/// Write `markers` as the `Serato Markers2` GEOB frame of the ID3v2 tag of the file at `path` (an
-/// MP3, AIFF or WAV copy, the kind `named`'s extension says), keeping its other frames and
-/// removing an older `Serato Markers_` frame, which Serato would read instead.
-pub fn write_markers(path: &Path, named: &Path, markers: &[u8]) -> Result<()> {
+/// A tag error about the file `named`.
+fn tag_error(named: &Path, e: &dyn std::fmt::Display) -> Error {
+    Error::Tags(format!("{}: {e}", named.display()))
+}
+
+/// The ID3v2 tag [`write_markers`] writes into the file at `path`, the kind of file it is, and the
+/// options it's written with.
+fn marked_tag(
+    path: &Path,
+    named: &Path,
+    markers: &[u8],
+) -> Result<(lofty::id3::v2::Id3v2Tag, lofty::file::FileType, lofty::config::WriteOptions)> {
     use lofty::TextEncoding;
     use lofty::config::{ParseOptions, WriteOptions};
-    use lofty::file::AudioFile;
+    use lofty::file::{AudioFile, FileType};
     use lofty::id3::v2::{BinaryFrame, Frame, FrameFlags, FrameId, GeneralEncapsulatedObject, Id3v2Tag, Id3v2Version};
-    use lofty::tag::TagExt;
+    use lofty::probe::Probe;
+    use std::io::{Read, Seek};
 
-    let err = |e: Box<dyn std::error::Error>| Error::Tags(format!("{}: {e}", path.display()));
-    let ext = named.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let io = |e| Error::Io { path: path.to_path_buf(), source: e };
+    let mut f = std::fs::File::open(path).map_err(io)?;
+    let Some(kind) = tag_kind(&named.to_string_lossy()) else {
+        return Err(tag_error(named, &"not an MP3, AIFF or WAV file"));
+    };
     let options = ParseOptions::new().read_properties(false);
-    let existing = {
-        let mut f = std::fs::File::open(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e })?;
-        match ext.as_str() {
-            "mp3" => lofty::mpeg::MpegFile::read_from(&mut f, options).map_err(|e| err(e.into()))?.id3v2().cloned(),
-            "aif" | "aiff" => {
-                lofty::iff::aiff::AiffFile::read_from(&mut f, options).map_err(|e| err(e.into()))?.id3v2().cloned()
-            }
-            "wav" => lofty::iff::wav::WavFile::read_from(&mut f, options).map_err(|e| err(e.into()))?.id3v2().cloned(),
-            _ => return Err(Error::Tags(format!("{}: not an MP3, AIFF or WAV file", path.display()))),
+    // lofty writes a tag where the format its content looks like keeps one, whatever the name
+    // says, and fails on content that looks like no format.
+    let probed = Probe::new(&mut f).options(options).guess_file_type().map_err(io)?.file_type();
+    if probed != Some(kind) {
+        return Err(tag_error(named, &"its content isn't the MP3, AIFF or WAV audio its name says"));
+    }
+    if kind != FileType::Mpeg {
+        // lofty reads an AIFF or WAV file cut off short of the size its header gives, but won't
+        // write into one.
+        let mut header = [0; 8];
+        f.read_exact(&mut header).map_err(io)?;
+        let size = [header[4], header[5], header[6], header[7]];
+        let size = if kind == FileType::Wav { u32::from_le_bytes(size) } else { u32::from_be_bytes(size) };
+        if f.metadata().map_err(io)?.len() < u64::from(size) + 8 {
+            return Err(tag_error(named, &"it's cut off: shorter than its header says"));
         }
+        f.rewind().map_err(io)?;
+    }
+    let existing = match kind {
+        FileType::Mpeg => {
+            lofty::mpeg::MpegFile::read_from(&mut f, options).map_err(|e| tag_error(named, &e))?.id3v2().cloned()
+        }
+        FileType::Aiff => {
+            lofty::iff::aiff::AiffFile::read_from(&mut f, options).map_err(|e| tag_error(named, &e))?.id3v2().cloned()
+        }
+        _ => lofty::iff::wav::WavFile::read_from(&mut f, options).map_err(|e| tag_error(named, &e))?.id3v2().cloned(),
     };
     let v23 = existing.as_ref().is_some_and(|t| t.original_version() == Id3v2Version::V3);
     let mut tag = existing.unwrap_or_else(Id3v2Tag::new);
@@ -491,14 +545,48 @@ pub fn write_markers(path: &Path, named: &Path, markers: &[u8]) -> Result<()> {
         Some("Serato Markers2".into()),
         markers.to_vec(),
     );
-    let bytes = object.as_bytes(WriteOptions::new()).map_err(|e| err(e.into()))?;
+    let bytes = object.as_bytes(WriteOptions::new()).map_err(|e| tag_error(named, &e))?;
     tag.insert(Frame::Binary(BinaryFrame::new(geob.clone(), bytes)));
+    if kind != FileType::Mpeg {
+        // lofty drops a footer from a tag it writes into an AIFF or WAV chunk; dropped here too,
+        // the tag measures what's written.
+        let mut flags = *tag.flags();
+        flags.footer = false;
+        tag.set_flags(flags);
+    }
+    Ok((tag, kind, WriteOptions::new().use_id3v23(v23)))
+}
+
+/// The most bytes [`write_markers`] adds to the file at `path`: the whole new tag, in its chunk for
+/// AIFF and WAV. Exactly how many isn't known before writing, as the new tag replaces any the file
+/// has, and lofty finds that one (with any padding or junk around it) only as it writes. Counting
+/// none of it replaced keeps this an upper bound, so a copy planned at its size plus this fits.
+pub fn tag_growth(path: &Path, named: &Path, markers: &[u8]) -> Result<u64> {
+    use lofty::file::FileType;
+    use lofty::tag::TagExt;
+
+    let (tag, kind, options) = marked_tag(path, named, markers)?;
+    let mut bytes = Vec::new();
+    tag.dump_to(&mut bytes, options).map_err(|e| tag_error(named, &e))?;
+    let len = bytes.len() as u64;
+    // An `ID3 ` chunk's header, and the byte padding it to an even length.
+    Ok(if kind == FileType::Mpeg { len } else { len + 8 + len % 2 })
+}
+
+/// Write `markers` as the `Serato Markers2` GEOB frame of the ID3v2 tag of the file at `path` (a
+/// copy of `named`, an MP3, AIFF or WAV file by its name and content), keeping its other frames
+/// and removing an older `Serato Markers_` frame, which Serato would read instead. Errors about
+/// the content name `named`: `path` is often a temporary file.
+pub fn write_markers(path: &Path, named: &Path, markers: &[u8]) -> Result<()> {
+    use lofty::tag::TagExt;
+
+    let (tag, _, options) = marked_tag(path, named, markers)?;
     let mut f = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open(path)
         .map_err(|e| Error::Io { path: path.to_path_buf(), source: e })?;
-    tag.save_to(&mut f, WriteOptions::new().use_id3v23(v23)).map_err(|e| err(e.into()))
+    tag.save_to(&mut f, options).map_err(|e| tag_error(named, &e))
 }
 
 #[cfg(test)]

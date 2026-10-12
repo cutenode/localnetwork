@@ -759,6 +759,12 @@ fn split_path(path: &str) -> Result<(&str, Option<&str>)> {
     Ok((category, tag))
 }
 
+/// A tag's path is split at its first `/`, so a new name with one would read as another level
+/// (`Genre/Genre/Dark`), and a category's would be split.
+fn slash_in_name(category: bool) -> Error {
+    Error::invalid(format!("a {} name can't contain '/'", if category { "category" } else { "tag" }))
+}
+
 fn need_tag<'a>(path: &str, tag: Option<&'a str>) -> Result<&'a str> {
     tag.ok_or_else(|| Error::invalid(format!("{path:?} is a category: write Category/Tag, e.g. \"Genre/Deep House\"")))
 }
@@ -911,11 +917,11 @@ fn plan_db(
             if to.is_empty() {
                 return Err(Error::invalid("give a new name"));
             }
+            if to.contains('/') {
+                return Err(slash_in_name(tag.is_none()));
+            }
             match tag {
                 None => {
-                    if to.contains('/') {
-                        return Err(Error::invalid("a category name can't contain '/'"));
-                    }
                     if let Some(c) = db.tree.category(category) {
                         if db.tree.categories.iter().any(|o| o.id != c.id && o.name.to_lowercase() == to.to_lowercase())
                         {
@@ -1008,6 +1014,10 @@ pub fn plan(device: &Device, edit: &Edit) -> Result<TagPlan> {
     });
     if found.is_none() && !matches!(edit, Edit::Add { .. }) {
         return Err(Error::NotFound(format!("My Tag {:?} on {}", edit.path(), device.name())));
+    }
+    // A tag neither database has is new; one rekordbox named with a '/' is still found.
+    if found.is_none() && tag.is_some_and(|t| t.contains('/')) {
+        return Err(slash_in_name(false));
     }
 
     let ids = Ids::of(opened.dbs.iter().map(|d| &d.tree));
@@ -1155,11 +1165,7 @@ pub(crate) fn replay(device: &mut Device, change: &TagChange, ctx: &Ctx<'_>) -> 
     let mut out = Replayed::default();
     let (edit, gone) = change.edit(&device.library()?);
     if let Some(example) = gone.first() {
-        out.warnings.push(format!(
-            "{} track(s) {} names aren't on the drive any more (e.g. {example}); the rest are replayed",
-            gone.len(),
-            change.describe()
-        ));
+        out.tracks_gone(gone.len(), example, &change.describe());
     }
     let plan = match plan(device, &edit) {
         Ok(plan) => plan,

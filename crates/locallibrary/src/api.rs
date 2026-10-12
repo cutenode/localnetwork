@@ -228,6 +228,23 @@ pub fn list_drives(req: &ListDrives) -> Vec<DeviceInfo> {
     known_drives(req.all).iter().map(Device::info).collect()
 }
 
+/// A drive [`list_drives`] lists, with the name of the library it's a clone of.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ListedDrive {
+    #[serde(flatten)]
+    pub drive: DeviceInfo,
+    /// The store's name for the library `library_id` is, when the store has it.
+    pub library: Option<String>,
+}
+
+/// [`list_drives`], each with its library's name from `store` (none without a store, or when
+/// its libraries can't be read: the drives are listed all the same).
+pub fn list_drives_in_libraries(store: Option<&Store>, req: &ListDrives) -> Vec<ListedDrive> {
+    let libraries = store.and_then(|s| s.libraries().ok()).unwrap_or_default();
+    let name = |id: Option<Uuid>| libraries.iter().find(|l| Some(l.id) == id).map(|l| l.name.clone());
+    list_drives(req).into_iter().map(|drive| ListedDrive { library: name(drive.library_id), drive }).collect()
+}
+
 /// The mounted rekordbox drives a write that names none goes to (`smart apply`, `settings
 /// apply`), and the names of those left out: archive and retired drives are written only when
 /// named, or when writes to them are allowed.

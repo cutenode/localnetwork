@@ -49,11 +49,11 @@ fn serato_tags_go_into_copies_of_every_track(tc: TestCase) {
     let before = common::drive_files(&root);
     let done = interop::apply(&d, Software::Serato, &out, &opts, &Ctx::silent()).unwrap();
     assert!(common::changed_files(&before, &common::drive_files(&root)).is_empty(), "the drive is only read");
-    // A tagged copy is planned at its source's size: the tag's size is known once it's written.
+    // A tagged copy is planned at its source's size and its whole new tag: no less than it takes.
     for f in &done.files {
         let len = fs::metadata(&f.path).unwrap().len();
         match f.what.ends_with("with Serato's cue tag") {
-            true => assert!(len >= f.bytes, "{}", f.path.display()),
+            true => assert!(len <= f.bytes, "{}", f.path.display()),
             false => assert_eq!(len, f.bytes, "{}", f.path.display()),
         }
     }

@@ -771,11 +771,9 @@ fn ls(a: LsArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> 
         let list = api::drives_known(&open_store(store_path)?, &api::FleetRequest { all: true, retired: a.retired })?;
         out.emit(&list, |l| known_drives(l));
     } else {
-        let drives = api::list_drives(&api::ListDrives { all: a.all });
-        let libraries =
-            crate::diff_cmd::existing_store(store_path).and_then(|s| s.libraries().ok()).unwrap_or_default();
-        let names = libraries.into_iter().map(|l| (l.id, l.name)).collect();
-        out.emit(&drives, |d| render::drives(d, &names));
+        let store = crate::diff_cmd::existing_store(store_path);
+        let drives = api::list_drives_in_libraries(store.as_ref(), &api::ListDrives { all: a.all });
+        out.emit(&drives, |d| render::drives(d));
     }
     Ok(ExitCode::SUCCESS)
 }

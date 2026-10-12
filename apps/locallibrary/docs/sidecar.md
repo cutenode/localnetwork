@@ -189,7 +189,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   (`hint: locallibrary pull DNA`).
 - `DeviceInfo` has `has_export` (either database), `has_device_library` (`export.pdb`) and
   `has_library_plus` (`exportLibrary.db`), plus `drift` (how the two differ, on a drive with
-  both) and `rekordbox_sync` (rekordbox's automatic playlist sync to the drive).
+  both) and `rekordbox_sync` (rekordbox's automatic playlist sync to the drive). `drives.list`
+  adds `library`, the store's name for the library `library_id` is.
 - `version` lists every method. They mirror the CLI: `status`, `drives.list`, `drive.info`,
   `drive.adopt.plan/apply`, `drive.library`, `drive.backups`, `drive.restore.plan/apply` (`{drive,
   backup?, force?}`), `undo.list`, `undo.plan/apply` (`{drive?, backup?, force?}`; either apply

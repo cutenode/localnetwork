@@ -81,14 +81,8 @@ fn an_export_writes_what_it_planned(tc: TestCase) {
         assert_eq!((plan.beat_grids, plan.cues), (0, 0));
     }
     let library_before = common::library_files(&root);
-    if opts.write_tags && plan.tracks > 0 {
-        // The placeholder audio isn't MPEG, so its tags can't be written: the export stops
-        // without leaving a file of it behind.
-        assert!(interop::apply(&d, software, &out, &opts, &Ctx::silent()).is_err());
-        let left = walkdir::WalkDir::new(&out).into_iter().flatten().filter(|e| e.file_type().is_file()).count();
-        assert_eq!(left, 0);
-        return;
-    }
+    // The placeholder audio isn't MPEG, so Serato's tag can't go into it: it's copied as it is.
+    assert!(plan.files.iter().all(|f| !f.what.ends_with("with Serato's cue tag")), "{:#?}", plan.files);
     let done = interop::apply(&d, software, &out, &opts, &Ctx::silent()).unwrap();
     for f in &done.files {
         assert_eq!(fs::metadata(&f.path).unwrap().len(), f.bytes, "{}", f.path.display());

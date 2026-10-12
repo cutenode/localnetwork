@@ -122,7 +122,8 @@ pub fn apply(
             Content::TaggedCopy { from, markers } => {
                 let (tmp, _) = fsutil::stage_copy(from, &f.path, None, None, ctx)?;
                 if let Some(m) = markers {
-                    serato::write_markers(tmp.path(), &f.path, m)?;
+                    // An error names the drive's file: the copy's is temporary, and removed.
+                    serato::write_markers(tmp.path(), from, m)?;
                 }
                 tmp
             }

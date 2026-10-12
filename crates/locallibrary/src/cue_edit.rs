@@ -1024,10 +1024,7 @@ pub(crate) fn replay(device: &mut Device, files: &[String], change: &CueChange, 
     let id = |f: &str| by_key.get(&paths::key(f).to_lowercase()).copied();
     let ids: Vec<u32> = files.iter().filter_map(|f| id(f)).collect();
     if let Some(example) = files.iter().find(|f| id(f).is_none()) {
-        out.warnings.push(format!(
-            "{} track(s) the cue edit names aren't on the drive any more (e.g. {example}); the rest are replayed",
-            files.len() - ids.len()
-        ));
+        out.tracks_gone(files.len() - ids.len(), example, &change.describe(files.len()));
     }
     let edit = match change {
         CueChange::Set(s) => CueEdit::Set(s.clone()),

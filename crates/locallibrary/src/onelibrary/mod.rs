@@ -650,6 +650,11 @@ impl OneLibrary {
     }
 
     fn update_count(&self) -> Result<()> {
+        // Only a count kept beside the tracks: a database without the table (which plans as
+        // readable) takes the tracks all the same.
+        if self.columns("property")?.is_empty() {
+            return Ok(());
+        }
         self.conn
             .execute("UPDATE property SET numberOfContents = (SELECT count(*) FROM content)", [])
             .map(|_| ())
@@ -888,15 +893,21 @@ impl OneLibrary {
             }
             cues.push((cue_id, cue));
         }
-        let my_tags = self
-            .conn
-            .prepare(
-                "SELECT c.name, t.name FROM myTag_content mc
-                 JOIN myTag t ON t.myTag_id = mc.myTag_id JOIN myTag c ON c.myTag_id = t.myTag_id_parent
-                 WHERE mc.content_id = ?1 ORDER BY c.sequenceNo, t.sequenceNo",
-            )?
-            .query_map([id], |r| Ok((text(r.get_ref(0)?), text(r.get_ref(1)?))))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
+        // A database without the My Tag tables (made by something other than rekordbox) has no
+        // tags to give, and its tracks' other rows still read.
+        let has_my_tags = !self.columns("myTag")?.is_empty() && !self.columns("myTag_content")?.is_empty();
+        let my_tags = match has_my_tags {
+            true => self
+                .conn
+                .prepare(
+                    "SELECT c.name, t.name FROM myTag_content mc
+                     JOIN myTag t ON t.myTag_id = mc.myTag_id JOIN myTag c ON c.myTag_id = t.myTag_id_parent
+                     WHERE mc.content_id = ?1 ORDER BY c.sequenceNo, t.sequenceNo",
+                )?
+                .query_map([id], |r| Ok((text(r.get_ref(0)?), text(r.get_ref(1)?))))?
+                .collect::<rusqlite::Result<Vec<_>>>()?,
+            false => Vec::new(),
+        };
         Ok(Some(ContentRecord {
             values: names
                 .iter()

@@ -48,6 +48,9 @@ const MERGE_TOLERANCE: f64 = 1.5;
 const GHOST_OVERLAP: f64 = 6.0;
 /// Chains of one track this close (seconds) belong to one play.
 const PLAY_GAP: f64 = 24.0;
+/// A matching pair further than this (seconds) from every other one of its chain is a stray
+/// vote, not where the track comes in or goes out.
+const EDGE_GAP: f64 = 1.0;
 /// Shortest play reported, seconds (shorter ones are a shared sample, not a track).
 const PLAY_SECS: f64 = 16.0;
 /// Votes a play needs to be reported.
@@ -355,7 +358,21 @@ fn fit(chain: &Chain, variants: &[Variant]) -> Fit {
         offsets.sort_by(f64::total_cmp);
         intercept = offsets.get(offsets.len() / 2).copied().unwrap_or(intercept);
     }
-    let (start, end) = if pairs.is_empty() { (lo, hi) } else { span(&pairs) };
+    // A stray vote of other audio can land on the line too, up to a slice from where the track is
+    // heard. Along the track every pair has another within a second, so the stretch runs between
+    // the first and last pairs that do. One a frame away doesn't count: an onset spans two frames.
+    pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let backed = |p: &&(f64, f64)| {
+        pairs.iter().any(|q| {
+            let apart = (q.0 - p.0).abs();
+            apart > 1.0 && apart <= EDGE_GAP * FRAMES_PER_SEC
+        })
+    };
+    let (start, end) = match (pairs.iter().find(backed), pairs.iter().rfind(backed)) {
+        (Some(first), Some(last)) => (first.0, last.0),
+        _ if pairs.is_empty() => (lo, hi),
+        _ => span(&pairs),
+    };
     Fit { ratio, intercept, start, end, measured: measurable && plausible }
 }
 
@@ -690,7 +707,13 @@ fn trace(index: &LibraryIndex, landmarks: &[Landmark], variants: &[Variant], f: 
             })
             .expect("plays have fits")
     };
+    let step = PRESENCE_STEP * FRAMES_PER_SEC;
     let mut hits: Vec<u32> = Vec::new();
+    // Mix peaks, as (frame, bin), of the hits counted in the presence bin so far. A landmark
+    // sharing a peak with one is the same match of a few peaks, which a motif two tracks share
+    // gives as well: counted apiece, it passes for the track heard in a bin past where it ends. A
+    // frame's window spans two hops, so one onset gives the same bin in neighbouring frames too.
+    let (mut used, mut used_in) = (FxHashSet::<(u32, u8)>::default(), usize::MAX);
     for lm in &landmarks[from..to] {
         let fit = line(lm.t as f64);
         let expect = fit.track_frame(lm.t as f64);
@@ -705,13 +728,27 @@ fn trace(index: &LibraryIndex, landmarks: &[Landmark], variants: &[Variant], f: 
                     .any(|&e| (e >> 32) as u32 == f.slot && ((e as u32) as f64 - expect).abs() <= TRACE_TOLERANCE)
             })
         });
-        if hit && hits.last() != Some(&lm.t) {
+        if !hit {
+            continue;
+        }
+        let bin = ((lm.t as f64 - lo) / step) as usize;
+        if bin != used_in {
+            used.clear();
+            used_in = bin;
+        }
+        let peaks = [(lm.t, lm.f1), (lm.t + u32::from(lm.dt), lm.f2)];
+        let fresh = peaks.iter().all(|&(t, f)| (t.saturating_sub(1)..=t + 1).all(|t| !used.contains(&(t, f))));
+        let counted = hits.last() == Some(&lm.t);
+        if !counted && !fresh {
+            continue;
+        }
+        if !counted {
             hits.push(lm.t);
         }
+        used.extend(peaks);
     }
 
     // Hits per presence bin over the search window.
-    let step = PRESENCE_STEP * FRAMES_PER_SEC;
     let bins = ((hi - lo) / step).ceil() as usize;
     let mut counts = vec![0u32; bins];
     for &t in &hits {

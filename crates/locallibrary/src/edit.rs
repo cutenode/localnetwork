@@ -2274,6 +2274,10 @@ fn plan_with(
     if dbs.plus.is_some() {
         databases.push(paths::LIBRARY_PLUS_DB.rsplit('/').next().unwrap().to_string());
     }
+    // My Tag edits a replay makes as it's applied write exportExt.pdb too.
+    if steps.iter().any(|s| matches!(s, Edit::MyTag(_))) && device.path(paths::EXPORT_EXT_PDB).exists() {
+        databases.push(paths::EXPORT_EXT_PDB.rsplit('/').next().unwrap().to_string());
+    }
     let cluster = fsutil::cluster_size(device.root());
     let round = |n: u64| n.div_ceil(cluster) * cluster;
     let size = |key| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
@@ -2482,6 +2486,15 @@ pub(crate) struct Replayed {
     pub warnings: Vec<String>,
 }
 
+impl Replayed {
+    /// Say that `gone` of the tracks the recorded edit (`described`) names aren't on the drive.
+    pub(crate) fn tracks_gone(&mut self, gone: usize, example: &str, described: &str) {
+        self.warnings.push(format!(
+            "{gone} track(s) aren't on the drive any more (e.g. {example}), so \"{described}\" is replayed without them"
+        ));
+    }
+}
+
 pub fn apply(plan: &EditPlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<EditReport> {
     apply_with(plan, device, Vec::new(), ctx)
 }
@@ -2547,16 +2560,13 @@ fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) ->
     // A plan of new edits (a replace carrying cues) is an edit like any other to undo.
     let label = if steps.opts.no_journal { "before replaying edits" } else { "before editing" };
     let backup = backup::create(device, label, &extra, None)?;
-    let mut report = EditReport { backup: Some(backup.id.clone()), changes: plan.changes.len(), ..Default::default() };
+    // Changes are counted as they're made: a recorded edit that no longer applies writes nothing.
+    let mut report = EditReport { backup: Some(backup.id.clone()), ..Default::default() };
     let replayed = replay_steps(steps, &extra, device, &mut report, ctx);
     backup::seal(device, &backup.id)?;
     backup::prune(device)?;
     replayed?;
     report.databases = dedup(report.databases);
-    // Recorded edits the drive still has (no export since) change nothing, so write nothing.
-    if report.databases.is_empty() && report.files_deleted == 0 {
-        report.changes = 0;
-    }
     report.warnings = dedup(report.warnings);
     Ok(report)
 }
@@ -2591,6 +2601,7 @@ fn replay_steps(
             _ => unreachable!("only My Tag, cue and pointing edits are steps"),
         };
         let replayed = replayed.map_err(|e| stopped(e, done))?;
+        report.changes += usize::from(!replayed.databases.is_empty());
         report.databases.extend(replayed.databases);
         report.fingerprint = replayed.fingerprint.or(report.fingerprint);
         for w in &replayed.warnings {
@@ -2609,6 +2620,7 @@ fn replay_steps(
         }
         if !again.is_noop() {
             let r = apply_locked(&again, device, false, Vec::new(), ctx).map_err(|e| stopped(e, done))?;
+            report.changes += r.changes;
             report.databases.extend(r.databases);
             report.files_deleted = r.files_deleted;
             report.freed_bytes = r.freed_bytes;

@@ -3,7 +3,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::{decode_isrc, decode_string, read_header, row_offsets, u16le, u32le, Result};
+use crate::{
+    decode_isrc, decode_string, read_header, read_u16, read_u32, read_u8, row_offsets, u32le, PdbError,
+    Result,
+};
 
 /// Table types in `export.pdb`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -102,35 +105,35 @@ impl Track {
     fn parse(buf: &[u8], row: usize) -> Result<Track> {
         let mut strings_vec = Vec::with_capacity(21);
         for i in 0..21 {
-            let o = row + u16le(buf, row + 0x5e + 2 * i) as usize;
+            let o = row + read_u16(buf, row + 0x5e + 2 * i)? as usize;
             strings_vec.push(if i == 0 { decode_isrc(buf, o)? } else { decode_string(buf, o)? });
         }
         let strings: [String; 21] = strings_vec.try_into().unwrap();
         Ok(Track {
-            index_shift: u16le(buf, row + 0x02),
-            bitmask: u32le(buf, row + 0x04),
-            sample_rate: u32le(buf, row + 0x08),
-            composer_id: u32le(buf, row + 0x0c),
-            file_size: u32le(buf, row + 0x10),
-            artwork_id: u32le(buf, row + 0x1c),
-            key_id: u32le(buf, row + 0x20),
-            original_artist_id: u32le(buf, row + 0x24),
-            label_id: u32le(buf, row + 0x28),
-            remixer_id: u32le(buf, row + 0x2c),
-            bitrate: u32le(buf, row + 0x30),
-            track_number: u32le(buf, row + 0x34),
-            tempo: u32le(buf, row + 0x38),
-            genre_id: u32le(buf, row + 0x3c),
-            album_id: u32le(buf, row + 0x40),
-            artist_id: u32le(buf, row + 0x44),
-            id: u32le(buf, row + 0x48),
-            disc_number: u16le(buf, row + 0x4c),
-            play_count: u16le(buf, row + 0x4e),
-            year: u16le(buf, row + 0x50),
-            sample_depth: u16le(buf, row + 0x52),
-            duration: u16le(buf, row + 0x54),
-            color_id: buf[row + 0x58],
-            rating: buf[row + 0x59],
+            index_shift: read_u16(buf, row + 0x02)?,
+            bitmask: read_u32(buf, row + 0x04)?,
+            sample_rate: read_u32(buf, row + 0x08)?,
+            composer_id: read_u32(buf, row + 0x0c)?,
+            file_size: read_u32(buf, row + 0x10)?,
+            artwork_id: read_u32(buf, row + 0x1c)?,
+            key_id: read_u32(buf, row + 0x20)?,
+            original_artist_id: read_u32(buf, row + 0x24)?,
+            label_id: read_u32(buf, row + 0x28)?,
+            remixer_id: read_u32(buf, row + 0x2c)?,
+            bitrate: read_u32(buf, row + 0x30)?,
+            track_number: read_u32(buf, row + 0x34)?,
+            tempo: read_u32(buf, row + 0x38)?,
+            genre_id: read_u32(buf, row + 0x3c)?,
+            album_id: read_u32(buf, row + 0x40)?,
+            artist_id: read_u32(buf, row + 0x44)?,
+            id: read_u32(buf, row + 0x48)?,
+            disc_number: read_u16(buf, row + 0x4c)?,
+            play_count: read_u16(buf, row + 0x4e)?,
+            year: read_u16(buf, row + 0x50)?,
+            sample_depth: read_u16(buf, row + 0x52)?,
+            duration: read_u16(buf, row + 0x54)?,
+            color_id: read_u8(buf, row + 0x58)?,
+            rating: read_u8(buf, row + 0x59)?,
             strings,
         })
     }
@@ -177,7 +180,7 @@ macro_rules! named_row {
         impl $name {
             fn parse(buf: &[u8], row: usize) -> Result<$name> {
                 Ok($name {
-                    id: u32le(buf, row + $id_off),
+                    id: read_u32(buf, row + $id_off)?,
                     name: decode_string(buf, row + $name_off)?,
                 })
             }
@@ -200,13 +203,13 @@ pub struct Artist {
 
 impl Artist {
     fn parse(buf: &[u8], row: usize) -> Result<Artist> {
-        let subtype = u16le(buf, row);
-        let index_shift = u16le(buf, row + 2);
-        let id = u32le(buf, row + 4);
+        let subtype = read_u16(buf, row)?;
+        let index_shift = read_u16(buf, row + 2)?;
+        let id = read_u32(buf, row + 4)?;
         let name_off = if subtype == 0x64 {
-            u16le(buf, row + 0x0a) as usize
+            read_u16(buf, row + 0x0a)? as usize
         } else {
-            buf[row + 9] as usize
+            read_u8(buf, row + 9)? as usize
         };
         Ok(Artist {
             id,
@@ -226,10 +229,10 @@ pub struct Album {
 
 impl Album {
     fn parse(buf: &[u8], row: usize) -> Result<Album> {
-        let index_shift = u16le(buf, row + 2);
-        let artist_id = u32le(buf, row + 8);
-        let id = u32le(buf, row + 12);
-        let name_off = buf[row + 0x15] as usize;
+        let index_shift = read_u16(buf, row + 2)?;
+        let artist_id = read_u32(buf, row + 8)?;
+        let id = read_u32(buf, row + 12)?;
+        let name_off = read_u8(buf, row + 0x15)? as usize;
         Ok(Album {
             id,
             index_shift,
@@ -248,7 +251,7 @@ pub struct Key {
 impl Key {
     fn parse(buf: &[u8], row: usize) -> Result<Key> {
         Ok(Key {
-            id: u32le(buf, row),
+            id: read_u32(buf, row)?,
             name: decode_string(buf, row + 8)?,
         })
     }
@@ -263,7 +266,7 @@ pub struct Color {
 impl Color {
     fn parse(buf: &[u8], row: usize) -> Result<Color> {
         Ok(Color {
-            id: u16le(buf, row + 5),
+            id: read_u16(buf, row + 5)?,
             name: decode_string(buf, row + 8)?,
         })
     }
@@ -281,10 +284,10 @@ pub struct PlaylistTreeNode {
 impl PlaylistTreeNode {
     fn parse(buf: &[u8], row: usize) -> Result<PlaylistTreeNode> {
         Ok(PlaylistTreeNode {
-            parent_id: u32le(buf, row),
-            sort_order: u32le(buf, row + 8),
-            id: u32le(buf, row + 12),
-            is_folder: u32le(buf, row + 16) != 0,
+            parent_id: read_u32(buf, row)?,
+            sort_order: read_u32(buf, row + 8)?,
+            id: read_u32(buf, row + 12)?,
+            is_folder: read_u32(buf, row + 16)? != 0,
             name: decode_string(buf, row + 20)?,
         })
     }
@@ -300,9 +303,9 @@ pub struct PlaylistEntry {
 impl PlaylistEntry {
     fn parse(buf: &[u8], row: usize) -> Result<PlaylistEntry> {
         Ok(PlaylistEntry {
-            entry_index: u32le(buf, row),
-            track_id: u32le(buf, row + 4),
-            playlist_id: u32le(buf, row + 8),
+            entry_index: read_u32(buf, row)?,
+            track_id: read_u32(buf, row + 4)?,
+            playlist_id: read_u32(buf, row + 8)?,
         })
     }
 }
@@ -317,9 +320,9 @@ pub struct HistoryEntry {
 impl HistoryEntry {
     fn parse(buf: &[u8], row: usize) -> Result<HistoryEntry> {
         Ok(HistoryEntry {
-            track_id: u32le(buf, row),
-            playlist_id: u32le(buf, row + 4),
-            entry_index: u32le(buf, row + 8),
+            track_id: read_u32(buf, row)?,
+            playlist_id: read_u32(buf, row + 4)?,
+            entry_index: read_u32(buf, row + 8)?,
         })
     }
 }
@@ -333,7 +336,7 @@ pub struct Artwork {
 impl Artwork {
     fn parse(buf: &[u8], row: usize) -> Result<Artwork> {
         Ok(Artwork {
-            id: u32le(buf, row),
+            id: read_u32(buf, row)?,
             path: decode_string(buf, row + 4)?,
         })
     }
@@ -349,7 +352,7 @@ pub struct Column {
 impl Column {
     fn parse(buf: &[u8], row: usize) -> Result<Column> {
         Ok(Column {
-            id: u16le(buf, row),
+            id: read_u16(buf, row)?,
             name: decode_string(buf, row + 4)?,
         })
     }
@@ -384,15 +387,21 @@ fn parse_rows<T>(
 }
 
 /// Absolute file offsets of every present row of a table, in order.
-pub(crate) fn table_row_offsets(data: &[u8], page_size: usize, table: &Table) -> Vec<usize> {
+pub(crate) fn table_row_offsets(data: &[u8], page_size: usize, table: &Table) -> Result<Vec<usize>> {
     let mut locs = Vec::new();
     let mut page_index = table.first_page;
     // locallibrary patch: a corrupt (cyclic) page chain must not loop forever.
     let max_pages = data.len() / page_size.max(1) + 1;
     for _ in 0..max_pages {
         let page_off = page_index as usize * page_size;
-        let page = &data[page_off..page_off + page_size];
-        for ro in row_offsets(page, page_size) {
+        // locallibrary patch: a page past the end of the file panicked.
+        let page = data.get(page_off..page_off + page_size).ok_or_else(|| {
+            PdbError::Malformed(format!(
+                "table {} links to page {page_index}, past the end of the file",
+                table.table_type
+            ))
+        })?;
+        for ro in row_offsets(page, page_size)? {
             locs.push(page_off + ro);
         }
         if page_index == table.last_page {
@@ -400,7 +409,7 @@ pub(crate) fn table_row_offsets(data: &[u8], page_size: usize, table: &Table) ->
         }
         page_index = u32le(page, 12);
     }
-    locs
+    Ok(locs)
 }
 
 impl Database {
@@ -423,7 +432,7 @@ impl Database {
 
         let mut locations: HashMap<u32, Vec<usize>> = HashMap::new();
         for t in &tables {
-            locations.insert(t.table_type, table_row_offsets(&data, page_size, t));
+            locations.insert(t.table_type, table_row_offsets(&data, page_size, t)?);
         }
 
         let get = |ty: TableType| -> Vec<usize> {

@@ -385,10 +385,14 @@ fn crates_list_every_playlist(tc: TestCase) {
     assert_eq!((export.cues, export.copy_bytes), (0, 0));
 }
 
-/// Whether a track's copy can hold Serato's ID3v2 tag.
-fn taggable(t: &Track) -> bool {
-    let ext = t.file_path.rsplit_once('.').unwrap().1.to_ascii_lowercase();
-    matches!(ext.as_str(), "mp3" | "wav" | "aif" | "aiff")
+/// The kind of audio file a name says, when its copy can hold Serato's ID3v2 tag.
+fn kind_of(path: &str) -> Option<Kind> {
+    match path.rsplit_once('.')?.1.to_ascii_lowercase().as_str() {
+        "mp3" => Some(Kind::Mp3),
+        "wav" => Some(Kind::Wav),
+        "aif" | "aiff" => Some(Kind::Aiff),
+        _ => None,
+    }
 }
 
 /// With copies, each file is copied once (rows sharing a file in any case are one copy), files
@@ -412,11 +416,16 @@ fn copies_hold_each_file_once(tc: TestCase) {
     let mut sizes: FxHashMap<String, u64> = FxHashMap::default();
     for t in &firsts {
         if tc.draw(gs::booleans()) {
-            let size = tc.draw(gs::integers::<u64>().max_value(3000));
+            let size = tc.draw(gs::integers::<usize>().min_value(2).max_value(3000));
             let path = paths::to_fs(music.path(), &paths::key(&t.file_path));
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(&path, vec![0x55; size as usize]).unwrap();
-            sizes.insert(file_key(t), size);
+            // Audio of the kind its name says, which Serato's tag can go into.
+            let bytes = match kind_of(&t.file_path) {
+                Some(kind) => audio_file(kind, &vec![0x55; size / 2 * 2]),
+                None => vec![0x55; size],
+            };
+            std::fs::write(&path, &bytes).unwrap();
+            sizes.insert(file_key(t), bytes.len() as u64);
         }
     }
     let failing = tc.draw(gs::optional(gs::integers::<u32>().min_value(1).max_value(6)));
@@ -436,17 +445,21 @@ fn copies_hold_each_file_once(tc: TestCase) {
     let copied: Vec<&Track> = firsts.iter().copied().filter(|t| sizes.contains_key(&file_key(t))).collect();
     let files: Vec<_> = export.files.iter().filter(|f| matches!(f.content, Content::TaggedCopy { .. })).collect();
     assert_eq!(files.len(), copied.len());
-    let (mut tagged, mut cues, mut untaggable, mut left_out) = (0, 0, 0, 0);
+    let (mut with_cues, mut cues, mut untaggable, mut left_out) = (0, 0, 0, 0);
     for (t, f) in copied.iter().zip(&files) {
         let Content::TaggedCopy { from, markers } = &f.content else { unreachable!() };
         let key = paths::key(&t.file_path);
         assert_eq!(from, &paths::to_fs(music.path(), &key));
         assert_eq!(f.path, paths::to_fs(Path::new("/Volumes/USB/out"), &key));
-        assert_eq!(f.bytes, sizes[&file_key(t)]);
-        match (with_analysis, taggable(t)) {
+        // A tagged copy is planned at its size and the tag's (see `copies_are_planned_as_written`).
+        match markers {
+            Some(_) => assert!(f.bytes > sizes[&file_key(t)], "{}", f.path.display()),
+            None => assert_eq!(f.bytes, sizes[&file_key(t)]),
+        }
+        match (with_analysis, kind_of(&t.file_path).is_some()) {
             (true, true) => {
                 let want = Markers::from_rekordbox(t.color, &analysis[&t.id].1);
-                tagged += 1;
+                with_cues += usize::from(!want.cues.is_empty() || !want.loops.is_empty());
                 cues += want.cues.len() + want.loops.len();
                 left_out += want.left_out;
                 assert_eq!(markers.as_deref(), Some(want.encode().as_slice()));
@@ -472,7 +485,7 @@ fn copies_hold_each_file_once(tc: TestCase) {
         ));
     }
     assert_eq!(export.warnings, want);
-    assert!(export.notes.iter().any(|n| n.contains(&format!("; {tagged} of them get"))), "{:?}", export.notes);
+    assert!(export.notes.iter().any(|n| n.contains(&format!("; {with_cues} of them get"))), "{:?}", export.notes);
     // The crates list the copies, relative to the volume they're on.
     let listed: FxHashSet<Vec<String>> = crates(&export).into_values().collect();
     for p in lib.playlists.iter().filter(|p| !p.is_folder) {
@@ -503,7 +516,8 @@ fn copies_warn_of_the_cues_they_leave_out(tc: TestCase) {
         let ext = tc.draw(gs::sampled_from(vec!["mp3", "MP3", "wav", "aif", "aiff", "flac", "m4a"]));
         t.file_path = format!("/Music/{}.{ext}", t.id);
         std::fs::create_dir_all(music.path().join("Music")).unwrap();
-        std::fs::write(paths::to_fs(music.path(), &paths::key(&t.file_path)), b"audio").unwrap();
+        let audio = kind_of(&t.file_path).map_or(b"audio".to_vec(), |kind| audio_file(kind, b"audio!"));
+        std::fs::write(paths::to_fs(music.path(), &paths::key(&t.file_path)), audio).unwrap();
         let pads = tc.draw(gs::vecs(gs::optional(gs::integers::<u8>().max_value(12))).max_size(10));
         if matches!(ext, "flac" | "m4a") {
             untaggable += 1;
@@ -748,7 +762,8 @@ fn markers_refuse_files_they_cant_tag(tc: TestCase) {
     match (serato::write_markers(&path, Path::new(named), b"markers"), &content) {
         (Err(Error::Io { path: p, .. }), None) => assert_eq!(p, path),
         (Err(Error::Tags(e)), Some((bytes, _))) => {
-            assert!(e.starts_with(&path.display().to_string()), "{e}");
+            // Named as the file it's a copy of: `path` is a temporary file's.
+            assert!(e.starts_with(&format!("{named}: ")), "{e}");
             assert_eq!(&std::fs::read(&path).unwrap(), bytes, "left as it was");
         }
         (Ok(()), Some((_, true))) if kind.is_some() => {
@@ -759,5 +774,99 @@ fn markers_refuse_files_they_cant_tag(tc: TestCase) {
             );
         }
         (result, _) => panic!("{named} holding {content:?}: {result:?}"),
+    }
+}
+
+/// Regression (`--write-tags`): copies are planned as they're written. A tagged copy was planned
+/// at its source's size, short by the tag, so a check for room passed copies that then didn't fit;
+/// the note counted every tagged copy as getting hot cues, cues or none; and audio that isn't what
+/// its name says was planned with a tag that then failed to write, naming a temporary file. Now
+/// each copy, once tagged, takes no more than it's planned at (MP3, AIFF and WAV, tagged before or
+/// not), the note counts the copies whose tag carries a cue or loop, and a file that can't be
+/// tagged is copied as it is, with a warning naming it.
+#[hegel::test(test_cases = 60)]
+fn copies_are_planned_as_written(tc: TestCase) {
+    use lofty::config::WriteOptions;
+    use lofty::id3::v2::Id3v2Tag;
+    use lofty::tag::{Accessor, TagExt};
+
+    let mut lib = common::library(&tc, 4);
+    let music = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(music.path().join("Music")).unwrap();
+    let mut real = FxHashSet::default();
+    for t in &mut lib.tracks {
+        let kind = tc.draw(gs::sampled_from(vec![Kind::Mp3, Kind::Wav, Kind::Aiff]).print_as_debug());
+        let ext = match kind {
+            Kind::Mp3 => "mp3",
+            Kind::Wav => "wav",
+            Kind::Aiff => "aiff",
+        };
+        t.file_path = format!("/Music/{}.{ext}", t.id);
+        let path = paths::to_fs(music.path(), &paths::key(&t.file_path));
+        if !tc.draw(gs::booleans()) {
+            // Bytes with no frame sync or chunk id in them.
+            std::fs::write(&path, tc.draw(gs::vecs(gs::integers::<u8>().max_value(0x40)).max_size(300))).unwrap();
+            continue;
+        }
+        let audio = tc.draw(gs::vecs(gs::integers::<u8>().min_value(1).max_value(0xfe)).min_size(2).max_size(1200));
+        std::fs::write(&path, audio_file(kind, &audio[..audio.len() / 2 * 2])).unwrap();
+        if let Some((title, v23, footer)) = tc.draw(gs::optional(hegel::tuples!(
+            gs::integers::<usize>().max_value(3000),
+            gs::booleans(),
+            gs::booleans()
+        ))) {
+            let mut tag = Id3v2Tag::new();
+            tag.set_title("t".repeat(title));
+            let mut flags = *tag.flags();
+            flags.footer = footer;
+            tag.set_flags(flags);
+            let mut f = std::fs::OpenOptions::new().read(true).write(true).open(&path).unwrap();
+            tag.save_to(&mut f, WriteOptions::new().use_id3v23(v23)).unwrap();
+        }
+        real.insert(t.id);
+    }
+    let analysis = common::analysis(&tc, &lib);
+    let load = common::loader(&analysis);
+    let src = Source { library: &lib, root: PathBuf::from("/Volumes/USB"), analysis: Some(&load) };
+    let audio = |t: &Track| Ok::<_, Error>(paths::to_fs(music.path(), &paths::key(&t.file_path)));
+    let copies = Copies { root: PathBuf::from("/Volumes/USB/out"), audio: &audio };
+    let export = serato::build(&src, Path::new("out"), Some(&copies), &Ctx::silent()).unwrap();
+
+    let staged = tempfile::tempdir().unwrap();
+    let (mut cues, mut with_cues, mut refused) = (0, 0, Vec::new());
+    let files = export.files.iter().filter(|f| matches!(f.content, Content::TaggedCopy { .. }));
+    for (t, f) in lib.tracks.iter().zip(files) {
+        let Content::TaggedCopy { from, markers } = &f.content else { unreachable!() };
+        // As the export writes it: a copy, then the tag.
+        let copy = staged.path().join(t.id.to_string());
+        std::fs::copy(from, &copy).unwrap();
+        match markers {
+            Some(m) => {
+                assert!(real.contains(&t.id), "{} isn't audio, but gets a tag", from.display());
+                serato::write_markers(&copy, from, m).unwrap();
+                let want = Markers::from_rekordbox(t.color, &analysis[&t.id].1);
+                cues += want.cues.len() + want.loops.len();
+                with_cues += usize::from(!want.cues.is_empty() || !want.loops.is_empty());
+            }
+            None => {
+                assert!(!real.contains(&t.id), "{} is audio, but gets no tag", from.display());
+                refused.push(from);
+            }
+        }
+        let len = std::fs::metadata(&copy).unwrap().len();
+        assert!(len <= f.bytes, "{} takes {len} bytes, planned at {}", from.display(), f.bytes);
+    }
+    assert_eq!(export.cues, cues);
+    assert!(export.notes.iter().any(|n| n.contains(&format!("; {with_cues} of them get"))), "{:?}", export.notes);
+    let warned = export.warnings.iter().find(|w| w.contains("can't take Serato's cue tag"));
+    match refused.first() {
+        Some(first) => assert_eq!(
+            warned.map(|w| w.starts_with(&format!("{} track(s)", refused.len()))
+                && w.contains(&format!("(e.g. {}: ", first.display()))),
+            Some(true),
+            "{:?}",
+            export.warnings
+        ),
+        None => assert_eq!(warned, None),
     }
 }

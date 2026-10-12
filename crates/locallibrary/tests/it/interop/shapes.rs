@@ -74,6 +74,10 @@ fn traktor_gets_one_entry_a_file_with_its_colour_and_album() {
 fn serato_copies_each_file_once_and_tags_only_what_it_can() {
     let dir = tempfile::tempdir().unwrap();
     let d = Device::open(drive(dir.path())).unwrap();
+    // MP3 audio Serato's tag can go into, for the demo tracks' placeholders.
+    for t in d.library().unwrap().tracks.iter().filter(|t| t.file_path.ends_with(".mp3")) {
+        std::fs::write(d.path(&paths::key(&t.file_path)), common::media::mp3()).unwrap();
+    }
     let opts = InteropOptions { write_tags: true, ..Default::default() };
     let plan = interop::plan(&d, Software::Serato, &dir.path().join("serato"), &opts, &Ctx::silent()).unwrap();
     let copies: Vec<&str> = plan.files.iter().map(|f| f.what.as_str()).filter(|w| w.starts_with("copy of")).collect();

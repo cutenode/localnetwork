@@ -290,6 +290,37 @@ fn refuses_what_rekordbox_doesnt_allow() {
     assert!(invalid(add("Genre/One Too Many", demos)).contains("50 tags"));
 }
 
+/// A new tag or category name can't hold a '/': a tag's path is split at its first one, so
+/// `rename Genre/Deep House Genre/Dark` would make `Genre/Genre/Dark`. A tag rekordbox named with
+/// one is still found and given to tracks.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn new_names_with_a_slash_are_refused(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let root = both_drive(dir.path());
+    let mut ed = ExtEditor::from_file(root.join(paths::EXPORT_EXT_PDB)).unwrap();
+    ed.add_tag(1, 0x7000_0000, "Drum/Bass").unwrap();
+    ed.save(root.join(paths::EXPORT_EXT_PDB)).unwrap();
+    let mut d = Device::open_export(&root).unwrap();
+    let demos = select(&d, "Demo Track");
+    let part = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(vec!["", "Genre", "Dark", " "])).to_string();
+    let named = format!("{}/{}", part(&tc), part(&tc));
+    let edit = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => Edit::Rename { tag: "Genre/Deep House".into(), to: named.clone() },
+        1 => Edit::Rename { tag: "Genre".into(), to: named.clone() },
+        _ => add(&format!("Genre/New/{named}"), demos.clone()),
+    };
+    let before = common::Before::take(&root);
+    match tags::plan(&d, &edit) {
+        Err(Error::Invalid(m)) => assert!(m.contains("can't contain '/'"), "{edit:?}: {m}"),
+        other => panic!("{edit:?}: {other:?}"),
+    }
+    before.untouched(&root).unwrap();
+    apply(&mut d, add("Genre/Drum/Bass", demos.clone()));
+    assert_eq!(ext_tags(&root)["Genre/Drum/Bass"].len(), demos.len());
+    assert_eq!(plus_tags(&root)["Genre/Drum/Bass"].len(), demos.len());
+}
+
 /// Regression: plan took a tag name too long for one exportExt.pdb row, and apply then failed
 /// after making a backup, leaving the drive marked as interrupted. A tag's row holds 3,999 ASCII
 /// characters, or 1,999 as UTF-16.

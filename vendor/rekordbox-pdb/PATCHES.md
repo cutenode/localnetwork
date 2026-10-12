@@ -93,3 +93,12 @@ so they can be offered upstream.
     or key row already did; `album_id_for` used to add a third album when a second was there.
 24. `add_track` on a buffer that doesn't parse fails as `Malformed`, as every other edit does,
     instead of with `RowTooLarge` against a page size of 0.
+25. Damaged rows and strings: the readers (`Database::from_bytes`, `ExtDatabase::from_bytes`, so
+    `ExtEditor` and `PdbEditor`'s first parse too) check every read against the file
+    (`bytes_at`, `read_u8`, `read_u16`, `read_u32`) and fail as `Malformed` instead of panicking:
+    a long string whose length is under its 4-byte header or runs past the end of the file
+    (`decode_string`, `decode_isrc`), a row whose fields or strings do, a table linking to a page
+    past the end, or a page whose row directory doesn't fit below its header. A string of an
+    unknown kind is refused as `UnknownString` before its length is read. Properties
+    (`long_string_lengths_are_checked`, `damaged_files_never_panic_the_readers`) feed the readers
+    arbitrary, truncated and overwritten files.

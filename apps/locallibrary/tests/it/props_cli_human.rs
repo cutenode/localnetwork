@@ -530,13 +530,8 @@ pub fn agree_runs(args: &[&str], human: &Run, json: &Run, spec: &[&str], univers
         let says = if *cut { human.out.contains(w.as_str()) } else { names(&human.out, w) };
         assert!(says, "the text doesn't say {w:?}: {}", said());
     }
-    // What the command line names, the text may say back; and a command that lists the mounted
-    // drives to choose from (`setup`) names each.
-    let mounted = spec.contains(&LISTS_MOUNTED);
-    let libraries = mounted || spec.contains(&NAMES_LIBRARIES);
-    let known = |n: &str| {
-        args.iter().any(|a| names(a, n)) || (mounted && DRIVES.contains(&n)) || (libraries && LIBRARIES.contains(&n))
-    };
+    // What the command line names, the text may say back.
+    let known = |n: &str| args.iter().any(|a| names(a, n));
     for n in universe.iter().filter(|n| !known(n)) {
         if names(&human.out, n) {
             // Under `--json` a warning goes to stderr, keeping stdout for the JSON.
@@ -614,22 +609,8 @@ pub fn run_in(fx: &Env, args: &[&str]) -> Run {
     }
 }
 
-/// A spec's entry for a command that lists the mounted drives to choose from, which its JSON
-/// leaves out.
-pub const LISTS_MOUNTED: &str = "(lists the mounted drives)";
-
 /// A spec's entry for a command line a person is shown the usage for, as the error.
 pub const PRINTS_USAGE: &str = "(prints the usage)";
-
-/// A spec's entry for a command whose text names the library each drive is in, where its JSON
-/// has only the library's id (`drive ls`).
-pub const NAMES_LIBRARIES: &str = "(names the drives' libraries)";
-
-/// The fixture's libraries but A.
-pub const LIBRARIES: &[&str] = &["Clubland"];
-
-/// The fixture's drives but A, and what the changes rename them to.
-pub const DRIVES: &[&str] = &["Club", "Blank", "Broken", "Spare", "Floor", "Demo", "Plus", "Garbled", "Club2", "Away"];
 
 /// What each read of the drives must say, from its JSON.
 const DRIVE_READS: &[(&[&str], &[&str])] = &[
@@ -645,11 +626,11 @@ const DRIVE_READS: &[(&[&str], &[&str])] = &[
         ],
     ),
     (&["status", "--all", "--retired"], &["libraries.[].name", "mounted.[].drive.name", "offline.[].name"]),
-    (&["drive", "ls"], &[NAMES_LIBRARIES, "[].root", "{[].summary.tracks} tracks", "{[].summary.playlists} playlists"]),
-    (&["drive", "ls", "--all"], &[NAMES_LIBRARIES, "[].root"]),
+    (&["drive", "ls"], &["[].library", "[].root", "{[].summary.tracks} tracks", "{[].summary.playlists} playlists"]),
+    (&["drive", "ls", "--all"], &["[].library", "[].root"]),
     (&["drive", "ls", "--known", "--retired"], &["[].name", "[].library", "[].mounted"]),
     (&["drive", "list"], &["[].name", "[].library"]),
-    (&["drive"], &[NAMES_LIBRARIES, "[].root"]),
+    (&["drive"], &["[].library", "[].root"]),
     (
         &["drive", "info", "A"],
         &[
@@ -691,7 +672,7 @@ const DRIVE_READS: &[(&[&str], &[&str])] = &[
     (&["drive", "log", "A"], &["name", "log.last_scrub.summary", "log.problems.[..10].detail"]),
     (&["status"], &["libraries.[].name", "mounted.[].drive.name", "offline.[].name"]),
     // The top-level forms of the drive commands.
-    (&["drives"], &[NAMES_LIBRARIES, "[].root"]),
+    (&["drives"], &["[].library", "[].root"]),
     (&["info", "A"], &["root"]),
     (&["space", "A"], &["drive"]),
     (&["backups", "A"], &["[].id"]),

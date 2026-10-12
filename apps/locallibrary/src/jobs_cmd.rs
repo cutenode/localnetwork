@@ -532,8 +532,9 @@ fn role_arg(s: &str) -> Result<String> {
     }
 }
 
-fn mounted_exports() -> Vec<DeviceInfo> {
-    api::list_drives(&api::ListDrives { all: false }).into_iter().filter(|d| d.has_export).collect()
+fn mounted_exports(store: Option<&Store>) -> Vec<api::ListedDrive> {
+    let listed = api::list_drives_in_libraries(store, &api::ListDrives { all: false });
+    listed.into_iter().filter(|d| d.drive.has_export).collect()
 }
 
 /// The drives to set up: the ones named; else each mounted one the user says yes to (in a
@@ -653,7 +654,8 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     if !asking && args.library.is_none() {
         return Err(usage("without a terminal to ask in, setup needs --library NAME: what to call your library"));
     }
-    let mounted = mounted_exports();
+    // The store as it is: one that isn't there yet has no libraries to name.
+    let mounted = mounted_exports(crate::diff_cmd::existing_store(store_path).as_ref());
     if mounted.is_empty() {
         bail!(
             "no rekordbox drive is mounted: plug in a drive rekordbox exported to, then run `locallibrary setup` again"
@@ -662,18 +664,17 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     let store = crate::open_store(store_path)?;
     let mut s = Setup { out, asking, store: &store, ctx, log: Vec::new(), notes: Vec::new() };
     if !out.json {
-        let libraries = store.libraries()?;
         output::heading(&format!("{} rekordbox drive(s) mounted", mounted.len()));
-        for (i, d) in mounted.iter().enumerate() {
+        for (i, api::ListedDrive { drive: d, library }) in mounted.iter().enumerate() {
             let tracks = d.summary.as_ref().map(|s| format!("{} tracks", s.tracks)).unwrap_or_default();
-            let library = d.library_id.and_then(|id| libraries.iter().find(|l| l.id == id));
-            let library = library.map(|l| format!("library {:?}", l.name)).unwrap_or_default();
+            let library = library.as_ref().map(|l| format!("library {l:?}")).unwrap_or_default();
             say!("  {}. {}  {}  {}  {}", i + 1, label(d), dim(d.root.display()), dim(tracks), dim(library));
         }
     }
     // A drive mounted now is another drive, not one the store knew before it was erased.
-    let held: Vec<_> = mounted.iter().filter_map(|d| d.id).collect();
-    let drives = choose_drives(&mut s, &args.drives, args.library.as_deref(), mounted)?;
+    let held: Vec<_> = mounted.iter().filter_map(|d| d.drive.id).collect();
+    let choices = mounted.iter().map(|d| d.drive.clone()).collect();
+    let drives = choose_drives(&mut s, &args.drives, args.library.as_deref(), choices)?;
     let names = by_drive(&args.names, &drives, "--name")?;
     let roles = by_drive(&args.roles, &drives, "--role")?;
     let player_names = by_drive(&args.player_names, &drives, "--player-name")?;
@@ -724,7 +725,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     s.apply("names", "Mark them as copies of your library?", plans)?;
     // Read again (with their identities now), in the order chosen: the first is the primary
     // unless one is given.
-    let listed = mounted_exports();
+    let listed = api::list_drives(&api::ListDrives { all: false });
     let drives: Vec<DeviceInfo> = roots.iter().filter_map(|r| listed.iter().find(|d| d.root == *r).cloned()).collect();
 
     // 2. The primary, the other drives' roles, and the library.
@@ -952,7 +953,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         watching = true;
     }
 
-    let report = json!({ "steps": s.log, "notes": s.notes });
+    let report = json!({ "mounted": mounted, "steps": s.log, "notes": s.notes });
     Ok(out.done(&report, |_| {
         say!();
         output::heading("You're set up. The commands you'll use most:");

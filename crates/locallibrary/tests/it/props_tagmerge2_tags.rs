@@ -320,8 +320,12 @@ fn a_replay_after_tracks_went_skips_what_no_longer_applies(tc: TestCase) {
     let plan = edit::plan(&d, &journal, &opts, &Ctx::silent()).unwrap();
     let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let says = |what: &str| report.warnings.iter().filter(|w| w.contains(what)).count();
-    assert_eq!(says("names aren't on the drive any more"), 2, "{:?}", report.warnings);
-    assert!(report.warnings.iter().any(|w| w.contains(&gone_file)), "{:?}", report.warnings);
+    assert_eq!(says(&format!("aren't on the drive any more (e.g. {gone_file}), so ")), 2, "{:?}", report.warnings);
+    let partly = format!(
+        "1 track(s) aren't on the drive any more (e.g. {gone_file}), so \"add My Tag {kept} to 3 track(s)\" is replayed \
+         without them"
+    );
+    assert!(report.warnings.contains(&partly), "{:?}", report.warnings);
     assert_eq!(says(&format!("skipped an edit that no longer applies (add My Tag {only}")), 1, "{:?}", report.warnings);
     let lib = d.library().unwrap();
     let held = ext_held(&root);

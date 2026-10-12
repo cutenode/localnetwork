@@ -3720,6 +3720,39 @@ export type ListDrives = {
   all?: boolean;
 };
 
+/** A drive [`list_drives`] lists, with the name of the library it's a clone of. */
+export type ListedDrive = {
+  /** How `export.pdb` and OneLibrary differ, on a drive that has both (empty when they agree). */
+  drift: LibraryDrift | null;
+  exported_at: string | null;
+  free_space: number | null;
+  /** `export.pdb` present (the Device Library every player reads, except the newest). */
+  has_device_library: boolean;
+  /** Either database below. */
+  has_export: boolean;
+  /**
+   * OneLibrary `exportLibrary.db` present (the only database CDJ-3000X, OPUS-QUAD, XDJ-AZ...
+   * read).
+   */
+  has_library_plus: boolean;
+  id: string | null;
+  last_known: LineageEntry | null;
+  /** The store's name for the library `library_id` is, when the store has it. */
+  library: string | null;
+  library_id: string | null;
+  lineage_len: number;
+  name: string | null;
+  pdb: PdbHeader | null;
+  pending: PendingOp | null;
+  /** rekordbox's automatic playlist sync to this drive, per database. */
+  rekordbox_sync: RekordboxSync[];
+  root: string;
+  settings_files: string[];
+  summary: LibrarySummary | null;
+  total_space: number | null;
+  volume_name: string;
+};
+
 /** A sign-in waiting for the browser. */
 export type LoginStart = {
   /** The client signing in. */
@@ -7600,7 +7633,7 @@ export interface Methods {
   /** read method; long running: sends `progress`, can be cancelled */
   status: { params: NoParams; result: DriveStatus[] };
   /** read method */
-  "drives.list": { params: ListDrives; result: DeviceInfo[] };
+  "drives.list": { params: ListDrives; result: ListedDrive[] };
   /** read method */
   "drives.mounted": { params: NoParams; result: MountedDrive[] };
   /** read method */

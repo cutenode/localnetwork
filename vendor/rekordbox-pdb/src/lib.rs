@@ -8,8 +8,8 @@
 //!
 //! This is a port of the Python `rekordbox_pdb` library and reads its verified
 //! fixture values alike; locallibrary's patches (`PATCHES.md`) change what some
-//! edits write and some of what is read (damaged headers are refused, ISRCs
-//! decoded).
+//! edits write and some of what is read (damaged headers, rows and strings are
+//! refused, ISRCs decoded).
 //!
 //! ```no_run
 //! use rekordbox_pdb::Database;
@@ -137,6 +137,27 @@ pub(crate) fn u32le(buf: &[u8], off: usize) -> u32 {
     u32::from_le_bytes([buf[off], buf[off + 1], buf[off + 2], buf[off + 3]])
 }
 
+/// The `len` bytes of `buf` at `off`, or `Malformed` when they run past its end. The readers take
+/// every row, string and page through this or the reads below. (locallibrary patch: they sliced
+/// without checking, so a damaged offset or length panicked.)
+pub(crate) fn bytes_at(buf: &[u8], off: usize, len: usize) -> Result<&[u8]> {
+    off.checked_add(len).and_then(|end| buf.get(off..end)).ok_or_else(|| {
+        PdbError::Malformed(format!("{len} byte(s) at {off:#x} run past the end ({:#x})", buf.len()))
+    })
+}
+
+pub(crate) fn read_u8(buf: &[u8], off: usize) -> Result<u8> {
+    Ok(bytes_at(buf, off, 1)?[0])
+}
+
+pub(crate) fn read_u16(buf: &[u8], off: usize) -> Result<u16> {
+    Ok(u16le(bytes_at(buf, off, 2)?, 0))
+}
+
+pub(crate) fn read_u32(buf: &[u8], off: usize) -> Result<u32> {
+    Ok(u32le(bytes_at(buf, off, 4)?, 0))
+}
+
 /// The page size and table count in a file's header, checked so that the table directory lies
 /// within the first page and the file. (locallibrary patch: before, a short file panicked and a
 /// huge table count was allocated for.)
@@ -159,36 +180,42 @@ pub(crate) fn read_header(data: &[u8]) -> Result<(usize, usize)> {
 /// * `0x40`: long ASCII, `u16` total length at +1 (incl. 4-byte header).
 /// * `0x90`: long UTF-16LE, same framing.
 pub(crate) fn decode_string(buf: &[u8], off: usize) -> Result<String> {
-    let b0 = buf[off];
+    let b0 = read_u8(buf, off)?;
     if b0 & 1 != 0 {
         let len = ((b0 >> 1) as usize).saturating_sub(1);
-        let bytes = &buf[off + 1..off + 1 + len];
-        return Ok(String::from_utf8_lossy(bytes).into_owned());
+        return Ok(String::from_utf8_lossy(bytes_at(buf, off + 1, len)?).into_owned());
     }
-    let total = u16le(buf, off + 1) as usize;
-    let payload = &buf[off + 4..off + total];
-    match b0 {
-        0x40 => Ok(String::from_utf8_lossy(payload).into_owned()),
-        0x90 => {
-            let units: Vec<u16> = payload
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                .collect();
-            Ok(String::from_utf16_lossy(&units))
-        }
-        _ => Err(PdbError::UnknownString {
+    if b0 != 0x40 && b0 != 0x90 {
+        return Err(PdbError::UnknownString {
             kind: b0,
             offset: off,
-        }),
+        });
     }
+    // The length counts the 4-byte header. (locallibrary patch: a length under 4, or past the
+    // end of the file, panicked.)
+    let total = read_u16(buf, off + 1)? as usize;
+    let Some(body) = total.checked_sub(4) else {
+        return Err(PdbError::Malformed(format!(
+            "the string at {off:#x} says it takes {total} bytes, less than its header"
+        )));
+    };
+    let payload = bytes_at(buf, off + 4, body)?;
+    if b0 == 0x40 {
+        return Ok(String::from_utf8_lossy(payload).into_owned());
+    }
+    let units: Vec<u16> = payload
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    Ok(String::from_utf16_lossy(&units))
 }
 
 /// Decode a track's ISRC (its string 0) starting at `off`. rekordbox writes a non-empty ISRC as
 /// a `0x90` string whose body is `0x03`, the code in ASCII and a NUL, not UTF-16LE. (locallibrary
 /// patch: every ISRC rekordbox wrote read as CJK characters before.)
 pub(crate) fn decode_isrc(buf: &[u8], off: usize) -> Result<String> {
-    if buf[off] == 0x90 {
-        let total = u16le(buf, off + 1) as usize;
+    if read_u8(buf, off)? == 0x90 {
+        let total = read_u16(buf, off + 1)? as usize;
         if let Some([0x03, text @ .., 0]) = buf.get(off + 4..off + total) {
             return Ok(String::from_utf8_lossy(text).into_owned());
         }
@@ -256,17 +283,24 @@ pub(crate) fn align4(n: usize) -> usize {
 /// Offsets (within `page`) of every present row on a data page. Empty for
 /// index pages (flag bit 0x40). `page` is a full page slice of length
 /// `page_size`.
-pub(crate) fn row_offsets(page: &[u8], page_size: usize) -> Vec<usize> {
+pub(crate) fn row_offsets(page: &[u8], page_size: usize) -> Result<Vec<usize>> {
     if page[0x1b] & 0x40 != 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     // Slot count: low byte at 0x18 plus an overflow bit at 0x19.
     let num_rows = page[0x18] as usize + 0x100 * (page[0x19] & 1) as usize;
     if num_rows == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut offsets = Vec::with_capacity(num_rows);
     let num_groups = (num_rows - 1) / 16 + 1;
+    // The row directory grows down from the page's end. (locallibrary patch: one that doesn't fit
+    // below the header ran off the page's start.)
+    if PAGE_HEADER_SIZE + num_groups * ROW_GROUP_SIZE > page_size {
+        return Err(PdbError::Malformed(format!(
+            "{num_rows} row slots don't fit a {page_size}-byte page"
+        )));
+    }
     for group in 0..num_groups {
         let base = page_size - group * ROW_GROUP_SIZE;
         let present = u16le(page, base - 4);
@@ -281,5 +315,5 @@ pub(crate) fn row_offsets(page: &[u8], page_size: usize) -> Vec<usize> {
             }
         }
     }
-    offsets
+    Ok(offsets)
 }

@@ -22,7 +22,10 @@ use std::path::Path;
 
 use crate::edit::{check_alloc, name_at, PdbEditor};
 use crate::pdb::{table_row_offsets, Table};
-use crate::{align4, decode_string, encode_string, read_header, u16le, u32le, PdbError, Result};
+use crate::{
+    align4, decode_string, encode_string, read_header, read_u16, read_u32, read_u8, u32le, PdbError,
+    Result,
+};
 
 /// Table types in `exportExt.pdb` (a different set from `export.pdb`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -64,18 +67,18 @@ pub struct Tag {
 
 impl Tag {
     fn parse(buf: &[u8], row: usize) -> Result<Tag> {
-        let subtype = u16le(buf, row);
+        let subtype = read_u16(buf, row)?;
         let name_off = if subtype & 0x04 != 0 {
-            u16le(buf, row + 0x1e) as usize
+            read_u16(buf, row + 0x1e)? as usize
         } else {
-            buf[row + 0x1d] as usize
+            read_u8(buf, row + 0x1d)? as usize
         };
         Ok(Tag {
-            index_shift: u16le(buf, row + 2),
-            category_id: u32le(buf, row + 0x0c),
-            position: u32le(buf, row + 0x10),
-            id: u32le(buf, row + 0x14),
-            is_category: u32le(buf, row + 0x18) != 0,
+            index_shift: read_u16(buf, row + 2)?,
+            category_id: read_u32(buf, row + 0x0c)?,
+            position: read_u32(buf, row + 0x10)?,
+            id: read_u32(buf, row + 0x14)?,
+            is_category: read_u32(buf, row + 0x18)? != 0,
             name: decode_string(buf, row + name_off)?,
         })
     }
@@ -90,11 +93,11 @@ pub struct TagTrack {
 }
 
 impl TagTrack {
-    fn parse(buf: &[u8], row: usize) -> TagTrack {
-        TagTrack {
-            track_id: u32le(buf, row + 4),
-            tag_id: u32le(buf, row + 8),
-        }
+    fn parse(buf: &[u8], row: usize) -> Result<TagTrack> {
+        Ok(TagTrack {
+            track_id: read_u32(buf, row + 4)?,
+            tag_id: read_u32(buf, row + 8)?,
+        })
     }
 }
 
@@ -130,7 +133,7 @@ impl ExtDatabase {
         let mut locations = HashMap::new();
         for ty in [ExtTableType::Tags, ExtTableType::TagTracks] {
             if let Some(t) = tables.iter().find(|t| t.table_type == ty as u32) {
-                locations.insert(ty as u32, table_row_offsets(&data, page_size, t));
+                locations.insert(ty as u32, table_row_offsets(&data, page_size, t)?);
             }
         }
         let get = |ty: ExtTableType| locations.get(&(ty as u32)).map(Vec::as_slice).unwrap_or(&[]);
@@ -141,7 +144,7 @@ impl ExtDatabase {
         let tag_tracks = get(ExtTableType::TagTracks)
             .iter()
             .map(|&off| TagTrack::parse(&data, off))
-            .collect();
+            .collect::<Result<_>>()?;
 
         Ok(ExtDatabase {
             page_size: page_size as u32,

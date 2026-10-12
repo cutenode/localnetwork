@@ -37,3 +37,25 @@ fn categories_tags_and_links() {
     one.add_my_tag(103, 3, "Electro", false).unwrap();
     assert_eq!(names(&one, 3), [("Electro".into(), 0)]);
 }
+
+/// Id 0 is the parent every category has, so a row with it would be taken for the parent of
+/// them all: neither added nor removed, and every category stays.
+#[test]
+fn id_0_is_refused() {
+    let mut one = OneLibrary::create().unwrap();
+    one.add_my_tag(1, 0, "Genre", true).unwrap();
+    one.add_my_tag(2, 1, "Deep", false).unwrap();
+    for category in [true, false] {
+        assert_eq!(one.add_my_tag(0, if category { 0 } else { 1 }, "Zero", category).unwrap_err().code(), "invalid");
+    }
+    // A database made elsewhere may hold one already.
+    one.conn
+        .execute(
+            "INSERT INTO myTag (myTag_id, sequenceNo, name, attribute, myTag_id_parent) VALUES (0, 1, 'Zero', 1, 0)",
+            [],
+        )
+        .unwrap();
+    assert_eq!(one.remove_my_tag(0).unwrap_err().code(), "invalid");
+    assert_eq!(names(&one, 0), [("Genre".into(), 0), ("Zero".into(), 1)]);
+    assert_eq!(names(&one, 1), [("Deep".into(), 0)]);
+}

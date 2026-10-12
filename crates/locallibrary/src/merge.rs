@@ -851,6 +851,14 @@ pub fn apply(
     let mut plus_after = None;
     let mut tagged: Vec<Carried> = Vec::new();
     if let Some((plus_lib, mut one)) = plus {
+        // Planning said a OneLibrary whose My Tags can't be read is left out of them.
+        let tags_read = match DbTags::plus(&one, &plus_lib) {
+            Ok(_) => true,
+            Err(e) => {
+                warnings.warn("My Tags", format!("{e}; the merged tracks' My Tags aren't added to it"));
+                false
+            }
+        };
         let into = PlusMerge {
             source,
             src_lib: &src_lib,
@@ -860,7 +868,7 @@ pub fn apply(
             target_lib: &target_lib,
             plus_lib: &plus_lib,
             primary: !has_pdb,
-            my_tags: &plus_tags,
+            my_tags: tags_read.then_some(&plus_tags),
             ext_tags: ext.as_ref().map(|(_, tags)| tags),
         };
         let (bytes, carried) = into.apply(&mut one, plan, opts, &mut copies, &mut report, &mut warnings, ctx)?;
@@ -868,7 +876,7 @@ pub fn apply(
             warnings.warn("My Tags", w);
         }
         tagged.push(carried);
-        plus_after = Some(DbTags::plus(&one, &one.library()?)?);
+        plus_after = tags_read.then(|| one.library().and_then(|l| DbTags::plus(&one, &l))).transpose()?;
         plus_bytes = Some(bytes);
     }
     // exportExt.pdb after OneLibrary, so a tag new to both gets OneLibrary's id there too.
@@ -950,8 +958,8 @@ struct PlusMerge<'a> {
     plus_lib: &'a Library,
     /// OneLibrary is the target's only database, so the report counts what happens here.
     primary: bool,
-    /// Source track id -> the My Tags it brings.
-    my_tags: &'a FxHashMap<u32, TagNames>,
+    /// Source track id -> the My Tags it brings; `None` leaves the target's My Tags alone.
+    my_tags: Option<&'a FxHashMap<u32, TagNames>>,
     /// The target's `exportExt.pdb` tags, for new tags' names and ids.
     ext_tags: Option<&'a DbTags>,
 }
@@ -997,7 +1005,9 @@ impl PlusMerge<'_> {
             }
             map
         };
-        let src_plus_ids = self.src_plus.map(|one| one.library().map(|l| by_path(&l))).transpose()?;
+        // Planning only warned of a source OneLibrary whose tracks can't be read (its My Tags are
+        // left out): its rows are built from export.pdb's instead.
+        let src_plus_ids = self.src_plus.and_then(|one| one.library().ok()).map(|l| by_path(&l));
         let defaults = one.content_defaults()?;
         let mut cue_ids: FxHashMap<i64, i64> = FxHashMap::default();
         let mut images: FxHashMap<u32, Option<u32>> = FxHashMap::default();
@@ -1027,7 +1037,15 @@ impl PlusMerge<'_> {
             };
             let own_row = match (self.src_plus, &src_plus_ids) {
                 (Some(src), Some(ids)) => match ids.get(&fold(&paths::key(&st.file_path))) {
-                    Some(id) => src.export_track(*id)?,
+                    // A row a source database made by something other than rekordbox can't give
+                    // (it lacks a table) is built from export.pdb's, as planning expected.
+                    Some(id) => src.export_track(*id).unwrap_or_else(|e| {
+                        warnings.warn(
+                            "unreadable source OneLibrary rows",
+                            format!("{}: {e}; its OneLibrary row is made from export.pdb's", st.display_name()),
+                        );
+                        None
+                    }),
                     None => None,
                 },
                 _ => None,
@@ -1048,7 +1066,8 @@ impl PlusMerge<'_> {
                 );
             }
             id_map.insert(t.source_id, id);
-            wanted.push((id, fold(&t.audio), self.my_tags.get(&t.source_id).cloned().unwrap_or_default()));
+            let tags = self.my_tags.and_then(|m| m.get(&t.source_id)).cloned().unwrap_or_default();
+            wanted.push((id, fold(&t.audio), tags));
             if self.primary {
                 report.tracks_added += 1;
             }
@@ -1063,9 +1082,13 @@ impl PlusMerge<'_> {
         if let Some(src) = self.src_plus.filter(|_| !cue_ids.is_empty() && opts.playlists != PlaylistMode::None) {
             report.hot_cue_bank_lists_added = copy_hot_cue_bank_lists(src, one, &plan.folder_name, &cue_ids)?;
         }
-        let fresh: Vec<u32> = wanted.iter().map(|(id, _, _)| *id).collect();
-        let library = one.library()?;
-        let carried = tags::carry_into_plus(one, &library, &fresh, &wanted, self.ext_tags)?;
+        let carried = match self.my_tags {
+            Some(_) => {
+                let fresh: Vec<u32> = wanted.iter().map(|(id, _, _)| *id).collect();
+                tags::carry_into_plus(one, &one.library()?, &fresh, &wanted, self.ext_tags)?
+            }
+            None => Carried::default(),
+        };
         let bytes = one.to_encrypted()?;
         // Never write a database we can't read back.
         let check = OneLibrary::from_encrypted(&bytes, None)?.library()?;
