@@ -51,7 +51,7 @@ fn wav(i: usize, secs: f64) -> Vec<u8> {
 
 /// The source drive (the twelve-track export), with the masters in playlist "Set" and the WAVs
 /// above 48 kHz alone in "Wavs". Made once, as making it is slow, and written out for each case.
-fn source() -> &'static Template {
+pub(crate) fn source() -> &'static Template {
     static SOURCE: OnceLock<Template> = OnceLock::new();
     SOURCE.get_or_init(|| {
         let dir = tempfile::tempdir().unwrap();

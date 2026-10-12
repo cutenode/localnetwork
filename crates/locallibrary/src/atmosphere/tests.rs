@@ -882,3 +882,165 @@ fn finishing_in_the_browser_shows_how_it_went(tc: TestCase) {
     assert!(page.contains(&escaped), "{page}");
     assert!(!cancel_login(&id));
 }
+
+/// How the account's server answers `getSession`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Says {
+    /// The handle it vouches for.
+    Handle,
+    /// `handle.invalid`: a handle that doesn't check out.
+    NoHandle,
+    /// 401: the session isn't accepted.
+    Unauthorized,
+    /// 401 saying the DPoP token is no good.
+    TokenRefused,
+    /// 400 `ExpiredToken`.
+    Expired,
+    /// 400 with another error.
+    Refused,
+    /// Nothing listens.
+    Unreachable,
+    /// The access token ran out, and the server is down, so it can't be refreshed for now.
+    Down,
+}
+
+/// A session at a server on this computer that answers `getSession` as drawn and revokes tokens
+/// with a drawn status (or offers no revocation): checking takes the handle the server vouches
+/// for and keeps the one known otherwise, says the session has ended when the server won't take
+/// it, and says what went wrong when it answers with another error, isn't there, or can't
+/// refresh a session whose access token ran out, the session kept each time; signing out removes it whatever, revoked only when the server took both
+/// tokens. Signed out, signing out again has nobody to sign out, and signing in needs an
+/// account named.
+#[hegel::test(test_cases = 40)]
+fn checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let says = tc.draw(
+        gs::sampled_from(vec![
+            Says::Handle,
+            Says::NoHandle,
+            Says::Unauthorized,
+            Says::TokenRefused,
+            Says::Expired,
+            Says::Refused,
+            Says::Unreachable,
+            Says::Down,
+        ])
+        .print_as_debug(),
+    );
+    let revocation: Option<u16> = tc.draw(gs::optional(gs::sampled_from(vec![200u16, 204, 500])));
+    let known = tc.draw(gs::optional(gs::sampled_from(vec!["before.example.com".to_string()])));
+
+    let server = match says {
+        Says::Unreachable => "http://127.0.0.1:9".to_string(),
+        _ => serving(move |base, target| match target {
+            "GET /xrpc/com.atproto.server.getSession" => match says {
+                Says::Handle => {
+                    (200, String::new(), serde_json::json!({ "did": "did:plc:abc", "handle": "dj.example.com" }))
+                }
+                Says::NoHandle => {
+                    (200, String::new(), serde_json::json!({ "did": "did:plc:abc", "handle": "handle.invalid" }))
+                }
+                Says::Unauthorized => (401, String::new(), serde_json::json!({ "error": "AuthenticationRequired" })),
+                Says::TokenRefused => (
+                    401,
+                    "www-authenticate: DPoP error=\"invalid_token\"\r\n".to_string(),
+                    serde_json::json!({ "error": "invalid_token" }),
+                ),
+                Says::Down => (503, String::new(), serde_json::json!({ "error": "unavailable" })),
+                Says::Expired => {
+                    (400, String::new(), serde_json::json!({ "error": "ExpiredToken", "message": "expired" }))
+                }
+                _ => {
+                    (400, String::new(), serde_json::json!({ "error": "InvalidRequest", "message": "down for a bit" }))
+                }
+            },
+            "GET /.well-known/oauth-authorization-server" => {
+                let mut metadata = authorization_server(base);
+                if revocation.is_none() {
+                    metadata.as_object_mut().unwrap().remove("revocation_endpoint");
+                }
+                (200, String::new(), metadata)
+            }
+            "POST /oauth/revoke" => (revocation.unwrap_or(404), String::new(), serde_json::json!({})),
+            "POST /oauth/token" => (503, String::new(), serde_json::json!({ "error": "unavailable" })),
+            _ => (404, String::new(), serde_json::json!({})),
+        }),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let expires = if says == Says::Down { "2020-01-01T00:00:00.000Z" } else { "2099-01-01T00:00:00.000Z" };
+    signed_in_at(root, &server, expires);
+    if let Some(h) = &known {
+        let mut file = AccountFile::load(root).unwrap();
+        file.account.as_mut().unwrap().info.handle = Some(h.clone());
+        file.save(root).unwrap();
+    }
+    let checked = check(root, &Ctx::silent());
+    match says {
+        Says::Handle => assert_eq!(checked.unwrap().handle.as_deref(), Some("dj.example.com")),
+        Says::NoHandle => assert_eq!(checked.unwrap().handle, known),
+        Says::Unauthorized | Says::TokenRefused | Says::Expired => {
+            assert_eq!(checked.unwrap_err().reason(), Some(Reason::SessionEnded))
+        }
+        Says::Refused => {
+            let e = checked.unwrap_err().to_string();
+            assert!(e.contains("couldn't say who's signed in") && e.contains("down for a bit"), "{e}");
+        }
+        Says::Unreachable => {
+            let e = checked.unwrap_err().to_string();
+            assert!(e.contains("asking the account's server who's signed in"), "{e}");
+        }
+        Says::Down => {
+            let e = checked.unwrap_err().to_string();
+            assert!(e.starts_with("signing in: "), "{e}");
+        }
+    }
+    assert!(status(root).unwrap().is_some(), "still signed in");
+    let r = logout(root).unwrap();
+    let took = !matches!(says, Says::Unreachable | Says::Down) && matches!(revocation, Some(200 | 204));
+    assert_eq!((r.account.map(|a| a.did), r.revoked), (Some("did:plc:abc".to_string()), took));
+    assert_eq!(status(root).unwrap(), None);
+    let again = logout(root).unwrap();
+    assert!(again.account.is_none() && !again.revoked);
+    let e = begin_login(root, " @ ", &LoginOptions::default()).unwrap_err();
+    assert!(matches!(e, Error::Invalid(_)), "no account named: {e}");
+}
+
+/// A redirect back from the browser counts only when it carries this sign-in's own state:
+/// anything else (no state, another's) is another sign-in attempt, whether it brings a code or
+/// a refusal. Its own refusal says why, as the server worded it; its own code from another
+/// issuer is a mix-up, refused; otherwise it goes on to the token exchange, which this server
+/// refuses.
+#[hegel::test(test_cases = 60)]
+fn only_a_sign_ins_own_redirect_counts(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let state = tc.draw(gs::optional(gs::sampled_from(vec!["st4te", "guess"])));
+    let answer = tc.draw(gs::sampled_from(vec![
+        "error=access_denied",
+        "error=x&error_description=gotcha",
+        "code=c",
+        "code=c&iss=https%3A%2F%2Fevil.example",
+    ]));
+    let dir = tempfile::tempdir().unwrap();
+    let auth = serving(|base, target| match target {
+        "GET /.well-known/oauth-authorization-server" => (200, String::new(), authorization_server(base)),
+        _ => (404, String::new(), serde_json::json!({})),
+    });
+    let id = waiting_at(dir.path(), "st4te", &auth, false);
+    let query = match state {
+        Some(s) => format!("{answer}&state={s}"),
+        None => answer.to_string(),
+    };
+    let err = finish_login_with_url(&id, &format!("http://127.0.0.1:1/callback?{query}")).unwrap_err().to_string();
+    let said = match (state, answer) {
+        (Some("st4te"), "error=access_denied") => "declined",
+        (Some("st4te"), "code=c") => "signing in: ",
+        (Some("st4te"), "code=c&iss=https%3A%2F%2Fevil.example") => "came back from a different server",
+        (Some("st4te"), _) => "gotcha",
+        _ => "the browser came back from a different sign-in attempt; sign in again",
+    };
+    assert!(err.contains(said), "{query}: {err}");
+    assert_eq!(status(dir.path()).unwrap(), None, "nobody signed in");
+    assert!(!cancel_login(&id), "finished either way");
+}

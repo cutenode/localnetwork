@@ -750,3 +750,50 @@ fn the_drives_read_are_the_mounted_ones_the_registry_knows(tc: TestCase) {
     }
     locallibrary::testing::volumes_on_this_thread(None);
 }
+
+/// A blank name to hide (a track or an artist), a genre alias missing either side, and taking
+/// back what was never set (a hidden track or artist, an alias) are each refused: blanks as
+/// invalid, the rest as not found. Whatever was there before stays.
+#[hegel::test(test_cases = 300)]
+fn blank_and_unknown_preference_changes_are_refused(tc: TestCase) {
+    let mut prefs = ProfilePrefs::default();
+    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(3)) {
+        let before = prefs.clone();
+        if prefs.apply(&u).is_err() {
+            prefs = before;
+        }
+    }
+    let blank = tc.draw(gs::sampled_from(vec!["", " ", "\t "]));
+    let unknown = tc.draw(gs::sampled_from(vec!["Nobody - Nothing", "No One", "zouk"]));
+    let field = tc.draw(gs::integers::<u8>().max_value(6));
+    let s = |v: &str| vec![v.to_string()];
+    let (u, invalid) = match field {
+        0 => (PrefsUpdate { hide: s(blank), ..Default::default() }, true),
+        1 => (PrefsUpdate { hide_artist: s(blank), ..Default::default() }, true),
+        2 => (
+            PrefsUpdate { alias: IndexMap::from([(blank.to_string(), "House".to_string())]), ..Default::default() },
+            true,
+        ),
+        3 => (
+            PrefsUpdate { alias: IndexMap::from([("deep".to_string(), blank.to_string())]), ..Default::default() },
+            true,
+        ),
+        4 => (PrefsUpdate { unhide: s(unknown), ..Default::default() }, false),
+        5 => (PrefsUpdate { unhide_artist: s(unknown), ..Default::default() }, false),
+        _ => (PrefsUpdate { unalias: s(unknown), ..Default::default() }, false),
+    };
+    let unknown_there = match field {
+        4 => prefs.is_hidden_track(unknown),
+        5 => prefs.hidden_artists.iter().any(|a| normalize(a) == normalize(unknown)),
+        6 => prefs.genre_aliases.keys().any(|k| normalize(k) == normalize(unknown)),
+        _ => false,
+    };
+    let before = prefs.clone();
+    match (prefs.apply(&u), invalid) {
+        (Err(locallibrary::Error::Invalid(_)), true) => {}
+        (Err(locallibrary::Error::NotFound(_)), false) => {}
+        (Ok(()), false) if unknown_there => return,
+        (got, _) => panic!("{u:?}: {got:?}"),
+    }
+    assert_eq!(prefs, before, "nothing changed");
+}

@@ -108,7 +108,7 @@ fn groups(drives: &[Mounted]) -> Vec<Group> {
 
 /// Give a copy of a drive an identity of its own, as `drive reidentify` does, registered in the
 /// store: without asking the OS which disk it's on, which is slow here.
-fn own_identity(store: &Store, d: &mut Device, name: &str) {
+pub(crate) fn own_identity(store: &Store, d: &mut Device, name: &str) {
     let state = d.state_mut().unwrap();
     state.id = Uuid::new_v4();
     state.name = name.into();
@@ -118,7 +118,7 @@ fn own_identity(store: &Store, d: &mut Device, name: &str) {
 
 /// The export of the demo drive alone (no audio or analysis files): a cheap drive whose
 /// library reads.
-fn bare_export(root: &Path) {
+pub(crate) fn bare_export(root: &Path) {
     let pdb = root.join(paths::EXPORT_PDB);
     std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
     std::fs::copy(common::fixtures().join("rekordcrate/demo_tracks").join(paths::EXPORT_PDB), pdb).unwrap();
@@ -325,10 +325,10 @@ fn the_drive_meant_agrees_with_a_model(tc: TestCase) {
 // Set and refresh
 // ---------------------------------------------------------------------------------------------
 
-const SAMPLE: &str = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
+pub(crate) const SAMPLE: &str = "/Contents/rekordbox/GROOVE CIRCUIT FACTORY SAMPLES/House1.wav";
 
 /// rekordbox's demo sample, as an export brings it back.
-fn add_demo_sample(root: &Path) {
+pub(crate) fn add_demo_sample(root: &Path) {
     let pdb = root.join(paths::EXPORT_PDB);
     let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb).unwrap();
     let track =

@@ -1592,7 +1592,14 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     let keys: Vec<String> = values.keys().cloned().collect();
     let unset = api::UnsetSettings { keys: keys.clone(), drive: per_drive.then(|| path(&root)) };
     let profile = api::settings_unset(&store, &unset).unwrap();
-    assert!(keys.iter().all(|k| !profile.effective(id).contains_key(k)));
+    // Taking a drive's own values off leaves what the base holds: the value set above for all.
+    let effective = profile.effective(id);
+    for k in &keys {
+        match effective.get(k) {
+            Some(v) => assert!(per_drive && k == def.key && v == choice, "{k} = {v:?} is left"),
+            None => assert!(!(per_drive && k == def.key), "{k} lost the base's value"),
+        }
+    }
 
     // Importing the drive's settings makes them the base.
     let import = api::ImportSettings { drive: Some(path(&root)) };
