@@ -289,6 +289,40 @@ impl Rpc {
     }
 }
 
+/// Waits up to `grace` for `child` to exit on its own, then kills it. Killing one that is already
+/// exiting can cut off the coverage profile it writes as it goes.
+pub fn end(child: &mut Child, grace: std::time::Duration) {
+    let started = std::time::Instant::now();
+    while matches!(child.try_wait(), Ok(None)) && started.elapsed() < grace {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// A child process ended (and waited for) when it's dropped, so a test that fails or is stopped
+/// part way leaves nothing of it running.
+pub struct Running(pub Child);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        end(&mut self.0, std::time::Duration::ZERO);
+    }
+}
+
+impl std::ops::Deref for Running {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for Running {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+
 /// Ends the sidecar as a client does, by closing its input: it exits cleanly (a killed one
 /// would leave what it ran out of a coverage report).
 impl Drop for Rpc {

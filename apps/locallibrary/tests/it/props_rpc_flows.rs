@@ -99,11 +99,9 @@ impl Sidecar {
 /// stopped, so the cases shrinking runs don't pile up. One shut down as it should be has exited.
 impl Drop for Sidecar {
     fn drop(&mut self) {
+        // Its input closed, it exits on its own; one still running after that is stuck.
         drop(self.stdin.take());
-        if matches!(self.child.try_wait(), Ok(None)) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
+        crate::support::end(&mut self.child, std::time::Duration::from_secs(10));
     }
 }
 

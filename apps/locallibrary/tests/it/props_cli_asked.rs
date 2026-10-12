@@ -15,7 +15,7 @@ use hegel::{Generator, HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::props_cli_human::{FLAGS, State, build};
-use crate::support::{Env, Run, path, terminal};
+use crate::support::{Env, Run, Running, path, terminal};
 
 /// `args` run in `fx` with a terminal to answer on: each question (the last on stderr, starting
 /// `? `, once nothing more comes) is answered with what `answer` makes of it. The run, once it
@@ -24,7 +24,7 @@ fn conversation(fx: &Env, args: &[&str], mut answer: impl FnMut(&str) -> String)
     let (mut keyboard, stdin) = terminal();
     let mut command = fx.command();
     command.args(args).stdin(Stdio::from(stdin)).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.spawn().unwrap();
+    let mut child = Running(command.spawn().unwrap());
     let err = Arc::new(Mutex::new(Vec::new()));
     let mut stderr = child.stderr.take().unwrap();
     let reading = {
@@ -251,7 +251,8 @@ fn until_ctrl_c(
     meanwhile: impl FnOnce(&dyn Fn(&str)),
     presses: usize,
 ) -> Run {
-    let mut child = command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut child =
+        Running(command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap());
     let out = Arc::new(Mutex::new(String::new()));
     let mut stdout = child.stdout.take().unwrap();
     let reading = {
@@ -361,7 +362,7 @@ fn a_served_store_is_fetched_whole(tc: TestCase) {
         serving.arg("--json");
     }
     serving.args(["store", "serve", "--local"]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = serving.spawn().unwrap();
+    let mut child = Running(serving.spawn().unwrap());
     let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
     let mut first = String::new();
     // The code: the ready event's, or on the line telling the other computer what to run.

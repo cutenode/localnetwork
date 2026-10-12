@@ -506,6 +506,14 @@ struct Session {
     kept: Vec<Value>,
 }
 
+/// A session a failed test case left open is ended, so its sidecar doesn't outlive the test.
+impl Drop for Session {
+    fn drop(&mut self) {
+        drop(self.stdin.take());
+        crate::support::end(&mut self.child, std::time::Duration::from_secs(10));
+    }
+}
+
 impl Session {
     fn start(fx: &Env) -> Session {
         let mut child = fx
