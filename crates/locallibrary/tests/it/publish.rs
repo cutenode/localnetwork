@@ -8,15 +8,14 @@ mod signing_in;
 
 use crate::common;
 use crate::mock_pds;
+use crate::session::{DID, session_json, sign_in_as};
 
 use std::path::Path;
 
 use chrono::{NaiveDate, Utc};
-use jacquard_oauth::authstore::ClientAuthStore;
 use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetSettings};
+use locallibrary::atmosphere;
 use locallibrary::atmosphere::lexicon::{self, PROFILE, SET, SETTINGS};
-use locallibrary::atmosphere::store::LocalStore;
-use locallibrary::atmosphere::{self, Client, Storage};
 use locallibrary::error::Reason;
 use locallibrary::profile::PrefsUpdate;
 use locallibrary::progress::Ctx;
@@ -27,7 +26,6 @@ use mock_pds::{MockPds, Writes, base64url};
 use serde_json::{Value, json};
 use sha2::Digest;
 
-const DID: &str = "did:plc:testdj";
 const PUT: &str = "com.atproto.repo.putRecord";
 const GET: &str = "com.atproto.repo.getRecord";
 const PUBLISHING: &str = "atproto repo:computer.localnetwork.locallibrary.settings \
@@ -36,38 +34,9 @@ const PUBLISHING: &str = "atproto repo:computer.localnetwork.locallibrary.settin
 /// Sign `DID` in on this computer (the session in files, not the keychain) with a session for
 /// `pds` that was granted `scopes`. Returns the session's DPoP key.
 fn sign_in(root: &Path, pds: &str, scopes: &str, expires_at: &str, refresh: Option<&str>) -> Value {
-    sign_in_as(root, DID, pds, scopes, expires_at, refresh)
-}
-
-/// [`sign_in`], as `did`.
-fn sign_in_as(root: &Path, did: &str, pds: &str, scopes: &str, expires_at: &str, refresh: Option<&str>) -> Value {
-    let key = serde_json::to_value(jacquard_oauth::utils::generate_key(&["ES256"]).unwrap()).unwrap();
-    let session = serde_json::from_value(json!({
-        "account_did": did,
-        "session_id": "s1",
-        "host_url": pds,
-        "authserver_url": pds,
-        "authserver_token_endpoint": format!("{pds}/oauth/token"),
-        "authserver_revocation_endpoint": format!("{pds}/oauth/revoke"),
-        "scopes": scopes,
-        "dpop_key": key,
-        "dpop_authserver_nonce": "",
-        "dpop_host_nonce": "",
-        "iss": pds,
-        "sub": did,
-        "aud": pds,
-        "scope": scopes,
-        "refresh_token": refresh,
-        "access_token": "access-token",
-        "token_type": "DPoP",
-        "expires_at": expires_at,
-    }))
-    .unwrap();
-    // Signing in makes the store folder a store first.
-    Store::open_or_init(root).unwrap();
-    let store = LocalStore::new(root, Storage::File, Client::Loopback, "http://127.0.0.1:1/callback".into(), vec![]);
-    let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-    rt.block_on(store.upsert_session(session)).unwrap();
+    let session = session_json(DID, "s1", pds, scopes, refresh, expires_at);
+    let key = session["dpop_key"].clone();
+    sign_in_as(root, session);
     key
 }
 
@@ -541,7 +510,7 @@ fn a_plan_is_written_only_to_the_account_it_was_for() {
     let plan = api::settings_publish_plan(&root).unwrap();
     assert_eq!(plan.account.as_ref().unwrap().did, DID);
     // Someone signs in with another account (in another window, say) before it's confirmed.
-    sign_in_as(&root, "did:plc:someoneelse", &pds.url, PUBLISHING, LATER, Some("refresh-2"));
+    sign_in_as(&root, session_json("did:plc:someoneelse", "s1", &pds.url, PUBLISHING, Some("refresh-2"), LATER));
     let err = plan.apply(None, &Ctx::silent()).unwrap_err();
     assert_eq!(err.code(), "stale_plan", "{err}");
     assert!(err.to_string().contains("did:plc:someoneelse is signed in now"), "{err}");

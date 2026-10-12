@@ -37,7 +37,7 @@ fn signal(seed: u32, secs: f64, rate: u32, delay_ms: i32) -> Vec<f32> {
 }
 
 /// [`signal`] as a stereo WAV of `bits` bits.
-fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: i32) -> Vec<u8> {
+pub(crate) fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: i32) -> Vec<u8> {
     let scale = 12_000.0 * f32::from(1u16 << (bits - 16));
     wav_of(rate, bits, signal(seed, secs, rate, delay_ms).iter().map(|s| (s * scale) as i32))
 }

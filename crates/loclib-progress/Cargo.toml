@@ -17,3 +17,6 @@ thiserror.workspace = true
 
 [features]
 schemars = ["dep:schemars"]
+
+[dev-dependencies]
+hegeltest.workspace = true

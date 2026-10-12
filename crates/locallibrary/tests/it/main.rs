@@ -4,14 +4,20 @@
 //!
 //! `cargo test -p locallibrary --test it props_pdb::` runs one module's tests. Tests here that
 //! need the mounted volumes, or the store drive lookups consult, name them for their own thread
-//! (`locallibrary::testing::volumes_on_this_thread`, `store_root_on_this_thread`):
-//! `$LOCALLIBRARY_VOLUMES` and `api::set_store_root` would hold for every test in the process.
+//! (`common::isolate`, through `locallibrary::testing::volumes_on_this_thread` and
+//! `store_root_on_this_thread`): `$LOCALLIBRARY_VOLUMES` and `api::set_store_root` would hold for
+//! every test in the process.
 
 #[path = "../common/mod.rs"]
 mod common;
 #[cfg(feature = "account")]
 #[path = "../support/mock_pds.rs"]
 mod mock_pds;
+#[path = "../support/schema.rs"]
+mod schema;
+#[cfg(feature = "account")]
+#[path = "../support/session.rs"]
+mod session;
 
 mod analysis;
 mod artwork;
@@ -23,6 +29,7 @@ mod convert;
 mod cues;
 mod diff;
 mod doctor;
+mod drawn;
 mod drives;
 mod edit;
 mod export;

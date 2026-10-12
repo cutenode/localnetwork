@@ -38,4 +38,6 @@ engine = ["dep:chrono", "dep:getrandom", "dep:rusqlite", "dep:tempfile", "dep:uu
 schemars = ["dep:schemars"]
 
 [dev-dependencies]
+hegeltest.workspace = true
+quick-xml = "0.42"
 tempfile.workspace = true

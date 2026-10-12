@@ -4,29 +4,20 @@
 use std::io::{BufRead, BufReader, Lines, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::OnceLock;
 
 use locallibrary::device::dunce_canonicalize;
 use rekordbox_pdb::{Database, PdbEditor};
 use serde_json::{Value, json};
+
+use crate::files::Template;
+pub use crate::files::copy_dir;
 
 pub const PDB: &str = "PIONEER/rekordbox/export.pdb";
 
 /// The library's test fixtures: real rekordbox exports (see the README there).
 pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures")
-}
-
-pub fn copy_dir(src: &Path, dst: &Path) {
-    std::fs::create_dir_all(dst).unwrap();
-    for e in std::fs::read_dir(src).unwrap() {
-        let e = e.unwrap();
-        let to = dst.join(e.file_name());
-        if e.file_type().unwrap().is_dir() {
-            copy_dir(&e.path(), &to);
-        } else {
-            std::fs::copy(e.path(), to).unwrap();
-        }
-    }
 }
 
 pub fn path(p: &Path) -> &str {
@@ -111,6 +102,8 @@ pub struct Env {
     pub volumes: PathBuf,
     pub store: PathBuf,
     ascii: bool,
+    /// The commands get a home folder of their own ([`Env::home`]).
+    own_home: bool,
 }
 
 impl Env {
@@ -120,7 +113,28 @@ impl Env {
         let root = dunce_canonicalize(dir.path());
         let volumes = root.join("volumes");
         std::fs::create_dir(&volumes).unwrap();
-        Env { _dir: dir, volumes, store: root.join("store"), ascii: false }
+        Env { _dir: dir, volumes, store: root.join("store"), ascii: false, own_home: false }
+    }
+
+    /// Drives (A, [`dj_drive`] adopted and pulled into the library A; Club, [`club_drive`], not
+    /// adopted; Blank, [`blank_drive`]) and a store, made once and written out for each test case
+    /// of a property test; and a home folder of the commands' own with a cover image in it
+    /// (`cover.png`), so nothing of the person running the tests (rekordbox's settings and
+    /// collection) is read.
+    pub fn from_template() -> Env {
+        static TEMPLATE: OnceLock<Template> = OnceLock::new();
+        let template = TEMPLATE.get_or_init(|| {
+            let env = Env::new();
+            env.pulled("A");
+            env.club("Club");
+            env.blank("Blank");
+            Template::of(env.volumes.parent().unwrap())
+        });
+        let env = Env { own_home: true, ..Env::new() };
+        template.write(env.volumes.parent().unwrap());
+        std::fs::create_dir(env.outside("home")).unwrap();
+        image::RgbImage::new(8, 8).save(env.home("cover.png")).unwrap();
+        env
     }
 
     /// [`Env::new`], with every run printing ASCII stand-ins for the symbols (`--ascii`).
@@ -131,6 +145,11 @@ impl Env {
     /// A path outside the drives, for what the commands read and write on "this computer".
     pub fn outside(&self, name: &str) -> PathBuf {
         self.volumes.parent().unwrap().join(name)
+    }
+
+    /// A path in the commands' home folder.
+    pub fn home(&self, name: &str) -> PathBuf {
+        self.outside("home").join(name)
     }
 
     /// [`demo_drive`], mounted as `name`.
@@ -165,6 +184,11 @@ impl Env {
         let mut c = crate::locallibrary(&self.store, &[&self.volumes]);
         if self.ascii {
             c.arg("--ascii");
+        }
+        if self.own_home {
+            c.env("HOME", self.outside("home"))
+                .env("LOCALLIBRARY_MASTERDB", self.home("master.db"))
+                .current_dir(self.outside(""));
         }
         c
     }
@@ -201,6 +225,35 @@ impl Env {
     pub fn json(&self, args: &[&str]) -> Value {
         let out = self.ok(&[&["--json"], args].concat());
         serde_json::from_str(&out).unwrap_or_else(|e| panic!("{args:?}: {e}\n{out}"))
+    }
+
+    /// The bytes of every file under `dir`, by path, but the cache of file hashes a drive keeps
+    /// (`.locallibrary/index.json`), which any read may bring up to date (a hash taken within two
+    /// seconds of its file's last change, as a template's are, is taken again).
+    pub fn files_in(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+        fn walk(dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+            let Ok(entries) = std::fs::read_dir(dir) else { return };
+            for e in entries.flatten() {
+                if e.file_type().unwrap().is_dir() {
+                    walk(&e.path(), out);
+                } else if e.path().ends_with(".locallibrary/index.json") {
+                    continue;
+                } else if let Ok(bytes) = std::fs::read(e.path()) {
+                    out.push((e.path(), bytes));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(dir, &mut out);
+        out.sort();
+        out
+    }
+
+    /// The bytes of every file on the drives and in the store, by path.
+    pub fn files(&self) -> Vec<(PathBuf, Vec<u8>)> {
+        let mut out = Env::files_in(&self.volumes);
+        out.extend(Env::files_in(&self.store));
+        out
     }
 }
 
@@ -282,9 +335,11 @@ pub fn permissions_enforced() -> bool {
 pub mod account {
     use std::path::Path;
 
+    use locallibrary::atmosphere::store::{ACCOUNT_FILE, AccountFile};
     use serde_json::{Value, json};
 
-    pub const DID: &str = "did:plc:testdj";
+    pub use crate::session::DID;
+    use crate::session::{session_json, sign_in_as};
 
     /// Permission to publish locallibrary's records.
     pub const PUBLISHING: [&str; 4] = [
@@ -305,54 +360,31 @@ pub mod account {
         })
     }
 
-    /// Sign `DID` (@dj.example.com) in at `pds`, allowing `scopes`, with the store at `store`.
-    /// `info` replaces what the account's details say (when to sign in again, the client, where
-    /// the session is kept).
+    /// Sign `DID` (@dj.example.com) in at `pds` with [`test_key`], allowing `scopes`, with the
+    /// store at `store`, in place of whoever was (signing in over an account kept in the keychain
+    /// would remove its keychain entry). `info` replaces what the account's details say (when to
+    /// sign in again, the client, where the session is kept).
     pub fn sign_in(store: &Path, pds: &str, scopes: &[&str], info: Value) {
-        let scope = scopes.join(" ");
-        let session = json!({
-            "account_did": DID,
-            "session_id": "s1",
-            "host_url": pds,
-            "authserver_url": pds,
-            "authserver_token_endpoint": format!("{pds}/oauth/token"),
-            "authserver_revocation_endpoint": format!("{pds}/oauth/revoke"),
-            "scopes": scope,
-            "dpop_authserver_nonce": "",
-            "dpop_host_nonce": "",
-            "iss": pds,
-            "sub": DID,
-            "aud": pds,
-            "scope": scope,
-            "access_token": "access-token",
-            "token_type": "DPoP",
-            "expires_at": "2099-01-01T00:00:00.000Z",
-        });
-        let mut details = json!({
-            "did": DID,
+        let _ = std::fs::remove_file(store.join(ACCOUNT_FILE));
+        let mut session =
+            session_json(DID, "s1", pds, &scopes.join(" "), Some("refresh-1"), "2099-01-01T00:00:00.000Z");
+        session["dpop_key"] = test_key();
+        sign_in_as(store, session);
+        let mut file = AccountFile::load(store).unwrap();
+        let account = file.account.as_mut().unwrap();
+        account.requested_scopes = scopes.iter().map(|s| s.to_string()).collect();
+        let mut details = serde_json::to_value(&account.info).unwrap();
+        let said = json!({
             "handle": "dj.example.com",
-            "pds": pds,
-            "auth_server": pds,
             "scopes": scopes,
             "signed_in_at": "2026-10-05T00:00:00Z",
             "sign_in_again_by": "2099-01-01T00:00:00Z",
             "access_expires_at": null,
-            "client": { "kind": "loopback" },
-            "storage": "file",
         });
-        details.as_object_mut().unwrap().extend(info.as_object().unwrap().clone());
-        let account = json!({
-            "account": {
-                "info": details,
-                "session_id": "s1",
-                "redirect_uri": "http://127.0.0.1:1/callback",
-                "requested_scopes": scopes,
-                "session": session,
-            }
-        });
-        locallibrary::Store::open_or_init(store).unwrap();
-        std::fs::write(store.join("atmosphere.json"), account.to_string()).unwrap();
-        let secrets = json!({ "did": DID, "dpop_key": test_key(), "refresh_token": "refresh-1" });
-        std::fs::write(store.join("atmosphere-session.json"), secrets.to_string()).unwrap();
+        for v in [said, info] {
+            details.as_object_mut().unwrap().extend(v.as_object().unwrap().clone());
+        }
+        account.info = serde_json::from_value(details).unwrap();
+        file.save(store).unwrap();
     }
 }

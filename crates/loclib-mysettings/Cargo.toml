@@ -21,5 +21,6 @@ thiserror.workspace = true
 schemars = ["dep:schemars"]
 
 [dev-dependencies]
+hegeltest.workspace = true
 rustc-hash.workspace = true
 

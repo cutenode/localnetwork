@@ -7,9 +7,16 @@ use std::process::{Command, Stdio};
 
 use assert_cmd::cargo::CommandCargoExt;
 
+#[path = "../../../../crates/locallibrary/tests/support/files.rs"]
+mod files;
 #[cfg(feature = "account")]
 #[path = "../../../../crates/locallibrary/tests/support/mock_pds.rs"]
 mod mock_pds;
+#[path = "../../../../crates/locallibrary/tests/support/schema.rs"]
+mod schema;
+#[cfg(feature = "account")]
+#[path = "../../../../crates/locallibrary/tests/support/session.rs"]
+mod session;
 
 mod account;
 mod cli;

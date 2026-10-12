@@ -20,6 +20,11 @@ use super::super::edits::{Job, Modal};
 use super::super::ui::screen;
 use super::{App, NowPlaying, View};
 
+// Copying a folder with its files' modification times, as the library's and the CLI's tests do.
+#[path = "../../../../../crates/locallibrary/tests/support/files.rs"]
+mod files;
+pub use files::{Template, copy_dir};
+
 pub fn track(id: u32, artist: &str, title: &str) -> Track {
     Track {
         id,
@@ -115,22 +120,11 @@ pub fn set(id: &str, date: &str, title: Option<&str>, venue: Option<&str>, track
 /// The demo export from the library's fixtures, with placeholder audio, as the drive `DEMO` in a
 /// temporary folder.
 pub fn demo_drive() -> (TempDir, PathBuf) {
-    fn copy(src: &Path, dst: &Path) {
-        std::fs::create_dir_all(dst).unwrap();
-        for e in std::fs::read_dir(src).unwrap().map(Result::unwrap) {
-            let to = dst.join(e.file_name());
-            if e.file_type().unwrap().is_dir() {
-                copy(&e.path(), &to)
-            } else {
-                std::fs::copy(e.path(), to).map(|_| ()).unwrap()
-            }
-        }
-    }
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks");
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("DEMO");
-    copy(&fixture, &root);
+    copy_dir(&fixture, &root);
     let device = Device::open_export(&root).unwrap();
     for t in device.library().unwrap().tracks {
         let p = device.path(&paths::key(&t.file_path));

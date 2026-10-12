@@ -11,3 +11,6 @@ publish = false
 [lib]
 name = "rekordbox_pdb"
 path = "src/lib.rs"
+
+[dev-dependencies]
+hegeltest.workspace = true

@@ -24,19 +24,16 @@ const SIZES: [(u16, u16); 2] = [(80, 24), (160, 45)];
 
 /// The fixture drive (rekordbox's demo export: two tracks, with placeholder audio)
 /// pulled into a store as the library "Demo", shown in the player with every view's data in.
-struct Fixture {
-    _dir: tempfile::TempDir,
-    root: PathBuf,
-    app: App,
+pub(super) struct Fixture {
+    pub(super) _dir: tempfile::TempDir,
+    pub(super) root: PathBuf,
+    pub(super) app: App,
 }
 
-fn fixture() -> Fixture {
+pub(super) fn fixture() -> Fixture {
     let (dir, root) = demo_drive();
-    let lib = Device::open_export(&root).unwrap().library().unwrap();
-
     // The store, with one snapshot of the drive.
-    let store_root = dir.path().join("store");
-    let store = Store::open_or_init(&store_root).unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let pull = PullRequest {
         drive: root.display().to_string(),
         library: Some("Demo".into()),
@@ -45,6 +42,14 @@ fn fixture() -> Fixture {
         ..Default::default()
     };
     api::pull(&store, &pull, &Ctx::silent()).unwrap();
+    shown(dir, root)
+}
+
+/// The fixture drive at `root` and its store (`store` in `dir`), shown in the player.
+pub(super) fn shown(dir: tempfile::TempDir, root: PathBuf) -> Fixture {
+    let lib = Device::open_export(&root).unwrap().library().unwrap();
+    let store_root = dir.path().join("store");
+    let store = Store::open(&store_root).unwrap();
     let history: Vec<_> = (store.libraries().unwrap().into_iter())
         .map(|l| {
             let snaps = api::history(&store, &HistoryRequest { library: l.name.clone(), limit: None }).unwrap();

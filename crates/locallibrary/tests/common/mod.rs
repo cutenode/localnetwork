@@ -1,9 +1,13 @@
 //! Helpers that turn the fixture databases into realistic drives on disk.
 #![allow(dead_code)]
 
+#[path = "../support/files.rs"]
+mod files;
 pub mod media;
 #[path = "../support/sqlcipher.rs"]
 pub mod sqlcipher;
+
+pub use files::{Template, copy_dir};
 
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
@@ -24,24 +28,6 @@ use rekordbox_pdb::{NewTrack, PdbEditor};
 
 pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
-
-/// A copy of `src` at `dst`, keeping each file's modification time as macOS's copy does and
-/// Linux's doesn't: a test's drive then looks the same on every system, its files older than
-/// anything the test writes.
-pub fn copy_dir(src: &Path, dst: &Path) {
-    for entry in walkdir::WalkDir::new(src) {
-        let entry = entry.unwrap();
-        let rel = entry.path().strip_prefix(src).unwrap();
-        let target = dst.join(rel);
-        if entry.file_type().is_dir() {
-            fs::create_dir_all(&target).unwrap();
-        } else {
-            fs::copy(entry.path(), &target).unwrap();
-            let mtime = filetime::FileTime::from_last_modification_time(&entry.metadata().unwrap());
-            filetime::set_file_mtime(&target, mtime).unwrap();
-        }
-    }
 }
 
 /// An empty folder `name` in `dir`: a blank drive.
@@ -88,6 +74,21 @@ impl Warnings {
 /// A folder as the service layer's requests name a drive.
 pub fn path(p: &Path) -> String {
     p.display().to_string()
+}
+
+/// Drive lookups on this thread find only the drives in `dir`'s `volumes` folder (made here, and
+/// returned) and consult only the store at `store`, whatever is mounted on this computer.
+pub fn isolate(dir: &Path, store: Option<&Path>) -> PathBuf {
+    let volumes = dir.join("volumes");
+    fs::create_dir_all(&volumes).unwrap();
+    locallibrary::testing::volumes_on_this_thread(Some(vec![volumes.clone()]));
+    locallibrary::testing::store_root_on_this_thread(store.map(Path::to_path_buf));
+    volumes
+}
+
+/// The library of the drive at `root`, as it reads.
+pub fn library(root: &Path) -> Library {
+    Device::open(root).unwrap().library().unwrap()
 }
 
 /// Give the drive at `root` the name `name` through the service layer, registering it in `store`

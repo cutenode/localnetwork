@@ -125,6 +125,12 @@ impl MockPds {
         self.state.lock().unwrap().writes = w;
     }
 
+    /// The DPoP nonce writes must carry from now on: a write with the one before is told to use
+    /// this one, as when a server rotates its nonce.
+    pub fn set_nonce(&self, nonce: &str) {
+        self.state.lock().unwrap().nonce = nonce.into();
+    }
+
     /// The account a session here is for, as `getSession` says (until then it refuses).
     pub fn set_account(&self, did: &str, handle: &str) {
         self.state.lock().unwrap().account = Some((did.into(), handle.into()));

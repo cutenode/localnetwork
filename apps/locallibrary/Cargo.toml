@@ -86,3 +86,13 @@ image.workspace = true
 # Builds rekordbox-shaped collection databases (`master.db`) for `collection`'s tests.
 rusqlite.workspace = true
 loclib-mixid = { workspace = true, features = ["test-util"] }
+# Checks the RPC sidecar's answers against its contract (docs/rpc/schema.json).
+jsonschema.workspace = true
+# For the library's test helpers the CLI's tests share (crates/locallibrary/tests/support): copying
+# drives with their files' modification times, and signing in as jacquard does.
+walkdir.workspace = true
+filetime.workspace = true
+jacquard-oauth.workspace = true
+tokio.workspace = true
+# Splits hints into words the way a shell does, to check their quoting.
+shlex = "2.0.1"
