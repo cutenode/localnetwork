@@ -60,11 +60,17 @@ fn derive(passphrase: &[u8], salt: &[u8; SALT_LEN]) -> Keys {
     if let Some(k) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&id) {
         return *k;
     }
+    // ring's PBKDF2 is assembly, as fast unoptimised as in a release build; the generic RustCrypto
+    // one runs at debug speed in tests (its code is compiled into this crate), seconds a process.
+    let pbkdf2 = |rounds: u32, salt: &[u8], secret: &[u8], out: &mut [u8; 32]| {
+        let rounds = std::num::NonZeroU32::new(rounds).expect("rounds are constants above zero");
+        ring::pbkdf2::derive(ring::pbkdf2::PBKDF2_HMAC_SHA512, rounds, salt, secret, out);
+    };
     let mut cipher = [0u8; 32];
-    pbkdf2::pbkdf2_hmac::<Sha512>(passphrase, salt, KDF_ROUNDS, &mut cipher);
+    pbkdf2(KDF_ROUNDS, salt, passphrase, &mut cipher);
     let hmac_salt: Vec<u8> = salt.iter().map(|b| b ^ HMAC_SALT_MASK).collect();
     let mut hmac = [0u8; 32];
-    pbkdf2::pbkdf2_hmac::<Sha512>(&cipher, &hmac_salt, HMAC_KDF_ROUNDS, &mut hmac);
+    pbkdf2(HMAC_KDF_ROUNDS, &hmac_salt, &cipher, &mut hmac);
     let keys = Keys { cipher, hmac };
     cache.lock().unwrap_or_else(|e| e.into_inner()).insert(id, keys);
     keys

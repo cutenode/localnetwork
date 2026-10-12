@@ -1,10 +1,10 @@
 //! Property tests of the human-readable output: a command run with and without `--json` on the
-//! same drives and store says the same things. Every name, count, path and state the JSON holds
-//! (of those a person reads) is in the text, and the text names no drive, library, playlist or
-//! track the JSON doesn't. The fixture is drawn: drives with and without libraries, adopted or
-//! not, cloned, edited since their last pull, damaged, cluttered, with recordings and orphaned
-//! files, a store with history, labels, copies, settings and players, so each printer's branches
-//! are taken.
+//! same drives and store (or two copies of them, side by side) says the same things. Every name,
+//! count, path and state the JSON holds (of those a person reads) is in the text, and the text
+//! names no drive, library, playlist or track the JSON doesn't. The fixture is drawn: drives with
+//! and without libraries, adopted or not, cloned, edited since their last pull, damaged,
+//! cluttered, with recordings and orphaned files, a store with history, labels, copies, settings
+//! and players, so each printer's branches are taken.
 
 use std::path::Path;
 
@@ -553,6 +553,43 @@ pub fn agree(fx: &Env, args: &[&str], spec: &[&str], universe: &[String]) -> Opt
     agree_runs(&args, &human, &json, spec, universe)
 }
 
+/// `a()` and `b()` at once, `b` in a thread of its own: each command costs about the same and
+/// mostly waits on the process it runs, so commands on two copies of a fixture take half as long
+/// side by side. A panic in either is the caller's.
+pub fn side_by_side<A, B: Send>(a: impl FnOnce() -> A, b: impl FnOnce() -> B + Send) -> (A, B) {
+    std::thread::scope(|s| {
+        let b = s.spawn(b);
+        let a = a();
+        (a, b.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+    })
+}
+
+/// `json` with `from`'s folder written as `to`'s: what a run in a copy of a fixture says, as the
+/// run in the original would.
+pub fn as_in(json: Run, from: &Env, to: &Env) -> Run {
+    let root = |fx: &Env| path(fx.volumes.parent().unwrap()).to_string();
+    let (from, to) = (root(from), root(to));
+    Run { out: json.out.replace(&from, &to), err: json.err.replace(&from, &to), code: json.code }
+}
+
+/// [`agree`] of each of `reads` in turn, run as it is in `h` and with `--json` in `j` (a
+/// [`twin`] of `h`): each copy runs them all in the same order, the two side by side.
+fn reads_agree(h: &Env, j: &Env, reads: &[(&[&str], &[&str])], universe: &[String]) {
+    let all = |fx: &Env, json: &[&str]| -> Vec<Run> {
+        let run = |args: &[&str]| {
+            let words: Vec<String> = args.iter().map(|w| fill(fx, w)).collect();
+            run_in(fx, &[json, &words.iter().map(String::as_str).collect::<Vec<_>>()].concat())
+        };
+        reads.iter().map(|(args, _)| run(args)).collect()
+    };
+    let (human, json) = side_by_side(|| all(h, &[]), || all(j, &["--json"]));
+    for (((args, spec), human), json) in reads.iter().zip(human).zip(json) {
+        let words: Vec<String> = args.iter().map(|w| fill(h, w)).collect();
+        let args: Vec<&str> = words.iter().map(String::as_str).collect();
+        agree_runs(&args, &human, &as_in(json, j, h), spec, universe);
+    }
+}
+
 /// A word of a command with its placeholder filled in for `fx`: `@h/x` the file x on this
 /// computer, `@v/x` the drive x's mount path.
 pub fn fill(fx: &Env, word: &str) -> String {
@@ -703,9 +740,7 @@ fn drive_reads_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let fx = build(State::from_flags(&flags));
     let universe = universe(&fx);
-    for (args, spec) in DRIVE_READS {
-        agree(&fx, args, spec, &universe);
-    }
+    reads_agree(&fx, &twin(&fx), DRIVE_READS, &universe);
 }
 
 /// What each read of the store, its libraries and the settings must say, from its JSON.
@@ -765,9 +800,7 @@ fn store_reads_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let fx = build(State::from_flags(&flags));
     let universe = universe(&fx);
-    for (args, spec) in STORE_READS {
-        agree(&fx, args, spec, &universe);
-    }
+    reads_agree(&fx, &twin(&fx), STORE_READS, &universe);
 }
 
 /// What each read of a library's tracks, and the checks of a drive, must say, from its JSON.
@@ -885,13 +918,15 @@ const TRACK_READS: &[(&[&str], &[&str])] = &[
 fn track_reads_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let fx = build(State::from_flags(&flags));
-    // A file FAT32 can't hold (sparse: it takes no room), left out of `build` so a twin never
-    // reads it.
-    std::fs::File::create(fx.volumes.join("A/Contents/big.mov")).unwrap().set_len(4 << 30).unwrap();
-    let universe = universe(&fx);
-    for (args, spec) in TRACK_READS {
-        agree(&fx, args, spec, &universe);
+    let other = twin(&fx);
+    // A file FAT32 can't hold (sparse: it takes no room), made in each copy as `twin` would read
+    // it whole.
+    for fx in [&fx, &other] {
+        std::fs::File::create(fx.volumes.join("A/Contents/big.mov")).unwrap().set_len(4 << 30).unwrap();
     }
+    // Both copies run these reads too, so each is as the other when the reads start.
+    let (universe, _) = side_by_side(|| universe(&fx), || universe(&other));
+    reads_agree(&fx, &other, TRACK_READS, &universe);
 }
 
 /// Command lines each taking another way through the dispatch: the hidden top-level forms, the
@@ -966,7 +1001,5 @@ fn dispatch_says_the_same_either_way(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let fx = build(State::from_flags(&flags));
     let universe = universe(&fx);
-    for (args, spec) in DISPATCH {
-        agree(&fx, args, spec, &universe);
-    }
+    reads_agree(&fx, &twin(&fx), DISPATCH, &universe);
 }

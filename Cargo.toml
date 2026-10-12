@@ -61,7 +61,6 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 indexmap = { version = "2.14", features = ["serde"] }
 indicatif = "0.18"
 lofty = "0.25"
-pbkdf2 = "0.12"
 percent-encoding = "2.3"
 rusqlite = { version = "0.40", features = ["bundled"] }
 # Which volume and folder a path is (device and inode, or volume serial and file index): a drive
@@ -102,10 +101,10 @@ jsonschema = { version = "0.58.6", default-features = false }
 [profile.dev.package.sha2]
 opt-level = 3
 
-[profile.dev.package.pbkdf2]
+[profile.dev.package.hmac]
 opt-level = 3
 
-[profile.dev.package.hmac]
+[profile.dev.package.ring]
 opt-level = 3
 
 [profile.release]

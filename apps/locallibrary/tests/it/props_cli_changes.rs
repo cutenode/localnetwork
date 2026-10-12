@@ -10,7 +10,7 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
-use crate::props_cli_human::{FLAGS, State, TRACK_1, agree_runs, build, twin, universe, write};
+use crate::props_cli_human::{FLAGS, State, TRACK_1, agree_runs, as_in, build, side_by_side, twin, universe, write};
 use crate::support::{Env, Run, path};
 
 /// A tenth of a second of silence, as a WAV file.
@@ -575,12 +575,15 @@ fn step(h: &Env, j: &Env, words: &[&str], spec: &[&str], universe: &[String]) {
         None => (&["--yes"], words.to_vec()),
     };
     let args_h = [yes.iter().map(|s| s.to_string()).collect(), fill(h, &words)].concat();
-    let args_j = [vec!["--json".to_string()], yes.iter().map(|s| s.to_string()).collect(), fill(j, &words)].concat();
-    let human = h.run(&args_h.iter().map(String::as_str).collect::<Vec<_>>());
-    let json = j.run(&args_j.iter().map(String::as_str).collect::<Vec<_>>());
+    let run_json = || {
+        let args_j =
+            [vec!["--json".to_string()], yes.iter().map(|s| s.to_string()).collect(), fill(j, &words)].concat();
+        j.run(&args_j.iter().map(String::as_str).collect::<Vec<_>>())
+    };
+    let (human, json) = side_by_side(|| h.run(&args_h.iter().map(String::as_str).collect::<Vec<_>>()), run_json);
     // The copies are in folders of their own: the JSON says the human run's paths.
-    let root = |fx: &Env| path(fx.volumes.parent().unwrap()).to_string();
-    let docs: Vec<Value> = serde_json::Deserializer::from_str(&json.out.replace(&root(j), &root(h)))
+    let json = as_in(json, j, h);
+    let docs: Vec<Value> = serde_json::Deserializer::from_str(&json.out)
         .into_iter::<Value>()
         .map(|d| same_ids_in(d.unwrap_or_else(|e| panic!("{words:?}: not JSON ({e}): {}", json.out))))
         .collect();
@@ -613,7 +616,8 @@ fn changes_agree(flags: &[bool], order: Vec<usize>, changes: Changes) {
         out.extend(fx.json(&["library", "ls"]).as_array().unwrap().iter().map(|l| l["name"].clone()));
         out
     };
-    assert_eq!(names(&h), names(&j));
+    let (in_h, in_j) = side_by_side(|| names(&h), || names(&j));
+    assert_eq!(in_h, in_j);
 }
 
 /// [`DRIVE_CHANGES`] say what their JSON says, in any order, on any drawn drives and store.

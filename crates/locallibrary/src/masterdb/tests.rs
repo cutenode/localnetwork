@@ -860,6 +860,22 @@ fn files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
     }
 }
 
+/// The cloud sample with Cloud Library Sync on `service`, read once per service: building and
+/// reading it is most of a case's time, and the draws only pick among three.
+fn cloud_collection(service: &'static str) -> Collection {
+    static READ: std::sync::Mutex<Vec<(&str, Collection)>> = std::sync::Mutex::new(Vec::new());
+    let mut read = READ.lock().unwrap();
+    if let Some((_, c)) = read.iter().find(|(s, _)| *s == service) {
+        return c.clone();
+    }
+    let f = cloud_sample();
+    f.exec(&format!("UPDATE djmdCloudProperty SET Reserved2 = '{service}'"));
+    let dir = tempfile::tempdir().unwrap();
+    let c = open(&write(dir.path(), &f.plain()), DEFAULT_KEY).unwrap();
+    read.push((service, c.clone()));
+    c
+}
+
 /// rekordbox's settings say where its cloud folders are (an empty value is none, other values
 /// are left alone), and a track Cloud Library Sync keeps in a storage service is found in the
 /// first folder that has it, the sync service's own first.
@@ -890,12 +906,8 @@ fn cloud_folders_and_the_audio_they_hold(tc: hegel::TestCase) {
     assert_eq!(folders.google_drive, (!g.is_empty()).then(|| drive.clone()));
 
     // The track's file, in some of the folders.
-    let f = cloud_sample();
     let service = tc.draw(gs::sampled_from(vec!["Dropbox", "Google Drive", "googledrive"]));
-    f.exec(&format!("UPDATE djmdCloudProperty SET Reserved2 = '{service}'"));
-    let rb = dir.path().join("rekordbox");
-    std::fs::create_dir(&rb).unwrap();
-    let c = open(&write(&rb, &f.plain()), DEFAULT_KEY).unwrap();
+    let c = cloud_collection(service);
     let synced = c.library.track(205356547).unwrap();
     let in_folder = |folder: &Path| folder.join("rekordbox/contents_2354715273/Floorplan/ngo.mp3");
     let mut has = Vec::new();

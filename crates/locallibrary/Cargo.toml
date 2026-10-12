@@ -51,7 +51,6 @@ keyring = { workspace = true, optional = true }
 keyring-core = { version = "1", optional = true }
 reqwest = { workspace = true, optional = true }
 lofty.workspace = true
-pbkdf2.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
 rustfft.workspace = true
@@ -82,6 +81,7 @@ loclib-transcode = { workspace = true, features = ["schemars"] }
 iroh = { version = "1.3", optional = true }
 iroh-tickets = { version = "1", optional = true }
 quick-xml = "0.37"
+ring = "0.17.14"
 
 [dev-dependencies]
 hegeltest.workspace = true

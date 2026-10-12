@@ -1,0 +1,5 @@
+# The CLI properties that run the binary hundreds of times take minutes each: started first, they
+# run beside the rest instead of after it, so they don't set the length of the run.
+[[profile.default.overrides]]
+filter = 'test(/^props_cli_(changes|human)::/)'
+priority = 100
