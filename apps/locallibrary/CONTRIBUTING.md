@@ -113,20 +113,25 @@ touches the computer's keychain or goes on the network.
 ```bash
 cargo coverage              # the tests under coverage, with a summary per file
 cargo coverage --open       # and an HTML report
-tools/hegel-coverage.sh     # only the property tests (from the repository root); takes --open too
+tools/hegel-coverage.sh     # the property tests alone, against the same thresholds (from the repository root)
 ```
 
 `cargo coverage` is an alias in `.cargo/config.toml` for
 [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) over nextest. It fails when line,
 function or region coverage drops below the thresholds there, set just under what CI measures on
-Linux; raise them when coverage goes up. It needs `cargo-llvm-cov`, `cargo-nextest` and rustup's
-`llvm-tools-preview` component. With Homebrew's Rust, install Homebrew's `llvm` and point `LLVM_COV`
-and `LLVM_PROFDATA` at its tools: its version must match the one `rustc -vV` names.
+Linux; raise them when coverage goes up. It measures only the code that ships: unit tests live in
+a module's own `tests.rs` (`foo.rs` declares `#[cfg(test)] mod tests;`, and the tests are in
+`foo/tests.rs`), which the alias leaves out with the TUI's other test-only files (`props.rs`,
+`screens.rs`, `testing.rs`) and `test_util.rs`. Keep new unit tests in those files, not inline. It
+needs `cargo-llvm-cov`, `cargo-nextest` and rustup's `llvm-tools-preview` component. With
+Homebrew's Rust, install Homebrew's `llvm` and point `LLVM_COV` and `LLVM_PROFDATA` at its tools:
+its version must match the one `rustc -vV` names.
 
-`tools/hegel-coverage.sh` runs only the `#[hegel::test]` tests (picked by function name, so not
-the fixed examples beside them in the `props_*` modules), with no thresholds, and also needs `rg`.
-Code it reports as missed is code no property reaches: a place where a new or wider generator
-would test more.
+`tools/hegel-coverage.sh` runs `cargo coverage` over only the `#[hegel::test]` tests (picked by
+function name, so not the fixed examples beside them in the `props_*` modules), and so fails below
+the same thresholds: the properties alone have to reach what the whole suite does. It also needs
+`rg`. Code it reports as missed is code no property reaches: a place where a new or wider
+generator would test more.
 
 ## Property-based tests
 

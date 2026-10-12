@@ -1,4 +1,7 @@
 # `cargo coverage`: the tests under cargo-llvm-cov, failing below these thresholds. CI runs it on
-# Linux; raise the thresholds to just under the new numbers when coverage goes up.
+# Linux; raise the thresholds to just under the new numbers when coverage goes up. Only the code
+# that ships is measured: test modules live in files of their own (`tests.rs`, and the TUI's
+# `props.rs`, `screens.rs` and `testing.rs`), left out with `test_util.rs` by the regex.
+# tools/hegel-coverage.sh runs this too, for the Hegel tests alone.
 [alias]
-coverage = "llvm-cov nextest --workspace --locked --no-fail-fast --fail-under-lines 95 --fail-under-functions 92.5 --fail-under-regions 93"
+coverage = "llvm-cov nextest --workspace --locked --no-fail-fast --fail-under-lines 95 --fail-under-functions 92.5 --fail-under-regions 93 --ignore-filename-regex (^|/)(tests|testing|test_util|screens|props)\\.rs$"

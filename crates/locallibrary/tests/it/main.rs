@@ -36,6 +36,7 @@ mod export;
 mod format;
 mod interop;
 mod jobs;
+mod layout;
 mod merge;
 mod mixes;
 mod onelibrary;
