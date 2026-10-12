@@ -495,7 +495,7 @@ pub enum SmartCommand {
     /// Write the rule-based playlists to drives, filled from each drive's library
     Apply {
         /// Libraries or drives [default: each library plugged in, and each rekordbox drive of none,
-        /// but archive and retired ones]
+        /// but archive and retired ones and those no rule is for]
         drives: Vec<String>,
         #[command(flatten)]
         dry: DryRun,
@@ -637,6 +637,10 @@ pub(crate) fn render_plan(p: &EditPlan) {
 }
 
 pub(crate) fn render_report(r: &EditReport, drive: &str) {
+    if r.changes == 0 {
+        output::ok(format!("{drive} has these edits already: nothing written"));
+        return;
+    }
     output::ok(format!(
         "{} change(s) written to {}{}",
         r.changes,
@@ -899,21 +903,39 @@ pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Resu
             return out.one_step(&change, "Remove it?", || Ok(api::smart_remove(store, &req)?), show);
         }
         SmartCommand::Apply { drives, dry } => {
-            let targets = match drives.is_empty() {
-                true => crate::each_drive::targets(Some(store))?,
-                false => api::libraries_once(drives)?,
+            let named = !drives.is_empty();
+            let targets = match named {
+                false => crate::each_drive::targets(Some(store))?,
+                true => api::libraries_once(drives)?,
             };
-            return smart_apply(store, targets, dry.dry_run, out, ctx);
+            return smart_apply(store, targets, named, dry.dry_run, out, ctx);
         }
     }
     Ok(ExitCode::SUCCESS)
 }
 
-/// `smart apply`: every drive's plan shown, one question, then each drive written.
-fn smart_apply(store: &Store, drives: Vec<String>, dry_run: bool, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+/// `smart apply`: every drive's plan shown, one question, then each drive written. Given no drive
+/// (`named` false), a drive no rule is for (one of another library) is left out: only when no
+/// rule is for any of them is that an error.
+fn smart_apply(
+    store: &Store,
+    drives: Vec<String>,
+    named: bool,
+    dry_run: bool,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
     let mut plans = Vec::new();
+    let mut none_apply = None;
     for drive in drives {
-        plans.push((drive.clone(), api::smart_apply_plan(store, &DriveRef { drive }, ctx)?));
+        match api::smart_apply_plan(store, &DriveRef { drive: drive.clone() }, ctx) {
+            Ok(p) => plans.push((drive, p)),
+            Err(e @ locallibrary::Error::NotFound(_)) if !named => none_apply = Some(e),
+            Err(e) => return Err(e.into()),
+        }
+    }
+    if let (true, Some(e)) = (plans.is_empty(), none_apply) {
+        return Err(e.into());
     }
     let show = |drive: &str, p: &Planned<EditPlan>| match p.noop {
         true => {
@@ -1091,6 +1113,10 @@ fn import(req: api::ImportRequest, dry_run: bool, out: Output, ctx: &Ctx<'_>) ->
         }
         return Ok(out.not_applied(&preview, Outcome::NothingToDo));
     };
+    // The playlist holds the list already, as `confirm_and_apply` says of any other edit.
+    if preview.noop {
+        return Ok(out.nothing(&preview, "nothing to change"));
+    }
     if !out.json {
         render_plan(plan);
         output::clones(&preview);

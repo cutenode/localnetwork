@@ -1134,6 +1134,10 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             tui::run(cli.store.clone().unwrap_or_else(Store::default_root), None)?;
             return Ok(ExitCode::SUCCESS);
         }
+        // Under `--json` it's a usage error like any other, said in JSON on stdout.
+        if out.json {
+            return Err(jobs_cmd::usage("no command given (`locallibrary --help` lists them)"));
+        }
         let _ = help::command().write_help(&mut std::io::stderr());
         return Ok(ExitCode::from(2));
     };
@@ -1444,9 +1448,12 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Completions(a) => return completion::completions(a, out),
         Command::Man(a) => return completion::man(a, out),
         Command::Rpc { emit_schema: Some(dir), .. } => {
-            for path in rpc::emit_schema(&dir).with_context(|| format!("writing to {}", dir.display()))? {
-                output::ok(format!("wrote {}", path.display()));
-            }
+            let written = rpc::emit_schema(&dir).with_context(|| format!("writing to {}", dir.display()))?;
+            out.done(&serde_json::json!({ "written": written }), |_| {
+                for path in &written {
+                    output::ok(format!("wrote {}", path.display()));
+                }
+            });
         }
         Command::Rpc { workers, emit_schema: None } => {
             rpc::serve(cli.store.clone().unwrap_or_else(Store::default_root), workers)?;

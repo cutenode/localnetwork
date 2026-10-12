@@ -152,11 +152,12 @@ fn render_list(t: &MyTags, tracks: bool) {
             say!("  {}", dim("no tags"));
         }
         for tag in &c.tags {
+            // Padded before it's dimmed: the colour's codes would count towards the width.
             let count = match tag.tracks.len() {
-                0 => dim("-".to_string()).to_string(),
-                n => n.to_string(),
+                0 => dim(format!("{:>4}", "-")).to_string(),
+                n => format!("{n:>4}"),
             };
-            say!("  {:<width$}  {count:>4}{}", tag.name, dim(only_in(&tag.sources, &t.sources)));
+            say!("  {:<width$}  {count}{}", tag.name, dim(only_in(&tag.sources, &t.sources)));
             if tracks {
                 for r in &tag.tracks {
                     say!("      {}  {}", r.name, dim(format!("#{}", r.id)));

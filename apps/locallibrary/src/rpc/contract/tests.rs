@@ -65,3 +65,25 @@ fn one_method_is_described_as_the_contract_has_it(tc: hegel::TestCase) {
         assert!(describe(Some(&typo)).is_none(), "{typo}");
     }
 }
+
+/// The contract's files, emitted into any folder (made when it isn't there), are the files the
+/// contract is: its JSON, read back, is the contract, and its types are declared from it.
+#[hegel::test(test_cases = 5)]
+fn the_files_emitted_are_the_contract(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join(tc.draw(gs::sampled_from(&["", "docs/rpc", "Ünïcödé"][..])));
+    let written = emit(&folder).unwrap();
+    let files = files();
+    assert_eq!(written.len(), files.len());
+    for (path, (name, text)) in written.iter().zip(&files) {
+        assert_eq!(path, &folder.join(name));
+        assert_eq!(&std::fs::read_to_string(path).unwrap(), text);
+    }
+    let json: Value = serde_json::from_str(&files[0].1).unwrap();
+    assert_eq!(&json, contract());
+    assert_eq!(files[1].1, typescript::declarations(contract()));
+    let all = describe(None).unwrap();
+    assert_eq!(all["methods"], contract()["methods"]);
+    assert_eq!(all["version"], env!("CARGO_PKG_VERSION"));
+}

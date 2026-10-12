@@ -146,7 +146,10 @@ and merge, with the DJ's own files around the library and runs cancelled, or cut
 plug, at any progress checkpoint. The CLI's own, in `apps/locallibrary/tests/it/props_cli.rs` and
 `props_rpc.rs`, run the built binary: every command with random arguments and flags against the
 output contract, commands without `--yes` against the files they mustn't touch, edits against a
-model, and the sidecar against the contract in `docs/rpc/schema.json`.
+model, and the sidecar against the contract in `docs/rpc/schema.json`. `props_cli_human.rs` and
+`props_cli_changes.rs` check that each command's text says what its `--json` says, on drawn drives
+and stores; `props_cli_asked.rs` answers `setup`'s questions in a terminal and stops `watch` and
+`store serve` with Ctrl-C.
 
 ```bash
 cargo test -p locallibrary --test it props_pdb::            # one module

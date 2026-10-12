@@ -271,3 +271,66 @@ fn declarations_name_each_method_once(tc: hegel::TestCase) {
         assert_eq!(d.lines().filter(|l| l.starts_with(&declared)).count(), 1, "{name}");
     }
 }
+
+/// A contract of any methods (with old names, deprecated or not, of any kind), notifications and
+/// error: the declarations give every name a `Methods` entry, an old name says it is one, a
+/// deprecated method says what to use instead, each notification has its entry, and the error's
+/// data is declared once, by its definition when there is one.
+#[hegel::test(test_cases = 200)]
+fn every_name_in_a_contract_is_declared(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let count = tc.draw(gs::integers::<usize>().max_value(4));
+    let mut methods = Vec::new();
+    for i in 0..count {
+        let aliases: Vec<String> =
+            (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|a| format!("old{i}.{a}")).collect();
+        let mut m = json!({
+            "name": format!("thing{i}.do"),
+            "aliases": aliases,
+            "kind": tc.draw(gs::sampled_from(&["read", "plan", "apply", "immediate"][..])),
+            "long_running": tc.draw(gs::booleans()),
+            "destructive": tc.draw(gs::booleans()),
+            "params": schema(&tc, 1),
+            "result": schema(&tc, 1),
+        });
+        if tc.draw(gs::booleans()) {
+            m["pair"] = format!("thing{i}.other").into();
+        }
+        if tc.draw(gs::weighted_booleans(0.3)) {
+            m["deprecated"] = "thing0.do".into();
+        }
+        methods.push(m);
+    }
+    let defined = tc.draw(gs::booleans());
+    let mut contract =
+        json!({ "protocol": 3, "$defs": {}, "methods": methods, "notifications": { "progress": schema(&tc, 1) } });
+    match (defined, tc.draw(gs::booleans())) {
+        (true, _) => {
+            contract["$defs"]["ErrorData"] =
+                json!({ "type": "object", "properties": { "kind": { "type": "string" } } });
+            contract["error"] = json!({ "$ref": "#/$defs/ErrorData" });
+        }
+        (false, true) => {
+            contract["error"] = json!({ "type": "object", "properties": { "kind": { "type": "string" } } })
+        }
+        (false, false) => {}
+    }
+    let d = declarations(&contract);
+    assert!(d.contains("export const PROTOCOL = 3;"), "{d}");
+    assert!(d.contains("  progress:"), "{d}");
+    for m in contract["methods"].as_array().unwrap() {
+        let name = m["name"].as_str().unwrap();
+        let names = std::iter::once(name).chain(m["aliases"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()));
+        for (i, n) in names.enumerate() {
+            // A type laid out over several lines starts on the next one.
+            let entry = format!("  {}: {{ params:", key(n));
+            let at = d.find(&entry).unwrap_or_else(|| panic!("no entry for {n}: {d}"));
+            let comment = d[..at].lines().last().unwrap();
+            assert_eq!(comment.contains(&format!("an older name for `{name}`")), i > 0, "{comment}");
+            assert_eq!(comment.contains("@deprecated use `thing0.do`"), m.get("deprecated").is_some(), "{comment}");
+            assert_eq!(comment.contains("can delete or overwrite something"), m["destructive"] == true, "{comment}");
+        }
+    }
+    let error_types = d.matches("export type ErrorData").count();
+    assert_eq!(error_types, usize::from(contract.get("error").is_some()), "{d}");
+}

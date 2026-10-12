@@ -1656,3 +1656,6 @@ pub fn eject_after(store_path: &Option<PathBuf>, drives: Vec<String>, out: Outpu
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

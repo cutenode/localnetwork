@@ -627,3 +627,6 @@ fn played(query: &str, found: &[Appearance]) {
     let place = latest.venue.as_deref().map(|v| format!(" at {v}")).unwrap_or_default();
     say!("{what}: played {times}, last on {}{place}", latest.date);
 }
+
+#[cfg(test)]
+mod tests;

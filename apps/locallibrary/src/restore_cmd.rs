@@ -129,6 +129,9 @@ fn render_undo(p: &api::UndoPlan) {
     for m in p.missing_audio.iter().take(5) {
         warn(format!("no audio on the drive for {m}"));
     }
+    if p.missing_audio.len() > 5 {
+        warn(format!("and {} more track(s) with no audio on the drive", p.missing_audio.len() - 5));
+    }
 }
 
 /// What `undo` can take back, per drive.

@@ -1072,3 +1072,6 @@ pub fn format_report(r: &FormatReport) {
         None => crate::output::hint("Unplug and reconnect the drive to mount it."),
     }
 }
+
+#[cfg(test)]
+mod tests;

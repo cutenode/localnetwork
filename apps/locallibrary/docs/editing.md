@@ -262,7 +262,7 @@ as they are.
 ```bash
 locallibrary smart add "Smart/Peak time" --filter "bpm:126-132 rating:>=4" --sort -rating --limit 60
 locallibrary smart add "Smart/Tokyo" --filter "tag:Situation/Tokyo" --drive Tokyo
-locallibrary smart apply             # each library plugged in, but archive and retired drives
+locallibrary smart apply             # each library plugged in that a rule is for, but archive and retired drives
 ```
 
 The rules live in the store. `--drive` limits a rule to a library, or to a drive's library: every

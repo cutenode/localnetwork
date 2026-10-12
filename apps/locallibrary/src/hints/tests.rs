@@ -199,3 +199,69 @@ fn hints_are_command_lines_that_parse(tc: hegel::TestCase) {
         assert!(!flags.contains(&key.replace('_', "-")), "{key} is off, yet in {hint}");
     }
 }
+
+/// An action that adds to the request that failed becomes `add` and a flag for each parameter
+/// it adds, in order: a switch that's on bare and one that's off left out, a number as written,
+/// a word as the shell reads it back, a value to give as its placeholder (a drive on its own,
+/// with no flag); nothing to add is no command at all. One that needs administrator rights says
+/// to run it again so, whatever else it carries.
+#[hegel::test(test_cases = 200)]
+fn retries_add_a_flag_for_each_parameter(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let keys = ["force", "library", "folder_name", "allow_low_confidence", "limit", "drive", "dry_run"];
+    let mut params = Map::new();
+    for key in keys {
+        let value = match tc.draw(gs::integers::<u8>().max_value(5)) {
+            0 => continue,
+            1 => Value::Bool(true),
+            2 => Value::Bool(false),
+            3 => Value::Null,
+            4 => Value::from(tc.draw(gs::integers::<i64>().min_value(-5).max_value(500))),
+            _ => Value::from(VALUES[tc.draw(gs::integers::<usize>().max_value(VALUES.len() - 1))]),
+        };
+        params.insert(key.into(), value);
+    }
+    // In the parameters' own order.
+    let mut expected = Vec::new();
+    for (key, value) in &params {
+        let flag = match key.as_str() {
+            "allow_low_confidence" => "--allow-guess".to_string(),
+            "folder_name" => "--folder".to_string(),
+            _ => format!("--{}", key.replace('_', "-")),
+        };
+        match value {
+            Value::Bool(false) => {}
+            Value::Bool(true) => expected.push(vec![flag]),
+            Value::Null if key == "drive" => expected.push(vec!["<DRIVE>".to_string()]),
+            Value::Null => expected.push(vec![flag, format!("<{}>", key.to_uppercase())]),
+            Value::String(s) => expected.push(vec![flag, s.clone()]),
+            other => expected.push(vec![flag, other.to_string()]),
+        }
+    }
+    let elevate = tc.draw(gs::weighted_booleans(0.2));
+    let a = Action { label: "Try again".into(), method: None, params, elevate };
+    let hint = &hints(&locallibrary::Error::Conflict("x".into()).action(a))[0];
+    if elevate {
+        assert!(hint.starts_with("Try again: run it again "), "{hint}");
+        return;
+    }
+    if expected.is_empty() {
+        assert_eq!(hint, "Try again");
+        return;
+    }
+    let cmd = hint.strip_prefix("Try again: add ").unwrap_or_else(|| panic!("{hint}"));
+    // Placeholders aren't shell words: compare them apart from what the shell reads.
+    let words: Vec<String> = match cmd.contains('<') {
+        true => cmd.split(' ').map(String::from).collect(),
+        false => shell_words(cmd),
+    };
+    if !cmd.contains('<') {
+        assert_eq!(words, expected.concat(), "{cmd}");
+    } else {
+        assert_eq!(
+            words.iter().filter(|w| w.starts_with("--")).count(),
+            expected.iter().filter(|e| e[0].starts_with("--")).count(),
+            "{cmd}"
+        );
+    }
+}

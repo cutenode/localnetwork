@@ -17,7 +17,7 @@ use crate::schema;
 use crate::support::{Env, Rpc, path};
 
 /// The contract the sidecar publishes.
-fn contract() -> &'static Value {
+pub(crate) fn contract() -> &'static Value {
     static CONTRACT: OnceLock<Value> = OnceLock::new();
     CONTRACT.get_or_init(|| {
         let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/rpc/schema.json");
@@ -45,13 +45,13 @@ fn registry() -> &'static Registry<'static> {
 
 /// Where `v` breaks what the contract gives at `pointer` (`/error`, `/methods/3/result`), or
 /// `None` where it doesn't.
-fn violation(v: &Value, pointer: &str) -> Option<String> {
+pub(crate) fn violation(v: &Value, pointer: &str) -> Option<String> {
     let schema = json!({ "$ref": format!("{CONTRACT}#{pointer}") });
     schema::violations(&schema::options().with_registry(registry()).build(&schema).unwrap(), v)
 }
 
 /// Where the contract has method `m`.
-fn at(m: &Value) -> String {
+pub(crate) fn at(m: &Value) -> String {
     let i = contract()["methods"].as_array().unwrap().iter().position(|o| std::ptr::eq(o, m)).unwrap();
     format!("/methods/{i}")
 }
@@ -70,7 +70,7 @@ fn the_schema_checker_tells_right_from_wrong() {
 /// Methods left out of random calls: they reach servers on the internet (the account,
 /// publishing, firmware), touch this machine's disks (formatting, ejecting, fsck), take minutes
 /// (mix identification, the analysis benchmark), are only for tests, or end the session.
-fn excluded(m: &str) -> bool {
+pub(crate) fn excluded(m: &str) -> bool {
     let prefixes = ["account.", "firmware.", "format.", "provision.", "prep.", "drive.eject", "mix.", "$/test."];
     prefixes.iter().any(|p| m.starts_with(p))
         || m.contains("publish")
@@ -129,7 +129,7 @@ fn value_for(tc: &TestCase, fx: &Env, schema: &Value) -> Value {
 
 /// Parameters for `m`: drawn from its schema mostly, else something no method takes.
 #[hegel::test_helper]
-fn params_for(tc: &TestCase, fx: &Env, m: &Value) -> (Value, bool) {
+pub(crate) fn params_for(tc: &TestCase, fx: &Env, m: &Value) -> (Value, bool) {
     if tc.draw(gs::weighted_booleans(0.85)) {
         return (value_for(tc, fx, &m["params"]), true);
     }
@@ -139,7 +139,7 @@ fn params_for(tc: &TestCase, fx: &Env, m: &Value) -> (Value, bool) {
 
 /// The sidecar's output for `lines`, sent at once before its input closes, and whether it
 /// exited cleanly.
-fn run_batch(fx: &Env, lines: &[Vec<u8>]) -> (Vec<Value>, bool) {
+pub(crate) fn run_batch(fx: &Env, lines: &[Vec<u8>]) -> (Vec<Value>, bool) {
     let mut child =
         fx.command().arg("rpc").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();

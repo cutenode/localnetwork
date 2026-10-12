@@ -206,3 +206,92 @@ fn changes_go_ahead_only_when_confirmed(tc: hegel::TestCase) {
         assert_eq!(with_schema(v)["outcome"], o.name());
     }
 }
+
+/// Any sequence of progress events keeps the bar a model says: each phase's bar from its start
+/// to its end (or the next phase's start), named for the phase, counting the items it was told
+/// it has (or the bytes, when it has a size; a spinner when it has neither) and showing the
+/// latest item's file name; warnings change nothing.
+#[hegel::test(test_cases = 200)]
+fn progress_bars_follow_their_events(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let phases = [
+        Phase::Scan,
+        Phase::Hash,
+        Phase::Copy,
+        Phase::Write,
+        Phase::Delete,
+        Phase::Verify,
+        Phase::Format,
+        Phase::Fingerprint,
+        Phase::Index,
+        Phase::Listen,
+        Phase::Match,
+        Phase::Analyze,
+    ];
+    let p = CliProgress { bar: Mutex::new(None), enabled: true };
+    // (label, counts items, position, message), as the bar should have them.
+    let mut model: Option<(&str, bool, u64, String)> = None;
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
+        let phase = phases[tc.draw(gs::integers::<usize>().max_value(phases.len() - 1))];
+        let event = match tc.draw(gs::integers::<u8>().max_value(4)) {
+            0 => {
+                let items = tc.draw(gs::integers::<u64>().max_value(4));
+                let bytes = tc.draw(gs::sampled_from(&[0u64, 0, 1000][..]));
+                model = Some((phase_label(phase), bytes == 0 && items > 0, 0, String::new()));
+                Event::PhaseStart { phase, items, bytes }
+            }
+            1 => {
+                let name = format!("{}.mp3", tc.draw(gs::sampled_from(&["a", "Café", "日本"][..])));
+                let path = match tc.draw(gs::booleans()) {
+                    true => format!("Contents/Artist/{name}"),
+                    false => name.clone(),
+                };
+                if let Some((_, counts, position, message)) = &mut model {
+                    *message = name;
+                    if *counts {
+                        *position += 1;
+                    }
+                }
+                Event::Item { phase, path, bytes: 10 }
+            }
+            2 => {
+                let bytes = tc.draw(gs::integers::<u64>().max_value(300));
+                if let Some((_, false, position, _)) = &mut model {
+                    *position += bytes;
+                }
+                Event::Bytes { phase, bytes }
+            }
+            3 => {
+                model = None;
+                Event::PhaseEnd { phase }
+            }
+            _ => Event::Warning { message: "skipped one".into() },
+        };
+        p.on_event(&event);
+        let bar = p.bar.lock().unwrap().as_ref().map(|(b, counts)| (b.prefix(), *counts, b.position(), b.message()));
+        let want = model.as_ref().map(|(l, c, n, m)| (l.to_string(), *c, *n, m.clone()));
+        assert_eq!(bar, want, "after {event:?}");
+    }
+}
+
+/// Every outcome exits with the status `locallibrary --help` gives it, and `--json` reports it by
+/// its name.
+#[hegel::test(test_cases = 50)]
+fn every_outcome_exits_as_the_help_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let all = [
+        (Outcome::Applied, "applied", 0),
+        (Outcome::NothingToDo, "nothing_to_do", 0),
+        (Outcome::DryRun, "dry_run", 0),
+        (Outcome::Declined, "declined", 3),
+        (Outcome::NotConfirmed, "not_confirmed", 3),
+        (Outcome::Problems, "problems", 4),
+        (Outcome::Partial, "partial", 5),
+    ];
+    let (o, name, status) = all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))];
+    assert_eq!((o.name(), o.code()), (name, status));
+    assert_eq!(o.exit(), ExitCode::from(status));
+    let applied = tc.draw(gs::booleans());
+    let v = with_schema(envelope(&serde_json::json!({ "x": 1 }), &serde_json::Value::Null, applied, o));
+    assert_eq!((&v["outcome"], &v["applied"]), (&name.into(), &applied.into()));
+}
