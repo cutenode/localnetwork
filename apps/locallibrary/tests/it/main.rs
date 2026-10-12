@@ -30,6 +30,8 @@ mod jobs;
 #[cfg(feature = "peers")]
 mod peers;
 mod profile;
+mod props_cli;
+mod props_rpc;
 mod publish;
 mod reports;
 mod rpc;

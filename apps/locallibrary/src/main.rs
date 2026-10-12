@@ -1441,8 +1441,8 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             }
             tui::run(cli.store.clone().unwrap_or_else(Store::default_root), drive)?;
         }
-        Command::Completions(a) => return completion::completions(a),
-        Command::Man(a) => return completion::man(a),
+        Command::Completions(a) => return completion::completions(a, out),
+        Command::Man(a) => return completion::man(a, out),
         Command::Rpc { emit_schema: Some(dir), .. } => {
             for path in rpc::emit_schema(&dir).with_context(|| format!("writing to {}", dir.display()))? {
                 output::ok(format!("wrote {}", path.display()));

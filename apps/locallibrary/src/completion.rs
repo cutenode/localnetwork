@@ -14,6 +14,8 @@ use clap_complete::env::{EnvCompleter, Shells};
 use clap_complete::{ArgValueCandidates, CompletionCandidate, Shell};
 use locallibrary::api;
 
+use crate::output::Output;
+
 /// `completions`.
 #[derive(Args)]
 #[command(after_long_help = "Install:
@@ -55,18 +57,27 @@ pub fn complete() {
     clap_complete::CompleteEnv::with_factory(command).bin("locallibrary").complete();
 }
 
-pub fn completions(args: CompletionsArgs) -> Result<ExitCode> {
-    let mut out = std::io::stdout().lock();
+/// The script, or under `--json` the script in a document (`{shell, static, script}`), as every
+/// command's result is JSON there.
+pub fn completions(args: CompletionsArgs, out: Output) -> Result<ExitCode> {
+    let name = args.shell.to_string();
+    let mut script = Vec::new();
     if args.fixed {
         let mut cmd = crate::help::command();
-        clap_complete::generate(args.shell, &mut cmd, "locallibrary", &mut out);
-        return Ok(ExitCode::SUCCESS);
+        clap_complete::generate(args.shell, &mut cmd, "locallibrary", &mut script);
+    } else {
+        let shells = Shells::builtins();
+        let shell: &dyn EnvCompleter = shells.completer(&name).context("no completion for that shell")?;
+        shell.write_registration("COMPLETE", "locallibrary", "locallibrary", &completer(), &mut script)?;
     }
-    let name = args.shell.to_string();
-    let shells = Shells::builtins();
-    let shell: &dyn EnvCompleter = shells.completer(&name).context("no completion for that shell")?;
-    shell.write_registration("COMPLETE", "locallibrary", "locallibrary", &completer(), &mut out)?;
-    out.flush()?;
+    let script = String::from_utf8(script).context("the script isn't text")?;
+    print_text(out, &serde_json::json!({ "shell": name, "static": args.fixed, "script": script }), &script)
+}
+
+/// `text` as it is, or under `--json`, `doc` (which holds it).
+fn print_text(out: Output, doc: &serde_json::Value, text: &str) -> Result<ExitCode> {
+    out.emit(doc, |_| print!("{text}"));
+    std::io::stdout().flush()?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -79,7 +90,8 @@ fn completer() -> String {
     std::env::current_exe().map(|p| p.display().to_string()).unwrap_or(argv0)
 }
 
-pub fn man(args: ManArgs) -> Result<ExitCode> {
+/// The pages, written or printed (under `--json`, what was written, or the page in a document).
+pub fn man(args: ManArgs, out: Output) -> Result<ExitCode> {
     use clap::CommandFactory;
     // No page for `help` at every level.
     fn no_help(cmd: Command) -> Command {
@@ -90,11 +102,16 @@ pub fn man(args: ManArgs) -> Result<ExitCode> {
         Some(dir) => {
             std::fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
             clap_mangen::generate_to(cmd, &dir).with_context(|| format!("writing to {}", dir.display()))?;
-            crate::output::ok(format!("wrote the man pages to {}", dir.display()));
+            let written = serde_json::json!({ "written": dir });
+            Ok(out.done(&written, |_| crate::output::ok(format!("wrote the man pages to {}", dir.display()))))
         }
-        None => clap_mangen::Man::new(cmd).render(&mut std::io::stdout().lock())?,
+        None => {
+            let mut page = Vec::new();
+            clap_mangen::Man::new(cmd).render(&mut page)?;
+            let page = String::from_utf8(page).context("the page isn't text")?;
+            print_text(out, &serde_json::json!({ "page": page }), &page)
+        }
     }
-    Ok(ExitCode::SUCCESS)
 }
 
 /// What an argument takes, for completing it.

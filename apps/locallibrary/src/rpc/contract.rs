@@ -37,7 +37,11 @@ pub fn describe(method: Option<&str>) -> Option<Value> {
         None => contract().clone(),
         Some(name) => {
             let m = registry().get(name).filter(|m| !m.hidden)?;
-            let mut v = build(registry(), vec![m]);
+            // Cut from the whole contract, so its definitions have the names they have there:
+            // built on its own, a result's type would lose the `Output` a parameter's of the same
+            // name gives it, and name another definition than the contract's.
+            let mut v = contract().clone();
+            v["methods"].as_array_mut().expect("a list").retain(|d| d["name"] == m.name);
             prune_definitions(&mut v);
             v
         }
@@ -227,5 +231,34 @@ mod tests {
         let defs = one["$defs"].as_object().unwrap();
         assert!(defs.contains_key("AdoptDrive") && !defs.contains_key("MixReport"), "{:?}", defs.keys());
         assert!(describe(Some("no.such")).is_none() && describe(Some("$/test.wait")).is_none());
+    }
+
+    /// One method described, by its name or an old one, is the contract's entry for it, with
+    /// exactly the definitions it uses, each as the contract has it; a name no method has
+    /// describes nothing.
+    #[hegel::test(test_cases = 60)]
+    fn one_method_is_described_as_the_contract_has_it(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let all = contract()["methods"].as_array().unwrap();
+        let m = &all[tc.draw(gs::integers::<usize>().max_value(all.len() - 1))];
+        let names: Vec<&str> =
+            std::iter::once(&m["name"]).chain(m["aliases"].as_array().unwrap()).filter_map(Value::as_str).collect();
+        let name = names[tc.draw(gs::integers::<usize>().max_value(names.len() - 1))];
+        let one = describe(Some(name)).unwrap();
+        assert_eq!(one["methods"], json!([m]), "{name}");
+        assert_eq!(one["version"], env!("CARGO_PKG_VERSION"));
+        let defs = one["$defs"].as_object().unwrap();
+        let mut used = Vec::new();
+        refs(&one, &mut used);
+        let used: std::collections::BTreeSet<String> = used.into_iter().collect();
+        let defined: std::collections::BTreeSet<String> = defs.keys().cloned().collect();
+        assert_eq!(used, defined, "{name}: used and kept differ");
+        for (k, d) in defs {
+            assert_eq!(d, &contract()["$defs"][k], "{name}: {k}");
+        }
+        let typo = format!("{name}{}", tc.draw(gs::sampled_from(&[".x", "s", " ", "!"][..])));
+        if registry().get(&typo).is_none() {
+            assert!(describe(Some(&typo)).is_none(), "{typo}");
+        }
     }
 }

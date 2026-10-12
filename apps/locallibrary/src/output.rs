@@ -521,16 +521,7 @@ pub fn dim(s: impl std::fmt::Display) -> console::StyledObject<String> {
     style(s.to_string()).dim()
 }
 
-pub fn bytes(n: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut v = n as f64;
-    let mut u = 0;
-    while v >= 1000.0 && u < UNITS.len() - 1 {
-        v /= 1000.0;
-        u += 1;
-    }
-    if u == 0 { format!("{n} B") } else { format!("{v:.1} {}", UNITS[u]) }
-}
+pub use locallibrary::op::bytes;
 
 /// `m:ss`, or `h:mm:ss` past an hour, to the nearest second (59.6 s is `1:00`).
 pub fn clock(secs: f64) -> String {
@@ -735,5 +726,141 @@ mod tests {
     fn ascii_terminals_get_stand_ins_for_symbols_not_names() {
         assert_eq!(ascii("✓ copied · Café → Bar ★★☆"), "v copied - Café -> Bar **.");
         assert!(matches!(ascii("plain"), Cow::Borrowed(_)));
+    }
+
+    /// Counts read back as the number they print: digits in groups of three from the right,
+    /// and a plural only for other than one.
+    #[hegel::test(test_cases = 300)]
+    fn counts_read_back(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let n = tc.draw(gs::integers::<usize>());
+        let s = thousands(n);
+        assert_eq!(s.replace(',', ""), n.to_string());
+        let groups: Vec<&str> = s.split(',').collect();
+        assert!((1..=3).contains(&groups[0].len()), "{s}");
+        assert!(groups[1..].iter().all(|g| g.len() == 3), "{s}");
+        let one = tc.draw(gs::sampled_from(&["track", "drive", "set"][..]));
+        let expected = if n == 1 { format!("1 {one}") } else { format!("{s} {one}s") };
+        assert_eq!(plural(n, one), expected);
+    }
+
+    /// A clock reads back as the seconds rounded to the nearest one, with minutes and seconds
+    /// below 60 and hours only past an hour; a duration as the hours and minutes it covers.
+    #[hegel::test(test_cases = 300)]
+    fn clocks_and_durations_read_back(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let secs = tc.draw(gs::floats::<f64>().min_value(-100.0).max_value(400_000.0));
+        let rounded = secs.max(0.0).round() as u64;
+        let parts: Vec<u64> = clock(secs).split(':').map(|p| p.parse().unwrap()).collect();
+        let back = match parts[..] {
+            [m, s] => {
+                assert!(rounded < 3600 && s < 60, "{secs}: {}", clock(secs));
+                m * 60 + s
+            }
+            [h, m, s] => {
+                assert!(h >= 1 && m < 60 && s < 60, "{secs}: {}", clock(secs));
+                h * 3600 + m * 60 + s
+            }
+            _ => panic!("{}", clock(secs)),
+        };
+        assert_eq!(back, rounded, "{secs}: {}", clock(secs));
+
+        let whole = tc.draw(gs::integers::<u64>().max_value(1 << 40));
+        let d = duration(whole);
+        let num = |p: &str, unit: char| p.strip_suffix(unit).unwrap().parse::<u64>().unwrap();
+        let (a, b) = d.split_once(' ').unwrap();
+        if a.ends_with('h') {
+            let covered = num(a, 'h') * 3600 + num(b, 'm') * 60;
+            assert!(covered <= whole && whole - covered < 60 && whole >= 3600, "{whole}: {d}");
+        } else {
+            assert_eq!(num(a, 'm') * 60 + num(b, 's'), whole, "{d}");
+        }
+    }
+
+    /// Fitted text takes exactly the columns asked for; clipped, it's as much of the start of
+    /// the text as fits beside the ellipsis.
+    #[hegel::test(test_cases = 300)]
+    fn fitted_text_takes_its_columns(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        use unicode_width::UnicodeWidthStr;
+        let s: String = tc.draw(gs::text().alphabet("ab é日本😹\u{301}\u{fe0f}").max_size(20));
+        let width = tc.draw(gs::integers::<usize>().max_value(25));
+        let ellipsis = tc.draw(gs::sampled_from(&["…", "...", ""][..]));
+        assert_eq!(fit_with(&s, width, ellipsis).width(), width, "{s:?} in {width}");
+        let clipped = clip(&s, width, ellipsis);
+        assert!(clipped.width() <= width, "{clipped:?}");
+        if s.width() <= width {
+            assert_eq!(clipped, s);
+            return;
+        }
+        if width < ellipsis.width() {
+            assert_eq!(clipped, "");
+            return;
+        }
+        let kept = clipped.strip_suffix(ellipsis).unwrap_or_else(|| panic!("{clipped:?} has no {ellipsis:?}"));
+        assert!(s.starts_with(kept), "{kept:?} isn't the start of {s:?}");
+        if let Some(c) = s[kept.len()..].chars().next() {
+            let longer = &s[..kept.len() + c.len_utf8()];
+            assert!(longer.width() + ellipsis.width() > width, "{longer:?} would have fit");
+        }
+    }
+
+    /// ASCII output has a stand-in for every symbol and leaves every other character, and an
+    /// ASCII line, alone.
+    #[hegel::test(test_cases = 300)]
+    fn ascii_replaces_only_symbols(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let symbols: String = SYMBOLS.iter().map(|(c, _)| *c).collect();
+        let s: String = tc.draw(gs::text().alphabet(&format!("{symbols}aé日 ")).max_size(30));
+        let out = ascii(&s);
+        assert!(!out.chars().any(|c| symbols.contains(c)), "{out:?}");
+        let mapped: String = s
+            .chars()
+            .map(|c| SYMBOLS.iter().find(|(u, _)| *u == c).map_or(c.to_string(), |(_, a)| a.to_string()))
+            .collect();
+        assert_eq!(out, mapped);
+        assert_eq!(ascii(&out), out, "a second pass changes nothing");
+        if s.is_ascii() {
+            assert!(matches!(out, Cow::Borrowed(_)));
+        }
+    }
+
+    /// Without a terminal to ask on, a change goes ahead only with `--yes`, a dry run never; an
+    /// erase only with its name typed, `--yes` or not. Each outcome's status is the one its
+    /// name says.
+    #[hegel::test(test_cases = 200)]
+    fn changes_go_ahead_only_when_confirmed(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let yes = tc.draw(gs::booleans());
+        // `--json` never prompts, so nothing here waits on stdin.
+        let out = Output { json: true, quiet: tc.draw(gs::booleans()), yes, pager: tc.draw(gs::booleans()) };
+        let dry_run = tc.draw(gs::booleans());
+        let decided = out.decide(dry_run, "Go ahead?");
+        let expected = match (dry_run, yes) {
+            (true, _) => Some(Outcome::DryRun),
+            (false, true) => None,
+            (false, false) => Some(Outcome::NotConfirmed),
+        };
+        assert_eq!(decided, expected);
+        assert_eq!(out.confirm("Go ahead?"), yes);
+        let name = tc.draw(gs::sampled_from(&["KEYCHAIN", "Rekordbox", "sd card"][..]));
+        let given: Option<String> = match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => None,
+            1 => Some(tc.draw(gs::text().alphabet("abcdeKEYCHAINrekordbx ").max_size(12))),
+            _ => Some(tc.draw(gs::sampled_from(&[" keychain ", "REKORDBOX", "SD CARD", "sd card"][..])).to_string()),
+        };
+        let typed = out.confirm_typed("", name, given.as_deref());
+        let expected = match &given {
+            Some(g) if g.trim().eq_ignore_ascii_case(name.trim()) => None,
+            Some(_) => Some(Outcome::Declined),
+            None => Some(Outcome::NotConfirmed),
+        };
+        assert_eq!(typed, expected, "{given:?} for {name}");
+        for o in [decided, typed].into_iter().flatten() {
+            let ok = matches!(o.name(), "applied" | "nothing_to_do" | "dry_run");
+            assert_eq!(o.code() == 0, ok, "{}", o.name());
+            let v = envelope(&serde_json::json!({}), &serde_json::Value::Null, false, o);
+            assert_eq!(with_schema(v)["outcome"], o.name());
+        }
     }
 }

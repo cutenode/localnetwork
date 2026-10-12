@@ -631,9 +631,15 @@ fn completions_and_man_pages() {
     assert!(String::from_utf8_lossy(&out.stdout).contains("_locallibrary"));
     let out = env.locallibrary().arg("man").output().unwrap();
     assert!(String::from_utf8_lossy(&out.stdout).contains(".TH locallibrary 1"));
+    // Under --json, as every command: JSON, with the script or the page in it.
+    let script = env.json(&["completions", "zsh"]);
+    assert_eq!((&script["shell"], &script["static"]), (&Value::from("zsh"), &Value::from(false)));
+    assert!(script["script"].as_str().unwrap().contains("#compdef locallibrary"), "{script}");
+    assert!(env.json(&["man"])["page"].as_str().unwrap().contains(".TH locallibrary 1"));
     let dir = env.root.join("man");
     let out = env.locallibrary().args(["man", "-o", path(&dir)]).output().unwrap();
     assert!(out.status.success() && dir.join("locallibrary-drive-ls.1").is_file());
+    assert_eq!(env.json(&["man", "-o", path(&dir)])["report"]["written"], path(&dir));
     assert!(!dir.join("locallibrary-help.1").exists() && !dir.join("locallibrary-drives.1").exists());
 }
 
