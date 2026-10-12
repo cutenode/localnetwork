@@ -20,7 +20,6 @@
 //! * playlists are `NODE`s under `PLAYLISTS`: `TYPE="FOLDER"` with `SUBNODES`, or
 //!   `TYPE="PLAYLIST"` with a `PLAYLIST` of `ENTRY`/`PRIMARYKEY`s.
 
-use rustc_hash::FxHashSet;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -149,7 +148,8 @@ pub fn build(src: &Source<'_>, output: &Path, ctx: &Ctx<'_>) -> Result<Export> {
 
     let startup = startup_volume(Path::new("/Volumes"));
     let mut entries = String::new();
-    let mut written = FxHashSet::default();
+    // The location each file is written at, by its key: rows of one file, in any case, are one entry.
+    let mut written: rustc_hash::FxHashMap<String, String> = rustc_hash::FxHashMap::default();
     ctx.phase_start(Phase::Scan, lib.tracks.len() as u64, 0);
     for t in &lib.tracks {
         ctx.check()?;
@@ -157,11 +157,14 @@ pub fn build(src: &Source<'_>, output: &Path, ctx: &Ctx<'_>) -> Result<Export> {
         let (loc, on_startup) = location(&src.audio(t), startup.as_deref().unwrap_or(STARTUP_VOLUME));
         // On a startup disk whose name is a guess.
         tally.startup_volume |= on_startup && startup.is_none();
-        keys.insert(t.id, loc.key());
-        // Two rows for one file are one track to Traktor.
-        if !written.insert(loc.key()) {
+        // Two rows for one file are one track to Traktor, at the first row's location.
+        let file = crate::file_key(t);
+        if let Some(first) = written.get(&file) {
+            keys.insert(t.id, first.clone());
             continue;
         }
+        keys.insert(t.id, loc.key());
+        written.insert(file, loc.key());
         let analysis = src.analysis.map(|load| load(t));
         entry(&mut entries, t, &loc, analysis.as_ref(), &stamps, &mut tally);
     }
@@ -370,6 +373,33 @@ mod tests {
         assert_eq!(export.warnings, ["1 track(s) change tempo; their grid keeps the tempo of the first downbeat"]);
         let crate::Content::Bytes(nml) = &export.files[0].content else { panic!("the NML is written out") };
         assert!(String::from_utf8_lossy(nml).contains("<TEMPO BPM=\"120.000000\""));
+    }
+
+    /// Rows whose paths differ only in case are one file, as Serato and Engine take them: one
+    /// entry, which every playlist names.
+    #[test]
+    fn case_variants_of_a_path_are_one_entry() {
+        let track = |id, file_path: &str| Track { id, file_path: file_path.into(), ..Default::default() };
+        let library = Library {
+            tracks: vec![track(1, "/Music/a.mp3"), track(2, "/music/A.mp3")],
+            playlists: vec![Playlist {
+                id: 1,
+                parent_id: None,
+                name: "Set".into(),
+                is_folder: false,
+                sort_order: 0,
+                track_ids: vec![2, 1],
+            }],
+            ..Default::default()
+        };
+        let src = Source { library: &library, root: std::path::PathBuf::from("/Volumes/USB"), analysis: None };
+        let export = build(&src, Path::new("out"), &Ctx::silent()).unwrap();
+        assert_eq!(export.tracks, 1);
+        assert_eq!(export.warnings, ["1 track row(s) share a file with another and are one track in Traktor"]);
+        let crate::Content::Bytes(nml) = &export.files[0].content else { panic!("the NML is written out") };
+        let nml = String::from_utf8_lossy(nml);
+        assert!(nml.contains("<COLLECTION ENTRIES=\"1\">"), "{nml}");
+        assert_eq!(nml.matches("KEY=\"USB/:Music/:a.mp3\"").count(), 2, "{nml}");
     }
 
     #[test]

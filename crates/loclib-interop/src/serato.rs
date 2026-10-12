@@ -160,14 +160,22 @@ fn volume_relative(path: &Path) -> (String, PathBuf) {
 /// subcrate's holds the names of every folder above it.
 const NAME_BYTES: usize = 200;
 
+/// Bytes a folder's name leaves for each level of crates below it (`%%` and the start of a
+/// name), so cutting a deep folder's name never leaves its subcrates without one.
+const LEVEL_BYTES: usize = 2 + 8;
+
 /// Crate file names for every playlist and folder: names joined by `%%`, each made safe for a
-/// file name (and without `%%` of its own), cut to [`NAME_BYTES`]; same-named crates get ` (2)`,
-/// ` (3)`...
+/// file name (and without `%%` of its own); same-named crates get ` (2)`, ` (3)`... A crate's own
+/// name is what's cut, on a character boundary, for the whole to fit in [`NAME_BYTES`] with room
+/// left for each level below it. Serato nests a crate under the one its name starts with, so the
+/// folders' names above it are never cut, and it keeps at least its first character even when
+/// they leave no room.
 fn crate_names(lib: &Library) -> Vec<(&Playlist, String)> {
     fn walk<'a>(
         lib: &'a Library,
         parent: Option<u32>,
         prefix: &str,
+        levels_below: &rustc_hash::FxHashMap<u32, usize>,
         used: &mut rustc_hash::FxHashSet<String>,
         out: &mut Vec<(&'a Playlist, String)>,
     ) {
@@ -176,10 +184,13 @@ fn crate_names(lib: &Library) -> Vec<(&Playlist, String)> {
             while part.contains("%%") {
                 part = part.replace("%%", "%");
             }
-            let mut base = if prefix.is_empty() { part } else { format!("{prefix}%%{part}") };
-            if base.len() > NAME_BYTES {
-                base.truncate((0..=NAME_BYTES).rev().find(|&i| base.is_char_boundary(i)).unwrap_or(0));
-            }
+            let sep = if prefix.is_empty() { "" } else { "%%" };
+            let below = levels_below.get(&p.id).copied().unwrap_or(0);
+            let room = NAME_BYTES.saturating_sub(prefix.len() + sep.len() + below * LEVEL_BYTES);
+            let first = part.chars().next().map_or(0, char::len_utf8);
+            let cut = (0..=room.min(part.len())).rev().find(|&i| part.is_char_boundary(i)).unwrap_or(0);
+            part.truncate(cut.max(first));
+            let base = format!("{prefix}{sep}{part}");
             let mut name = base.clone();
             let mut n = 2;
             while !used.insert(name.to_lowercase()) {
@@ -188,12 +199,24 @@ fn crate_names(lib: &Library) -> Vec<(&Playlist, String)> {
             }
             out.push((p, name.clone()));
             if p.is_folder {
-                walk(lib, Some(p.id), &name, used, out);
+                walk(lib, Some(p.id), &name, levels_below, used, out);
             }
         }
     }
+    // How many levels of crates each folder holds, from each node's walk up its lineage.
+    let parents: rustc_hash::FxHashMap<u32, Option<u32>> = lib.playlists.iter().map(|p| (p.id, p.parent_id)).collect();
+    let mut levels_below = rustc_hash::FxHashMap::default();
+    for p in &lib.playlists {
+        let (mut up, mut levels) = (p.parent_id, 1);
+        while let Some(id) = up {
+            let l = levels_below.entry(id).or_insert(0);
+            *l = levels.max(*l);
+            up = parents.get(&id).copied().flatten();
+            levels += 1;
+        }
+    }
     let mut out = Vec::new();
-    walk(lib, None, "", &mut Default::default(), &mut out);
+    walk(lib, None, "", &levels_below, &mut Default::default(), &mut out);
     out
 }
 
@@ -378,10 +401,10 @@ pub fn build<E: From<Error>>(
     for t in &lib.tracks {
         ctx.check().map_err(Error::from)?;
         ctx.emit(Event::Item { phase: Phase::Scan, path: t.file_path.clone(), bytes: 0 });
-        let key = paths::key(&t.file_path);
-        if !seen.insert(key.to_lowercase()) {
+        if !seen.insert(crate::file_key(t)) {
             continue;
         }
+        let key = paths::key(&t.file_path);
         let from = (copies.audio)(t)?;
         let Ok(meta) = std::fs::metadata(&from) else { continue };
         let to = located(t);
@@ -584,6 +607,37 @@ mod tests {
             [(1, "50% off".to_string()), (2, "50% off%%Set".into()), (3, "set".into()), (4, "Set (2)".into())]
         );
         assert!(names[4].1.len() <= NAME_BYTES && long.starts_with(&names[4].1), "{}", names[4].1);
+    }
+
+    /// Cutting a long name never drops a level of nesting: a subcrate keeps its folder's whole
+    /// crate name, `%%` and the start of its own, however long or deep the folders above it.
+    #[test]
+    fn cut_names_keep_their_nesting() {
+        let node = |id, parent_id, name: String, is_folder| Playlist {
+            id,
+            parent_id,
+            name,
+            is_folder,
+            sort_order: id,
+            track_ids: Vec::new(),
+        };
+        let mut playlists = vec![node(1, None, "f".repeat(198), true), node(2, Some(1), "a".repeat(60), false)];
+        // Thirty folders of 40 bytes, one in the next, the last holding a playlist.
+        playlists.extend((0..30).map(|i| node(10 + i, (i > 0).then_some(9 + i), "ü".repeat(20), true)));
+        playlists.push(node(40, Some(39), "Set".into(), false));
+        let lib = Library { playlists, ..Default::default() };
+        let names: rustc_hash::FxHashMap<u32, String> = crate_names(&lib).into_iter().map(|(p, n)| (p.id, n)).collect();
+        for p in &lib.playlists {
+            let name = &names[&p.id];
+            let own = match p.parent_id {
+                Some(parent) => name.strip_prefix(&format!("{}%%", names[&parent])).expect("under its folder"),
+                None => name,
+            };
+            assert!(!own.is_empty() && !own.contains("%%") && p.name.starts_with(own), "{name}");
+            assert!(name.len() <= NAME_BYTES || own.chars().count() == 1, "{} bytes", name.len());
+            assert!(format!("{name}.crate").len() <= 255, "{} bytes", name.len());
+        }
+        assert!(names[&2].starts_with(&format!("{}%%a", names[&1])), "{}", names[&2]);
     }
 
     #[test]

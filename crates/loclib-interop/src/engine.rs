@@ -80,19 +80,24 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
     let db_path = library_dir.join("Database2").join("m.db");
     let dir = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
     let scratch = dir.path().join("m.db");
-    let conn = Connection::open(&scratch).map_err(sql)?;
-    conn.execute_batch("PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = ON;").map_err(sql)?;
-    conn.execute_batch(include_str!("engine.sql")).map_err(sql)?;
+    let mut conn = Connection::open(&scratch).map_err(sql)?;
+    // The database is built in a scratch file and read back into memory, so nothing needs to
+    // reach the disk before it's done: no syncs, and the whole library (schema included) in one
+    // transaction rather than a journal and its syncs for each statement.
+    conn.execute_batch("PRAGMA journal_mode = DELETE; PRAGMA synchronous = OFF; PRAGMA foreign_keys = ON;")
+        .map_err(sql)?;
+    let tx = conn.transaction().map_err(sql)?;
+    tx.execute_batch(include_str!("engine.sql")).map_err(sql)?;
     let uuid = uuid::Uuid::new_v4().to_string();
     let mut indicator = [0u8; 8];
     getrandom::fill(&mut indicator).map_err(|e| Error::Invalid(format!("no randomness available: {e}")))?;
-    conn.execute(
+    tx.execute(
         "INSERT INTO Information (uuid, schemaVersionMajor, schemaVersionMinor, schemaVersionPatch,
              currentPlayedIndiciator, lastRekordBoxLibraryImportReadCounter) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
         params![uuid, SCHEMA.0, SCHEMA.1, SCHEMA.2, i64::from_le_bytes(indicator) & i64::MAX],
     )
     .map_err(sql)?;
-    conn.execute("INSERT INTO AlbumArt (id, hash, albumArt) VALUES (1, '', NULL)", []).map_err(sql)?;
+    tx.execute("INSERT INTO AlbumArt (id, hash, albumArt) VALUES (1, '', NULL)", []).map_err(sql)?;
 
     // Where the database will say each track is.
     let located = |t: &Track| -> Result<String> {
@@ -117,14 +122,13 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
 
     let now = chrono::Utc::now().timestamp();
     let mut engine_ids: FxHashMap<u32, i64> = FxHashMap::default();
-    let mut by_path: FxHashMap<String, i64> = FxHashMap::default();
-    let tx = conn.unchecked_transaction().map_err(sql)?;
+    let mut by_file: FxHashMap<String, i64> = FxHashMap::default();
     ctx.phase_start(Phase::Scan, lib.tracks.len() as u64, 0);
     for t in &lib.tracks {
         ctx.check()?;
         ctx.emit(Event::Item { phase: Phase::Scan, path: t.file_path.clone(), bytes: 0 });
         let path = located(t)?;
-        if let Some(id) = by_path.get(&path.to_lowercase()) {
+        if let Some(id) = by_file.get(&crate::file_key(t)) {
             engine_ids.insert(t.id, *id);
             continue;
         }
@@ -132,7 +136,7 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
         let file_type = filename.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
         let text = |s: &str| (!s.is_empty()).then(|| s.to_string());
         let added = unix_date(&t.date_added).unwrap_or(now);
-        tx.execute(
+        tx.prepare_cached(
             "INSERT INTO Track (playOrder, length, bpm, year, path, filename, bitrate, bpmAnalyzed, albumArtId,
                  fileBytes, title, artist, album, genre, comment, label, composer, remixer, key, rating, albumArt,
                  timeLastPlayed, isPlayed, fileType, isAnalyzed, dateCreated, dateAdded, isAvailable,
@@ -141,37 +145,38 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
                  originTrackId, streamingFlags, explicitLyrics, lastEditTime)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, NULL,
                  NULL, ?21, ?22, 0, ?23, ?23, 1, 0, 0, NULL, 1, 0, NULL, NULL, 0, ?24, 0, 0, 0, ?25)",
-            params![
-                (t.track_number > 0).then_some(t.track_number),
-                t.duration_secs,
-                (t.bpm > 0.0).then(|| t.bpm.round() as i64),
-                (t.year > 0).then_some(t.year),
-                path,
-                filename,
-                (t.bitrate > 0).then_some(t.bitrate),
-                (t.bpm > 0.0).then_some(t.bpm),
-                NO_ALBUM_ART,
-                t.file_size as i64,
-                text(&t.title),
-                text(&t.artist),
-                text(&t.album),
-                text(&t.genre),
-                text(&t.comment),
-                text(&t.label),
-                text(&t.composer),
-                text(&t.remixer),
-                key_number(&t.key),
-                i64::from(t.rating.min(5)) * 20,
-                t.play_count > 0,
-                file_type,
-                added,
-                uuid,
-                now,
-            ],
         )
+        .map_err(sql)?
+        .execute(params![
+            (t.track_number > 0).then_some(t.track_number),
+            t.duration_secs,
+            (t.bpm > 0.0).then(|| t.bpm.round() as i64),
+            (t.year > 0).then_some(t.year),
+            path,
+            filename,
+            (t.bitrate > 0).then_some(t.bitrate),
+            (t.bpm > 0.0).then_some(t.bpm),
+            NO_ALBUM_ART,
+            t.file_size as i64,
+            text(&t.title),
+            text(&t.artist),
+            text(&t.album),
+            text(&t.genre),
+            text(&t.comment),
+            text(&t.label),
+            text(&t.composer),
+            text(&t.remixer),
+            key_number(&t.key),
+            i64::from(t.rating.min(5)) * 20,
+            t.play_count > 0,
+            file_type,
+            added,
+            uuid,
+            now,
+        ])
         .map_err(sql)?;
         let id = tx.last_insert_rowid();
-        by_path.insert(path.to_lowercase(), id);
+        by_file.insert(crate::file_key(t), id);
         engine_ids.insert(t.id, id);
     }
     ctx.phase_end(Phase::Scan);
@@ -189,7 +194,7 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
     let bytes = std::fs::read(&scratch).map_err(|e| Error::Io { path: scratch.clone(), source: e })?;
 
     let mut export = Export::new(lib);
-    export.tracks = by_path.len();
+    export.tracks = by_file.len();
     export.notes.push(format!(
         "A new Engine Library (schema {}.{}.{}, Engine DJ 4.5 and later) with {} tracks and {lists} playlists holding {entries} \
          entries. In Engine DJ Desktop, add the output folder's Engine Library as a source (Engine DJ upgrades it if it's \
@@ -197,7 +202,7 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
         SCHEMA.0,
         SCHEMA.1,
         SCHEMA.2,
-        by_path.len()
+        by_file.len()
     ));
     export.notes.push(match style {
         PathStyle::Drive => "Tracks are found relative to the drive: copy the Engine Library folder to the drive's root, \
@@ -219,10 +224,10 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
             .warnings
             .push(format!("{repeats} repeated playlist entr(ies) left out: an Engine playlist holds a track once"));
     }
-    if lib.tracks.len() > by_path.len() {
+    if lib.tracks.len() > by_file.len() {
         export.warnings.push(format!(
             "{} track row(s) share a file with another and are one Engine track",
-            lib.tracks.len() - by_path.len()
+            lib.tracks.len() - by_file.len()
         ));
     }
     for stale in ["m.db-wal", "m.db-shm"] {
@@ -254,11 +259,11 @@ fn write_playlists(
                 n += 1;
             }
             // nextListId 0 appends: the triggers point the previous last sibling at the new row.
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT INTO Playlist (title, parentListId, isPersisted, nextListId, lastEditTime, isExplicitlyExported)
                  VALUES (?1, ?2, 1, 0, ?3, 1)",
-                params![name, engine_parent, now],
             )
+            .and_then(|mut s| s.execute(params![name, engine_parent, now]))
             .map_err(sql)?;
             let list = tx.last_insert_rowid();
             lists += 1;
@@ -273,15 +278,16 @@ fn write_playlists(
                     repeats += 1;
                     continue;
                 }
-                tx.execute(
+                tx.prepare_cached(
                     "INSERT INTO PlaylistEntity (listId, trackId, databaseUuid, nextEntityId, membershipReference)
                      VALUES (?1, ?2, ?3, 0, 0)",
-                    params![list, track, uuid],
                 )
+                .and_then(|mut s| s.execute(params![list, track, uuid]))
                 .map_err(sql)?;
                 let entity = tx.last_insert_rowid();
                 if let Some(prev) = previous {
-                    tx.execute("UPDATE PlaylistEntity SET nextEntityId = ?1 WHERE id = ?2", params![entity, prev])
+                    tx.prepare_cached("UPDATE PlaylistEntity SET nextEntityId = ?1 WHERE id = ?2")
+                        .and_then(|mut s| s.execute(params![entity, prev]))
                         .map_err(sql)?;
                 }
                 previous = Some(entity);

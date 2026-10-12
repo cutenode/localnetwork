@@ -57,6 +57,15 @@ impl Source<'_> {
     }
 }
 
+/// Which file a track's audio is, for keeping one track per file: its path below the library (the
+/// parts [`paths::to_fs`] keeps), ignoring case, as the drives DJs use do (FAT32, exFAT, and APFS
+/// and HFS+ as macOS formats them), so `/Music/a.mp3` and `/music/A.mp3` are one file.
+#[cfg(any(feature = "traktor", feature = "serato", feature = "engine"))]
+fn file_key(t: &Track) -> String {
+    let key = paths::key(&t.file_path);
+    key.split('/').filter(|c| paths::is_safe_component(c)).collect::<Vec<_>>().join("/").to_lowercase()
+}
+
 /// An export worked out in memory: every file and how to make it, and what the format leaves
 /// out.
 #[derive(Debug, Default)]
