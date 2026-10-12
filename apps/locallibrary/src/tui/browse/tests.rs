@@ -1,3 +1,4 @@
+use hegel::generators::Generator;
 use locallibrary::sets::{EntryOrigin, SetEntry};
 
 use super::super::app::testing::{library, set, track};
@@ -360,4 +361,274 @@ fn sorting_orders_by_rank_and_keeps_ties(tc: hegel::TestCase) {
     let second = click(first, field);
     assert_eq!(second.map(|k| (k.field, k.descending)), Some((field, !first_descending(field))));
     assert_eq!(click(second, field), None);
+}
+
+/// What a category groups a track by, as a person reads the column: `None` for a track it
+/// can't place (it goes in the category's last group, of none).
+fn value_of(c: Category, t: &Track) -> Option<String> {
+    let text = |s: &str| Some(normalize(s)).filter(|s| !s.is_empty());
+    match c {
+        Category::Artist => text(&t.artist),
+        Category::Album => text(&t.album),
+        Category::Genre => text(&t.genre),
+        Category::Key => Camelot::parse(&t.key).map(Camelot::code),
+        Category::Bpm => (t.bpm > 0.0).then(|| format!("{}", (t.bpm / 5.0).floor())),
+        Category::Rating => (t.rating > 0).then(|| t.rating.min(5).to_string()),
+        Category::Colour => t.color.map(|c| colour_name(c).to_string()),
+        Category::Added => {
+            let m = t.date_added.get(..7)?;
+            let ok = m.chars().enumerate().all(|(i, c)| if i == 4 { c == '-' } else { c.is_ascii_digit() });
+            ok.then(|| m.to_string())
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Every category of values (artist, album, genre, key, BPM band, rating, colour, month added)
+/// puts each track in exactly one group: with the tracks of its value, in library order, those
+/// of none last; groups come in the category's order, each named for its value.
+#[hegel::test(test_cases = 300)]
+fn every_track_is_grouped_under_its_value(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
+    let n = lib.tracks.len();
+    let c = tc.draw(gs::sampled_from(&Category::ALL[..8]).print_as_debug());
+    let gs = groups(&lib, c, &by_id(&lib), &Problems::default(), None, &[]);
+    let mut seen: Vec<usize> = gs.iter().flat_map(|g| g.tracks.clone()).collect();
+    seen.sort_unstable();
+    assert_eq!(seen, (0..n).collect::<Vec<_>>(), "{c:?}: each track once");
+    let none = gs.last().filter(|g| g.tracks.iter().all(|&i| value_of(c, &lib.tracks[i]).is_none()));
+    let valued = &gs[..gs.len() - none.map_or(0, |_| 1)];
+    for g in &gs {
+        assert!(g.tracks.is_sorted() && !g.tracks.is_empty() && g.left_out == 0, "{c:?} {g:?}");
+    }
+    let mut values = Vec::new();
+    for g in valued {
+        let v = value_of(c, &lib.tracks[g.tracks[0]]);
+        assert!(v.is_some(), "{c:?}: {:?} holds a track of no value", g.label);
+        assert!(g.tracks.iter().all(|&i| value_of(c, &lib.tracks[i]) == v), "{c:?}: {g:?} mixes values");
+        values.push(v);
+        let t = &lib.tracks[g.tracks[0]];
+        match c {
+            Category::Rating => assert_eq!(g.label, stars(t.rating)),
+            Category::Colour => assert!(g.label.eq_ignore_ascii_case(colour_name(t.color.unwrap()))),
+            Category::Bpm => {
+                let lo: f64 = g.key.parse().unwrap();
+                assert!(g.tracks.iter().all(|&i| (lo..lo + 5.0).contains(&lib.tracks[i].bpm)), "{g:?}");
+            }
+            Category::Key => assert!(g.label.starts_with(&g.key)),
+            Category::Added => assert_eq!(g.label, g.key),
+            _ => assert_eq!(normalize(&g.label), g.key, "named as first spelled"),
+        }
+    }
+    let unique: FxHashSet<_> = values.iter().collect();
+    assert_eq!(unique.len(), values.len(), "{c:?}: a value split over groups");
+    let keys: Vec<&str> = valued.iter().map(|g| g.key.as_str()).collect();
+    let ordered = keys.windows(2).all(|w| match c {
+        Category::Rating | Category::Added => w[0] > w[1],
+        Category::Bpm => w[0].parse::<u32>().unwrap() < w[1].parse::<u32>().unwrap(),
+        Category::Colour => w[0].parse::<u8>().unwrap() < w[1].parse::<u8>().unwrap(),
+        Category::Key => harmony::key_order(w[0]) < harmony::key_order(w[1]),
+        _ => w[0] < w[1],
+    });
+    assert!(ordered, "{c:?} out of order: {keys:?}");
+    // With nothing to group, a value-less track still shows, under its category's none.
+    if let Some(g) = none {
+        assert!(!g.label.is_empty() && g.key.is_empty(), "{g:?}");
+    }
+}
+
+/// My Tags, the store's sets, the sessions players recorded and the problems found each list
+/// what they hold: a tag's tracks are those tagged with it, a set's those of its entries on the
+/// drive (the rest counted as left out), newest set first; a session its tracks on the drive in
+/// play order; missing files and copies of a recording under Problems.
+#[hegel::test(test_cases = 200)]
+fn the_other_categories_list_what_they_hold(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::sets::Set;
+    let tracks = super::super::app::testing::any_tracks(&tc, 8);
+    let n = tracks.len() as u32;
+    let id = || gs::integers::<u32>().max_value(n + 2);
+    let history: Vec<Playlist> = (0..tc.draw(gs::integers::<u32>().max_value(3)))
+        .map(|h| Playlist {
+            id: 90 + h,
+            parent_id: None,
+            name: format!("HISTORY {h:03}"),
+            is_folder: tc.draw(gs::booleans()),
+            sort_order: 0,
+            track_ids: tc.draw(gs::vecs(id()).max_size(5)),
+        })
+        .collect();
+    let lib = Library { tracks, history, ..Default::default() };
+    let ids = by_id(&lib);
+
+    const TAGS: [&str; 3] = ["Genre/House", "Mood/Dark", "Genre/Acid"];
+    let mut tags: FxHashMap<String, Vec<String>> = FxHashMap::default();
+    for t in &lib.tracks {
+        let mine: Vec<String> = TAGS.iter().filter(|_| tc.draw(gs::booleans())).map(|s| s.to_string()).collect();
+        tags.insert(paths::key(&t.file_path).to_lowercase(), mine);
+    }
+    let read = tc.draw(gs::booleans());
+    let g = groups(&lib, Category::MyTags, &ids, &Problems::default(), read.then_some(&tags), &[]);
+    let want: Vec<(String, Vec<usize>)> = (TAGS.iter().copied().collect::<std::collections::BTreeSet<_>>().into_iter())
+        .filter(|_| read)
+        .map(|tag| {
+            let has = |t: &Track| tags[&paths::key(&t.file_path).to_lowercase()].iter().any(|x| x == tag);
+            (tag.to_string(), (0..lib.tracks.len()).filter(|&i| has(&lib.tracks[i])).collect::<Vec<_>>())
+        })
+        .filter(|(_, v)| !v.is_empty())
+        .collect();
+    assert_eq!(g.iter().map(|g| (g.key.clone(), g.tracks.clone())).collect::<Vec<_>>(), want);
+    assert!(g.iter().all(|g| g.label == g.key.replace('/', " › ")));
+
+    let sets: Vec<Set> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
+        .map(|s| {
+            let entries = (0..tc.draw(gs::integers::<usize>().max_value(4)))
+                .map(|_| match tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() + 1)) {
+                    i if i < lib.tracks.len() => SetEntry::from_track(&lib.tracks[i], EntryOrigin::Session, None),
+                    i if i == lib.tracks.len() => SetEntry::added("Someone - Something"),
+                    _ => SetEntry { file: Some("/Contents/elsewhere.mp3".into()), ..SetEntry::added("Elsewhere") },
+                })
+                .collect();
+            let date = tc.draw(gs::sampled_from(&["2026-10-03", "2026-09-12"][..]));
+            let title = tc.draw(gs::booleans()).then_some("Friday");
+            let mut s = set(&format!("set{s}"), date, title, None, entries);
+            s.created_at +=
+                chrono::Duration::seconds(s.id.len() as i64 * tc.draw(gs::integers::<i64>().min_value(0).max_value(9)));
+            s
+        })
+        .collect();
+    let g = groups(&lib, Category::Sets, &ids, &Problems::default(), None, &sets);
+    assert_eq!(g.len(), sets.len());
+    for w in g.windows(2) {
+        let find = |key: &str| sets.iter().find(|s| s.id == key).unwrap();
+        assert_ne!(Set::newest_first(find(&w[0].key), find(&w[1].key)), std::cmp::Ordering::Greater, "newest first");
+    }
+    for grp in &g {
+        let s = sets.iter().find(|s| s.id == grp.key).unwrap();
+        let on_drive: Vec<usize> = (s.tracks.iter())
+            .filter_map(|e| lib.tracks.iter().position(|t| Some(&t.file_path) == e.file.as_ref()))
+            .collect();
+        assert_eq!((&grp.tracks, grp.left_out), (&on_drive, s.tracks.len() - on_drive.len()), "{grp:?}");
+        assert!(grp.label.starts_with(&s.date.to_string()) && grp.label.ends_with(s.name().unwrap_or("")));
+    }
+
+    let g = groups(&lib, Category::History, &ids, &Problems::default(), None, &[]);
+    let lists: Vec<&Playlist> = lib.history.iter().filter(|h| !h.is_folder).collect();
+    assert_eq!(g.len(), lists.len());
+    for (grp, h) in g.iter().zip(lists) {
+        let played: Vec<usize> = h.track_ids.iter().filter_map(|id| ids.get(id).copied()).collect();
+        assert_eq!((&grp.label, &grp.tracks), (&h.name, &played));
+    }
+
+    let (copy_of, copies) = duplicates(&lib);
+    let missing = tc.draw(gs::booleans()).then(|| lib.tracks.iter().map(|_| tc.draw(gs::booleans())).collect());
+    let problems = Problems { missing, copy_of, copies };
+    let g = groups(&lib, Category::Problems, &ids, &problems, None, &[]);
+    let of = |key: &str| g.iter().find(|g| g.key == key).map(|g| g.tracks.clone()).unwrap_or_default();
+    let gone: Vec<usize> = (0..lib.tracks.len()).filter(|&i| problems.is_missing(i)).collect();
+    assert_eq!(of("missing"), gone);
+    let same = |i: usize, j: usize| {
+        let (a, b) = (&lib.tracks[i], &lib.tracks[j]);
+        i != j
+            && a.fingerprint_key() == b.fingerprint_key()
+            && !(a.artist.trim().is_empty() && a.title.trim().is_empty())
+    };
+    let copied: Vec<usize> = (0..lib.tracks.len()).filter(|&i| (0..lib.tracks.len()).any(|j| same(i, j))).collect();
+    assert_eq!(of("duplicates"), copied);
+    for &i in &copied {
+        assert!(problems.others(i).all(|j| same(i, j)) && problems.others(i).next().is_some());
+    }
+}
+
+/// With Browse open, the tree lists each category that has values, one deeper, named and
+/// counted, and the values of each category open under it, counted by their tracks; closed,
+/// none of them. The playlists follow either way.
+#[hegel::test(test_cases = 200)]
+fn browse_lists_its_categories_and_their_values(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 6), ..library() };
+    let ids = by_id(&lib);
+    let all: FxHashMap<Category, Vec<Group>> =
+        Category::ALL.iter().map(|&c| (c, groups(&lib, c, &ids, &Problems::default(), None, &[]))).collect();
+    let mut open = FxHashSet::default();
+    if tc.draw(gs::booleans()) {
+        open.insert(NodeId::Browse);
+    }
+    for c in Category::ALL {
+        if tc.draw(gs::booleans()) {
+            open.insert(NodeId::Category(c));
+        }
+    }
+    let mut want = vec![("All tracks".to_string(), 0, lib.tracks.len()), ("Browse".to_string(), 0, 12)];
+    for c in Category::ALL.into_iter().filter(|_| open.contains(&NodeId::Browse)) {
+        let Some(gs) = all.get(&c).filter(|g| !g.is_empty()) else { continue };
+        want.push((c.name().to_string(), 1, gs.len()));
+        if open.contains(&NodeId::Category(c)) {
+            want.extend(gs.iter().map(|g| (g.label.clone(), 2, g.tracks.len())));
+        }
+    }
+    let t = tree(&lib, &open, &all);
+    let got: Vec<(String, usize, usize)> = t.iter().map(|n| (n.name.clone(), n.depth, n.count)).collect();
+    assert_eq!(got[..want.len()], want[..]);
+    assert!(t[want.len()..].iter().all(|n| matches!(n.id, NodeId::Playlist(_))), "then the playlists");
+    let names: FxHashSet<&str> = Category::ALL.iter().map(|c| c.name()).collect();
+    assert_eq!(names.len(), Category::ALL.len(), "each category has a name of its own");
+}
+
+/// Sorted by any column, either way, any tracks come out as the library sorts them (so a
+/// playlist sorted on the drive by it reads the same), and the sort as the drive's tools spell it
+/// reads back as itself.
+#[hegel::test(test_cases = 300)]
+fn any_tracks_sort_as_the_library_does(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
+    let field = tc.draw(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug());
+    let k = SortKey { field, descending: tc.draw(gs::booleans()) };
+    let mut refs: Vec<&Track> = lib.tracks.iter().collect();
+    locallibrary::query::sort_tracks(&mut refs, &[k]);
+    let mut list: Vec<usize> = (0..lib.tracks.len()).collect();
+    sort_list(&mut list, &ranks(&lib, field), k.descending);
+    let got: Vec<u32> = list.iter().map(|&i| lib.tracks[i].id).collect();
+    assert_eq!(got, refs.iter().map(|t| t.id).collect::<Vec<_>>(), "{k:?}");
+    assert_eq!(locallibrary::query::parse_sort(&sort_spec(k)).unwrap(), [k]);
+    assert!(!sort_label(field).is_empty());
+}
+
+/// A word in quotes is the word; words in quotes together are one, spaces and all.
+#[hegel::test(test_cases = 200)]
+fn quotes_hold_words_together(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let words: Vec<&str> =
+        tc.draw(gs::vecs(gs::sampled_from(&["daft", "PUNK", "re-edit", "8a", "x|y"][..])).min_size(1).max_size(3));
+    for w in &words {
+        assert_eq!(Search::parse(&format!("\"{w}\"")), Search::parse(w), "{w}");
+    }
+    let phrase = words.join(" ");
+    let s = Search::parse(&format!("\"{phrase}\""));
+    let alternatives: Vec<String> = normalize(&phrase).split('|').map(String::from).collect();
+    assert_eq!((s.words, s.not, s.rest), (vec![alternatives], Vec::<Vec<String>>::new(), String::new()));
+}
+
+/// Folders nested deeper than a database could mean (a corrupt one, nesting without end) are
+/// listed down to 32 deep and no further.
+#[hegel::test(test_cases = 50)]
+fn the_tree_stops_32_folders_deep(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(45));
+    let playlists: Vec<Playlist> = (1..=n)
+        .map(|id| Playlist {
+            id,
+            parent_id: (id > 1).then(|| id - 1),
+            name: format!("F{id}"),
+            is_folder: true,
+            sort_order: 0,
+            track_ids: Vec::new(),
+        })
+        .collect();
+    let lib = Library { playlists, ..library() };
+    let open: FxHashSet<NodeId> = (1..=n).map(NodeId::Playlist).collect();
+    let t = tree(&lib, &open, &FxHashMap::default());
+    let depths: Vec<usize> = t[2..].iter().map(|n| n.depth).collect();
+    assert_eq!(depths, (0..(n as usize).min(33)).collect::<Vec<_>>());
 }

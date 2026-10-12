@@ -500,9 +500,12 @@ impl<S: Source> Source for Looper<S> {
         if self.head.ended.load(Ordering::Relaxed) {
             return Some(0); // so a queue goes on to the next track's channels and rate
         }
+        // Some(0) says the track is over, so never at the end of what's kept: round the loop
+        // again from memory, or on with the track from where it waits.
         match self.replay {
-            Some(i) => Some(self.kept.len() - i),
-            None => self.inner.current_span_len(),
+            Some(i) if i < self.kept.len() => Some(self.kept.len() - i),
+            Some(_) if self.head.is_looping() => Some(self.kept.len()),
+            _ => self.inner.current_span_len(),
         }
     }
 

@@ -354,7 +354,7 @@ fn template() -> &'static (Template, OsString) {
 }
 
 /// The fixture, its profile read from its own drive only, its Mixes view answering to it.
-fn walk_fixture() -> Fixture {
+pub(super) fn walk_fixture() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let (template, name) = template();
     let root = template.write(dir.path()).join(name);

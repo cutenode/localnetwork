@@ -479,3 +479,179 @@ fn loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
     }
     assert_eq!(auto_loop(&[], ms, len, on_beat), None);
 }
+
+/// The deck's keys on any track, its analysis read or still being read: a beat jump moves by the
+/// grid, or the track's tempo without one, or says there's neither (or that the grid is being
+/// read); a phrase jump goes to the next or previous phrase, or says there's none (more); l makes
+/// a loop from the grid or tempo and l again leaves it; ( and ) halve and double it within its
+/// bounds, or say there's no loop; and the outputs listed take the arrows and enter, playing on
+/// through the one picked.
+#[hegel::test(test_cases = 200)]
+fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
+    use super::super::keymap::Act;
+    use hegel::generators as gs;
+    let beats = if tc.draw(gs::booleans()) { grid(0, 120.0, 400) } else { Vec::new() };
+    let (mut app, _dir) = playing(TrackAnalysis { beats, ..Default::default() });
+    app.outputs = super::super::audio::tests::OUTPUTS;
+    let now = app.now.as_mut().unwrap();
+    now.track.bpm = tc.draw(gs::sampled_from(&[0.0, 120.0][..]));
+    now.loading = tc.draw(gs::booleans());
+    if tc.draw(gs::booleans()) {
+        now.phrases = vec![
+            PhraseSpan { kind: PhraseKind::Intro, start_ms: 0.0, end_ms: 16_000.0, bars: 8 },
+            PhraseSpan { kind: PhraseKind::Up, start_ms: 16_000.0, end_ms: 32_000.0, bars: 8 },
+        ];
+    }
+    app.deck.quantize = tc.draw(gs::booleans());
+    let quantized = app.deck.quantize;
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(8)) {
+        let at = app.position_ms();
+        // (Played on through another output, it's opened afresh.)
+        let now = app.now.as_ref().unwrap();
+        let (gridded, tempo, loading) = (!now.analysis.beats.is_empty(), now.track.bpm > 0.0, now.loading);
+        let phrased = !now.phrases.is_empty();
+        match tc.draw(gs::integers::<u8>().max_value(5)) {
+            0 => {
+                let by = tc.draw(gs::sampled_from(&[-4i8, -1, 1, 4][..]));
+                app.perform(Act::BeatJump(by), None);
+                let to = target(&app).map(|t| t as f64).unwrap_or(app.position_ms());
+                match (gridded, tempo) {
+                    (false, false) => {
+                        let why = if loading { "reading the beat grid…" } else { "no beat grid or tempo to jump by" };
+                        assert_eq!(last_message(&app), why);
+                    }
+                    // 500 ms a beat, either way; on a beat once quantized.
+                    _ => {
+                        let want = (at + by as f64 * 500.0).max(0.0);
+                        let off = if quantized && gridded { 500.0 } else { 1.0 };
+                        assert!((to - want).abs() < off, "{by} beats from {at}: {to}");
+                    }
+                }
+            }
+            1 => {
+                let forward = tc.draw(gs::booleans());
+                app.perform(Act::Phrase(forward), None);
+                let to = target(&app).map(|t| t as f64).unwrap_or(app.position_ms());
+                if !phrased {
+                    let why = if loading { "reading the phrases…" } else { "no phrase analysis for this track" };
+                    assert_eq!(last_message(&app), why);
+                } else if last_message(&app) != "no more phrases" {
+                    assert!([0.0, 16_000.0].iter().any(|s| (to - s).abs() <= 500.0), "to a phrase: {to}");
+                    assert!(if forward { to >= at - 500.0 } else { to <= at + 500.0 }, "{forward}: {at} to {to}");
+                }
+            }
+            2 => {
+                let was = app.deck.looped.filter(|l| l.on);
+                app.perform(Act::Loop, None);
+                match (was, gridded || tempo) {
+                    (Some(l), _) => assert_eq!(app.deck.looped, Some(Loop { on: false, ..l }), "l leaves the loop"),
+                    (None, true) => {
+                        let l = app.deck.looped.expect("a loop");
+                        assert!(l.on && l.end > l.start, "{l:?}");
+                    }
+                    (None, false) if app.deck.looped.is_none() => {
+                        let why = if loading { "reading the beat grid…" } else { "no beat grid or tempo to loop by" };
+                        assert_eq!(last_message(&app), why);
+                    }
+                    _ => {}
+                }
+            }
+            3 => {
+                let double = tc.draw(gs::booleans());
+                let was = app.deck.looped;
+                app.perform(Act::LoopSize(double), None);
+                match was {
+                    None => assert_eq!(last_message(&app), "no loop: l makes one"),
+                    Some(l) => {
+                        let n = app.deck.looped.unwrap();
+                        let (old, new) = (l.end - l.start, n.end - n.start);
+                        assert_eq!(n.start, l.start, "from where it starts");
+                        assert!((15.0..=300_000.0).contains(&new) && n.end <= 300_000.0, "{n:?}");
+                        assert!(if double { new >= old - 1e-6 } else { new <= old + 1e-6 }, "{old} to {new}");
+                    }
+                }
+            }
+            4 => {
+                // Listed with the one playing through selected (the default first).
+                let playing = app.audio.as_ref().and_then(|a| a.device()).map(str::to_string);
+                app.perform(Act::Outputs, None);
+                let o = app.deck.outputs.as_ref().expect("listed");
+                let n = o.names.len();
+                let from = playing.and_then(|p| o.names.iter().position(|x| *x == p)).map_or(0, |i| i + 1);
+                assert_eq!(o.state.selected(), Some(from));
+                let downs = tc.draw(gs::integers::<usize>().max_value(n + 1));
+                for _ in 0..downs {
+                    key(&mut app, KeyCode::Down);
+                }
+                let mut picked = (from + downs).min(n);
+                assert_eq!(app.deck.outputs.as_ref().unwrap().state.selected(), Some(picked));
+                if tc.draw(gs::booleans()) {
+                    key(&mut app, KeyCode::Up);
+                    key(&mut app, KeyCode::Down);
+                    picked = (picked.saturating_sub(1) + 1).min(n);
+                }
+                key(&mut app, KeyCode::Enter);
+                let name = picked.checked_sub(1).map(|i| ["Phones"][i]);
+                assert!(app.deck.outputs.is_none() && app.audio.is_some());
+                assert_eq!(app.deck.output.as_deref(), name);
+                assert_eq!(last_message(&app), format!("playing through {}", name.unwrap_or("the default output")));
+            }
+            _ => {
+                app.perform(Act::Outputs, None);
+                press(&mut app, "x");
+                assert!(app.deck.outputs.is_none(), "any other key closes the list");
+            }
+        }
+    }
+}
+
+/// Auto cue starts a track at its first memory cue, else its first beat, else (at the very start)
+/// the beginning; a hot cue pressed while paused jumps there and plays; a phrase jump past the
+/// last phrase says there's none; an output that won't open says why, and nothing changes.
+#[hegel::test(test_cases = 100)]
+fn cues_phrases_and_outputs_on_the_deck(tc: hegel::TestCase) {
+    use super::super::keymap::Act;
+    use hegel::generators as gs;
+    let memory: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().max_value(60_000)).max_size(3));
+    let first_beat = tc.draw(gs::optional(gs::integers::<u32>().max_value(2_000)));
+    let mut cues: Vec<_> = memory.iter().map(|&ms| cue(None, ms, None)).collect();
+    cues.push(cue(Some(0), 100, None));
+    let a = TrackAnalysis { beats: first_beat.map_or(Vec::new(), |b| grid(b, 120.0, 8)), cues, ..Default::default() };
+    let want =
+        memory.iter().min().copied().or(first_beat).filter(|&ms| ms > 0).map(|ms| Duration::from_millis(ms as u64));
+    assert_eq!(auto_cue(&a), want);
+
+    let (_dir, mut app, _out) = playing_wavs(&[8000, 8000]);
+    opened(&mut app);
+    app.now.as_mut().unwrap().analysis.cues = vec![cue(Some(0), 200, None)];
+    app.audio.as_ref().unwrap().toggle_pause();
+    assert!(!app.is_playing());
+    hot_cue(&mut app, 0);
+    assert!(app.is_playing(), "a hot cue plays");
+    assert_eq!(app.position(), Duration::from_millis(200));
+
+    let starts = [0.0, 100.0];
+    app.now.as_mut().unwrap().phrases = starts
+        .iter()
+        .map(|&s| PhraseSpan { kind: PhraseKind::Intro, start_ms: s, end_ms: s + 100.0, bars: 1 })
+        .collect();
+    app.deck.quantize = false;
+    app.seek_to(Duration::from_millis(tc.draw(gs::integers::<u64>().min_value(150).max_value(400))));
+    app.perform(Act::Phrase(true), None);
+    assert_eq!(last_message(&app), "no more phrases");
+
+    app.outputs = super::super::audio::Outputs {
+        list: || (vec!["Gone".into()], None),
+        open: |_| anyhow::bail!("the output is gone"),
+    };
+    let before = app.audio.as_ref().map(|a| a.device().map(str::to_string));
+    app.perform(Act::Outputs, None);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(last_message(&app), "the output is gone");
+    assert_eq!(
+        app.audio.as_ref().map(|a| a.device().map(str::to_string)),
+        before,
+        "still playing through the one it was"
+    );
+}

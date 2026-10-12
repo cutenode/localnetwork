@@ -367,3 +367,110 @@ pub fn say_yes(app: &mut App) {
     press(app, "y");
     wait(app, |a| a.job.is_none() && a.loading.is_none());
 }
+
+/// Values made-up tracks' fields take, each with ties: some the same but for case or spacing,
+/// some empty, some a category can't read (a key that isn't one, a date that isn't).
+const ARTISTS: &[&str] = &["Daft Punk", "daft  punk ", "Floorplan", "Moodymann", "", " "];
+const TITLES: &[&str] = &["Around the World", "Never Grow Old", "Pick Up", ""];
+const ALBUMS: &[&str] = &["Homework", "homework", "", "Paradise"];
+const GENRES: &[&str] = &["House", "Techno", "techno", "Deep House", ""];
+const LABELS: &[&str] = &["Warp", "ostgut", "", "R&S"];
+const KEYS: &[&str] = &["8A", "Am", "3B", "12B", "Db", "", "x"];
+const BPMS: &[f64] = &[0.0, 119.99, 120.0, 124.9, 125.0, 128.0, 174.5];
+const ADDED: &[&str] = &["2026-09-30", "2026-09-01", "2025-01-02", "", "2026", "abcdefg", "2026/09/30"];
+
+/// Up to `max` made-up tracks (ids from 1), whose fields share values often enough for ties and
+/// groups: now and then the same recording twice.
+#[hegel::test_helper]
+pub fn any_tracks(tc: &hegel::TestCase, max: usize) -> Vec<Track> {
+    use hegel::generators::{self as gs, Generator};
+    let n = tc.draw(gs::integers::<u32>().max_value(max as u32));
+    (1..=n)
+        .map(|id| {
+            let mut t = track(id, tc.draw(gs::sampled_from(ARTISTS)), tc.draw(gs::sampled_from(TITLES)));
+            t.album = tc.draw(gs::sampled_from(ALBUMS)).into();
+            t.genre = tc.draw(gs::sampled_from(GENRES)).into();
+            t.label = tc.draw(gs::sampled_from(LABELS)).into();
+            t.key = tc.draw(gs::sampled_from(KEYS)).into();
+            t.bpm = tc.draw(gs::sampled_from(BPMS));
+            t.date_added = tc.draw(gs::sampled_from(ADDED)).into();
+            t.rating = tc.draw(gs::integers::<u8>().max_value(6));
+            t.color = tc
+                .draw(gs::booleans())
+                .then(|| tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..]).print_as_debug()));
+            t.year = tc.draw(gs::sampled_from(&[0u16, 1997, 2014][..]));
+            t.play_count = tc.draw(gs::integers::<u16>().max_value(3));
+            t.bitrate = tc.draw(gs::sampled_from(&[0u32, 256, 320, 1411][..]));
+            t.duration_secs = tc.draw(gs::sampled_from(&[300u32, 420][..]));
+            t.comment = tc.draw(gs::sampled_from(&["", "Peak", "warm-up"][..])).into();
+            t
+        })
+        .collect()
+}
+
+/// Every column the library sorts by.
+pub const EVERY_FIELD: [locallibrary::query::SortField; 15] = {
+    use locallibrary::query::SortField::*;
+    [Title, Artist, Album, Genre, Label, Key, Bpm, Rating, Color, Year, Plays, Added, Time, Bitrate, Path]
+};
+
+/// A plan for the player's dialogs, as the library hands one back: `operation`, said in
+/// `summary`, with `warnings`; `noop` when applying it would change nothing. Applying it writes
+/// nothing, and reports `{}`.
+#[derive(Default)]
+pub struct Plan {
+    pub operation: &'static str,
+    pub summary: Vec<String>,
+    pub warnings: Vec<String>,
+    pub noop: bool,
+    pub drives: Vec<locallibrary::op::Touched>,
+}
+
+impl locallibrary::op::AnyPlanned for Plan {
+    fn id(&self) -> &str {
+        "plan"
+    }
+    fn operation(&self) -> &'static str {
+        self.operation
+    }
+    fn summary(&self) -> &[String] {
+        &self.summary
+    }
+    fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+    fn destructive(&self) -> bool {
+        false
+    }
+    fn is_noop(&self) -> bool {
+        self.noop
+    }
+    fn drives(&self) -> &[locallibrary::op::Touched] {
+        &self.drives
+    }
+    fn planned_at(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc::now()
+    }
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+    fn check(&self, _: Option<&locallibrary::Store>) -> locallibrary::Result<()> {
+        Ok(())
+    }
+    fn apply_json(
+        &self,
+        _: Option<&locallibrary::Store>,
+        _: &locallibrary::Ctx<'_>,
+    ) -> locallibrary::Result<serde_json::Value> {
+        Ok(serde_json::json!({}))
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// Poll the volumes only when a test asks: a test's drive is a folder of files, which a poll
+/// (once a second, as the background is waited for) takes for an unplugged drive.
+pub fn hold_volume_polls(app: &mut App) {
+    app.last_volume_poll = Instant::now() + Duration::from_secs(3600);
+}

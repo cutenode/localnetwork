@@ -73,3 +73,56 @@ fn bands_rise_fast() {
     assert!(b.levels[0] > 0.5 && b.levels[0] < 1.0, "{}", b.levels[0]);
     assert_eq!(b.peaks[0], (b.levels[0], 0.0));
 }
+
+/// A sine at any frequency, through any number of bands, shows in the band that holds it,
+/// narrower than a bin of the transform or not; where that band is two bins wide or more, it's the
+/// loudest band, or the one beside it. (Among bands narrower than a bin, the first band wide enough
+/// to take its bins' peak can come out louder: it takes in the bin just below it.)
+#[hegel::test(test_cases = 100)]
+fn a_sine_shows_in_its_band(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let freq = tc.draw(gs::integers::<u32>().min_value(40).max_value(12_000)) as f32;
+    let bands = tc.draw(gs::integers::<usize>().min_value(8).max_value(200));
+    let ratio = (MAX_HZ / MIN_HZ).powf(1.0 / bands as f32);
+    let own = ((freq / MIN_HZ).ln() / ratio.ln()).floor() as usize;
+    let all = levels(freq, bands);
+    assert!(all[own] > 0.5, "{freq} Hz in {bands} bands: its band {own} shows {}", all[own]);
+    let (lo, bin_hz) = (MIN_HZ * ratio.powi(own as i32), 44_100.0 / FFT_SIZE as f32);
+    if lo * (ratio - 1.0) >= 2.0 * bin_hz {
+        let (band, _) = loudest_band(freq, bands);
+        assert!(band.abs_diff(own) <= 1, "{freq} Hz in {bands} bands -> band {band}, its own {own}");
+    }
+}
+
+/// Bands follow their levels as a meter does: a louder level jumps most of the way up at once, a
+/// quieter one falls no faster than gravity would (never below it); the peak cap is never under
+/// the band, holds a moment, then falls.
+#[hegel::test(test_cases = 300)]
+fn bands_rise_fast_fall_slowly_and_their_peaks_hold(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut b = Bands::new(1);
+    let mut held = 0.0f32;
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(40)) {
+        let t = tc.draw(gs::sampled_from(&[0.0f32, 0.1, 0.5, 0.9, 1.0][..]));
+        let dt = tc.draw(gs::sampled_from(&[0.016f32, 0.1, 0.25][..]));
+        let (level, peak) = (b.levels[0], b.peaks[0].0);
+        b.approach(&[t], dt);
+        let (now, cap) = (b.levels[0], b.peaks[0].0);
+        if t > level {
+            assert!(now > level && now < t + 1e-6 && now - level >= (t - level) * 0.6, "{level} up to {t}: {now}");
+        } else {
+            assert!(now <= level && now >= t && level - now <= dt * 1.4 + 1e-6, "{level} down to {t}: {now}");
+        }
+        assert!(cap >= now - 1e-6, "the cap {cap} under the band {now}");
+        if now >= peak {
+            held = 0.0;
+        } else {
+            held += dt;
+            if held <= 0.35 {
+                assert_eq!(cap, peak, "held");
+            } else {
+                assert!(cap <= peak && peak - cap <= dt * 0.8 + 1e-6, "falls slowly: {peak} to {cap}");
+            }
+        }
+    }
+}

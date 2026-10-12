@@ -3651,6 +3651,8 @@ fn read_art(device: &Device, t: &Track) -> Option<Vec<u8>> {
 }
 
 #[cfg(test)]
+mod props;
+#[cfg(test)]
 pub(super) mod testing;
 
 #[cfg(test)]

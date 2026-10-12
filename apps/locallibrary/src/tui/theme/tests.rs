@@ -136,3 +136,42 @@ fn the_mode_is_what_the_environment_asks_for(tc: hegel::TestCase) {
     let light = ["7", "9", "15"].contains(&bg);
     assert_eq!(background == Mode::Light, colorfgbg.is_some() && light, "{why}");
 }
+
+/// Phrases are coloured by role: builds and verses alike, breakdowns and bridges alike, and each
+/// other kind (every phrase rekordbox doesn't name the same) its own; a track's colour shows as a
+/// dot in it, or without colours as its number.
+#[hegel::test(test_cases = 100)]
+fn phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) {
+    use hegel::generators::{self as gs, Generator};
+    use locallibrary::anlz::PhraseKind;
+    let kind = |tc: &hegel::TestCase| match tc.draw(gs::integers::<u8>().max_value(7)) {
+        0 => PhraseKind::Intro,
+        1 => PhraseKind::Up,
+        2 => PhraseKind::Down,
+        3 => PhraseKind::Verse(tc.draw(gs::integers::<u8>().max_value(6))),
+        4 => PhraseKind::Bridge,
+        5 => PhraseKind::Chorus,
+        6 => PhraseKind::Outro,
+        _ => PhraseKind::Unknown(tc.draw(gs::integers::<u16>().max_value(9))),
+    };
+    let role = |k: PhraseKind| match k {
+        PhraseKind::Intro => 0,
+        PhraseKind::Up | PhraseKind::Verse(_) => 1,
+        PhraseKind::Chorus => 2,
+        PhraseKind::Down | PhraseKind::Bridge => 3,
+        PhraseKind::Outro => 4,
+        PhraseKind::Unknown(_) => 5,
+    };
+    let (a, b) = (kind(&tc), kind(&tc));
+    assert_eq!(phrase_color(a) == phrase_color(b), role(a) == role(b), "{a:?} and {b:?}");
+    let c = tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..]).print_as_debug());
+    let mode = tc.draw(gs::sampled_from(&[Mode::Dark, Mode::Light, Mode::Plain][..]).print_as_debug());
+    set_test_mode(Some(mode));
+    let dot = colour_dot(c);
+    if mode == Mode::Plain {
+        assert_eq!(dot.content, c.id().to_string());
+    } else {
+        assert_eq!(dot.content, "●");
+    }
+    set_test_mode(None);
+}

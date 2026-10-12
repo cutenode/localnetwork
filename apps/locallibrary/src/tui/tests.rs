@@ -48,3 +48,33 @@ fn signals_quit_the_running_player() {
     SIGNAL.store(IDLE, Ordering::Relaxed);
     assert!(!signal());
 }
+
+/// Signals in any order, as the player runs and stops: while it runs each is the player's, which
+/// quits as q does once it looks; before and after, they're the CLI handler's.
+#[hegel::test(test_cases = 200)]
+fn signals_go_to_the_player_only_while_it_runs(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = App::blank(dir.path().join("store"), None);
+    SIGNAL.store(IDLE, Ordering::Relaxed);
+    let (mut running, mut pending) = (false, false);
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
+        match tc.draw(gs::integers::<u8>().max_value(3)) {
+            0 => {
+                SIGNAL.store(if running { IDLE } else { RUNNING }, Ordering::Relaxed);
+                (running, pending) = (!running, false);
+            }
+            1 | 2 => {
+                assert_eq!(signal(), running, "running {running}");
+                pending |= running;
+            }
+            _ => {
+                let quit = app.quit;
+                on_signal(&mut app);
+                assert_eq!(app.quit, quit || pending, "pending {pending}");
+                pending = false;
+            }
+        }
+    }
+    SIGNAL.store(IDLE, Ordering::Relaxed);
+}

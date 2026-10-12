@@ -270,3 +270,114 @@ fn the_bar_follows_typing_and_signing_in(tc: hegel::TestCase) {
         }
     }
 }
+
+/// Signed in, the bar names the account (as the development client, when it is) and says when
+/// to sign in again, or that the session has likely ended; L once says how to sign out and L
+/// again soon after signs out (only once: a second L while it does waits), L long after asks
+/// again; a tab clicked while a handle is typed puts it away.
+#[hegel::test(test_cases = 100)]
+fn the_bar_says_whos_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir) = blank(View::Profile);
+    let days = tc.draw(gs::sampled_from(&[-400i64, -1, 3, 200][..]));
+    let until = (chrono::Utc::now() + chrono::Duration::days(days) + chrono::Duration::hours(12)).to_rfc3339();
+    let mut info = signed_in(&until);
+    let loopback = tc.draw(gs::booleans());
+    if loopback {
+        info.client = Client::Loopback;
+    }
+    let width = tc.draw(gs::integers::<u16>().min_value(40).max_value(220));
+    app.profile.account.info = Some(info.clone());
+    let bar = shown(&app.profile.account, width);
+    assert!(bar.contains(&format!("Atmosphere account {}", info.name())), "{bar}");
+    assert_eq!(bar.contains("as the development client"), loopback, "{bar}");
+    if info.expired() {
+        assert!(bar.contains("the session has likely ended; L signs in again"), "{bar}");
+    } else {
+        let by = local_time(info.sign_in_again_by, "%Y-%m-%d");
+        assert!(bar.contains(&format!("sign in again by {by} ({} days)", info.days_left())), "{bar}");
+    }
+    // A handle being typed is put away when another view is shown.
+    if tc.draw(gs::booleans()) {
+        app.profile.account.sign_in = Some(SignIn::Typing("dj".into()));
+        app.profile.account.stop_typing();
+        assert!(!app.profile.account.typing());
+    }
+    let long_ago = tc.draw(gs::booleans());
+    super::press(&mut app);
+    assert_eq!(last_message(&app), format!("signed in as {}: press L again to sign out", info.name()));
+    if long_ago {
+        app.profile.account.logout_armed = Some(Instant::now() - Duration::from_secs(5));
+        super::press(&mut app);
+        assert!(!app.profile.account.busy(), "asked again rather than signed out");
+        assert!(app.profile.account.logout_armed.is_some());
+        return;
+    }
+    super::press(&mut app);
+    assert!(app.profile.account.busy() && shown(&app.profile.account, width).contains("Signing out…"));
+    assert!(input(&mut app, KeyCode::Char('L'), KeyModifiers::SHIFT), "L waits for it");
+    wait(&mut app, |a| !a.profile.account.busy());
+    assert_eq!(last_message(&app), "not signed in");
+}
+
+/// A handle is typed as its keys say (enter on nothing typed only asks for one), and while the
+/// browser is waited on the bar says where, and how to get there if it didn't open.
+#[hegel::test(test_cases = 60)]
+fn a_handle_is_typed_as_its_keys_say(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use hegel::generators::Generator;
+    let (mut app, _dir) = blank(View::Profile);
+    app.profile.account.sign_in = Some(SignIn::Typing(String::new()));
+    let mut model = String::new();
+    // Every kind of key in turn, then as drawn (enter only on nothing typed: it signs in).
+    let keys = tc.draw(gs::integers::<usize>().min_value(5).max_value(30));
+    for k in 0..keys {
+        let kind = if k < 5 { k } else { tc.draw(gs::integers::<usize>().max_value(4)) };
+        match kind {
+            0 => {
+                let c = tc.draw(gs::sampled_from(&['a', '.', ' ', 'é', 'Z'][..]));
+                assert!(input(&mut app, KeyCode::Char(c), KeyModifiers::NONE));
+                model.push(c);
+            }
+            1 => {
+                assert!(input(&mut app, KeyCode::Backspace, KeyModifiers::NONE));
+                model.pop();
+            }
+            2 => {
+                assert!(input(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL));
+                model.clear();
+            }
+            // Keys a handle has no use for are taken all the same.
+            3 => {
+                let code =
+                    tc.draw(gs::sampled_from(&[KeyCode::Tab, KeyCode::Left, KeyCode::Char('x')][..]).print_as_debug());
+                let mods = if code == KeyCode::Char('x') { KeyModifiers::CONTROL } else { KeyModifiers::NONE };
+                assert!(input(&mut app, code, mods));
+            }
+            _ if model.trim().is_empty() => {
+                assert!(input(&mut app, KeyCode::Enter, KeyModifiers::NONE));
+                assert_eq!(last_message(&app), "type your handle (alice.bsky.social) or your server (https://…)");
+            }
+            _ => {}
+        }
+        assert!(matches!(&app.profile.account.sign_in, Some(SignIn::Typing(t)) if *t == model), "{model:?}");
+        assert!(shown(&app.profile.account, 200).contains(&model), "the typed handle shows");
+    }
+    assert!(input(&mut app, KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.profile.account.sign_in.is_none(), "esc puts it away");
+
+    let (opened, local_app) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let url = "https://pds.example/oauth/authorize?x=1".to_string();
+    let cancel = CancelToken::new();
+    app.profile.account.sign_in = Some(SignIn::Waiting {
+        server: "pds.example".into(),
+        url: url.clone(),
+        opened,
+        local_app,
+        cancel: cancel.clone(),
+    });
+    let bar = shown(&app.profile.account, 200);
+    assert!(bar.contains("Approve in your browser at pds.example"), "{bar}");
+    assert_eq!(bar.contains("as a local development app"), local_app, "{bar}");
+    assert_eq!(bar.contains(&format!("the browser didn't open: {url}")), !opened, "{bar}");
+}

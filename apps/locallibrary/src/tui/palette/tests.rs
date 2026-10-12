@@ -147,3 +147,105 @@ fn fuzzy_matches_letters_in_order(tc: hegel::TestCase) {
         assert!(fuzzy(&query, &padded) <= score, "{query:?} in {padded:?} beats {text:?}");
     }
 }
+
+/// Keys are named apart, whatever they are: characters as themselves (space by name), arrows as
+/// arrows, other keys by their name, with shift or ctrl said, and a run of digits from one to the
+/// other; no two keys share a name.
+#[hegel::test(test_cases = 300)]
+fn keys_are_named_apart(tc: hegel::TestCase) {
+    use hegel::generators::{self as gs, Generator};
+    let codes = [
+        KeyCode::Up,
+        KeyCode::Down,
+        KeyCode::Left,
+        KeyCode::Right,
+        KeyCode::PageDown,
+        KeyCode::F(5),
+        KeyCode::Tab,
+        KeyCode::Enter,
+    ];
+    let any = |tc: &hegel::TestCase| match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => K::Ch(tc.draw(gs::sampled_from(&[' ', 'a', 'A', '1', ':'][..]))),
+        1 => K::Code(tc.draw(gs::sampled_from(&codes[..]).print_as_debug())),
+        2 => K::Shift(tc.draw(gs::sampled_from(&codes[..]).print_as_debug())),
+        3 => K::Ctrl(tc.draw(gs::sampled_from(&['c', 'q', 'u'][..]))),
+        _ => K::Digits('1', tc.draw(gs::sampled_from(&['5', '8'][..]))),
+    };
+    let (a, b) = (any(&tc), any(&tc));
+    let (na, nb) = (key_name(&a), key_name(&b));
+    assert_eq!(na == nb, format!("{a:?}") == format!("{b:?}"), "{a:?} and {b:?} both read {na:?}");
+    match a {
+        K::Ch(' ') => assert_eq!(na, "space"),
+        K::Ch(c) => assert_eq!(na, c.to_string()),
+        K::Code(KeyCode::Up | KeyCode::Down | KeyCode::Left | KeyCode::Right) => assert!("↑↓←→".contains(&na)),
+        K::Code(_) => assert!(na.chars().all(|c| !c.is_uppercase()), "{na}"),
+        K::Shift(_) => assert!(na.starts_with("shift ")),
+        K::Ctrl(c) => assert_eq!(na, format!("ctrl-{c}")),
+        K::Digits(x, y) => assert_eq!(na, format!("{x}-{y}")),
+    }
+}
+
+/// A list of actions does what's chosen (by enter, or a click on its row): an item that can't
+/// be done says why and stays; a drive's action is done to that drive while it's plugged in (it
+/// says when it isn't any more); a library's to its clones; a click outside closes the list.
+#[hegel::test(test_cases = 100)]
+fn a_choice_from_a_list_is_done_to_its_drive(tc: hegel::TestCase) {
+    use super::super::app::testing::{blank, fleet};
+    use super::super::drives::DriveRow;
+    use hegel::generators as gs;
+    let (mut app, dir) = blank(View::Drives);
+    let root = dir.path().join("DNA");
+    std::fs::create_dir_all(&root).unwrap();
+    let main = uuid::Uuid::from_u128(1);
+    let export = tc.draw(gs::booleans());
+    let info = locallibrary::DeviceInfo {
+        name: Some("DNA".into()),
+        has_export: export,
+        library_id: Some(main),
+        ..locallibrary::Device::open(&root).unwrap().info()
+    };
+    app.library_names = [(main, "Main".to_string())].into_iter().collect();
+    app.drives = vec![info.clone()];
+    app.status = Some(Ok(vec![fleet(info, Some("Main"))]));
+    let library = tc.draw(gs::booleans());
+    app.select_drive_row(if library { DriveRow::Library(main) } else { DriveRow::Drive(0) });
+    app.drive_menu();
+    let Some(Modal::Pick(p)) = &app.modal else { panic!("no menu: {}", last_message(&app)) };
+    let n = p.shown.len();
+    let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
+    let (label, unavailable) = (p.items[p.shown[i]].label.clone(), p.items[p.shown[i]].unavailable.clone());
+    let gone = !library && tc.draw(gs::booleans());
+    if gone {
+        app.drives.clear();
+    }
+    if tc.draw(gs::booleans()) {
+        let Some(Modal::Pick(p)) = &mut app.modal else { unreachable!() };
+        p.state.select(Some(i));
+        key(&mut app, KeyCode::Enter);
+    } else {
+        super::super::ui::screen(&mut app, 120, 40);
+        let r = app.areas.menu;
+        if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
+            mouse(&mut app, LEFT, (r.x + r.width + 1, r.y));
+            return assert!(app.modal.is_none(), "a click outside closes it");
+        }
+        let Some(Modal::Pick(p)) = &app.modal else { unreachable!() };
+        let row = r.y + 2 + (i - p.state.offset()) as u16;
+        mouse(&mut app, LEFT, (r.x + 2, row));
+    }
+    let said = last_message(&app).to_string();
+    match unavailable {
+        Some(why) => {
+            assert_eq!(said, why, "{label}");
+            assert!(matches!(app.modal, Some(Modal::Pick(_))), "it stays");
+        }
+        None if gone => assert_eq!(said, "DNA isn't plugged in any more", "{label}"),
+        None if library && !export => assert_eq!(said, "none of Main's drives is plugged in any more", "{label}"),
+        None => {
+            // Done: the list is gone, and something is under way, asked, or said.
+            let listed = matches!(&app.modal, Some(Modal::Pick(p)) if p.title.starts_with("Drive ·") || p.title.starts_with("Library ·"));
+            assert!(!listed, "{label}: the list stayed");
+            assert!(app.job.is_some() || app.modal.is_some() || !said.is_empty(), "{label}: nothing done");
+        }
+    }
+}

@@ -1087,3 +1087,745 @@ fn lists_come_back_up_once_they_fit(tc: hegel::TestCase) {
         assert!(s.contains(row.as_str()), "{row:?} isn't shown after drawing {short} rows high:\n{s}");
     }
 }
+
+/// How long ago something was reads back as a span that holds it: under five seconds is just
+/// now, then seconds, minutes and hours, each the whole number passed.
+#[hegel::test(test_cases = 300)]
+fn ages_read_back_as_the_time_passed(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let secs = tc.draw(gs::integers::<u64>().max_value(400_000));
+    let said = ago(std::time::Duration::from_secs(secs));
+    if said == "just now" {
+        return assert!(secs < 5);
+    }
+    let (n, unit) = said.strip_suffix(" ago").and_then(|s| s.split_once(' ')).expect(&said);
+    let n: u64 = n.parse().unwrap();
+    let per = match unit {
+        "s" => 1,
+        "min" => 60,
+        "h" => 3600,
+        _ => panic!("{said}"),
+    };
+    assert!(n * per <= secs && secs < (n + 1) * per, "{secs} s said as {said}");
+    assert!(secs >= 5 && (per == 1) == (secs < 60) && (per == 3600) == (secs >= 3600), "{said} for {secs} s");
+}
+
+/// A count said short reads back as near what it is: as it is under a thousand, to a tenth of a
+/// thousand below ten thousand, then to the thousand, never over.
+#[hegel::test(test_cases = 300)]
+fn counts_said_short_read_back(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<usize>().max_value(2_000_000));
+    let said = compact(n);
+    match said.strip_suffix('k') {
+        None => assert_eq!(said.parse::<usize>().unwrap(), n),
+        Some(k) => {
+            let back = (k.parse::<f64>().unwrap() * 1000.0).round() as usize;
+            let near = if n < 10_000 { back.abs_diff(n) <= 50 } else { back <= n && n - back < 1000 };
+            assert!(n >= 1000 && near, "{n} as {said}");
+        }
+    }
+}
+
+/// The track list's columns: title and artist first, album and genre as the width allows, My
+/// Tags and ratings when asked for, the sorted column when it wouldn't show otherwise, and BPM,
+/// key and time last; each once, each named apart.
+#[hegel::test(test_cases = 300)]
+fn the_columns_are_the_ones_that_fit_and_the_sort(tc: hegel::TestCase) {
+    use hegel::generators::{self as gs, Generator};
+    let width = tc.draw(gs::integers::<u16>().max_value(220));
+    let field = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug()));
+    let sort = field.map(|field| SortKey { field, descending: tc.draw(gs::booleans()) });
+    let (ratings, tags) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let cols = columns(width, sort, ratings, tags);
+    assert_eq!(cols[..2], [Col::Title, Col::Artist]);
+    assert_eq!(cols[cols.len() - 3..], [Col::Bpm, Col::Key, Col::Time]);
+    assert_eq!(cols.contains(&Col::Album), width >= 110 || field == Some(SortField::Album));
+    assert_eq!(cols.contains(&Col::Genre), width >= 140 || field == Some(SortField::Genre));
+    assert_eq!(cols.contains(&Col::Tags), tags);
+    assert_eq!(cols.contains(&Col::Rating), ratings || field == Some(SortField::Rating));
+    if let Some(c) = field.and_then(Col::of) {
+        assert!(cols.contains(&c), "sorted by {c:?}, not shown");
+        assert_eq!(c.field(), field);
+    }
+    for (i, c) in cols.iter().enumerate() {
+        assert!(!cols[i + 1..].contains(c), "{c:?} twice");
+        assert!(cols[i + 1..].iter().all(|d| d.name() != c.name()), "{c:?} named as another");
+    }
+}
+
+/// The demo drive, with an edit made on it (so there's a backup to undo), for confirmations.
+fn edited_drive() -> &'static (tempfile::TempDir, std::path::PathBuf, String) {
+    static DRIVE: std::sync::OnceLock<(tempfile::TempDir, std::path::PathBuf, String)> = std::sync::OnceLock::new();
+    DRIVE.get_or_init(|| {
+        let (dir, root) = demo_drive();
+        let path = locallibrary::Device::open(&root).unwrap().library().unwrap().tracks[0].file_path.clone();
+        let req = locallibrary::api::EditRequest {
+            drive: root.display().to_string(),
+            edits: vec![super::super::edits::set_rating(std::slice::from_ref(&path), 4)],
+            options: Default::default(),
+        };
+        locallibrary::api::edit_apply(&req, &locallibrary::Ctx::silent()).unwrap();
+        (dir, root, path)
+    })
+}
+
+/// Playlist names a plan can touch.
+const LISTS: &[&str] = &["Sets/Sunday", "Old", "Warm-up", "Peak", "Closing"];
+
+/// A confirmation lists everything its plan changes: an edit's playlists made, deleted and
+/// changed (with how), its tracks changed and removed (the first five by name, then how many
+/// more), the history lists it drops and its warnings; an undo how playlists and tracks go back,
+/// the files it puts back (the first four, then how many more) and the recorded edits that come
+/// off the journal; any other plan its summary and warnings, and whether it deletes.
+#[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_confirmation_lists_all_its_plan_does(tc: hegel::TestCase) {
+    // An edit, an undo and another plan, in each case.
+    for kind in 0..3u8 {
+        a_confirmation_lists(&tc, kind);
+    }
+}
+
+/// [`a_confirmation_lists_all_its_plan_does`] for an edit (0), an undo (1) or another plan.
+fn a_confirmation_lists(tc: &hegel::TestCase, kind: u8) {
+    use hegel::generators as gs;
+    use locallibrary::diff::{Entry, Move, PlaylistChanges};
+    use locallibrary::edit::{EditOptions, PlaylistChange};
+    use locallibrary::model::TrackRef;
+
+    let (dir, root, path) = edited_drive();
+    let names = |tc: &hegel::TestCase| -> Vec<String> {
+        LISTS.iter().filter(|_| tc.draw(gs::booleans())).map(|s| s.to_string()).collect()
+    };
+    let track = |id| TrackRef { id, name: format!("Track {id}"), file_path: String::new() };
+    let warnings: Vec<String> =
+        (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|i| format!("warning {i}")).collect();
+    let mut app = App::blank(dir.path().join("store"), None);
+    let mut want: Vec<String> = warnings.iter().map(|w| format!("⚠ {w}")).collect();
+    let mut not = Vec::new();
+    let plan: Box<dyn locallibrary::op::AnyPlanned> = match kind {
+        0 => {
+            let req = locallibrary::api::EditRequest {
+                drive: root.display().to_string(),
+                edits: vec![super::super::edits::set_rating(std::slice::from_ref(path), 2)],
+                options: EditOptions::default(),
+            };
+            let mut planned = locallibrary::api::edit_plan(&req, &locallibrary::Ctx::silent()).unwrap();
+            let p = &mut planned.plan;
+            p.playlists_created = names(tc);
+            p.playlists_deleted = names(tc);
+            p.playlists_changed = (names(tc).into_iter())
+                .map(|path| {
+                    let (added, removed) =
+                        (tc.draw(gs::integers::<usize>().max_value(2)), tc.draw(gs::integers::<usize>().max_value(2)));
+                    PlaylistChange {
+                        path,
+                        before: 10,
+                        after: 10 + added - removed,
+                        added,
+                        removed,
+                        reordered: tc.draw(gs::booleans()),
+                    }
+                })
+                .collect();
+            p.tracks_changed = tc.draw(gs::integers::<usize>().max_value(3));
+            p.tracks_removed = (1..=tc.draw(gs::integers::<u32>().max_value(8))).map(track).collect();
+            if !p.tracks_removed.is_empty() && tc.draw(gs::booleans()) {
+                (p.files, p.bytes) = (vec!["/Contents/1.mp3".into()], 9_000_000);
+            }
+            p.history_removed = tc.draw(gs::integers::<usize>().max_value(2));
+            p.warnings = warnings;
+            want.extend(p.playlists_created.iter().map(|l| format!("+ {l}")));
+            want.extend(p.playlists_deleted.iter().map(|l| format!("− {l}")));
+            for c in &p.playlists_changed {
+                let how = match (c.reordered, c.added, c.removed) {
+                    (true, ..) => "reordered".to_string(),
+                    (_, 0, 0) => "entries changed".into(),
+                    (_, a, 0) => format!("+{a}"),
+                    (_, 0, r) => format!("−{r}"),
+                    (_, a, r) => format!("+{a} −{r}"),
+                };
+                want.push(format!("~ {}  {how}, {} → {} tracks", c.path, c.before, c.after));
+            }
+            if p.tracks_changed > 0 {
+                want.push(format!("~ {} changed", plural(p.tracks_changed, "track")));
+            }
+            let removed = p.tracks_removed.len();
+            if removed > 0 {
+                let files = if p.files.is_empty() { String::new() } else { ", 1 files, 9.0 MB".into() };
+                want.push(format!("− {} removed{files}", plural(removed, "track")));
+                want.extend(p.tracks_removed.iter().take(5).map(|t| t.name.clone()));
+                if removed > 5 {
+                    want.push(format!("and {} more", removed - 5));
+                    not.push(format!("Track {}", removed));
+                }
+            }
+            if p.history_removed > 0 {
+                want.push(format!("− {} removed", plural(p.history_removed, "history list")));
+            }
+            want.push("The drive is backed up first: u takes this back.".into());
+            Box::new(planned)
+        }
+        1 => {
+            let undo = locallibrary::api::UndoRequest { drive: Some(root.display().to_string()), ..Default::default() };
+            let mut planned = locallibrary::api::undo_plan(&undo).unwrap();
+            let u = &mut planned.plan;
+            u.diff.added_playlists = names(tc);
+            u.diff.removed_playlists = names(tc);
+            u.diff.changed_playlists = (names(tc).into_iter())
+                .map(|path| {
+                    let entries =
+                        |n: usize| (0..n).map(|i| Entry { track: track(i as u32), position: i + 1 }).collect();
+                    let moved = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+                        .map(|i| Move { track: track(i as u32), from: 1, to: 2 })
+                        .collect();
+                    let (a, r) =
+                        (tc.draw(gs::integers::<usize>().max_value(2)), tc.draw(gs::integers::<usize>().max_value(2)));
+                    PlaylistChanges { path, added: entries(a), removed: entries(r), moved }
+                })
+                .collect();
+            u.files = (0..tc.draw(gs::integers::<usize>().max_value(6)))
+                .map(|i| locallibrary::api::FileChange { path: format!("/f{i}"), change: "replaced", bytes: 1000 })
+                .collect();
+            let entry = u.journal.first().cloned().expect("the edit was recorded");
+            u.journal = vec![entry; tc.draw(gs::integers::<usize>().max_value(2))];
+            planned.warnings = warnings;
+            let u = &planned.plan;
+            want.extend(u.diff.added_playlists.iter().map(|l| format!("+ {l}")));
+            want.extend(u.diff.removed_playlists.iter().map(|l| format!("− {l}")));
+            for c in &u.diff.changed_playlists {
+                let mut parts = Vec::new();
+                parts.extend((!c.added.is_empty()).then(|| format!("+{}", c.added.len())));
+                parts.extend((!c.removed.is_empty()).then(|| format!("−{}", c.removed.len())));
+                parts.extend((!c.moved.is_empty()).then(|| format!("{} moved", c.moved.len())));
+                want.push(format!("~ {}  {}", c.path, parts.join(" ")).trim_end().to_string());
+            }
+            if u.diff.is_empty() {
+                want.push("playlists and tracks stay as they are".into());
+            }
+            want.push(format!("{} put back ({})", plural(u.files.len(), "file"), bytes(u.files.len() as u64 * 1000)));
+            want.extend(u.files.iter().take(4).map(|f| format!("replaced {}", f.path)));
+            if u.files.len() > 4 {
+                want.push(format!("and {} more", u.files.len() - 4));
+            }
+            match u.journal.len() {
+                0 => not.push("off the journal".into()),
+                1 => want.push("1 recorded edit comes off the journal".into()),
+                n => want.push(format!("{n} recorded edits come off the journal")),
+            }
+            Box::new(planned)
+        }
+        _ => {
+            let store = locallibrary::Store::open_or_init(dir.path().join("store")).unwrap();
+            let pull = locallibrary::api::PullRequest {
+                drive: root.display().to_string(),
+                library: Some("Demo".into()),
+                new_library: true,
+                ..Default::default()
+            };
+            let mut planned = locallibrary::api::pull_plan(store.root(), &pull, &locallibrary::Ctx::silent()).unwrap();
+            planned.warnings = warnings;
+            planned.destructive = tc.draw(gs::booleans());
+            want.extend(planned.summary.iter().map(|s| format!("• {s}")));
+            let deletes = "This deletes or replaces what's there now.".to_string();
+            if planned.destructive {
+                want.push(deletes)
+            } else {
+                not.push(deletes)
+            }
+            Box::new(planned)
+        }
+    };
+    let s = confirmation_screen(&mut app, root, plan);
+    for said in &want {
+        assert!(s.contains(said.as_str()), "{said:?} isn't said:\n{s}");
+    }
+    for said in &not {
+        assert!(!s.contains(said.as_str()), "{said:?} is said:\n{s}");
+    }
+    // At any size it draws, its lines kept to the screen.
+    let (w, h) = (
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(200)),
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(60)),
+    );
+    assert_eq!(screen(&mut app, w, h).lines().count(), h as usize);
+}
+
+/// The library's screen says what's going on, whatever else is: a playlist being picked (in the
+/// footer and over the tree), the drive unplugged, an offer to replay edits, why the search
+/// doesn't read or what it waits for, the sort, a job's progress and a set's tracks that aren't on
+/// the drive (or that the sets are being read); with no drive, whether one is being read; and the
+/// selected track's details, with why there are no matches.
+#[hegel::test(test_cases = 100)]
+fn the_library_says_what_is_going_on(tc: hegel::TestCase) {
+    use hegel::generators::{self as gs, Generator};
+    use locallibrary::sets::{EntryOrigin, SetEntry};
+
+    use super::super::app::{Msg, ReplayOffer};
+    use super::super::browse::{Category, NodeId};
+    use super::super::edits::Pick;
+
+    let mut want: Vec<String> = Vec::new();
+    if tc.draw(gs::booleans()) {
+        // No drive: being read, or none.
+        let (mut app, _dir) = blank(View::Library);
+        let reading = tc.draw(gs::booleans());
+        app.loading = reading.then(|| "Reading DNA…".into());
+        let s = screen(&mut app, 160, 40);
+        let said = if reading { "Reading library…" } else { "No rekordbox drive open." };
+        assert!(s.contains(said) && s.contains("no drive open"), "{s}");
+        return;
+    }
+    let mut lib = library();
+    lib.tracks.extend(any_tracks(&tc, 3).into_iter().map(|mut t| {
+        t.id += 10;
+        t.file_path = format!("/Contents/{}.mp3", t.id);
+        t
+    }));
+    let (mut app, _dir) = app_with(lib);
+    let generation = app.loaded.as_ref().unwrap().generation;
+    let picking = tc.draw(gs::booleans());
+    let searching = !picking && tc.draw(gs::booleans());
+    if picking {
+        app.track_state.select(Some(0));
+        let target = app.target().unwrap();
+        want.push(format!("Add {} to which playlist?", target.what));
+        want.push("Pick a playlist".into());
+        app.picking = Some(Pick { target, focus: Focus::Tracks });
+    }
+    if tc.draw(gs::booleans()) {
+        app.loaded.as_mut().unwrap().stale = true;
+        want.push("unplugged".into());
+    }
+    if tc.draw(gs::booleans()) {
+        let edits = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+        let root = app.loaded.as_ref().unwrap().root().to_path_buf();
+        app.replay_offer = Some(ReplayOffer { root, drive: "DNA".into(), edits });
+        let edits = if edits == 1 { "1 edit".to_string() } else { format!("{edits} edits") };
+        want.push(format!("rekordbox exported over {edits} on DNA. Replay?"));
+    }
+    if let Some(field) = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug())) {
+        let descending = tc.draw(gs::booleans());
+        app.sort = Some(SortKey { field, descending });
+        app.refresh_visible();
+        want.push(format!(" {} {} ", sort_label(field), if descending { "↓" } else { "↑" }));
+    }
+    if tc.draw(gs::booleans()) {
+        let started = std::time::Instant::now() - std::time::Duration::from_secs(3);
+        app.job = Some(super::super::edits::Job { detail: "3 of 40 tracks".into(), started, ..job(false, false) });
+        want.push("3 of 40 tracks".into());
+    }
+    // Browse open, a category's values under it.
+    if tc.draw(gs::booleans()) {
+        let l = app.loaded.as_mut().unwrap();
+        l.toggle(&NodeId::Browse);
+        l.toggle(&NodeId::Category(Category::Artist));
+        let label = l.group(Category::Artist, "daft punk").unwrap().label.clone();
+        want.push(format!("· {label}"));
+    }
+    // Nothing playing, the last run's queue ready to carry on with.
+    if !picking && tc.draw(gs::booleans()) {
+        let l = app.loaded.as_ref().unwrap();
+        let (library, root) = (l.library.clone(), l.root().to_path_buf());
+        app.queue =
+            super::super::app::Queue { library, items: vec![0], root, drive: "TEST".into(), order: vec![0], pos: 0 };
+        app.resume = Some(std::time::Duration::from_secs(95));
+        // (Wrapped to the player's width.)
+        want.extend(["space carries on with".to_string(), "1:35".into()]);
+    }
+    // A set shown: some of its tracks played from another drive, the sets read or being read.
+    if tc.draw(gs::booleans()) {
+        let lib = app.loaded.as_ref().unwrap().library.clone();
+        let on_drive = tc.draw(gs::integers::<usize>().max_value(2));
+        let mut entries: Vec<SetEntry> =
+            lib.tracks.iter().take(on_drive).map(|t| SetEntry::from_track(t, EntryOrigin::Session, None)).collect();
+        entries.push(SetEntry { file: Some("/Contents/elsewhere.mp3".into()), ..SetEntry::added("Elsewhere") });
+        let read = tc.draw(gs::booleans());
+        if read {
+            app.handle_msg(Msg::Sets(generation, Ok(vec![set("set1", "2026-10-03", Some("Friday"), None, entries)])));
+        }
+        app.loaded.as_mut().unwrap().node = NodeId::Group(Category::Sets, "set1".into());
+        app.refresh_visible();
+        want.push(match (read, on_drive) {
+            (false, _) => "Reading the sets…".into(),
+            (true, 0) => "None of its tracks are on this drive.".into(),
+            (true, _) => "· 1 not on this drive".into(),
+        });
+    } else if tc.draw(gs::booleans()) {
+        // A list with nothing in it (a folder, shown as a list).
+        app.loaded.as_mut().unwrap().node = NodeId::Playlist(1);
+        app.refresh_visible();
+        if !searching {
+            want.push("Nothing in this list.".into());
+        }
+    }
+    if searching {
+        app.searching = true;
+        match tc.draw(gs::booleans()) {
+            true => app.filter_error = Some("bpm: needs a number".into()),
+            false => app.filter_note = Some("reading My Tags…".into()),
+        }
+        want.push(app.filter_error.clone().or(app.filter_note.clone()).unwrap());
+    }
+    // The selected track's details: found (with the playlists it's in), its lookup failed, or
+    // not done yet.
+    if !picking && tc.draw(gs::booleans()) {
+        app.show_details = true;
+        app.track_state.select(Some(tc.draw(gs::integers::<usize>().max_value(app.visible.len().saturating_sub(1)))));
+        if let Some(i) = app.selected_track() {
+            let how = tc.draw(gs::integers::<u8>().max_value(2));
+            match how {
+                0 => {
+                    app.handle_msg(Msg::Failed(super::super::app::Work::Details(generation, i), "it fell over".into()))
+                }
+                1 => {
+                    // Its key: one the wheel knows, one it does not, or none. With no matches, that says why.
+                    let key = tc.draw(gs::sampled_from(&["8A", "not a key", ""][..]));
+                    let l = app.loaded.as_mut().unwrap();
+                    std::sync::Arc::make_mut(&mut l.library).tracks[i].key = key.into();
+                    let matches =
+                        Matches { library: l.library.clone(), root: l.root().to_path_buf(), items: Vec::new() };
+                    let playlists = vec!["Sets › Friday".to_string()];
+                    app.details = Some(super::super::app::Details { generation, index: i, matches, playlists });
+                    want.push("in 1 playlist".into());
+                    want.push(
+                        if key == "8A" { "nothing in a compatible key and tempo" } else { "no key to match" }.into(),
+                    );
+                    if key == "not a key" {
+                        want.push(key.into());
+                    }
+                }
+                _ => {}
+            }
+            let t = &app.loaded.as_ref().unwrap().library.tracks[i];
+            if t.year > 0 {
+                want.push(t.year.to_string());
+            }
+            if how != 1 {
+                want.push(if how == 0 { "couldn't look for matches (! says why)" } else { "finding matches…" }.into());
+            }
+        }
+    }
+    // A question, a report or the outputs over it all, or a name being typed.
+    let over = tc.draw(gs::integers::<u8>().max_value(4));
+    if over > 0 {
+        want.retain(|w| {
+            !w.starts_with("Add ")
+                && !w.starts_with("rekordbox exported")
+                && !w.starts_with("bpm:")
+                && !w.starts_with("reading My")
+        });
+    }
+    want.extend(put_over(&mut app, over));
+    let s = screen(&mut app, 240, 50);
+    for said in &want {
+        assert!(s.contains(said.as_str()), "{said:?} isn't said:\n{s}");
+    }
+    let (w, h) = (
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(240)),
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(60)),
+    );
+    assert_eq!(screen(&mut app, w, h).lines().count(), h as usize);
+    // Each of the others over it says what it says too (as drawn, one would seldom come up).
+    for other in (1..=4).filter(|&o| o != over) {
+        (app.modal, app.deck.outputs) = (None, None);
+        let says = put_over(&mut app, other);
+        let s = screen(&mut app, 240, 50);
+        for said in &says {
+            assert!(s.contains(said.as_str()), "{said:?} isn't said:\n{s}");
+        }
+    }
+}
+
+/// [`the_library_says_what_is_going_on`]'s overlay `over` (none for 0), put over the screen;
+/// what it says.
+fn put_over(app: &mut App, over: u8) -> Vec<String> {
+    match over {
+        1 => {
+            app.modal = Some(Modal::Ask("DNA.xml is there already. Replace it?".into(), Box::new(|_: &mut App| {})));
+            vec!["Sure?".to_string(), "Replace it?".into(), "y yes  n no".into()]
+        }
+        2 => {
+            use super::super::drives::{Report, Tone};
+            let lines = vec![
+                (Tone::Ok, "the export reads".to_string()),
+                (Tone::Warning, "1 warning".into()),
+                (Tone::Problem, "2 tracks won't load".into()),
+            ];
+            app.modal = Some(Modal::Report(Report { title: "Check · DNA".into(), lines, scroll: 0 }));
+            vec!["✓ the export reads".to_string(), "⚠ 1 warning".into(), "✖ 2 tracks won't load".into()]
+        }
+        3 => {
+            app.modal = None;
+            app.deck.outputs = Some(super::super::deck::Outputs {
+                names: vec!["MacBook Speakers".into(), "DJM-A9".into()],
+                default: Some("MacBook Speakers".into()),
+                state: ListState::default().with_selected(Some(0)),
+            });
+            vec!["the system's default (MacBook Speakers)".to_string(), "DJM-A9".into()]
+        }
+        // A name being typed, in the footer.
+        4 => {
+            let root = std::path::PathBuf::from("/Volumes/DNA");
+            let purpose = super::super::edits::PromptFor::RestorePlaylist;
+            app.modal = Some(Modal::Prompt(super::super::edits::Prompt {
+                label: "Bring back the playlist or folder".into(),
+                text: "Sets/Friday".into(),
+                purpose,
+                root,
+            }));
+            vec![" Bring back the playlist or folder: Sets/Friday".to_string(), "enter ok · esc cancel".into()]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The Drives view says what's known of a drive, whatever it is: where it stands against the
+/// store (and how far a set brought it on), an error reading it, the players' library on it, a
+/// copy of it plugged in too, its last checks and problems, an operation left half done; checking,
+/// it says so, and what reading the store says when it can't. A library's row lists its clones
+/// plugged in and not (each with where it stands), and the store's latest snapshot of it. The
+/// Snapshots view says when they're being read, can't be, or there are none.
+#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
+    use chrono::TimeZone;
+    use hegel::generators::{self as gs, Generator};
+    use locallibrary::fleet::{CheckEntry, DriveLog, KnownDrive, Problem};
+    use locallibrary::hash::Hash;
+    use locallibrary::store::SnapshotInfo;
+
+    let at = chrono::Utc.with_ymd_and_hms(2026, 10, 4, 21, 30, 0).unwrap();
+    let (mut app, dir) = blank(View::Snapshots);
+    let history = tc.draw(gs::integers::<u8>().max_value(2));
+    app.history = match history {
+        0 => None,
+        1 => Some(Err("no store here".into())),
+        _ => Some(Ok(Vec::new())),
+    };
+    let said = ["loading…", "no store here", "The store has no snapshots yet."][history as usize];
+    let s = screen(&mut app, 120, 30);
+    assert!(s.contains(said), "{said}\n{s}");
+
+    app.view = View::Drives;
+    let home = Uuid::from_u128(7);
+    app.library_names = [(home, "Home".to_string())].into_iter().collect();
+    let root = dir.path().join("DNA");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut info = DeviceInfo {
+        name: Some("DNA".into()),
+        library_id: Some(home),
+        has_export: true,
+        ..locallibrary::Device::open(&root).unwrap().info()
+    };
+    info.has_library_plus = tc.draw(gs::booleans());
+    info.summary = Some(locallibrary::model::LibrarySummary {
+        tracks: 120,
+        playlists: 8,
+        folders: 2,
+        artists: 90,
+        audio_bytes: 2_000_000_000,
+        total_duration_secs: 30_000,
+        tracks_without_artwork: 0,
+    });
+    // (Its space made up: the machine's varies.)
+    (info.total_space, info.free_space) = (Some(16_000_000_000), Some(4_000_000_000));
+    let pending = tc.draw(gs::booleans());
+    if pending {
+        info.pending = Some(locallibrary::device::PendingOp {
+            op: locallibrary::device::LineageOp::Sync,
+            started: at,
+            description: "sync from BACKUP".into(),
+            backup: None,
+            player: None,
+        });
+    }
+    app.drives = vec![info.clone()];
+    app.select_drive_row(DriveRow::Drive(0));
+    let relation = tc.draw(
+        gs::sampled_from(
+            &[
+                None,
+                Some(Relation::Identical),
+                Some(Relation::RightNewer),
+                Some(Relation::LeftNewer),
+                Some(Relation::Diverged),
+                Some(Relation::Unrelated),
+            ][..],
+        )
+        .print_as_debug(),
+    );
+    let library = tc.draw(gs::booleans()).then_some("Home");
+    let back = tc.draw(gs::sampled_from(&[None, Some(0usize), Some(1), Some(3)][..]));
+    let error = tc.draw(gs::booleans()).then_some("bad export");
+    let copy = tc.draw(gs::booleans());
+    let (scrub, problems) = (tc.draw(gs::optional(gs::booleans())), tc.draw(gs::booleans()));
+    let log = DriveLog {
+        last_scrub: scrub.map(|ok| CheckEntry { at, ok, summary: "all 120 tracks read".into() }),
+        problems: if problems {
+            vec![Problem { at, kind: "write_failed".into(), detail: "disk full".into() }]
+        } else {
+            Vec::new()
+        },
+        ..Default::default()
+    };
+    let mut fd = fleet(info.clone(), library);
+    (fd.status.relation, fd.status.back_from_set, fd.status.error) = (relation, back, error.map(Into::into));
+    (fd.log, fd.same_identity_as) = (Some(log), if copy { vec!["/Volumes/DNA 1".into()] } else { Vec::new() });
+    let status = tc.draw(gs::integers::<u8>().max_value(2));
+    app.status_loading = status == 0;
+    app.status = match status {
+        0 => None,
+        1 => Some(Err("the store can't be read".into())),
+        _ => Some(Ok(vec![fd])),
+    };
+    let s = screen(&mut app, 160, 60);
+    let mut want: Vec<String> = Vec::new();
+    if info.has_library_plus {
+        want.push("OneLibrary (exportLibrary.db) present".into());
+    }
+    if pending {
+        want.push("⚠ interrupted: sync from BACKUP".into());
+    }
+    match status {
+        0 => want.push("checking…".into()),
+        1 => want.push("the store can't be read".into()),
+        _ => {
+            want.push(match (error, relation) {
+                (Some(e), _) => format!("error: {e}"),
+                (None, None) if library.is_none() => "not in the store".into(),
+                (None, None) => "library has no snapshots".into(),
+                (None, Some(Relation::Identical)) => "up to date".into(),
+                (None, Some(Relation::RightNewer)) => match back {
+                    Some(0) => "back from a set".into(),
+                    Some(n) => format!("back from a set: {}", plural(n, "new session")),
+                    None => "has changes not in the store".into(),
+                },
+                (None, Some(Relation::LeftNewer)) => "behind the store".into(),
+                (None, Some(Relation::Diverged)) => "diverged from the store".into(),
+                (None, Some(other)) => format!("{other:?}").to_lowercase(),
+            });
+            if copy {
+                want.push("a copy of it (or it of) /Volumes/DNA 1".into());
+            }
+            if let Some(ok) = scrub {
+                want.push(format!(
+                    "{} {}  all 120 tracks read",
+                    if ok { "✓" } else { "✖" },
+                    local_time(at, "%Y-%m-%d")
+                ));
+            }
+            if problems {
+                want.push(format!("✖ {} write failed: disk full", local_time(at, "%Y-%m-%d")));
+            }
+        }
+    }
+    for w in &want {
+        assert!(s.contains(w.as_str()), "{w:?}\n{s}");
+    }
+    // Wherever it stands against the store (as drawn, an error or the status unread would hide
+    // it), that's said, and what to do about it.
+    let kept = (app.status.take(), app.status_loading);
+    for (relation, back, says) in [
+        (Relation::Identical, None, "✓ up to date"),
+        (Relation::RightNewer, Some(2), "▲ back from a set: 2 new sessions"),
+        (Relation::RightNewer, None, "▲ has changes not in the store"),
+        (Relation::LeftNewer, None, "▼ behind the store"),
+        (Relation::Diverged, None, "⑂ diverged from the store"),
+        (Relation::Unrelated, None, "? unrelated"),
+    ] {
+        let mut fd = fleet(info.clone(), Some("Home"));
+        (fd.status.relation, fd.status.back_from_set) = (Some(relation), back);
+        (app.status, app.status_loading) = (Some(Ok(vec![fd])), false);
+        app.select_drive_row(DriveRow::Drive(0));
+        let s = screen(&mut app, 160, 60);
+        assert!(s.contains(says), "{says:?}\n{s}");
+    }
+    // A drive of no library in the store: its row says how to start one.
+    (app.status, app.status_loading) = (Some(Ok(vec![fleet(info.clone(), None)])), false);
+    app.select_drive_row(DriveRow::Unlinked);
+    let s = screen(&mut app, 160, 60);
+    assert!(s.contains("These drives aren't in the store yet."), "{s}");
+    (app.status, app.status_loading) = kept;
+    app.select_drive_row(DriveRow::Drive(0));
+
+    // The library's row, with a clone not plugged in.
+    let standing = tc.draw(gs::sampled_from(&[0u8, 1, 2, 3][..]));
+    let spare = KnownDrive {
+        id: Uuid::new_v4(),
+        name: "Spare".into(),
+        role: None,
+        library: Some("Home".into()),
+        mounted: None,
+        last_mount: dir.path().join("Spare"),
+        last_seen: at,
+        capacity: None,
+        standing: match standing {
+            0 => Standing::Behind { snapshots: 2, held: "1a2b3c".into() },
+            1 => Standing::UpToDate,
+            2 => Standing::Unsaved,
+            _ => Standing::Unknown,
+        },
+        log: DriveLog::default(),
+    };
+    let head = tc.draw(gs::booleans()).then(|| SnapshotInfo {
+        id: Hash::of(b"head"),
+        short_id: "3f9a2c".into(),
+        library_id: home,
+        parents: Vec::new(),
+        created: at,
+        message: None,
+        source: None,
+        fingerprint: Hash::of(b"library"),
+        summary: Default::default(),
+        files: 0,
+        bytes: 0,
+        labels: Vec::new(),
+        beside: false,
+    });
+    let known = tc.draw(gs::booleans());
+    let identical = tc.draw(gs::optional(gs::booleans()));
+    let unsaved = tc.draw(gs::booleans());
+    app.fleet_libraries = if known {
+        vec![FleetLibrary {
+            id: home,
+            name: "Home".into(),
+            head: head.clone(),
+            mounted: vec![root.clone()],
+            offline: vec![spare],
+            identical,
+            unsaved,
+        }]
+    } else {
+        Vec::new()
+    };
+    app.select_drive_row(DriveRow::Library(home));
+    let s = screen(&mut app, 160, 60);
+    let mut want: Vec<String> = vec!["● DNA".into()];
+    if known {
+        want.push("○ Spare".into());
+        want.push(
+            ["· 2 snapshots behind", "· up to date", "· had changes not in the store", "not plugged in"]
+                [standing as usize]
+                .into(),
+        );
+        if let Some(h) = &head {
+            want.push(format!("latest      {}  {}", h.short_id, local_time(h.created, "%Y-%m-%d %H:%M")));
+        }
+        if let Some(same) = identical {
+            want.push(if same { "identical".into() } else { "not identical".into() });
+        }
+        want.push(match (&head, unsaved) {
+            (None, _) => "no snapshots yet".into(),
+            (Some(_), true) => "unsaved".into(),
+            (Some(_), false) => "saved".into(),
+        });
+    } else if status == 0 {
+        want.push("checking…".into());
+    }
+    for w in &want {
+        assert!(s.contains(w.as_str()), "{w:?}\n{s}");
+    }
+    for (w, h) in [(80, 24), (40, 12)] {
+        assert_eq!(screen(&mut app, w, h).lines().count(), h as usize);
+    }
+}

@@ -926,3 +926,563 @@ fn recordings_opened_by_path_stay_listed_until_forgotten(tc: hegel::TestCase) {
         assert!(screen(&mut app, 120, 30).lines().count() == 30);
     }
 }
+
+/// While a set is identified, the header says how far it's got, whatever the progress: the
+/// drive's tracks fingerprinted out of how many, and the share listened to (by bytes, else by
+/// items), never past all of it.
+#[hegel::test(test_cases = 300)]
+fn identifying_says_how_far_it_has_got(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let mut t = MixTab::new(tx);
+    assert_eq!(t.status(), None);
+    let pair = |tc: &hegel::TestCase| {
+        let total = tc.draw(gs::integers::<u64>().max_value(1000));
+        (tc.draw(gs::integers::<u64>().max_value(total + 5)), total)
+    };
+    let (items, bytes) = (pair(&tc), pair(&tc));
+    // At every phase (and none yet), with nothing counted yet as well.
+    for phase in
+        [None, Some(Phase::Fingerprint), Some(Phase::Index), Some(Phase::Listen), Some(Phase::Match), Some(Phase::Copy)]
+    {
+        for (items, bytes) in [(items, bytes), ((0, 0), (0, 0))] {
+            says_how_far(&mut t, phase, items, bytes);
+        }
+    }
+}
+
+/// [`identifying_says_how_far_it_has_got`] at `phase`, with `items` and `bytes` done.
+fn says_how_far(t: &mut MixTab, phase: Option<Phase>, items: (u64, u64), bytes: (u64, u64)) {
+    identifying(t, phase, items, bytes);
+    let said = t.status().unwrap();
+    let share = |(done, total): (u64, u64)| (total > 0).then(|| (done * 100 / total).min(100));
+    match phase {
+        Some(Phase::Fingerprint) if items.1 > 0 => {
+            assert_eq!(said, format!("Fingerprinting the drive's tracks… {}/{}", items.0, items.1))
+        }
+        Some(Phase::Fingerprint) => assert_eq!(said, "Fingerprinting the drive's tracks…"),
+        Some(Phase::Index) => assert_eq!(said, "Indexing fingerprints…"),
+        Some(Phase::Listen) => {
+            let shown: Option<u64> = said
+                .strip_prefix("Listening to Sunday.wav…")
+                .expect(&said)
+                .trim()
+                .strip_suffix('%')
+                .map(|p| p.parse().unwrap());
+            assert_eq!(shown, share(bytes).or(share(items)), "{said}");
+            assert!(shown.is_none_or(|p| p <= 100));
+        }
+        Some(Phase::Match) => assert_eq!(said, "Finding tracks in Sunday.wav…"),
+        _ => assert_eq!(said, "Opening Sunday.wav…"),
+    }
+    // The view says it too, and how to stop.
+    let screen = render(t, &Context { status: Some(said.clone()), ..quiet() }, 140, 20);
+    assert!(screen.contains("esc stops"), "{screen}");
+}
+
+/// A path typed or dropped into the terminal reads as itself: in quotes, with backslashes before
+/// what the shell would take, or as typed; `~/` is the home folder.
+#[hegel::test(test_cases = 300)]
+fn a_typed_path_reads_as_the_path(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let parts: Vec<&str> = tc.draw(
+        gs::vecs(gs::sampled_from(&["Sets", "Sunday Warm-up", "it's", "a\\b", "日本"][..])).min_size(1).max_size(3),
+    );
+    let path = format!("/{}.wav", parts.join("/"));
+    let escaped: String =
+        path.chars().flat_map(|c| if matches!(c, ' ' | '\'' | '\\') { vec!['\\', c] } else { vec![c] }).collect();
+    let pad = tc.draw(gs::sampled_from(&["", " ", "  "][..]));
+    let typed = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 if !path.contains('\'') => format!("{pad}'{path}'{pad}"),
+        1 => format!("{pad}\"{path}\"{pad}"),
+        _ => format!("{pad}{escaped}{pad}"),
+    };
+    assert_eq!(typed_path(&typed), PathBuf::from(&path), "{typed:?}");
+    if let Some(home) = std::env::var_os("HOME") {
+        assert_eq!(typed_path(&format!("~{escaped}")), PathBuf::from(home).join(&path[1..]));
+    }
+}
+
+/// The set played from the Mixes view: n goes to the start of the next track (or says that was
+/// the last), p back to the start of this one, or, near its start, the one before (or the set's
+/// start); space plays from the selected track, enter on a track from it, and a click on the
+/// timeline from there; z zooms in two, four, eight times and back.
+#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_set_plays_through_its_tracks(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, _dir, _out) = playing_app();
+    let starts: Vec<f64> = app.mix.report().unwrap().plays.iter().map(|p| p.start).collect();
+    let plays: Vec<(f64, f64)> = app.mix.report().unwrap().plays.iter().map(|p| (p.start, p.end)).collect();
+    let mut zoom = 1;
+    // Each kind of step in turn, in an order drawn for the case.
+    let mut turns: Vec<u8> = (0..7).collect();
+    for k in (1..turns.len()).rev() {
+        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
+    }
+    for step in 0..tc.draw(gs::integers::<usize>().min_value(7).max_value(21)) {
+        let loaded = set_loaded(&app);
+        let pos = at(&app);
+        match turns[step % turns.len()] {
+            0 => {
+                press(&mut app, "n");
+                if !loaded {
+                    continue;
+                }
+                match starts.iter().find(|s| **s > pos + 0.5) {
+                    Some(&s) => assert_eq!(at(&app), s, "n from {pos}"),
+                    None => assert_eq!(last_message(&app), "that's the last track in the set"),
+                }
+            }
+            1 => {
+                press(&mut app, "p");
+                if !loaded {
+                    continue;
+                }
+                // The track heard: the one that came in last of those playing.
+                let current = (plays.iter())
+                    .filter(|(s, e)| *s <= pos && pos < *e)
+                    .map(|p| p.0)
+                    .fold(None, |a: Option<f64>, s| Some(a.map_or(s, |a| a.max(s))));
+                let want = match current {
+                    Some(s) if pos - s > 3.0 => s,
+                    _ => starts.iter().rev().find(|s| **s < pos - 3.0).copied().unwrap_or(0.0),
+                };
+                assert_eq!(at(&app), want, "p from {pos}");
+            }
+            2 => {
+                let to = tc.draw(gs::sampled_from(&[0u64, 2, 299, 305, 640, 700, 990][..]));
+                app.seek_to(Duration::from_secs(to));
+            }
+            3 => {
+                let row = tc.draw(gs::integers::<usize>().max_value(starts.len() - 1));
+                (app.mix.pane, app.mix.rows) = (Pane::Tracks, TableState::default().with_selected(Some(row)));
+                press(&mut app, if loaded { "\n" } else { " " });
+                opened(&mut app);
+                assert_eq!(at(&app), starts[row], "from the track picked");
+            }
+            4 => {
+                screen(&mut app, 160, 48);
+                let r = app.mix.areas.timeline;
+                let (from, to) = app.mix.areas.window;
+                let x = tc.draw(gs::integers::<u16>().max_value(r.width.saturating_sub(1)));
+                mouse(&mut app, LEFT, (r.x + x, r.y));
+                let t = from + (x as f64 + 0.5) / r.width.max(1) as f64 * (to - from);
+                if loaded {
+                    assert!((at(&app) - t).abs() < 0.01, "clicked at {t}, playing from {}", at(&app));
+                } else if let Some(i) = play_at(&app.mix.report().unwrap().plays, t) {
+                    assert_eq!((app.mix.pane, app.mix.rows.selected()), (Pane::Tracks, Some(i)));
+                }
+            }
+            5 => {
+                // Round the zooms and back.
+                for _ in 0..4 {
+                    press(&mut app, "z");
+                    zoom = if zoom == 8 { 1 } else { zoom * 2 };
+                    assert_eq!(app.mix.zoom, zoom);
+                }
+            }
+            _ => {
+                let s = screen(&mut app, 160, 48);
+                if loaded {
+                    let head = format!("▶ {} / 16:40", clock(at(&app)));
+                    assert!(s.contains(&head), "{head}\n{s}");
+                }
+                if zoom > 1 {
+                    assert!(s.contains(&format!("{zoom}× ")), "{s}");
+                }
+            }
+        }
+    }
+}
+
+/// Saving a set's data or its report needs a set open, and the drive it was matched against at
+/// its root: without that drive it says why; with it, the data is written into the store.
+#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, dir) = blank(View::Mixes);
+    let report = tc.draw(gs::booleans());
+    let key = if report { "w" } else { "E" };
+    let drive = dir.path().join("drive");
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => {
+            press(&mut app, key);
+            return assert_eq!(last_message(&app), "open a set first");
+        }
+        1 => {
+            app.mix = tab();
+            if let Some(Ok(o)) = &mut app.mix.opened {
+                o.root = dir.path().join("gone");
+            }
+        }
+        _ => {
+            std::fs::create_dir_all(&drive).unwrap();
+            app.mix = tab();
+            if let Some(Ok(o)) = &mut app.mix.opened {
+                o.root = drive.clone();
+                o.report.drive = "drive".into();
+                // Another drive's set, now and then.
+                if tc.draw(gs::booleans()) {
+                    o.report.drive_id = Some(uuid::Uuid::new_v4());
+                }
+            }
+        }
+    }
+    let matched = drive.is_dir() && matches!(&app.mix.opened, Some(Ok(o)) if o.report.drive_id.is_none());
+    if report && matched {
+        // (Written, it would open in the browser.)
+        return;
+    }
+    press(&mut app, key);
+    let (start, end) = if report { ("writing ", ".html…") } else { ("saving ", ".mix.json…") };
+    assert!(last_message(&app).starts_with(start) && last_message(&app).ends_with(end), "{}", last_message(&app));
+    wait(&mut app, |a| !last_message(a).starts_with(start));
+    let said = last_message(&app);
+    match (matched, drive.is_dir()) {
+        (true, _) => {
+            assert!(said.starts_with("wrote ") && said.ends_with("(attach it to the mix on Local Network)"), "{said}")
+        }
+        (false, true) => assert!(said.contains("isn't the one the set was matched against"), "{said}"),
+        (false, false) => assert!(said.starts_with("the set's tracks are read from its drive"), "{said}"),
+    }
+}
+
+/// The selected play is drawn as the set's report says it went, whatever that was: how it came in
+/// and went out (a blend, a cut, a gap) and the tempo then, its label and genre, played with key
+/// lock or pitched, its jumps, how sure the match is, the other tracks on the drive it may be,
+/// whether its key is known; with its waveform, cues and phrases from the drive, and the set's
+/// cover beside the title.
+#[hegel::test(test_cases = 60)]
+fn a_play_is_drawn_as_the_report_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut t = tab();
+    let i = 1;
+    let Some(Ok(o)) = &mut t.opened else { unreachable!() };
+    let r = &mut o.report;
+    r.unidentified.clear();
+    let overlap = tc.draw(gs::sampled_from(&[30.0, 0.5, -75.0, -5.0][..]));
+    r.transitions[0].overlap = overlap;
+    r.transitions[0].tempo_change = tc.draw(gs::sampled_from(&[None, Some(0.0), Some(1.6)][..]));
+    let p = &mut r.plays[i];
+    p.key_lock = tc.draw(gs::sampled_from(&[None, Some(true), Some(false)][..]));
+    p.semitones = tc.draw(gs::sampled_from(&[0.0, -1.0, 2.5][..]));
+    p.jumps = tc.draw(gs::integers::<u32>().max_value(3));
+    p.confidence = tc.draw(gs::sampled_from(&[0.4, 0.9][..]));
+    (p.track.label, p.track.genre) = (
+        tc.draw(gs::sampled_from(&["", "Hessle Audio"][..])).into(),
+        tc.draw(gs::sampled_from(&["", "Techno"][..])).into(),
+    );
+    let known = tc.draw(gs::booleans());
+    if !known {
+        (p.key, p.played_key, p.track.key) = (None, None, String::new());
+    }
+    let alternate = |name: &str, same_audio| Alternate {
+        track_id: 9,
+        name: name.into(),
+        file_path: "/Contents/9.mp3".into(),
+        same_audio,
+    };
+    let alt = tc.draw(gs::integers::<u8>().max_value(3));
+    p.alternates = match alt {
+        0 => Vec::new(),
+        1 => vec![alternate(&p.track.display_name(), false)],
+        2 => vec![alternate("Ferrule - Halogen (Edit)", true)],
+        _ => vec![alternate("Ferrule - Halogen (Dub)", false)],
+    };
+    let analysed = tc.draw(gs::booleans());
+    let mut a = analysis();
+    a.detail = tc.draw(gs::booleans()).then(|| wave(150 * 400));
+    o.analyses =
+        vec![TrackAnalysis::default(), if analysed { a } else { TrackAnalysis::default() }, TrackAnalysis::default()]
+            .into();
+    if tc.draw(gs::booleans()) {
+        let mut png = Vec::new();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([200, 40, 90]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        o.cover = Art::decode(&png);
+    }
+    let p = o.report.plays[i].clone();
+    t.rows.select(Some(i));
+    t.zoom = tc.draw(gs::sampled_from(&[1u8, 2, 8][..]));
+    // (Where it plays, when it's playing: the selection follows the playhead.)
+    let playhead = tc.draw(gs::optional(gs::sampled_from(&[350.0, 500.0][..])));
+    let screen = render(&mut t, &Context { playhead, ..quiet() }, 160, 60);
+    let mut want: Vec<String> = Vec::new();
+    want.push(match overlap {
+        o if o >= 1.0 => format!("{} blend", secs(o)),
+        o if o > -1.0 => "cut".into(),
+        o => format!("{} gap", secs(-o)),
+    });
+    match p.key_lock {
+        Some(true) => want.push("key lock".into()),
+        Some(false) if p.semitones.abs() >= 0.05 => want.push(format!("pitched {:+.1} semitones", p.semitones)),
+        _ => {}
+    }
+    if p.jumps > 0 {
+        want.push(format!("{} jump{}: looped or skipped", p.jumps, if p.jumps == 1 { "" } else { "s" }));
+    }
+    if p.is_tentative() {
+        want.push("(tentative)".into());
+    }
+    let extra: Vec<&str> =
+        [p.track.label.as_str(), p.track.genre.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
+    if !extra.is_empty() {
+        want.push(extra.join(" · "));
+    }
+    match alt {
+        1 => want.push("Also on the drive as /Contents/9.mp3".into()),
+        2 => want.push("Same audio as Ferrule - Halogen (Edit)".into()),
+        3 => want.push("Shares material with Ferrule - Halogen (Dub)".into()),
+        _ => {}
+    }
+    // (Its last line, when the panel has room for it.)
+    if !known && p.jumps == 0 && alt == 0 {
+        want.push("No key in the library for this track.".into());
+    }
+    if t.zoom > 1 {
+        want.push(format!("{}× ", t.zoom));
+    }
+    if let Some(pos) = playhead {
+        want.push(format!("▶ {} / 16:40", clock(pos)));
+    }
+    if analysed {
+        want.push("Intro".into());
+    }
+    for said in &want {
+        assert!(screen.contains(said.as_str()), "{said:?}\n{screen}");
+    }
+    for (w, h) in [(100, 34), (60, 20)] {
+        assert_eq!(render(&mut t, &quiet(), w, h).lines().count(), h as usize);
+    }
+}
+
+/// The Mixes view answers to its keys and clicks: enter on the set shown goes to its tracks, on
+/// another recording identifies it (with no drive open, saying one's needed), and esc stops that;
+/// a result for an identification since dropped changes nothing, a failed one is said in place of
+/// the set; space with no audio to play says so; n and p with the set not playing move through the
+/// queue instead, o finds the selected track's drive (or says it's another); a click picks a
+/// recording (a second opens it) or a track; del forgets a recording opened on its own, not the
+/// drive's.
+#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_mixes_view_answers_to_its_keys_and_clicks(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let (mut app, dir) = blank(View::Mixes);
+    let set = wav_at(&dir.path().join("Sunday Warm-up.wav"));
+    let other = wav_at(&dir.path().join("Friday.wav"));
+    app.mix = tab_on(app.sender());
+    let audio = tc.draw(gs::booleans());
+    if let Some(Ok(o)) = &mut app.mix.opened {
+        o.report.mix.path = set.clone();
+        o.audio = audio.then(|| set.clone());
+    }
+    app.mix.set_recent(&[set.clone(), other.clone()]);
+    let mut turns: Vec<u8> = (0..9).collect();
+    for k in (1..turns.len()).rev() {
+        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
+    }
+    for step in 0..tc.draw(gs::integers::<usize>().min_value(9).max_value(18)) {
+        screen(&mut app, 160, 48);
+        app.mix.input = None;
+        match turns[step % turns.len()] {
+            0 => {
+                app.mix.pane = Pane::Mixes;
+                // (Forgotten by now, maybe.)
+                let Some(i) = app.mix.sources.iter().position(|s| s.path == set) else { continue };
+                app.mix.list.select(Some(i));
+                press(&mut app, "\n");
+                if matches!(&app.mix.opened, Some(Ok(_))) {
+                    assert_eq!(app.mix.pane, Pane::Tracks, "on to its tracks");
+                }
+            }
+            1 => {
+                app.mix.pane = Pane::Mixes;
+                if let Some(i) = app.mix.sources.iter().position(|s| s.path == other) {
+                    app.mix.list.select(Some(i));
+                    press(&mut app, "\n");
+                    assert!(
+                        last_message(&app).starts_with("open a drive in the library first"),
+                        "{}",
+                        last_message(&app)
+                    );
+                }
+                // Identifying one (against a drive opened since): esc stops it.
+                identifying(&mut app.mix, Some(Phase::Listen), (0, 0), (0, 0));
+                assert!(screen(&mut app, 160, 48).contains("Listening to Sunday.wav"));
+                press(&mut app, "\u{1b}");
+                assert!(!app.mix.is_loading() && last_message(&app) == "stopped");
+            }
+            2 => {
+                let opened = app.mix.opened.take();
+                let generation = app.mix.generation;
+                identifying(&mut app.mix, None, (0, 0), (0, 0));
+                loaded(&mut app, generation + 7, Err("too late".into()));
+                assert!(app.mix.opened.is_none() && app.mix.is_loading(), "a dropped one's result changes nothing");
+                loaded(&mut app, generation, Err("set.wav: no audio in it".into()));
+                let s = screen(&mut app, 160, 48);
+                assert!(s.contains("set.wav: no audio in it") && s.contains("enter tries again"), "{s}");
+                app.mix.opened = opened;
+            }
+            3 => {
+                if app.now.is_some() || !matches!(&app.mix.opened, Some(Ok(_))) {
+                    continue;
+                }
+                press(&mut app, " ");
+                if !audio {
+                    assert!(last_message(&app).starts_with("nothing to play: export the project's audio"));
+                }
+            }
+            4 => {
+                let playing = app.now.is_some();
+                press(&mut app, if tc.draw(gs::booleans()) { "n" } else { "p" });
+                if !playing {
+                    assert!(app.now.is_none(), "nothing in the queue to move through");
+                }
+            }
+            5 => {
+                press(&mut app, "o");
+                if matches!(&app.mix.opened, Some(Ok(_))) && app.mix.rows.selected().is_some() {
+                    assert_eq!((last_message(&app), app.view), ("the track is on another drive", View::Mixes));
+                }
+                app.view = View::Mixes;
+            }
+            6 => {
+                // The list's rows take two lines each, under its border.
+                let a = app.mix.areas.list;
+                let k = tc.draw(gs::integers::<usize>().max_value(app.mix.sources.len().saturating_sub(1)));
+                let row = a.y + 1 + 2 * (k - app.mix.list.offset().min(k)) as u16;
+                if app.mix.sources.is_empty() || row >= a.y + a.height {
+                    continue;
+                }
+                app.mix.list.select(None);
+                mouse(&mut app, LEFT, (a.x + 2, row));
+                assert_eq!((app.mix.pane, app.mix.list.selected()), (Pane::Mixes, Some(k)));
+                mouse(&mut app, LEFT, (a.x + 2, row));
+            }
+            7 => {
+                let a = app.mix.areas.rows;
+                let n = app.mix.report().map_or(0, |r| r.plays.len());
+                if a.is_empty() || n == 0 {
+                    continue;
+                }
+                let k = tc.draw(gs::integers::<usize>().max_value(n - 1));
+                let row = a.y + 2 + 2 * (k - app.mix.rows.offset().min(k)) as u16;
+                if row >= a.y + a.height {
+                    continue;
+                }
+                mouse(&mut app, LEFT, (a.x + 2, row));
+                assert_eq!((app.mix.pane, app.mix.rows.selected()), (Pane::Tracks, Some(k)));
+            }
+            _ => {
+                app.mix.pane = Pane::Mixes;
+                let before = app.mix.sources.len();
+                let Some(i) = app.mix.list.selected() else { continue };
+                let drive = app.mix.sources[i].folder.is_none() && !app.mix.recent.contains(&app.mix.sources[i].path);
+                key(&mut app, KeyCode::Delete);
+                assert_eq!(app.mix.sources.len(), if drive { before } else { before - 1 });
+            }
+        }
+        let (w, h) = (tc.draw(gs::integers::<u16>().min_value(1).max_value(200)), 40);
+        assert_eq!(screen(&mut app, w, h).lines().count(), h as usize);
+    }
+}
+
+/// The open drive's recordings are listed with how long each is and where it's from, beside
+/// those opened from this computer (which del forgets; the drive's stay); one being identified is
+/// marked; tab goes to the set's tracks only when there's a set with some; space with the set
+/// paused plays it on, enter on nothing asks for a path, and esc, o and space do the app's when
+/// there's nothing of the Mixes view's to do; with no drive open the view says one's needed.
+#[hegel::test(test_cases = 15, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let drive = dir.path().join("DNA");
+    let n = tc.draw(gs::integers::<usize>().max_value(3));
+    for i in 0..n {
+        wav_at(&drive.join(format!("PIONEER REC/REC00{i}.wav")));
+    }
+    std::fs::create_dir_all(&drive).unwrap();
+    let mut app = App::with_library(&drive, library());
+    app.view = View::Mixes;
+    hold_volume_polls(&mut app);
+    let own = wav_at(&dir.path().join("own.wav"));
+    app.mix.set_recent(std::slice::from_ref(&own));
+    screen(&mut app, 120, 30);
+    wait(&mut app, |a| a.mix.sources.len() == n + 1);
+    let s = screen(&mut app, 120, 30);
+    for i in 0..n {
+        assert!(s.contains(&format!("REC00{i}.wav")) && s.contains("0:00 · DNA"), "{s}");
+    }
+    let mut turns: Vec<u8> = (0..7).collect();
+    for k in (1..turns.len()).rev() {
+        turns.swap(k, tc.draw(gs::integers::<usize>().max_value(k)));
+    }
+    for turn in turns {
+        app.view = View::Mixes;
+        match turn {
+            0 => {
+                // One being identified is marked.
+                let Some(rec) = app.mix.sources.iter().find(|s| s.place == "DNA").map(|s| s.path.clone()) else {
+                    continue;
+                };
+                identifying(&mut app.mix, None, (0, 0), (0, 0));
+                app.mix.loading.as_mut().unwrap().path = rec.clone();
+                let s = screen(&mut app, 120, 30);
+                assert!(s.contains(&format!("⟳ {}", rec.file_name().unwrap().to_string_lossy())), "{s}");
+                press(&mut app, "\u{1b}");
+            }
+            1 => {
+                // del on a drive's recording keeps it; on one from this computer, forgets it.
+                let i = tc.draw(gs::integers::<usize>().max_value(app.mix.sources.len().saturating_sub(1)));
+                let Some(s) = app.mix.sources.get(i).cloned() else { continue };
+                (app.mix.pane, app.mix.list) = (Pane::Mixes, ListState::default().with_selected(Some(i)));
+                let before = app.mix.sources.len();
+                key(&mut app, KeyCode::Delete);
+                assert_eq!(app.mix.sources.len(), if s.place == "DNA" { before } else { before - 1 });
+            }
+            2 => {
+                app.mix.pane = Pane::Mixes;
+                press(&mut app, "\t");
+                let tracks = app.mix.report().is_some_and(|r| !r.plays.is_empty());
+                assert_eq!(app.mix.pane, if tracks { Pane::Tracks } else { Pane::Mixes });
+            }
+            3 => {
+                // Nothing selected: enter asks for a path.
+                (app.mix.pane, app.mix.list) = (Pane::Mixes, ListState::default());
+                press(&mut app, "\n");
+                assert_eq!(app.mix.input.as_deref(), Some(""));
+                press(&mut app, "\u{1b}");
+            }
+            4 => {
+                // Nothing of the view's to do: esc, o and space go on to the app.
+                (app.mix.pane, app.mix.opened) = (Pane::Mixes, None);
+                assert!(!escape(&mut app) && !go_to(&mut app));
+                assert!(!super::play(&mut app), "nothing to play here");
+                assert!(!track_jump(&mut app, true));
+            }
+            5 => {
+                // The set paused: space plays it on.
+                let (audio, _out) = Audio::offline(8000);
+                app.audio = Some(audio);
+                (app.mix.opened, app.mix.rows) = (Some(Ok(opened_set())), TableState::default().with_selected(Some(1)));
+                let set = wav_at(&dir.path().join("Sunday Warm-up.wav"));
+                if let Some(Ok(o)) = &mut app.mix.opened {
+                    o.audio = Some(set);
+                }
+                press(&mut app, " ");
+                opened(&mut app);
+                app.audio.as_ref().unwrap().toggle_pause();
+                let at = app.mix.report().unwrap().plays[1].start;
+                play_from(&mut app, at);
+                assert!(!app.audio.as_ref().unwrap().is_paused(), "on again");
+                press(&mut app, "x");
+            }
+            _ => {
+                // With no drive open, the view says one's needed.
+                let (mut none, _store) = blank(View::Mixes);
+                let s = screen(&mut none, 120, 30);
+                assert!(s.contains("No drive open.") && s.contains("Open a drive in the library first (1)"), "{s}");
+            }
+        }
+    }
+}

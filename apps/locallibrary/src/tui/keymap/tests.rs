@@ -150,3 +150,65 @@ fn hints_fit_the_footer_and_widen_with_it(tc: hegel::TestCase) {
     let more = hints(&app, wider);
     assert!(shown.iter().all(|h| more.contains(h)), "{shown:?} at {width}, {more:?} at {wider}");
 }
+
+/// Every view's help lists its own keys and then the ones for everywhere, under headings of
+/// their own, none empty; its commands (the view's own, then everywhere's) are each named once,
+/// and for any letters typed the palette shows just the commands they're in, best first.
+#[hegel::test(test_cases = 50)]
+fn every_view_has_its_help_and_its_commands(tc: hegel::TestCase) {
+    use super::super::palette::{Picker, Then, commands, fuzzy};
+    use hegel::generators as gs;
+    let typed: String = tc.draw(gs::text().alphabet("aeioustr ").max_size(4));
+    for v in View::ALL {
+        let (own, global) = help(v);
+        for sections in [&own, &global] {
+            let titles: Vec<&str> = sections.iter().map(|(t, _)| *t).collect();
+            let mut unique = titles.clone();
+            unique.sort_unstable();
+            unique.dedup();
+            assert_eq!(unique.len(), titles.len(), "{v:?}: a heading twice");
+            assert!(sections.iter().all(|(_, lines)| !lines.is_empty()), "{v:?}: an empty heading");
+        }
+        let cmds = commands(v);
+        let mut names: Vec<&str> = cmds.iter().map(|(_, i)| i.label.as_str()).collect();
+        let n = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), n, "{v:?}: a command named twice");
+        // The palette shows just the commands those letters are in (by name or key), best first.
+        let (acts, items): (Vec<_>, Vec<_>) = cmds.into_iter().unzip();
+        let mut p = Picker::new("Commands", items, Then::Act(acts));
+        p.query = typed.clone();
+        p.filter();
+        let score = |i: usize| fuzzy(&typed, &p.items[i].label).max(fuzzy(&typed, &p.items[i].detail));
+        let matching = (0..p.items.len()).filter(|&i| score(i).is_some()).count();
+        assert_eq!(p.shown.len(), matching, "{v:?}: {typed:?}");
+        assert!(p.shown.windows(2).all(|w| score(w[0]) >= score(w[1])), "best first");
+    }
+}
+
+/// The table's rows are built at compile time, so its constructors run here: rebuilt from its
+/// own fields, a row drawn from it is the same row, and a row with no keys is a help line (a
+/// note) or a footer hint (a tip), as the constructors make them.
+#[hegel::test(test_cases = 100)]
+fn every_row_is_what_its_constructor_makes(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let b = KEYMAP[tc.draw(gs::integers::<usize>().max_value(KEYMAP.len() - 1))];
+    let rebuilt = key(b.scope, b.keys, b.shown, b.act, b.name, b.help, b.group);
+    let rebuilt = match b.hint {
+        Some((label, prio)) => rebuilt.hint(label, prio),
+        None => rebuilt,
+    };
+    assert_eq!(format!("{rebuilt:?}"), format!("{b:?}"));
+    if b.keys.is_empty() && b.act == Act::None {
+        let as_note = format!("{:?}", note(b.scope, b.shown, b.help, b.group));
+        let as_tip = b.hint.map(|(label, prio)| format!("{:?}", tip(b.scope, b.shown, label, prio)));
+        assert!(as_note == format!("{b:?}") || as_tip == Some(format!("{b:?}")), "{b:?}");
+    }
+    // A tip of any label and priority is a footer hint and nothing else.
+    let label: &'static str = Box::leak(tc.draw(gs::text().max_size(12)).into_boxed_str());
+    let prio = tc.draw(gs::integers::<u8>());
+    let t = tip(b.scope, b.shown, label, prio);
+    assert!(t.keys.is_empty() && t.act == Act::None && t.name.is_empty() && t.help.is_empty());
+    assert_eq!(t.hint, Some((label, prio)));
+}

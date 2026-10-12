@@ -88,3 +88,19 @@ fn what_is_saved_reads_back(tc: hegel::TestCase) {
     save(&drive.join("store"), &Saved { root: Some(drive.clone()), ..saved });
     assert!(!drive.exists());
 }
+
+/// A store at the top of the disk has no folder beside it to keep the player's state in: nothing
+/// is saved there, and the next run starts fresh.
+#[hegel::test(test_cases = 20)]
+fn a_store_with_nothing_beside_it_keeps_nothing(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let root = std::path::Path::new("/");
+    let saved = Saved {
+        volume: Some(tc.draw(gs::sampled_from(&[0.2f32, 1.0][..]))),
+        shuffle: tc.draw(gs::booleans()),
+        ..Default::default()
+    };
+    save(root, &saved);
+    assert!(!root.join(FILE).exists());
+    assert_eq!(load(root), Saved::default());
+}

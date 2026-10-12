@@ -2441,7 +2441,10 @@ fn draw_outputs(f: &mut Frame, app: &mut App, area: Rect) {
     let mut items = vec![ListItem::new(Line::from(vec![mark(playing == Some(None)), Span::styled(default, text())]))];
     for n in &o.names {
         let on = playing.as_ref().is_some_and(|p| p.as_deref() == Some(n.as_str()));
-        items.push(ListItem::new(Line::from(vec![mark(on), Span::styled(clip(n, w as usize - 6), text())])));
+        items.push(ListItem::new(Line::from(vec![
+            mark(on),
+            Span::styled(clip(n, (w as usize).saturating_sub(6)), text()),
+        ])));
     }
     let r = popup(area, w, items.len() as u16 + 2, None);
     o.state.fit(r.height.saturating_sub(2) as usize, items.len());

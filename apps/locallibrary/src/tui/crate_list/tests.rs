@@ -66,3 +66,28 @@ fn reading_a_drive_again_keeps_the_crate_in_order(tc: hegel::TestCase) {
         assert_eq!(now.track.rating, if now.root == a { 4 } else { was.rating });
     }
 }
+
+/// Moving a track along the crate moves it so far, never past either end, and keeps the others
+/// in their order; a place past the end moves nothing.
+#[hegel::test(test_cases = 300)]
+fn moving_a_crated_track_keeps_the_rest_in_order(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<u32>().max_value(6));
+    let mut c = Crate::default();
+    c.add(std::path::Path::new("/Volumes/A"), "A", (1..=n).map(|id| track(id, "DJ", &format!("T{id}"))));
+    let ids = |c: &Crate| c.items.iter().map(|t| t.track.id).collect::<Vec<_>>();
+    let before = ids(&c);
+    let i = tc.draw(gs::integers::<usize>().max_value(n as usize + 1));
+    let delta = tc.draw(gs::integers::<isize>().min_value(-8).max_value(8));
+    let to = c.shift(i, delta);
+    if i >= before.len() {
+        return assert_eq!((to, ids(&c)), (i, before), "past the end");
+    }
+    assert_eq!(to, (i as isize + delta).clamp(0, before.len() as isize - 1) as usize);
+    let after = ids(&c);
+    assert_eq!(after[to], before[i]);
+    let (mut a, mut b) = (after.clone(), before.clone());
+    a.remove(to);
+    b.remove(i);
+    assert_eq!(a, b, "the others in their order");
+}

@@ -402,3 +402,278 @@ fn a_track_at_its_end_ends_its_span() {
     assert_eq!(play(&mut l, 3), [0, 1]);
     assert_eq!(l.current_span_len(), Some(0));
 }
+
+/// What a person hears from a track played with loops set, changed and let go of, and seeks:
+/// a playhead moving through the track a frame at a time, which a loop playing sends back to its
+/// start at its end; a loop made longer or shorter (same start) takes a playhead past its new end
+/// as far round it as it was; one set behind the playhead isn't gone back to; a seek moves the
+/// playhead, before the next frame. What's played round a loop from memory is the same.
+#[derive(Debug, Default)]
+struct Heard {
+    at: u64,
+    bounds: Option<(u64, u64)>,
+    /// The loop asked for since the last frame, and whether playing it.
+    asked: Option<Option<(u64, u64)>>,
+    looping: bool,
+    seek: Option<u64>,
+}
+
+impl Heard {
+    /// The frame played next.
+    fn frame(&mut self) -> u64 {
+        if let Some(to) = self.seek.take() {
+            self.at = to;
+        }
+        if let Some(new) = self.asked.take() {
+            let new = new.filter(|(a, b)| a < b);
+            if new != self.bounds {
+                let resized = self.bounds.is_some_and(|(old, _)| Some(old) == new.map(|(a, _)| a));
+                self.bounds = new;
+                if let Some((a, b)) = new
+                    && resized
+                    && self.at >= b
+                {
+                    self.at = a + (self.at - a) % (b - a);
+                }
+            }
+        }
+        if let Some((a, b)) = self.bounds
+            && self.looping
+            && self.at == b
+        {
+            self.at = a;
+        }
+        self.at += 1;
+        self.at - 1
+    }
+}
+
+#[hegel::test(test_cases = 300)]
+fn loops_and_seeks_play_what_a_playhead_would(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    const FRAMES: u32 = 400;
+    let head = Arc::new(Playhead::default());
+    let mut l = Looper::new(counting(FRAMES), head.clone());
+    let mut heard = Heard::default();
+    // Samples into the frame being played: 0 or 1 (left or right).
+    let mut half = false;
+    // First a loop set, played round from memory and let go of partway (as drawn, the steps
+    // seldom line up so), then anything.
+    const SCRIPT: [u8; 6] = [2, 0, 0, 3, 0, 0];
+    for step in 0..SCRIPT.len() + tc.draw(gs::integers::<usize>().max_value(25)) {
+        let scripted = SCRIPT.get(step).copied();
+        match scripted.unwrap_or_else(|| tc.draw(gs::integers::<u8>().max_value(5))) {
+            0 | 1 => {
+                let n = if scripted.is_some() { 40 } else { tc.draw(gs::integers::<usize>().max_value(40)) };
+                for _ in 0..n {
+                    // Keep short of the end, where the track would stop.
+                    if heard.at >= FRAMES as u64 - 2 && !half {
+                        break;
+                    }
+                    let s = l.next().unwrap() as u32;
+                    if !half {
+                        let f = heard.frame();
+                        assert_eq!(s, 2 * f as u32, "left of frame {f}");
+                    } else {
+                        assert_eq!(s, 2 * (heard.at - 1) as u32 + 1, "right of frame {}", heard.at - 1);
+                    }
+                    half = !half;
+                }
+                if !half && heard.seek.is_none() {
+                    assert_eq!(head.position(), ms(heard.at), "the playhead");
+                }
+                // Short of the end, what's next is never an empty span (that's the end).
+                if heard.at < FRAMES as u64 - 2 {
+                    assert!(l.current_span_len().is_none_or(|n| n > 0), "an empty span at {}", heard.at);
+                }
+            }
+            2 => {
+                let a = tc.draw(gs::sampled_from(&[0u64, 10, 20][..]));
+                let len = tc.draw(gs::sampled_from(if scripted.is_some() {
+                    &[2u64, 4, 8][..]
+                } else {
+                    &[0u64, 2, 4, 8][..]
+                }));
+                head.set_loop(Some((ms(a), ms(a + len))));
+                heard.asked = Some(Some((a, a + len)));
+                heard.looping = true;
+            }
+            3 => {
+                head.set_loop(None);
+                heard.looping = false;
+            }
+            4 => {
+                let to = tc.draw(gs::sampled_from(&[0u64, 5, 11, 13, 21, 60][..]));
+                l.try_seek(ms(to)).unwrap();
+                heard.seek = Some(to);
+                assert_eq!(head.position(), ms(to), "where it's going");
+            }
+            _ => {
+                // The same loop set again: what's playing it goes on as it was.
+                if let Some((a, b)) = heard.bounds.filter(|_| heard.asked.is_none()) {
+                    head.set_loop(Some((ms(a), ms(b))));
+                    heard.asked = Some(Some((a, b)));
+                    heard.looping = true;
+                }
+            }
+        }
+        assert_eq!(head.is_looping(), heard.looping);
+    }
+}
+
+/// What an output's stream said last is kept for the player: the output going away (unplugged,
+/// or its stream no good any more) once it has, over any glitch after it; else the latest glitch.
+/// Asked, it's said once.
+#[cfg(feature = "playback")]
+#[hegel::test(test_cases = 300)]
+fn a_stream_says_its_output_went_away_over_any_glitch(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use rodio::cpal::{BackendSpecificError, StreamError};
+    let errors = StreamErrors::default();
+    let mut kept: Option<(String, bool)> = None;
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(8)) {
+        if tc.draw(gs::integers::<u8>().max_value(3)) == 0 {
+            assert_eq!(errors.lock().unwrap().take(), kept.take(), "said once");
+            continue;
+        }
+        let e = match tc.draw(gs::integers::<u8>().max_value(3)) {
+            0 => StreamError::DeviceNotAvailable,
+            1 => StreamError::StreamInvalidated,
+            2 => StreamError::BufferUnderrun,
+            _ => {
+                StreamError::BackendSpecific { err: BackendSpecificError { description: "the driver hiccuped".into() } }
+            }
+        };
+        let gone = matches!(e, StreamError::DeviceNotAvailable | StreamError::StreamInvalidated);
+        let said = e.to_string();
+        stream_error(&errors, e);
+        if gone || !kept.as_ref().is_some_and(|k| k.1) {
+            kept = Some((said, gone));
+        }
+        assert_eq!(*errors.lock().unwrap(), kept);
+    }
+}
+
+/// An output plays what it's given as asked: a file from its start (or where it's to start),
+/// paused or playing, its time passing only while it plays; a seek is where it is at once; space
+/// pauses and plays; the volume stays within bounds; only a track of the same format queues
+/// behind the playing one, which the player goes straight on to; stopped, nothing's loaded.
+#[hegel::test(test_cases = 100)]
+fn an_output_plays_pauses_seeks_and_queues_as_asked(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let dir = tempfile::tempdir().unwrap();
+    let file_at = |rate: u32, frames: i16| {
+        let path = dir.path().join(format!("{rate}-{frames}.wav"));
+        std::fs::write(&path, wav_of(rate, &(0..frames).collect::<Vec<i16>>())).unwrap();
+        open_file(&path).unwrap()
+    };
+    let (mut audio, mut out) = Audio::offline(8000);
+    let (mut loaded, mut paused, mut queued) = (false, true, false);
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
+        match tc.draw(gs::integers::<u8>().max_value(7)) {
+            0 => {
+                let mut file = file_at(8000, 800);
+                let start = tc.draw(gs::optional(gs::sampled_from(&[10u64, 50][..])));
+                file.start = start.map(ms);
+                paused = tc.draw(gs::booleans());
+                audio.play(file, paused);
+                (loaded, queued) = (true, false);
+                assert_eq!(audio.position(), ms(start.unwrap_or(0)));
+            }
+            1 => {
+                audio.toggle_pause();
+                paused = !paused || !loaded;
+            }
+            2 => {
+                let v = tc.draw(gs::sampled_from(&[-1.0f32, 0.0, 0.7, 1.5, 3.0][..]));
+                audio.set_volume(v);
+                assert_eq!(audio.volume(), v.clamp(0.0, 1.5));
+            }
+            3 => {
+                let to = ms(tc.draw(gs::sampled_from(&[0u64, 20, 90][..])));
+                audio.seek(to, tc.draw(gs::booleans()));
+                if loaded && !audio.finished() {
+                    assert_eq!(audio.position(), to, "where it's going");
+                }
+            }
+            4 => {
+                let rate = tc.draw(gs::sampled_from(&[8000u32, 16000][..]));
+                let ok = audio.queue(file_at(rate, 400)).is_ok();
+                assert_eq!(ok, loaded && rate == 8000, "rate {rate}: only the playing track's format queues");
+                queued |= ok;
+            }
+            5 => {
+                audio.unqueue();
+                queued = false;
+            }
+            6 => {
+                audio.stop();
+                (loaded, paused, queued) = (false, true, false);
+            }
+            _ => {
+                // Time passes: the output asks for samples.
+                let before = audio.position();
+                let n = tc.draw(gs::sampled_from(&[0usize, 80, 400, 1200][..]));
+                (&mut out).take(n).for_each(drop);
+                if audio.advanced() {
+                    assert!(queued, "went on to nothing queued");
+                    queued = false;
+                } else if loaded && paused {
+                    assert_eq!(audio.position(), before, "paused, time stands still");
+                }
+            }
+        }
+        assert_eq!(audio.is_loaded(), loaded);
+        assert_eq!(audio.is_paused(), paused || !loaded, "loaded {loaded}");
+    }
+}
+
+/// A track that can't seek plays on from where it was when asked to (saying so), and through
+/// the end of a loop set behind the playhead (no longer looping), while a loop set ahead of it
+/// still goes round, from memory; a track that breaks part-way ends there, saying why, with
+/// nothing left of its span; one dropped from the queue ends as it starts.
+#[hegel::test(test_cases = 200)]
+fn a_track_that_cant_seek_or_breaks_plays_on_or_ends(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let ahead = tc.draw(gs::integers::<u64>().min_value(1).max_value(20));
+    let len = tc.draw(gs::integers::<u64>().min_value(2).max_value(8));
+
+    // Seeks it can't make: flagged, and it plays on.
+    let head = Arc::new(Playhead::default());
+    let mut l = Looper::new(unseekable(), head.clone());
+    let at = play(&mut l, ahead as usize).len() as u64;
+    l.try_seek(ms(tc.draw(gs::integers::<u64>().max_value(90)))).unwrap();
+    assert_eq!(play(&mut l, 2), [at as u32, at as u32 + 1], "on from where it was");
+    assert!(head.seek_failed.load(Ordering::Relaxed));
+
+    // A loop behind the playhead: through its end, looping no more.
+    let a = (at + 2).saturating_sub(len.min(at + 2));
+    head.set_loop(Some((ms(a), ms(at + 3))));
+    let on = play(&mut l, 6);
+    assert_eq!(on, (at as u32 + 2..at as u32 + 8).collect::<Vec<_>>(), "loop {a}..{} from {}", at + 3, at + 2);
+    assert!(!head.is_looping());
+
+    // A loop ahead of it: round and round, from memory.
+    let head = Arc::new(Playhead::default());
+    let mut l = Looper::new(unseekable(), head.clone());
+    head.set_loop(Some((ms(ahead), ms(ahead + len))));
+    let heard = play(&mut l, (ahead + 3 * len) as usize);
+    let want: Vec<u32> = (0..ahead).chain((0..3).flat_map(|_| ahead..ahead + len)).map(|f| f as u32).collect();
+    assert_eq!(heard, want);
+
+    // Breaking after so many samples: ended there, saying why.
+    let k = tc.draw(gs::integers::<usize>().min_value(1).max_value(40));
+    let head = Arc::new(Playhead::default());
+    let mut l = Looper::new(Breaks(counting(100), k), head.clone());
+    let samples: Vec<f32> = (&mut l).take(100).collect();
+    assert_eq!(samples.len(), k);
+    assert!(l.next().is_none() && head.ended.load(Ordering::Acquire));
+    assert!(head.broke.lock().unwrap().as_deref().is_some_and(|w| w.contains("a bad frame")));
+    assert_eq!(l.current_span_len(), Some(0));
+
+    // Dropped from the queue: it ends as it starts.
+    let head = Arc::new(Playhead::default());
+    let mut l = Looper::new(counting(10), head.clone());
+    head.dropped.store(true, Ordering::Relaxed);
+    assert!(l.next().is_none() && head.ended.load(Ordering::Acquire) && head.started.load(Ordering::Acquire));
+}
