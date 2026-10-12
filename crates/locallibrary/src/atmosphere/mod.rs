@@ -981,7 +981,7 @@ pub(crate) mod tests {
     }
 
     /// The mock keychain's next answer for `did`'s item in the store at `root` is an error.
-    fn keychain_fails(root: &Path, did: &str) {
+    pub(crate) fn keychain_fails(root: &Path, did: &str) {
         let entry = store::keychain_entry(root, did).unwrap();
         let cred: &keyring_core::mock::Cred = entry.as_any().downcast_ref().unwrap();
         cred.set_error(keyring::Error::NoStorageAccess(std::io::Error::other("locked").into()));
@@ -1374,5 +1374,283 @@ pub(crate) mod tests {
         assert_eq!(doc["scope"].as_str().unwrap().split(' ').count(), 1 + PUBLISH_SCOPES.len());
         let doc = client_metadata(CLIENT_ID, &["repo:app.example.thing".into()]).unwrap();
         assert!(doc["scope"].as_str().unwrap().split(' ').any(|s| s == "repo:app.example.thing"));
+    }
+
+    use hegel::generators as gs;
+    use hegel::{Generator, TestCase};
+
+    fn alnum() -> impl hegel::PrintableGenerator<String> {
+        gs::text().alphabet("abcdefghijklmnopqrstuvwxyz0123456789").min_size(1).max_size(10)
+    }
+
+    /// A client document is checked the way a server would, for the first thing wrong with it: a
+    /// client_id that isn't its address, an app that isn't native, no loopback redirect, or a
+    /// scope asked for that it doesn't allow.
+    #[hegel::test(test_cases = 300)]
+    fn documents_are_refused_for_the_first_thing_wrong(tc: TestCase) {
+        let extra: Vec<String> = tc
+            .draw(gs::vecs(gs::sampled_from(vec!["transition:generic", "repo:app.example.thing"])).max_size(2))
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let mut doc = client_metadata(CLIENT_ID, &extra).unwrap();
+        let other_id = tc.draw(gs::booleans());
+        if other_id {
+            doc["client_id"] = "https://other.example/oauth-client-metadata.json".into();
+        }
+        let kind = tc.draw(
+            gs::sampled_from(vec![serde_json::json!("native"), serde_json::json!("web"), serde_json::Value::Null])
+                .print_as_debug(),
+        );
+        doc["application_type"] = kind.clone();
+        let redirects = tc.draw(
+            gs::sampled_from(vec![
+                serde_json::json!(["http://127.0.0.1/callback"]),
+                serde_json::json!(["http://127.0.0.1:8080/callback", "http://127.0.0.1/callback"]),
+                serde_json::json!(["https://example.com/callback"]),
+                serde_json::json!([]),
+                serde_json::Value::Null,
+            ])
+            .print_as_debug(),
+        );
+        doc["redirect_uris"] = redirects.clone();
+        let mut allowed: Vec<String> = doc["scope"].as_str().unwrap().split(' ').map(String::from).collect();
+        if let Some(i) = tc.draw(gs::optional(gs::integers::<usize>().max_value(allowed.len() - 1))) {
+            allowed.remove(i);
+            doc["scope"] = allowed.join(" ").into();
+        }
+        let pool =
+            vec!["atproto", "transition:generic", "repo:app.example.thing", PUBLISH_SCOPES[0], PUBLISH_SCOPES[2]];
+        let requested: Vec<String> =
+            tc.draw(gs::vecs(gs::sampled_from(pool)).max_size(4)).into_iter().map(String::from).collect();
+
+        let loopback = redirects.as_array().is_some_and(|r| r.iter().any(|u| u == "http://127.0.0.1/callback"));
+        let missing = requested.iter().find(|s| !allowed.contains(s));
+        let expected = if other_id {
+            Some("its client_id is \"https://other.example/oauth-client-metadata.json\"".to_string())
+        } else if kind != "native" {
+            Some("it isn't a native app's".to_string())
+        } else if !loopback {
+            Some("it doesn't list http://127.0.0.1/callback".to_string())
+        } else {
+            missing.map(|m| format!("it doesn't allow the scope {m}"))
+        };
+        assert_eq!(check_document(&doc, CLIENT_ID, &requested).err(), expected, "{doc}");
+    }
+
+    /// Scopes to ask for are read when every one can be and `atproto` is among them (none at all
+    /// means `atproto`), and come back as asked, each once.
+    #[hegel::test(test_cases = 300)]
+    fn scopes_are_read_when_they_include_atproto(tc: TestCase) {
+        let atoms = vec![
+            ("atproto", true),
+            ("transition:generic", true),
+            ("repo:app.example.thing", true),
+            (PUBLISH_SCOPES[0], true),
+            ("foo:bar", false),
+            ("repo:app.example.thing?action=publish", false),
+        ];
+        let list: Vec<(&str, bool)> = tc.draw(gs::vecs(gs::sampled_from(atoms)).max_size(4));
+        let asked: Vec<String> = list.iter().map(|(s, _)| s.to_string()).collect();
+        match scopes(&asked) {
+            Ok(read) => {
+                let mut want: Vec<String> = if asked.is_empty() { vec!["atproto".into()] } else { asked.clone() };
+                want.sort();
+                want.dedup();
+                let mut got: Vec<String> = read.to_normalized_string().split(' ').map(String::from).collect();
+                got.sort();
+                assert_eq!(got, want);
+            }
+            Err(e) if list.iter().all(|(_, ok)| *ok) => {
+                assert!(!asked.is_empty() && !asked.iter().any(|s| s == "atproto"), "{asked:?}: {e}");
+                assert!(e.to_string().contains("have to include `atproto`"), "{e}");
+            }
+            Err(e) => assert!(e.to_string().contains(&format!("scopes {:?}", asked.join(" "))), "{e}"),
+        }
+    }
+
+    /// A loopback client's ID carries its redirect, whatever the port, and the scopes it asks
+    /// for; a hosted client's is its document's https address, and nothing else will do.
+    #[hegel::test(test_cases = 200)]
+    fn clients_are_introduced_as_they_should_be(tc: TestCase) {
+        let port = tc.draw(gs::integers::<u16>().min_value(1));
+        let redirect = format!("http://127.0.0.1:{port}{CALLBACK_PATH}");
+        let extra = tc.draw(gs::optional(gs::sampled_from(vec!["transition:generic", PUBLISH_SCOPES[1]])));
+        let asked: Vec<String> = ["atproto"].into_iter().chain(extra).map(String::from).collect();
+        let c = client_config(&Client::Loopback, &redirect, scopes(&asked).unwrap()).unwrap();
+        let id = c.client_id.as_str();
+        assert!(id.starts_with("http://localhost"), "{id}");
+        assert!(id.contains(&format!("redirect_uri=http%3A%2F%2F127.0.0.1%3A{port}%2Fcallback")), "{id}");
+        assert_eq!(c.redirect_uris.iter().map(|u| u.as_str()).collect::<Vec<_>>(), [redirect.as_str()]);
+        assert_eq!(c.scopes.to_normalized_string(), scopes(&asked).unwrap().to_normalized_string());
+
+        let host = tc.draw(gs::from_regex(r"[a-z][a-z0-9]{0,8}\.[a-z]{2,5}").fullmatch(true));
+        let scheme = tc.draw(gs::sampled_from(vec!["https", "http", "ftp"]));
+        let client_id = format!("{scheme}://{host}/oauth-client-metadata.json");
+        let hosted =
+            client_config(&Client::Hosted { client_id: client_id.clone() }, &redirect, scopes(&asked).unwrap());
+        match scheme {
+            "https" => {
+                let c = hosted.unwrap();
+                assert_eq!(c.client_id.as_str(), client_id);
+                assert_eq!(c.client_name.as_deref(), Some("locallibrary"));
+            }
+            _ => assert!(hosted.unwrap_err().to_string().contains("is an https:// URL"), "{client_id}"),
+        }
+    }
+
+    /// locallibrary's own client signs in when its document is fit; while it's offline the
+    /// development client stands in, saying why; a document that's online but doesn't fit
+    /// stops the sign-in, saying why and offering the development client.
+    #[hegel::test(test_cases = 100)]
+    fn the_own_client_falls_back_only_while_offline(tc: TestCase) {
+        let why = tc.draw(gs::text().max_size(20));
+        match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => assert_eq!(own_client(Ok(())).unwrap(), (Client::published(), None)),
+            1 => {
+                let (client, note) = own_client(Err(Unusable::Offline(why.clone()))).unwrap();
+                assert_eq!(client, Client::Loopback);
+                assert!(note.unwrap().contains(&format!("({why}), so this signs in as a local development app")));
+            }
+            _ => {
+                let err = own_client(Err(Unusable::Unfit(why.clone()))).unwrap_err();
+                assert!(err.to_string().contains(&format!("doesn't fit this sign-in ({why})")), "{err}");
+                assert_eq!(err.detail().actions[0].params["dev_client"], true);
+            }
+        }
+    }
+
+    /// What went wrong signing in is said on one line, with its cause once, whatever the cause
+    /// says.
+    #[hegel::test(test_cases = 200)]
+    fn sign_in_errors_are_said_on_one_line(tc: TestCase) {
+        use jacquard_oauth::request::{RequestError, RequestErrorKind};
+        let cause = tc.draw(hegel::one_of!(
+            gs::text().max_size(20),
+            gs::sampled_from(vec!["storage".to_string(), "error".into(), "line\none\u{1b}[2J".into()])
+        ));
+        let e = OAuthError::Request(RequestError::new(
+            RequestErrorKind::Storage,
+            Some(Box::new(std::io::Error::other(cause.clone()))),
+        ));
+        let said = oauth_error(e).to_string();
+        let expected = if "storage error".contains(&cause) {
+            "signing in: storage error".to_string()
+        } else {
+            format!("signing in: storage error: {cause}")
+        };
+        assert_eq!(said, crate::export::one_line(&expected));
+        assert!(!said.chars().any(char::is_control), "{said:?}");
+    }
+
+    /// The redirect back to a sign-in.
+    #[derive(Debug, Clone)]
+    struct Redirect {
+        /// 0: no state, 1: the sign-in's own, 2: someone else's.
+        state: u8,
+        code: Option<String>,
+        error: Option<String>,
+        error_description: Option<String>,
+    }
+
+    #[hegel::test_helper]
+    fn redirect(tc: &TestCase) -> Redirect {
+        Redirect {
+            // Mostly the sign-in's own: the others all go the same way.
+            state: tc.draw(gs::sampled_from(vec![0, 1, 1, 1, 2])),
+            code: tc.draw(gs::optional(alnum())),
+            error: tc.draw(gs::optional(gs::sampled_from(vec!["access_denied".to_string(), "server_error".into()]))),
+            error_description: tc.draw(gs::optional(gs::text().max_size(12))),
+        }
+    }
+
+    impl Redirect {
+        fn query(&self, state: &str) -> String {
+            use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+            let state = match self.state {
+                0 => None,
+                1 => Some(state.to_string()),
+                _ => Some(format!("{state}x")),
+            };
+            [
+                ("state", &state),
+                ("code", &self.code),
+                ("error", &self.error),
+                ("error_description", &self.error_description),
+            ]
+            .into_iter()
+            .filter_map(|(k, v)| Some(format!("{k}={}", utf8_percent_encode(v.as_ref()?, NON_ALPHANUMERIC))))
+            .collect::<Vec<_>>()
+            .join("&")
+        }
+
+        /// How finishing with it goes: what the error says (it can't succeed without a server).
+        fn expected(&self, state: &str) -> String {
+            let q = CallbackQuery::parse(&self.query(state));
+            if self.state != 1 {
+                other_attempt().to_string()
+            } else if let Some(refusal) = q.refusal() {
+                refusal
+            } else if self.code.is_none() {
+                "the browser came back without a sign-in code".to_string()
+            } else {
+                "signing in: ".to_string()
+            }
+        }
+    }
+
+    /// Finishing with a pasted address goes the way a model says: one without a result leaves
+    /// the sign-in waiting; one from another attempt, or without a state, is turned away; the
+    /// sign-in's own refusal is said; its own code goes on to the token exchange (here, with a
+    /// server that isn't public, refused). Each but the first ends the sign-in, and nobody is
+    /// signed in.
+    #[hegel::test(test_cases = 4)]
+    fn finishing_with_a_pasted_address_agrees_with_a_model(tc: TestCase) {
+        let dir = tempfile::tempdir().unwrap();
+        let state = tc.draw(alnum());
+        let r = redirect(&tc);
+        let id = waiting(dir.path(), &state);
+        let url = format!("http://127.0.0.1:1/callback?{}", r.query(&state));
+        let err = finish_login_with_url(&id, &url).unwrap_err().to_string();
+        if r.code.is_none() && r.error.is_none() {
+            assert!(err.contains("no sign-in result"), "{err}");
+            assert!(cancel_login(&id), "still waiting");
+        } else {
+            let expected = r.expected(&state);
+            assert!(
+                if expected.ends_with(": ") { err.starts_with(&expected) } else { err == expected },
+                "{expected:?}: {err}"
+            );
+            assert!(!cancel_login(&id), "over");
+        }
+        assert_eq!(status(dir.path()).unwrap(), None);
+    }
+
+    /// Finishing in the browser goes the same way (and without a code, says so), and the browser
+    /// is shown what went wrong, escaped.
+    #[hegel::test(test_cases = 3)]
+    fn finishing_in_the_browser_shows_how_it_went(tc: TestCase) {
+        use std::io::{Read, Write};
+        let dir = tempfile::tempdir().unwrap();
+        let state = tc.draw(alnum());
+        let mut r = redirect(&tc);
+        // Only the sign-in's own redirect ends the wait.
+        r.state = 1;
+        let id = waiting(dir.path(), &state);
+        let port = PENDING.lock().unwrap()[&id].listener.local_addr().unwrap().port();
+        let mut browser = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        write!(browser, "GET /callback?{} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n", r.query(&state)).unwrap();
+        let err = finish_login(&id, Duration::from_secs(30), &Ctx::silent()).unwrap_err().to_string();
+        let expected = r.expected(&state);
+        assert!(
+            if expected.ends_with(": ") { err.starts_with(&expected) } else { err == expected },
+            "{expected:?}: {err}"
+        );
+        let mut page = String::new();
+        browser.read_to_string(&mut page).unwrap();
+        assert!(page.contains("couldn't sign you in"), "{page}");
+        let escaped = err.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
+        assert!(page.contains(&escaped), "{page}");
+        assert!(!cancel_login(&id));
     }
 }

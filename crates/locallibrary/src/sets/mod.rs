@@ -155,7 +155,7 @@ pub struct SetEntry {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub key: String,
     /// 0 when unknown.
-    #[serde(default)]
+    #[serde(default, serialize_with = "known_bpm")]
     pub bpm: f64,
     #[serde(default)]
     pub year: u16,
@@ -174,6 +174,12 @@ pub struct SetEntry {
     /// The session that logged it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+}
+
+/// A tempo as JSON holds it: an infinite or NaN one is no tempo, and serde_json would write it as
+/// `null`, which doesn't read back as a number (the whole of `sets.json` with it), so it's unknown.
+fn known_bpm<S: serde::Serializer>(bpm: &f64, s: S) -> std::result::Result<S::Ok, S::Error> {
+    s.serialize_f64(if bpm.is_finite() { *bpm } else { 0.0 })
 }
 
 impl SetEntry {
@@ -472,6 +478,17 @@ mod tests {
         assert_eq!(book.find("nope").unwrap_err().code(), "not_found");
     }
 
+    /// Regression: an infinite or NaN tempo went into `sets.json` as `null`, and then the book
+    /// didn't read.
+    #[test]
+    fn a_tempo_that_is_no_number_is_saved_as_unknown() {
+        for bpm in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            let e = SetEntry { bpm, ..SetEntry::added("Bicep - Glue") };
+            let back: SetEntry = serde_json::from_str(&serde_json::to_string(&e).unwrap()).unwrap();
+            assert_eq!(back, SetEntry { bpm: 0.0, ..e });
+        }
+    }
+
     #[test]
     fn ids_are_tids_on_the_day() {
         // The spec's example: 2023-11-07T20:21:04.000Z with clock id 0.
@@ -537,5 +554,111 @@ mod tests {
         let night = Window { after: Some(local(22, 3)), before: Some(local(3, 4)), exact: true };
         assert_eq!(night.day(), NaiveDate::from_ymd_opt(2026, 10, 3));
         assert_eq!(Window { exact: false, ..night }.day(), None, "a window across days is no one day");
+    }
+
+    use hegel::TestCase;
+    use hegel::generators as gs;
+
+    /// A window names the local day it falls on (a timed log, the day it started), else the span
+    /// it's known to lie in, as far as that's known.
+    #[hegel::test(test_cases = 300)]
+    fn a_window_names_its_day_or_what_it_spans(tc: TestCase) {
+        // Days no time zone changes its clocks on.
+        let local = |d: u32, h: u32| {
+            NaiveDate::from_ymd_opt(2026, 11, d)
+                .unwrap()
+                .and_hms_opt(h, 0, 0)
+                .unwrap()
+                .and_local_timezone(Local)
+                .earliest()
+                .unwrap()
+                .with_timezone(&Utc)
+        };
+        let at = || {
+            tc.draw(gs::booleans()).then(|| {
+                local(
+                    tc.draw(gs::integers::<u32>().min_value(10).max_value(12)),
+                    tc.draw(gs::integers::<u32>().max_value(23)),
+                )
+            })
+        };
+        let w = Window { after: at(), before: at(), exact: tc.draw(gs::booleans()) };
+        let day = |t: DateTime<Utc>| t.with_timezone(&Local).date_naive();
+        let on = match (w.after, w.before) {
+            (Some(a), _) if w.exact => Some(day(a)),
+            (Some(a), Some(b)) if day(a) == day(b) => Some(day(a)),
+            _ => None,
+        };
+        assert_eq!(w.day(), on);
+        let named = |t: DateTime<Utc>| day(t).format("%-d %b %Y").to_string();
+        let label = match (on, w.after, w.before) {
+            (Some(d), ..) => format!("on {}", d.format("%-d %b %Y")),
+            (None, Some(a), Some(b)) => format!("between {} and {}", named(a), named(b)),
+            (None, None, Some(b)) => format!("before {}", named(b)),
+            (None, Some(a), None) => format!("after {}", named(a)),
+            (None, None, None) => "unknown".into(),
+        };
+        assert_eq!(w.label(), label);
+    }
+
+    /// A track typed in is `Artist - Title` split at the first ` - ` (else a title), trimmed, and
+    /// named back that way; a library track keeps its details trimmed, its file, and where it
+    /// came from.
+    #[hegel::test(test_cases = 300)]
+    fn entries_name_the_track_they_hold(tc: TestCase) {
+        let part = || tc.draw(gs::sampled_from(vec!["", " Floorplan", "Never Grow Old ", "A - B", "ID"]));
+        let (artist, title) = (part(), part());
+        let text = match tc.draw(gs::booleans()) {
+            true => format!("{artist} - {title}"),
+            false => title.to_string(),
+        };
+        let e = SetEntry::added(&text);
+        let (a, t) = text.split_once(" - ").map_or(("", text.as_str()), |(a, t)| (a.trim(), t.trim()));
+        assert_eq!(
+            (e.artist.as_str(), e.title.as_str(), e.origin, e.file.as_deref()),
+            (a, t.trim(), EntryOrigin::Added, None)
+        );
+        let name = match (a, t.trim()) {
+            ("", t) => t.to_string(),
+            (a, "") => a.to_string(),
+            (a, t) => format!("{a} - {t}"),
+        };
+        assert_eq!(e.name(), name);
+
+        let file = tc.draw(gs::sampled_from(vec!["", "/Contents/A/B.mp3", "/CONTENTS/x.MP3"]));
+        let mut track = loclib_model::test_util::track(1, artist, title, file);
+        track.album = format!(" {title} ");
+        let origin = if tc.draw(gs::booleans()) { EntryOrigin::Session } else { EntryOrigin::Recording };
+        let session = tc.draw(gs::sampled_from(vec![None, Some("ab12")]));
+        let e = SetEntry::from_track(&track, origin, session);
+        assert_eq!(
+            (e.artist.as_str(), e.title.as_str(), e.album.as_str(), e.bpm, e.duration_secs),
+            (artist.trim(), title.trim(), title.trim(), track.bpm, track.duration_secs)
+        );
+        assert_eq!((e.origin, e.session.as_deref(), e.start_seconds, e.unnamed), (origin, session, None, false));
+        assert_eq!(e.file.as_deref(), Some(file).filter(|f| !f.is_empty()));
+        assert_eq!(e.file_key(), Some(file).filter(|f| !f.is_empty()).map(|f| f[1..].to_lowercase()));
+    }
+
+    /// A session's short id is its first 8 characters (all of a shorter one), and it names the
+    /// session again: `find` takes it back to that session unless another id starts the same way.
+    /// Ids are hex hashes; a two-letter alphabet makes them share prefixes.
+    #[hegel::test(test_cases = 100)]
+    fn sessions_are_listed_by_a_short_id(tc: TestCase) {
+        use crate::sets::build::tests::session;
+        assert_eq!(session("0123456789abcdef", &[], Window::default()).short_id(), "01234567");
+        assert_eq!(session("ab12", &[], Window::default()).short_id(), "ab12");
+
+        let ids = tc.draw(gs::hashsets(gs::text().alphabet("ab").min_size(4).max_size(12)).min_size(1).max_size(4));
+        let sessions: Vec<Session> = ids.iter().map(|id| session(id, &[], Window::default())).collect();
+        for s in &sessions {
+            let short = s.short_id();
+            assert!(s.id.starts_with(short), "{short:?} doesn't start {:?}", s.id);
+            assert_eq!(short.chars().count(), s.id.chars().count().min(8));
+            let sharing = sessions.iter().filter(|o| o.id.starts_with(short)).count();
+            if sharing == 1 {
+                assert_eq!(super::session::find(&sessions, short).unwrap().id, s.id);
+            }
+        }
     }
 }

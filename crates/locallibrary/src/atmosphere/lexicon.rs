@@ -230,6 +230,8 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
 
+    use hegel::Generator;
+    use hegel::generators as gs;
     use serde_json::json;
 
     use super::*;
@@ -549,5 +551,252 @@ mod tests {
         let nowhere = json!({ "type": "union", "refs": ["#nowhere"] });
         let err = check(SET, &nowhere, &json!({ "$type": format!("{SET}#nowhere") }), "place").unwrap_err();
         assert_eq!(err, "place: unknown ref #nowhere");
+    }
+
+    /// An optional bound from 0 to `max`.
+    #[hegel::test_helper]
+    fn bound(tc: &hegel::TestCase, max: i64) -> Option<i64> {
+        tc.draw(gs::optional(gs::integers::<i64>().min_value(0).max_value(max)))
+    }
+
+    /// Text fits a string schema exactly when its length in bytes is within `minLength` and
+    /// `maxLength`, its length in characters within `maxGraphemes` and it's one of `enum` (when
+    /// there is one), and the first of those it breaks is the one the error names.
+    #[hegel::test(test_cases = 400)]
+    fn text_fits_when_its_bytes_characters_and_value_do(tc: hegel::TestCase) {
+        let words = vec!["dark", "light", "dämmerung", "夜"];
+        let s: String =
+            tc.draw(hegel::one_of!(gs::sampled_from(words.clone()).map(String::from), gs::text().max_size(12)));
+        let (min, max, graphemes) = (bound(&tc, 12), bound(&tc, 40), bound(&tc, 12));
+        let closed = tc.draw(gs::booleans());
+        let mut schema = json!({ "type": "string" });
+        for (k, v) in [("minLength", min), ("maxLength", max), ("maxGraphemes", graphemes)] {
+            if let Some(v) = v {
+                schema[k] = v.into();
+            }
+        }
+        if closed {
+            schema["enum"] = json!(words);
+        }
+        let (bytes, chars) = (s.len() as i64, s.chars().count() as i64);
+        let bytes_fit = min.is_none_or(|m| bytes >= m) && max.is_none_or(|m| bytes <= m);
+        let chars_fit = graphemes.is_none_or(|m| chars <= m);
+        let listed = !closed || words.contains(&s.as_str());
+        match check(SET, &schema, &json!(s), "x") {
+            Ok(()) => assert!(bytes_fit && chars_fit && listed, "{s:?} passed {schema}"),
+            Err(e) if !bytes_fit => assert_eq!(e, format!("x is {bytes} bytes long, outside what the Lexicon allows")),
+            Err(e) if !chars_fit => assert_eq!(e, format!("x is longer than {} characters", graphemes.unwrap())),
+            Err(e) => assert_eq!((listed, e), (false, format!("x can't be {s:?}"))),
+        }
+    }
+
+    /// A number fits an integer schema exactly when it's a whole number (the AT Protocol has no
+    /// fractions, so `3.0` isn't one) that fits in 64 bits and is within the bounds.
+    #[hegel::test(test_cases = 400)]
+    fn integers_are_whole_numbers_within_their_bounds(tc: hegel::TestCase) {
+        let v: Value = tc.draw(hegel::one_of!(
+            gs::integers::<i64>().min_value(-60).max_value(60).map(Value::from).print_as_debug(),
+            gs::integers::<i64>().map(Value::from).print_as_debug(),
+            gs::integers::<u64>().min_value(i64::MAX as u64 + 1).map(Value::from).print_as_debug(),
+            gs::floats::<f64>().allow_nan(false).allow_infinity(false).map(Value::from).print_as_debug(),
+            gs::text().max_size(3).map(Value::from).print_as_debug(),
+            gs::booleans().map(Value::from).print_as_debug(),
+        ));
+        let bound = || gs::optional(gs::integers::<i64>().min_value(-50).max_value(50));
+        let (min, max) = (tc.draw(bound()), tc.draw(bound()));
+        let mut schema = json!({ "type": "integer" });
+        if let Some(m) = min {
+            schema["minimum"] = m.into();
+        }
+        if let Some(m) = max {
+            schema["maximum"] = m.into();
+        }
+        let checked = check(SET, &schema, &v, "n");
+        let Some(i) = (if v.is_f64() { None } else { v.as_i64() }) else {
+            assert_eq!(checked, Err(format!("n should be a whole number, not {v}")));
+            return;
+        };
+        let within = min.is_none_or(|m| i >= m) && max.is_none_or(|m| i <= m);
+        let outside = Err(format!("n is {i}, outside what the Lexicon allows"));
+        assert_eq!(checked, if within { Ok(()) } else { outside }, "{schema}");
+    }
+
+    /// A list fits when its length is within the schema's bounds and every entry fits; when the
+    /// length is fine, the first entry that doesn't fit is the one named.
+    #[hegel::test(test_cases = 300)]
+    fn lists_check_their_length_then_each_entry(tc: hegel::TestCase) {
+        let items: Vec<i64> = tc.draw(gs::vecs(gs::integers::<i64>().min_value(-2).max_value(9)).max_size(8));
+        let (min, max) = (bound(&tc, 8), bound(&tc, 8));
+        let mut schema = json!({ "type": "array", "items": { "type": "integer", "minimum": 0 } });
+        if let Some(m) = min {
+            schema["minLength"] = m.into();
+        }
+        if let Some(m) = max {
+            schema["maxLength"] = m.into();
+        }
+        let n = items.len() as i64;
+        let length_fits = min.is_none_or(|m| n >= m) && max.is_none_or(|m| n <= m);
+        let first_bad = items.iter().position(|i| *i < 0);
+        match check(SET, &schema, &json!(items), "list") {
+            Ok(()) => assert!(length_fits && first_bad.is_none()),
+            Err(e) if !length_fits => assert_eq!(e, format!("list has {n} entries, outside what the Lexicon allows")),
+            Err(e) => {
+                let i = first_bad.expect("a list that fits was refused");
+                assert_eq!(e, format!("list[{i}] is {}, outside what the Lexicon allows", items[i]));
+            }
+        }
+        assert_eq!(check(SET, &schema, &json!({ "0": 1 }), "list").unwrap_err(), "list should be a list");
+    }
+
+    /// An object fits when it has every required field, holds only fields the schema defines,
+    /// each fitting, and is null only where the schema allows; the first problem is the one named.
+    #[hegel::test(test_cases = 400)]
+    fn objects_need_what_is_required_and_hold_nothing_else(tc: hegel::TestCase) {
+        let names = vec!["a", "b", "c", "d"];
+        let subset = |of: Vec<&'static str>| -> BTreeSet<&'static str> {
+            if of.is_empty() {
+                BTreeSet::new()
+            } else {
+                tc.draw(gs::vecs(gs::sampled_from(of)).max_size(4)).into_iter().collect()
+            }
+        };
+        let properties = subset(names.clone());
+        let required = subset(properties.iter().copied().collect());
+        let nullable = subset(properties.iter().copied().collect());
+        let fields: Vec<(&str, Option<String>)> = tc.draw(gs::vecs(gs::tuples!(
+            gs::sampled_from(vec!["a", "b", "c", "d", "e"]),
+            gs::optional(gs::text().max_size(5))
+        )));
+        let schema = json!({
+            "type": "object",
+            "required": required,
+            "nullable": nullable,
+            "properties": properties.iter().map(|p| (p.to_string(), json!({ "type": "string", "maxLength": 3 }))).collect::<serde_json::Map<_, _>>(),
+        });
+        let value = Value::Object(fields.into_iter().map(|(k, v)| (k.to_string(), json!(v))).collect());
+        let object = value.as_object().unwrap();
+        // The problems in the order they're checked: required fields first, then each field.
+        let missing = required.iter().find(|r| !object.contains_key(**r)).map(|r| format!("the record is missing {r}"));
+        let wrong = object.iter().find_map(|(k, x)| match x.as_str() {
+            _ if !properties.contains(k.as_str()) => Some(format!("{k} isn't in the Lexicon")),
+            None if nullable.contains(k.as_str()) => None,
+            None => Some(format!("{k} should be text")),
+            Some(s) if s.len() > 3 => Some(format!("{k} is {} bytes long, outside what the Lexicon allows", s.len())),
+            Some(_) => None,
+        });
+        assert_eq!(check(SET, &schema, &value, "").err(), missing.or(wrong), "{value} against {schema}");
+    }
+
+    /// A union's value names its type in `$type`: a type the union lists is checked as that type,
+    /// and one it doesn't list passes when the union is open and is refused when it's closed.
+    #[hegel::test(test_cases = 200)]
+    fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) {
+        let link = format!("{SET}#link");
+        let closed = tc.draw(gs::booleans());
+        let schema = json!({ "type": "union", "refs": ["#link", ADDRESS], "closed": closed });
+        let ty: Option<String> = tc.draw(gs::optional(gs::sampled_from(vec![
+            link.clone(),
+            ADDRESS.to_string(),
+            "app.example.place".to_string(),
+            "#link".to_string(),
+            format!("{SET}#source"),
+        ])));
+        let fields = tc.draw(
+            gs::sampled_from(vec![
+                json!({}),
+                json!({ "uri": "https://station.example/" }),
+                json!({ "country": "GB" }),
+                json!({ "uri": "station dot example" }),
+            ])
+            .print_as_debug(),
+        );
+        let mut value = fields.clone();
+        if let Some(ty) = &ty {
+            value["$type"] = json!(ty);
+        }
+        let has = |k: &str| fields.get(k).is_some();
+        let expected = match ty.as_deref() {
+            None => Err("place is missing $type".to_string()),
+            Some(t) if t == link => match fields.get("uri").and_then(Value::as_str) {
+                None => Err("place is missing uri".into()),
+                Some(u) if u.contains(' ') => Err(format!("place.uri isn't a URI: {u:?}")),
+                Some(_) => Ok(()),
+            },
+            Some(ADDRESS) if !has("country") => Err("place is missing country".into()),
+            Some(ADDRESS) => Ok(()),
+            Some(t) if closed => Err(format!("place can't be a {t}")),
+            Some(_) => Ok(()),
+        };
+        assert_eq!(check(SET, &schema, &value, "place"), expected, "{value}");
+        assert_eq!(check(SET, &schema, &json!("Fabric"), "place").unwrap_err(), "place should be an object");
+    }
+
+    /// A ref names a definition in its own document (`#name`), another document's (`nsid#name`),
+    /// or another document's main definition (`nsid`).
+    #[hegel::test(test_cases = 200)]
+    fn refs_name_their_document_and_definition(tc: hegel::TestCase) {
+        let nsid = || gs::from_regex("[a-z]{1,6}\\.[a-z]{1,6}\\.[a-z][a-zA-Z]{0,6}").fullmatch(true);
+        let (here, there) = (tc.draw(nsid()), tc.draw(nsid()));
+        let name: String = tc.draw(gs::from_regex("[a-z][a-zA-Z]{0,8}").fullmatch(true));
+        assert_eq!(target(&here, &format!("#{name}")), (here.as_str(), name.as_str()));
+        assert_eq!(target(&here, &format!("{there}#{name}")), (there.as_str(), name.as_str()));
+        assert_eq!(target(&here, &there), (there.as_str(), "main"));
+        assert_eq!(short_name(&there), there.rsplit('.').next().unwrap());
+    }
+
+    /// A `uri` is a scheme of letters, digits and `_`, a colon, maybe `//`, then text without
+    /// spaces that doesn't start with `/`: any whitespace in it, a scheme with other characters or
+    /// no scheme at all, and it isn't one.
+    #[hegel::test(test_cases = 400)]
+    fn uris_are_a_scheme_then_text_without_spaces(tc: hegel::TestCase) {
+        let scheme: String = tc.draw(gs::from_regex("[A-Za-z0-9_]{1,8}").fullmatch(true));
+        let text: String = tc.draw(gs::text().max_size(16));
+        let rest: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        let rest = if rest.is_empty() || rest.starts_with('/') { format!("x{rest}") } else { rest };
+        let slashes = if tc.draw(gs::booleans()) { "//" } else { "" };
+        let uri = format!("{scheme}:{slashes}{rest}");
+        assert!(is_uri(&uri), "{uri:?}");
+        assert_eq!(check(SET, &json!({ "type": "string", "format": "uri" }), &json!(uri), "x"), Ok(()));
+
+        let space = tc.draw(gs::sampled_from(vec![' ', '\t', '\n', '\u{a0}', '\u{2003}', '\u{3000}']));
+        let at = tc.draw(gs::integers::<usize>().max_value(rest.chars().count()));
+        let spaced: String = rest.chars().take(at).chain([space]).chain(rest.chars().skip(at)).collect();
+        assert!(!is_uri(&format!("{scheme}:{slashes}{spaced}")), "{spaced:?}");
+        let odd = tc.draw(gs::sampled_from(vec!['-', '+', '.', 'é', ' ', '/']));
+        let at = tc.draw(gs::integers::<usize>().max_value(scheme.len()));
+        let (a, b) = scheme.split_at(at);
+        assert!(!is_uri(&format!("{a}{odd}{b}:{slashes}{rest}")));
+        assert!(!is_uri(&format!(":{slashes}{rest}")) && !is_uri(&format!("{scheme}:///{rest}")));
+        assert!(!is_uri(&format!("{scheme}{rest}").replace(':', "")));
+    }
+
+    /// A boolean schema takes exactly `true` and `false`, an `unknown` one exactly objects, and a
+    /// type or string format the check doesn't know is an error, whatever the value.
+    #[hegel::test(test_cases = 200)]
+    fn booleans_unknowns_and_what_the_check_doesnt_know(tc: hegel::TestCase) {
+        let v: Value = tc.draw(
+            gs::sampled_from(vec![
+                json!(true),
+                json!(false),
+                json!(0),
+                json!("true"),
+                Value::Null,
+                json!([]),
+                json!({}),
+                json!({ "a": 1 }),
+            ])
+            .print_as_debug(),
+        );
+        let boolean = check(SET, &json!({ "type": "boolean" }), &v, "b");
+        assert_eq!(boolean, if v.is_boolean() { Ok(()) } else { Err("b should be true or false".into()) });
+        let unknown = check(SET, &json!({ "type": "unknown" }), &v, "u");
+        assert_eq!(unknown, if v.is_object() { Ok(()) } else { Err("u should be an object".into()) });
+        let ty = tc.draw(gs::sampled_from(vec!["blob", "bytes", "cid-link", "token", "float"]));
+        let err = check(SET, &json!({ "type": ty }), &v, "x").unwrap_err();
+        assert_eq!(err, format!("x: the check doesn't know the Lexicon type {ty:?}"));
+        let format = tc.draw(gs::sampled_from(vec!["handle", "nsid", "tid", "language", "cid"]));
+        let err =
+            check(SET, &json!({ "type": "string", "format": format }), &json!("dj.example.com"), "s").unwrap_err();
+        assert_eq!(err, format!("s: the check doesn't know the format {format:?}"));
     }
 }

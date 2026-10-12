@@ -3,15 +3,26 @@
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
 
-use chrono::Utc;
+use chrono::{Datelike, NaiveDate, Utc};
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
-use locallibrary::model::normalize;
+use rustc_hash::{FxHashMap, FxHashSet};
+
+use crate::common;
+use locallibrary::api::{self, ProfileRequest};
+use locallibrary::device::Device;
+use locallibrary::harmony::Camelot;
+use locallibrary::model::{Track, normalize};
 use locallibrary::profile::{
     self, ArcSection, Basis, CollectionSection, EraSection, KeysSection, MixingSection, PlayedTrack, Precision,
     PrefsUpdate, ProfileOptions, ProfilePrefs, ProfileReport, RankedSection, Section, SetsSection, Share,
     SignatureSection, Summary, Tag, TempoSection,
 };
+use locallibrary::progress::Ctx;
+use locallibrary::sets::{self, EntryOrigin, Set, SetBook, SetEntry};
+use locallibrary::store::Store;
+use locallibrary::sync::{self, PullOptions};
+use locallibrary::{paths, pdb};
 
 const NAMES: &[&str] = &["Bicep", "Clara La San", "Röyksopp", "Robyn", "Fred again..", "Four Tet", "İzel", "x", "A"];
 const SEPARATORS: &[&str] = &[
@@ -341,4 +352,401 @@ fn genres_are_distinct_and_stable(tc: TestCase) {
         tc.assume(!g.contains(['/', ',', ';', '|']));
         assert_eq!(profile::genres(g, &none), std::slice::from_ref(g), "{g:?}");
     }
+}
+
+/// The id of a track gone from the drive's library: a history list keeps its place.
+const GONE: u32 = 999;
+
+/// What a set (or session) is in the drive's tracks, by id: the tracks left, and where those gone
+/// from the library were (the positions they came before).
+fn present(ids: &[u32], lib: &FxHashMap<u32, Track>) -> (Vec<u32>, Vec<usize>) {
+    let (mut tracks, mut missing_at) = (Vec::new(), Vec::new());
+    for id in ids {
+        match lib.contains_key(id) {
+            true => tracks.push(*id),
+            false => missing_at.push(tracks.len()),
+        }
+    }
+    (tracks, missing_at)
+}
+
+/// Declares `sets` (each its tracks by id, from `lib`) in `store`, played on successive days.
+fn declare(store: &Store, lib: &FxHashMap<u32, Track>, sets: &[Vec<u32>]) {
+    let mut book = SetBook::load(store).unwrap();
+    for (k, ids) in sets.iter().enumerate() {
+        let date = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap() + chrono::Duration::days(k as i64);
+        let at = Utc::now();
+        book.sets.push(Set {
+            id: sets::new_id(date).unwrap(),
+            title: Some(format!("Set {k}")),
+            date,
+            tracks: ids.iter().map(|id| SetEntry::from_track(&lib[id], EntryOrigin::Session, None)).collect(),
+            created_at: at,
+            updated_at: at,
+            ..Default::default()
+        });
+    }
+    book.save(store).unwrap();
+}
+
+/// The profile of a drive with random history lists (sound checks among them, and entries whose
+/// track is gone), with or without sets declared in the store, counts what a direct reading of
+/// the drive's tracks says: the declared sets, else the sessions long enough to stand in for
+/// them; their plays, distinct tracks, BPMs, keys, transitions (not across a gone track or a
+/// repeat) and every track played. The view's document is `profile::document` of its report,
+/// and `profile_document` gives the same.
+#[hegel::test(test_cases = 3)]
+fn a_drives_profile_counts_what_its_sessions_and_sets_hold(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let lib: FxHashMap<u32, Track> =
+        pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks.into_iter().map(|t| (t.id, t)).collect();
+    let mut ids: Vec<u32> = lib.keys().copied().collect();
+    ids.sort();
+    let id = || hegel::one_of!(gs::sampled_from(ids.clone()), gs::just(GONE));
+    let lists: Vec<Vec<u32>> = tc.draw(gs::vecs(gs::vecs(id()).max_size(8)).max_size(4));
+    for (k, list) in lists.iter().enumerate() {
+        common::add_history(&root, &format!("HISTORY {k:03}"), list);
+    }
+    let declared: Vec<Vec<u32>> = tc.draw(gs::vecs(gs::vecs(gs::sampled_from(ids.clone())).max_size(7)).max_size(3));
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    declare(&store, &lib, &declared);
+    // Player settings: the drive's My Settings files, or the store's settings profile.
+    let (on_drive, profile): (bool, Vec<(&str, &str)>) = (
+        tc.draw(gs::booleans()),
+        tc.draw(
+            gs::vecs(gs::sampled_from(vec![
+                ("quantize", "off"),
+                ("quantize", "on"),
+                ("tempo_range", "16"),
+                ("sync", "nope"),
+            ]))
+            .max_size(2),
+        ),
+    );
+    if on_drive {
+        for f in ["MYSETTING.DAT", "MYSETTING2.DAT", "DJMMYSETTING.DAT", "DEVSETTING.DAT"] {
+            std::fs::copy(
+                common::fixtures().join("rekordcrate/demo_tracks/PIONEER").join(f),
+                root.join("PIONEER").join(f),
+            )
+            .unwrap();
+        }
+    }
+    let mut base = IndexMap::new();
+    for (k, v) in &profile {
+        base.entry(k.to_string()).or_insert(v.to_string());
+    }
+    store
+        .save_settings_profile(&locallibrary::settings::SettingsProfile { base: base.clone(), ..Default::default() })
+        .unwrap();
+    // A drive whose database can't be read is left out, saying so.
+    let broken = tc.draw(gs::weighted_booleans(0.3)).then(|| {
+        let b = dir.path().join("Broken");
+        std::fs::create_dir_all(b.join("PIONEER/rekordbox")).unwrap();
+        std::fs::write(b.join(paths::EXPORT_PDB), b"not a database").unwrap();
+        common::path(&b)
+    });
+    let min = tc.draw(gs::integers::<usize>().min_value(2).max_value(5));
+    let req = ProfileRequest {
+        drives: std::iter::once(common::path(&root)).chain(broken.clone()).collect(),
+        min_set_tracks: Some(min),
+        top: Some(tc.draw(gs::integers::<usize>().min_value(1).max_value(5))),
+        no_analysis: tc.draw(gs::booleans()),
+        ..Default::default()
+    };
+    let v = api::profile(Some(&store), &req, &Ctx::silent()).unwrap();
+    let r = &v.report;
+
+    // The sets the model counts.
+    let played: Vec<(Vec<u32>, Vec<usize>)> = match declared.is_empty() {
+        false => declared.iter().map(|s| (s.clone(), Vec::new())).collect(),
+        true => lists.iter().map(|l| present(l, &lib)).filter(|(t, _)| t.len() >= min).collect(),
+    };
+    let too_short =
+        if declared.is_empty() { lists.iter().filter(|l| present(l, &lib).0.len() < min).count() } else { 0 };
+    let plays: usize = played.iter().map(|p| p.0.len()).sum();
+    let basis = match (plays, declared.is_empty()) {
+        (0, _) => profile::Basis::Collection,
+        (_, false) => profile::Basis::Plays,
+        (_, true) => profile::Basis::Sessions,
+    };
+    assert_eq!(r.basis, basis);
+    let distinct: FxHashSet<u32> = played.iter().flat_map(|p| p.0.iter().copied()).collect();
+    assert_eq!((r.sets.count, r.sets.too_short), (played.len(), too_short));
+    assert_eq!((r.sets.plays, r.sets.distinct_tracks), (if plays == 0 { 0 } else { plays }, distinct.len()));
+    assert_eq!(r.sets.not_archived, if declared.is_empty() { played.len() } else { 0 });
+    assert_eq!(r.collection.tracks, lib.len());
+
+    let pool: Vec<&Track> = match plays {
+        0 => lib.values().collect(),
+        _ => played.iter().flat_map(|p| p.0.iter().map(|id| &lib[id])).collect(),
+    };
+    let bpm = |t: &Track| (40.0..=300.0).contains(&t.bpm);
+    assert_eq!(r.tempo.tracks, pool.iter().filter(|t| bpm(t)).count());
+    assert_eq!(r.keys.tracks, pool.iter().filter(|t| Camelot::parse(&t.key).is_some()).count());
+    let (mut transitions, mut keyed) = (0, 0);
+    let mut per: FxHashMap<String, usize> = FxHashMap::default();
+    for (tracks, missing_at) in &played {
+        for k in 1..tracks.len() {
+            let (x, y) = (&lib[&tracks[k - 1]], &lib[&tracks[k]]);
+            if x.id == y.id || missing_at.contains(&k) {
+                continue;
+            }
+            transitions += 1;
+            keyed += usize::from(Camelot::parse(&x.key).is_some() && Camelot::parse(&y.key).is_some());
+        }
+        for id in tracks.iter().collect::<FxHashSet<_>>() {
+            *per.entry(lib[id].display_name()).or_default() += 1;
+        }
+    }
+    assert_eq!((r.mixing.transitions, r.mixing.keyed), (transitions, keyed));
+    let got: FxHashMap<String, usize> = r.signature.played.iter().map(|p| (p.name.clone(), p.sets)).collect();
+    assert_eq!(got, per);
+    if let Some(e) = &r.energy {
+        assert!(!req.no_analysis && e.tracks <= pool.len());
+    }
+    assert!(r.prep.is_none() || !req.no_analysis);
+    assert_eq!(broken.is_some(), r.warnings.iter().any(|w| w.starts_with("Broken: ")), "{:?}", r.warnings);
+    assert_eq!(r.sources.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["Main"]);
+
+    // The style: the store's profile when it sets a known value, else the drive's files.
+    let known: Vec<(&str, &str)> = locallibrary::profile::STYLE_SETTINGS
+        .iter()
+        .filter_map(|k| {
+            base.get(*k)
+                .filter(|v| locallibrary::settings::find(k).and_then(|d| d.choice(v)).is_some())
+                .map(|v| (*k, v.as_str()))
+        })
+        .collect();
+    let style = r
+        .style
+        .as_ref()
+        .map(|s| (s.source.as_str(), s.values.iter().map(|v| (v.key.as_str(), v.value.as_str())).collect::<Vec<_>>()));
+    match (known.is_empty(), on_drive) {
+        (false, _) => assert_eq!(style, Some(("settings profile", known.clone()))),
+        (true, true) => {
+            assert!(style.as_ref().is_some_and(|(source, values)| *source == "Main" && !values.is_empty()), "{style:?}")
+        }
+        (true, false) => assert_eq!(style, None),
+    }
+    let tagged = r.summary.tags.iter().any(|t| t.id == "quantize_off");
+    assert_eq!(
+        tagged,
+        r.style.as_ref().is_some_and(|s| s.values.iter().any(|v| v.key == "quantize" && v.value == "off"))
+    );
+
+    // The view's document is the report's, as the preferences allow; asking for it alone gives
+    // the same (but for when it was made).
+    let doc = |d: &profile::ProfileDocument| {
+        let mut v = serde_json::to_value(d).unwrap();
+        v.as_object_mut().unwrap().remove("generatedAt");
+        v
+    };
+    assert_eq!(doc(&v.document), doc(&profile::document(r, &v.prefs)));
+    assert_eq!(v.published, v.prefs.published().into_iter().collect::<Vec<_>>());
+    if tc.draw(gs::weighted_booleans(0.3)) {
+        assert_eq!(doc(&api::profile_document(Some(&store), &req, &Ctx::silent()).unwrap()), doc(&v.document));
+    }
+}
+
+/// Sessions a pull archived in the store and those still on the drive are counted once each,
+/// whether the drive still has them or rekordbox took them off; the drive's tracks and the
+/// store's snapshot of them are one collection, and naming the library reads the same.
+#[hegel::test(test_cases = 2)]
+fn archived_and_mounted_sessions_count_once_each(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let ids: Vec<u32> = (1..=12).collect();
+    let list = || gs::vecs(gs::sampled_from(ids.clone())).min_size(2).max_size(6);
+    let archived: Vec<Vec<u32>> = tc.draw(gs::vecs(list()).min_size(1).max_size(3));
+    for (k, l) in archived.iter().enumerate() {
+        common::add_history(&root, &format!("HISTORY {k:03}"), l);
+    }
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut d = Device::open(&root).unwrap();
+    let opts = PullOptions { library: Some("Club".into()), ..Default::default() };
+    sync::pull(&store, &mut d, &opts, &Ctx::silent()).unwrap();
+    // rekordbox imports the history (the lists leave the drive), or it stays.
+    let taken_off = tc.draw(gs::booleans());
+    let pdb_path = root.join(paths::EXPORT_PDB);
+    if taken_off {
+        let history: Vec<u32> = pdb::read_library(&pdb_path).unwrap().history.iter().map(|h| h.id).collect();
+        let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb_path).unwrap();
+        ed.remove_history_playlists(&history).unwrap();
+        ed.save(&pdb_path).unwrap();
+    }
+    let fresh: Vec<Vec<u32>> = tc.draw(gs::vecs(list()).max_size(2));
+    for (k, l) in fresh.iter().enumerate() {
+        common::add_history(&root, &format!("HISTORY {:03}", k + 10), l);
+    }
+    let named = tc.draw(gs::booleans());
+    let req = ProfileRequest {
+        drives: vec![common::path(&root)],
+        libraries: if named { vec!["club".into()] } else { Vec::new() },
+        min_set_tracks: Some(2),
+        no_analysis: tc.draw(gs::booleans()),
+        ..Default::default()
+    };
+    let r = api::profile(Some(&store), &req, &Ctx::silent()).unwrap().report;
+    assert_eq!(r.basis, profile::Basis::Sessions);
+    assert_eq!((r.sets.count, r.sets.not_archived), (archived.len() + fresh.len(), fresh.len()));
+    assert_eq!(r.sets.plays, archived.iter().chain(&fresh).map(Vec::len).sum::<usize>());
+    assert_eq!(r.sets.oldest.is_some(), !archived.is_empty());
+    assert_eq!(r.collection.tracks, 12, "the drive's tracks and the snapshot's are one collection");
+    assert_eq!(r.sources.iter().map(|s| s.kind).collect::<Vec<_>>(), ["store", "drive"]);
+    assert_eq!(r.sources[0].history_lists, archived.len());
+    // Newest first: the sessions still only on the drive.
+    assert!(r.sets.list.iter().take(fresh.len()).all(|s| s.date.is_none()), "{:?}", r.sets.list);
+}
+
+/// A day reads back from each of its forms: `2026-09-30` is that day, `2026-09` its month's
+/// first day to last, `2026` its year's; anything else, or a year before 1901, is refused.
+#[hegel::test(test_cases = 300)]
+fn days_read_back_from_their_forms(tc: TestCase) {
+    let year = tc.draw(gs::integers::<i32>().min_value(1850).max_value(2200));
+    let month = tc.draw(gs::integers::<u32>().min_value(1).max_value(12));
+    let day = tc.draw(gs::integers::<u32>().min_value(1).max_value(31));
+    let valid = year > 1900;
+    let first = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
+    let next = first.checked_add_months(chrono::Months::new(1)).unwrap();
+    let ok = |s: &str, end: bool| api::parse_day(s, end).ok();
+    assert_eq!(ok(&format!("{year}-{month:02}"), false), valid.then_some(first));
+    assert_eq!(ok(&format!("{year}-{month}"), true), valid.then(|| next.pred_opt().unwrap()));
+    assert_eq!(ok(&format!(" {year} "), false), NaiveDate::from_ymd_opt(year, 1, 1).filter(|_| valid));
+    assert_eq!(ok(&year.to_string(), true), NaiveDate::from_ymd_opt(year, 12, 31).filter(|_| valid));
+    let date = NaiveDate::from_ymd_opt(year, month, day).filter(|_| valid);
+    for end in [false, true] {
+        assert_eq!(ok(&format!("{year}-{month:02}-{day:02}"), end), date);
+    }
+    assert_eq!(ok(&format!("{year}-{}", month + 12), false), None);
+    assert_eq!(ok(&format!("{year}-{month}-{day}-1"), false), None);
+    let junk = tc.draw(gs::text().max_size(6));
+    if let Some(d) = ok(&junk, false) {
+        assert!(d.year() > 1900 && junk.trim().starts_with(|c: char| c.is_ascii_digit()), "{junk:?}");
+    }
+}
+
+/// A request's range must run forwards: a start after the end is refused, naming both, before
+/// anything is read; one that runs forwards (or names one end) is taken.
+#[hegel::test(test_cases = 40)]
+fn a_range_must_run_forwards(tc: TestCase) {
+    let day = || gs::integers::<i64>().min_value(0).max_value(3000);
+    let (a, b) = (tc.draw(day()), tc.draw(day()));
+    let at = |n: i64| (NaiveDate::from_ymd_opt(2020, 1, 1).unwrap() + chrono::Duration::days(n)).to_string();
+    let dir = tempfile::tempdir().unwrap();
+    // Nothing to read: a range that's taken fails for that instead.
+    let req = ProfileRequest {
+        drives: vec![common::path(&dir.path().join("nowhere"))],
+        since: Some(at(a)),
+        until: Some(at(b)),
+        ..Default::default()
+    };
+    let err = api::profile(None, &req, &Ctx::silent()).unwrap_err();
+    assert_eq!(err.to_string().contains("is after the end"), a > b, "{err}");
+}
+
+/// Preferences changed through the API are saved whole: what an update returns is what loads
+/// back, and is what applying the update directly gives; an update that fails saves nothing.
+#[hegel::test(test_cases = 10)]
+fn saved_preferences_load_back(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut model = ProfilePrefs::default();
+    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(4)) {
+        let mut u = u;
+        u.precision =
+            tc.draw(gs::optional(gs::sampled_from(vec![Precision::Exact, Precision::Rounded]).print_as_debug()));
+        let aliases = gs::vecs(gs::sampled_from(vec![
+            ("dnb", "Jungle"),
+            ("DNB ", "Drum & Bass"),
+            ("techno", "Techno"),
+            (" ", "x"),
+        ]));
+        u.alias = tc.draw(aliases.max_size(2)).into_iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+        u.unalias = tc.draw(gs::vecs(gs::sampled_from(vec!["dnb".to_string(), "house".to_string()])).max_size(1));
+        let mut want = model.clone();
+        let applied = want.apply(&u);
+        match api::profile_prefs_update(&store, &u) {
+            Ok(saved) => {
+                assert!(applied.is_ok());
+                assert_eq!(saved, want);
+                model = want;
+            }
+            Err(e) => assert!(applied.is_err(), "{e}"),
+        }
+        assert_eq!(api::profile_prefs(&store).unwrap(), model);
+        assert_eq!(ProfilePrefs::load(&store).unwrap(), model);
+    }
+    // Aliases are kept sorted, one per spelling.
+    let keys: Vec<String> = model.genre_aliases.keys().map(|k| normalize(k)).collect();
+    assert!(keys.windows(2).all(|w| w[0] != w[1]), "{keys:?}");
+}
+
+/// Every section has a title and says what publishing it tells; without declared sets, the sets
+/// and their shape are titled as sessions, and the opt-in sections are exactly those naming
+/// tracks, artists or labels, or describing the collection.
+#[hegel::test(test_cases = 50)]
+fn every_section_says_what_it_reveals(tc: TestCase) {
+    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()).print_as_debug());
+    assert!(!s.title().is_empty() && !s.reveals().is_empty());
+    assert_eq!(s.title_in(Basis::Plays), s.title());
+    assert_eq!(s.title_in(Basis::Collection), s.title());
+    let renamed = s.title_in(Basis::Sessions) != s.title();
+    assert_eq!(renamed, matches!(s, Section::Sets | Section::Arc));
+    assert!(!renamed || s.title_in(Basis::Sessions).starts_with("Session"));
+    let opt_in =
+        matches!(s, Section::Labels | Section::Artists | Section::Signature | Section::Prep | Section::Collection);
+    assert_eq!(s.published_by_default(), !opt_in);
+    assert_eq!(Basis::Sessions.publishes(s), s != Section::Sets);
+    assert!(profile::tag_section("nope").is_none());
+}
+
+/// Without drives named, the profile reads the mounted drives that hold an export: those the
+/// store's registry knows once it knows any, else all of them. A drive named must hold an
+/// export, and with no drive and no store (or a store with no library) there's nothing to read.
+#[hegel::test(test_cases = 4)]
+fn the_drives_read_are_the_mounted_ones_the_registry_knows(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let volumes = common::isolate(dir.path(), None);
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    // Each drive: whether it holds an export, and whether the registry knows it.
+    let drives: Vec<(bool, bool)> = tc.draw(gs::vecs(gs::tuples!(gs::booleans(), gs::booleans())).max_size(3));
+    for (i, &(export, known)) in drives.iter().enumerate() {
+        let name = format!("D{i}");
+        let root = match export {
+            true => common::bigger_drive(&volumes, &name),
+            false => common::blank(&volumes, &name),
+        };
+        if known {
+            common::adopt(Some(&store), &root, &name);
+        }
+    }
+    let read = |store: Option<&Store>| {
+        let req = ProfileRequest { no_analysis: true, ..Default::default() };
+        api::profile(store, &req, &Ctx::silent()).map(|v| {
+            let mut names: Vec<String> =
+                v.report.sources.iter().filter(|s| s.kind == "drive").map(|s| s.name.clone()).collect();
+            names.sort();
+            names
+        })
+    };
+    let registry = drives.iter().any(|d| d.1);
+    let want: Vec<String> =
+        (0..drives.len()).filter(|&i| drives[i].0 && (!registry || drives[i].1)).map(|i| format!("D{i}")).collect();
+    match read(Some(&store)) {
+        Ok(names) => assert_eq!(names, want),
+        Err(e) => assert!(want.is_empty() && e.to_string().contains("nothing to build a profile from"), "{e}"),
+    }
+    let all: Vec<String> = (0..drives.len()).filter(|&i| drives[i].0).map(|i| format!("D{i}")).collect();
+    match read(None) {
+        Ok(names) => assert_eq!(names, all, "without a store, every mounted drive"),
+        Err(e) => assert!(all.is_empty() && e.reason() == Some(locallibrary::error::Reason::NoStore), "{e}"),
+    }
+    if let Some(i) = drives.iter().position(|d| !d.0) {
+        let req = ProfileRequest { drives: vec![common::path(&volumes.join(format!("D{i}")))], ..Default::default() };
+        let err = api::profile(Some(&store), &req, &Ctx::silent()).unwrap_err();
+        assert!(err.to_string().contains("has no rekordbox export"), "{err}");
+    }
+    locallibrary::testing::volumes_on_this_thread(None);
 }

@@ -30,22 +30,7 @@ use crate::sets::{EntryOrigin, Set, SetEntry};
 use crate::settings::{self, BaseChange, Category};
 use crate::{Error, Result};
 
-/// `jog_mode` → `jogMode`: setting keys as record fields.
-pub fn camel(key: &str) -> String {
-    let mut out = String::new();
-    let mut up = false;
-    for c in key.chars() {
-        if c == '_' {
-            up = true;
-        } else if up {
-            out.extend(c.to_uppercase());
-            up = false;
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
+pub use crate::profile::camel;
 
 /// `jogMode` → `jog_mode`.
 pub fn snake(field: &str) -> String {
@@ -279,7 +264,8 @@ fn set_track(e: &SetEntry, unidentified: bool) -> Value {
     put(&mut m, "title", text(&e.title));
     put(&mut m, "artist", text(&e.artist));
     put(&mut m, "isrc", (isrc.len() == 12 && isrc.chars().all(|c| c.is_ascii_alphanumeric())).then_some(isrc));
-    put(&mut m, "bpmCentis", (e.bpm > 0.0).then(|| (e.bpm * 100.0).round() as u32));
+    // An infinite tempo is unknown, as `sets.json` keeps it.
+    put(&mut m, "bpmCentis", (e.bpm > 0.0 && e.bpm.is_finite()).then(|| (e.bpm * 100.0).round() as u32));
     put(&mut m, "key", Camelot::parse(&e.key).map(Camelot::code));
     put(&mut m, "startSeconds", e.start_seconds);
     Value::Object(m)
@@ -695,5 +681,62 @@ mod tests {
         lexicon::validate(lexicon::SET, &record).unwrap();
         assert_eq!(record["location"], json!({ "$type": lexicon::ADDRESS, "locality": "London", "country": "GB" }));
         assert_eq!(record["links"], json!([{ "uri": "https://www.mixcloud.com/dj/friday-warm-up/" }]));
+    }
+
+    /// Whatever the number (negative, over 1, infinite, not a number), a share becomes a whole
+    /// percent from 0 to 100 and a tempo a whole BPM of 0 or more, never out of order; a share
+    /// from 0 to 1, or a tempo, is at most half a unit off.
+    #[hegel::test(test_cases = 500)]
+    fn shares_and_tempos_become_whole_numbers_in_order(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let (x, y) = (tc.draw(gs::floats::<f64>()), tc.draw(gs::floats::<f64>()));
+        for v in [x, y] {
+            assert!((0..=100).contains(&percent(v)), "{v}");
+            assert!(bpm(v) >= 0, "{v}");
+            if (0.0..=1.0).contains(&v) {
+                assert!((percent(v) as f64 - v * 100.0).abs() <= 0.5, "{v}");
+            }
+            if (0.0..1e15).contains(&v) {
+                assert!((bpm(v) as f64 - v).abs() <= 0.5, "{v}");
+            }
+        }
+        if x <= y {
+            assert!(percent(x) <= percent(y) && bpm(x) <= bpm(y), "{x} {y}");
+        }
+    }
+
+    /// Two records are the same exactly when they differ in nothing but when they were made:
+    /// changing or dropping `updatedAt`, `generatedAt` or `createdAt` changes nothing, and any
+    /// other change does.
+    #[hegel::test(test_cases = 300)]
+    fn only_times_dont_count_as_changes(tc: hegel::TestCase) {
+        use hegel::Generator;
+        use hegel::generators as gs;
+        let field = || gs::sampled_from(vec!["title", "date", "tracks", "updatedAt", "generatedAt", "createdAt"]);
+        let value = || {
+            hegel::one_of!(
+                gs::integers::<i64>().max_value(3).map(Value::from).print_as_debug(),
+                gs::text().max_size(3).map(Value::from).print_as_debug(),
+                gs::just(Value::Null).print_as_debug(),
+            )
+        };
+        let fields: Vec<(&str, Value)> = tc.draw(gs::vecs(gs::tuples!(field(), value())).max_size(6));
+        let a = Value::Object(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect());
+        let mut b = a.clone();
+        for time in TIME_FIELDS {
+            match tc.draw(gs::integers::<u8>().max_value(2)) {
+                0 => {}
+                1 => {
+                    b.as_object_mut().unwrap().remove(time);
+                }
+                _ => b[time] = tc.draw(gs::text().max_size(24)).into(),
+            }
+        }
+        assert!(same_content(&a, &b) && same_content(&b, &a), "{a} {b}");
+        // Wrapping a value in a list changes it, whatever it was.
+        let other = tc.draw(gs::sampled_from(vec!["title", "date", "tracks", "venue"]));
+        b[other] = json!([a.get(other)]);
+        assert!(!same_content(&a, &b) && !same_content(&b, &a), "{a} {b}");
+        assert!(same_content(&json!([1]), &json!([1])) && !same_content(&json!(1), &json!("1")));
     }
 }

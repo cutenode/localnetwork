@@ -1956,8 +1956,9 @@ fn protected_paths(store_root: Option<&Path>) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = store_root.map(Path::to_path_buf).into_iter().collect();
     out.extend(default_store_root().filter(|r| Some(r.as_path()) != store_root));
     out.extend(std::env::current_exe().ok());
-    // As the OS reports mount points (`E:\`, not `\\?\E:\`), or none would ever match.
-    out.iter().map(|p| device::dunce_canonicalize(p)).collect()
+    // As the OS reports mount points (`E:\`, not `\\?\E:\`; `/private/var`, not `/var`), or none
+    // would ever match: resolved as far as the path exists, as the store may not yet.
+    out.iter().map(|p| fsutil::resolved(p)).collect()
 }
 
 /// External and removable disks, how players get on with each as it is, and whether it can be
@@ -2158,6 +2159,61 @@ mod tests {
                 (erased.drive_name.as_deref(), erased.role, erased.retired),
                 (Some("Vault"), Some(crate::fleet::Role::Backup), true)
             );
+        }
+    }
+
+    /// A format plan is refused for the disk holding the store it's given, wherever on the disk
+    /// the store is and whether or not it's there yet, and for an archive or retired drive the
+    /// store knows; a store elsewhere doesn't stop it.
+    #[hegel::test(test_cases = 20)]
+    fn a_format_is_refused_for_the_store_s_disk_and_kept_drives(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let (dir, elsewhere) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::create_dir(dir.path().join("Disk")).unwrap();
+        let mount = device::dunce_canonicalize(&dir.path().join("Disk"));
+        let mut disk = crate::format::tests::sample_disk();
+        disk.volumes[0].mount = Some(mount.clone());
+        let on_disk = tc.draw(gs::booleans());
+        let depth: Vec<&str> =
+            tc.draw(gs::vecs(gs::sampled_from(&["store", "My Store", ".hidden"][..])).min_size(1).max_size(3));
+        // As the temporary folder is spelled, through a symlink on macOS (/var for /private/var),
+        // where the OS reports the mount by its real path.
+        let base = if on_disk { dir.path().join("Disk") } else { elsewhere.path().to_path_buf() };
+        let store_root = depth.iter().fold(base, |p, d| p.join(d));
+        let made = tc.draw(gs::booleans());
+        let store = made.then(|| Store::open_or_init(&store_root).unwrap());
+        let role = match (&store, on_disk) {
+            (Some(store), false) => {
+                let mut d = Device::open(&mount).unwrap();
+                d.adopt(Some("Vault")).unwrap();
+                sync::register_drive(store, &d, None).unwrap();
+                let id = d.id().unwrap();
+                match tc.draw(gs::integers::<u8>().max_value(2)) {
+                    0 => None,
+                    1 => {
+                        crate::fleet::set_role(store, id, Some(crate::fleet::Role::Archive)).unwrap();
+                        Some(Reason::Archive)
+                    }
+                    _ => {
+                        crate::fleet::retire(store, id, false).unwrap();
+                        Some(Reason::Retired)
+                    }
+                }
+            }
+            _ => None,
+        };
+        let req = FormatRequest { drive: "disk4".into(), options: FormatOptions::default() };
+        match plan_format(&store_root, disk, &req, &Ctx::silent()) {
+            Ok(plan) => {
+                assert!(!on_disk && role.is_none());
+                assert!(plan.destructive && plan.summary[0].starts_with("erase"), "{:?}", plan.summary);
+                assert!(plan.plan.protected.contains(&fsutil::resolved(&store_root)));
+            }
+            Err(e) if on_disk => assert!(e.to_string().contains("it holds"), "{e}"),
+            Err(e) if role.is_some() => assert_eq!(e.detail().reason, role, "{e}"),
+            // Planning a format reads the disk with the system's tools, which may know none
+            // such (lsblk on Linux): that isn't a refusal for the store.
+            Err(e) => assert!(!e.to_string().contains("it holds"), "{e}"),
         }
     }
 

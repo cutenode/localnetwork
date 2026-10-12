@@ -384,4 +384,54 @@ mod tests {
         }
         assert_eq!(set, before, "a refused edit changes nothing");
     }
+
+    use hegel::TestCase;
+    use hegel::generators as gs;
+
+    /// A track typed in by its file path is that library track; any other text is the library's
+    /// track when it's the only one that matches, else it goes in as typed, saying how many
+    /// matched; with no library to look in, as typed.
+    #[hegel::test(test_cases = 300)]
+    fn inserts_are_the_library_track_or_as_typed(tc: TestCase) {
+        const NAMES: &[(&str, &str)] =
+            &[("Floorplan", "Never Grow Old"), ("Floorplan", "Tell You No Lie"), ("Someone", "Dubplate"), ("", "ID")];
+        let lib = Library {
+            tracks: (1..=tc.draw(gs::integers::<u32>().min_value(1).max_value(5)))
+                .map(|n| {
+                    let (artist, title) = tc.draw(gs::sampled_from(NAMES.to_vec()));
+                    track(n, artist, title, &format!("/Contents/{n}.mp3"))
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let n = tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1));
+        let by_path = &lib.tracks[n];
+        let (e, note) = lookup(&format!(" {} ", by_path.file_path), Some(&lib)).unwrap();
+        assert_eq!(e, SetEntry::from_track(by_path, EntryOrigin::Added, None));
+        assert_eq!(note, format!("{} went in from the library", by_path.display_name()));
+
+        let text = tc.draw(gs::sampled_from(vec![
+            "floorplan",
+            "Never Grow Old",
+            "someone - dubplate",
+            "Nobody - Nothing",
+            "ID",
+        ]));
+        let (e, note) = lookup(text, Some(&lib)).unwrap();
+        match lib.tracks.iter().find(|t| e == SetEntry::from_track(t, EntryOrigin::Added, None)) {
+            Some(t) => assert_eq!(note, format!("{} went in from the library", t.display_name())),
+            None => {
+                assert_eq!(e, SetEntry::added(text));
+                let matched = note.strip_prefix(&format!("{text:?} went in as typed: ")).unwrap();
+                let many = matched.strip_suffix(" tracks match it").map(|k| k.parse::<usize>().unwrap());
+                assert!(
+                    matched == "no track matches it" || many.is_some_and(|k| (2..=lib.tracks.len()).contains(&k)),
+                    "{note}"
+                );
+            }
+        }
+        assert!(lookup(&" ".repeat(n), Some(&lib)).is_err(), "a blank is refused");
+        let (e, note) = lookup(text, None).unwrap();
+        assert_eq!((e, note), (SetEntry::added(text), format!("{text:?} went in as typed: no drive to look it up on")));
+    }
 }

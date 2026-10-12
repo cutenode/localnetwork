@@ -1328,7 +1328,9 @@ fn provision_steps(
                     drive: target.clone(),
                     library: req.library.clone(),
                     snapshot: None,
-                    force: false,
+                    // The confirmed plan said a library on the drive is replaced, saved or not
+                    // (an archive or retired drive was refused with it).
+                    force: true,
                     verify: false,
                     keep_extra: false,
                     delete_first: false,
