@@ -335,7 +335,8 @@ pub struct Device {
 }
 
 /// Exclusive hold on a drive for an operation that writes it, so two operations (say a sync and
-/// a merge started from a GUI) can't interleave. Released on drop.
+/// a merge started from a GUI) can't interleave, or for a check a write mustn't change under it
+/// ([`Device::read_lock`]). Released on drop.
 pub struct DriveLock {
     _lock: fsutil::FileLock,
 }
@@ -611,6 +612,19 @@ impl Device {
         match fsutil::FileLock::try_take(&dir.join("lock"))? {
             Some(lock) => Ok(DriveLock { _lock: lock }),
             None => Err(Error::Locked(self.root.clone())),
+        }
+    }
+
+    /// [`Device::lock`] for an operation that only reads the drive, which must leave it as it
+    /// found it: the lock file is never made. A drive without one has never been written by
+    /// locallibrary, so nothing is writing it now (`None`: there's no lock to hold).
+    pub fn read_lock(&self) -> Result<Option<DriveLock>> {
+        let path = self.state_dir().join("lock");
+        match fsutil::FileLock::try_take_existing(&path) {
+            Ok(Some(lock)) => Ok(Some(DriveLock { _lock: lock })),
+            Ok(None) => Err(Error::Locked(self.root.clone())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(Error::Io { path, source: e }),
         }
     }
 

@@ -1247,10 +1247,12 @@ impl PlaylistDb for Library {
     }
 }
 
-/// A free id among `nodes`, and the place after the last child of `parent`.
+/// A free id among `nodes`, and the place after the last child of `parent` (where a node whose
+/// folder is missing counts as at the top, as `Library::children` shows it).
 fn next_node(nodes: &[Playlist], parent: Option<u32>) -> (u32, u32) {
     let id = nodes.iter().map(|p| p.id).max().unwrap_or(0) + 1;
-    let place = nodes.iter().filter(|p| p.parent_id == parent).map(|p| p.sort_order + 1).max().unwrap_or(0);
+    let placed = |p: Option<u32>| p.filter(|&p| nodes.iter().any(|x| x.id == p));
+    let place = nodes.iter().filter(|p| placed(p.parent_id) == parent).map(|p| p.sort_order + 1).max().unwrap_or(0);
     (id, place)
 }
 
@@ -1300,10 +1302,12 @@ fn copy_hot_cue_bank_lists(
     let root = dst.create_hot_cue_bank_list(folder, 0, true)?;
     let mut new_ids: FxHashMap<u32, u32> = FxHashMap::default();
     let mut added = 0;
+    // A list whose folder is missing is shown at the top, as `Library::children` places it.
+    let placed = |p: Option<u32>| p.filter(|&p| lists.iter().any(|x| x.id == p));
     let mut queue = vec![None];
     while let Some(parent) = queue.pop() {
         let mut children: Vec<&crate::Playlist> =
-            lists.iter().filter(|l| l.parent_id == parent && keep.contains(&l.id)).collect();
+            lists.iter().filter(|l| placed(l.parent_id) == parent && keep.contains(&l.id)).collect();
         children.sort_by_key(|l| (l.sort_order, l.id));
         for l in children {
             let dst_parent = l.parent_id.and_then(|p| new_ids.get(&p).copied()).unwrap_or(root);

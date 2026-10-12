@@ -118,6 +118,28 @@ fn the_library_to_push_must_be_clear() {
     assert!(named.steps.contains(&"mark it as an archive drive".to_string()), "{:?}", named.steps);
 }
 
+/// Regression: the plan warned that a library on the drive would be replaced, but the push wasn't
+/// forced, so one the store doesn't hold stopped the setup at "write the library", with the drive
+/// already named and registered.
+#[test]
+fn a_library_the_store_doesnt_hold_is_replaced_as_planned() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, new) = setup(dir.path());
+    let home = common::demo_drive(dir.path(), "Home");
+    pull(&store, &home, "Home");
+    // A bare export, never saved: not the demo's.
+    let pdb = new.join(locallibrary::paths::EXPORT_PDB);
+    std::fs::create_dir_all(pdb.parent().unwrap()).unwrap();
+    std::fs::copy(common::bigger_drive(dir.path(), "Other").join(locallibrary::paths::EXPORT_PDB), &pdb).unwrap();
+
+    let req = request(&new);
+    let plan = api::provision_plan(&store, &req, &Ctx::silent()).unwrap();
+    assert!(plan.destructive && plan.warnings[0].ends_with("it will be replaced"), "{:?}", plan.warnings);
+    let report = api::provision_apply(&store, &req, None, &Ctx::silent()).unwrap();
+    assert!(report.stopped.is_none(), "{:?}", report.stopped);
+    assert_eq!(common::library(&new).tracks.len(), common::library(&home).tracks.len());
+}
+
 /// Formatting can't be planned while drives are looked for only in test folders, and ejecting a
 /// folder can't be done: the plan warns about ejecting, and the report says the setup stopped
 /// there, with the steps before it done.

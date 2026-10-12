@@ -355,11 +355,20 @@ impl FileLock {
 
     /// The lock on `path`, or `None` while another holds it.
     pub fn try_take(path: &Path) -> Result<Option<FileLock>> {
-        let file = FileLock::open(path)?;
+        FileLock::try_hold(FileLock::open(path)?).at(path)
+    }
+
+    /// [`FileLock::try_take`] for a reader, which leaves things as it found them: the file is
+    /// opened only to read, and never made (an error of kind `NotFound` when it isn't there).
+    pub fn try_take_existing(path: &Path) -> std::io::Result<Option<FileLock>> {
+        FileLock::try_hold(File::open(path)?)
+    }
+
+    fn try_hold(file: File) -> std::io::Result<Option<FileLock>> {
         match file.try_lock() {
             Ok(()) => Ok(Some(FileLock(file))),
             Err(fs::TryLockError::WouldBlock) => Ok(None),
-            Err(fs::TryLockError::Error(e)) => Err(Error::Io { path: path.to_path_buf(), source: e }),
+            Err(fs::TryLockError::Error(e)) => Err(e),
         }
     }
 }

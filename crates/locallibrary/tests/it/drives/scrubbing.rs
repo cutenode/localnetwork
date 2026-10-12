@@ -35,9 +35,12 @@ fn a_named_snapshot_finds_every_library_file_gone_since() {
     let dat = analysis_key(&d);
     std::fs::remove_file(d.path(&dat)).unwrap();
 
-    // The drive no longer matches a snapshot by its fingerprint, but the one named still says
-    // what it should hold.
-    assert!(scrub(&d, Some(&store), &ScrubOptions::default()).missing.is_empty());
+    // The drive no longer matches a snapshot by its fingerprint, but the one it last held (its
+    // databases unchanged) still says what it should hold, and so does the one named.
+    let found = scrub(&d, Some(&store), &ScrubOptions::default());
+    let missing: Vec<(&str, Option<ReferenceKind>)> =
+        found.missing.iter().map(|m| (m.path.as_str(), m.reference)).collect();
+    assert_eq!((found.snapshot, missing), (None, vec![(dat.as_str(), Some(ReferenceKind::History))]));
     let r = scrub(&d, Some(&store), &ScrubOptions { snapshot: Some(head) });
     assert_eq!(r.snapshot, Some(head));
     let missing: Vec<(&str, Option<ReferenceKind>, Option<&RepairSource>)> =
@@ -45,6 +48,26 @@ fn a_named_snapshot_finds_every_library_file_gone_since() {
     assert_eq!(missing, [(dat.as_str(), Some(ReferenceKind::Snapshot), Some(&RepairSource::Store))]);
     assert_eq!(r.tracks.len(), 1);
     assert_eq!(r.summary(), format!("0 damaged, 0 unreadable, 1 missing of {} files", r.files));
+}
+
+/// What the snapshot a drive last held lists is no longer what belongs once rekordbox exports
+/// another library to it: the files of a track it dropped aren't missing.
+#[test]
+fn files_an_export_since_dropped_are_not_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, d) = pulled(dir.path());
+    let gone = d.library().unwrap().tracks[0].clone();
+    let pdb = d.path(paths::EXPORT_PDB);
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb).unwrap();
+    ed.remove_tracks(&[gone.id]).unwrap();
+    ed.save(&pdb).unwrap();
+    for key in [&gone.file_path, &gone.analyze_path] {
+        std::fs::remove_file(d.path(&paths::key(key))).unwrap();
+    }
+
+    let r = scrub(&d, Some(&store), &ScrubOptions::default());
+    assert_eq!(r.snapshot, None);
+    assert!(r.missing.is_empty(), "{:?}", r.missing);
 }
 
 #[test]

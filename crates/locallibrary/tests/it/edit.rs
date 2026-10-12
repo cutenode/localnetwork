@@ -535,6 +535,26 @@ fn a_playlist_in_the_second_of_same_named_folders_is_not_made_again() {
     }
 }
 
+/// Regression: renaming a playlist to the name it has counted as a change, so the player asked
+/// to write it. Now it changes nothing (spaces around the name go); another case of the name is
+/// a rename, and the name a twin beside it has is taken.
+#[test]
+fn renaming_a_playlist_to_its_own_name_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (root, _) = twins_drive(dir.path());
+    let d = Device::open_export(&root).unwrap();
+    let plan = |playlist: &str, name: &str| {
+        let rename = Edit::RenamePlaylist { playlist: playlist.into(), name: name.into() };
+        edit::plan(&d, &[rename], &EditOptions::default(), &Ctx::silent())
+    };
+    let same = plan("Shows/Set", " Set ").unwrap();
+    assert!(same.is_noop(), "{:?}", same.changes);
+    assert_eq!(same.changes, ["Shows/Set is called that already"]);
+    assert!(same.recorded.is_empty());
+    assert!(!plan("Shows/Set", "set").unwrap().is_noop());
+    assert!(plan("Twin", "Twin").is_err());
+}
+
 /// Regression: edits couldn't reach a playlist shown after a folder of its name: they found the
 /// folder, and said it was one. Both databases get the edits, each on the node of the kind meant.
 #[test]

@@ -886,4 +886,128 @@ mod tests {
                 .unwrap();
         assert!(gone.missing.contains(&"Floorplan - Never Grow Old".to_string()), "{:?}", gone.missing);
     }
+
+    /// A drawn collection (tracks whose audio may not be on this computer, some with rekordbox's
+    /// analysis files, playlists in and out of a folder, a chosen few of them or all) exports as a
+    /// library holding exactly the chosen tracks found here, their audio byte for byte, the
+    /// analysis naming each track's new path, and the playlists in their order without the tracks
+    /// left out. Exporting again copies nothing.
+    #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+    fn a_drawn_collection_exports_exactly_what_is_here(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let dir = tempfile::tempdir().unwrap();
+        let rb = dir.path().join("rekordbox");
+        let music = dir.path().join("Music");
+        std::fs::create_dir_all(&music).unwrap();
+        let anlz = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/rekordcrate/demo_tracks/PIONEER/USBANLZ/P016/0000875E");
+        let share = rb.join("share/PIONEER/USBANLZ/P016/0000875E");
+        std::fs::create_dir_all(&share).unwrap();
+        for e in std::fs::read_dir(anlz).unwrap() {
+            let e = e.unwrap();
+            std::fs::copy(e.path(), share.join(e.file_name())).unwrap();
+        }
+
+        let f = masterdb::tests::Fixture::new();
+        let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
+        let mut here = Vec::new();
+        for i in 0..n {
+            let artist = tc.draw(gs::sampled_from(vec!["Daft Punk", "Ünï", "A/B"]));
+            let file = music.join(format!("Track {i}.mp3"));
+            f.track(&(i + 1).to_string(), &file.to_string_lossy(), artist, &format!("Track {i}"));
+            if tc.draw(gs::booleans()) {
+                f.exec(&format!(
+                    "UPDATE djmdContent SET AnalysisDataPath = '/PIONEER/USBANLZ/P016/0000875E/ANLZ0000.DAT' WHERE ID = '{}'",
+                    i + 1
+                ));
+            }
+            let present = tc.draw(gs::weighted_booleans(0.8));
+            if present {
+                std::fs::write(&file, format!("audio of track {i}")).unwrap();
+            }
+            here.push(present);
+        }
+        f.exec("INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID) VALUES ('100', 0, 'Folder', 1, 'root')");
+        let lists = tc.draw(gs::integers::<usize>().max_value(3));
+        let mut names = Vec::new();
+        for p in 0..lists {
+            let in_folder = tc.draw(gs::booleans());
+            let parent = if in_folder { "100" } else { "root" };
+            f.exec(&format!(
+                "INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID) VALUES ('{}', {p}, 'List {p}', 0, '{parent}')",
+                200 + p
+            ));
+            for (e, k) in
+                tc.draw(gs::vecs(gs::integers::<usize>().max_value(n - 1)).max_size(4)).into_iter().enumerate()
+            {
+                f.exec(&format!(
+                    "INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo) VALUES ('{p}-{e}', '{}', '{}', {e})",
+                    200 + p,
+                    k + 1
+                ));
+            }
+            names.push(if in_folder { format!("Folder/List {p}") } else { format!("List {p}") });
+        }
+        std::fs::create_dir_all(&rb).unwrap();
+        std::fs::write(rb.join("master.db"), f.plain()).unwrap();
+        let collection = masterdb::open(&rb.join("master.db"), DEFAULT_KEY).unwrap();
+        let chosen: Vec<String> = names.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
+
+        let root = dir.path().join("Export");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut target = Device::open(&root).unwrap();
+        let opts = CollectionExportOptions { playlists: chosen.clone(), ..Default::default() };
+        let cloud = CloudFolders::default();
+        let planned = plan(&collection, &cloud, &target, &opts, &Ctx::silent()).unwrap();
+        let report = apply(&planned, &mut target, None, &Ctx::silent()).unwrap();
+
+        // What should be there: the chosen playlists' tracks (or all), less those not here.
+        let lib = &collection.library;
+        let shown: Vec<&crate::model::Playlist> = lib
+            .playlists
+            .iter()
+            .filter(|p| !p.is_folder && (chosen.is_empty() || chosen.contains(&lib.playlist_path(p.id))))
+            .collect();
+        let used: FxHashSet<u32> = shown.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
+        let in_scope: Vec<&Track> = lib.tracks.iter().filter(|t| chosen.is_empty() || used.contains(&t.id)).collect();
+        let present = |t: &Track| here[t.id as usize - 1];
+        let mut missing: Vec<String> = in_scope.iter().filter(|t| !present(t)).map(|t| t.display_name()).collect();
+        let mut said = planned.missing.clone();
+        missing.sort();
+        said.sort();
+        assert_eq!(said, missing);
+        assert_eq!(report.tracks, in_scope.len() - missing.len());
+
+        let exported = target.library().unwrap();
+        let mut titles: Vec<&str> = exported.tracks.iter().map(|t| t.title.as_str()).collect();
+        let mut want: Vec<&str> = in_scope.iter().filter(|t| present(t)).map(|t| t.title.as_str()).collect();
+        titles.sort();
+        want.sort();
+        assert_eq!(titles, want);
+        for t in &exported.tracks {
+            let i: usize = t.title.strip_prefix("Track ").unwrap().parse().unwrap();
+            assert_eq!(
+                std::fs::read(target.path(&paths::key(&t.file_path))).unwrap(),
+                format!("audio of track {i}").into_bytes()
+            );
+            if !t.analyze_path.is_empty() {
+                let dat = std::fs::read(target.path(&paths::key(&t.analyze_path))).unwrap();
+                assert_eq!(anlz::read_path(&dat).unwrap().as_deref(), Some(t.file_path.as_str()));
+            }
+        }
+        let title_of = |l: &Library, id: u32| l.track(id).unwrap().title.clone();
+        for p in &shown {
+            let path = lib.playlist_path(p.id);
+            let got = exported.find_playlist(&path).unwrap_or_else(|| panic!("{path} wasn't exported"));
+            let want: Vec<String> =
+                p.track_ids.iter().filter(|id| here[**id as usize - 1]).map(|id| title_of(lib, *id)).collect();
+            assert_eq!(got.track_ids.iter().map(|id| title_of(&exported, *id)).collect::<Vec<_>>(), want);
+        }
+        assert_eq!(exported.playlists.iter().filter(|p| !p.is_folder).count(), shown.len());
+        assert_eq!(record(&target).unwrap().unwrap().playlists, chosen);
+
+        let again = plan(&collection, &cloud, &target, &CollectionExportOptions::default(), &Ctx::silent()).unwrap();
+        assert!(again.copies.is_empty() && again.deletes.is_empty(), "{:?} {:?}", again.copies, again.deletes);
+        assert_eq!(again.playlists, chosen, "the last selection");
+    }
 }

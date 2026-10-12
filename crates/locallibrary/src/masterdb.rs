@@ -1475,4 +1475,230 @@ pub(crate) mod tests {
             assert_eq!(resolve_key(Some("")), DEFAULT_KEY);
         }
     }
+
+    /// One drawn row of `djmdContent`, and what the collection should make of it.
+    #[derive(Debug, Clone)]
+    struct Row {
+        id: String,
+        path: String,
+        artist: &'static str,
+        title: String,
+        bpm: i64,
+        rating: i64,
+        color: i64,
+        deleted: bool,
+    }
+
+    /// A drawn `master.db` (tracks, some deleted; folders, playlists and an intelligent one with
+    /// entries in any order; a history list; cues of every kind; My Tags) reads back as rekordbox
+    /// holds it: deleted rows left out, ids kept only when they're all distinct numbers, entries in
+    /// `TrackNo` order, and cues and tags with the tracks they belong to. A drive holding exactly
+    /// the collection then differs from it in nothing.
+    #[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+    fn a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let f = Fixture::new();
+        let numeric = tc.draw(gs::booleans());
+        let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(6));
+        let mut rows = Vec::new();
+        for i in 0..n {
+            let id = match numeric {
+                true => (tc.draw(gs::integers::<u32>().min_value(1).max_value(40)) * 100 + i as u32).to_string(),
+                false => format!("t{i}"),
+            };
+            let artist = tc.draw(gs::sampled_from(vec!["Daft Punk", "Ünï", "Floorplan"]));
+            let row = Row {
+                id,
+                path: format!("/Users/dj/Music/{artist}/Track {i}.mp3"),
+                artist,
+                title: format!("Track {i}"),
+                bpm: tc.draw(gs::integers::<i64>().min_value(0).max_value(20_000)),
+                rating: tc.draw(gs::integers::<i64>().min_value(-1).max_value(7)),
+                color: tc.draw(gs::integers::<i64>().min_value(0).max_value(9)),
+                deleted: tc.draw(gs::weighted_booleans(0.2)),
+            };
+            f.track(&row.id, &row.path, row.artist, &row.title);
+            f.conn
+                .execute(
+                    "UPDATE djmdContent SET BPM = ?2, Rating = ?3, ColorID = ?4, rb_local_deleted = ?5 WHERE ID = ?1",
+                    params![row.id, row.bpm, row.rating, row.color.to_string(), row.deleted as i64],
+                )
+                .unwrap();
+            rows.push(row);
+        }
+        let live: Vec<&Row> = rows.iter().filter(|r| !r.deleted).collect();
+        let ids_kept = numeric;
+        let id_of = |row: &Row| -> u32 {
+            match ids_kept {
+                true => row.id.parse().unwrap(),
+                false => live.iter().position(|r| r.id == row.id).unwrap() as u32 + 1,
+            }
+        };
+
+        // Playlists: a folder, playlists in it or at the top, one intelligent.
+        f.exec("INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID) VALUES ('p0', 0, 'Shows', 1, 'root');");
+        // (path, id, entries as TrackNo and row)
+        type Drawn<'r> = (String, String, Vec<(i64, &'r Row)>);
+        let mut playlists: Vec<Drawn> = Vec::new();
+        for p in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+            let (parent, folder_name) = if tc.draw(gs::booleans()) { ("p0", "Shows/") } else { ("root", "") };
+            let id = format!("p{}", p + 1);
+            let name = format!("List {p}");
+            let smart = tc.draw(gs::weighted_booleans(0.2));
+            let deleted = tc.draw(gs::weighted_booleans(0.15));
+            f.conn
+                .execute(
+                    "INSERT INTO djmdPlaylist (ID, Seq, Name, Attribute, ParentID, rb_local_deleted) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![id, p as i64 + 1, name, if smart { 4 } else { 0 }, parent, deleted as i64],
+                )
+                .unwrap();
+            let mut entries = Vec::new();
+            if !smart {
+                let picks: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(n - 1)).max_size(4));
+                for (e, k) in picks.into_iter().enumerate() {
+                    let track_no = tc.draw(gs::integers::<i64>().min_value(1).max_value(5));
+                    f.conn
+                        .execute(
+                            "INSERT INTO djmdSongPlaylist (ID, PlaylistID, ContentID, TrackNo) VALUES (?1, ?2, ?3, ?4)",
+                            params![format!("{id}e{e}"), id, rows[k].id, track_no],
+                        )
+                        .unwrap();
+                    entries.push((track_no, &rows[k]));
+                }
+            }
+            if !deleted {
+                playlists.push((format!("{folder_name}{name}"), id, entries));
+            }
+        }
+        // Entries go by TrackNo, then by the order they were stored in; deleted tracks go.
+        let want_entries = |entries: &[(i64, &Row)]| -> Vec<u32> {
+            let mut e: Vec<(usize, &(i64, &Row))> = entries.iter().enumerate().collect();
+            e.sort_by_key(|(i, (no, _))| (*no, *i));
+            e.into_iter().filter(|(_, (_, r))| !r.deleted).map(|(_, (_, r))| id_of(r)).collect()
+        };
+
+        // Cues on any row, of any kind.
+        let mut cues: Vec<(&Row, i64, i64, i64)> = Vec::new();
+        for c in 0..tc.draw(gs::integers::<usize>().max_value(5)) {
+            let row = &rows[tc.draw(gs::integers::<usize>().max_value(n - 1))];
+            let start = tc.draw(gs::integers::<i64>().min_value(0).max_value(9_000));
+            let end =
+                if tc.draw(gs::booleans()) { start + tc.draw(gs::integers::<i64>().max_value(4_000)) } else { -1 };
+            let kind = tc.draw(gs::integers::<i64>().min_value(0).max_value(10));
+            f.conn
+                .execute(
+                    "INSERT INTO djmdCue (ID, ContentID, InMsec, OutMsec, Kind, ColorTableIndex, Comment) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, 1, 'cue')",
+                    params![format!("c{c}"), row.id, start, end, kind],
+                )
+                .unwrap();
+            cues.push((row, start, end, kind));
+        }
+
+        // My Tags: one category, a tag on drawn tracks (repeats too).
+        f.exec(
+            "INSERT INTO djmdMyTag (ID, Seq, Name, Attribute, ParentID) VALUES ('100', 1, 'Mood', 1, 'root'), \
+             ('101', 0, 'Deep', 0, '100');",
+        );
+        let tagged: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(n - 1)).max_size(4));
+        for (i, k) in tagged.iter().enumerate() {
+            f.conn
+                .execute(
+                    "INSERT INTO djmdSongMyTag (ID, MyTagID, ContentID, TrackNo) VALUES (?1, '101', ?2, ?3)",
+                    params![format!("s{i}"), rows[*k].id, i as i64],
+                )
+                .unwrap();
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let encrypted = tc.draw(gs::booleans());
+        let path = write(dir.path(), &if encrypted { f.encrypted(DEFAULT_KEY) } else { f.plain() });
+        let c = open(&path, DEFAULT_KEY).unwrap();
+
+        // Tracks.
+        let mut want: Vec<(u32, String, String, f64, u8, Option<TrackColor>)> = live
+            .iter()
+            .map(|r| {
+                let color = TrackColor::from_id(r.color as u8);
+                (
+                    id_of(r),
+                    r.path.clone(),
+                    r.artist.to_string(),
+                    r.bpm as f64 / 100.0,
+                    r.rating.clamp(0, 5) as u8,
+                    color,
+                )
+            })
+            .collect();
+        want.sort_by_key(|w| w.0);
+        let got: Vec<_> = c
+            .library
+            .tracks
+            .iter()
+            .map(|t| (t.id, t.file_path.clone(), t.artist.clone(), t.bpm, t.rating, t.color))
+            .collect();
+        assert_eq!(got, want);
+
+        // Playlists.
+        let mut got: Vec<(String, Vec<u32>)> = c
+            .library
+            .playlists
+            .iter()
+            .filter(|p| !p.is_folder)
+            .map(|p| (c.library.playlist_path(p.id), p.track_ids.clone()))
+            .collect();
+        let mut want: Vec<(String, Vec<u32>)> =
+            playlists.iter().map(|(path, _, e)| (path.clone(), want_entries(e))).collect();
+        got.sort();
+        want.sort();
+        assert_eq!(got, want);
+        assert_eq!(c.smart_playlists.len(), c.info().smart_playlists.len());
+
+        // Cues: those of live tracks, as hot cues, memory cues and loops.
+        let live_cues: Vec<_> = cues.iter().filter(|(r, ..)| !r.deleted).collect();
+        assert_eq!(c.cues.values().map(Vec::len).sum::<usize>(), live_cues.len());
+        for (r, start, end, kind) in &live_cues {
+            let list = &c.cues[&id_of(r)];
+            let hot = hot_cue_from_kind(*kind);
+            let end = (*end > *start).then_some(*end as u32);
+            assert!(
+                list.iter().any(|q| q.hot_cue == hot && q.start_ms == *start as u32 && q.end_ms == end),
+                "{list:?}"
+            );
+            assert!(hot.is_none_or(|h| hot_cue_from_kind(kind_for_hot_cue(h)) == Some(h)));
+        }
+        let info = c.info();
+        assert_eq!(
+            info.hot_cues + info.memory_cues + info.loops,
+            live_cues.len() + c.cues.values().flatten().filter(|q| q.hot_cue.is_some() && q.end_ms.is_some()).count()
+        );
+
+        // My Tags: each live track once, in the order tagged.
+        let mut seen = FxHashSet::default();
+        let tag_want: Vec<u32> =
+            tagged.iter().map(|k| &rows[*k]).filter(|r| !r.deleted).map(id_of).filter(|id| seen.insert(*id)).collect();
+        assert_eq!(c.tags.len(), 1);
+        assert_eq!(c.tags[0].tags[0].track_ids, tag_want);
+        assert_eq!(info.tagged_tracks, tag_want.len());
+        assert_eq!(c.tags_by_file().len(), tag_want.len());
+
+        // A drive with exactly the collection's tracks and playlists differs in nothing.
+        let d = c.diff_drive(&c.library, "Main", None).unwrap();
+        assert_eq!(d.matched_by_file, c.library.tracks.len());
+        let diff = &d.diff;
+        assert!(diff.added_tracks.is_empty() && diff.removed_tracks.is_empty() && diff.changed_tracks.is_empty());
+        assert!(diff.added_playlists.is_empty() && diff.removed_playlists.is_empty(), "{diff:?}");
+        // ...and a drive without one of them lacks exactly that one.
+        let mut fewer = c.library.clone();
+        if fewer.tracks.is_empty() {
+            return;
+        }
+        let gone = fewer.tracks.remove(0);
+        for p in &mut fewer.playlists {
+            p.track_ids.retain(|t| *t != gone.id);
+        }
+        let d = c.diff_drive(&fewer, "Main", None).unwrap();
+        assert_eq!(d.diff.added_tracks.iter().map(|t| t.id).collect::<Vec<_>>(), [gone.id]);
+    }
 }

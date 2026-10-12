@@ -215,7 +215,8 @@ pub fn bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut v = n as f64;
     let mut u = 0;
-    while v >= 1000.0 && u < UNITS.len() - 1 {
+    // 999.95 and up rounds to 1000.0 at one decimal: that's the next unit's 1.0.
+    while v >= 999.95 && u < UNITS.len() - 1 {
         v /= 1000.0;
         u += 1;
     }

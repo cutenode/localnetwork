@@ -116,6 +116,21 @@ fn concurrent_writers_are_locked_out() {
     assert!(d.lock().is_ok());
 }
 
+/// Regression: checking a drive took its write lock, which left `.locallibrary/lock` on a drive
+/// that had none. A check makes nothing, and still waits for a write going on.
+#[test]
+fn a_check_makes_no_lock_and_waits_for_a_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = Device::open_export(common::demo_drive(dir.path(), "A")).unwrap();
+    let check = || locallibrary::scrub::scrub(&d, None, &[], &Default::default(), &Ctx::silent());
+    check().unwrap();
+    assert!(!d.state_dir().exists(), "nothing made on a drive never written");
+    let held = d.lock().unwrap();
+    assert!(matches!(check(), Err(Error::Locked(_))));
+    drop(held);
+    check().unwrap();
+}
+
 #[test]
 fn restore_refuses_a_backup_whose_files_are_gone() {
     let dir = tempfile::tempdir().unwrap();

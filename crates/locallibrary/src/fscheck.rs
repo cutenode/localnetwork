@@ -196,8 +196,8 @@ fn unmount(unmount: &Cmd, check: &Cmd, partition: Option<&str>) -> Result<()> {
 pub fn check(device: &Device, repair: bool) -> Result<FsCheckReport> {
     crate::device::disks_shown()?;
     // No locallibrary operation may be running on it (and the lock file, on the drive itself,
-    // must be closed again before the volume can be unmounted).
-    drop(device.lock()?);
+    // must be closed again before the volume can be unmounted). Checking makes none.
+    drop(device.read_lock()?);
     let root = device.root().to_path_buf();
     let disk = crate::format::disk_at(&root).ok();
     let volume =
@@ -381,6 +381,78 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(unmount(&Cmd::new("true", &[]), &check, None).is_ok());
+    }
+
+    /// Whatever the tool prints around it, diskutil's `exit code is N` line decides the verdict;
+    /// without one, the exit status does. Run as a real tool, the output reads the same.
+    #[cfg(unix)]
+    #[hegel::test(test_cases = 40)]
+    fn the_verdict_follows_the_reported_exit_code(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let noise = || gs::sampled_from(vec!["** Phase 1", "Checking volume.", "12 files, 3/1953 clusters", ""]);
+        let before: Vec<&str> = tc.draw(gs::vecs(noise()).max_size(3));
+        let after: Vec<&str> = tc.draw(gs::vecs(noise()).max_size(2));
+        let code: Option<i32> = tc.draw(gs::optional(gs::integers::<i32>().min_value(0).max_value(9)));
+        let status = tc.draw(gs::integers::<i32>().min_value(0).max_value(3));
+        let dot = if tc.draw(gs::booleans()) { "." } else { "" };
+        let reported = code.map(|c| format!("File system check exit code is {c}{dot}"));
+        let mut lines = before;
+        lines.extend(reported.as_deref());
+        lines.extend(after);
+        let text = lines.join("\n");
+        let consistent = code.map_or(status == 0, |c| c == 0);
+        assert_eq!(verdict(status == 0, &text), consistent, "{text:?}");
+
+        let quoted: Vec<String> = lines.iter().map(|l| format!("'{l}'")).collect();
+        let script = format!("printf '%s\\n' {}; exit {status}", quoted.join(" "));
+        let (ok, out) = run_status(&Cmd::new("sh", &["-c", &script])).unwrap();
+        assert_eq!(ok, consistent, "{out:?}");
+        assert_eq!(out.lines().filter(|l| !l.is_empty()).count(), lines.iter().filter(|l| !l.is_empty()).count());
+    }
+
+    /// Linux checks the partition it unmounted, with the tool for its file system, mounts that
+    /// same partition again (for the user who ran sudo), and repairs only when asked.
+    #[hegel::test(test_cases = 60)]
+    fn linux_steps_unmount_check_and_mount_one_partition(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let volume = tc.draw(gs::sampled_from(vec!["/dev/sdb1", "/dev/sdc2", "/dev/mmcblk0p1"]));
+        let fs = tc.draw(gs::optional(gs::sampled_from(vec!["vfat", "exfat", "ExFAT", "msdos", ""])));
+        let repair = tc.draw(gs::booleans());
+        let user = tc.draw(gs::optional(gs::sampled_from(vec!["", "root", "sam"])));
+        let s = linux_steps(volume, fs, repair, user);
+        let tool = if fs.is_some_and(|f| f.eq_ignore_ascii_case("exfat")) { "fsck.exfat" } else { "fsck.vfat" };
+        assert_eq!(s.check, Cmd::new(tool, &[if repair { "-a" } else { "-n" }, volume]));
+        let unmount = s.unmount.unwrap();
+        let mount = s.mount.unwrap();
+        assert_eq!(unmount.program, "udisksctl");
+        assert_eq!(unmount.args.last().map(String::as_str), Some(volume));
+        assert_eq!(mount.args.last().map(String::as_str), Some(volume));
+        match user {
+            Some("sam") => assert_eq!(mount.args[..3], ["-u", "sam", "udisksctl"], "{mount:?}"),
+            _ => assert_eq!(mount.program, "udisksctl"),
+        }
+        assert!(mount.args.contains(&"mount".to_string()) && unmount.args.contains(&"unmount".to_string()));
+    }
+
+    /// chkdsk runs on the drive letter of a drive's root, and only there; `/f /x` only to repair.
+    #[hegel::test(test_cases = 60)]
+    fn windows_checks_only_a_drive_root(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let letter = tc.draw(gs::sampled_from(vec!['e', 'E', 'z', '1']));
+        let tail = tc.draw(gs::sampled_from(vec!["", "\\", "/", "\\\\", "\\Music", "x"]));
+        let prefix = tc.draw(gs::sampled_from(vec!["", r"\\?\"]));
+        let repair = tc.draw(gs::booleans());
+        let root = format!("{prefix}{letter}:{tail}");
+        let is_root = letter.is_ascii_alphabetic() && tail.chars().all(|c| c == '\\' || c == '/');
+        match windows_steps(Path::new(&root), repair) {
+            Ok(s) => {
+                assert!(is_root, "{root}");
+                let drive = format!("{}:", letter.to_ascii_uppercase());
+                let want = if repair { vec![drive.as_str(), "/f", "/x"] } else { vec![drive.as_str()] };
+                assert_eq!(s, Steps::only(Cmd::new("chkdsk", &want)));
+            }
+            Err(e) => assert!(!is_root && e.to_string().contains("not the root"), "{root}: {e}"),
+        }
     }
 
     #[test]

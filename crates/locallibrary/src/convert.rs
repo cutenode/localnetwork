@@ -783,7 +783,8 @@ impl Builder<'_, '_> {
                 }
             }
         }
-        // Playlists whose parent folder is missing (a corrupt tree) still come across.
+        // Playlists in a parent loop (a corrupt tree) are never reached from the top, but still
+        // come across. Ones whose folder is missing are already at the top, in `children(None)`.
         let orphans: Vec<&Playlist> =
             lib.playlists.iter().filter(|p| !p.is_folder && !new_ids.contains_key(&p.id)).collect();
         for p in orphans {

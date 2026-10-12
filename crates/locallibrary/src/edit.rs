@@ -1397,8 +1397,15 @@ impl<'a> Resolver<'a> {
                     return Err(Error::invalid("names can't be empty or contain /"));
                 }
                 let node = lib.playlist_names(p.id);
-                let desc = format!("rename {} to {name:?}", node.join("/"));
                 let canonical = Edit::RenamePlaylist { playlist: named(p), name: name.to_string() };
+                // Its name already (names are compared as written, as everywhere here): nothing
+                // to write, where a rename op counts as a change whatever it renames to. (With a
+                // twin of that name beside it, the op says the name is taken.)
+                let twin = lib.children(p.parent_id).iter().any(|q| q.id != p.id && q.name == name);
+                if p.name == name && !twin {
+                    return Ok((Vec::new(), format!("{} is called that already", node.join("/")), vec![canonical]));
+                }
+                let desc = format!("rename {} to {name:?}", node.join("/"));
                 (vec![Op::Rename { node, folder: p.is_folder, name: name.to_string() }], desc, canonical)
             }
             Edit::MovePlaylist { playlist: spec, into, position } => {

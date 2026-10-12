@@ -384,4 +384,83 @@ mod tests {
             (&[KeepReason::Drive][..], &["Backup".to_string()][..])
         );
     }
+
+    /// Whatever the policy, the snapshots kept are exactly: the head, labelled ones, drives'
+    /// states, the newest N, and the newest of each of the newest N days and weeks that have
+    /// snapshots, each kept for each reason that applies.
+    #[hegel::test(test_cases = 300)]
+    fn the_policy_keeps_exactly_what_it_names(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let n = tc.draw(gs::integers::<u8>().max_value(30));
+        let start = Local.with_ymd_and_hms(2026, 3, 2, 0, 0, 0).unwrap().with_timezone(&Utc);
+        let mut snaps: Vec<Candidate> = (0..n)
+            .map(|i| {
+                candidate(i, start + Duration::hours(i64::from(tc.draw(gs::integers::<u16>().max_value(24 * 40)))))
+            })
+            .collect();
+        snaps.sort_by(|a, b| b.info.created.cmp(&a.info.created).then(b.info.id.cmp(&a.info.id)));
+        let pick = |tc: &hegel::TestCase| (n > 0).then(|| tc.draw(gs::integers::<usize>().max_value(n as usize - 1)));
+        let head = pick(&tc).map(|i| snaps[i].info.id);
+        let labelled: Vec<usize> = (0..2).filter_map(|_| pick(&tc)).collect();
+        for i in &labelled {
+            snaps[*i].info.labels = vec!["kept".into()];
+        }
+        let on_drives: Vec<usize> = (0..2).filter_map(|_| pick(&tc)).collect();
+        let drives: FxHashMap<Hash, Vec<String>> =
+            on_drives.iter().map(|i| (snaps[*i].info.fingerprint, vec![format!("Drive {i}")])).collect();
+        let size = || gs::optional(gs::integers::<usize>().max_value(6));
+        let opts = PruneOptions {
+            keep_last: tc.draw(size()),
+            keep_daily: tc.draw(size()),
+            keep_weekly: tc.draw(size()),
+            ..Default::default()
+        };
+        let before: Vec<SnapshotInfo> = snaps.iter().map(|c| c.info.clone()).collect();
+        by_policy(&mut snaps, head, &drives, &opts);
+
+        // Each period's newest snapshot, for the newest `n` periods.
+        let newest_per = |n: Option<usize>, period: &dyn Fn(&SnapshotInfo) -> (i32, u32)| -> FxHashSet<Hash> {
+            let mut periods: Vec<(i32, u32)> = before.iter().map(period).collect();
+            periods.sort_unstable_by(|a, b| b.cmp(a));
+            periods.dedup();
+            periods
+                .into_iter()
+                .take(n.unwrap_or(0))
+                .filter_map(|p| before.iter().find(|s| period(s) == p).map(|s| s.id))
+                .collect()
+        };
+        let day = |s: &SnapshotInfo| {
+            let d = s.created.with_timezone(&Local).date_naive();
+            (d.year(), d.ordinal())
+        };
+        let week = |s: &SnapshotInfo| {
+            let w = s.created.with_timezone(&Local).date_naive().iso_week();
+            (w.year(), w.week())
+        };
+        let daily = newest_per(opts.keep_daily, &day);
+        let weekly = newest_per(opts.keep_weekly, &week);
+        for (i, c) in snaps.iter().enumerate() {
+            let mut want = Vec::new();
+            if Some(c.info.id) == head {
+                want.push(KeepReason::Latest);
+            }
+            if labelled.contains(&i) {
+                want.push(KeepReason::Label);
+            }
+            if on_drives.contains(&i) {
+                want.push(KeepReason::Drive);
+            }
+            if i < opts.keep_last.unwrap_or(0) {
+                want.push(KeepReason::Last);
+            }
+            if daily.contains(&c.info.id) {
+                want.push(KeepReason::Daily);
+            }
+            if weekly.contains(&c.info.id) {
+                want.push(KeepReason::Weekly);
+            }
+            assert_eq!(c.reasons, want, "snapshot {i} of {}", snaps.len());
+            assert_eq!(!c.drives.is_empty(), on_drives.contains(&i));
+        }
+    }
 }

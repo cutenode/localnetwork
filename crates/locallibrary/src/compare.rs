@@ -654,4 +654,65 @@ mod tests {
         assert_eq!(c.relation, Relation::Unrelated);
         assert_eq!(c.suggestion, Suggestion::Merge);
     }
+
+    /// Comparing the other way round says the same with the sides swapped, whatever the two
+    /// sides hold: an identical state is identical, and a side whose lineage holds the other's
+    /// state (nothing cut off) is newer, for certain.
+    #[hegel::test(test_cases = 400)]
+    fn comparing_the_other_way_round_swaps_the_answer(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let pool = ["a", "b", "c", "d", "e", "f"];
+        let draw_side = |tc: &hegel::TestCase, label: &str| {
+            let tracks: Vec<&str> = pool.iter().copied().filter(|_| tc.draw(gs::weighted_booleans(0.7))).collect();
+            let added = tc.draw(gs::sampled_from(vec!["", "2026-01-01", "2026-02-01"]));
+            let lineage: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(4)).max_size(3));
+            let mut s = side(label, tc.draw(gs::integers::<u8>().max_value(4)), &lineage, lib(&tracks, added));
+            s.sequence = tc.draw(gs::optional(gs::integers::<u32>().max_value(9)));
+            s.exported_at = tc
+                .draw(gs::optional(gs::integers::<i64>().min_value(0).max_value(5)))
+                .map(|d| Utc::now() - chrono::Duration::days(d));
+            s.pending = tc.draw(gs::weighted_booleans(0.15));
+            s.mid_copy = s.pending && tc.draw(gs::booleans());
+            s.library_id = tc.draw(gs::optional(gs::integers::<u128>().max_value(1))).map(Uuid::from_u128);
+            s
+        };
+        let a = draw_side(&tc, "A");
+        let b = draw_side(&tc, "B");
+        let ab = compare(&a, &b);
+        let ba = compare(&b, &a);
+        let mirror = |r: Relation| match r {
+            Relation::LeftNewer => Relation::RightNewer,
+            Relation::RightNewer => Relation::LeftNewer,
+            r => r,
+        };
+        assert_eq!(
+            (mirror(ab.relation), ab.confidence),
+            (ba.relation, ba.confidence),
+            "{:?} / {:?}",
+            ab.evidence,
+            ba.evidence
+        );
+        assert_eq!(ab.left_is_newer(), ba.relation == Relation::RightNewer);
+        assert!(!ab.evidence.is_empty());
+        assert_eq!(ab.undetermined().is_some(), ab.relation == Relation::Undetermined);
+        assert_eq!((ab.left.label.as_str(), ab.right.label.as_str()), ("A", "B"));
+        if a.fingerprint == b.fingerprint {
+            assert_eq!((ab.relation, ab.confidence), (Relation::Identical, Confidence::High));
+            assert_eq!(ab.suggestion, Suggestion::Nothing);
+        }
+        let plain = !a.pending && !b.pending && !a.mid_copy && !b.mid_copy;
+        if plain && a.fingerprint != b.fingerprint && b.knows(&a) && !a.knows(&b) {
+            assert_eq!((ab.relation, ab.confidence), (Relation::RightNewer, Confidence::High));
+            assert_eq!(ab.suggestion, Suggestion::UpdateLeft);
+        }
+        // The diff runs from the older side to the newer.
+        let (older, newer) = if ab.relation == Relation::LeftNewer { (&b, &a) } else { (&a, &b) };
+        let added: usize = newer
+            .library
+            .tracks
+            .iter()
+            .filter(|t| !older.library.tracks.iter().any(|o| o.file_path == t.file_path))
+            .count();
+        assert_eq!(ab.diff.added_tracks.len(), added);
+    }
 }

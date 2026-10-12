@@ -74,7 +74,9 @@ rustc-hash = "2.1"
 # JSON Schema for the API's requests and results: the RPC sidecar's machine-readable contract.
 schemars = { version = "1.2", default-features = false, features = ["derive", "std", "chrono04", "indexmap2", "uuid1"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `float_roundtrip`: an f64 written to the store (a report's coverage, a set's BPM) reads back as
+# the same f64, not one bit off. (Test builds get it from jsonschema anyway; this is for the rest.)
+serde_json = { version = "1", features = ["float_roundtrip"] }
 # Where in a request a bad parameter is (`edits[0].op`), for the RPC sidecar's invalid_params errors.
 serde_path_to_error = "0.1"
 sha2 = "0.10"

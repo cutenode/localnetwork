@@ -70,8 +70,9 @@ fn windows_command(root: &Path) -> Result<Cmd> {
 
 /// Eject a drive. Fails with [`Error::Locked`] while a locallibrary operation is writing to it.
 pub fn eject(device: &Device) -> Result<EjectReport> {
-    // Wait for nothing: a running sync must finish (or be cancelled) first.
-    drop(device.lock()?);
+    // Wait for nothing: a running sync must finish (or be cancelled) first. Checking makes no
+    // lock file on a drive that has none.
+    drop(device.read_lock()?);
     let root = device.root().to_path_buf();
     let cmds = commands(&root)?;
     let mut ran = Vec::new();
@@ -212,5 +213,40 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert!(wait_gone(&dir.path().join("E"), Duration::ZERO));
         assert!(!wait_gone(dir.path(), Duration::ZERO), "still there");
+    }
+
+    /// Whatever partitions a disk has, ejecting one of its mounted volumes unmounts each mounted
+    /// one, in order, then powers the disk off; a root none of them is mounted at is refused.
+    #[hegel::test(test_cases = 200)]
+    fn linux_ejects_every_mounted_partition_of_the_disk(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let mut disk = crate::format::tests::sample_disk();
+        (disk.id, disk.device) = ("/dev/sdc".into(), "/dev/sdc".into());
+        let template = disk.volumes[0].clone();
+        disk.volumes.clear();
+        for n in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
+            let mut v = template.clone();
+            v.id = format!("/dev/sdc{}", n + 1);
+            v.mount = tc.draw(gs::booleans()).then(|| PathBuf::from(format!("/media/sam/P{n}")));
+            disk.volumes.push(v);
+        }
+        let root = PathBuf::from(format!("/media/sam/P{}", tc.draw(gs::integers::<usize>().max_value(4))));
+        let mounted: Vec<&str> = disk.volumes.iter().filter(|v| v.mount.is_some()).map(|v| v.id.as_str()).collect();
+        match linux_commands(&disk, &root) {
+            Err(_) => assert!(!disk.volumes.iter().any(|v| v.mount.as_deref() == Some(root.as_path()))),
+            Ok(cmds) => {
+                let shown: Vec<String> = cmds.iter().map(Cmd::display).collect();
+                let mut want: Vec<String> =
+                    mounted.iter().map(|id| format!("udisksctl unmount --no-user-interaction -b {id}")).collect();
+                want.push("udisksctl power-off --no-user-interaction -b /dev/sdc".into());
+                assert_eq!(shown, want);
+            }
+        }
+        let letter = tc.draw(gs::sampled_from(vec!['E', 'f', '7']));
+        let windows = windows_command(Path::new(&format!("{letter}:\\")));
+        assert_eq!(windows.is_ok(), letter.is_ascii_alphabetic());
+        if let Ok(cmd) = windows {
+            assert!(cmd.args.last().unwrap().contains(&format!("'{}:'", letter.to_ascii_uppercase())), "{cmd:?}");
+        }
     }
 }

@@ -15,7 +15,9 @@
 //!
 //! Players and rekordbox rewrite database and analysis files legitimately, but they also change
 //! the modification time, so such files simply have no reference and count as unverified.
-//! Files that can't be read at all are reported too. [`repair`] rewrites damaged and missing
+//! Files that can't be read at all are reported too, and missing ones: those the exact snapshot
+//! lists, or without one (a file gone changes the state), those of a consulted snapshot whose
+//! databases the drive still holds. [`repair`] rewrites damaged and missing
 //! files from store objects or another mounted drive, verifying every byte on the way, then
 //! reads them back.
 
@@ -145,14 +147,21 @@ pub struct ScrubOptions {
 struct References<'a> {
     exact: Option<FxHashMap<String, &'a FileEntry>>,
     history: Vec<&'a Snapshot>,
+    /// Without an exact snapshot, the consulted one whose databases the drive still holds.
+    listing: Option<&'a Snapshot>,
     index: HashIndex,
 }
 
 impl<'a> References<'a> {
-    fn new(exact: Option<&'a Snapshot>, history: Vec<&'a Snapshot>, index: HashIndex) -> Self {
+    fn new(exact: Option<&'a Snapshot>, history: Vec<&'a Snapshot>, tree: &FileTree, index: HashIndex) -> Self {
+        let listing = match exact {
+            Some(_) => None,
+            None => history.iter().copied().find(|s| same_databases(s, tree)),
+        };
         References {
             exact: exact.map(|s| s.files.iter().map(|f| (f.path.to_lowercase(), f)).collect()),
             history,
+            listing,
             index,
         }
     }
@@ -194,19 +203,32 @@ impl<'a> References<'a> {
     }
 
     /// Library files the exact snapshot has that `tree` lacks (by path: a snapshot an earlier
-    /// version took lists what players keep for the drive as library files).
+    /// version took lists what players keep for the drive as library files). Without an exact
+    /// snapshot, those of the [`References::listing`]: a file gone (an analysis file only a
+    /// snapshot lists) changes the state's fingerprint, so none matches it exactly.
     fn missing_from(&self, tree: &FileTree) -> Vec<(&'a FileEntry, Expected)> {
-        let Some(exact) = &self.exact else { return Vec::new() };
-        let mut out: Vec<_> = exact
-            .values()
+        let (files, kind): (Vec<&'a FileEntry>, _) = match (&self.exact, self.listing) {
+            (Some(exact), _) => (exact.values().copied().collect(), ReferenceKind::Snapshot),
+            (None, Some(s)) => (s.files.iter().collect(), ReferenceKind::History),
+            (None, None) => return Vec::new(),
+        };
+        let mut out: Vec<_> = files
+            .into_iter()
             .filter(|f| f.is_library() && tree.resolve(&f.path).is_none())
-            .filter_map(|f| {
-                f.hash.map(|hash| (*f, Expected { hash, size: f.size, mtime: f.mtime, kind: ReferenceKind::Snapshot }))
-            })
+            .filter_map(|f| f.hash.map(|hash| (f, Expected { hash, size: f.size, mtime: f.mtime, kind })))
             .collect();
         out.sort_by(|a, b| a.0.path.cmp(&b.0.path));
         out
     }
+}
+
+/// Whether `tree` (hashed) holds `snapshot`'s databases as it saved them: then the drive holds the
+/// library that snapshot is of, and every file it lists belongs there. Anything else (a rekordbox
+/// export since, a player's history list) changed what belongs.
+fn same_databases(snapshot: &Snapshot, tree: &FileTree) -> bool {
+    let saved = |key: &str| snapshot.files.iter().find(|f| f.path.eq_ignore_ascii_case(key)).and_then(|f| f.hash);
+    let now = |key: &str| tree.resolve(key).and_then(|e| e.hash);
+    paths::DATABASE_FILES.iter().any(|k| now(k).is_some()) && paths::DATABASE_FILES.iter().all(|k| saved(k) == now(k))
 }
 
 /// Snapshots worth consulting for a drive: its library's head, and the snapshot its lineage
@@ -248,7 +270,7 @@ pub fn scrub(
     opts: &ScrubOptions,
     ctx: &Ctx<'_>,
 ) -> Result<ScrubReport> {
-    let _lock = device.lock()?;
+    let _lock = device.read_lock()?;
     let library = device.library().ok();
     let mut tree = device.scan(library.as_ref(), ctx)?;
     let keys: Vec<String> = tree.library_entries().map(|e| e.path.clone()).collect();
@@ -295,7 +317,7 @@ pub fn scrub(
     };
     let history = store.map(|s| history_snapshots(s, device)).unwrap_or_default();
     let mut index = device.load_index();
-    let refs = References::new(exact.as_ref(), history.iter().collect(), index.clone());
+    let refs = References::new(exact.as_ref(), history.iter().collect(), &tree, index.clone());
 
     // 3. Compare.
     let sources = RepairSources::new(store, siblings, ctx)?;

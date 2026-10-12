@@ -96,3 +96,33 @@ fn hot_cue_bank_lists_keep_their_folders() {
     assert_eq!(path("Bank"), ["Guest", "Gigs", "Bank"]);
     assert_eq!(lists.iter().find(|l| l.name == "Bank").unwrap().track_ids.len(), 1);
 }
+
+/// A hot cue bank list whose folder is missing is shown at the top, so it comes along at the top
+/// of the merge folder rather than being left behind.
+#[test]
+fn a_hot_cue_bank_list_whose_folder_is_missing_comes_along() {
+    use locallibrary::onelibrary::OneLibrary;
+    let dir = tempfile::tempdir().unwrap();
+    let src_root = common::demo_drive(dir.path(), "Guest");
+    common::add_onelibrary(&src_root);
+    let one = OneLibrary::open_root(&src_root).unwrap();
+    one.connection()
+        .execute_batch(
+            "INSERT INTO cue (cue_id, content_id, kind, inUsec) VALUES (5, 1, 0, 2000000);
+             INSERT INTO hotCueBankList VALUES (3, 0, 'Lost', NULL, 0, 9);
+             INSERT INTO hotCueBankList_cue VALUES (3, 5, 1);",
+        )
+        .unwrap();
+    std::fs::write(src_root.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
+    let dst_root = common::bigger_drive(dir.path(), "Main");
+    common::add_onelibrary(&dst_root);
+    let (src, mut dst) = (Device::open_export(&src_root).unwrap(), Device::open_export(&dst_root).unwrap());
+
+    let plan = merge::plan(&src, &dst, &MergeOptions::default(), &Ctx::silent()).unwrap();
+    let report = merge::apply(&plan, &src, &mut dst, &MergeOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(report.hot_cue_bank_lists_added, 1);
+    let lists = OneLibrary::open(&dst).unwrap().hot_cue_bank_lists().unwrap();
+    let lost = lists.iter().find(|l| l.name == "Lost").expect("Lost was merged");
+    let guest = lists.iter().find(|l| l.name == "Guest").unwrap();
+    assert_eq!((lost.parent_id, lost.track_ids.len()), (Some(guest.id), 1));
+}
