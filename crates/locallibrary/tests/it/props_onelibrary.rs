@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use std::sync::OnceLock;
 
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
+use hegel::{Generator, HealthCheck, TestCase};
 use locallibrary::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
 use locallibrary::onelibrary::{self, CueRow, OneLibrary, wal};
 use locallibrary::{paths, pdb};
@@ -655,4 +655,501 @@ fn extreme_positions_are_stored() {
         .query_row("SELECT in150FramePerSec, out150FramePerSec FROM cue", [], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap();
     assert_eq!(frames, (-1_383_505_805_528_216, 1_383_505_805_528_216));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Building a library: tracks, artwork, playlists and histories
+// ---------------------------------------------------------------------------------------------
+
+/// A new, empty database from `OneLibrary::create`, encrypted (built, and its keys derived, once).
+fn new_library() -> &'static [u8] {
+    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+    BYTES.get_or_init(|| OneLibrary::create().unwrap().to_encrypted().unwrap())
+}
+
+/// Text for a track's fields: often empty (no row is made for an empty name), often shared,
+/// so that lookup rows are reused and outlive some of the tracks using them.
+#[hegel::test_helper]
+fn field(tc: &TestCase) -> String {
+    tc.draw(hegel::one_of!(
+        gs::sampled_from(vec!["", "", "Daft Punk", "Ünïcödé", "a'b\"c"]).map(String::from),
+        gs::text().max_size(10).exclude_characters("\0"),
+    ))
+}
+
+/// A track as `export.pdb` knows it, with what OneLibrary stores of it.
+#[hegel::test_helper]
+fn any_track(tc: &TestCase, n: usize, artwork: Option<String>) -> locallibrary::Track {
+    let s = |tc: &TestCase| field(tc);
+    locallibrary::Track {
+        id: 0,
+        title: s(tc),
+        artist: s(tc),
+        album: s(tc),
+        album_artist: s(tc),
+        genre: s(tc),
+        label: s(tc),
+        key: tc.draw(gs::sampled_from(vec!["", "8A", "Abm"])).into(),
+        remixer: s(tc),
+        original_artist: s(tc),
+        composer: s(tc),
+        comment: s(tc),
+        mix_name: s(tc),
+        isrc: tc.draw(gs::sampled_from(vec!["", "GBDUW0000059"])).into(),
+        bpm: f64::from(tc.draw(gs::integers::<u32>().max_value(30_000))) / 100.0,
+        duration_secs: tc.draw(gs::integers::<u32>()),
+        year: tc.draw(gs::integers::<u16>()),
+        track_number: tc.draw(gs::integers::<u32>()),
+        disc_number: tc.draw(gs::integers::<u16>()),
+        rating: tc.draw(gs::integers::<u8>().max_value(5)),
+        color: locallibrary::model::TrackColor::from_id(tc.draw(gs::integers::<u8>().max_value(8))),
+        play_count: tc.draw(gs::integers::<u16>()),
+        bitrate: tc.draw(gs::integers::<u32>()),
+        sample_rate: tc.draw(gs::sampled_from(vec![44_100u32, 48_000, 96_000])),
+        sample_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
+        file_size: tc.draw(gs::integers::<u64>().max_value(1 << 40)),
+        file_path: format!("/Contents/{n}.mp3"),
+        analyze_path: if tc.draw(gs::booleans()) {
+            format!("/PIONEER/USBANLZ/P000/{n:08X}/ANLZ0000.DAT")
+        } else {
+            String::new()
+        },
+        date_added: tc.draw(gs::sampled_from(vec!["", "2026-10-11"])).into(),
+        release_date: tc.draw(gs::sampled_from(vec!["", "2001-03-12"])).into(),
+        artwork_id: None,
+        artwork_path: artwork,
+    }
+}
+
+/// Rows of the tables tracks look names up in.
+fn lookup_rows(one: &OneLibrary) -> i64 {
+    ["artist", "album", "genre", "label", "\"key\"", "image"]
+        .iter()
+        .map(|t| one.connection().query_row(&format!("SELECT count(*) FROM {t}"), [], |r| r.get::<_, i64>(0)).unwrap())
+        .sum()
+}
+
+/// What the database should hold.
+#[derive(Debug, Default)]
+struct Built {
+    tracks: IndexMap<u32, locallibrary::Track>,
+    /// Playlists by id: (parent, name, is folder, tracks).
+    playlists: IndexMap<u32, (Option<u32>, String, bool, Vec<u32>)>,
+    history: IndexMap<u32, (String, Vec<u32>)>,
+}
+
+impl Built {
+    fn check(&self, one: &OneLibrary) {
+        let lib = one.library().unwrap();
+        let tracks: Vec<&locallibrary::Track> = self.tracks.values().collect();
+        let got: Vec<&locallibrary::Track> = lib.tracks.iter().collect();
+        assert_eq!(got, tracks);
+        let mut playlists: Vec<_> = lib
+            .playlists
+            .iter()
+            .map(|p| (p.id, (p.parent_id, p.name.clone(), p.is_folder, p.track_ids.clone())))
+            .collect();
+        playlists.sort_by_key(|p| p.0);
+        let want: Vec<_> = self.playlists.iter().map(|(id, p)| (*id, p.clone())).collect();
+        assert_eq!(playlists, want);
+        // Siblings are in the order they were made.
+        for p in &lib.playlists {
+            let before = lib.playlists.iter().filter(|q| q.parent_id == p.parent_id && q.id < p.id).count();
+            assert_eq!(p.sort_order as usize, before, "{p:?}");
+        }
+        let history: Vec<_> = lib.history.iter().map(|h| (h.id, (h.name.clone(), h.track_ids.clone()))).collect();
+        assert_eq!(history, self.history.iter().map(|(id, h)| (*id, h.clone())).collect::<Vec<_>>());
+        assert_eq!(lib.history_playlists, self.history.len());
+        let count: i64 = one.connection().query_row("SELECT numberOfContents FROM property", [], |r| r.get(0)).unwrap();
+        assert_eq!(count as usize, self.tracks.len());
+    }
+}
+
+/// Building a library in a new database, step by step (adding tracks with and without artwork,
+/// copying tracks within it, playlists in folders, histories, renaming them, changing artwork,
+/// moving a track's file, removing tracks, and saving and opening it again), always reads back
+/// as what was built, and edits of what isn't there are refused as not found. Removing
+/// tracks removes them from every list (keeping the rest in order) and takes exactly as many
+/// lookup rows with them as `unused_lookup_rows` said.
+#[hegel::test(test_cases = 12, suppress_health_check = [HealthCheck::TooSlow])]
+fn built_libraries_read_back(tc: TestCase) {
+    let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
+    let defaults = one.content_defaults().unwrap();
+    let mut model = Built::default();
+    let mut made = 0;
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(12)) {
+        let ids: Vec<u32> = model.tracks.keys().copied().collect();
+        let lists: Vec<u32> = model.playlists.iter().filter(|(_, p)| !p.2).map(|(id, _)| *id).collect();
+        match tc.draw(gs::integers::<u8>().max_value(11)) {
+            0..=2 => {
+                made += 1;
+                let artwork = tc.draw(gs::booleans()).then(|| format!("/PIONEER/Artwork/00001/b{made}.jpg"));
+                let image = artwork.as_ref().map(|p| {
+                    let next = one.next_image_id().unwrap();
+                    let id = one.add_image(p).unwrap();
+                    assert_eq!(id, next);
+                    id
+                });
+                let mut t = any_track(&tc, made, artwork);
+                let rec = onelibrary::ContentRecord::from_track(&t, !t.analyze_path.is_empty(), &defaults);
+                t.id = one.add_track(&rec, &t.file_path, &t.analyze_path, image).unwrap();
+                t.artwork_id = image;
+                // The album artist is the album's: without an album there is none.
+                if t.album.is_empty() {
+                    t.album_artist.clear();
+                }
+                assert!(!model.tracks.contains_key(&t.id));
+                model.tracks.insert(t.id, t);
+            }
+            3 if !ids.is_empty() => {
+                // A copy of a track, as merging libraries makes one.
+                let from = tc.draw(gs::sampled_from(ids.clone()));
+                made += 1;
+                let rec = one.export_track(from).unwrap().unwrap();
+                let path = format!("/Contents/{made}.mp3");
+                let src = model.tracks[&from].clone();
+                let id = one.add_track(&rec, &path, &src.analyze_path, src.artwork_id).unwrap();
+                model.tracks.insert(id, locallibrary::Track { id, file_path: path, ..src });
+            }
+            4 => {
+                let folders: Vec<u32> = model.playlists.iter().filter(|(_, p)| p.2).map(|(id, _)| *id).collect();
+                let parent = if folders.is_empty() || tc.draw(gs::booleans()) {
+                    None
+                } else {
+                    Some(tc.draw(gs::sampled_from(folders)))
+                };
+                let (name, folder) = (field(&tc), tc.draw(gs::booleans()));
+                let id = one.create_playlist(&name, parent.unwrap_or(0), folder).unwrap();
+                model.playlists.insert(id, (parent, name, folder, Vec::new()));
+            }
+            5 if !ids.is_empty() && !lists.is_empty() => {
+                let (list, track) = (tc.draw(gs::sampled_from(lists)), tc.draw(gs::sampled_from(ids)));
+                one.add_to_playlist(list, track).unwrap();
+                model.playlists[&list].3.push(track);
+            }
+            6 => {
+                let name = field(&tc);
+                let id = one.create_history(&name, 0, false).unwrap();
+                let played: Vec<u32> =
+                    if ids.is_empty() { Vec::new() } else { tc.draw(gs::vecs(gs::sampled_from(ids)).max_size(4)) };
+                for t in &played {
+                    one.add_to_history(id, *t).unwrap();
+                }
+                model.history.insert(id, (name, played));
+            }
+            7 if !ids.is_empty() => {
+                let gone: Vec<u32> =
+                    tc.draw(gs::vecs(gs::sampled_from(ids.clone())).min_size(1).max_size(3).unique(true));
+                let (rows, unused) = (lookup_rows(&one), one.unused_lookup_rows(&gone).unwrap());
+                one.remove_tracks(&gone).unwrap();
+                assert_eq!(lookup_rows(&one), rows - unused as i64, "lookup rows left behind or taken");
+                model.tracks.retain(|id, _| !gone.contains(id));
+                for list in
+                    model.playlists.values_mut().map(|p| &mut p.3).chain(model.history.values_mut().map(|h| &mut h.1))
+                {
+                    list.retain(|t| !gone.contains(t));
+                }
+                for id in &gone {
+                    assert!(one.export_track(*id).unwrap().is_none());
+                }
+            }
+            8 if !ids.is_empty() => {
+                made += 1;
+                let path = format!("/PIONEER/Artwork/00001/b{made}.jpg");
+                let image = one.add_image(&path).unwrap();
+                let some: Vec<u32> = tc.draw(gs::vecs(gs::sampled_from(ids)).min_size(1).max_size(3).unique(true));
+                one.set_track_image(&some, image).unwrap();
+                for id in &some {
+                    let t = &mut model.tracks[id];
+                    (t.artwork_id, t.artwork_path) = (Some(image), Some(path.clone()));
+                }
+                assert!(matches!(one.set_track_image(&[u32::MAX], image), Err(locallibrary::Error::NotFound(_))));
+            }
+            9 => {
+                let tree = [onelibrary::Tree::Playlist, onelibrary::Tree::History]
+                    [tc.draw(gs::integers::<usize>().max_value(1))];
+                let known: Vec<u32> = match tree {
+                    onelibrary::Tree::Playlist => model.playlists.keys().copied().collect(),
+                    onelibrary::Tree::History => model.history.keys().copied().collect(),
+                };
+                let id = tc.draw(hegel::one_of!(
+                    gs::sampled_from(if known.is_empty() { vec![1] } else { known.clone() }),
+                    gs::integers::<u32>().min_value(1).max_value(9)
+                ));
+                let name = field(&tc);
+                match one.rename_node(tree, id, &name) {
+                    Ok(()) if tree == onelibrary::Tree::Playlist => model.playlists[&id].1 = name,
+                    Ok(()) => model.history[&id].0 = name,
+                    Err(e) => assert!(!known.contains(&id) && matches!(e, locallibrary::Error::NotFound(_)), "{e}"),
+                }
+                let missing = u32::MAX;
+                for e in
+                    [one.place_node(tree, missing, 0, 0).unwrap_err(), one.remove_nodes(tree, &[missing]).unwrap_err()]
+                {
+                    assert!(matches!(e, locallibrary::Error::NotFound(_)), "{e}");
+                }
+            }
+            10 if !ids.is_empty() => {
+                // The track's file moved, maybe re-encoded.
+                let id = tc.draw(gs::sampled_from(ids));
+                made += 1;
+                let path = format!("/Contents/moved/{made}.{}", tc.draw(gs::sampled_from(vec!["flac", "m4a", "wav"])));
+                let file = tc.draw(gs::booleans()).then(|| locallibrary::edit::AudioFile {
+                    size: tc.draw(gs::integers::<u64>().max_value(1 << 40)),
+                    sample_rate: tc.draw(gs::sampled_from(vec![44_100u32, 96_000])),
+                    bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
+                    bitrate: tc.draw(gs::integers::<u32>().max_value(5_000)),
+                });
+                // Its cues move with the audio (there are none here to move).
+                let shift = tc.draw(gs::sampled_from(vec![0, 1000, -250]));
+                one.set_track_path(id, &path, file.as_ref(), shift).unwrap();
+                let t = &mut model.tracks[&id];
+                t.file_path = path;
+                if let Some(f) = &file {
+                    (t.file_size, t.sample_rate, t.sample_depth, t.bitrate) =
+                        (f.size, f.sample_rate, f.bit_depth, f.bitrate);
+                }
+                assert!(matches!(
+                    one.set_track_path(u32::MAX, "/x.mp3", None, 0),
+                    Err(locallibrary::Error::NotFound(_))
+                ));
+            }
+            _ => {
+                one = OneLibrary::from_encrypted(&one.to_encrypted().unwrap(), None).unwrap();
+            }
+        }
+        model.check(&one);
+    }
+    assert!(one.images_used_outside_tracks().unwrap().is_empty());
+}
+
+/// What `myTag` should hold: id -> (parent, name, is a category, sequence number).
+type TagRows = IndexMap<i64, (i64, String, bool, i64)>;
+
+/// The (category, tag) names of a track's My Tags, in display order.
+fn tag_names(rows: &TagRows, links: &[(i64, i64)], track: i64) -> Vec<(String, String)> {
+    let mut names: Vec<_> = links
+        .iter()
+        .filter(|l| l.1 == track)
+        .map(|(tag, _)| {
+            let (parent, name, _, seq) = &rows[tag];
+            let (_, cat, _, cat_seq) = &rows[parent];
+            ((*cat_seq, *seq), (cat.clone(), name.clone()))
+        })
+        .collect();
+    names.sort();
+    names.into_iter().map(|(_, n)| n).collect()
+}
+
+/// My Tag edits in a OneLibrary database (categories and tags added after their siblings,
+/// renamed, removed with what is under them, tags given to and taken off tracks) leave exactly
+/// the rows and links a model of them predicts, numbered without gaps, and every edit that
+/// can't be made is refused with its reason. A copied track keeps its tags by name, its album
+/// and its cues.
+#[hegel::test(test_cases = 25)]
+fn my_tags_follow_edits(tc: TestCase) {
+    let mut one = OneLibrary::from_encrypted(new_library(), None).unwrap();
+    let defaults = one.content_defaults().unwrap();
+    let mut tracks = Vec::new();
+    for n in 0..3 {
+        let t = locallibrary::Track {
+            album: "Album".into(),
+            album_artist: "Band".into(),
+            ..loclib_model::test_util::track(0, "A", "T", &format!("/Contents/{n}.mp3"))
+        };
+        tracks.push(
+            one.add_track(&onelibrary::ContentRecord::from_track(&t, false, &defaults), &t.file_path, "", None)
+                .unwrap(),
+        );
+    }
+    let mut rows = TagRows::new();
+    let mut links: Vec<(i64, i64)> = Vec::new();
+    let name = |tc: &TestCase| tc.draw(gs::sampled_from(vec!["Genre", "Vibe", "Peak", "Warm up", ""])).to_string();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
+        let ids: Vec<i64> = rows.keys().copied().collect();
+        let any_id = |tc: &TestCase| {
+            tc.draw(hegel::one_of!(
+                gs::sampled_from(if ids.is_empty() { vec![1] } else { ids.clone() }),
+                gs::integers::<i64>().min_value(1).max_value(12)
+            ))
+        };
+        match tc.draw(gs::integers::<u8>().max_value(6)) {
+            0 | 1 => {
+                let (id, category) = (any_id(&tc), tc.draw(gs::booleans()));
+                let parent = if category { 0 } else { any_id(&tc) };
+                let n = name(&tc);
+                let got = one.add_my_tag(id, parent, &n, category);
+                if rows.contains_key(&id) {
+                    assert_eq!(got.unwrap_err().code(), "conflict");
+                    continue;
+                }
+                match (category, rows.get(&parent)) {
+                    (false, None) => assert_eq!(got.unwrap_err().code(), "not_found"),
+                    (false, Some(p)) if !p.2 => assert_eq!(got.unwrap_err().code(), "invalid"),
+                    _ => {
+                        got.unwrap();
+                        let siblings = rows.values().filter(|r| r.0 == parent).map(|r| r.3).max();
+                        let kind = rows.values().filter(|r| r.2 == category).map(|r| r.3).min();
+                        let seq = siblings.map(|s| s + 1).or(kind).unwrap_or(0);
+                        rows.insert(id, (parent, n, category, seq));
+                    }
+                }
+            }
+            2 => {
+                let (id, n) = (any_id(&tc), name(&tc));
+                match one.rename_my_tag(id, &n) {
+                    Ok(()) => rows[&id].1 = n,
+                    Err(e) => assert!(!rows.contains_key(&id) && e.code() == "not_found"),
+                }
+            }
+            3 => {
+                let id = any_id(&tc);
+                let Some(&(parent, _, category, seq)) = rows.get(&id) else {
+                    assert_eq!(one.remove_my_tag(id).unwrap_err().code(), "not_found");
+                    continue;
+                };
+                one.remove_my_tag(id).unwrap();
+                let gone: Vec<i64> =
+                    rows.iter().filter(|(k, r)| **k == id || (category && r.0 == id)).map(|(k, _)| *k).collect();
+                rows.retain(|k, _| !gone.contains(k));
+                links.retain(|l| !gone.contains(&l.0));
+                for r in rows.values_mut().filter(|r| r.0 == parent && r.3 > seq) {
+                    r.3 -= 1;
+                }
+            }
+            4 => {
+                let tag = any_id(&tc);
+                let on: Vec<u32> = tc.draw(gs::vecs(gs::sampled_from(tracks.clone())).max_size(3));
+                match (one.link_my_tag(tag, &on), rows.get(&tag)) {
+                    (Ok(added), Some(r)) if !r.2 => {
+                        let before = links.len();
+                        for t in &on {
+                            if !links.contains(&(tag, i64::from(*t))) {
+                                links.push((tag, i64::from(*t)));
+                            }
+                        }
+                        assert_eq!(added, links.len() - before);
+                    }
+                    (Err(e), None) => assert_eq!(e.code(), "not_found"),
+                    (Err(e), Some(_)) => assert_eq!(e.code(), "invalid"),
+                    (got, row) => panic!("linking {tag} ({row:?}): {got:?}"),
+                }
+            }
+            5 => {
+                let (tag, off) =
+                    (any_id(&tc), tc.draw(gs::vecs(gs::sampled_from(tracks.clone())).max_size(3).unique(true)));
+                let had = links.iter().filter(|l| l.0 == tag && off.iter().any(|t| i64::from(*t) == l.1)).count();
+                assert_eq!(one.unlink_my_tag(tag, &off).unwrap(), had);
+                links.retain(|l| !(l.0 == tag && off.iter().any(|t| i64::from(*t) == l.1)));
+            }
+            _ => {
+                let off: Vec<u32> = tc.draw(gs::vecs(gs::sampled_from(tracks.clone())).max_size(2).unique(true));
+                let had = links.iter().filter(|l| off.iter().any(|t| i64::from(*t) == l.1)).count();
+                assert_eq!(one.unlink_my_tags_of(&off).unwrap(), had);
+                links.retain(|l| !off.iter().any(|t| i64::from(*t) == l.1));
+            }
+        }
+        let mut want: Vec<_> = rows.iter().map(|(id, r)| (r.0, r.3, *id, r.1.clone(), r.2)).collect();
+        want.sort();
+        let got: Vec<_> = one
+            .my_tag_rows()
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.parent, r.sequence, r.id, r.name, r.is_category))
+            .collect();
+        assert_eq!(got, want);
+        assert_eq!(one.my_tag_links().unwrap(), links);
+    }
+    // A copy of a track keeps its tags (found again by name), its album and its cues, and a hot
+    // cue bank list holds the cues put in it.
+    let from = tracks[0];
+    one.add_my_tag(100, 0, "Mood", true).unwrap();
+    one.add_my_tag(101, 100, "Dark", false).unwrap();
+    assert_eq!(one.link_my_tag(101, &[from]).unwrap(), 1);
+    let seq =
+        rows.values().filter(|r| r.0 == 0).map(|r| r.3 + 1).max().or(rows.values().filter(|r| r.2).map(|r| r.3).min());
+    rows.insert(100, (0, "Mood".into(), true, seq.unwrap_or(0)));
+    rows.insert(101, (100, "Dark".into(), false, 0));
+    links.push((101, i64::from(from)));
+    let cues: Vec<CueRow> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
+        .map(|i| CueRow {
+            hot_cue: tc.draw(gs::booleans()).then_some(i as u8),
+            in_usec: usec(&tc),
+            ..Default::default()
+        })
+        .collect();
+    one.replace_cues(from, &cues).unwrap();
+    let rec = one.export_track(from).unwrap().unwrap();
+    assert_eq!(rec.my_tags, tag_names(&rows, &links, i64::from(from)));
+    assert_eq!(rec.album, Some(("Album".to_string(), Some("Band".to_string()))));
+    let (copy, cue_ids) = one.add_track_with_cues(&rec, "/Contents/copy.mp3", "", None).unwrap();
+    let copied = one.export_track(copy).unwrap().unwrap();
+    assert_eq!((copied.my_tags, copied.album), (rec.my_tags.clone(), rec.album.clone()));
+    let (old_rows, new_rows) = (one.cue_rows(from).unwrap(), one.cue_rows(copy).unwrap());
+    assert_eq!(new_rows.len(), cues.len());
+    for (old, new) in old_rows.iter().zip(&new_rows) {
+        assert!(old.same_as(new), "{old:?} copied as {new:?}");
+        assert_eq!(cue_ids[&old.cue_id.unwrap()], new.cue_id.unwrap());
+    }
+    let bank = one.create_hot_cue_bank_list("Bank", 0, false).unwrap();
+    for c in &new_rows {
+        one.add_to_hot_cue_bank_list(bank, c.cue_id.unwrap()).unwrap();
+    }
+    let lists = one.hot_cue_bank_lists().unwrap();
+    let held: Vec<i64> = new_rows.iter().map(|c| c.cue_id.unwrap()).collect();
+    assert_eq!(
+        lists
+            .iter()
+            .map(|l| (l.id, l.name.as_str(), l.track_ids.iter().map(|&c| i64::from(c)).collect::<Vec<_>>()))
+            .collect::<Vec<_>>(),
+        [(bank, "Bank", held)]
+    );
+    assert_eq!(one.dangling_bank_list_entries().unwrap(), 0);
+}
+
+/// A library's content hash names what it holds: encrypting it again (fresh IVs, every byte
+/// different) or renaming the drive in it keeps the hash, while the hash of every page as it is
+/// changes with the name; any edit to the library changes both. The files read back from a
+/// drive's folder as written, and a database rekordbox wouldn't have written (no `content`
+/// table, a view or a trigger) is refused when opened.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn content_hashes_name_the_library(tc: TestCase) {
+    let one = OneLibrary::from_encrypted(new_library(), None).unwrap();
+    let (a, b) = (one.to_encrypted().unwrap(), one.to_encrypted().unwrap());
+    assert_ne!(a, b);
+    let hashes = onelibrary::content_hashes(&a, None).unwrap();
+    assert_eq!(onelibrary::content_hashes(&b, None).unwrap(), hashes);
+    assert_eq!(onelibrary::content_hash(&a, None).unwrap(), hashes.0);
+
+    let name = tc.draw(gs::text().min_size(1).max_size(12));
+    one.connection().execute("UPDATE property SET deviceName = ?1", [&name]).unwrap();
+    let renamed = onelibrary::content_hashes(&one.to_encrypted().unwrap(), None).unwrap();
+    assert_eq!(renamed.0, hashes.0, "the drive's name isn't the library");
+    assert_ne!(renamed.1, hashes.1);
+
+    let t = loclib_model::test_util::track(0, &field(&tc), &field(&tc), "/Contents/a.mp3");
+    let mut edited = OneLibrary::from_encrypted(&one.to_encrypted().unwrap(), None).unwrap();
+    let defaults = edited.content_defaults().unwrap();
+    edited.add_track(&onelibrary::ContentRecord::from_track(&t, false, &defaults), &t.file_path, "", None).unwrap();
+    let bytes = edited.to_encrypted().unwrap();
+    let after = onelibrary::content_hashes(&bytes, None).unwrap();
+    assert!(after.0 != hashes.0 && after.1 != renamed.1);
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = paths::to_fs(dir.path(), paths::LIBRARY_PLUS_DB);
+    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+    std::fs::write(&db, &bytes).unwrap();
+    assert_eq!(onelibrary::read_files(dir.path()).unwrap(), (bytes.clone(), None));
+    assert_eq!(OneLibrary::open_root(dir.path()).unwrap().library().unwrap(), edited.library().unwrap());
+
+    let sql = tc.draw(gs::sampled_from(vec![
+        ("DROP TABLE content", "no content table"),
+        ("CREATE VIEW recent AS SELECT * FROM content", "view recent"),
+        ("CREATE TRIGGER t AFTER INSERT ON cue BEGIN DELETE FROM cue; END", "trigger t"),
+    ]));
+    edited.connection().execute_batch(sql.0).unwrap();
+    // SQLite's own errors come back as the database's.
+    assert_eq!(edited.library().is_err(), sql.0.starts_with("DROP"));
+    let err = OneLibrary::from_encrypted(&edited.to_encrypted().unwrap(), None).unwrap_err();
+    assert!(err.to_string().contains(sql.1), "{err}");
 }

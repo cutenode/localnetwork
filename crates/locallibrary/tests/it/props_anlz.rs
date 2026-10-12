@@ -620,3 +620,130 @@ fn readers_survive_damaged_files(tc: TestCase) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Moving a track's times
+// ---------------------------------------------------------------------------------------------
+
+/// One of the demo's analysis files, or a synthetic one with cues.
+#[hegel::test_helper]
+fn any_analysis_file(tc: &TestCase) -> Vec<u8> {
+    let which = tc.draw(gs::integers::<usize>().max_value(3 * ANALYSED.len()));
+    match real_files().get(which / 3) {
+        Some((dat, ext, ex2)) => [dat, ext, ex2][which % 3].clone(),
+        None => {
+            let file = [CueFile::Dat, CueFile::DatAlone, CueFile::Ext][tc.draw(gs::integers::<usize>().max_value(2))];
+            write(&common::synthetic_anlz("/Contents/a.mp3"), file, &cue_list(tc, false))
+        }
+    }
+}
+
+fn shift(t: u32, ms: i32) -> u32 {
+    (i64::from(t) + i64::from(ms)).clamp(0, i64::from(u32::MAX)) as u32
+}
+
+/// Moving a file's times by `ms` moves every beat, cue and loop end by `ms` (stopping at the
+/// start and at the largest time), and the detail waveform by whole columns, keeping its length
+/// with silence where it moved away from. Nothing else changes, nor does the file's size, and
+/// moving by 0 changes no byte.
+#[hegel::test(test_cases = 60)]
+fn shifted_times_move_by_the_shift(tc: TestCase) {
+    let f = any_analysis_file(&tc);
+    let ms = tc.draw(hegel::one_of!(
+        gs::integers::<i32>().min_value(-20_000).max_value(20_000),
+        gs::sampled_from(vec![i32::MIN, i32::MAX, 0]),
+    ));
+    let out = anlz::shift_times(&f, ms).unwrap();
+    assert_eq!(out.len(), f.len());
+    assert_eq!(u32::from_be_bytes(out[8..12].try_into().unwrap()), u32::from_be_bytes(f[8..12].try_into().unwrap()));
+    if ms == 0 {
+        assert_eq!(out, f);
+    }
+
+    let (before, after) = (anlz::beat_grid(&f).unwrap(), anlz::beat_grid(&out).unwrap());
+    assert_eq!(after.len(), before.len());
+    for (b, a) in before.iter().zip(&after) {
+        assert_eq!((a.beat_number, a.bpm, a.time_ms), (b.beat_number, b.bpm, shift(b.time_ms, ms)));
+    }
+
+    let (before, after) = (anlz::read_cue_points(&f, None).unwrap(), anlz::read_cue_points(&out, None).unwrap());
+    // A loop squeezed to nothing against either end reads as a point cue.
+    let moved: Vec<CuePoint> = before
+        .iter()
+        .map(|c| {
+            let start_ms = shift(c.start_ms, ms);
+            let end_ms = c.end_ms.map(|e| shift(e, ms)).filter(|&e| e > start_ms && e != u32::MAX);
+            CuePoint { start_ms, end_ms, ..c.clone() }
+        })
+        .collect();
+    assert_eq!(basics(&after), basics(&moved), "moved by {ms}");
+
+    match (anlz::detail(&f).unwrap(), anlz::detail(&out).unwrap()) {
+        (Some(b), Some(a)) => {
+            let n = b.columns.len();
+            assert_eq!((a.style, a.columns_per_sec, a.columns.len()), (b.style, b.columns_per_sec, n));
+            let rate = b.columns_per_sec.unwrap();
+            let by = ((f64::from(ms) * rate / 1000.0).round() as i64).clamp(-(n as i64), n as i64);
+            for (i, col) in a.columns.iter().enumerate() {
+                let from = i as i64 - by;
+                match usize::try_from(from).ok().and_then(|j| b.columns.get(j)) {
+                    Some(old) => assert_eq!(col, old, "column {i}, moved {by}"),
+                    None => assert_eq!(col.back.height, 0.0, "column {i} is silent"),
+                }
+            }
+        }
+        (None, None) => {}
+        other => panic!("the detail waveform came or went: {other:?}"),
+    }
+    let others = |b: &[u8]| {
+        let (path, preview, phrases) =
+            (anlz::read_path(b).unwrap(), anlz::preview(b).unwrap(), anlz::song_structure(b).unwrap());
+        format!("{path:?} {preview:?} {phrases:?}")
+    };
+    assert_eq!(others(&out), others(&f));
+}
+
+/// Moving the times of a damaged file returns (a result or an error) without panicking. What it
+/// returns keeps the file's size and can be moved again, and moving by nothing changes nothing.
+/// (Moving back needn't give the file again: times stop at 0 and waveform columns moved past
+/// either end are gone.)
+#[hegel::test(test_cases = 200)]
+fn shifting_survives_damaged_files(tc: TestCase) {
+    let mut f = any_analysis_file(&tc);
+    let targets = structure_offsets(&f);
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+        if f.len() < 4 {
+            break;
+        }
+        if tc.draw(gs::booleans()) {
+            let base = tc.draw(gs::sampled_from(targets.clone()));
+            let at = (base + 4 * tc.draw(gs::integers::<usize>().max_value(11))).min(f.len() - 4);
+            let value = tc.draw(gs::sampled_from(vec![0u32, 1, 12, 16, 0x7fff_ffff, u32::MAX]));
+            f[at..at + 4].copy_from_slice(&value.to_be_bytes());
+        } else {
+            f.truncate(tc.draw(gs::integers::<usize>().max_value(f.len())));
+        }
+    }
+    let ms = tc.draw(gs::integers::<i32>());
+    if let Ok(out) = anlz::shift_times(&f, ms) {
+        assert_eq!(out.len(), f.len());
+        assert!(anlz::shift_times(&out, ms.saturating_neg()).is_ok());
+        assert_eq!(anlz::shift_times(&f, 0).unwrap(), f);
+    }
+}
+
+/// More cues than a list can count, or a name longer than an entry can hold, are refused with
+/// an error, whichever file they go to.
+#[hegel::test(test_cases = 10)]
+fn cue_lists_too_big_for_the_file_are_refused(tc: TestCase) {
+    let base = common::synthetic_anlz("/Contents/a.mp3");
+    let file = [CueFile::Dat, CueFile::DatAlone, CueFile::Ext][tc.draw(gs::integers::<usize>().max_value(2))];
+    let over = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let (cues, why) = if tc.draw(gs::booleans()) {
+        (vec![CuePoint::default(); usize::from(u16::MAX) + over], "too many cues")
+    } else {
+        (vec![CuePoint { comment: "x".repeat(0x10000 + over), ..Default::default() }], "too long")
+    };
+    let err = anlz::write_cue_points(&base, file, &cues).unwrap_err();
+    assert!(err.to_string().contains(why), "{err}");
+}

@@ -402,4 +402,229 @@ mod tests {
             assert!(by_id(spec).unwrap().is_none(), "{spec}");
         }
     }
+
+    // -----------------------------------------------------------------------------------------
+    // Properties
+    // -----------------------------------------------------------------------------------------
+
+    use hegel::generators as gs;
+    use hegel::{Generator, TestCase};
+
+    /// A flag as lsblk writes it: a boolean, or "1"/"0" before util-linux 2.33.
+    #[hegel::test_helper]
+    fn flag(tc: &TestCase, b: bool) -> Value {
+        if tc.draw(gs::booleans()) { json!(b) } else { json!(if b { "1" } else { "0" }) }
+    }
+
+    /// `fstype` and `fsver` as lsblk reports them, and what they mean.
+    const FILESYSTEMS: [(&str, Option<&str>, FsKind); 11] = [
+        ("vfat", Some("FAT32"), FsKind::Fat32),
+        ("vfat", Some("FAT16"), FsKind::Fat16),
+        ("vfat", Some("FAT12"), FsKind::Fat12),
+        ("vfat", None, FsKind::Fat32),
+        ("exfat", Some("1.0"), FsKind::Exfat),
+        ("hfsplus", None, FsKind::Hfsplus),
+        ("apfs", None, FsKind::Apfs),
+        ("ntfs", None, FsKind::Ntfs),
+        ("ntfs3", None, FsKind::Ntfs),
+        ("ext4", Some("1.0"), FsKind::Other),
+        ("swap", Some("1"), FsKind::Other),
+    ];
+    const MOUNTS: [&str; 7] = ["/media/dj/A", "/media/dj/B", "/mnt/usb", "/", "/boot/efi", "/var", "[SWAP]"];
+
+    /// A partition (or something on one, like a LUKS mapping) and what reading it gives.
+    #[hegel::test_helper]
+    fn node(tc: &TestCase, path: &str, part: bool, nested: bool) -> (Value, Option<Volume>, Vec<String>) {
+        let mut v = json!({ "name": path.trim_start_matches("/dev/"), "path": path,
+            "type": if part { "part" } else { "crypt" }, "size": tc.draw(gs::integers::<u64>()) });
+        let fs = if tc.draw(gs::booleans()) {
+            Some(tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug()))
+        } else {
+            None
+        };
+        if let Some((t, ver, _)) = fs {
+            v["fstype"] = json!(t);
+            v["fsver"] = json!(ver);
+        }
+        for key in ["label", "uuid"] {
+            if tc.draw(gs::booleans()) {
+                v[key] = json!(format!("{key}-{}", tc.draw(gs::integers::<u8>())));
+            }
+        }
+        let mut mounts = Vec::new();
+        if tc.draw(gs::booleans()) {
+            let m = tc.draw(gs::sampled_from(MOUNTS.to_vec()));
+            v["mountpoint"] = json!(m);
+            mounts.push(m.to_string());
+        }
+        if nested && tc.draw(gs::weighted_booleans(0.2)) {
+            let (child, _, inner) = node(tc, &format!("/dev/mapper/{}", v["name"].as_str().unwrap()), false, false);
+            v["children"] = json!([child]);
+            mounts.splice(0..0, inner);
+        }
+        let volume = part.then(|| Volume {
+            id: path.into(),
+            size: v["size"].as_u64().unwrap(),
+            filesystem: fs.map(|f| f.2),
+            filesystem_name: fs.map(|f| f.0.to_string()),
+            label: v.get("label").and_then(Value::as_str).map(String::from),
+            mount: v.get("mountpoint").and_then(Value::as_str).map(PathBuf::from),
+            cluster_size: None,
+            uuid: v.get("uuid").and_then(Value::as_str).map(String::from),
+        });
+        (v, volume, mounts)
+    }
+
+    /// A block device as `lsblk --json` lists it, with the [`Disk`] it should read as (`None` for
+    /// what isn't a disk) and its mount points, deepest first.
+    #[hegel::test_helper]
+    fn block_device(tc: &TestCase, name: &str) -> (Value, Option<Disk>, Vec<String>) {
+        let kind = tc.draw(gs::sampled_from(vec!["disk", "disk", "disk", "loop", "rom"]));
+        let (rm, hotplug, ro) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+        let tran = tc.draw(gs::sampled_from(vec![None, Some("usb"), Some("mmc"), Some("sata"), Some("nvme")]));
+        let pttype = tc.draw(
+            gs::sampled_from(vec![
+                (None, None),
+                (Some("dos"), Some(Scheme::Mbr)),
+                (Some("gpt"), Some(Scheme::Gpt)),
+                (Some("mac"), Some(Scheme::Apm)),
+                (Some("atari"), Some(Scheme::Other)),
+            ])
+            .print_as_debug(),
+        );
+        let size = tc.draw(gs::integers::<u64>());
+        let mut d = json!({ "name": name, "type": kind, "size": size, "rm": flag(tc, rm), "hotplug": flag(tc, hotplug),
+            "ro": flag(tc, ro), "tran": tran, "pttype": pttype.0 });
+        let path = format!("/dev/{name}");
+        // Older lsblk has no PATH column.
+        let has_path = tc.draw(gs::booleans());
+        if has_path {
+            d["path"] = json!(path);
+        }
+        let vendor = tc.draw(gs::sampled_from(vec![None, Some("SanDisk "), Some("Generic")]));
+        let model = tc.draw(gs::sampled_from(vec![None, Some("Ultra Fit   "), Some("Flash Disk")]));
+        d["vendor"] = json!(vendor);
+        d["model"] = json!(model);
+        let serial = tc.draw(gs::sampled_from(vec![None, Some("4C530001"), Some("  ")]));
+        d["serial"] = json!(serial);
+        let sector = tc.draw(gs::sampled_from(vec![None, Some(512u64), Some(4096)]));
+        if let Some(s) = sector {
+            d["log-sec"] = json!(s);
+        }
+        let mut volumes = Vec::new();
+        let mut mounts = Vec::new();
+        let n = tc.draw(gs::integers::<usize>().max_value(3));
+        let mut children = Vec::new();
+        for i in 1..=n {
+            let sep = if name.ends_with(|c: char| c.is_ascii_digit()) { "p" } else { "" };
+            let (child, volume, inner) = node(tc, &format!("{path}{sep}{i}"), true, true);
+            children.push(child);
+            volumes.extend(volume);
+            mounts.extend(inner);
+        }
+        if n > 0 {
+            d["children"] = json!(children);
+        } else if tc.draw(gs::booleans()) {
+            // A file system on the whole disk.
+            let (whole, volume, inner) = node(tc, &path, true, false);
+            for key in ["fstype", "fsver", "label", "uuid", "mountpoint"] {
+                if let Some(v) = whole.get(key) {
+                    d[key] = v.clone();
+                }
+            }
+            // Without a PATH column (lsblk refuses COLUMNS then anyway) the volume has no id.
+            let id = if has_path { path.clone() } else { String::new() };
+            volumes.push(Volume { size, id, ..volume.unwrap() });
+            // Mount points are only told apart by path.
+            mounts.extend(inner.into_iter().filter(|_| has_path));
+            if d.get("fstype").is_none() {
+                volumes.clear();
+            }
+        }
+        if kind != "disk" {
+            return (d, None, mounts);
+        }
+        let removable = rm || hotplug || matches!(tran, Some("usb" | "mmc")) || name.starts_with("mmcblk");
+        let model = [vendor, model].into_iter().flatten().map(str::trim).collect::<Vec<_>>().join(" ");
+        let disk = Disk {
+            id: path.clone(),
+            device: path,
+            model,
+            serial: serial.map(str::trim).filter(|s| !s.is_empty()).map(String::from),
+            size,
+            sector_size: sector.unwrap_or(512) as u32,
+            bus: tran.map(str::to_uppercase),
+            removable,
+            internal: !removable,
+            system: mounts.iter().any(|m| ["/", "/boot/efi", "/var", "[SWAP]"].contains(&m.as_str())),
+            virtual_disk: ["loop", "zram", "dm-", "md", "nbd"].iter().any(|p| name.starts_with(p)),
+            read_only: ro,
+            scheme: pttype.1,
+            volumes,
+        };
+        (d, Some(disk), mounts)
+    }
+
+    /// `lsblk --json` output reads as the disks in it, field for field: partitions are the
+    /// volumes (or the disk itself, when it holds a file system directly), a mount point of the
+    /// system anywhere under a disk makes it a system disk, and what isn't a disk is left out.
+    /// Every partition and mount point finds its disk.
+    #[hegel::test(test_cases = 300)]
+    fn lsblk_listings_read_back(tc: TestCase) {
+        let names = gs::sampled_from(vec!["sdb", "sdc", "mmcblk0", "nvme0n1", "loop3", "dm-1", "md0", "zram0", "nbd0"]);
+        let names: Vec<&str> = tc.draw(gs::vecs(names).unique(true).max_size(3));
+        let devices: Vec<(Value, Option<Disk>, Vec<String>)> = names.iter().map(|n| block_device(&tc, n)).collect();
+        let all = json!({ "blockdevices": devices.iter().map(|d| d.0.clone()).collect::<Vec<_>>() });
+        let got: Vec<Disk> = json::array(all.get("blockdevices")).into_iter().filter_map(parse_disk).collect();
+        let want: Vec<&Disk> = devices.iter().filter_map(|d| d.1.as_ref()).collect();
+        assert_eq!(serde_json::to_value(&got).unwrap(), serde_json::to_value(&want).unwrap());
+
+        for (v, disk, want_mounts) in &devices {
+            let mut found = Vec::new();
+            mounts(v, &mut found);
+            assert_eq!(found.iter().map(|(_, m)| m.clone()).collect::<Vec<_>>(), *want_mounts, "deepest first");
+            let Some(disk) = disk else { continue };
+            let own = v.get("path").map(|_| disk.id.as_str());
+            let parts = disk.volumes.iter().map(|v| v.id.as_str()).filter(|p| !p.is_empty() && Some(*p) != own);
+            for p in parts.chain(own) {
+                let at = disk_holding(&all, &|n| json::str(n, "path").as_deref() == Some(p));
+                assert_eq!(at.map(|d| d.id), Some(disk.id.clone()), "{p}");
+            }
+        }
+    }
+
+    /// Formatting unmounts everything but swap, deepest first, partitions from 1 MiB whatever the
+    /// sector size with the type code of the file system, and makes the file system on the first
+    /// partition with the cluster size asked for.
+    #[hegel::test(test_cases = 300)]
+    fn format_commands_follow_the_target(tc: TestCase) {
+        let name = tc.draw(gs::sampled_from(vec!["sdb", "mmcblk0", "nvme0n1"]));
+        let (_, disk, mounted) = block_device(&tc, name);
+        let Some(disk) = disk else { return };
+        let mounted: Vec<(String, String)> = mounted.into_iter().map(|m| (String::new(), m)).collect();
+        let filesystem =
+            tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+        let cluster_size = disk.sector_size << tc.draw(gs::integers::<u32>().max_value(6));
+        let label = filesystem.label(&tc.draw(gs::text().max_size(16)));
+        let t = Target { filesystem, label: label.clone(), cluster_size, default_cluster: tc.draw(gs::booleans()) };
+        let cmds = commands(&disk, &t, &mounted);
+        let unmounts: Vec<&str> = mounted.iter().map(|(_, m)| m.as_str()).filter(|m| *m != "[SWAP]").collect();
+        let (umount, rest) = cmds.split_at(unmounts.len());
+        assert!(umount.iter().zip(&unmounts).all(|(c, m)| c.program == "umount" && c.args == [*m]));
+        let [sfdisk, mkfs] = rest else { panic!("{cmds:?}") };
+        assert_eq!(sfdisk.args.last(), Some(&disk.device));
+        let kind = ["c", "7", "af"][filesystem as usize];
+        let start = (1 << 20) / disk.sector_size;
+        assert_eq!(sfdisk.input.as_deref(), Some(format!("label: dos\nstart={start}, type={kind}\n").as_str()));
+        let part = mkfs.args.last().unwrap();
+        assert!(part.starts_with(&disk.device) && part.ends_with('1') && part.len() <= disk.device.len() + 2);
+        assert!(mkfs.args.contains(&label));
+        let size_arg = match filesystem {
+            Filesystem::Fat32 => Some((cluster_size / disk.sector_size).to_string()),
+            Filesystem::Exfat => Some(cluster_size.to_string()),
+            Filesystem::Hfsplus => None,
+        };
+        assert!(size_arg.is_none_or(|s| mkfs.args.contains(&s)), "{mkfs:?}");
+        assert!(by_id(&disk.device.replace("/dev/", "dev/")).unwrap().is_none());
+    }
 }

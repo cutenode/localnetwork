@@ -232,4 +232,69 @@ mod tests {
         let none = assess_disk(&d);
         assert_eq!((none.verdict, none.summary.as_str()), (Verdict::NoPlayers, "no partitions"));
     }
+
+    // -----------------------------------------------------------------------------------------
+    // Properties
+    // -----------------------------------------------------------------------------------------
+
+    use hegel::generators as gs;
+    use hegel::{Generator, TestCase};
+
+    const SCHEMES: [Option<Scheme>; 5] =
+        [None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm), Some(Scheme::Other)];
+
+    /// Every layout gets a verdict: no player reads a file system they don't support or anything
+    /// but an MBR partition table; FAT and HFS+ on MBR work everywhere, exFAT on some players (and
+    /// the rest are named); without a partition table it's unknown. Only a readable layout
+    /// warns about size past 2 TiB.
+    #[hegel::test(test_cases = 300)]
+    fn every_layout_gets_its_verdict(tc: TestCase) {
+        let scheme = tc.draw(gs::sampled_from(SCHEMES.to_vec()).print_as_debug());
+        let all = crate::format::tests::FS_KINDS.map(Some);
+        let fs = tc.draw(gs::sampled_from([&[None][..], &all[..]].concat()).print_as_debug());
+        let size = tc.draw(hegel::one_of!(
+            gs::integers::<u64>(),
+            gs::integers::<u64>().min_value(MBR_MAX - 2).max_value(MBR_MAX + 2)
+        ));
+        let c = assess(scheme, fs, size);
+        let readable = matches!(fs, Some(FsKind::Fat32 | FsKind::Fat16 | FsKind::Hfsplus | FsKind::Exfat));
+        let want = match (readable, scheme) {
+            (false, _) | (true, Some(Scheme::Gpt | Scheme::Apm | Scheme::Other)) => Verdict::NoPlayers,
+            (true, None) => Verdict::Unknown,
+            (true, Some(Scheme::Mbr)) if fs == Some(FsKind::Exfat) => Verdict::SomePlayers,
+            (true, Some(Scheme::Mbr)) => Verdict::AllPlayers,
+        };
+        assert_eq!(c.verdict, want, "{scheme:?} {fs:?}");
+        assert!(!c.summary.is_empty());
+        let exfat_named = c.unsupported == NO_EXFAT && c.summary.contains(EXFAT[0]);
+        assert_eq!(exfat_named, fs == Some(FsKind::Exfat) && scheme.is_none_or(|s| s == Scheme::Mbr));
+        if c.verdict != Verdict::SomePlayers {
+            assert!(c.unsupported.is_empty() || exfat_named);
+        }
+        let size_note = c.notes.iter().any(|n| n.contains("2 TiB"));
+        assert_eq!(size_note, readable && size > MBR_MAX);
+        assert_eq!(c.summary.contains("without a partition table"), readable && scheme.is_none());
+    }
+
+    /// Players read a disk's first partition: the disk gets that partition's verdict, doubted for
+    /// case-sensitive HFS+, with a note naming it when there are others; a disk without
+    /// partitions works on none.
+    #[hegel::test(test_cases = 300)]
+    fn disks_are_judged_by_their_first_partition(tc: TestCase) {
+        let disk = crate::format::tests::any_disk(&tc);
+        let c = assess_disk(&disk);
+        let Some(first) = disk.volumes.first() else {
+            assert_eq!((c.verdict, c.summary.as_str()), (Verdict::NoPlayers, "no partitions"));
+            return;
+        };
+        let alone = assess(disk.scheme, first.filesystem, first.size);
+        let case_sensitive = first.filesystem == Some(FsKind::Hfsplus)
+            && first.filesystem_name.as_deref().is_some_and(|n| n.to_lowercase().contains("case-sensitive"));
+        let verdict = if case_sensitive { Verdict::Unknown } else { alone.verdict };
+        assert_eq!(c.verdict, verdict);
+        assert_eq!(c.summary, alone.summary);
+        assert!(c.notes.starts_with(&alone.notes));
+        let named = c.notes.iter().any(|n| n.starts_with("players read the first partition"));
+        assert_eq!(named, disk.volumes.len() > 1 && verdict != Verdict::NoPlayers);
+    }
 }

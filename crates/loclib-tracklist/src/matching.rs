@@ -483,6 +483,46 @@ mod tests {
         assert_eq!(status(&l, entry("Bicep", "Glue - Live")), Status::Ambiguous { candidates: vec![9] });
     }
 
+    /// One remix however it's written is found; another remixer's is only offered, even when
+    /// the two share every other word. Generic versions (original, extended, radio edit) are one
+    /// recording, so the only one there is found whichever is asked for.
+    #[test]
+    fn remixes_and_generic_versions() {
+        let remix = with(track(1, "deadmau5", "Strobe (Aurora Remix)", "/Contents/a.mp3"), |t| t.duration_secs = 400);
+        let l = lib(vec![remix]);
+        let with_mix = |title: &str, mix: &str| Entry { mix: Some(mix.into()), ..entry("deadmau5", title) };
+        for title in ["Strobe [AURORA remix]", "strobe - Auróra Rmx", "Strobe (Aurora Remix)"] {
+            assert_eq!(status(&l, entry("Deadmau5", title)), found(1, MatchKind::ArtistTitle), "{title}");
+        }
+        assert_eq!(status(&l, with_mix("Strobe", "Aurora Remix")), found(1, MatchKind::ArtistTitle));
+        // A typo in the remixer is still that remix.
+        assert_eq!(status(&l, entry("deadmau5", "Strobe (Aurorra Remix)")), found(1, MatchKind::Fuzzy));
+        // Another remixer: offered, never found, however the rest agrees.
+        let other = Status::Ambiguous { candidates: vec![1] };
+        assert_eq!(status(&l, entry("deadmau5", "Strobe (Basalt Remix)")), other);
+        assert_eq!(status(&l, with_mix("Strobe", "Basalt Remix")), other);
+        assert_eq!(status(&l, Entry { duration_secs: Some(400), ..entry("deadmau5", "Strobe (Basalt Remix)") }), other);
+        // Part of a remixer's name could be that remix or another's: offered too.
+        let l = lib(vec![track(1, "Bicep", "Glue (Ewan McVicar Remix)", "/Contents/g.mp3")]);
+        assert_eq!(status(&l, entry("Bicep", "Glue (McVicar Remix)")), Status::Ambiguous { candidates: vec![1] });
+
+        // "Original Mix" names no version, written in the title or the mix field.
+        let plain = lib(vec![track(1, "deadmau5", "Strobe", "/Contents/s.mp3")]);
+        let original = lib(vec![with(track(1, "deadmau5", "Strobe", "/Contents/s.mp3"), |t| {
+            t.mix_name = "Original Mix".into();
+        })]);
+        for l in [&plain, &original] {
+            assert_eq!(status(l, entry("deadmau5", "Strobe")), found(1, MatchKind::ArtistTitle));
+            assert_eq!(status(l, entry("deadmau5", "Strobe (Original Mix)")), found(1, MatchKind::ArtistTitle));
+            assert_eq!(status(l, with_mix("Strobe", "Original Mix")), found(1, MatchKind::ArtistTitle));
+        }
+        // An extended mix asked for, only the radio edit there (or the reverse): that's the one.
+        let radio = lib(vec![track(1, "deadmau5", "Strobe (Radio Edit)", "/Contents/r.mp3")]);
+        assert_eq!(status(&radio, entry("deadmau5", "Strobe (Extended Mix)")), found(1, MatchKind::ArtistTitle));
+        let extended = lib(vec![track(1, "deadmau5", "Strobe - Extended Mix", "/Contents/e.mp3")]);
+        assert_eq!(status(&extended, entry("deadmau5", "Strobe - Radio Edit")), found(1, MatchKind::ArtistTitle));
+    }
+
     #[test]
     fn fuzzy_matches() {
         let l = sample();

@@ -198,7 +198,9 @@ fn key_cost(a: Option<Camelot>, b: Option<Camelot>, sure: f64) -> f64 {
     let if_mislabelled =
         alternates(a).into_iter().flat_map(|x| alternates(b).map(|y| labelled(x, y))).fold(UNKNOWN_KEY_COST, f64::min);
     let sure = sure.max(0.0);
-    sure * as_labelled + (1.0 - sure) * if_mislabelled
+    // A step up from the cheaper cost (`if_mislabelled` is never more), so the rounded result
+    // can't drop as `sure` rises, which `sure * x + (1 - sure) * y` can.
+    if_mislabelled + sure * (as_labelled - if_mislabelled)
 }
 
 /// How far apart two tempos are, allowing for half and double time: 0.02 is 2%.
@@ -613,5 +615,199 @@ mod tests {
         assert!(tempo_gap(87.0, 174.0) < 1e-9);
         assert!(tempo_gap(120.0, 140.0) > 0.06);
         assert!(tempo_gap(0.0, 120.0).is_infinite());
+    }
+
+    /// `s` in any ASCII case, with blanks around it.
+    #[hegel::test_helper]
+    fn typed(tc: &hegel::TestCase, s: &str) -> String {
+        use hegel::generators as gs;
+        let cased: String =
+            s.chars().map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c }).collect();
+        let pad = tc.draw(gs::sampled_from(vec!["", " ", "\t", "  "]));
+        format!("{pad}{cased}{pad}")
+    }
+
+    /// A key reads back from its Open Key name (`1m` is 8A, one step round the wheel each), and
+    /// any note name, sharp or flat (`#`, `♯`, `b`, `♭`) and quality (`m`, `min`, `minor`,
+    /// `maj`, `major` or none, spaced or not, in any case) is the key on that note's pitch.
+    #[hegel::test(test_cases = 500)]
+    fn keys_parse_from_open_key_and_any_spelling_of_a_note(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let k = any_key(&tc);
+        let open = format!("{}{}", (k.number + 4) % 12 + 1, if k.major { 'd' } else { 'm' });
+        assert_eq!(Camelot::parse(&typed(&tc, &open)), Some(k), "{open}");
+
+        let (letter, natural) =
+            tc.draw(gs::sampled_from(vec![('C', 0), ('D', 2), ('E', 4), ('F', 5), ('G', 7), ('A', 9), ('B', 11)]));
+        let (accidental, shift) = tc.draw(gs::sampled_from(vec![("", 0), ("#", 1), ("♯", 1), ("b", 11), ("♭", 11)]));
+        let major = tc.draw(gs::booleans());
+        let qualities = if major { vec!["", "maj", "major", " Major"] } else { vec!["m", "min", "minor", " Minor"] };
+        let quality = tc.draw(gs::sampled_from(qualities));
+        let letter = if tc.draw(gs::booleans()) { letter.to_ascii_lowercase() } else { letter };
+        let name = format!("{letter}{accidental}{quality}");
+        let parsed = Camelot::parse(&name);
+        assert_eq!(parsed, Some(Camelot::from_pitch(natural + shift, major)), "{name}");
+        assert_eq!(parsed.unwrap().pitch(), (natural + shift) % 12, "{name}");
+    }
+
+    /// Keys serialise as their code and read back from it or any other notation; text that
+    /// isn't a key is refused, naming it.
+    #[hegel::test(test_cases = 300)]
+    fn keys_serialise_as_their_code(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let k = any_key(&tc);
+        assert_eq!(serde_json::to_value(k).unwrap(), k.code());
+        for text in [k.code(), k.note(), k.code().to_lowercase()] {
+            assert_eq!(serde_json::from_value::<Camelot>(text.into()).unwrap(), k);
+        }
+        let text =
+            tc.draw(hegel::one_of!(gs::text().max_size(5), gs::text().alphabet("0123456789ABab#m ").max_size(3)));
+        match (Camelot::parse(&text), serde_json::from_value::<Camelot>(text.clone().into())) {
+            (Some(p), Ok(d)) => assert_eq!(p, d),
+            (None, Err(e)) => assert!(e.to_string().contains(&format!("{text:?} isn't a key")), "{e}"),
+            (p, d) => panic!("{text:?}: parse {p:?}, deserialise {d:?}"),
+        }
+        assert_eq!(key_order(&text), Camelot::parse(&text).map_or(u8::MAX, Camelot::order));
+        // Wheel order sorts by number, minor before major, all below where unparseable text sorts.
+        let other = any_key(&tc);
+        assert_eq!(k.order().cmp(&other.order()), (k.number, k.major).cmp(&(other.number, other.major)));
+        assert_eq!(key_order(&k.note()), k.order());
+        assert!(k.order() < 24);
+    }
+
+    /// With keys taken as given, a mix costs what its key relation does (same 0, ±1 or relative 1,
+    /// energy boost 2, a clash 6, an unknown key 3) plus a point per 2% of tempo apart (3 when a
+    /// tempo isn't usable); whatever the inputs, NaN included, the cost is never negative or NaN.
+    #[hegel::test(test_cases = 500)]
+    fn mix_costs_follow_the_documented_table(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let a = tc.draw(gs::booleans()).then(|| any_key(&tc));
+        let b = tc.draw(gs::booleans()).then(|| any_key(&tc));
+        let bpm = || {
+            tc.draw(hegel::one_of!(
+                gs::floats::<f64>().min_value(40.0).max_value(250.0),
+                gs::floats::<f64>().allow_nan(true)
+            ))
+        };
+        let (a_bpm, b_bpm) = (bpm(), bpm());
+        let key_part = match (a, b) {
+            (Some(a), Some(b)) => match a.relation_with_boost(b) {
+                Some(Relation::Same) => 0.0,
+                Some(Relation::Adjacent | Relation::Relative) => 1.0,
+                Some(Relation::EnergyBoost) => 2.0,
+                None => 6.0,
+            },
+            _ => UNKNOWN_KEY_COST,
+        };
+        // Each relation reads differently.
+        if let (Some(a), Some(b)) = (a, b) {
+            let c = any_key(&tc);
+            if let (Some(x), Some(y)) = (a.relation_with_boost(b), a.relation_with_boost(c)) {
+                assert_eq!(x == y, x.describe() == y.describe());
+            }
+        }
+        let gap = tempo_gap(a_bpm, b_bpm);
+        let tempo_part = if gap.is_finite() { gap / 0.02 } else { 3.0 };
+        assert_eq!(mix_cost(a, a_bpm, b, b_bpm, 1.0), key_part + tempo_part, "{a:?} {a_bpm} {b:?} {b_bpm}");
+        // A usable tempo is no distance from itself.
+        if a_bpm > 0.0 && a_bpm.is_finite() {
+            assert_eq!(mix_cost(a, a_bpm, b, a_bpm, 1.0), key_part);
+        }
+        let sure = tc.draw(gs::floats::<f64>().allow_nan(true));
+        let cost = mix_cost(a, a_bpm, b, b_bpm, sure);
+        assert!(cost >= 0.0, "{cost}");
+    }
+
+    /// Suggestions are tracks in a compatible key within 6% of the tempo (or half or double
+    /// it), never the track itself or a copy of it, with their relation and gap as `relation`
+    /// and `tempo_gap` give them; same key first, then neighbours, closest tempo first within
+    /// each. A limit keeps the best ones, and every track that qualifies is offered without one.
+    #[hegel::test(test_cases = 300)]
+    fn suggestions_are_compatible_and_best_first(tc: hegel::TestCase) {
+        use hegel::Generator;
+        use hegel::generators as gs;
+        let n = tc.draw(gs::integers::<u32>().max_value(10));
+        let tracks: Vec<Track> = (0..n)
+            .map(|id| {
+                let mut t = crate::test_util::track(id, "A", &(id % 4).to_string(), &format!("/Contents/{id}.mp3"));
+                t.key = tc.draw(hegel::one_of!(
+                    gs::sampled_from(vec!["8A", "9A", "7A", "8B", "Am", "C", "3A", "", "?"]).map(String::from),
+                    gs::text().max_size(3)
+                ));
+                t.bpm = tc.draw(gs::sampled_from(vec![62.0, 120.0, 124.0, 125.0, 128.0, 131.0, 140.0, 248.0, 0.0]));
+                t.duration_secs = 300 + id % 2;
+                t
+            })
+            .collect();
+        let library = Library { tracks, ..Default::default() };
+        let playing = match library.tracks.first().filter(|_| tc.draw(gs::booleans())) {
+            Some(t) => t.clone(),
+            None => {
+                let mut t = crate::test_util::track(99, "B", "Playing", "/Contents/playing.mp3");
+                t.key = tc.draw(gs::sampled_from(vec!["8A", "12B", "Am", "nope"])).into();
+                t.bpm = 124.0;
+                t
+            }
+        };
+        let limit = tc.draw(gs::integers::<usize>().max_value(12));
+        let all = suggestions(&library, &playing, usize::MAX);
+        let Some(key) = Camelot::parse(&playing.key) else {
+            assert!(all.is_empty());
+            return;
+        };
+        for s in &all {
+            assert!(s.track.file_path != playing.file_path && s.track.fingerprint_key() != playing.fingerprint_key());
+            assert_eq!(Some(s.key), Camelot::parse(&s.track.key));
+            assert_eq!(Some(s.relation), key.relation(s.key));
+            assert_eq!(s.tempo_gap, tempo_gap(playing.bpm, s.track.bpm));
+            assert!(s.tempo_gap <= 0.06);
+        }
+        assert!(all.windows(2).all(|w| (w[0].relation, w[0].tempo_gap) <= (w[1].relation, w[1].tempo_gap)));
+        // Each relation reads differently.
+        for (x, y) in all.iter().flat_map(|x| all.iter().map(move |y| (x, y))) {
+            assert_eq!(x.relation == y.relation, x.relation.describe() == y.relation.describe());
+        }
+        let qualifies = |t: &Track| {
+            t.file_path != playing.file_path
+                && t.fingerprint_key() != playing.fingerprint_key()
+                && Camelot::parse(&t.key).and_then(|k| key.relation(k)).is_some()
+                && tempo_gap(playing.bpm, t.bpm) <= 0.06
+        };
+        assert_eq!(all.len(), library.tracks.iter().filter(|t| qualifies(t)).count());
+        let limited: Vec<u32> = suggestions(&library, &playing, limit).iter().map(|s| s.track.id).collect();
+        let best: Vec<u32> = all.iter().take(limit).map(|s| s.track.id).collect();
+        assert_eq!(limited, best);
+    }
+
+    /// A cancelled operation stops ordering any set with a track in it, whatever the key
+    /// confidences; an empty set has nothing to order either way.
+    #[hegel::test(test_cases = 100)]
+    fn cancelled_orderings_stop(tc: hegel::TestCase) {
+        use hegel::generators as gs;
+        let (tracks, energy) = made_up_set(tc.draw(gs::integers::<u32>().max_value(6)));
+        let refs: Vec<&Track> = tracks.iter().collect();
+        let confidence: rustc_hash::FxHashMap<u32, f64> = tracks
+            .iter()
+            .filter(|_| tc.draw(gs::booleans()))
+            .map(|t| (t.id, tc.draw(gs::floats::<f64>().min_value(0.0).max_value(1.0))))
+            .collect();
+        let ctx = Ctx::silent();
+        let cancelled = tc.draw(gs::booleans());
+        if cancelled {
+            ctx.cancel.cancel();
+        }
+        let start = tc.draw(gs::optional(gs::integers::<u32>().max_value(6)));
+        match order_set(&refs, start, &energy, &confidence, &ctx) {
+            Err(Cancelled) => assert!(cancelled && !refs.is_empty()),
+            Ok(order) => {
+                assert!(!cancelled || refs.is_empty());
+                let mut sorted = order.clone();
+                sorted.sort_unstable();
+                assert_eq!(sorted, tracks.iter().map(|t| t.id).collect::<Vec<_>>());
+                if let Some(s) = start.filter(|s| tracks.iter().any(|t| t.id == *s)) {
+                    assert_eq!(order[0], s);
+                }
+            }
+        }
     }
 }

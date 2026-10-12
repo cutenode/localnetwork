@@ -107,3 +107,103 @@ fn fatfs_reads_formatted_volumes(tc: TestCase) {
     }
     fs.unmount().unwrap();
 }
+
+/// What a format plan destroys, volume by volume: each rekordbox library on the disk with its
+/// track count, the adopted drive's name (which the drive keeps, and which confirms the erase),
+/// and whether the library is safe in the store, with a warning for every one that isn't. A
+/// disk holding a protected path is refused.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[cfg_attr(
+    target_os = "linux",
+    ignore = "a plan on Linux asks lsblk what's mounted on the disk, and this one isn't there"
+)]
+fn plans_list_the_libraries_they_erase(tc: TestCase) {
+    use crate::common;
+    use locallibrary::api;
+    use locallibrary::format::{Disk, FormatOptions, Scheme, Volume};
+    let dir = tempfile::tempdir().unwrap();
+    let store = tc.draw(gs::booleans()).then(|| locallibrary::Store::open_or_init(dir.path().join("store")).unwrap());
+    let volumes = common::isolate(dir.path(), store.as_ref().map(|s| s.root()));
+
+    // Each volume: a folder (0), a library (1), an adopted one (2), or one also saved in the store (3).
+    let kinds: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(3)).min_size(1).max_size(3));
+    let mut parts = Vec::new();
+    for (i, kind) in kinds.iter().enumerate() {
+        let name = format!("Drive{i}");
+        let root = if *kind == 0 {
+            let r = volumes.join(&name);
+            std::fs::create_dir_all(&r).unwrap();
+            r
+        } else {
+            common::demo_drive(&volumes, &name)
+        };
+        if *kind >= 2 {
+            common::adopt(store.as_ref(), &root, &name);
+        }
+        if let (3, Some(s)) = (kind, &store) {
+            let pull = api::PullRequest {
+                drive: common::path(&root),
+                library: Some(name.clone()),
+                new_library: true,
+                ..Default::default()
+            };
+            api::pull(s, &pull, &Ctx::silent()).unwrap();
+        }
+        parts.push(Volume {
+            id: format!("disk9s{}", i + 1),
+            size: 1 << 30,
+            filesystem: Some(locallibrary::format::FsKind::Fat32),
+            filesystem_name: Some("MS-DOS FAT32".into()),
+            label: Some(name),
+            mount: Some(root),
+            cluster_size: Some(32768),
+            uuid: None,
+        });
+    }
+    let disk = Disk {
+        id: "disk9".into(),
+        device: "/dev/disk9".into(),
+        model: "Stick".into(),
+        serial: None,
+        size: 64 << 30,
+        sector_size: 512,
+        bus: Some("USB".into()),
+        removable: true,
+        internal: false,
+        system: false,
+        virtual_disk: false,
+        read_only: false,
+        scheme: Some(Scheme::Mbr),
+        volumes: parts,
+    };
+    let plan = locallibrary::format::plan(disk.clone(), &FormatOptions::default(), store.as_ref(), &[], &Ctx::silent())
+        .unwrap();
+    assert_eq!(plan.erases.len(), kinds.len());
+    let mut kept = None;
+    for (i, (e, kind)) in plan.erases.iter().zip(&kinds).enumerate() {
+        let name = format!("Drive{i}");
+        assert_eq!(e.tracks, (*kind > 0).then_some(2), "{name}");
+        assert_eq!(e.drive_name.as_deref(), (*kind >= 2).then_some(name.as_str()));
+        let saved = *kind == 3 && store.is_some();
+        assert_eq!(e.in_store, store.as_ref().and(Some(saved)).filter(|_| *kind > 0), "{name}");
+        let warned =
+            |what: &str| plan.warnings.iter().any(|w| w.starts_with(&format!("{name} holds")) && w.contains(what));
+        assert_eq!(warned("isn't in the store"), *kind > 0 && store.is_some() && !saved);
+        assert_eq!(warned("Everything on it will be lost"), *kind > 0 && store.is_none());
+        if *kind >= 2 {
+            kept = kept.or(Some(name));
+        }
+    }
+    assert_eq!(plan.keeps_name, kept);
+    assert_eq!(plan.confirmation(), kept.as_deref().unwrap_or("disk9"));
+    let first_label = kept.clone().unwrap_or_else(|| "Drive0".into());
+    assert_eq!(plan.label, locallibrary::format::Filesystem::Fat32.label(&first_label));
+
+    let protected = [volumes.join("Drive0").join("store")];
+    assert!(
+        locallibrary::format::plan(disk, &FormatOptions::default(), store.as_ref(), &protected, &Ctx::silent())
+            .is_err()
+    );
+    locallibrary::testing::volumes_on_this_thread(None);
+    locallibrary::testing::store_root_on_this_thread(None);
+}
