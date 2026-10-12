@@ -41,3 +41,36 @@ fn unreadable_files_are_errors() {
     let gone = dir.path().join("gone.wav");
     assert!(matches!(listen(&gone, &Ctx::silent()), Err(Error::Io { path, .. }) if path == gone));
 }
+
+use hegel::generators as gs;
+
+/// A WAV at the fingerprints' own rate is heard from the file as from its samples in
+/// memory: the same peaks as a library track and as a recording (with its levels and frames
+/// as the analyzer counts them), and as long. A file that isn't there is that file's error.
+#[hegel::test(test_cases = 8)]
+fn files_are_heard_as_their_samples(tc: hegel::TestCase) {
+    let secs = tc.draw(gs::floats::<f64>().min_value(0.2).max_value(3.0));
+    let pcm: Vec<i32> =
+        synth(secs, tc.draw(gs::integers::<u32>().min_value(1))).iter().map(|s| (s * 12_000.0) as i32).collect();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.wav");
+    std::fs::write(&path, wav_of(fingerprint::RATE, 16, pcm.iter().copied())).unwrap();
+    let samples: Vec<f32> = pcm.iter().map(|&s| s as f32 / 32_768.0).collect();
+
+    let file = fingerprint_file(&path, &Ctx::silent()).unwrap();
+    assert_eq!(
+        file,
+        TrackPrint { duration_secs: (samples.len() as f64 / fingerprint::RATE as f64) as f32, ..print(&samples) }
+    );
+    let (format, heard) = listen(&path, &Ctx::silent()).unwrap();
+    let mut a = Analyzer::new(fingerprint::QUERY, true);
+    a.push(&samples);
+    let frames = a.frames();
+    let (peaks, levels) = a.finish();
+    assert_eq!((heard.peaks, heard.levels.len(), heard.frames), (peaks, levels.len(), frames));
+    assert_eq!(format.duration_secs, samples.len() as f64 / fingerprint::RATE as f64);
+
+    let gone = dir.path().join("gone.wav");
+    assert!(matches!(fingerprint_file(&gone, &Ctx::silent()), Err(Error::Io { path, .. }) if path == gone));
+    assert!(matches!(listen(&gone, &Ctx::silent()), Err(Error::Io { path, .. }) if path == gone));
+}

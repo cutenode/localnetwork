@@ -903,7 +903,10 @@ impl PdbEditor {
     /// label rows by name.
     pub fn add_track(&mut self, t: &NewTrack) -> Result<u32> {
         let filename = t.file_name();
-        // Validate everything that can fail BEFORE creating lookup rows.
+        // Validate everything that can fail BEFORE creating lookup rows: that the file parses
+        // (a buffer too short for its header has no page size to check rows against), then the
+        // rows.
+        self.ix()?;
         check_new_track(t, self.page_size)?;
         let strings = t.strings(&filename);
 
@@ -1128,7 +1131,14 @@ impl PdbEditor {
                     TableType::Keys => ix.keys.remove(*id),
                     TableType::Albums => ix.albums.remove(id).map(|(loc, name, artist)| {
                         if ix.album_by_name.get(&(name.clone(), artist)) == Some(id) {
-                            ix.album_by_name.remove(&(name, artist));
+                            // Another album of that name by that artist takes over, as in
+                            // `Named::remove`.
+                            let same = ix.albums.iter().filter(|(_, a)| a.1 == name && a.2 == artist);
+                            let other = same.map(|(&id, _)| id).min();
+                            match other {
+                                Some(other) => ix.album_by_name.insert((name, artist), other),
+                                None => ix.album_by_name.remove(&(name, artist)),
+                            };
                         }
                         loc
                     }),

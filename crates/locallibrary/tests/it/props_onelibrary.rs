@@ -113,6 +113,25 @@ fn databases_round_trip_through_the_cipher(tc: TestCase) {
     assert!(codec().encrypt(&bad).is_err());
 }
 
+/// A page of any length but 4096 bytes is refused, to encrypt or to decrypt, and so is a file
+/// that isn't a whole number of pages. A file of whole pages decrypts to zeros where SQLite
+/// won't read, whatever they hold.
+#[hegel::test]
+fn only_whole_pages_are_ciphered(tc: TestCase) {
+    let len = tc.draw(gs::integers::<usize>().max_value(3 * PAGE_SIZE));
+    let bytes = vec![tc.draw(gs::integers::<u8>()); len];
+    let pgno = tc.draw(gs::integers::<u32>().min_value(1).max_value(4));
+    if len != PAGE_SIZE {
+        assert!(codec().encrypt_page(pgno, &bytes).is_err());
+        assert!(codec().decrypt_page(pgno, &bytes).is_err());
+    }
+    let whole = len > 0 && len.is_multiple_of(PAGE_SIZE);
+    match codec().decrypt(&bytes, |_| false) {
+        Ok(plain) => assert!(whole && plain == vec![0; len]),
+        Err(e) => assert!(!whole, "{e}"),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // The write-ahead log
 // ---------------------------------------------------------------------------------------------
@@ -325,6 +344,37 @@ fn wal_frames_are_laid_over_the_database(tc: TestCase) {
         expect[at..at + PAGE_SIZE].copy_from_slice(&codec().decrypt_page(*pgno, page).unwrap());
     }
     assert_eq!(result.unwrap().1, expect);
+}
+
+/// What isn't an encrypted SQLite database of rekordbox's layout is refused by every reader,
+/// whichever way it falls short: too short to hold a salt, a first page that decrypts to a
+/// header of another layout, a WAL of another page size, or a WAL whose last commit puts such a
+/// first page in place.
+#[hegel::test(test_cases = 40)]
+fn what_isnt_a_rekordbox_database_is_refused(tc: TestCase) {
+    let db = fixture("empty.db");
+    let mut header = empty_plain()[..PAGE_SIZE].to_vec();
+    match tc.draw(gs::booleans()) {
+        true => header[20] = tc.draw(gs::integers::<u8>().filter(|r| usize::from(*r) != RESERVE)),
+        false => header[16] ^= tc.draw(gs::integers::<u8>().min_value(1)),
+    }
+    let pages = (empty_plain().len() / PAGE_SIZE) as u32;
+    let (bytes, wal) = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => (tc.draw(gs::binary().max_size(SALT_LEN - 1)), None),
+        1 => (codec().encrypt_page(1, &header).unwrap(), None),
+        2 => {
+            let frames = frames(&tc, 512, 3);
+            (db.to_vec(), Some(build_wal(tc.draw(gs::booleans()), 512, (1, 2), &frames)))
+        }
+        _ => {
+            let frame = codec().encrypt_page(1, &header).unwrap();
+            (db.to_vec(), Some(build_wal(tc.draw(gs::booleans()), PAGE_SIZE, (1, 2), &[(1, pages, frame)])))
+        }
+    };
+    let wal = wal.as_deref();
+    assert!(onelibrary::decrypt(&bytes, wal).is_err());
+    assert!(onelibrary::content_hash(&bytes, wal).is_err());
+    assert!(OneLibrary::from_encrypted(&bytes, wal).is_err());
 }
 
 /// Shrunk counterexample of `wal_frames_are_laid_over_the_database`: a commit frame claiming
@@ -662,7 +712,7 @@ fn extreme_positions_are_stored() {
 // ---------------------------------------------------------------------------------------------
 
 /// A new, empty database from `OneLibrary::create`, encrypted (built, and its keys derived, once).
-fn new_library() -> &'static [u8] {
+pub(crate) fn new_library() -> &'static [u8] {
     static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
     BYTES.get_or_init(|| OneLibrary::create().unwrap().to_encrypted().unwrap())
 }
@@ -670,7 +720,7 @@ fn new_library() -> &'static [u8] {
 /// Text for a track's fields: often empty (no row is made for an empty name), often shared,
 /// so that lookup rows are reused and outlive some of the tracks using them.
 #[hegel::test_helper]
-fn field(tc: &TestCase) -> String {
+pub(crate) fn field(tc: &TestCase) -> String {
     tc.draw(hegel::one_of!(
         gs::sampled_from(vec!["", "", "Daft Punk", "Ünïcödé", "a'b\"c"]).map(String::from),
         gs::text().max_size(10).exclude_characters("\0"),
@@ -679,7 +729,7 @@ fn field(tc: &TestCase) -> String {
 
 /// A track as `export.pdb` knows it, with what OneLibrary stores of it.
 #[hegel::test_helper]
-fn any_track(tc: &TestCase, n: usize, artwork: Option<String>) -> locallibrary::Track {
+pub(crate) fn any_track(tc: &TestCase, n: usize, artwork: Option<String>) -> locallibrary::Track {
     let s = |tc: &TestCase| field(tc);
     locallibrary::Track {
         id: 0,

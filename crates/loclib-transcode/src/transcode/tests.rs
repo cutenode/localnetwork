@@ -502,3 +502,292 @@ fn recipes_no_player_takes_are_refused(tc: hegel::TestCase) {
         "{err}"
     );
 }
+
+use hegel::TestCase;
+use hegel::generators as gs;
+
+/// A WAV of `channels` channels holding `samples` (interleaved, in `bits`' range): what a
+/// multichannel master looks like.
+fn wav_of_channels(rate: u32, bits: u16, channels: u16, samples: &[i32]) -> Vec<u8> {
+    let width = usize::from(bits / 8);
+    let data_len = (samples.len() * width) as u32;
+    let align = channels * (bits / 8);
+    let mut out = Vec::new();
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * u32::from(align)).to_le_bytes());
+    out.extend_from_slice(&align.to_le_bytes());
+    out.extend_from_slice(&bits.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for s in samples {
+        out.extend_from_slice(&s.to_le_bytes()[..width]);
+    }
+    if data_len % 2 == 1 {
+        out.push(0);
+    }
+    out
+}
+
+/// A FLAC of interleaved `samples` in 4096-frame blocks, as flacenc writes it, with where each
+/// frame starts. `unsaid` leaves its length out of the header (0, which the format allows).
+fn flac_frames(samples: &[i32], channels: usize, bits: usize, rate: usize, unsaid: bool) -> (Vec<u8>, Vec<usize>) {
+    let source = flacenc::source::MemSource::from_samples(samples, channels, bits, rate);
+    let config = flacenc::config::Encoder::default().into_verified().unwrap();
+    let mut stream = flacenc::encode_with_fixed_block_size(&config, source, 4096).unwrap();
+    stream.stream_info_mut().set_block_sizes(4096, 4096).unwrap();
+    if unsaid {
+        stream.stream_info_mut().set_total_samples(0);
+    }
+    let mut sink = flacenc::bitsink::ByteSink::new();
+    stream.write(&mut sink).unwrap();
+    // `fLaC` and STREAMINFO, then the frames back to back.
+    let mut starts = vec![42];
+    for i in 0..stream.frame_count() {
+        starts.push(starts[i] + stream.frame(i).unwrap().count_bits() / 8);
+    }
+    assert_eq!(starts.pop(), Some(sink.as_slice().len()));
+    (sink.as_slice().to_vec(), starts)
+}
+
+/// The length of the FLAC frame header at the start of `frame`, its CRC-8 included: what
+/// its block size and rate codes and the UTF-8 coded frame number add to the 4 fixed bytes.
+fn frame_header_len(frame: &[u8]) -> usize {
+    let block_size = match frame[2] >> 4 {
+        6 => 1,
+        7 => 2,
+        _ => 0,
+    };
+    let rate = match frame[2] & 0xf {
+        12 => 1,
+        13 | 14 => 2,
+        _ => 0,
+    };
+    let number = frame[4].leading_ones().max(1) as usize;
+    4 + number + block_size + rate + 1
+}
+
+/// FLAC's CRC-16 (polynomial 0x8005), which closes every frame.
+fn crc16(bytes: &[u8]) -> u16 {
+    bytes.iter().fold(0u16, |crc, &b| {
+        (0..8).fold(crc ^ (u16::from(b) << 8), |c, _| if c & 0x8000 != 0 { (c << 1) ^ 0x8005 } else { c << 1 })
+    })
+}
+
+/// Bytes of the source in `events`' copy progress.
+fn copied(events: &[Event]) -> Vec<u64> {
+    events
+        .iter()
+        .filter_map(|e| if let Event::Bytes { phase: Phase::Copy, bytes } = e { Some(*bytes) } else { None })
+        .collect()
+}
+
+/// However many channels and however deep the source, progress through a copy of over a MiB
+/// comes as it's decoded, not all at the end: in steps of a MiB or a packet's worth more, as
+/// many as fit, and the rest at the end, adding up to the source's size. The copy holds every
+/// frame, and its size is its header and samples.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn long_copies_report_progress_as_they_go(tc: TestCase) {
+    use hegel::Generator;
+    const MIB: u64 = 1 << 20;
+    let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(8));
+    let bits = tc.draw(gs::sampled_from(vec![24u16, 32]));
+    let rate = tc.draw(gs::sampled_from(vec![44_100, 48_000]));
+    let frame_bytes = u64::from(channels) * u64::from(bits / 8);
+    let target = tc.draw(gs::floats::<f64>().min_value(1.1).max_value(3.5)) * MIB as f64;
+    let frames = (target / frame_bytes as f64) as usize;
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("master.wav");
+    std::fs::write(&source, wav_of_channels(rate, bits, channels, &noise(frames * usize::from(channels), bits)))
+        .unwrap();
+    let r = Recipe {
+        container: tc.draw(gs::sampled_from(vec![Container::Aiff, Container::Wav]).print_as_debug()),
+        sample_rate: rate,
+        bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
+        dither: Dither::None,
+    };
+    let copy = dir.path().join(format!("copy.{}", r.container.extension()));
+    let recorder = Recorder::default();
+    let made = transcode(&source, &r, &copy, &Ctx::new(&recorder, CancelToken::new())).unwrap();
+    assert_eq!(made, Transcoded { frames: frames as u64, channels });
+
+    let steps = copied(&recorder.0.into_inner().unwrap());
+    let size = std::fs::metadata(&source).unwrap().len();
+    assert_eq!(steps.iter().sum::<u64>(), size);
+    let (last, along) = steps.split_last().unwrap();
+    // A step is sent at the first packet's end a MiB or more past the last, and packets are up
+    // to 1152 frames: what's left at the end is under a MiB.
+    let packet = 1152 * frame_bytes * 2;
+    assert!(along.iter().all(|s| (MIB..MIB + packet).contains(s)) && *last < MIB, "{steps:?} of {size}");
+    let data = frames as u64 * u64::from(channels) * u64::from(r.bit_depth / 8);
+    let header = if r.container == Container::Aiff { 54 } else { 44 };
+    assert_eq!(std::fs::metadata(&copy).unwrap().len(), header + data + data % 2);
+}
+
+/// A FLAC whose header leaves its length out (0, "unknown", as the format allows) copies to
+/// every container exactly as one that says it, only with its progress all at the end.
+#[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn copies_dont_need_the_length_in_the_header(tc: TestCase) {
+    let channels = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
+    // Over a block, so the copies that are FLAC encode one as the samples come; often whole
+    // blocks, so nothing is left to encode at the end.
+    let frames = tc.draw(hegel::one_of!(gs::just(8192), gs::integers::<usize>().min_value(4097).max_value(10_000)));
+    let rate = tc.draw(gs::sampled_from(vec![44_100usize, 48_000]));
+    let samples = noise(frames * channels, 16);
+    let dir = tempfile::tempdir().unwrap();
+    let (said, unsaid) = (dir.path().join("said.flac"), dir.path().join("unsaid.flac"));
+    std::fs::write(&said, flac_frames(&samples, channels, 16, rate, false).0).unwrap();
+    std::fs::write(&unsaid, flac_frames(&samples, channels, 16, rate, true).0).unwrap();
+    for container in Container::ALL {
+        let r = recipe(container, rate as u32, 16, Dither::None);
+        let copy = |source: &Path, name: &str| {
+            let out = dir.path().join(format!("{name}.{}", container.extension()));
+            let recorder = Recorder::default();
+            let made = transcode(source, &r, &out, &Ctx::new(&recorder, CancelToken::new())).unwrap();
+            assert_eq!(made, Transcoded { frames: frames as u64, channels: channels as u16 }, "{r}");
+            (std::fs::read(&out).unwrap(), copied(&recorder.0.into_inner().unwrap()))
+        };
+        let ((a, _), (b, steps)) = (copy(&said, "a"), copy(&unsaid, "b"));
+        assert!(a == b, "{r}: the copies differ");
+        assert_eq!(steps, [std::fs::metadata(&unsaid).unwrap().len()], "{r}");
+    }
+}
+
+/// [`aiff_frames`] reads the frame count from the COMM chunk wherever it is among the chunks
+/// (each padded to an even length), in an AIFF or AIFC; anything else, a file cut short before
+/// it and a file that isn't there have none.
+#[hegel::test(test_cases = 200)]
+fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
+    let frames = tc.draw(gs::integers::<u32>());
+    let kind = tc.draw(gs::sampled_from(vec![*b"AIFF", *b"AIFC", *b"WAVE"]));
+    let mut bytes = [b"FORM".as_slice(), &0u32.to_be_bytes(), &kind].concat();
+    for len in tc.draw(gs::vecs(gs::integers::<u32>().max_value(9)).max_size(4)) {
+        bytes.extend_from_slice(b"FVER");
+        bytes.extend_from_slice(&len.to_be_bytes());
+        bytes.extend(std::iter::repeat_n(0x55, (len + len % 2) as usize));
+    }
+    let comm_end = bytes.len() + 14;
+    bytes.extend_from_slice(b"COMM");
+    bytes.extend_from_slice(&18u32.to_be_bytes());
+    bytes.extend_from_slice(&2u16.to_be_bytes());
+    bytes.extend_from_slice(&frames.to_be_bytes());
+    bytes.extend_from_slice(&[0, 16, 0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.aiff");
+    let cut = tc.draw(gs::integers::<usize>().max_value(bytes.len()));
+    std::fs::write(&path, &bytes[..cut]).unwrap();
+    let found = aiff_frames(&path);
+    assert_eq!(found, (kind != *b"WAVE" && cut >= comm_end).then_some(u64::from(frames)), "cut at {cut}");
+    assert_eq!(aiff_frames(&dir.path().join("gone.aiff")), None);
+}
+
+/// A source lofty can't tell the format of by its name (symphonia goes by its content) is
+/// copied all the same, sample for sample, without its tags and with a warning saying so;
+/// one it can is copied with them, and no warning.
+#[hegel::test(test_cases = 20)]
+fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
+    use hegel::Generator;
+    let name = tc.draw(gs::sampled_from(vec!["master.wav", "master.bin", "master", "master.wav.part"]));
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(2000));
+    let dir = tempfile::tempdir().unwrap();
+    let wav = dir.path().join("master.wav");
+    std::fs::write(&wav, wav_of(44_100, 16, noise(frames, 16).into_iter())).unwrap();
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.set_title("Night Drive".into());
+    tag.save_to_path(&wav, WriteOptions::default()).unwrap();
+    let source = dir.path().join(name);
+    std::fs::rename(&wav, &source).unwrap();
+    let r = recipe(tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug()), 44_100, 16, Dither::None);
+    let out = dir.path().join(format!("copy.{}", r.container.extension()));
+    let recorder = Recorder::default();
+    transcode(&source, &r, &out, &Ctx::new(&recorder, CancelToken::new())).unwrap();
+    let warned = recorder
+        .0
+        .into_inner()
+        .unwrap()
+        .iter()
+        .any(|e| matches!(e, Event::Warning { message } if message.contains("tags weren't copied")));
+    let readable = name.ends_with(".wav");
+    assert_eq!(warned, !readable, "{name}");
+    let title =
+        lofty::read_from_path(&out).ok().and_then(|t| t.primary_tag().and_then(|t| t.title().map(|t| t.into_owned())));
+    assert_eq!(title.as_deref(), readable.then_some("Night Drive"), "{name}");
+    assert_eq!(decode(&out).samples, decode(&source).samples);
+}
+
+/// What can't be written fails as itself, naming the copy: more channels than FLAC's eight
+/// can't be encoded as FLAC (WAV and AIFF take them, a pad byte keeping their chunks even), and
+/// a copy into a folder that isn't there can't be made at all.
+#[hegel::test(test_cases = 30)]
+fn copies_that_cant_be_written_say_why(tc: TestCase) {
+    let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(12));
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(300));
+    let depth = tc.draw(gs::sampled_from(vec![16u16, 24]));
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("master.wav");
+    std::fs::write(&source, wav_of_channels(48_000, 24, channels, &noise(frames * usize::from(channels), 24))).unwrap();
+    for container in Container::ALL {
+        let r = recipe(container, 48_000, depth, Dither::None);
+        let nowhere = dir.path().join("not here").join(format!("copy.{}", container.extension()));
+        let err = transcode_quietly(&source, &r, &nowhere).unwrap_err();
+        assert!(matches!(&err, Error::Io { path, .. } if *path == nowhere), "{r}: {err}");
+        let out = dir.path().join(format!("copy.{}", container.extension()));
+        match transcode_quietly(&source, &r, &out) {
+            Err(Error::Encode { path, .. }) if container == Container::Flac && channels > 8 => assert_eq!(path, out),
+            Ok(made) if container != Container::Flac || channels <= 8 => {
+                assert_eq!(made, Transcoded { frames: frames as u64, channels }, "{r}");
+                let back = decode(&out);
+                assert_eq!(
+                    (back.channels, back.samples.len()),
+                    (usize::from(channels), frames * usize::from(channels))
+                );
+                if container != Container::Flac {
+                    assert_eq!(std::fs::metadata(&out).unwrap().len() % 2, 0, "{r}: chunks start on even offsets");
+                }
+            }
+            other => panic!("{r}, {channels} channels: {other:?}"),
+        }
+    }
+}
+
+/// A frame of a FLAC master that can't be read back, anywhere in it (its checksum fails, so the
+/// reader drops it, or it passes but holds what no decoder takes), fails its copy: leaving it
+/// out would move everything after it earlier, cues and all. Decoding it to fingerprint it
+/// skips the frame instead.
+#[hegel::test(test_cases = 20)]
+fn a_damaged_frame_anywhere_fails_the_copy(tc: TestCase) {
+    let blocks = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let frames = 4096 * (blocks - 1) + tc.draw(gs::integers::<usize>().min_value(1).max_value(4096));
+    let (mut bytes, starts) = flac_frames(&noise(frames * 2, 16), 2, 16, 44_100, false);
+    let k = tc.draw(gs::integers::<usize>().max_value(starts.len() - 1));
+    let (start, end) = (starts[k], starts.get(k + 1).copied().unwrap_or(bytes.len()));
+    let header = frame_header_len(&bytes[start..]);
+    let unreadable = tc.draw(gs::booleans());
+    if unreadable {
+        // The first channel's subframe as one of the types the format reserves, and the
+        // frame's CRC-16 made right again.
+        bytes[start + header] = 0x04;
+        let crc = crc16(&bytes[start..end - 2]);
+        bytes[end - 2..end].copy_from_slice(&crc.to_be_bytes());
+    } else {
+        let at = tc.draw(gs::integers::<usize>().min_value(start + header + 1).max_value(end - 3));
+        bytes[at] ^= tc.draw(gs::integers::<u8>().min_value(1));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("master.flac");
+    std::fs::write(&source, &bytes).unwrap();
+    let out = dir.path().join("copy.aiff");
+    let err = transcode_quietly(&source, &recipe(Container::Aiff, 44_100, 16, Dither::None), &out).unwrap_err();
+    assert!(
+        matches!(&err, Error::Decode(loclib_mixid::Error::Parse { path, .. }) if *path == source),
+        "frame {k}: {err}"
+    );
+    let mut heard = 0;
+    let skipped = loclib_mixid::audio::decode(&source, 44_100, &Ctx::silent(), &mut |s| heard += s.len()).unwrap();
+    assert!(heard < frames && skipped.duration_secs < frames as f64 / 44_100.0, "frame {k}: {heard} of {frames}");
+}

@@ -322,8 +322,8 @@ fn audio_on_another_drive_letter() {
     assert_eq!(file_url(Path::new(r"\\nas\music\set.wav")), "file://nas/music/set.wav");
 }
 
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
 
 /// `%XX` escapes decoded back to the bytes they stand for.
 fn percent_decoded(url: &str) -> Vec<u8> {
@@ -500,4 +500,141 @@ fn the_page_holds_the_report_whatever_it_says(tc: TestCase) {
     assert_eq!((v["audio"].as_str(), v["audioName"].as_str()), (Some(audio), Some("set one.wav")));
     let head = html.split_once("<title>").unwrap().1.split_once("</title>").unwrap().0;
     assert!(!head.contains('<') && !head.contains('>'), "{head}");
+}
+
+/// What the drive adds to a play: each hot cue (only those) at its time, labelled by its letter,
+/// with its name after it except on the page or when it has none, in its colour; and on the page
+/// only, the cover from the drive, as a JPEG `data:` URL of the file's own bytes.
+#[hegel::test(test_cases = 100)]
+fn extras_carry_each_hot_cue_and_on_the_page_the_cover(tc: TestCase) {
+    use crate::anlz::Cue;
+    use loclib_model::test_util::track;
+    let dir = tempfile::tempdir().unwrap();
+    let device = Device::open(dir.path()).unwrap();
+    let mut t = track(7, "A", "One", "/Contents/one.mp3");
+    let cover: Option<Vec<u8>> = tc.draw(gs::optional(gs::vecs(gs::integers::<u8>()).max_size(40)));
+    if let Some(bytes) = &cover {
+        t.artwork_path = Some("/PIONEER/Artwork/00001/a7.jpg".into());
+        let file = dir.path().join("PIONEER/Artwork/00001/a7.jpg");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, bytes).unwrap();
+    }
+    let cues: Vec<Cue> = tc
+        .draw(
+            gs::vecs(gs::tuples!(
+                gs::optional(gs::integers::<u8>()),
+                gs::integers::<u32>().max_value(600_000),
+                gs::sampled_from(vec!["", "drop", "vox in"]),
+                gs::optional(gs::tuples!(gs::integers::<u8>(), gs::integers::<u8>(), gs::integers::<u8>())),
+            ))
+            .max_size(5),
+        )
+        .into_iter()
+        .map(|(hot_cue, start_ms, comment, color)| Cue {
+            hot_cue,
+            start_ms,
+            end_ms: None,
+            comment: comment.into(),
+            color: color.map(|(r, g, b)| [r, g, b]),
+            color_id: 0,
+            loop_beats: None,
+        })
+        .collect();
+    let library = Library { tracks: vec![t.clone()], ..Default::default() };
+    let analyses = [TrackAnalysis { cues: cues.clone(), ..Default::default() }];
+    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses) };
+    let page = tc.draw(gs::booleans());
+    let e = extras(drive, &play(t), 0, page);
+
+    let hot: Vec<&Cue> = cues.iter().filter(|c| c.hot_cue.is_some()).collect();
+    assert_eq!(e.cues.len(), hot.len());
+    for (mark, c) in e.cues.iter().zip(hot) {
+        let letter = HotCue(c.hot_cue.unwrap()).letter().to_string();
+        assert_eq!(mark.t, f64::from(c.start_ms) / 1000.0);
+        let (named, rest) = match mark.label.split_once(" · ") {
+            Some((l, name)) => (l, Some(name)),
+            None => (mark.label.as_str(), None),
+        };
+        assert_eq!(named, letter);
+        assert_eq!(rest, (!page && !c.comment.is_empty()).then_some(c.comment.as_str()), "{}", mark.label);
+        let hex = mark.color.as_deref().map(|h| {
+            let n = u32::from_str_radix(h.strip_prefix('#').unwrap(), 16).unwrap();
+            assert_eq!(h.len(), 7, "{h}");
+            [(n >> 16) as u8, (n >> 8) as u8, n as u8]
+        });
+        assert_eq!(hex, c.color);
+    }
+    let art = e.art.map(|url| BASE64_STANDARD.decode(url.strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap());
+    assert_eq!(art, cover.filter(|_| page));
+}
+
+/// A file URL leads to its path, the root included: it ends in a slash exactly when the path is
+/// the root, which `file://` alone wouldn't name.
+#[hegel::test(test_cases = 200)]
+fn file_urls_end_in_a_slash_only_at_the_root(tc: TestCase) {
+    let parts: Vec<String> =
+        tc.draw(gs::vecs(gs::sampled_from(vec![".", "Mixes", "set #1.wav", "日本"]).map(String::from)).max_size(4));
+    let path: PathBuf = std::iter::once("/".to_string()).chain(parts).collect();
+    let url = file_url(&path);
+    let root = path.components().all(|c| matches!(c, Component::RootDir | Component::CurDir));
+    assert_eq!(url.ends_with('/'), root, "{url}");
+    let decoded = String::from_utf8(percent_decoded(url.strip_prefix("file://").unwrap())).unwrap();
+    assert_eq!(Path::new(&decoded), path.components().collect::<PathBuf>(), "{url}");
+}
+
+/// The reports folder lists each report once, newest first, by any of its files (the data, the
+/// page, the export), and nothing else in it: one with its data reads back its title from it,
+/// one without takes it from its id. No folder is no reports; a folder that can't be read is an
+/// error, not an empty list.
+#[hegel::test(test_cases = 40)]
+fn the_reports_folder_lists_each_report_once(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = reports_dir(dir.path());
+    match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => return assert!(list(dir.path()).unwrap().is_empty()),
+        1 => {
+            std::fs::write(&folder, b"a file where the folder goes").unwrap();
+            let e = list(dir.path()).unwrap_err();
+            return assert!(matches!(e.inner(), Error::Io { path, .. } if *path == folder), "{e}");
+        }
+        _ => {}
+    }
+    std::fs::create_dir_all(&folder).unwrap();
+    let stray = tc.draw(gs::vecs(gs::sampled_from(vec!["notes.txt", "x.json.bak", ".DS_Store"])).max_size(2));
+    for s in &stray {
+        std::fs::write(folder.join(s), b"x").unwrap();
+    }
+    // Each report: a title, and which of its three files are there.
+    let kept: Vec<(String, [bool; 3])> = tc.draw(
+        gs::vecs(gs::tuples!(
+            gs::sampled_from(vec!["friday-night", "warm-up", "b2b-set"]).map(String::from),
+            gs::tuples!(gs::booleans(), gs::booleans(), gs::booleans()).map(|(a, b, c)| [a, b, c]),
+        ))
+        .max_size(4),
+    );
+    let mut want = rustc_hash::FxHashMap::default();
+    for (i, (title, files)) in kept.iter().enumerate() {
+        let id = format!("{title}_{i:04}");
+        for (on, ext) in files.iter().zip(["json", "html", "mix.json"]) {
+            let file = folder.join(format!("{id}.{ext}"));
+            match (on, ext) {
+                (false, _) => {}
+                (true, "json") => {
+                    let r = report(&format!("{title} live"));
+                    std::fs::write(&file, serde_json::to_vec(&r).unwrap()).unwrap();
+                }
+                (true, _) => std::fs::write(&file, b"{}").unwrap(),
+            }
+        }
+        if files.contains(&true) {
+            let shown = if files[0] { format!("{title} live") } else { title.replace('-', " ") };
+            want.insert(id, (shown, files[0]));
+        }
+    }
+    let listed = list(dir.path()).unwrap();
+    let got: rustc_hash::FxHashMap<String, (String, bool)> =
+        listed.iter().map(|s| (s.id.clone(), (s.title.clone(), s.report.is_some()))).collect();
+    assert_eq!(got, want);
+    assert_eq!(listed.len(), want.len(), "each once");
+    assert!(listed.windows(2).all(|w| w[0].modified >= w[1].modified), "newest first");
 }

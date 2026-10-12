@@ -334,3 +334,66 @@ fn device_files_probe_as_real(tc: TestCase) {
     let err = DeviceFile::open(&dir.path().join("rdisk5").to_string_lossy()).err().unwrap();
     assert_eq!(err.code(), "io");
 }
+
+/// A disk that wraps writes at a whole number of MiB hands back, for each region past its real
+/// size, the region it wraps onto: every region at or above the real size is an alias of the
+/// one a whole number of real sizes below it, listed in order (at most 8), and all below it
+/// read back.
+#[hegel::test(test_cases = 25)]
+fn wrapping_disks_show_where_each_region_landed(tc: TestCase) {
+    let claimed_mib = tc.draw(gs::integers::<u64>().min_value(2).max_value(12));
+    let real_mib = tc.draw(gs::integers::<u64>().min_value(1).max_value(claimed_mib - 1));
+    let align = tc.draw(gs::sampled_from(vec![512u32, 4096]));
+    let mut disk = Simulated { data: vec![0; (real_mib * MIB) as usize], past: Past::Wrap };
+    let r = probe(&mut disk, claimed_mib * MIB, align, &Ctx::silent()).unwrap();
+    // One region per MiB, so region i is at i MiB, and lands on (i mod real) MiB.
+    let past: Vec<Alias> =
+        (real_mib..claimed_mib).map(|i| Alias { written_at: (i % real_mib) * MIB, read_at: i * MIB }).collect();
+    assert_eq!((r.regions as u64, r.failed as u64), (claimed_mib, claimed_mib - real_mib));
+    assert_eq!(r.works_up_to, Some(real_mib * MIB));
+    assert_eq!(r.aliases, past[..past.len().min(8)]);
+}
+
+/// A device this process may not write to is refused for asking administrator rights, naming
+/// it; one it may is opened.
+#[cfg(unix)]
+#[hegel::test(test_cases = 10)]
+fn devices_that_cant_be_written_ask_for_rights(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(format!("rdisk{}", tc.draw(gs::integers::<u8>())));
+    std::fs::File::create(&path).unwrap().set_len(MIB).unwrap();
+    let writable = tc.draw(gs::booleans());
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(if writable { 0o600 } else { 0o400 })).unwrap();
+    let name = path.to_string_lossy().into_owned();
+    match DeviceFile::open(&name) {
+        Ok(_) => assert!(writable || is_root(&path), "a read-only device opened"),
+        Err(Error::Permission(m)) => {
+            assert!(!writable);
+            assert_eq!(m, format!("checking the capacity of {name} needs administrator rights"));
+        }
+        Err(e) => panic!("{e}"),
+    }
+}
+
+/// Root may open anything: whether this process could, despite the permissions.
+#[cfg(unix)]
+fn is_root(path: &std::path::Path) -> bool {
+    std::fs::OpenOptions::new().write(true).open(path).is_ok()
+}
+
+/// A region the real size cuts through (its start kept, the rest dropped) holds its own header
+/// where it was written: it fails, but it is no alias. Only the regions that don't fit fail.
+#[hegel::test(test_cases = 25)]
+fn a_region_cut_short_by_the_real_size_is_no_alias(tc: TestCase) {
+    let claimed_mib = tc.draw(gs::integers::<u64>().min_value(2).max_value(10));
+    let whole = tc.draw(gs::integers::<u64>().max_value(claimed_mib - 1));
+    // Some sectors past a whole number of MiB: enough for the region's header, not the region.
+    let sectors = tc.draw(gs::integers::<u64>().min_value(1).max_value(MIB / 512 - 1));
+    let real = whole * MIB + sectors * 512;
+    let mut disk = Simulated { data: vec![0; real as usize], past: Past::Drop };
+    let r = probe(&mut disk, claimed_mib * MIB, 512, &Ctx::silent()).unwrap();
+    assert_eq!((r.regions as u64, r.failed as u64), (claimed_mib, claimed_mib - whole));
+    assert_eq!(r.works_up_to, Some(whole * MIB));
+    assert!(r.aliases.is_empty(), "{:?}", r.aliases);
+}

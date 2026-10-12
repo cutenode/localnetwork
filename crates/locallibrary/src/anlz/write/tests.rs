@@ -279,3 +279,76 @@ fn adds_lists_to_files_without_them() {
     assert!(read_cue_points(&cleared, None).unwrap().is_empty());
     assert_eq!(cleared.len(), base.len() + 24 * 2 + 20 * 2);
 }
+
+/// Only hot cue and memory cue lists hold cues, and a file's lists hold each cue once: a `.DAT`
+/// alone holds every cue in its `PCOB` lists, a `.DAT` and `.EXT` pair share them out between
+/// their `PCOB` lists, and the `.EXT`'s `PCO2` lists hold every cue. A list of any other type
+/// holds none, whichever file and tag it's in.
+#[hegel::test]
+fn each_cue_goes_in_one_list_of_its_type(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<usize>().max_value(12));
+    let cues: Vec<CuePoint> = (0..n)
+        .map(|i| CuePoint {
+            hot_cue: tc.draw(gs::optional(gs::integers::<u8>().max_value(15))),
+            start_ms: i as u32,
+            ..Default::default()
+        })
+        .collect();
+    let (hot, memory): (Vec<&CuePoint>, Vec<&CuePoint>) = cues.iter().partition(|c| c.hot_cue.is_some());
+    let held = |lists: &[(CueFile, [u8; 4])]| -> Vec<u32> {
+        let mut ms: Vec<u32> = lists
+            .iter()
+            .flat_map(|(file, tag)| [HOT, MEMORY].map(|list| file.wanted(tag, list, &hot, &memory)))
+            .flatten()
+            .map(|c| c.start_ms)
+            .collect();
+        ms.sort_unstable();
+        ms
+    };
+    let every: Vec<u32> = (0..n as u32).collect();
+    assert_eq!(held(&[(CueFile::DatAlone, PCOB)]), every);
+    assert_eq!(held(&[(CueFile::Dat, PCOB), (CueFile::Ext, PCOB)]), every);
+    assert_eq!(held(&[(CueFile::Ext, PCO2)]), every);
+
+    let file = [CueFile::Dat, CueFile::DatAlone, CueFile::Ext][tc.draw(gs::integers::<usize>().max_value(2))];
+    let tag = [PCOB, PCO2][tc.draw(gs::integers::<usize>().max_value(1))];
+    let other = tc.draw(gs::integers::<u32>().min_value(2));
+    assert!(file.wanted(&tag, other, &hot, &memory).is_empty());
+}
+
+/// A cue list is read entry by entry up to the first whose length can't be an entry's (under
+/// its own 12-byte header) or runs past the list, or until too little is left for a header:
+/// every entry before that comes back whole, and nothing from there on.
+#[hegel::test(test_cases = 200)]
+fn cue_list_entries_end_at_the_first_that_cant_be_one(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let header_len = tc.draw(gs::sampled_from(vec![16usize, 24]));
+    let lens: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().min_value(12).max_value(40)).max_size(4));
+    let mut bytes = vec![0u8; header_len];
+    let mut want = Vec::new();
+    for (i, len) in lens.iter().enumerate() {
+        let start = bytes.len();
+        bytes.extend(std::iter::repeat_n(i as u8 + 1, *len));
+        bytes[start + 8..start + 12].copy_from_slice(&(*len as u32).to_be_bytes());
+        want.push(start..start + len);
+    }
+    // Then: nothing, a few bytes too short for a header, or an entry claiming a length it can't have.
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => {}
+        1 => bytes.extend(vec![0xEE; tc.draw(gs::integers::<usize>().min_value(1).max_value(11))]),
+        _ => {
+            let tail = tc.draw(gs::integers::<usize>().min_value(12).max_value(30));
+            let bad = tc.draw(hegel::one_of!(
+                gs::integers::<u32>().max_value(11),
+                gs::integers::<u32>().min_value(tail as u32 + 1).max_value(1 << 20),
+            ));
+            let start = bytes.len();
+            bytes.extend(vec![0xEE; tail]);
+            bytes[start + 8..start + 12].copy_from_slice(&bad.to_be_bytes());
+        }
+    }
+    let s = SectionRef { tag: *b"PCOB", start: 0, header_len, total_len: bytes.len() };
+    let got = list_entries(&bytes, &s);
+    assert_eq!(got, want.into_iter().map(|r| &bytes[r]).collect::<Vec<_>>());
+}

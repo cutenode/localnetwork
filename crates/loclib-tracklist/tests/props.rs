@@ -251,6 +251,33 @@ fn plain_lists_and_path_lists_are_told_apart(tc: TestCase) {
     }
 }
 
+/// A line whose dash has nothing after it ("Title–", an unspaced en or em dash at the end) has
+/// no artist to split off: it's all title, dash and all.
+#[hegel::test(test_cases = 100)]
+fn a_dash_with_nothing_after_it_is_part_of_the_title(tc: TestCase) {
+    let names: Vec<String> = tc.draw(gs::vecs(plain_name()).min_size(1).max_size(5));
+    let lines: Vec<String> =
+        names.iter().map(|n| format!("{n}{}", tc.draw(gs::sampled_from(vec!['\u{2013}', '\u{2014}'])))).collect();
+    let entries = loclib_tracklist::parse_as(lines.join("\n").as_bytes(), Format::Text).unwrap();
+    let read: Vec<(&str, &str)> = entries.iter().map(|e| (e.artist.as_str(), e.title.as_str())).collect();
+    let want: Vec<(&str, &str)> = lines.iter().map(|l| ("", l.as_str())).collect();
+    assert_eq!(read, want);
+}
+
+/// An `#EXTINF` with only a length (no comma, so no display name) gives its file's entry that
+/// length, and the file name its artist and title.
+#[hegel::test(test_cases = 100)]
+fn extinf_lengths_without_a_name_keep_the_file_name(tc: TestCase) {
+    let (artist, title) = (tc.draw(plain_name()), tc.draw(plain_name()));
+    let secs = tc.draw(gs::integers::<u32>().min_value(1).max_value(36_000));
+    let file = format!("/Music/{artist} - {title}.mp3");
+    let m3u = format!("#EXTM3U\n#EXTINF:{secs}\n{file}\n");
+    let entries = loclib_tracklist::parse_as(m3u.as_bytes(), Format::M3u).unwrap();
+    let read: Vec<(&str, &str, Option<u32>, Option<&str>)> =
+        entries.iter().map(|e| (e.artist.as_str(), e.title.as_str(), e.duration_secs, e.path.as_deref())).collect();
+    assert_eq!(read, [(artist.as_str(), title.as_str(), Some(secs), Some(file.as_str()))]);
+}
+
 /// Characters a `file://` URL may leave as they are.
 const URL_SAFE: &percent_encoding::AsciiSet =
     &percent_encoding::NON_ALPHANUMERIC.remove(b'/').remove(b'-').remove(b'.');

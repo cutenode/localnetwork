@@ -88,3 +88,8 @@ so they can be offered upstream.
     `file_type_code` is public, rekordbox's one table of codes by extension: `.flac` gets FLAC's
     (5) where `add_track` gave it MP3's (1), `.mp4` and `.aac` get 4, and an extension rekordbox
     doesn't list gets 0 rather than MP3's code.
+23. Removing an album (`remove_rows`) that `album_id_for` found by its name and artist hands
+    the name to another album of that name by that artist, as removing an artist, genre, label
+    or key row already did; `album_id_for` used to add a third album when a second was there.
+24. `add_track` on a buffer that doesn't parse fails as `Malformed`, as every other edit does,
+    instead of with `RowTooLarge` against a page size of 0.

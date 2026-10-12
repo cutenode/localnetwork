@@ -76,7 +76,7 @@ shouldn't be used.
 
 ```rust,no_run
 # fn main() -> loclib_mixid::Result<()> {
-# let a = loclib_mixid::matcher::Alignment { offset: 0.025, drift: 0.0, pairs: 900, coverage: (1.0, 1.0) };
+# let a = loclib_mixid::matcher::Alignment { offset: 0.025, drift: 0.0, drift_noise: 0.0, pairs: 900, shifts: 900, coverage: (1.0, 1.0) };
 use loclib_mixid::{REFINE_MIN_CORRELATION, refine};
 use loclib_progress::Ctx;
 
@@ -102,8 +102,8 @@ if r.correlation >= REFINE_MIN_CORRELATION {
 - Loops and cue jumps start a new chain inside one play and are counted in `jumps`.
 - `align`'s offset is measured to within 4 ms (frames are 23 ms apart; the mean over many
   matched peaks resolves a fraction of one), on copies shifted by 2 to 70 ms and copies made as
-  MP3, AAC and 48 kHz FLAC. `Alignment::is_precise` says whether enough pairs agreed over the
-  whole track.
+  MP3, AAC and 48 kHz FLAC. `Alignment::is_precise` says whether it was measured from enough
+  peaks (100, about 13 s of the test signal), agreeing over the whole track.
 - `refine`'s offset is within a microsecond of the truth on synthetic copies shifted by
   fractions of a sample, resampled to 48 kHz, or low-passed and quantised, from an estimate 4 ms
   out. It looks only at the first minute, so an edit later on goes unnoticed.

@@ -107,6 +107,31 @@ fn named_tracks_are_found(tc: TestCase) {
     assert_eq!(matcher.find(&e), Status::Found { track_id: t.id, how }, "{e:?}");
 }
 
+/// Of several files of one artist's title, lengths at least five seconds apart, an entry whose
+/// length is within two seconds of one of them is that one, by artist, title and duration.
+#[hegel::test(test_cases = 100)]
+fn lengths_tell_copies_of_a_track_apart(tc: TestCase) {
+    let (artist, title) = (words(&tc, ARTIST_WORDS, 2), words(&tc, TITLE_WORDS, 3));
+    let gaps: Vec<u32> = tc.draw(gs::vecs(gs::integers::<u32>().min_value(5).max_value(90)).min_size(2).max_size(4));
+    let mut secs = 60;
+    let tracks: Vec<Track> = (1..)
+        .zip(&gaps)
+        .map(|(id, gap)| {
+            secs += gap;
+            let mut t = track(id, &artist, &title, &format!("/Contents/{artist}/{title} {id}.mp3"));
+            t.duration_secs = secs;
+            t
+        })
+        .collect();
+    let lib = Library { tracks, ..Default::default() };
+    let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+    let mut e = entry(&respelled(&tc, &artist), &respelled(&tc, &title));
+    e.duration_secs =
+        Some((i64::from(t.duration_secs) + tc.draw(gs::integers::<i64>().min_value(-2).max_value(2))) as u32);
+    let found = Matcher::new(&lib).find(&e);
+    assert_eq!(found, Status::Found { track_id: t.id, how: MatchKind::ArtistTitleDuration }, "{e:?}");
+}
+
 /// An entry naming only a title is the one track with that title, unless its length is more
 /// than two seconds off (then the track is only offered). When several have the title, the
 /// length picks one, or the entry is ambiguous between exactly those it can't tell apart, in

@@ -777,3 +777,87 @@ fn write_access_is_checked_before_formatting(tc: TestCase) {
         _ => assert_eq!(got.unwrap_err().code(), "io"),
     }
 }
+
+/// A name a person gives a drive is never taken for a disk identifier: looking one up finds no
+/// disk, on any system, without asking its tools. Identifiers are `disk<N>` (macOS),
+/// `/dev/...` (Linux) and `PhysicalDrive<N>` (Windows), in any of their spellings.
+#[hegel::test(test_cases = 300)]
+#[hegel::explicit_test_case(spec = "Backup".to_string())]
+#[hegel::explicit_test_case(spec = "Disco 1".to_string())]
+fn drive_names_are_not_disks(tc: TestCase) {
+    let spec =
+        tc.draw(hegel::one_of!(gs::text().max_size(30), gs::text().alphabet("rdisk0 /ev\\.PhysicalDrv").max_size(16)));
+    let lower = spec.to_ascii_lowercase();
+    let shaped_like_an_id = lower.contains("disk") || spec.starts_with("/dev/") || lower.contains("physicaldrive");
+    tc.assume(!shaped_like_an_id);
+    assert!(disk_by_id(&spec).unwrap().is_none(), "{spec:?}");
+}
+
+/// A tool that can't be started says why: one that isn't there is "not found", and one that is
+/// there but can't be run gives the system's reason. Either way the error names the program,
+/// whatever its arguments, and nothing ran.
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+fn tools_that_cant_start_say_why(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join(tc.draw(gs::sampled_from(vec!["mkfs.vfat", "diskutil", "sfdisk", "a tool"])));
+    let args: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(8).exclude_characters("\0")).max_size(3));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let installed = tc.draw(gs::booleans());
+    if installed {
+        // There, but not executable.
+        std::fs::write(&file, "#!/bin/sh\necho ran\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let program = file.to_string_lossy().into_owned();
+    match Cmd::new(&program, &args).run() {
+        Err(Error::External { command, message }) => {
+            assert_eq!(command, program, "the program, not the whole command line");
+            if installed {
+                // EACCES: exec refuses a file without its execute bit, even to root.
+                assert_eq!(message, std::io::Error::from_raw_os_error(13).to_string());
+            } else {
+                assert_eq!(message, "not found");
+            }
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A disk players could use but for its size is refused when MBR, which players need, can't
+/// address all of it, naming the limit; one a byte smaller isn't refused for its size.
+#[hegel::test(test_cases = 100)]
+#[cfg_attr(
+    target_os = "linux",
+    ignore = "a plan on Linux asks lsblk what's mounted on the disk, and the generated disk isn't there"
+)]
+fn disks_mbr_cant_address_are_refused(tc: TestCase) {
+    let excess =
+        tc.draw(hegel::one_of!(gs::integers::<u64>().max_value(1 << 20), gs::integers::<u64>().max_value(1 << 44)));
+    let disk = Disk { size: players::MBR_MAX + excess, volumes: Vec::new(), ..sample_disk() };
+    let e = plan(disk.clone(), &FormatOptions::default(), None, &[], &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), "invalid", "{e}");
+    assert!(e.to_string().contains("larger than the 2 TiB an MBR partition table can address"), "{e}");
+    let fits = Disk { size: players::MBR_MAX - 1, ..disk };
+    if let Err(e) = plan(fits, &FormatOptions::default(), None, &[], &Ctx::silent()) {
+        assert!(!e.to_string().contains("2 TiB"), "{e}");
+    }
+}
+
+/// A device that isn't there any more (unplugged since the plan, or a path that never was one)
+/// is an I/O error naming it, never taken for a permission problem.
+#[hegel::test(test_cases = 20)]
+fn write_access_to_a_device_that_is_gone_is_an_io_error(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let depth = tc.draw(gs::integers::<usize>().max_value(2));
+    let mut dev = dir.path().to_path_buf();
+    for i in 0..=depth {
+        dev.push(format!("rdisk{i}"));
+    }
+    let device = dev.to_string_lossy().into_owned();
+    match require_write_access(&device, "run it as an administrator") {
+        Err(Error::Io { path, .. }) => assert_eq!(path, dev),
+        other => panic!("{other:?}"),
+    }
+}

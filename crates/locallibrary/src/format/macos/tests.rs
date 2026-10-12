@@ -612,3 +612,42 @@ fn erase_commands_follow_the_target(tc: TestCase) {
     assert_eq!(make.args.last().map(String::as_str), Some("/dev/rdisk4s1"));
     assert!(make.args.contains(&label));
 }
+
+/// A disk's partition scheme is what its `Content` names, whatever partitions it lists: none
+/// without a `Content`, and for a name diskutil uses for no scheme, another scheme only when it
+/// has a partition table to show for it.
+#[hegel::test(test_cases = 200)]
+fn partition_schemes_follow_the_disks_content(tc: TestCase) {
+    let content = tc.draw(
+        gs::sampled_from(vec![
+            (None, None),
+            (Some("FDisk_partition_scheme"), Some(Scheme::Mbr)),
+            (Some("GUID_partition_scheme"), Some(Scheme::Gpt)),
+            (Some("Apple_partition_scheme"), Some(Scheme::Apm)),
+            (Some("Sun_partition_scheme"), Some(Scheme::Other)),
+            (Some("DOS_FAT_32"), Some(Scheme::Other)),
+        ])
+        .print_as_debug(),
+    );
+    let partitions = tc.draw(gs::integers::<usize>().max_value(3));
+    let table = tc.draw(gs::booleans()) || partitions > 0;
+    let mut info = json!({ "DeviceIdentifier": "disk4", "Size": tc.draw(gs::integers::<u64>()) });
+    let mut entry = json!({ "DeviceIdentifier": "disk4" });
+    if let Some(c) = content.0 {
+        info["Content"] = json!(c);
+        entry["Content"] = json!(c);
+    }
+    if table {
+        entry["Partitions"] = (1..=partitions)
+            .map(|i| json!({ "DeviceIdentifier": format!("disk4s{i}"), "Content": "Windows_FAT_32", "Size": 1 << 30 }))
+            .collect();
+    }
+    let listing = json!({ "AllDisksAndPartitions": [entry] });
+    let d = parse_disk(&info, &listing, &FxHashMap::default(), &[]);
+    let want = match content.1 {
+        Some(Scheme::Other) if !table => None,
+        s => s,
+    };
+    assert_eq!(d.scheme, want);
+    assert_eq!(d.volumes.len(), partitions);
+}

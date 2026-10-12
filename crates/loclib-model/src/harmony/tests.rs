@@ -478,3 +478,46 @@ fn cancelled_orderings_stop(tc: hegel::TestCase) {
         }
     }
 }
+
+/// A set too long to tidy (over 2,000 tracks) keeps its greedy order: it starts where asked,
+/// holds every track once, and each next track is one of the cheapest to mix in ([`mix_cost`])
+/// from the last of those still left (the energy is level, so only keys and tempos count).
+#[hegel::test(test_cases = 1, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn sets_too_long_to_tidy_keep_the_greedy_order(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<usize>().min_value(TIDY_LIMIT + 1).max_value(TIDY_LIMIT + 40)) as u32;
+    // Keys and tempos from a drawn seed (xorshift): drawing 2,000 of each would be slow, and a
+    // regular set like `made_up_set`'s happens to be one tidying leaves alone.
+    let mut seed = tc.draw(gs::integers::<u64>().min_value(1));
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let tracks: Vec<Track> = (0..n)
+        .map(|id| {
+            let mut t = crate::test_util::track(id, "A", &id.to_string(), &format!("/Contents/{id}.mp3"));
+            t.key = Camelot { number: (next() % 12 + 1) as u8, major: next() % 2 == 0 }.code();
+            t.bpm = 100.0 + (next() % 400) as f64 / 10.0;
+            t
+        })
+        .collect();
+    let refs: Vec<&Track> = tracks.iter().collect();
+    let start = tc.draw(gs::integers::<u32>().max_value(n - 1));
+    let order = order_set(&refs, Some(start), &Default::default(), &Default::default(), &Ctx::silent()).unwrap();
+    assert_eq!(order[0], start);
+    let mut sorted = order.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, (0..n).collect::<Vec<_>>());
+    let keys: Vec<Option<Camelot>> = tracks.iter().map(|t| Camelot::parse(&t.key)).collect();
+    let cost = |a: u32, b: u32| {
+        let (a, b) = (a as usize, b as usize);
+        mix_cost(keys[a], tracks[a].bpm, keys[b], tracks[b].bpm, 1.0)
+    };
+    for k in 0..n as usize - 1 {
+        let next = cost(order[k], order[k + 1]);
+        let cheapest = order[k + 1..].iter().map(|&o| cost(order[k], o)).fold(f64::INFINITY, f64::min);
+        assert!(next <= cheapest + 1e-9, "step {k} costs {next}, {cheapest} was left");
+    }
+}

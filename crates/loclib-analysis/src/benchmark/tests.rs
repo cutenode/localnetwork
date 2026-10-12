@@ -207,3 +207,44 @@ fn key_reports_add_up(tc: hegel::TestCase) {
         assert!((percents - 100.0).abs() < 1e-9);
     }
 }
+
+/// A row of the MTG table with a field that can't be read is an error on its own line, saying
+/// which: a confidence that isn't a number, a key that isn't one, or no key. A second key
+/// written as only its mode (`G minor/major`) is on the first's tonic. A GiantSteps key that
+/// isn't one is an error on line 1. No rows make no report, and a report of no tracks
+/// scores 0 for every outcome.
+#[hegel::test(test_cases = 200)]
+fn unreadable_annotations_say_where_and_what(tc: hegel::TestCase) {
+    let key = any_key(&tc);
+    let tonic = TONICS[key.pitch() as usize];
+    let blanks = tc.draw(gs::integers::<usize>().max_value(3));
+    let row = tc.draw(gs::sampled_from(vec!["both modes", "a word", "no key", "not a key"]));
+    let other = if key.major { "minor" } else { "major" };
+    let line = match row {
+        "both modes" => format!("1\t{}/{other}\t2", spelled(key)),
+        "a word" => format!("1\t{}\thigh", spelled(key)),
+        "no key" => "1\t\t2".to_string(),
+        _ => format!("1\tH{} {other}\t2", &tonic[1..]),
+    };
+    let text = format!("ID\tMANUAL KEY\tC\n{}{line}\n", "\n".repeat(blanks));
+    match (row, parse_mtg_keys(&text)) {
+        ("both modes", Ok(rows)) => {
+            let both = Camelot::parse(&format!("{tonic} {other}")).unwrap();
+            assert_eq!(rows, [MtgKey { id: "1".into(), keys: vec![key, both], confidence: 2 }]);
+        }
+        ("a word", Err(Error::Annotation { line, message })) => {
+            assert_eq!((line, message.as_str()), (blanks + 2, "the confidence isn't 0, 1 or 2"));
+        }
+        ("no key" | "not a key", Err(Error::Annotation { line, message })) => {
+            assert_eq!((line, message.as_str()), (blanks + 2, "unreadable key"), "{row}");
+        }
+        (row, other) => panic!("{row}: {other:?}"),
+    }
+    let garbage = tc.draw(gs::sampled_from(vec!["", "H minor", "minor", "C sharp"]));
+    assert!(matches!(parse_key(garbage), Err(Error::Annotation { line: 1, message }) if message.contains(garbage)));
+    assert!(score::<KeyOutcome>(Vec::new()).is_empty());
+    let outcome = tc.draw(gs::sampled_from(KeyOutcome::ALL.to_vec()).print_as_debug());
+    assert_eq!(Report::<KeyOutcome>::new().percent(outcome), 0.0);
+    let tempo = tc.draw(gs::sampled_from(TempoOutcome::ALL.to_vec()).print_as_debug());
+    assert_eq!(Report::<TempoOutcome>::new().percent(tempo), 0.0);
+}

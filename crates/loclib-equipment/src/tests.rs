@@ -1,3 +1,6 @@
+use hegel::TestCase;
+use hegel::generators as gs;
+
 use super::*;
 
 #[test]
@@ -83,4 +86,47 @@ fn formats_from_file_names() {
     assert_eq!(Codec::from_path("/Contents/a/b.fla"), FromPath::Codec(Codec::Flac));
     assert_eq!(Codec::from_path("/Contents/a/b.ogg"), FromPath::Unknown);
     assert_eq!(Codec::from_path("/Contents/a/b"), FromPath::Unknown);
+}
+
+/// A model built from any formats the table's constructors make (here at run time: the table
+/// itself is built at compile time) plays a file at a listed or unknown rate, and at any depth
+/// in a lossy format but only 16 or 24 bits (or unknown) in a lossless one; whether that's
+/// inferred is the format's, and a format it doesn't list doesn't play, as sure as the model's
+/// list is. Its documented values are `known`, never inferred.
+#[hegel::test(test_cases = 200)]
+fn models_built_from_the_constructors_play_what_they_list(tc: TestCase) {
+    let rate_lists = [MPEG_1_AND_2, R32_48, R44_48, R44_96];
+    let mut audio = Vec::new();
+    for codec in Codec::ALL {
+        if !tc.draw(gs::booleans()) {
+            continue;
+        }
+        let rates = rate_lists[tc.draw(gs::integers::<usize>().max_value(rate_lists.len() - 1))];
+        let inferred = tc.draw(gs::booleans());
+        audio.push(if codec.lossless() { lossless(codec, rates, inferred) } else { lossy(codec, rates, inferred) });
+    }
+    let audio_inferred = tc.draw(gs::booleans());
+    let m = Model {
+        name: "TEST-1",
+        kind: Kind::Player,
+        export_pdb: known(true),
+        onelibrary: known(false),
+        exfat: known(Exfat::No),
+        audio: Vec::leak(audio.clone()),
+        audio_inferred,
+        notes: &[],
+        source: "",
+    };
+    assert!(!m.export_pdb.inferred && !m.onelibrary.inferred && !m.exfat.inferred);
+    let codec = Codec::ALL[tc.draw(gs::integers::<usize>().max_value(Codec::ALL.len() - 1))];
+    let rate = tc.draw(gs::sampled_from(vec![0, 16_000, 22_050, 32_000, 44_100, 48_000, 88_200, 96_000, 192_000]));
+    let depth = tc.draw(gs::sampled_from(vec![0, 8, 16, 24, 32]));
+    let plays = m.plays(codec, rate, depth);
+    let Some(a) = audio.iter().find(|a| a.codec == codec) else {
+        return assert_eq!(plays, Playback { result: Err(Unplayable::Format), inferred: audio_inferred });
+    };
+    let rate_ok = rate == 0 || a.rates.contains(&rate);
+    let depth_ok = !codec.lossless() || matches!(depth, 0 | 16 | 24);
+    assert_eq!(plays.result.is_ok(), rate_ok && depth_ok, "{codec:?} {rate} Hz {depth} bits");
+    assert_eq!(plays.inferred, a.inferred);
 }

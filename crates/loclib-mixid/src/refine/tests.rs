@@ -122,3 +122,40 @@ fn any_delay_is_measured_to_a_fraction_of_a_sample(tc: TestCase) {
     let short = save(dir.path(), "short.wav", &quieter[..MASTER as usize], 0, rate);
     assert!(matches!(refine(&original, &short, truth + miss, &Ctx::silent()), Err(Error::Invalid(_))));
 }
+
+/// An estimate a sample or two further out than the search reaches (10 ms) puts the truth just
+/// past its edge, where the correlation still climbs towards it: that's refused, not taken for
+/// the peak. So is a copy that's silent, which correlates with nothing at any offset.
+#[hegel::test(test_cases = 2, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn estimates_past_the_search_are_refused(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let x = synth(5.0, tc.draw(gs::integers::<u32>().min_value(1)));
+    let delay = tc.draw(gs::integers::<isize>().min_value(-600).max_value(600));
+    let original = save(dir.path(), "a.wav", &x, 0, 44_100);
+    let copy = save(dir.path(), "b.wav", &x, delay, 44_100);
+    let truth = delay as f64 / MASTER as f64;
+    let beyond = (MAX_LAG as f64 + tc.draw(gs::floats::<f64>().min_value(1.0).max_value(2.0))) / RATE as f64;
+    // Past either edge.
+    for miss in [beyond, -beyond] {
+        let far = refine(&original, &copy, truth + miss, &Ctx::silent());
+        assert!(matches!(&far, Err(Error::Invalid(m)) if m.contains("within 10 ms")), "{miss}: {far:?}");
+    }
+    let silent = save(dir.path(), "silent.wav", &vec![0.0; x.len()], 0, 44_100);
+    let quiet = refine(&original, &silent, truth, &Ctx::silent());
+    assert!(matches!(&quiet, Err(Error::Invalid(m)) if m.contains("within 10 ms")), "{quiet:?}");
+}
+
+/// Refining needs both files and the time to: one that isn't there is that file's I/O
+/// error, whichever of the two it is, and a cancelled one is cancelled.
+#[hegel::test(test_cases = 5)]
+fn refining_needs_both_files(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let x = synth(1.0, tc.draw(gs::integers::<u32>().min_value(1)));
+    let there = save(dir.path(), "a.wav", &x, 0, tc.draw(gs::sampled_from(vec![44_100, 48_000])));
+    let gone = dir.path().join("gone.wav");
+    let ctx = Ctx::silent();
+    assert!(matches!(refine(&gone, &there, 0.0, &ctx), Err(Error::Io { path, .. }) if path == gone));
+    assert!(matches!(refine(&there, &gone, 0.0, &ctx), Err(Error::Io { path, .. }) if path == gone));
+    ctx.cancel.cancel();
+    assert!(matches!(refine(&there, &there, 0.0, &ctx), Err(Error::Cancelled(_))));
+}

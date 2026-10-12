@@ -283,8 +283,8 @@ fn damaged_projects_say_what_is_wrong() {
     assert!(error(&odd, &[]).contains("sample block 1"));
 }
 
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
 
 /// A clip as the property places it: everything in whole samples at the project's rate.
 #[derive(Debug)]
@@ -556,5 +556,126 @@ fn only_real_rates_are_taken(tc: TestCase) {
     match Project::open(&path) {
         Ok(p) => assert!(RATES.contains(&taken) && p.rate == taken, "{rate}: {}", p.rate),
         Err(e) => assert!(!RATES.contains(&taken) && e.to_string().contains("sample rate of"), "{rate}: {e}"),
+    }
+}
+
+/// A project Audacity stopped writing after its last clip, missing any number of its closing
+/// tags, renders exactly as the whole one does: each track's blocks one after another (more of
+/// them than are kept loaded at once), the tracks mixed down equally.
+#[hegel::test(test_cases = 30)]
+fn projects_missing_their_closing_tags_render_whole(tc: TestCase) {
+    let level = gs::sampled_from(vec![0.0f32, 0.25, -0.5, 0.125, 0.5]);
+    let tracks: Vec<Vec<f32>> = tc.draw(gs::vecs(gs::vecs(level).min_size(1).max_size(16)).min_size(1).max_size(2));
+    let mut x = Xml::new(tc.draw(gs::sampled_from(vec![1u8, 2, 4])));
+    x.start("project").double("rate", 4.0);
+    let mut blocks = Vec::new();
+    for samples in &tracks {
+        // A block a sample.
+        let ids: Vec<(i64, i64)> = (0..samples.len() as i64).map(|i| (i, blocks.len() as i64 + i + 1)).collect();
+        x.start("wavetrack").clip(0.0, samples.len() as i64, &ids);
+        blocks.extend(ids.iter().zip(samples).map(|(&(_, id), &s)| (id, FLOAT, floats(&[s]))));
+        x.end("waveclip").end("wavetrack");
+    }
+    x.end("project");
+    let dir = tempfile::tempdir().unwrap();
+    let whole = project(dir.path(), "project", Some(&x), &blocks);
+    // The closing tags of the last clip, its track and the project.
+    let cut = tc.draw(gs::integers::<usize>().max_value(3));
+    x.doc.truncate(x.doc.len() - 3 * cut);
+    let short = project(dir.path(), "project", Some(&x), &blocks);
+
+    let total = tracks.iter().map(Vec::len).max().unwrap();
+    let mut expected = vec![0.0f32; total];
+    for samples in &tracks {
+        for (e, s) in expected.iter_mut().zip(samples) {
+            *e += s / tracks.len() as f32;
+        }
+    }
+    assert_eq!(rendered(&short, 4), expected);
+    assert_eq!(rendered(&whole, 4), expected);
+}
+
+/// A flag, a whole number or a fraction written as a tag's value with its own token reads back
+/// as the same text as when written as a string.
+#[hegel::test(test_cases = 60)]
+fn tag_values_read_the_same_in_any_token(tc: TestCase) {
+    let (op, v, text): (u8, f64, String) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => {
+            let b = tc.draw(gs::booleans());
+            (FT_BOOL, f64::from(u8::from(b)), b.to_string())
+        }
+        1 => {
+            let i = tc.draw(gs::integers::<i32>());
+            (FT_INT, f64::from(i), i.to_string())
+        }
+        _ => {
+            let f = tc.draw(gs::sampled_from(vec![0.5, 128.25, -3.0, 1e-3]));
+            (FT_DOUBLE, f, f.to_string())
+        }
+    };
+    let tag_of = |typed: bool| {
+        let mut x = Xml::new(1);
+        x.start("project").double("rate", 2.0).start("tags").start("tag").string("name", "MOOD");
+        match (typed, op) {
+            (false, _) => x.string("value", &text),
+            (true, FT_DOUBLE) => x.double("value", v),
+            (true, op) => x.int(op, "value", v as i64),
+        };
+        x.end("tag").end("tags").start("wavetrack").clip(0.0, 2, &[(0, 1)]).end("waveclip").end("wavetrack");
+        x.end("project");
+        let dir = tempfile::tempdir().unwrap();
+        let path = project(dir.path(), "project", Some(&x), &[(1, FLOAT, floats(&[0.5, 0.5]))]);
+        Project::open(&path).unwrap().tag("mood").map(String::from)
+    };
+    assert_eq!(tag_of(true), tag_of(false));
+    assert_eq!(tag_of(false).as_deref(), Some(text.as_str()));
+}
+
+/// What can't be a project Audacity wrote is refused for exactly that: elements nested deeper
+/// than [`MAX_DEPTH`], a view standing in for the project's table, a sample block in a format
+/// Audacity has no name for. Nesting within the limit is no reason to refuse.
+#[hegel::test(test_cases = 60)]
+fn odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut x = Xml::new(1);
+    x.start("project").double("rate", 2.0).start("wavetrack").clip(0.0, 2, &[(0, 1)]);
+    x.end("waveclip").end("wavetrack");
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => {
+            let depth = tc.draw(hegel::one_of!(
+                gs::integers::<usize>().min_value(1).max_value(MAX_DEPTH + 3),
+                gs::integers::<usize>().min_value(MAX_DEPTH - 2).max_value(MAX_DEPTH + 3),
+            ));
+            // `project` and `depth` elements in it, none of them closed.
+            for _ in 1..depth {
+                x.start("labeltrack");
+            }
+            let path = project(dir.path(), "project", Some(&x), &[(1, FLOAT, floats(&[0.5, 0.5]))]);
+            let opened = Project::open(&path).map(|_| ()).map_err(|e| e.to_string());
+            match opened {
+                Err(e) if e.contains("nested more than 64 deep") => assert!(depth > MAX_DEPTH, "{depth}"),
+                other => assert!(depth <= MAX_DEPTH, "{depth}: {other:?}"),
+            }
+        }
+        1 => {
+            let table = tc.draw(gs::sampled_from(vec!["project", "autosave"]));
+            let path = dir.path().join("view.aup3");
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch("CREATE TABLE stored(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);").unwrap();
+            db.execute("INSERT INTO stored VALUES (1, ?1, ?2)", (&x.dict, &x.doc)).unwrap();
+            db.execute_batch(&format!("CREATE VIEW {table} AS SELECT * FROM stored")).unwrap();
+            drop(db);
+            let e = Project::open(&path).unwrap_err();
+            assert!(
+                matches!(&e, Error::Parse { message, .. } if message.contains(&format!("it has a view {table}"))),
+                "{e}"
+            );
+        }
+        _ => {
+            let format = tc.draw(gs::integers::<i64>().filter(|f| ![INT16, INT24, FLOAT].contains(f)));
+            let path = project(dir.path(), "project", Some(&x), &[(1, format, floats(&[0.5, 0.5]))]);
+            let e = Project::open(&path).unwrap().render(2, &Ctx::silent(), &mut |_| {}).unwrap_err();
+            assert!(e.to_string().contains(&format!("unknown sample format {format:#x}")), "{e}");
+        }
     }
 }

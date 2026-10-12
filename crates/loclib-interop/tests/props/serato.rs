@@ -490,6 +490,73 @@ fn copies_hold_each_file_once(tc: TestCase) {
     assert_eq!(matches!(cancelled, Err(Error::Cancelled(_))), !lib.tracks.is_empty());
 }
 
+/// Copies of MP3, WAV and AIFF files with cue points get one warning counting, over every copy,
+/// the points Serato can't hold: memory cues and hot cues past the eighth pad. Copies of other
+/// formats get no cues, and a warning counting them.
+#[hegel::test(test_cases = 60)]
+fn copies_warn_of_the_cues_they_leave_out(tc: TestCase) {
+    let mut lib = common::library(&tc, 4);
+    let music = tempfile::tempdir().unwrap();
+    let mut analysis = FxHashMap::default();
+    let (mut left_out, mut untaggable) = (0, 0);
+    for t in &mut lib.tracks {
+        let ext = tc.draw(gs::sampled_from(vec!["mp3", "MP3", "wav", "aif", "aiff", "flac", "m4a"]));
+        t.file_path = format!("/Music/{}.{ext}", t.id);
+        std::fs::create_dir_all(music.path().join("Music")).unwrap();
+        std::fs::write(paths::to_fs(music.path(), &paths::key(&t.file_path)), b"audio").unwrap();
+        let pads = tc.draw(gs::vecs(gs::optional(gs::integers::<u8>().max_value(12))).max_size(10));
+        if matches!(ext, "flac" | "m4a") {
+            untaggable += 1;
+        } else {
+            left_out += pads.iter().filter(|p| p.is_none_or(|p| p >= 8)).count();
+        }
+        let cues = pads
+            .into_iter()
+            .enumerate()
+            .map(|(i, hot_cue)| Cue {
+                hot_cue,
+                start_ms: 1000 * i as u32,
+                end_ms: None,
+                comment: String::new(),
+                color: None,
+                color_id: 0,
+                loop_beats: None,
+            })
+            .collect();
+        analysis.insert(t.id, (Vec::new(), cues));
+    }
+    let load = common::loader(&analysis);
+    let src = Source { library: &lib, root: PathBuf::from("/Volumes/USB"), analysis: Some(&load) };
+    let audio = |t: &Track| Ok::<_, Error>(paths::to_fs(music.path(), &paths::key(&t.file_path)));
+    let copies = Copies { root: PathBuf::from("/Volumes/USB/out"), audio: &audio };
+    let export = serato::build(&src, Path::new("out"), Some(&copies), &Ctx::silent()).unwrap();
+    let mut want = Vec::new();
+    if untaggable > 0 {
+        want.push(format!(
+            "{untaggable} track(s) aren't MP3, AIFF or WAV; their copies get no cues (FLAC and MP4 tags aren't written)"
+        ));
+    }
+    if left_out > 0 {
+        want.push(format!(
+            "{left_out} cue(s) left out: memory cues (Serato has none) and cues past the eighth pad or loop slot"
+        ));
+    }
+    assert_eq!(export.warnings, want);
+    let copies: Vec<&Option<Vec<u8>>> = export
+        .files
+        .iter()
+        .filter_map(|f| match &f.content {
+            Content::TaggedCopy { markers, .. } => Some(markers),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(copies.len(), lib.tracks.len());
+    for (t, markers) in lib.tracks.iter().zip(copies) {
+        let tagged = !t.file_path.ends_with(".flac") && !t.file_path.ends_with(".m4a");
+        assert_eq!(markers.is_some(), tagged, "{}", t.file_path);
+    }
+}
+
 /// The audio file kinds Serato's tag is written into.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Kind {

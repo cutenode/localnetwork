@@ -312,3 +312,43 @@ fn truncated_xml_reads_a_prefix_or_fails_cleanly(tc: TestCase) {
         Err(e) => panic!("{e}"),
     }
 }
+
+/// A tag with an attribute whose value isn't quoted is refused, naming the attribute and the
+/// tag's line, whatever quoted attributes come before it.
+#[hegel::test(test_cases = 100)]
+fn unquoted_attribute_values_are_refused(tc: TestCase) {
+    let (xml, _, _) = library_xml(&tc);
+    let at = xml.find("</COLLECTION>\n").unwrap() + "</COLLECTION>\n".len();
+    let quoted: Vec<String> = tc.draw(gs::vecs(text()).max_size(3));
+    let unquoted = tc.draw(gs::from_regex("[A-Za-z][A-Za-z_]{0,7}").fullmatch(true));
+    let value = tc.draw(gs::from_regex("[0-9A-Za-z.#&]{1,8}").fullmatch(true));
+    let mut tag = String::from("  <EXTRA");
+    for (i, v) in quoted.iter().enumerate() {
+        tag += &format!(" q{i}=\"{}\"", escaped(&tc, v, '"'));
+    }
+    tag += &format!(" {unquoted}={}{value}/>\n", if tc.draw(gs::booleans()) { " " } else { "" });
+    let doc = format!("{}{tag}{}", &xml[..at], &xml[at..]);
+    // The line the tag starts on (a quoted value may hold line ends of its own).
+    let line = 1 + xml[..at].matches('\n').count();
+    match loclib_tracklist::parse_as(doc.as_bytes(), Format::RekordboxXml) {
+        Err(Error::UnquotedAttribute { attr, line: l }) => assert_eq!((attr, l), (unquoted, line)),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A stray `/` or a valueless attribute (neither of them XML) in a track's tag doesn't stop it
+/// reading: it reads as it did without, its raw text aside.
+#[hegel::test(test_cases = 100)]
+fn stray_markup_in_a_tag_is_skipped(tc: TestCase) {
+    let (xml, tracks, _) = library_xml(&tc);
+    tc.assume(!tracks.is_empty());
+    let i = tc.draw(gs::integers::<usize>().max_value(tracks.len() - 1));
+    let raw = &tracks[i].entry.raw;
+    let stray = tc.draw(gs::sampled_from(vec![" /", " / ", " Bare", " Bare "]));
+    let messy = format!("<TRACK{stray}{}", &raw["<TRACK".len()..]);
+    let at = xml.find(raw.as_str()).unwrap();
+    let doc = format!("{}{messy}{}", &xml[..at], &xml[at + raw.len()..]);
+    let mut want: Vec<Entry> = tracks.iter().map(|t| t.entry.clone()).collect();
+    want[i].raw = messy;
+    assert_eq!(loclib_tracklist::parse_as(doc.as_bytes(), Format::RekordboxXml).unwrap(), want);
+}

@@ -92,3 +92,67 @@ fn a_failure_from_a_file_changed_mid_read_is_not_remembered() {
     let (prints, report) = fingerprint_library(&device, &library, &cache, &Ctx::silent()).unwrap();
     assert!(report.failed.is_empty() && prints.len() == 1, "{:?}", report.failed);
 }
+
+use hegel::TestCase;
+use hegel::generators as gs;
+
+/// Fingerprinting a drive cancelled before it starts stops as cancelled as soon as there's a
+/// file to look at, and remembers nothing; run again, it sorts every track into exactly one of
+/// indexed, missing, unreadable or too long, and a file it couldn't read isn't decoded twice.
+#[hegel::test(test_cases = 20)]
+fn fingerprinting_sorts_every_track_and_a_cancelled_run_keeps_nothing(tc: TestCase) {
+    use crate::progress::{CancelToken, Event};
+    use loclib_model::test_util::track;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("drive");
+    std::fs::create_dir_all(root.join("Contents")).unwrap();
+    // Each track: its file is there (not audio), missing, or it's as long as a recorded set.
+    let kinds: Vec<u8> = tc.draw(gs::vecs(gs::integers::<u8>().max_value(2)).max_size(5));
+    let mut library = Library::default();
+    for (i, kind) in kinds.iter().enumerate() {
+        let path = format!("/Contents/{i}.mp3");
+        let mut t = track(i as u32 + 1, "A", &format!("T{i}"), &path);
+        match kind {
+            0 => std::fs::write(root.join(&path[1..]), b"ID3 not really audio").unwrap(),
+            1 => {}
+            _ => t.duration_secs = LONGEST_TRACK_SECS + 1,
+        }
+        library.tracks.push(t);
+    }
+    let ids = |k: u8| kinds.iter().enumerate().filter(|(_, x)| **x == k).map(|(i, _)| i as u32 + 1).collect::<Vec<_>>();
+    let device = Device::open(&root).unwrap();
+    let cache_dir = dir.path().join("cache");
+    let cache = Cache::new(&cache_dir);
+
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    let cancelled = fingerprint_library(&device, &library, &cache, &Ctx::new(&crate::progress::NoProgress, cancel));
+    match cancelled {
+        Err(Error::Cancelled) => assert!(!ids(0).is_empty()),
+        Ok((prints, report)) => {
+            assert!(ids(0).is_empty() && prints.is_empty());
+            assert_eq!(report.missing.iter().map(|t| t.id).collect::<Vec<_>>(), ids(1));
+        }
+        Err(e) => panic!("{e}"),
+    }
+    assert!(!cache_dir.exists(), "a cancelled run remembers nothing");
+
+    let decoded = std::sync::atomic::AtomicUsize::new(0);
+    let count = |e: &Event| {
+        if matches!(e, Event::Item { phase: Phase::Fingerprint, .. }) {
+            decoded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    };
+    let ctx = Ctx::new(&count, CancelToken::new());
+    for _ in 0..2 {
+        let (prints, report) = fingerprint_library(&device, &library, &cache, &ctx).unwrap();
+        assert!(prints.is_empty());
+        assert_eq!((report.tracks, report.indexed), (kinds.len(), 0));
+        assert_eq!(report.missing.iter().map(|t| t.id).collect::<Vec<_>>(), ids(1));
+        assert_eq!(report.long.iter().map(|t| t.id).collect::<Vec<_>>(), ids(2));
+        let mut failed: Vec<u32> = report.failed.iter().map(|f| f.track.id).collect();
+        failed.sort_unstable();
+        assert_eq!(failed, ids(0));
+    }
+    assert_eq!(decoded.into_inner(), ids(0).len(), "each unreadable file decoded once");
+}

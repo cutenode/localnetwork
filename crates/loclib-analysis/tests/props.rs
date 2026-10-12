@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_analysis::tempo::TempoRelation;
-use loclib_analysis::{VERSION, Want, analyze};
+use loclib_analysis::{Error, VERSION, Want, analyze};
 use loclib_mixid::test_util::wav_of;
 use loclib_progress::Ctx;
 
@@ -70,4 +70,51 @@ fn a_sine_measures_its_level_whatever_it_is(tc: TestCase) {
         "{db}: {l:?}"
     );
     assert!(l.range_lu < 0.5 && (l.clipped_runs, l.clipped_samples) == (0, 0), "{l:?}");
+}
+
+/// Any WAV, at any rate a file can say and any length up to a moment, is analysed for what's
+/// asked of it: as long as the file, its loudness when asked for, and its tempo and key when
+/// asked for and there's sound to estimate. Only the loudness meter refuses a rate, one outside
+/// the 16 Hz to 2.8 MHz it takes, as that file's analyzer error. A cancelled analysis is
+/// cancelled, and a file that isn't there is that file's error.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn files_are_analysed_for_what_is_asked(tc: TestCase) {
+    let rate = tc.draw(gs::sampled_from(vec![8, 15, 16, 22_050, 44_100, 3_000_000]));
+    // Up to a quarter of a second, and a few frames at least.
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value((rate as usize / 4).clamp(3, 4_000)));
+    let level = tc.draw(gs::sampled_from(vec![0.0, 0.5]));
+    let signal: Vec<f64> = (0..frames).map(|i| level * ((i * 7919 % 2001) as f64 / 1000.0 - 1.0)).collect();
+    let sound = signal.iter().any(|s| (s * 32_767.0).round() != 0.0);
+    let dir = tempfile::tempdir().unwrap();
+    let path = write(dir.path(), rate, &signal);
+    let gone = dir.path().join("gone.wav");
+    for (estimate, loudness) in [(false, false), (false, true), (true, false), (true, true)] {
+        let want = Want { estimate, loudness };
+        let refused = loudness && !(16..=2_822_400).contains(&rate);
+        match analyze(&path, want, &Ctx::silent()) {
+            Err(Error::Analyzer { path: at, .. }) if refused => assert_eq!(at, path),
+            Ok(a) if !refused => {
+                assert!((a.duration_secs - frames as f64 / f64::from(rate)).abs() < 1e-9, "{a:?}");
+                assert_eq!((a.loudness.is_some(), a.estimate.is_some()), (loudness, estimate && sound), "{a:?}");
+                // Between samples a signal only peaks higher, and silence has no peak at all.
+                if let Some(l) = &a.loudness {
+                    assert!(l.true_peak_dbtp() >= l.sample_peak_dbfs() - 0.05, "{l:?}");
+                    assert_eq!(l.sample_peak_dbfs() == f64::NEG_INFINITY, !sound, "{l:?}");
+                }
+            }
+            other => panic!("{rate} Hz, {frames} frames, {want:?}: {other:?}"),
+        }
+        let ctx = Ctx::silent();
+        ctx.cancel.cancel();
+        let cancelled = analyze(&path, want, &ctx);
+        // The meter refuses the rate at the first packet, before the cancel is seen.
+        let stopped = match &cancelled {
+            Err(Error::Cancelled(_)) => true,
+            Err(Error::Analyzer { .. }) => refused,
+            _ => false,
+        };
+        assert!(stopped, "{want:?}: {cancelled:?}");
+        let err = analyze(&gone, want, &Ctx::silent()).unwrap_err();
+        assert!(matches!(&err, Error::Audio(loclib_mixid::Error::Io { path, .. }) if *path == gone), "{err}");
+    }
 }

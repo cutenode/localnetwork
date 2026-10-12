@@ -14,3 +14,4 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 hegeltest.workspace = true
+indexmap.workspace = true

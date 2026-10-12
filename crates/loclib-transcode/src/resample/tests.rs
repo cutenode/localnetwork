@@ -83,3 +83,35 @@ fn clicks_keep_their_time_between_any_rates(tc: TestCase) {
         assert!((peak as f64 - truth).abs() <= 1.0, "{from} -> {to}: the click at {at} came out at {peak}");
     }
 }
+
+/// A sink's error (a copy that can't be written) stops resampling at the output it was
+/// handed and comes back as it is, from a push or the finish: nothing more is handed on.
+#[hegel::test(test_cases = 3)]
+fn a_sinks_error_stops_resampling(tc: TestCase) {
+    let rates = vec![44_100, 48_000, 96_000];
+    let (from, to) = (tc.draw(gs::sampled_from(rates.clone())), tc.draw(gs::sampled_from(rates)));
+    tc.assume(from != to);
+    let channels = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
+    // Over a chunk, so pushing hands some on before finishing does.
+    let input = vec![0.25; tc.draw(gs::integers::<usize>().min_value(1100).max_value(2500)) * channels];
+    let piece = tc.draw(gs::integers::<usize>().min_value(1).max_value(3000)) * channels;
+    // Outputs handed on, failing at the `fail`th when there's one.
+    let run = |fail: Option<usize>| {
+        let mut calls = 0;
+        let mut sink = |_: &[f64]| {
+            calls += 1;
+            if Some(calls) == fail { Err(calls) } else { Ok(()) }
+        };
+        let mut r = Resampler::new(from, to, channels);
+        let result = input.chunks(piece).try_for_each(|p| r.push(p, &mut sink)).and_then(|()| r.finish(&mut sink));
+        (result, calls)
+    };
+    let (whole, outputs) = run(None);
+    assert_eq!(whole, Ok(()));
+    // The first output comes from a push, the last from the finish.
+    let fails = [1, tc.draw(gs::integers::<usize>().min_value(1).max_value(outputs + 1)), outputs];
+    for fail in fails {
+        let expected = if fail <= outputs { (Err(fail), fail) } else { (Ok(()), outputs) };
+        assert_eq!(run(Some(fail)), expected);
+    }
+}

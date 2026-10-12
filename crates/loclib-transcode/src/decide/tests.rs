@@ -194,3 +194,63 @@ fn size_estimates_grow_with_length(tc: hegel::TestCase) {
         assert!(estimate(a, &same).abs_diff(bytes(a)) <= 1, "{} for a {}-byte source", estimate(a, &same), bytes(a));
     }
 }
+
+/// Players made up of any formats, rates and depths: a copy is planned in a lossless container
+/// every player lists with a rate and a depth they all share, the one asked for when it's such
+/// a container; when there's none, there's no lossless format to copy to.
+#[hegel::test(test_cases = 500)]
+fn made_up_players_share_a_format_or_have_none(tc: hegel::TestCase) {
+    let codecs = vec![Codec::Aiff, Codec::Wav, Codec::Flac, Codec::Mp3];
+    let players: Vec<&'static Model> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
+        .map(|_| {
+            let audio: Vec<Audio> = tc
+                .draw(gs::samples(codecs.clone()).without_replacement().max_size(4).print_as_debug())
+                .into_iter()
+                .map(|codec| Audio {
+                    codec,
+                    rates: tc.draw(gs::samples(vec![44_100, 48_000, 96_000]).without_replacement().max_size(3)).leak(),
+                    depths: tc.draw(gs::samples(vec![16, 24]).without_replacement().max_size(2)).leak(),
+                    inferred: false,
+                })
+                .collect();
+            &*Box::leak(Box::new(Model {
+                name: "MADE-UP",
+                kind: Kind::Player,
+                export_pdb: Spec { value: true, inferred: false },
+                onelibrary: Spec { value: false, inferred: false },
+                exfat: Spec { value: Exfat::No, inferred: false },
+                audio: audio.leak(),
+                audio_inferred: false,
+                notes: &[],
+                source: "a test",
+            }))
+        })
+        .collect();
+    let source = Source {
+        codec: tc.draw(gs::sampled_from(vec![Codec::Flac, Codec::Wav, Codec::Aiff]).print_as_debug()),
+        sample_rate: tc.draw(gs::sampled_from(vec![44_100, 48_000, 96_000])),
+        bit_depth: tc.draw(gs::sampled_from(vec![16, 24])),
+        channels: 2,
+    };
+    let options =
+        Options { container: tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug()), decode_lossy: false };
+    let shared = |c: Container| {
+        let lists: Vec<&Audio> = players.iter().filter_map(|m| m.audio(c.codec())).collect();
+        lists.len() == players.len()
+            && lists[0].rates.iter().any(|r| lists.iter().all(|a| a.rates.contains(r)))
+            && lists[0].depths.iter().any(|d| lists.iter().all(|a| a.depths.contains(d)))
+    };
+    let plays = |codec, rate, depth| players.iter().all(|m| m.plays(codec, rate, depth).result.is_ok());
+    let copies = plays(source.codec, source.sample_rate, source.bit_depth);
+    match decide(&source, &players, &options) {
+        Decision::Copy => assert!(copies),
+        Decision::Transcode(r) => {
+            assert!(!copies && shared(r.container) && plays(r.container.codec(), r.sample_rate, r.bit_depth), "{r:?}");
+            assert!(r.container == options.container || !shared(options.container), "{r:?}");
+        }
+        Decision::Unplayable(Reason::NoLosslessFormat) => {
+            assert!(!copies && Container::ALL.iter().all(|c| !shared(*c)));
+        }
+        other => panic!("{other:?} for a lossless source at a known rate"),
+    }
+}

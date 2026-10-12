@@ -345,3 +345,33 @@ fn partition_scripts_follow_the_plan(tc: TestCase) {
         tc.draw(gs::sampled_from(vec!["PhysicalDrive", r"\\.\PHYSICALDRIVE", "PhysicalDrive-1", "PhysicalDrive 2"]));
     assert!(matches!(by_id(spec), Err(Error::Invalid(_))), "{spec}");
 }
+
+/// Only a drive's root names a disk to look for: any other path is refused as invalid, naming
+/// it, before PowerShell is asked anything. Of the file systems, Windows creates all but HFS+,
+/// and outside Windows FAT32 can't be written over a volume at all.
+#[hegel::test(test_cases = 200)]
+fn paths_and_file_systems_windows_cant_format_are_refused_first(tc: TestCase) {
+    let path = tc.draw(hegel::one_of!(
+        gs::text().max_size(12),
+        gs::text().alphabet("E:\\/ab?").max_size(6),
+        gs::sampled_from(vec!["/Volumes/DNA", "E:\\Music", "\\\\server\\share"]).map(String::from),
+    ));
+    tc.assume(drive_letter(Path::new(&path)).is_none());
+    match by_mount(Path::new(&path)) {
+        Err(Error::Invalid(m)) => assert!(m.starts_with(&Path::new(&path).display().to_string()), "{m}"),
+        other => panic!("{path:?}: {:?}", other.map(|d| d.id)),
+    }
+    let fs =
+        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    assert_eq!(supports(fs).is_err(), fs == Filesystem::Hfsplus);
+    if let Err(e) = supports(fs) {
+        assert_eq!(e.code(), "invalid");
+    }
+    #[cfg(not(windows))]
+    {
+        let layout = fat32::Layout::new(64 << 30, 512, 32 << 10, 2048).unwrap();
+        let letter = tc.draw(gs::sampled_from(('A'..='Z').collect::<Vec<char>>()));
+        let e = write_fat32(letter, &layout, "REKORDBOX", &Ctx::silent()).unwrap_err();
+        assert_eq!(e.code(), "invalid", "{e}");
+    }
+}

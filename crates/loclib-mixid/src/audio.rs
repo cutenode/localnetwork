@@ -125,8 +125,10 @@ where
     let mut buf: Option<SampleBuffer<S>> = None;
     let mut frames = 0u64;
     let mut packets = 0u32;
-    // Where the next packet should start, in the track's time base.
-    let mut next_ts = None;
+    // Where the next packet should start, in the track's time base: the track's start for the
+    // first, so a first frame the reader dropped is missed like any other.
+    let start = track.codec_params.start_ts;
+    let mut next_ts = start;
     let missing = || Error::parse(path, "a stretch of it is damaged");
     loop {
         let packet = match format.next_packet() {
@@ -142,10 +144,10 @@ where
         if packet.track_id() != track.id {
             continue;
         }
-        if damaged == Damaged::Fail && next_ts.is_some_and(|ts| packet.ts() > ts) {
+        if damaged == Damaged::Fail && packet.ts() > next_ts {
             return Err(missing().into());
         }
-        next_ts = Some(packet.ts() + packet.dur());
+        next_ts = packet.ts() + packet.dur();
         let decoded = match decoder.decode(&packet) {
             Ok(d) => d,
             Err(SymphoniaError::DecodeError(_) | SymphoniaError::IoError(_)) if damaged == Damaged::Skip => continue,
@@ -169,7 +171,7 @@ where
             return Ok(with_duration(fmt, frames));
         }
     }
-    if damaged == Damaged::Fail && track.codec_params.n_frames.is_some_and(|n| next_ts.unwrap_or(0) < n) {
+    if damaged == Damaged::Fail && track.codec_params.n_frames.is_some_and(|n| next_ts < start + n) {
         return Err(missing().into());
     }
     Ok(with_duration(fmt, frames))

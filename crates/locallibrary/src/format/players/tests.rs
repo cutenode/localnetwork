@@ -134,3 +134,26 @@ fn disks_are_judged_by_their_first_partition(tc: TestCase) {
     let named = c.notes.iter().any(|n| n.starts_with("players read the first partition"));
     assert_eq!(named, disk.volumes.len() > 1 && verdict != Verdict::NoPlayers);
 }
+
+/// An HFS+ first partition is doubted exactly when its file system is the case-sensitive kind,
+/// however the system spells that, and the doubt says why; any other one keeps its verdict.
+#[hegel::test(test_cases = 100)]
+fn case_sensitive_hfs_is_doubted_in_any_spelling(tc: TestCase) {
+    let mut disk = crate::format::tests::sample_disk();
+    let sensitive = tc.draw(gs::booleans());
+    let name = if sensitive {
+        let word: String = "case-sensitive"
+            .chars()
+            .map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c })
+            .collect();
+        format!("Mac OS Extended ({word}, Journaled)")
+    } else {
+        tc.draw(gs::sampled_from(vec!["Mac OS Extended (Journaled)", "Mac OS Extended", "hfsplus"])).to_string()
+    };
+    let first = &mut disk.volumes[0];
+    (first.filesystem, first.filesystem_name) = (Some(FsKind::Hfsplus), Some(name.clone()));
+    let alone = assess(disk.scheme, first.filesystem, first.size);
+    let c = assess_disk(&disk);
+    assert_eq!(c.verdict, if sensitive { Verdict::Unknown } else { alone.verdict }, "{name}");
+    assert_eq!(c.notes.iter().any(|n| n == "case-sensitive HFS+ may not be recognised"), sensitive, "{name}");
+}

@@ -814,12 +814,17 @@ pub fn find(
 /// hidden track), which neither encoding has anything to be heard in.
 const ALIGN_SLICE_PEAKS: usize =
     (SLICE as f64 / FRAMES_PER_SEC * crate::fingerprint::LIBRARY.per_sec as f64 / 4.0) as usize;
-/// Pairs an [`Alignment`] needs before its offset counts as measured.
-const ALIGN_PAIRS: usize = 200;
+/// Shifts an [`Alignment`]'s offset needs to be the mean of before it counts as measured. Each
+/// shift is a whole frame, so the mean of 100 strays by about 1.2 ms (half a frame over √100).
+/// Over 60,000 copies of the test signal, some with under 60 missed by more than 4 ms and none
+/// with 60 or more did. Landmark pairs aren't counted: a copy shifted by half a frame keeps under
+/// half of them, since a pair matches only when both its peaks moved the same way, while it
+/// keeps its peaks.
+const ALIGN_SHIFTS: usize = 100;
 /// How far apart (seconds) the offsets over the two halves of a track may be for the offset to
-/// count as measured: under a fifth of a frame. Two encodings of one recording agree to within a
-/// millisecond or two; one at another speed (a file resampled without its rate being changed)
-/// drifts by far more over a track.
+/// count as measured: under a fifth of a frame, beyond twice [`Alignment::drift_noise`]. Two
+/// encodings of one recording agree to within a millisecond or two; one at another speed (a file
+/// resampled without its rate being changed) drifts by far more over a track.
 const ALIGN_DRIFT: f64 = 0.004;
 
 /// How two library tracks' prints line up at their original speed.
@@ -833,17 +838,24 @@ pub struct Alignment {
     pub offset: f64,
     /// The offset over the second half of the peaks matched minus that over the first (seconds).
     pub drift: f64,
+    /// How far `drift` strays from 0 between copies at one speed: its standard error (seconds).
+    /// Each peak moves by a whole frame, so a fraction of one is the share of peaks that moved
+    /// into the next, which varies from half to half; most at half a frame, and less the more
+    /// peaks there are.
+    pub drift_noise: f64,
     /// Matching landmark pairs at `offset`.
     pub pairs: usize,
+    /// Shifts `offset` is the mean of: single peaks, or when none matches alone, the pairs.
+    pub shifts: usize,
     /// Of each track's ~4 s slices with something in them, the fraction heard at `offset`.
     pub coverage: (f64, f64),
 }
 
 impl Alignment {
-    /// Whether `offset` was measured (to within a few milliseconds, see above): enough pairs,
-    /// agreeing over the whole track.
+    /// Whether `offset` was measured (to within a few milliseconds, see above): from enough
+    /// shifts, agreeing over the whole track.
     pub fn is_precise(&self) -> bool {
-        self.pairs >= ALIGN_PAIRS && self.drift.abs() <= ALIGN_DRIFT
+        self.shifts >= ALIGN_SHIFTS && self.drift.abs() <= ALIGN_DRIFT + 2.0 * self.drift_noise
     }
 }
 
@@ -897,6 +909,11 @@ pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
     // none, and then the pairs are all there is.
     let shifts = if moved.is_empty() { &kept } else { &moved };
     let mean = |pairs: &[(u32, i64)]| pairs.iter().map(|p| p.1 as f64).sum::<f64>() / pairs.len().max(1) as f64;
+    // The variance of a half's mean: its shifts' variance over how many there are.
+    let noise = |half: &[(u32, i64)]| {
+        let m = mean(half);
+        half.iter().map(|p| (p.1 as f64 - m).powi(2)).sum::<f64>() / half.len().max(1).pow(2) as f64
+    };
     let (first, second) = shifts.split_at(shifts.len() / 2);
     let coverage = |peaks: &[Peak], heard: &mut dyn Iterator<Item = u32>| {
         let slices = |frames: &mut dyn Iterator<Item = u32>| {
@@ -914,7 +931,9 @@ pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
     Some(Alignment {
         offset: mean(shifts) / FRAMES_PER_SEC,
         drift: (mean(second) - mean(first)) / FRAMES_PER_SEC,
+        drift_noise: (noise(first) + noise(second)).sqrt() / FRAMES_PER_SEC,
         pairs: kept.len(),
+        shifts: shifts.len(),
         coverage: (
             coverage(&a.peaks, &mut kept.iter().map(|p| p.0)),
             coverage(&b.peaks, &mut kept.iter().map(|p| (i64::from(p.0) + p.1).max(0) as u32)),

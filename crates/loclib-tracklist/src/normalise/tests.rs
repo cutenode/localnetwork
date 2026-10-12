@@ -226,3 +226,20 @@ fn scores_peak_on_identity(tc: TestCase) {
         assert!(score(&a, &a) > 0.999, "{a:?}");
     }
 }
+
+/// A version word's spelling variants are one token: "rmx" is "remix", "acappella" and
+/// "accapella" are "acapella" and "remastered" is "remaster", in any case and among any other
+/// words, which stay as they are.
+#[hegel::test(test_cases = 200)]
+fn version_word_spellings_are_one_token(tc: TestCase) {
+    let variants = [("rmx", "remix"), ("acappella", "acapella"), ("accapella", "acapella"), ("remastered", "remaster")];
+    let mut words = plain_words(&tc, 4);
+    let at = tc.draw(gs::integers::<usize>().max_value(words.len()));
+    let (variant, word) = variants[tc.draw(gs::integers::<usize>().max_value(variants.len() - 1))];
+    let spelled: String =
+        variant.chars().map(|c| if tc.draw(gs::booleans()) { c.to_ascii_uppercase() } else { c }).collect();
+    let mut with_word = words.clone();
+    with_word.insert(at, word.to_string());
+    words.insert(at, spelled);
+    assert_eq!(tokens(&words.join(" ")), with_word);
+}

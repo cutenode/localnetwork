@@ -243,3 +243,102 @@ fn damaged_files_are_that_files_error(tc: TestCase) {
         }
     }
 }
+
+/// The packets a WAV of `frames` decodes in: symphonia hands on at most 1152 frames at a time.
+fn packets(frames: usize) -> usize {
+    frames.div_ceil(1152)
+}
+
+/// A sink's own error stops the decode at the packet it was handed and is what the decode
+/// returns, in either mode; a sink that never fails hears every packet.
+#[hegel::test(test_cases = 30)]
+fn a_sinks_error_stops_the_decode(tc: TestCase) {
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(6000));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.wav");
+    std::fs::write(&path, crate::test_util::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i % 900))).unwrap();
+    let fail = tc.draw(gs::integers::<usize>().min_value(1).max_value(packets(frames) + 1));
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]).print_as_debug());
+    let mut calls = 0;
+    let result = decode_native(&path, damaged, &Ctx::silent(), |_: &[i16], _, _| -> Result<_> {
+        calls += 1;
+        if calls == fail { Err(Error::Invalid(format!("enough at {calls}"))) } else { Ok(ControlFlow::Continue(())) }
+    });
+    if fail <= packets(frames) {
+        assert!(matches!(&result, Err(Error::Invalid(m)) if *m == format!("enough at {fail}")), "{result:?}");
+        assert_eq!(calls, fail);
+    } else {
+        assert!(result.is_ok() && calls == packets(frames), "{result:?} after {calls}");
+    }
+}
+
+/// However a WAV's header is broken, every way of decoding it (at its own rate in either mode,
+/// to mono, to mono until it's enough) fails as that file's error: I/O for a file that isn't
+/// there, a parse error for a block size of 0, the decoder's crash for a rate of 0, which
+/// panics symphonia. Intact, it decodes whatever it's called: it's told by its content.
+#[hegel::test(test_cases = 60)]
+fn broken_headers_are_that_files_error(tc: TestCase) {
+    let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(500));
+    let rate = rate(&tc);
+    let broken = tc.draw(gs::sampled_from(vec!["intact", "missing", "block size 0", "rate 0"]));
+    let name = tc.draw(gs::sampled_from(vec!["x.wav", "x", "x.bin"]));
+    let samples = (0..frames as i32).map(|i| i * 5 - 1000);
+    let mut bytes = crate::test_util::wav_of(if broken == "rate 0" { 0 } else { rate }, 16, samples);
+    if broken == "block size 0" {
+        bytes[32..34].fill(0);
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(name);
+    if broken != "missing" {
+        std::fs::write(&path, &bytes).unwrap();
+    }
+    let ctx = Ctx::silent();
+    let native =
+        |damaged| decode_native(&path, damaged, &ctx, |_: &[f32], _, _| -> Result<_> { Ok(ControlFlow::Continue(())) });
+    let results = [
+        native(Damaged::Skip),
+        native(Damaged::Fail),
+        decode(&path, 11_025, &ctx, &mut |_| {}),
+        decode_until(&path, 11_025, &ctx, &mut |_| ControlFlow::Break(())),
+    ];
+    for result in results {
+        match (broken, result) {
+            ("intact", Ok(format)) => assert_eq!((format.sample_rate, format.channels), (rate, 2)),
+            ("missing", Err(Error::Io { path: at, .. })) => assert_eq!(at, path),
+            ("block size 0", Err(Error::Parse { path: at, .. })) => assert_eq!(at, path),
+            ("rate 0", Err(Error::Parse { path: at, message })) => {
+                assert!(at == path && message == CRASHED, "{message}")
+            }
+            (broken, result) => panic!("{broken} {name}: {result:?}"),
+        }
+    }
+}
+
+/// Cancelled at any packet of a long decode, it stops at the next check (every 256 packets)
+/// with [`Error::Cancelled`], handing on nothing after; cancelled after the last check, it
+/// decodes to the end.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
+    let frames = tc.draw(gs::integers::<usize>().min_value(250 * 1152).max_value(520 * 1152));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("long.wav");
+    std::fs::write(&path, crate::test_util::wav_of(8_000, 16, (0..frames as i32).map(|i| i % 300))).unwrap();
+    let at = tc.draw(gs::integers::<usize>().min_value(1).max_value(packets(frames)));
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]).print_as_debug());
+    let ctx = Ctx::silent();
+    let mut heard = 0;
+    let result = decode_native(&path, damaged, &ctx, |_: &[i16], _, _| -> Result<_> {
+        heard += 1;
+        if heard == at {
+            ctx.cancel.cancel();
+        }
+        Ok(ControlFlow::Continue(()))
+    });
+    let check = (at / 256 + 1) * 256;
+    if check <= packets(frames) {
+        assert!(matches!(result, Err(Error::Cancelled(_))), "{result:?}");
+        assert_eq!(heard, check - 1);
+    } else {
+        assert!(result.is_ok() && heard == packets(frames), "{result:?} after {heard}");
+    }
+}

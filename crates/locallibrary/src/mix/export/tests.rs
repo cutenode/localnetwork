@@ -356,3 +356,81 @@ fn downsampling_keeps_the_loudest(tc: TestCase) {
         assert_eq!(Some(v), values[lo..hi].iter().max());
     }
 }
+
+/// A PNG of `side` pixels square, or bytes that aren't an image when `side` is 0.
+fn image_bytes(dir: &std::path::Path, side: u32) -> Vec<u8> {
+    if side == 0 {
+        return b"not an image".to_vec();
+    }
+    let png = dir.join(format!("art{side}.png"));
+    image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8 * 3, y as u8 * 3, 90])).save(&png).unwrap();
+    std::fs::read(png).unwrap()
+}
+
+/// The pictures an export carries are square JPEG thumbnails, each of only what may be shared:
+/// the recording's embedded cover (not one guessed from an image beside it) and the drive's
+/// artwork of each track the profile lets it name. What isn't artwork (not an image, or under
+/// 16 pixels) is left out.
+#[hegel::test(test_cases = 12)]
+fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut r = report();
+    let set = dir.path().join("set.wav");
+    std::fs::write(&set, crate::probe::tests::wav(8_000, 16, 0.2)).unwrap();
+    let embedded = tc.draw(gs::booleans());
+    r.mix.cover = if embedded {
+        let png = dir.path().join("cover.png");
+        std::fs::write(&png, image_bytes(dir.path(), tc.draw(gs::integers::<u32>().min_value(16).max_value(48))))
+            .unwrap();
+        crate::artwork::embed_in_file(&set, &Artwork::from_path(&png).unwrap()).unwrap();
+        Some(CoverSource::Embedded(set.clone()))
+    } else {
+        Some(CoverSource::File(dir.path().join("set.png")))
+    };
+    let base = r.plays[0].clone();
+    let device = Device::open(dir.path()).unwrap();
+    let mut library = Library::default();
+    let mut prefs = ProfilePrefs::default();
+    // Each play: its artwork's size (0: not an image, None: no artwork), and whether it's hidden.
+    let plays: Vec<(Option<u32>, bool)> = tc.draw(
+        gs::vecs(gs::tuples!(gs::optional(gs::sampled_from(vec![0u32, 12, 16, 40])), gs::weighted_booleans(0.3)))
+            .min_size(1)
+            .max_size(3),
+    );
+    r.plays = plays
+        .iter()
+        .enumerate()
+        .map(|(i, (art, hidden))| {
+            let mut p = base.clone();
+            p.track.id = i as u32 + 1;
+            p.track.artist = format!("Artist {i}");
+            p.track.file_path = format!("/Contents/{i}.mp3");
+            if let Some(side) = art {
+                let key = format!("PIONEER/Artwork/00001/a{i}.jpg");
+                std::fs::create_dir_all(dir.path().join("PIONEER/Artwork/00001")).unwrap();
+                std::fs::write(dir.path().join(&key), image_bytes(dir.path(), *side)).unwrap();
+                p.track.artwork_path = Some(format!("/{key}"));
+            }
+            if *hidden {
+                prefs.hidden_artists.push(p.track.artist.clone());
+            }
+            library.tracks.push(p.track.clone());
+            p
+        })
+        .collect();
+    let drive = Drive { device: &device, library: &library, analyses: None };
+    let e = build(&r, Some(drive), &prefs);
+
+    let thumbnail_side = |url: &str| {
+        let jpeg = BASE64_STANDARD.decode(url.strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+        assert_eq!(image::guess_format(&jpeg).unwrap(), image::ImageFormat::Jpeg);
+        let img = image::load_from_memory(&jpeg).unwrap();
+        assert_eq!(img.width(), img.height());
+        img.width()
+    };
+    assert_eq!(e.mix.cover.as_deref().map(thumbnail_side), embedded.then_some(COVER_PX));
+    for (p, (art, hidden)) in e.plays.iter().zip(&plays) {
+        let shared = !hidden && art.is_some_and(|side| side >= 16);
+        assert_eq!(p.track.artwork.as_deref().map(thumbnail_side), shared.then_some(ARTWORK_PX), "{art:?} {hidden}");
+    }
+}

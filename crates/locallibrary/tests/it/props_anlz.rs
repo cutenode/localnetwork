@@ -8,8 +8,8 @@ use std::io::Cursor;
 use std::sync::OnceLock;
 
 use binrw::BinRead;
-use hegel::TestCase;
 use hegel::generators as gs;
+use hegel::{Generator, TestCase};
 use locallibrary::anlz::{self, CueFile, CuePoint};
 
 const ANALYSED: [&str; 2] = ["P016/0000875E", "P053/0001D21F"];
@@ -746,4 +746,168 @@ fn cue_lists_too_big_for_the_file_are_refused(tc: TestCase) {
     };
     let err = anlz::write_cue_points(&base, file, &cues).unwrap_err();
     assert!(err.to_string().contains(why), "{err}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Entries the writer doesn't make
+// ---------------------------------------------------------------------------------------------
+
+fn be_at(b: &[u8], at: usize) -> usize {
+    u32::from_be_bytes(b[at..at + 4].try_into().unwrap()) as usize
+}
+
+/// The sections of a well-formed file, each as its bytes.
+fn section_bytes(b: &[u8]) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut pos = be_at(b, 4);
+    while pos < be_at(b, 8) {
+        let len = be_at(b, pos + 8);
+        out.push(b[pos..pos + len].to_vec());
+        pos += len;
+    }
+    out
+}
+
+fn is_cue_list(s: &[u8]) -> bool {
+    matches!(&s[..4], b"PCOB" | b"PCO2")
+}
+
+/// A cue list section's header and entries.
+fn split_list(s: &[u8]) -> (Vec<u8>, Vec<Vec<u8>>) {
+    let header = be_at(s, 4);
+    let mut entries = Vec::new();
+    let mut e = header;
+    while e < s.len() {
+        let len = be_at(s, e + 8);
+        entries.push(s[e..e + len].to_vec());
+        e += len;
+    }
+    (s[..header].to_vec(), entries)
+}
+
+/// Bytes with their big-endian length field at 8 set to how long they are.
+fn sized(mut b: Vec<u8>) -> Vec<u8> {
+    let len = b.len() as u32;
+    b[8..12].copy_from_slice(&len.to_be_bytes());
+    b
+}
+
+/// A file with `file`'s header and `sections`.
+fn assemble(file: &[u8], sections: &[Vec<u8>]) -> Vec<u8> {
+    let mut out = file[..be_at(file, 4)].to_vec();
+    out.extend(sections.concat());
+    sized(out)
+}
+
+/// An entry of a kind no rekordbox writes (neither `PCPT` nor `PCP2`) in a cue list is skipped
+/// by the reader, left as it is when times move (the cues around it move), and gone once the
+/// list is written again, the cues reading back as before.
+#[hegel::test(test_cases = 60)]
+fn foreign_entries_in_cue_lists_are_skipped(tc: TestCase) {
+    let file = [CueFile::DatAlone, CueFile::Ext][tc.draw(gs::integers::<usize>().max_value(1))];
+    let written = write(&common::synthetic_anlz("/Contents/a.mp3"), file, &cue_list(&tc, false));
+    let tag = tc.draw(gs::arrays::<_, u8, 4>(gs::integers::<u8>()).filter(|t| t != b"PCPT" && t != b"PCP2"));
+    let body = tc.draw(gs::binary().max_size(24));
+    let foreign = sized([&tag[..], &12u32.to_be_bytes(), &[0; 4], &body].concat());
+    let sections: Vec<Vec<u8>> = section_bytes(&written)
+        .into_iter()
+        .map(|s| {
+            if !is_cue_list(&s) {
+                return s;
+            }
+            let (header, mut entries) = split_list(&s);
+            let at = tc.draw(gs::integers::<usize>().max_value(entries.len()));
+            entries.insert(at, foreign.clone());
+            sized([header, entries.concat()].concat())
+        })
+        .collect();
+    let odd = assemble(&written, &sections);
+    let cues = anlz::read_cue_points(&written, None).unwrap();
+    assert_eq!(anlz::read_cue_points(&odd, None).unwrap(), cues);
+
+    let ms = tc.draw(gs::integers::<i32>().min_value(-5_000).max_value(5_000));
+    let shifted = anlz::shift_times(&odd, ms).unwrap();
+    let foreign_entries = |b: &[u8]| -> Vec<Vec<u8>> {
+        section_bytes(b)
+            .iter()
+            .filter(|s| is_cue_list(s))
+            .flat_map(|s| split_list(s).1)
+            .filter(|e| e[..4] == tag)
+            .collect()
+    };
+    assert_eq!(foreign_entries(&shifted), foreign_entries(&odd));
+    let moved = |b: &[u8]| basics(&anlz::read_cue_points(&anlz::shift_times(b, ms).unwrap(), None).unwrap());
+    assert_eq!(moved(&odd), moved(&written));
+
+    let rewritten = write(&odd, file, &cues);
+    assert_eq!(foreign_entries(&rewritten), Vec::<Vec<u8>>::new());
+    let back = anlz::read_cue_points(&rewritten, None).unwrap();
+    assert!(same_cues(&back, &cues), "wrote {}\nread {}", show(&cues), show(&back));
+}
+
+/// A `PCP2` entry ending right after its comment, as older exports wrote them (an empty comment
+/// sometimes stored as a lone NUL), reads back as an uncoloured cue. Rewriting its list for
+/// another cue keeps the entry byte for byte, and only giving it a colour makes it longer: by
+/// the four colour bytes, its comment kept as stored.
+#[hegel::test(test_cases = 60)]
+fn old_short_cue_entries_grow_only_for_a_colour(tc: TestCase) {
+    let hot = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
+    let time = tc.draw(gs::integers::<u32>().max_value(600_000));
+    let name = tc.draw(gs::text().max_size(8).exclude_characters("\0"));
+    let lone_nul = name.is_empty() && tc.draw(gs::booleans());
+    let comment: Vec<u8> = if lone_nul || !name.is_empty() {
+        name.encode_utf16().chain([0]).flat_map(u16::to_be_bytes).collect()
+    } else {
+        Vec::new()
+    };
+    let mut entry = vec![0u8; 0x2c];
+    entry[..4].copy_from_slice(b"PCP2");
+    entry[4..8].copy_from_slice(&0x10u32.to_be_bytes());
+    entry[0x0c..0x10].copy_from_slice(&hot.to_be_bytes());
+    entry[0x10] = 1;
+    entry[0x12..0x14].copy_from_slice(&0x03e8u16.to_be_bytes());
+    entry[0x14..0x18].copy_from_slice(&time.to_be_bytes());
+    entry[0x18..0x1c].copy_from_slice(&u32::MAX.to_be_bytes());
+    entry[0x1c] = tc.draw(gs::integers::<u8>().max_value(8));
+    entry[0x28..0x2c].copy_from_slice(&(comment.len() as u32).to_be_bytes());
+    entry.extend(&comment);
+    let entry = sized(entry);
+    let mut list = b"PCO2".to_vec();
+    list.extend(0x14u32.to_be_bytes());
+    list.extend([0; 4]);
+    list.extend(1u32.to_be_bytes());
+    list.extend([0, 1, 0, 0]);
+    list.extend(&entry);
+    let ext = assemble(&common::synthetic_anlz("/Contents/a.mp3"), &[sized(list)]);
+
+    let mut cues = anlz::read_cue_points(&ext, None).unwrap();
+    assert_eq!(cues.len(), 1);
+    let c = &cues[0];
+    assert_eq!((c.hot_cue, c.start_ms, c.end_ms, c.comment.as_str()), (Some(hot as u8 - 1), time, None, name.as_str()));
+    assert_eq!((c.color_code, c.color_rgb), (0, [0; 3]));
+    let entries_of = |b: &[u8]| -> Vec<Vec<u8>> {
+        section_bytes(b)
+            .iter()
+            .filter(|s| &s[..4] == b"PCO2" && be_at(s, 12) == 1)
+            .flat_map(|s| split_list(s).1)
+            .collect()
+    };
+    // Its slot's entry, found by hot cue number.
+    let ours = |b: &[u8]| entries_of(b).into_iter().find(|e| be_at(e, 0x0c) == hot as usize).unwrap();
+
+    let other = (hot % 8) as u8 + 8;
+    cues.push(CuePoint { hot_cue: Some(other), start_ms: 1, ..Default::default() });
+    let grown = write(&ext, CueFile::Ext, &cues);
+    assert_eq!(entries_of(&grown).len(), 2);
+    assert_eq!(ours(&grown), entry);
+
+    cues[0].color_code = tc.draw(gs::integers::<u8>().min_value(1).max_value(62));
+    cues[0].color_rgb = tc.draw(gs::arrays::<_, u8, 3>(gs::integers::<u8>()));
+    let coloured = write(&grown, CueFile::Ext, &cues);
+    let new = ours(&coloured);
+    assert_eq!(new.len(), entry.len() + 4);
+    assert_eq!(new[0x28..entry.len()], entry[0x28..]);
+    let back = anlz::read_cue_points(&coloured, None).unwrap();
+    let c = back.iter().find(|c| c.hot_cue == Some(hot as u8 - 1)).unwrap();
+    assert_eq!((c.color_code, c.color_rgb, c.comment.as_str()), (cues[0].color_code, cues[0].color_rgb, name.as_str()));
 }

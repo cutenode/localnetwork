@@ -687,3 +687,53 @@ fn recordings_are_described_by_their_tags_and_pictures(tc: TestCase) {
         None => assert!(!embedded && guess.is_none(), "{guess:?}"),
     }
 }
+
+/// A report is matched against a drive by the drive's identity when it was made with one,
+/// whatever either is called now, and only by name when it wasn't.
+#[hegel::test(test_cases = 50)]
+fn reports_know_their_drive_by_identity_before_name(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut device = Device::open(dir.path()).unwrap();
+    let names = vec!["DNA".to_string(), "Backup".into(), "USB".into()];
+    let adopted = tc.draw(gs::optional(gs::sampled_from(names.clone())));
+    let id = adopted.as_deref().map(|n| device.adopt(Some(n)).unwrap().id);
+    let mut r = crate::mix::report::tests::report("Friday");
+    r.drive = tc.draw(hegel::one_of!(gs::sampled_from(names), gs::just(device.name())));
+    let made_with = tc.draw(gs::integers::<u8>().max_value(2));
+    r.drive_id = match made_with {
+        0 => None,
+        1 => id,
+        _ => Some(Uuid::new_v4()),
+    };
+    let same_name = r.drive == device.name();
+    let want = match r.drive_id {
+        None => same_name,
+        Some(i) => Some(i) == id,
+    };
+    assert_eq!(r.matched_against(&device), want, "{:?} {:?} {}", r.drive_id, id, r.drive);
+}
+
+/// A mix with nothing in it to hear (an Audacity project whose clips hold no samples, wherever
+/// they sit) is identified as what it is: no plays, no transitions, nothing covered, and as long
+/// as what was heard of it, nothing.
+#[hegel::test(test_cases = 5)]
+fn a_mix_with_nothing_to_hear_is_identified_as_nothing(tc: TestCase) {
+    use super::aup::tests::{Xml, project};
+    let dir = tempfile::tempdir().unwrap();
+    let mut x = Xml::new(1);
+    x.start("project").double("rate", tc.draw(gs::sampled_from(vec![8_000.0, 44_100.0])));
+    let clips = tc.draw(gs::integers::<u8>().min_value(1).max_value(3));
+    x.start("wavetrack");
+    for _ in 0..clips {
+        x.clip(0.0, 0, &[]).end("waveclip");
+    }
+    x.end("wavetrack").end("project");
+    let path = project(dir.path(), "project", Some(&x), &[]);
+    let device = Device::open(dir.path()).unwrap();
+    let cache = Cache::new(dir.path().join("cache"));
+    let id = Identifier::with_library(&device, Arc::new(Library::default()), &cache, &Ctx::silent()).unwrap();
+    let r = id.identify(&path, &Options::default(), &Ctx::silent()).unwrap();
+    assert!(r.plays.is_empty() && r.transitions.is_empty(), "{:?}", r.plays);
+    assert_eq!(r.mix.duration_secs, 0.0);
+    assert_eq!(r.coverage, 0.0);
+}

@@ -734,3 +734,50 @@ fn lookups_and_summaries_agree_with_the_library(tc: TestCase) {
         assert_eq!((r.id, r.name, r.file_path), (t.id, name, t.file_path.clone()));
     }
 }
+
+crate::labelled_tuple! {
+    /// A pair whose first element is documented.
+    #[derive(Debug, Clone, PartialEq)]
+    struct Described {
+        /// The first value,
+        ///   over two lines.
+        first: u32,
+        second: String,
+    }
+}
+
+/// A labelled tuple's JSON is the array of its fields in order, and reads back as it was; an
+/// array of another length, or an object of its fields, doesn't read. Its
+/// schema (with the `schemars` feature) is an array of exactly that many elements, each titled
+/// by its field and described by the field's doc comment, its lines trimmed and joined, if it
+/// has one.
+#[hegel::test(test_cases = 100)]
+fn labelled_tuples_are_arrays_named_in_their_schema(tc: TestCase) {
+    let value = Described { first: tc.draw(gs::integers()), second: tc.draw(gs::text()) };
+    let json = serde_json::to_value(&value).unwrap();
+    assert_eq!(json, serde_json::json!([value.first, value.second]));
+    assert_eq!(serde_json::from_value::<Described>(json.clone()).unwrap(), value);
+    let mut longer = json.as_array().unwrap().clone();
+    longer.push(json[0].clone());
+    for wrong in [
+        serde_json::json!([value.first]),
+        longer.into(),
+        serde_json::json!({"first": value.first, "second": value.second}),
+    ] {
+        assert!(serde_json::from_value::<Described>(wrong.clone()).is_err(), "{wrong} read");
+    }
+    #[cfg(feature = "schemars")]
+    {
+        let schema = serde_json::to_value(schemars::schema_for!(Described)).unwrap();
+        assert_eq!(
+            (schema["type"].as_str(), &schema["minItems"], &schema["maxItems"]),
+            (Some("array"), &2.into(), &2.into())
+        );
+        let items = schema["prefixItems"].as_array().unwrap();
+        let titled: Vec<(&str, Option<&str>)> = items
+            .iter()
+            .map(|i| (i["title"].as_str().unwrap(), i.get("description").and_then(|d| d.as_str())))
+            .collect();
+        assert_eq!(titled, [("first", Some("The first value, over two lines.")), ("second", None)]);
+    }
+}

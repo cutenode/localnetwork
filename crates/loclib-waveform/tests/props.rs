@@ -389,3 +389,207 @@ fn art_is_resampled_to_any_size(tc: TestCase) {
     let junk = tc.draw(gs::binary().max_size(64));
     assert!(Art::decode(&junk).is_none());
 }
+
+/// A loop is underlined along its length in the overview's top row, after its flag; in the
+/// cue lane every cue in view is marked where it falls, a hot cue by its letter and a memory
+/// cue by a diamond, and a lane under 8 columns wide draws nothing.
+#[hegel::test(test_cases = 300)]
+fn cues_are_marked_along_their_length(tc: TestCase) {
+    let width = tc.draw(gs::integers::<u16>().min_value(8).max_value(120));
+    let duration_ms = tc.draw(gs::floats::<f64>().min_value(1000.0).max_value(600_000.0));
+    let c = cue(&tc, duration_ms as u32 - 1);
+    let cues = [c.clone()];
+    let area = Rect::new(0, 0, width, 3);
+    let mut buf = Buffer::empty(area);
+    Overview { wave: None, progress: 0.0, cues: &cues, duration_ms, palette: palette(&tc) }.render(area, &mut buf);
+    let x_of = |ms: u32| (ms as f64 / duration_ms * width as f64) as u16;
+    if let Some(end) = c.end_ms {
+        for x in x_of(c.start_ms) + 1..=x_of(end).min(width - 1) {
+            assert_eq!(buf[(x, 0)].symbol(), "▁", "column {x} of a loop {}..{end} ms", c.start_ms);
+        }
+    }
+
+    let visible_secs = tc.draw(gs::floats::<f64>().min_value(1.0).max_value(60.0));
+    // With the playhead where the cue falls in the middle of any column.
+    let column = tc.draw(gs::integers::<u16>().max_value(width - 1));
+    let secs_per_col = visible_secs / width as f64;
+    let position_secs = c.start_ms as f64 / 1000.0 - (column as f64 + 0.5 - width as f64 / 2.0) * secs_per_col;
+    // Names go underneath, when there's room.
+    let area = Rect { height: tc.draw(gs::integers::<u16>().min_value(1).max_value(3)), ..area };
+    let mut buf = Buffer::empty(area);
+    CueLane { cues: &cues, position_secs, visible_secs, bpm: 120.0, palette: palette(&tc) }.render(area, &mut buf);
+    let mark = cue_letter(&c).map_or("◆".to_string(), |l| l.to_string());
+    assert_eq!(buf[(column, 0)].symbol(), mark);
+    // Under 8 columns there's no room for a lane at all.
+    let cramped = Rect { width: tc.draw(gs::integers::<u16>().max_value(7)), ..area };
+    let mut buf = Buffer::empty(area);
+    CueLane { cues: &cues, position_secs, visible_secs, bpm: 120.0, palette: palette(&tc) }.render(cramped, &mut buf);
+    assert_eq!(buf, Buffer::empty(area));
+}
+
+/// Drawn into a buffer narrower than its area (a terminal that shrank before the next layout),
+/// a widget draws what fits and nothing more: the columns there are as it draws them where the
+/// whole area fits.
+#[hegel::test(test_cases = 300)]
+fn widgets_draw_what_fits_in_a_narrower_buffer(tc: TestCase) {
+    let area = Rect::new(
+        0,
+        0,
+        tc.draw(gs::integers::<u16>().min_value(8).max_value(90)),
+        tc.draw(gs::integers::<u16>().min_value(3).max_value(10)),
+    );
+    let narrow = Rect { width: tc.draw(gs::integers::<u16>().min_value(1).max_value(area.width - 1)), ..area };
+    let p = palette(&tc);
+    let (w, cues) = (wave(&tc, 2000), cues(&tc, 20_000));
+    let duration_ms = tc.draw(gs::floats::<f64>().min_value(1000.0).max_value(20_000.0));
+    let position_secs = tc.draw(gs::floats::<f64>().min_value(0.0).max_value(20.0));
+    let progress = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
+    let phrases: Vec<(f64, f64, String, Rgb)> = vec![
+        (0.0, duration_ms / 3.0, "Intro".into(), [90, 160, 80]),
+        (duration_ms / 3.0, duration_ms, "Chorus".into(), rgb(&tc)),
+    ];
+    let px = vinyl(area.width, area.height, 1.0, rgb(&tc), rgb(&tc));
+    let kind = tc.draw(gs::integers::<u8>().max_value(4));
+    let draw = |buf: &mut Buffer| match kind {
+        0 => Overview { wave: Some(&w), progress, cues: &cues, duration_ms, palette: p }.render(area, buf),
+        1 => {
+            Detail { wave: &w, position_secs, visible_secs: 8.0, beats: &[], cues: &cues, palette: p }.render(area, buf)
+        }
+        2 => CueLane { cues: &cues, position_secs, visible_secs: 8.0, bpm: 128.0, palette: p }.render(area, buf),
+        3 => PhraseStrip { phrases: &phrases, duration_ms, progress, palette: p }.render(area, buf),
+        _ => Pixels { width: area.width, pixels: &px, palette: p }.render(area, buf),
+    };
+    let (mut whole, mut cut) = (Buffer::empty(area), Buffer::empty(narrow));
+    draw(&mut whole);
+    draw(&mut cut);
+    for y in 0..area.height {
+        for x in 0..narrow.width {
+            assert_eq!(cut[(x, y)], whole[(x, y)], "({x}, {y}) of {narrow:?} drawing {kind}");
+        }
+    }
+}
+
+/// In the detail view the playhead crosses silence as a line through the middle.
+#[hegel::test(test_cases = 100)]
+fn the_playhead_crosses_silence_as_a_line(tc: TestCase) {
+    let area = Rect::new(
+        0,
+        0,
+        tc.draw(gs::integers::<u16>().min_value(8).max_value(120)),
+        tc.draw(gs::integers::<u16>().min_value(3).max_value(10)),
+    );
+    // 16 to 20 s, and the view inside it.
+    let columns = tc.draw(gs::integers::<usize>().min_value(2400).max_value(3000));
+    let silent = WaveColumn {
+        back: WaveLayer { height: 0.0, color: [200, 50, 50] },
+        front: WaveLayer { height: 0.0, color: [255, 255, 255] },
+    };
+    let w = Waveform { style: WaveformStyle::Rgb, columns_per_sec: Some(150.0), columns: vec![silent; columns] };
+    let position_secs = tc.draw(gs::floats::<f64>().min_value(5.0).max_value(columns as f64 / 150.0 - 5.0));
+    let mut buf = Buffer::empty(area);
+    let p = Palette::default();
+    Detail { wave: &w, position_secs, visible_secs: 8.0, beats: &[], cues: &[], palette: p }.render(area, &mut buf);
+    let (centre, wave_rows) = (area.width / 2, area.height - 1);
+    let cell = &buf[(centre, 1 + wave_rows / 2)];
+    assert_eq!((cell.symbol(), cell.fg), ("│", (p.paint)(p.fg)));
+}
+
+/// The phrase strip shows each phrase in its colour, dimmed where it's been played, and the
+/// playhead over it.
+#[hegel::test(test_cases = 200)]
+fn phrases_dim_once_played(tc: TestCase) {
+    let width = tc.draw(gs::integers::<u16>().min_value(8).max_value(120));
+    let area = Rect::new(0, 0, width, 1);
+    let duration_ms = 60_000.0;
+    let mut cuts = tc.draw(gs::vecs(gs::floats::<f64>().min_value(0.0).max_value(duration_ms)).max_size(4));
+    cuts.sort_by(f64::total_cmp);
+    let ends: Vec<f64> = std::iter::once(0.0).chain(cuts).chain([duration_ms]).collect();
+    let phrases: Vec<(f64, f64, String, Rgb)> =
+        ends.windows(2).map(|e| (e[0], e[1], String::new(), rgb(&tc))).collect();
+    let progress = tc.draw(gs::floats::<f32>().min_value(0.0).max_value(1.0));
+    let p = Palette::default();
+    let mut buf = Buffer::empty(area);
+    PhraseStrip { phrases: &phrases, duration_ms, progress, palette: p }.render(area, &mut buf);
+    let head = ((progress as f64 * width as f64) as u16).min(width - 1);
+    let x_of = |ms: f64| ((ms / duration_ms) * width as f64).round().clamp(0.0, width as f64) as u16;
+    assert_eq!(buf[(head, 0)].symbol(), "┃");
+    // The last phrase drawn over a cell is the one it shows.
+    for x in 0..width {
+        let Some((start, _, _, color)) =
+            phrases.iter().rev().find(|(s, e, _, _)| (x_of(*s)..x_of(*e).max(x_of(*s) + 1)).contains(&x))
+        else {
+            continue;
+        };
+        let played = if x < head { scale(*color, 0.45) } else { *color };
+        let shown = if x == x_of(*start) { scale(played, 0.7) } else { played };
+        assert_eq!(buf[(x, 0)].bg, (p.paint)(shown), "column {x}");
+    }
+}
+
+/// Given more bands than fit, the spectrum draws the bars that do, from the left edge, and
+/// leaves the rest out: at full level each bar that fits is filled top to bottom, and the gaps
+/// between them stay empty.
+#[hegel::test(test_cases = 200)]
+fn spectra_draw_the_bars_that_fit(tc: TestCase) {
+    let area = Rect::new(
+        0,
+        0,
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(120)),
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(8)),
+    );
+    let mirror = tc.draw(gs::booleans());
+    let (n, bar, gap) = bar_layout(area.width, mirror);
+    let bands = vec![1.0; n + tc.draw(gs::integers::<usize>().min_value(1).max_value(40))];
+    let mut buf = Buffer::empty(area);
+    Spectrum { bands: &bands, peaks: &[], mirror, tint: None, palette: Palette::default() }.render(area, &mut buf);
+    for x in 0..area.width {
+        let in_bar = x % (bar + gap) < bar && x / (bar + gap) * (bar + gap) + bar <= area.width;
+        let filled = (0..area.height).filter(|&y| buf[(x, y)].symbol() == "█").count() as u16;
+        assert_eq!(
+            filled,
+            if in_bar { area.height } else { 0 },
+            "column {x} of {area:?}, bars of {bar} and gaps of {gap}"
+        );
+    }
+}
+
+/// Silence on the scope is a flat line across the middle: one row, the whole width.
+#[hegel::test(test_cases = 100)]
+fn the_scope_draws_silence_flat(tc: TestCase) {
+    let area = Rect::new(
+        0,
+        0,
+        tc.draw(gs::integers::<u16>().min_value(2).max_value(80)),
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(8)),
+    );
+    let samples = vec![0.0f32; tc.draw(gs::integers::<usize>().min_value(2).max_value(400))];
+    let mut buf = Buffer::empty(area);
+    Scope { samples: &samples, tint: None, palette: Palette::default() }.render(area, &mut buf);
+    let rows: Vec<u16> = (0..area.height).filter(|&y| (0..area.width).any(|x| buf[(x, y)].symbol() != " ")).collect();
+    assert_eq!(rows.len(), 1, "{rows:?} of {area:?}");
+    let drawn = (0..area.width).filter(|&x| buf[(x, rows[0])].symbol() != " ").count() as u16;
+    assert!(drawn >= area.width - 1, "{drawn} of {} columns", area.width);
+}
+
+/// Cover art is resampled once per cell size: asking again at the size it was last drawn at
+/// hands back the same pixels, without resampling them again.
+#[cfg(feature = "image")]
+#[hegel::test(test_cases = 30)]
+fn art_is_resampled_once_per_size(tc: TestCase) {
+    use loclib_waveform::Art;
+    let side = tc.draw(gs::integers::<u32>().min_value(1).max_value(24));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8 * 9, y as u8 * 9, 7]))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let mut art = Art::decode(bytes.get_ref()).unwrap();
+    let (cols, rows) = (
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(30)),
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(15)),
+    );
+    let first = art.pixels(cols, rows);
+    let (at, copy) = (first.as_ptr(), first.to_vec());
+    let again = art.pixels(cols, rows);
+    assert_eq!(again.as_ptr(), at, "resampled again");
+    assert_eq!(again, copy.as_slice());
+}

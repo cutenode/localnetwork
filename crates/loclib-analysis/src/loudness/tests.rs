@@ -57,3 +57,18 @@ fn clipping_is_counted_run_by_run(tc: TestCase) {
     assert_eq!(l.sample_peak, f64::from(loudest));
     assert_eq!(l.sample_peak_dbfs(), 20.0 * f64::from(loudest).log10());
 }
+
+/// A packet that isn't whole frames is refused, and leaves what's measured as it was.
+#[hegel::test(test_cases = 100)]
+fn packets_of_part_frames_are_refused(tc: TestCase) {
+    let channels = tc.draw(gs::integers::<usize>().min_value(2).max_value(4));
+    let level = gs::floats::<f32>().min_value(-1.0).max_value(1.0);
+    let whole = tc.draw(gs::vecs(level).min_size(channels).max_size(400)).len() / channels * channels;
+    let samples: Vec<f32> = (0..whole).map(|i| ((i * 7919) % 2001) as f32 / 1000.0 - 1.0).collect();
+    let part = tc.draw(gs::integers::<usize>().min_value(1).max_value(channels - 1));
+    let (mut meter, mut fed) = (Meter::default(), Meter::default());
+    meter.push(&samples, 48_000, channels).unwrap();
+    fed.push(&samples, 48_000, channels).unwrap();
+    assert!(fed.push(&samples[..part], 48_000, channels).is_err());
+    assert_eq!(fed.finish().unwrap(), meter.finish().unwrap());
+}
