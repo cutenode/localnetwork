@@ -113,6 +113,7 @@ touches the computer's keychain or goes on the network.
 ```bash
 cargo coverage              # the tests under coverage, with a summary per file
 cargo coverage --open       # and an HTML report
+tools/hegel-coverage.sh     # only the property tests (from the repository root); takes --open too
 ```
 
 `cargo coverage` is an alias in `.cargo/config.toml` for
@@ -121,6 +122,11 @@ function or region coverage drops below the thresholds there, set just under wha
 Linux; raise them when coverage goes up. It needs `cargo-llvm-cov`, `cargo-nextest` and rustup's
 `llvm-tools-preview` component. With Homebrew's Rust, install Homebrew's `llvm` and point `LLVM_COV`
 and `LLVM_PROFDATA` at its tools: its version must match the one `rustc -vV` names.
+
+`tools/hegel-coverage.sh` runs only the `#[hegel::test]` tests (picked by function name, so not
+the fixed examples beside them in the `props_*` modules), with no thresholds, and also needs `rg`.
+Code it reports as missed is code no property reaches: a place where a new or wider generator
+would test more.
 
 ## Property-based tests
 
@@ -132,7 +138,10 @@ sequences of edits to `export.pdb`, `exportExt.pdb`, OneLibrary cue rows, analys
 drives (plan, apply, undo) and the store, checked after every step against an in-memory model and,
 where it can, rekordcrate's independent parser. `props_sync` does the same for sync, push, pack
 and merge, with the DJ's own files around the library and runs cancelled, or cut off as by a pulled
-plug, at any progress checkpoint.
+plug, at any progress checkpoint. The CLI's own, in `apps/locallibrary/tests/it/props_cli.rs` and
+`props_rpc.rs`, run the built binary: every command with random arguments and flags against the
+output contract, commands without `--yes` against the files they mustn't touch, edits against a
+model, and the sidecar against the contract in `docs/rpc/schema.json`.
 
 ```bash
 cargo test -p locallibrary --test it props_pdb::            # one module
