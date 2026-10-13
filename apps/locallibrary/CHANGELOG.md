@@ -281,6 +281,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
     caller passes.
+  - `loclib-plugin`: the plugin protocol (versioned on its own, at 0.1.0), the
+    `locallibrary-plugin.toml` manifest and its checks, a JSON-RPC peer over a pair of pipes and
+    an SDK for writing plugins in Rust. The RPC sidecar reads lines and reports errors with it.
 
 ### Changed
 

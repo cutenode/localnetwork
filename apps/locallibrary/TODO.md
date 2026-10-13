@@ -71,10 +71,11 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 
 ## Split-out crates
 
-- [ ] Decide whether and when to publish the eight crates in `crates/` (loclib-progress,
+- [ ] Decide whether and when to publish the eleven crates in `crates/` (loclib-progress,
       loclib-model, loclib-equipment, loclib-mysettings, loclib-tracklist, loclib-mixid,
-      loclib-interop, loclib-waveform) to crates.io. The names were free on 2026-10-09, and `cargo
-      publish --dry-run` packages all eight. Publish in dependency order (loclib-progress, then
+      loclib-transcode, loclib-analysis, loclib-interop, loclib-waveform, loclib-plugin) to
+      crates.io. The first eight's names were free on 2026-10-09, and `cargo publish --dry-run`
+      packaged those eight then. Publish in dependency order (loclib-progress, then
       loclib-model, then the rest); each `test-util` feature would ship as public API.
       locallibrary itself can't be published while it depends on the vendored rekordbox-pdb
       (`publish = false`; crates.io's 0.1.0 lacks the patches), which the next item decides.
