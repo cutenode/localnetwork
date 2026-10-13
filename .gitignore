@@ -3,6 +3,8 @@
 **/*.rs.bk
 # Hegel keeps failing examples here to replay them first next time.
 .hegel/
+# A Swift build cache that tools drop at the root (there's no Swift package here).
+/.build/
 node_modules/
 .DS_Store
 Thumbs.db
