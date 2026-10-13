@@ -589,7 +589,10 @@ fn shift_waveform(section: &mut [u8], header_len: usize, ms: i32, rate: f64) {
     let body = &mut section[header_len..];
     let len = (width as usize * count as usize).min(body.len());
     let body = &mut body[..len];
-    let by = ((f64::from(ms) * rate / 1000.0).round() as isize * width as isize).clamp(-(len as isize), len as isize);
+    // Width and rate come from the file, so the product can be anything: it saturates, and a
+    // shift past either end empties the waveform.
+    let columns = (f64::from(ms) * rate / 1000.0).round() as isize;
+    let by = columns.saturating_mul(width as isize).clamp(-(len as isize), len as isize);
     if by > 0 {
         body.rotate_right(by as usize);
         body[..by as usize].fill(0);

@@ -1,0 +1,39 @@
+name: Workflow lint
+
+# The workflows themselves: actionlint for mistakes in their syntax, expressions and shell (with
+# shellcheck, which the runner has), and zizmor for security problems such as actions not pinned
+# to a commit, checkouts that keep the token, and template injection. Config in
+# .github/actionlint.yaml; zizmor's exceptions are comments on the lines they cover.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - .github/**
+  pull_request:
+    paths: *paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: zizmor
+      # actionlint has no action of its own. The runner has Go, and Go checks the module against its
+      # public checksum database.
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - run: |
+          "$(go env GOPATH)/bin/actionlint"
+      # Offline: the online audits look up action tags and advisories through the GitHub API.
+      - run: zizmor --offline --format github .github

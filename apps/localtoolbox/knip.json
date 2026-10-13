@@ -5,6 +5,7 @@
 		"downloaded-store.ts",
 		"state-transfer.ts",
 		"svelte.config.ts",
+		"vitest.stryker.config.ts",
 		"scripts/*.mts",
 		"test/**/*.test.ts"
 	],

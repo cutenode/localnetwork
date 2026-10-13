@@ -1,24 +1,30 @@
-# A pull request a month for each ecosystem, every update in one.
+# A pull request a month for each ecosystem, every update in one, leaving out releases less than
+# a week old so a compromised release has time to be caught and pulled first.
 #
 # The workflows pin actions to commits; this keeps the pins current. locallibrary-release.yml's
 # pins are also listed in dist-workspace.toml ([dist.github-action-commits]): update them there
 # too.
 #
-# Cargo and npm: the lockfiles only, the semver-compatible updates `cargo update` and
-# `pnpm update` would make. Cargo.toml (and its `=` pins) and package.json are changed by hand.
+# Cargo (the workspace, and fuzz/ with a lockfile of its own) and npm: the lockfiles only, the
+# semver-compatible updates `cargo update` and `pnpm update` would make. Cargo.toml (and its `=`
+# pins) and package.json are changed by hand.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
   - package-ecosystem: cargo
-    directory: /
+    directories: ["/", "/fuzz"]
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     versioning-strategy: lockfile-only
     groups:
       cargo:
@@ -27,6 +33,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     versioning-strategy: lockfile-only
     groups:
       npm:

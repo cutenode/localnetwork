@@ -1,0 +1,49 @@
+[package]
+name = "localnetwork-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace, so the root workspace's builds, lints and Cargo.lock never see it: the
+# targets need nightly and libFuzzer (`fuzz/run.sh`).
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "pdb"
+path = "fuzz_targets/pdb.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "anlz"
+path = "fuzz_targets/anlz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mysettings"
+path = "fuzz_targets/mysettings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tracklist"
+path = "fuzz_targets/tracklist.rs"
+test = false
+doc = false
+bench = false
+
+[dependencies]
+indexmap = "2.14"
+libfuzzer-sys = "0.4.13"
+locallibrary = { version = "0.1.0", path = "../crates/locallibrary", default-features = false }
+loclib-mysettings = { version = "0.1.0", path = "../crates/loclib-mysettings" }
+loclib-tracklist = { version = "0.1.0", path = "../crates/loclib-tracklist" }
+rekordbox-pdb = { version = "0.1.0", path = "../vendor/rekordbox-pdb" }

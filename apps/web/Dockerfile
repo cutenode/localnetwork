@@ -8,6 +8,8 @@ WORKDIR /app
 
 FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# pnpm checks every patch pnpm-workspace.yaml lists, even for packages this install skips.
+COPY patches patches/
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter localnetwork
 COPY lexicons lexicons/

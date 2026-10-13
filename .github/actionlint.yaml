@@ -1,0 +1,10 @@
+# actionlint's configuration (see workflow-lint.yml).
+paths:
+  # dist generates most of this workflow's shell (see its header). shellcheck's style notes about
+  # it are left alone so the file stays close to what `dist generate` writes, and its unquoted
+  # $PRERELEASE_FLAG is meant to vanish when empty.
+  .github/workflows/locallibrary-release.yml:
+    ignore:
+      - "SC2001:"
+      - "SC2086:"
+      - "SC2129:"

@@ -1,0 +1,5 @@
+# What a run makes: the grown corpus (CI caches it), crashes, coverage reports and the build.
+/target
+/corpus
+/artifacts
+/coverage

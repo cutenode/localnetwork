@@ -50,3 +50,8 @@ overrides:
   '@atproto/syntax': 0.0.0-spaces-alpha-20261001173819
   '@atproto/xrpc': 0.0.0-spaces-alpha-20261001173819
   '@atproto/xrpc-server': 0.0.0-spaces-alpha-20261001173819
+# Stryker's vitest runner 10.0.0 names tests the way Vitest 4 did, so on Vitest 5 it runs no tests
+# for a mutant and every mutant survives (stryker-mutator/stryker-js#6210). Drop the patch once a
+# release has the fix (#6214).
+patchedDependencies:
+  '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch

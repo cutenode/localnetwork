@@ -1,4 +1,31 @@
 import { expect, type Page, test } from '@playwright/test';
+import { expectAccessible } from './axe.ts';
+
+/**
+ * WebKit on Linux won't keep a `Secure` cookie from plain-HTTP localhost, where the other browsers
+ * (and WebKit on macOS) will, and the local PDS's sign-in form reads its CSRF token from one. So in
+ * WebKit each Secure cookie the PDS sets is stored again without the flag, which protects nothing
+ * on loopback anyway.
+ */
+function keepPdsCookies(page: Page) {
+	if (page.context().browser()?.browserType().name() !== 'webkit') return;
+
+	page.on('response', async (response) => {
+		if (!response.url().startsWith('http://localhost:2683/')) return;
+
+		for (const line of (await response.headerValue('set-cookie'))?.split('\n') ?? []) {
+			const [pair, ...attributes] = line.split(';');
+
+			if (!attributes.some((attribute) => attribute.trim().toLowerCase() === 'secure')) continue;
+
+			const separator = pair.indexOf('=');
+			const cookie = { name: pair.slice(0, separator).trim(), value: pair.slice(separator + 1).trim() };
+			await page.context().addCookies([{ ...cookie, url: 'http://localhost:2683' }]);
+		}
+	});
+}
+
+test.beforeEach(({ page }) => keepPdsCookies(page));
 
 /** Signs in through the local PDS's OAuth screens with a seeded test account. */
 async function signIn(page: Page, handle: string, password: string, next = '/me') {
@@ -19,18 +46,22 @@ test.describe('public pages', () => {
 		await page.goto('/');
 		await expect(page.getByRole('heading', { level: 1 })).toContainText('Book the right DJ');
 		await expect(page.getByText('Newly listed projects')).toBeVisible();
+		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Find DJs' }).first().click();
 		await expect(page).toHaveURL(/\/projects$/);
 		await expect(page.getByRole('heading', { name: 'Find DJs' })).toBeVisible();
+		await expectAccessible(page);
 	});
 
 	test('directory filters by genre family and opens a profile', async ({ page }) => {
 		await page.goto('/projects?genres=house');
 		await expect(page.getByRole('link', { name: 'Halflight' })).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Coyote Cumbia Club' })).toHaveCount(0);
+		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Halflight' }).click();
 		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
 		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
+		await expectAccessible(page);
 	});
 
 	test('matcher ranks local projects with reasons', async ({ page }) => {
@@ -40,11 +71,13 @@ test.describe('public pages', () => {
 		const first = page.locator('ol > li').first();
 		await expect(first).toContainText('Neon Tide');
 		await expect(first).toContainText('Plays techno');
+		await expectAccessible(page);
 	});
 
 	test('staff pages require sign-in', async ({ page }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
+		await expectAccessible(page);
 	});
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
@@ -56,31 +89,42 @@ test.describe('public pages', () => {
 });
 
 test.describe('signed in', () => {
-	test('a DJ proposes a change and an admin approves it', async ({ page }) => {
+	test('a DJ proposes a change and an admin approves it', async ({ page }, testInfo) => {
+		// Every project runs against the same network, so each proposes a tagline of its own: the same
+		// one again would be no change at all.
+		const tagline = `Disco and boogie for sunny afternoons (${testInfo.project.name})`;
 		await signIn(page, 'neon.test', 'neon-pass', '/projects/saffron-social/edit');
-		await page.locator('#tagline').fill('Disco and boogie for sunny afternoons');
+		await expectAccessible(page);
+		await page.locator('#tagline').fill(tagline);
 		await page.getByRole('button', { name: 'Send for review' }).click();
 		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
+		await expectAccessible(page);
 		await page.getByRole('button', { name: 'Sign out' }).click();
 
 		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests');
+		await expectAccessible(page);
 		await page.getByRole('link', { name: /Changes: Saffron Social/ }).click();
-		await expect(page.getByText('Disco and boogie for sunny afternoons')).toBeVisible();
+		await expect(page.getByText(tagline)).toBeVisible();
+		await expectAccessible(page);
 		await page.getByRole('button', { name: 'Submit decision' }).click();
 		await expect(page.getByText('Approved and published')).toBeVisible();
 
 		await page.goto('/admin/audit');
-		await expect(page.getByText("Approved @neon.test's change request for Saffron Social")).toBeVisible();
+		// The newest entry; earlier projects' approvals read the same.
+		await expect(page.getByText("Approved @neon.test's change request for Saffron Social").first()).toBeVisible();
 		await page.getByRole('button', { name: 'Verify chain' }).click();
 		await expect(page.getByText(/entries verified/)).toBeVisible();
+		await expectAccessible(page);
 
 		await page.goto('/projects/saffron-social');
-		await expect(page.getByText('Disco and boogie for sunny afternoons')).toBeVisible();
+		await expect(page.getByText(tagline)).toBeVisible();
+		await expectAccessible(page);
 	});
 
 	test('a promoter sends a booking inquiry', async ({ page }) => {
 		await signIn(page, 'pat.test', 'pat-pass', '/bookings/new?project=neon-tide');
 		await expect(page.getByRole('heading', { name: 'Neon Tide' })).toBeVisible();
+		await expectAccessible(page);
 		await page.locator('#title').fill('Basement Sessions');
 		await page.locator('#date').fill('2026-12-12');
 		await page.locator('#message').fill('Would you play our December basement night?');
@@ -89,6 +133,7 @@ test.describe('signed in', () => {
 		await page.locator('#text').fill('Budget is flexible.');
 		await page.getByRole('button', { name: 'Send' }).click();
 		await expect(page.getByText('Budget is flexible.')).toBeVisible();
+		await expectAccessible(page);
 	});
 });
 
@@ -112,6 +157,7 @@ test.describe('keeps what people entered', () => {
 		await page.getByRole('button', { name: 'Edit request' }).click();
 		const photo = page.locator('form img');
 		await expect(photo).toBeVisible();
+		await expectAccessible(page);
 		expect((await page.request.get((await photo.getAttribute('src'))!)).ok()).toBe(true);
 		await page.getByLabel('Remove the current image').check();
 		await page.getByRole('button', { name: 'Save and resubmit' }).click();
@@ -126,6 +172,7 @@ test.describe('keeps what people entered', () => {
 
 	test('a claim can change its relationship and links when revised', async ({ page }) => {
 		await signIn(page, 'pat.test', 'pat-pass', '/projects/halflight/claim');
+		await expectAccessible(page);
 		await page.getByLabel("I'm their booking agent").check();
 		await page.locator('#evidence').fill('I book them; see the bio link');
 		await page.locator('#links').fill('https://example.test/bio');
@@ -140,6 +187,7 @@ test.describe('keeps what people entered', () => {
 		await page.getByRole('button', { name: 'Save and resubmit' }).click();
 		await expect(page.getByText("Relationship: I'm their manager")).toBeVisible();
 		await expect(page.getByRole('link', { name: 'https://example.test/roster' })).toBeVisible();
+		await expectAccessible(page);
 		await page.waitForLoadState('networkidle');
 
 		page.once('dialog', (dialog) => dialog.accept());
@@ -158,6 +206,7 @@ test.describe('keeps what people entered', () => {
 		await page.locator('#notes').fill('Bring records');
 		await page.getByRole('button', { name: 'Save show' }).click();
 		await expect(page.getByRole('alert')).toContainText('capacity');
+		await expectAccessible(page);
 		await expect(page.locator('#title')).toHaveValue('Echo Night');
 		await expect(page.locator('#venue')).toHaveValue('The Lot');
 		await expect(page.locator('#notes')).toHaveValue('Bring records');
@@ -175,5 +224,6 @@ test.describe('keeps what people entered', () => {
 		await expect(page.getByRole('alert')).toBeVisible();
 		await expect(first).toContainText('Neon Tide');
 		await expect(first.getByLabel('Lineup')).toBeChecked();
+		await expectAccessible(page);
 	});
 });

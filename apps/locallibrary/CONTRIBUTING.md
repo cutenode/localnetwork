@@ -62,7 +62,20 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   library and the CLI with none and of the CLI with only `account`, and clippy over every
   combination of features with [cargo-hack](https://github.com/taiki-e/cargo-hack);
 - the Bombadil explorations below;
+- mutation testing of the past week's changes to the `loclib-*` crates and `rekordbox-pdb` with
+  [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in shards. Missed
+  mutants don't fail it: the run's summary lists them, and each shard's `mutants.out` artifact has
+  their diffs. `cargo mutants -p loclib-progress` runs it locally;
+- the release CLI's timings with [hyperfine](https://github.com/sharkdp/hyperfine) against the
+  same branch a week earlier (`tools/cli-timings.sh NEW [OLD]` runs them locally), failing when a
+  command's fastest run is more than 25% (and 3 ms) slower;
+- dist's release build of every target, unsigned and without a tag (see Releasing);
+- the fuzz targets, five minutes each (see Fuzzing);
 - cargo-deny's advisory check, for advisories published since the last push.
+
+`.github/workflows/locallibrary-bench.yml` runs the benchmarks under
+[CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
+some, and reports each one's change against `main`.
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.
@@ -181,6 +194,29 @@ A failure prints the shrunk example and a `#[hegel::reproduce_failure("…")]` l
 locally, failing examples are also kept in `.hegel/` in the crate's folder (ignored by git), under
 the test's path (`it::props_pdb::...`), and tried first next time.
 On CI runs are derandomised.
+
+## Fuzzing
+
+The parsers for what a drive or an import hands locallibrary have
+[cargo-fuzz](https://github.com/rust-fuzz/cargo-fuzz) targets in `fuzz/` (from the repository
+root): `pdb` (`export.pdb` and `exportExt.pdb`), `anlz` (analysis files, and the rewrites of
+their paths, cues and times), `mysettings` (the players' settings files) and `tracklist`. libFuzzer
+mutates the test fixtures (and `fuzz/seeds/` for tracklists) looking for a panic, a hang or a
+runaway allocation. `fuzz/` is a workspace of its own and needs nightly:
+
+```bash
+rustup toolchain install nightly --component rust-src && cargo install cargo-fuzz --locked
+fuzz/run.sh anlz                                            # until it finds something; Ctrl-C stops it
+fuzz/run.sh pdb -max_total_time=300                         # libFuzzer options after the target
+cargo +nightly fuzz run anlz fuzz/artifacts/anlz/crash-...  # replay a crash
+```
+
+What reaches new code is kept in `fuzz/corpus/<target>/` and a crash's input in
+`fuzz/artifacts/<target>/` (both ignored by git). A crash is a bug in the parser: fix it there
+(in `vendor/rekordbox-pdb`, with an entry in its `PATCHES.md`) and add the minimized input
+(`cargo +nightly fuzz tmin <target> <file>`) as a test beside the parser's others. The scheduled
+workflow runs each target for five minutes, keeping the corpus between runs, and uploads the
+input of any crash.
 
 ## Exploring the TUI and the mix report
 

@@ -66,7 +66,7 @@
 		</section>
 		<form method="POST" action="?/status" class="card card-pad space-y-3" use:enhance>
 			<h2 class="section-title">Status</h2>
-			<select name="status" class="input">
+			<select name="status" class="input" aria-label="Status">
 				{#each BOOKING_STATUSES as option (option.value)}<option value={option.value} selected={thread.status === option.value}>{option.label}</option>{/each}
 			</select>
 			<input name="note" class="input" placeholder="Note (optional)" maxlength="500" />

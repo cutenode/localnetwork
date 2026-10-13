@@ -17,7 +17,7 @@
 </div>
 <form method="GET" class="mt-6 flex flex-wrap gap-2">
 	<input name="q" class="input max-w-xs" value={data.q} placeholder="Search projects" />
-	<select name="status" class="input w-40">
+	<select name="status" class="input w-40" aria-label="Status">
 		<option value="">Any status</option>
 		{#each ['active', 'hidden', 'archived'] as status (status)}<option value={status} selected={data.status === status}>{status}</option>{/each}
 	</select>

@@ -37,7 +37,7 @@
 	<aside class="space-y-6">
 		<form method="POST" action="?/status" class="card card-pad space-y-3" use:enhance>
 			<h2 class="section-title">Visibility</h2>
-			<select name="status" class="input">
+			<select name="status" class="input" aria-label="Visibility">
 				<option value="active" selected={project.status === 'active'}>Active</option>
 				<option value="hidden" selected={project.status === 'hidden'}>Hidden</option>
 				{#if data.viewer?.isAdmin}<option value="archived" selected={project.status === 'archived'}>Archived</option>{/if}
