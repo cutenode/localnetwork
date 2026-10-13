@@ -41,3 +41,10 @@ it('keeps the client bundle within its budget', () => {
 	expect(bytes('.js')).toBeLessThan(600 * 1024);
 	expect(bytes('.css')).toBeLessThan(100 * 1024);
 });
+
+it('keeps fonts as files, which the CSP allows', () => {
+	// font-src is 'self' (vite.config.ts), so a font inlined as a data URL is blocked and logs an error.
+	for (const file of files.filter((name) => name.endsWith('.css'))) {
+		expect(readFileSync(file, 'utf8'), file).not.toContain('data:font');
+	}
+});

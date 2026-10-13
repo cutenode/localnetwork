@@ -20,6 +20,9 @@ const listRecordsOutput = z.object({ records: z.array(z.object({ uri: z.string()
 /** Sets shown per account: the most recent ones. */
 const SET_LIMIT = 25;
 
+/** Leaves out accounts with neither stats nor sets on file. */
+const onFile = (all: DjActivity[]) => all.filter((entry) => entry.profile || entry.sets.length);
+
 /**
  * DJs' own records, read on demand from their PDS when a page needs them: the playing stats and
  * sets locallibrary publishes. Nothing is stored; a short-lived cache in memory keeps a busy
@@ -38,15 +41,29 @@ export class DjService {
 
 	/** Each account's stats and recent sets, in the order given, leaving out accounts with neither. */
 	async activity(accounts: AccountView[]): Promise<DjActivity[]> {
-		const all = await Promise.all(accounts.map((account) => this.forAccount(account)));
+		return onFile(await Promise.all(accounts.map((account) => this.forAccount(account))));
+	}
 
-		return all.filter((entry) => entry.profile || entry.sets.length);
+	/**
+	 * The same, without waiting, when every account's records are fresh in the cache (always, for no
+	 * accounts), so a page can render them with the rest of it instead of streaming them in.
+	 */
+	fresh(accounts: AccountView[]): DjActivity[] | undefined {
+		const all = accounts.map((account) => this.cached(account));
+
+		return all.every((entry): entry is DjActivity => entry !== undefined) ? onFile(all) : undefined;
+	}
+
+	private cached(account: AccountView): DjActivity | undefined {
+		const cached = this.cache.get(account.did);
+
+		return cached && this.now() - cached.at < FRESH_MS ? { ...cached.value, handle: account.handle } : undefined;
 	}
 
 	private async forAccount(account: AccountView): Promise<DjActivity> {
-		const cached = this.cache.get(account.did);
+		const cached = this.cached(account);
 
-		if (cached && this.now() - cached.at < FRESH_MS) return { ...cached.value, handle: account.handle };
+		if (cached) return cached;
 
 		const [profile, sets] = await Promise.all([this.profile(account.did), this.sets(account.did)]);
 		const value = { did: account.did, handle: account.handle, profile, sets };
