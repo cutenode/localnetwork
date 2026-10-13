@@ -40,11 +40,11 @@
 <form method="GET" class="mt-6 grid gap-2 sm:grid-cols-[1fr_12rem_10rem_10rem_auto]">
 	<input name="q" class="input" value={f.q} placeholder="Search summaries and subjects" />
 	<input name="actor" class="input" value={f.actor} placeholder="Actor handle or DID" />
-	<select name="action" class="input">
+	<select name="action" class="input" aria-label="Action">
 		<option value="">Any action</option>
 		{#each ['auth', 'project', 'request', 'role', 'booking', 'planner', 'system'] as prefix (prefix)}<option value={prefix} selected={f.action === prefix}>{prefix}.*</option>{/each}
 	</select>
-	<select name="outcome" class="input">
+	<select name="outcome" class="input" aria-label="Outcome">
 		<option value="">Any outcome</option>
 		{#each ['success', 'denied', 'failure'] as outcome (outcome)}<option value={outcome} selected={f.outcome === outcome}>{outcome}</option>{/each}
 	</select>

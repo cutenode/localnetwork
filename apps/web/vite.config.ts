@@ -83,6 +83,12 @@ export default defineConfig({
 					hookTimeout: 180_000,
 					fileParallelism: false
 				}
+			},
+			{
+				extends: './vite.config.ts',
+				// Builds the app (`pnpm test:build`), so it stays out of runs with the client tests, whose
+				// dev server a rebuild would reload.
+				test: { name: 'build', environment: 'node', include: ['tests/build.test.ts'] }
 			}
 		]
 	}

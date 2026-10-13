@@ -166,9 +166,11 @@
 	a.chip-accent:hover {
 		@apply bg-ansi-magenta text-ansi-white;
 	}
-	/* A checkbox styled as a toggle chip; the input itself is visually hidden. */
+	/* A checkbox styled as a toggle chip; the input itself is visually hidden. It applies chip
+	   itself, as .chip-accent does: the chip class would outrank the checked colors below (utilities
+	   beat components), leaving gray text on magenta. */
 	.chip-toggle {
-		@apply cursor-pointer select-none hover:border-ansi-bright-magenta;
+		@apply chip cursor-pointer select-none hover:border-ansi-bright-magenta;
 	}
 	.chip-toggle::before {
 		content: '[ ]';

@@ -148,7 +148,7 @@
 			<legend class="label">Set types</legend>
 			<div class="flex flex-wrap gap-2">
 				{#each SET_TYPES as option (option.value)}
-					<label class="chip chip-toggle gap-2 py-0.5">
+					<label class="chip-toggle gap-2 py-0.5">
 						<input type="checkbox" class="checkbox" name="setTypes" value={option.value} checked={has('setTypes', option.value)} />{option.label}
 					</label>
 				{/each}
@@ -158,7 +158,7 @@
 			<legend class="label">Formats</legend>
 			<div class="flex flex-wrap gap-2">
 				{#each FORMATS as option (option.value)}
-					<label class="chip chip-toggle gap-2 py-0.5">
+					<label class="chip-toggle gap-2 py-0.5">
 						<input type="checkbox" class="checkbox" name="formats" value={option.value} checked={has('formats', option.value)} />{option.label}
 					</label>
 				{/each}

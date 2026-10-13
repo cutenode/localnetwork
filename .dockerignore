@@ -18,6 +18,8 @@ apps/web/coverage
 apps/web/test-results
 apps/web/playwright-report
 apps/web/blob-report
+apps/web/.lighthouseci
+apps/web/lighthouse-report
 apps/web/.env
 apps/web/.env.*
 apps/web/.claude

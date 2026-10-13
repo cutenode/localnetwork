@@ -30,6 +30,9 @@ const ENV_FILE = process.env.DEV_ENV_FILE ?? '.env.local';
 /** With --app, also start the SvelteKit dev server wired to this network (used by Playwright). */
 const START_APP = process.argv.includes('--app');
 
+/** With --production as well, the app is the production build in build/ instead (used by Lighthouse). */
+const PRODUCTION = process.argv.includes('--production');
+
 const APP_PORT = Number(process.env.PORT ?? 5173);
 
 const ROOT = { handle: 'localnetwork.test', email: 'root@localnetwork.test', password: 'root-pass' };
@@ -156,10 +159,13 @@ async function main() {
 		`\n  Now run \`pnpm dev\` and open http://127.0.0.1:${APP_PORT}\n  Ctrl-C stops the network (all data is in-memory/temporary).\n`
 	);
 
+	// The production build only reaches this network's loopback PDS and PLC with the SSRF guard off.
+	const production = { NODE_ENV: 'production', HOST: '127.0.0.1', ALLOW_PRIVATE_NETWORK: 'true' };
+
 	const app = START_APP
-		? spawn('pnpm', ['exec', 'vite', 'dev'], {
+		? spawn(PRODUCTION ? process.execPath : 'pnpm', PRODUCTION ? ['build'] : ['exec', 'vite', 'dev'], {
 				stdio: 'inherit',
-				env: { ...process.env, ...vars, PORT: String(APP_PORT) }
+				env: { ...process.env, ...vars, ...(PRODUCTION && production), PORT: String(APP_PORT) }
 			})
 		: undefined;
 
