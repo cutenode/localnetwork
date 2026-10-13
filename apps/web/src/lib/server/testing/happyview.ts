@@ -494,6 +494,25 @@ export class FakeHappyView {
 			.run(uri, did, collection, rkey, JSON.stringify(stored), cid, now, now, now);
 	}
 
+	/**
+	 * Stores records as they are, without running their record script, for tests that need many records the script
+	 * would keep unchanged and only measure the queries over them.
+	 */
+	seed(records: { did: string; collection: string; rkey: string; cid: string; record: JsonRecord }[]): void {
+		const now = new Date().toISOString();
+
+		const insert = this.db.prepare(
+			`INSERT INTO happyview_records (uri, did, collection, rkey, record, cid, indexed_at, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+		);
+
+		this.db.exec('BEGIN');
+
+		for (const { did, collection, rkey, cid, record } of records)
+			insert.run(`at://${did}/${collection}/${rkey}`, did, collection, rkey, JSON.stringify(record), cid, now, now);
+		this.db.exec('COMMIT');
+	}
+
 	/** Serves `GET /xrpc/<nsid>` from the query's script, the way HappyView does. */
 	readonly fetch: typeof globalThis.fetch = async (input, init) => {
 		const request = new Request(input, init);
