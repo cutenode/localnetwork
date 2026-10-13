@@ -94,7 +94,12 @@ fatfs = "0.3"
 loclib-model = { workspace = true, features = ["test-util"] }
 loclib-mixid = { workspace = true, features = ["test-util"] }
 jsonschema.workspace = true
+criterion.workspace = true
 
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.
 winapi-util = "0.1.11"
+
+[[bench]]
+name = "library"
+harness = false

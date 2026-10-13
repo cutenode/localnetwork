@@ -133,6 +133,24 @@ the same thresholds: the properties alone have to reach what the whole suite doe
 `rg`. Code it reports as missed is code no property reaches: a place where a new or wider
 generator would test more.
 
+## Benchmarks
+
+```bash
+cargo bench -p locallibrary --bench library -- --save-baseline before   # on the code before a change
+cargo bench -p locallibrary --bench library -- --baseline before        # after it: the change in each
+cargo bench -p loclib-mixid --features test-util --bench mixid -- matcher/find   # one group
+```
+
+Crates with work that grows with a library or a recording have
+[criterion](https://bheisler.github.io/criterion.rs/book/) benchmarks in their `benches/`:
+`locallibrary` (reading, querying, comparing, scanning, writing and converting libraries of 5k to
+20k made-up tracks), `loclib-mixid` (fingerprinting, resampling, indexing and finding tracks in a
+mix), `loclib-model`, `loclib-tracklist` and `loclib-interop` (over
+`loclib_model::test_util::library`), `loclib-waveform` (a frame of each widget) and
+`loclib-analysis`. `loclib-mixid` and `loclib-model` need `--features test-util`. The first
+`library` run builds its drives under `target/`, which takes about a minute. Compare on a quiet
+machine and rerun anything close: a few percent is noise.
+
 ## Property-based tests
 
 The `props_*` modules in `crates/locallibrary/tests/it/` (and a few unit tests in the CLI) use

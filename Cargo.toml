@@ -89,6 +89,8 @@ tokio = { version = "1", default-features = false, features = ["rt-multi-thread"
 unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 walkdir = "2.5"
+# Benchmarks (dev only, `cargo bench`): statistics and saved baselines to compare a change against.
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support", "rayon"] }
 # Property-based tests (dev only). Pinned: Hegel is in beta and makes breaking changes.
 # `static-engine` links Hegel's engine as an ordinary dependency, so it's in Cargo.lock: without
 # it, hegeltest's build script fetches and builds the engine in a nested, unlocked cargo build.

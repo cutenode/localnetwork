@@ -24,6 +24,12 @@ schemars = ["dep:schemars"]
 test-util = []
 
 [dev-dependencies]
+criterion.workspace = true
 hegeltest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+
+[[bench]]
+name = "model"
+harness = false
+required-features = ["test-util"]

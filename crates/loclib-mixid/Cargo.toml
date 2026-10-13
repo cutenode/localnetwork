@@ -23,4 +23,10 @@ test-util = []
 
 [dev-dependencies]
 hegeltest.workspace = true
+criterion.workspace = true
 tempfile.workspace = true
+
+[[bench]]
+name = "mixid"
+harness = false
+required-features = ["test-util"]

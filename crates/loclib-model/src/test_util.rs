@@ -1,7 +1,7 @@
 //! Fixtures for tests, behind the `test-util` feature. Not part of the stable API: they change
 //! with the tests that use them.
 
-use crate::model::Track;
+use crate::model::{Library, Playlist, Track};
 
 /// A track at `path`: 128 BPM, five minutes, a 320 kbps 44.1 kHz file of 1,000 bytes, everything
 /// else empty.
@@ -40,4 +40,68 @@ pub fn track(id: u32, artist: &str, title: &str, path: &str) -> Track {
         artwork_id: None,
         artwork_path: None,
     }
+}
+
+/// A made-up library of `tracks` tracks and `playlists` playlists and folders, the same every
+/// time, for benchmarks: titles and artists in the shapes real tags take (accents, featured
+/// artists, remixes, "Original Mix"), keys, tempos, dates, ISRCs, and playlists of 50 tracks,
+/// every tenth node a top-level folder holding the nine after it.
+pub fn library(tracks: u32, playlists: u32) -> Library {
+    const WORDS: &str = "night|light|dream|fire|love|deep|sun|moon|city|drive|echo|wave|café|über|niño|don't|Mr.|\
+                         rock & roll|satisfaction|around|colour|strobe|glue|opus";
+    const NAMES: &[&str] =
+        &["Daft Punk", "Kölsch", "deadmau5", "The Chemical Brothers", "Above & Beyond", "Bicep", "Árvore", "Moby"];
+    const MIXES: &[&str] = &["", " (Extended Mix)", " (Radio Edit)", " - Original Mix", " (feat. Nile Rodgers)"];
+    let words: Vec<&str> = WORDS.split('|').collect();
+    let word = |i: u32| words[i as usize % words.len()];
+    let tracks: Vec<Track> = (0..tracks)
+        .map(|i| {
+            let artist = match i % 10 {
+                0 => format!("{} feat. {}", NAMES[i as usize % NAMES.len()], NAMES[(i / 3) as usize % NAMES.len()]),
+                _ => format!("{} {}", NAMES[i as usize % NAMES.len()], i % 997),
+            };
+            let mix =
+                if i % 7 == 3 { format!(" ({} Remix)", NAMES[(i / 7) as usize % NAMES.len()]) } else { String::new() };
+            let title = format!("{} {} {i}{mix}{}", word(i / 3), word(i / 5), MIXES[i as usize % MIXES.len()]);
+            let album = format!("{} {}", word(i / 11), i / 12);
+            let ext = ["mp3", "flac", "aiff", "wav", "m4a"][i as usize % 5];
+            let mut t =
+                track(i + 1, &artist, &title, &format!("/Contents/{artist}/{album}/{:02} {title}.{ext}", i % 12));
+            t.album = album;
+            t.genre = ["House", "Techno", "Drum & Bass"][i as usize % 3].into();
+            t.mix_name = if i % 4 == 0 { "Original Mix".into() } else { String::new() };
+            t.key = format!("{}{}", i % 12 + 1, if i % 2 == 0 { 'A' } else { 'B' });
+            t.bpm = 118.0 + f64::from(i % 140) / 7.0;
+            t.duration_secs = 180 + i * 37 % 300;
+            t.track_number = i % 12 + 1;
+            t.year = 1990 + (i % 35) as u16;
+            t.rating = (i % 6) as u8;
+            t.play_count = (i % 40) as u16;
+            t.file_size = 8_000_000 + u64::from(i) * 1_000;
+            t.date_added = format!("2024-{:02}-{:02}", i % 12 + 1, i % 28 + 1);
+            t.isrc = if i % 3 == 0 { format!("GB-ABC-{:02}-{:05}", i % 100, i) } else { String::new() };
+            t
+        })
+        .collect();
+    let n = tracks.len().max(1) as u32;
+    let mut folder = None;
+    let playlists = (0..playlists)
+        .map(|p| {
+            let id = p + 1;
+            let is_folder = p % 10 == 0;
+            let node = Playlist {
+                id,
+                parent_id: if is_folder { None } else { folder },
+                name: format!("{} {p}", if is_folder { "Shows" } else { word(p) }),
+                is_folder,
+                sort_order: p,
+                track_ids: if is_folder { Vec::new() } else { (0..50).map(|k| (p * 131 + k * 197) % n + 1).collect() },
+            };
+            if is_folder {
+                folder = Some(id);
+            }
+            node
+        })
+        .collect();
+    Library { tracks, playlists, ..Default::default() }
 }
