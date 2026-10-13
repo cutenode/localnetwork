@@ -92,7 +92,7 @@ describe('DjService', () => {
 	it('hands over records without waiting only while every account is fresh in the cache', async () => {
 		const pds = fakePds({ [DJ]: { profile: DEMO_DJ_PROFILE } });
 		let now = 0;
-		const service = new DjService(identity, silentLogger, pds.fetchImpl, () => now);
+		const service = new DjService(new PublicRepo(identity, silentLogger, pds.fetchImpl), silentLogger, () => now);
 
 		const accounts = [
 			{ did: DJ, handle: 'neon.test' },
