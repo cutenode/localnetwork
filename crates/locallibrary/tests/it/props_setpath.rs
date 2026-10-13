@@ -44,10 +44,16 @@ fn a_track_pointed_at_another_file_keeps_everything_else(tc: TestCase) {
         _ => "/PIONEER/rekordbox/export.pdb".into(),
     };
     let audio = fs::read(paths::to_fs(&root, &paths::key(&t.file_path))).unwrap();
+    // Where the track is pointed: the file as the drive spells it, which on a drive that ignores
+    // case can differ from the path given (the twelve-track export names one folder in two cases).
+    let mut pointed = new_path.clone();
     if matches!(target, "moved" | "renamed") {
         let p = paths::to_fs(&root, &paths::key(&new_path));
         fs::create_dir_all(p.parent().unwrap()).unwrap();
         fs::write(&p, &audio).unwrap();
+        let real = fs::canonicalize(&p).unwrap();
+        let rel = real.strip_prefix(fs::canonicalize(&root).unwrap()).unwrap();
+        pointed = paths::device_path(&paths::key(&rel.to_string_lossy()));
     }
     let file = tc.draw(gs::booleans()).then_some(AudioFile {
         size: audio.len() as u64,
@@ -69,7 +75,7 @@ fn a_track_pointed_at_another_file_keeps_everything_else(tc: TestCase) {
     let report = edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
 
     let check = |lib: &Library| {
-        let now = lib.tracks.iter().find(|x| x.file_path == new_path).expect("the track at its new file");
+        let now = lib.tracks.iter().find(|x| x.file_path == pointed).expect("the track at its new file");
         assert_eq!((now.title.as_str(), now.artist.as_str()), (t.title.as_str(), t.artist.as_str()));
         if let Some(f) = file {
             assert_eq!((now.sample_rate, now.sample_depth), (f.sample_rate, f.bit_depth));
@@ -88,10 +94,10 @@ fn a_track_pointed_at_another_file_keeps_everything_else(tc: TestCase) {
     let dat_key = paths::key(&t.analyze_path);
     if paths::classify(&dat_key) == Some(paths::FileClass::Analysis) {
         let dat = fs::read(paths::to_fs(&root, &dat_key)).unwrap();
-        assert_eq!(anlz::read_path(&dat).unwrap().as_deref(), Some(new_path.as_str()), "the analysis names it");
+        assert_eq!(anlz::read_path(&dat).unwrap().as_deref(), Some(pointed.as_str()), "the analysis names it");
     }
     let journal = edit::journal::edits(&d).unwrap();
-    assert!(journal.iter().any(|j| matches!(j, Edit::SetPath { path, .. } if *path == new_path)), "{journal:?}");
+    assert!(journal.iter().any(|j| matches!(j, Edit::SetPath { path, .. } if *path == pointed)), "{journal:?}");
 
     // rekordbox exports the old row again: replaying the journal points it at the file again.
     let backup_id = report.backup.clone();

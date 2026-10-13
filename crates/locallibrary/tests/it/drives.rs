@@ -241,7 +241,10 @@ fn a_sync_thread_that_panics_says_why() {
 fn scrub_finds_damage_and_repair_fixes_it_from_the_store() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
-    let mut main = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    // Written well before the pull, so the snapshot tells a rewrite since by its later mtime.
+    common::age(&root);
+    let mut main = Device::open(root).unwrap();
     pull(&store, &mut main, "first");
 
     let clean = scrub::scrub(&main, Some(&store), &[], &ScrubOptions::default(), &ctx()).unwrap();
