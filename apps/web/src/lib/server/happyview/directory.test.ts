@@ -58,6 +58,19 @@ async function publish(
 	record: JsonObject = {},
 	options: { did?: string; rkey?: string } = {}
 ): Promise<string> {
+	const { did, rkey, value } = projectRecord(profile, record, options);
+	const cid = (await cidForLex(jsonToLex(value))).toString();
+	await hv.ingest({ did, collection: COLLECTION.project, rkey, cid, record: value });
+
+	return `at://${did}/${COLLECTION.project}/${rkey}`;
+}
+
+/** A valid project record with `profile` and `record` fields over the defaults, a minute newer than the last. */
+function projectRecord(
+	profile: JsonObject = {},
+	record: JsonObject = {},
+	options: { did?: string; rkey?: string } = {}
+) {
 	published += 1;
 	const { did = ROOT, rkey = `3k${String(published).padStart(11, '0')}` } = options;
 	const createdAt = new Date(Date.UTC(2026, 0, 1) + published * 60_000).toISOString();
@@ -80,10 +93,7 @@ async function publish(
 		...record
 	};
 
-	const cid = (await cidForLex(jsonToLex(value))).toString();
-	await hv.ingest({ did, collection: COLLECTION.project, rkey, cid, record: value });
-
-	return `at://${did}/${COLLECTION.project}/${rkey}`;
+	return { did, rkey, value };
 }
 
 describe('record script', () => {
@@ -555,8 +565,10 @@ describe('instruction budget', () => {
 		const hv = new FakeHappyView(ROOT);
 		const tiers = ['community', 'emerging', 'established', 'headliner'];
 
-		for (let i = 0; i < 1000; i++) {
-			await publish(hv, {
+		// Stored without running the record script 1,000 times: it keeps valid records as they are, and only the
+		// queries over them are measured.
+		const records = Array.from({ length: 1000 }, (_unused, i) =>
+			projectRecord({
 				name: `Project ${i}`,
 				tagline: 'Deep grooves all night long',
 				bio: 'A collective that plays warehouse parties and small clubs. '.repeat(5),
@@ -573,8 +585,13 @@ describe('instruction budget', () => {
 				capacity: { min: 100, max: 800 + i },
 				formats: i % 2 ? ['vinyl'] : ['cdj', 'vinyl'],
 				setTypes: ['peak', 'closing']
-			});
-		}
+			})
+		);
+
+		// One real CID for them all: the queries return it, and nothing here tells records apart by it.
+		const cid = (await cidForLex(jsonToLex(records[0].value))).toString();
+
+		hv.seed(records.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value })));
 
 		const show = { ...BERLIN, budgetTier: 'emerging', capacity: 300, setType: 'peak', formats: 'vinyl' };
 
