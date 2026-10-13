@@ -1,4 +1,5 @@
 import adapter from '@sveltejs/adapter-node';
+import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
@@ -44,9 +45,14 @@ export default defineConfig({
 		coverage: {
 			provider: 'v8',
 			include: ['src/lib/**/*.{ts,svelte}'],
-			exclude: ['src/lib/**/*.{test,spec}.ts', 'src/lib/**/*.svelte.{test,spec}.ts', 'src/lib/**/types.ts'],
+			exclude: [
+				'src/lib/**/*.{test,spec}.ts',
+				'src/lib/**/*.svelte.{test,spec}.ts',
+				'src/lib/**/*.stories.svelte',
+				'src/lib/**/types.ts'
+			],
 			reporter: ['text', 'html', 'lcov', 'json-summary'],
-			thresholds: { lines: 89, functions: 88, statements: 87, branches: 75 }
+			thresholds: { lines: 90, functions: 89, statements: 88, branches: 76 }
 		},
 		projects: [
 			{
@@ -89,6 +95,19 @@ export default defineConfig({
 				// Builds the app (`pnpm test:build`), so it stays out of runs with the client tests, whose
 				// dev server a rebuild would reload.
 				test: { name: 'build', environment: 'node', include: ['tests/build.test.ts'] }
+			},
+			{
+				extends: './vite.config.ts',
+				// Each story renders in a browser and fails on an accessibility violation (.storybook/preview.ts).
+				plugins: [storybookTest({ configDir: `${import.meta.dirname}/.storybook` })],
+				test: {
+					name: 'storybook',
+					browser: {
+						enabled: true,
+						provider: playwright(),
+						instances: [{ browser: 'chromium', headless: true }]
+					}
+				}
 			}
 		]
 	}

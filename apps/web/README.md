@@ -144,26 +144,33 @@ The network is temporary; restarting it resets everything (and the dev database)
 
 ## Scripts
 
-| Script                              | What it does                                                          |
-| ----------------------------------- | --------------------------------------------------------------------- |
-| `pnpm dev` / `pnpm dev:network`     | Dev server / local atproto network and HappyView                      |
-| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                              |
-| `pnpm check`                        | `svelte-check` with TypeScript 6                                      |
-| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin      |
-| `pnpm format` / `pnpm format:check` | Oxfmt                                                                 |
-| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)   |
-| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container |
-| `pnpm test:coverage`                | Unit + component + integration with `@vitest/coverage-v8`             |
-| `pnpm test:build`                   | Production build, checked for sourcemaps and the client bundle budget |
-| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe  |
-| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)            |
-| `pnpm knip`                         | Unused files, exports, and dependencies                               |
-| `pnpm lexicons:publish`             | Publish lexicons from the root account and check their DNS records    |
-| `pnpm verify`                       | CI's quick checks, in order                                           |
+| Script                              | What it does                                                            |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| `pnpm dev` / `pnpm dev:network`     | Dev server / local atproto network and HappyView                        |
+| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                |
+| `pnpm check`                        | `svelte-check` with TypeScript 6                                        |
+| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin        |
+| `pnpm format` / `pnpm format:check` | Oxfmt                                                                   |
+| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)     |
+| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container   |
+| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8` |
+| `pnpm test:build`                   | Production build, checked for sourcemaps and the client bundle budget   |
+| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                       |
+| `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it   |
+| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                 |
+| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe    |
+| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)              |
+| `pnpm knip`                         | Unused files, exports, and dependencies                                 |
+| `pnpm lexicons:publish`             | Publish lexicons from the root account and check their DNS records      |
+| `pnpm verify`                       | CI's quick checks, in order                                             |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
 
 Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files on commit and run type checks and unit tests on push.
+
+## Design system
+
+`src/lib/ui/` holds the design system the site is moving to: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. `theme.css` has the Tailwind tokens; `data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it, and **Patterns/Homepage** builds the product homepage from them. `pnpm storybook` to browse it. The live pages still use the BBS theme in `src/routes/layout.css` until they move over.
 
 ## Configuration
 
@@ -230,6 +237,7 @@ lua/                            HappyView scripts: the project record gate and t
 scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
+src/lib/ui/                     The design system: theme tokens, components and their stories
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
 src/lib/server/happyview/       HappyView client, script bundling, and boot sync
@@ -240,6 +248,7 @@ src/lib/tools/                  The tools: one entry per tool, with its guides b
 src/routes/                     SvelteKit 3 pages, form actions, and endpoints
 tests/integration/              Flows against an in-process spaces PDS and a HappyView container
 tests/e2e/                      Playwright
+.storybook/                     Storybook config; stories render with src/lib/ui/theme.css only
 ```
 
 ## Known limitations
