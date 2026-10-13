@@ -68,7 +68,7 @@ expect() {
 }
 
 expect /healthz '"happyView":"ok"'
-expect / 'Book the right DJ'
+expect / 'The home for local DJs'
 expect /projects/halflight 'Halflight'
 # The tools' guides come from apps/<tool>/, which only the image's build context brings in.
 expect /tools/locallibrary/docs/install 'Installing locallibrary'

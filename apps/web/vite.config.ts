@@ -38,6 +38,25 @@ export default defineConfig({
 			}
 		})
 	],
+	// Fonts stay files. Vite inlines assets under 4 KB as data URLs, which the CSP's font-src blocks
+	// (JetBrains Mono's Cyrillic Extended subset is that small).
+	build: { assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined) },
+	environments: {
+		client: {
+			build: {
+				rolldownOptions: {
+					output: {
+						// The small components and icons that pages share go out as one file. Split by which
+						// pages use them, they were a file each (twenty-odd requests of under 1 KB per page,
+						// which an HTTP/1.1 browser fetches six at a time).
+						codeSplitting: {
+							groups: [{ name: 'shared', test: /[\\/]src[\\/]lib[\\/]|@lucide/, minShareCount: 2, maxModuleSize: 4096 }]
+						}
+					}
+				}
+			}
+		}
+	},
 	server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 5173), strictPort: true },
 	preview: { host: '127.0.0.1', port: 4173 },
 	test: {
@@ -87,7 +106,10 @@ export default defineConfig({
 					include: ['tests/integration/**/*.test.ts'],
 					testTimeout: 120_000,
 					hookTimeout: 180_000,
-					fileParallelism: false
+					fileParallelism: false,
+					// Runs after the other projects: its real PDS and HappyView would otherwise take the CPU
+					// from the unit and component tests running beside it, and push them past their timeouts.
+					sequence: { groupOrder: 1 }
 				}
 			},
 			{

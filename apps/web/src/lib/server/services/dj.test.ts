@@ -88,4 +88,25 @@ describe('DjService', () => {
 		await service.activity([{ did: DJ, handle: null }]);
 		expect(pds.calls).toHaveLength(4);
 	});
+
+	it('hands over records without waiting only while every account is fresh in the cache', async () => {
+		const pds = fakePds({ [DJ]: { profile: DEMO_DJ_PROFILE } });
+		let now = 0;
+		const service = new DjService(identity, silentLogger, pds.fetchImpl, () => now);
+
+		const accounts = [
+			{ did: DJ, handle: 'neon.test' },
+			{ did: OTHER, handle: null }
+		];
+
+		expect(service.fresh([])).toEqual([]);
+		expect(service.fresh(accounts)).toBeUndefined();
+
+		await service.activity(accounts);
+		expect(service.fresh(accounts)?.map((entry) => entry.handle)).toEqual(['neon.test']);
+		expect(service.fresh([...accounts, { did: 'did:plc:new', handle: null }])).toBeUndefined();
+
+		now = 6 * 60_000;
+		expect(service.fresh(accounts)).toBeUndefined();
+	});
 });

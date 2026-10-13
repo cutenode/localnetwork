@@ -67,7 +67,7 @@ fn attrs(e: &BytesStart<'_>) -> FxHashMap<String, String> {
     e.attributes()
         .map(|a| {
             let a = a.unwrap();
-            (String::from_utf8(a.key.as_ref().to_vec()).unwrap(), a.unescape_value().unwrap().into_owned())
+            (a.key.as_ref().to_owned(), a.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap().into_owned())
         })
         .collect()
 }
@@ -96,7 +96,7 @@ fn parse_nml(text: &str) -> Nml {
         match r.read_event().unwrap() {
             Event::Eof => break,
             Event::Start(e) | Event::Empty(e) => {
-                let name = String::from_utf8(e.name().as_ref().to_vec()).unwrap();
+                let name = e.name().as_ref().to_owned();
                 let a = attrs(&e);
                 match name.as_str() {
                     "COLLECTION" => nml.collection_count = a["ENTRIES"].parse().unwrap(),
@@ -130,8 +130,8 @@ fn parse_nml(text: &str) -> Nml {
                 }
             }
             Event::End(e) => match e.name().as_ref() {
-                b"ENTRY" if path.is_empty() => in_entry = false,
-                b"NODE" => {
+                "ENTRY" if path.is_empty() => in_entry = false,
+                "NODE" => {
                     path.pop();
                 }
                 _ => {}
