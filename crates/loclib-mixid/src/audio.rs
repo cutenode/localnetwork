@@ -299,17 +299,18 @@ impl Resampler {
     fn drain(&mut self, flush: bool, sink: &mut dyn FnMut(&[f32])) {
         let n = self.pending.len();
         let end = n as u64 * self.unit;
+        let last = self.table.len() - 1;
         self.out.clear();
         // Until the input runs out, or (still streaming) until an output's taps would.
         while if flush { self.pos < end } else { self.pos + self.half < end } {
             let lo = self.pos.saturating_sub(self.half).div_ceil(self.unit) as usize;
             let hi = (((self.pos + self.half) / self.unit) as usize).min(n - 1);
             let mut acc = 0.0f32;
-            for i in lo..=hi {
+            for (i, x) in (lo..).zip(&self.pending[lo..=hi]) {
                 // The nearest of the kernel's phases to the tap's distance, ties away from 0.
                 let d = (i as u64 * self.unit).abs_diff(self.pos);
                 let k = ((2 * d * PHASES as u64 + self.unit) / (2 * self.unit)) as usize;
-                acc += self.pending[i] * self.table[k.min(self.table.len() - 1)];
+                acc += x * self.table[k.min(last)];
             }
             self.out.push(acc);
             self.pos += self.step;
