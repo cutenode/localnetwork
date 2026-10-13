@@ -7,7 +7,8 @@
 	import MixTracklist from './MixTracklist.svelte';
 	import TempoChart from './TempoChart.svelte';
 
-	let { report, actions }: { report: MixReport; actions?: Snippet } = $props();
+	/** `details` adds lines under the mix's summary, like the set it was recorded at. */
+	let { report, actions, details }: { report: MixReport; actions?: Snippet; details?: Snippet } = $props();
 
 	const s = $derived(summarize(report));
 
@@ -56,6 +57,7 @@
 				<span class="text-ansi-gray tabular-nums">{clock(report.mix.durationSecs)}</span>
 				{#if report.mix.recorder}<span>Recorded on {report.mix.recorder}</span>{/if}
 			</p>
+			{#if details}{@render details()}{/if}
 		</div>
 		{#if actions}<div class="flex flex-wrap gap-2 sm:justify-end">{@render actions()}</div>{/if}
 	</header>

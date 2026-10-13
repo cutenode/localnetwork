@@ -17,7 +17,7 @@ import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server
 import { COLLECTION } from '../src/lib/nsid.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
 import { startHappyView } from './lib/happyview.ts';
-import { DEMO_PROJECTS } from './seed-data.ts';
+import { DEMO_PROJECTS, DEMO_SETS } from './seed-data.ts';
 
 const PLC_PORT = Number(process.env.DEV_PLC_PORT ?? 2582);
 
@@ -40,7 +40,7 @@ const ROOT = { handle: 'localnetwork.test', email: 'root@localnetwork.test', pas
 const ACCOUNTS = [
 	{ handle: 'ada.test', password: 'ada-pass', note: 'admin (ADMIN_DIDS)' },
 	{ handle: 'milo.test', password: 'milo-pass', note: 'regular account; make them a moderator in Staff' },
-	{ handle: 'neon.test', password: 'neon-pass', note: 'DJ; manages two demo projects' },
+	{ handle: 'neon.test', password: 'neon-pass', note: 'DJ; manages two demo projects, has two sets' },
 	{ handle: 'pat.test', password: 'pat-pass', note: 'promoter' }
 ];
 
@@ -116,6 +116,22 @@ async function main() {
 	}
 
 	log(`Seeded ${DEMO_PROJECTS.length} demo projects`);
+
+	// HappyView isn't running yet, so it reads these when neon first opens a set picker, as it would for older sets.
+	const neon = new AtpAgent({ service: pds.url });
+	await neon.login({
+		identifier: 'neon.test',
+		password: ACCOUNTS.find((account) => account.handle === 'neon.test')!.password
+	});
+
+	for (const set of DEMO_SETS)
+		await neon.com.atproto.repo.createRecord({
+			repo: neon.assertDid,
+			collection: COLLECTION.djSet,
+			record: validateRecord(COLLECTION.djSet, set)
+		});
+
+	log(`Seeded ${DEMO_SETS.length} sets for neon.test`);
 
 	const happyView = await startHappyView({ plcUrl: plc.url, pdsUrl: pds.url });
 	log(`HappyView      ${happyView.url}`);

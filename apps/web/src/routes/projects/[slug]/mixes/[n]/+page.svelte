@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ArrowLeft, ExternalLink } from '@lucide/svelte';
+	import LinkedSet from '#lib/components/LinkedSet.svelte';
 	import MixReport from '#lib/components/mix/MixReport.svelte';
 	import type { PageProps } from './$types';
 
@@ -14,6 +15,9 @@
 <div class="container-page mt-6 space-y-4">
 	<a class="menu-link inline-flex items-center gap-1 px-1" href="/projects/{data.project.slug}"><ArrowLeft class="size-4" />{data.project.name}</a>
 	<MixReport report={data.report}>
+		{#snippet details()}
+			{#if data.mix.set && data.sets}<LinkedSet linked={data.mix.set} sets={data.sets} />{/if}
+		{/snippet}
 		{#snippet actions()}
 			<a class="btn-accent" href={data.mix.url} rel="noopener noreferrer nofollow" target="_blank"><ExternalLink class="size-4" />Listen</a>
 		{/snippet}

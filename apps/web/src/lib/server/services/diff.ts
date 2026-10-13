@@ -8,6 +8,9 @@ const isScalar = (value: JsonValue): value is JsonScalar => !isObject(value);
 /** The parts of a JSON blob ref the label needs, like a profile's avatar or a mix's tracklist. */
 const blobRef = z.object({ $type: z.literal('blob'), ref: z.object({ $link: z.string() }), mimeType: z.string() });
 
+/** A record and its version, like a mix's set: one field, so a new version reads as one change. */
+const strongRef = z.strictObject({ uri: z.string().startsWith('at://'), cid: z.string() });
+
 /** Flattens a JSON value into dotted paths with display strings. */
 export function flatten(
 	value: JsonValue | undefined,
@@ -41,6 +44,14 @@ export function flatten(
 	if (blob.success) {
 		const kind = blob.data.mimeType.startsWith('image/') ? 'image' : 'tracklist';
 		out[prefix] = `${kind} ${blob.data.ref.$link.slice(-8)}`;
+
+		return out;
+	}
+
+	const ref = strongRef.safeParse(value);
+
+	if (ref.success) {
+		out[prefix] = `${ref.data.uri} (version ${ref.data.cid.slice(-8)})`;
 
 		return out;
 	}

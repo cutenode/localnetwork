@@ -2,6 +2,7 @@ import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { sampleReport } from '#lib/mix/sample.ts';
+import type { DjSetView } from '#lib/types.ts';
 import Avatar from './Avatar.svelte';
 import DiffTable from './DiffTable.svelte';
 import GenreInput from './GenreInput.svelte';
@@ -12,6 +13,23 @@ import ProjectCard from './ProjectCard.svelte';
 import ProjectForm from './ProjectForm.svelte';
 import ScoreBar from './ScoreBar.svelte';
 import StatusPill from './StatusPill.svelte';
+
+const SET_URI = 'at://did:plc:neon/computer.localnetwork.dj.set/3kset';
+
+const linkedMix = { title: 'Tidal Hours', url: 'https://mixes.test/tidal', set: { uri: SET_URI, cid: 'bafylinked' } };
+
+const closing: DjSetView = {
+	uri: SET_URI,
+	cid: 'bafylinked',
+	title: 'Closing',
+	date: '2026-09-01',
+	venue: 'Tresor',
+	location: { country: 'DE', locality: 'Berlin' },
+	trackCount: 24
+};
+
+/** A promise that never settles, for the moment before data arrives. */
+const pending = <T>() => new Promise<T>(() => {});
 
 describe('StatusPill', () => {
 	it('humanizes statuses', async () => {
@@ -104,6 +122,35 @@ describe('MixList', () => {
 	});
 });
 
+describe('MixList linked sets', () => {
+	const show = (sets: Promise<Map<string, DjSetView> | null>) => render(MixList, { mixes: [linkedMix], sets });
+
+	it('shows the set by its at:// URI, with when and where it was played', async () => {
+		await show(Promise.resolve(new Map([[SET_URI, closing]])));
+		await expect.element(page.getByRole('link', { name: 'Closing' })).toHaveAttribute('href', SET_URI);
+		await expect.element(page.getByText(/Sep 1, 2026 · Tresor, Berlin · 24 tracks/)).toBeInTheDocument();
+		await expect.element(page.getByText('Changed since it was linked')).not.toBeInTheDocument();
+	});
+
+	it('says when the set changed since it was linked', async () => {
+		await show(Promise.resolve(new Map([[SET_URI, { ...closing, cid: 'bafyedited' }]])));
+		await expect.element(page.getByText(/Changed since it was linked/)).toBeInTheDocument();
+	});
+
+	it('holds a line for the set while it loads', async () => {
+		await show(pending());
+		await expect.element(page.getByText('Loading the set')).toBeInTheDocument();
+	});
+
+	it('says when the set is gone, and falls back to the link when the directory is down', async () => {
+		await show(Promise.resolve(new Map()));
+		await expect.element(page.getByText('Linked set no longer published')).toBeInTheDocument();
+
+		await show(Promise.resolve(null));
+		await expect.element(page.getByRole('link', { name: 'linked set' })).toHaveAttribute('href', SET_URI);
+	});
+});
+
 describe('MixReport', () => {
 	it('renders a report and shares the selected track between views', async () => {
 		await render(MixReport, { report: sampleReport });
@@ -134,6 +181,65 @@ describe('ProjectForm', () => {
 			document.querySelector<HTMLInputElement>(`input[type=hidden][name=${name}]`)?.value;
 
 		expect([hidden('linkLabel'), hidden('mixDuration'), hidden('mixYear')]).toEqual(['Shop', '90', '2024']);
+	});
+});
+
+describe('ProjectForm set picker', () => {
+	const picker = () => page.getByRole('combobox', { name: 'Set (optional):' });
+	const options = () => [...document.querySelectorAll<HTMLOptionElement>('select[name=mixSet] option')];
+	const posted = () => new FormData(document.querySelector('form')!).getAll('mixSet');
+
+	it("keeps the linked set while sets load, then offers the managers' sets", async () => {
+		let resolve: (sets: DjSetView[]) => void = () => {};
+
+		const sets = new Promise<DjSetView[]>((done) => (resolve = done));
+
+		await render(ProjectForm, { values: { mixes: [linkedMix] }, sets, geocoder: false });
+
+		await expect.element(picker()).toBeInTheDocument();
+		expect(options().map((option) => [option.text, option.disabled])).toEqual([
+			['None', false],
+			['Linked set', false],
+			['Loading sets…', true]
+		]);
+		expect(posted()).toEqual([`${SET_URI} bafylinked`]);
+
+		const other = { ...closing, uri: `${SET_URI}2`, cid: 'bafyother', title: 'Opening', venue: undefined };
+		resolve([{ ...closing, cid: 'bafyedited' }, other]);
+		await expect.element(page.getByRole('option', { name: 'Opening · Sep 1, 2026' })).toBeInTheDocument();
+		expect(options().map((option) => option.text)).toEqual([
+			'None',
+			'Closing · Sep 1, 2026 (earlier version)',
+			'Closing · Sep 1, 2026',
+			'Opening · Sep 1, 2026'
+		]);
+
+		await picker().selectOptions('Opening · Sep 1, 2026');
+		expect(posted()).toEqual([`${SET_URI}2 bafyother`]);
+		await picker().selectOptions('None');
+		expect(posted()).toEqual(['']);
+	});
+
+	it('says when there are no sets to pick, and where they come from', async () => {
+		await render(ProjectForm, {
+			values: { mixes: [{ title: 'New', url: '' }] },
+			sets: Promise.resolve([]),
+			geocoder: false
+		});
+		await expect.element(page.getByRole('option', { name: 'No published sets yet' })).toBeDisabled();
+		await expect.element(page.getByRole('link', { name: 'locallibrary sets publish' })).toBeInTheDocument();
+	});
+
+	it("keeps the linked set when sets can't load", async () => {
+		await render(ProjectForm, { values: { mixes: [linkedMix] }, sets: Promise.resolve(null), geocoder: false });
+		await expect.element(page.getByRole('option', { name: "Couldn't load sets" })).toBeDisabled();
+		expect(posted()).toEqual([`${SET_URI} bafylinked`]);
+	});
+
+	it('has no picker without sets to pick from', async () => {
+		await render(ProjectForm, { values: { mixes: [linkedMix] }, geocoder: false });
+		await expect.element(picker()).not.toBeInTheDocument();
+		expect(posted()).toEqual([]);
 	});
 });
 

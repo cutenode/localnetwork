@@ -24,7 +24,9 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 
 		return {
 			project: { slug: project.slug, name: project.profile.name },
-			mix: { title: mix.title, url: mix.url },
+			mix: { title: mix.title, url: mix.url, set: mix.set },
+			// Streamed, so the report shows while the directory looks up the set.
+			sets: mix.set ? app.sets.linked([mix.set]) : undefined,
 			n,
 			report
 		};
