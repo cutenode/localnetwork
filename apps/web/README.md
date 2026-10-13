@@ -21,6 +21,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - Profiles cover genres, city and travel radius, set types and lengths, formats, room sizes, fee tier and range, links, playable SoundCloud/Mixcloud/YouTube mixes, highlights, photo.
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
+- A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from their own PDS when the page loads and streamed in, so a slow PDS never holds the page up. Nothing is stored; a few minutes' cache in memory keeps busy pages from asking again.
+- A press kit at `/projects/<slug>/epk`, put together from the profile, mixes, stats, sets and (for members) booking details, that prints or saves as a PDF on white. Managers see the sections it can't hold yet: press photos, quotes and a rider PDF.
 - Every claim and change is reviewed by a moderator, so profiles can't be hijacked.
 
 ### Tools

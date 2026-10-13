@@ -50,6 +50,9 @@ describe('format helpers', () => {
 		expect(feeLabel(profile({ tier: 'community', maxAmount: 80 }))).toBe('Community · up to 80');
 		expect(kindLabel('duo')).toBe('Duo / B2B pair');
 		expect(placeLabel(profile())).toBe('Leeds, England, GB');
+		expect(placeLabel({ ...profile(), location: { city: 'Berlin', region: 'Berlin', country: 'DE' } })).toBe(
+			'Berlin, DE'
+		);
 		expect(pluralize(1, 'project')).toBe('1 project');
 		expect(pluralize(1200, 'city', 'cities')).toBe('1,200 cities');
 	});

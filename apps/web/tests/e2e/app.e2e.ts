@@ -64,6 +64,20 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test('a profile shows how the DJ plays, and its press kit prints', async ({ page }) => {
+		await page.goto('/projects/neon-tide');
+		await expect(page.getByRole('heading', { name: 'How they play' })).toBeVisible();
+		await expect(page.getByText('126–134')).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Recent sets' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'Press kit' }).click();
+		await expect(page).toHaveURL(/\/projects\/neon-tide\/epk$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Sound' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Print or save as PDF' })).toBeVisible();
+		await expectAccessible(page);
+	});
+
 	test('matcher ranks local projects with reasons', async ({ page }) => {
 		await page.goto(
 			'/match?go=1&place=Berlin&lat=52.52&lng=13.405&radius=50&genres=techno&budget=established&setType=peak'

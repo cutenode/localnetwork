@@ -1,21 +1,16 @@
-import { error, fail } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import { act, requireViewer } from '#lib/server/http.ts';
+import { loadProjectPage } from '#lib/server/project-page.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const { app, viewer } = locals;
-	const project = await app.projects.bySlug(params.slug);
+	const shared = await loadProjectPage(locals, params.slug);
+	const { project } = shared;
 
-	if (!project) error(404, 'No project with that name');
-	const isManager = !!viewer && project.managers.includes(viewer.did);
-
-	if (project.status !== 'active' && !isManager && !viewer?.isStaff) error(404, 'No project with that name');
-
-	const [details, managers, openRequests] = await Promise.all([
-		viewer ? app.projects.details(project.uri) : Promise.resolve(null),
-		app.accounts.views(project.managers),
-		viewer ? app.requests.list({ projectUri: project.uri, requester: viewer.did, status: 'open' }) : Promise.resolve([])
-	]);
+	const openRequests = viewer
+		? await app.requests.list({ projectUri: project.uri, requester: viewer.did, status: 'open' })
+		: [];
 
 	let saved: boolean | null = null;
 
@@ -28,10 +23,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	}
 
 	return {
-		project,
-		details,
-		managers: project.managers.map((did) => managers.get(did) ?? { did, handle: null }),
-		isManager,
+		...shared,
 		saved,
 		pendingClaim: openRequests.find((request) => request.kind === 'claim') ?? null,
 		pendingUpdate: openRequests.find((request) => request.kind === 'update') ?? null
