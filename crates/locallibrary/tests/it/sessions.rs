@@ -78,7 +78,7 @@ impl Desk {
     }
 
     fn suggest(&self) -> Vec<Candidate> {
-        api::sets_suggest(&self.store, &SuggestSets::default(), &Ctx::silent()).unwrap().candidates
+        api::sets_suggest(Some(&self.store), &SuggestSets::default(), &Ctx::silent()).unwrap().candidates
     }
 }
 

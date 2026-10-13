@@ -62,7 +62,7 @@ fn the_fleet_shows_copies_and_drives_that_arent_mounted() {
     let away = common::demo_drive(f.dir.path(), "Away");
     f.adopt(&away, "Away");
 
-    let status = api::fleet_status(&f.store, &api::FleetRequest::default(), &Ctx::silent()).unwrap();
+    let status = api::fleet_status(Some(&f.store), &api::FleetRequest::default(), &Ctx::silent()).unwrap();
     assert_eq!(status.mounted.len(), 2);
     assert_eq!(status.duplicates.len(), 1);
     let (main, copy) = (dunce_canonicalize(&main), dunce_canonicalize(&copy));
@@ -74,7 +74,7 @@ fn the_fleet_shows_copies_and_drives_that_arent_mounted() {
     assert!(status.offline.is_empty(), "only with all");
 
     let all = api::FleetRequest { all: true, retired: false };
-    let offline = api::fleet_status(&f.store, &all, &Ctx::silent()).unwrap().offline;
+    let offline = api::fleet_status(Some(&f.store), &all, &Ctx::silent()).unwrap().offline;
     assert_eq!(offline.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(), ["Away"]);
 
     let known = |retired| {
@@ -165,7 +165,7 @@ fn a_drive_that_lost_its_identity_gets_it_back() {
     let id = Device::open(&main).unwrap().id().unwrap();
     std::fs::remove_dir_all(main.join(".locallibrary")).unwrap();
 
-    let seen = api::drive_recognise(&f.store, &drive(&path(&main)), &Ctx::silent()).unwrap();
+    let seen = api::drive_recognise(Some(&f.store), &drive(&path(&main)), &Ctx::silent()).unwrap();
     assert_eq!(seen.best().unwrap().id, id);
     let req = api::AdoptAs { drive: path(&main), known: "Main".into() };
     let plan = api::drive_adopt_as_plan(&f.store, &req).unwrap();

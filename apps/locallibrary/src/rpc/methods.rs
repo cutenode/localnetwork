@@ -467,7 +467,7 @@ fn build() -> Registry {
     r.control::<api::Shutdown, ()>("shutdown");
 
     // Drives and their libraries.
-    r.read("status", |c, _: NoParams| Ok(api::status(&c.store()?, c.ctx)?)).long();
+    r.read("status", |c, _: NoParams| Ok(api::status(c.existing().as_ref(), c.ctx)?)).long();
     r.read("drives.list", |c, req| Ok(api::list_drives_in_libraries(c.existing().as_ref(), &req))).quick();
     r.read("drives.mounted", |_, _: NoParams| Ok(api::drives_mounted())).quick();
     r.read("drive.info", |_, req| Ok(api::drive_info(&req)?)).quick();
@@ -618,7 +618,7 @@ fn build() -> Registry {
     r.read("settings.profile", |c, _: NoParams| Ok(c.store()?.settings_profile()?)).quick();
     r.immediate("settings.set", |c, req| Ok(api::settings_set(&c.store()?, &req)?));
     r.immediate("settings.unset", |c, req| Ok(api::settings_unset(&c.store()?, &req)?));
-    r.read("settings.show", |c, req| Ok(api::settings_show(&c.store()?, &req)?)).quick();
+    r.read("settings.show", |c, req| Ok(api::settings_show(c.existing().as_ref(), &req)?)).quick();
     r.plan("settings.write.plan", |c, req| Ok(api::settings_apply_plan(&c.store()?, &req)?))
         .alias("settings.apply.plan")
         .destructive();
@@ -744,7 +744,7 @@ fn build() -> Registry {
     .quick();
     r.plan("sets.playlist.plan", |c, req| Ok(api::set_playlist_plan(&c.store()?, &req, c.ctx)?));
     r.apply("sets.playlist.apply", PlanStore::None, |c, req| Ok(api::set_playlist_apply(&c.store()?, &req, c.ctx)?));
-    r.read("sets.suggest", |c, req| Ok(api::sets_suggest(&c.store()?, &req, c.ctx)?)).long();
+    r.read("sets.suggest", |c, req| Ok(api::sets_suggest(c.existing().as_ref(), &req, c.ctx)?)).long();
     r.read("sessions.list", |c, req| Ok(api::sessions(c.existing().as_ref(), &req, c.ctx)?)).long();
     r.immediate("sessions.dismiss", |c, req| Ok(api::sessions_dismiss(&c.store()?, &req, c.ctx)?)).long().keeps_cache();
     r.immediate("sessions.import", |c, req| Ok(api::sessions_import(&c.store()?, &req)?)).keeps_cache();
@@ -764,7 +764,7 @@ fn build() -> Registry {
     r.immediate("mix.reports.html", |c, req| Ok(api::mix_report_html(&c.store()?, &req)?)).keeps_cache();
 
     // Every drive you own.
-    r.read("fleet.status", |c, req| Ok(api::fleet_status(&c.store()?, &req, c.ctx)?)).long();
+    r.read("fleet.status", |c, req| Ok(api::fleet_status(c.existing().as_ref(), &req, c.ctx)?)).long();
     r.read("drives.known", |c, req| Ok(api::drives_known(&c.store()?, &req)?)).quick();
     r.plan("drive.rename.plan", |_, req| Ok(api::drive_rename_plan(&req)?));
     r.apply("drive.rename.apply", Optional, |c, req| Ok(api::drive_rename(c.store_opt().as_ref(), &req)?))
@@ -773,7 +773,7 @@ fn build() -> Registry {
     r.immediate("drive.role", |c, req| Ok(api::drive_role(&c.store()?, &req)?));
     r.immediate("drive.retire", |c, req| Ok(api::drive_retire(&c.store()?, &req)?));
     r.read("drive.log", |c, req| Ok(api::drive_log(&c.store()?, &req)?)).quick();
-    r.read("drive.recognise", |c, req| Ok(api::drive_recognise(&c.store()?, &req, c.ctx)?)).long();
+    r.read("drive.recognise", |c, req| Ok(api::drive_recognise(c.existing().as_ref(), &req, c.ctx)?)).long();
     r.plan("drive.adopt_as.plan", |c, req| Ok(api::drive_adopt_as_plan(&c.store()?, &req)?)).destructive();
     r.apply("drive.adopt_as.apply", Required, |c, req| Ok(api::drive_adopt_as(&c.store()?, &req, c.ctx)?))
         .alias("drive.adopt_as")

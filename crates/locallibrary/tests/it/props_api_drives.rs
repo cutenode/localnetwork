@@ -242,7 +242,7 @@ impl Registry {
     /// (with `all`) the registered drives that aren't.
     fn check_fleet(&self, tc: &TestCase) {
         let (all, retired) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
-        let st = api::fleet_status(&self.store, &api::FleetRequest { all, retired }, &Ctx::silent()).unwrap();
+        let st = api::fleet_status(Some(&self.store), &api::FleetRequest { all, retired }, &Ctx::silent()).unwrap();
         let mut roots: Vec<PathBuf> = st.mounted.iter().map(|d| d.status.drive.root.clone()).collect();
         let mut want: Vec<PathBuf> = self.mounted().map(|(_, s)| s.root.clone()).collect();
         roots.sort();
@@ -785,7 +785,7 @@ fn a_check_finds_the_damage_done_and_a_repair_mends_it(tc: TestCase) {
     let id = locallibrary::device::Device::open(&root).unwrap().id().unwrap();
     let log = || store.drives().unwrap()[&id].log.clone();
 
-    let seen = api::drive_recognise(&store, &drive, &ctx).unwrap();
+    let seen = api::drive_recognise(Some(&store), &drive, &ctx).unwrap();
     assert_eq!(seen.snapshot.as_ref().map(|s| s.library.as_str()), Some("Main"));
     assert!(seen.best().is_none(), "its own identity isn't another drive's");
 

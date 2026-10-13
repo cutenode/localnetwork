@@ -704,7 +704,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         let spec = d.root.display().to_string();
         if d.id.is_none()
             && !names.contains_key(&d.root)
-            && let Ok(r) = api::drive_recognise(&store, &api::DriveRef { drive: spec.clone() }, ctx)
+            && let Ok(r) = api::drive_recognise(Some(&store), &api::DriveRef { drive: spec.clone() }, ctx)
             && let Some(best) = r.best().filter(|b| !held.contains(&b.id))
             && s.ask_yes(
                 &format!("{} looks like {}, a drive you had before. Give it that identity back?", label(d), best.name),

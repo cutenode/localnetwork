@@ -1190,7 +1190,7 @@ impl SyncMachine {
     /// Each mounted drive linked to the library stands against its latest as the model says.
     #[invariant]
     fn status_agrees(&mut self, _: TestCase) {
-        let statuses = api::status(&self.store, &Ctx::silent()).unwrap();
+        let statuses = api::status(Some(&self.store), &Ctx::silent()).unwrap();
         assert_described(&statuses);
         for st in statuses {
             let i = self.roots.iter().position(|r| *r == st.drive.root).unwrap();
@@ -1549,7 +1549,7 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     assert_eq!((e.code(), e.reason()), ("invalid", Some(Reason::UnknownSetting)), "{e}");
     assert_eq!(store.settings_profile().unwrap().effective(id), effective, "a refused set changes nothing");
 
-    let shown = api::settings_show(&store, &drive).unwrap();
+    let shown = api::settings_show(Some(&store), &drive).unwrap();
     assert_described(&shown);
     let differs: BTreeSet<String> = values
         .iter()
@@ -1563,7 +1563,7 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
         api::settings_apply(&store, &api::ApplySettings { drive: path(&root), dry_run: true, create_missing: false });
     let dry = dry.unwrap();
     assert!(dry.dry_run && dry.files_written.is_empty() == differs.is_empty());
-    assert_eq!(api::settings_show(&store, &drive).unwrap().drift.len(), differs.len(), "a dry run wrote nothing");
+    assert_eq!(api::settings_show(Some(&store), &drive).unwrap().drift.len(), differs.len(), "a dry run wrote nothing");
 
     let named = tc.draw(gs::booleans());
     let write =
@@ -1575,7 +1575,7 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     let results = planned.apply(Some(&store), &Ctx::silent()).unwrap();
     assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
     assert_eq!(results.len(), usize::from(!differs.is_empty()), "only drives with changes are written");
-    assert!(api::settings_show(&store, &drive).unwrap().drift.is_empty(), "written, nothing drifts");
+    assert!(api::settings_show(Some(&store), &drive).unwrap().drift.is_empty(), "written, nothing drifts");
     assert!(api::settings_apply_plan(&store, &write).unwrap().noop, "written again");
 
     // A value changed again, written in one go.
@@ -1586,7 +1586,7 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     let apply = api::ApplySettings { drive: path(&root), dry_run: false, create_missing: false };
     let report = api::settings_apply(&store, &apply).unwrap();
     assert!(!report.dry_run);
-    assert!(api::settings_show(&store, &drive).unwrap().drift.is_empty(), "written in one go");
+    assert!(api::settings_show(Some(&store), &drive).unwrap().drift.is_empty(), "written in one go");
 
     // Taking values off leaves the drive's as they are.
     let keys: Vec<String> = values.keys().cloned().collect();

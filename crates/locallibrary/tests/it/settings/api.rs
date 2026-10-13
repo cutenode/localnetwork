@@ -72,7 +72,7 @@ fn a_drive_is_shown_against_the_profile_and_written_after_a_dry_run() {
     let s = setup();
     api::settings_set(&s.store, &api::SetSettings { values: values(&[("quantize", "off")]), drive: None }).unwrap();
     let main = DriveRef { drive: "Main".into() };
-    let shown = api::settings_show(&s.store, &main).unwrap();
+    let shown = api::settings_show(Some(&s.store), &main).unwrap();
     assert_eq!(shown.drift.iter().map(|d| d.key.as_str()).collect::<Vec<_>>(), ["quantize"]);
 
     let before = std::fs::read(s.main.join(MYSETTING)).unwrap();
@@ -82,7 +82,7 @@ fn a_drive_is_shown_against_the_profile_and_written_after_a_dry_run() {
     assert_eq!(dry.changes.len(), 1);
     assert_eq!(std::fs::read(s.main.join(MYSETTING)).unwrap(), before);
     assert_eq!(api::settings_apply(&s.store, &apply(false)).unwrap().changes.len(), 1);
-    let shown = api::settings_show(&s.store, &main).unwrap();
+    let shown = api::settings_show(Some(&s.store), &main).unwrap();
     assert!(shown.drift.is_empty());
     assert_eq!(shown.current.values["quantize"], SettingValue::Known("off".into()));
 }

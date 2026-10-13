@@ -56,7 +56,7 @@ pub fn run(args: PlayersArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             // Reading never creates a store.
             let r = match crate::diff_cmd::existing_store(store_path) {
                 Some(store) => api::players_show(&store)?,
-                None => RememberedPlayers { default: Vec::new(), libraries: Vec::new() },
+                None => RememberedPlayers::default(),
             };
             out.emit(&r, show);
         }
