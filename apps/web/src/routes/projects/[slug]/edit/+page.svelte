@@ -14,7 +14,7 @@
 	<p class="muted mt-2 max-w-2xl">Changes go to a moderator before they're published. You can keep editing the request until it's reviewed.</p>
 	<div class="mt-8 space-y-6">
 		<FormMessage {form} />
-		<ProjectForm values={form?.values ?? data.values} avatarUrl={data.project.avatarUrl} showMessage submitLabel="Send for review" geocoder={data.geocoder}>
+		<ProjectForm values={form?.values ?? data.values} sets={data.sets} avatarUrl={data.project.avatarUrl} showMessage submitLabel="Send for review" geocoder={data.geocoder}>
 			{#snippet footer()}<a href="/projects/{data.project.slug}" class="btn-ghost">Cancel</a>{/snippet}
 		</ProjectForm>
 	</div>

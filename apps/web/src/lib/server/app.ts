@@ -194,6 +194,7 @@ export async function createApp(options: CreateAppOptions) {
 		audit,
 		accounts,
 		projects,
+		sets: projects.sets,
 		requests,
 		staff,
 		bookings,

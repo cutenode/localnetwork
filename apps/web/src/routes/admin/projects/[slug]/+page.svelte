@@ -27,9 +27,10 @@
 </div>
 
 <div class="mt-6 grid gap-6 xl:grid-cols-[1fr_20rem]">
-	<div>
+	<!-- min-w-0 lets the form's rows shrink to the column, as they do outside a grid. -->
+	<div class="min-w-0">
 		{#if data.viewer?.isAdmin}
-			<ProjectForm action="?/update" values={form?.values ?? data.values} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} />
+			<ProjectForm action="?/update" values={form?.values ?? data.values} sets={data.sets} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} />
 		{:else}
 			<p class="card card-pad muted text-sm">Moderators can hide or unhide projects. Only admins edit them directly.</p>
 		{/if}

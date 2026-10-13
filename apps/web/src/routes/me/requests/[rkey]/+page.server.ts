@@ -44,7 +44,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				: `/me/requests/${request.rkey}/avatar`,
 		values: profileToValues(request.record.profile, request.record.details),
 		submitted: url.searchParams.has('submitted'),
-		geocoder: locals.app.geocoder.enabled
+		geocoder: locals.app.geocoder.enabled,
+		// Only managers can link sets, so a new project's form has no picker. Streamed, so the form shows meanwhile.
+		sets: request.kind === 'update' && project ? locals.app.sets.published(project.managers) : undefined
 	};
 };
 

@@ -1,4 +1,5 @@
 import { MIX_REPORT_MAX_BYTES, parseMixReportText } from '#lib/mix/report.ts';
+import { COLLECTION } from '#lib/nsid.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import { FEE_TIERS, FORMATS, isOneOf, LINK_KINDS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 import type {
@@ -7,8 +8,10 @@ import type {
 	ProjectFormValues,
 	ProjectLink,
 	ProjectMix,
-	ProjectProfile
+	ProjectProfile,
+	StrongRef
 } from '#lib/types.ts';
+import { parsePublicRecordUri } from '../atproto/spaces';
 import { UserError } from '../core';
 import { all, limit, optionalCurrency, optionalInt, optionalText, text, wholeNumber } from '../http';
 
@@ -46,6 +49,23 @@ function linkRows(form: FormData, field: string, label: string): Map<string, num
 	});
 
 	return rows;
+}
+
+/** The CIDs records are written with: base32 CIDv1, as the lexicon's `cid` format accepts. */
+const CID = /^b[a-z2-7]{20,100}$/;
+
+/**
+ * A mix's set picker value: the set's URI and the CID of the version picked, space-separated (see
+ * ProjectForm.svelte), or nothing. Whether the set exists and whose it is gets checked when root publishes.
+ */
+function setRef(value: string): StrongRef | undefined {
+	if (!value) return undefined;
+	const [uri = '', cid = ''] = value.split(' ');
+
+	if (parsePublicRecordUri(uri)?.collection !== COLLECTION.djSet || !CID.test(cid))
+		throw new UserError('Pick a set from the list');
+
+	return { uri, cid };
 }
 
 /** Parses the shared project form into a lexicon-shaped profile, with friendly errors. */
@@ -89,15 +109,19 @@ export function parseProfile(form: FormData): ProjectProfile {
 	const mixTitles = strings(form, 'mixTitle');
 	const mixDurations = strings(form, 'mixDuration');
 	const mixYears = strings(form, 'mixYear');
+	const mixSets = strings(form, 'mixSet');
 
 	const mixes: ProjectMix[] = [...linkRows(form, 'mixUrl', 'A mix link')].map(([url, row]) => {
 		const durationMinutes = wholeNumber((mixDurations[row] ?? '').trim(), 'mixDuration', 1, 1440);
 		const year = wholeNumber((mixYears[row] ?? '').trim(), 'mixYear', 1950, 2100);
+		const set = setRef((mixSets[row] ?? '').trim());
 		const mix: ProjectMix = { title: limit('Mix title', (mixTitles[row] ?? '').trim() || 'Mix', 120)!, url };
 
 		if (durationMinutes !== undefined) mix.durationMinutes = durationMinutes;
 
 		if (year !== undefined) mix.year = year;
+
+		if (set) mix.set = set;
 
 		return mix;
 	});
@@ -383,9 +407,17 @@ export function formValues(form: FormData) {
 
 		if (key === 'formats' || key === 'setTypes') (values[key] ??= []).push(value);
 		else if (
-			['linkKind', 'linkUrl', 'linkLabel', 'mixTitle', 'mixUrl', 'mixDuration', 'mixYear', 'mixTracklistCid'].includes(
-				key
-			)
+			[
+				'linkKind',
+				'linkUrl',
+				'linkLabel',
+				'mixTitle',
+				'mixUrl',
+				'mixDuration',
+				'mixYear',
+				'mixTracklistCid',
+				'mixSet'
+			].includes(key)
 		)
 			continue;
 		else values[key] = value;
@@ -406,9 +438,11 @@ export function formValues(form: FormData) {
 	const mixDurations = strings(form, 'mixDuration');
 	const mixYears = strings(form, 'mixYear');
 	const mixTracklists = strings(form, 'mixTracklistCid');
+	const mixSets = strings(form, 'mixSet');
 	values.mixes = strings(form, 'mixUrl')
 		.map((url, index) => {
 			const mix: ProjectMix = { title: mixTitles[index] ?? '', url };
+			const [setUri, setCid] = (mixSets[index] ?? '').split(' ');
 
 			if (mixDurations[index]) mix.durationMinutes = Number(mixDurations[index]);
 
@@ -417,6 +451,8 @@ export function formValues(form: FormData) {
 			// Keep showing a tracklist the mix already had; a newly chosen file has to be chosen again.
 			if (mixTracklists[index])
 				mix.tracklist = { $type: 'blob', ref: { $link: mixTracklists[index] }, mimeType: 'application/json', size: 0 };
+
+			if (setUri && setCid) mix.set = { uri: setUri, cid: setCid };
 
 			return mix;
 		})

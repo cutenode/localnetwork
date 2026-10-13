@@ -3,7 +3,8 @@
 	import { enhance } from '$app/forms';
 	import { Plus, Trash2 } from '@lucide/svelte';
 	import { FEE_TIERS, FORMATS, LINK_KINDS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
-	import type { ProjectFormValues, ProjectLink, ProjectMix } from '#lib/types.ts';
+	import { djSetLabel } from '#lib/format.ts';
+	import type { DjSetView, ProjectFormValues, ProjectLink, ProjectMix, StrongRef } from '#lib/types.ts';
 	import Avatar from './Avatar.svelte';
 	import GenreInput from './GenreInput.svelte';
 	import PlacePicker from './PlacePicker.svelte';
@@ -16,6 +17,7 @@
 		showMessage = false,
 		avatarUrl = null,
 		geocoder = true,
+		sets,
 		children,
 		footer
 	}: {
@@ -26,6 +28,8 @@
 		showMessage?: boolean;
 		avatarUrl?: string | null;
 		geocoder?: boolean;
+		/** The managers' published sets (null when they can't be loaded), for a picker on each mix. No picker without. */
+		sets?: Promise<DjSetView[] | null>;
 		children?: Snippet;
 		footer?: Snippet;
 	} = $props();
@@ -50,6 +54,53 @@
 	let links = $state<ProjectLink[]>(initialLinks());
 
 	let mixes = $state<(ProjectMix & { key: number })[]>(initialMixes());
+
+	type Picker = { state: 'loading' } | { state: 'ready'; sets: DjSetView[] } | { state: 'error' };
+
+	let picker = $state<Picker>({ state: 'loading' });
+
+	$effect(() => {
+		if (!sets) return;
+		const pending = sets;
+		let current = true;
+		picker = { state: 'loading' };
+
+		void (async () => {
+			const next: Picker = await pending.then(
+				(found) => (found ? { state: 'ready', sets: found } : { state: 'error' }),
+				() => ({ state: 'error' })
+			);
+
+			if (current) picker = next;
+		})();
+
+		return () => (current = false);
+	});
+
+	/** A set's picker value: its URI and the CID of the version picked (read by setRef in forms/project.ts). */
+	const setValue = (ref: StrongRef) => `${ref.uri} ${ref.cid}`;
+
+	/** The picker's choices for a mix linked to `linked`, which stays one even while sets load or can't. */
+	function setChoices(linked: StrongRef | undefined) {
+		const choices = picker.state === 'ready' ? picker.sets.map((set) => ({ value: setValue(set), label: djSetLabel(set) })) : [];
+
+		if (linked && !choices.some((choice) => choice.value === setValue(linked))) {
+			const latest = picker.state === 'ready' ? picker.sets.find((set) => set.uri === linked.uri) : undefined;
+			const label = latest ? `${djSetLabel(latest)} (earlier version)` : picker.state === 'ready' ? 'Linked set (no longer published)' : 'Linked set';
+			choices.unshift({ value: setValue(linked), label });
+		}
+
+		return choices;
+	}
+
+	const pickerStatus = $derived(
+		picker.state === 'loading' ? 'Loading sets…' : picker.state === 'error' ? "Couldn't load sets" : picker.sets.length === 0 ? 'No published sets yet' : null
+	);
+
+	function pickSet(mix: ProjectMix, value: string) {
+		const [uri, cid] = value.split(' ');
+		mix.set = uri && cid ? { uri, cid } : undefined;
+	}
 
 	const v = (key: string) => String(values[key] ?? '');
 
@@ -224,11 +275,12 @@
 		<div class="space-y-2">
 			<span class="label">Links</span>
 			{#each links as link, index (index)}
-				<div class="flex gap-2">
-					<select class="input w-44" name="linkKind" bind:value={link.kind} aria-label="Link type">
+				<!-- On phones the type takes its own line, so the URL beside the remove button stays wide enough to use. -->
+				<div class="flex gap-2 max-sm:flex-wrap">
+					<select class="input w-44 max-sm:w-full" name="linkKind" bind:value={link.kind} aria-label="Link type">
 						{#each LINK_KINDS as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
 					</select>
-					<input class="input" name="linkUrl" bind:value={link.url} placeholder="https://" aria-label="Link URL" />
+					<input class="input max-sm:w-auto max-sm:min-w-0 max-sm:flex-1" name="linkUrl" bind:value={link.url} placeholder="https://" aria-label="Link URL" />
 					<!-- No field edits this here; posting it back keeps it on save. -->
 					<input type="hidden" name="linkLabel" value={link.label ?? ''} />
 					<button type="button" class="btn-ghost px-2" aria-label="Remove link" onclick={() => (links = links.filter((_, i) => i !== index))}><Trash2 class="size-4" /></button>
@@ -242,9 +294,10 @@
 			<span class="label">Mixes</span>
 			{#each mixes as mix (mix.key)}
 				<div class="space-y-1">
-					<div class="flex gap-2">
-						<input class="input w-56" name="mixTitle" bind:value={mix.title} placeholder="Title" aria-label="Mix title" />
-						<input class="input" name="mixUrl" bind:value={mix.url} placeholder="https://soundcloud.com/…" aria-label="Mix URL" />
+					<!-- On phones the title takes its own line, like a link's type. -->
+					<div class="flex gap-2 max-sm:flex-wrap">
+						<input class="input w-56 max-sm:w-full" name="mixTitle" bind:value={mix.title} placeholder="Title" aria-label="Mix title" />
+						<input class="input max-sm:w-auto max-sm:min-w-0 max-sm:flex-1" name="mixUrl" bind:value={mix.url} placeholder="https://soundcloud.com/…" aria-label="Mix URL" />
 						<button type="button" class="btn-ghost px-2" aria-label="Remove mix" onclick={() => (mixes = mixes.filter((m) => m.key !== mix.key))}><Trash2 class="size-4" /></button>
 					</div>
 					<div class="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1 text-base">
@@ -261,6 +314,16 @@
 						{/if}
 						<input type="file" name="mixTracklist" accept=".json,application/json" class="max-w-full text-base" aria-label="Tracklist for {mix.title || 'this mix'}" />
 					</div>
+					{#if sets}
+						<div class="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1 text-base">
+							<label class="muted" for="mix-set-{mix.key}">Set (optional):</label>
+							<select id="mix-set-{mix.key}" class="input min-w-0 grow basis-56 truncate pr-10" name="mixSet" onchange={(event) => pickSet(mix, event.currentTarget.value)}>
+								<option value="" selected={!mix.set}>None</option>
+								{#each setChoices(mix.set) as choice (choice.value)}<option value={choice.value} selected={mix.set && choice.value === setValue(mix.set)}>{choice.label}</option>{/each}
+								{#if pickerStatus}<option disabled>{pickerStatus}</option>{/if}
+							</select>
+						</div>
+					{/if}
 				</div>
 			{/each}
 			{#if mixes.length < 12}
@@ -270,6 +333,9 @@
 				A tracklist is a mix report from locallibrary (<code>locallibrary mix … --export set.mix.json</code>): what you played, when, and how you mixed it, shown
 				under the mix. <a class="link" href="/mixes/preview" target="_blank">Preview a file</a> before you add it.
 			</p>
+			{#if sets}
+				<p class="hint">A set is one you published with locallibrary (<a class="link" href="/tools/locallibrary/docs/account#publishing"><code>locallibrary sets publish</code></a>): when and where you played it.</p>
+			{/if}
 		</div>
 		<div>
 			<label class="label" for="highlights">Highlights</label>

@@ -1,11 +1,11 @@
 import { cidForLex } from '@atproto/lex-cbor';
 import { type JsonObject, jsonToLex } from '@atproto/lex-json';
-import { Lexicons, parseLexiconDoc } from '@atproto/lexicon';
+import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
 import { COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
-import type { ProjectRecord } from '#lib/types.ts';
-import { LEXICON_DOCS } from '../atproto/lexicons';
+import type { DjSetView, ProjectRecord, StrongRef } from '#lib/types.ts';
+import { lexicons } from '../atproto/lexicons';
 import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
 import type { DirectoryMatch, DirectoryOutputs, DirectoryProject } from './client';
@@ -19,8 +19,6 @@ const POTSDAM = { latE6: 52_390_600, lngE6: 13_064_500 };
 const MUNICH = { latE6: 48_135_100, lngE6: 11_582_000 };
 
 const HAMBURG = { latE6: 53_551_000, lngE6: 9_993_000 };
-
-const lexicons = new Lexicons(structuredClone(LEXICON_DOCS));
 
 /** The client's output types, with the project record typed so tests can read its fields. */
 type View = Omit<DirectoryProject, 'record'> & { record: ProjectRecord };
@@ -181,6 +179,106 @@ describe('getProject, getProjects, and getStats', () => {
 				{ city: 'Hamburg', country: 'DE', count: 1 }
 			]
 		});
+	});
+});
+
+type Sets = { sets: (DjSetView & { tracks?: unknown })[] };
+
+let played = 0;
+
+/**
+ * Delivers a dj.set record like Jetstream would, with `fields` over valid defaults, each played a day after the
+ * last. Returns its URI and CID.
+ */
+async function publishSet(hv: FakeHappyView, did: string, fields: JsonObject = {}): Promise<StrongRef> {
+	played += 1;
+	const rkey = `3s${String(played).padStart(11, '0')}`;
+
+	const value = {
+		$type: COLLECTION.djSet,
+		date: new Date(Date.UTC(2026, 0, played)).toISOString().slice(0, 10),
+		tracks: [{ title: 'One', artist: 'A' }, { unidentified: true }],
+		createdAt: '2026-10-01T00:00:00.000Z',
+		...fields
+	};
+
+	const cid = (await cidForLex(jsonToLex(value))).toString();
+	await hv.ingest({ did, collection: COLLECTION.djSet, rkey, cid, record: value });
+
+	return { uri: `at://${did}/${COLLECTION.djSet}/${rkey}`, cid };
+}
+
+describe('set record script', () => {
+	it("keeps sets by the root's projects' managers only, without their tracks", async () => {
+		const hv = new FakeHappyView(ROOT);
+		// A project in someone else's repo doesn't make its managers count.
+		await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
+		await publish(hv, {}, { managers: ['did:plc:dj'], status: 'hidden' });
+
+		const kept = await publishSet(hv, 'did:plc:dj', {
+			title: 'Closing',
+			kind: 'club',
+			venue: 'Tresor',
+			location: { $type: 'community.lexicon.location.address', country: 'DE', locality: 'Berlin', street: 'Köpenicker' }
+		});
+
+		const bare = await publishSet(hv, 'did:plc:dj', { location: { $type: 'other.place', name: 'Somewhere' } });
+		await publishSet(hv, 'did:plc:faker');
+		await publishSet(hv, 'did:plc:nobody');
+		const broken = await publishSet(hv, 'did:plc:dj', { date: 20260101 });
+
+		const { sets } = await query<Sets>(hv, 'listSets', { actors: ['did:plc:dj', 'did:plc:faker', 'did:plc:nobody'] });
+
+		expect(sets).toEqual([
+			{ ...bare, date: '2026-01-02', trackCount: 2 },
+			{
+				...kept,
+				title: 'Closing',
+				date: '2026-01-01',
+				kind: 'club',
+				venue: 'Tresor',
+				location: { country: 'DE', locality: 'Berlin' },
+				trackCount: 2
+			}
+		]);
+		expect(hv.logs).toEqual([`skipped ${broken.uri}: bad date or tracks`]);
+	});
+
+	it('removes a deleted set', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { managers: ['did:plc:dj'] });
+		const set = await publishSet(hv, 'did:plc:dj');
+		const rkey = set.uri.split('/').at(-1)!;
+
+		await hv.ingest({ did: 'did:plc:dj', collection: COLLECTION.djSet, rkey, cid: '', record: null });
+		expect((await query<Sets>(hv, 'getSets', { uris: [set.uri] })).sets).toEqual([]);
+	});
+});
+
+describe('getSets and listSets', () => {
+	it('returns sets in the order asked for, once each, without unknown ones', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { managers: ['did:plc:a', 'did:plc:b'] });
+		const a = await publishSet(hv, 'did:plc:a', { title: 'A' });
+		const b = await publishSet(hv, 'did:plc:b', { title: 'B' });
+		const missing = `at://did:plc:a/${COLLECTION.djSet}/missing`;
+
+		const { sets } = await query<Sets>(hv, 'getSets', { uris: [b.uri, missing, a.uri, b.uri] });
+		expect(sets.map((set) => set.title)).toEqual(['B', 'A']);
+	});
+
+	it('lists only the accounts asked for, most recently played first, up to the limit', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { managers: ['did:plc:a', 'did:plc:b', 'did:plc:c'] });
+
+		for (const title of ['A1', 'B1', 'C1', 'A2', 'B2'])
+			await publishSet(hv, `did:plc:${title[0].toLowerCase()}`, { title });
+
+		const titles = async (params: Params) => (await query<Sets>(hv, 'listSets', params)).sets.map((set) => set.title);
+
+		expect(await titles({ actors: ['did:plc:a', 'did:plc:b'] })).toEqual(['B2', 'A2', 'B1', 'A1']);
+		expect(await titles({ actors: 'did:plc:c' })).toEqual(['C1']);
+		expect(await titles({ actors: ['did:plc:a', 'did:plc:b'], limit: 1 })).toEqual(['B2']);
 	});
 });
 

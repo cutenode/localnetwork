@@ -158,3 +158,28 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 		fee: { tier: 'community' }
 	}
 ];
+
+/** Sets neon published with locallibrary (`sets publish`), for the project form's set picker. */
+export const DEMO_SETS = [
+	{
+		title: 'Closing at Tresor',
+		date: '2026-09-12',
+		kind: 'club',
+		venue: 'Tresor',
+		location: { $type: 'community.lexicon.location.address', country: 'DE', locality: 'Berlin' },
+		tracks: [
+			{ title: 'Halogen', artist: 'Two Rooms' },
+			{ title: 'Low Tide', artist: 'Mareld' },
+			{ unidentified: true }
+		],
+		createdAt: '2026-09-13T10:00:00.000Z'
+	},
+	{
+		title: 'Radio hour',
+		date: '2026-08-02',
+		kind: 'radio',
+		venue: 'Cashmere Radio',
+		tracks: [{ title: 'Undertow', artist: 'Mareld' }],
+		createdAt: '2026-08-02T20:00:00.000Z'
+	}
+];

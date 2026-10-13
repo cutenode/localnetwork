@@ -103,7 +103,7 @@
 					<button class="btn-accent">Save and resubmit</button>
 				</form>
 			{:else}
-				<ProjectForm action="?/revise" values={values ?? { ...data.values, message: request.record.message }} avatarUrl={data.avatarUrl} showMessage submitLabel="Save and resubmit" geocoder={data.geocoder} />
+				<ProjectForm action="?/revise" values={values ?? { ...data.values, message: request.record.message }} sets={data.sets} avatarUrl={data.avatarUrl} showMessage submitLabel="Save and resubmit" geocoder={data.geocoder} />
 			{/if}
 		{/if}
 	{/if}

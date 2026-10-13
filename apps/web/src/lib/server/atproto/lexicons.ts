@@ -1,4 +1,4 @@
-import type { Agent } from '@atproto/api';
+import { type Agent, schemas } from '@atproto/api';
 import { isObject } from '@atproto/lex-data';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { jsonToLex, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
@@ -6,11 +6,16 @@ import auditEntry from '../../../../../../lexicons/computer/localnetwork/audit/e
 import bookingInquiry from '../../../../../../lexicons/computer/localnetwork/booking/inquiry.json' with { type: 'json' };
 import bookingMessage from '../../../../../../lexicons/computer/localnetwork/booking/message.json' with { type: 'json' };
 import bookingStatus from '../../../../../../lexicons/computer/localnetwork/booking/status.json' with { type: 'json' };
+import address from '../../../../../../lexicons/community/lexicon/location/address.json' with { type: 'json' };
 import defs from '../../../../../../lexicons/computer/localnetwork/defs.json' with { type: 'json' };
 import directoryDefs from '../../../../../../lexicons/computer/localnetwork/directory/defs.json' with { type: 'json' };
 import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
 import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
+import getSets from '../../../../../../lexicons/computer/localnetwork/directory/getSets.json' with { type: 'json' };
 import getStats from '../../../../../../lexicons/computer/localnetwork/directory/getStats.json' with { type: 'json' };
+import listSets from '../../../../../../lexicons/computer/localnetwork/directory/listSets.json' with { type: 'json' };
+import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
+import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
 import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
 import searchProjects from '../../../../../../lexicons/computer/localnetwork/directory/searchProjects.json' with { type: 'json' };
 import decision from '../../../../../../lexicons/computer/localnetwork/moderation/decision.json' with { type: 'json' };
@@ -28,7 +33,7 @@ import spacePlanner from '../../../../../../lexicons/computer/localnetwork/space
 import spaceStaff from '../../../../../../lexicons/computer/localnetwork/space/staff.json' with { type: 'json' };
 import staffRole from '../../../../../../lexicons/computer/localnetwork/staff/role.json' with { type: 'json' };
 
-/** Every Local Network lexicon document, for validation and publishing. */
+/** Every Local Network lexicon this app uses, for validation and publishing. */
 export const LEXICON_DOCS = [
 	defs,
 	project,
@@ -54,11 +59,20 @@ export const LEXICON_DOCS = [
 	matchProjects,
 	getProject,
 	getProjects,
-	getStats
+	getStats,
+	getSets,
+	listSets,
+	djDefs,
+	djSet
 ].map((doc) => parseLexiconDoc(doc));
 
+/** Other authorities' lexicons that ours reference. They publish these themselves, so publishLexicons leaves them out. */
+export const REFERENCED_DOCS = [address, ...schemas.filter((doc) => doc.id === 'com.atproto.repo.strongRef')].map(
+	(doc) => parseLexiconDoc(doc)
+);
+
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
-export const lexicons = new Lexicons(structuredClone(LEXICON_DOCS));
+export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...REFERENCED_DOCS]));
 
 /** Publishes every lexicon as a com.atproto.lexicon.schema record in the agent's own repo. */
 export async function publishLexicons(agent: Agent): Promise<void> {

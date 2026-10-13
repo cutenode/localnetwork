@@ -37,6 +37,7 @@ it('renders a record that repeats genres, highlights, links, and mixes', async (
 			viewer: null,
 			pendingRequests: 0,
 			project,
+			sets: undefined,
 			details: null,
 			managers: [],
 			isManager: false,

@@ -195,6 +195,11 @@
 					"accept": ["application/json"],
 					"maxSize": 1000000,
 					"description": "A mix report exported by locallibrary (format locallibrary.mix-report, version 1 or 2): which tracks the mix plays, when, at what tempo and key, and how they were mixed. Validated before it is published or shown."
+				},
+				"set": {
+					"type": "ref",
+					"ref": "com.atproto.repo.strongRef",
+					"description": "The set this mix is a recording of: a computer.localnetwork.dj.set record in a manager's own repo (locallibrary publishes them). The CID pins the version that was linked; the set can change after."
 				}
 			}
 		},

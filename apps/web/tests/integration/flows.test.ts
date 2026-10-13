@@ -4,6 +4,9 @@ import { COLLECTION, SPACE_TYPE } from '../../src/lib/nsid.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, UserError } from '../../src/lib/server/core.ts';
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
+import { parseProfile } from '../../src/lib/server/forms/project.ts';
+import { silentLogger } from '../../src/lib/server/logger.ts';
+import { load as projectPage } from '../../src/routes/projects/[slug]/+page.server.ts';
 import type { ProjectProfile } from '../../src/lib/types.ts';
 import { TestNetwork } from './network.ts';
 
@@ -21,7 +24,7 @@ describe('Local Network on a real atproto spaces network', () => {
 	let net: TestNetwork;
 
 	beforeAll(async () => {
-		net = await TestNetwork.create(['ada', 'milo', 'neon', 'pat', 'lee', 'remy', 'kai'], {
+		net = await TestNetwork.create(['ada', 'milo', 'neon', 'pat', 'lee', 'remy', 'kai', 'sol'], {
 			admins: ['ada'],
 			oauth: ['remy']
 		});
@@ -300,6 +303,78 @@ describe('Local Network on a real atproto spaces network', () => {
 		const tracklist = (await net.app.projects.bySlug('tape-deck'))?.profile.mixes?.[0]?.tracklist;
 		expect(tracklist).toBeDefined();
 		expect((await net.app.tracklists.published(tracklist!)).plays).toHaveLength(sampleReport.plays.length);
+	});
+
+	it("links a DJ's published set to a mix, through HappyView, the form, and a moderator's approval", async () => {
+		const sol = net.user('sol');
+
+		// What locallibrary's `sets publish` writes. Sol manages nothing yet, so HappyView's gate turns it away.
+		const write = (title: string) =>
+			sol.agent.com.atproto.repo.putRecord({
+				repo: sol.did,
+				collection: COLLECTION.djSet,
+				rkey: '3mixsetlinked',
+				record: {
+					$type: COLLECTION.djSet,
+					title,
+					date: '2026-09-12',
+					venue: 'Tresor',
+					tracks: [{ title: 'Halogen', artist: 'Two Rooms' }, { unidentified: true }],
+					createdAt: '2026-09-13T10:00:00.000Z'
+				}
+			});
+
+		const { uri, cid } = (await write('Closing')).data;
+
+		const project = await net.app.projectAdmin.create({
+			actor: await net.viewer('ada'),
+			profile: profile('Sol Sets', { mixes: [{ title: 'Closing', url: 'https://mixes.test/closing' }] }),
+			managers: [sol.did]
+		});
+
+		// Opening the picker has HappyView read Sol's existing sets now that Sol manages a project.
+		const picked = (await net.app.sets.published([sol.did]))?.find((set) => set.uri === uri);
+		expect(picked).toMatchObject({ uri, cid, title: 'Closing', date: '2026-09-12', venue: 'Tresor', trackCount: 2 });
+
+		const form = new FormData();
+
+		for (const [key, value] of Object.entries({
+			name: 'Sol Sets',
+			genres: 'techno',
+			city: 'Berlin',
+			country: 'DE',
+			mixTitle: 'Closing',
+			mixUrl: 'https://mixes.test/closing',
+			mixSet: `${picked!.uri} ${picked!.cid}`
+		}))
+			form.append(key, value);
+
+		const request = await net.app.requests.submit({
+			actor: await net.viewer('sol'),
+			kind: 'update',
+			projectUri: project.uri,
+			profile: parseProfile(form)
+		});
+
+		await net.app.requests.decide({ actor: await net.viewer('milo'), uri: request.uri, outcome: 'approved' });
+
+		const root = await net.app.core.root();
+		const stored = await root.getRecord({ collection: COLLECTION.project, rkey: project.rkey });
+		expect(stored?.value).toMatchObject({ profile: { mixes: [{ title: 'Closing', set: { uri, cid } }] } });
+
+		const page = async () => {
+			const event = { params: { slug: project.slug }, locals: { app: net.app, viewer: null, log: silentLogger } };
+			const data = await projectPage(event);
+
+			return data && 'sets' in data ? (await data.sets)?.get(uri) : undefined;
+		};
+
+		expect(await page()).toMatchObject({ uri, cid, title: 'Closing' });
+
+		// A later edit reaches HappyView over Jetstream; the link stays pinned, so the page can say it changed.
+		const edited = (await write('Closing (extended)')).data.cid;
+		await expect.poll(async () => (await page())?.cid, { timeout: 10_000 }).toBe(edited);
+		expect((await net.app.projects.bySlug(project.slug))?.profile.mixes?.[0]?.set).toEqual({ uri, cid });
 	});
 
 	it('asks someone to sign in again when the app requests scopes their OAuth grant predates', async () => {
