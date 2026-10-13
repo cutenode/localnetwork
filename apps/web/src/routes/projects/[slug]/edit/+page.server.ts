@@ -23,7 +23,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (open) redirect(303, `/me/requests/${open.rkey}`);
 	const details = await locals.app.projects.details(project.uri);
 
-	return { project, values: profileToValues(project.profile, details), geocoder: locals.app.geocoder.enabled };
+	return {
+		project,
+		values: profileToValues(project.profile, details),
+		geocoder: locals.app.geocoder.enabled,
+		// Streamed, so the form shows while HappyView reads the managers' sets.
+		sets: locals.app.sets.published(project.managers)
+	};
 };
 
 export const actions: Actions = {

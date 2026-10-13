@@ -13,18 +13,22 @@ use crate::session::{DID, session_json, sign_in_as};
 use std::path::Path;
 
 use chrono::{NaiveDate, Utc};
+use locallibrary::Track;
 use locallibrary::api::{self, ImportPublishedSettings, ProfileRequest, SetPublishRequest, SetSettings};
 use locallibrary::atmosphere;
 use locallibrary::atmosphere::lexicon::{self, PROFILE, SET, SETTINGS};
 use locallibrary::error::Reason;
+use locallibrary::mix::{Transition, report};
 use locallibrary::profile::PrefsUpdate;
 use locallibrary::progress::Ctx;
+use locallibrary::publish;
 use locallibrary::publish::PLAYS_PUBLISH_COLLECTION;
-use locallibrary::sets::{EntryOrigin, Partner, Recording, Set, SetBook, SetEntry};
+use locallibrary::sets::{EntryOrigin, MusicBrainzIds, Partner, Recording, Set, SetBook, SetEntry};
 use locallibrary::store::Store;
 use mock_pds::{MockPds, Writes, base64url};
 use serde_json::{Value, json};
 use sha2::Digest;
+use uuid::Uuid;
 
 const PUT: &str = "com.atproto.repo.putRecord";
 const GET: &str = "com.atproto.repo.getRecord";
@@ -258,6 +262,107 @@ fn save_set(root: &Path, id: &str, sessions: &[&str]) -> Set {
     book.sets.push(set.clone());
     book.save(&store).unwrap();
     set
+}
+
+/// A set of `n` tracks the recording `r` heard in turn, each blended in over the one before, with
+/// every field filled: names `len` characters long (as long as the Lexicon takes an artist or
+/// release), tagged with MusicBrainz IDs. Saved in the store at `root` with `r`.
+fn save_heard_set(root: &Path, id: &str, n: usize, len: usize) {
+    let store = Store::open_or_init(root).unwrap();
+    let tracks: Vec<Track> = (0..n)
+        .map(|i| Track {
+            title: format!("{i:0len$}"),
+            artist: format!("{i:a>len$}"),
+            album: format!("{i:r>len$}"),
+            isrc: "GBAHT1700123".into(),
+            key: "12A".into(),
+            bpm: 174.99,
+            file_path: format!("/Contents/{i}.mp3"),
+            ..Track::default()
+        })
+        .collect();
+    let plays: Vec<(&Track, f64, f64)> = tracks.iter().enumerate().map(|(i, t)| (t, i as f64 * 180.0, 0.9)).collect();
+    let mut r = crate::sets::report(&plays, None);
+    r.transitions = (1..n)
+        .map(|to| Transition {
+            from: to - 1,
+            to,
+            at: r.plays[to].start,
+            overlap: 20.0,
+            harmony: Some("energy boost".into()),
+            tempo_change: Some(-15.9),
+        })
+        .collect();
+    let report = report::save(&store, &r).unwrap();
+    let id_of = |i: usize| Uuid::from_u128(i as u128);
+    let set = Set {
+        id: id.into(),
+        date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+        recording: Some(Recording { path: "/Users/dj/set.wav".into(), report: Some(report) }),
+        tracks: r
+            .plays
+            .iter()
+            .enumerate()
+            .map(|(i, p)| SetEntry {
+                start_seconds: Some(p.start_second()),
+                musicbrainz: MusicBrainzIds {
+                    recording: Some(id_of(i)),
+                    release: Some(id_of(i)),
+                    artists: vec![id_of(i)],
+                },
+                ..SetEntry::from_track(&p.track, EntryOrigin::Recording, None)
+            })
+            .collect(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        ..Default::default()
+    };
+    let mut book = SetBook::load(&store).unwrap();
+    book.sets.push(set);
+    book.save(&store).unwrap();
+}
+
+/// A set built from a recording says how each track came in, from the recording's report. As
+/// many tracks as a set record holds fit a record and the request writing it, with every field
+/// of every track filled as long as the Lexicon takes (ASCII); an older data server's 150 KB
+/// doesn't, which the plan says. One track more is refused.
+#[test]
+fn a_set_says_how_tracks_came_in_and_holds_as_many_as_a_record_can() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    save_heard_set(&root, "3m2abcdefgh22", 2, 12);
+    let plan = api::set_publish_plan(&root, &publish_set("3m2abcdefgh22")).unwrap();
+    let tracks = plan.record["tracks"].as_array().unwrap();
+    assert!(tracks[0].get("transitionIn").is_none(), "the first track");
+    assert_eq!(
+        tracks[1]["transitionIn"],
+        json!({ "technique": "blend", "durationMs": 20000, "harmony": "energyBoost", "tempoChangePermille": -159 })
+    );
+    assert_eq!(tracks[1]["recordingMbId"], format!("mbid:{}", Uuid::from_u128(1)));
+    assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+
+    let most = publish::SET_TRACK_LIMIT;
+    save_heard_set(&root, "3m2abcdefgh23", most, 256);
+    let plan = api::set_publish_plan(&root, &publish_set("3m2abcdefgh23")).unwrap();
+    let r = &plan.record;
+    assert_eq!(r["tracks"][most - 1]["title"].as_str().unwrap().len(), 256);
+    assert!(r["tracks"][most - 1]["transitionIn"].is_object());
+    let request = json!({ "repo": DID, "collection": SET, "rkey": plan.rkey, "record": r, "swapRecord": Value::Null });
+    let size = request.to_string().len();
+    assert!(size < 1_000_000, "{size} bytes");
+    assert!(size > publish::OLDER_PDS_REQUEST_BYTES, "{size} bytes");
+    let record = r.to_string().len();
+    let note =
+        format!("the record is {} KB: a data server not updated since May 2026 refuses one over 150 KB", record / 1024);
+    assert_eq!(plan.notes, [note]);
+
+    save_heard_set(&root, "3m2abcdefgh24", most + 1, 1);
+    let err = api::set_publish_plan(&root, &publish_set("3m2abcdefgh24")).unwrap_err();
+    assert_eq!(err.code(), "invalid");
+    assert!(
+        err.to_string().contains(&format!("the set has {} tracks, more than a set record holds ({most})", most + 1)),
+        "{err}"
+    );
 }
 
 fn publish_set(set: &str) -> SetPublishRequest {

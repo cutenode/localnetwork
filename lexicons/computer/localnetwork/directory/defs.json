@@ -1,7 +1,7 @@
 {
 	"lexicon": 1,
 	"id": "computer.localnetwork.directory.defs",
-	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects.",
+	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects and their managers' sets.",
 	"defs": {
 		"projectView": {
 			"type": "object",
@@ -16,6 +16,21 @@
 					"minimum": 0,
 					"description": "Meters from the searched location, when the search had one and the project has coordinates."
 				}
+			}
+		},
+		"setView": {
+			"type": "object",
+			"description": "A computer.localnetwork.dj.set by one of a project's managers, as the directory keeps it: what it was and where, without its tracks.",
+			"required": ["uri", "cid", "date", "trackCount"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid", "description": "The set's current version." },
+				"title": { "type": "string" },
+				"date": { "type": "string", "description": "The day it was played, as YYYY-MM-DD." },
+				"kind": { "type": "string" },
+				"venue": { "type": "string" },
+				"location": { "type": "ref", "ref": "community.lexicon.location.address" },
+				"trackCount": { "type": "integer", "minimum": 0 }
 			}
 		},
 		"match": {

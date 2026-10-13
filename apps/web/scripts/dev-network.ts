@@ -41,7 +41,11 @@ const ROOT = { handle: 'localnetwork.test', email: 'root@localnetwork.test', pas
 const ACCOUNTS = [
 	{ handle: 'ada.test', password: 'ada-pass', note: 'admin (ADMIN_DIDS)' },
 	{ handle: 'milo.test', password: 'milo-pass', note: 'regular account; make them a moderator in Staff' },
-	{ handle: 'neon.test', password: 'neon-pass', note: 'DJ; manages two demo projects' },
+	{
+		handle: 'neon.test',
+		password: 'neon-pass',
+		note: 'DJ; manages two demo projects, has three sets and two press kits'
+	},
 	{ handle: 'pat.test', password: 'pat-pass', note: 'promoter' }
 ];
 
@@ -102,11 +106,12 @@ async function main() {
 		record: DEMO_DJ_PROFILE
 	});
 
+	// HappyView isn't running yet, so it reads the sets when neon first opens a set picker, as it would for older ones.
 	for (const set of DEMO_DJ_SETS) {
 		await neon.com.atproto.repo.createRecord({
 			repo: dids['neon.test'],
-			collection: 'computer.localnetwork.dj.set',
-			record: { ...set, createdAt: new Date().toISOString() }
+			collection: COLLECTION.djSet,
+			record: validateRecord(COLLECTION.djSet, { ...set, createdAt: new Date().toISOString() })
 		});
 	}
 

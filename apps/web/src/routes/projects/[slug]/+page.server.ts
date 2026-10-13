@@ -22,8 +22,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		}
 	}
 
+	const linked = (project.profile.mixes ?? []).flatMap((mix) => mix.set ?? []);
+
 	return {
 		...shared,
+		// Streamed, so the page shows while the directory looks up the mixes' sets.
+		sets: linked.length ? app.sets.linked(linked) : undefined,
 		saved,
 		pendingClaim: openRequests.find((request) => request.kind === 'claim') ?? null,
 		pendingUpdate: openRequests.find((request) => request.kind === 'update') ?? null

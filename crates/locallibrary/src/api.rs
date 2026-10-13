@@ -94,6 +94,11 @@ fn known_drives(include_blank: bool) -> Vec<Device> {
     out
 }
 
+/// [`known_drives`] with a rekordbox library.
+fn mounted_exports() -> Vec<Device> {
+    known_drives(false).into_iter().filter(Device::has_export).collect()
+}
+
 /// Find what a command acting on a library means by `spec`: a drive by mount path, adopted name
 /// (case-insensitive), volume name or id prefix, or else a library's name, meaning its lead clone
 /// (see [`jobs::lead_clone`]). A bare word (no `/`, not starting with `.` or `~`) is a drive's

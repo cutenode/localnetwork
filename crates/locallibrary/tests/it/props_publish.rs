@@ -27,10 +27,12 @@ use locallibrary::profile::{
 };
 use locallibrary::progress::Ctx;
 use locallibrary::publish;
-use locallibrary::sets::{EntryOrigin, Partner, Recording, Set, SetBook, SetEntry};
+use locallibrary::sets::{EntryOrigin, MusicBrainzIds, Partner, Recording, Set, SetBook, SetEntry};
 use locallibrary::settings::{self, Category, SCHEMA, SettingDef};
 use locallibrary::store::Store;
 use serde_json::{Map, Value, json};
+use unicode_segmentation::UnicodeSegmentation;
+use uuid::Uuid;
 
 const PUT: &str = "com.atproto.repo.putRecord";
 
@@ -40,8 +42,9 @@ fn sign_in(root: &Path, pds: &str, scopes: &str) {
     sign_in_as(root, session_json(DID, "s1", pds, scopes, Some("refresh-1"), "2099-01-01T00:00:00.000Z"));
 }
 
+/// What a sign-in that allows publishing is granted.
 fn publishing() -> String {
-    atmosphere::publish_scopes().join(" ")
+    crate::mock_pds::granted(&atmosphere::publish_scopes()).join(" ")
 }
 
 /// `v` without the fields that only say when.
@@ -468,7 +471,8 @@ const ISRCS: [(&str, Option<&str>); 6] = [
 const KEYS: [(&str, Option<&str>); 6] =
     [("", None), ("Am", Some("8A")), ("8A", Some("8A")), ("C", Some("8B")), ("12b", Some("12B")), ("H#", None)];
 
-/// What a set says that must never go out: notes, the recording, sessions, files and tags.
+/// What a set says that must never go out: notes, the recording, sessions, files, the label and
+/// the genre.
 const PRIVATE: &str = "PRIVATE";
 
 /// A set's track `i` (with `may_break`, now and then with a title too long for a record), and
@@ -492,7 +496,11 @@ fn entry(tc: &TestCase, i: usize, may_break: bool) -> (SetEntry, Option<&'static
             gs::sampled_from(vec!["", "Bicep", "Four Tet", "Overmono"]).map(String::from),
             gs::text().max_size(10)
         )),
-        album: format!("{PRIVATE}-ALBUM"),
+        album: tc.draw(hegel::one_of!(
+            gs::sampled_from(vec!["", " Isles ", "Selected Ambient Works 85-92"]).map(String::from),
+            gs::text().max_size(10),
+            gs::just("a".repeat(257))
+        )),
         label: format!("{PRIVATE}-LABEL"),
         genre: format!("{PRIVATE}-GENRE"),
         isrc: isrc.into(),
@@ -502,6 +510,11 @@ fn entry(tc: &TestCase, i: usize, may_break: bool) -> (SetEntry, Option<&'static
         duration_secs: 300,
         file: Some(format!("/Contents/{PRIVATE}-FILE-{i}.mp3")),
         start_seconds: tc.draw(gs::optional(gs::integers::<u32>())),
+        musicbrainz: MusicBrainzIds {
+            recording: tc.draw(gs::optional(gs::integers::<u128>())).map(Uuid::from_u128),
+            release: tc.draw(gs::optional(gs::integers::<u128>())).map(Uuid::from_u128),
+            artists: tc.draw(gs::vecs(gs::integers::<u128>()).max_size(3)).into_iter().map(Uuid::from_u128).collect(),
+        },
         unnamed: tc.draw(gs::weighted_booleans(0.2)),
         origin: tc.draw(
             gs::sampled_from(vec![EntryOrigin::Session, EntryOrigin::Recording, EntryOrigin::Added]).print_as_debug(),
@@ -656,6 +669,30 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
         assert_eq!(t.get("isrc").and_then(Value::as_str), *isrc);
         assert_eq!(t.get("key").and_then(Value::as_str), *key);
         assert_eq!(t.get("startSeconds"), start.as_ref());
+        let release = text(&e.album).filter(|a| a.as_str().is_some_and(|a| a.chars().count() <= 256));
+        assert_eq!(t.get("releaseName").cloned(), release);
+        let mbid = |id: Option<Uuid>| id.map(|id| Value::from(format!("mbid:{id}")));
+        assert_eq!(t.get("recordingMbId").cloned(), mbid(e.musicbrainz.recording));
+        assert_eq!(t.get("releaseMbId").cloned(), mbid(e.musicbrainz.release));
+        // Artists one by one, as the profile counts them, when the credit names more than one or
+        // the tags identify its one; their IDs only when the tags have one for each.
+        let (names, ids) = (profile::artist_credits(&e.artist), &e.musicbrainz.artists);
+        let paired = ids.len() == names.len();
+        match t.get("artists") {
+            None => assert!(names.len() < 2 && !(paired && names.len() == 1), "{names:?} {ids:?}"),
+            Some(artists) => {
+                let want: Vec<Value> = names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| match paired {
+                        true => json!({ "artistName": n, "artistMbId": format!("mbid:{}", ids[i]) }),
+                        false => json!({ "artistName": n }),
+                    })
+                    .collect();
+                assert_eq!(artists, &json!(want));
+            }
+        }
+        assert!(t.get("transitionIn").is_none(), "no recording's report");
         match t.get("bpmCentis") {
             None => assert!(!e.bpm.is_finite() || e.bpm <= 0.0, "{}", e.bpm),
             Some(c) => {
@@ -671,7 +708,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
     }
     let text = r.to_string();
     assert!(!text.contains(PRIVATE), "{text}");
-    for field in ["updatedAt", "unnamed", "origin", "notes", "recording", "sessions"] {
+    for field in ["updatedAt", "unnamed", "origin", "notes", "recording", "sessions", "musicbrainz"] {
         assert!(!text.contains(&format!("\"{field}\"")), "{field}: {text}");
     }
 }
@@ -679,7 +716,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
 /// Whatever the set, its record says where and when it was played and its tracks in order, with
 /// the ones marked unnamed or hidden saying only where they start, and nothing private; it
 /// survives JSON, and fits the set Lexicon exactly when the set holds nothing the Lexicon can't
-/// (a title over 100 characters, a partner's DID that isn't one, more than 20 partners...).
+/// (a title over 100 graphemes, a partner's DID that isn't one, more than 20 partners...).
 #[hegel::test(test_cases = 300)]
 fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestCase) {
     let (s, names, mut broken) = set(&tc, true);
@@ -689,11 +726,11 @@ fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestC
         .collect();
     // A title too long breaks the record only when the track is named in it.
     let named = |i: usize, e: &SetEntry| !e.unnamed && !hidden.contains(&(i + 1));
-    if s.tracks.iter().enumerate().any(|(i, e)| named(i, e) && e.title.chars().count() > 300) {
+    if s.tracks.iter().enumerate().any(|(i, e)| named(i, e) && e.title.graphemes(true).count() > 300) {
         broken.push("a track's title");
     }
     let now = time(&tc);
-    let r = publish::set_record(&s, &hidden, now);
+    let r = publish::set_record(&s, &hidden, None, now);
     assert_set_record(&r, &s, &names, &hidden);
     assert_eq!(r["createdAt"], publish::timestamp(now));
     assert_eq!(serde_json::from_str::<Value>(&r.to_string()).unwrap(), r);
@@ -707,10 +744,10 @@ fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestC
 #[hegel::test(test_cases = 300)]
 fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCase) {
     let (s, _, _) = set(&tc, false);
-    let mut r = publish::set_record(&s, &BTreeSet::new(), time(&tc));
+    let mut r = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let n = s.tracks.len();
     let track = || tc.draw(gs::integers::<usize>().max_value(n.max(1) - 1));
-    let want: Option<String> = match tc.draw(gs::integers::<u8>().max_value(16)) {
+    let want: Option<String> = match tc.draw(gs::integers::<u8>().max_value(17)) {
         0 => {
             let f = tc.draw(gs::sampled_from(vec!["date", "tracks", "createdAt"]));
             r.as_object_mut().unwrap().remove(f);
@@ -734,7 +771,7 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
         }
         4 => {
             r["title"] = "x".repeat(tc.draw(gs::integers::<usize>().min_value(101).max_value(300))).into();
-            Some("title is longer than 100 characters".into())
+            Some("title is longer than 100 graphemes".into())
         }
         5 if n > 0 => {
             let i = track();
@@ -792,8 +829,13 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
             None
         }
         15 if n > 0 => {
-            r["tracks"][track()]["recordingMbId"] = "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b".into();
+            r["tracks"][track()]["recordingMbId"] = "mbid:c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b".into();
             None
+        }
+        16 if n > 0 => {
+            let i = track();
+            r["tracks"][i]["recordingMbId"] = "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b".into();
+            Some(format!("tracks[{i}].recordingMbId isn't a URI"))
         }
         _ => {
             let f = tc.draw(gs::sampled_from(vec![
@@ -832,7 +874,7 @@ fn scope_sets() -> Vec<(Vec<String>, bool)> {
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     vec![
         (s(&["atproto"]), false),
-        (atmosphere::publish_scopes(), true),
+        (crate::mock_pds::granted(&atmosphere::publish_scopes()), true),
         (s(&["atproto", "transition:generic"]), true),
         (s(&["atproto", "repo:*"]), true),
         (s(&["atproto", &format!("repo:{SETTINGS}?action=create&action=update")]), false),
@@ -864,7 +906,7 @@ fn account_with(scopes: Vec<String>) -> AccountInfo {
 #[hegel::test(test_cases = 100)]
 fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: TestCase) {
     let (s, _, _) = set(&tc, false);
-    let record = publish::set_record(&s, &BTreeSet::new(), time(&tc));
+    let record = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let (scopes, may_write) = tc.draw(gs::sampled_from(scope_sets()));
     let signed_in = tc.draw(gs::booleans());
     let account = signed_in.then(|| account_with(scopes));
@@ -1309,7 +1351,7 @@ fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
     }
     let hidden: BTreeSet<usize> = asked.iter().chain(&profile).copied().collect();
     assert_set_record(&plan.record, &s, &names, &hidden);
-    assert_eq!(timeless(plan.record.clone()), timeless(publish::set_record(&s, &hidden, Utc::now())));
+    assert_eq!(timeless(plan.record.clone()), timeless(publish::set_record(&s, &hidden, None, Utc::now())));
     let mut notes: Vec<String> = [
         unnamed_note(&marked, "marked unnamed (`sets edit --named`)"),
         unnamed_note(&asked, "hidden as asked"),

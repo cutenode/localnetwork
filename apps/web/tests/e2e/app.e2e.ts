@@ -96,7 +96,7 @@ test.describe('public pages', () => {
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
 		const metadata = await request.get('/oauth-client-metadata.json');
-		expect((await metadata.json()).scope).toContain('space:computer.localnetwork.space.audit');
+		expect((await metadata.json()).scope).toContain('include:computer.localnetwork.permissions');
 		const did = await (await request.get('/.well-known/did.json')).json();
 		expect(did.service[0]).toMatchObject({ id: '#localnetwork_syncer', serviceEndpoint: 'http://127.0.0.1:5199' });
 	});

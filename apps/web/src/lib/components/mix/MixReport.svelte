@@ -16,9 +16,17 @@
 	/**
 	 * A mix report as a page: the header, then the timeline, tracklist, key moves and tempo, which
 	 * share the selected track. `project` replaces the export's artist name (a link back to the
-	 * profile), `listen` is the mix's link, played in place where the platform has a player.
+	 * profile), `listen` is the mix's link, played in place where the platform has a player, and
+	 * `details` adds lines under the summary, like the set it was recorded at.
 	 */
-	let { report, title, project, listen, actions }: { report: MixReport; title?: string; project?: Snippet; listen?: string; actions?: Snippet } = $props();
+	let {
+		report,
+		title,
+		project,
+		listen,
+		actions,
+		details
+	}: { report: MixReport; title?: string; project?: Snippet; listen?: string; actions?: Snippet; details?: Snippet } = $props();
 
 	const heading = $derived(title ?? report.mix.title);
 
@@ -67,6 +75,7 @@
 				<div class="flex flex-col gap-1">
 					{#if byline}<p class="m-0 text-fg-muted">{byline}</p>{/if}
 					<p class="m-0 flex flex-wrap gap-x-4 font-mono text-label text-fg-soft">{#each facts as fact (fact)}<span>{fact}</span>{/each}</p>
+					{@render details?.()}
 				</div>
 			</div>
 		</div>

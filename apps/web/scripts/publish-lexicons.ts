@@ -1,12 +1,17 @@
 /**
  * Publishes every tool's computer.localnetwork.* lexicons (the repo's
  * lexicons/computer/, so locallibrary's too) as com.atproto.lexicon.schema
- * records in the root account's repo, then checks the `_lexicon` DNS TXT
- * records that make them resolvable and exits non-zero while any are missing
- * or point at another DID. PDSes must resolve the space type declarations
- * during OAuth, so run this before anyone signs in.
+ * records in the root account's repo, then checks (or sets) the `_lexicon` DNS
+ * TXT records that make them resolvable. PDSes must resolve the space type
+ * declarations during OAuth, so run this before anyone signs in.
  *
- *   ROOT_IDENTIFIER=… ROOT_PASSWORD=… pnpm lexicons:publish
+ *   ROOT_IDENTIFIER=… ROOT_PASSWORD=… CLOUDFLARE_API_TOKEN=… pnpm lexicons:publish
+ *
+ * With CLOUDFLARE_API_TOKEN, it creates any missing record and fixes wrong ones
+ * through the Cloudflare API, printing what it changed. It trusts the API over
+ * DNS there, since resolvers may serve the old answer for a while. Without the
+ * token, it looks the records up in DNS and exits non-zero while any are
+ * missing or point at another DID.
  *
  * Finds the root account like the app does (PLC_URL, HANDLE_RESOLVER_URL, and
  * ROOT_SERVICE to skip the PDS lookup). Reads `.env` but not `.env.local`: that file
@@ -17,11 +22,13 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolveTxt } from 'node:dns/promises';
 import { join } from 'node:path';
 import { AtpAgent } from '@atproto/api';
+import Cloudflare from 'cloudflare';
 import { parseLexiconDoc } from '@atproto/lexicon';
 import { canonicalJson } from '../src/lib/server/audit/chain.ts';
 import { IdentityResolver } from '../src/lib/server/atproto/identity.ts';
 import { AgentRootClient } from '../src/lib/server/atproto/repo-client.ts';
 import { silentLogger } from '../src/lib/server/logger.ts';
+import { syncLexiconRecords } from './lib/lexicon-dns.ts';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
@@ -74,28 +81,43 @@ for (const doc of docs) {
 
 const authorities = new Set(docs.map((doc) => doc.id.split('.').slice(0, -1).toReversed().join('.')));
 
+const names = [...authorities].map((authority) => `_lexicon.${authority}`).toSorted((a, b) => a.localeCompare(b));
+
 const expected = `did=${did}`;
 
 console.log(`\nDNS: each name needs TXT "${expected}" so PDSes can resolve the lexicons:\n`);
 
-let unresolved = 0;
+const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 
-for (const authority of [...authorities].toSorted((a, b) => a.localeCompare(b))) {
-	const name = `_lexicon.${authority}`;
-	const values = await lexiconRecords(name);
+if (apiToken) {
+	const changes = await syncLexiconRecords(new Cloudflare({ apiToken }), names, expected);
 
-	if (values.length > 0 && values.every((value) => value === expected)) {
-		console.log(`  set      ${name}`);
-		continue;
+	for (const [name, change] of changes) console.log(`  ${change.padEnd(9)}${name}`);
+
+	// Resolvers may have cached the old answer (or its absence), so a DNS check now could still fail.
+	if ([...changes.values()].some((change) => change !== 'set')) {
+		console.log('\nCloudflare serves the changes now; resolvers that cached the old answer catch up within the hour.');
+	}
+} else {
+	let unresolved = 0;
+
+	for (const name of names) {
+		const values = await lexiconRecords(name);
+
+		if (values.length > 0 && values.every((value) => value === expected)) {
+			console.log(`  set      ${name}`);
+			continue;
+		}
+
+		unresolved++;
+		console.log(values.length === 0 ? `  missing  ${name}` : `  wrong    ${name}  (${values.join(', ')})`);
 	}
 
-	unresolved++;
-	console.log(values.length === 0 ? `  missing  ${name}` : `  wrong    ${name}  (${values.join(', ')})`);
-}
-
-if (unresolved > 0) {
-	console.error(`\n${unresolved} of ${authorities.size} _lexicon records are missing or wrong.`);
-	process.exitCode = 1;
+	if (unresolved > 0) {
+		console.error(`\n${unresolved} of ${names.length} _lexicon records are missing or wrong.`);
+		console.error('Add them by hand, or set CLOUDFLARE_API_TOKEN to have this script write them.');
+		process.exitCode = 1;
+	}
 }
 
 /** The `did=` TXT values at `name`; none when the name does not exist. */

@@ -1,5 +1,5 @@
 import { FEE_TIERS, labelFor, PROJECT_KINDS } from './taxonomy/options';
-import type { AccountView, ProjectProfile } from './types';
+import type { AccountView, DjSetView, ProjectProfile } from './types';
 
 export function shortDid(did: string): string {
 	if (did.length <= 24) return did;
@@ -117,4 +117,9 @@ export function hueFor(value: string): number {
 
 export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
 	return `${count.toLocaleString('en')} ${count === 1 ? singular : plural}`;
+}
+
+/** A DJ set in one line: its title (or venue), and the day it was played. */
+export function djSetLabel(set: Pick<DjSetView, 'title' | 'venue' | 'date'>): string {
+	return `${set.title ?? set.venue ?? 'Untitled set'} · ${formatShowDate(set.date)}`;
 }

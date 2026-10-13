@@ -177,6 +177,33 @@ describe('parseProfile', () => {
 		);
 	});
 
+	it("links each mix to the set picked on its row, and refuses anything that isn't one", () => {
+		const set = { uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset', cid: 'bafyreiaaaaaaaaaaaaaaaaaaaaaaa' };
+
+		const mixes = (...sets: string[]) =>
+			form([
+				...minimal,
+				...sets.flatMap((value, index): [string, string][] => [
+					['mixTitle', `Mix ${index}`],
+					['mixUrl', `https://m.test/${index}`],
+					['mixSet', value]
+				])
+			]);
+
+		expect(parseProfile(mixes('', `${set.uri} ${set.cid}`)).mixes).toEqual([
+			{ title: 'Mix 0', url: 'https://m.test/0' },
+			{ title: 'Mix 1', url: 'https://m.test/1', set }
+		]);
+
+		for (const value of [
+			set.uri,
+			`at://did:plc:neon/computer.localnetwork.project/3kset ${set.cid}`,
+			`${set.uri} not-a-cid`,
+			`https://pds.test ${set.cid}`
+		])
+			expect(() => parseProfile(mixes(value))).toThrow(/Pick a set/);
+	});
+
 	it('refuses fee amounts without a tier and bad currency codes', () => {
 		expect(() => parseProfile(form([...minimal, ['feeMin', '100']]))).toThrow(/fee tier/);
 		expect(() => parseProfile(form([...minimal, ['feeCurrency', 'EUR']]))).toThrow(/fee tier/);
@@ -350,7 +377,7 @@ describe('form round-trips', () => {
 		});
 		expect(formValues(form([...minimal, ['international', 'on']])).international).toBe(true);
 	});
-	it('echoes link labels and mix lengths and years', () => {
+	it('echoes link labels, mix lengths and years, and picked sets', () => {
 		expect(
 			formValues(
 				form([
@@ -361,12 +388,21 @@ describe('form round-trips', () => {
 					['mixTitle', 'One'],
 					['mixUrl', 'https://m.test'],
 					['mixDuration', '90'],
-					['mixYear', '2024']
+					['mixYear', '2024'],
+					['mixSet', 'at://did:plc:neon/computer.localnetwork.dj.set/3kset bafyset']
 				])
 			)
 		).toMatchObject({
 			links: [{ kind: 'website', url: 'https://a.test', label: 'Shop' }],
-			mixes: [{ title: 'One', url: 'https://m.test', durationMinutes: 90, year: 2024 }]
+			mixes: [
+				{
+					title: 'One',
+					url: 'https://m.test',
+					durationMinutes: 90,
+					year: 2024,
+					set: { uri: 'at://did:plc:neon/computer.localnetwork.dj.set/3kset', cid: 'bafyset' }
+				}
+			]
 		});
 	});
 });

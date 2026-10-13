@@ -24,6 +24,7 @@ use jacquard_common::SmolStr;
 use jacquard_common::types::aturi::AtUri;
 use jacquard_common::types::did::validate_did;
 use serde_json::Value;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{Error, Result};
 
@@ -176,10 +177,12 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
             if num("maxLength").is_some_and(|m| bytes > m) || num("minLength").is_some_and(|m| bytes < m) {
                 return Err(format!("{} is {bytes} bytes long, outside what the Lexicon allows", what(path)));
             }
-            // Characters, which are never fewer than graphemes: text within the limit in
-            // characters is within it in graphemes.
-            if num("maxGraphemes").is_some_and(|m| s.chars().count() as i64 > m) {
-                return Err(format!("{} is longer than {} characters", what(path), num("maxGraphemes").unwrap_or(0)));
+            // Lexicon counts extended grapheme clusters, what a reader sees as one character: a
+            // flag or an emoji joined with ZWJ is one, though it's several code points.
+            if let Some(max) = num("maxGraphemes")
+                && s.graphemes(true).count() as i64 > max
+            {
+                return Err(format!("{} is longer than {max} graphemes", what(path)));
             }
             if let Some(allowed) = schema["enum"].as_array()
                 && !allowed.iter().any(|a| a == s)

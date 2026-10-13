@@ -20,6 +20,7 @@ use super::ProfileRequest;
 use crate::atmosphere::repo::{self, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::error::{Action, Reason};
+use crate::mix::report;
 use crate::op::{Operation, Planned, Probe, Touched};
 use crate::profile::{PREFS_FILE, ProfilePrefs};
 use crate::progress::Ctx;
@@ -298,6 +299,13 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
     if let Some(&bad) = req.hide.iter().find(|&&p| p == 0 || p > set.tracks.len()) {
         return Err(Error::invalid(format!("there's no track {bad} to hide: the set has {}", set.tracks.len())));
     }
+    if set.tracks.len() > publish::SET_TRACK_LIMIT {
+        return Err(Error::invalid(format!(
+            "the set has {} tracks, more than a set record holds ({}): drop some first (`sets edit --drop`)",
+            set.tracks.len(),
+            publish::SET_TRACK_LIMIT
+        )));
+    }
     let prefs = ProfilePrefs::load(&store)?;
     let (mut marked, mut asked, mut profile) = (Vec::new(), Vec::new(), Vec::new());
     for (i, e) in set.tracks.iter().enumerate() {
@@ -319,9 +327,20 @@ pub fn set_publish_plan(store_root: &Path, req: &SetPublishRequest) -> Result<Pl
     .flatten()
     .collect();
     let hidden: BTreeSet<usize> = asked.iter().chain(&profile).copied().collect();
-    let mut record = publish::set_record(set, &hidden, Utc::now());
+    // How tracks came in is in the recording's report: without it (gone from the store), it's left out.
+    let report =
+        set.recording.as_ref().and_then(|r| r.report.as_deref()).and_then(|id| report::load(store_root, id).ok());
+    let mut record = publish::set_record(set, &hidden, report.as_ref(), Utc::now());
     if record.get("location").is_none() && set.city.as_deref().is_some_and(|c| !c.trim().is_empty()) {
         notes.push("the city is left out: it goes out with a country (`sets edit --country`)".into());
+    }
+    let size = serde_json::to_vec(&record).map_or(0, |r| r.len());
+    if size > publish::OLDER_PDS_REQUEST_BYTES {
+        notes.push(format!(
+            "the record is {} KB: a data server not updated since May 2026 refuses one over {} KB",
+            size / 1024,
+            publish::OLDER_PDS_REQUEST_BYTES / 1024
+        ));
     }
 
     let account = atmosphere::status(store_root)?;

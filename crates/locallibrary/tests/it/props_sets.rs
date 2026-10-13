@@ -22,8 +22,8 @@ use locallibrary::import::read_table;
 use locallibrary::model::normalize;
 use locallibrary::progress::Ctx;
 use locallibrary::sets::{
-    self, EntryOrigin, ImportedSession, Partner, Recording, SETS_FILE, Session, Set, SetBook, SetEntry, TimedPlay,
-    Window, session,
+    self, EntryOrigin, ImportedSession, MusicBrainzIds, Partner, Recording, SETS_FILE, Session, Set, SetBook, SetEntry,
+    TimedPlay, Window, session,
 };
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions};
@@ -742,6 +742,15 @@ fn any_entry(tc: &TestCase) -> SetEntry {
         duration_secs: tc.draw(gs::integers::<u32>()),
         file: maybe_text(tc),
         start_seconds: tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u32>())),
+        musicbrainz: MusicBrainzIds {
+            recording: tc.draw(gs::optional(gs::integers::<u128>())).map(uuid::Uuid::from_u128),
+            release: tc.draw(gs::optional(gs::integers::<u128>())).map(uuid::Uuid::from_u128),
+            artists: tc
+                .draw(gs::vecs(gs::integers::<u128>()).max_size(3))
+                .into_iter()
+                .map(uuid::Uuid::from_u128)
+                .collect(),
+        },
         unnamed: tc.draw(gs::booleans()),
         origin: one_of(tc, &[EntryOrigin::Session, EntryOrigin::Recording, EntryOrigin::Added]),
         session: maybe_text(tc),

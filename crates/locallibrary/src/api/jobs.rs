@@ -23,8 +23,8 @@ use uuid::Uuid;
 use super::autopull::{PullNext, new_history, pull_next, save_order};
 use super::{
     CheckRequest, Direction, DriveRef, EjectDrives, SetPlayerIdentity, SettingsApplyRequest, StepError, SyncRequest,
-    check, clean_plan, drive_eject, edits_replay_plan, known_drives, player_set_plan, registry, resolve_drive,
-    settings_apply_plan, smart_fill_plan, sync_plan,
+    check, clean_plan, drive_eject, edits_replay_plan, known_drives, mounted_exports, player_set_plan, registry,
+    resolve_drive, settings_apply_plan, smart_fill_plan, sync_plan,
 };
 use crate::check::{CheckOptions, CheckReport};
 use crate::device::Device;
@@ -1137,10 +1137,6 @@ pub struct DriveCandidate {
     pub root: PathBuf,
     pub role: Option<Role>,
     pub library: Option<String>,
-}
-
-fn mounted_exports() -> Vec<Device> {
-    known_drives(false).into_iter().filter(Device::has_export).collect()
 }
 
 fn candidates_of(store: Option<&Store>, devices: &[Device]) -> Vec<DriveCandidate> {

@@ -38,6 +38,15 @@ describe('flatten', () => {
 			})
 		).toEqual({ 'mixes[0].title': 'Set', 'mixes[0].tracklist': 'tracklist 87654321' });
 	});
+
+	it("shows a mix's set as one field, so a new version of it is one change", () => {
+		const uri = 'at://did:plc:neon/computer.localnetwork.dj.set/3kset';
+		const set = (cid: string) => ({ mixes: [{ title: 'Set', set: { uri, cid } }] });
+
+		expect(diff(set('bafyfirst11111111'), set('bafysecond22222222'))).toEqual([
+			{ field: 'mixes[0].set', before: `${uri} (version 11111111)`, after: `${uri} (version 22222222)` }
+		]);
+	});
 });
 
 describe('diff', () => {

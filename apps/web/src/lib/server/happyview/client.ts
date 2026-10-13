@@ -1,8 +1,10 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
 import { z } from 'zod';
 import type { MatchBreakdown, MatchNote } from '#lib/matching.ts';
 import { DIRECTORY } from '#lib/nsid.ts';
+import type { DjSetView } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
 import type { HappyViewScript } from './bundle';
 
@@ -29,6 +31,8 @@ export type DirectoryOutputs = {
 	getProject: { project?: DirectoryProject };
 	getProjects: { projects: DirectoryProject[] };
 	getStats: { total: number; active: number; unclaimed: number; cityCount: number; genres: Facet[]; cities: Place[] };
+	getSets: { sets: DjSetView[] };
+	listSets: { sets: DjSetView[] };
 };
 
 export type DirectoryStats = DirectoryOutputs['getStats'];
@@ -42,7 +46,11 @@ const storedScripts = z.array(z.object({ id: z.string(), body: z.string() }));
 
 const backfillJob = z.object({ id: z.string(), status: z.string() });
 
-/** The admin permissions `syncHappyView` uses, so HAPPYVIEW_API_KEY needs exactly these. */
+const BACKFILL_POLL_MS = 250;
+
+const BACKFILL_DONE = new Set(['completed', 'failed', 'cancelled']);
+
+/** The admin permissions `syncHappyView` and the set picker's backfills use, so HAPPYVIEW_API_KEY needs exactly these. */
 export const HAPPYVIEW_PERMISSIONS = [
 	'lexicons:read',
 	'lexicons:create',
@@ -65,8 +73,8 @@ export class HappyViewError extends Error {
 }
 
 /**
- * Talks to the HappyView instance that indexes published projects: directory queries over XRPC,
- * plus the admin calls that keep its lexicons and scripts in step with this app.
+ * Talks to the HappyView instance that indexes published projects and their managers' sets: directory
+ * queries over XRPC, plus the admin calls that keep its lexicons and scripts in step with this app.
  */
 export class HappyViewClient {
 	readonly url: string;
@@ -93,6 +101,11 @@ export class HappyViewClient {
 
 		// SAFETY: assertValidXrpcOutput checked the body against the query's lexicon, which DirectoryOutputs mirrors.
 		return lexicons.assertValidXrpcOutput(nsid, await response.json()) as DirectoryOutputs[K];
+	}
+
+	/** Whether this client can make admin calls, which need HAPPYVIEW_API_KEY. */
+	get admin(): boolean {
+		return this.apiKey !== undefined;
 	}
 
 	/** Whether HappyView answers at all, within a couple of seconds. */
@@ -147,6 +160,22 @@ export class HappyViewClient {
 				.parse(await response.json())
 				.find((job) => job.id === id)?.status ?? null
 		);
+	}
+
+	/**
+	 * Polls a backfill job until it's done or `waitMs` passes, and returns its last status (null when HappyView
+	 * doesn't know the job). A job still running at the deadline carries on in HappyView.
+	 */
+	async awaitBackfill(id: string, waitMs: number): Promise<string | null> {
+		const deadline = Date.now() + waitMs;
+		let status = await this.backfillStatus(id);
+
+		while (status && !BACKFILL_DONE.has(status) && Date.now() < deadline) {
+			await sleep(BACKFILL_POLL_MS);
+			status = await this.backfillStatus(id);
+		}
+
+		return status;
 	}
 
 	private async request(path: string, options: { admin?: boolean; body?: object } = {}) {
