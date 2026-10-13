@@ -1,6 +1,7 @@
 import { page } from 'vitest/browser';
 import { expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { ACCESS_PRESETS } from '#lib/epk.ts';
 import type { ProjectView } from '#lib/types.ts';
 import Page from './+page.svelte';
 
@@ -36,7 +37,9 @@ const data = {
 	managers: [{ did: 'did:plc:neon', handle: 'neon.test' }],
 	isManager: false,
 	dj: Promise.resolve([]),
-	profileUrl: 'https://localnetwork.computer/projects/neon-tide'
+	profileUrl: 'https://localnetwork.computer/projects/neon-tide',
+	epks: Promise.resolve([]),
+	deleted: false
 };
 
 it('lays out the press kit from the profile', async () => {
@@ -51,7 +54,7 @@ it('lays out the press kit from the profile', async () => {
 	await expect.element(page.getByText('Four-year residency at Halle Nord')).toBeInTheDocument();
 	await expect.element(page.getByRole('button', { name: 'Print or save as PDF' })).toBeInTheDocument();
 	await expect.element(page.getByRole('link', { name: 'Send inquiry' })).not.toBeInTheDocument();
-	await expect.element(page.getByRole('heading', { name: 'Not in your press kit yet' })).not.toBeInTheDocument();
+	await expect.element(page.getByRole('link', { name: 'New press kit' })).not.toBeInTheDocument();
 });
 
 it('lets a signed-in member send an inquiry', async () => {
@@ -71,10 +74,32 @@ it('lets a signed-in member send an inquiry', async () => {
 		.toHaveAttribute('href', '/bookings/new?project=neon-tide');
 });
 
-it("shows a manager what the press kit can't hold yet", async () => {
-	await render(Page, { params: { slug: 'neon-tide' }, data: { ...data, isManager: true }, form: null });
+it('lists the press kits its managers publish, and lets a manager start one', async () => {
+	const epk = {
+		uri: 'at://did:plc:neon/computer.localnetwork.epk/3k',
+		did: 'did:plc:neon',
+		rkey: '3k',
+		space: 'at://did:plc:neon/space/computer.localnetwork.space.epk/3k',
+		owner: { did: 'did:plc:neon', handle: 'neon.test' },
+		record: {
+			project: project.uri,
+			title: 'Festivals',
+			headline: 'Big room sets',
+			access: ACCESS_PRESETS[0].access,
+			createdAt: '2026-10-01T00:00:00Z'
+		}
+	};
 
-	await expect.element(page.getByRole('heading', { name: 'Not in your press kit yet' })).toBeVisible();
-	await expect.element(page.getByText('Press photos')).toBeVisible();
+	await render(Page, {
+		params: { slug: 'neon-tide' },
+		data: { ...data, isManager: true, epks: Promise.resolve([epk]) },
+		form: null
+	});
+
+	await expect.element(page.getByRole('link', { name: /Festivals/ })).toHaveAttribute('href', '/epk/did:plc:neon/3k');
+	await expect.element(page.getByText(/Open · Updated/)).toBeVisible();
+	await expect
+		.element(page.getByRole('link', { name: 'New press kit' }))
+		.toHaveAttribute('href', '/epk/new?project=neon-tide');
 	await expect.element(page.getByRole('link', { name: 'Send inquiry' })).not.toBeInTheDocument();
 });

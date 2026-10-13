@@ -6,7 +6,9 @@ import { type Db, openDatabase } from '../db';
 import { HappyViewClient } from '../happyview/client';
 import { silentLogger } from '../logger';
 import { AccountService } from '../services/accounts';
+import { PublicRepo } from '../atproto/public-repo';
 import { BookingService } from '../services/bookings';
+import { EpkService } from '../services/epk';
 import { PlannerService } from '../services/planner';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
@@ -62,6 +64,15 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 
 			return blobs.get(cid) ?? { bytes, mimeType: 'image/png' };
 		},
+		// The root reads a space only once it's a member, as the space host checks its credential.
+		readSpaceRecord: async ({ space, repo, collection, rkey }) => {
+			const found = net.spaces.get(space);
+			const member = space.startsWith(`at://${ROOT}/`) || found?.members.get(ROOT)?.read;
+
+			if (!member) throw new Error(`the root is not a member of ${space}`);
+
+			return net.spaceRecords.get(`${space}|${repo}|${collection}|${rkey}`) ?? null;
+		},
 		fetchBlob: async (_did, cid) => {
 			const bytes = net.blobs.get(cid);
 
@@ -78,6 +89,18 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
+
+	const publicRepo = new PublicRepo(
+		{ resolve: async () => ({ pds: 'https://pds.test' }) },
+		silentLogger,
+		net.publicFetch
+	);
+
+	const epks = new EpkService(core, projects, publicRepo, async (identifier) => {
+		if (identifier.startsWith('did:')) return identifier;
+		throw new Error(`no such handle ${identifier}`);
+	});
+
 	await ensureRootSpaces(core);
 	await audit.idle();
 
@@ -108,6 +131,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		planner,
 		projectAdmin,
 		tracklists,
+		epks,
 		viewer,
 		capable,
 		spaces

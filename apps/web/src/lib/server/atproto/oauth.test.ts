@@ -18,7 +18,7 @@ describe('OAuth scopes', () => {
 
 	it('requests granular space scopes that parse with the official parser', () => {
 		const spaces = full.split(' ').filter((scope) => scope.startsWith('space:'));
-		expect(spaces).toHaveLength(4);
+		expect(spaces).toHaveLength(6);
 
 		for (const scope of spaces) expect(SpacePermission.fromString(scope)).not.toBeNull();
 		const audit = SpacePermission.fromString(spaces[0])!;
@@ -42,6 +42,27 @@ describe('OAuth scopes', () => {
 		const planner = SpacePermission.fromString(spaces[3])!;
 		expect(planner.authority).toBe('self');
 		expect(planner.manage).toEqual(['create', 'update']);
+	});
+
+	it("lets a DJ run their own press kit spaces, and anyone ask for access to someone else's", () => {
+		const spaces = full.split(' ').filter((scope) => scope.startsWith('space:computer.localnetwork.space.epk'));
+		const [own, ask] = spaces.map((scope) => SpacePermission.fromString(scope)!.withResolvedAuthority('did:plc:dj'));
+
+		const target = {
+			type: 'computer.localnetwork.space.epk' as const,
+			authority: 'did:plc:dj' as const,
+			skey: '3mabc'
+		};
+
+		expect(own.matches({ ...target, manage: 'update' })).toBe(true);
+		expect(own.matches({ ...target, action: 'create', collection: 'computer.localnetwork.epk.grant' })).toBe(true);
+		expect(own.matches({ ...target, authority: 'did:plc:other', action: 'read' })).toBe(false);
+
+		const elsewhere = { ...target, authority: 'did:plc:other' as const };
+		expect(ask.matches({ ...elsewhere, action: 'create', collection: 'computer.localnetwork.epk.request' })).toBe(true);
+		expect(ask.matches({ ...elsewhere, action: 'create', collection: 'computer.localnetwork.epk.grant' })).toBe(false);
+		expect(ask.matches({ ...elsewhere, action: 'read' })).toBe(false);
+		expect(full.split(' ')).toContain('repo:computer.localnetwork.epk?action=create&action=update&action=delete');
 	});
 
 	it('lets users upload avatars and mix tracklists to their own PDS, and nothing else', () => {

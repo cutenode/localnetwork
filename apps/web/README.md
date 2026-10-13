@@ -22,7 +22,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
 - A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from their own PDS when the page loads and streamed in, so a slow PDS never holds the page up. Nothing is stored; a few minutes' cache in memory keeps busy pages from asking again.
-- A press kit at `/projects/<slug>/epk`, put together from the profile, mixes, stats, sets and (for members) booking details, that prints or saves as a PDF on white. Managers see the sections it can't hold yet: press photos, quotes and a rider PDF.
+- Press kits as records. A manager publishes as many as they like for a project (`/epk/new?project=<slug>`), one per kind of booking. Each is a public `computer.localnetwork.epk` record in their own repo, holding the mixes and photos they choose to show everyone, plus a space of their own holding the rest: a full bio, on-request mixes and photos, press quotes, contact and rider. People ask for access at `/epk/<did>/<rkey>`; the owner's rules approve them at once, send them for review, or don't take requests, per group (people they've booked with, people they follow on Bluesky, promoters, anyone signed in), with seven presets from open to closed. Every approval writes a grant record to the owner's PDS and adds the person to the space; automatic ones are written as soon as the owner's session allows. The owner sees and answers requests, adds and removes people at `/epk/<did>/<rkey>/access`, and gets a press-photo checklist (3 or more photos, every orientation, 3,000 px, credited).
+- `/projects/<slug>/epk` lists a project's press kits, then one put together from the profile, mixes, stats, sets and (for members) booking details. Both print or save as a PDF on white.
 - Every claim and change is reviewed by a moderator, so profiles can't be hijacked.
 
 ### Tools
@@ -48,6 +49,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 | Audit entries (`computer.localnetwork.audit.entry`)   | Both the actor's repo and the root's repo in the audit space      | Actor and root                       | Staff                 |
 | Booking threads                                       | One booking space per thread; each party writes in their own repo | Promoter and managers                | Thread members only   |
 | Planner                                               | A personal planner space under the promoter's own DID             | The promoter                         | The promoter only     |
+| Press kits (`computer.localnetwork.epk`)              | The manager's public repo                                         | The manager                          | Everyone              |
+| Press kits' private part, requests and grants         | One space per press kit under the manager's DID                   | Owner (content, grants), askers      | Owner, root, granted  |
 
 Space policies (`com.atproto.simplespace`):
 
@@ -59,6 +62,7 @@ Space policies (`com.atproto.simplespace`):
 | industry             | public (any authenticated account) | member list (root)                          |
 | booking (per thread) | member list (promoter + managers)  | member list                                 |
 | planner (personal)   | member list (owner)                | member list                                 |
+| epk (per press kit)  | member list (owner, root, granted) | public (anyone can ask; only owner's count) |
 
 ```mermaid
 flowchart LR

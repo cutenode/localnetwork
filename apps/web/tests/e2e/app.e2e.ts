@@ -136,6 +136,46 @@ test.describe('signed in', () => {
 		await expectAccessible(page);
 	});
 
+	test('someone asks to see a press kit, and its owner lets them in', async ({ page }) => {
+		const signOut = async () => {
+			await page.goto('/me');
+			await page.getByRole('button', { name: 'Sign out' }).click();
+		};
+
+		await signIn(page, 'milo.test', 'milo-pass', '/projects/neon-tide/epk');
+		await page.getByRole('link', { name: /Clubs/ }).click();
+		await expect(page.getByRole('heading', { name: 'The rest of this press kit' })).toBeVisible();
+		await expect(page.getByText('bookings@neon-tide.test')).toHaveCount(0);
+		await expectAccessible(page);
+		await page.getByLabel("You're a").selectOption('press');
+		await page.getByLabel(/Message/).fill('Writing about Berlin residents');
+		await page.getByRole('button', { name: 'Ask for access' }).click();
+		await expect(page.getByText(/You asked on/)).toBeVisible();
+		const kit = new URL(page.url()).pathname;
+		await signOut();
+
+		await signIn(page, 'neon.test', 'neon-pass', `${kit}/access`);
+		await expectAccessible(page);
+		await page
+			.getByRole('listitem')
+			.filter({ hasText: 'Writing about Berlin residents' })
+			.getByRole('button', { name: 'Let in' })
+			.click();
+		await expect(page.getByText('Approved. They can see the whole press kit now.')).toBeVisible();
+		await signOut();
+
+		await signIn(page, 'milo.test', 'milo-pass', kit);
+		await expect(page.getByText('bookings@neon-tide.test')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Halle Nord closing set (promo)' })).toBeVisible();
+		await expectAccessible(page);
+		await signOut();
+
+		// Each browser runs against the same network, so the owner takes access away again.
+		await signIn(page, 'neon.test', 'neon-pass', `${kit}/access`);
+		await page.getByRole('listitem').filter({ hasText: '@milo.test' }).getByRole('button', { name: 'Remove' }).click();
+		await expect(page.getByText('Access removed.')).toBeVisible();
+	});
+
 	test('a promoter sends a booking inquiry', async ({ page }) => {
 		await signIn(page, 'pat.test', 'pat-pass', '/bookings/new?project=neon-tide');
 		await expect(page.getByRole('heading', { name: 'Neon Tide' })).toBeVisible();

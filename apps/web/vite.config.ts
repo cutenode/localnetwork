@@ -52,7 +52,7 @@ export default defineConfig({
 				'src/lib/**/types.ts'
 			],
 			reporter: ['text', 'html', 'lcov', 'json-summary'],
-			thresholds: { lines: 90, functions: 89, statements: 88, branches: 76 }
+			thresholds: { lines: 91, functions: 90, statements: 89, branches: 76 }
 		},
 		projects: [
 			{

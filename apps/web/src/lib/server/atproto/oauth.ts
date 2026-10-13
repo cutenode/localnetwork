@@ -21,9 +21,11 @@ function spaceScope(type: string, params: [string, string][]): string {
 
 /**
  * Granular OAuth scopes: write access to the user's own repos in the root
- * account's audit, moderation, and booking spaces, plus a personal planner
- * space under the user's own DID. Nothing grants reading other users' data;
- * the app reads shared spaces with credentials issued to the root authority.
+ * account's audit, moderation, and booking spaces, a personal planner space
+ * and press kit spaces under the user's own DID, press kit records in their
+ * public repo, and requests into other people's press kit spaces. Nothing
+ * grants reading other users' data; the app reads shared spaces with
+ * credentials issued to the root authority.
  * The base fallback is plain `atproto`, since without spaces the root account
  * writes and uploads everything on the user's behalf.
  */
@@ -58,6 +60,21 @@ export function buildScopes(rootDid: string) {
 			...write('read', 'create', 'update', 'delete'),
 			['manage', 'create'],
 			['manage', 'update']
+		]),
+		// Press kits: the public record in the user's own repo, and the space each one keeps its private part in.
+		`repo:${COLLECTION.epk}?action=create&action=update&action=delete`,
+		spaceScope(SPACE_TYPE.epk, [
+			...collections(COLLECTION.epkContent, COLLECTION.epkGrant),
+			...write('read', 'create', 'update', 'delete'),
+			['manage', 'create'],
+			['manage', 'update'],
+			['manage', 'delete']
+		]),
+		// Asking for access to someone else's press kit.
+		spaceScope(SPACE_TYPE.epk, [
+			['authority', '*'],
+			...collections(COLLECTION.epkRequest),
+			...write('read_self', 'create', 'delete')
 		])
 	];
 

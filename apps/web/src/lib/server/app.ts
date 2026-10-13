@@ -1,5 +1,6 @@
 import type { Viewer } from '#lib/types.ts';
-import { SpaceCredentialManager } from './atproto/credentials';
+import { z } from 'zod';
+import { SpaceCredentialManager, XrpcResponseError } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsAll, OAuthService } from './atproto/oauth';
 import { PublicRepo } from './atproto/public-repo';
@@ -20,12 +21,13 @@ import { createLogger, type Logger } from './logger';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
+import { DjService } from './services/dj';
+import { EpkService } from './services/epk';
 import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
 import { RequestService } from './services/requests';
 import { StaffService } from './services/staff';
-import { DjService } from './services/dj';
 import { TracklistService } from './services/tracklists';
 import { SpaceSyncer } from './sync/engine';
 import { createProjections } from './sync/projections';
@@ -43,6 +45,9 @@ export type CreateAppOptions = {
 };
 
 /** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
+/** What com.atproto.space.getRecord answers, kept as JSON for validateRecord. */
+const spaceRecordOutput = z.object({ uri: z.string(), cid: z.string(), value: z.record(z.string(), z.json()) });
+
 export async function createApp(options: CreateAppOptions) {
 	const { config } = options;
 
@@ -114,6 +119,25 @@ export async function createApp(options: CreateAppOptions) {
 
 			return { bytes, mimeType: response.headers.get('content-type') ?? 'application/octet-stream' };
 		},
+		readSpaceRecord: async ({ space, repo, collection, rkey }) => {
+			const host = await identity.resolve(repo);
+
+			try {
+				const response = await credentials.request({
+					space,
+					service: host.pds,
+					audience: repo,
+					nsid: 'com.atproto.space.getRecord',
+					params: { space, repo, collection, rkey }
+				});
+
+				return spaceRecordOutput.parse(await response.json());
+			} catch (error) {
+				// A record that isn't there comes back as 400 RecordNotFound.
+				if (error instanceof XrpcResponseError && error.error === 'RecordNotFound') return null;
+				throw error;
+			}
+		},
 		fetchBlob: async (did, cid, maxBytes) => {
 			const url = new URL('/xrpc/com.atproto.sync.getBlob', (await identity.resolve(did)).pds);
 			url.searchParams.set('did', did);
@@ -141,13 +165,14 @@ export async function createApp(options: CreateAppOptions) {
 	const tracklists = new TracklistService(core);
 	const publicRepo = new PublicRepo(identity, logger.child({ component: 'public-repo' }));
 	const dj = new DjService(publicRepo, logger.child({ component: 'dj' }));
+	const epks = new EpkService(core, projects, publicRepo, (identifier) => identity.resolveIdentifier(identifier));
 
 	const syncer = new SpaceSyncer({
 		db,
 		logger: logger.child({ component: 'sync' }),
 		identity,
 		credentials,
-		onChange: createProjections({ core, audit, projects, requests, staff, bookings }),
+		onChange: createProjections({ core, audit, projects, requests, staff, bookings, epks }),
 		notifyService: config.syncNotify ? config.syncService : null
 	});
 
@@ -205,6 +230,7 @@ export async function createApp(options: CreateAppOptions) {
 		projectAdmin,
 		tracklists,
 		dj,
+		epks,
 		sessions,
 		geocoder,
 		limits: {
