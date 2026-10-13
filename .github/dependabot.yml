@@ -1,4 +1,5 @@
-# A pull request a month for each ecosystem, every update in one.
+# A pull request a month for each ecosystem, every update in one, leaving out releases less than
+# a week old so a compromised release has time to be caught and pulled first.
 #
 # The workflows pin actions to commits; this keeps the pins current. locallibrary-release.yml's
 # pins are also listed in dist-workspace.toml ([dist.github-action-commits]): update them there
@@ -12,6 +13,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]
@@ -19,6 +22,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     versioning-strategy: lockfile-only
     groups:
       cargo:
@@ -27,6 +32,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
     versioning-strategy: lockfile-only
     groups:
       npm:
