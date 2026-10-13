@@ -40,8 +40,9 @@ fn sign_in(root: &Path, pds: &str, scopes: &str) {
     sign_in_as(root, session_json(DID, "s1", pds, scopes, Some("refresh-1"), "2099-01-01T00:00:00.000Z"));
 }
 
+/// What a sign-in that allows publishing is granted.
 fn publishing() -> String {
-    atmosphere::publish_scopes().join(" ")
+    crate::mock_pds::granted(&atmosphere::publish_scopes()).join(" ")
 }
 
 /// `v` without the fields that only say when.
@@ -832,7 +833,7 @@ fn scope_sets() -> Vec<(Vec<String>, bool)> {
     let s = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     vec![
         (s(&["atproto"]), false),
-        (atmosphere::publish_scopes(), true),
+        (crate::mock_pds::granted(&atmosphere::publish_scopes()), true),
         (s(&["atproto", "transition:generic"]), true),
         (s(&["atproto", "repo:*"]), true),
         (s(&["atproto", &format!("repo:{SETTINGS}?action=create&action=update")]), false),

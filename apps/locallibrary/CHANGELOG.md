@@ -411,7 +411,9 @@ their old names.
 - Each store folder has its own keychain item, so a session kept in the keychain needs one sign-in
   again, and a `--session-file` keeps each account's secrets apart. Publishing asks only to create
   and update locallibrary's records (`repo:<nsid>?action=create&action=update`, where it asked
-  for delete too), so the hosted client document has to be regenerated with those scopes. Sign-in
+  for delete too), through the permission set `computer.localnetwork.locallibraryPublishing`
+  (`include:`), so servers show its description when you approve. The set has to be published
+  (`pnpm -C apps/web lexicons:publish`) before a sign-in that allows publishing works. Sign-in
   stops when that document is online but doesn't fit, instead of quietly using the development
   client, and `account` and the player say when a session is the development client's. `settings
   import --from-handle` and `--from-account` (and `settings.import_published.*`) add the

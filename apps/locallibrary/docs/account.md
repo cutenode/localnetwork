@@ -16,11 +16,19 @@ locallibrary never sees your password. Give your handle, a DID, or your server
 (`locallibrary account login https://bsky.social`, which also lets you pick an account or make
 one). Signing in only asks to know who you are: locallibrary can't post or change anything.
 [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
-and replace the three record types it publishes
-(`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, and the same for
-`computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`), not to delete them, and
-nothing else in the account. `account login --publish` asks for it up front.
+and replace the three record types it publishes, not to delete them, and nothing else in the
+account. `account login --publish` asks for it up front.
 
+- **Publishing's permission is a permission set**, the Lexicon
+  [`computer.localnetwork.locallibraryPublishing`](../../../lexicons/computer/localnetwork/locallibraryPublishing.json):
+  sign-in asks for `include:computer.localnetwork.locallibraryPublishing`, the server shows the
+  set's title and description when you approve, and the session is granted what the set lists in
+  its place (`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, and
+  the same for `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`). Servers
+  look the set up when you sign in and every time the session is refreshed, so it has to be
+  published first (`pnpm -C apps/web lexicons:publish`, with the `_lexicon.localnetwork.computer`
+  DNS record it checks); until it is, a sign-in that allows publishing fails. It's named directly
+  under `computer.localnetwork` because a set can only grant records under its own name's parent.
 - **The browser comes back to locallibrary** on a one-off `127.0.0.1` port, and only the address
   that carries this sign-in's `state` counts. When the browser runs on another computer (over
   SSH), `--paste` takes the address it ends up on instead; `--no-browser` only prints the link.
