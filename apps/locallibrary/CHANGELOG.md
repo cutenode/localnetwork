@@ -161,7 +161,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   Network's tools share (with `computer.localnetwork.dj.defs`), and My Settings stay
   `computer.localnetwork.locallibrary.settings`. The set Lexicon gains `kind`, `location` (an open
   union, a Lexicon Community address for now), `event`, `playedWith`, `links` and `sources` (for
-  `source`), and the profile's `basis` can be `sessions`. The night-before job `set` is `prep` (`set` is a spelling of `sets`
+  `source`), holds up to 500 tracks (not 1,000), and its tracks gain `artists`, `releaseName`,
+  `releaseMbId` and `transitionIn` (how a track came in, from the recording's mix report), shaped as
+  teal.fm's and skaists' records so readers can map them. `recordingMbId` is `mbid:<uuid>`, as
+  teal.fm writes it, and locallibrary fills the MusicBrainz IDs from files Picard tagged. The
+  profile's `basis` can be `sessions`. The night-before job `set` is `prep` (`set` is a spelling of `sets`
   now; over RPC `prep.plan/apply`, and `set.*` still works).
 - **Player.** A terminal UI to browse a drive the way players show it and listen to it: search
   and filters, track details, harmonic suggestions, history and mixes. It does the drive work

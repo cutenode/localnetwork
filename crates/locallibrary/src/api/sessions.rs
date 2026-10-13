@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{known_drives, resolve_drive};
+use super::{mounted_exports, resolve_drive};
 use crate::Result;
 use crate::device::Device;
 use crate::plays;
@@ -47,7 +47,7 @@ pub(super) fn gather(
     ctx: &Ctx<'_>,
 ) -> Result<(Gathered, Vec<Device>)> {
     let Some(spec) = drive else {
-        let drives: Vec<Device> = known_drives(false).into_iter().filter(Device::has_export).collect();
+        let drives = mounted_exports();
         return Ok((session::gather(store, &drives, book, ctx)?, drives));
     };
     let drives = vec![resolve_drive(spec)?];

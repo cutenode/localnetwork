@@ -4050,6 +4050,17 @@ export type MoveOutput = {
   track: TrackRef;
 };
 
+/**
+ * MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the
+ * recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist.
+ */
+export type MusicBrainzIds = {
+  /** In the credit's order. */
+  artists?: string[];
+  recording?: string | null;
+  release?: string | null;
+};
+
 export type MyTagCategory = {
   name: string;
   /** The databases that have it. */
@@ -5785,6 +5796,11 @@ export type SetEntry = {
   /** As the library has it (note name, Camelot or Open Key). */
   key?: string;
   label?: string;
+  /**
+   * MusicBrainz IDs from the audio file's tags, read from a mounted drive when the set is made
+   * or edited.
+   */
+  musicbrainz?: MusicBrainzIds;
   origin: EntryOrigin;
   /** The session that logged it. */
   session?: string | null;

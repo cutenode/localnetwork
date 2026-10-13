@@ -62,7 +62,7 @@
 					},
 					"tracks": {
 						"type": "array",
-						"maxLength": 1000,
+						"maxLength": 500,
 						"description": "In play order.",
 						"items": { "type": "ref", "ref": "computer.localnetwork.dj.defs#track" }
 					},
