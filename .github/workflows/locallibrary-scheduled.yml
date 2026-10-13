@@ -2,8 +2,8 @@ name: locallibrary scheduled
 
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
 # branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
-# combination, Bombadil, mutation testing, the CLI's timings against a week earlier and a release
-# build of every target. Also a weekly RustSec check, which catches advisories published against
+# combination, Bombadil, mutation testing, fuzzing, the CLI's timings against a week earlier and a
+# release build of every target. Also a weekly RustSec check, which catches advisories published against
 # Cargo.lock between pushes.
 on:
   schedule:
@@ -169,6 +169,58 @@ jobs:
           name: mutants-${{ matrix.shard }}
           path: mutants.out
           if-no-files-found: ignore
+
+  # libFuzzer feeds the parsers for what a drive or an import holds (export.pdb and exportExt.pdb,
+  # analysis files, the players' settings files, tracklists) inputs grown from the test fixtures,
+  # five minutes a target (fuzz/run.sh, see CONTRIBUTING.md). One job runs them in turn, so the
+  # targets' shared dependencies build once. The corpus a run grows is cached for the next one; a
+  # crash fails the job and uploads its input.
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The pinned toolchain for cargo-fuzz's own build, and nightly for the targets (libFuzzer's
+      # instrumentation and the sanitizer need it).
+      - run: rustup toolchain install && rustup toolchain install nightly --profile minimal --component rust-src
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: fuzz
+      # install-action has no cargo-fuzz of its own. Its cargo-install fallback builds it from
+      # crates.io with the lockfile (rust-cache keeps the binary), where the default would have
+      # cargo-binstall download one using the job's token.
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-fuzz@0.13.2
+          fallback: cargo-install
+      # A cache entry can't be overwritten: each run saves under its own key and the next restores
+      # the newest. Saved even when a target crashed, so what it found before isn't lost.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+      - name: Fuzz each target for five minutes
+        run: |
+          status=0
+          for target in pdb anlz mysettings tracklist; do
+            fuzz/run.sh "$target" -max_total_time=300 -timeout=10 -rss_limit_mb=2048 || status=1
+            # Down to the inputs that each add coverage, so the cache doesn't grow every week.
+            cargo +nightly fuzz cmin "$target" "fuzz/corpus/$target"
+          done
+          exit "$status"
+      - if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
 
   # How long the release CLI takes to start and to read a real 3,886-track library
   # (tools/cli-timings.sh), against this branch a week earlier, both built and timed on this

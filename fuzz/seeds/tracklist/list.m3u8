@@ -1,0 +1,11 @@
+#EXTM3U
+#EXTINF:323,Daft Punk - One More Time
+/Users/me/Music/Daft Punk/Discovery/01 One More Time.mp3
+#EXTALB:Discovery
+#EXTART:Daft Punk
+#EXTINF:-1 tvg-name="a,b",Stream
+file:///Users/me/Music/Caf%C3%A9%20del%20Mar.mp3
+file://localhost/C:/Music/Track%20Two.flac
+C:\Music\Artist - Song.mp3
+../Music/03 - Moby - Porcelain.mp3
+Macintosh HD:Users:me:x.mp3

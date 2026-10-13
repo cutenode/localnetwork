@@ -251,6 +251,21 @@ fn the_blue_detail_waveform_is_read_when_theres_no_colour_one() {
     assert_eq!(detail(&file(&[])).unwrap(), None);
 }
 
+/// A shift past either end of a detail waveform empties it, whatever column width and rate its
+/// header claims: their product with the shift used to overflow.
+#[test]
+fn a_huge_shift_empties_the_detail_waveform() {
+    let mut h = u32::MAX.to_be_bytes().to_vec(); // bytes per column
+    h.extend_from_slice(&1u32.to_be_bytes()); // columns
+    h.extend_from_slice(&u16::MAX.to_be_bytes()); // columns a second
+    h.extend_from_slice(&[0, 0]);
+    let f = file(&[section(b"PWV5", &h, &[1, 2, 3, 4])]);
+    for ms in [i32::MAX, i32::MIN] {
+        let shifted = shift_times(&f, ms).unwrap();
+        assert_eq!(shifted[shifted.len() - 4..], [0; 4], "shifted by {ms} ms");
+    }
+}
+
 /// An entry claiming a length shorter than its own header ends the list there.
 #[test]
 fn a_cue_entry_of_impossible_length_ends_the_list() {

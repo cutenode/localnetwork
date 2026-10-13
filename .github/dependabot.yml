@@ -5,8 +5,9 @@
 # pins are also listed in dist-workspace.toml ([dist.github-action-commits]): update them there
 # too.
 #
-# Cargo and npm: the lockfiles only, the semver-compatible updates `cargo update` and
-# `pnpm update` would make. Cargo.toml (and its `=` pins) and package.json are changed by hand.
+# Cargo (the workspace, and fuzz/ with a lockfile of its own) and npm: the lockfiles only, the
+# semver-compatible updates `cargo update` and `pnpm update` would make. Cargo.toml (and its `=`
+# pins) and package.json are changed by hand.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -19,7 +20,7 @@ updates:
       actions:
         patterns: ["*"]
   - package-ecosystem: cargo
-    directory: /
+    directories: ["/", "/fuzz"]
     schedule:
       interval: monthly
     cooldown:
