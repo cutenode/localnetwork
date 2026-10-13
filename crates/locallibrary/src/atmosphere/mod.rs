@@ -20,7 +20,8 @@
 //! * The network (`net`): servers found from a handle or DID are only reached at public https
 //!   addresses, and answers are read up to a limit.
 //! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]) with the
-//!   session, which needs the [`PUBLISH_SCOPES`], and reading anyone's without one.
+//!   session, which needs the [`PUBLISH_SCOPES`] ([`PUBLISH_SET`] grants them), and reading
+//!   anyone's without one.
 //!
 //! One account is signed in at a time. Bluesky's servers end a public client's session two weeks
 //! after sign-in however often it's refreshed ([`AccountInfo::sign_in_again_by`]).
@@ -71,24 +72,36 @@ pub const CLIENT_ID: &str = "https://locallibrary.localnetwork.computer/oauth-cl
 /// What signing in asks for: to know who you are, nothing more.
 pub const DEFAULT_SCOPES: [&str; 1] = ["atproto"];
 
-/// What publishing asks for besides `atproto`: to create and replace the record types locallibrary
-/// writes (see [`lexicon`]), and nothing else in the account (not even deleting them, which
-/// locallibrary doesn't do). Signing in only asks for them when the DJ publishes (`account login
-/// --publish`, or a publish command that signs in again). The hosted client document has to
-/// allow them before a release asks: sign-in checks, and refuses while it doesn't.
+/// The permission set publishing asks for (as `include:<nsid>`), a Lexicon in the repo's
+/// `lexicons/`. Servers show its title and detail when the DJ approves and grant the
+/// [`PUBLISH_SCOPES`] it lists in its place, so granted scopes never name it. They look it up at
+/// sign-in and on every refresh, so it has to be published first. It sits directly under
+/// `computer.localnetwork` because a set only grants records under its own NSID's group, and
+/// locallibrary's are under both `computer.localnetwork.dj` and `computer.localnetwork.locallibrary`.
+pub const PUBLISH_SET: &str = "computer.localnetwork.locallibraryPublishing";
+
+/// What publishing needs besides `atproto`, and what [`PUBLISH_SET`] grants: to create and replace
+/// the record types locallibrary writes (see [`lexicon`]), and nothing else in the account (not
+/// even deleting them, which locallibrary doesn't do). The set lists each record type on its own
+/// because servers write a permission for several as `repo?collection=…`, which jacquard can't
+/// read. Signing in only asks for them when the DJ publishes (`account login --publish`, or a
+/// publish command that signs in again).
 pub const PUBLISH_SCOPES: [&str; 3] = [
     "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
     "repo:computer.localnetwork.dj.profile?action=create&action=update",
     "repo:computer.localnetwork.dj.set?action=create&action=update",
 ];
 
-/// `atproto` and the publish scopes: what a sign-in that allows publishing asks for.
+/// `atproto` and [`PUBLISH_SET`]: what a sign-in that allows publishing asks for. The hosted
+/// client document has to allow them before a release asks: sign-in checks, and refuses while it
+/// doesn't.
 pub fn publish_scopes() -> Vec<String> {
-    DEFAULT_SCOPES.iter().chain(&PUBLISH_SCOPES).map(|s| s.to_string()).collect()
+    DEFAULT_SCOPES.iter().map(|s| s.to_string()).chain([format!("include:{PUBLISH_SET}")]).collect()
 }
 
 /// The scope a session needs to write (create and replace) records of `collection`, when the
-/// account's granted scopes don't include it. `None`: it may write them.
+/// account's granted scopes don't include it. `None`: it may write them. The granted scopes are
+/// the server's, with [`PUBLISH_SET`] already replaced by what it grants.
 pub fn missing_scope(info: &AccountInfo, collection: &str) -> Option<String> {
     let granted = Scopes::new(SmolStr::new(info.scopes.join(" "))).ok();
     let grants = |s: &Scope| granted.as_ref().is_some_and(|g| g.grants(s));
@@ -243,7 +256,10 @@ fn oauth_error(e: OAuthError) -> Error {
 
 fn scopes(list: &[String]) -> Result<Scopes<SmolStr>> {
     let joined = if list.is_empty() { DEFAULT_SCOPES.join(" ") } else { list.join(" ") };
-    let scopes = Scopes::new(SmolStr::new(&joined)).map_err(|e| Error::invalid(format!("scopes {joined:?}: {e:?}")))?;
+    // jacquard drops a repeated scope, but not a repeated `include:`.
+    let unique: Vec<&str> = joined.split(' ').collect::<indexmap::IndexSet<_>>().into_iter().collect();
+    let scopes =
+        Scopes::new(SmolStr::new(unique.join(" "))).map_err(|e| Error::invalid(format!("scopes {joined:?}: {e:?}")))?;
     if !scopes.iter().any(|s| s.to_string() == "atproto") {
         return Err(Error::invalid("the scopes have to include `atproto`"));
     }
@@ -707,21 +723,15 @@ async fn revoke(session: &Session) -> bool {
 
 /// The client metadata document to host at `client_id` (an HTTPS URL, conventionally ending in
 /// `/oauth-client-metadata.json`) for [`Client::Hosted`]. Servers then show its host as the app's
-/// name and remember approvals. Its `scope` is the most any sign-in may ask for: `atproto`, the
-/// [`PUBLISH_SCOPES`], and `extra`.
+/// name and remember approvals. Its `scope` is the most any sign-in may ask for: `atproto`,
+/// [`PUBLISH_SET`], and `extra`.
 pub fn client_metadata(client_id: &str, extra: &[String]) -> Result<serde_json::Value> {
     let url = uri(client_id)?;
     if url.scheme().as_str() != "https" {
         return Err(Error::invalid(format!("a hosted client ID is an https:// URL, not {client_id:?}")));
     }
     let host = url.authority().map(|a| a.host().to_string()).unwrap_or_default();
-    let mut all = publish_scopes();
-    for s in extra {
-        if !all.contains(s) {
-            all.push(s.clone());
-        }
-    }
-    let scope = self::scopes(&all)?.to_normalized_string();
+    let scope = self::scopes(&[publish_scopes(), extra.to_vec()].concat())?.to_normalized_string();
     Ok(serde_json::json!({
         "client_id": client_id,
         "client_name": "locallibrary",

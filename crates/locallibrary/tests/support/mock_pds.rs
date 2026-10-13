@@ -1,7 +1,8 @@
 //! A pretend Atmosphere data server (PDS) on 127.0.0.1, for tests that publish without the
 //! network: it keeps records in memory, answers `com.atproto.repo.getRecord` and `putRecord`
 //! (`swapRecord: null` meaning there must be no record yet), `com.atproto.server.getSession` and
-//! token revocation the way a PDS does, and records every request it gets.
+//! token revocation the way a PDS does, and records every request it gets. [`granted`] is what
+//! its sign-in would grant: it doesn't sign anyone in, since that needs a browser.
 //!
 //! Writes must be DPoP-bound: an `Authorization: DPoP <token>` header and a `DPoP` proof, which
 //! must carry the nonce the server hands out (the first write is told to use one, as servers
@@ -14,6 +15,7 @@
 use indexmap::IndexMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -159,6 +161,67 @@ impl Drop for MockPds {
         self.stop.store(true, Ordering::SeqCst);
         let _ = TcpStream::connect(("127.0.0.1", self.port));
     }
+}
+
+/// The scopes a sign-in that asks for `requested` is granted, as a PDS's token answer lists them:
+/// each `include:<nsid>` replaced by the permissions its permission set (the repo's Lexicon for
+/// `nsid`) lists, then the rest. That's `@atproto/oauth-provider`'s `buildTokenScope`
+/// (`lexicon/lexicon-manager.js`) with `@atproto/oauth-scopes`'s `IncludeScope`
+/// (`scopes/include-scope.js`) for `repo` permissions: one is dropped when a collection isn't
+/// under the set's NSID group or it has a field `repo:` scopes don't, and one with several
+/// collections is written `repo?collection=…`.
+pub fn granted<S: AsRef<str>>(requested: &[S]) -> Vec<String> {
+    let (sets, rest): (Vec<&str>, Vec<&str>) =
+        requested.iter().map(AsRef::as_ref).partition(|s| s.starts_with("include:"));
+    sets.iter().flat_map(|s| permission_set(&s["include:".len()..])).chain(rest.into_iter().map(String::from)).collect()
+}
+
+fn permission_set(nsid: &str) -> Vec<String> {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().find(|p| p.join("lexicons").is_dir()).unwrap();
+    let file = repo.join("lexicons").join(nsid.replace('.', "/")).with_extension("json");
+    let text = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+    let doc: Value = serde_json::from_str(&text).unwrap();
+    let set = &doc["defs"]["main"];
+    assert_eq!((&doc["id"], &set["type"]), (&json!(nsid), &json!("permission-set")), "{}", file.display());
+    let group = &nsid[..=nsid.rfind('.').unwrap()];
+    let all = ["create", "update", "delete"];
+    let repo_scope = |p: &Value| -> Option<String> {
+        assert_eq!(p["resource"], "repo", "the mock only grants repo permissions");
+        if p.as_object()?.keys().any(|k| !["type", "resource", "collection", "action"].contains(&k.as_str())) {
+            return None;
+        }
+        let mut collections: Vec<&str> =
+            p["collection"].as_array()?.iter().map(Value::as_str).collect::<Option<_>>()?;
+        if collections.is_empty() || collections.iter().any(|c| !c.starts_with(group) || c.len() == group.len()) {
+            return None;
+        }
+        collections.sort_unstable();
+        collections.dedup();
+        let actions: Vec<&str> = match p.get("action") {
+            None => all.to_vec(),
+            Some(a) => {
+                let a: Vec<&str> = a.as_array()?.iter().map(Value::as_str).collect::<Option<_>>()?;
+                if a.is_empty() || !a.iter().all(|x| all.contains(x)) {
+                    return None;
+                }
+                all.into_iter().filter(|x| a.contains(x)).collect()
+            }
+        };
+        let mut params: Vec<String> = Vec::new();
+        let mut scope = "repo".to_string();
+        match collections[..] {
+            [one] => scope += &format!(":{one}"),
+            _ => params.extend(collections.iter().map(|c| format!("collection={c}"))),
+        }
+        if actions.len() < all.len() {
+            params.extend(actions.iter().map(|a| format!("action={a}")));
+        }
+        if !params.is_empty() {
+            scope += &format!("?{}", params.join("&"));
+        }
+        Some(scope)
+    };
+    set["permissions"].as_array().unwrap().iter().filter_map(repo_scope).collect()
 }
 
 fn decode_json(part: &str) -> Option<Value> {
