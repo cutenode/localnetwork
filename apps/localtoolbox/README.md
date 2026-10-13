@@ -419,6 +419,8 @@ pnpm test:shuffle    # the same suite in a random order, to catch tests that
 pnpm test:repeat     # every test twice, to catch state kept between runs
 pnpm verify          # format, lint, types, knip, coverage, shuffled, repeated
                      # and the build: the whole gate
+pnpm test:mutation   # Stryker; slow, so CI runs it weekly. The report is in
+                     # reports/mutation/
 pnpm zip             # the release build, zipped as localtoolbox.zip
 pnpm validate:state <file.json>   # check an exported state file
 ```
@@ -472,6 +474,9 @@ in several other ways as well:
 - **Agreement** (`consistency.test.ts`, `docs.test.ts`) — the manifest, the
   build config, the tool registry, the stylesheets and the README, checked
   against each other and against the code.
+- **Mutation** (`stryker.config.mjs`, weekly): the logic changed one small
+  edit at a time (a `<` made `<=`, a branch emptied) and the tests rerun
+  against each change. A change no test notices is behaviour nothing pins down.
 
 Every test is also watched for a promise nobody handled (`setup.ts`): a panel
 whose load rejected draws nothing and says nothing, and an assertion on what it

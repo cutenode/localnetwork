@@ -19,6 +19,7 @@
 		"test:shuffle": "vitest run --sequence.shuffle.files --sequence.shuffle.tests",
 		"test:repeat": "vitest run --repeats=1",
 		"test:coverage": "vitest run --coverage",
+		"test:mutation": "stryker run",
 		"validate:state": "node scripts/validate-state.mts",
 		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm knip && pnpm test:coverage && pnpm test:shuffle && pnpm test:repeat && pnpm build"
 	},
@@ -31,6 +32,8 @@
 	},
 	"devDependencies": {
 		"@internationalized/date": "^3.12.0",
+		"@stryker-mutator/core": "^10.0.0",
+		"@stryker-mutator/vitest-runner": "^10.0.0",
 		"@sveltejs/vite-plugin-svelte": "^7.3.0",
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/chrome": "^0.3.0",
