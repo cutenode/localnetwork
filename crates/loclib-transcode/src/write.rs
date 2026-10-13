@@ -32,15 +32,17 @@ pub(crate) struct Spec {
     pub bit_depth: u16,
 }
 
+/// Both writers are boxed: `Pcm` is around 200 bytes (more on Windows, where paths and file
+/// handles are bigger) and `Flac` much larger.
 pub(crate) enum Writer {
-    Pcm(Pcm),
+    Pcm(Box<Pcm>),
     Flac(Box<Flac>),
 }
 
 impl Writer {
     pub(crate) fn new(file: File, path: &Path, spec: Spec, tag: Option<Tag>) -> Result<Writer> {
         Ok(match spec.container {
-            Container::Aiff | Container::Wav => Writer::Pcm(Pcm::new(file, path, spec, tag)?),
+            Container::Aiff | Container::Wav => Writer::Pcm(Box::new(Pcm::new(file, path, spec, tag)?)),
             Container::Flac => Writer::Flac(Box::new(Flac::new(file, path, spec, tag)?)),
         })
     }
