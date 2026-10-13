@@ -128,8 +128,10 @@ fn a_copy_that_cant_be_made_says_why(tc: TestCase) {
     fs::write(&file, b"x").unwrap();
     let under = file.join(tc.draw(gs::sampled_from(vec!["copy", "NAS"])));
     let named = std::path::Path::new("notes.txt").join(under.file_name().unwrap());
-    // Its marker can't be read there; forced past that, its folder can't be made.
-    for (force, at) in [(false, named.join("copy.json")), (true, named.clone())] {
+    // Its marker can't be read there; forced past that, its folder can't be made. Windows says a
+    // path through a file isn't there, so the marker reads as missing and the folder is first.
+    let marker = if cfg!(windows) { named.clone() } else { named.join("copy.json") };
+    for (force, at) in [(false, marker), (true, named.clone())] {
         let err =
             offsite::copy(&store, &under, &CopyOptions { force, ..Default::default() }, &Ctx::silent()).unwrap_err();
         assert!(matches!(&err, Error::Io { path, .. } if path.ends_with(&at)), "{err}");

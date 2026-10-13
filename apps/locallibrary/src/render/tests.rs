@@ -142,7 +142,9 @@ fn format_plans_and_reports_show_every_part(tc: TestCase) {
     let mut plan = match planned {
         Ok(p) => p,
         Err(e) => {
-            assert!(size >= 1 << 41, "{} refused: {e}", d.describe());
+            // Windows itself makes no HFS+.
+            let hfs_on_windows = cfg!(windows) && filesystem == Filesystem::Hfsplus;
+            assert!(size >= 1 << 41 || hfs_on_windows, "{} refused: {e}", d.describe());
             return;
         }
     };
