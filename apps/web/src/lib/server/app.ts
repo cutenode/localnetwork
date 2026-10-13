@@ -2,6 +2,7 @@ import type { Viewer } from '#lib/types.ts';
 import { SpaceCredentialManager } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
 import { grantsAll, OAuthService } from './atproto/oauth';
+import { PublicRepo } from './atproto/public-repo';
 import type { RepoClient } from './atproto/repo-client';
 import { RootAccount } from './atproto/root';
 import { rootSpaces } from './atproto/spaces';
@@ -138,7 +139,8 @@ export async function createApp(options: CreateAppOptions) {
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
-	const dj = new DjService(identity, logger.child({ component: 'dj' }));
+	const publicRepo = new PublicRepo(identity, logger.child({ component: 'public-repo' }));
+	const dj = new DjService(publicRepo, logger.child({ component: 'dj' }));
 
 	const syncer = new SpaceSyncer({
 		db,
