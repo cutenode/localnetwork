@@ -1,9 +1,12 @@
+<script lang="ts">
+	import SectionHeader from '#lib/ui/SectionHeader.svelte';
+</script>
+
 <svelte:head><title>Privacy · Local Network</title></svelte:head>
 
-<div class="container-page max-w-3xl py-12">
-	<p class="eyebrow">Privacy</p>
-	<h1 class="mt-2 text-4xl">What we store and where</h1>
-	<div class="prose prose-ansi mt-8 max-w-none">
+<div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
+	<SectionHeader level={1} eyebrow="Privacy" title="What we store and where" lede="Where each kind of data lives, and who can read it." />
+	<div class="prose prose-site">
 		<h2>Public</h2>
 		<p>Published project profiles (name, genres, city, links, mixes, fee tier, managers' DIDs) are public atproto records anyone can read.</p>
 		<h2>Members only</h2>

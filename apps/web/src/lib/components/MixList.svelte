@@ -1,6 +1,10 @@
 <script lang="ts">
-	import { ListMusic, Play } from '@lucide/svelte';
+	import { ListMusic, Pause, Play } from '@lucide/svelte';
+	import { embedUrl, mixPlatform } from '#lib/mix/links.ts';
 	import type { ProjectMix } from '#lib/types.ts';
+	import Button from '#lib/ui/Button.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import MixEmbed from './mix/MixEmbed.svelte';
 
 	/** `tracklistHref` links mixes that have a tracklist to their page (by position, from 0). */
 	let { mixes, tracklistHref }: { mixes: ProjectMix[]; tracklistHref?: (index: number) => string } = $props();
@@ -8,52 +12,37 @@
 	/** The open player, by position and link, since records written elsewhere can repeat a link. */
 	let open = $state<string | null>(null);
 
-	function embedUrl(url: string): string | null {
-		try {
-			const parsed = new URL(url);
-
-			if (parsed.hostname.endsWith('soundcloud.com')) {
-				return `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&color=%23ff55ff&auto_play=true&visual=false`;
-			}
-
-			if (parsed.hostname.endsWith('mixcloud.com')) {
-				return `https://player-widget.mixcloud.com/widget/iframe/?hide_cover=1&feed=${encodeURIComponent(parsed.pathname)}`;
-			}
-
-			const youtube = parsed.hostname.includes('youtu.be') ? parsed.pathname.slice(1) : parsed.searchParams.get('v');
-
-			if (youtube && (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be'))) {
-				return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(youtube)}`;
-			}
-		} catch {
-			return null;
-		}
-
-		return null;
-	}
+	const length = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''}`);
 </script>
 
-<ul class="space-y-3">
+<ul class="m-0 flex list-none flex-col gap-2.5 p-0">
 	{#each mixes as mix, index (index)}
 		{@const embed = embedUrl(mix.url)}
 		{@const id = `${index} ${mix.url}`}
-		<li class="border-2 border-ansi-blue p-3">
-			<div class="flex items-center justify-between gap-3">
-				<a class="link truncate" href={mix.url} rel="noopener noreferrer nofollow" target="_blank">{mix.title}</a>
-				<span class="flex shrink-0 gap-2">
-					{#if mix.tracklist && tracklistHref}
-						<a class="btn-ghost btn-sm" href={tracklistHref(index)}><ListMusic class="size-3" />Tracklist</a>
-					{/if}
-					{#if embed}
-						<button type="button" class="btn-secondary btn-sm" onclick={() => (open = open === id ? null : id)}>
-							<Play class="size-3" />{open === id ? 'Close' : 'Play'}
-						</button>
-					{/if}
-				</span>
+		{@const meta = [mixPlatform(mix.url), mix.durationMinutes && length(mix.durationMinutes), mix.year].filter(Boolean)}
+		<Card as="li" padding="sm" class="flex flex-col gap-3">
+			<div class="flex items-center gap-3.5">
+				{#if embed}
+					<button
+						type="button"
+						aria-label={open === id ? `Close the player for ${mix.title}` : `Play ${mix.title}`}
+						aria-expanded={open === id}
+						aria-controls="mix-player-{index}"
+						class="grid size-10 shrink-0 cursor-pointer place-items-center rounded-full bg-fg text-fg-inverse transition-opacity hover:opacity-85"
+						onclick={() => (open = open === id ? null : id)}
+					>
+						{#if open === id}<Pause class="size-4 fill-current" />{:else}<Play class="ml-0.5 size-4 fill-current" />{/if}
+					</button>
+				{/if}
+				<div class="min-w-0 flex-1">
+					<a class="block truncate text-emphasis font-semibold text-fg no-underline hover:underline" href={mix.url} rel="noopener noreferrer nofollow" target="_blank">{mix.title}</a>
+					{#if meta.length}<p class="m-0 font-mono text-caption text-fg-subtle">{meta.join(' · ')}</p>{/if}
+				</div>
+				{#if mix.tracklist && tracklistHref}
+					<Button variant="secondary" size="sm" href={tracklistHref(index)}><ListMusic class="size-4" />Tracklist</Button>
+				{/if}
 			</div>
-			{#if embed && open === id}
-				<iframe title={mix.title} src={embed} class="mt-3 h-40 w-full border-2 border-ansi-blue" loading="lazy" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-			{/if}
-		</li>
+			{#if embed && open === id}<MixEmbed id="mix-player-{index}" src={embed} title={mix.title} />{/if}
+		</Card>
 	{/each}
 </ul>

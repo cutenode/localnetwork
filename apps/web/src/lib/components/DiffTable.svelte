@@ -12,7 +12,7 @@
 </script>
 
 {#if changes.length === 0}
-	<p class="muted text-sm">{empty}</p>
+	<p class="text-small text-fg-muted">{empty}</p>
 {:else}
 	<div class="overflow-x-auto">
 		<table class="table-base">
@@ -20,9 +20,9 @@
 			<tbody>
 				{#each changes as change (change.field)}
 					<tr>
-						<td class="whitespace-nowrap text-ansi-white">{pretty(change.field)}</td>
-						<td class="max-w-xs break-words text-ansi-bright-red">{#if change.before}<del class="decoration-ansi-red">{change.before}</del>{:else}<span class="muted">none</span>{/if}</td>
-						<td class="max-w-xs break-words text-ansi-bright-green">{#if change.after}{change.after}{:else}<span class="muted">none</span>{/if}</td>
+						<td class="font-mono text-label whitespace-nowrap text-fg">{pretty(change.field)}</td>
+						<td class="max-w-xs break-words text-critical">{#if change.before}<del class="decoration-critical/60">{change.before}</del>{:else}<span class="text-fg-subtle">none</span>{/if}</td>
+						<td class="max-w-xs break-words text-good">{#if change.after}{change.after}{:else}<span class="text-fg-subtle">none</span>{/if}</td>
 					</tr>
 				{/each}
 			</tbody>

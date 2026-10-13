@@ -44,8 +44,8 @@ async function signIn(page: Page, handle: string, password: string, next = '/me'
 test.describe('public pages', () => {
 	test('home page lists seeded projects and links to search', async ({ page }) => {
 		await page.goto('/');
-		await expect(page.getByRole('heading', { level: 1 })).toContainText('Book the right DJ');
-		await expect(page.getByText('Newly listed projects')).toBeVisible();
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('The home for local DJs');
+		await expect(page.getByRole('heading', { name: 'New on the directory' })).toBeVisible();
 		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Find DJs' }).first().click();
 		await expect(page).toHaveURL(/\/projects$/);
@@ -99,6 +99,7 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Send for review' }).click();
 		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
 		await expectAccessible(page);
+		await page.goto('/me');
 		await page.getByRole('button', { name: 'Sign out' }).click();
 
 		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests');

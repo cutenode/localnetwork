@@ -83,12 +83,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 	}
 
-	// VT323 sets every line and is much narrower than the monospace fallback, so arriving after the
-	// first paint it moved the whole page (Lighthouse's CLS). Its Latin file is preloaded with the CSS;
-	// the other subsets and the WOFF copies load only for pages that need them.
+	// The two typefaces set every line and differ in width from the system fallbacks, so arriving after
+	// the first paint they moved the whole page (Lighthouse's CLS). Their Latin files are preloaded with
+	// the CSS; the other subsets load only for pages that need them.
 	const response = await resolve(event, {
 		preload: ({ type, path }) =>
-			type === 'js' || type === 'css' || (type === 'font' && /vt323-latin-400-normal\.[\w-]+\.woff2$/.test(path))
+			type === 'js' ||
+			type === 'css' ||
+			(type === 'font' && /(instrument-sans|jetbrains-mono)-latin-wght-normal\.[\w-]+\.woff2$/.test(path))
 	});
 
 	response.headers.set('x-request-id', requestId);

@@ -5,4 +5,4 @@
 	let { account, class: className = '' }: { account: AccountView | null | undefined; class?: string } = $props();
 </script>
 
-<span class="text-ansi-white {className}" title={account?.did}>{accountLabel(account)}</span>
+<span class="text-fg {className}" title={account?.did}>{accountLabel(account)}</span>

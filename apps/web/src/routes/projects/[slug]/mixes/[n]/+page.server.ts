@@ -23,7 +23,7 @@ export const load: PageServerLoad = async ({ params, locals, setHeaders }) => {
 		if (project.status === 'active') setHeaders({ 'cache-control': 'public, max-age=300' });
 
 		return {
-			project: { slug: project.slug, name: project.profile.name },
+			project: { slug: project.slug, name: project.profile.name, avatarUrl: project.avatarUrl },
 			mix: { title: mix.title, url: mix.url },
 			n,
 			report

@@ -10,24 +10,12 @@
 
 	let { variant = 'primary', size = 'md', children, class: extra, ...rest }: Props = $props();
 
-	const variants: Record<Variant, string> = {
-		primary: 'bg-fg text-fg-inverse hover:bg-white',
-		secondary: 'border border-line-strong bg-raised text-fg hover:border-fg-subtle',
-		ghost: 'text-fg-muted hover:bg-raised hover:text-fg'
-	};
+	// The classes live in theme.css, so a plain <button class="btn-primary"> in a form matches.
+	const variants: Record<Variant, string> = { primary: 'btn-primary', secondary: 'btn-secondary', ghost: 'btn-ghost' };
 
-	const sizes: Record<Size, string> = {
-		sm: 'min-h-9 rounded-md px-3.5 text-small',
-		md: 'min-h-11 rounded-lg px-4.5 text-body',
-		lg: 'min-h-12 rounded-lg px-5.5 text-body'
-	};
+	const sizes: Record<Size, string> = { sm: 'btn-sm', md: '', lg: 'btn-lg' };
 
-	const classes = $derived([
-		'inline-flex items-center justify-center gap-2 font-semibold whitespace-nowrap no-underline transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-		variants[variant],
-		sizes[size],
-		extra
-	]);
+	const classes = $derived([variants[variant], sizes[size], extra]);
 </script>
 
 {#if rest.href === undefined}

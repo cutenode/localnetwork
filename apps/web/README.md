@@ -170,7 +170,7 @@ Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files 
 
 ## Design system
 
-`src/lib/ui/` holds the design system the site is moving to: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. `theme.css` has the Tailwind tokens; `data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it, and **Patterns/Homepage** builds the product homepage from them. `pnpm storybook` to browse it. The live pages still use the BBS theme in `src/routes/layout.css` until they move over.
+`src/lib/ui/` holds the design system the site is built on: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. `theme.css` has the Tailwind tokens; `data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it, and **Patterns/Homepage** builds the product homepage from them. `pnpm storybook` to browse it. `src/routes/layout.css` imports the theme for the whole site; its shared classes (`btn-primary`, `input`, `card`, `chip`, `table-base` and the rest) live in `theme.css` so a plain form button and the `Button` component draw the same way. Printed pages switch the same tokens to light values.
 
 ## Configuration
 

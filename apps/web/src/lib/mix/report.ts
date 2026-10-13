@@ -389,3 +389,20 @@ export function phraseRole(kind: string): PhraseRole {
 export function phraseColor(kind: string): string {
 	return colors.phrases[phraseRole(kind)];
 }
+
+/** Track colours for plays in turn, leaving out red and green, which mean a clash and a match. */
+const playPalette = ['blue', 'aqua', 'yellow', 'orange', 'pink', 'purple'] as const;
+
+/** The colour a play is drawn in across the timeline, tracklist and key wheel. */
+export function playColor(index: number): string {
+	return colors.trackColors[playPalette[index % playPalette.length]];
+}
+
+/** The keys the mix moves through as played, with repeats in a row merged. */
+export function keyPath(report: MixReport): string[] {
+	const path: string[] = [];
+
+	for (const { playedKey } of report.plays) if (playedKey && playedKey !== path.at(-1)) path.push(playedKey);
+
+	return path;
+}

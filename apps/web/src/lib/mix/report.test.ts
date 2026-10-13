@@ -4,6 +4,7 @@ import {
 	clock,
 	colors,
 	handoff,
+	keyPath,
 	keysPlayed,
 	lanes,
 	niceTicks,
@@ -12,6 +13,7 @@ import {
 	phraseAt,
 	phraseColor,
 	phraseRole,
+	playColor,
 	speed,
 	summarize,
 	tracklist
@@ -186,5 +188,23 @@ describe('display helpers', () => {
 			colors.phrases.unknown,
 			colors.phrases.unknown
 		]);
+	});
+});
+
+describe('keyPath and playColor', () => {
+	it('lists the keys heard in order, merging repeats in a row', () => {
+		expect(keyPath(parsed())).toEqual(['8A', '9A', '10A', '3B']);
+		const report = parsed();
+		report.plays[2].playedKey = undefined;
+		report.plays[3].playedKey = '9A';
+		expect(keyPath(report)).toEqual(['8A', '9A', '3B']);
+	});
+
+	it('gives neighbouring plays different colours, none red or green', () => {
+		const used = Array.from({ length: 6 }, (_, i) => playColor(i));
+		expect(new Set(used).size).toBe(6);
+		expect(used).not.toContain(colors.trackColors.red);
+		expect(used).not.toContain(colors.trackColors.green);
+		expect(playColor(6)).toBe(playColor(0));
 	});
 });
