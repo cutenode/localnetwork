@@ -5,8 +5,9 @@
 
 use std::io::{BufReader, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use loclib_progress::CancelToken;
 use rustc_hash::FxHashMap;
@@ -16,7 +17,7 @@ use serde_json::{Map, Value, json};
 
 use crate::error::{RpcError, ok, result};
 use crate::framing::{Line, MAX_LINE, read_line};
-use crate::protocol::{Cancel, method};
+use crate::protocol::{Cancel, ProgressParams, ProgressReport, method};
 
 /// What the other end sent besides responses.
 #[derive(Debug)]
@@ -45,6 +46,8 @@ struct Waiter {
     response: Sender<Result<Value, RpcError>>,
     /// The other end's request it was sent while answering: cancelling that cancels this.
     within: Option<Value>,
+    /// Where its `progress` goes, when it was sent with [`Peer::send_request_reporting`].
+    progress: Option<Sender<ProgressReport>>,
 }
 
 type Waiting = FxHashMap<u64, Waiter>;
@@ -57,6 +60,8 @@ struct Shared {
     waiting: Mutex<Option<Waiting>>,
     /// Requests received and not answered yet.
     running: Mutex<Vec<(Value, CancelToken)>>,
+    /// Where what the other end got wrong is said.
+    log: Box<dyn Fn(&str) + Send + Sync>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -72,6 +77,7 @@ pub struct Pending {
     peer: Peer,
     id: u64,
     response: Receiver<Result<Value, RpcError>>,
+    progress: Option<Receiver<ProgressReport>>,
 }
 
 impl Pending {
@@ -88,17 +94,45 @@ impl Pending {
     pub fn wait<R: DeserializeOwned>(self) -> Result<R, RpcError> {
         self.response.recv().unwrap_or_else(|_| Err(RpcError::closed())).and_then(result)
     }
+
+    /// [`Pending::wait`] for at most `timeout`: `None` when the response hasn't come by then.
+    /// Once it has, waiting again fails with `closed`.
+    pub fn wait_timeout<R: DeserializeOwned>(&self, timeout: Duration) -> Option<Result<R, RpcError>> {
+        match self.response.recv_timeout(timeout) {
+            Ok(response) => Some(response.and_then(result)),
+            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Disconnected) => Some(Err(RpcError::closed())),
+        }
+    }
+
+    /// The `progress` the other end has sent about it since last asked, in order, when it was
+    /// sent with [`Peer::send_request_reporting`]: all it sent before its response, once that
+    /// has come.
+    pub fn progress(&self) -> impl Iterator<Item = ProgressReport> + '_ {
+        self.progress.iter().flat_map(Receiver::try_iter)
+    }
 }
 
 impl Peer {
     /// Starts reading `input` on a thread of its own. The other end's requests and notifications
-    /// come out of the receiver, which closes when `input` does.
+    /// come out of the receiver, which closes when `input` does. What the other end gets wrong
+    /// (a line too long, a response nothing waits for) is said on stderr, a plugin's log.
     pub fn new(input: impl Read + Send + 'static, output: impl Write + Send + 'static) -> (Peer, Receiver<Incoming>) {
+        Peer::with_log(input, output, |line| eprintln!("loclib-plugin: {line}"))
+    }
+
+    /// [`Peer::new`], saying what the other end gets wrong to `log` (a host's own log).
+    pub fn with_log(
+        input: impl Read + Send + 'static,
+        output: impl Write + Send + 'static,
+        log: impl Fn(&str) + Send + Sync + 'static,
+    ) -> (Peer, Receiver<Incoming>) {
         let peer = Peer(Arc::new(Shared {
             out: Mutex::new(Some(Box::new(output))),
             next: AtomicU64::new(1),
             waiting: Mutex::new(Some(Waiting::default())),
             running: Mutex::default(),
+            log: Box::new(log),
         }));
         let (tx, rx) = mpsc::channel();
         let reader = peer.clone();
@@ -128,7 +162,13 @@ impl Peer {
 
     /// Sends a request; [`Pending::wait`] for its response.
     pub fn send_request<P: Serialize>(&self, method: &str, params: &P) -> Result<Pending, RpcError> {
-        self.send(method, params, None)
+        self.send(method, params, None, false)
+    }
+
+    /// [`Peer::send_request`] for a hook: the other end's `progress` about it comes to its
+    /// [`Pending::progress`], not the owner.
+    pub fn send_request_reporting<P: Serialize>(&self, method: &str, params: &P) -> Result<Pending, RpcError> {
+        self.send(method, params, None, true)
     }
 
     /// Sends a request while answering the other end's request `within` (a callback during a
@@ -141,14 +181,21 @@ impl Peer {
         method: &str,
         params: &P,
     ) -> Result<Pending, RpcError> {
-        self.send(method, params, Some(within))
+        self.send(method, params, Some(within), false)
     }
 
-    fn send<P: Serialize>(&self, method: &str, params: &P, within: Option<&Value>) -> Result<Pending, RpcError> {
+    fn send<P: Serialize>(
+        &self,
+        method: &str,
+        params: &P,
+        within: Option<&Value>,
+        reporting: bool,
+    ) -> Result<Pending, RpcError> {
         let params = ok(params)?;
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
         let (tx, response) = mpsc::channel();
-        let waiter = Waiter { response: tx, within: within.cloned() };
+        let (progress_tx, progress) = reporting.then(mpsc::channel).unzip();
+        let waiter = Waiter { response: tx, within: within.cloned(), progress: progress_tx };
         lock(&self.0.waiting).as_mut().ok_or_else(RpcError::closed)?.insert(id, waiter);
         // Cancelled before it was waited for: `on_cancel` may have missed it.
         let cancelled = within.is_some_and(|within| {
@@ -162,7 +209,7 @@ impl Peer {
             self.take_waiter(id);
             return Err(e);
         }
-        Ok(Pending { peer: self.clone(), id, response })
+        Ok(Pending { peer: self.clone(), id, response, progress })
     }
 
     fn take_waiter(&self, id: u64) -> Option<Waiter> {
@@ -209,13 +256,13 @@ impl Peer {
                 Ok(Line::Read) => self.handle(buf.trim_ascii(), incoming),
                 Ok(Line::TooLong) => {
                     // If it was a response, nothing says to which request.
-                    eprintln!("loclib-plugin: skipped a line longer than {} MiB", MAX_LINE >> 20);
+                    (self.0.log)(&format!("skipped a line longer than {} MiB", MAX_LINE >> 20));
                     let e = format!("a line is longer than {} MiB", MAX_LINE >> 20);
                     self.answer(&Value::Null, Err(RpcError::parse_error(e)));
                 }
                 Ok(Line::End) => break,
                 Err(e) => {
-                    eprintln!("loclib-plugin: reading messages: {e}");
+                    (self.0.log)(&format!("reading messages: {e}"));
                     break;
                 }
             }
@@ -240,7 +287,7 @@ impl Peer {
             Err(e) => {
                 // A response must not be answered: tell whoever waits for it instead.
                 if let Some(waiter) = response_id(line).and_then(|id| self.take_waiter(id)) {
-                    eprintln!("loclib-plugin: a response that isn't JSON: {e}");
+                    (self.0.log)(&format!("a response that isn't JSON: {e}"));
                     let _ = waiter.response.send(Err(RpcError::parse_error(e)));
                     return;
                 }
@@ -261,6 +308,9 @@ impl Peer {
         if id.is_null() {
             if method == method::CANCEL {
                 return self.on_cancel(params);
+            }
+            if method == method::PROGRESS && self.on_progress(&params) {
+                return;
             }
             let _ = incoming.send(Incoming::Notification { method, params });
             return;
@@ -285,15 +335,25 @@ impl Peer {
             (None, Some(e)) => Err(serde_json::from_value(e)
                 .unwrap_or_else(|e| RpcError::internal(format!("an error response that isn't one: {e}")))),
             _ => {
-                eprintln!("loclib-plugin: a response to {id} with no method, and not one result or error");
+                (self.0.log)(&format!("a response to {id} with no method, and not one result or error"));
                 Err(RpcError::internal("a response with both a result and an error, or neither"))
             }
         };
         let Some(waiter) = id.as_u64().and_then(|n| self.take_waiter(n)) else {
-            eprintln!("loclib-plugin: a response to {id}, which no request is waiting for");
+            (self.0.log)(&format!("a response to {id}, which no request is waiting for"));
             return;
         };
         let _ = waiter.response.send(response);
+    }
+
+    /// Hands `progress` to the request it's about, when that was sent to have it (see
+    /// [`Peer::send_request_reporting`]); false otherwise, for the owner to have it. Handed over
+    /// here, on the reading thread, it's there before the request's response.
+    fn on_progress(&self, params: &Value) -> bool {
+        let Ok(ProgressParams { id, event }) = serde_json::from_value(params.clone()) else { return false };
+        let waiting = lock(&self.0.waiting);
+        let to = id.as_u64().and_then(|n| waiting.as_ref()?.get(&n)?.progress.as_ref());
+        to.is_some_and(|to| to.send(event).is_ok())
     }
 
     /// Cancels the request `params.id` names, and the requests sent while answering it.

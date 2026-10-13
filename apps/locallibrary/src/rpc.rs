@@ -68,11 +68,11 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use locallibrary::api;
-use locallibrary::error::Detail;
+use locallibrary::api::RpcFailure as RpcError;
 use locallibrary::op::AnyPlanned;
 use locallibrary::progress::{CancelToken, Coalesced, Ctx, Event, Flusher, Progress, Report, Scope};
 use locallibrary::watch::{DriveChange, VolumeWatcher, WatchEvent};
-use loclib_plugin::code::{FAILED, INTERNAL, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR};
+use loclib_plugin::code::{FAILED, INTERNAL, INVALID_PARAMS, INVALID_REQUEST, PARSE_ERROR};
 use loclib_plugin::framing::{Line, MAX_LINE, read_line};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -213,60 +213,6 @@ fn send(out: &Out, msg: &Value) {
     let mut o = out.lock().unwrap_or_else(PoisonError::into_inner);
     let _ = writeln!(o, "{msg}");
     let _ = o.flush();
-}
-
-struct RpcError {
-    code: i64,
-    message: String,
-    kind: &'static str,
-    /// Its reason, the values it's about and what would resolve it (see
-    /// [`locallibrary::Error::detail`]).
-    detail: Detail,
-}
-
-impl From<locallibrary::Error> for RpcError {
-    fn from(e: locallibrary::Error) -> Self {
-        RpcError { code: FAILED, kind: e.code(), message: e.to_string(), detail: e.detail() }
-    }
-}
-
-impl RpcError {
-    fn new(code: i64, kind: &'static str, message: impl Into<String>) -> RpcError {
-        RpcError { code, kind, message: message.into(), detail: Detail::default() }
-    }
-
-    fn method_not_found(method: &str) -> RpcError {
-        RpcError::new(METHOD_NOT_FOUND, "method_not_found", format!("unknown method {method:?}"))
-    }
-
-    /// Makes the actions that send the request again (`method` absent) calls to `method` with
-    /// `params` and theirs.
-    fn resolve(mut self, method: &str, params: &Value) -> RpcError {
-        for a in self.detail.actions.iter_mut().filter(|a| a.method.is_none()) {
-            let mut all = params.as_object().cloned().unwrap_or_default();
-            all.extend(std::mem::take(&mut a.params));
-            a.method = Some(method.to_string());
-            a.params = all;
-        }
-        self
-    }
-
-    /// The error of applying a plan by id that's used up: sending the request again can't help,
-    /// so actions that would are dropped.
-    fn plan_used(mut self) -> RpcError {
-        self.detail.actions.retain(|a| a.method.is_some());
-        self
-    }
-
-    /// `error.data`.
-    fn data(&self) -> api::ErrorData {
-        api::ErrorData {
-            kind: self.kind.to_string(),
-            reason: self.detail.reason,
-            fields: self.detail.fields.clone(),
-            actions: self.detail.actions.clone(),
-        }
-    }
 }
 
 fn invalid_request(message: impl Into<String>) -> RpcError {

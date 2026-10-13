@@ -12,23 +12,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 use crate::audio_cache::{CACHE_DIR, Cache, Kind};
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
 
-/// One field's value, of the types a plugin's manifest declares (numbers are finite).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum FieldValue {
-    Integer(i64),
-    Number(f64),
-    Boolean(bool),
-    String(String),
-    Strings(Vec<String>),
-}
+/// One field's value, of the types a plugin's manifest declares.
+pub use loclib_plugin::FieldValue;
 
 /// An analyzer's fields for one track, by name.
 pub type Fields = IndexMap<String, FieldValue>;

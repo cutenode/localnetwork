@@ -2693,7 +2693,10 @@ export type FieldChange = {
   old: string;
 };
 
-/** One field's value, of the types a plugin's manifest declares (numbers are finite). */
+/**
+ * A field's value, as an analyzer answers it and the host keeps it: of the type the manifest
+ * declares (numbers are finite, as JSON's are).
+ */
 export type FieldValue = number | boolean | string | string[];
 
 /** A file undoing changes. */
@@ -4485,7 +4488,7 @@ export type PlanFields = {
   noop: boolean;
   /**
    * The RPC method's name without `.plan`, except `undo` for `drive.restore.plan`, `eject` for
-   * `drive.eject.plan` and `set` for `prep.plan`.
+   * `drive.eject.plan` and `set` for `prep.plan`; for a plugin's operation, its name.
    */
   operation: string;
   /** Names the plan in `*.apply {"plan_id": ...}`. */

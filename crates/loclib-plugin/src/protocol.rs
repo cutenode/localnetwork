@@ -9,7 +9,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::RpcError;
+use crate::{FieldValue, RpcError};
 
 /// The protocol's version, versioned apart from locallibrary's.
 pub const PROTOCOL_VERSION: &str = "0.1.0";
@@ -79,7 +79,8 @@ pub struct PluginInfo {
     pub version: String,
 }
 
-/// Where the user was when they ran a command or an operation. Everything is optional.
+/// Where the user was when they ran a command or an operation (for an analyzer or an exporter,
+/// the drive), and the plugin's settings. Everything is optional.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Context {
     /// The drive's id or name.
@@ -91,6 +92,9 @@ pub struct Context {
     /// The tracks selected, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<u32>,
+    /// The plugin's settings, by key: each one the user set, else its default.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub settings: IndexMap<String, Value>,
 }
 
 /// `command/run`.
@@ -111,6 +115,8 @@ pub struct AnalyzeTrack {
     /// One of the manifest's analyzers.
     pub analyzer: String,
     pub track: Track,
+    #[serde(default)]
+    pub context: Context,
 }
 
 /// The track an analyzer looks at.
@@ -130,7 +136,7 @@ pub struct Track {
 /// declares (see [`crate::FieldType`]).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Analysis {
-    pub fields: IndexMap<String, Value>,
+    pub fields: IndexMap<String, FieldValue>,
 }
 
 /// `export/write`.
@@ -147,6 +153,8 @@ pub struct WriteExport {
     /// Answer the files it would write, writing nothing: the host asks before overwriting any.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dry_run: bool,
+    #[serde(default)]
+    pub context: Context,
 }
 
 /// What to export. An export always reads the drive's whole library as locallibrary combines it

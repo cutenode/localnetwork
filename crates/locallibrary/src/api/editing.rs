@@ -49,7 +49,7 @@ pub fn edit_apply(req: &EditRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
 /// [`Touched::library`], and whatever else the plan was made from), reaching its library's other
 /// clones (see `Planned::reaching_clones`).
 pub(crate) fn planned_edit(
-    operation: &'static str,
+    operation: impl Into<std::borrow::Cow<'static, str>>,
     plan: EditPlan,
     touched: Touched,
     ctx: &Ctx<'_>,
@@ -63,11 +63,7 @@ pub(crate) fn planned_edit(
             bytes(plan.bytes)
         ));
     }
-    let destructive = !plan.tracks_removed.is_empty()
-        || !plan.playlists_deleted.is_empty()
-        || plan.history_removed > 0
-        || !plan.files.is_empty();
-    let (noop, warnings) = (plan.is_noop(), plan.warnings.clone());
+    let (destructive, noop, warnings) = (plan.destructive(), plan.is_noop(), plan.warnings.clone());
     Planned::new(operation, plan, ())
         .summary(summary)
         .warnings(warnings)

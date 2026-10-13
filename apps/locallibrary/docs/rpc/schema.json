@@ -8621,7 +8621,7 @@
           "type": "array"
         }
       ],
-      "description": "One field's value, of the types a plugin's manifest declares (numbers are finite)."
+      "description": "A field's value, as an analyzer answers it and the host keeps it: of the type the manifest\ndeclares (numbers are finite, as JSON's are)."
     },
     "FileChange": {
       "description": "A file undoing changes.",
@@ -14326,7 +14326,7 @@
           "type": "boolean"
         },
         "operation": {
-          "description": "The RPC method's name without `.plan`, except `undo` for `drive.restore.plan`, `eject` for\n`drive.eject.plan` and `set` for `prep.plan`.",
+          "description": "The RPC method's name without `.plan`, except `undo` for `drive.restore.plan`, `eject` for\n`drive.eject.plan` and `set` for `prep.plan`; for a plugin's operation, its name.",
           "type": "string"
         },
         "plan_id": {

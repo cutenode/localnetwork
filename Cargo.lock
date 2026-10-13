@@ -3888,12 +3888,14 @@ dependencies = [
  "jsonschema",
  "keyring",
  "keyring-core",
+ "libc",
  "loclib-analysis",
  "loclib-equipment",
  "loclib-interop",
  "loclib-mixid",
  "loclib-model",
  "loclib-mysettings",
+ "loclib-plugin",
  "loclib-progress",
  "loclib-tracklist",
  "loclib-transcode",
@@ -3921,6 +3923,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "winapi-util",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -12,7 +12,7 @@ use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::PROTOCOL_VERSION;
+use crate::{PROTOCOL_VERSION, RpcError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -109,16 +109,29 @@ pub enum FieldType {
 }
 
 impl FieldType {
-    /// Whether `value` is one of these.
-    pub fn accepts(self, value: &Value) -> bool {
-        match self {
-            FieldType::Number => value.is_number(),
-            FieldType::Integer => value.is_i64() || value.is_u64(),
-            FieldType::String => value.is_string(),
-            FieldType::Boolean => value.is_boolean(),
-            FieldType::Strings => value.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
-        }
+    /// Whether `value` is one of these (an integer is a number too).
+    pub fn accepts(self, value: &FieldValue) -> bool {
+        matches!(
+            (self, value),
+            (FieldType::Number, FieldValue::Number(_) | FieldValue::Integer(_))
+                | (FieldType::Integer, FieldValue::Integer(_))
+                | (FieldType::String, FieldValue::String(_))
+                | (FieldType::Boolean, FieldValue::Boolean(_))
+                | (FieldType::Strings, FieldValue::Strings(_))
+        )
     }
+}
+
+/// A field's value, as an analyzer answers it and the host keeps it: of the type the manifest
+/// declares (numbers are finite, as JSON's are).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum FieldValue {
+    Integer(i64),
+    Number(f64),
+    Boolean(bool),
+    String(String),
+    Strings(Vec<String>),
 }
 
 /// Run with `export/write`.
@@ -168,13 +181,15 @@ pub enum SettingType {
     Secret,
 }
 
-impl SettingType {
-    fn accepts(self, value: &Value, choices: &[String]) -> bool {
-        match self {
+impl Setting {
+    /// Whether `value` can be this setting's: of its type (for an enum, one of its choices). A
+    /// secret takes none here: it's kept in the keychain.
+    pub fn accepts(&self, value: &Value) -> bool {
+        match self.kind {
             SettingType::String | SettingType::File | SettingType::Directory => value.is_string(),
             SettingType::Number => value.is_number(),
             SettingType::Boolean => value.is_boolean(),
-            SettingType::Enum => value.as_str().is_some_and(|v| choices.iter().any(|c| c == v)),
+            SettingType::Enum => value.as_str().is_some_and(|v| self.choices.iter().any(|c| c == v)),
             SettingType::Secret => false,
         }
     }
@@ -357,6 +372,28 @@ fn object_schema(at: String, schema: Option<&Value>) -> Result<(), ManifestError
     Ok(())
 }
 
+/// Whether `params` fit `schema`, a contribution's `params` or `options` (without one, any object
+/// does): `invalid_params` says where they don't (`fields.path`, a JSON pointer like `/name`).
+pub fn check_params(schema: Option<&Value>, params: &Value) -> Result<(), RpcError> {
+    let Some(schema) = schema else {
+        return match params.is_object() {
+            true => Ok(()),
+            false => Err(RpcError::invalid_params("expected an object")),
+        };
+    };
+    let validator = jsonschema::validator_for(schema).map_err(|e| RpcError::internal(e.to_string()))?;
+    let Err(e) = validator.validate(params) else { return Ok(()) };
+    let path = e.instance_path().to_string();
+    let mut error = RpcError::invalid_params(match path.is_empty() {
+        true => e.to_string(),
+        false => format!("{path}: {e}"),
+    });
+    if let Some(data) = error.data.as_mut().filter(|_| !path.is_empty()) {
+        data.fields.insert("path".into(), path.into());
+    }
+    Err(error)
+}
+
 /// `text` (at `at`) isn't blank.
 fn shown(at: impl Into<String>, text: &str) -> Result<(), ManifestError> {
     match text.trim().is_empty() {
@@ -456,7 +493,7 @@ impl Manifest {
             if let Some(choice) = x.choices.iter().find(|c| !choices.insert(*c)) {
                 return Err(invalid(format!("{at}[{i}].choices"), format!("{choice:?} is there twice")));
             }
-            if x.default.as_ref().is_some_and(|d| !x.kind.accepts(d, &x.choices)) {
+            if x.default.as_ref().is_some_and(|d| !x.accepts(d)) {
                 return Err(invalid(
                     format!("{at}[{i}].default"),
                     "doesn't fit the setting's type (and a secret has none)",

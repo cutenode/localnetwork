@@ -15,7 +15,7 @@ use crate::anlz::{self, Beat, Cue, SongStructure, TrackAnalysis, Waveform, Wavef
 use crate::artwork;
 use crate::cue_edit::{self, TrackCues};
 use crate::device::Device;
-use crate::fields::{FieldStore, PluginsFields};
+use crate::fields::{Analyzer, FieldStore, PluginsFields};
 use crate::mix::export::{self, MixExport};
 use crate::mix::index::Cache;
 use crate::mix::report::{self, Drive};
@@ -514,19 +514,31 @@ pub struct PluginFields {
     pub missing: Vec<u32>,
 }
 
-/// What analyzer plugins worked out for the drive's tracks ([`crate::fields`]). Until the
-/// plugin host says which versions are installed, each plugin's values are those of its version
-/// that wrote last ([`FieldStore::last_written`]). Without a store, none.
+/// What analyzer plugins worked out for the drive's tracks ([`crate::fields`]), for a reader that
+/// doesn't know which plugins are installed: each plugin's values are those of its version that
+/// wrote last ([`FieldStore::last_written`]). Without a store, none.
 pub fn track_fields(cache: &LibraryCache, store: Option<&Store>, req: &PluginFieldsRequest) -> Result<PluginFields> {
+    let analyzers = store.map(|s| FieldStore::in_store(s).last_written(req.plugin.as_deref())).unwrap_or_default();
+    track_fields_of(cache, store, req, &analyzers)
+}
+
+/// [`track_fields`], of the analyzers `installed` (the plugin host's, see
+/// [`crate::plugin::Plugins::analyzers`]): what other versions of them worked out is left out.
+pub fn track_fields_of(
+    cache: &LibraryCache,
+    store: Option<&Store>,
+    req: &PluginFieldsRequest,
+    installed: &[Analyzer],
+) -> Result<PluginFields> {
     let (d, _, lib) = cache.read(&req.library)?;
     let (tracks, missing) = match &req.tracks {
         Some(ids) => by_ids(&lib, ids),
         None => (lib.tracks.iter().collect(), Vec::new()),
     };
-    let fields = store.map(FieldStore::in_store);
-    let analyzers = fields.as_ref().map(|f| f.last_written(req.plugin.as_deref())).unwrap_or_default();
+    let analyzers: Vec<Analyzer> =
+        installed.iter().filter(|a| req.plugin.as_ref().is_none_or(|p| *p == a.plugin)).cloned().collect();
     // Nothing kept: no audio file needs looking at.
-    let Some(fields) = fields.filter(|_| !analyzers.is_empty()) else {
+    let Some(fields) = store.map(FieldStore::in_store).filter(|_| !analyzers.is_empty()) else {
         return Ok(PluginFields { tracks: Vec::new(), missing });
     };
     let tracks = tracks

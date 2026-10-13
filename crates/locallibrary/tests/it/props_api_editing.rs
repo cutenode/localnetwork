@@ -142,7 +142,7 @@ fn edits_agree_with_edit_and_undo_and_replay(tc: TestCase) {
             }
             (p, d) => panic!("through the api: {:?}; directly: {:?}", p.err(), d.err()),
         };
-        assert_eq!((planned.operation, planned.noop), ("edit", direct.is_noop()));
+        assert_eq!((&*planned.operation, planned.noop), ("edit", direct.is_noop()));
         assert_eq!(planned.summary[..direct.changes.len()], direct.changes[..]);
         let destructive =
             !direct.tracks_removed.is_empty() || !direct.playlists_deleted.is_empty() || !direct.files.is_empty();

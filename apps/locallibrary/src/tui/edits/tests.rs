@@ -361,7 +361,7 @@ fn says_what_a_write_came_to() {
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let drive = app.drive_label(&root);
     let mut applied = |operation: &'static str, report: serde_json::Value| {
-        let result = Ok(Applied { operation, report });
+        let result = Ok(Applied { operation: operation.into(), report });
         app.handle_msg(Msg::Applied { job: 1, root: root.clone(), result });
         last_message(&app).to_string()
     };
@@ -543,7 +543,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             } else {
                 format!("saved {drive} in the store: snapshot 3lzabcde of Main ({n} new file{}, 2.0 KB)", s(n))
             };
-            (Ok(Applied { operation: "pull", report }), want, false)
+            (Ok(Applied { operation: "pull".into(), report }), want, false)
         }
         1 => {
             let offs: Vec<bool> = (0..=n).map(|_| tc.draw(gs::booleans())).collect();
@@ -553,7 +553,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             } else {
                 format!("unmounted {drive}")
             };
-            (Ok(Applied { operation: "eject", report }), want, false)
+            (Ok(Applied { operation: "eject".into(), report }), want, false)
         }
         2 => {
             let failed: Vec<bool> = (0..=n).map(|_| tc.draw(gs::booleans())).collect();
@@ -567,13 +567,13 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             } else {
                 format!("sync: {}", said.join("; "))
             };
-            (Ok(Applied { operation: "sync.group", report: json!(rows) }), want, false)
+            (Ok(Applied { operation: "sync.group".into(), report: json!(rows) }), want, false)
         }
         3 => {
             let mut report = json!({ "tracks_changed": n });
             b(&mut report);
             (
-                Ok(Applied { operation: "tags", report }),
+                Ok(Applied { operation: "tags".into(), report }),
                 format!("My Tags changed on {n} track{} on {drive}{undo}", s(n)),
                 backup,
             )
@@ -582,7 +582,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
             let mut report = json!({ "copied": n, "copied_bytes": 1_500_000 });
             b(&mut report);
             (
-                Ok(Applied { operation: "pack", report }),
+                Ok(Applied { operation: "pack".into(), report }),
                 format!("packed onto {drive}: {n} file{} copied (1.5 MB){undo}", s(n)),
                 backup,
             )
@@ -590,7 +590,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
         5 => {
             let report = json!({ "created": "2026-10-03T21:15:09Z", "reason": "edit" });
             (
-                Ok(Applied { operation: "undo", report }),
+                Ok(Applied { operation: "undo".into(), report }),
                 format!("undone on {drive}: put back the backup (edit, 2026-10-03 21:15)"),
                 true,
             )
@@ -612,7 +612,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
                 format!("edit: done on {drive}")
             };
             let warning = if warned { " · a track was missing" } else { "" };
-            (Ok(Applied { operation: "edit", report }), format!("{head}{undo}{warning}"), backup)
+            (Ok(Applied { operation: "edit".into(), report }), format!("{head}{undo}{warning}"), backup)
         }
         7 => (Err(Error::Cancelled), "cancelled: nothing was written".to_string(), false),
         8 => (

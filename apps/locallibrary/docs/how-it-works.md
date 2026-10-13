@@ -83,6 +83,9 @@ crates/locallibrary/src/    the library, built on the crates above
                by file name, size and modification time, and worked out in parallel when it isn't
   fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, version
                and analyzer
+  plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
+               the reads they may call back for (callbacks.rs), and their commands, operations
+               (planned as edit plans), exports, analyzers and settings
   sound/       tempo, key and loudness through loclib-analysis: doctor's analysis section, how sure each
                key is for the set planner, the check's loudness item, and `analysis bench` (bench.rs)
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the

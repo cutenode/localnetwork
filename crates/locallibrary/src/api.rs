@@ -110,6 +110,12 @@ pub fn resolve_drive(spec: &str) -> Result<Device> {
     resolve(spec, true, true)
 }
 
+/// [`resolve_drive`] for a name from somewhere less trusted (a plugin): a drive known here (by
+/// adopted name, volume name or id prefix) or a library's name, never a path or a folder.
+pub fn resolve_known_drive(spec: &str) -> Result<Device> {
+    found(find(spec, true, true, false)?)
+}
+
 /// [`resolve_drive`] for commands about one particular drive rather than its library (its role,
 /// name, file system, backups, player history): a library's name isn't taken.
 pub fn resolve_one_drive(spec: &str) -> Result<Device> {
@@ -120,7 +126,7 @@ pub fn resolve_one_drive(spec: &str) -> Result<Device> {
 /// [`resolve_drive`] takes it): the library's drive group (see [`jobs::drive_group`]). `None`
 /// when it names a drive.
 pub fn library_clones(spec: &str) -> Result<Option<DriveGroup>> {
-    Ok(match find(spec, true, true)? {
+    Ok(match find(spec, true, true, true)? {
         Found::Drive(_) => None,
         Found::Library(_, group) => Some(group),
     })
@@ -134,7 +140,7 @@ pub fn expand_libraries(specs: &[String]) -> Result<(Vec<String>, Vec<String>)> 
     let (mut drives, mut left_out) = (Vec::new(), Vec::new());
     let (mut named, mut cloned): (Vec<PathBuf>, Vec<PathBuf>) = (Vec::new(), Vec::new());
     for spec in specs {
-        match find(spec, true, true)? {
+        match find(spec, true, true, true)? {
             Found::Drive(d) if cloned.iter().any(|c| c == d.root()) => {}
             Found::Drive(d) => {
                 named.push(d.root().to_path_buf());
@@ -158,7 +164,12 @@ pub fn expand_libraries(specs: &[String]) -> Result<(Vec<String>, Vec<String>)> 
 /// taken only as a path (`./Backup`): for erasing, where the label of an unrelated volume could
 /// match while the drive meant isn't plugged in. Without `libraries`, a library's name isn't taken.
 fn resolve(spec: &str, labels: bool, libraries: bool) -> Result<Device> {
-    match find(spec, labels, libraries)? {
+    found(find(spec, labels, libraries, true)?)
+}
+
+/// The drive what was found means: a library's lead clone.
+fn found(found: Found) -> Result<Device> {
+    match found {
         Found::Drive(d) => Ok(*d),
         Found::Library(store, group) => jobs::lead_clone(Some(&store), &group, &Ctx::silent()),
     }
@@ -171,8 +182,9 @@ enum Found {
     Library(Store, DriveGroup),
 }
 
-/// What `spec` names, as [`resolve`] takes it.
-fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
+/// What `spec` names, as [`resolve`] takes it. Without `folders`, neither a path nor a folder
+/// here is taken.
+fn find(spec: &str, labels: bool, libraries: bool, folders: bool) -> Result<Found> {
     let p = Path::new(spec);
     // A folder inside an export (e.g. `/Volumes/USB/Contents`) means the export's drive.
     let open = |p: &Path| match p.ancestors().skip(1).find(|a| crate::paths::is_export_root(a)) {
@@ -180,6 +192,11 @@ fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
         _ => Device::open(p),
     };
     let path_like = p.is_absolute() || spec.contains(['/', '\\']) || spec.starts_with(['.', '~']);
+    if path_like && !folders {
+        return Err(Error::invalid(format!(
+            "{spec:?} is a path: name a drive by its name or identity, or a library by its name"
+        )));
+    }
     if path_like && p.is_dir() {
         return open(p).map(|d| Found::Drive(Box::new(d)));
     }
@@ -202,8 +219,10 @@ fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
         let group = jobs::drive_group(Some(&store), Some(&library.name))?;
         return Ok(Found::Library(store, group));
     }
+    // A folder here is taken only when folders are.
+    let folder = folders && p.is_dir();
     match matches.len() {
-        0 if labels && p.is_dir() => open(p).map(|d| Found::Drive(Box::new(d))),
+        0 if labels && folder => open(p).map(|d| Found::Drive(Box::new(d))),
         0 => match others.iter().find(|d| labelled(d)) {
             Some(d) => Err(Error::invalid(format!(
                 "{spec:?} is the label of the volume at {}, not the name of a drive locallibrary adopted: give its path, or the disk's identifier",
@@ -211,7 +230,7 @@ fn find(spec: &str, labels: bool, libraries: bool) -> Result<Found> {
             ))),
             None => Err(jobs::unmatched_drive(spec, &others)),
         },
-        1 if p.is_dir() && !same(&matches[0]) => Err(Error::invalid(format!(
+        1 if folder && !same(&matches[0]) => Err(Error::invalid(format!(
             "{spec:?} is both a folder here and the drive at {}; give a path (./{spec}) or the drive's mount path",
             matches[0].root().display()
         ))),

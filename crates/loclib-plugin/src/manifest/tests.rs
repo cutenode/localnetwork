@@ -158,7 +158,9 @@ fn field_types_accept_their_values() {
         (FieldType::Strings, json!("a"), false),
     ];
     for (kind, value, accepted) in cases {
-        assert_eq!(kind.accepts(&value), accepted, "{kind:?} {value}");
+        // A value of none of the types isn't a field's value at all.
+        let value_accepted = serde_json::from_value(value.clone()).is_ok_and(|v: FieldValue| kind.accepts(&v));
+        assert_eq!(value_accepted, accepted, "{kind:?} {value}");
     }
 }
 
@@ -272,4 +274,42 @@ fn an_enum_settings_choices_are_unique() {
         "[[contributes.settings]]\nkey = \"s\"\ntitle = \"S\"\ntype = \"enum\"\nchoices = [\"a\", \"b\", \"a\"]\n",
     );
     assert_eq!(e, "contributes.settings[0].choices: \"a\" is there twice");
+}
+
+#[test]
+fn params_are_checked_against_their_schema() {
+    let m = Manifest::parse(ECHO).unwrap();
+    let schema = m.contributes.operations[0].params.as_ref();
+    assert_eq!(check_params(schema, &json!({ "name": "Warmup" })), Ok(()));
+    let e = check_params(schema, &json!({ "name": 3 })).unwrap_err();
+    assert_eq!((e.code, e.data.unwrap().fields["path"].clone()), (crate::code::INVALID_PARAMS, json!("/name")));
+    let e = check_params(schema, &json!({})).unwrap_err();
+    assert!(e.message.contains("\"name\" is a required property"), "{e}");
+    assert!(e.data.unwrap().fields.is_empty(), "the params themselves are wrong");
+    // Without a schema, any object.
+    assert_eq!(check_params(None, &json!({ "anything": [1] })), Ok(()));
+    assert_eq!(check_params(None, &json!([1])).unwrap_err().kind(), Some("invalid_params"));
+}
+
+#[test]
+fn a_setting_accepts_values_of_its_type() {
+    let setting = |kind: &str| {
+        let toml = format!("{HEAD}[[contributes.settings]]\nkey = \"s\"\ntitle = \"S\"\ntype = \"{kind}\"\n");
+        let toml = if kind == "enum" { format!("{toml}choices = [\"a\", \"b\"]\n") } else { toml };
+        Manifest::parse(&toml).unwrap().contributes.settings.remove(0)
+    };
+    let cases = [
+        ("string", json!("x"), true),
+        ("file", json!("/a"), true),
+        ("directory", json!(1), false),
+        ("number", json!(1.5), true),
+        ("number", json!("1"), false),
+        ("boolean", json!(false), true),
+        ("enum", json!("b"), true),
+        ("enum", json!("c"), false),
+        ("secret", json!("hunter2"), false),
+    ];
+    for (kind, value, accepted) in cases {
+        assert_eq!(setting(kind).accepts(&value), accepted, "{kind} {value}");
+    }
 }

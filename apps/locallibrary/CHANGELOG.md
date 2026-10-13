@@ -196,7 +196,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   take `combined: true` for the whole library exports are made from (OneLibrary's own tracks, with
   ids of their own, and playlists too), `tracks.analysis` answers up to 100 tracks' analyses at
   once, and `track.fields` reads what analyzer plugins worked out for each track, kept in the store
-  by audio file.
+  by audio file. The library hosts the plugins locallibrary ships (`plugin::Plugins`), each a
+  child process started when it's first used: it checks every read a plugin calls back for
+  against the plugin's capabilities and the params each read lets a plugin give, finds the drives
+  a plugin names itself, plans an operation's edits as one edit plan (never onto an archive
+  drive), asks before an export overwrites a file and never writes one to a drive, keeps
+  analyzers' fields and each plugin's settings, and never starts one from an elevated process.
+  An edit plan is destructive, and says so, when it leaves a playlist with fewer entries or
+  deletes cues or My Tags, too.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
