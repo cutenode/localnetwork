@@ -91,6 +91,6 @@ it first went out. The old record stays where `plays publish` wrote it
 The record types are Lexicons in the repo's [`lexicons/`](../../../lexicons/computer/localnetwork/):
 My Settings is locallibrary's own (`locallibrary/`), and the profile and set are DJ records Local
 Network's tools share (`dj/`, with the definitions both use in `dj/defs.json`). The address Lexicon
-they use is copied from [Lexicon Community](https://github.com/lexicon-community/lexicon). Each
+they use is copied from [Lexicon Community](https://tangled.org/lexicon.community/lexicons). Each
 record is checked against its Lexicon before it's written. Everything published is public and copied around the network:
 deleting a record later doesn't delete the copies.
