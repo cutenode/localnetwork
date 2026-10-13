@@ -8,8 +8,6 @@ import {
 	keysPlayed,
 	lanes,
 	niceTicks,
-	parseMixReport,
-	parseMixReportText,
 	phraseAt,
 	phraseColor,
 	phraseRole,
@@ -18,6 +16,7 @@ import {
 	summarize,
 	tracklist
 } from './report';
+import { parseMixReport, parseMixReportText } from './schema';
 import exported from './fixtures/v2.mix.json' with { type: 'json' };
 import { sampleReport } from './sample';
 

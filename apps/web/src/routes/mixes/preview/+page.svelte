@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { FileUp, Sparkles, X } from '@lucide/svelte';
 	import MixReport from '#lib/components/mix/MixReport.svelte';
-	import { parseMixReport, parseMixReportText, type MixReport as Report } from '#lib/mix/report.ts';
+	import type { MixReport as Report } from '#lib/mix/report.ts';
+	import { parseMixReport, parseMixReportText } from '#lib/mix/schema.ts';
 	import { sampleReport } from '#lib/mix/sample.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import CodeBlock from '#lib/ui/CodeBlock.svelte';
