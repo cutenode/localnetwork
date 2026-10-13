@@ -4,18 +4,45 @@ import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
 
 describe('happyViewBundle', () => {
-	it('ships the project record, its defs, and the directory queries, with a script for each', () => {
+	it('ships the project and set records, the defs they use, and the directory queries, with a script for each', () => {
 		const { lexicons, scripts } = happyViewBundle('did:plc:root');
+		const records = [COLLECTION.project, COLLECTION.djSet];
 
 		expect(lexicons.map((doc) => doc.id).sort()).toEqual(
-			[`${NS}.defs`, COLLECTION.project, `${NS}.directory.defs`, ...Object.values(DIRECTORY)].sort()
+			[
+				'com.atproto.repo.strongRef',
+				'community.lexicon.location.address',
+				`${NS}.defs`,
+				`${NS}.dj.defs`,
+				`${NS}.directory.defs`,
+				...records,
+				...Object.values(DIRECTORY)
+			].sort()
 		);
 		expect(scripts.map((script) => script.id).sort()).toEqual(
-			[`record.index:${COLLECTION.project}`, ...Object.values(DIRECTORY).map((nsid) => `xrpc.query:${nsid}`)].sort()
+			[
+				...records.map((nsid) => `record.index:${nsid}`),
+				...Object.values(DIRECTORY).map((nsid) => `xrpc.query:${nsid}`)
+			].sort()
 		);
-		// The record gate carries nothing but the root DID, so no shared code can break it.
-		expect(scripts.find((script) => script.id.startsWith('record.'))?.body).not.toMatch(/TAXONOMY|local function list/);
+
+		// The record gates carry nothing but the root DID, so no shared code can break them.
+		for (const gate of scripts.filter((script) => script.id.startsWith('record.')))
+			expect(gate.body).not.toMatch(/TAXONOMY|local function list/);
 		expect(scripts.find((script) => script.id.startsWith('xrpc.'))?.body).toMatch(/TAXONOMY[^]*local function list/);
+	});
+
+	it("puts each lexicon after the ones it refers to, since HappyView stores them in the bundle's order", () => {
+		const { lexicons } = happyViewBundle('did:plc:root');
+
+		for (const [index, doc] of lexicons.entries()) {
+			const refs = [...JSON.stringify(doc).matchAll(/"((?:com|community|computer)\.[\w.]+?)(?:#\w+)?"/g)].map(
+				([, nsid]) => nsid
+			);
+
+			for (const ref of refs.filter((nsid) => nsid !== doc.id))
+				expect(lexicons.slice(0, index).map((earlier) => earlier.id)).toContain(ref);
+		}
 	});
 
 	it('quotes the root DID so nothing in it can end the string early', async () => {

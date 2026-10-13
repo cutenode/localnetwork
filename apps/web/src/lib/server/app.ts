@@ -62,7 +62,7 @@ export async function createApp(options: CreateAppOptions) {
 	const spaces = rootSpaces(rootDid);
 
 	const accounts = new AccountService(db, logger.child({ component: 'accounts' }), identity);
-	const oauth = new OAuthService({ config, db, logger: logger.child({ component: 'oauth' }), rootDid });
+	const oauth = new OAuthService({ config, db, logger: logger.child({ component: 'oauth' }) });
 	const userClient = options.userClient ?? ((did: string) => oauth.repoClient(did));
 
 	const audit = new AuditLog({
@@ -194,6 +194,7 @@ export async function createApp(options: CreateAppOptions) {
 		audit,
 		accounts,
 		projects,
+		sets: projects.sets,
 		requests,
 		staff,
 		bookings,

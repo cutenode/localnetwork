@@ -16,11 +16,19 @@ locallibrary never sees your password. Give your handle, a DID, or your server
 (`locallibrary account login https://bsky.social`, which also lets you pick an account or make
 one). Signing in only asks to know who you are: locallibrary can't post or change anything.
 [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
-and replace the three record types it publishes
-(`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, and the same for
-`computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`), not to delete them, and
-nothing else in the account. `account login --publish` asks for it up front.
+and replace the three record types it publishes, not to delete them, and nothing else in the
+account. `account login --publish` asks for it up front.
 
+- **Publishing's permission is a permission set**, the Lexicon
+  [`computer.localnetwork.locallibraryPublishing`](../../../lexicons/computer/localnetwork/locallibraryPublishing.json):
+  sign-in asks for `include:computer.localnetwork.locallibraryPublishing`, the server shows the
+  set's title and description when you approve, and the session is granted what the set lists in
+  its place (`repo:computer.localnetwork.locallibrary.settings?action=create&action=update`, and
+  the same for `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`). Servers
+  look the set up when you sign in and every time the session is refreshed, so it has to be
+  published first (`pnpm -C apps/web lexicons:publish`, with the `_lexicon.localnetwork.computer`
+  DNS record it checks); until it is, a sign-in that allows publishing fails. It's named directly
+  under `computer.localnetwork` because a set can only grant records under its own name's parent.
 - **The browser comes back to locallibrary** on a one-off `127.0.0.1` port, and only the address
   that carries this sign-in's `state` counts. When the browser runs on another computer (over
   SSH), `--paste` takes the address it ends up on instead; `--no-browser` only prints the link.
@@ -76,7 +84,7 @@ shows the plan again for the account you approved. Publishing again replaces the
 | --- | --- | --- |
 | `settings publish` | `computer.localnetwork.locallibrary.settings`, key `self` | the settings profile's base values |
 | `profile publish` | `computer.localnetwork.dj.profile`, key `self` | the [profile document](sets.md#dj-profile), in whole numbers: shares as percents, BPM whole |
-| `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, ISRC, BPM, Camelot key, start time |
+| `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, the artists one by one, release, ISRC, MusicBrainz IDs, BPM, Camelot key, start time, and how each came in |
 
 A set's notes, its recording, the sessions it came from and the files' paths stay on this
 computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your profile hides
@@ -88,9 +96,26 @@ takes that list's key as its id the first time it's published, and the time the 
 it first went out. The old record stays where `plays publish` wrote it
 (`computer.localnetwork.locallibrary.set`), since publishing may only write today's set records.
 
+A track's artists go out one by one (split as the profile counts them) when its credit names
+several, and its MusicBrainz IDs (`mbid:<uuid>`, as teal.fm writes them) when its file is tagged
+with them, as MusicBrainz Picard tags files: rekordbox keeps none, so they're read from the files
+on the mounted drives when a set is made or edited. An artist's ID goes with their name only when
+the tags have one for each artist the credit names. For a set built from a recording, each track
+says how it came in (`transitionIn`), as the recording's [mix report](sets.md#mixes) heard it,
+wherever the set still has the two tracks one after the other: a `blend` when both were heard
+together for 8 seconds or more, otherwise `unknown` (a fade the fingerprints miss can look like a
+cut), with how long they overlapped, how the keys heard relate and how much the tempo changed.
+Next to an unidentified track it says only how long they overlapped.
+
+A set record holds up to 500 tracks: `sets publish` refuses a longer set, so drop some first
+(`sets edit --drop`). A track with every field filled is under 1.5 KB even with names as long as the
+Lexicon takes, so 500 fit the 1 MB a data server takes in a record. A data server not updated
+since May 2026 takes 150 KB: about 160 fully tagged tracks with long names, or 290 with typical
+ones. The plan says when a record is bigger than that.
+
 The record types are Lexicons in the repo's [`lexicons/`](../../../lexicons/computer/localnetwork/):
 My Settings is locallibrary's own (`locallibrary/`), and the profile and set are DJ records Local
 Network's tools share (`dj/`, with the definitions both use in `dj/defs.json`). The address Lexicon
-they use is copied from [Lexicon Community](https://github.com/lexicon-community/lexicon). Each
+they use is copied from [Lexicon Community](https://tangled.org/lexicon.community/lexicons). Each
 record is checked against its Lexicon before it's written. Everything published is public and copied around the network:
 deleting a record later doesn't delete the copies.

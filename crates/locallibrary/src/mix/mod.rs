@@ -150,6 +150,11 @@ pub struct Play {
 }
 
 impl Play {
+    /// The whole second it starts at, as a set's tracklist keeps it.
+    pub fn start_second(&self) -> u32 {
+        self.start.max(0.0).floor() as u32
+    }
+
     /// Matched with less confidence than [`TENTATIVE`].
     pub fn is_tentative(&self) -> bool {
         self.confidence < TENTATIVE

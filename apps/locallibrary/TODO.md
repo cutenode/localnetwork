@@ -258,28 +258,29 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       and CHANGELOG.
 - [ ] **Put `https://locallibrary.localnetwork.computer` online** (served by the Local Network web
       app). Regenerate the hosted client document with `locallibrary account client-metadata -o
-      apps/web/src/lib/tools/locallibrary/oauth-client-metadata.json` and deploy it there, so it lists the narrowed publish scopes
-      (`repo:<nsid>?action=create&action=update`) before releasing publishing. The copy waiting
-      in localnetwork has them now; it only needs deploying. While it's offline, sign-in falls
+      apps/web/src/lib/tools/locallibrary/oauth-client-metadata.json` and deploy it there, so it asks
+      for the publishing permission set (`include:computer.localnetwork.locallibraryPublishing`)
+      before releasing publishing. The copy waiting in localnetwork has it now; it only needs
+      deploying. While it's offline, sign-in falls
       back to the development client; online without those scopes, a publish sign-in stops and
       points at `--dev-client`. jacquard sends `application_type: web`
       for a hosted ID while the document says `native`: untested.
-- [ ] Publish the Lexicons locallibrary writes as `com.atproto.lexicon.schema` records in the root
-      account's repo, keyed by NSID, the way upvote.at publishes `at.upvote.*`
-      (`pnpm -C apps/web lexicons:publish` writes them). They resolve once their two authorities
-      point at the root's DID: `locallibrary.localnetwork.computer`
-      (`lexicons/computer/localnetwork/locallibrary/`, My Settings) and `dj.localnetwork.computer`
-      (`lexicons/computer/localnetwork/dj/`, the profile, set and their shared defs), each with
-      a `_lexicon` TXT record (`did=<root DID>`). upvote.at has one, at `_lexicon.upvote.at`.
-- [ ] Switch publishing to a permission set (`include:`) once a real sign-in shows whether the PDS
-      expands it in the token response; jacquard only resolves includes with its `scope-check`
-      feature.
+- [ ] **Publish every lexicon** as `com.atproto.lexicon.schema` records in the root account's
+      repo, keyed by NSID, the way upvote.at publishes `at.upvote.*`, with a `_lexicon` TXT record
+      (`did=<root DID>`) for each of the 11 authorities (each sub-namespace is its own; upvote.at
+      has one, at `_lexicon.upvote.at`). None exist yet. One command does both:
+      `ROOT_IDENTIFIER=localnetwork.computer ROOT_PASSWORD=… CLOUDFLARE_API_TOKEN=… pnpm -C
+      apps/web lexicons:publish`. Sign-in to publish fails with `invalid_scope` until
+      `computer.localnetwork.locallibraryPublishing` resolves, and so does the website's until
+      `computer.localnetwork.permissions` and the space types do.
 - [ ] First real run of `settings publish`, `profile publish`, `sets publish` and `settings import
       --from-handle`; check what a real PDS answers to a write without the scope (the refusal
       mapping is a guess). Everything so far ran against a mock PDS only.
-- [ ] Unpublishing (`deleteRecord`) needs `action=delete` added to `PUBLISH_SCOPES` and the
-      hosted document; until then `sets delete` leaves a published set's record on the account.
-      The Lexicon validator counts characters, not graphemes, for `maxGraphemes`.
+- [ ] Unpublishing (`deleteRecord`) needs `delete` added to the publishing permission set
+      (`lexicons/computer/localnetwork/locallibraryPublishing.json`) and `PUBLISH_SCOPES`; until
+      then `sets delete` leaves a published set's record on the account.
+- [ ] A PDS without permission-set support: untested. If it drops `include:`, the session gets
+      only `atproto`, publishing reports a missing scope, and sign-in loops.
 - [ ] `plays` reads each drive's databases twice (for its lists, then for its sessions). Without
       declared sets the profile finds sessions its own way (history lists, dated by the pull that
       archived them) rather than with `sets::session::gather` and its windows.
@@ -306,23 +307,17 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
 - [ ] Decide: Serato `--write-tags` refuses an AIFF whose odd-sized last chunk lacks its pad byte
       at apply rather than plan; catching it earlier means redoing lofty's chunk walk.
 
-## Lexicons, before publishing
+## Lexicons
 
-From the lexicon design review (R numbers).
-
-- [ ] R11: `recordingMbId` as `mbid:<uuid>` with `format: uri`, as teal.fm does (a bare UUID now,
-      `dj/defs.json`).
-- [ ] R3: `artists[]`, `releaseName` and `releaseMbId` on `dj.defs#track`, and fill
-      `recordingMbId` when publishing (only tests set it now).
-- [ ] R5: `transitionIn` on `dj.set`; transitions only live in the mix-report blob.
-- [ ] R6: with R3 and R5, about 450 tracks fit in a 150 KB record, not the 1000 `dj/set.json`
-      allows.
-- [ ] R2: the profile's `defs#mix` points at the DJ's `dj.set` with a strongRef instead of a JSON
-      tracklist. R10: offer the set lexicon to skaists and FreeMix.
-- [ ] Publish the web app's other `computer.localnetwork.*` lexicons as records too, the same way.
-      Each sub-namespace is its own authority, so that's 11 `_lexicon` TXT records in all
-      (`lexicons:publish` lists them); none exist yet.
-- [ ] `docs/account.md:94` links Lexicon Community's archived GitHub repo; link its Tangled repo.
+- [ ] MusicBrainz IDs come from file tags on a mounted drive when a set is made or edited, so a set
+      built with the drive unplugged has none until it's edited with the drive in. The store keeps
+      the files and could be read instead.
+- [ ] `transitionIn`'s `technique` is only ever `blend` (an overlap of 8 seconds or more, as the
+      website's mix report has it) or `unknown`; the terminal player calls 1 second a blend.
+      Pick one threshold.
+- [ ] Swap locallibrary's own Lexicon validator (`atmosphere/lexicon.rs`) for jacquard-lexicon's
+      `SchemaValidator`, already in the dependency tree: check its error wording, unknown fields
+      and the `uri` format first.
 
 ## Website (`apps/web`)
 
@@ -330,8 +325,9 @@ From the lexicon design review (R numbers).
       reads the saves, then `createSpaceRecord` mints a fresh key (`services/planner.ts:116`). A
       fixed record key per project fixes it, but changes the data shape.
 - [ ] Dev logs SvelteKit's `ssr_fetch_eager` warning on every page load.
-- [ ] The web app defines `lexicons/computer/localnetwork/permissions.json` but never requests it;
-      `oauth.ts`'s `buildScopes` joins explicit scopes.
+- [ ] A mix can only link a set once the project is published: HappyView 2.16 can't tell a
+      backfill from Jetstream, so `dj.set` records are let in only from a published project's
+      managers, and the new-project forms have no set picker.
 - [ ] Light-mode phrase colours for the mix report: verse and bridge strips are about 2:1 against
       the light background (`packages/tokens/colors.json` has one phrase palette).
 - [ ] Look at `/planner/shows/[rkey]` since the em-dash pass, and give it an axe check like

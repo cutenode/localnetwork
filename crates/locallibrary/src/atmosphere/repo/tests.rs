@@ -132,7 +132,7 @@ fn a_refused_write_says_how_to_go_on() {
     let pds = crate::atmosphere::tests::serving(move |_, _| answering.lock().unwrap().clone());
     let dir = tempfile::tempdir().unwrap();
     crate::store::Store::open_or_init(dir.path()).unwrap();
-    let scopes = crate::atmosphere::publish_scopes().join(" ");
+    let scopes = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" ");
     crate::atmosphere::tests::save_session(dir.path(), "did:plc:abc", &pds, &scopes);
     let record = crate::publish::settings_record(&[("quantize".into(), "off".into())].into(), chrono::Utc::now());
     let write = |status: u16, headers: &str, body: Value| {
@@ -345,7 +345,7 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     if !fits {
         record["mood"] = "dark".into();
     }
-    let all = crate::atmosphere::publish_scopes().join(" ");
+    let all = crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" ");
     let one = |c: &str| format!("atproto repo:{c}?action=create&action=update");
     let scopes: String = tc.draw(gs::sampled_from(vec![
         "atproto".to_string(),
@@ -441,7 +441,7 @@ fn a_refused_write_says_how_to_go_on_whatever_the_server_says(tc: hegel::TestCas
         dir.path(),
         "did:plc:abc",
         pds,
-        &crate::atmosphere::publish_scopes().join(" "),
+        &crate::atmosphere::tests::mock_pds::granted(&crate::atmosphere::publish_scopes()).join(" "),
     );
     let record = crate::publish::settings_record(&[("sync".into(), "on".into())].into(), chrono::Utc::now());
     let err = put_record(dir.path(), "did:plc:abc", lexicon::SETTINGS, "self", &record, None).unwrap_err();

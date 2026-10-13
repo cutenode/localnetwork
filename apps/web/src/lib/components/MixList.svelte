@@ -1,9 +1,17 @@
 <script lang="ts">
 	import { ListMusic, Play } from '@lucide/svelte';
-	import type { ProjectMix } from '#lib/types.ts';
+	import type { DjSetView, ProjectMix } from '#lib/types.ts';
+	import LinkedSet from './LinkedSet.svelte';
 
-	/** `tracklistHref` links mixes that have a tracklist to their page (by position, from 0). */
-	let { mixes, tracklistHref }: { mixes: ProjectMix[]; tracklistHref?: (index: number) => string } = $props();
+	/**
+	 * `tracklistHref` links mixes that have a tracklist to their page (by position, from 0). `sets` are the linked
+	 * sets the directory has, by URI, or null when it couldn't say.
+	 */
+	let {
+		mixes,
+		tracklistHref,
+		sets
+	}: { mixes: ProjectMix[]; tracklistHref?: (index: number) => string; sets?: Promise<Map<string, DjSetView> | null> } = $props();
 
 	/** The open player, by position and link, since records written elsewhere can repeat a link. */
 	let open = $state<string | null>(null);
@@ -51,6 +59,7 @@
 					{/if}
 				</span>
 			</div>
+			{#if mix.set && sets}<LinkedSet linked={mix.set} {sets} class="mt-1" />{/if}
 			{#if embed && open === id}
 				<iframe title={mix.title} src={embed} class="mt-3 h-40 w-full border-2 border-ansi-blue" loading="lazy" allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin"></iframe>
 			{/if}

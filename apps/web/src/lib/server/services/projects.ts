@@ -20,6 +20,7 @@ import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { DirectoryProject, DirectoryStats, HappyViewClient } from '../happyview/client';
 import { diff } from './diff';
+import { SetService } from './sets';
 
 export type ProjectSearch = {
 	q?: string;
@@ -126,11 +127,16 @@ function projectView(rootDid: string, ref: RecordRef & { rkey: string }, record:
  * reads go to the directory queries it serves; private details stay in the industry space.
  */
 export class ProjectService {
+	/** The DJ sets mixes link, which `publish` checks. */
+	readonly sets: SetService;
+
 	constructor(
 		private readonly core: Core,
 		private readonly directory: HappyViewClient,
 		private readonly indexWaitMs = INDEX_WAIT_MS
-	) {}
+	) {
+		this.sets = new SetService(core, directory);
+	}
 
 	async indexDetails(projectUri: string, uri: string, cid: string, details: ProjectDetails, updatedAt: string) {
 		const json = JSON.stringify(details);
@@ -266,9 +272,9 @@ export class ProjectService {
 
 	/**
 	 * Writes a project to the root account's public repo (compare-and-swap on
-	 * the previous CID), optionally updates its private details in the
-	 * industry space, and waits for the directory to serve it. Returns
-	 * field-level changes.
+	 * the previous CID) once the sets its mixes newly link check out,
+	 * optionally updates its private details in the industry space, and waits
+	 * for the directory to serve it. Returns field-level changes.
 	 */
 	async publish(input: {
 		existing?: ProjectView | null;
@@ -284,6 +290,7 @@ export class ProjectService {
 		const now = nowIso();
 		const rkey = existing?.rkey ?? TID.nextStr();
 		const managers = [...new Set(input.managers)].slice(0, 10);
+		await this.sets.assertLinkable(input.profile, existing?.profile, managers);
 
 		const record: ProjectRecord = {
 			slug: existing?.slug ?? (await this.uniqueSlug(input.profile.name)),

@@ -375,13 +375,8 @@ pub mod account {
     pub use crate::session::DID;
     use crate::session::{session_json, sign_in_as};
 
-    /// Permission to publish locallibrary's records.
-    pub const PUBLISHING: [&str; 4] = [
-        "atproto",
-        "repo:computer.localnetwork.locallibrary.settings",
-        "repo:computer.localnetwork.dj.profile",
-        "repo:computer.localnetwork.dj.set",
-    ];
+    /// What a sign-in that allows publishing asks for: locallibrary's permission set.
+    pub const PUBLISHING: [&str; 2] = ["atproto", "include:computer.localnetwork.locallibraryPublishing"];
 
     /// A P-256 key made for these tests: it signs nothing but proofs sent to the pretend server.
     pub fn test_key() -> Value {
@@ -394,14 +389,16 @@ pub mod account {
         })
     }
 
-    /// Sign `DID` (@dj.example.com) in at `pds` with [`test_key`], allowing `scopes`, with the
-    /// store at `store`, in place of whoever was (signing in over an account kept in the keychain
-    /// would remove its keychain entry). `info` replaces what the account's details say (when to
+    /// Sign `DID` (@dj.example.com) in at `pds` with [`test_key`], asking for `scopes` and granted
+    /// them as a server grants them ([`crate::mock_pds::granted`]), with the store at `store`, in
+    /// place of whoever was (signing in over an account kept in the keychain would remove its
+    /// keychain entry). `info` replaces what the account's details say (when to
     /// sign in again, the client, where the session is kept).
     pub fn sign_in(store: &Path, pds: &str, scopes: &[&str], info: Value) {
         let _ = std::fs::remove_file(store.join(ACCOUNT_FILE));
+        let granted = crate::mock_pds::granted(scopes);
         let mut session =
-            session_json(DID, "s1", pds, &scopes.join(" "), Some("refresh-1"), "2099-01-01T00:00:00.000Z");
+            session_json(DID, "s1", pds, &granted.join(" "), Some("refresh-1"), "2099-01-01T00:00:00.000Z");
         session["dpop_key"] = test_key();
         sign_in_as(store, session);
         let mut file = AccountFile::load(store).unwrap();
@@ -410,7 +407,7 @@ pub mod account {
         let mut details = serde_json::to_value(&account.info).unwrap();
         let said = json!({
             "handle": "dj.example.com",
-            "scopes": scopes,
+            "scopes": granted,
             "signed_in_at": "2026-10-05T00:00:00Z",
             "sign_in_again_by": "2099-01-01T00:00:00Z",
             "access_expires_at": null,

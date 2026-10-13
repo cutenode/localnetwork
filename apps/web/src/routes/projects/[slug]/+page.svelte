@@ -106,7 +106,7 @@
 		{#if profile.mixes?.length}
 			<section class="card card-pad">
 				<h2 class="section-title mb-4">Mixes</h2>
-				<MixList mixes={profile.mixes} tracklistHref={(index) => `/projects/${project.slug}/mixes/${index + 1}`} />
+				<MixList mixes={profile.mixes} sets={data.sets} tracklistHref={(index) => `/projects/${project.slug}/mixes/${index + 1}`} />
 			</section>
 		{/if}
 		{#if profile.highlights?.length}
@@ -130,7 +130,7 @@
 					{#if data.details.hospitality}<div class="sm:col-span-2"><dt class="muted">Hospitality</dt><dd class="whitespace-pre-line">{data.details.hospitality}</dd></div>{/if}
 				</dl>
 			{:else}
-				<p class="muted text-sm">No private booking details yet.{#if claimed} Send an inquiry to reach the managers directly.{/if}</p>
+				<p class="muted text-sm">No private booking details yet.{claimed ? ' Send an inquiry to reach the managers directly.' : ''}</p>
 			{/if}
 		</section>
 	</div>
