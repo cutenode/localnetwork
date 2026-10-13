@@ -79,6 +79,7 @@ pub mod eject;
 pub mod equipment;
 pub mod error;
 pub mod export;
+pub mod fields;
 pub mod firmware;
 pub mod fleet;
 pub mod format;
@@ -133,7 +134,7 @@ pub mod xml;
 /// Hooks for tests: what a failed write leaves behind, and tests that share a process.
 #[doc(hidden)]
 pub mod testing {
-    pub use crate::commit::fail_before_swap;
+    pub use crate::commit::{fail_after_swap, fail_before_swap};
 
     /// Drive lookups on this thread consult the store at `root` (`None`: the one
     /// [`crate::api::set_store_root`] named), as `set_store_root` would make them do for the whole

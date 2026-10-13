@@ -35,6 +35,9 @@ crates/loclib-interop/      a library for other DJ software: Traktor's collectio
                             tags, an Engine DJ library (engine.sql)
 crates/loclib-waveform/     the player's ratatui widgets: overview and detail waveforms, cue lane, phrase strip,
                             spectrum, scope and cover art, in the colours of a palette the caller passes
+crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
+                            and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
+                            reads lines and reports errors with it
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
 crates/locallibrary/src/    the library, built on the crates above
   lib.rs       the crate's entry point (`model` and `harmony` are loclib-model's, re-exported), and the
@@ -78,6 +81,8 @@ crates/locallibrary/src/    the library, built on the crates above
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
   audio_cache.rs  what's worked out from each audio file (fingerprints, analyses), cached in the store
                by file name, size and modification time, and worked out in parallel when it isn't
+  fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, version
+               and analyzer
   sound/       tempo, key and loudness through loclib-analysis: doctor's analysis section, how sure each
                key is for the set planner, the check's loudness item, and `analysis bench` (bench.rs)
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the

@@ -77,7 +77,7 @@ fn colour(c: TrackColor) -> &'static str {
 
 /// Render the drive's library as rekordbox XML.
 pub fn export(device: &Device, opts: &XmlOptions, ctx: &Ctx<'_>) -> Result<(String, XmlReport)> {
-    let library = subset(crate::convert::combined_library(device)?, &opts.only)?;
+    let library = subset(crate::convert::export_library(device)?, &opts.only)?;
     let root = opts.location_root.clone().unwrap_or_else(|| device.root().to_path_buf());
     let mut report = XmlReport { tracks: library.tracks.len(), ..Default::default() };
     let mut x = String::new();

@@ -845,7 +845,7 @@ impl TrackSelector {
             let found = alive(&self.ids);
             // Where `found` first differs from the ids is the first id no track has.
             if let Some((_, id)) = self.ids.iter().enumerate().find(|(i, id)| found.get(*i) != Some(id)) {
-                return Err(Error::NotFound(format!("track #{id}")));
+                return Err(Error::no_track(*id));
             }
             parts.push(("ids", found));
         }

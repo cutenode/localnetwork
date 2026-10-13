@@ -98,10 +98,11 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   request itself, as before, plans and applies in one go: it isn't bound to what anyone confirmed.
 - Writes to archive and retired drives are refused (`conflict`) unless the request (the plan's or
   the apply's) has `"overwrite_archive": true`.
-- Requests run concurrently, on two pools of workers: quick reads (`tracks.query`, `track.*`,
-  `art.*` previews and paths, `drive.library`, `playlists.tree`, `tracks.get`, `cues.list`,
-  `tags.list`, `drives.*`, listings) in one, everything else (writes, plans, scans, mixes) in the
-  other, so a long job never holds up a GUI's reads. Each runs 4 requests at once
+- Requests run concurrently, on two pools of workers: quick reads (`tracks.query`, `track.*`
+  but `track.fields`, `art.*` previews and paths, `drive.library`, `playlists.tree`,
+  `tracks.get`, `tracks.analysis`, `cues.list`, `tags.list`, `drives.*`, listings) in one,
+  everything else (writes, plans, scans, mixes, `track.fields`) in the other, so a long job never
+  holds up a GUI's reads. Each runs 4 requests at once
   (`locallibrary rpc --workers N`, or `LOCALLIBRARY_RPC_WORKERS`); a request waiting for a worker
   shows in `jobs.list` with `queued: true`, and `$/cancel` answers it at once.
 - The sidecar keeps the parsed libraries of the last 4 drives it read, so paging through tracks,
@@ -209,8 +210,15 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by
   `op` (`create_playlist`, `rename_playlist`, `move_playlist`, `delete_playlist`, `add_tracks`,
   `remove_tracks`, `move_tracks`, `set_tracks`, `set_entries`, `sort_playlist`, `dedupe`,
-  `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `set_path`, `delete_history`; see
-  `edit::Edit`), applied as one change with one backup. Tracks are chosen with selectors (`{"ids": [12]}`,
+  `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `set_path`, `delete_history`,
+  `my_tag`, `cues`, `set_artwork`; see `edit::Edit`), applied as one change with one backup and one
+  journal entry. `my_tag`, `cues` and `set_artwork` are made first, in their order, then the rest;
+  the plan checks the tracks they name are on the drive, and applying stops (`replay_stopped`)
+  at one that can't be made: what was made is recorded, and `undo` takes it back (having made
+  nothing, the error says it changed nothing and no backup is left). `set_artwork`'s `image` is
+  `{"path": ...}` (a file on this computer), `{"base64": ...}` (the image's bytes) or `{"staged":
+  hash}` (one the drive keeps, as the journal records it). `edit_tracks` also sets `bpm`,
+  `album_artist` (with an album), `isrc` and `release_date` (`YYYY-MM-DD`). Tracks are chosen with selectors (`{"ids": [12]}`,
   `{"filter": "bpm:>=128"}`, `{"paths": ["/Contents/..."]}`, `playlist`, `album`, `query`,
   `history`; a track must fit every field given). Also `edits.list`, `edits.replay.plan/apply`,
   `edits.clear`, `import.plan/apply`, `dedupe.plan/apply` (`by_sound` also finds the same
@@ -235,10 +243,23 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `{encoding: "base64", style, columns_per_sec, columns, back, front}` and a layer is
   `{heights, colors}`: one byte a column of height (0-255 of the full height) and three of red,
   green and blue, in base64 (`front` is `null` when no column has one: scrolling and blue
-  waveforms). `art.get` and `art.path` take `track` (one answer, `null` without artwork) or
-  `tracks` (a list of `{track, image}` in the order asked); `art.path` returns `{path, mime}`, an
-  absolute path inside the drive with symlinks resolved (never one leading out of it), for a
-  webview to load directly.
+  waveforms). `tracks.analysis {drive, ids}` answers up to 100 tracks at once as `{tracks:
+  [{track, analysis}], missing}` in the order asked, with the same `encoding` and `waveform`
+  `none` (the default here) or `preview`; scrolling waveforms come one track at a time. `art.get`
+  and `art.path` take `track` (one answer, `null` without artwork) or `tracks` (a list of
+  `{track, image}` in the order asked); `art.path` returns `{path, mime}`, an absolute path
+  inside the drive with symlinks resolved (never one leading out of it), for a webview to load
+  directly.
+- The reads above, `track.show`, `track.matches`, `cues.list` and `track.fields` see the library
+  players see; with `combined: true` they read the whole library exports are made from, adding
+  the tracks, playlists and history only OneLibrary holds on a drive with both databases. Those
+  tracks keep OneLibrary's id with the top bit set (2^31 and up), so the id never names an
+  `export.pdb` track, even after another export; reads without `combined` and edits refuse it.
+- `track.fields {drive, tracks?, plugin?}` answers what analyzer plugins worked out and the store
+  keeps: `{tracks: [{track, plugins: {<plugin>: {<analyzer>: {<field>: value}}}}], missing}`,
+  for tracks whose audio file hasn't changed since (`missing` lists ids asked for that the
+  library lacks). Until the sidecar runs plugins, each plugin's values are those of the version
+  that wrote last. Without a store there are none, and none is made.
 - Reading: `tracks.query` (filter, sort, paging), `track.analysis` (beat grid, cues, waveforms,
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
   (harmonic matches), `doctor` (`analyze`: the analysis section), `doctor.orphans.plan/apply`,
@@ -311,7 +332,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `firmware.remove.plan`, `recordings.collect.plan`, `settings.write.plan` (`{drives,
   create_missing}`, every mounted drive but archive and retired ones by default; applying it returns
   one result per drive, a drive that fails carrying an `error`), `settings.import.plan`,
-  `art.set.plan`, `art.embed.plan` (applying keeps a copy of each file in the store first) and
+  `art.set.plan` (an `edit.plan` of one `set_artwork`), `art.embed.plan` (applying keeps a copy of each file in the store first) and
   `art.unembed.plan` (puts them back), `store.gc.plan`, `players.set.plan`, `players.clear.plan`,
   `pull.plan`, `drive.eject.plan`, `drive.reidentify.plan`, `store.prune.plan`,
   `playlist.restore.plan`. Their `.apply` applies a plan by `plan_id`, or plans and applies a

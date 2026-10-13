@@ -484,6 +484,8 @@ fn build() -> Registry {
     r.read("tracks.get", |_, req| Ok(api::tracks_get(&LIBRARIES, &req)?)).quick();
     r.read("tracks.query", |_, req| Ok(api::tracks_query_cached(&LIBRARIES, &req)?)).quick();
     r.read("track.analysis", |_, req| Ok(api::track_analysis_cached(&LIBRARIES, &req)?)).quick();
+    r.read("tracks.analysis", |_, req| Ok(api::tracks_analysis(&LIBRARIES, &req)?)).quick();
+    r.read("track.fields", |c, req| Ok(api::track_fields(&LIBRARIES, c.existing()?.as_ref(), &req)?));
     r.read("track.show", |_, req| Ok(api::track_details_cached(&LIBRARIES, &req)?)).quick();
     r.read("track.matches", |_, req| Ok(api::harmonic_matches_cached(&LIBRARIES, &req)?)).quick();
 
@@ -639,7 +641,7 @@ fn build() -> Registry {
     r.read("art.missing", |_, req| Ok(api::artwork_missing(&req)?)).quick();
     r.read("art.get", |_, req| Ok(api::artwork_get_cached(&LIBRARIES, &req)?)).quick();
     r.read("art.path", |_, req| Ok(api::artwork_path(&LIBRARIES, &req)?)).quick();
-    r.plan("art.set.plan", |_, req| Ok(api::artwork_set_plan(&req)?)).destructive();
+    r.plan("art.set.plan", |c, req| Ok(api::artwork_set_plan(&req, c.ctx)?)).destructive();
     r.apply("art.set.apply", PlanStore::None, |c, req| Ok(api::artwork_set(&req, c.ctx)?))
         .alias("art.set")
         .destructive();

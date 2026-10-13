@@ -1156,7 +1156,14 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             let filter = (!filter.is_empty()).then(|| filter.join(" "));
             let reads = each_drive::read(a.drive, |drive| {
                 let (filter, playlist, sort) = (filter.clone(), a.playlist.clone(), a.sort.clone());
-                api::tracks_query(&api::TracksQuery { drive, filter, playlist, sort, offset: 0, limit: a.limit })
+                api::tracks_query(&api::TracksQuery {
+                    library: drive.into(),
+                    filter,
+                    playlist,
+                    sort,
+                    offset: 0,
+                    limit: a.limit,
+                })
             })?;
             out.page();
             // Several drives' TSV or CSV is one listing, for the program reading it.
@@ -1815,23 +1822,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
         }
         ArtCommand::Set { drive, image, select, dry_run } => {
             let req = api::SetArtwork { drive, image, tracks: select.selector() };
-            let plan = api::artwork_set_plan(&req)?;
-            if !out.json {
-                output::summary(&plan.summary, &plan.warnings);
-                for t in plan.tracks.iter().take(10) {
-                    say!("    {}", output::dim(&t.name));
-                }
-                if plan.tracks.len() > 10 {
-                    say!("    {}", output::dim(format!("and {} more", plan.tracks.len() - 10)));
-                }
-            }
-            if let Some(o) = out.decide(dry_run, "Set it?") {
-                return Ok(out.not_applied(&plan, o));
-            }
-            let r = plan.apply(None, ctx)?;
-            return Ok(out.applied(&plan, &r, Outcome::Applied, || {
-                output::ok(format!("artwork set on {} track(s)", r.tracks_updated))
-            }));
+            return edit_cmd::confirm_and_apply(&req.drive, api::artwork_set_plan(&req, ctx)?, dry_run, out, ctx);
         }
         ArtCommand::Auto { drive, dry_run } => {
             let drives = match drive {

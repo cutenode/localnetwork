@@ -47,9 +47,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   a library can be had without a drive rekordbox exported to; tracks Cloud Library Sync keeps in
   Dropbox or Google Drive come along, online-only ones downloaded as they're copied.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
-  order for mixing, import), track details, ratings and colours, My Tags, hot cues, memory cues
-  and loops, replacing duplicates and deleting tracks, with a backup before every change and a
-  journal so `edits replay` can redo them after rekordbox exports again. `undo` takes the last
+  order for mixing, import), track details (BPM, album artist, ISRC and release date too),
+  ratings and colours, My Tags, hot cues, memory cues and loops, cover art, replacing duplicates
+  and deleting tracks, with a backup before every change and a journal so `edits replay` can redo
+  them after rekordbox exports again. One plan can mix them all, under one backup. `undo` takes the last
   change back (run again, the one before) and is refused when the drive changed since (a
   rekordbox export, a sync, history players recorded) unless `--force`; putting a backup back
   backs up what it replaces, so an undo can be redone. `backups` and `restore` reach older ones,
@@ -191,7 +192,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   call, and bad parameters say where they are. The library's messages leave commands and flags to
   the CLI, which prints them as hints. The mix report lives in the library: `mix.identify` can
   answer each play's waveform, cues and phrases and keep the report in the store, and
-  `mix.reports.list`, `.get` and `.html` find kept reports and write their pages.
+  `mix.reports.list`, `.get` and `.html` find kept reports and write their pages. Library reads
+  take `combined: true` for the whole library exports are made from (OneLibrary's own tracks, with
+  ids of their own, and playlists too), `tracks.analysis` answers up to 100 tracks' analyses at
+  once, and `track.fields` reads what analyzer plugins worked out for each track, kept in the store
+  by audio file.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -280,6 +285,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
     caller passes.
+  - `loclib-plugin`: the plugin protocol (versioned on its own, at 0.1.0), the
+    `locallibrary-plugin.toml` manifest and its checks, a JSON-RPC peer over a pair of pipes and
+    an SDK for writing plugins in Rust. The RPC sidecar reads lines and reports errors with it.
 
 ### Changed
 

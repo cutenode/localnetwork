@@ -299,6 +299,17 @@ impl Error {
         Error::Invalid(message.into())
     }
 
+    /// A track id the library read doesn't have, saying so when it's one of OneLibrary's own
+    /// tracks in a combined library ([`crate::convert::ONELIBRARY_ONLY`]).
+    pub(crate) fn no_track(id: u32) -> Self {
+        match crate::convert::is_onelibrary_only(id) {
+            true => Error::NotFound(format!(
+                "track #{id} is one only OneLibrary has: reads see it with `combined`, and edits can't change it"
+            )),
+            false => Error::NotFound(format!("track #{id}")),
+        }
+    }
+
     /// A `conflict`: a decision is needed first.
     pub(crate) fn conflict(reason: Reason, message: impl Into<String>) -> Self {
         Error::Conflict(message.into()).because(reason)

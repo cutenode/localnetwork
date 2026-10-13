@@ -154,6 +154,12 @@ export type Ambiguous = {
   track: TrackRef;
 };
 
+/** One track's analysis in [`TracksAnalysis`]. */
+export type AnalysedTrack = {
+  analysis: AnalysisView;
+  track: number;
+};
+
 export type AnalysisBenchRequest = {
   /** The datasets' audio to analyse. Without it, the drive's tracks are. */
   audio?: string | null;
@@ -193,6 +199,12 @@ export type AnalysisReport = {
 };
 
 export type AnalysisRequest = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   encoding?: WaveformEncoding;
   track: number;
@@ -331,22 +343,23 @@ export type ArtworkReport = {
 
 /** One track (`track`) or several (`tracks`). */
 export type ArtworkRequest = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   track: number;
 } | {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   tracks: number[];
-};
-
-/** What setting artwork on tracks would do. */
-export type ArtworkSetPlan = {
-  drive: string;
-  height: number;
-  image: string;
-  root: string;
-  tracks: TrackRef[];
-  /** The image's size, before it's scaled for the players. */
-  width: number;
 };
 
 /** One audio format a model plays, at these sample rates (Hz) and bit depths. */
@@ -1960,19 +1973,28 @@ export type Edit =
   }
   /**
    * A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
-   * this way; only a replay takes them.
+   * this way too.
    */
   | (TagChange & {
     op: "my_tag";
   })
   /**
    * A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).
-   * `cues` edits are recorded this way; only a replay takes them.
+   * `cues` edits are recorded this way too.
    */
   | {
     change: CueChange;
     op: "cues";
     tracks: string[];
+  }
+  /**
+   * Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The
+   * journal records the tracks by file and the image as staged on the drive.
+   */
+  | {
+    image: ImageSource;
+    op: "set_artwork";
+    tracks: TrackSelector;
   };
 
 /**
@@ -2171,19 +2193,28 @@ export type EditOutput =
   }
   /**
    * A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
-   * this way; only a replay takes them.
+   * this way too.
    */
   | (TagChange & {
     op: "my_tag";
   })
   /**
    * A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).
-   * `cues` edits are recorded this way; only a replay takes them.
+   * `cues` edits are recorded this way too.
    */
   | {
     change: CueChange;
     op: "cues";
     tracks: string[];
+  }
+  /**
+   * Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The
+   * journal records the tracks by file and the image as staged on the drive.
+   */
+  | {
+    image: ImageSource;
+    op: "set_artwork";
+    tracks: TrackSelector;
   };
 
 export type EditPlan = {
@@ -2661,6 +2692,9 @@ export type FieldChange = {
   new: string;
   old: string;
 };
+
+/** One field's value, of the types a plugin's manifest declares (numbers are finite). */
+export type FieldValue = number | boolean | string | string[];
 
 /** A file undoing changes. */
 export type FileChange = {
@@ -3141,6 +3175,24 @@ export type IdentifyMixRequest = {
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
 };
+
+/** The image an artwork edit gives tracks (see [`crate::edit::Edit::SetArtwork`]). */
+export type ImageSource =
+  /** An image file on this computer, or an audio file whose embedded art to use. */
+  | {
+    path: string;
+  }
+  /** The image file's bytes, in base64. */
+  | {
+    base64: string;
+  }
+  /**
+   * An image staged on the drive (`.locallibrary/artwork/<hash>.jpg`, a JPEG of the larger
+   * size players show), by its hash: how the journal records the others.
+   */
+  | {
+    staged: Hash;
+  };
 
 /** One track as an outside list describes it. */
 export type ImportEntry = {
@@ -3649,8 +3701,24 @@ export type LibraryRecord = {
   updated: string;
 };
 
+export type LibraryRef = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
+  drive: string;
+};
+
 /** `drive.library`, optionally paged: without `offset` or `limit` every track comes, as before. */
 export type LibraryRequest = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   limit?: number | null;
   offset?: number | null;
@@ -3702,6 +3770,12 @@ export type LineageOp =
 export type ListCues = {
   /** Every track whose album has this name. */
   album?: string | null;
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   /** A filter (see [`crate::query`]) with at least one term; must match at least one track. */
   filter?: string | null;
@@ -3852,6 +3926,12 @@ export type Matched = {
   });
 
 export type MatchesRequest = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   limit?: number | null;
   track: number;
@@ -4738,6 +4818,27 @@ export type PlaylistTree = {
   /** The history lists players recorded (in folders, on OneLibrary). */
   history: PlaylistNode[];
   playlists: PlaylistNode[];
+};
+
+export type PluginFields = {
+  /** Ids asked for that the library doesn't have. */
+  missing: number[];
+  /** Tracks with fields kept for their audio file as it is now; the others are left out. */
+  tracks: TrackPluginFields[];
+};
+
+export type PluginFieldsRequest = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
+  drive: string;
+  /** Only this plugin's fields. */
+  plugin?: string | null;
+  /** Only these tracks, in this order (every track when left out). */
+  tracks?: number[] | null;
 };
 
 export type Precision =
@@ -6976,6 +7077,12 @@ export type TrackDetails = {
 export type TrackDetailsRequest = {
   /** Every track whose album has this name. */
   album?: string | null;
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   /** A filter (see [`crate::query`]) with at least one term; must match at least one track. */
   filter?: string | null;
@@ -6993,17 +7100,26 @@ export type TrackFailure = [track: TrackRef, error: string];
 
 /**
  * New values for track details; fields left out stay as they are, and an empty name clears
- * artist, album, genre, label, key and the like.
+ * artist, album, genre, label, key and the like (an empty ISRC or release date clears it too).
  */
 export type TrackFields = {
   album?: string | null;
+  /** The databases keep it with the album, so a track needs one (given here too, or its own). */
+  album_artist?: string | null;
   artist?: string | null;
+  /**
+   * 1-999.99, kept to hundredths as rekordbox keeps it. The beat grid in the analysis files,
+   * which players count beats by, stays as it is.
+   */
+  bpm?: number | null;
   /** A colour name (`aqua`), rekordbox's number (1-8), or `none`. */
   color?: string | null;
   comment?: string | null;
   composer?: string | null;
   disc_number?: number | null;
   genre?: string | null;
+  /** Like `GBDUW0000059`: two letters, three letters or digits, and seven digits. */
+  isrc?: string | null;
   key?: string | null;
   label?: string | null;
   mix_name?: string | null;
@@ -7011,6 +7127,8 @@ export type TrackFields = {
   play_count?: number | null;
   /** 0-5 stars. */
   rating?: number | null;
+  /** `YYYY-MM-DD`. */
+  release_date?: string | null;
   remixer?: string | null;
   title?: string | null;
   track_number?: number | null;
@@ -7028,6 +7146,13 @@ export type TrackPlays = {
 export type TrackPlaysQuery = {
   /** Part of `Artist - Title` (ignoring case), or a drive path (`/Contents/...`). */
   track: string;
+};
+
+/** One track's fields in [`PluginFields`]. */
+export type TrackPluginFields = {
+  /** Each analyzer's fields, by plugin id, then analyzer. */
+  plugins: { [key: string]: { [key: string]: { [key: string]: FieldValue } } };
+  track: number;
 };
 
 export type TrackRef = {
@@ -7067,6 +7192,32 @@ export type Tracklist =
     named: string;
   };
 
+export type TracksAnalysis = {
+  /** Ids the library doesn't have. */
+  missing: number[];
+  /** In the order asked for. */
+  tracks: AnalysedTrack[];
+};
+
+/** [`AnalysisRequest`] for several tracks, without waveforms unless asked. */
+export type TracksAnalysisRequest = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
+  drive: string;
+  encoding?: WaveformEncoding;
+  /** At most 100 ([`MAX_ANALYSES`]). */
+  ids: number[];
+  /**
+   * `none` (the default) or `preview`: scrolling waveforms, megabytes each, come one track at
+   * a time from `track.analysis`.
+   */
+  waveform?: WaveformChoice;
+};
+
 export type TracksById = {
   /** Ids the library doesn't have. */
   missing: number[];
@@ -7075,6 +7226,12 @@ export type TracksById = {
 };
 
 export type TracksGet = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   ids: number[];
 };
@@ -7087,6 +7244,12 @@ export type TracksPage = {
 };
 
 export type TracksQuery = {
+  /**
+   * The whole library, as exports have it: on a drive with both databases, with the tracks,
+   * playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+   * (2^31 and up); edits refuse them.
+   */
+  combined?: boolean;
   drive: string;
   /** See [`crate::query`]. */
   filter?: string | null;
@@ -7570,7 +7733,7 @@ export type Waveform = {
   style: WaveformStyle;
 };
 
-/** Which waveforms `track.analysis` sends. */
+/** Which waveforms `track.analysis` and `tracks.analysis` send. */
 export type WaveformChoice =
   | ("none" | "all")
   /** The whole-track overview. */
@@ -7663,13 +7826,17 @@ export interface Methods {
   /** read method */
   "drive.library": { params: LibraryRequest; result: LibraryPage };
   /** read method */
-  "playlists.tree": { params: DriveRef; result: PlaylistTree };
+  "playlists.tree": { params: LibraryRef; result: PlaylistTree };
   /** read method */
   "tracks.get": { params: TracksGet; result: TracksById };
   /** read method */
   "tracks.query": { params: TracksQuery; result: TracksPage };
   /** read method */
   "track.analysis": { params: AnalysisRequest; result: AnalysisView };
+  /** read method */
+  "tracks.analysis": { params: TracksAnalysisRequest; result: TracksAnalysis };
+  /** read method */
+  "track.fields": { params: PluginFieldsRequest; result: PluginFields };
   /** read method */
   "track.show": { params: TrackDetailsRequest; result: TrackDetails[] };
   /** read method */
@@ -7869,11 +8036,11 @@ export interface Methods {
   /** read method */
   "art.path": { params: ArtworkRequest; result: OneOrMany_for_ArtworkFile };
   /** plan method; paired with `art.set.apply`; can delete or overwrite something */
-  "art.set.plan": { params: SetArtwork & WriteOptions; result: ArtworkSetPlan & PlanFields };
+  "art.set.plan": { params: SetArtwork & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `art.set.plan`; can delete or overwrite something */
-  "art.set.apply": { params: ApplyPlan | (SetArtwork & WriteOptions); result: ArtworkReport };
+  "art.set.apply": { params: ApplyPlan | (SetArtwork & WriteOptions); result: EditReport };
   /** apply method; paired with `art.set.plan`; can delete or overwrite something; an older name for `art.set.apply` */
-  "art.set": { params: ApplyPlan | (SetArtwork & WriteOptions); result: ArtworkReport };
+  "art.set": { params: ApplyPlan | (SetArtwork & WriteOptions); result: EditReport };
   /** plan method; paired with `art.auto.apply` */
   "art.auto.plan": { params: DriveRef & WriteOptions; result: AutoArtworkPlan & PlanFields };
   /** apply method; paired with `art.auto.plan`; long running: sends `progress`, can be cancelled */

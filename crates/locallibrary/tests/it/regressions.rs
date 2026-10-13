@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 
 use binrw::BinRead;
 
-use locallibrary::api::{self, DriveRef, LibraryCache};
+use locallibrary::api::{self, LibraryCache, LibraryRef};
 use locallibrary::compare::{self, Relation, Side};
 use locallibrary::device::Device;
 use locallibrary::interop::{self, InteropOptions, Software};
@@ -211,7 +211,9 @@ fn a_playlist_tree_repeating_a_folder_id_is_walked_once() {
         assert_eq!(plan.unwrap().folders, 1);
     }
     assert!(export::select(&lib, Some("F"), true, "all").unwrap().is_empty());
-    let tree = api::playlists_tree(&LibraryCache::new(1), &DriveRef { drive: root.display().to_string() }).unwrap();
+    let tree =
+        api::playlists_tree(&LibraryCache::new(1), &LibraryRef { drive: root.display().to_string(), combined: false })
+            .unwrap();
     assert_eq!((tree.playlists.len(), tree.playlists[0].children.len()), (1, 0));
 }
 

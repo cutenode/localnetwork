@@ -393,6 +393,24 @@
       ],
       "type": "object"
     },
+    "AnalysedTrack": {
+      "description": "One track's analysis in [`TracksAnalysis`].",
+      "properties": {
+        "analysis": {
+          "$ref": "#/$defs/AnalysisView"
+        },
+        "track": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "track",
+        "analysis"
+      ],
+      "type": "object"
+    },
     "AnalysisBenchRequest": {
       "properties": {
         "audio": {
@@ -492,6 +510,11 @@
     },
     "AnalysisRequest": {
       "properties": {
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -967,6 +990,11 @@
       "anyOf": [
         {
           "properties": {
+            "combined": {
+              "default": false,
+              "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+              "type": "boolean"
+            },
             "drive": {
               "type": "string"
             },
@@ -984,6 +1012,11 @@
         },
         {
           "properties": {
+            "combined": {
+              "default": false,
+              "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+              "type": "boolean"
+            },
             "drive": {
               "type": "string"
             },
@@ -1004,46 +1037,6 @@
         }
       ],
       "description": "One track (`track`) or several (`tracks`)."
-    },
-    "ArtworkSetPlan": {
-      "description": "What setting artwork on tracks would do.",
-      "properties": {
-        "drive": {
-          "type": "string"
-        },
-        "height": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "image": {
-          "type": "string"
-        },
-        "root": {
-          "type": "string"
-        },
-        "tracks": {
-          "items": {
-            "$ref": "#/$defs/TrackRef"
-          },
-          "type": "array"
-        },
-        "width": {
-          "description": "The image's size, before it's scaled for the players.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "drive",
-        "root",
-        "image",
-        "width",
-        "height",
-        "tracks"
-      ],
-      "type": "object"
     },
     "Audio": {
       "description": "One audio format a model plays, at these sample rates (Hz) and bit depths.",
@@ -6242,7 +6235,7 @@
         },
         {
           "$ref": "#/$defs/TagChange",
-          "description": "A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded\nthis way; only a replay takes them.",
+          "description": "A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded\nthis way too.",
           "properties": {
             "op": {
               "const": "my_tag",
@@ -6255,7 +6248,7 @@
           "type": "object"
         },
         {
-          "description": "A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).\n`cues` edits are recorded this way; only a replay takes them.",
+          "description": "A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).\n`cues` edits are recorded this way too.",
           "properties": {
             "change": {
               "$ref": "#/$defs/CueChange"
@@ -6275,6 +6268,27 @@
             "op",
             "tracks",
             "change"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The\njournal records the tracks by file and the image as staged on the drive.",
+          "properties": {
+            "image": {
+              "$ref": "#/$defs/ImageSource"
+            },
+            "op": {
+              "const": "set_artwork",
+              "type": "string"
+            },
+            "tracks": {
+              "$ref": "#/$defs/TrackSelector"
+            }
+          },
+          "required": [
+            "op",
+            "tracks",
+            "image"
           ],
           "type": "object"
         }
@@ -6863,7 +6877,7 @@
         },
         {
           "$ref": "#/$defs/TagChange",
-          "description": "A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded\nthis way; only a replay takes them.",
+          "description": "A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded\nthis way too.",
           "properties": {
             "op": {
               "const": "my_tag",
@@ -6876,7 +6890,7 @@
           "type": "object"
         },
         {
-          "description": "A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).\n`cues` edits are recorded this way; only a replay takes them.",
+          "description": "A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).\n`cues` edits are recorded this way too.",
           "properties": {
             "change": {
               "$ref": "#/$defs/CueChange"
@@ -6896,6 +6910,27 @@
             "op",
             "tracks",
             "change"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The\njournal records the tracks by file and the image as staged on the drive.",
+          "properties": {
+            "image": {
+              "$ref": "#/$defs/ImageSource"
+            },
+            "op": {
+              "const": "set_artwork",
+              "type": "string"
+            },
+            "tracks": {
+              "$ref": "#/$defs/TrackSelector"
+            }
+          },
+          "required": [
+            "op",
+            "tracks",
+            "image"
           ],
           "type": "object"
         }
@@ -8563,6 +8598,31 @@
       ],
       "type": "object"
     },
+    "FieldValue": {
+      "anyOf": [
+        {
+          "format": "int64",
+          "type": "integer"
+        },
+        {
+          "format": "double",
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ],
+      "description": "One field's value, of the types a plugin's manifest declares (numbers are finite)."
+    },
     "FileChange": {
       "description": "A file undoing changes.",
       "properties": {
@@ -10006,6 +10066,50 @@
         "mix"
       ],
       "type": "object"
+    },
+    "ImageSource": {
+      "description": "The image an artwork edit gives tracks (see [`crate::edit::Edit::SetArtwork`]).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "An image file on this computer, or an audio file whose embedded art to use.",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The image file's bytes, in base64.",
+          "properties": {
+            "base64": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "base64"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An image staged on the drive (`.locallibrary/artwork/<hash>.jpg`, a JPEG of the larger\nsize players show), by its hash: how the journal records the others.",
+          "properties": {
+            "staged": {
+              "$ref": "#/$defs/Hash"
+            }
+          },
+          "required": [
+            "staged"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ImportEntry": {
       "description": "One track as an outside list describes it.",
@@ -11588,9 +11692,30 @@
       ],
       "type": "object"
     },
+    "LibraryRef": {
+      "properties": {
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
+        "drive": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "drive"
+      ],
+      "type": "object"
+    },
     "LibraryRequest": {
       "description": "`drive.library`, optionally paged: without `offset` or `limit` every track comes, as before.",
       "properties": {
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -11772,6 +11897,11 @@
             "string",
             "null"
           ]
+        },
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
         },
         "drive": {
           "type": "string"
@@ -12294,6 +12424,11 @@
     },
     "MatchesRequest": {
       "properties": {
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -15253,6 +15388,68 @@
       "required": [
         "playlists",
         "history"
+      ],
+      "type": "object"
+    },
+    "PluginFields": {
+      "properties": {
+        "missing": {
+          "description": "Ids asked for that the library doesn't have.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "tracks": {
+          "description": "Tracks with fields kept for their audio file as it is now; the others are left out.",
+          "items": {
+            "$ref": "#/$defs/TrackPluginFields"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tracks",
+        "missing"
+      ],
+      "type": "object"
+    },
+    "PluginFieldsRequest": {
+      "properties": {
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
+        "drive": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "description": "Only this plugin's fields.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tracks": {
+          "default": null,
+          "description": "Only these tracks, in this order (every track when left out).",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "drive"
       ],
       "type": "object"
     },
@@ -22459,6 +22656,11 @@
             "null"
           ]
         },
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -22526,9 +22728,16 @@
       "type": "array"
     },
     "TrackFields": {
-      "description": "New values for track details; fields left out stay as they are, and an empty name clears\nartist, album, genre, label, key and the like.",
+      "description": "New values for track details; fields left out stay as they are, and an empty name clears\nartist, album, genre, label, key and the like (an empty ISRC or release date clears it too).",
       "properties": {
         "album": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "album_artist": {
+          "description": "The databases keep it with the album, so a track needs one (given here too, or its own).",
           "type": [
             "string",
             "null"
@@ -22537,6 +22746,14 @@
         "artist": {
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "bpm": {
+          "description": "1-999.99, kept to hundredths as rekordbox keeps it. The beat grid in the analysis files,\nwhich players count beats by, stays as it is.",
+          "format": "double",
+          "type": [
+            "number",
             "null"
           ]
         },
@@ -22569,6 +22786,13 @@
           ]
         },
         "genre": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isrc": {
+          "description": "Like `GBDUW0000059`: two letters, three letters or digits, and seven digits.",
           "type": [
             "string",
             "null"
@@ -22614,6 +22838,13 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "release_date": {
+          "description": "`YYYY-MM-DD`.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -22684,6 +22915,34 @@
       },
       "required": [
         "track"
+      ],
+      "type": "object"
+    },
+    "TrackPluginFields": {
+      "description": "One track's fields in [`PluginFields`].",
+      "properties": {
+        "plugins": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "$ref": "#/$defs/FieldValue"
+              },
+              "type": "object"
+            },
+            "type": "object"
+          },
+          "description": "Each analyzer's fields, by plugin id, then analyzer.",
+          "type": "object"
+        },
+        "track": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "track",
+        "plugins"
       ],
       "type": "object"
     },
@@ -22792,6 +23051,65 @@
         }
       ]
     },
+    "TracksAnalysis": {
+      "properties": {
+        "missing": {
+          "description": "Ids the library doesn't have.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "tracks": {
+          "description": "In the order asked for.",
+          "items": {
+            "$ref": "#/$defs/AnalysedTrack"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tracks",
+        "missing"
+      ],
+      "type": "object"
+    },
+    "TracksAnalysisRequest": {
+      "description": "[`AnalysisRequest`] for several tracks, without waveforms unless asked.",
+      "properties": {
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
+        "drive": {
+          "type": "string"
+        },
+        "encoding": {
+          "$ref": "#/$defs/WaveformEncoding"
+        },
+        "ids": {
+          "description": "At most 100 ([`MAX_ANALYSES`]).",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "waveform": {
+          "$ref": "#/$defs/WaveformChoice",
+          "description": "`none` (the default) or `preview`: scrolling waveforms, megabytes each, come one track at\na time from `track.analysis`."
+        }
+      },
+      "required": [
+        "drive",
+        "ids"
+      ],
+      "type": "object"
+    },
     "TracksById": {
       "properties": {
         "missing": {
@@ -22819,6 +23137,11 @@
     },
     "TracksGet": {
       "properties": {
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -22866,6 +23189,11 @@
     },
     "TracksQuery": {
       "properties": {
+        "combined": {
+          "default": false,
+          "description": "The whole library, as exports have it: on a drive with both databases, with the tracks,\nplaylists and history only OneLibrary holds added. Those tracks' ids have the top bit set\n(2^31 and up); edits refuse them.",
+          "type": "boolean"
+        },
         "drive": {
           "type": "string"
         },
@@ -24351,7 +24679,7 @@
       "type": "object"
     },
     "WaveformChoice": {
-      "description": "Which waveforms `track.analysis` sends.",
+      "description": "Which waveforms `track.analysis` and `tracks.analysis` send.",
       "oneOf": [
         {
           "enum": [
@@ -24764,7 +25092,7 @@
       "long_running": false,
       "name": "playlists.tree",
       "params": {
-        "$ref": "#/$defs/DriveRef"
+        "$ref": "#/$defs/LibraryRef"
       },
       "result": {
         "$ref": "#/$defs/PlaylistTree"
@@ -24807,6 +25135,32 @@
       },
       "result": {
         "$ref": "#/$defs/AnalysisView"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "read",
+      "long_running": false,
+      "name": "tracks.analysis",
+      "params": {
+        "$ref": "#/$defs/TracksAnalysisRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/TracksAnalysis"
+      }
+    },
+    {
+      "aliases": [],
+      "destructive": false,
+      "kind": "read",
+      "long_running": false,
+      "name": "track.fields",
+      "params": {
+        "$ref": "#/$defs/PluginFieldsRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/PluginFields"
       }
     },
     {
@@ -26888,7 +27242,7 @@
       "result": {
         "allOf": [
           {
-            "$ref": "#/$defs/ArtworkSetPlan"
+            "$ref": "#/$defs/EditPlan"
           },
           {
             "$ref": "#/$defs/PlanFields"
@@ -26924,7 +27278,7 @@
         ]
       },
       "result": {
-        "$ref": "#/$defs/ArtworkReport"
+        "$ref": "#/$defs/EditReport"
       }
     },
     {

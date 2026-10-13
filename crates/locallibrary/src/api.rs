@@ -26,6 +26,7 @@ use crate::compare::{self, Comparison, Relation, Side};
 use crate::convert;
 use crate::device::{self, Device, DeviceInfo};
 use crate::doctor::Databases;
+use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
 use crate::error::{Action, Reason};
 use crate::format::{self, DiskView, FormatOptions, FormatPlan, FormatReport};
 use crate::hash::Hash;
@@ -1721,49 +1722,22 @@ pub struct SetArtwork {
     pub tracks: TrackSelector,
 }
 
-/// What setting artwork on tracks would do.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
-pub struct ArtworkSetPlan {
-    pub drive: String,
-    pub root: PathBuf,
-    pub image: PathBuf,
-    /// The image's size, before it's scaled for the players.
-    pub width: u32,
-    pub height: u32,
-    pub tracks: Vec<TrackRef>,
-}
-
-pub fn artwork_set_plan(req: &SetArtwork) -> Result<Planned<ArtworkSetPlan>> {
+/// What setting artwork on tracks would do: the edit [`Edit::SetArtwork`] (see
+/// [`crate::artwork`]), planned as `edit.plan` plans it.
+pub fn artwork_set_plan(req: &SetArtwork, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
     let d = resolve_drive(&req.drive)?;
-    let library = d.library()?;
-    let ids = req.tracks.select_on(&d, &library)?;
-    let (width, height) = Artwork::from_path(&req.image)?.dimensions();
-    let tracks: Vec<TrackRef> = library.tracks_by_id(&ids).into_iter().map(TrackRef::from).collect();
-    let line = format!("set {} as the artwork of {} track(s) on {}", req.image.display(), tracks.len(), d.name());
-    let plan =
-        ArtworkSetPlan { drive: d.name(), root: d.root().into(), image: req.image.clone(), width, height, tracks };
-    Planned::new("art.set", plan, ())
-        .line(line)
-        .touches(Touched::library(&d, true))
-        .touches(Touched::path(&req.image, false, vec![op::Probe::Content(vec![String::new()])]))
-        .reaching_clones(&Ctx::silent())?
-        .guard(None)
-}
-
-impl Operation for ArtworkSetPlan {
-    type Request = ();
-    type Report = artwork::ArtworkReport;
-
-    fn apply(planned: &Planned<Self>, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<artwork::ArtworkReport> {
-        let art = Artwork::from_path(&planned.plan.image)?;
-        let ids: Vec<u32> = planned.plan.tracks.iter().map(|t| t.id).collect();
-        artwork::set_on_drive(&mut planned.drive(0)?, &ids, &art, ctx)
-    }
+    let set = Edit::SetArtwork { tracks: req.tracks.clone(), image: artwork::ImageSource::Path(req.image.clone()) };
+    editing::planned_edit(
+        "art.set",
+        edit::plan(&d, &[set], &EditOptions::default(), ctx)?,
+        Touched::library(&d, true),
+        ctx,
+    )
 }
 
 /// Plan and set artwork in one go, for callers that don't confirm (see [`artwork_set_plan`]).
-pub fn artwork_set(req: &SetArtwork, ctx: &Ctx<'_>) -> Result<artwork::ArtworkReport> {
-    artwork_set_plan(req)?.apply(None, ctx)
+pub fn artwork_set(req: &SetArtwork, ctx: &Ctx<'_>) -> Result<EditReport> {
+    artwork_set_plan(req, ctx)?.apply(None, ctx)
 }
 
 pub fn artwork_missing(req: &DriveRef) -> Result<Vec<TrackRef>> {
