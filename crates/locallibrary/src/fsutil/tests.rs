@@ -279,7 +279,8 @@ fn paths_are_folded_part_by_part(tc: hegel::TestCase) {
     let rooted = tc.draw(gs::booleans());
     let joined = parts.join("/");
     let path = PathBuf::from(if rooted { format!("/{joined}") } else { joined.clone() });
-    let mut want = if rooted { PathBuf::from("/") } else { std::env::current_dir().unwrap() };
+    // On Windows a rooted path is on the current folder's drive.
+    let mut want = if rooted { std::path::absolute("/").unwrap() } else { std::env::current_dir().unwrap() };
     if !rooted && parts.is_empty() {
         want = PathBuf::new();
     }

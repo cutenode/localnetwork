@@ -3,7 +3,6 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use rekordbox_pdb::{NewTrack, PdbEditor};
 use serde_json::Value;
 
 use crate::support::dj_drive;
@@ -139,6 +138,7 @@ fn a_relative_output_folder_is_written() {
 #[cfg(unix)]
 #[test]
 fn copies_for_serato_outnumber_the_open_file_limit() {
+    use rekordbox_pdb::{NewTrack, PdbEditor};
     let dir = tempfile::tempdir().unwrap();
     let root = dj_drive(dir.path(), "Main");
     let pdb = root.join("PIONEER/rekordbox/export.pdb");
