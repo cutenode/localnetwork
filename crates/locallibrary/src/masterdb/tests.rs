@@ -1155,11 +1155,15 @@ fn a_copy_is_taken_again_until_the_wal_holds_still(tc: hegel::TestCase) {
             assert_eq!(copies.get(), 3);
         }
     }
-    // A WAL that can't be opened (a link to itself): the read stops there.
-    std::fs::remove_file(&wal_path).ok();
-    std::os::unix::fs::symlink(&wal_path, &wal_path).unwrap();
-    let err = snapshot(&path, &to, |from: &Path, to: &Path| std::fs::copy(from, to)).unwrap_err();
-    assert!(matches!(&err, Error::Io { path, .. } if *path == wal_path), "{err}");
+    // A WAL that can't be opened (a link to itself): the read stops there. Windows needs a
+    // privilege to make symlinks, so this part runs on Unix only.
+    #[cfg(unix)]
+    {
+        std::fs::remove_file(&wal_path).ok();
+        std::os::unix::fs::symlink(&wal_path, &wal_path).unwrap();
+        let err = snapshot(&path, &to, |from: &Path, to: &Path| std::fs::copy(from, to)).unwrap_err();
+        assert!(matches!(&err, Error::Io { path, .. } if *path == wal_path), "{err}");
+    }
 }
 
 /// rekordbox's settings file is read for the two folders only: a `VALUE` without a name, or

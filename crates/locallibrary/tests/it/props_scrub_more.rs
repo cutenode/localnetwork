@@ -3,6 +3,9 @@
 //! and repairs that can't be made: no known-good copy, a file that isn't the library's, a sibling
 //! that isn't there, or a copy that's damaged too.
 
+// Some draws lock a file with Unix permissions to make it unreadable.
+#![cfg(unix)]
+
 use crate::{common, drawn};
 
 use std::fs;
