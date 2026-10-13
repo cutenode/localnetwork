@@ -200,6 +200,25 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       Developer ID; the shell installer and Homebrew run an unsigned CLI fine. Windows binaries are
       unsigned too (dist supports Azure Artifact Signing).
 
+## Performance
+
+Left from the benchmark pass (`cargo bench`, see CONTRIBUTING.md), each measured on a 10k-track
+drive but not fixed because the fix changes bytes written or needs a decision.
+
+- [ ] `Device::scan_fingerprinted` forgets the database files' keys in the hash index, which marks
+      it dirty, so `.locallibrary/index.json` is rewritten with a full fsync on every scan: about
+      20% of `check`. Skipping the write when no hash changed changes the index's bytes (its `at`
+      timestamps).
+- [ ] OneLibrary builds commit after every statement: about 16% of a conversion to OneLibrary at
+      5k tracks. One transaction would change the header's change counters (bytes 24-27 and
+      92-95).
+- [ ] OneLibrary's `remove_tracks` deletes row by row on columns without an index
+      (`cue.content_id`, `playlist_content.content_id`, `history_content.content_id`), which is
+      O(removed × rows) in pack, clean and dedupe. Not benchmarked; a different way of deleting
+      may lay pages out differently.
+- [ ] Edit plans clone the whole library before every edit (`plan_with` in `edit.rs`) to roll back
+      one that fails part way.
+
 ## DJ profile and publishing (`locallibrary profile`, `account`)
 
 - [ ] **Nobody has signed in all the way yet.** Run `locallibrary account login <your handle>`,
