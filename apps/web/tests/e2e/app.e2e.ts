@@ -41,6 +41,16 @@ async function signIn(page: Page, handle: string, password: string, next = '/me'
 	await page.waitForLoadState('networkidle');
 }
 
+/**
+ * Signs out from /me and waits for the redirect home: /logout records the audit entry and revokes
+ * the OAuth session first, and a sign-in started before it finishes would find the old session.
+ */
+async function signOut(page: Page) {
+	await page.goto('/me');
+	await page.getByRole('button', { name: 'Sign out' }).click();
+	await page.waitForURL((url) => url.pathname === '/');
+}
+
 test.describe('public pages', () => {
 	test('home page lists seeded projects and links to search', async ({ page }) => {
 		await page.goto('/');
@@ -113,8 +123,7 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Send for review' }).click();
 		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
 		await expectAccessible(page);
-		await page.goto('/me');
-		await page.getByRole('button', { name: 'Sign out' }).click();
+		await signOut(page);
 
 		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests');
 		await expectAccessible(page);

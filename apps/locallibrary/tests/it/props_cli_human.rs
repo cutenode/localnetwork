@@ -6,6 +6,9 @@
 //! cluttered, with recordings and orphaned files, a store with history, labels, copies, settings
 //! and players, so each printer's branches are taken.
 
+// The one-drive fixture is a folder of drives holding a symlink, which Windows only makes with a privilege.
+#![cfg(unix)]
+
 use std::path::Path;
 
 use hegel::generators as gs;
