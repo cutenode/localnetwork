@@ -10,8 +10,9 @@
 //! playlist or track one database lacks (they can drift apart) is skipped there with a warning.
 //!
 //! Every applied edit is recorded on the drive (see [`journal`]): rekordbox's next export to the
-//! drive replaces its databases, and `replay` puts the recorded edits back. My Tag and cue edits
-//! ([`crate::tags`], [`crate::cue_edit`]) are recorded there too, and a replay makes them first.
+//! drive replaces its databases, and `replay` puts the recorded edits back. A plan can mix in My
+//! Tag, cue and artwork edits ([`crate::tags`], [`crate::cue_edit`], [`crate::artwork`]), which it
+//! makes first, under the same backup and in the same journal entry (see [`plan`]).
 
 use indexmap::IndexMap;
 
@@ -23,9 +24,11 @@ use rekordbox_pdb::{Database, PdbEditor, TableType};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::artwork::ImageSource;
 use crate::backup;
 use crate::clean;
 use crate::commit::{Changes, NewDatabases, NewFile, Options};
+use crate::cue_edit::CueChange;
 use crate::device::{Device, LineageOp};
 use crate::error::{Action, Reason};
 use crate::fsutil;
@@ -37,6 +40,7 @@ use crate::paths;
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
 use crate::query::{self, DriveContext, TrackSelector};
+use crate::tags::TagChange;
 use crate::{Error, Result};
 
 // ---------------------------------------------------------------------------------------------
@@ -45,6 +49,9 @@ use crate::{Error, Result};
 
 /// One change to a drive's library. Playlists are given as paths (`Folder/Name`) or unique
 /// names; positions in a playlist count from 1.
+// Edits are few (a plan's, the journal's): boxing `EditTracks`' fields would only make every
+// caller box them.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Edit {
@@ -195,13 +202,19 @@ pub enum Edit {
         lists: Vec<HistoryList>,
     },
     /// A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
-    /// this way; only a replay takes them.
+    /// this way too.
     MyTag(crate::tags::TagChange),
     /// A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).
-    /// `cues` edits are recorded this way; only a replay takes them.
+    /// `cues` edits are recorded this way too.
     Cues {
         tracks: Vec<String>,
         change: crate::cue_edit::CueChange,
+    },
+    /// Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The
+    /// journal records the tracks by file and the image as staged on the drive.
+    SetArtwork {
+        tracks: TrackSelector,
+        image: ImageSource,
     },
 }
 
@@ -215,7 +228,7 @@ pub struct HistoryList {
 }
 
 /// New values for track details; fields left out stay as they are, and an empty name clears
-/// artist, album, genre, label, key and the like.
+/// artist, album, genre, label, key and the like (an empty ISRC or release date clears it too).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct TrackFields {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -224,6 +237,9 @@ pub struct TrackFields {
     pub artist: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,
+    /// The databases keep it with the album, so a track needs one (given here too, or its own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub album_artist: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub genre: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -254,6 +270,16 @@ pub struct TrackFields {
     pub track_number: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disc_number: Option<u16>,
+    /// 1-999.99, kept to hundredths as rekordbox keeps it. The beat grid in the analysis files,
+    /// which players count beats by, stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<f64>,
+    /// Like `GBDUW0000059`: two letters, three letters or digits, and seven digits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub isrc: Option<String>,
+    /// `YYYY-MM-DD`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_date: Option<String>,
 }
 
 impl TrackFields {
@@ -280,6 +306,21 @@ impl TrackFields {
         {
             return Err(Error::invalid(format!("{k:?} isn't a key (8A, Am, 1m...)")));
         }
+        if self.bpm.is_some_and(|b| !(1.0..=999.99).contains(&b)) {
+            return Err(Error::invalid("BPM goes from 1 to 999.99"));
+        }
+        if let Some(i) = self.isrc.as_deref().filter(|i| !i.is_empty() && !is_isrc(i)) {
+            return Err(Error::invalid(format!("{i:?} isn't an ISRC (like GBDUW0000059)")));
+        }
+        // Zero-padded, as rekordbox writes them (chrono takes `2019-5-1` too).
+        let date = |d: &str| {
+            let digits =
+                d.bytes().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == b'-' } else { c.is_ascii_digit() });
+            digits && chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()
+        };
+        if let Some(d) = self.release_date.as_deref().filter(|d| !d.is_empty() && !date(d)) {
+            return Err(Error::invalid(format!("{d:?} isn't a release date (YYYY-MM-DD)")));
+        }
         Ok(())
     }
 
@@ -300,6 +341,9 @@ impl TrackFields {
         set(&self.composer, &mut t.composer);
         set(&self.comment, &mut t.comment);
         set(&self.mix_name, &mut t.mix_name);
+        set(&self.album_artist, &mut t.album_artist);
+        set(&self.isrc, &mut t.isrc);
+        set(&self.release_date, &mut t.release_date);
         if let Some(a) = &self.album {
             t.album = a.clone();
             if a.trim().is_empty() {
@@ -310,6 +354,7 @@ impl TrackFields {
         for name in [
             &mut t.artist,
             &mut t.album,
+            &mut t.album_artist,
             &mut t.genre,
             &mut t.label,
             &mut t.key,
@@ -339,6 +384,9 @@ impl TrackFields {
         if let Some(n) = self.disc_number {
             t.disc_number = n;
         }
+        if let Some(b) = self.bpm {
+            t.bpm = (b * 100.0).round() / 100.0;
+        }
     }
 
     /// `rating 5, colour aqua, genre "Deep House"`.
@@ -356,7 +404,10 @@ impl TrackFields {
             ("composer", &self.composer),
             ("comment", &self.comment),
             ("mix", &self.mix_name),
+            ("album artist", &self.album_artist),
             ("colour", &self.color),
+            ("ISRC", &self.isrc),
+            ("release date", &self.release_date),
         ] {
             if let Some(v) = v {
                 parts.push(format!("{name} {v:?}"));
@@ -373,8 +424,20 @@ impl TrackFields {
                 parts.push(format!("{name} {v}"));
             }
         }
+        if let Some(b) = self.bpm {
+            parts.push(format!("BPM {}", (b * 100.0).round() / 100.0));
+        }
         parts.join(", ")
     }
+}
+
+/// `GBDUW0000059`: a country code, a registrant code of letters or digits, a year and a number.
+fn is_isrc(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 12
+        && b[..2].iter().all(u8::is_ascii_uppercase)
+        && b[2..5].iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        && b[5..].iter().all(u8::is_ascii_digit)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -614,6 +677,7 @@ impl EditDb for ModelDb<'_> {
             ("remixer", &f.remixer, TableType::Artists),
             ("original artist", &f.original_artist, TableType::Artists),
             ("composer", &f.composer, TableType::Artists),
+            ("album artist", &f.album_artist, TableType::Artists),
             ("album", &f.album, TableType::Albums),
             ("genre", &f.genre, TableType::Genres),
             ("label", &f.label, TableType::Labels),
@@ -625,14 +689,19 @@ impl EditDb for ModelDb<'_> {
                 return Err(too_long(&format!("the {field} name"), name));
             }
         }
-        // Titles, comments and mix names share a row with the track's other strings.
-        let set: Vec<&str> = [("title", &f.title), ("comment", &f.comment), ("mix name", &f.mix_name)]
-            .into_iter()
-            .filter_map(|(field, v)| v.as_ref().map(|_| field))
-            .collect();
-        if set.is_empty() {
-            return Ok(());
-        }
+        // Titles, comments, mix names, ISRCs and release dates share a row with the track's other
+        // strings.
+        let set: Vec<&str> = [
+            ("title", &f.title),
+            ("comment", &f.comment),
+            ("mix name", &f.mix_name),
+            ("ISRC", &f.isrc),
+            ("release date", &f.release_date),
+        ]
+        .into_iter()
+        .filter_map(|(field, v)| v.as_ref().map(|_| field))
+        .collect();
+        let Some((last, rest)) = set.split_last() else { return Ok(()) };
         let rows: FxHashMap<u32, &rekordbox_pdb::Track> = db.tracks.iter().map(|t| (t.id, t)).collect();
         for t in self.lib.tracks.iter().filter(|t| ids.contains(&t.id)) {
             let mut after = t.clone();
@@ -641,14 +710,15 @@ impl EditDb for ModelDb<'_> {
                 ("title", after.title.as_str()),
                 ("comment", after.comment.as_str()),
                 ("mix_name", after.mix_name.as_str()),
+                ("isrc", after.isrc.as_str()),
+                ("release_date", after.release_date.as_str()),
             ];
             if let Some(row) = rows.get(&t.id)
                 && db.check_track_strings(row, &strings).is_err()
             {
-                let (fields, verb) = match set[..] {
-                    [one] => (one.to_string(), "is"),
-                    [a, b] => (format!("{a} and {b}"), "are"),
-                    _ => ("title, comment and mix name".to_string(), "are"),
+                let (fields, verb) = match rest {
+                    [] => (last.to_string(), "is"),
+                    _ => (format!("{} and {last}", rest.join(", ")), "are"),
                 };
                 return Err(Error::invalid(format!(
                     "the {fields} of {} {verb} too long for export.pdb",
@@ -797,10 +867,17 @@ impl EditDb for PdbDb {
         self.note_lookups(ids, false);
         let color = f.color_value()?;
         for &id in ids {
-            let album_artist = self.lib.track(id).map(|t| t.album_artist.clone()).unwrap_or_default();
+            let (album, album_artist) =
+                self.lib.track(id).map(|t| (t.album.clone(), t.album_artist.clone())).unwrap_or_default();
             let ed = &mut self.editor;
             let mut strings = Vec::new();
-            for (name, v) in [("title", &f.title), ("comment", &f.comment), ("mix_name", &f.mix_name)] {
+            for (name, v) in [
+                ("title", &f.title),
+                ("comment", &f.comment),
+                ("mix_name", &f.mix_name),
+                ("isrc", &f.isrc),
+                ("release_date", &f.release_date),
+            ] {
                 if let Some(v) = v {
                     strings.push((name, v.as_str()));
                 }
@@ -822,11 +899,13 @@ impl EditDb for PdbDb {
                     ed.set_track_field(id, field, a)?;
                 }
             }
-            if let Some(name) = &f.album {
+            // An album row holds its artist: either changing takes the row of the pair.
+            if f.album.is_some() || f.album_artist.is_some() {
+                let name = f.album.as_ref().unwrap_or(&album);
                 let album = if name.trim().is_empty() {
                     0
                 } else {
-                    let a = artist(ed, &album_artist)?;
+                    let a = artist(ed, f.album_artist.as_ref().unwrap_or(&album_artist))?;
                     ed.album_id_for(name, a)?
                 };
                 ed.set_track_field(id, "album_id", album)?;
@@ -852,6 +931,7 @@ impl EditDb for PdbDb {
                 (f.play_count.map(u32::from), "play_count"),
                 (f.track_number, "track_number"),
                 (f.disc_number.map(u32::from), "disc_number"),
+                (f.bpm.map(|b| (b * 100.0).round() as u32), "tempo"),
             ] {
                 if let Some(v) = v {
                     ed.set_track_field(id, field, v)?;
@@ -1719,6 +1799,18 @@ impl<'a> Resolver<'a> {
             Edit::EditTracks { tracks, fields } => {
                 fields.validate()?;
                 let ids = self.select(lib, tracks, false)?;
+                if fields.album_artist.as_deref().is_some_and(|a| !a.trim().is_empty()) {
+                    let no_album = lib
+                        .tracks_by_id(&ids)
+                        .into_iter()
+                        .find(|t| fields.album.as_ref().unwrap_or(&t.album).trim().is_empty());
+                    if let Some(t) = no_album {
+                        return Err(Error::invalid(format!(
+                            "{} has no album to keep an album artist with: give one too",
+                            t.display_name()
+                        )));
+                    }
+                }
                 let desc = format!("set {} on {} track(s)", fields.describe(), ids.len());
                 let canonical = Edit::EditTracks {
                     tracks: TrackSelector::paths(Self::device_paths(lib, &ids)),
@@ -1843,8 +1935,8 @@ impl<'a> Resolver<'a> {
                     .collect();
                 (vec![Op::DeleteHistory { lists: picked }], desc, Edit::DeleteHistoryLists { lists })
             }
-            Edit::MyTag(_) | Edit::Cues { .. } => {
-                return Err(Error::invalid("My Tag and cue edits are made with `tags` and `cues`"));
+            Edit::MyTag(_) | Edit::Cues { .. } | Edit::SetArtwork { .. } => {
+                unreachable!("planned as steps (see `Resolver::step`)")
             }
             Edit::DeleteHistoryLists { lists: wanted } => {
                 let lists: Vec<&Playlist> = lib.history.iter().filter(|h| !h.is_folder).collect();
@@ -1887,6 +1979,50 @@ impl<'a> Resolver<'a> {
             }
         };
         Ok((ops, desc, vec![canonical]))
+    }
+
+    /// A step of a plan ([`Edit::is_step`], and pointing a track at another file in a replay) as
+    /// it's recorded and made, with a description. Each is planned in full only as it's made,
+    /// after the ones before it, so here, planning edits as given, only the tracks it names are
+    /// checked to be on the drive. An artwork edit's image is staged: its bytes go in `images`
+    /// unless it was given staged.
+    fn step(&self, edit: &Edit, lib: &Library, images: &mut FxHashMap<Hash, Vec<u8>>) -> Result<(Edit, String)> {
+        let on_drive = |files: &[String]| match self.lenient {
+            true => Ok(()),
+            false => self.select(lib, &TrackSelector::paths(files.iter().cloned()), false).map(drop),
+        };
+        let desc = match edit {
+            Edit::MyTag(change) => {
+                if let TagChange::Add { tracks, .. } | TagChange::Remove { tracks, .. } = change {
+                    on_drive(tracks)?;
+                }
+                change.describe()
+            }
+            Edit::Cues { tracks, change } => {
+                on_drive(tracks)?;
+                if let CueChange::Copy { from } | CueChange::Carry { from, .. } = change {
+                    on_drive(std::slice::from_ref(from))?;
+                }
+                change.describe(tracks.len())
+            }
+            Edit::SetArtwork { tracks, image } => {
+                // Replaying, the recorded files are found as it's made, after the edits pointing
+                // tracks at other files before it, as a cue edit's are.
+                let files = match self.lenient && *tracks == TrackSelector::paths(tracks.paths.iter().cloned()) {
+                    true => tracks.paths.clone(),
+                    false => Self::device_paths(lib, &self.select(lib, tracks, false)?),
+                };
+                let (hash, bytes) = crate::artwork::stage(self.device, image)?;
+                images.extend(bytes.map(|b| (hash, b)));
+                let desc = format!("set the artwork of {} track(s)", files.len());
+                let canonical =
+                    Edit::SetArtwork { tracks: TrackSelector::paths(files), image: ImageSource::Staged(hash) };
+                return Ok((canonical, desc));
+            }
+            Edit::SetPath { track, path, .. } => format!("point {} at {path}", track.paths.join(", ")),
+            _ => unreachable!("only My Tag, cue, artwork and pointing edits are steps"),
+        };
+        Ok((edit.clone(), desc))
     }
 
     /// Each track's energy from rekordbox's phrase analysis (1 low, 2 mid, 3 high), where known.
@@ -1983,7 +2119,7 @@ pub struct EditPlan {
     /// OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they
     /// leave out edits only OneLibrary lacks, as after rekordbox exported over it alone.
     pub onelibrary_changes: bool,
-    /// Replaying recorded My Tag and cue edits too.
+    /// My Tag, cue and artwork edits to make first (see [`plan`]).
     #[serde(skip)]
     replay: Option<Box<Steps>>,
     #[serde(skip)]
@@ -2038,17 +2174,12 @@ fn open_databases(device: &Device, warnings: &mut Vec<String>) -> Result<Databas
     Ok(Databases { pdb, plus })
 }
 
-/// Work out what `edits` do to the drive (none: a plan that changes nothing).
+/// Work out what `edits` do to the drive (none: a plan that changes nothing). Its My Tag, cue and
+/// artwork edits are made first, in their order, after the plan's one backup, each planned in full
+/// as it's made (a replace carrying cues onto its keeper); then the others. Planning checks the
+/// tracks they name are on the drive, and applying fails on one that doesn't apply, which a replay
+/// (`lenient`) skips with a warning instead.
 pub fn plan(device: &Device, edits: &[Edit], opts: &EditOptions, ctx: &Ctx<'_>) -> Result<EditPlan> {
-    if !opts.lenient && edits.iter().any(|e| matches!(e, Edit::MyTag(_) | Edit::Cues { .. })) {
-        return Err(Error::invalid("My Tag and cue edits are made with `tags` and `cues` (a replay makes them again)"));
-    }
-    plan_with_steps(device, edits, opts, ctx)
-}
-
-/// [`plan`], taking My Tag and cue edits whatever `opts` says: made first, after the plan's one
-/// backup, each planned again as it's made (a replace carrying cues onto its keeper).
-pub(crate) fn plan_with_steps(device: &Device, edits: &[Edit], opts: &EditOptions, ctx: &Ctx<'_>) -> Result<EditPlan> {
     plan_writing(device, edits, opts, &[], ctx)
 }
 
@@ -2066,13 +2197,19 @@ pub(crate) fn plan_writing(
 }
 
 impl Edit {
+    /// A My Tag, cue or artwork edit: made on its own, before a plan's other edits (see [`plan`]).
+    pub(crate) fn is_step(&self) -> bool {
+        matches!(self, Edit::MyTag(_) | Edit::Cues { .. } | Edit::SetArtwork { .. })
+    }
+
     /// The track selections the edit makes.
     fn selectors(&self) -> Vec<&TrackSelector> {
         match self {
             Edit::AddTracks { tracks, .. }
             | Edit::SetTracks { tracks, .. }
             | Edit::EditTracks { tracks, .. }
-            | Edit::DeleteTracks { tracks, .. } => vec![tracks],
+            | Edit::DeleteTracks { tracks, .. }
+            | Edit::SetArtwork { tracks, .. } => vec![tracks],
             Edit::RemoveTracks { tracks, .. } => tracks.iter().collect(),
             Edit::PlanSet { start, .. } => start.iter().collect(),
             Edit::ReplaceTrack { duplicate, keep, .. } => vec![duplicate, keep],
@@ -2102,25 +2239,37 @@ fn plan_with(
         (Some((_, _, l)), _) | (None, Some((l, _))) => l,
         (None, None) => return Err(Error::NotAnExport(device.root().to_path_buf())),
     };
-    // A replay makes the recorded My Tag and cue edits first: they change neither tracks nor
-    // playlists, which the others are planned on, and the others can only remove tracks they
-    // name (a tag on a duplicate replaced later then moves to the keeper, as it did). Pointing a
-    // track at another file goes with them, in the order recorded: a cue edit made after it names
-    // the new file, one before it the old.
-    let (steps, rest): (Vec<Edit>, Vec<Edit>) = edits.iter().cloned().partition(|e| {
-        matches!(e, Edit::MyTag(_) | Edit::Cues { .. }) || (opts.lenient && matches!(e, Edit::SetPath { .. }))
-    });
-    let mut changes: Vec<String> = steps
-        .iter()
-        .map(|e| match e {
-            Edit::MyTag(change) => change.describe(),
-            Edit::Cues { tracks, change } => change.describe(tracks.len()),
-            Edit::SetPath { track, path, .. } => format!("point {} at {path}", track.paths.join(", ")),
-            _ => unreachable!("partitioned above"),
-        })
-        .collect();
+    // An edit that no longer applies, replaying, is skipped with a warning. (Stopped, ordering a
+    // long playlist, say, isn't one.)
+    let skip = |e: Error, warnings: &mut Vec<String>| match e {
+        e if opts.lenient && !matches!(e, Error::Cancelled) => {
+            warnings.push(format!("skipped an edit that no longer applies: {e}"));
+            Ok(())
+        }
+        e => Err(e),
+    };
+    // My Tag, cue and artwork edits are made first: they change no playlists and no track details
+    // the others are planned on (artwork edits change only which image a track's row names), and
+    // the others can only remove tracks they name (a tag on a duplicate replaced later then moves
+    // to the keeper, as it did; a track deleted after its artwork is set takes the new images
+    // along). A replay points tracks at other files with them, in the order recorded: a cue edit
+    // made after it names the new file, one before it the old.
+    let (given, rest): (Vec<Edit>, Vec<Edit>) =
+        edits.iter().cloned().partition(|e| e.is_step() || (opts.lenient && matches!(e, Edit::SetPath { .. })));
     let mut resolver = Resolver::new(device, extra, opts.lenient, ctx.clone());
     resolver.incoming = incoming;
+    let (mut steps, mut changes, mut images) = (Vec::new(), Vec::new(), FxHashMap::default());
+    for step in &given {
+        let made = resolver.step(step, primary, &mut images);
+        warnings.extend(std::mem::take(&mut *resolver.notes.borrow_mut()));
+        match made {
+            Ok((step, desc)) => {
+                steps.push(step);
+                changes.push(desc);
+            }
+            Err(e) => skip(e, &mut warnings)?,
+        }
+    }
     let mut model = ModelDb { lib: primary.clone(), pdb: dbs.pdb.as_ref().map(|(_, db, _)| db) };
     let mut ops = Vec::new();
     let mut recorded = Vec::new();
@@ -2156,11 +2305,7 @@ fn plan_with(
                 changes.push(desc);
                 recorded.extend(canonical);
             }
-            // Stopped (ordering a long playlist, say) isn't an edit that no longer applies.
-            Err(e) if opts.lenient && !matches!(e, Error::Cancelled) => {
-                warnings.push(format!("skipped an edit that no longer applies: {e}"))
-            }
-            Err(e) => return Err(e),
+            Err(e) => skip(e, &mut warnings)?,
         }
     }
     // The second database, as far as a model can tell (its own warnings). It can lack edits the
@@ -2283,8 +2428,11 @@ fn plan_with(
     let size = |key| std::fs::metadata(device.path(key)).map(|m| m.len()).unwrap_or(0);
     let db_bytes: u64 = paths::DATABASE_FILES.iter().map(|k| round(size(k))).sum();
     let bytes: u64 = files.values().sum();
-    // Backup of the databases and deleted files, plus each new database staged next to the old.
-    let needed_bytes = files.values().map(|&n| round(n)).sum::<u64>() + 2 * db_bytes;
+    // Backup of the databases and deleted files, plus each new database staged next to the old,
+    // and each image artwork edits stage, with the two sizes made from it in each database (no
+    // bigger than it).
+    let staged = images.values().map(|b| round(b.len() as u64)).sum::<u64>() * (1 + 2 * databases.len() as u64);
+    let needed_bytes = files.values().map(|&n| round(n)).sum::<u64>() + 2 * db_bytes + staged;
     let free_space = fsutil::available_space(device.root());
     let fits = free_space.is_none_or(|f| needed_bytes <= f);
     if !fits {
@@ -2312,11 +2460,10 @@ fn plan_with(
         free_space,
         fits,
         warnings: dedup(warnings),
-        // My Tag and cue edits a plan makes along with the others (a replace carrying cues onto
-        // its keeper) are recorded first, as a replay makes them.
+        // My Tag, cue and artwork edits are recorded first, as they're made.
         recorded: if opts.no_journal { Vec::new() } else { steps.iter().cloned().chain(recorded).collect() },
         onelibrary_changes,
-        replay: (!steps.is_empty()).then(|| Box::new(Steps { steps, rest, opts: opts.clone() })),
+        replay: (!steps.is_empty()).then(|| Box::new(Steps { steps, rest, opts: opts.clone(), images })),
         ops,
         state,
     })
@@ -2476,8 +2623,9 @@ pub struct EditReport {
     pub warnings: Vec<String>,
 }
 
-/// What replaying one recorded My Tag or cue edit came to (see [`crate::tags::replay`],
-/// [`crate::cue_edit::replay`]). One that no longer applies only has a warning.
+/// What making one My Tag, cue or artwork edit of a plan came to (see [`crate::tags::replay`],
+/// [`crate::cue_edit::replay`], [`crate::artwork::replay`]). Replaying, one that no longer
+/// applies only has a warning.
 #[derive(Debug, Default)]
 pub(crate) struct Replayed {
     /// The files written.
@@ -2487,11 +2635,26 @@ pub(crate) struct Replayed {
 }
 
 impl Replayed {
-    /// Say that `gone` of the tracks the recorded edit (`described`) names aren't on the drive.
-    pub(crate) fn tracks_gone(&mut self, gone: usize, example: &str, described: &str) {
+    /// `gone` of the tracks the edit (`described`) names, `example` one of them, aren't on the
+    /// drive: an error unless replaying (`strict`: making edits as given), when it's made without
+    /// them.
+    pub(crate) fn tracks_gone(&mut self, strict: bool, gone: usize, example: &str, described: &str) -> Result<()> {
+        if strict {
+            return Err(Error::NotFound(format!("no track at {example}")));
+        }
         self.warnings.push(format!(
             "{gone} track(s) aren't on the drive any more (e.g. {example}), so \"{described}\" is replayed without them"
         ));
+        Ok(())
+    }
+
+    /// The edit (`described`) doesn't apply (`e`): an error unless replaying, when it's skipped.
+    pub(crate) fn skipped(mut self, strict: bool, described: &str, e: Error) -> Result<Replayed> {
+        if strict {
+            return Err(e);
+        }
+        self.warnings.push(format!("skipped an edit that no longer applies ({described}): {e}"));
+        Ok(self)
     }
 }
 
@@ -2500,7 +2663,7 @@ pub fn apply(plan: &EditPlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<Edit
 }
 
 /// [`apply`], writing `files` (audio a relocation copies, say) along with the databases, under
-/// the same backup. A plan that replays recorded My Tag and cue edits takes none.
+/// the same backup. A plan with My Tag, cue or artwork edits takes none.
 pub(crate) fn apply_with(
     plan: &EditPlan,
     device: &mut Device,
@@ -2528,32 +2691,37 @@ pub(crate) fn apply_with(
     }
 }
 
-/// A replay's recorded My Tag and cue edits, and the others.
+/// A plan's My Tag, cue and artwork edits (and a replay's pointing edits), and the others.
 #[derive(Debug, Clone)]
 struct Steps {
-    /// The My Tag and cue edits, made before the others in the order they were recorded, each
-    /// planned as it's made (one that no longer applies is skipped then).
+    /// Made before the others in their order, each planned as it's made (replaying, one that no
+    /// longer applies is skipped then).
     steps: Vec<Edit>,
     /// The other edits, planned again once those are made.
     rest: Vec<Edit>,
     opts: EditOptions,
+    /// The images artwork edits stage on the drive, by hash (those given staged are on it).
+    images: FxHashMap<Hash, Vec<u8>>,
 }
 
-/// A replay with recorded My Tag and cue edits: one backup first (the databases, the analysis
-/// files cue edits may rewrite and the files removed tracks leave), so `restore` undoes all of
-/// it; then each of those edits, planned as it's made; then the others, planned again. The backup
-/// notes what the replay left, all of it made or not.
+/// A plan with steps (see [`Steps`]): one backup first (the databases, the analysis files cue
+/// edits may rewrite, the images artwork edits may replace and the files removed tracks leave),
+/// so `restore` undoes all of it; then each step, planned as it's made; then the others, planned
+/// again. The backup notes what the plan left, all of it made or not.
 fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) -> Result<EditReport> {
     let library = device.library()?;
     let mut extra = plan.files.clone();
     for step in &steps.steps {
-        // The analysis files the step rewrites: a cue edit's, and a pointed track's.
-        let tracks = match step {
-            Edit::Cues { tracks, .. } => tracks,
-            Edit::SetPath { track, .. } => &track.paths,
-            _ => continue,
-        };
-        extra.extend(crate::cue_edit::analysis_files(device, &library, tracks));
+        // The analysis files the step rewrites (a cue edit's, and a pointed track's), and the
+        // images an artwork edit replaces in place.
+        match step {
+            Edit::Cues { tracks, .. } => extra.extend(crate::cue_edit::analysis_files(device, &library, tracks)),
+            Edit::SetPath { track, .. } => {
+                extra.extend(crate::cue_edit::analysis_files(device, &library, &track.paths))
+            }
+            Edit::SetArtwork { tracks, .. } => extra.extend(crate::artwork::image_files(device, &tracks.paths)?),
+            _ => {}
+        }
     }
     extra.sort();
     extra.dedup();
@@ -2562,72 +2730,117 @@ fn replay(plan: &EditPlan, steps: &Steps, device: &mut Device, ctx: &Ctx<'_>) ->
     let backup = backup::create(device, label, &extra, None)?;
     // Changes are counted as they're made: a recorded edit that no longer applies writes nothing.
     let mut report = EditReport { backup: Some(backup.id.clone()), ..Default::default() };
-    let replayed = replay_steps(steps, &extra, device, &mut report, ctx);
-    backup::seal(device, &backup.id)?;
-    backup::prune(device)?;
+    let swaps = device.swaps();
+    let mut made = (Vec::new(), Vec::new());
+    let replayed = replay_steps(steps, &plan.changes, &extra, device, &mut report, &mut made, ctx);
+    // What it made is recorded as one entry under the one backup, also when a later edit failed,
+    // so a replay after rekordbox exports makes that again.
+    let recorded = match steps.opts.no_journal || made.0.is_empty() {
+        true => Ok(()),
+        false => journal::append(device, &made.0, &made.1, Some(&backup.id)),
+    };
+    // Having changed nothing, it leaves no backup (a backup it can't take away stays, said so).
+    if replayed.is_err() && device.swaps() == swaps {
+        if let Err(e) = backup::discard(device, &backup.id) {
+            ctx.warn(format!("backup {} stays on the drive: {e}", backup.id));
+        }
+        return replayed.map(|_| report);
+    }
+    let sealed = backup::seal(device, &backup.id).and_then(|_| backup::prune(device));
     replayed?;
+    recorded?;
+    sealed?;
     report.databases = dedup(report.databases);
     report.warnings = dedup(report.warnings);
     Ok(report)
 }
 
-/// [`replay`]'s edits, made in turn.
+/// [`replay`]'s edits, made in turn (`changes`: the plan's, the steps' first), adding what they
+/// made to `made`: the edits as recorded, and what they did. An edit that failed once it changed
+/// the drive is made too.
 fn replay_steps(
     steps: &Steps,
+    changes: &[String],
     extra: &[String],
     device: &mut Device,
     report: &mut EditReport,
+    made: &mut (Vec<Edit>, Vec<String>),
     ctx: &Ctx<'_>,
 ) -> Result<()> {
     let (name, drive) = (device.name(), device.root().display().to_string());
-    let stopped = |e: Error, done: usize| {
-        Error::conflict(
-            Reason::ReplayStopped,
-            format!("the replay stopped after {done} of its edits: {e}. Undoing takes back what it made"),
-        )
+    let (what, undo) = if steps.opts.lenient { ("replay", "the replay") } else { ("plan", "the edits") };
+    // Undoing takes back what it wrote; having written nothing, it leaves no backup (see `replay`).
+    let stopped = |e: Error, done: usize, written: bool| {
+        let stopped = format!("the {what} stopped after {done} of its edits: {e}");
+        let undo = Action::call("undo.plan", serde_json::json!({ "drive": drive }), format!("Undo {undo} on {name}"));
+        match written {
+            false => Error::conflict(Reason::ReplayStopped, format!("{stopped}; it changed nothing")),
+            true => Error::conflict(Reason::ReplayStopped, format!("{stopped}. Undoing takes back what it made"))
+                .action(undo),
+        }
         .with("drive", &drive)
-        .action(Action::call(
-            "undo.plan",
-            serde_json::json!({ "drive": drive }),
-            format!("Undo the replay on {name}"),
-        ))
     };
+    let (strict, start) = (!steps.opts.lenient, device.swaps());
+    // Files the steps wrote, which the other edits may then delete (a new image of a track they
+    // delete), though the backup made before them has none of them.
+    let mut written = Vec::new();
     for (done, step) in steps.steps.iter().enumerate() {
         ctx.check()?;
+        let before = device.swaps();
         let replayed = match step {
-            Edit::MyTag(change) => crate::tags::replay(device, change, ctx),
-            Edit::Cues { tracks, change } => crate::cue_edit::replay(device, tracks, change, ctx),
+            Edit::MyTag(change) => crate::tags::replay(device, change, strict, ctx),
+            Edit::Cues { tracks, change } => crate::cue_edit::replay(device, tracks, change, strict, ctx),
+            Edit::SetArtwork { tracks, image: ImageSource::Staged(hash) } => {
+                crate::artwork::replay(device, &tracks.paths, hash, &steps.images, strict, ctx)
+            }
             Edit::SetPath { .. } => replay_set_path(device, step, ctx),
-            _ => unreachable!("only My Tag, cue and pointing edits are steps"),
+            _ => unreachable!("only My Tag, cue, artwork (staged) and pointing edits are steps"),
         };
-        let replayed = replayed.map_err(|e| stopped(e, done))?;
+        if replayed.is_ok() || device.swaps() != before {
+            made.0.push(step.clone());
+            made.1.push(changes[done].clone());
+        }
+        let replayed = replayed.map_err(|e| stopped(e, done, device.swaps() != start))?;
         report.changes += usize::from(!replayed.databases.is_empty());
-        report.databases.extend(replayed.databases);
+        written.extend(replayed.databases.iter().cloned());
+        // The databases among the files written (cue and artwork edits write analysis files and
+        // images too).
+        let database = |f: &String| paths::DATABASE_FILES.iter().any(|k| file_name(k) == f);
+        report.databases.extend(replayed.databases.into_iter().filter(database));
         report.fingerprint = replayed.fingerprint.or(report.fingerprint);
         for w in &replayed.warnings {
             ctx.warn(w.clone());
         }
         report.warnings.extend(replayed.warnings);
     }
-    if !steps.rest.is_empty() {
-        let done = steps.steps.len();
-        let mut again = crate::edit::plan(device, &steps.rest, &steps.opts, ctx).map_err(|e| stopped(e, done))?;
-        if !again.recorded.is_empty() {
-            again.recorded.splice(0..0, steps.steps.iter().cloned());
-        }
-        if again.files.iter().any(|f| !extra.contains(f)) {
-            return Err(stopped(Error::conflict(Reason::Changed, "the drive changed while replaying"), done));
-        }
-        if !again.is_noop() {
-            let r = apply_locked(&again, device, false, Vec::new(), ctx).map_err(|e| stopped(e, done))?;
-            report.changes += r.changes;
-            report.databases.extend(r.databases);
-            report.files_deleted = r.files_deleted;
-            report.freed_bytes = r.freed_bytes;
-            report.fingerprint = r.fingerprint.or(report.fingerprint);
-            report.warnings.extend(r.warnings);
-        }
+    if steps.rest.is_empty() {
+        return Ok(());
     }
+    let done = steps.steps.len();
+    let mut again = crate::edit::plan(device, &steps.rest, &steps.opts, ctx)
+        .map_err(|e| stopped(e, done, device.swaps() != start))?;
+    if again.files.iter().any(|f| !extra.contains(f) && !written.contains(f)) {
+        let changed = Error::conflict(Reason::Changed, "the drive changed while replaying");
+        return Err(stopped(changed, done, device.swaps() != start));
+    }
+    if again.is_noop() {
+        return Ok(());
+    }
+    // Recorded with the steps (see `replay`), not on their own.
+    let recorded = std::mem::take(&mut again.recorded);
+    let before = device.swaps();
+    let applied = apply_locked(&again, device, false, Vec::new(), ctx);
+    if applied.is_ok() || device.swaps() != before {
+        made.0.extend(recorded);
+        made.1.extend(again.changes.iter().cloned());
+    }
+    let r = applied.map_err(|e| stopped(e, done, device.swaps() != start))?;
+    report.changes += r.changes;
+    report.databases.extend(r.databases);
+    report.files_deleted = r.files_deleted;
+    report.freed_bytes = r.freed_bytes;
+    report.fingerprint = r.fingerprint.or(report.fingerprint);
+    report.warnings.extend(r.warnings);
     Ok(())
 }
 
@@ -2984,9 +3197,10 @@ pub mod journal {
 
     /// The journal's format. 1 was a bare list of entries; 2 is `{"version": 2, "entries": [...]}`
     /// and its entries can hold edits older builds don't know (`set_entries`,
-    /// `delete_history_lists`, `my_tag`, `cues`). A journal of a later version is refused rather
-    /// than misread or overwritten.
-    pub const VERSION: u32 = 2;
+    /// `delete_history_lists`, `my_tag`, `cues`); 3 adds `set_artwork`, and track details 2 would
+    /// drop (`album_artist`, `bpm`, `isrc`, `release_date`), and is written only when an entry
+    /// uses them. A journal of a later version is refused rather than misread or overwritten.
+    pub const VERSION: u32 = 3;
 
     #[derive(Serialize)]
     struct Versioned<'a> {
@@ -3026,8 +3240,36 @@ pub mod journal {
         serde_json::from_value(entries).map_err(|e| Error::parse(&path, e))
     }
 
+    /// Write the journal, keeping only the staged images its artwork edits name.
     fn write(device: &Device, entries: &[JournalEntry]) -> Result<()> {
-        fsutil::write_json_atomic(&device.state_dir().join(FILE), &Versioned { version: VERSION, entries })
+        let version = version(entries);
+        fsutil::write_json_atomic(&device.state_dir().join(FILE), &Versioned { version, entries })?;
+        crate::artwork::prune_staged(device, &images(entries))
+    }
+
+    /// The version `entries` need: 3 once one holds an artwork edit or a track detail 3 added,
+    /// else 2, so a build that reads 2 keeps editing a drive whose edits use neither.
+    fn version(entries: &[JournalEntry]) -> u32 {
+        let needs_3 = |e: &Edit| match e {
+            Edit::SetArtwork { .. } => true,
+            Edit::EditTracks { fields, .. } => {
+                fields.album_artist.is_some()
+                    || fields.bpm.is_some()
+                    || fields.isrc.is_some()
+                    || fields.release_date.is_some()
+            }
+            _ => false,
+        };
+        if entries.iter().flat_map(|e| &e.edits).any(needs_3) { VERSION } else { 2 }
+    }
+
+    /// The staged images the entries' artwork edits name.
+    fn images(entries: &[JournalEntry]) -> FxHashSet<Hash> {
+        let staged = |e: &Edit| match e {
+            Edit::SetArtwork { image: ImageSource::Staged(hash), .. } => Some(*hash),
+            _ => None,
+        };
+        entries.iter().flat_map(|e| &e.edits).filter_map(staged).collect()
     }
 
     /// Record edits just made, after `backup`.
@@ -3071,10 +3313,12 @@ pub mod journal {
         }
     }
 
-    /// Forget every recorded edit: the drive got a whole library from a snapshot (a push) or a
-    /// pack, and they were made to the one it replaced. A journal this build can't read goes too.
+    /// Forget every recorded edit, with the images they staged: the drive got a whole library
+    /// from a snapshot (a push) or a pack, and they were made to the one it replaced. A journal
+    /// this build can't read goes too.
     pub(crate) fn forget(device: &Device) -> Result<()> {
-        fsutil::remove_if_exists(&device.state_dir().join(FILE)).map(|_| ())
+        fsutil::remove_if_exists(&device.state_dir().join(FILE))?;
+        crate::artwork::prune_staged(device, &FxHashSet::default())
     }
 
     /// Give `target` the recorded edits of `source`, whose library a sync just copied onto it: the
@@ -3083,7 +3327,10 @@ pub mod journal {
     /// `target`'s is forgotten (see [`forget`]).
     pub(crate) fn copy(source: &Device, target: &Device) -> Result<()> {
         match list(source) {
-            Ok(entries) if !entries.is_empty() => write(target, &entries),
+            Ok(entries) if !entries.is_empty() => {
+                crate::artwork::copy_staged(source, target, &images(&entries))?;
+                write(target, &entries)
+            }
             _ => forget(target),
         }
     }

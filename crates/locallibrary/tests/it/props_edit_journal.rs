@@ -1,6 +1,6 @@
 //! The journal of edits: read back in each format it has had (a bare list, then versioned), and
-//! refused when a newer locallibrary wrote it; My Tag and cue edits are made with their own
-//! commands, and a replay after a new export makes them again together with the playlist edits
+//! refused when a newer locallibrary wrote it; My Tag edits made with their own command, or as
+//! edits, and a replay after a new export makes them again together with the playlist edits
 //! recorded around them, under one backup.
 
 use crate::common;
@@ -134,8 +134,8 @@ fn a_replay_makes_my_tag_and_playlist_edits_again_under_one_backup(tc: TestCase)
     assert_eq!(backup::list(&d).unwrap().len(), backups + 1, "one backup for the replay");
     assert_eq!(edit::journal::list(&d).unwrap().len(), journal, "a replay isn't recorded again");
 
-    // Made as an edit, rather than replayed, a My Tag edit is refused.
+    // Made as an edit, a My Tag edit is planned and recorded as given.
     let tag = Edit::MyTag(draw_tag(&tc, &files));
-    let err = edit::plan(&d, &[tag], &EditOptions::default(), &Ctx::silent()).unwrap_err();
-    assert!(err.to_string().contains("are made with `tags` and `cues`"), "{err}");
+    let plan = edit::plan(&d, std::slice::from_ref(&tag), &EditOptions::default(), &Ctx::silent()).unwrap();
+    assert_eq!(plan.recorded, [tag]);
 }

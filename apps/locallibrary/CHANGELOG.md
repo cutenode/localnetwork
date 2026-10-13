@@ -47,9 +47,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   a library can be had without a drive rekordbox exported to; tracks Cloud Library Sync keeps in
   Dropbox or Google Drive come along, online-only ones downloaded as they're copied.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
-  order for mixing, import), track details, ratings and colours, My Tags, hot cues, memory cues
-  and loops, replacing duplicates and deleting tracks, with a backup before every change and a
-  journal so `edits replay` can redo them after rekordbox exports again. `undo` takes the last
+  order for mixing, import), track details (BPM, album artist, ISRC and release date too),
+  ratings and colours, My Tags, hot cues, memory cues and loops, cover art, replacing duplicates
+  and deleting tracks, with a backup before every change and a journal so `edits replay` can redo
+  them after rekordbox exports again. One plan can mix them all, under one backup. `undo` takes the last
   change back (run again, the one before) and is refused when the drive changed since (a
   rekordbox export, a sync, history players recorded) unless `--force`; putting a backup back
   backs up what it replaces, so an undo can be redone. `backups` and `restore` reach older ones,

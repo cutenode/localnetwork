@@ -1,6 +1,8 @@
 mod api;
+mod details;
 mod drifted_databases;
 mod journal_replay;
+mod mixed;
 mod refusals;
 mod set_path;
 
@@ -440,7 +442,8 @@ fn the_journal_has_a_version() {
     assert_eq!(edit::journal::edits(&d).unwrap(), [Edit::CreatePlaylist { path: "Old".into(), folder: false }]);
     apply(&root, &[Edit::CreatePlaylist { path: "New".into(), folder: false }]);
     let stored: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
-    assert_eq!(stored["version"], edit::journal::VERSION);
+    // The lowest version its edits need (see `edit::journal::VERSION`).
+    assert_eq!(stored["version"], 2);
     assert_eq!(stored["entries"].as_array().unwrap().len(), 2);
 
     let newer = r#"{"version": 99, "entries": [{"at": "2027-01-01T00:00:00Z", "edits": [{"op": "something_new"}]}]}"#;

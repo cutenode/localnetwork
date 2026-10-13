@@ -417,7 +417,7 @@ pub fn dedupe_plan(req: &DedupeRequest, ctx: &Ctx<'_>) -> Result<Planned<EditPla
         )
     });
     // Carried cues are made first, after the plan's one backup; the replacements stay strict.
-    let plan = edit::plan_with_steps(&d, &edits, &EditOptions::default(), ctx)?;
+    let plan = edit::plan(&d, &edits, &EditOptions::default(), ctx)?;
     // The analysis files carrying writes and reads: one changed since is another plan.
     let carrying: Vec<String> = edits
         .iter()

@@ -209,8 +209,15 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by
   `op` (`create_playlist`, `rename_playlist`, `move_playlist`, `delete_playlist`, `add_tracks`,
   `remove_tracks`, `move_tracks`, `set_tracks`, `set_entries`, `sort_playlist`, `dedupe`,
-  `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `set_path`, `delete_history`; see
-  `edit::Edit`), applied as one change with one backup. Tracks are chosen with selectors (`{"ids": [12]}`,
+  `plan_set`, `edit_tracks`, `delete_tracks`, `replace_track`, `set_path`, `delete_history`,
+  `my_tag`, `cues`, `set_artwork`; see `edit::Edit`), applied as one change with one backup and one
+  journal entry. `my_tag`, `cues` and `set_artwork` are made first, in their order, then the rest;
+  the plan checks the tracks they name are on the drive, and applying stops (`replay_stopped`)
+  at one that can't be made: what was made is recorded, and `undo` takes it back (having made
+  nothing, the error says it changed nothing and no backup is left). `set_artwork`'s `image` is
+  `{"path": ...}` (a file on this computer), `{"base64": ...}` (the image's bytes) or `{"staged":
+  hash}` (one the drive keeps, as the journal records it). `edit_tracks` also sets `bpm`,
+  `album_artist` (with an album), `isrc` and `release_date` (`YYYY-MM-DD`). Tracks are chosen with selectors (`{"ids": [12]}`,
   `{"filter": "bpm:>=128"}`, `{"paths": ["/Contents/..."]}`, `playlist`, `album`, `query`,
   `history`; a track must fit every field given). Also `edits.list`, `edits.replay.plan/apply`,
   `edits.clear`, `import.plan/apply`, `dedupe.plan/apply` (`by_sound` also finds the same
@@ -311,7 +318,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `firmware.remove.plan`, `recordings.collect.plan`, `settings.write.plan` (`{drives,
   create_missing}`, every mounted drive but archive and retired ones by default; applying it returns
   one result per drive, a drive that fails carrying an `error`), `settings.import.plan`,
-  `art.set.plan`, `art.embed.plan` (applying keeps a copy of each file in the store first) and
+  `art.set.plan` (an `edit.plan` of one `set_artwork`), `art.embed.plan` (applying keeps a copy of each file in the store first) and
   `art.unembed.plan` (puts them back), `store.gc.plan`, `players.set.plan`, `players.clear.plan`,
   `pull.plan`, `drive.eject.plan`, `drive.reidentify.plan`, `store.prune.plan`,
   `playlist.restore.plan`. Their `.apply` applies a plan by `plan_id`, or plans and applies a

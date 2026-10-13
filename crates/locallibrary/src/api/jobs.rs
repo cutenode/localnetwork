@@ -890,15 +890,13 @@ pub fn refresh_apply(store: &Store, req: &RefreshRequest, ctx: &Ctx<'_>) -> Resu
     refresh_plan(store, req, ctx)?.apply(Some(store), ctx)
 }
 
-/// Whether making the recorded edits again would change something. My Tag and cue edits can't
-/// be told apart from their effect without making them, so they count once rekordbox exported
-/// to the drive after them.
+/// Whether making the recorded edits again would change something. My Tag, cue and artwork edits
+/// can't be told apart from their effect without making them, so they count once rekordbox
+/// exported to the drive after them.
 fn edits_lost(d: &Device, entries: &[JournalEntry], ctx: &Ctx<'_>) -> bool {
-    let (tags_and_cues, rest): (Vec<Edit>, Vec<Edit>) = entries
-        .iter()
-        .flat_map(|e| e.edits.iter().cloned())
-        .partition(|e| matches!(e, Edit::MyTag(_) | Edit::Cues { .. }));
-    if !tags_and_cues.is_empty() && exported_since(d, entries) {
+    let (steps, rest): (Vec<Edit>, Vec<Edit>) =
+        entries.iter().flat_map(|e| e.edits.iter().cloned()).partition(Edit::is_step);
+    if !steps.is_empty() && exported_since(d, entries) {
         return true;
     }
     !rest.is_empty()

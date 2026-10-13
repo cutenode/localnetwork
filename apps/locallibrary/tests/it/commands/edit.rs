@@ -129,11 +129,14 @@ fn tracks_are_shown_matched_changed_replaced_and_deleted() {
     let fields = ["--rating", "5", "--colour", "red", "--genre", "Deep", "--title", "T", "--artist", "A"];
     let more = ["--album-name", "Al", "--label", "La", "--key", "8A", "--remixer", "R", "--comment", "C"];
     let rest = ["--mix", "Extended Mix", "--year", "2020", "--play-count", "3"];
-    let out = env.ok(&[&["--yes", "track", "set", d, "--track", "1"][..], &fields, &more, &rest].concat());
+    let newer = ["--album-artist", "AA", "--bpm", "126.5", "--isrc", "GBDUW0000059", "--release-date", "2020-01-02"];
+    let out = env.ok(&[&["--yes", "track", "set", d, "--track", "1"][..], &fields, &more, &rest, &newer].concat());
     assert!(out.contains(r#"  - set title "T", artist "A", album "Al", genre "Deep", label "La", key "8A""#), "{out}");
     assert!(out.contains("    ~ 1 track(s) changed"), "{out}");
     let v = &env.json(&["tracks", d, "--filter", "genre:Deep"])["tracks"][0];
     assert_eq!((&v["title"], &v["rating"], &v["year"]), (&"T".into(), &5.into(), &2020.into()), "{v}");
+    let newer = (&v["album_artist"], &v["bpm"], &v["isrc"], &v["release_date"]);
+    assert_eq!(newer, (&"AA".into(), &126.5.into(), &"GBDUW0000059".into(), &"2020-01-02".into()), "{v}");
 
     let out = env.ok(&["--yes", "track", "replace", d, "11", "9", "--keep-duplicate"]);
     assert!(out.contains("  - replace [A]pendics.Shuffle - Your Moves (Losoul's High Tide Remix) with"), "{out}");

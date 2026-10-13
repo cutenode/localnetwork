@@ -937,14 +937,6 @@ fn edits_naming_no_playlist_position_or_track_are_refused(tc: hegel::TestCase) {
             "select exactly one track",
         ),
         (Edit::MovePlaylist { playlist: "Loose".into(), into: None, position: Some(0) }, "positions start at 1"),
-        // Made with their own commands.
-        (
-            Edit::Cues {
-                tracks: vec!["/Contents/1.mp3".into()],
-                change: crate::cue_edit::CueChange::Delete(crate::cue_edit::CueRef::All),
-            },
-            "made with `tags` and `cues`",
-        ),
     ];
     for (edit, why) in cases {
         let err = run(edit.clone()).unwrap_err();

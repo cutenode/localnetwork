@@ -2,12 +2,11 @@
 //! just before it swaps the new files and databases in leaves the drive byte-identical, and the
 //! same plan then applies.
 
-use crate::common::{self, media::png};
+use crate::common::{self, media::png, media::set_artwork};
 
 use indexmap::IndexMap;
 use std::path::Path;
 
-use locallibrary::artwork::{self, Artwork};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, SetCue};
 use locallibrary::edit::{self, Edit, EditOptions};
@@ -166,7 +165,7 @@ fn convert() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::bigger_drive(dir.path(), "Main");
     let mut d = Device::open_export(&root).unwrap();
-    artwork::set_on_drive(&mut d, &[1, 2], &Artwork::from_bytes(&png(120, 90, 7)).unwrap(), &Ctx::silent()).unwrap();
+    set_artwork(&mut d, &[1, 2], &png(120, 90, 7), &Ctx::silent()).unwrap();
     let opts = ConvertOptions { to: Target::OneLibrary, replace: false };
     let plan = convert::plan(&d, &opts, &Ctx::silent()).unwrap();
     let report = fails_cleanly_and_undoes(&root, || convert::apply(&plan, &mut d, &opts, &Ctx::silent()));
@@ -192,14 +191,15 @@ fn artwork() {
     let root = common::demo_drive(dir.path(), "Main");
     common::add_onelibrary(&root);
     let mut d = Device::open_export(&root).unwrap();
-    let art = Artwork::from_bytes(&png(120, 90, 9)).unwrap();
-    let report = fails_cleanly(&root, || artwork::set_on_drive(&mut d, &[1], &art, &Ctx::silent()));
-    assert!(report.artwork_rows_added > 0, "{report:?}");
+    let database = |f: &String| f == "export.pdb" || f == "exportLibrary.db";
+    let art = png(120, 90, 9);
+    let report = fails_cleanly(&root, || set_artwork(&mut d, &[1], &art, &Ctx::silent()));
+    assert_eq!(report.databases.iter().filter(|f| database(f)).count(), 2, "a new row in each: {report:?}");
     // Again: the track is the only one using its art, so the images are overwritten in place, and
     // the backup keeps the old ones.
-    let art = Artwork::from_bytes(&png(120, 90, 99)).unwrap();
-    let report = fails_cleanly_and_undoes(&root, || artwork::set_on_drive(&mut d, &[1], &art, &Ctx::silent()));
-    assert_eq!(report.artwork_rows_added, 0, "{report:?}");
+    let art = png(120, 90, 99);
+    let report = fails_cleanly_and_undoes(&root, || set_artwork(&mut d, &[1], &art, &Ctx::silent()));
+    assert!(!report.databases.iter().any(database), "{report:?}");
     let backup = locallibrary::backup::list(&d).unwrap().remove(0);
     assert!(backup.files.iter().any(|f| f.starts_with("PIONEER/Artwork/")), "{backup:?}");
 }
