@@ -99,9 +99,9 @@ pub struct FleetRequest {
 
 /// [`super::status`] for mounted drives, plus roles, write protection, space, copies, each
 /// library with its clones (those not plugged in too) and (with `all`) every registered drive
-/// that isn't mounted.
-pub fn fleet_status(store: &Store, req: &FleetRequest, ctx: &Ctx<'_>) -> Result<FleetStatus> {
-    let registry = store.drives()?;
+/// that isn't mounted. With no store, only the mounted drives, none of them registered.
+pub fn fleet_status(store: Option<&Store>, req: &FleetRequest, ctx: &Ctx<'_>) -> Result<FleetStatus> {
+    let registry = store.map(Store::drives).transpose()?.unwrap_or_default();
     let devices = known_drives(false);
     let duplicates = fleet::duplicates(&devices, &fleet::Hardware::of);
     let mut mounted = Vec::new();
@@ -128,6 +128,9 @@ pub fn fleet_status(store: &Store, req: &FleetRequest, ctx: &Ctx<'_>) -> Result<
         });
         states.push(state);
     }
+    let Some(store) = store else {
+        return Ok(FleetStatus { mounted, offline: Vec::new(), duplicates, libraries: Vec::new() });
+    };
     let linked: Vec<Uuid> =
         (mounted.iter()).filter(|f| f.status.library.is_some()).filter_map(|f| f.status.drive.library_id).collect();
     // Reading every library's history for where the drives not plugged in stand takes a while:
@@ -343,8 +346,11 @@ pub fn drive_log(store: &Store, req: &DriveRef) -> Result<DriveRecord> {
     drive_find(store, req)
 }
 
-pub fn drive_recognise(store: &Store, req: &DriveRef, ctx: &Ctx<'_>) -> Result<Recognition> {
-    fleet::recognise(store, &resolve_one_drive(&req.drive)?, ctx)
+/// Nothing is recognised with no store.
+pub fn drive_recognise(store: Option<&Store>, req: &DriveRef, ctx: &Ctx<'_>) -> Result<Recognition> {
+    let device = resolve_one_drive(&req.drive)?;
+    let Some(store) = store else { return Ok(Recognition::default()) };
+    fleet::recognise(store, &device, ctx)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

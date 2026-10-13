@@ -55,7 +55,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   its `kind` (`read`; `plan` and `apply`, paired; `immediate`, a change with no plan step;
   `control`, about the sidecar itself), its `aliases`, whether it's `long_running` (sends
   `progress`, can be cancelled) or `destructive` (can delete or overwrite something), and JSON
-  Schemas for its `params` and `result`, with the `progress` and `event` notifications.
+  Schemas for its `params` and `result`, with the `progress` and `event` notifications. A `read`
+  never makes a store: with none, it answers as if the store were empty, or fails with `not_found`
+  when it's about the store itself (`store.info`, `store.history`, `store.verify`, `drive.log`).
   [`docs/rpc/locallibrary.d.ts`](../docs/rpc/locallibrary.d.ts) has the same as TypeScript types
   (`Methods["sync.apply"]["params"]`, `Params<"sync.apply">`, `Result<"sync.apply">`).
   `locallibrary rpc --emit-schema DIR` writes both for the version you run, and `rpc.describe`

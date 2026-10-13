@@ -44,7 +44,7 @@ pub fn player_models() -> &'static [Model] {
 }
 
 /// The player models `check` uses when none are given.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct RememberedPlayers {
     /// For drives of a library without models of its own.
     pub default: Vec<String>,

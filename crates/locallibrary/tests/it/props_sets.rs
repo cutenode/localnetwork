@@ -1186,7 +1186,7 @@ fn imported_logs_suggest_the_sets_the_model_predicts(tc: TestCase) {
         .collect();
     want.sort_by_key(|c| std::cmp::Reverse((c.1.before, c.1.after)));
 
-    let got = api::sets_suggest(&desk.store, &SuggestSets::default(), &Ctx::silent()).unwrap();
+    let got = api::sets_suggest(Some(&desk.store), &SuggestSets::default(), &Ctx::silent()).unwrap();
     let candidates: Vec<(Vec<String>, Window, usize, u32, String)> = got
         .candidates
         .iter()
@@ -1433,7 +1433,7 @@ fn history_lists_on_drives_are_sessions_once_each(tc: TestCase) {
         }
     }
     want.extend(lists.iter().filter(|l| l.saved && l.tracks.len() >= 3).map(|l| alone(l, true)));
-    let got = api::sets_suggest(&desk.store, &SuggestSets::default(), &Ctx::silent()).unwrap();
+    let got = api::sets_suggest(Some(&desk.store), &SuggestSets::default(), &Ctx::silent()).unwrap();
     let mut suggested: Vec<Suggested> = got
         .candidates
         .iter()

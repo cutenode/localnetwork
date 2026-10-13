@@ -63,7 +63,7 @@ fn playlist_names(root: &Path) -> Vec<String> {
 }
 
 fn status_of(store: &Store, root: &Path) -> api::FleetDrive {
-    let st = api::fleet_status(store, &api::FleetRequest::default(), &Ctx::silent()).unwrap();
+    let st = api::fleet_status(Some(store), &api::FleetRequest::default(), &Ctx::silent()).unwrap();
     st.mounted.into_iter().find(|d| d.status.drive.root == dunce_canonicalize(root)).expect("mounted")
 }
 

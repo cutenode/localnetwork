@@ -425,7 +425,7 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             }));
         }
         SetsCommand::Suggest { drive, .. } => {
-            let s = api::sets_suggest(&store()?, &api::SuggestSets { drive }, ctx)?;
+            let s = api::sets_suggest(Some(&store()?), &api::SuggestSets { drive }, ctx)?;
             out.emit_paged(&s, suggestions);
         }
         SetsCommand::Export { set, format, output, drive, replace } => {

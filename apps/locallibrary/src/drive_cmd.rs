@@ -639,7 +639,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             });
         }
         DriveCommand::Recognise { drive } => {
-            let r = api::drive_recognise(&store()?, &DriveRef { drive: drive.clone() }, ctx)?;
+            let r = api::drive_recognise(Some(&store()?), &DriveRef { drive: drive.clone() }, ctx)?;
             out.emit(&r, |r| {
                 if r.is_empty() {
                     say!("{drive} doesn't match any drive or snapshot the store knows.");

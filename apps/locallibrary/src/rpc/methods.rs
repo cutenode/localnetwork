@@ -82,6 +82,11 @@ impl Call<'_> {
         Store::open(self.root).ok()
     }
 
+    /// What `read` finds in the store, or nothing (its empty value) when there's none.
+    fn or_empty<T: Default>(&self, read: impl FnOnce(&Store) -> locallibrary::Result<T>) -> Result<T, RpcError> {
+        Ok(self.existing().as_ref().map(read).transpose()?.unwrap_or_default())
+    }
+
     fn plan_store(&self, which: PlanStore) -> Result<Option<Store>, RpcError> {
         Ok(match which {
             PlanStore::None => None,
@@ -467,7 +472,7 @@ fn build() -> Registry {
     r.control::<api::Shutdown, ()>("shutdown");
 
     // Drives and their libraries.
-    r.read("status", |c, _: NoParams| Ok(api::status(&c.store()?, c.ctx)?)).long();
+    r.read("status", |c, _: NoParams| Ok(api::status(c.existing().as_ref(), c.ctx)?)).long();
     r.read("drives.list", |c, req| Ok(api::list_drives_in_libraries(c.existing().as_ref(), &req))).quick();
     r.read("drives.mounted", |_, _: NoParams| Ok(api::drives_mounted())).quick();
     r.read("drive.info", |_, req| Ok(api::drive_info(&req)?)).quick();
@@ -536,8 +541,8 @@ fn build() -> Registry {
     r.apply("convert.apply", PlanStore::None, |c, req| Ok(api::convert_apply(&req, c.ctx)?)).long().destructive();
 
     // The store.
-    r.read("store.info", |c, _: NoParams| Ok(api::store_info(&c.store()?)?)).quick();
-    r.read("store.history", |c, req| Ok(api::history(&c.store()?, &req)?)).quick();
+    r.read("store.info", |c, _: NoParams| Ok(api::store_info(&Store::open(c.root)?)?)).quick();
+    r.read("store.history", |c, req| Ok(api::history(&Store::open(c.root)?, &req)?)).quick();
     r.plan("store.gc.plan", |c, _: NoParams| Ok(api::store_gc_plan(&c.store()?)?)).long().destructive();
     r.apply("store.gc.apply", Required, |c, req: api::GcRequest| {
         let s = c.store()?;
@@ -547,7 +552,7 @@ fn build() -> Registry {
     .alias("store.gc")
     .long()
     .destructive();
-    r.read("store.verify", |c, _: NoParams| Ok(c.store()?.verify(c.ctx)?)).long();
+    r.read("store.verify", |c, _: NoParams| Ok(Store::open(c.root)?.verify(c.ctx)?)).long();
     r.plan("store.prune.plan", |c, req| Ok(api::store_prune_plan(&c.store()?, &req, c.ctx)?)).long().destructive();
     r.apply("store.prune.apply", Required, |c, req| Ok(api::store_prune(&c.store()?, &req, c.ctx)?))
         .alias("store.prune")
@@ -557,9 +562,9 @@ fn build() -> Registry {
         .long()
         .destructive()
         .writes_to("path");
-    r.read("store.copies", |c, _: NoParams| Ok(api::store_copies(&c.store()?)?)).quick();
+    r.read("store.copies", |c, _: NoParams| c.or_empty(api::store_copies)).quick();
     r.immediate("snapshot.label", |c, req| Ok(api::snapshot_label(&c.store()?, &req)?));
-    r.read("library.list", |c, _: NoParams| Ok(api::libraries_list(&c.store()?)?)).quick();
+    r.read("library.list", |c, _: NoParams| c.or_empty(api::libraries_list)).quick();
     r.immediate("library.rename", |c, req| Ok(api::library_rename(&c.store()?, &req)?));
 
     // Editing a drive's library.
@@ -572,7 +577,7 @@ fn build() -> Registry {
     r.apply("edits.clear.apply", PlanStore::None, |_, req| Ok(api::edits_clear(&req)?))
         .alias("edits.clear")
         .destructive();
-    r.read("smart.list", |c, _: NoParams| Ok(api::smart_list(&c.store()?)?)).quick();
+    r.read("smart.list", |c, _: NoParams| c.or_empty(api::smart_list)).quick();
     r.immediate("smart.set", |c, req| Ok(api::smart_set(&c.store()?, &req)?));
     r.immediate("smart.remove", |c, req| Ok(api::smart_remove(&c.store()?, &req)?)).destructive();
     r.plan("smart.write.plan", |c, req| Ok(api::smart_apply_plan(&c.store()?, &req, c.ctx)?))
@@ -615,10 +620,10 @@ fn build() -> Registry {
 
     // My Settings.
     r.read("settings.schema", |_, _: NoParams| Ok(locallibrary::settings::SCHEMA)).quick();
-    r.read("settings.profile", |c, _: NoParams| Ok(c.store()?.settings_profile()?)).quick();
+    r.read("settings.profile", |c, _: NoParams| c.or_empty(Store::settings_profile)).quick();
     r.immediate("settings.set", |c, req| Ok(api::settings_set(&c.store()?, &req)?));
     r.immediate("settings.unset", |c, req| Ok(api::settings_unset(&c.store()?, &req)?));
-    r.read("settings.show", |c, req| Ok(api::settings_show(&c.store()?, &req)?)).quick();
+    r.read("settings.show", |c, req| Ok(api::settings_show(c.existing().as_ref(), &req)?)).quick();
     r.plan("settings.write.plan", |c, req| Ok(api::settings_apply_plan(&c.store()?, &req)?))
         .alias("settings.apply.plan")
         .destructive();
@@ -671,7 +676,7 @@ fn build() -> Registry {
     r.read("plays.archive", |c, req| Ok(api::history_archive(&Store::open(c.root)?, &req, c.ctx)?)).long();
     r.read("plays.stats", |c, req| Ok(api::play_stats(c.existing().as_ref(), &req)?));
     r.read("players.models", |_, _: NoParams| Ok(api::player_models()));
-    r.read("players.show", |c, _: NoParams| Ok(api::players_show(&c.store()?)?));
+    r.read("players.show", |c, _: NoParams| c.or_empty(api::players_show));
     r.plan("players.set.plan", |c, req| Ok(api::players_set_plan(&c.store()?, &req)?));
     r.apply("players.set.apply", Required, |c, req| Ok(api::players_set(&c.store()?, &req)?)).alias("players.set");
     r.plan("players.clear.plan", |c, req| Ok(api::players_clear_plan(&c.store()?, &req)?));
@@ -701,10 +706,7 @@ fn build() -> Registry {
     }
     r.read("profile.build", |c, req| Ok(api::profile(c.existing().as_ref(), &req, c.ctx)?)).long();
     r.read("profile.document", |c, req| Ok(api::profile_document(c.existing().as_ref(), &req, c.ctx)?)).long();
-    r.read("profile.prefs", |c, _: NoParams| {
-        Ok(c.existing().map(|s| api::profile_prefs(&s)).transpose()?.unwrap_or_default())
-    })
-    .quick();
+    r.read("profile.prefs", |c, _: NoParams| c.or_empty(api::profile_prefs)).quick();
     r.immediate("profile.prefs.set", |c, req| Ok(api::profile_prefs_update(&c.store()?, &req)?));
     #[cfg(feature = "account")]
     {
@@ -731,20 +733,16 @@ fn build() -> Registry {
     }
 
     // Sets, in the store's `sets.json` (written at once), and the sessions they're made from.
-    r.read("sets.list", |c, req| Ok(c.existing().map(|s| api::sets_list(&s, &req)).transpose()?.unwrap_or_default()))
-        .quick();
+    r.read("sets.list", |c, req| c.or_empty(|s| api::sets_list(s, &req))).quick();
     r.read("sets.get", |c, req| Ok(api::set_get(&Store::open(c.root)?, &req)?)).quick();
     r.immediate("sets.new", |c, req| Ok(api::set_new(&c.store()?, &req, c.ctx)?)).long().keeps_cache();
     r.immediate("sets.edit", |c, req| Ok(api::set_edit(&c.store()?, &req, c.ctx)?)).long().keeps_cache();
     r.immediate("sets.delete", |c, req| Ok(api::set_delete(&c.store()?, &req)?)).destructive().keeps_cache();
     r.immediate("sets.export", |c, req| Ok(api::set_export(&c.store()?, &req)?)).keeps_cache().writes_to("output");
-    r.read("sets.played", |c, req| {
-        Ok(c.existing().map(|s| api::track_plays(&s, &req)).transpose()?.unwrap_or_default())
-    })
-    .quick();
+    r.read("sets.played", |c, req| c.or_empty(|s| api::track_plays(s, &req))).quick();
     r.plan("sets.playlist.plan", |c, req| Ok(api::set_playlist_plan(&c.store()?, &req, c.ctx)?));
     r.apply("sets.playlist.apply", PlanStore::None, |c, req| Ok(api::set_playlist_apply(&c.store()?, &req, c.ctx)?));
-    r.read("sets.suggest", |c, req| Ok(api::sets_suggest(&c.store()?, &req, c.ctx)?)).long();
+    r.read("sets.suggest", |c, req| Ok(api::sets_suggest(c.existing().as_ref(), &req, c.ctx)?)).long();
     r.read("sessions.list", |c, req| Ok(api::sessions(c.existing().as_ref(), &req, c.ctx)?)).long();
     r.immediate("sessions.dismiss", |c, req| Ok(api::sessions_dismiss(&c.store()?, &req, c.ctx)?)).long().keeps_cache();
     r.immediate("sessions.import", |c, req| Ok(api::sessions_import(&c.store()?, &req)?)).keeps_cache();
@@ -764,16 +762,16 @@ fn build() -> Registry {
     r.immediate("mix.reports.html", |c, req| Ok(api::mix_report_html(&c.store()?, &req)?)).keeps_cache();
 
     // Every drive you own.
-    r.read("fleet.status", |c, req| Ok(api::fleet_status(&c.store()?, &req, c.ctx)?)).long();
-    r.read("drives.known", |c, req| Ok(api::drives_known(&c.store()?, &req)?)).quick();
+    r.read("fleet.status", |c, req| Ok(api::fleet_status(c.existing().as_ref(), &req, c.ctx)?)).long();
+    r.read("drives.known", |c, req| c.or_empty(|s| api::drives_known(s, &req))).quick();
     r.plan("drive.rename.plan", |_, req| Ok(api::drive_rename_plan(&req)?));
     r.apply("drive.rename.apply", Optional, |c, req| Ok(api::drive_rename(c.store_opt().as_ref(), &req)?))
         .alias("drive.rename");
     r.immediate("drive.forget", |c, req| Ok(api::drive_forget(&c.store()?, &req)?)).destructive();
     r.immediate("drive.role", |c, req| Ok(api::drive_role(&c.store()?, &req)?));
     r.immediate("drive.retire", |c, req| Ok(api::drive_retire(&c.store()?, &req)?));
-    r.read("drive.log", |c, req| Ok(api::drive_log(&c.store()?, &req)?)).quick();
-    r.read("drive.recognise", |c, req| Ok(api::drive_recognise(&c.store()?, &req, c.ctx)?)).long();
+    r.read("drive.log", |c, req| Ok(api::drive_log(&Store::open(c.root)?, &req)?)).quick();
+    r.read("drive.recognise", |c, req| Ok(api::drive_recognise(c.existing().as_ref(), &req, c.ctx)?)).long();
     r.plan("drive.adopt_as.plan", |c, req| Ok(api::drive_adopt_as_plan(&c.store()?, &req)?)).destructive();
     r.apply("drive.adopt_as.apply", Required, |c, req| Ok(api::drive_adopt_as(&c.store()?, &req, c.ctx)?))
         .alias("drive.adopt_as")
@@ -783,7 +781,7 @@ fn build() -> Registry {
     r.apply("drive.reidentify.apply", Optional, |c, req| Ok(api::drive_reidentify(c.store_opt().as_ref(), &req)?))
         .alias("drive.reidentify")
         .destructive();
-    r.read("drive.groups", |c, _: NoParams| Ok(api::drive_sets(&c.store()?)?)).alias("drive.sets").quick();
+    r.read("drive.groups", |c, _: NoParams| c.or_empty(api::drive_sets)).alias("drive.sets").quick();
     r.plan("drive.eject.plan", |c, req| Ok(api::drive_eject_plan(Some(c.root), &req)?)).operation("eject");
     r.apply("drive.eject.apply", Optional, |c, req| Ok(api::drive_eject(c.store_opt().as_ref(), &req)?))
         .operation("eject")

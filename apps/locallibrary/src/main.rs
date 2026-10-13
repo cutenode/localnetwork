@@ -1147,7 +1147,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
     match command {
         Command::Status { all, retired } => {
             let store = store()?;
-            let st = api::fleet_status(&store, &api::FleetRequest { all, retired }, &ctx)?;
+            let st = api::fleet_status(Some(&store), &api::FleetRequest { all, retired }, &ctx)?;
             out.emit(&st, drive_cmd::fleet_status);
         }
         Command::Tracks(a) => {
@@ -1712,7 +1712,7 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
         SettingsCommand::Show { drive } => {
             let store = open_store(store_path)?;
             let reads =
-                each_drive::read_each_drive(drive, |drive| api::settings_show(&store, &api::DriveRef { drive }))?;
+                each_drive::read_each_drive(drive, |drive| api::settings_show(Some(&store), &api::DriveRef { drive }))?;
             return Ok(reads.emit(out, render::drive_settings).exit());
         }
         SettingsCommand::Apply { drives, create_missing, dry_run } => {

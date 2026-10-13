@@ -621,7 +621,7 @@ fn a_group_sync_copies_the_newest_onto_the_rest(tc: TestCase) {
     };
     // The fleet view's library: both clones, the primary first, identical while neither changed,
     // and holding changes the store doesn't once either did.
-    let st = api::fleet_status(&p.store, &api::FleetRequest::default(), &ctx).unwrap();
+    let st = api::fleet_status(Some(&p.store), &api::FleetRequest::default(), &ctx).unwrap();
     let [lib] = st.libraries.as_slice() else { panic!("{:?}", st.libraries) };
     let changed = p.main_changed || p.backup_changed;
     assert_eq!((lib.name.as_str(), &lib.mounted[..]), ("Main", &order[..]));
