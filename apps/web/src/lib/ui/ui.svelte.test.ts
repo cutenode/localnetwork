@@ -15,6 +15,7 @@ import Monogram from './Monogram.svelte';
 import Section from './Section.svelte';
 import SectionHeader from './SectionHeader.svelte';
 import SelectField from './SelectField.svelte';
+import SiteHeader from './SiteHeader.svelte';
 import Tag from './Tag.svelte';
 import TextField from './TextField.svelte';
 import Waveform from './Waveform.svelte';
@@ -256,5 +257,32 @@ describe('Waveform', () => {
 	it('falls back to the low band colour for columns without one', async () => {
 		const { container } = await render(Waveform, { heights: [200, 100] });
 		expect(container.querySelectorAll('path')).toHaveLength(1);
+	});
+});
+
+describe('SiteHeader', () => {
+	const links = [
+		{ href: '/projects', label: 'DJs' },
+		{ href: '/mixes', label: 'Mixes' }
+	];
+
+	it('folds the links and the account into a menu on a phone', async () => {
+		await render(SiteHeader, {
+			links,
+			current: '/mixes',
+			account: { href: '/login', label: 'Sign in' },
+			cta: { href: '/projects/new', label: 'List your project' }
+		});
+		await expect.element(page.getByRole('link', { name: 'List your project' })).toBeInTheDocument();
+		const toggle = page.getByRole('button', { name: 'Menu' });
+
+		await expect.element(toggle).toHaveAttribute('aria-expanded', 'false');
+		await toggle.click();
+		const menu = page.getByRole('navigation', { name: 'Menu' });
+
+		await expect.element(menu.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+		await expect.element(menu.getByRole('link', { name: 'Mixes' })).toHaveAttribute('aria-current', 'page');
+		await page.getByRole('button', { name: 'Close menu' }).click();
+		await expect.element(menu).not.toBeInTheDocument();
 	});
 });

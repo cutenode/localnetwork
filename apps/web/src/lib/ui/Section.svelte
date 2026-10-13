@@ -15,7 +15,7 @@
 </script>
 
 <section {id} aria-labelledby={labelledby} class={['border-b border-line', tone === 'sunken' ? 'bg-sunken' : 'bg-canvas', tone === 'grid' && 'bg-grid']}>
-	<div class={['container-page', { none: '', md: 'py-16', lg: 'py-20 sm:py-30' }[space]]}>
+	<div class={['container-page', { none: '', md: 'py-12 sm:py-16', lg: 'py-14 sm:py-20 lg:py-30' }[space]]}>
 		{@render children()}
 	</div>
 </section>

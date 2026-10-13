@@ -37,7 +37,8 @@
 		<svelte:element this={`h${level}`} {id} class={['m-0 font-semibold text-balance', display ? 'text-display' : 'text-title']}>{title}</svelte:element>
 	</div>
 	{#if lede}
-		<p class={['m-0 text-fg-muted', display ? 'max-w-160 text-intro' : 'text-lede', align === 'split' && 'min-w-0 flex-[1_1_22rem]']}>{lede}</p>
+		<p class={['m-0 text-fg-muted', display ? 'max-w-160 text-lede sm:text-intro' : 'text-lede', align === 'split' && 'min-w-0 flex-[1_1_22rem]']}>{lede}</p>
 	{/if}
-	{#if actions}<div class={['flex flex-wrap gap-3', align === 'center' && 'justify-center']}>{@render actions()}</div>{/if}
+	<!-- On a phone the actions stack, each the full width. -->
+	{#if actions}<div class={['flex flex-col gap-3 max-sm:self-stretch sm:flex-row sm:flex-wrap', align === 'center' && 'sm:justify-center']}>{@render actions()}</div>{/if}
 </div>
