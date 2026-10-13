@@ -16,8 +16,9 @@ use locallibrary::api::{
 use locallibrary::error::Reason;
 use locallibrary::mix::{MixInfo, MixReport, Play, report};
 use locallibrary::progress::Ctx;
-use locallibrary::sets::{EntryOrigin, SETS_FILE, Set};
+use locallibrary::sets::{EntryOrigin, MusicBrainzIds, SETS_FILE, Set};
 use locallibrary::{Device, Store, Track};
+use uuid::Uuid;
 
 /// A store, and a drive in the only folder drives are looked for in.
 struct Setup {
@@ -153,6 +154,45 @@ fn a_set_is_built_from_a_kept_report() {
     let missing = NewSet { report: Some("nope".into()), ..Default::default() };
     assert_eq!(api::set_new(&s.store, &missing, &Ctx::silent()).unwrap_err().code(), "not_found");
     assert_eq!(api::sets_list(&s.store, &SetsQuery::default()).unwrap().len(), 3, "refused sets aren't kept");
+}
+
+/// Tag `track`'s file on the drive at `root` with MusicBrainz IDs, as Picard would (its release's
+/// the same as its recording's).
+fn tag_musicbrainz(root: &Path, track: &Track, recording: Uuid, artists: &[Uuid]) {
+    use lofty::config::WriteOptions;
+    use lofty::tag::{ItemKey, Tag, TagExt, TagType};
+    let file = root.join(track.file_path.trim_start_matches('/'));
+    // The drive's files are MP3s by name.
+    std::fs::write(&file, common::media::mp3()).unwrap();
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.insert_text(ItemKey::MusicBrainzRecordingId, recording.to_string());
+    tag.insert_text(ItemKey::MusicBrainzReleaseId, recording.to_string());
+    for a in artists {
+        tag.push(lofty::tag::TagItem::new(ItemKey::MusicBrainzArtistId, lofty::tag::ItemValue::Text(a.to_string())));
+    }
+    tag.save_to_path(&file, WriteOptions::default()).unwrap();
+}
+
+/// A set's tracks keep the MusicBrainz IDs their files on a mounted drive are tagged with: read
+/// when they go in, and, for tracks without, again whenever the set is edited.
+#[test]
+fn tracks_keep_the_musicbrainz_ids_their_files_are_tagged_with() {
+    let s = setup();
+    let t = &s.tracks;
+    let (recording, artist) = (Uuid::from_u128(1), Uuid::from_u128(2));
+    tag_musicbrainz(&s.drive, &t[0], recording, &[artist]);
+    let id = report::save(&s.store, &report(&[(&t[0], 0.0, 0.9), (&t[1], 200.0, 0.9)], None)).unwrap();
+    let set = new(&s, NewSet { fields: fields("Friday", "2026-10-03"), report: Some(id), ..Default::default() });
+    let ids = |set: &Set| set.tracks.iter().map(|e| e.musicbrainz.clone()).collect::<Vec<_>>();
+    let tagged = MusicBrainzIds { recording: Some(recording), release: Some(recording), artists: vec![artist] };
+    assert_eq!(ids(&set), [tagged.clone(), MusicBrainzIds::default()]);
+
+    tag_musicbrainz(&s.drive, &t[1], Uuid::from_u128(3), &[]);
+    let typed = Insert { at: 3, track: "Someone - Dubplate".into() };
+    let set = edit(&s, EditSet { set: set.id, insert: vec![typed], ..Default::default() }).unwrap().set;
+    let later =
+        MusicBrainzIds { recording: Some(Uuid::from_u128(3)), release: Some(Uuid::from_u128(3)), artists: vec![] };
+    assert_eq!(ids(&set), [tagged, later, MusicBrainzIds::default()]);
 }
 
 #[test]

@@ -13034,6 +13034,34 @@
       ],
       "type": "object"
     },
+    "MusicBrainzIds": {
+      "description": "MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the\nrecording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist.",
+      "properties": {
+        "artists": {
+          "description": "In the credit's order.",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recording": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "release": {
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "MyTagCategory": {
       "properties": {
         "name": {
@@ -18614,6 +18642,10 @@
         },
         "label": {
           "type": "string"
+        },
+        "musicbrainz": {
+          "$ref": "#/$defs/MusicBrainzIds",
+          "description": "MusicBrainz IDs from the audio file's tags, read from a mounted drive when the set is made\nor edited."
         },
         "origin": {
           "$ref": "#/$defs/EntryOrigin"

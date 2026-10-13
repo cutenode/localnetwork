@@ -167,7 +167,7 @@ fn a_set_lists_objects_it_can_grow() {
             { "uri": "https://station.example/archive/2026-10-03" },
         ],
         "sources": [{ "kind": "history" }, { "kind": "mix" }],
-        "tracks": [{ "title": "Glue", "recordingMbId": "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b", "key": "8A" }],
+        "tracks": [{ "title": "Glue", "recordingMbId": "mbid:c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b", "key": "8A" }],
         "createdAt": "2026-10-04T09:30:00.000Z",
     });
     validate(SET, &set).unwrap();

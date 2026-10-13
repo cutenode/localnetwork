@@ -76,7 +76,7 @@ shows the plan again for the account you approved. Publishing again replaces the
 | --- | --- | --- |
 | `settings publish` | `computer.localnetwork.locallibrary.settings`, key `self` | the settings profile's base values |
 | `profile publish` | `computer.localnetwork.dj.profile`, key `self` | the [profile document](sets.md#dj-profile), in whole numbers: shares as percents, BPM whole |
-| `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, ISRC, BPM, Camelot key, start time |
+| `sets publish <set>` | `computer.localnetwork.dj.set`, keyed by the set's id | the day, title and kind (club, festival, radio, livestream, mix, or your own word), the venue with its city and country, the event it was part of, who you played with (`playedWith`), where to listen (`links`), what the tracklist came from (`sources`: `history`, `mix`, `added`), and the tracks in order: artist, title, the artists one by one, release, ISRC, MusicBrainz IDs, BPM, Camelot key, start time, and how each came in |
 
 A set's notes, its recording, the sessions it came from and the files' paths stay on this
 computer. Tracks you marked unnamed (`sets edit <set> --unnamed 3`), tracks your profile hides
@@ -87,6 +87,23 @@ set built from a single history list that an earlier version published with `pla
 takes that list's key as its id the first time it's published, and the time the old record says
 it first went out. The old record stays where `plays publish` wrote it
 (`computer.localnetwork.locallibrary.set`), since publishing may only write today's set records.
+
+A track's artists go out one by one (split as the profile counts them) when its credit names
+several, and its MusicBrainz IDs (`mbid:<uuid>`, as teal.fm writes them) when its file is tagged
+with them, as MusicBrainz Picard tags files: rekordbox keeps none, so they're read from the files
+on the mounted drives when a set is made or edited. An artist's ID goes with their name only when
+the tags have one for each artist the credit names. For a set built from a recording, each track
+says how it came in (`transitionIn`), as the recording's [mix report](sets.md#mixes) heard it,
+wherever the set still has the two tracks one after the other: a `blend` when both were heard
+together for 8 seconds or more, otherwise `unknown` (a fade the fingerprints miss can look like a
+cut), with how long they overlapped, how the keys heard relate and how much the tempo changed.
+Next to an unidentified track it says only how long they overlapped.
+
+A set record holds up to 500 tracks: `sets publish` refuses a longer set, so drop some first
+(`sets edit --drop`). A track with every field filled is under 1.5 KB even with names as long as the
+Lexicon takes, so 500 fit the 1 MB a data server takes in a record. A data server not updated
+since May 2026 takes 150 KB: about 160 fully tagged tracks with long names, or 290 with typical
+ones. The plan says when a record is bigger than that.
 
 The record types are Lexicons in the repo's [`lexicons/`](../../../lexicons/computer/localnetwork/):
 My Settings is locallibrary's own (`locallibrary/`), and the profile and set are DJ records Local

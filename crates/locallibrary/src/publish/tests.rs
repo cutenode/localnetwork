@@ -5,6 +5,7 @@ use crate::profile::{
     ArcShape, Basis, DocArc, DocCollection, DocEnergy, DocEra, DocKeys, DocMixing, DocPrep, DocSets, DocShare,
     DocTempo, DocTrack, Precision,
 };
+use crate::sets::MusicBrainzIds;
 
 fn now() -> DateTime<Utc> {
     "2026-10-05T12:00:00.123456Z".parse().unwrap()
@@ -128,13 +129,22 @@ fn a_profile_document_with_every_section_fits_the_profile_lexicon() {
     assert!(record.get("signature").is_none() && record.get("artists").is_none());
 }
 
+const RECORDING: Uuid = uuid::uuid!("c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b");
+const RELEASE: Uuid = uuid::uuid!("5f6f2c4e-1d7a-4b4e-8f5c-2a9b3c1d0e7f");
+
 #[test]
 fn a_set_fits_the_set_lexicon_and_unidentified_tracks_say_nothing() {
     let mut track = loclib_model::test_util::track(1, "Bicep", "Glue", "/Contents/Bicep/Glue.mp3");
     track.isrc = "GB-AHT-17-00123".into();
     track.bpm = 129.98;
     track.key = "Am".into();
-    let named = SetEntry { start_seconds: Some(0), ..SetEntry::from_track(&track, EntryOrigin::Recording, None) };
+    track.album = "Isles".into();
+    let mut named = SetEntry { start_seconds: Some(0), ..SetEntry::from_track(&track, EntryOrigin::Recording, None) };
+    named.musicbrainz = MusicBrainzIds {
+        recording: Some(RECORDING),
+        release: Some(RELEASE),
+        artists: vec!["e0ddb3c4-0a5c-44d5-9c38-04d9a2e4e8a0".parse().unwrap()],
+    };
     let unnamed = SetEntry { unnamed: true, start_seconds: Some(312), ..named.clone() };
     let mut set = Set {
         id: "3m2abcdefgh22".into(),
@@ -147,11 +157,22 @@ fn a_set_fits_the_set_lexicon_and_unidentified_tracks_say_nothing() {
         updated_at: now(),
         ..Default::default()
     };
-    let record = set_record(&set, &[3].into(), now());
+    let record = set_record(&set, &[3].into(), None, now());
     lexicon::validate(lexicon::SET, &record).unwrap();
     assert_eq!(
         record["tracks"][0],
-        json!({ "title": "Glue", "artist": "Bicep", "isrc": "GBAHT1700123", "bpmCentis": 12998, "key": "8A", "startSeconds": 0 })
+        json!({
+            "title": "Glue",
+            "artist": "Bicep",
+            "artists": [{ "artistName": "Bicep", "artistMbId": "mbid:e0ddb3c4-0a5c-44d5-9c38-04d9a2e4e8a0" }],
+            "releaseName": "Isles",
+            "isrc": "GBAHT1700123",
+            "recordingMbId": "mbid:c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b",
+            "releaseMbId": "mbid:5f6f2c4e-1d7a-4b4e-8f5c-2a9b3c1d0e7f",
+            "bpmCentis": 12998,
+            "key": "8A",
+            "startSeconds": 0,
+        })
     );
     assert_eq!(record["tracks"][1], json!({ "unidentified": true, "startSeconds": 312 }), "marked unnamed");
     assert_eq!(record["tracks"][2], json!({ "unidentified": true, "startSeconds": 0 }), "hidden");
@@ -166,10 +187,97 @@ fn a_set_fits_the_set_lexicon_and_unidentified_tracks_say_nothing() {
 
     set.country = Some("GB".into());
     set.link = Some("https://www.mixcloud.com/dj/friday-warm-up/".into());
-    let record = set_record(&set, &BTreeSet::new(), now());
+    let record = set_record(&set, &BTreeSet::new(), None, now());
     lexicon::validate(lexicon::SET, &record).unwrap();
     assert_eq!(record["location"], json!({ "$type": lexicon::ADDRESS, "locality": "London", "country": "GB" }));
     assert_eq!(record["links"], json!([{ "uri": "https://www.mixcloud.com/dj/friday-warm-up/" }]));
+}
+
+/// A track lists its artists one by one when its credit names several, or the tags give the one
+/// artist's MusicBrainz ID; IDs go with names only when there are as many of each. A credit or a
+/// release too long for the Lexicon is left out rather than cut short.
+#[test]
+fn artists_and_releases_go_out_as_far_as_they_are_known() {
+    let id = |n: u128| Uuid::from_u128(n);
+    let track = |artist: &str, ids: &[u128]| {
+        let mut e = SetEntry::added(&format!("{artist} - Title"));
+        e.musicbrainz.artists = ids.iter().map(|&n| id(n)).collect();
+        set_track(&e, false, None)
+    };
+    let artists = |artist: &str, ids: &[u128]| track(artist, ids).get("artists").cloned();
+    assert_eq!(artists("Bicep", &[]), None, "the credit line says it all");
+    assert_eq!(
+        artists("Bicep", &[1]),
+        Some(json!([{ "artistName": "Bicep", "artistMbId": format!("mbid:{}", id(1)) }]))
+    );
+    let names = json!([{ "artistName": "Chris Lake" }, { "artistName": "Amber Mark" }]);
+    assert_eq!(artists("Chris Lake, Amber Mark", &[]), Some(names.clone()));
+    assert_eq!(artists("Chris Lake, Amber Mark", &[1]), Some(names), "which artist has the one ID?");
+    assert_eq!(
+        artists("Chris Lake feat. Amber Mark", &[1, 2]),
+        Some(json!([
+            { "artistName": "Chris Lake", "artistMbId": format!("mbid:{}", id(1)) },
+            { "artistName": "Amber Mark", "artistMbId": format!("mbid:{}", id(2)) },
+        ]))
+    );
+    assert_eq!(artists(&format!("{}, B", "a".repeat(257)), &[]), None, "too long a name");
+    let many = (0..33).map(|i| format!("A{i}")).collect::<Vec<_>>().join(", ");
+    assert_eq!(artists(&many, &[]), None, "too many artists");
+
+    let mut e = SetEntry::added("Bicep - Glue");
+    e.album = "a".repeat(256);
+    assert_eq!(set_track(&e, false, None)["releaseName"], json!("a".repeat(256)));
+    e.album.push('a');
+    assert!(set_track(&e, false, None).get("releaseName").is_none());
+}
+
+/// A set built from a recording says how each track came in where it still has two plays the
+/// recording heard one after the other: a blend once both are heard for 8 seconds, otherwise a
+/// technique the recording can't tell. Where either track isn't named, only when.
+#[test]
+fn tracks_heard_one_after_another_say_how_they_came_in() {
+    let mut report =
+        crate::sets::build::tests::report(&[(1, 0.0, 0.9), (2, 190.4, 0.9), (3, 390.0, 0.9), (4, 600.0, 0.9)]);
+    let heard = |from: usize, overlap: f64, harmony: &str, tempo_change: Option<f64>| Transition {
+        from,
+        to: from + 1,
+        at: report.plays[from + 1].start,
+        overlap,
+        harmony: Some(harmony.into()).filter(|h: &String| !h.is_empty()),
+        tempo_change,
+    };
+    report.transitions =
+        vec![heard(0, 9.6, "energy boost", Some(2.5)), heard(1, -3.0, "clash", None), heard(2, 4.0, "±1", Some(-0.34))];
+    let mut set = Set { tracks: crate::sets::build::from_recording(&report).tracks, ..Default::default() };
+    let came_in = |set: &Set, hidden: &BTreeSet<usize>| -> Vec<Value> {
+        let record = set_record(set, hidden, Some(&report), now());
+        lexicon::validate(lexicon::SET, &record).unwrap();
+        record["tracks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t.get("transitionIn").cloned().unwrap_or_default())
+            .collect()
+    };
+    assert_eq!(
+        came_in(&set, &BTreeSet::new()),
+        [
+            Value::Null,
+            json!({ "technique": "blend", "durationMs": 9600, "harmony": "energyBoost", "tempoChangePermille": 25 }),
+            json!({ "technique": "unknown", "harmony": "clash" }),
+            json!({ "technique": "unknown", "durationMs": 4000, "harmony": "adjacent", "tempoChangePermille": -3 }),
+        ]
+    );
+    assert_eq!(
+        came_in(&set, &[3].into())[2..],
+        [json!({ "technique": "unknown" }), json!({ "technique": "unknown", "durationMs": 4000 })]
+    );
+    assert!(set_record(&set, &BTreeSet::new(), None, now())["tracks"][1].get("transitionIn").is_none());
+
+    // Moved, dropped or added since, tracks no longer follow the ones the recording heard.
+    set.tracks.swap(2, 3);
+    set.tracks.insert(1, SetEntry { start_seconds: Some(190), ..SetEntry::added("Typed - In") });
+    assert_eq!(came_in(&set, &BTreeSet::new()), vec![Value::Null; 5]);
 }
 
 /// Whatever the number (negative, over 1, infinite, not a number), a share becomes a whole

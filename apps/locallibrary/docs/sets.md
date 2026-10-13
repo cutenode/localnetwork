@@ -129,7 +129,9 @@ on its own. It prints the `sets new` command for each; `--dismiss ID` says a ses
 neither (then `sets edit --insert` adds tracks). A recording's tracklist wins: it has start times,
 catches tracks played for less than a minute and leaves out what was only previewed in headphones,
 and the logged tracks it doesn't hear are pointed out. Sets are kept in the store's `sets.json` with
-a copy of each track's details, so they read without the drive.
+a copy of each track's details, so they read without the drive: with the MusicBrainz IDs its file
+is tagged with (as MusicBrainz Picard tags them), read from a mounted drive when the set is made or
+edited.
 
 Players have no clock, so a session's date is a window: after locallibrary last saw the drive
 without it, before it first saw it with it (`on 3 Oct 2026` when both fall on one day, `between 29
@@ -145,7 +147,7 @@ the drive (`--drive`) and otherwise takes it as typed. `sets export` writes text
 tracklist (its rules checked), a CUE sheet (with the recording attached), YouTube chapters,
 1001Tracklists, CSV, or an M3U8 of the tracks on a drive (`-o` picks the format from `.cue`, `.csv`,
 `.m3u8` or `.txt`). `sets publish` puts a set on your [Atmosphere account](account.md#publishing) as
-a `computer.localnetwork.dj.set` record, a type Local Network's tools share.
+a `computer.localnetwork.dj.set` record, a type Local Network's tools share, of up to 500 tracks.
 
 ## Mixes
 
