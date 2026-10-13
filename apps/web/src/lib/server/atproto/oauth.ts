@@ -8,79 +8,59 @@ import {
 	type OAuthSession,
 	requestLocalLock
 } from '@atproto/oauth-client-node';
-import { isDidString, normalizeAtprotoOauthScopeValue, SpacePermission } from '@atproto/oauth-scopes';
-import { COLLECTION, ROOT_SPACE_KEY, SELF_SPACE_KEY, SPACE_TYPE } from '#lib/nsid.ts';
+import { IncludeScope, isDidString, normalizeAtprotoOauthScopeValue, SpacePermission } from '@atproto/oauth-scopes';
+import { PERMISSIONS } from '#lib/nsid.ts';
 import type { Config } from '../config';
 import { type Db, nowIso } from '../db';
 import type { Logger } from '../logger';
+import { PERMISSION_SET } from './lexicons';
 import { AgentRepoClient, type RepoClient } from './repo-client';
 
-function spaceScope(type: string, params: [string, string][]): string {
-	return `space:${type}?${params.map(([key, value]) => `${key}=${value}`).join('&')}`;
-}
+const permissions = new IncludeScope(PERMISSIONS);
 
 /**
- * Granular OAuth scopes: write access to the user's own repos in the root
- * account's audit, moderation, and booking spaces, plus a personal planner
- * space under the user's own DID. Nothing grants reading other users' data;
- * the app reads shared spaces with credentials issued to the root authority.
- * The base fallback is plain `atproto`, since without spaces the root account
- * writes and uploads everything on the user's behalf.
+ * Granular OAuth scopes. Local Network's permission set (lexicons/computer/localnetwork/permissions.json)
+ * grants write access to the user's own repos in the audit, moderation, and booking spaces, plus a
+ * personal planner space under the user's own DID. The set leaves the shared spaces' authority open,
+ * since one published document serves every network and each has its own root DID. Blob uploads
+ * stay explicit: a permission set can only hold repo, rpc, and space permissions. Nothing grants
+ * reading other users' data; the app reads shared spaces with credentials issued to the root
+ * authority. The base fallback is plain `atproto`, since without spaces the root account writes and
+ * uploads everything on the user's behalf.
  */
-export function buildScopes(rootDid: string) {
-	const write = (...actions: string[]) => actions.map((action): [string, string] => ['action', action]);
-	const collections = (...items: string[]) => items.map((item): [string, string] => ['collection', item]);
-
-	const scopes = [
+export const SCOPES = {
+	full: [
 		'atproto',
 		// Project avatars, and the JSON mix reports DJs attach to their mixes as tracklists.
 		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
-		spaceScope(SPACE_TYPE.audit, [
-			['authority', rootDid],
-			['skey', ROOT_SPACE_KEY],
-			...collections(COLLECTION.auditEntry),
-			...write('read_self', 'create')
-		]),
-		spaceScope(SPACE_TYPE.moderation, [
-			['authority', rootDid],
-			['skey', ROOT_SPACE_KEY],
-			...collections(COLLECTION.request),
-			...write('read_self', 'create', 'update', 'delete')
-		]),
-		spaceScope(SPACE_TYPE.booking, [
-			['authority', rootDid],
-			...collections(COLLECTION.bookingInquiry, COLLECTION.bookingMessage, COLLECTION.bookingStatus),
-			...write('read_self', 'create', 'update', 'delete')
-		]),
-		spaceScope(SPACE_TYPE.planner, [
-			['skey', SELF_SPACE_KEY],
-			...collections(COLLECTION.plannerSave, COLLECTION.plannerShow),
-			...write('read', 'create', 'update', 'delete'),
-			['manage', 'create'],
-			['manage', 'update']
-		])
-	];
-
-	return { full: scopes.join(' '), base: 'atproto' };
-}
+		permissions.toString()
+	].join(' '),
+	base: 'atproto'
+};
 
 /**
  * Whether `did`'s granted scope includes every scope in `requested`. The PDS grants scopes in
- * normal form with a `self` space authority resolved to the user's DID, minus any it doesn't
- * support or the user declined, so both sides are normalized that way before comparing.
+ * normal form, with the permission set expanded into the scopes it lists and a `self` space
+ * authority resolved to the user's DID, minus any it doesn't support or the user declined, so
+ * both sides are expanded and normalized that way before comparing.
  */
 export function grantsAll(granted: string | undefined | null, requested: string, did: string): boolean {
-	const normalize = (scope: string) => {
+	const normalize = (scope: string): string[] => {
+		if (scope === permissions.toString()) return permissions.toScopes(PERMISSION_SET).flatMap(normalize);
+
 		const space = SpacePermission.fromString(scope);
 
-		if (space?.isSelfAuthority && isDidString(did)) return space.withResolvedAuthority(did).toString();
+		if (space?.isSelfAuthority && isDidString(did)) return [space.withResolvedAuthority(did).toString()];
 
-		return normalizeAtprotoOauthScopeValue(scope) ?? scope;
+		return [normalizeAtprotoOauthScopeValue(scope) ?? scope];
 	};
 
-	const scopes = new Set(granted?.split(' ').map(normalize));
+	const scopes = new Set(granted?.split(' ').flatMap(normalize));
 
-	return requested.split(' ').every((scope) => scopes.has(normalize(scope)));
+	return requested
+		.split(' ')
+		.flatMap(normalize)
+		.every((scope) => scopes.has(scope));
 }
 
 export function isLoopback(publicUrl: string): boolean {
@@ -140,10 +120,9 @@ function sqliteStore<T>(db: Db, table: 'oauthState' | 'oauthSession') {
 
 export class OAuthService {
 	readonly client: NodeOAuthClient;
-	readonly scopes: { full: string; base: string };
+	readonly scopes = SCOPES;
 
-	constructor(private readonly deps: { config: Config; db: Db; logger: Logger; rootDid: string }) {
-		this.scopes = buildScopes(deps.rootDid);
+	constructor(private readonly deps: { config: Config; db: Db; logger: Logger }) {
 		this.client = new NodeOAuthClient({
 			clientMetadata: clientMetadata(deps.config, this.scopes.full),
 			allowHttp: deps.config.dev,
