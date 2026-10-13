@@ -411,6 +411,40 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(await net.app.planner.saves(lee)).toEqual([]);
 	});
 
+	it('lets someone signed in with OAuth make every space write the app makes with their session', async () => {
+		const granted = await net.signInWithOAuth('remy');
+		// The PDS answers with the set expanded into the scopes it lists, not the `include:` the app asked for.
+		expect(granted).not.toContain('include:');
+		expect(granted).toContain(`space:${SPACE_TYPE.planner}?authority=${net.user('remy').did}&skey=self`);
+		const remy = await net.viewer('remy');
+		expect(remy.spacesCapable).toBe(true);
+
+		const request = await net.app.requests.submit({ actor: remy, kind: 'create', profile: profile('Remy Rolls') });
+		await net.app.requests.withdraw(remy, request.uri);
+
+		const space = await net.app.bookings.start({
+			actor: remy,
+			projectUri,
+			show: { title: 'Dock Party', date: '2026-12-08T22:00:00.000Z', capacity: 200, budgetTier: 'emerging' },
+			message: 'Free on the 8th?'
+		});
+
+		await net.app.bookings.message({ actor: remy, space, text: 'Doors at ten.' });
+		await net.app.bookings.setStatus({ actor: remy, space, status: 'cancelled' });
+
+		await net.app.planner.save(remy, projectUri);
+		const details = { title: 'Dock Party', capacity: 200 };
+		const rkey = await net.app.planner.saveShow(remy, { details, lineup: [] });
+		await net.app.planner.saveShow(remy, { rkey, details, lineup: [{ project: projectUri, status: 'contacted' }] });
+		await net.app.planner.unsave(remy, projectUri);
+		await net.app.planner.deleteShow(remy, rkey);
+
+		await net.settle();
+		const entries = await net.app.audit.list({ actor: remy.did });
+		expect(entries.length).toBeGreaterThanOrEqual(10);
+		expect(entries.filter((entry) => entry.actorStatus !== 'verified')).toEqual([]);
+	});
+
 	it('files on behalf of accounts whose PDS lacks spaces support, and says so in the audit log', async () => {
 		const legacy = { ...(await net.viewer('lee')), spacesCapable: false };
 		await net.app.accounts.recordLogin({

@@ -43,3 +43,6 @@ export const ROOT_SPACE_KEY = 'main' as const;
 
 /** Space key for personal spaces anchored on a user's own DID. */
 export const SELF_SPACE_KEY = 'self' as const;
+
+/** The OAuth permission set (`include:`) the app requests: its space writes, in one consent line. */
+export const PERMISSIONS = `${NS}.permissions` as const;

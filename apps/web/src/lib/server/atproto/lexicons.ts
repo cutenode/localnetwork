@@ -1,7 +1,7 @@
 import type { Agent } from '@atproto/api';
 import { isObject } from '@atproto/lex-data';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
-import { jsonToLex, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
+import { jsonToLex, lexPermissionSet, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
 import auditEntry from '../../../../../../lexicons/computer/localnetwork/audit/entry.json' with { type: 'json' };
 import bookingInquiry from '../../../../../../lexicons/computer/localnetwork/booking/inquiry.json' with { type: 'json' };
 import bookingMessage from '../../../../../../lexicons/computer/localnetwork/booking/message.json' with { type: 'json' };
@@ -56,6 +56,9 @@ export const LEXICON_DOCS = [
 	getProjects,
 	getStats
 ].map((doc) => parseLexiconDoc(doc));
+
+/** The permission set as PDSes read it to expand `include:computer.localnetwork.permissions` at sign-in. */
+export const PERMISSION_SET = lexPermissionSet.parse(permissions.defs.main);
 
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
 export const lexicons = new Lexicons(structuredClone(LEXICON_DOCS));
