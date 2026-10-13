@@ -125,3 +125,12 @@ fn path_styles_round_trip_through_json(tc: TestCase) {
     assert_eq!(serde_json::from_value::<PathStyle>(json).unwrap(), style);
     assert_eq!(PathStyle::default(), PathStyle::Relative);
 }
+
+/// Slashes are trimmed before normalising and NFC paths aren't normalised again, landing where
+/// normalising everything first would.
+#[hegel::test(test_cases = 200)]
+fn keys_are_the_nfc_path_without_leading_slashes(tc: hegel::TestCase) {
+    let s = tc.draw(hegel::generators::text().alphabet("/\\a.e\u{301}\u{e9}\u{338}\u{fb01}").max_size(10));
+    let nfc: String = s.nfc().collect();
+    assert_eq!(key(&s), nfc.replace('\\', "/").trim_start_matches('/'), "{s:?}");
+}

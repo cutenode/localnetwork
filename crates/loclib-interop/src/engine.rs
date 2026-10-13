@@ -83,9 +83,15 @@ pub fn build(src: &Source<'_>, output: &Path, style: PathStyle, ctx: &Ctx<'_>) -
     let mut conn = Connection::open(&scratch).map_err(sql)?;
     // The database is built in a scratch file and read back into memory, so nothing needs to
     // reach the disk before it's done: no syncs, and the whole library (schema included) in one
-    // transaction rather than a journal and its syncs for each statement.
-    conn.execute_batch("PRAGMA journal_mode = DELETE; PRAGMA synchronous = OFF; PRAGMA foreign_keys = ON;")
-        .map_err(sql)?;
+    // transaction rather than a journal and its syncs for each statement. Each insert's triggers
+    // and foreign keys still keep a statement journal to undo it by, and a large library outgrows
+    // SQLite's 2 MB page cache: both stay in memory (the cache takes 64 MB at most) rather than
+    // going through files a page at a time.
+    conn.execute_batch(
+        "PRAGMA journal_mode = DELETE; PRAGMA synchronous = OFF; PRAGMA foreign_keys = ON;
+         PRAGMA temp_store = MEMORY; PRAGMA cache_size = -65536;",
+    )
+    .map_err(sql)?;
     let tx = conn.transaction().map_err(sql)?;
     tx.execute_batch(include_str!("engine.sql")).map_err(sql)?;
     let uuid = uuid::Uuid::new_v4().to_string();
