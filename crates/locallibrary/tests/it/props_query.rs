@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 
 use hegel::generators as gs;
 use hegel::{Generator, TestCase};
-use locallibrary::model::{Library, Playlist, Track, TrackColor};
+use locallibrary::model::{self, Library, Playlist, Track, TrackColor};
 use locallibrary::query::{self, Filter, QueryContext, SortField, SortKey, TrackSelector};
+use locallibrary::{harmony, paths};
 
 const TEXT_FIELDS: &[&str] =
     &["", "artist:", "a:", "title:", "t:", "album:", "genre:", "g:", "label:", "comment:", "remixer:", "mix:", "path:"];
@@ -411,6 +412,47 @@ fn sorting_is_stable_and_lexicographic(tc: TestCase) {
         query::sort_tracks(&mut stepwise, std::slice::from_ref(k));
     }
     assert_eq!(ids(&stepwise), ids(&sorted), "lexicographic");
+}
+
+/// How two tracks compare on one sort key, comparing their values directly: text by its normalised
+/// form, keys around the Camelot wheel (unknown last), colours by id (none last), paths by key.
+fn compare(a: &Track, b: &Track, field: SortField) -> std::cmp::Ordering {
+    let text = |x: &str, y: &str| model::normalize(x).cmp(&model::normalize(y));
+    let color = |t: &Track| t.color.map_or(u8::MAX, TrackColor::id);
+    match field {
+        SortField::Title => text(&a.title, &b.title),
+        SortField::Artist => text(&a.artist, &b.artist),
+        SortField::Album => text(&a.album, &b.album),
+        SortField::Genre => text(&a.genre, &b.genre),
+        SortField::Label => text(&a.label, &b.label),
+        SortField::Key => harmony::key_order(&a.key).cmp(&harmony::key_order(&b.key)),
+        SortField::Bpm => a.bpm.total_cmp(&b.bpm),
+        SortField::Rating => a.rating.cmp(&b.rating),
+        SortField::Color => color(a).cmp(&color(b)),
+        SortField::Year => a.year.cmp(&b.year),
+        SortField::Plays => a.play_count.cmp(&b.play_count),
+        SortField::Added => a.date_added.cmp(&b.date_added),
+        SortField::Time => a.duration_secs.cmp(&b.duration_secs),
+        SortField::Bitrate => a.bitrate.cmp(&b.bitrate),
+        SortField::Path => paths::key(&a.file_path).cmp(&paths::key(&b.file_path)),
+    }
+}
+
+/// Sorting orders tracks as a stable sort comparing their values directly ([`compare`]) does.
+#[hegel::test(test_cases = 300)]
+fn sorting_compares_values(tc: TestCase) {
+    let lib = tc.draw(library().print_as_debug());
+    let keys = tc.draw(sort_keys().print_as_debug());
+    let mut sorted: Vec<&Track> = lib.tracks.iter().collect();
+    query::sort_tracks(&mut sorted, &keys);
+    let mut want: Vec<&Track> = lib.tracks.iter().collect();
+    want.sort_by(|a, b| {
+        keys.iter()
+            .map(|k| if k.descending { compare(a, b, k.field).reverse() } else { compare(a, b, k.field) })
+            .find(|o| o.is_ne())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    assert_eq!(ids(&sorted), ids(&want));
 }
 
 #[hegel::composite]

@@ -32,6 +32,7 @@ use crate::paths;
 use crate::pdb;
 use crate::progress::Ctx;
 use crate::store::{Snapshot, Store};
+use crate::tree::FileTree;
 use crate::{Error, Result};
 
 /// One side of a comparison: a drive or a stored snapshot.
@@ -73,9 +74,14 @@ pub(crate) fn snapshot_object(
 
 impl Side {
     pub fn from_device(device: &Device, ctx: &Ctx<'_>) -> Result<Side> {
+        Ok(Side::scanned(device, ctx)?.0)
+    }
+
+    /// [`Side::from_device`], and the scan of the drive it was fingerprinted from.
+    pub(crate) fn scanned(device: &Device, ctx: &Ctx<'_>) -> Result<(Side, FileTree)> {
         let library = device.library()?;
         let scanned = device.scan_fingerprinted(Some(&library), ctx)?;
-        Ok(Side {
+        let side = Side {
             label: device.name(),
             id: device.id(),
             library_id: device.state().and_then(|s| s.library_id),
@@ -91,7 +97,8 @@ impl Side {
                 .and_then(|s| s.pending.as_ref())
                 .is_some_and(|p| matches!(p.op, LineageOp::Sync | LineageOp::Push)),
             packed_from: crate::pack::record(device).ok().flatten().and_then(|r| r.source),
-        })
+        };
+        Ok((side, scanned.tree))
     }
 
     pub fn from_snapshot(store: &Store, snapshot: &Snapshot, label: impl Into<String>) -> Result<Side> {

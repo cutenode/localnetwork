@@ -3965,6 +3965,7 @@ dependencies = [
  "lofty",
  "percent-encoding",
  "quick-xml 0.37.5",
+ "rayon",
  "rekordbox-pdb",
  "rekordcrate",
  "reqwest 0.12.28",

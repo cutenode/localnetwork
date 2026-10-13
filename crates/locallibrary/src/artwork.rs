@@ -484,7 +484,7 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
                     pdb_changed = true;
                     report.artwork_rows_added += 1;
                     pdb::guard_editor(|| {
-                        let next_id = editor.database()?.artwork.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+                        let next_id = editor.next_artwork_id()?;
                         let key = free_artwork_key(&root, next_id, "jpg");
                         let id = editor.add_artwork(&paths::device_path(&key))?;
                         for t in &sorted[i] {

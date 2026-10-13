@@ -589,19 +589,26 @@ impl Device {
 
     /// Scan managed files. Audio referenced by the database outside `Contents/` is included.
     pub fn scan(&self, library: Option<&Library>, ctx: &Ctx<'_>) -> Result<FileTree> {
-        // Audio the database references outside PIONEER/ and Contents/ (tracks rekordbox left
-        // where they were on the drive) is part of the library too, but only if the path is
-        // safe. Such files are copied when missing but never deleted.
-        let extra_keys = library
-            .map(|l| {
-                l.tracks
-                    .iter()
-                    .map(|t| paths::key(&t.file_path))
-                    .filter(|k| paths::classify(k).is_none() && self.checked_path(k).is_ok())
-                    .collect()
-            })
-            .unwrap_or_default();
-        tree::scan(&self.root, &ScanOptions { extra_keys }, ctx)
+        tree::scan(&self.root, &ScanOptions { extra_keys: library.map_or_else(Vec::new, |l| self.extra_keys(l)) }, ctx)
+    }
+
+    /// Add the audio `library` keeps outside `PIONEER/` and `Contents/` to `tree`, a
+    /// [`Device::scan`] of this drive for another library: the scan for both, without walking the
+    /// drive again.
+    pub(crate) fn scan_more(&self, tree: &mut FileTree, library: &Library) -> Result<()> {
+        tree::add_extra(tree, &self.extra_keys(library))
+    }
+
+    /// Audio `library` references outside PIONEER/ and Contents/ (tracks rekordbox left where
+    /// they were on the drive): part of the library too, but only if the path is safe. Such files
+    /// are copied when missing but never deleted.
+    fn extra_keys(&self, library: &Library) -> Vec<String> {
+        library
+            .tracks
+            .iter()
+            .map(|t| paths::key(&t.file_path))
+            .filter(|k| paths::classify(k).is_none() && self.checked_path(k).is_ok())
+            .collect()
     }
 
     /// Take the drive's write lock. Fails with [`Error::Locked`] if another operation, in this

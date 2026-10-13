@@ -78,3 +78,33 @@ fn hash_index_avoids_rehashing() {
     entry.size += 1;
     assert_eq!(index.lookup(entry), None);
 }
+
+/// Links are left out, and a folder that can't be read stops the scan with an error naming
+/// it, as cancelling stops it.
+#[cfg(unix)]
+#[test]
+fn scan_skips_links_and_stops_at_an_unreadable_folder() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    for p in ["Contents/A/x.mp3", "Contents/B/y.mp3", "PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT"] {
+        fs::create_dir_all(root.join(p).parent().unwrap()).unwrap();
+        fs::write(root.join(p), p).unwrap();
+    }
+    symlink(root.join("Contents/A"), root.join("Contents/L")).unwrap();
+    symlink(root.join("Contents/A/x.mp3"), root.join("Contents/A/z.mp3")).unwrap();
+    let tree = scan(root, &ScanOptions::default(), &Ctx::silent()).unwrap();
+    let keys: Vec<&str> = tree.entries.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["Contents/A/x.mp3", "Contents/B/y.mp3", "PIONEER/USBANLZ/P001/00000001/ANLZ0000.DAT"]);
+
+    let locked = root.join("Contents/B");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    let err = scan(root, &ScanOptions::default(), &Ctx::silent()).unwrap_err();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(matches!(err, Error::Io { path, .. } if path == locked));
+
+    let cancel = crate::progress::CancelToken::new();
+    cancel.cancel();
+    let err = scan(root, &ScanOptions::default(), &Ctx::new(&crate::progress::NoProgress, cancel)).unwrap_err();
+    assert!(matches!(err, Error::Cancelled));
+}

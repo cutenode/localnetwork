@@ -28,6 +28,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::cell::{OnceCell, RefCell};
 
 use crate::device::Device;
@@ -716,38 +717,64 @@ pub fn parse_sort(s: &str) -> Result<Vec<SortKey>> {
     Ok(keys)
 }
 
-fn compare(a: &Track, b: &Track, field: SortField) -> std::cmp::Ordering {
-    let text = |x: &str, y: &str| normalize(x).cmp(&normalize(y));
-    match field {
-        SortField::Title => text(&a.title, &b.title),
-        SortField::Artist => text(&a.artist, &b.artist),
-        SortField::Album => text(&a.album, &b.album),
-        SortField::Genre => text(&a.genre, &b.genre),
-        SortField::Label => text(&a.label, &b.label),
-        SortField::Key => harmony::key_order(&a.key).cmp(&harmony::key_order(&b.key)),
-        SortField::Bpm => a.bpm.total_cmp(&b.bpm),
-        SortField::Rating => a.rating.cmp(&b.rating),
-        SortField::Color => a.color.map_or(u8::MAX, TrackColor::id).cmp(&b.color.map_or(u8::MAX, TrackColor::id)),
-        SortField::Year => a.year.cmp(&b.year),
-        SortField::Plays => a.play_count.cmp(&b.play_count),
-        SortField::Added => a.date_added.cmp(&b.date_added),
-        SortField::Time => a.duration_secs.cmp(&b.duration_secs),
-        SortField::Bitrate => a.bitrate.cmp(&b.bitrate),
-        SortField::Path => crate::paths::key(&a.file_path).cmp(&crate::paths::key(&b.file_path)),
+/// A track's value for one sort key, worked out once per track instead of in every comparison
+/// (text keys are normalised, which allocates).
+enum SortValue<'a> {
+    Text(Cow<'a, str>),
+    Number(u32),
+    Bpm(f64),
+}
+
+impl SortValue<'_> {
+    fn of(t: &Track, field: SortField) -> SortValue<'_> {
+        let text = |s: &str| SortValue::Text(Cow::Owned(normalize(s)));
+        match field {
+            SortField::Title => text(&t.title),
+            SortField::Artist => text(&t.artist),
+            SortField::Album => text(&t.album),
+            SortField::Genre => text(&t.genre),
+            SortField::Label => text(&t.label),
+            SortField::Key => SortValue::Number(harmony::key_order(&t.key).into()),
+            SortField::Bpm => SortValue::Bpm(t.bpm),
+            SortField::Rating => SortValue::Number(t.rating.into()),
+            SortField::Color => SortValue::Number(t.color.map_or(u8::MAX, TrackColor::id).into()),
+            SortField::Year => SortValue::Number(t.year.into()),
+            SortField::Plays => SortValue::Number(t.play_count.into()),
+            SortField::Added => SortValue::Text(Cow::Borrowed(&t.date_added)),
+            SortField::Time => SortValue::Number(t.duration_secs),
+            SortField::Bitrate => SortValue::Number(t.bitrate),
+            SortField::Path => SortValue::Text(Cow::Owned(crate::paths::key(&t.file_path))),
+        }
+    }
+
+    /// Values of one key are all of one kind.
+    fn cmp(&self, other: &SortValue<'_>) -> std::cmp::Ordering {
+        match (self, other) {
+            (SortValue::Text(a), SortValue::Text(b)) => a.cmp(b),
+            (SortValue::Number(a), SortValue::Number(b)) => a.cmp(b),
+            (SortValue::Bpm(a), SortValue::Bpm(b)) => a.total_cmp(b),
+            _ => std::cmp::Ordering::Equal,
+        }
     }
 }
 
 /// Stable sort: tracks equal under every key keep their order.
 pub fn sort_tracks(tracks: &mut [&Track], keys: &[SortKey]) {
-    tracks.sort_by(|a, b| {
+    let mut keyed: Vec<(Vec<SortValue<'_>>, &Track)> =
+        tracks.iter().map(|t| (keys.iter().map(|k| SortValue::of(t, k.field)).collect(), *t)).collect();
+    keyed.sort_by(|(a, _), (b, _)| {
         keys.iter()
-            .map(|k| {
-                let o = compare(a, b, k.field);
+            .zip(a.iter().zip(b))
+            .map(|(k, (a, b))| {
+                let o = a.cmp(b);
                 if k.descending { o.reverse() } else { o }
             })
             .find(|o| o.is_ne())
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    for (slot, (_, t)) in tracks.iter_mut().zip(keyed) {
+        *slot = t;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------

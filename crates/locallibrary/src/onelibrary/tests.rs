@@ -100,3 +100,31 @@ fn file_types() {
     assert_eq!(file_type("/Contents/a/b.aiff"), 12);
     assert_eq!(file_type("/Contents/a/b"), 0);
 }
+
+/// `numberOfContents` follows the tracks added and removed, also after an add that fails part
+/// way (here once its track row is written).
+#[test]
+fn the_track_count_follows_adds_and_removes() {
+    let mut one = OneLibrary::create().unwrap();
+    let defaults = one.content_defaults().unwrap();
+    let count = |one: &OneLibrary| -> (i64, i64) {
+        let q = |sql| one.conn.query_row(sql, [], |r| r.get(0)).unwrap();
+        (q("SELECT numberOfContents FROM property"), q("SELECT count(*) FROM content"))
+    };
+    let add = |one: &mut OneLibrary, n: u32, cues| {
+        let path = format!("/Contents/A/{n}.mp3");
+        let rec = ContentRecord {
+            cues,
+            ..ContentRecord::from_track(&loclib_model::test_util::track(n, "A", "B", &path), true, &defaults)
+        };
+        one.add_track(&rec, &path, "", None)
+    };
+    let ids: Vec<u32> = (1..=3).map(|n| add(&mut one, n, Vec::new()).unwrap()).collect();
+    assert_eq!(count(&one), (3, 3));
+    one.remove_tracks(&ids[..1]).unwrap();
+    assert_eq!(count(&one), (2, 2));
+    one.conn.execute_batch("DROP TABLE cue").unwrap();
+    assert!(add(&mut one, 4, vec![(1, Vec::new())]).is_err());
+    add(&mut one, 5, Vec::new()).unwrap();
+    assert_eq!(count(&one), (4, 4));
+}
