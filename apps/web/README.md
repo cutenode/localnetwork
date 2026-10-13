@@ -154,10 +154,14 @@ The network is temporary; restarting it resets everything (and the dev database)
 | `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)   |
 | `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container |
 | `pnpm test:coverage`                | Unit + component + integration with `@vitest/coverage-v8`             |
-| `pnpm test:e2e`                     | Playwright against an isolated network and dev server                 |
+| `pnpm test:build`                   | Production build, checked for sourcemaps and the client bundle budget |
+| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe  |
+| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)            |
 | `pnpm knip`                         | Unused files, exports, and dependencies                               |
 | `pnpm lexicons:publish`             | Publish lexicons from the root account and check their DNS records    |
-| `pnpm verify`                       | Everything CI runs, in order                                          |
+| `pnpm verify`                       | CI's quick checks, in order                                           |
+
+Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
 
 Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files on commit and run type checks and unit tests on push.
 
@@ -187,6 +191,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
    ```bash
    docker run -p 3000:3000 -v localnetwork-data:/data --env-file .env localnetwork
    ```
+   To try an image first, `apps/web/scripts/docker-smoke.sh localnetwork` (from the repo root) runs it against the local network with an empty volume and fetches a few pages, as CI does.
 5. Run **one** instance (SQLite and in-process background jobs). Back up `/data`: it holds OAuth sessions and the audit outbox; everything else can be re-synced from atproto.
 6. Point `locallibrary.localnetwork.computer` at the same deployment (a DNS record, plus the custom domain on your host) for [its client document](#tools-pages-and-hosts).
 

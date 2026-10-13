@@ -25,11 +25,13 @@
 		"test:unit": "vitest --project server",
 		"test:client": "vitest run --project client",
 		"test:integration": "vitest run --project integration",
-		"test:coverage": "vitest run --coverage",
+		"test:coverage": "vitest run --coverage --project=!build",
+		"test:build": "vitest run --project build",
 		"test:e2e": "playwright test",
+		"test:lighthouse": "pnpm build && lhci autorun",
 		"lexicons:publish": "tsx scripts/publish-lexicons.ts",
 		"fixtures:mix": "tsx scripts/mix-fixture.ts",
-		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm build"
+		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm test:build"
 	},
 	"dependencies": {
 		"@atproto/api": "0.0.0-spaces-alpha-20261001173819",
@@ -53,6 +55,8 @@
 	"devDependencies": {
 		"@atproto/dev-env": "0.0.0-spaces-alpha-20261001173819",
 		"@atproto/sync": "0.0.0-spaces-alpha-20261001173819",
+		"@axe-core/playwright": "^4.13.0",
+		"@lhci/cli": "^0.15.1",
 		"@playwright/test": "^1.63.0",
 		"@sveltejs/adapter-node": "^6.0.0",
 		"@sveltejs/kit": "^3.0.0",

@@ -1,0 +1,23 @@
+# cargo-mutants (https://mutants.rs): the settings every run shares, from the command line or
+# locallibrary-scheduled.yml's weekly `mutants` job, which picks the packages and the shard.
+# Configuration keys: https://json.schemastore.org/cargo-mutants-config.json
+
+# The same runner as CI, with .config/nextest.toml's ordering.
+test_tool = "nextest"
+
+# A mutant times out at twice the unmutated run of every selected package's tests (not five
+# times, the default). Each mutant runs only its own package's tests, which take a fraction of
+# that, and the timeouts were over half of a sample run's time at five.
+timeout_multiplier = 2.0
+
+# `--shard k/n` deals the mutants out in turn rather than in runs of neighbours, so the shards
+# finish together: the crates' tests take from a second to a minute a mutant.
+sharding = "round-robin"
+
+exclude_globs = [
+  # Generated from packages/tokens/colors.json; its test compares it with the JSON, so a mutant
+  # here says nothing about the tests.
+  "crates/loclib-model/src/tokens.rs",
+  # Helpers for tests and benchmarks, built into the crates under their `test-util` feature.
+  "**/test_util.rs",
+]

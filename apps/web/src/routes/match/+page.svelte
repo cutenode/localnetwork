@@ -77,7 +77,7 @@
 				<legend class="label">Booth setup</legend>
 				<div class="flex flex-wrap gap-1.5">
 					{#each FORMATS as option (option.value)}
-						<label class="chip chip-toggle"><input type="checkbox" class="sr-only" name="format" value={option.value} checked={c.formats.includes(option.value)} />{option.label}</label>
+						<label class="chip-toggle"><input type="checkbox" class="sr-only" name="format" value={option.value} checked={c.formats.includes(option.value)} />{option.label}</label>
 					{/each}
 				</div>
 			</fieldset>

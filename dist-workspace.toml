@@ -5,7 +5,8 @@
 members = ["cargo:."]
 
 [dist]
-# The dist version locallibrary-release.yml installs: change both together.
+# The dist version locallibrary-release.yml and locallibrary-scheduled.yml install: change them
+# together.
 cargo-dist-version = "0.33.0"
 ci = "github"
 # Release only on tags that start with `locallibrary` (locallibrary-cli-v0.2.0), since the repo

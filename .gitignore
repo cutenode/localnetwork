@@ -5,6 +5,8 @@
 .hegel/
 # A Swift build cache that tools drop at the root (there's no Swift package here).
 /.build/
+# cargo-mutants' results (.cargo/mutants.toml).
+/mutants.out*
 node_modules/
 .DS_Store
 Thumbs.db

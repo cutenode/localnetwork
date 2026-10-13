@@ -35,7 +35,7 @@
 
 	<div class="grid gap-8 lg:grid-cols-[18rem_1fr]">
 		<aside class="{showFilters ? 'block' : 'hidden'} lg:block">
-			<form method="GET" class="card card-pad sticky top-20 space-y-5" data-sveltekit-keepfocus>
+			<form method="GET" class="card card-pad sticky top-20 space-y-5" data-sveltekit-reset="false">
 				<div>
 					<label class="label" for="q">Search</label>
 					<input id="q" name="q" class="input" value={f.q} placeholder="Name, sound, venue…" />
@@ -64,7 +64,7 @@
 					<legend class="label">Slot</legend>
 					<div class="flex flex-wrap gap-1.5">
 						{#each SET_TYPES as option (option.value)}
-							<label class="chip chip-toggle"><input type="checkbox" class="sr-only" name="setType" value={option.value} checked={f.setTypes.includes(option.value)} />{option.label}</label>
+							<label class="chip-toggle"><input type="checkbox" class="sr-only" name="setType" value={option.value} checked={f.setTypes.includes(option.value)} />{option.label}</label>
 						{/each}
 					</div>
 				</fieldset>
