@@ -2,14 +2,17 @@
 
 Updated 2026-10-07 from the TODO triage: axed items are gone, decided ones are written as tasks,
 and hardware checks are grouped into test days. Tick items off or delete them as they land.
+Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12.
 
 ## Before the first push and release
 
 - [ ] **Nothing is pushed and there's no remote.** The root commit and `main`'s history hold
-      session and artifact links and personal paths, so a public push needs a history rewrite or
-      a fresh first commit. The commits on `integration` past `main` are unsigned: re-create them
-      signed on a `bnb/` branch from `main`. Then create `github.com/cutenode/localnetwork`
-      (already set as `repository` in the root `Cargo.toml`) and push.
+      session and artifact links, personal paths and nine `Co-Authored-By` trailers (108c7bd,
+      69bc77d, 5542708, 2c06b9e, 4feaf17, 2defa0c, 8d68605, be4c221, e2f1d5a), so a public push
+      needs a history rewrite or a fresh first commit. The commits on `integration` past `main`
+      are unsigned: re-create them signed on a `bnb/` branch from `main`. Then create
+      `github.com/cutenode/localnetwork` (already set as `repository` in the root `Cargo.toml`)
+      and push.
 - [ ] **CI has never run.** On pull requests and pushes to `main` (Markdown-only changes skip it):
       fmt, clippy, nextest on macOS/Linux/Windows, the msrv job (`cargo +1.91 check`, not yet run
       against the updated lockfile), docs, cargo-deny, and a slim `features` job (clippy on the
@@ -22,7 +25,9 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       `fsutil::flush` with a write handle, the clippy lints fixed by reading, paths compared
       without the `\\?\` prefix, the mix report's `file:///E:/` links) has never compiled. The
       no-`playback` and no-`account` builds have only been built on macOS, and the feature jobs
-      don't cover Windows.
+      don't cover Windows. `bnb/ci-runners` adds more that hasn't run either (CodSpeed benchmarks,
+      fuzzing, cargo-mutants, CLI timings, a release dry run, Lighthouse, axe, a Docker smoke run,
+      Stryker, npm advisories, workflow linting): fold them into this list once it's merged.
 - [ ] Rename the packages before v0.1.0, when installer names become permanent: the CLI package
       to `locallibrary` and the library to `locallibrary-core`, keeping `[lib] name =
       "locallibrary"` so no `use` changes. Release tags then become `locallibrary-v0.1.0` (update
@@ -46,6 +51,23 @@ and hardware checks are grouped into test days. Tick items off or delete them as
 - [ ] `clean` backs up only the databases. It deletes only rekordbox's demo samples, which every
       export brings back, yet `refresh` runs it after every export, so audio backups pile up and a
       full drive can't be cleaned at all.
+
+## Waiting on you
+
+- [ ] Commit the TUI popup-header fix sitting uncommitted in `localnetwork-tui-popup-header`
+      (`bnb/tui-popup-header`, 4 files). Until it lands, `library_walks_keep_the_player_whole`
+      fails on `main`, since `.hegel/` replays the saved 80x3 case. Its Bombadil `overlay()`
+      change hasn't been run.
+- [ ] Delete the merged clone at `~/GitHub/cutenode/localnetwork-collection`.
+- [ ] Sign rekordbox out of Dropbox and back in: a session printed the OAuth tokens from
+      `rekordbox3.settings` into its transcript, and the file hasn't changed since Oct 8.
+- [ ] HappyView keys: the web app reads `HAPPYVIEW_API_KEY` (`apps/web/.env.local` has the local
+      dev one), and nothing reads `HAPPYVIEW_ADMIN_TOKEN` in `apps/locallibrary/.env`. Give the
+      deployed web app the hosted HappyView's token under `HAPPYVIEW_API_KEY`.
+- [ ] Run the audit: the one asked for on 2026-10-11 stopped when its area subagents were turned
+      down.
+- [ ] Delete the Hegel coverage session's 11 GB of logs and lcov exports in
+      `/private/tmp/claude-501/-Users-cyren-GitHub-cutenode-localnetwork/ad693dc7-2dd1-40a7-9cb5-b96ac5545ebf`.
 
 ## Split-out crates
 
@@ -85,6 +107,11 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       on deck 1's stick; plugging a stick in and playing nothing leaves no empty history list (or
       does it?); turning a player off and on with the stick in starts a new list; a b2b with two
       sticks leaves each stick only its own tracks.
+- [ ] `collection export` to a stick, loaded on both players.
+- [ ] `pack --transcode` WAV copies, the FLAC and AIFF format codes, and cue timing after `track
+      upgrade` (AAC too).
+- [ ] OneLibrary's `createdDate` is now the local date (`onelibrary/mod.rs:480`): compare it with
+      what a rekordbox export writes.
 
 ### 2. Mac desk
 - [ ] Clones on real sticks: with three drives of one library plugged in, a playlist edit, an
@@ -113,6 +140,9 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       table get rows at all (no export checked so far had any), and is D `kind` 5 as in
       `master.db`? `onelibrary/cues.rs` assumes so.
 - [ ] Upload a `mix --export` to a mix through a request on a running Local Network.
+- [ ] `store serve` on this Mac and `store fetch` from another computer.
+- [ ] The GiantSteps key and tempo benchmark: import the datasets into rekordbox, export them to a
+      stick, then run `locallibrary analysis bench` on it.
 
 ### 3. Linux box
 - [ ] `format`, `fsck`, `eject`, `drive rename --label` and `format --check-capacity` on a stick.
@@ -199,6 +229,22 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`) need a paid
       Developer ID; the shell installer and Homebrew run an unsigned CLI fine. Windows binaries are
       unsigned too (dist supports Azure Artifact Signing).
+- [ ] `collection export`'s space check counts `written.needed_bytes` but not `download_bytes`
+      (online-only Dropbox files that download onto the boot disk): both the fit warning
+      (`collection_export.rs:276`) and `apply`'s `NoSpace` check (`:473`) miss them. A full export
+      to `~/rekordbox-export` stopped at 1.8 of 25 GB.
+- [ ] The sidecar's `sets.export` makes a store (`c.store()?`, `rpc/methods.rs:741`), while the
+      CLI's `sets export` reads with `store_to_read`.
+- [ ] `store_to_read` and `existing_store` (`diff_cmd.rs`) drop the "opening store at ..." context
+      that `main.rs` and `drive_cmd.rs` add.
+- [ ] lofty 0.25.4 corrupts a WAV whose RIFF size is 0 when writing Serato tags: `serato.rs`'s
+      size guard only catches files shorter than their header, and `tests/props/serato.rs:750`
+      steers around the case.
+- [ ] Not investigated: `track show` may show the My Tags of another track that shares its file,
+      and `account logout` may forget the handle after a refused status check.
+- [ ] Two property tests failed once and passed on reruns, with no saved case:
+      `drive_reads_say_what_their_json_says`, and rekordbox-pdb's `edits_match_the_model` (during
+      two coverage runs at once).
 
 ## DJ profile and publishing (`locallibrary profile`, `account`)
 
@@ -241,3 +287,110 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       returns an error, drop `readable_scopes` in `atmosphere/net.rs`.
 - [ ] Trait thresholds (60% of transitions harmonic, 80% within 3% tempo, 2 BPM for "builds") are
       first guesses.
+
+## Features and decisions
+
+- [ ] `collection export` skips intelligent playlists: `SmartList` rules aren't read
+      (`masterdb.rs:38`).
+- [ ] `collection export` doesn't write `exportExt.pdb`, so CDJ-3000 and older players get no My
+      Tags.
+- [ ] `store serve` and `store fetch` aren't in the sidecar.
+- [ ] Decide: x2 and /2 tempo fixes, which need rekordbox's PQT2 per-beat field decoded (`doctor`
+      points at rekordbox's own buttons meanwhile).
+- [ ] Decide: export history lists as playlists for Traktor, Serato and Engine (`traktor.rs:200`
+      and `engine.rs:219` skip them).
+- [ ] Decide: an additive OneLibrary convert brings back a track a player removed when the other
+      database still has it (`--replace` is the way out, `docs/editing.md`).
+- [ ] Decide: Serato `--write-tags` refuses an AIFF whose odd-sized last chunk lacks its pad byte
+      at apply rather than plan; catching it earlier means redoing lofty's chunk walk.
+
+## Lexicons, before publishing
+
+From the lexicon design review (R numbers).
+
+- [ ] R11: `recordingMbId` as `mbid:<uuid>` with `format: uri`, as teal.fm does (a bare UUID now,
+      `dj/defs.json`).
+- [ ] R3: `artists[]`, `releaseName` and `releaseMbId` on `dj.defs#track`, and fill
+      `recordingMbId` when publishing (only tests set it now).
+- [ ] R5: `transitionIn` on `dj.set`; transitions only live in the mix-report blob.
+- [ ] R6: with R3 and R5, about 450 tracks fit in a 150 KB record, not the 1000 `dj/set.json`
+      allows.
+- [ ] R2: the profile's `defs#mix` points at the DJ's `dj.set` with a strongRef instead of a JSON
+      tracklist. R10: offer the set lexicon to skaists and FreeMix.
+- [ ] Publish the web app's other `computer.localnetwork.*` lexicons too (11 `_lexicon` TXT
+      records in all; none exist yet).
+- [ ] `docs/account.md:94` links Lexicon Community's archived GitHub repo; link its Tangled repo.
+
+## Website (`apps/web`)
+
+- [ ] `planner.save()` can make duplicate save records when two saves of one project overlap: it
+      reads the saves, then `createSpaceRecord` mints a fresh key (`services/planner.ts:116`). A
+      fixed record key per project fixes it, but changes the data shape.
+- [ ] Dev logs SvelteKit's `ssr_fetch_eager` warning on every page load.
+- [ ] The web app defines `lexicons/computer/localnetwork/permissions.json` but never requests it;
+      `oauth.ts`'s `buildScopes` joins explicit scopes.
+- [ ] Light-mode phrase colours for the mix report: verse and bridge strips are about 2:1 against
+      the light background (`packages/tokens/colors.json` has one phrase palette).
+- [ ] Look at `/planner/shows/[rkey]` since the em-dash pass, and give it an axe check like
+      `/planner/shows/new` has.
+- [ ] `@lhci/cli` 0.15.1 (Lighthouse, on `bnb/ci-runners`) brings 7 advisories into the dev
+      dependencies (tmp, uuid, extract-zip, basic-ftp, sprintf-js).
+
+## localtoolbox
+
+- [ ] Move to the monorepo copy: export state from the old extension, load
+      `apps/localtoolbox/dist` unpacked, import, then delete
+      `~/GitHub/bnb/soundcloud-playlist-to-text`. `src/manifest.json` has no `key`, so every new
+      unpacked path gets a new extension ID.
+- [ ] About 1,370 em dashes, 348 of them in a 182 KB README. Remove them, trim the README, and
+      widen `apps/web/src/writing.test.ts`'s guard to the toolbox.
+- [ ] Tests for Stryker's surviving mutants: required fields in `state-transfer.ts`, regex anchors
+      in `profiles.ts` and the site adapters, the bulk-probe guard in `content.ts`.
+- [ ] Drop the Stryker vitest-runner patch once stryker-js#6214 ships.
+- [ ] Decide: zod (already `zod/mini`) adds about 9 KB to the startup chunk; valibot is smaller.
+
+## Dependencies and upstream
+
+- [ ] symphonia 0.6.1 is out and fixes the AIFF SSND bug `loclib-transcode` works around
+      (`transcode.rs:99`). stratum-dsp 1.0.0 still needs symphonia 0.5, so moving means building
+      two symphonias until it follows.
+- [ ] flacenc's STREAMINFO min-block fix (PR #255) is merged but unreleased (0.5.1): pin the git
+      rev, keep the workaround, or ask for a release on #242.
+- [ ] File the rubato `output_delay()` off-by-one: the draft, patch and repro are in
+      `/private/tmp/claude-501/-Users-cyren-GitHub-cutenode-localnetwork/6f77efa7-5cd0-458f-ba9f-125166b35c1f/scratchpad/upstream/`
+      (re-read `rubato-issue.md` first; it changed after it was drafted).
+
+## Performance
+
+- [ ] Compare fat and thin LTO (`lto = "thin"` in the root `Cargo.toml`).
+- [ ] `Device::scan_fingerprinted` forgets every database key, so `.locallibrary/index.json` is
+      rewritten with `F_FULLFSYNC` on every scan (about 20% of `check`'s per-drive time). Skipping
+      it changes the index's `at` timestamps.
+- [ ] OneLibrary builds commit after every statement (about 16% of a 5k-track convert). One
+      transaction changes the header's change counters, which `content_hash` already ignores.
+- [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
+      O(new x N). Use `Library::track_lookup` from `bnb/perf` and measure it.
+- [ ] Once `bnb/perf` and `bnb/ci-runners` are both in, make the workspace's `criterion`
+      `codspeed-criterion-compat`, as `locallibrary-bench.yml` already says it is, and connect
+      the repo in CodSpeed after the first push (the free tier needs it public).
+- [ ] `a_click_does_what_it_points_at` (`tui/app/props.rs`) draws once more than it needs for
+      kinds 9, 12 and 13, about 15% of its renders.
+
+## CI and tooling
+
+- [ ] The shared `.git/hooks/pre-commit` hard-codes `localnetwork-ci`'s lefthook and otherwise
+      looks in the worktree's own `node_modules`, so worktrees without one run no hooks. The hooks
+      also fail under Node 25, since the workspace is engine-strict on 24.
+- [ ] Dependabot doesn't update `apps/locallibrary/bombadil/package-lock.json` (its npm entry only
+      watches `/`).
+- [ ] CI path filters miss `packages/tokens/**` in `locallibrary-ci.yml` and `mix-report.yml`,
+      though `crates/loclib-model/tests/tokens.rs` reads `colors.json`.
+- [ ] The issue and PR templates don't offer localtoolbox (no bug template, not in "Which tool?").
+- [ ] A deeper Hegel run in the scheduled workflow, with `.hegel/` cached;
+      `tools/hegel-coverage.sh` never runs in CI.
+- [ ] A fuzz target for `PdbEditor`'s edits (the `pdb` target only parses).
+- [ ] `apps/web/.vscode` does nothing when the root is opened: move it to the root or delete it.
+      `apps/web/static/robots.txt` is SvelteKit's stock file, and `**/*.rs.bk` in `.gitignore` is
+      left over.
+- [ ] Outside this repo: the dotfiles' setup still installs brew `rust` rather than `rustup`
+      (`setup/linux.sh:56`, `setup/macos.sh:240`); the PATH fix only helps once rustup is there.
