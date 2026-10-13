@@ -47,7 +47,8 @@ const WHICH_NIGHT: &str = "locallibrary can't tell which night: pull after each 
 /// (they were all recorded since the drives were last pulled), but only when what their windows
 /// span fits one night: wider windows say nothing about which night each session was (a first
 /// pull's lists could be from any time before it), so each long enough is a candidate of its own.
-pub(crate) fn suggest(store: &Store, sessions: &[Session], drives: &[Device]) -> Result<Vec<Candidate>> {
+/// With no store, there's no evidence from set drives or recordings.
+pub(crate) fn suggest(store: Option<&Store>, sessions: &[Session], drives: &[Device]) -> Result<Vec<Candidate>> {
     let open: Vec<&Session> = sessions.iter().filter(|s| s.sets.is_empty() && !s.dismissed).collect();
     let library: FxHashMap<String, String> = drives
         .iter()
@@ -82,14 +83,18 @@ pub(crate) fn suggest(store: &Store, sessions: &[Session], drives: &[Device]) ->
         groups[g].push(s);
     }
 
+    let registry = store.map(Store::drives).transpose()?.unwrap_or_default();
     let set_drives: FxHashSet<String> =
-        store.drives()?.into_values().filter(|r| r.role == Some(Role::Set)).map(|r| r.name).collect();
+        registry.into_values().filter(|r| r.role == Some(Role::Set)).map(|r| r.name).collect();
     // A report that can't be read is no evidence either way.
-    let recordings: Vec<(String, FxHashSet<String>)> = report::list(store.root())?
-        .into_iter()
-        .filter_map(|r| report::load(store.root(), &r.id).ok())
-        .map(|r| (r.mix.title, r.plays.iter().map(|p| plays::file_key(&p.track.file_path)).collect()))
-        .collect();
+    let recordings: Vec<(String, FxHashSet<String>)> = match store {
+        Some(store) => report::list(store.root())?
+            .into_iter()
+            .filter_map(|r| report::load(store.root(), &r.id).ok())
+            .map(|r| (r.mix.title, r.plays.iter().map(|p| plays::file_key(&p.track.file_path)).collect()))
+            .collect(),
+        None => Vec::new(),
+    };
 
     let nights = groups.into_iter().flat_map(|g| match one_night(&g) {
         true => vec![g],

@@ -261,7 +261,7 @@ fn status_counts_history_lists_a_onelibrary_player_recorded() {
     }
     std::fs::write(main.join(paths::LIBRARY_PLUS_DB), one.to_encrypted().unwrap()).unwrap();
 
-    let status = api::status(&store, &ctx).unwrap();
+    let status = api::status(Some(&store), &ctx).unwrap();
     let s = status.iter().find(|s| s.drive.name.as_deref() == Some("Main")).unwrap();
     assert_eq!((s.relation, s.back_from_set), (Some(Relation::RightNewer), Some(1)), "{s:?}");
 }

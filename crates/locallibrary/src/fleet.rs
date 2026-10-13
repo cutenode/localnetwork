@@ -533,7 +533,7 @@ pub fn sets(store: &Store, mounted: &[Device]) -> Result<Vec<DriveSet>> {
 // ---------------------------------------------------------------------------------------------
 
 /// What an unadopted (or re-identified) drive matches.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct Recognition {
     /// Its library state is a stored snapshot.
     pub snapshot: Option<SnapshotMatch>,

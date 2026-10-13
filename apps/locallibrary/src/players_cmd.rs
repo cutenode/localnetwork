@@ -53,11 +53,7 @@ pub fn run(args: PlayersArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     let store = || crate::open_store(store_path);
     match args.command.unwrap_or(PlayersCommand::Show) {
         PlayersCommand::Show => {
-            // Reading never creates a store.
-            let r = match crate::diff_cmd::existing_store(store_path) {
-                Some(store) => api::players_show(&store)?,
-                None => RememberedPlayers { default: Vec::new(), libraries: Vec::new() },
-            };
+            let r = crate::diff_cmd::read_or_empty(store_path, api::players_show)?;
             out.emit(&r, show);
         }
         PlayersCommand::Set { models, library, dry_run } => {

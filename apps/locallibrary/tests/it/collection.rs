@@ -101,6 +101,7 @@ fn the_collection_says_what_it_holds() {
 
     let out = collection(&env, &db, &["playlists"]);
     assert!(out.contains("Shows/\n  Friday"), "{out}");
+    assert!(!env.store.exists(), "reading the collection makes no store");
 }
 
 #[test]
@@ -138,6 +139,7 @@ fn a_drive_is_compared_with_the_collection() {
     assert!(out.contains("  - playlists (1):\n    Set"), "{out}");
     let loose = line(&out, "only loosely match a track on the drive");
     assert!(loose.starts_with("! 1 collection track(s)") && loose.ends_with("e.g. Demo Track 2"), "{out}");
+    assert!(!env.store.exists(), "comparing makes no store");
 }
 
 #[test]
@@ -157,7 +159,7 @@ fn the_collection_is_exported_to_a_folder_and_pulled() {
     let folder = env.outside("rekordbox-export");
     let dry = collection(&env, &db, &["export", path(&folder), "--dry-run"]);
     assert!(dry.contains("2 track(s), 1 playlist(s)"), "{dry}");
-    assert!(!folder.exists(), "a dry run makes nothing");
+    assert!(!folder.exists() && !env.store.exists(), "a dry run makes nothing");
     let r = env.run(&["collection", "--db", path(&db), "export", path(&env.outside("gone/rekordbox-export"))]);
     assert!(r.code != 0 && r.err.contains("the folder to export into (is its drive mounted?)"), "{}", r.err);
 

@@ -143,7 +143,7 @@ fn drive_management_through_the_api() {
     let kept = Side::from_snapshot(&store, &club_snap, "club").unwrap().library;
     assert!(kept.history.iter().any(|h| h.name == "HISTORY 001"));
     // ...and both drives now hold the newest library, which is the store's head.
-    let status = api::status(&store, &ctx).unwrap();
+    let status = api::status(Some(&store), &ctx).unwrap();
     for d in [&main, &club] {
         let s = status.iter().find(|s| s.drive.root == dunce_canonicalize(d)).expect("registered");
         assert_eq!(s.relation, Some(Relation::Identical), "{s:?}");

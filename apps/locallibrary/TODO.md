@@ -157,6 +157,20 @@ and hardware checks are grouped into test days. Tick items off or delete them as
       back from a set.
 - [ ] Nothing warns when a command writes to a store copy opened with `--store`; the next `store
       copy` refuses instead (without `--force`).
+- [ ] `players set --dry-run` and `players clear` still make a store with none there: their plans
+      take a `&Store` (`api::players_set_plan`, `players_clear_plan`), though with no store there's
+      nothing remembered to compare against. Take an `Option<&Store>`, as the reads now do.
+- [ ] Changes that look something up in the store make an empty one and then fail or find nothing
+      to do: `drive forget`/`role`/`retire`, `sets delete`, `smart rm`, `profile unpin`/`unhide`,
+      `store label`/`unlabel`, and the dry runs of `sets playlist`, `smart apply`, `adopt --as`,
+      `store gc`/`prune`/`copy`, `library prune` and `art unembed`. Look up with
+      `diff_cmd::store_to_read` or `read_or_empty` and make the store only when applying.
+- [ ] The sidecar's `drive.verify` is registered as a `read` but makes a store (`store_opt`), since
+      `drive_verify` records the check in it (as `drive verify` and `fsck` do on the command line).
+      Register it as what it is, or record only into a store that's there.
+- [ ] `drive groups` (and the sidecar's `drive.groups`) answers `[]` with no store, though
+      `fleet::sets` groups mounted drives by the library id each one holds and listed them
+      (unnamed) against a new store. Decide whether no store should still list those groups.
 - [ ] KEYCHAIN had an "interrupted operation" marker from 2026-10-04 16:56: run `locallibrary
       status KEYCHAIN` next time it's mounted.
 - [ ] `check.rs` findings name CLI commands and flags; structured actions like errors have would

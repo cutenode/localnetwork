@@ -1189,16 +1189,17 @@ pub struct DriveStatus {
     pub error: Option<String>,
 }
 
-/// Every mounted drive against its library's head snapshot, plus settings drift.
-pub fn status(store: &Store, ctx: &Ctx<'_>) -> Result<Vec<DriveStatus>> {
+/// Every mounted drive against its library's head snapshot, plus settings drift. With no store,
+/// no drive has a library or drifts.
+pub fn status(store: Option<&Store>, ctx: &Ctx<'_>) -> Result<Vec<DriveStatus>> {
     Ok(statuses(store, ctx)?.into_iter().map(|(s, _)| s).collect())
 }
 
 /// [`status`], with the library state each drive holds, to tell which hold the same: the head's
 /// fingerprint when it's identical to it (a drive synced with `--keep-extra` also goes by it),
 /// else its own. `None` when it wasn't compared.
-fn statuses(store: &Store, ctx: &Ctx<'_>) -> Result<Vec<(DriveStatus, Option<Hash>)>> {
-    let profile = store.settings_profile()?;
+fn statuses(store: Option<&Store>, ctx: &Ctx<'_>) -> Result<Vec<(DriveStatus, Option<Hash>)>> {
+    let profile = store.map(Store::settings_profile).transpose()?.unwrap_or_default();
     let mut out = Vec::new();
     for d in known_drives(false) {
         let info = d.info();
@@ -1218,11 +1219,11 @@ fn statuses(store: &Store, ctx: &Ctx<'_>) -> Result<Vec<(DriveStatus, Option<Has
             error: None,
         };
         let mut state = None;
-        let lib = match d.state().and_then(|s| s.library_id) {
-            Some(id) => store.library_by_id(id)?,
-            None => None,
+        let lib = match (store, d.state().and_then(|s| s.library_id)) {
+            (Some(store), Some(id)) => store.library_by_id(id)?,
+            _ => None,
         };
-        if let (Some(lib), true) = (lib, d.has_export()) {
+        if let (Some(store), Some(lib), true) = (store, lib, d.has_export()) {
             st.library = Some(lib.name.clone());
             if let Some(head) = lib.head {
                 let snap = store.load_snapshot(&head)?;
@@ -1477,10 +1478,12 @@ pub struct DriveSettingsView {
     pub drift: Vec<settings::Drift>,
 }
 
-pub fn settings_show(store: &Store, req: &DriveRef) -> Result<DriveSettingsView> {
+/// A drive's settings, and how they differ from the profile (none with no store).
+pub fn settings_show(store: Option<&Store>, req: &DriveRef) -> Result<DriveSettingsView> {
     let d = resolve_one_drive(&req.drive)?;
     let current = settings::read_all(&DriveSettings(d.root()));
-    let drift = settings::drift(&store.settings_profile()?, d.id(), &current);
+    let profile = store.map(Store::settings_profile).transpose()?.unwrap_or_default();
+    let drift = settings::drift(&profile, d.id(), &current);
     Ok(DriveSettingsView { drive: d.name(), id: d.id(), current, drift })
 }
 

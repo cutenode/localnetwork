@@ -1,5 +1,6 @@
 //! `playlist`, `track`, `smart` and `edits`: editing a drive's playlists and tracks in place.
 
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
@@ -851,7 +852,7 @@ pub fn track(args: TrackArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     run_edits(drive, edits, dry.dry_run, out, ctx)
 }
 
-pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+pub fn smart(args: SmartArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let show = |all: &locallibrary::smart::SmartPlaylists| {
         if all.playlists.is_empty() {
             say!("no smart playlists (add one with `locallibrary smart add PATH --filter ...`)");
@@ -871,7 +872,7 @@ pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Resu
         }
     };
     match args.command.unwrap_or(SmartCommand::List) {
-        SmartCommand::List => out.emit(&api::smart_list(store)?, show),
+        SmartCommand::List => out.emit(&crate::diff_cmd::read_or_empty(store_path, api::smart_list)?, show),
         SmartCommand::Add { path, filter, sort, limit, drives } => {
             let rule = locallibrary::smart::SmartPlaylist {
                 path: path.clone(),
@@ -881,7 +882,7 @@ pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Resu
                 drives: Vec::new(),
             };
             rule.validate()?;
-            let change = match api::smart_list(store)?.get(&path) {
+            let change = match crate::diff_cmd::read_or_empty(store_path, api::smart_list)?.get(&path) {
                 Some(old) => format!("replace the rule for {path:?} ({}) with {filter:?}", old.filter),
                 None => format!("add a rule for {path:?}: {filter:?}"),
             };
@@ -889,7 +890,7 @@ pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Resu
             return out.one_step(
                 &change,
                 "Save it?",
-                || Ok(api::smart_set(store, &req)?),
+                || Ok(api::smart_set(&crate::open_store(store_path)?, &req)?),
                 |a| {
                     show(a);
                     crate::output::hint("Run `locallibrary smart apply` to write them to your drives.");
@@ -897,12 +898,14 @@ pub fn smart(args: SmartArgs, store: &Store, out: Output, ctx: &Ctx<'_>) -> Resu
             );
         }
         SmartCommand::Rm { path } => {
+            let store = &crate::open_store(store_path)?;
             let rule = api::smart_list(store)?.remove(&path)?;
             let change = format!("remove the rule for {:?} (drives keep their playlists)", rule.path);
             let req = api::RemoveSmartPlaylist { path };
             return out.one_step(&change, "Remove it?", || Ok(api::smart_remove(store, &req)?), show);
         }
         SmartCommand::Apply { drives, dry } => {
+            let store = &crate::open_store(store_path)?;
             let named = !drives.is_empty();
             let targets = match named {
                 false => crate::each_drive::targets(Some(store))?,
@@ -1006,7 +1009,7 @@ pub fn edits(args: EditsArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
 pub fn pack(
     req: api::PackRequest,
     dry_run: bool,
-    store: Option<&Store>,
+    store: &Option<PathBuf>,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
@@ -1055,7 +1058,7 @@ pub fn pack(
     if let Some(o) = out.decide(dry_run, &question) {
         return Ok(out.not_applied(&plan, o));
     }
-    let report = plan.apply(store, ctx)?;
+    let report = plan.apply(crate::open_store(store).ok().as_ref(), ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || {
         if let Some(s) = &report.saved {
             output::ok(format!("saved snapshot {} ({})", s.short_id, s.message.as_deref().unwrap_or("")));

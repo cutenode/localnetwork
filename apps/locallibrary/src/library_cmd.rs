@@ -114,7 +114,7 @@ pub fn run(args: LibraryArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     let command = match (args.command, args.library) {
         (Some(c), _) => c,
         (None, Some(library)) => {
-            if open_store(store_path)?.find_library(&library)?.is_none() {
+            if crate::diff_cmd::read_or_empty(store_path, |s| s.find_library(&library))?.is_none() {
                 crate::help::mistyped_subcommand("library", &library, "library")?;
             }
             LibraryCommand::Log(LogArgs { library: Some(library), limit: None })
@@ -123,21 +123,20 @@ pub fn run(args: LibraryArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
     };
     match command {
         LibraryCommand::Ls => {
-            let libs = api::libraries_list(&open_store(store_path)?)?;
+            let libs = crate::diff_cmd::read_or_empty(store_path, api::libraries_list)?;
             out.emit(&libs, |l| render_list(l));
         }
         LibraryCommand::Rename { library, name } => {
-            let store = open_store(store_path)?;
             let change = format!("rename the library {library:?} to {name:?}");
             let req = api::RenameLibrary { library: library.clone(), name };
             return out.one_step(
                 &change,
                 "Rename it?",
-                || Ok(api::library_rename(&store, &req)?),
+                || Ok(api::library_rename(&open_store(store_path)?, &req)?),
                 |l| output::ok(format!("{library} is now {}", l.name)),
             );
         }
-        LibraryCommand::Log(a) => return log(a, &open_store(store_path)?, out),
+        LibraryCommand::Log(a) => return log(a, &crate::diff_cmd::store_to_read(store_path)?, out),
         LibraryCommand::Push(a) => return push(a, store_path, out, ctx),
         LibraryCommand::Prune(a) => return crate::store_cmd::prune(&open_store(store_path)?, a.options(), out, ctx),
     }

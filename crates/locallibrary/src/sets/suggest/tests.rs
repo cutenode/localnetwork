@@ -103,7 +103,7 @@ fn is_one_night(group: &[&Session]) -> bool {
 fn suggestions_group_what_goes_together_and_score_the_evidence(tc: TestCase) {
     let (heard, store, _) = &stores()[tc.draw(gs::integers::<usize>().max_value(2))];
     let sessions = some_sessions(&tc);
-    let got = suggest(store, &sessions, &[]).unwrap();
+    let got = suggest(Some(store), &sessions, &[]).unwrap();
 
     let by_id = |id: &String| sessions.iter().find(|s| &s.id == id).unwrap();
     let is_open = |s: &Session| s.sets.is_empty() && !s.dismissed;

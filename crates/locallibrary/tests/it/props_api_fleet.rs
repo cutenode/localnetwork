@@ -115,7 +115,7 @@ fn registry_requests_name_the_drives_they_mean(tc: TestCase) {
 
     // A library with no drive mounted isn't in the fleet view.
     store.create_library("Radio").unwrap();
-    let fleet = api::fleet_status(&store, &api::FleetRequest { all: true, retired: false }, &ctx).unwrap();
+    let fleet = api::fleet_status(Some(&store), &api::FleetRequest { all: true, retired: false }, &ctx).unwrap();
     let names: Vec<&str> = fleet.libraries.iter().map(|l| l.name.as_str()).collect();
     assert_eq!(names, ["Club", "Main"]);
 }

@@ -97,12 +97,50 @@ fn playlists(drive: &str) -> Vec<String> {
     library(drive).playlists.into_iter().map(|p| p.name).collect()
 }
 
+/// Reads with no store make none: they answer as if it were empty (mounted drives are still
+/// there), or that there's no store when they're about the store itself.
 #[test]
-fn reads_without_a_store_answer_empty_and_make_none() {
+fn reads_without_a_store_make_none() {
     let s = Sidecar::new();
-    assert!(s.ok("profile.prefs", json!({})).is_object());
-    assert_eq!(s.ok("sets.played", json!({ "track": "Demo Track 1" })), json!([]));
-    assert!(!s.store().exists());
+    let a = s.demo("A");
+    let empty = [
+        ("profile.prefs", json!({}), None),
+        ("sets.played", json!({ "track": "Demo Track 1" }), Some(json!([]))),
+        ("store.copies", json!({}), Some(json!([]))),
+        ("library.list", json!({}), Some(json!([]))),
+        ("smart.list", json!({}), Some(json!({ "playlists": [] }))),
+        ("settings.profile", json!({}), Some(json!({ "base": {}, "drives": {} }))),
+        ("players.show", json!({}), Some(json!({ "default": [], "libraries": [] }))),
+        ("drives.known", json!({}), Some(json!([]))),
+        ("drive.groups", json!({}), Some(json!([]))),
+        ("settings.show", json!({ "drive": a }), None),
+        ("sets.suggest", json!({}), None),
+        ("drive.recognise", json!({ "drive": a }), None),
+        ("drive.space", json!({ "drive": a }), None),
+    ];
+    for (method, params, want) in empty {
+        let got = s.ok(method, params);
+        if let Some(want) = want {
+            assert_eq!(got, want, "{method}");
+        }
+        assert!(!s.store().exists(), "{method} made a store");
+    }
+    let status = s.ok("status", json!({}));
+    assert_eq!((&status[0]["drive"]["volume_name"], &status[0]["library"]), (&json!("A"), &Value::Null), "{status}");
+    let fleet = s.ok("fleet.status", json!({ "all": true }));
+    assert_eq!(fleet["mounted"].as_array().map(Vec::len), Some(1), "{fleet}");
+    assert!(!s.store().exists(), "status made a store");
+
+    let about_the_store = [
+        ("store.info", json!({})),
+        ("store.history", json!({ "library": "Main" })),
+        ("store.verify", json!({})),
+        ("drive.log", json!({ "drive": a })),
+    ];
+    for (method, params) in about_the_store {
+        assert_eq!(s.call(method, params).err().map(|e| e.kind), Some("not_found"), "{method}");
+        assert!(!s.store().exists(), "{method} made a store");
+    }
 }
 
 /// `$/test.wait` answers only in the sidecar's own tests (`LOCALLIBRARY_RPC_TEST=1`).

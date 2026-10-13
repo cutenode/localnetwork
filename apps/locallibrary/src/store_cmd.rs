@@ -1,6 +1,7 @@
 //! `pull` and the store's upkeep: `store label|unlabel|prune|copy|copies|serve|fetch`.
 
 use std::io::IsTerminal;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
@@ -195,8 +196,8 @@ fn render_copy_plan(p: &api::CopyReport, removes: bool) {
 }
 
 /// `store copies`.
-pub fn copies(store: &Store, out: Output) -> Result<ExitCode> {
-    let copies = api::store_copies(store)?;
+pub fn copies(store: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
+    let copies = crate::diff_cmd::read_or_empty(store, api::store_copies)?;
     out.emit(&copies, |copies| {
         if copies.is_empty() {
             say!("No copies yet. Make one with `locallibrary store copy <dir>`.");

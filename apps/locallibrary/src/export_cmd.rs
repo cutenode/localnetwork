@@ -150,7 +150,7 @@ pub fn run(args: ExportArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>
         split: args.split,
         replace: args.replace,
     };
-    let store = crate::diff_cmd::existing_store(store);
+    let store = crate::diff_cmd::existing_store(store)?;
     let report = api::export_playlist(store.as_ref(), &req, ctx)?;
     out.done(&report, |r| {
         if r.files.is_empty() {

@@ -129,8 +129,9 @@ pub struct Suggestions {
 /// The sets the sessions suggest, newest first: the sessions in no set that weren't dismissed,
 /// grouped by night where their windows are narrow enough to tell, with the evidence that each
 /// was a performance.
-pub fn sets_suggest(store: &Store, req: &SuggestSets, ctx: &Ctx<'_>) -> Result<Suggestions> {
-    let (mut got, drives) = gather(Some(store), req.drive.as_deref(), &SetBook::load(store)?, ctx)?;
+pub fn sets_suggest(store: Option<&Store>, req: &SuggestSets, ctx: &Ctx<'_>) -> Result<Suggestions> {
+    let book = store.map(SetBook::load).transpose()?.unwrap_or_default();
+    let (mut got, drives) = gather(store, req.drive.as_deref(), &book, ctx)?;
     let candidates = suggest::suggest(store, &got.sessions, &drives)?;
     got.sessions.retain(|s| candidates.iter().any(|c| c.sessions.contains(&s.id)));
     Ok(Suggestions { candidates, sessions: got.sessions })

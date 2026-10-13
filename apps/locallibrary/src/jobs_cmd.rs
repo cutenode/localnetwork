@@ -69,7 +69,7 @@ fn drive_or(
     if let Some(d) = drive {
         return Ok(d);
     }
-    let store = crate::diff_cmd::existing_store(store_path);
+    let store = crate::diff_cmd::existing_store(store_path)?;
     match pick(store.as_ref()) {
         Ok(d) => Ok(d.root().display().to_string()),
         Err(e) => Err(usage(e.to_string())),
@@ -86,7 +86,7 @@ pub fn drives_or_group(
 ) -> Result<Vec<String>> {
     let (drives, left_out) = match drives.is_empty() {
         true => {
-            let store = crate::diff_cmd::existing_store(store_path);
+            let store = crate::diff_cmd::existing_store(store_path)?;
             let group = api::drive_group(store.as_ref(), library).map_err(|e| usage(e.to_string()))?;
             (group.specs(), group.excluded)
         }
@@ -655,7 +655,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         return Err(usage("without a terminal to ask in, setup needs --library NAME: what to call your library"));
     }
     // The store as it is: one that isn't there yet has no libraries to name.
-    let mounted = mounted_exports(crate::diff_cmd::existing_store(store_path).as_ref());
+    let mounted = mounted_exports(crate::diff_cmd::existing_store(store_path)?.as_ref());
     if mounted.is_empty() {
         bail!(
             "no rekordbox drive is mounted: plug in a drive rekordbox exported to, then run `locallibrary setup` again"
@@ -704,7 +704,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         let spec = d.root.display().to_string();
         if d.id.is_none()
             && !names.contains_key(&d.root)
-            && let Ok(r) = api::drive_recognise(&store, &api::DriveRef { drive: spec.clone() }, ctx)
+            && let Ok(r) = api::drive_recognise(Some(&store), &api::DriveRef { drive: spec.clone() }, ctx)
             && let Some(best) = r.best().filter(|b| !held.contains(&b.id))
             && s.ask_yes(
                 &format!("{} looks like {}, a drive you had before. Give it that identity back?", label(d), best.name),
