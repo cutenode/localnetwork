@@ -1,0 +1,76 @@
+id = "tracklist"
+name = "Tracklist import"
+version = "0.1.0"
+protocol = "^0.1"
+# library:delete: replacing a playlist's entries with a shorter list leaves it with fewer.
+capabilities = ["library:read", "library:plan", "library:delete"]
+
+# What the import finds, entry by entry: `locallibrary import` shows it before planning the
+# operation of the same name, and a front end offers an ambiguous entry's candidates from it.
+[[contributes.commands]]
+name = "import"
+title = "Find a tracklist's tracks"
+mode = "headless"
+cli = "import"
+
+[contributes.commands.params]
+type = "object"
+required = ["file", "into"]
+additionalProperties = false
+
+[contributes.commands.params.properties.file]
+type = "string"
+minLength = 1
+description = "The tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or \"Artist - Title\" lines"
+
+[contributes.commands.params.properties.into]
+type = "string"
+minLength = 1
+description = "The playlist's path, letter case included (made there if missing)"
+
+[contributes.commands.params.properties.playlist]
+type = "string"
+description = "For rekordbox XML: which of its playlists, by path (the whole collection otherwise)"
+
+[contributes.commands.params.properties.append]
+type = "boolean"
+description = "Add to the playlist instead of replacing its contents"
+
+[contributes.commands.params.properties.choices]
+type = "object"
+propertyNames = { pattern = "^[0-9]+$" }
+additionalProperties = { type = "integer", minimum = 0 }
+description = "Decisions for ambiguous entries: entry index (counting from 0) -> track id"
+
+[[contributes.operations]]
+name = "import"
+title = "Import a tracklist"
+
+[contributes.operations.params]
+type = "object"
+required = ["file", "into"]
+additionalProperties = false
+
+[contributes.operations.params.properties.file]
+type = "string"
+minLength = 1
+description = "The tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or \"Artist - Title\" lines"
+
+[contributes.operations.params.properties.into]
+type = "string"
+minLength = 1
+description = "The playlist's path, letter case included (made there if missing)"
+
+[contributes.operations.params.properties.playlist]
+type = "string"
+description = "For rekordbox XML: which of its playlists, by path (the whole collection otherwise)"
+
+[contributes.operations.params.properties.append]
+type = "boolean"
+description = "Add to the playlist instead of replacing its contents"
+
+[contributes.operations.params.properties.choices]
+type = "object"
+propertyNames = { pattern = "^[0-9]+$" }
+additionalProperties = { type = "integer", minimum = 0 }
+description = "Decisions for ambiguous entries: entry index (counting from 0) -> track id"
