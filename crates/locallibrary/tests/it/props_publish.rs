@@ -31,6 +31,7 @@ use locallibrary::sets::{EntryOrigin, Partner, Recording, Set, SetBook, SetEntry
 use locallibrary::settings::{self, Category, SCHEMA, SettingDef};
 use locallibrary::store::Store;
 use serde_json::{Map, Value, json};
+use unicode_segmentation::UnicodeSegmentation;
 
 const PUT: &str = "com.atproto.repo.putRecord";
 
@@ -679,7 +680,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
 /// Whatever the set, its record says where and when it was played and its tracks in order, with
 /// the ones marked unnamed or hidden saying only where they start, and nothing private; it
 /// survives JSON, and fits the set Lexicon exactly when the set holds nothing the Lexicon can't
-/// (a title over 100 characters, a partner's DID that isn't one, more than 20 partners...).
+/// (a title over 100 graphemes, a partner's DID that isn't one, more than 20 partners...).
 #[hegel::test(test_cases = 300)]
 fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestCase) {
     let (s, names, mut broken) = set(&tc, true);
@@ -689,7 +690,7 @@ fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestC
         .collect();
     // A title too long breaks the record only when the track is named in it.
     let named = |i: usize, e: &SetEntry| !e.unnamed && !hidden.contains(&(i + 1));
-    if s.tracks.iter().enumerate().any(|(i, e)| named(i, e) && e.title.chars().count() > 300) {
+    if s.tracks.iter().enumerate().any(|(i, e)| named(i, e) && e.title.graphemes(true).count() > 300) {
         broken.push("a track's title");
     }
     let now = time(&tc);
@@ -734,7 +735,7 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
         }
         4 => {
             r["title"] = "x".repeat(tc.draw(gs::integers::<usize>().min_value(101).max_value(300))).into();
-            Some("title is longer than 100 characters".into())
+            Some("title is longer than 100 graphemes".into())
         }
         5 if n > 0 => {
             let i = track();

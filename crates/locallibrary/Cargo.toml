@@ -22,6 +22,7 @@ account = [
     "dep:keyring-core",
     "dep:reqwest",
     "dep:tokio",
+    "dep:unicode-segmentation",
 ]
 # Fetching snapshots from another computer's store (`store serve`, `store fetch`): iroh's
 # encrypted QUIC connections, which reach the other computer through n0's relays when they can't
@@ -82,6 +83,7 @@ iroh = { version = "1.3", optional = true }
 iroh-tickets = { version = "1", optional = true }
 quick-xml = "0.37"
 ring = "0.17.14"
+unicode-segmentation = { version = "1.13.3", optional = true }
 
 [dev-dependencies]
 hegeltest.workspace = true
