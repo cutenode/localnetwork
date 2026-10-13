@@ -147,8 +147,8 @@ jobs:
           status=0
           cargo mutants --in-place --shard "$SHARD" --in-diff "$RUNNER_TEMP/week.diff" \
             -p loclib-analysis -p loclib-equipment -p loclib-interop -p loclib-mixid \
-            -p loclib-model -p loclib-mysettings -p loclib-progress -p loclib-tracklist \
-            -p loclib-transcode -p loclib-waveform -p rekordbox-pdb || status=$?
+            -p loclib-model -p loclib-mysettings -p loclib-plugin -p loclib-progress \
+            -p loclib-tracklist -p loclib-transcode -p loclib-waveform -p rekordbox-pdb || status=$?
           case $status in 0 | 2 | 3) ;; *) exit "$status" ;; esac
       - if: ${{ !cancelled() && hashFiles('mutants.out/outcomes.json') != '' }}
         run: |

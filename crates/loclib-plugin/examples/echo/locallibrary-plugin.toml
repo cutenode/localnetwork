@@ -1,0 +1,47 @@
+id = "echo"
+name = "Echo"
+version = "0.1.0"
+protocol = "^0.1"
+capabilities = ["library:read", "library:plan"]
+
+[[contributes.commands]]
+name = "echo"
+title = "Answer the params"
+mode = "headless"
+params = { type = "object" }
+
+[[contributes.commands]]
+name = "titles"
+title = "List the drive's tracks"
+mode = "view"
+
+[[contributes.commands]]
+name = "steps"
+title = "Report progress in steps"
+mode = "headless"
+
+[[contributes.commands]]
+name = "wait"
+title = "Wait until cancelled"
+mode = "headless"
+
+[[contributes.operations]]
+name = "playlist"
+title = "Make a playlist"
+params = { type = "object", properties = { name = { type = "string" } }, required = ["name"] }
+
+[[contributes.analyzers]]
+name = "size"
+title = "File size"
+fields = { bytes = "integer" }
+
+[[contributes.exporters]]
+format = "m3u"
+title = "M3U playlist"
+extension = "m3u"
+
+[[contributes.settings]]
+key = "greeting"
+title = "Greeting"
+type = "string"
+default = "hello"
