@@ -1,9 +1,10 @@
 name: locallibrary CI
 
 # Pull requests and pushes to main that touch the Rust workspace run the quick checks. The slow
-# suites (Bombadil, every feature combination) and a weekly advisory check are in
-# locallibrary-scheduled.yml. Changes to Markdown alone skip CI, except the crates' READMEs, which
-# are their crate docs and doctests. (A later pattern wins.)
+# suites (Bombadil, every feature combination, mutation testing, the CLI's timings, a release
+# build) and a weekly advisory check are in locallibrary-scheduled.yml, and the benchmarks in
+# locallibrary-bench.yml. Changes to Markdown alone skip CI, except the crates' READMEs, which are
+# their crate docs and doctests. (A later pattern wins.)
 on:
   push:
     branches: [main]

@@ -3,6 +3,8 @@
 **/*.rs.bk
 # Hegel keeps failing examples here to replay them first next time.
 .hegel/
+# cargo-mutants' results (.cargo/mutants.toml).
+/mutants.out*
 node_modules/
 .DS_Store
 Thumbs.db

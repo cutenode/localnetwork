@@ -1,8 +1,10 @@
 name: locallibrary scheduled
 
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
-# branch), so pull requests only wait for locallibrary-ci.yml's quick checks. Also a weekly
-# RustSec check, which catches advisories published against Cargo.lock between pushes.
+# branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
+# combination, Bombadil, mutation testing, the CLI's timings against a week earlier and a release
+# build of every target. Also a weekly RustSec check, which catches advisories published against
+# Cargo.lock between pushes.
 on:
   schedule:
     - cron: "17 5 * * 1"
@@ -72,7 +74,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 22
+          node-version-file: .node-version
       - run: npm ci
         working-directory: apps/locallibrary/bombadil
       - run: npm run typecheck
@@ -102,3 +104,203 @@ jobs:
         with:
           name: bombadil-${{ matrix.os }}
           path: ${{ runner.temp }}/bombadil-*
+
+  # Mutation testing with cargo-mutants (settings in .cargo/mutants.toml): it makes small changes
+  # to the code (a function returning a default, a flipped comparison) and runs the package's
+  # tests against each, to find code the tests run but don't check. Missed mutants (exit 2) and
+  # timeouts (exit 3) don't fail the job: the summary counts them, and each shard's mutants.out
+  # lists them with diffs. Any other exit (a build or baseline test failure) does.
+  # Only the code changed in the past week: all of it is about 4,800 mutants and 20 runner-hours.
+  # A whole crate runs locally with `cargo mutants -p <crate>`.
+  mutants:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      # Keep the number of shards in step with the matrix.
+      SHARD: ${{ matrix.shard }}/4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The history, for the commit a week back.
+          fetch-depth: 0
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest,cargo-mutants
+      # The crates below the library and the CLI, whose tests are quick enough to run once per
+      # mutant. `--in-place` mutates this checkout rather than a copy of it. A step timeout,
+      # inside the job's, still leaves the partial results to report and upload.
+      - timeout-minutes: 90
+        run: |
+          base=$(git rev-list -1 --first-parent --before='1 week ago' HEAD)
+          if [ -z "$base" ]; then
+            echo "::notice::No commit a week old to compare with"
+            exit 0
+          fi
+          git diff "$base" HEAD > "$RUNNER_TEMP/week.diff"
+          status=0
+          cargo mutants --in-place --shard "$SHARD" --in-diff "$RUNNER_TEMP/week.diff" \
+            -p loclib-analysis -p loclib-equipment -p loclib-interop -p loclib-mixid \
+            -p loclib-model -p loclib-mysettings -p loclib-progress -p loclib-tracklist \
+            -p loclib-transcode -p loclib-waveform -p rekordbox-pdb || status=$?
+          case $status in 0 | 2 | 3) ;; *) exit "$status" ;; esac
+      - if: ${{ !cancelled() && hashFiles('mutants.out/outcomes.json') != '' }}
+        run: |
+          {
+            echo "## Mutants, shard $SHARD"
+            echo
+            jq -r '"\(.total_mutants) mutants: \(.caught) caught, \(.missed) missed, \(.timeout) timed out, \(.unviable) unviable"' mutants.out/outcomes.json
+            if [ -s mutants.out/missed.txt ]; then
+              echo
+              echo '```'
+              cat mutants.out/missed.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutants-${{ matrix.shard }}
+          path: mutants.out
+          if-no-files-found: ignore
+
+  # How long the release CLI takes to start and to read a real 3,886-track library
+  # (tools/cli-timings.sh), against this branch a week earlier, both built and timed on this
+  # runner. Fails when a command got much slower; hyperfine's tables are in the run's summary.
+  cli-timings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The history, for the commit a week back.
+          fetch-depth: 0
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: hyperfine
+      # The week-old build first, in the same target directory, so the second build reuses what
+      # didn't change and the checkout ends back on this commit. Without a commit that old, or
+      # one that builds the CLI, this commit is timed alone.
+      - run: |
+          base=$(git rev-list -1 --first-parent --before='1 week ago' HEAD)
+          if [ -z "$base" ]; then
+            echo "::notice::No commit a week old: timing this one alone"
+            exit 0
+          fi
+          git checkout --quiet --detach "$base"
+          # Its rust-toolchain.toml may pin another Rust.
+          rustup toolchain install
+          if cargo build --release --locked -p locallibrary-cli; then
+            cp target/release/locallibrary "$RUNNER_TEMP/old"
+          else
+            echo "::warning::$base doesn't build the CLI: timing this commit alone"
+          fi
+          git checkout --quiet --detach "$GITHUB_SHA"
+      - run: cargo build --release --locked -p locallibrary-cli
+      - run: |
+          if [ -x "$RUNNER_TEMP/old" ]; then
+            tools/cli-timings.sh target/release/locallibrary "$RUNNER_TEMP/old"
+          else
+            tools/cli-timings.sh target/release/locallibrary
+          fi
+
+  # dist's release build of every target, unsigned and without a tag or a GitHub Release, so a
+  # change that breaks packaging shows here rather than when a version is tagged. The same jobs as
+  # locallibrary-release.yml's plan, build-local-artifacts and build-global-artifacts, minus
+  # signing and notarization: the matrix comes from `dist plan`, and the global job builds the
+  # installers, formula and checksums over every target's archive.
+  release-plan:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      # The dist version locallibrary-release.yml installs (see dist-workspace.toml).
+      - run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.33.0/cargo-dist-installer.sh | sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cargo-dist-cache
+          path: ~/.cargo/bin/dist
+          retention-days: 1
+      - id: plan
+        run: |
+          dist plan --output-format=json > plan.json
+          echo "matrix=$(jq -c .ci.github.artifacts_matrix plan.json)" >> "$GITHUB_OUTPUT"
+
+  release-build:
+    name: release-build (${{ join(matrix.targets, ', ') }})
+    needs: release-plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.release-plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      # The installer for the runner's shell, and the apt packages dist-workspace.toml lists.
+      # Both come from `dist plan` over this checkout's own configuration, with no input from a
+      # pull request (this workflow doesn't run on them).
+      - run: ${{ matrix.install_dist.run }} # zizmor: ignore[template-injection]
+      - if: matrix.packages_install
+        run: ${{ matrix.packages_install }} # zizmor: ignore[template-injection]
+      # dist only signs the macOS binaries when the CODESIGN_* variables are set, which they
+      # aren't here.
+      - id: dist
+        shell: bash
+        env:
+          DIST_ARGS: ${{ matrix.dist_args }}
+          MANIFEST: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+        run: |
+          # shellcheck disable=SC2086 # the arguments are words
+          dist build --print=linkage --output-format=json $DIST_ARGS > dist-manifest.json
+          cp dist-manifest.json "$MANIFEST"
+          {
+            echo "paths<<EOF"
+            dist print-upload-files-from-manifest --manifest dist-manifest.json
+            echo "$MANIFEST"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifacts-build-local-${{ join(matrix.targets, '_') }}
+          path: ${{ steps.dist.outputs.paths }}
+          retention-days: 1
+
+  release-global:
+    needs: release-build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cargo-dist-cache
+          path: ~/.cargo/bin/
+      - run: chmod +x ~/.cargo/bin/dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+      - run: dist build --artifacts=global

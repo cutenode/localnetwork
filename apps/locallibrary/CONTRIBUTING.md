@@ -62,7 +62,19 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   library and the CLI with none and of the CLI with only `account`, and clippy over every
   combination of features with [cargo-hack](https://github.com/taiki-e/cargo-hack);
 - the Bombadil explorations below;
+- mutation testing of the past week's changes to the `loclib-*` crates and `rekordbox-pdb` with
+  [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in shards. Missed
+  mutants don't fail it: the run's summary lists them, and each shard's `mutants.out` artifact has
+  their diffs. `cargo mutants -p loclib-progress` runs it locally;
+- the release CLI's timings with [hyperfine](https://github.com/sharkdp/hyperfine) against the
+  same branch a week earlier (`tools/cli-timings.sh NEW [OLD]` runs them locally), failing when a
+  command's fastest run is more than 25% (and 3 ms) slower;
+- dist's release build of every target, unsigned and without a tag (see Releasing);
 - cargo-deny's advisory check, for advisories published since the last push.
+
+`.github/workflows/locallibrary-bench.yml` runs the benchmarks under
+[CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
+some, and reports each one's change against `main`.
 
 Actions are pinned to commits, and Dependabot proposes updates to them and to `Cargo.lock` once a
 month.
