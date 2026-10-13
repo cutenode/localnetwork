@@ -341,6 +341,16 @@ impl Store {
         Store::open(root)
     }
 
+    /// The store at `root` if there is one (never made here); one that's there but can't be read
+    /// (newer, or its `store.json` broken) is an error, not "none".
+    pub fn open_existing(root: impl AsRef<Path>) -> Result<Option<Store>> {
+        let root = root.as_ref();
+        if !root.join("store.json").exists() {
+            return Ok(None);
+        }
+        Store::open(root).map(Some)
+    }
+
     pub fn open(root: impl AsRef<Path>) -> Result<Store> {
         let root = root.as_ref().to_path_buf();
         let meta: StoreMeta = fsutil::read_json(&root.join("store.json"))

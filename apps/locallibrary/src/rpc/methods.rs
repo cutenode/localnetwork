@@ -78,19 +78,19 @@ impl Call<'_> {
     }
 
     /// The store if there is one (read-only methods never make one).
-    fn existing(&self) -> Option<Store> {
-        Store::open(self.root).ok()
+    fn existing(&self) -> Result<Option<Store>, RpcError> {
+        Ok(Store::open_existing(self.root)?)
     }
 
     /// What `read` finds in the store, or nothing (its empty value) when there's none.
     fn or_empty<T: Default>(&self, read: impl FnOnce(&Store) -> locallibrary::Result<T>) -> Result<T, RpcError> {
-        Ok(self.existing().as_ref().map(read).transpose()?.unwrap_or_default())
+        Ok(self.existing()?.as_ref().map(read).transpose()?.unwrap_or_default())
     }
 
     fn plan_store(&self, which: PlanStore) -> Result<Option<Store>, RpcError> {
         Ok(match which {
             PlanStore::None => None,
-            PlanStore::Existing => self.existing(),
+            PlanStore::Existing => self.existing()?,
             PlanStore::Optional => self.store_opt(),
             PlanStore::Required => Some(self.store()?),
         })
@@ -472,8 +472,8 @@ fn build() -> Registry {
     r.control::<api::Shutdown, ()>("shutdown");
 
     // Drives and their libraries.
-    r.read("status", |c, _: NoParams| Ok(api::status(c.existing().as_ref(), c.ctx)?)).long();
-    r.read("drives.list", |c, req| Ok(api::list_drives_in_libraries(c.existing().as_ref(), &req))).quick();
+    r.read("status", |c, _: NoParams| Ok(api::status(c.existing()?.as_ref(), c.ctx)?)).long();
+    r.read("drives.list", |c, req| Ok(api::list_drives_in_libraries(c.existing()?.as_ref(), &req))).quick();
     r.read("drives.mounted", |_, _: NoParams| Ok(api::drives_mounted())).quick();
     r.read("drive.info", |_, req| Ok(api::drive_info(&req)?)).quick();
     r.plan("drive.adopt.plan", |_, req| Ok(api::adopt_plan(&req)?));
@@ -499,7 +499,7 @@ fn build() -> Registry {
         .operation("undo")
         .alias("drive.restore")
         .destructive();
-    r.read("undo.list", |c, req| Ok(api::undo_list(c.existing().as_ref(), &req)?)).quick();
+    r.read("undo.list", |c, req| Ok(api::undo_list(c.existing()?.as_ref(), &req)?)).quick();
     r.plan("undo.plan", |_, req| Ok(api::undo_plan(&req)?)).destructive();
     r.apply("undo.apply", PlanStore::None, |c, req| Ok(api::undo_apply(&req, c.ctx)?)).destructive();
 
@@ -592,10 +592,10 @@ fn build() -> Registry {
     r.apply("relocate.apply", PlanStore::None, |c, req| Ok(api::relocate_apply(&req, c.ctx)?)).long().destructive();
     r.plan("upgrade.plan", |c, req| Ok(api::upgrade_plan(&req, c.ctx)?)).long().destructive();
     r.apply("upgrade.apply", PlanStore::None, |c, req| Ok(api::upgrade_apply(&req, c.ctx)?)).long().destructive();
-    r.plan("history.delete.plan", |c, req| Ok(api::delete_history_plan(c.existing().as_ref(), &req, c.ctx)?))
+    r.plan("history.delete.plan", |c, req| Ok(api::delete_history_plan(c.existing()?.as_ref(), &req, c.ctx)?))
         .destructive();
     r.apply("history.delete.apply", Existing, |c, req| {
-        Ok(api::delete_history_apply(c.existing().as_ref(), &req, c.ctx)?)
+        Ok(api::delete_history_apply(c.existing()?.as_ref(), &req, c.ctx)?)
     })
     .destructive();
     r.plan("import.plan", |c, req| Ok(api::import_plan(&req, c.ctx)?));
@@ -610,10 +610,10 @@ fn build() -> Registry {
     r.read("cues.list", |_, req| Ok(api::cues_list_cached(&LIBRARIES, &req)?)).quick();
     r.plan("cues.plan", |c, req| Ok(api::cues_plan(&req, c.ctx)?)).destructive();
     r.apply("cues.apply", PlanStore::None, |c, req| Ok(api::cues_apply(&req, c.ctx)?)).destructive();
-    r.plan("playlist.restore.plan", |c, req| Ok(api::playlist_restore_plan(c.existing().as_ref(), &req, c.ctx)?))
+    r.plan("playlist.restore.plan", |c, req| Ok(api::playlist_restore_plan(c.existing()?.as_ref(), &req, c.ctx)?))
         .destructive();
     r.apply("playlist.restore.apply", Existing, |c, req| {
-        Ok(api::playlist_restore_apply(c.existing().as_ref(), &req, c.ctx)?)
+        Ok(api::playlist_restore_apply(c.existing()?.as_ref(), &req, c.ctx)?)
     })
     .alias("playlist.restore")
     .destructive();
@@ -623,7 +623,7 @@ fn build() -> Registry {
     r.read("settings.profile", |c, _: NoParams| c.or_empty(Store::settings_profile)).quick();
     r.immediate("settings.set", |c, req| Ok(api::settings_set(&c.store()?, &req)?));
     r.immediate("settings.unset", |c, req| Ok(api::settings_unset(&c.store()?, &req)?));
-    r.read("settings.show", |c, req| Ok(api::settings_show(c.existing().as_ref(), &req)?)).quick();
+    r.read("settings.show", |c, req| Ok(api::settings_show(c.existing()?.as_ref(), &req)?)).quick();
     r.plan("settings.write.plan", |c, req| Ok(api::settings_apply_plan(&c.store()?, &req)?))
         .alias("settings.apply.plan")
         .destructive();
@@ -660,21 +660,21 @@ fn build() -> Registry {
 
     // Exports, health and history.
     r.immediate("xml.export", |c, req| Ok(api::export_xml(&req, c.ctx)?)).long().keeps_cache().writes_to("output");
-    r.immediate("export", |c, req| Ok(api::export_playlist(c.existing().as_ref(), &req, c.ctx)?))
+    r.immediate("export", |c, req| Ok(api::export_playlist(c.existing()?.as_ref(), &req, c.ctx)?))
         .long()
         .keeps_cache()
         .writes_to("output");
-    r.read("diff", |c, req| Ok(api::diff(c.existing().as_ref(), &req)?));
+    r.read("diff", |c, req| Ok(api::diff(c.existing()?.as_ref(), &req)?));
     r.read("doctor", |c, req| Ok(api::doctor(&req, c.ctx)?)).long();
     r.plan("doctor.orphans.plan", |c, req| Ok(api::doctor_orphans_plan(&req, c.ctx)?)).long().destructive();
     r.apply("doctor.orphans.apply", PlanStore::None, |c, req| Ok(api::doctor_orphans_apply(&req, c.ctx)?))
         .long()
         .destructive();
-    r.read("check", |c, req| Ok(api::check(c.existing().as_ref(), &req, c.ctx)?)).long();
+    r.read("check", |c, req| Ok(api::check(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.read("analysis.bench", |c, req| Ok(api::analysis_bench(&req, c.ctx)?)).long();
     r.read("plays.history", |_, req| Ok(api::drive_history(&req)?)).quick();
     r.read("plays.archive", |c, req| Ok(api::history_archive(&Store::open(c.root)?, &req, c.ctx)?)).long();
-    r.read("plays.stats", |c, req| Ok(api::play_stats(c.existing().as_ref(), &req)?));
+    r.read("plays.stats", |c, req| Ok(api::play_stats(c.existing()?.as_ref(), &req)?));
     r.read("players.models", |_, _: NoParams| Ok(api::player_models()));
     r.read("players.show", |c, _: NoParams| c.or_empty(api::players_show));
     r.plan("players.set.plan", |c, req| Ok(api::players_set_plan(&c.store()?, &req)?));
@@ -704,8 +704,8 @@ fn build() -> Registry {
         r.immediate("account.logout", |c, _: NoParams| Ok(api::account_logout(c.root)?)).keeps_cache();
         r.read("account.client_metadata", |_, req| Ok(api::account_client_metadata(&req)?)).quick();
     }
-    r.read("profile.build", |c, req| Ok(api::profile(c.existing().as_ref(), &req, c.ctx)?)).long();
-    r.read("profile.document", |c, req| Ok(api::profile_document(c.existing().as_ref(), &req, c.ctx)?)).long();
+    r.read("profile.build", |c, req| Ok(api::profile(c.existing()?.as_ref(), &req, c.ctx)?)).long();
+    r.read("profile.document", |c, req| Ok(api::profile_document(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.read("profile.prefs", |c, _: NoParams| c.or_empty(api::profile_prefs)).quick();
     r.immediate("profile.prefs.set", |c, req| Ok(api::profile_prefs_update(&c.store()?, &req)?));
     #[cfg(feature = "account")]
@@ -742,8 +742,8 @@ fn build() -> Registry {
     r.read("sets.played", |c, req| c.or_empty(|s| api::track_plays(s, &req))).quick();
     r.plan("sets.playlist.plan", |c, req| Ok(api::set_playlist_plan(&c.store()?, &req, c.ctx)?));
     r.apply("sets.playlist.apply", PlanStore::None, |c, req| Ok(api::set_playlist_apply(&c.store()?, &req, c.ctx)?));
-    r.read("sets.suggest", |c, req| Ok(api::sets_suggest(c.existing().as_ref(), &req, c.ctx)?)).long();
-    r.read("sessions.list", |c, req| Ok(api::sessions(c.existing().as_ref(), &req, c.ctx)?)).long();
+    r.read("sets.suggest", |c, req| Ok(api::sets_suggest(c.existing()?.as_ref(), &req, c.ctx)?)).long();
+    r.read("sessions.list", |c, req| Ok(api::sessions(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.immediate("sessions.dismiss", |c, req| Ok(api::sessions_dismiss(&c.store()?, &req, c.ctx)?)).long().keeps_cache();
     r.immediate("sessions.import", |c, req| Ok(api::sessions_import(&c.store()?, &req)?)).keeps_cache();
 
@@ -762,7 +762,7 @@ fn build() -> Registry {
     r.immediate("mix.reports.html", |c, req| Ok(api::mix_report_html(&c.store()?, &req)?)).keeps_cache();
 
     // Every drive you own.
-    r.read("fleet.status", |c, req| Ok(api::fleet_status(c.existing().as_ref(), &req, c.ctx)?)).long();
+    r.read("fleet.status", |c, req| Ok(api::fleet_status(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.read("drives.known", |c, req| c.or_empty(|s| api::drives_known(s, &req))).quick();
     r.plan("drive.rename.plan", |_, req| Ok(api::drive_rename_plan(&req)?));
     r.apply("drive.rename.apply", Optional, |c, req| Ok(api::drive_rename(c.store_opt().as_ref(), &req)?))
@@ -771,7 +771,7 @@ fn build() -> Registry {
     r.immediate("drive.role", |c, req| Ok(api::drive_role(&c.store()?, &req)?));
     r.immediate("drive.retire", |c, req| Ok(api::drive_retire(&c.store()?, &req)?));
     r.read("drive.log", |c, req| Ok(api::drive_log(&Store::open(c.root)?, &req)?)).quick();
-    r.read("drive.recognise", |c, req| Ok(api::drive_recognise(c.existing().as_ref(), &req, c.ctx)?)).long();
+    r.read("drive.recognise", |c, req| Ok(api::drive_recognise(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.plan("drive.adopt_as.plan", |c, req| Ok(api::drive_adopt_as_plan(&c.store()?, &req)?)).destructive();
     r.apply("drive.adopt_as.apply", Required, |c, req| Ok(api::drive_adopt_as(&c.store()?, &req, c.ctx)?))
         .alias("drive.adopt_as")
@@ -792,7 +792,7 @@ fn build() -> Registry {
         .destructive();
     // With `repair`, the drive is unmounted and damaged files may be truncated or removed.
     r.immediate("drive.fsck", |c, req| Ok(api::drive_fs_check(c.store_opt().as_ref(), &req)?)).long().destructive();
-    r.read("drive.space", |c, req| Ok(api::drive_space(c.store_opt().as_ref(), &req, c.ctx)?)).long();
+    r.read("drive.space", |c, req| Ok(api::drive_space(c.existing()?.as_ref(), &req, c.ctx)?)).long();
     r.plan("drive.contact.plan", |_, req| Ok(api::drive_contact_plan(&req)?));
     r.apply("drive.contact.apply", PlanStore::None, |c, req| Ok(api::drive_contact(&req, c.ctx)?))
         .alias("drive.contact");

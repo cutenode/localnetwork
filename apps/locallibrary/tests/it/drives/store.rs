@@ -131,6 +131,10 @@ fn the_store_is_copied_brought_up_to_date_and_mirrored() {
 fn the_store_says_what_it_holds() {
     let env = Env::new();
     env.demo("A");
+    // Reading never makes a store: with none, it says so.
+    let none = env.run(&["store"]);
+    assert!(none.code == 1 && none.err.contains("no locallibrary store at "), "{}", none.err);
+    env.ok(&["--yes", "settings", "set", "quantize=off"]);
     let store = env.ok(&["store"]);
     assert!(store.contains("  data       0 B in 0 files\n  snapshots  0\n  drives     0 known"), "{store}");
     assert!(env.ok(&["log"]).starts_with("The store is empty."));

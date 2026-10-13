@@ -116,6 +116,7 @@ fn reads_without_a_store_make_none() {
         ("settings.show", json!({ "drive": a }), None),
         ("sets.suggest", json!({}), None),
         ("drive.recognise", json!({ "drive": a }), None),
+        ("drive.space", json!({ "drive": a }), None),
     ];
     for (method, params, want) in empty {
         let got = s.ok(method, params);

@@ -38,8 +38,21 @@ pub struct DiffArgs {
 }
 
 /// The store, if there is one: read-only commands never create it.
-pub fn existing_store(path: &Option<PathBuf>) -> Option<Store> {
-    Store::open(path.clone().unwrap_or_else(Store::default_root)).ok()
+pub fn existing_store(path: &Option<PathBuf>) -> Result<Option<Store>> {
+    Ok(Store::open_existing(path.clone().unwrap_or_else(Store::default_root))?)
+}
+
+/// What `read` finds in the store, or its empty value when there's no store.
+pub fn read_or_empty<T: Default>(
+    path: &Option<PathBuf>,
+    read: impl FnOnce(&Store) -> locallibrary::Result<T>,
+) -> Result<T> {
+    Ok(existing_store(path)?.as_ref().map(read).transpose()?.unwrap_or_default())
+}
+
+/// The store, for a read about the store itself: with none, it fails (`not_found`).
+pub fn store_to_read(path: &Option<PathBuf>) -> Result<Store> {
+    Ok(Store::open(path.clone().unwrap_or_else(Store::default_root))?)
 }
 
 pub fn run(args: DiffArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
@@ -50,7 +63,7 @@ pub fn run(args: DiffArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
         }
         return compare(args.left, args.right, out, ctx);
     }
-    let store = existing_store(store);
+    let store = existing_store(store)?;
     let req = api::DiffRequest { left: args.left, right: args.right, playlist: args.playlist };
     let d = api::diff(store.as_ref(), &req)?;
     out.emit_paged(&d, render);

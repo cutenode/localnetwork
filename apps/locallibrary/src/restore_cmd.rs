@@ -20,7 +20,7 @@ pub fn playlist(
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
     // Only an existing store is consulted.
-    let store = crate::diff_cmd::existing_store(store);
+    let store = crate::diff_cmd::existing_store(store)?;
     let preview = api::playlist_restore_plan(store.as_ref(), &req, ctx)?;
     if !out.json {
         render(&preview);

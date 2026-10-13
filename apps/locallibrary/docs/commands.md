@@ -33,7 +33,9 @@ locallibrary --yes setup --library Home --primary /Volumes/REKORDBOX --role SD=s
 ```
 
 Until there's a store, commands other than `setup`, the player and `rpc` start with a one-line tip
-about `setup` on stderr (not with `--json` or `-q`).
+about `setup` on stderr (not with `--json` or `-q`). Commands that only read never make a store:
+they answer as if it were empty, and the ones about the store itself (`store info`, `store verify`,
+`library log`, `drive log`, `sets show`) say there's none.
 
 ## Commands
 
