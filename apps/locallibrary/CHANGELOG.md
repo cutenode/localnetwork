@@ -191,7 +191,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   call, and bad parameters say where they are. The library's messages leave commands and flags to
   the CLI, which prints them as hints. The mix report lives in the library: `mix.identify` can
   answer each play's waveform, cues and phrases and keep the report in the store, and
-  `mix.reports.list`, `.get` and `.html` find kept reports and write their pages.
+  `mix.reports.list`, `.get` and `.html` find kept reports and write their pages. Library reads
+  take `combined: true` for the whole library exports are made from (OneLibrary's own tracks, with
+  ids of their own, and playlists too), `tracks.analysis` answers up to 100 tracks' analyses at
+  once, and `track.fields` reads what analyzer plugins worked out for each track, kept in the store
+  by audio file.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

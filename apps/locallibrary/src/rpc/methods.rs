@@ -484,6 +484,8 @@ fn build() -> Registry {
     r.read("tracks.get", |_, req| Ok(api::tracks_get(&LIBRARIES, &req)?)).quick();
     r.read("tracks.query", |_, req| Ok(api::tracks_query_cached(&LIBRARIES, &req)?)).quick();
     r.read("track.analysis", |_, req| Ok(api::track_analysis_cached(&LIBRARIES, &req)?)).quick();
+    r.read("tracks.analysis", |_, req| Ok(api::tracks_analysis(&LIBRARIES, &req)?)).quick();
+    r.read("track.fields", |c, req| Ok(api::track_fields(&LIBRARIES, c.existing()?.as_ref(), &req)?));
     r.read("track.show", |_, req| Ok(api::track_details_cached(&LIBRARIES, &req)?)).quick();
     r.read("track.matches", |_, req| Ok(api::harmonic_matches_cached(&LIBRARIES, &req)?)).quick();
 

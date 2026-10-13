@@ -79,6 +79,7 @@ pub mod eject;
 pub mod equipment;
 pub mod error;
 pub mod export;
+pub mod fields;
 pub mod firmware;
 pub mod fleet;
 pub mod format;

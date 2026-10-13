@@ -1156,7 +1156,14 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             let filter = (!filter.is_empty()).then(|| filter.join(" "));
             let reads = each_drive::read(a.drive, |drive| {
                 let (filter, playlist, sort) = (filter.clone(), a.playlist.clone(), a.sort.clone());
-                api::tracks_query(&api::TracksQuery { drive, filter, playlist, sort, offset: 0, limit: a.limit })
+                api::tracks_query(&api::TracksQuery {
+                    library: drive.into(),
+                    filter,
+                    playlist,
+                    sort,
+                    offset: 0,
+                    limit: a.limit,
+                })
             })?;
             out.page();
             // Several drives' TSV or CSV is one listing, for the program reading it.

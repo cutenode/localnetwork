@@ -10,6 +10,8 @@
 //! which covers file systems whose timestamps are too coarse to tell two quick writes apart.
 
 use rustc_hash::FxHashMap;
+use schemars::JsonSchema;
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -22,6 +24,26 @@ use crate::progress::Ctx;
 use crate::tags::MyTags;
 use crate::watch::LibraryStamp;
 use crate::{Result, tags};
+
+// The library a read is about: the drive's, as players see it or whole (see
+// `CachedLibrary::view`). Not a doc comment: requests flatten it, and the schema would give its
+// description to theirs.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+pub struct LibraryRef {
+    pub drive: String,
+    /// The whole library, as exports have it: on a drive with both databases, with the tracks,
+    /// playlists and history only OneLibrary holds added. Those tracks' ids have the top bit set
+    /// (2^31 and up); edits refuse them.
+    #[serde(default)]
+    pub combined: bool,
+}
+
+/// The library players see on the drive `drive` names.
+impl From<String> for LibraryRef {
+    fn from(drive: String) -> LibraryRef {
+        LibraryRef { drive, combined: false }
+    }
+}
 
 /// The libraries of the drives read last, most recently used last.
 pub struct LibraryCache {
@@ -40,7 +62,9 @@ struct Inner {
 pub struct CachedLibrary {
     pub root: PathBuf,
     pub stamp: LibraryStamp,
-    pub library: Library,
+    pub library: Arc<Library>,
+    /// [`CachedLibrary::view`]'s whole library, read when first asked for.
+    combined: Mutex<Option<Arc<Library>>>,
     tags: Mutex<Option<Arc<MyTags>>>,
     tags_by_track: Mutex<Option<Arc<TagsByTrack>>>,
     identifier: Mutex<IdentifierSlot>,
@@ -73,12 +97,33 @@ impl CachedLibrary {
         Ok(CachedLibrary {
             root: device.root().to_path_buf(),
             stamp,
-            library: device.library()?,
+            library: Arc::new(device.library()?),
+            combined: Mutex::default(),
             tags: Mutex::default(),
             tags_by_track: Mutex::default(),
             identifier: Mutex::default(),
             built: Condvar::new(),
         })
+    }
+
+    /// The library players see, or with `combined` the whole library exports are made from
+    /// ([`crate::convert::combined_library`]), read once: on a drive with both databases, it adds
+    /// what only OneLibrary holds (a CDJ-3000X's playlists and history, tracks rekordbox exported
+    /// only there). Those tracks have ids in a range of their own
+    /// ([`crate::convert::ONELIBRARY_ONLY`]): reads take them, edits refuse them.
+    pub fn view(&self, device: &Device, combined: bool) -> Result<Arc<Library>> {
+        // With one database the two are the same.
+        let both = || device.has_device_library() && device.has_library_plus();
+        if !(combined && both()) {
+            return Ok(self.library.clone());
+        }
+        let mut slot = lock(&self.combined);
+        if let Some(l) = &*slot {
+            return Ok(l.clone());
+        }
+        let l = Arc::new(crate::convert::combined_library(device)?);
+        *slot = Some(l.clone());
+        Ok(l)
     }
 
     /// The drive's My Tags ([`tags::read`]), read once.
@@ -143,7 +188,7 @@ impl CachedLibrary {
             }
         }
         let _ended = Ended(self);
-        let id = Arc::new(build(self.library.clone())?);
+        let id = Arc::new(build(Library::clone(&self.library))?);
         *lock(&self.identifier) = IdentifierSlot::Built(store_root.to_path_buf(), id.clone());
         Ok(id)
     }
@@ -167,6 +212,13 @@ impl LibraryCache {
         let d = resolve_drive(spec)?;
         let c = self.get(&d)?;
         Ok((d, c))
+    }
+
+    /// The drive and library `r` names ([`LibraryCache::open`], [`CachedLibrary::view`]).
+    pub fn read(&self, r: &LibraryRef) -> Result<(Device, Arc<CachedLibrary>, Arc<Library>)> {
+        let (d, cached) = self.open(&r.drive)?;
+        let lib = cached.view(&d, r.combined)?;
+        Ok((d, cached, lib))
     }
 
     /// The drive's library, kept from before when its databases haven't changed since.

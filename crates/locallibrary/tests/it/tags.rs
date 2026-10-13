@@ -787,6 +787,6 @@ fn tag_filters_select_with_the_drives_my_tags() {
     let titles: Vec<&str> = plan.tracks.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(titles.len(), 2, "{titles:?}");
     assert!(!titles.iter().any(|t| t.contains("Demo Track 1")), "{titles:?}");
-    let cues = api::cues_list(&ListCues { drive, tracks: filter("tag:\"Peak Time\"") }).unwrap();
+    let cues = api::cues_list(&ListCues { library: drive.into(), tracks: filter("tag:\"Peak Time\"") }).unwrap();
     assert_eq!(cues.iter().map(|c| c.track.id).collect::<Vec<_>>(), peak);
 }

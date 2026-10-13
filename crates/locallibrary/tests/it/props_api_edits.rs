@@ -123,8 +123,11 @@ fn edits_kept_or_refused_as_their_requests_say(tc: TestCase) {
     assert!(left.playlists.is_empty());
 
     let filter = if negated { "-tag:Peak" } else { "tag:Peak" };
-    let page =
-        api::tracks_query(&api::TracksQuery { drive: path(&root), filter: Some(filter.into()), ..Default::default() })
-            .unwrap();
+    let page = api::tracks_query(&api::TracksQuery {
+        library: path(&root).into(),
+        filter: Some(filter.into()),
+        ..Default::default()
+    })
+    .unwrap();
     assert_eq!(page.total, if negated { ids.len() } else { 0 });
 }

@@ -392,7 +392,7 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
             return Err(Error::invalid("no tracks selected"));
         }
         for id in ids {
-            library.track(*id).ok_or_else(|| Error::NotFound(format!("track #{id}")))?;
+            library.track(*id).ok_or_else(|| Error::no_track(*id))?;
         }
     }
     let sorted: Vec<Vec<u32>> = batches
@@ -568,7 +568,7 @@ pub fn missing(device: &Device, library: &Library) -> Vec<TrackRef> {
 
 /// Read a track's artwork from a drive (medium size if present), e.g. for a UI preview.
 pub fn read_from_drive(device: &Device, library: &Library, track_id: u32) -> Result<Option<Vec<u8>>> {
-    let t = library.track(track_id).ok_or_else(|| Error::NotFound(format!("track #{track_id}")))?;
+    let t = library.track(track_id).ok_or_else(|| Error::no_track(track_id))?;
     let Some(p) = &t.artwork_path else { return Ok(None) };
     let key = paths::key(p);
     for k in [medium_variant(&key), key] {

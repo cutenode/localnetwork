@@ -240,7 +240,7 @@ fn queries_agree_with_their_filter(tc: TestCase) {
         let offset = tc.draw(gs::integers::<usize>().max_value(lib.tracks.len()));
         let limit = tc.draw(gs::optional(gs::integers::<usize>().max_value(5)));
         let req = TracksQuery {
-            drive: path(&root),
+            library: path(&root).into(),
             filter: (!filter.is_empty()).then(|| filter.into()),
             playlist: playlist.clone(),
             sort: sort.map(String::from),
@@ -278,7 +278,7 @@ fn queries_agree_with_their_filter(tc: TestCase) {
         }
     }
     let refused = |req: TracksQuery| api::tracks_query_cached(&cache, &req).unwrap_err().code();
-    let base = TracksQuery { drive: path(&root), ..Default::default() };
+    let base = TracksQuery { library: path(&root).into(), ..Default::default() };
     assert_eq!(refused(TracksQuery { filter: Some("gnere:house".into()), ..base.clone() }), "invalid");
     assert_eq!(refused(TracksQuery { sort: Some("nonsense".into()), ..base.clone() }), "invalid");
     assert_eq!(refused(TracksQuery { playlist: Some("No such list".into()), ..base }), "not_found");
@@ -444,7 +444,7 @@ fn smart_playlists_follow_their_rules(tc: TestCase) {
     let lib = library(&root);
     for (p, (filter, sort, limit)) in &model {
         let q = TracksQuery {
-            drive: path(&root),
+            library: path(&root).into(),
             filter: Some(filter.clone()),
             sort: sort.clone(),
             limit: *limit,
@@ -577,9 +577,11 @@ fn cue_edits_agree_with_cue_edit(tc: TestCase) {
         };
         assert_eq!(analysis(&a), analysis(&b));
     }
-    let listed =
-        api::cues_list(&ListCues { drive: path(&a), tracks: TrackSelector { ids: ids.clone(), ..Default::default() } })
-            .unwrap();
+    let listed = api::cues_list(&ListCues {
+        library: path(&a).into(),
+        tracks: TrackSelector { ids: ids.clone(), ..Default::default() },
+    })
+    .unwrap();
     let direct = cue_edit::list(&Device::open(&b).unwrap(), &ids).unwrap();
     assert_eq!(serde_json::to_value(&listed).unwrap(), serde_json::to_value(&direct).unwrap());
     // Copying from several tracks at once is refused.

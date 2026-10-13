@@ -967,7 +967,7 @@ fn my_tags_follow_removed_and_replaced_tracks() {
 
     // `tag:` filters see them.
     let page = locallibrary::api::tracks_query(&locallibrary::api::TracksQuery {
-        drive: root.display().to_string(),
+        library: root.display().to_string().into(),
         filter: Some("tag:deep".into()),
         ..Default::default()
     })
@@ -1093,7 +1093,7 @@ fn track_details_say_where_a_track_is_filed_and_what_is_wrong_with_it() {
         .collect();
     playlists.sort();
     assert!(playlists.len() >= 2, "{playlists:?}");
-    let req = |tracks| locallibrary::api::TrackDetailsRequest { drive: root.display().to_string(), tracks };
+    let req = |tracks| locallibrary::api::TrackDetailsRequest { library: root.display().to_string().into(), tracks };
     let got = locallibrary::api::track_details(&req(ids(&[orig.id, copy]))).unwrap();
     assert_eq!(got.iter().map(|d| d.track.id).collect::<Vec<_>>(), [orig.id, copy], "in the order asked for");
     let d = &got[0];
@@ -1114,7 +1114,7 @@ fn track_details_say_where_a_track_is_filed_and_what_is_wrong_with_it() {
     // Real analysis files: rekordbox's beat grid and phrases.
     let demo = common::demo_drive(dir.path(), "Demo");
     let req = locallibrary::api::TrackDetailsRequest {
-        drive: demo.display().to_string(),
+        library: demo.display().to_string().into(),
         tracks: TrackSelector { query: Some("demo track 1".into()), ..Default::default() },
     };
     let a = &locallibrary::api::track_details(&req).unwrap()[0].analysis;

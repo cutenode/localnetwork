@@ -1004,7 +1004,7 @@ pub fn plan(device: &Device, edit: &Edit) -> Result<TagPlan> {
     let primary_keys = keys_by_id(&opened.primary);
     let keys: BTreeSet<String> = selected
         .iter()
-        .map(|id| primary_keys.get(id).cloned().ok_or_else(|| Error::NotFound(format!("track #{id}"))))
+        .map(|id| primary_keys.get(id).cloned().ok_or_else(|| Error::no_track(*id)))
         .collect::<Result<_>>()?;
 
     // Where the category or tag already is, for the plan's name and "not found".
