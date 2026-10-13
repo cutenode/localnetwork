@@ -680,6 +680,97 @@ fn one_step_changes_ask_first() {
     assert_eq!((code, &v["report"]["name"]), (Some(0), &"A".into()), "{v}");
 }
 
+/// Reads with no store make none, and nor do plans that aren't applied: a read answers as if the
+/// store were empty (mounted drives are still there), or that there's no store when it's about
+/// the store itself. Writes still make one.
+#[test]
+fn commands_that_only_read_make_no_store() {
+    let env = Env::new();
+    let (a, b) = (demo_drive(&env.root, "A"), demo_drive(&env.root, "B"));
+    let store = env.root.join("store");
+    env.json(&["--yes", "playlist", "new", path(&a), "Friday", "--track", "1"]);
+    let _ = std::fs::remove_dir_all(&store);
+    let mut made = Vec::new();
+    let mut run = |args: &[&str]| {
+        let out = env.locallibrary().arg("--json").args(args).output().unwrap();
+        if store.exists() {
+            made.push(args.join(" "));
+            std::fs::remove_dir_all(&store).unwrap();
+        }
+        (out.status.code(), serde_json::from_slice::<Value>(&out.stdout).unwrap_or(Value::Null))
+    };
+    let empty = Value::Array(Vec::new());
+    for (args, want) in [
+        (&["status"][..], None),
+        (&["store", "copies"], Some(&empty)),
+        (&["settings", "show", path(&a)], None),
+        (&["drive", "ls", "--known"], Some(&empty)),
+        (&["drive", "list"], Some(&empty)),
+        (&["drive", "groups"], Some(&empty)),
+        (&["drive", "recognise", path(&a)], None),
+        (&["drive", "space", path(&a)], None),
+        (&["library", "ls"], Some(&empty)),
+        (&["library"], Some(&empty)),
+        (&["sets", "suggest"], None),
+        (&["art", "unembed", "--list"], Some(&empty)),
+    ] {
+        let (code, v) = run(args);
+        assert_eq!(code, Some(0), "{args:?}: {v}");
+        if let Some(want) = want {
+            assert_eq!(&v, want, "{args:?}");
+        }
+    }
+    let (code, v) = run(&["status"]);
+    assert_eq!((code, &v["mounted"][0]["library"]), (Some(0), &Value::Null), "{v}");
+    let (code, v) = run(&["settings"]);
+    assert_eq!((code, &v["base"]), (Some(0), &serde_json::json!({})), "{v}");
+    let (code, v) = run(&["smart"]);
+    assert_eq!((code, &v["playlists"]), (Some(0), &empty), "{v}");
+    for args in [
+        &["store"][..],
+        &["store", "info"],
+        &["store", "verify"],
+        &["log"],
+        &["library", "log"],
+        &["drive", "log", path(&a)],
+        &["sets", "show", "Friday"],
+        &["sets", "export", "Friday"],
+    ] {
+        let (code, v) = run(args);
+        assert_ne!(code, Some(0), "{args:?}: {v}");
+        assert_eq!(v["error"]["code"], "not_found", "{args:?}: {v}");
+    }
+    // Not applied without --yes, so nothing to make one for.
+    for args in [
+        &["drive", "rename", path(&a), "Club"][..],
+        &["adopt", path(&a), "--name", "Main"],
+        &["pack", path(&a), path(&b), "--playlist", "Friday"],
+        &["library", "Main"],
+        &["drive", "reidentify", path(&a), "--dry-run"],
+        &["settings", "set", "quantize=off"],
+        &["settings", "unset", "quantize"],
+        &["library", "rename", "Main", "Home"],
+        &["smart", "add", "Smart/Slow", "--filter", "bpm:<100"],
+    ] {
+        run(args);
+    }
+    assert!(made.is_empty(), "these made a store: {made:#?}");
+    env.json(&["--yes", "settings", "set", "quantize=off"]);
+    let meta = store.join("store.json");
+    assert!(meta.is_file(), "a write makes the store");
+
+    // A store that's there but can't be read is an error, never taken for none.
+    let mut json: Value = serde_json::from_slice(&std::fs::read(&meta).unwrap()).unwrap();
+    json["format"] = 999.into();
+    std::fs::write(&meta, json.to_string()).unwrap();
+    for args in [&["status"][..], &["library", "ls"], &["settings"], &["drive", "space", path(&a)]] {
+        let out = env.locallibrary().arg("--json").args(args).output().unwrap();
+        let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert!(!out.status.success(), "{args:?}: {v}");
+        assert!(v["error"]["message"].as_str().is_some_and(|m| m.contains("newer")), "{args:?}: {v}");
+    }
+}
+
 /// Regression: `drive reidentify` gave any drive a new identity at once, with no plan, no
 /// question and nothing to show it was a copy, and its role was dropped without a word.
 #[test]

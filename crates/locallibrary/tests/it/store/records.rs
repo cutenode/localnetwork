@@ -17,6 +17,7 @@ fn only_a_store_this_version_can_read_is_opened() {
     let dir = tempfile::tempdir().unwrap();
     let err = Store::open(dir.path()).unwrap_err();
     assert!(matches!(&err, Error::NotFound(what) if what.starts_with("no locallibrary store at ")), "{err}");
+    assert!(Store::open_existing(dir.path()).unwrap().is_none());
 
     let root = dir.path().join("store");
     Store::open_or_init(&root).unwrap();
@@ -29,6 +30,7 @@ fn only_a_store_this_version_can_read_is_opened() {
         err.to_string().starts_with("store format 999 is newer than this version of locallibrary supports"),
         "{err}"
     );
+    assert!(Store::open_existing(&root).is_err(), "there, but too new to read");
 }
 
 #[test]

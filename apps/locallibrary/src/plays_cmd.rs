@@ -222,7 +222,7 @@ pub fn history(args: HistoryArgs, store: &Option<PathBuf>, out: Output, ctx: &Ct
 
 /// `plays lists`.
 pub fn lists(args: ListsArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let store = crate::diff_cmd::existing_store(store);
+    let store = crate::diff_cmd::existing_store(store)?;
     let drive = || args.drive.clone().context("name a drive (`locallibrary drive ls` lists them)");
     if args.delete {
         let drive = drive()?;
@@ -368,7 +368,7 @@ fn list_sessions(h: &Histories, with_store: bool) {
 
 pub fn stats(args: StatsArgs, store: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
     crate::output::show_all(args.all);
-    let store = crate::diff_cmd::existing_store(store);
+    let store = crate::diff_cmd::existing_store(store)?;
     let req = api::PlayStatsRequest { source: args.source, since: args.since, limit: Some(args.limit) };
     let s = api::play_stats(store.as_ref(), &req)?;
     out.emit_paged(&s, render_stats);

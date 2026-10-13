@@ -4,10 +4,9 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
 use console::style;
-use locallibrary::Store;
 use locallibrary::api::{self, ProfileRequest, ProfileView};
 use locallibrary::local_time;
 use locallibrary::model::normalize;
@@ -17,6 +16,7 @@ use locallibrary::profile::{
 };
 use locallibrary::progress::Ctx;
 
+use crate::open_store;
 use crate::output::{Output, dim, fit, heading, ok, plural, thousands, warn};
 
 #[derive(Args)]
@@ -204,21 +204,16 @@ fn parse_section(s: &str) -> Result<Section, String> {
     })
 }
 
-fn open_store(path: &Option<PathBuf>) -> Result<Store> {
-    let root = path.clone().unwrap_or_else(Store::default_root);
-    Store::open_or_init(&root).with_context(|| format!("opening store at {}", root.display()))
-}
-
 pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let command = args.command.unwrap_or(ProfileCommand::Show { source: args.source, view: args.view });
     match command {
         ProfileCommand::Show { source, view } => {
-            let store = crate::diff_cmd::existing_store(store_path);
+            let store = crate::diff_cmd::existing_store(store_path)?;
             let v = api::profile(store.as_ref(), &source.request(), ctx)?;
             out.emit_paged(&v, |v| render(v, &view));
         }
         ProfileCommand::Document { source, output, replace } => {
-            let store = crate::diff_cmd::existing_store(store_path);
+            let store = crate::diff_cmd::existing_store(store_path)?;
             let doc = api::profile_document(store.as_ref(), &source.request(), ctx)?;
             match output {
                 Some(path) => {
@@ -237,11 +232,7 @@ pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             return crate::publish_cmd::profile_publish(store_path, &source.request(), dry_run, browser, out, ctx);
         }
         ProfileCommand::Sections => {
-            let prefs = crate::diff_cmd::existing_store(store_path)
-                .map(|s| ProfilePrefs::load(&s))
-                .transpose()?
-                .unwrap_or_default();
-            let on = prefs.published();
+            let on = crate::diff_cmd::read_or_empty(store_path, ProfilePrefs::load)?.published();
             let rows: Vec<_> = Section::ALL
                 .iter()
                 .map(|s| serde_json::json!({ "section": s, "published": on.contains(s), "reveals": s.reveals() }))
@@ -327,10 +318,7 @@ pub fn run(args: ProfileArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             "precision set",
         )?,
         ProfileCommand::Prefs => {
-            let prefs = crate::diff_cmd::existing_store(store_path)
-                .map(|s| ProfilePrefs::load(&s))
-                .transpose()?
-                .unwrap_or_default();
+            let prefs = crate::diff_cmd::read_or_empty(store_path, ProfilePrefs::load)?;
             out.emit(&prefs, render_prefs);
         }
         ProfileCommand::Reset => {
@@ -361,7 +349,7 @@ fn update(store_path: &Option<PathBuf>, u: PrefsUpdate, out: Output, done: &str)
 
 /// The "Artist - Title" of the one played track `query` names.
 fn find_played(store_path: &Option<PathBuf>, source: &SourceArgs, query: &str, ctx: &Ctx<'_>) -> Result<String> {
-    let store = crate::diff_cmd::existing_store(store_path);
+    let store = crate::diff_cmd::existing_store(store_path)?;
     // Names are all that's needed: skip the analysis files.
     let req = ProfileRequest { no_analysis: true, ..source.request() };
     let prefs = store.as_ref().map(ProfilePrefs::load).transpose()?.unwrap_or_default();

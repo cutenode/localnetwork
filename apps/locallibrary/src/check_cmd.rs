@@ -37,7 +37,7 @@ pub struct CheckArgs {
 /// Exits with 4 when there are problems, so scripts can gate on it.
 pub fn run(args: CheckArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let drives = crate::jobs_cmd::drives_or_group(args.drives, store, None)?;
-    let store = crate::diff_cmd::existing_store(store);
+    let store = crate::diff_cmd::existing_store(store)?;
     let options = CheckOptions { players: args.players, audio: args.audio };
     let req = api::CheckRequest { drives, options };
     let report = api::check(store.as_ref(), &req, ctx)?;

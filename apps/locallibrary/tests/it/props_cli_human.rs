@@ -608,10 +608,12 @@ pub fn run_in(fx: &Env, args: &[&str]) -> Run {
     let marker = args.iter().copied().find(|a| ["@empty", "@one", "@default-store", "@sudo", "@sudo-me"].contains(a));
     let args: Vec<&str> = args.iter().copied().filter(|a| Some(*a) != marker).collect();
     match marker {
-        // A store of its own for each command line: a write would make one for the rest.
+        // A store of its own for each command line: a write would make one for the rest. Named
+        // without `--json`, so both runs of a line name the same store when they say there's none.
         Some("@empty") => {
             std::fs::create_dir_all(fx.home("no-drives")).unwrap();
-            let store = fx.home(&format!("no-store {}", args.join(" ").replace('/', "|")));
+            let words: Vec<&str> = args.iter().copied().filter(|a| *a != "--json").collect();
+            let store = fx.home(&format!("no-store {}", words.join(" ").replace('/', "|")));
             command.env("LOCALLIBRARY_VOLUMES", fx.home("no-drives")).env("LOCALLIBRARY_STORE", store);
         }
         // Only drive A plugged in (the folder of drives holds a link to it).

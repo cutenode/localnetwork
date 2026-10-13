@@ -362,14 +362,11 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
     match args.command.unwrap_or(SetsCommand::List(args.list)) {
         SetsCommand::List(a) => {
             let req = api::SetsQuery { venue: a.venue, kind: a.kind, since: a.since, until: a.until };
-            let sets = match crate::diff_cmd::existing_store(store_path) {
-                Some(s) => api::sets_list(&s, &req)?,
-                None => Vec::new(),
-            };
+            let sets = crate::diff_cmd::read_or_empty(store_path, |s| api::sets_list(s, &req))?;
             out.emit_paged(&sets, |l| list(l));
         }
         SetsCommand::Show { set, venue } => {
-            let s = api::set_get(&store()?, &api::SetRef { set, venue })?;
+            let s = api::set_get(&crate::diff_cmd::store_to_read(store_path)?, &api::SetRef { set, venue })?;
             out.emit_paged(&s, show);
         }
         SetsCommand::New(a) => {
@@ -425,13 +422,14 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             }));
         }
         SetsCommand::Suggest { drive, .. } => {
-            let s = api::sets_suggest(Some(&store()?), &api::SuggestSets { drive }, ctx)?;
+            let store = crate::diff_cmd::existing_store(store_path)?;
+            let s = api::sets_suggest(store.as_ref(), &api::SuggestSets { drive }, ctx)?;
             out.emit_paged(&s, suggestions);
         }
         SetsCommand::Export { set, format, output, drive, replace } => {
             let format = format.map(Into::into).or_else(|| output.as_deref().and_then(format_of));
             let req = api::SetExport { set, format: format.unwrap_or(SetFormat::Text), drive, output, replace };
-            let r = api::set_export(&store()?, &req)?;
+            let r = api::set_export(&crate::diff_cmd::store_to_read(store_path)?, &req)?;
             let Some(path) = &r.path else {
                 out.emit(&r, |r| {
                     print!("{}", r.text.as_deref().unwrap_or_default());
@@ -449,10 +447,8 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             }));
         }
         SetsCommand::Played { query } => {
-            let found = match crate::diff_cmd::existing_store(store_path) {
-                Some(s) => api::track_plays(&s, &api::TrackPlaysQuery { track: query.clone() })?,
-                None => Vec::new(),
-            };
+            let req = api::TrackPlaysQuery { track: query.clone() };
+            let found = crate::diff_cmd::read_or_empty(store_path, |s| api::track_plays(s, &req))?;
             out.emit_paged(&found, |a| played(&query, a));
         }
         SetsCommand::Playlist { set, drive, name, dry_run } => {

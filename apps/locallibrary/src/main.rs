@@ -1146,8 +1146,8 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
     }
     match command {
         Command::Status { all, retired } => {
-            let store = store()?;
-            let st = api::fleet_status(Some(&store), &api::FleetRequest { all, retired }, &ctx)?;
+            let store = diff_cmd::existing_store(&cli.store)?;
+            let st = api::fleet_status(store.as_ref(), &api::FleetRequest { all, retired }, &ctx)?;
             out.emit(&st, drive_cmd::fleet_status);
         }
         Command::Tracks(a) => {
@@ -1171,7 +1171,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Playlist(a) => return edit_cmd::playlist(a, out, &ctx),
         Command::Playlists { drive } => return edit_cmd::tree(drive, out),
         Command::Track(a) => return edit_cmd::track(a, out, &ctx),
-        Command::Smart(a) => return edit_cmd::smart(a, &store()?, out, &ctx),
+        Command::Smart(a) => return edit_cmd::smart(a, &cli.store, out, &ctx),
         Command::Edits(a) => return edit_cmd::edits(a, out, &ctx),
         Command::Pack {
             source,
@@ -1192,8 +1192,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             });
             let options =
                 locallibrary::pack::PackOptions { playlists, history, keep_extra, overwrite_archive: false, transcode };
-            let store = open_store(&cli.store).ok();
-            return edit_cmd::pack(api::PackRequest { source, target, options }, dry_run, store.as_ref(), out, &ctx);
+            return edit_cmd::pack(api::PackRequest { source, target, options }, dry_run, &cli.store, out, &ctx);
         }
         Command::Compare(args) => return diff_cmd::compare_alias(args, &cli.store, out, &ctx),
         Command::Sync { drives, from: Some(source), library: _, opts, allow_guess: _ } => {
@@ -1314,12 +1313,14 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         },
         Command::Library(a) => return library_cmd::run(a, &cli.store, out, &ctx),
         Command::Push(a) => return library_cmd::push(a, &cli.store, out, &ctx),
-        Command::Log(a) => return library_cmd::log(a, &store()?, out),
+        Command::Log(a) => return library_cmd::log(a, &diff_cmd::store_to_read(&cli.store)?, out),
         Command::Store { command } => {
-            let store = store()?;
+            // Reads about the store never make one.
+            let existing = || diff_cmd::store_to_read(&cli.store);
             match command.unwrap_or(StoreCommand::Info) {
-                StoreCommand::Info => out.emit(&api::store_info(&store)?, render::store_info),
+                StoreCommand::Info => out.emit(&api::store_info(&existing()?)?, render::store_info),
                 StoreCommand::Gc { dry_run } => {
+                    let store = store()?;
                     let plan = api::store_gc_plan(&store)?;
                     if plan.noop {
                         return Ok(out.nothing(&plan, "nothing to collect"));
@@ -1342,21 +1343,21 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
                 }
                 StoreCommand::Label { snapshot, label } => {
                     let req = api::LabelRequest { label, snapshot: Some(snapshot), remove: false };
-                    return store_cmd::label(&store, req, out);
+                    return store_cmd::label(&store()?, req, out);
                 }
                 StoreCommand::Unlabel { label } => {
-                    return store_cmd::label(&store, api::LabelRequest { label, snapshot: None, remove: true }, out);
+                    return store_cmd::label(&store()?, api::LabelRequest { label, snapshot: None, remove: true }, out);
                 }
-                StoreCommand::Prune(a) => return store_cmd::prune(&store, a.options(), out, &ctx),
+                StoreCommand::Prune(a) => return store_cmd::prune(&store()?, a.options(), out, &ctx),
                 StoreCommand::Copy { dir, mirror, verify, force, dry_run } => {
                     let options = api::CopyOptions { mirror, verify, force, dry_run };
-                    return store_cmd::copy(&store, api::StoreCopyRequest { path: dir, options }, out, &ctx);
+                    return store_cmd::copy(&store()?, api::StoreCopyRequest { path: dir, options }, out, &ctx);
                 }
-                StoreCommand::Copies => return store_cmd::copies(&store, out),
+                StoreCommand::Copies => return store_cmd::copies(&cli.store, out),
                 #[cfg(feature = "peers")]
                 StoreCommand::Serve { local } => {
                     return store_cmd::serve(
-                        &store,
+                        &existing()?,
                         &locallibrary::peers::ServeOptions { local_only: local },
                         out,
                         &ctx,
@@ -1365,10 +1366,10 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
                 #[cfg(feature = "peers")]
                 StoreCommand::Fetch { code, libraries, local, dry_run } => {
                     let options = locallibrary::peers::FetchOptions { libraries, local_only: local, dry_run };
-                    return store_cmd::fetch(&store, &code, &options, out, &ctx);
+                    return store_cmd::fetch(&store()?, &code, &options, out, &ctx);
                 }
                 StoreCommand::Verify => {
-                    let r = store.verify(&ctx)?;
+                    let r = existing()?.verify(&ctx)?;
                     let bad = !r.corrupt.is_empty() || !r.missing.is_empty();
                     let outcome = if bad { Outcome::Problems } else { Outcome::Applied };
                     return Ok(out.report(&r, outcome, |r| {
@@ -1390,7 +1391,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Art(a) => return art(a, &cli.store, out, &ctx),
         Command::Cues(args) => return cues_cmd::run(args, out, &ctx),
         Command::Undo { drive, list: true, .. } => {
-            let store = diff_cmd::existing_store(&cli.store);
+            let store = diff_cmd::existing_store(&cli.store)?;
             let list = api::undo_list(store.as_ref(), &api::UndoListRequest { drive })?;
             out.emit(&list, restore_cmd::undo_list);
         }
@@ -1430,10 +1431,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
         Command::Diff(args) => return diff_cmd::run(args, &cli.store, out, &ctx),
-        Command::Collection(args) => {
-            let store = open_store(&cli.store).ok();
-            return collection_cmd::run(args, store.as_ref(), out, &ctx);
-        }
+        Command::Collection(args) => return collection_cmd::run(args, &cli.store, out, &ctx),
         Command::Check(args) => return check_cmd::run(args, &cli.store, out, &ctx),
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
         Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),
@@ -1673,12 +1671,10 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
     match command {
         SettingsCommand::Schema => out.emit_paged(&locallibrary::settings::SCHEMA, |_| render::settings_schema()),
         SettingsCommand::Base => {
-            let store = open_store(store_path)?;
-            let profile = store.settings_profile()?;
+            let profile = diff_cmd::read_or_empty(store_path, Store::settings_profile)?;
             out.emit(&profile, render::profile);
         }
         SettingsCommand::Set { values, drive } => {
-            let store = open_store(store_path)?;
             let mut map = IndexMap::new();
             let mut set = Vec::new();
             for kv in values {
@@ -1693,7 +1689,7 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             return out.one_step(
                 &change,
                 "Set them?",
-                || Ok(api::settings_set(&store, &req)?),
+                || Ok(api::settings_set(&open_store(store_path)?, &req)?),
                 |_| {
                     for s in &set {
                         output::ok(format!("{s} {}", output::dim(&scope)));
@@ -1703,16 +1699,21 @@ fn settings(args: SettingsArgs, store_path: &Option<PathBuf>, out: Output, ctx: 
             );
         }
         SettingsCommand::Unset { keys, drive } => {
-            let store = open_store(store_path)?;
             let scope = settings_scope(drive.as_deref());
             let change = format!("unset {} {scope} in the store's settings profile", keys.join(", "));
             let req = api::UnsetSettings { keys, drive };
-            return out.one_step(&change, "Unset them?", || Ok(api::settings_unset(&store, &req)?), render::profile);
+            return out.one_step(
+                &change,
+                "Unset them?",
+                || Ok(api::settings_unset(&open_store(store_path)?, &req)?),
+                render::profile,
+            );
         }
         SettingsCommand::Show { drive } => {
-            let store = open_store(store_path)?;
-            let reads =
-                each_drive::read_each_drive(drive, |drive| api::settings_show(Some(&store), &api::DriveRef { drive }))?;
+            let store = diff_cmd::existing_store(store_path)?;
+            let reads = each_drive::read_each_drive(drive, |drive| {
+                api::settings_show(store.as_ref(), &api::DriveRef { drive })
+            })?;
             return Ok(reads.emit(out, render::drive_settings).exit());
         }
         SettingsCommand::Apply { drives, create_missing, dry_run } => {
@@ -1835,7 +1836,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
         ArtCommand::Auto { drive, dry_run } => {
             let drives = match drive {
                 Some(drive) => vec![drive],
-                None => each_drive::targets(diff_cmd::existing_store(store_path).as_ref())?,
+                None => each_drive::targets(diff_cmd::existing_store(store_path)?.as_ref())?,
             };
             let mut plans = Vec::new();
             for drive in drives {
@@ -1877,7 +1878,6 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             return Ok(out.applied(&plan, &r, Outcome::Applied, || done(&r)));
         }
         ArtCommand::Embed { image, files, dry_run } => {
-            let store = open_store(store_path)?;
             let plan = api::artwork_embed_plan(&api::EmbedArtwork { files, image })?;
             if !out.json {
                 output::summary(&plan.summary, &plan.warnings);
@@ -1892,7 +1892,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             if let Some(o) = out.decide(dry_run, "Rewrite these files?") {
                 return Ok(out.not_applied(&plan, o));
             }
-            let r = plan.apply(Some(&store), ctx)?;
+            let r = plan.apply(Some(&open_store(store_path)?), ctx)?;
             let outcome = if r.failed.is_empty() { Outcome::Applied } else { Outcome::Partial };
             return Ok(out.applied(&plan, &r, outcome, || {
                 for f in &r.failed {
@@ -1906,8 +1906,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
         }
         ArtCommand::Unembed { backup, list: true, .. } => {
             let _ = backup;
-            let store = open_store(store_path)?;
-            let list = locallibrary::artwork::embed_backups(&store)?;
+            let list = diff_cmd::read_or_empty(store_path, locallibrary::artwork::embed_backups)?;
             out.emit(&list, |l| {
                 if l.is_empty() {
                     say!("nothing to take back");

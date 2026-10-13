@@ -13,7 +13,6 @@ use locallibrary::collection_export::CollectionExportOptions;
 use locallibrary::masterdb::CollectionInfo;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{self, Filter, QueryContext};
-use locallibrary::store::Store;
 
 use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, warn};
 
@@ -92,7 +91,7 @@ files are downloaded). Exporting again copies only what changed. A folder export
     },
 }
 
-pub fn run(args: CollectionArgs, store: Option<&Store>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let req = api::CollectionRef { db: args.db, key: args.key };
     match args.command.unwrap_or(CollectionCommand::Info) {
         CollectionCommand::Info => {
@@ -167,7 +166,7 @@ pub fn run(args: CollectionArgs, store: Option<&Store>, out: Output, ctx: &Ctx<'
 fn export(
     req: api::CollectionExportRequest,
     dry_run: bool,
-    store: Option<&Store>,
+    store: &Option<PathBuf>,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<ExitCode> {
@@ -218,7 +217,7 @@ fn export(
         }
         return Ok(out.not_applied(&plan, o));
     }
-    let report = plan.apply(store, ctx)?;
+    let report = plan.apply(crate::open_store(store).ok().as_ref(), ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || {
         if let Some(s) = &report.saved {
             ok(format!("saved snapshot {} ({})", s.short_id, s.message.as_deref().unwrap_or("")));

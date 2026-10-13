@@ -552,7 +552,6 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         DriveCommand::Backups(a) => return backups(a.drive, out),
         DriveCommand::Restore(a) => return restore(a, store_path, out, ctx),
         DriveCommand::Rename { drive, name, label, dry_run } => {
-            let store = store().ok();
             let plan = api::drive_rename_plan(&api::RenameDrive { drive, name, label })?;
             if plan.noop {
                 return Ok(out.nothing(&plan, format!("{} has that name already", plan.from)));
@@ -563,7 +562,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             if let Some(o) = out.decide(dry_run, "Rename it?") {
                 return Ok(out.not_applied(&plan, o));
             }
-            let r = plan.apply(store.as_ref(), ctx)?;
+            let r = plan.apply(store().ok().as_ref(), ctx)?;
             return Ok(out.applied(&plan, &r, Outcome::Applied, || {
                 ok(format!("{} is now {}", r.old_name, r.name));
                 if let Some(l) = &r.label {
@@ -617,7 +616,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             );
         }
         DriveCommand::Log { drive } => {
-            let r = api::drive_log(&store()?, &DriveRef { drive })?;
+            let r = api::drive_log(&crate::diff_cmd::store_to_read(store_path)?, &DriveRef { drive })?;
             out.emit(&r, |r| {
                 heading(&r.name);
                 say!("  id          {}", r.id);
@@ -639,7 +638,8 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             });
         }
         DriveCommand::Recognise { drive } => {
-            let r = api::drive_recognise(Some(&store()?), &DriveRef { drive: drive.clone() }, ctx)?;
+            let store = crate::diff_cmd::existing_store(store_path)?;
+            let r = api::drive_recognise(store.as_ref(), &DriveRef { drive: drive.clone() }, ctx)?;
             out.emit(&r, |r| {
                 if r.is_empty() {
                     say!("{drive} doesn't match any drive or snapshot the store knows.");
@@ -672,16 +672,15 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             });
         }
         DriveCommand::Reidentify { path, name, force, dry_run } => {
-            let store = store().ok();
             let req = api::Reidentify { drive: path.display().to_string(), name, force };
-            let plan = api::drive_reidentify_plan(store.as_ref(), &req)?;
+            let plan = api::drive_reidentify_plan(crate::diff_cmd::existing_store(store_path)?.as_ref(), &req)?;
             if !out.json {
                 output::summary(&plan.summary, &plan.warnings);
             }
             if let Some(o) = out.decide(dry_run, "Give it a new identity?") {
                 return Ok(out.not_applied(&plan, o));
             }
-            let r = plan.apply(store.as_ref(), ctx)?;
+            let r = plan.apply(store().ok().as_ref(), ctx)?;
             return Ok(out.applied(&plan, &r, Outcome::Applied, || {
                 ok(format!("{} is now {} ({})", r.root.display(), r.name.clone().unwrap_or_default(), r.id.unwrap()))
             }));
@@ -744,7 +743,7 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             }));
         }
         DriveCommand::Groups => {
-            let groups = api::drive_sets(&store()?)?;
+            let groups = crate::diff_cmd::read_or_empty(store_path, api::drive_sets)?;
             out.emit(&groups, |groups| {
                 if groups.is_empty() {
                     say!("No mounted drives are linked to a library.");
@@ -768,10 +767,11 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
 /// `drive ls`: the mounted drives, or (--known) every drive the store has seen.
 fn ls(a: LsArgs, store_path: &Option<PathBuf>, out: Output) -> Result<ExitCode> {
     if a.known {
-        let list = api::drives_known(&open_store(store_path)?, &api::FleetRequest { all: true, retired: a.retired })?;
+        let req = api::FleetRequest { all: true, retired: a.retired };
+        let list = crate::diff_cmd::read_or_empty(store_path, |s| api::drives_known(s, &req))?;
         out.emit(&list, |l| known_drives(l));
     } else {
-        let store = crate::diff_cmd::existing_store(store_path);
+        let store = crate::diff_cmd::existing_store(store_path)?;
         let drives = api::list_drives_in_libraries(store.as_ref(), &api::ListDrives { all: a.all });
         out.emit(&drives, |d| render::drives(d));
     }
@@ -804,7 +804,6 @@ fn adopt(a: AdoptArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
             ))
         }));
     }
-    let store = open_store(store_path).ok();
     let plan = api::adopt_plan(&api::AdoptDrive { drive, name })?;
     if plan.noop {
         return Ok(out.nothing(&plan, &plan.summary[0]));
@@ -815,7 +814,7 @@ fn adopt(a: AdoptArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
     if let Some(o) = out.decide(dry_run, "Go ahead?") {
         return Ok(out.not_applied(&plan, o));
     }
-    let info = plan.apply(store.as_ref(), ctx)?;
+    let info = plan.apply(open_store(store_path).ok().as_ref(), ctx)?;
     Ok(out.applied(&plan, &info, Outcome::Applied, || {
         ok(format!("{} is {} ({})", info.root.display(), info.name.clone().unwrap_or_default(), info.id.unwrap()))
     }))
@@ -1030,7 +1029,7 @@ fn render_fsck(r: &locallibrary::fscheck::FsCheckReport) {
 }
 
 fn space(drive: Option<String>, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let store = open_store(store_path).ok();
+    let store = crate::diff_cmd::existing_store(store_path)?;
     let reads = each_drive::read_each_drive(drive, |drive| api::drive_space(store.as_ref(), &DriveRef { drive }, ctx))?;
     Ok(reads.emit(out, space_report).exit())
 }
