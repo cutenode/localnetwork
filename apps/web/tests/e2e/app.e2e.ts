@@ -146,11 +146,6 @@ test.describe('signed in', () => {
 	});
 
 	test('someone asks to see a press kit, and its owner lets them in', async ({ page }) => {
-		const signOut = async () => {
-			await page.goto('/me');
-			await page.getByRole('button', { name: 'Sign out' }).click();
-		};
-
 		await signIn(page, 'milo.test', 'milo-pass', '/projects/neon-tide/epk');
 		await page.getByRole('link', { name: /Clubs/ }).click();
 		await expect(page.getByRole('heading', { name: 'The rest of this press kit' })).toBeVisible();
@@ -161,7 +156,7 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Ask for access' }).click();
 		await expect(page.getByText(/You asked on/)).toBeVisible();
 		const kit = new URL(page.url()).pathname;
-		await signOut();
+		await signOut(page);
 
 		await signIn(page, 'neon.test', 'neon-pass', `${kit}/access`);
 		await expectAccessible(page);
@@ -171,13 +166,13 @@ test.describe('signed in', () => {
 			.getByRole('button', { name: 'Let in' })
 			.click();
 		await expect(page.getByText('Approved. They can see the whole press kit now.')).toBeVisible();
-		await signOut();
+		await signOut(page);
 
 		await signIn(page, 'milo.test', 'milo-pass', kit);
 		await expect(page.getByText('bookings@neon-tide.test')).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Halle Nord closing set (promo)' })).toBeVisible();
 		await expectAccessible(page);
-		await signOut();
+		await signOut(page);
 
 		// Each browser runs against the same network, so the owner takes access away again.
 		await signIn(page, 'neon.test', 'neon-pass', `${kit}/access`);
