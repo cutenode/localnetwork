@@ -123,9 +123,9 @@ Linux; raise them when coverage goes up. It measures only the code that ships: u
 a module's own `tests.rs` (`foo.rs` declares `#[cfg(test)] mod tests;`, and the tests are in
 `foo/tests.rs`), which the alias leaves out with the TUI's other test-only files (`props.rs`,
 `screens.rs`, `testing.rs`) and `test_util.rs`. Keep new unit tests in those files, not inline. It
-needs `cargo-llvm-cov`, `cargo-nextest` and rustup's `llvm-tools-preview` component. With
-Homebrew's Rust, install Homebrew's `llvm` and point `LLVM_COV` and `LLVM_PROFDATA` at its tools:
-its version must match the one `rustc -vV` names.
+needs `cargo-llvm-cov`, `cargo-nextest` and rustup's `llvm-tools-preview` component, found
+through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
+proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rustup).
 
 `tools/hegel-coverage.sh` runs `cargo coverage` over only the `#[hegel::test]` tests (picked by
 function name, so not the fixed examples beside them in the `props_*` modules), and so fails below
