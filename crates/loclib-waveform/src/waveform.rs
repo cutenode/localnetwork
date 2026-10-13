@@ -77,15 +77,17 @@ impl Widget for Overview<'_> {
         for x in 0..area.width {
             let col = column(wave, x as f64 * n / w, (x + 1) as f64 * n / w).unwrap_or_default();
             let played = x < head;
+            // Once a column, not once a cell: every row of it is the same two colours.
             let shade = |c: Rgb| {
-                if x == head {
+                paint(if x == head {
                     PLAYHEAD
                 } else if played {
                     scale(c, 0.5)
                 } else {
                     scale(c, 1.25)
-                }
+                })
             };
+            let (front_color, back_color) = (shade(col.front.color), shade(col.back.color));
             let (back, front) = (col.back.height * h, col.front.height * h);
             for row in 0..wave_area.height {
                 let y = wave_area.bottom() - 1 - row;
@@ -99,19 +101,12 @@ impl Widget for Overview<'_> {
                     continue;
                 }
                 if front_fill == 8 {
-                    p.put(buf, area.x + x, y, "█", paint(shade(col.front.color)), None);
+                    p.put(buf, area.x + x, y, "█", front_color, None);
                 } else if front_fill > 0 && back_fill == 8 {
                     // Front layer fills the bottom of the cell, the back layer the rest.
-                    p.put(
-                        buf,
-                        area.x + x,
-                        y,
-                        LOWER[front_fill],
-                        paint(shade(col.front.color)),
-                        Some(paint(shade(col.back.color))),
-                    );
+                    p.put(buf, area.x + x, y, LOWER[front_fill], front_color, Some(back_color));
                 } else {
-                    p.put(buf, area.x + x, y, LOWER[back_fill], paint(shade(col.back.color)), None);
+                    p.put(buf, area.x + x, y, LOWER[back_fill], back_color, None);
                 }
             }
         }
@@ -179,18 +174,19 @@ impl Widget for Detail<'_> {
             let color = if x == centre { PLAYHEAD } else { col.back.color };
             let past = x < centre;
             let color = if past { scale(color, 0.7) } else { color };
+            // Painted once a column, not once a cell.
+            let (paint_color, reflection) = (paint(color), paint(scale(color, 0.55)));
             let a = col.back.height;
             // Upper half grows up from the centre line, in eighths.
             let up = a * up_rows as f32;
             for k in 0..up_rows {
                 let fill = ((up - k as f32) * 8.0).round().clamp(0.0, 8.0) as usize;
                 if fill > 0 {
-                    p.put(buf, area.x + x, centre_y - 1 - k, LOWER[fill], paint(color), None);
+                    p.put(buf, area.x + x, centre_y - 1 - k, LOWER[fill], paint_color, None);
                 }
             }
             // Lower half: a dimmer reflection, in half cells.
             let down = a * down_rows as f32;
-            let reflection = scale(color, 0.55);
             for k in 0..down_rows {
                 let f = down - k as f32;
                 let sym = if f >= 0.75 {
@@ -200,7 +196,7 @@ impl Widget for Detail<'_> {
                 } else {
                     continue;
                 };
-                p.put(buf, area.x + x, centre_y + k, sym, paint(reflection), None);
+                p.put(buf, area.x + x, centre_y + k, sym, reflection, None);
             }
             if x == centre && a == 0.0 {
                 p.put(buf, area.x + x, centre_y, "│", paint(p.fg), None);
