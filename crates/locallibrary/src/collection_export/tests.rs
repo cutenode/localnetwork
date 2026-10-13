@@ -606,12 +606,13 @@ fn an_export_plan_says_what_it_leaves_out_and_what_it_needs(tc: hegel::TestCase)
         assert!(images[0].is_some() && images[0] == images[1], "{images:?}");
     }
 
-    // Audio far bigger than any drive.
+    // Audio far bigger than the drive (sparse, and under ext4's 16 TiB, the most a file holds).
     let audio = pc.dir.path().join("Music/One More Time.mp3");
-    std::fs::OpenOptions::new().write(true).open(&audio).unwrap().set_len(1 << 50).unwrap();
+    let big = 2 * crate::fsutil::available_space(pc.dir.path()).unwrap() + (1 << 30);
+    std::fs::OpenOptions::new().write(true).open(&audio).unwrap().set_len(big).unwrap();
     let mut folder = pc.folder("Small");
     let planned = plan(&collection, &pc.cloud(), &folder, &CollectionExportOptions::default(), &Ctx::silent()).unwrap();
-    assert!(!planned.fits && planned.needed_bytes > 1 << 50, "{planned:?}");
+    assert!(!planned.fits && planned.needed_bytes > big, "{planned:?}");
     assert!(planned.warnings.iter().any(|w| w.starts_with("the export needs about")), "{:?}", planned.warnings);
     assert!(matches!(apply(&planned, &mut folder, None, &Ctx::silent()), Err(Error::NoSpace { .. })));
     assert_eq!(std::fs::read_dir(folder.root()).unwrap().count(), 0, "the drive is left as it was");

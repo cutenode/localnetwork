@@ -295,15 +295,17 @@ fn a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: TestCase
     assert_eq!(images.len(), 2, "both tracks show the one image");
     assert!(paths::to_fs(&plus, &paths::key(&images[0])).is_file());
 
-    // Audio far bigger than any drive: planned with a warning, refused when applied.
+    // Audio far bigger than the drive (sparse, and under ext4's 16 TiB, the most a file holds):
+    // planned with a warning, refused when applied.
     let main = common::bigger_drive(dir.path(), "Small");
     let lib = pdb::read_library(&src_root.join(paths::EXPORT_PDB)).unwrap();
     let audio = paths::to_fs(&src_root, &paths::key(&lib.tracks[0].file_path));
-    fs::OpenOptions::new().write(true).open(&audio).unwrap().set_len(1 << 50).unwrap();
+    let big = 2 * locallibrary::fsutil::available_space(&main).unwrap() + (1 << 30);
+    fs::OpenOptions::new().write(true).open(&audio).unwrap().set_len(big).unwrap();
     let before = common::Before::take(&main);
     let mut dst = Device::open_export(&main).unwrap();
     let plan = merge::plan(&src, &dst, &MergeOptions::default(), &Ctx::silent()).unwrap();
-    assert!(!plan.fits && plan.needed_bytes > 1 << 50, "{plan:?}");
+    assert!(!plan.fits && plan.needed_bytes > big, "{plan:?}");
     assert!(plan.warnings.iter().any(|w| w.starts_with(&format!("needs about {} bytes", plan.needed_bytes))));
     let err = merge::apply(&plan, &src, &mut dst, &MergeOptions::default(), &Ctx::silent()).unwrap_err();
     assert!(matches!(err, Error::NoSpace { .. }), "{err}");
