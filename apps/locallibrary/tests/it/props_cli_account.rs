@@ -12,16 +12,16 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
-use crate::mock_pds::{MockPds, Writes};
+use crate::mock_pds::{MockPds, Writes, granted};
 use crate::support::account::{DID, PUBLISHING, sign_in};
 use crate::support::{Env, path};
 
-/// What a session may do, as `account status` says it.
+/// What a session that asked for `scopes` may do, as `account status` says it.
 fn allows(scopes: &[&str]) -> String {
-    let publishing = PUBLISHING[1..].iter().map(|s| format!("{s}?action=create&action=update")).collect::<Vec<_>>();
+    let scopes = granted(scopes);
     if scopes.iter().all(|s| *s == "atproto") {
         "knows who you are; can't post or change anything".into()
-    } else if scopes.iter().all(|s| *s == "atproto" || publishing.contains(&s.to_string())) {
+    } else if scopes.iter().all(|s| granted(&PUBLISHING).contains(s)) {
         "can publish your My Settings, profile and sets; can't post or change anything else".into()
     } else {
         format!("allowed: {}", scopes.join(" "))
@@ -38,11 +38,9 @@ fn the_account_says_what_its_session_allows(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
     let fx = Env::from_template();
-    let publish_scopes: Vec<String> =
-        PUBLISHING[1..].iter().map(|s| format!("{s}?action=create&action=update")).collect();
     let scopes: Vec<&str> = match tc.draw(gs::integers::<u8>().max_value(2)) {
         0 => vec!["atproto"],
-        1 => std::iter::once("atproto").chain(publish_scopes.iter().map(String::as_str)).collect(),
+        1 => PUBLISHING.to_vec(),
         _ => vec!["atproto", "transition:generic"],
     };
     let hours = tc.draw(gs::sampled_from(&[-48i64, 2, 24 * 30][..]));
@@ -286,16 +284,9 @@ fn publish_plan_is_printed(p: &Value, what: &str, out: &str, said: &str) {
 fn publishing_writes_the_record_the_plan_shows(tc: TestCase) {
     let pds = MockPds::start();
     let fx = Env::from_template();
-    let publish_scopes: Vec<String> =
-        PUBLISHING[1..].iter().map(|s| format!("{s}?action=create&action=update")).collect();
     let session = tc.draw(gs::integers::<u8>().max_value(2));
     match session {
-        0 => sign_in(
-            &fx.store,
-            &pds.url,
-            &std::iter::once("atproto").chain(publish_scopes.iter().map(String::as_str)).collect::<Vec<_>>(),
-            json!({}),
-        ),
+        0 => sign_in(&fx.store, &pds.url, &PUBLISHING, json!({})),
         1 => sign_in(&fx.store, &pds.url, &["atproto"], json!({})),
         _ => {}
     }

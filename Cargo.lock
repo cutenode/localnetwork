@@ -3917,6 +3917,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "unicode-segmentation",
  "uuid",
  "walkdir",
  "winapi-util",

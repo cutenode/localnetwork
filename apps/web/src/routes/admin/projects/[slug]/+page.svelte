@@ -33,7 +33,7 @@
 	<div class="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
 		<div class="min-w-0">
 			{#if data.viewer?.isAdmin}
-				<ProjectForm action="?/update" values={form?.values ?? data.values} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} />
+				<ProjectForm action="?/update" values={form?.values ?? data.values} sets={data.sets} avatarUrl={project.avatarUrl} submitLabel="Save and publish" geocoder={data.geocoder} />
 			{:else}
 				<p class="notice notice-info">Moderators can hide or unhide projects. Only admins edit them directly.</p>
 			{/if}

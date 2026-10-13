@@ -2,7 +2,7 @@ import type { LexiconDoc } from '@atproto/lexicon';
 import { COLLECTION, NS } from '#lib/nsid.ts';
 import { GENRE_ALIASES, GENRE_FAMILIES } from '#lib/taxonomy/genres.ts';
 import { FEE_TIER_ORDER } from '#lib/taxonomy/options.ts';
-import { LEXICON_DOCS } from '../atproto/lexicons';
+import { LEXICON_DOCS, REFERENCED_DOCS } from '../atproto/lexicons';
 
 /** A HappyView script, keyed by its trigger, e.g. `xrpc.query:computer.localnetwork.directory.searchProjects`. */
 export type HappyViewScript = { id: string; body: string };
@@ -15,10 +15,18 @@ const LUA = import.meta.glob<string>('/lua/**/*.lua', { query: '?raw', import: '
 
 const LIBRARY = '/lua/lib/';
 
-/** The project record, the defs it uses, and the directory queries. HappyView needs nothing else. */
-const LEXICONS = LEXICON_DOCS.filter(
-	(doc) => doc.id === `${NS}.defs` || doc.id === COLLECTION.project || doc.id.startsWith(`${NS}.directory.`)
-);
+/**
+ * The records HappyView indexes (projects and DJ sets), the defs they use, and the directory queries, in an order
+ * where each document's refs come before it. HappyView needs nothing else.
+ */
+const LEXICONS = [
+	...REFERENCED_DOCS,
+	...LEXICON_DOCS.filter(
+		(doc) =>
+			[`${NS}.defs`, COLLECTION.project, `${NS}.dj.defs`, COLLECTION.djSet].includes(doc.id) ||
+			doc.id.startsWith(`${NS}.directory.`)
+	)
+];
 
 /** `text` as a Lua long string, with enough `=` in its brackets that nothing inside can close it early. */
 function longString(text: string): string {
@@ -43,10 +51,10 @@ function trigger(path: string): string {
 }
 
 /**
- * The lexicons and Lua scripts that make HappyView the directory for `rootDid`'s projects. Each script is one chunk
+ * The lexicons and Lua scripts that make HappyView the directory for `rootDid`'s projects and their managers' sets. Each script is one chunk
  * that starts by defining the root DID. Queries then get the genre and fee taxonomies (from the TypeScript, so they
- * can't drift) and every `lua/lib` file before their own code. The record script stands alone: HappyView stores a
- * record when its script errors, so the gate shouldn't depend on anything else loading.
+ * can't drift) and every `lua/lib` file before their own code. Record scripts stand alone: HappyView stores a
+ * record when its script errors, so a gate shouldn't depend on anything else loading.
  */
 export function happyViewBundle(rootDid: string): HappyViewBundle {
 	const taxonomy = { families: GENRE_FAMILIES, aliases: Object.fromEntries(GENRE_ALIASES), feeTiers: FEE_TIER_ORDER };

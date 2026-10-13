@@ -7,7 +7,7 @@
 use serde_json::{Value, json};
 
 use crate::mock_pds::MockPds;
-use crate::support::account::{DID, sign_in};
+use crate::support::account::{DID, PUBLISHING, sign_in};
 use crate::support::{Env, Rpc, path};
 
 #[test]
@@ -39,13 +39,7 @@ fn client_metadata_for_a_hosted_client() {
     assert_eq!(v["client_id"], id);
     assert_eq!(v["application_type"], "native");
     // Every document allows publishing locallibrary's records, so sign-in can ask for it.
-    assert_eq!(
-        v["scope"],
-        "atproto repo:app.example.thing \
-         repo:computer.localnetwork.dj.profile?action=create&action=update \
-         repo:computer.localnetwork.dj.set?action=create&action=update \
-         repo:computer.localnetwork.locallibrary.settings?action=create&action=update"
-    );
+    assert_eq!(v["scope"], "atproto include:computer.localnetwork.locallibraryPublishing repo:app.example.thing");
     let file = env.outside("meta.json");
     let write = |more: &[&str]| {
         env.run(&[&["account", "client-metadata", "--client-id", id, "-o", path(&file)], more].concat())
@@ -113,14 +107,8 @@ fn the_status_says_what_the_session_allows_and_until_when() {
     }
     assert!(out.contains("  client https://dj.example.com/c.json\n"), "{out}");
 
-    // Signed in to publish, as the client metadata asks.
-    let publishing = [
-        "atproto",
-        "repo:computer.localnetwork.dj.profile?action=create&action=update",
-        "repo:computer.localnetwork.dj.set?action=create&action=update",
-        "repo:computer.localnetwork.locallibrary.settings?action=create&action=update",
-    ];
-    sign_in(&env.store, pds, &publishing, json!({ "sign_in_again_by": from_now(2) }));
+    // Signed in to publish: the server granted the permission set's scopes in its place.
+    sign_in(&env.store, pds, &PUBLISHING, json!({ "sign_in_again_by": from_now(2) }));
     let out = env.ok(&["account", "status"]);
     assert!(out.contains(" (today)\n"), "{out}");
     assert!(

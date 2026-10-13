@@ -629,10 +629,7 @@ fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
     let fx = Env::from_template();
     let signed_in = tc.draw(gs::booleans());
     if signed_in {
-        let scopes: Vec<String> = std::iter::once("atproto".to_string())
-            .chain(PUBLISHING[1..].iter().map(|s| format!("{s}?action=create&action=update")))
-            .collect();
-        sign_in(&fx.store, &pds.url, &scopes.iter().map(String::as_str).collect::<Vec<_>>(), json!({}));
+        sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
     }
     fx.ok(&["--yes", "settings", "set", "quantize=off"]);
     fx.ok(&["--yes", "sets", "new", "--from", "HISTORY 001", "--title", "Friday", "--date", "2026-10-03"]);

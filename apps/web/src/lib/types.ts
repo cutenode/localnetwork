@@ -12,6 +12,9 @@ export type Location = {
 
 export type ProjectLink = { kind: string; url: string; label?: string };
 
+/** A `com.atproto.repo.strongRef`: a record and the version of it that was meant. */
+export type StrongRef = { uri: string; cid: string };
+
 export type ProjectMix = {
 	title: string;
 	url: string;
@@ -19,6 +22,19 @@ export type ProjectMix = {
 	year?: number;
 	/** A locallibrary mix report (see `#lib/mix/report.ts`). */
 	tracklist?: BlobRefJson;
+	/** The manager's `computer.localnetwork.dj.set` this mix records. */
+	set?: StrongRef;
+};
+
+/** A DJ's set as the directory serves it (`computer.localnetwork.directory.defs#setView`). */
+export type DjSetView = StrongRef & {
+	title?: string;
+	/** YYYY-MM-DD */
+	date: string;
+	kind?: string;
+	venue?: string;
+	location?: { country: string; name?: string; locality?: string; region?: string };
+	trackCount: number;
 };
 
 export type ProjectProfile = {

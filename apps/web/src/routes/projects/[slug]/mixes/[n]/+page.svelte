@@ -1,4 +1,5 @@
 <script lang="ts">
+	import LinkedSet from '#lib/components/LinkedSet.svelte';
 	import MixReport from '#lib/components/mix/MixReport.svelte';
 	import { pluralize } from '#lib/format.ts';
 	import Monogram from '#lib/ui/Monogram.svelte';
@@ -18,6 +19,9 @@
 
 <div class="container-page py-10 sm:py-14">
 	<MixReport report={data.report} title={data.mix.title} listen={data.mix.url}>
+		{#snippet details()}
+			{#if data.mix.set && data.sets}<LinkedSet linked={data.mix.set} sets={data.sets} />{/if}
+		{/snippet}
 		{#snippet project()}
 			<a href="/projects/{data.project.slug}" class="flex w-fit items-center gap-2.5 font-semibold text-fg no-underline hover:underline">
 				{#if data.project.avatarUrl}

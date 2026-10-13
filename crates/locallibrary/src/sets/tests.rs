@@ -200,3 +200,37 @@ fn sessions_are_listed_by_a_short_id(tc: TestCase) {
         }
     }
 }
+
+/// A file's MusicBrainz IDs are read as Picard tags them, whichever way ID3 joins several (a
+/// frame each in ID3v2.4, `/` in ID3v2.3); anything that isn't a UUID is left out, and a file
+/// without tags, or that isn't audio, has none.
+#[test]
+fn musicbrainz_ids_are_read_from_the_tags() {
+    use lofty::config::WriteOptions;
+    use lofty::tag::{Tag, TagType};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("glue.wav");
+    std::fs::write(&path, crate::probe::tests::wav(8_000, 16, 0.25)).unwrap();
+    assert!(MusicBrainzIds::read(&path).is_empty(), "no tags");
+    let ids = [
+        "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b",
+        "5f6f2c4e-1d7a-4b4e-8f5c-2a9b3c1d0e7f",
+        "e0ddb3c4-0a5c-44d5-9c38-04d9a2e4e8a0",
+    ];
+    let uuid = |i: usize| Uuid::parse_str(ids[i]).unwrap();
+    let mut tag = Tag::new(TagType::Id3v2);
+    tag.insert_text(ItemKey::MusicBrainzRecordingId, ids[0].into());
+    tag.insert_text(ItemKey::MusicBrainzReleaseId, "not a uuid".into());
+    tag.push(lofty::tag::TagItem::new(
+        ItemKey::MusicBrainzArtistId,
+        lofty::tag::ItemValue::Text(format!("{}/{}", ids[1], ids[2])),
+    ));
+    tag.push(lofty::tag::TagItem::new(ItemKey::MusicBrainzArtistId, lofty::tag::ItemValue::Text(ids[0].into())));
+    tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    assert_eq!(
+        MusicBrainzIds::read(&path),
+        MusicBrainzIds { recording: Some(uuid(0)), release: None, artists: vec![uuid(1), uuid(2), uuid(0)] }
+    );
+    std::fs::write(&path, b"not audio").unwrap();
+    assert!(MusicBrainzIds::read(&path).is_empty());
+}

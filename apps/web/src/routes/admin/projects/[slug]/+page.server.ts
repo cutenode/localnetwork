@@ -30,7 +30,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		trail,
 		requests,
 		created: url.searchParams.has('created'),
-		geocoder: locals.app.geocoder.enabled
+		geocoder: locals.app.geocoder.enabled,
+		// Streamed, so the form shows while HappyView reads the managers' sets.
+		sets: locals.app.sets.published(project.managers)
 	};
 };
 

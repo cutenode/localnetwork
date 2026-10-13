@@ -20,11 +20,14 @@ pub mod session;
 pub mod suggest;
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local, NaiveDate, Utc};
+use lofty::prelude::*;
+use lofty::tag::ItemKey;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::local_time;
 use crate::model::Track;
@@ -167,6 +170,10 @@ pub struct SetEntry {
     /// Seconds from the start of the set (from a recording or a timed log).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_seconds: Option<u32>,
+    /// MusicBrainz IDs from the audio file's tags, read from a mounted drive when the set is made
+    /// or edited.
+    #[serde(default, skip_serializing_if = "MusicBrainzIds::is_empty")]
+    pub musicbrainz: MusicBrainzIds,
     /// Published without naming it: only its place in the set.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unnamed: bool,
@@ -174,6 +181,42 @@ pub struct SetEntry {
     /// The session that logged it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+}
+
+/// MusicBrainz IDs, as MusicBrainz Picard tags them: `MUSICBRAINZ_TRACKID` (ID3's `UFID`) is the
+/// recording, `MUSICBRAINZ_ALBUMID` the release, `MUSICBRAINZ_ARTISTID` each credited artist.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MusicBrainzIds {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release: Option<Uuid>,
+    /// In the credit's order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artists: Vec<Uuid>,
+}
+
+impl MusicBrainzIds {
+    pub fn is_empty(&self) -> bool {
+        *self == MusicBrainzIds::default()
+    }
+
+    /// The IDs the tags of the audio file at `path` hold: none when it has none, or can't be read.
+    /// Anything that isn't a UUID is left out.
+    pub fn read(path: &Path) -> MusicBrainzIds {
+        let Ok(tagged) = lofty::read_from_path(path) else { return MusicBrainzIds::default() };
+        let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else { return MusicBrainzIds::default() };
+        // ID3v2.4 keeps several values in one frame (lofty splits those); Picard writes ID3v2.3's
+        // joined with `/`.
+        let ids = |key: ItemKey| -> Vec<Uuid> {
+            tag.get_strings(key).flat_map(|v| v.split('/')).filter_map(|v| Uuid::parse_str(v.trim()).ok()).collect()
+        };
+        MusicBrainzIds {
+            recording: ids(ItemKey::MusicBrainzRecordingId).into_iter().next(),
+            release: ids(ItemKey::MusicBrainzReleaseId).into_iter().next(),
+            artists: ids(ItemKey::MusicBrainzArtistId),
+        }
+    }
 }
 
 /// A tempo as JSON holds it: an infinite or NaN one is no tempo, and serde_json would write it as
@@ -198,6 +241,7 @@ impl SetEntry {
             duration_secs: t.duration_secs,
             file: Some(t.file_path.clone()).filter(|f| !f.is_empty()),
             start_seconds: None,
+            musicbrainz: MusicBrainzIds::default(),
             unnamed: false,
             origin,
             session: session.map(String::from),
@@ -223,6 +267,7 @@ impl SetEntry {
             duration_secs: 0,
             file: None,
             start_seconds: None,
+            musicbrainz: MusicBrainzIds::default(),
             unnamed: false,
             origin: EntryOrigin::Added,
             session: None,

@@ -105,7 +105,7 @@
 		{#if profile.mixes?.length}
 			<section aria-labelledby="mixes" class="flex flex-col gap-4">
 				<h2 id="mixes" class="m-0 text-heading font-semibold">Mixes</h2>
-				<MixList mixes={profile.mixes} tracklistHref={(index) => `/projects/${project.slug}/mixes/${index + 1}`} />
+				<MixList mixes={profile.mixes} sets={data.sets} tracklistHref={(index) => `/projects/${project.slug}/mixes/${index + 1}`} />
 			</section>
 		{/if}
 

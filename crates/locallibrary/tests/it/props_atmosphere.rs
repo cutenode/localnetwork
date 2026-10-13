@@ -18,7 +18,7 @@ use locallibrary::api::{self, AccountLoginRequest};
 use locallibrary::atmosphere::lexicon::{PROFILE, SET, SETTINGS};
 use locallibrary::atmosphere::store::{self, AccountFile, StoredAccount};
 use locallibrary::atmosphere::{
-    self, AccountInfo, CallbackQuery, Client, PUBLISH_SCOPES, SESSION_LIMIT_DAYS, Storage, publish_scopes,
+    self, AccountInfo, CallbackQuery, Client, PUBLISH_SCOPES, PUBLISH_SET, SESSION_LIMIT_DAYS, Storage, publish_scopes,
 };
 use locallibrary::error::Reason;
 use locallibrary::progress::Ctx;
@@ -63,7 +63,7 @@ struct Granted {
 #[hegel::test_helper]
 fn granted(tc: &TestCase) -> Granted {
     let c = COLLECTIONS[tc.draw(gs::integers::<usize>().max_value(COLLECTIONS.len() - 1))];
-    let kind = tc.draw(gs::integers::<u8>().max_value(11));
+    let kind = tc.draw(gs::integers::<u8>().max_value(12));
     let (scope, grants) = match kind {
         0 => ("atproto".to_string(), Some(Some((None, false, false)))),
         1 => ("transition:generic".to_string(), Some(None)),
@@ -76,6 +76,8 @@ fn granted(tc: &TestCase) -> Granted {
         8 => (format!("repo:{c}?action=create&action=update"), Some(Some((Some(c), true, true)))),
         9 => (format!("repo:{c}?action=*"), Some(Some((Some(c), true, true)))),
         10 => (format!("repo:{c}?action=update&action=delete"), Some(Some((Some(c), false, true)))),
+        // Servers grant a permission set's scopes in its place: its name grants nothing.
+        11 => (format!("include:{PUBLISH_SET}"), Some(Some((None, false, false)))),
         _ => (format!("repo:{c}?action=publish"), None),
     };
     Granted { scope, grants }
@@ -102,14 +104,15 @@ fn missing_scope_agrees_with_what_was_granted(tc: TestCase) {
     assert_eq!(atmosphere::missing_scope(&account, collection), expected, "{:?}", account.scopes);
 }
 
-/// The publish scopes are `atproto` and one create-and-replace scope per record type, and a
-/// session granted them may write each of locallibrary's record types and nothing else's.
+/// Publishing asks for `atproto` and the permission set, which a server grants as one
+/// create-and-replace scope per record type, and a session granted them may write each of
+/// locallibrary's record types and nothing else's.
 #[hegel::test(test_cases = 50)]
 fn the_publish_scopes_cover_exactly_locallibrarys_records(tc: TestCase) {
-    let all = publish_scopes();
-    assert_eq!(all[0], "atproto");
-    assert_eq!(&all[1..], PUBLISH_SCOPES.map(String::from));
-    let order = tc.draw(gs::permutations(all.clone()));
+    assert_eq!(publish_scopes(), ["atproto".to_string(), format!("include:{PUBLISH_SET}")]);
+    let granted = crate::mock_pds::granted(&publish_scopes());
+    assert_eq!(granted, [&PUBLISH_SCOPES[..], &["atproto"]].concat());
+    let order = tc.draw(gs::permutations(granted));
     let account = info("did:plc:abc", None, order, Utc::now());
     for c in [SETTINGS, PROFILE, SET] {
         assert_eq!(atmosphere::missing_scope(&account, c), None, "{c}");
@@ -263,7 +266,7 @@ fn waits_are_said_in_seconds_or_rounded_up_minutes(tc: TestCase) {
 // The client metadata document
 // ---------------------------------------------------------------------------------------------
 
-/// The client metadata document allows `atproto`, the publish scopes and the extra ones asked
+/// The client metadata document allows `atproto`, the permission set and the extra ones asked
 /// for, each once; it's for a native app whose redirect is the loopback callback, named after
 /// its host; the API's document is the same one; and a client ID that isn't https, or a scope
 /// that can't be read, gets no document.
@@ -280,6 +283,7 @@ fn the_client_document_allows_what_it_should(tc: TestCase) {
         "repo:app.example.thing",
         "repo:app.example.other?action=create",
         PUBLISH_SCOPES[1],
+        format!("include:{PUBLISH_SET}").leak(),
         "foo:bar",
     ];
     let extra: Vec<String> =

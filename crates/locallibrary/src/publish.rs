@@ -21,10 +21,12 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
+use uuid::Uuid;
 
 use crate::atmosphere::repo::{self, Fetched, Resolved};
 use crate::atmosphere::{self, AccountInfo, lexicon};
 use crate::harmony::Camelot;
+use crate::mix::{MixReport, Play, Transition};
 use crate::profile::{Count, DocShare, ProfileDocument};
 use crate::sets::{EntryOrigin, Set, SetEntry};
 use crate::settings::{self, BaseChange, Category};
@@ -250,31 +252,130 @@ pub fn profile_record(doc: &ProfileDocument) -> Value {
 // Sets
 // ---------------------------------------------------------------------------------------------
 
-/// One track of a set record: named as the set has it, or, unidentified, only its place (and
-/// when it starts).
-fn set_track(e: &SetEntry, unidentified: bool) -> Value {
+/// The most tracks a set record holds (its Lexicon's limit). Tracks with every field filled and
+/// text at the Lexicon's grapheme limits (ASCII) are about 1.5 KB of JSON each: 500 of them fit the
+/// 1 MiB a record may be as DAG-CBOR, and the 1,000,000-byte request a PDS takes to write one.
+pub const SET_TRACK_LIMIT: usize = 500;
+
+/// The longest request writing a record a PDS from before May 2026 takes: the reference PDS's
+/// JSON limit was 150 KiB for every request until bluesky-social/atproto#4989.
+pub const OLDER_PDS_REQUEST_BYTES: usize = 150 * 1024;
+
+/// The most graphemes the set Lexicon takes in an artist's or a release's name, at ten bytes each.
+const NAME_LIMIT: usize = 256;
+
+/// The most artists a set's track lists (its Lexicon's limit).
+const ARTIST_LIMIT: usize = 32;
+
+/// How long two tracks must be heard together to call the transition a blend, as the website's
+/// mix report does: fingerprints don't hear fades, so a shorter overlap, or even a gap, may be a
+/// quick mix as well as a cut.
+const BLEND_SECS: f64 = 8.0;
+
+/// The longest transition the Lexicon takes, in milliseconds.
+const TRANSITION_LIMIT_MS: f64 = 600_000.0;
+
+/// `mbid:<uuid>`, as teal.fm writes a MusicBrainz ID.
+fn mbid(id: Uuid) -> String {
+    format!("mbid:{id}")
+}
+
+/// Whether the Lexicon takes `s` as an artist's or a release's name: a longer one is left out
+/// rather than cut short.
+fn fits_name(s: &str) -> bool {
+    s.chars().count() <= NAME_LIMIT && s.len() <= NAME_LIMIT * 10
+}
+
+/// The artists `e` credits, one by one, as the profile counts them, with their MusicBrainz IDs
+/// when the tags have as many as the credit names (Picard tags them in the credit's order).
+/// `None` when that says no more than the credit line: one artist, and no ID.
+fn artists(e: &SetEntry) -> Option<Vec<Value>> {
+    let names = crate::profile::artist_credits(&e.artist);
+    let ids = &e.musicbrainz.artists;
+    let paired = ids.len() == names.len();
+    let known = names.len() > 1 || (paired && !ids.is_empty());
+    if !known || names.len() > ARTIST_LIMIT || !fits_name(e.artist.trim()) {
+        return None;
+    }
+    let artist = |(i, name): (usize, String)| {
+        let mut m = Map::new();
+        m.insert("artistName".into(), name.into());
+        put(&mut m, "artistMbId", ids.get(i).filter(|_| paired).map(|id| mbid(*id)));
+        Value::Object(m)
+    };
+    Some(names.into_iter().enumerate().map(artist).collect())
+}
+
+/// The Lexicon's name for a harmony a mix report describes.
+fn harmony(described: &str) -> Option<&'static str> {
+    use crate::harmony::Relation::*;
+    [(Same, "sameKey"), (Adjacent, "adjacent"), (Relative, "relative"), (EnergyBoost, "energyBoost")]
+        .into_iter()
+        .find(|(r, _)| r.describe() == described)
+        .map(|(_, name)| name)
+        .or((described == "clash").then_some("clash"))
+}
+
+/// How a track came in, as a recording heard it. With `unidentified` (either track isn't named)
+/// only when is said, not how the keys and tempo moved.
+fn transition(t: &Transition, unidentified: bool) -> Value {
+    let mut m = Map::new();
+    m.insert("technique".into(), if t.overlap >= BLEND_SECS { "blend" } else { "unknown" }.into());
+    let ms = (t.overlap * 1000.0).round();
+    put(&mut m, "durationMs", (ms > 0.0 && ms <= TRANSITION_LIMIT_MS).then_some(ms as i64));
+    if !unidentified {
+        put(&mut m, "harmony", t.harmony.as_deref().and_then(harmony));
+        put(&mut m, "tempoChangePermille", t.tempo_change.map(|c| (c * 10.0).round() as i64));
+    }
+    Value::Object(m)
+}
+
+/// Whether `e` is the play `p` of the recording its set was built from.
+fn is_play(e: &SetEntry, p: &Play) -> bool {
+    e.origin == EntryOrigin::Recording
+        && e.start_seconds == Some(p.start_second())
+        && e.file_key() == Some(crate::plays::file_key(&p.track.file_path))
+}
+
+/// The transition `report` heard from `before` into `e`, when they're plays it heard one after
+/// the other.
+fn heard<'a>(report: &'a MixReport, before: &SetEntry, e: &SetEntry) -> Option<&'a Transition> {
+    let is = |i: usize, e: &SetEntry| report.plays.get(i).is_some_and(|p| is_play(e, p));
+    report.transitions.iter().find(|t| is(t.from, before) && is(t.to, e))
+}
+
+/// One track of a set record: named as the set has it, or, unidentified, only its place (when it
+/// starts, and came in).
+fn set_track(e: &SetEntry, unidentified: bool, transition_in: Option<Value>) -> Value {
     let mut m = Map::new();
     if unidentified {
         m.insert("unidentified".into(), true.into());
         put(&mut m, "startSeconds", e.start_seconds);
+        put(&mut m, "transitionIn", transition_in);
         return Value::Object(m);
     }
     let text = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
     let isrc = e.isrc.trim().replace('-', "").to_ascii_uppercase();
     put(&mut m, "title", text(&e.title));
     put(&mut m, "artist", text(&e.artist));
+    put(&mut m, "artists", artists(e));
+    put(&mut m, "releaseName", text(&e.album).filter(|a| fits_name(a)));
     put(&mut m, "isrc", (isrc.len() == 12 && isrc.chars().all(|c| c.is_ascii_alphanumeric())).then_some(isrc));
+    put(&mut m, "recordingMbId", e.musicbrainz.recording.map(mbid));
+    put(&mut m, "releaseMbId", e.musicbrainz.release.map(mbid));
     // An infinite tempo is unknown, as `sets.json` keeps it.
     put(&mut m, "bpmCentis", (e.bpm > 0.0 && e.bpm.is_finite()).then(|| (e.bpm * 100.0).round() as u32));
     put(&mut m, "key", Camelot::parse(&e.key).map(Camelot::code));
     put(&mut m, "startSeconds", e.start_seconds);
+    put(&mut m, "transitionIn", transition_in);
     Value::Object(m)
 }
 
 /// The set record for `set`. Its tracks marked `unnamed`, and those at the positions (from 1) in
-/// `hidden`, are published unidentified. The DJ's notes, the recording, the sessions and the
-/// files' paths stay here.
-pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Value {
+/// `hidden`, are published unidentified. `report`, the mix report of the recording the set was
+/// built from, says how each track came in, where the set still has two plays it heard one after
+/// the other. The DJ's notes, the recording, the sessions and the files' paths stay here.
+pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, report: Option<&MixReport>, now: DateTime<Utc>) -> Value {
     let text = |s: &Option<String>| s.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(String::from);
     let mut r = Map::new();
     r.insert("$type".into(), lexicon::SET.into());
@@ -315,8 +416,20 @@ pub fn set_record(set: &Set, hidden: &BTreeSet<usize>, now: DateTime<Utc>) -> Va
     if !sources.is_empty() {
         r.insert("sources".into(), sources.into());
     }
-    let tracks: Vec<Value> =
-        set.tracks.iter().enumerate().map(|(i, e)| set_track(e, e.unnamed || hidden.contains(&(i + 1)))).collect();
+    let unidentified: Vec<bool> =
+        set.tracks.iter().enumerate().map(|(i, e)| e.unnamed || hidden.contains(&(i + 1))).collect();
+    let tracks: Vec<Value> = set
+        .tracks
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let transition_in = report
+                .zip(i.checked_sub(1))
+                .and_then(|(r, b)| heard(r, &set.tracks[b], e))
+                .map(|t| transition(t, unidentified[i] || unidentified[i - 1]));
+            set_track(e, unidentified[i], transition_in)
+        })
+        .collect();
     r.insert("tracks".into(), tracks.into());
     r.insert("createdAt".into(), timestamp(now).into());
     Value::Object(r)

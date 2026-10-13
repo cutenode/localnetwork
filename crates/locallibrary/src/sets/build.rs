@@ -10,7 +10,8 @@
 use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
 use rustc_hash::FxHashSet;
 
-use super::{EntryOrigin, Session, SetEntry};
+use super::{EntryOrigin, MusicBrainzIds, Session, SetEntry};
+use crate::device::Device;
 use crate::mix::{MixReport, Play};
 
 /// A tracklist, and what's worth telling the DJ about it.
@@ -70,7 +71,7 @@ pub(crate) fn from_recording(report: &MixReport) -> Tracklist {
     let mut out = Tracklist::default();
     for (i, p) in plays.into_iter().enumerate() {
         let mut e = SetEntry::from_track(&p.track, EntryOrigin::Recording, None);
-        e.start_seconds = Some(p.start.max(0.0).floor() as u32);
+        e.start_seconds = Some(p.start_second());
         if p.is_tentative() {
             out.notes.push(format!(
                 "{}. {}: a tentative match ({:.0}%), check it",
@@ -82,6 +83,18 @@ pub(crate) fn from_recording(report: &MixReport) -> Tracklist {
         out.tracks.push(e);
     }
     out
+}
+
+/// Read the MusicBrainz IDs of the `tracks` that have none yet from their files' tags, on the
+/// first of `drives` that holds the file. rekordbox keeps no MusicBrainz IDs, so only tagged
+/// files on a mounted drive have them.
+pub(crate) fn read_musicbrainz(tracks: &mut [SetEntry], drives: &[Device]) {
+    for e in tracks.iter_mut().filter(|e| e.musicbrainz.is_empty()) {
+        let Some(key) = e.file.as_deref().map(crate::paths::key) else { continue };
+        if let Some(path) = drives.iter().filter_map(|d| d.checked_path(&key).ok()).find(|p| p.is_file()) {
+            e.musicbrainz = MusicBrainzIds::read(&path);
+        }
+    }
 }
 
 /// [`from_recording`], noting which of `before` (the set's tracks so far, or its sessions')

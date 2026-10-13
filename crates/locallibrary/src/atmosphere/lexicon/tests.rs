@@ -167,7 +167,7 @@ fn a_set_lists_objects_it_can_grow() {
             { "uri": "https://station.example/archive/2026-10-03" },
         ],
         "sources": [{ "kind": "history" }, { "kind": "mix" }],
-        "tracks": [{ "title": "Glue", "recordingMbId": "c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b", "key": "8A" }],
+        "tracks": [{ "title": "Glue", "recordingMbId": "mbid:c1a3e5c0-7b5e-4d51-9d0e-3c8b1f1f8a2b", "key": "8A" }],
         "createdAt": "2026-10-04T09:30:00.000Z",
     });
     validate(SET, &set).unwrap();
@@ -314,12 +314,15 @@ fn bound(tc: &hegel::TestCase, max: i64) -> Option<i64> {
 }
 
 /// Text fits a string schema exactly when its length in bytes is within `minLength` and
-/// `maxLength`, its length in characters within `maxGraphemes` and it's one of `enum` (when
+/// `maxLength`, its length in graphemes within `maxGraphemes` and it's one of `enum` (when
 /// there is one), and the first of those it breaks is the one the error names.
 #[hegel::test(test_cases = 400)]
-fn text_fits_when_its_bytes_characters_and_value_do(tc: hegel::TestCase) {
+fn text_fits_when_its_bytes_graphemes_and_value_do(tc: hegel::TestCase) {
     let words = vec!["dark", "light", "dämmerung", "夜"];
-    let s: String = tc.draw(hegel::one_of!(gs::sampled_from(words.clone()).map(String::from), gs::text().max_size(12)));
+    // Accents, ZWJ and regional indicators, so graphemes of several code points come up often.
+    let clusters = gs::text().alphabet("e\u{301}\u{200d}👩🇬🇧").max_size(12);
+    let s: String =
+        tc.draw(hegel::one_of!(gs::sampled_from(words.clone()).map(String::from), gs::text().max_size(12), clusters));
     let (min, max, graphemes) = (bound(&tc, 12), bound(&tc, 40), bound(&tc, 12));
     let closed = tc.draw(gs::booleans());
     let mut schema = json!({ "type": "string" });
@@ -331,16 +334,28 @@ fn text_fits_when_its_bytes_characters_and_value_do(tc: hegel::TestCase) {
     if closed {
         schema["enum"] = json!(words);
     }
-    let (bytes, chars) = (s.len() as i64, s.chars().count() as i64);
+    let (bytes, count) = (s.len() as i64, s.graphemes(true).count() as i64);
     let bytes_fit = min.is_none_or(|m| bytes >= m) && max.is_none_or(|m| bytes <= m);
-    let chars_fit = graphemes.is_none_or(|m| chars <= m);
+    let graphemes_fit = graphemes.is_none_or(|m| count <= m);
     let listed = !closed || words.contains(&s.as_str());
     match check(SET, &schema, &json!(s), "x") {
-        Ok(()) => assert!(bytes_fit && chars_fit && listed, "{s:?} passed {schema}"),
+        Ok(()) => assert!(bytes_fit && graphemes_fit && listed, "{s:?} passed {schema}"),
         Err(e) if !bytes_fit => assert_eq!(e, format!("x is {bytes} bytes long, outside what the Lexicon allows")),
-        Err(e) if !chars_fit => assert_eq!(e, format!("x is longer than {} characters", graphemes.unwrap())),
+        Err(e) if !graphemes_fit => assert_eq!(e, format!("x is longer than {} graphemes", graphemes.unwrap())),
         Err(e) => assert_eq!((listed, e), (false, format!("x can't be {s:?}"))),
     }
+}
+
+/// `maxGraphemes` counts what a reader sees as one character, so a flag, a family emoji and a
+/// letter with a combining accent are one each, though they're 9 code points between them.
+#[test]
+fn max_graphemes_counts_clusters_not_code_points() {
+    let schema = json!({ "type": "string", "maxGraphemes": 3 });
+    let checked = |s: &str| check(SET, &schema, &json!(s), "name");
+    let three = "🇬🇧👩\u{200d}👩\u{200d}👧e\u{301}";
+    assert_eq!(three.chars().count(), 9);
+    checked(three).unwrap();
+    assert_eq!(checked(&format!("{three}!")).unwrap_err(), "name is longer than 3 graphemes");
 }
 
 /// A number fits an integer schema exactly when it's a whole number (the AT Protocol has no

@@ -2,7 +2,7 @@
 
 Promoters find local DJs who fit their shows. DJs (called _projects_: a solo DJ, a b2b duo, a group, or a collective) get a profile built around what promoters book on: sound, distance, slot, room size, and budget.
 
-All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything private (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension. Published projects are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher. The app keeps its own SQLite index only for space data, and can rebuild it from the network.
+All data lives on the AT Protocol. Public profiles are ordinary atproto records; everything private (requests, staff roles, the audit log, booking threads, personal planners) lives in [atproto spaces](https://atproto.com/blog/atproto-spaces-alpha), the protocol's permissioned-data extension. Published projects, and the sets their managers publish, are indexed by [HappyView](https://happyview.dev), an AppView whose Lua scripts answer directory search and the show matcher. The app keeps its own SQLite index only for space data, and can rebuild it from the network.
 
 > Atproto spaces is an alpha (released 2026). This app is built against `@atproto/*@0.0.0-spaces-alpha-20261001173819` and the [0016 spaces proposal](https://github.com/bluesky-social/proposals/tree/main/0016-permissioned-data). Expect breaking changes upstream; all versions are pinned.
 
@@ -20,6 +20,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - List a new project, or claim one an admin added. Several managers per project (crews, agents).
 - Profiles cover genres, city and travel radius, set types and lengths, formats, room sizes, fee tier and range, links, playable SoundCloud/Mixcloud/YouTube mixes, highlights, photo.
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
+- A mix can also link a set a manager published with locallibrary (`locallibrary sets publish`), picked from a list on the edit form. The profile shows when and where it was played, and says so if the set changed after it was linked.
 - Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
 - A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from their own PDS when the page loads and streamed in, so a slow PDS never holds the page up. Nothing is stored; a few minutes' cache in memory keeps busy pages from asking again.
 - Press kits as records. A manager publishes as many as they like for a project (`/epk/new?project=<slug>`), one per kind of booking. Each is a public `computer.localnetwork.epk` record in their own repo, holding the mixes and photos they choose to show everyone, plus a space of their own holding the rest: a full bio, on-request mixes and photos, press quotes, contact and rider. People ask for access at `/epk/<did>/<rkey>`; the owner's rules approve them at once, send them for review, or don't take requests, per group (people they've booked with, people they follow on Bluesky, promoters, anyone signed in), with seven presets from open to closed. Every approval writes a grant record to the owner's PDS and adds the person to the space; automatic ones are written as soon as the owner's session allows. The owner sees and answers requests, adds and removes people at `/epk/<did>/<rkey>/access`, and gets a press-photo checklist (3 or more photos, every orientation, 3,000 px, credited).
@@ -42,6 +43,7 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 | Data                                                  | Where                                                             | Who writes                           | Who reads             |
 | ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------ | --------------------- |
 | Published projects (`computer.localnetwork.project`)  | Root account's public repo                                        | Root, after admin action or approval | Everyone              |
+| DJ sets (`computer.localnetwork.dj.set`)              | The DJ's own public repo                                          | The DJ, with locallibrary            | Everyone              |
 | Requests (`computer.localnetwork.moderation.request`) | Requester's repo in the root's moderation space                   | The requester                        | Staff (via the app)   |
 | Decisions                                             | Root's repo in the moderation space                               | Root                                 | Staff                 |
 | Staff roles (`computer.localnetwork.staff.role`)      | Root's repo in the staff space                                    | Root                                 | Staff                 |
@@ -82,6 +84,7 @@ flowchart LR
   SH -- notifyWrite --> App
   App -- space credential: listRepos / listRepoOps / getRepo --> SH & UR
   PUB -- relay + Jetstream --> HV[(HappyView)]
+  SETS[(DJ's repo: sets)] -- Jetstream, or a backfill when the picker opens --> HV
   App -- directory queries --> HV
 ```
 
@@ -101,16 +104,19 @@ Accounts whose PDS doesn't run the spaces alpha can still sign in: the root file
 
 A tracklist is a JSON blob (`application/json`, at most 1 MB) on a mix in the project record, following the `locallibrary.mix-report` format, version 1 or 2 (schema in `src/lib/mix/schema.ts`). It moves like the photo: uploaded to the requester's PDS with the request, previewed by moderators from there (`/admin/requests/<rkey>/mixes/<n>`), then validated, re-serialized (dropping unknown fields), and uploaded to the root's repo on approval. A tracklist that is already published is kept by CID without being fetched again. Published tracklists are read with `com.atproto.sync.getBlob` from the root's PDS, validated, and cached in memory. The format carries no file paths, comments, or ratings; cover art is embedded as small `data:` images.
 
+A mix can also link a set (`set`, a `com.atproto.repo.strongRef` to a `computer.localnetwork.dj.set` in a manager's own repo), alongside its tracklist. The edit form offers the project's managers' sets, which it reads from HappyView, and posts the set's URI and CID. When root publishes, each newly linked set must be one HappyView has, by a manager; the CID pins the version that was picked. The profile looks the sets up in HappyView and says when one has changed since it was linked (a different CID) or is gone. Only managers can link sets, so a new project's form has none to offer until it's approved.
+
 ### Sync
 
 The app is a space syncer. For each watched space it mints a space credential (delegation token from the root's PDS, exchanged at the space host with an RFC 9421 HTTP message signature bound to a fresh P-256 key), enumerates writers with `listRepos`, pulls each repo's oplog with `listRepoOps`, and verifies the result against the author's signed LtHash commit, falling back to a full verified CAR download (`getRepo`) when needed. It registers for `notifyWrite` (verified with inter-service auth) and also polls. Records are validated against the lexicons, and authority rules are enforced: only root-authored decisions, roles, and details count, and booking records from non-participants are ignored.
 
 ### Directory
 
-Published projects are served by [HappyView](https://happyview.dev) 2.16, not the app. HappyView follows Jetstream for `computer.localnetwork.project` records and answers the `computer.localnetwork.directory.*` queries ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)) with Lua scripts in `lua/`:
+Published projects are served by [HappyView](https://happyview.dev) 2.16, not the app. HappyView follows Jetstream for `computer.localnetwork.project` and `computer.localnetwork.dj.set` records and answers the `computer.localnetwork.directory.*` queries ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)) with Lua scripts in `lua/`:
 
-- `project.lua` runs on every incoming record and keeps only the root account's, since Jetstream filters by collection and anyone can write one.
-- `searchProjects`, `matchProjects`, `getProject`, `getProjects`, and `getStats` do the search, ranking, and lookups. Match results carry reason codes, which the app turns into text.
+- `project.lua` runs on every incoming project record and keeps only the root account's, since Jetstream filters by collection and anyone can write one.
+- `dj/set.lua` keeps only sets by accounts that manage one of the root's projects, and stores what the site shows (title, date, kind, venue, address, track count), not the tracks. Jetstream only brings new sets, so when the edit form's set picker opens, the app has HappyView re-read each manager's sets from their PDS (one backfill per account, at most every ten minutes).
+- `searchProjects`, `matchProjects`, `getProject`, `getProjects`, and `getStats` do the search, ranking, and lookups. Match results carry reason codes, which the app turns into text. `getSets` and `listSets` look up sets by URI and by account.
 - The genre taxonomy and fee tiers are generated into the scripts from `src/lib/taxonomy/`, so TypeScript stays the source of truth.
 
 With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons changed when it boots (scripts first, so the record gate is in place before ingestion starts), then has HappyView re-read the root's repo and waits for that to finish. After publishing a project it waits (up to 5 seconds) for HappyView to index the new version, so the next page shows it.
@@ -139,12 +145,12 @@ pnpm dev
 
 Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
 
-| Handle      | Password    | Role                                       |
-| ----------- | ----------- | ------------------------------------------ |
-| `ada.test`  | `ada-pass`  | admin (via `ADMIN_DIDS`)                   |
-| `milo.test` | `milo-pass` | regular; make them a moderator under Staff |
-| `neon.test` | `neon-pass` | DJ, manages two demo projects              |
-| `pat.test`  | `pat-pass`  | promoter                                   |
+| Handle      | Password    | Role                                        |
+| ----------- | ----------- | ------------------------------------------- |
+| `ada.test`  | `ada-pass`  | admin (via `ADMIN_DIDS`)                    |
+| `milo.test` | `milo-pass` | regular; make them a moderator under Staff  |
+| `neon.test` | `neon-pass` | DJ, manages two demo projects, has two sets |
+| `pat.test`  | `pat-pass`  | promoter                                    |
 
 The network is temporary; restarting it resets everything (and the dev database).
 
@@ -167,7 +173,7 @@ The network is temporary; restarting it resets everything (and the dev database)
 | `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe    |
 | `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)              |
 | `pnpm knip`                         | Unused files, exports, and dependencies                                 |
-| `pnpm lexicons:publish`             | Publish lexicons from the root account and check their DNS records      |
+| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS       |
 | `pnpm verify`                       | CI's quick checks, in order                                             |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
@@ -186,15 +192,15 @@ See [`.env.example`](.env.example) for every option. The essentials:
 - `ROOT_IDENTIFIER` / `ROOT_PASSWORD`: the Local Network root account. **Use a dedicated account and its account password.** In the alpha, `com.atproto.space.getDelegationToken` requires a full-access session, so app passwords cannot mint space credentials (the app explains this in its logs if you try).
 - `ADMIN_DIDS`: accounts that are always admins. Everyone else is managed in-app.
 - `HAPPYVIEW_URL`: the HappyView instance that serves the directory. Use its public URL: HappyView only answers the host its own `PUBLIC_URL` names. If HappyView is down, the app still starts, and pages that need projects say the directory is offline.
-- `HAPPYVIEW_API_KEY`: a HappyView API key with `lexicons:read`, `lexicons:create`, `scripts:read`, `scripts:manage`, `backfill:create`, and `backfill:read`. Optional; without it, upload the lexicons and scripts yourself.
+- `HAPPYVIEW_API_KEY`: a HappyView API key with `lexicons:read`, `lexicons:create`, `scripts:read`, `scripts:manage`, `backfill:create`, and `backfill:read`. Optional; without it, upload the lexicons and scripts yourself, and the set picker only lists sets HappyView heard about over Jetstream.
 - `LOCALLIBRARY_HOST`: [locallibrary's own host](#tools-pages-and-hosts) (default `locallibrary.localnetwork.computer`).
 
 ## Deploying
 
 1. Create the root account on a PDS that runs the spaces alpha (e.g. `ghcr.io/bluesky-social/atproto:pds-spaces-alpha`).
-2. Publish the lexicons (`pnpm lexicons:publish` publishes every tool's, all of the repo's `lexicons/computer/`) and add the printed `_lexicon` TXT records to the `localnetwork.computer` zone. The lexicons are `computer.localnetwork.*` (`src/lib/nsid.ts` and the repo's [`lexicons/`](../../lexicons/)), so there's one record per sub-namespace (`_lexicon.localnetwork.computer`, `_lexicon.space.localnetwork.computer`, and so on). PDSes resolve the space type declarations while authorizing OAuth requests, so sign-in fails with `invalid_scope` until they resolve. locallibrary writes `computer.localnetwork.locallibrary.*` (its own) and `computer.localnetwork.dj.*` (DJ profiles and sets, shared by Local Network's tools); keep this app's lexicons out of `locallibrary.*`, and reuse the `dj.*` defs rather than redefining tracks or sets.
+2. Publish the lexicons (`pnpm lexicons:publish` publishes every tool's, all of the repo's `lexicons/computer/`) and their `_lexicon` TXT records in the `localnetwork.computer` zone. With `CLOUDFLARE_API_TOKEN` (Zone > DNS > Edit on that zone only) the script creates or fixes those records through the Cloudflare API and prints what it changed; it's safe to rerun, and it only touches `did=` TXT values at `_lexicon` names. Without the token it prints the missing ones for you to add by hand and exits non-zero until DNS serves them all. The variables can also live in `.env`. The lexicons are `computer.localnetwork.*` (`src/lib/nsid.ts` and the repo's [`lexicons/`](../../lexicons/)), so there's one record per sub-namespace (`_lexicon.localnetwork.computer`, `_lexicon.space.localnetwork.computer`, and so on). PDSes resolve the app's permission set (`computer.localnetwork.permissions`) and the space type declarations while authorizing OAuth requests and again on every token refresh, so sign-in fails with `invalid_scope` until they resolve. locallibrary writes `computer.localnetwork.locallibrary.*` (its own) and `computer.localnetwork.dj.*` (DJ profiles and sets, shared by Local Network's tools); keep this app's lexicons out of `locallibrary.*`, and reuse the `dj.*` defs rather than redefining tracks or sets.
    ```bash
-   pnpm lexicons:publish
+   ROOT_IDENTIFIER=localnetwork.computer ROOT_PASSWORD=… CLOUDFLARE_API_TOKEN=… pnpm lexicons:publish
    ```
 3. Run HappyView 2.16 (`ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0`, SQLite on a volume) at `https://happyview.localnetwork.computer`, log in to its dashboard first (the first login becomes its admin), and create an API key with the permissions above.
 4. Run the container at `https://localnetwork.computer` (`PUBLIC_URL`) with a persistent volume for `/data`. Build it from the repo root, which holds the workspace and lockfile, with `apps/web/Dockerfile`:
@@ -228,7 +234,7 @@ Until the host answers, locallibrary signs in as a local development app instead
 
 ## Security notes
 
-- OAuth uses DPoP-bound tokens and granular scopes: write-only access to the user's own repos in the audit, moderation, and booking spaces, a self-authority planner space, and blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists. Accounts without spaces support are asked for plain `atproto` only; they, and anyone who approves only part of the request, have the root account write on their behalf. Sessions granted before the app asked for a new scope are sent back through sign-in to approve it. Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
+- OAuth uses DPoP-bound tokens and granular scopes: a permission set ([`permissions.json`](../../lexicons/computer/localnetwork/permissions.json), requested as `include:computer.localnetwork.permissions`) with write-only access to the user's own repos in the audit, moderation, and booking spaces and a self-authority planner space, plus blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists. The PDS grants the set as the scopes it lists. Accounts without spaces support are asked for plain `atproto` only; they, and anyone who approves only part of the request, have the root account write on their behalf. Sessions granted before the app asked for a new scope are sent back through sign-in to approve it. Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
 - Browser sessions are opaque random tokens stored as SHA-256 hashes; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS.
 - CSP with per-request nonces, `frame-ancestors 'none'`, `nosniff`, strict referrer policy, HSTS on HTTPS, and SvelteKit's CSRF origin checks.
 - Service endpoints from DID documents are checked against private address ranges in production (SSRF guard).
@@ -239,7 +245,7 @@ Until the host answers, locallibrary signs in as a local development app instead
 ## Project layout
 
 ```
-lua/                            HappyView scripts: the project record gate and the directory queries
+lua/                            HappyView scripts: the project and set record gates and the directory queries
 scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components

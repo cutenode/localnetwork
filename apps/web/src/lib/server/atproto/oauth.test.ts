@@ -1,8 +1,9 @@
-import { ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
+import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
 import { describe, expect, it } from 'vitest';
-import { COLLECTION, SPACE_TYPE } from '#lib/nsid.ts';
+import { COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
-import { buildScopes, clientMetadata, grantsAll, isLoopback } from './oauth';
+import { PERMISSION_SET } from './lexicons';
+import { clientMetadata, grantsAll, isLoopback, SCOPES } from './oauth';
 
 const config = (publicUrl: string) =>
 	loadConfig({
@@ -13,56 +14,75 @@ const config = (publicUrl: string) =>
 	});
 
 describe('OAuth scopes', () => {
-	const { full, base } = buildScopes('did:plc:root');
+	const { full, base } = SCOPES;
 	const user = 'did:plc:user';
+	const root = 'did:plc:root';
 
-	it('requests granular space scopes that parse with the official parser', () => {
-		const spaces = full.split(' ').filter((scope) => scope.startsWith('space:'));
-		expect(spaces).toHaveLength(6);
+	// What the PDS grants for `full`: the permission set expanded, with the planner's `self` authority resolved.
+	const granted = [
+		...new IncludeScope(PERMISSIONS)
+			.toPermissions(PERMISSION_SET)
+			.map((permission) =>
+				permission instanceof SpacePermission ? permission.withResolvedAuthority(user) : permission
+			)
+			.map(String),
+		...full.split(' ').filter((scope) => !scope.startsWith('include:'))
+	];
 
-		for (const scope of spaces) expect(SpacePermission.fromString(scope)).not.toBeNull();
-		const audit = SpacePermission.fromString(spaces[0])!;
+	it('requests the permission set, keeping explicit only what a set cannot hold', () => {
+		expect(full.split(' ').filter((scope) => IncludeScope.fromString(scope)?.nsid === PERMISSIONS)).toHaveLength(1);
+		// A permission outside the set's own NSID authority would be dropped silently when the PDS expands it.
+		expect(new IncludeScope(PERMISSIONS).toPermissions(PERMISSION_SET)).toHaveLength(PERMISSION_SET.permissions.length);
+	});
+
+	it("allows every space write the app makes with a user's session, and no reads of others' records", () => {
+		const permissions = new ScopePermissions(granted);
+		const audit = { type: SPACE_TYPE.audit, authority: root, skey: 'main' } as const;
+		const moderation = { type: SPACE_TYPE.moderation, authority: root, skey: 'main' } as const;
+		const booking = { type: SPACE_TYPE.booking, authority: root, skey: '3mxq3whd6gi2d' } as const;
+		const planner = { type: SPACE_TYPE.planner, authority: user, skey: 'self' } as const;
+
+		expect(permissions.allowsSpace({ ...audit, action: 'create', collection: COLLECTION.auditEntry })).toBe(true);
+
+		for (const action of ['create', 'update', 'delete'] as const) {
+			expect(permissions.allowsSpace({ ...moderation, action, collection: COLLECTION.request })).toBe(true);
+
+			for (const collection of [COLLECTION.bookingInquiry, COLLECTION.bookingMessage, COLLECTION.bookingStatus])
+				expect(permissions.allowsSpace({ ...booking, action, collection })).toBe(true);
+
+			for (const collection of [COLLECTION.plannerSave, COLLECTION.plannerShow])
+				expect(permissions.allowsSpace({ ...planner, action, collection })).toBe(true);
+		}
+
+		for (const manage of ['create', 'update'] as const)
+			expect(permissions.allowsSpace({ ...planner, manage })).toBe(true);
+
+		for (const space of [audit, moderation, booking])
+			expect(permissions.allowsSpace({ ...space, action: 'read' })).toBe(false);
+		expect(permissions.allowsSpace({ ...planner, authority: 'did:plc:someoneelse', action: 'read' })).toBe(false);
 		expect(
-			audit.matches({
-				type: 'computer.localnetwork.space.audit',
-				authority: 'did:plc:root',
+			permissions.allowsSpace({
+				type: SPACE_TYPE.staff,
+				authority: root,
 				skey: 'main',
 				action: 'create',
-				collection: 'computer.localnetwork.audit.entry'
-			})
-		).toBe(true);
-		expect(
-			audit.matches({
-				type: 'computer.localnetwork.space.audit',
-				authority: 'did:plc:root',
-				skey: 'main',
-				action: 'read'
+				collection: COLLECTION.staffRole
 			})
 		).toBe(false);
-		const planner = SpacePermission.fromString(spaces[3])!;
-		expect(planner.authority).toBe('self');
-		expect(planner.manage).toEqual(['create', 'update']);
 	});
 
 	it("lets a DJ run their own press kit spaces, and anyone ask for access to someone else's", () => {
-		const spaces = full.split(' ').filter((scope) => scope.startsWith('space:computer.localnetwork.space.epk'));
-		const [own, ask] = spaces.map((scope) => SpacePermission.fromString(scope)!.withResolvedAuthority('did:plc:dj'));
+		const permissions = new ScopePermissions(granted);
+		const own = { type: SPACE_TYPE.epk, authority: user, skey: '3mabc' } as const;
+		const theirs = { ...own, authority: 'did:plc:other' } as const;
 
-		const target = {
-			type: 'computer.localnetwork.space.epk' as const,
-			authority: 'did:plc:dj' as const,
-			skey: '3mabc'
-		};
-
-		expect(own.matches({ ...target, manage: 'update' })).toBe(true);
-		expect(own.matches({ ...target, action: 'create', collection: 'computer.localnetwork.epk.grant' })).toBe(true);
-		expect(own.matches({ ...target, authority: 'did:plc:other', action: 'read' })).toBe(false);
-
-		const elsewhere = { ...target, authority: 'did:plc:other' as const };
-		expect(ask.matches({ ...elsewhere, action: 'create', collection: 'computer.localnetwork.epk.request' })).toBe(true);
-		expect(ask.matches({ ...elsewhere, action: 'create', collection: 'computer.localnetwork.epk.grant' })).toBe(false);
-		expect(ask.matches({ ...elsewhere, action: 'read' })).toBe(false);
-		expect(full.split(' ')).toContain('repo:computer.localnetwork.epk?action=create&action=update&action=delete');
+		expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: COLLECTION.project, action: 'create' })).toBe(false);
+		expect(permissions.allowsSpace({ ...own, manage: 'update' })).toBe(true);
+		expect(permissions.allowsSpace({ ...own, action: 'create', collection: COLLECTION.epkGrant })).toBe(true);
+		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
+		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkGrant })).toBe(false);
+		expect(permissions.allowsSpace({ ...theirs, action: 'read' })).toBe(false);
 	});
 
 	it('lets users upload avatars and mix tracklists to their own PDS, and nothing else', () => {
@@ -82,15 +102,6 @@ describe('OAuth scopes', () => {
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {
-		// As the PDS returns them: the planner's `self` authority resolved and its default actions dropped.
-		const granted = full
-			.split(' ')
-			.map((scope) =>
-				scope.startsWith(`space:${SPACE_TYPE.planner}`)
-					? `space:${SPACE_TYPE.planner}?authority=${user}&skey=self&collection=${COLLECTION.plannerSave}&collection=${COLLECTION.plannerShow}&manage=create&manage=update`
-					: scope
-			);
-
 		expect(grantsAll(granted.join(' '), full, user)).toBe(true);
 		expect(grantsAll(granted.join(' '), full, 'did:plc:someoneelse')).toBe(false);
 

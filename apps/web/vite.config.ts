@@ -52,7 +52,7 @@ export default defineConfig({
 				'src/lib/**/types.ts'
 			],
 			reporter: ['text', 'html', 'lcov', 'json-summary'],
-			thresholds: { lines: 91, functions: 90, statements: 89, branches: 76 }
+			thresholds: { lines: 91, functions: 90, statements: 89, branches: 77 }
 		},
 		projects: [
 			{
@@ -60,7 +60,7 @@ export default defineConfig({
 				test: {
 					name: 'server',
 					environment: 'node',
-					include: ['src/**/*.{test,spec}.ts'],
+					include: ['src/**/*.{test,spec}.ts', 'scripts/**/*.{test,spec}.ts'],
 					exclude: ['src/**/*.svelte.{test,spec}.ts']
 				}
 			},

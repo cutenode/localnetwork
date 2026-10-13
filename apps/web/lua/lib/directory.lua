@@ -6,6 +6,8 @@
 
 local PROJECT = 'computer.localnetwork.project'
 
+local SET = 'computer.localnetwork.dj.set'
+
 -- The mean Earth radius the app's distances have always used.
 local EARTH_RADIUS_KM = 6371.0088
 
@@ -87,6 +89,21 @@ local function projects(where, args, order)
 	)
 	for _, row in ipairs(rows) do row.record = json.decode(row.record) end
 	return rows
+end
+
+-- Sets as setViews: the record script (computer/localnetwork/dj/set.lua) stores each one's view fields, so this
+-- adds the URI and CID. Narrowed and sorted like projects(), with `order` required.
+local function sets(where, args, order)
+	local values = { SET }
+	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	local rows = db.raw('SELECT uri, cid, record FROM happyview_records WHERE collection = ?' .. where .. order, values)
+	local out = {}
+	for i, row in ipairs(rows) do
+		local set = json.decode(row.record)
+		set.uri, set.cid = row.uri, row.cid
+		out[i] = set
+	end
+	return toarray(out)
 end
 
 -- Genres ----------------------------------------------------------------------------------------------------------

@@ -2,6 +2,9 @@ use jacquard_oauth::authstore::ClientAuthStore;
 
 use super::*;
 
+#[path = "../../tests/support/mock_pds.rs"]
+pub(crate) mod mock_pds;
+
 /// jacquard's message can leave out why (a request's "storage error"): a refused sign-in
 /// says its causes too, each once.
 #[test]
@@ -77,12 +80,7 @@ fn hosted_metadata_is_a_native_public_client() {
     assert_eq!(m["token_endpoint_auth_method"], "none");
     assert_eq!(m["redirect_uris"][0], "http://127.0.0.1/callback");
     assert_eq!(m["client_uri"], "https://locallibrary.example");
-    assert_eq!(
-        m["scope"],
-        "atproto repo:computer.localnetwork.dj.profile?action=create&action=update \
-             repo:computer.localnetwork.dj.set?action=create&action=update \
-             repo:computer.localnetwork.locallibrary.settings?action=create&action=update"
-    );
+    assert_eq!(m["scope"], "atproto include:computer.localnetwork.locallibraryPublishing");
     assert!(client_metadata("http://locallibrary.example/c.json", &[]).is_err());
 }
 
@@ -93,12 +91,15 @@ fn the_published_document_allows_publishing() {
     let publish: Vec<String> =
         lexicon::COLLECTIONS.iter().map(|c| format!("repo:{c}?action=create&action=update")).collect();
     assert_eq!(PUBLISH_SCOPES.to_vec(), publish);
-    // Each is a scope jacquard understands, written the way it writes them back.
+    // The server grants the permission set's scopes in its place: these, each one jacquard
+    // understands, written the way it writes them back.
+    let granted = mock_pds::granted(&publish_scopes());
+    assert_eq!(granted, [&PUBLISH_SCOPES[..], &["atproto"]].concat());
     for s in PUBLISH_SCOPES {
         assert_eq!(scopes(&["atproto".into(), s.into()]).unwrap().to_normalized_string(), format!("atproto {s}"));
     }
     // Creating and replacing, and nothing more: not deleting.
-    let granted = scopes(&publish_scopes()).unwrap();
+    let granted = scopes(&granted).unwrap();
     for c in lexicon::COLLECTIONS {
         assert!(granted.grants(&Scope::repo_create(c).unwrap()) && granted.grants(&Scope::repo_update(c).unwrap()));
         assert!(!granted.grants(&Scope::repo_delete(c).unwrap()), "{c}");
@@ -125,10 +126,14 @@ fn writing_a_record_needs_its_scope() {
     let settings = lexicon::SETTINGS;
     let needed = Some(format!("repo:{settings}?action=create&action=update"));
     assert_eq!(missing_scope(&signed_in_with(&["atproto"]), settings), needed);
-    let all = publish_scopes();
+    let all = mock_pds::granted(&publish_scopes());
     let all: Vec<&str> = all.iter().map(String::as_str).collect();
+    // The set's name grants nothing by itself: only what the server granted in its place.
+    let asked = publish_scopes();
+    let asked: Vec<&str> = asked.iter().map(String::as_str).collect();
     for c in lexicon::COLLECTIONS {
         assert_eq!(missing_scope(&signed_in_with(&all), c), None, "{c}");
+        assert!(missing_scope(&signed_in_with(&asked), c).is_some(), "{c}");
     }
     // Creating isn't enough: publishing again replaces the record.
     let create_only = format!("repo:{settings}?action=create");
@@ -604,8 +609,8 @@ fn sessions_last_until_they_have_to_be_renewed() {
     assert!(missing_scope(&signed_in_with(&["atproto", "transition:generic"]), "not an nsid").is_none());
     assert_eq!(missing_scope(&info, "not an nsid").as_deref(), Some("repo:not an nsid?action=create&action=update"));
     // Scopes the document lists anyway aren't listed twice.
-    let doc = client_metadata(CLIENT_ID, &["atproto".into(), PUBLISH_SCOPES[0].into()]).unwrap();
-    assert_eq!(doc["scope"].as_str().unwrap().split(' ').count(), 1 + PUBLISH_SCOPES.len());
+    let doc = client_metadata(CLIENT_ID, &publish_scopes()).unwrap();
+    assert_eq!(doc["scope"].as_str().unwrap().split(' ').count(), publish_scopes().len());
     let doc = client_metadata(CLIENT_ID, &["repo:app.example.thing".into()]).unwrap();
     assert!(doc["scope"].as_str().unwrap().split(' ').any(|s| s == "repo:app.example.thing"));
 }
@@ -653,7 +658,8 @@ fn documents_are_refused_for_the_first_thing_wrong(tc: TestCase) {
         allowed.remove(i);
         doc["scope"] = allowed.join(" ").into();
     }
-    let pool = vec!["atproto", "transition:generic", "repo:app.example.thing", PUBLISH_SCOPES[0], PUBLISH_SCOPES[2]];
+    let include = format!("include:{PUBLISH_SET}").leak();
+    let pool = vec!["atproto", "transition:generic", "repo:app.example.thing", include, PUBLISH_SCOPES[2]];
     let requested: Vec<String> =
         tc.draw(gs::vecs(gs::sampled_from(pool)).max_size(4)).into_iter().map(String::from).collect();
 
@@ -680,6 +686,7 @@ fn scopes_are_read_when_they_include_atproto(tc: TestCase) {
         ("transition:generic", true),
         ("repo:app.example.thing", true),
         (PUBLISH_SCOPES[0], true),
+        (format!("include:{PUBLISH_SET}").leak(), true),
         ("foo:bar", false),
         ("repo:app.example.thing?action=publish", false),
     ];
@@ -708,7 +715,8 @@ fn scopes_are_read_when_they_include_atproto(tc: TestCase) {
 fn clients_are_introduced_as_they_should_be(tc: TestCase) {
     let port = tc.draw(gs::integers::<u16>().min_value(1));
     let redirect = format!("http://127.0.0.1:{port}{CALLBACK_PATH}");
-    let extra = tc.draw(gs::optional(gs::sampled_from(vec!["transition:generic", PUBLISH_SCOPES[1]])));
+    let include: &str = format!("include:{PUBLISH_SET}").leak();
+    let extra = tc.draw(gs::optional(gs::sampled_from(vec!["transition:generic", include])));
     let asked: Vec<String> = ["atproto"].into_iter().chain(extra).map(String::from).collect();
     let c = client_config(&Client::Loopback, &redirect, scopes(&asked).unwrap()).unwrap();
     let id = c.client_id.as_str();

@@ -1,13 +1,21 @@
 <script lang="ts">
 	import { ListMusic, Pause, Play } from '@lucide/svelte';
 	import { embedUrl, mixPlatform } from '#lib/mix/links.ts';
-	import type { ProjectMix } from '#lib/types.ts';
+	import type { DjSetView, ProjectMix } from '#lib/types.ts';
 	import Button from '#lib/ui/Button.svelte';
 	import Card from '#lib/ui/Card.svelte';
 	import MixEmbed from './mix/MixEmbed.svelte';
+	import LinkedSet from './LinkedSet.svelte';
 
-	/** `tracklistHref` links mixes that have a tracklist to their page (by position, from 0). */
-	let { mixes, tracklistHref }: { mixes: ProjectMix[]; tracklistHref?: (index: number) => string } = $props();
+	/**
+	 * `tracklistHref` links mixes that have a tracklist to their page (by position, from 0). `sets` are the linked
+	 * sets the directory has, by URI, or null when it couldn't say.
+	 */
+	let {
+		mixes,
+		tracklistHref,
+		sets
+	}: { mixes: ProjectMix[]; tracklistHref?: (index: number) => string; sets?: Promise<Map<string, DjSetView> | null> } = $props();
 
 	/** The open player, by position and link, since records written elsewhere can repeat a link. */
 	let open = $state<string | null>(null);
@@ -42,6 +50,7 @@
 					<Button variant="secondary" size="sm" href={tracklistHref(index)}><ListMusic class="size-4" />Tracklist</Button>
 				{/if}
 			</div>
+			{#if mix.set && sets}<LinkedSet linked={mix.set} {sets} />{/if}
 			{#if embed && open === id}<MixEmbed id="mix-player-{index}" src={embed} title={mix.title} />{/if}
 		</Card>
 	{/each}

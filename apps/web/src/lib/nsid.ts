@@ -16,19 +16,23 @@ export const COLLECTION = {
 	bookingStatus: `${NS}.booking.status`,
 	plannerSave: `${NS}.planner.save`,
 	plannerShow: `${NS}.planner.show`,
+	/** A DJ's set, written by locallibrary to the DJ's own repo. */
+	djSet: `${NS}.dj.set`,
 	epk: `${NS}.epk`,
 	epkContent: `${NS}.epk.content`,
 	epkRequest: `${NS}.epk.request`,
 	epkGrant: `${NS}.epk.grant`
 } as const;
 
-/** Queries served by the directory, the HappyView AppView that indexes published projects. */
+/** Queries served by the directory, the HappyView AppView that indexes published projects and their managers' sets. */
 export const DIRECTORY = {
 	searchProjects: `${NS}.directory.searchProjects`,
 	matchProjects: `${NS}.directory.matchProjects`,
 	getProject: `${NS}.directory.getProject`,
 	getProjects: `${NS}.directory.getProjects`,
-	getStats: `${NS}.directory.getStats`
+	getStats: `${NS}.directory.getStats`,
+	getSets: `${NS}.directory.getSets`,
+	listSets: `${NS}.directory.listSets`
 } as const;
 
 export const SPACE_TYPE = {
@@ -51,3 +55,6 @@ export const EPK_CONTENT_KEY = 'self' as const;
 
 /** Space key for personal spaces anchored on a user's own DID. */
 export const SELF_SPACE_KEY = 'self' as const;
+
+/** The OAuth permission set (`include:`) the app requests: its space writes, in one consent line. */
+export const PERMISSIONS = `${NS}.permissions` as const;
