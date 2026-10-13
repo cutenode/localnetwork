@@ -452,7 +452,7 @@ fn serato_tags_go_into_copies_only() {
     let t1 = lib.track(1).unwrap();
     let copy = out.join(paths::key(&t1.file_path));
     let crate_paths = read_crate(&out.join("_Serato_/Subcrates/All.crate")).1;
-    let canonical_copy = out.canonicalize().unwrap().join(paths::key(&t1.file_path));
+    let canonical_copy = locallibrary::device::dunce_canonicalize(&out).join(paths::key(&t1.file_path));
     assert!(
         crate_paths[0] == volume_relative(&copy) || crate_paths[0] == volume_relative(&canonical_copy),
         "the crates list the copies: {}",
@@ -596,7 +596,7 @@ fn engine_library_reads_back() {
         ]
     );
 
-    let library_dir = out.canonicalize().unwrap().join("Engine Library");
+    let library_dir = locallibrary::device::dunce_canonicalize(&out).join("Engine Library");
     let mut ids = FxHashMap::default();
     for t in &lib.tracks {
         let file = paths::key(&t.file_path).rsplit('/').next().unwrap().to_string();

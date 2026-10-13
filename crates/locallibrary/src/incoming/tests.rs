@@ -39,7 +39,7 @@ fn a_folder_offers_its_audio_but_not_the_drives_library(tc: hegel::TestCase) {
     let holds_drive = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();
     // Canonical, as the drive's root is (macOS's temp folder is behind a symlink).
-    let base = dir.path().canonicalize().unwrap();
+    let base = crate::device::dunce_canonicalize(dir.path());
     let folder = base.join("Music");
     let device = drive(&if holds_drive { folder.clone() } else { base.clone() });
     for &i in &files {

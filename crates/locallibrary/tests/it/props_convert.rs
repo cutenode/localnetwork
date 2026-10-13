@@ -316,7 +316,9 @@ fn xml_holds_the_drives_library(tc: TestCase) {
     for t in &tracks {
         let (name, artist, loc) = &x.tracks[&t.id];
         assert_eq!((name, artist), (&t.title, &t.artist));
-        let want = paths::to_fs(&base, &paths::key(&t.file_path)).to_string_lossy().into_owned();
+        // A URL's path: `/`-separated, and on Windows `/C:/...`.
+        let want = paths::to_fs(&base, &paths::key(&t.file_path)).to_string_lossy().replace('\\', "/");
+        let want = if want.starts_with('/') { want } else { format!("/{want}") };
         assert_eq!(unpercent(loc.strip_prefix("file://localhost").unwrap()), want);
     }
     let mut want: Vec<(String, Vec<u32>)> =
