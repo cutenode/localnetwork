@@ -86,6 +86,8 @@ fn the_script_runs_the_binary_the_shell_found() {
     let env = Env::new();
     let script = |c: &mut Command| String::from_utf8(c.args(["completions", "bash"]).output().unwrap().stdout).unwrap();
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_locallibrary"));
+    // The script quotes the path for its shell, which escapes a Windows path's backslashes.
+    #[cfg(unix)]
     assert!(script(&mut env.command()).contains(exe.to_str().unwrap()));
     let mut by_name = Command::new("locallibrary");
     by_name

@@ -302,6 +302,8 @@ pub fn end(child: &mut Child, grace: std::time::Duration) {
 
 /// A child process ended (and waited for) when it's dropped, so a test that fails or is stopped
 /// part way leaves nothing of it running.
+// Only props_cli_asked, which is Unix-only, uses it so far.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub struct Running(pub Child);
 
 impl Drop for Running {
