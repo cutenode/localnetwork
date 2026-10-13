@@ -561,7 +561,7 @@ describe('matchProjects', () => {
 });
 
 describe('instruction budget', () => {
-	it('searches and matches 1,000 projects well under the limit', async () => {
+	it('searches and matches 1,000 projects well under the limit', { tags: ['budget'] }, async () => {
 		const hv = new FakeHappyView(ROOT);
 		const tiers = ['community', 'emerging', 'established', 'headliner'];
 
