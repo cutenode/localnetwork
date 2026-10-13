@@ -1011,20 +1011,25 @@ pub fn apply(plan: &CuePlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<CueRe
     apply_locked(plan, device, Some((&recorded, &changes)), ctx)
 }
 
-/// Replay a recorded edit, under the backup the replay made (see [`crate::edit::apply`]). One
-/// that no longer applies is skipped with a warning; an error is a failure while writing.
-pub(crate) fn replay(device: &mut Device, files: &[String], change: &CueChange, ctx: &Ctx<'_>) -> Result<Replayed> {
+/// Make an edit of a plan's, under the backup the plan made (see [`crate::edit::apply`]).
+/// Replaying (not `strict`), one that no longer applies is skipped with a warning; an error is a
+/// failure while writing.
+pub(crate) fn replay(
+    device: &mut Device,
+    files: &[String],
+    change: &CueChange,
+    strict: bool,
+    ctx: &Ctx<'_>,
+) -> Result<Replayed> {
     let mut out = Replayed::default();
-    let skip = |e: &dyn std::fmt::Display| {
-        format!("skipped an edit that no longer applies ({}): {e}", change.describe(files.len()))
-    };
+    let described = change.describe(files.len());
     let library = device.library()?;
     let by_key: FxHashMap<String, u32> =
         library.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect();
     let id = |f: &str| by_key.get(&paths::key(f).to_lowercase()).copied();
     let ids: Vec<u32> = files.iter().filter_map(|f| id(f)).collect();
     if let Some(example) = files.iter().find(|f| id(f).is_none()) {
-        out.tracks_gone(files.len() - ids.len(), example, &change.describe(files.len()));
+        out.tracks_gone(strict, files.len() - ids.len(), example, &described)?;
     }
     let edit = match change {
         CueChange::Set(s) => CueEdit::Set(s.clone()),
@@ -1034,17 +1039,13 @@ pub(crate) fn replay(device: &mut Device, files: &[String], change: &CueChange, 
             (Some(from), CueChange::Carry { shift_ms, .. }) => CueEdit::Carry { from, shift_ms: *shift_ms },
             (Some(from), _) => CueEdit::Copy { from },
             (None, _) => {
-                out.warnings.push(skip(&format!("{from} isn't on the drive any more")));
-                return Ok(out);
+                return out.skipped(strict, &described, Error::NotFound(format!("no track at {from}")));
             }
         },
     };
     let plan = match plan(device, &ids, &edit, ctx) {
         Ok(plan) => plan,
-        Err(e) => {
-            out.warnings.push(skip(&e));
-            return Ok(out);
-        }
+        Err(e) => return out.skipped(strict, &described, e),
     };
     out.warnings.extend(plan.warnings.iter().cloned());
     if !plan.is_noop() {

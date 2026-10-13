@@ -4,9 +4,12 @@
 use std::io::Cursor;
 use std::path::Path;
 
-use locallibrary::artwork::{self, Artwork};
+use base64::prelude::*;
+use locallibrary::artwork::ImageSource;
 use locallibrary::device::Device;
+use locallibrary::edit::{self, Edit, EditOptions, EditReport};
 use locallibrary::progress::Ctx;
+use locallibrary::query::TrackSelector;
 
 /// A `w` x `h` PNG, a gradient tinted by `shade` (so two shades are two pictures).
 pub fn png(w: u32, h: u32, shade: u8) -> Vec<u8> {
@@ -19,7 +22,14 @@ pub fn png(w: u32, h: u32, shade: u8) -> Vec<u8> {
 /// One picture set on the tracks `ids` of the drive at `root`, as `art set` sets it.
 pub fn set_art(root: &Path, ids: &[u32]) {
     let mut d = Device::open_export(root).unwrap();
-    artwork::set_on_drive(&mut d, ids, &Artwork::from_bytes(&png(300, 300, 99)).unwrap(), &Ctx::silent()).unwrap();
+    set_artwork(&mut d, ids, &png(300, 300, 99), &Ctx::silent()).unwrap();
+}
+
+/// Give the tracks `ids` of `d` a picture (an image file's bytes), planned and applied as an edit.
+pub fn set_artwork(d: &mut Device, ids: &[u32], image: &[u8], ctx: &Ctx<'_>) -> locallibrary::Result<EditReport> {
+    let tracks = TrackSelector { ids: ids.to_vec(), ..Default::default() };
+    let set = Edit::SetArtwork { tracks, image: ImageSource::Base64(BASE64_STANDARD.encode(image)) };
+    edit::apply(&edit::plan(d, &[set], &EditOptions::default(), ctx)?, d, ctx)
 }
 
 /// A tenth of a second of silence, 16-bit mono PCM at 44.1 kHz: audio art can be embedded in.

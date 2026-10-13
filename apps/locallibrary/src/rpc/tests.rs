@@ -1,4 +1,4 @@
-use locallibrary::progress::Steps;
+use locallibrary::progress::{Phase, Steps};
 
 use super::*;
 

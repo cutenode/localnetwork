@@ -1822,23 +1822,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
         }
         ArtCommand::Set { drive, image, select, dry_run } => {
             let req = api::SetArtwork { drive, image, tracks: select.selector() };
-            let plan = api::artwork_set_plan(&req)?;
-            if !out.json {
-                output::summary(&plan.summary, &plan.warnings);
-                for t in plan.tracks.iter().take(10) {
-                    say!("    {}", output::dim(&t.name));
-                }
-                if plan.tracks.len() > 10 {
-                    say!("    {}", output::dim(format!("and {} more", plan.tracks.len() - 10)));
-                }
-            }
-            if let Some(o) = out.decide(dry_run, "Set it?") {
-                return Ok(out.not_applied(&plan, o));
-            }
-            let r = plan.apply(None, ctx)?;
-            return Ok(out.applied(&plan, &r, Outcome::Applied, || {
-                output::ok(format!("artwork set on {} track(s)", r.tracks_updated))
-            }));
+            return edit_cmd::confirm_and_apply(&req.drive, api::artwork_set_plan(&req, ctx)?, dry_run, out, ctx);
         }
         ArtCommand::Auto { drive, dry_run } => {
             let drives = match drive {

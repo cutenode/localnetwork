@@ -1159,20 +1159,18 @@ pub fn apply(plan: &TagPlan, device: &mut Device, ctx: &Ctx<'_>) -> Result<TagRe
     apply_locked(plan, device, Some((&edit, &changes)), ctx)
 }
 
-/// Replay a recorded edit, under the backup the replay made (see [`crate::edit::apply`]). One
-/// that no longer applies is skipped with a warning; an error is a failure while writing.
-pub(crate) fn replay(device: &mut Device, change: &TagChange, ctx: &Ctx<'_>) -> Result<Replayed> {
+/// Make an edit of a plan's, under the backup the plan made (see [`crate::edit::apply`]).
+/// Replaying (not `strict`), one that no longer applies is skipped with a warning; an error is a
+/// failure while writing.
+pub(crate) fn replay(device: &mut Device, change: &TagChange, strict: bool, ctx: &Ctx<'_>) -> Result<Replayed> {
     let mut out = Replayed::default();
     let (edit, gone) = change.edit(&device.library()?);
     if let Some(example) = gone.first() {
-        out.tracks_gone(gone.len(), example, &change.describe());
+        out.tracks_gone(strict, gone.len(), example, &change.describe())?;
     }
     let plan = match plan(device, &edit) {
         Ok(plan) => plan,
-        Err(e) => {
-            out.warnings.push(format!("skipped an edit that no longer applies ({}): {e}", change.describe()));
-            return Ok(out);
-        }
+        Err(e) => return out.skipped(strict, &change.describe(), e),
     };
     out.warnings.extend(plan.warnings.iter().cloned());
     if !plan.is_noop() {

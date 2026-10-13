@@ -138,6 +138,10 @@ fn write(one: &mut OneLibrary, op: usize) -> locallibrary::Result<String> {
                 play_count: Some(7),
                 track_number: Some(2),
                 disc_number: Some(1),
+                album_artist: Some("New".into()),
+                bpm: Some(128.5),
+                isrc: Some("GBDUW0000059".into()),
+                release_date: Some("1999-03-12".into()),
             };
             format!("{:?}", one.set_track_fields(&[1, 2], &f)?)
         }

@@ -362,17 +362,6 @@ export type ArtworkRequest = {
   tracks: number[];
 };
 
-/** What setting artwork on tracks would do. */
-export type ArtworkSetPlan = {
-  drive: string;
-  height: number;
-  image: string;
-  root: string;
-  tracks: TrackRef[];
-  /** The image's size, before it's scaled for the players. */
-  width: number;
-};
-
 /** One audio format a model plays, at these sample rates (Hz) and bit depths. */
 export type Audio = {
   codec: Codec;
@@ -1984,19 +1973,28 @@ export type Edit =
   }
   /**
    * A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
-   * this way; only a replay takes them.
+   * this way too.
    */
   | (TagChange & {
     op: "my_tag";
   })
   /**
    * A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).
-   * `cues` edits are recorded this way; only a replay takes them.
+   * `cues` edits are recorded this way too.
    */
   | {
     change: CueChange;
     op: "cues";
     tracks: string[];
+  }
+  /**
+   * Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The
+   * journal records the tracks by file and the image as staged on the drive.
+   */
+  | {
+    image: ImageSource;
+    op: "set_artwork";
+    tracks: TrackSelector;
   };
 
 /**
@@ -2195,19 +2193,28 @@ export type EditOutput =
   }
   /**
    * A My Tag edit (see [`crate::tags`]), its tracks named by file. `tags` edits are recorded
-   * this way; only a replay takes them.
+   * this way too.
    */
   | (TagChange & {
     op: "my_tag";
   })
   /**
    * A cue edit (see [`crate::cue_edit`]) on the tracks of these audio files (device paths).
-   * `cues` edits are recorded this way; only a replay takes them.
+   * `cues` edits are recorded this way too.
    */
   | {
     change: CueChange;
     op: "cues";
     tracks: string[];
+  }
+  /**
+   * Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The
+   * journal records the tracks by file and the image as staged on the drive.
+   */
+  | {
+    image: ImageSource;
+    op: "set_artwork";
+    tracks: TrackSelector;
   };
 
 export type EditPlan = {
@@ -3168,6 +3175,24 @@ export type IdentifyMixRequest = {
   /** Playback speeds to search, as a fraction: 0.16 is ±16%. */
   tempo_range?: number | null;
 };
+
+/** The image an artwork edit gives tracks (see [`crate::edit::Edit::SetArtwork`]). */
+export type ImageSource =
+  /** An image file on this computer, or an audio file whose embedded art to use. */
+  | {
+    path: string;
+  }
+  /** The image file's bytes, in base64. */
+  | {
+    base64: string;
+  }
+  /**
+   * An image staged on the drive (`.locallibrary/artwork/<hash>.jpg`, a JPEG of the larger
+   * size players show), by its hash: how the journal records the others.
+   */
+  | {
+    staged: Hash;
+  };
 
 /** One track as an outside list describes it. */
 export type ImportEntry = {
@@ -7075,17 +7100,26 @@ export type TrackFailure = [track: TrackRef, error: string];
 
 /**
  * New values for track details; fields left out stay as they are, and an empty name clears
- * artist, album, genre, label, key and the like.
+ * artist, album, genre, label, key and the like (an empty ISRC or release date clears it too).
  */
 export type TrackFields = {
   album?: string | null;
+  /** The databases keep it with the album, so a track needs one (given here too, or its own). */
+  album_artist?: string | null;
   artist?: string | null;
+  /**
+   * 1-999.99, kept to hundredths as rekordbox keeps it. The beat grid in the analysis files,
+   * which players count beats by, stays as it is.
+   */
+  bpm?: number | null;
   /** A colour name (`aqua`), rekordbox's number (1-8), or `none`. */
   color?: string | null;
   comment?: string | null;
   composer?: string | null;
   disc_number?: number | null;
   genre?: string | null;
+  /** Like `GBDUW0000059`: two letters, three letters or digits, and seven digits. */
+  isrc?: string | null;
   key?: string | null;
   label?: string | null;
   mix_name?: string | null;
@@ -7093,6 +7127,8 @@ export type TrackFields = {
   play_count?: number | null;
   /** 0-5 stars. */
   rating?: number | null;
+  /** `YYYY-MM-DD`. */
+  release_date?: string | null;
   remixer?: string | null;
   title?: string | null;
   track_number?: number | null;
@@ -8000,11 +8036,11 @@ export interface Methods {
   /** read method */
   "art.path": { params: ArtworkRequest; result: OneOrMany_for_ArtworkFile };
   /** plan method; paired with `art.set.apply`; can delete or overwrite something */
-  "art.set.plan": { params: SetArtwork & WriteOptions; result: ArtworkSetPlan & PlanFields };
+  "art.set.plan": { params: SetArtwork & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `art.set.plan`; can delete or overwrite something */
-  "art.set.apply": { params: ApplyPlan | (SetArtwork & WriteOptions); result: ArtworkReport };
+  "art.set.apply": { params: ApplyPlan | (SetArtwork & WriteOptions); result: EditReport };
   /** apply method; paired with `art.set.plan`; can delete or overwrite something; an older name for `art.set.apply` */
-  "art.set": { params: ApplyPlan | (SetArtwork & WriteOptions); result: ArtworkReport };
+  "art.set": { params: ApplyPlan | (SetArtwork & WriteOptions); result: EditReport };
   /** plan method; paired with `art.auto.apply` */
   "art.auto.plan": { params: DriveRef & WriteOptions; result: AutoArtworkPlan & PlanFields };
   /** apply method; paired with `art.auto.plan`; long running: sends `progress`, can be cancelled */

@@ -437,6 +437,18 @@ pub struct FieldArgs {
     /// Play count
     #[arg(long)]
     play_count: Option<u16>,
+    /// New album artist (kept with the album, so the track needs one)
+    #[arg(long)]
+    album_artist: Option<String>,
+    /// Tempo, 1-999.99 (the beat grid stays as it is)
+    #[arg(long)]
+    bpm: Option<f64>,
+    /// ISRC, e.g. GBDUW0000059 (empty clears it)
+    #[arg(long)]
+    isrc: Option<String>,
+    /// Release date, YYYY-MM-DD (empty clears it)
+    #[arg(long)]
+    release_date: Option<String>,
 }
 
 impl FieldArgs {
@@ -455,6 +467,10 @@ impl FieldArgs {
             mix_name: self.mix.clone(),
             year: self.year,
             play_count: self.play_count,
+            album_artist: self.album_artist.clone(),
+            bpm: self.bpm,
+            isrc: self.isrc.clone(),
+            release_date: self.release_date.clone(),
             ..Default::default()
         }
     }
@@ -642,10 +658,14 @@ pub(crate) fn render_report(r: &EditReport, drive: &str) {
         output::ok(format!("{drive} has these edits already: nothing written"));
         return;
     }
+    // Cue and artwork edits can write only analysis files and images.
+    let to = match r.databases.is_empty() {
+        true => String::new(),
+        false => format!(" to {}", r.databases.join(" and ")),
+    };
     output::ok(format!(
-        "{} change(s) written to {}{}",
+        "{} change(s) written{to}{}",
         r.changes,
-        r.databases.join(" and "),
         if r.files_deleted > 0 {
             format!("; {} file(s) deleted, {} freed", r.files_deleted, bytes(r.freed_bytes))
         } else {

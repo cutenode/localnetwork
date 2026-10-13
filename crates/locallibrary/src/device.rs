@@ -332,6 +332,9 @@ impl RekordboxSync {
 pub struct Device {
     root: PathBuf,
     state: Option<DeviceState>,
+    /// Writes through this handle that began swapping files in (see [`crate::commit`]): one that
+    /// failed after that changed the drive.
+    swaps: u32,
 }
 
 /// Exclusive hold on a drive for an operation that writes it, so two operations (say a sync and
@@ -356,7 +359,17 @@ impl Device {
         }
         let root = dunce_canonicalize(root);
         let state = fsutil::read_json_opt(&root.join(paths::STATE_DIR).join("state.json"))?;
-        Ok(Device { root, state })
+        Ok(Device { root, state, swaps: 0 })
+    }
+
+    /// How many writes through this handle began changing the drive.
+    pub(crate) fn swaps(&self) -> u32 {
+        self.swaps
+    }
+
+    /// A write through this handle begins changing the drive.
+    pub(crate) fn swapping(&mut self) {
+        self.swaps += 1;
     }
 
     /// Open a drive and require an existing rekordbox export (either database) on it.

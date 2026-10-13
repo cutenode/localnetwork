@@ -3,12 +3,12 @@
 mod existing;
 mod imperfect_drives;
 
-use crate::common::{self, media::png};
+use crate::common::{self, media::png, media::set_artwork};
 
 use std::fs;
 
 use locallibrary::api;
-use locallibrary::artwork::{self, Artwork};
+use locallibrary::artwork;
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift, LineageOp};
 use locallibrary::onelibrary::OneLibrary;
@@ -23,7 +23,7 @@ fn opts(to: Target, replace: bool) -> ConvertOptions {
 fn drive(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
     let root = common::bigger_drive(dir, name);
     let mut d = Device::open_export(&root).unwrap();
-    artwork::set_on_drive(&mut d, &[1, 2], &Artwork::from_bytes(&png(120, 90, 77)).unwrap(), &Ctx::silent()).unwrap();
+    set_artwork(&mut d, &[1, 2], &png(120, 90, 77), &Ctx::silent()).unwrap();
     common::add_history(&root, "HISTORY 2026-10-04", &[3, 1, 4]);
     root
 }
