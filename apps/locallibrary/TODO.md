@@ -264,11 +264,13 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       back to the development client; online without those scopes, a publish sign-in stops and
       points at `--dev-client`. jacquard sends `application_type: web`
       for a hosted ID while the document says `native`: untested.
-- [ ] Publish the Lexicons locallibrary writes as `com.atproto.lexicon.schema` records with the
-      repo's lexicon publisher (`pnpm -C apps/web lexicons:publish`), and add a `_lexicon` TXT
-      record for each of their two authorities: `locallibrary.localnetwork.computer`
+- [ ] Publish the Lexicons locallibrary writes as `com.atproto.lexicon.schema` records in the root
+      account's repo, keyed by NSID, the way upvote.at publishes `at.upvote.*`
+      (`pnpm -C apps/web lexicons:publish` writes them). They resolve once their two authorities
+      point at the root's DID: `locallibrary.localnetwork.computer`
       (`lexicons/computer/localnetwork/locallibrary/`, My Settings) and `dj.localnetwork.computer`
-      (`lexicons/computer/localnetwork/dj/`, the profile, set and their shared defs).
+      (`lexicons/computer/localnetwork/dj/`, the profile, set and their shared defs), each with
+      a `_lexicon` TXT record (`did=<root DID>`). upvote.at has one, at `_lexicon.upvote.at`.
 - [ ] Switch publishing to a permission set (`include:`) once a real sign-in shows whether the PDS
       expands it in the token response; jacquard only resolves includes with its `scope-check`
       feature.
@@ -317,8 +319,9 @@ From the lexicon design review (R numbers).
       allows.
 - [ ] R2: the profile's `defs#mix` points at the DJ's `dj.set` with a strongRef instead of a JSON
       tracklist. R10: offer the set lexicon to skaists and FreeMix.
-- [ ] Publish the web app's other `computer.localnetwork.*` lexicons too (11 `_lexicon` TXT
-      records in all; none exist yet).
+- [ ] Publish the web app's other `computer.localnetwork.*` lexicons as records too, the same way.
+      Each sub-namespace is its own authority, so that's 11 `_lexicon` TXT records in all
+      (`lexicons:publish` lists them); none exist yet.
 - [ ] `docs/account.md:94` links Lexicon Community's archived GitHub repo; link its Tangled repo.
 
 ## Website (`apps/web`)
