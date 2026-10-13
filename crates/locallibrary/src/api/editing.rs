@@ -7,13 +7,13 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use super::{DriveRef, LibraryCache, resolve_drive};
+use super::{DriveRef, LibraryCache, TagsByTrack, resolve_drive};
 use crate::anlz::{self, Mood, TrackAnalysis};
 use crate::device::Device;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport, journal::JournalEntry};
 use crate::error::{Action, Reason};
 use crate::harmony;
-use crate::model::{BpmRange, Track, TrackRef};
+use crate::model::{BpmRange, Library, Track, TrackRef};
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
 use crate::progress::Ctx;
 use crate::query::{self, Filter, QueryContext, TrackSelector};
@@ -673,11 +673,7 @@ pub fn tracks_query_cached(cache: &LibraryCache, req: &TracksQuery) -> Result<Tr
     let lib = &cached.library;
     let filter = req.filter.as_deref().map(Filter::parse).transpose()?.unwrap_or_default();
     let tags = if filter.uses_tags() { Some(cached.tags_by_track(&d)?) } else { None };
-    let mut ctx = QueryContext::new(lib);
-    if let Some(t) = &tags {
-        ctx = ctx.with_tags(t);
-    }
-    filter.check(&ctx)?;
+    let ctx = filter_context(lib, &filter, tags.as_deref())?;
     let mut tracks: Vec<&Track> = match &req.playlist {
         Some(p) => {
             let pl = lib.find_playlist(p).ok_or_else(|| Error::NotFound(format!("playlist {p:?}")))?;
@@ -692,6 +688,20 @@ pub fn tracks_query_cached(cache: &LibraryCache, req: &TracksQuery) -> Result<Tr
     let total_duration_secs = tracks.iter().map(|t| u64::from(t.duration_secs)).sum();
     let tracks = tracks.into_iter().skip(req.offset).take(req.limit.unwrap_or(usize::MAX)).cloned().collect();
     Ok(TracksPage { total, total_duration_secs, tracks })
+}
+
+/// What `filter` matches `library`'s tracks against: the library, and its My Tags by lowercase
+/// file key (`tags`, which only a filter that [uses them](Filter::uses_tags) needs). Refused as
+/// [`Filter::check`] refuses it.
+pub fn filter_context<'a>(
+    library: &'a Library,
+    filter: &Filter,
+    tags: Option<&'a TagsByTrack>,
+) -> Result<QueryContext<'a>> {
+    let mut ctx = QueryContext::new(library);
+    ctx.tags = tags;
+    filter.check(&ctx)?;
+    Ok(ctx)
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

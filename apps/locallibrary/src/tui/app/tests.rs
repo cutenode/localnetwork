@@ -1,5 +1,6 @@
 use locallibrary::anlz::{Beat, Mood, Phrase, SongStructure};
-use locallibrary::sets::{EntryOrigin, SetEntry};
+use locallibrary::query::QueryContext;
+use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
 
 use super::testing::*;
 use super::*;

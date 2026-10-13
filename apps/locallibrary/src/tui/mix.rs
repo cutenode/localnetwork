@@ -665,7 +665,7 @@ fn for_writing(store_root: &Path, report: &MixReport, root: &Path) -> Result<(St
         return Err(format!("the drive at {} isn't the one the set was matched against", root.display()));
     }
     let store = Store::open_or_init(store_root).map_err(|e| e.to_string())?;
-    let prefs = ProfilePrefs::load(&store).map_err(|e| e.to_string())?;
+    let prefs = api::profile_prefs(&store).map_err(|e| e.to_string())?;
     Ok((store, prefs, device))
 }
 

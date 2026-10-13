@@ -19,7 +19,6 @@ use crate::mix::index::Cache;
 use crate::mix::report::{self, Drive};
 use crate::mix::{self, Identifier};
 use crate::model::{Library, LibrarySummary, Playlist, Track};
-use crate::paths;
 use crate::profile::ProfilePrefs;
 use crate::progress::Ctx;
 use crate::store::Store;
@@ -262,24 +261,16 @@ pub struct ArtworkFile {
 pub fn artwork_path(cache: &LibraryCache, req: &ArtworkRequest) -> Result<OneOrMany<ArtworkFile>> {
     req.each(cache, |d, lib, track| {
         let t = lib.track(track).ok_or_else(|| Error::NotFound(format!("track #{track}")))?;
-        let Some(p) = &t.artwork_path else { return Ok(None) };
-        let key = paths::key(p);
-        for k in [artwork::medium_variant(&key), key] {
-            let Ok(f) = d.checked_path(&k) else { continue };
-            if !f.is_file() {
-                continue;
-            }
-            // Resolved again here: `checked_path` vouches for where it led, and this is that.
-            let resolved = f.canonicalize().map_err(|e| Error::Io { path: f.clone(), source: e })?;
-            let root = d.root().canonicalize().unwrap_or_else(|_| d.root().to_path_buf());
-            if !resolved.starts_with(&root) {
-                return Err(Error::invalid(format!("refusing {k:?}: it resolves outside {}", root.display())));
-            }
-            let ext = resolved.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            let mime = if ext == "png" { "image/png" } else { "image/jpeg" };
-            return Ok(Some(ArtworkFile { path: resolved, mime }));
+        let Some(f) = artwork::file_on_drive(d, t) else { return Ok(None) };
+        // Resolved again here: `checked_path` vouches for where it led, and this is that.
+        let resolved = f.canonicalize().map_err(|e| Error::Io { path: f.clone(), source: e })?;
+        let root = d.root().canonicalize().unwrap_or_else(|_| d.root().to_path_buf());
+        if !resolved.starts_with(&root) {
+            return Err(Error::invalid(format!("refusing track #{track}'s artwork: it resolves outside the drive")));
         }
-        Ok(None)
+        let ext = resolved.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let mime = if ext == "png" { "image/png" } else { "image/jpeg" };
+        Ok(Some(ArtworkFile { path: resolved, mime }))
     })
 }
 

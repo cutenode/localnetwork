@@ -216,11 +216,7 @@ fn change(app: &mut App, update: PrefsUpdate, done: String) {
         Ok(prefs) => {
             let aliases_changed =
                 matches!(&app.profile.view, Some(Ok(v)) if v.prefs.genre_aliases != prefs.genre_aliases);
-            if let Some(Ok(v)) = &mut app.profile.view {
-                v.prefs = prefs;
-                v.published = v.prefs.published().into_iter().collect();
-                v.document = profile::document(&v.report, &v.prefs);
-            }
+            app.profile.view = app.profile.view.take().map(|v| v.map(|v| ProfileView::new(v.report, prefs)));
             app.toast(done, Level::Info);
             if aliases_changed {
                 refresh(app);

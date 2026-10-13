@@ -5,6 +5,7 @@
 
 use hegel::TestCase;
 use hegel::generators::{self as gs, Generator};
+use locallibrary::query::QueryContext;
 
 use super::testing::*;
 use super::*;
