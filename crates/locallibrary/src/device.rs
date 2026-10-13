@@ -851,18 +851,22 @@ impl Device {
 /// `\\?\` prefix [`Path::canonicalize`] adds, so it compares equal to [`Device::root`] and to the
 /// mount points the OS reports (`E:\`).
 pub fn dunce_canonicalize(p: &Path) -> PathBuf {
-    let c = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    // Strip Windows' verbatim prefix so paths stay readable and joinable.
+    without_verbatim_prefix(p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
+}
+
+/// `p` without the `\\?\` prefix [`Path::canonicalize`] adds on Windows (a `\\?\UNC\` share
+/// keeps it), so it stays readable and joinable. Elsewhere `p` itself.
+pub fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
-        let s = c.to_string_lossy();
+        let s = p.to_string_lossy();
         if let Some(rest) = s.strip_prefix(r"\\?\")
             && !rest.starts_with("UNC\\")
         {
             return PathBuf::from(rest);
         }
     }
-    c
+    p
 }
 
 // ---------------------------------------------------------------------------------------------
