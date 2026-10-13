@@ -2982,6 +2982,9 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     const KEYS: &[&str] =
         &["b", "B", "i", "t", "*", "#", "s", "r", "v", "Q", "S", "A", "+", "-", "a", "j", "\n", "2", "3", "1"];
     let (mut app, _dir) = app_with(library());
+    // A store off the drive: nothing is saved inside the drive that was open.
+    let home = tempfile::tempdir().unwrap();
+    app.store_root = home.path().join("store");
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
         press(&mut app, tc.draw(gs::sampled_from(KEYS)));
     }
