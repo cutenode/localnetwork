@@ -1778,12 +1778,14 @@ impl<'a> Resolver<'a> {
                         )));
                     }
                 };
-                // An audio file on the drive, never one of locallibrary's or rekordbox's own.
-                let key = paths::key(path);
+                // An audio file on the drive, as the drive spells its name, never one of
+                // locallibrary's or rekordbox's own.
+                let on_drive = self.device.file_key(&paths::key(path));
+                let key = on_drive.clone().unwrap_or_else(|| paths::key(path));
                 let audio = paths::is_safe_key(&key)
                     && !key.split('/').any(paths::is_ignored_name)
                     && matches!(paths::classify(&key), None | Some(paths::FileClass::Audio))
-                    && (self.incoming.contains(&key) || self.device.checked_path(&key).is_ok_and(|p| p.is_file()));
+                    && (on_drive.is_some() || self.incoming.contains(&key));
                 if !audio {
                     return Err(Error::NotFound(format!("audio file {path:?} on the drive")));
                 }

@@ -741,7 +741,7 @@ fn plans_follow_the_disk_and_the_options(tc: TestCase) {
     let warned = p.warnings.iter().filter(|w| w.contains("isn't mounted")).count();
     assert_eq!(warned, unmounted.count());
     let untested = p.warnings.iter().any(|w| w.contains("hasn't been tested on"));
-    assert_eq!(untested, matches!(os, Some("linux" | "windows")));
+    assert_eq!(untested, matches!(os.unwrap_or(std::env::consts::OS), "linux" | "windows"));
     let all = p.compatibility.verdict == Verdict::AllPlayers;
     assert_eq!(p.warnings.iter().any(|w| w.contains("won't work on every player")), !all);
     assert_eq!(all, fs != Filesystem::Exfat);
