@@ -12,6 +12,7 @@ use crate::anlz::{self, Mood, TrackAnalysis};
 use crate::device::Device;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport, journal::JournalEntry};
 use crate::error::{Action, Reason};
+use crate::fields::{Source, TrackValues};
 use crate::harmony;
 use crate::model::{BpmRange, Library, Track, TrackRef};
 use crate::op::{Operation, Planned, Probe, Touched, bytes};
@@ -555,10 +556,19 @@ pub fn tracks_query(req: &TracksQuery) -> Result<TracksPage> {
 
 /// [`tracks_query`], with the library from `cache`.
 pub fn tracks_query_cached(cache: &LibraryCache, req: &TracksQuery) -> Result<TracksPage> {
+    tracks_query_with(cache, req, None)
+}
+
+/// [`tracks_query_cached`], with what analyzers worked out read from `fields` for a filter or
+/// sort naming a plugin's field (`sound.bpm:>120`, `-sound.bpm`); without it, those are refused.
+pub fn tracks_query_with(cache: &LibraryCache, req: &TracksQuery, fields: Option<Source<'_>>) -> Result<TracksPage> {
     let (d, cached, lib) = cache.read(&req.library)?;
     let filter = req.filter.as_deref().map(Filter::parse).transpose()?.unwrap_or_default();
+    let keys = req.sort.as_deref().map(|s| query::parse_sort_with(s, fields.map(|f| f.declared))).transpose()?;
     let tags = if filter.uses_tags() { Some(cached.tags_by_track(&d)?) } else { None };
-    let ctx = filter_context(&lib, &filter, tags.as_deref())?;
+    let sorted_by_field = keys.iter().flatten().any(|k| matches!(k.field, query::SortField::Field(_)));
+    let values = fields.filter(|_| filter.uses_fields() || sorted_by_field).map(|f| TrackValues::read(f, &d, &lib));
+    let ctx = filter_context(&lib, &filter, tags.as_deref(), values.as_ref())?;
     let mut tracks: Vec<&Track> = match &req.playlist {
         Some(p) => {
             let pl = lib.find_playlist(p).ok_or_else(|| Error::NotFound(format!("playlist {p:?}")))?;
@@ -566,8 +576,8 @@ pub fn tracks_query_cached(cache: &LibraryCache, req: &TracksQuery) -> Result<Tr
         }
         None => filter.select(&ctx),
     };
-    if let Some(s) = &req.sort {
-        query::sort_tracks(&mut tracks, &query::parse_sort(s)?);
+    if let Some(keys) = &keys {
+        query::sort_tracks_with(&mut tracks, keys, values.as_ref());
     }
     let total = tracks.len();
     let total_duration_secs = tracks.iter().map(|t| u64::from(t.duration_secs)).sum();
@@ -575,16 +585,19 @@ pub fn tracks_query_cached(cache: &LibraryCache, req: &TracksQuery) -> Result<Tr
     Ok(TracksPage { total, total_duration_secs, tracks })
 }
 
-/// What `filter` matches `library`'s tracks against: the library, and its My Tags by lowercase
-/// file key (`tags`, which only a filter that [uses them](Filter::uses_tags) needs). Refused as
+/// What `filter` matches `library`'s tracks against: the library, its My Tags by lowercase file
+/// key (`tags`, which only a filter that [uses them](Filter::uses_tags) needs), and what
+/// analyzers worked out (`fields`, for one that [uses them](Filter::uses_fields)). Refused as
 /// [`Filter::check`] refuses it.
 pub fn filter_context<'a>(
     library: &'a Library,
     filter: &Filter,
     tags: Option<&'a TagsByTrack>,
+    fields: Option<&'a TrackValues>,
 ) -> Result<QueryContext<'a>> {
     let mut ctx = QueryContext::new(library);
     ctx.tags = tags;
+    ctx.fields = fields;
     filter.check(&ctx)?;
     Ok(ctx)
 }

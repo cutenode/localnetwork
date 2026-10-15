@@ -17,7 +17,7 @@ use locallibrary::edit::{Edit, EditOptions, EditPlan, TrackFields};
 use locallibrary::model::TrackColor;
 use locallibrary::op::{AnyPlanned, Planned};
 use locallibrary::progress::{Event, Phase, Progress};
-use locallibrary::query::{SortKey, TrackSelector};
+use locallibrary::query::{SortField, SortKey, TrackSelector};
 use locallibrary::{CancelToken, Ctx, Error};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
@@ -235,7 +235,12 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
                 _ => "sort this playlist on the drive".into(),
             },
             Action::SortList,
-            stale.clone().or(not_list).or(because(t.sort.is_none(), "sort the list first (b, or click a column)")),
+            stale.clone().or(not_list).or(because(t.sort.is_none(), "sort the list first (b, or click a column)")).or(
+                because(
+                    t.sort.is_some_and(|k| matches!(k.field, SortField::Field(_))),
+                    "a plugin's column can't sort the drive's playlists",
+                ),
+            ),
         ),
         item("N", format!("new playlist{into}…"), Action::NewPlaylist, stale.clone()),
         item("F", format!("new folder{into}…"), Action::NewFolder, stale.clone()),
@@ -436,6 +441,7 @@ fn phase_name(p: Phase) -> &'static str {
         Phase::Delete => "deleting files",
         Phase::Verify => "verifying",
         Phase::Format => "formatting",
+        Phase::Analyze => "analyzing",
         // Mix identification's phases (edits don't run them), and any newer.
         _ => "working",
     }

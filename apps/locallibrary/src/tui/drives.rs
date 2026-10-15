@@ -323,6 +323,7 @@ impl App {
             Act::Undo => self.undo_on(root),
             Act::Eject => self.eject(vec![root]),
             Act::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(root), None),
+            Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, Some(root)),
             act => self.perform(act, None),
         }
     }

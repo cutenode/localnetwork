@@ -307,6 +307,33 @@ impl Reads for SidecarReads {
     }
 }
 
+/// The analyzers installed and what they worked out, for filters and sorts naming their fields
+/// (`sound.bpm:>120`): kept in `store`. Plugins that were refused have none.
+pub struct Installed {
+    store: Option<locallibrary::Store>,
+    analyzers: Vec<locallibrary::fields::Analyzer>,
+    declared: locallibrary::fields::Declared,
+}
+
+impl Installed {
+    pub fn with(store: Option<locallibrary::Store>) -> Installed {
+        let host = host().ok();
+        Installed {
+            store,
+            analyzers: host.map(Plugins::analyzers).unwrap_or_default(),
+            declared: host.map(Plugins::fields).unwrap_or_default(),
+        }
+    }
+
+    pub fn source(&self) -> locallibrary::fields::Source<'_> {
+        locallibrary::fields::Source {
+            store: self.store.as_ref(),
+            analyzers: &self.analyzers,
+            declared: &self.declared,
+        }
+    }
+}
+
 /// A capability a plugin has, and what it lets the plugin do.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Granted {

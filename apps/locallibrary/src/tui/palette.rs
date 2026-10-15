@@ -182,10 +182,12 @@ pub fn commands(view: View) -> Vec<(Act, Item)> {
 }
 
 impl App {
-    /// `:`: every action by name, then plugins' commands and operations.
+    /// `:`: every action by name, then plugins' commands, operations and analyzers, and in the
+    /// library the columns of their fields.
     pub(super) fn open_palette(&mut self) {
-        let (acts, items): (Vec<Act>, Vec<Item>) =
-            commands(self.view).into_iter().chain(self.plugin_items(self.action_drive().as_deref())).unzip();
+        let acts = commands(self.view).into_iter().chain(self.plugin_items(self.action_drive().as_deref()));
+        let fields = (self.view == View::Library).then(|| self.field_items()).into_iter().flatten();
+        let (acts, items): (Vec<Act>, Vec<Item>) = acts.chain(fields).unzip();
         let mut p = Picker::new("Commands", items, Then::Act(acts));
         p.empty = "no command has those letters";
         self.modal = Some(Modal::Pick(p));

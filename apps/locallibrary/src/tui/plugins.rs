@@ -12,6 +12,7 @@ use locallibrary::plugin::{Cli, CommandOutput};
 use loclib_plugin::{Capability, Context, View};
 use serde_json::Value;
 
+use super::app::Fields;
 use super::app::{App, Level, View as Screen};
 use super::drives::{Report, Tone};
 use super::edits::{Modal, Target};
@@ -20,6 +21,7 @@ use super::keymap::Act;
 use super::palette::Item;
 use crate::plugin_cmd::view::{pairs, table};
 use crate::plugins::params::properties;
+use locallibrary::query::{FieldName, SortField};
 
 /// A plugin's command or operation, and where it runs: the drive, and what's selected there (its
 /// context's drive is the drive's).
@@ -166,12 +168,95 @@ impl App {
         root.map(|root| !self.extra_roots.iter().any(|r| r == root))
     }
 
-    /// Every plugin's commands and operations, as the palette and the drive menu list them for
-    /// the drive at `root`: by title, with the plugin's name beside each.
+    /// Every plugin's commands, operations and analyzers, as the palette and the drive menu list
+    /// them for the drive at `root`: by title, with the plugin's name beside each.
     pub(super) fn plugin_items(&self, root: Option<&Path>) -> Vec<(Act, Item)> {
-        let all = offered(self.pluggable(root), true).into_iter();
-        all.map(|o| (Act::Plugin(o.plugin, o.name), Item { unavailable: o.unavailable, ..Item::new(o.label, o.by) }))
+        let drive = self.pluggable(root);
+        let all = offered(drive, true).into_iter();
+        let mut items: Vec<(Act, Item)> = all
+            .map(|o| (Act::Plugin(o.plugin, o.name), Item { unavailable: o.unavailable, ..Item::new(o.label, o.by) }))
+            .collect();
+        let Ok(plugins) = crate::plugins::host() else { return items };
+        // An analyzer reads the tracks' audio files: on a drive plugged in, as a command.
+        let why = match drive {
+            None => Some("open a drive first"),
+            Some(false) => Some("only on a plugged-in drive"),
+            Some(true) => None,
+        };
+        for m in plugins.manifests() {
+            for a in &m.contributes.analyzers {
+                let label = format!("analyze the tracks: {}", named(&a.title));
+                let item = Item { unavailable: why.map(String::from), ..Item::new(label, &m.name) };
+                items.push((Act::Analyze(&m.id, &a.name), item));
+            }
+        }
+        items
+    }
+
+    /// A column for each plugin's field, as the palette lists them (in the library): shown or
+    /// hidden, with the plugin's name beside each.
+    pub(super) fn field_items(&self) -> Vec<(Act, Item)> {
+        let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
+        let all = plugins.manifests().flat_map(|m| m.contributes.analyzers.iter().map(move |a| (m, a)));
+        all.flat_map(|(m, a)| a.fields.keys().map(move |f| (m, FieldName::new(&format!("{}.{f}", m.id)))))
+            .map(|(m, name)| {
+                let doing = if self.field_columns.contains(&name) { "hide" } else { "show" };
+                (Act::FieldColumn(name), Item::new(format!("{doing} the {} column", name.as_str()), &m.name))
+            })
             .collect()
+    }
+
+    /// Show the column of a plugin's field, after the others, or hide it.
+    pub(super) fn toggle_field_column(&mut self, name: FieldName) {
+        match self.field_columns.iter().position(|f| *f == name) {
+            Some(i) => {
+                self.field_columns.remove(i);
+            }
+            None => {
+                self.field_columns.push(name);
+                self.read_fields();
+            }
+        }
+    }
+
+    /// Run a plugin's analyzer on the tracks of the drive at `root` in the background (esc stops
+    /// it), keeping what it works out in the store; then its columns, filters and sorts read it.
+    pub(super) fn analyze(&mut self, plugin: &'static str, analyzer: &'static str, root: Option<PathBuf>) {
+        let Ok(plugins) = crate::plugins::host() else { return };
+        let root = match (self.pluggable(root.as_deref()), root) {
+            (Some(true), Some(root)) => root,
+            (None, _) => return self.toast("open a drive first", Level::Info),
+            _ => return self.toast("only on a plugged-in drive", Level::Info),
+        };
+        let Some(declared) =
+            plugins.manifest(plugin).ok().and_then(|m| m.contributes.analyzers.iter().find(|a| a.name == analyzer))
+        else {
+            return;
+        };
+        let title = named(&declared.title);
+        let store_root = self.store_root.clone();
+        self.task("Analyzing".into(), move |ctx| {
+            let store = Store::open_or_init(&store_root)?;
+            let done = plugins.analyze(plugin, analyzer, &root.display().to_string(), None, &store, ctx)?;
+            Ok(Box::new(move |app: &mut App| {
+                let tracks = crate::output::plural(done.analyzed, "track");
+                let mut said = format!("{title}: {tracks} analyzed, {} already", done.kept);
+                if done.failed > 0 {
+                    said.push_str(&format!(", {} failed (! says why)", done.failed));
+                }
+                let level = if done.failed > 0 && done.analyzed + done.kept == 0 { Level::Error } else { Level::Info };
+                app.toast(said, level);
+                // Read again, with what it worked out.
+                if let Some(l) = app.loaded.as_mut().filter(|l| l.root() == root) {
+                    l.fields = Fields::Unread;
+                    l.ranks.retain(|(f, _)| !matches!(f, SortField::Field(_)));
+                }
+                app.refresh_visible();
+                if !app.field_columns.is_empty() {
+                    app.read_fields();
+                }
+            }))
+        });
     }
 
     /// What's selected, as a plugin's hook takes it: the tracks (by id) and the playlist (not a

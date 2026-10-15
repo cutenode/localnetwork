@@ -398,6 +398,37 @@ fn plugins() {
     );
 }
 
+/// What an analyzer plugin worked out, as a column of the track list sorted by it, and the
+/// search box filtering by it: from the plugins' manifests and the store.
+#[test]
+fn plugins_fields() {
+    let Fixture { _dir, mut app, root } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    std::fs::write(root.join(lib.tracks[1].file_path.trim_start_matches('/')), "x".repeat(4000)).unwrap();
+    let store = Store::open(&app.store_root).unwrap();
+    crate::plugins::host()
+        .unwrap()
+        .analyze("echo", "size", &root.display().to_string(), None, &store, &Ctx::silent())
+        .unwrap();
+    app.focus = Focus::Tracks;
+    for c in ":show the echo.bytes column".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    app.sort = Some(locallibrary::query::SortKey {
+        field: locallibrary::query::SortField::Field(locallibrary::query::FieldName::new("echo.bytes")),
+        descending: true,
+    });
+    wait(&mut app, |a| a.loaded.as_ref().unwrap().values().is_some());
+    app.refresh_visible();
+    check(&mut app, "a plugin's column, sorted by it", &["echo.bytes↓", "4000", "echo.bytes ↓"], &[]);
+    for c in "/echo.bytes:>1000".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    check(&mut app, "the search box filtering by a plugin's field", &["/ echo.bytes:>1000", "1 match", "4000"], &[]);
+}
+
 #[test]
 fn edit_menu_and_confirmation() {
     let Fixture { _dir, mut app, root } = fixture();

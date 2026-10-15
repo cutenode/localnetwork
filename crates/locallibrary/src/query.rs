@@ -20,10 +20,16 @@
 //! | `tag` | has a My Tag (`Category/Tag` or just the tag's name) |
 //! | `is` | `unfiled` (in no playlist), `played`, `unplayed` |
 //! | `has` | `artwork`, `comment`, `key`, `analysis` |
+//! | `PLUGIN.FIELD` (`sound.bpm`) | what an analyzer plugin worked out: a number, range or comparison for a number (`sound.bpm:>120`; `128` is 127.5 to 128.5, `128.4` is 128.35 to 128.45), words for text (`sound.key:8A`), `true` or `false` |
 //!
 //! A word before a colon that names no field (`gnere:house`) is refused rather than taken as text
 //! to look for: as text it would match no track, and negated, every one. Quoted, the colon is
-//! text (`"re:zero"`), as it is in a link (`https://...`).
+//! text (`"re:zero"`), as it is in a link (`https://...`). A plugin's field is refused unless an
+//! analyzer installed declares it, and a filter naming one needs what analyzers worked out (see
+//! [`crate::fields::TrackValues`]), as `tag:` needs My Tags.
+//!
+//! Sort orders name a plugin's field the same way (`-sound.bpm`), where its values are at hand
+//! ([`parse_sort_with`]).
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use schemars::JsonSchema;
@@ -31,6 +37,7 @@ use serde::{Deserialize, Serialize};
 use std::cell::{OnceCell, RefCell};
 
 use crate::device::Device;
+use crate::fields::{Declared, FieldType, FieldValue, TrackValues};
 use crate::harmony::{self, Camelot};
 use crate::model::{Library, Playlist, Track, TrackColor, normalize};
 use crate::plays::HistoryList;
@@ -128,11 +135,10 @@ pub fn nearest<'a>(word: &str, names: impl IntoIterator<Item = &'a str>) -> Opti
         .map(|(_, name)| name)
 }
 
-/// The error for `word:value` where `word` names no field, with the field it most likely meant.
-fn unknown_field(tok: &str, word: &str) -> Error {
-    let near = nearest(word, FIELDS.iter().map(|(name, _)| *name))
-        .map(|name| format!(" (did you mean {name}?)"))
-        .unwrap_or_default();
+/// The error for `word:value` where `word` names no field, with the field (of `names`) it most
+/// likely meant.
+fn unknown_field<'a>(tok: &str, word: &str, names: impl IntoIterator<Item = &'a str>) -> Error {
+    let near = nearest(word, names).map(|name| format!(" (did you mean {name}?)")).unwrap_or_default();
     Error::invalid(format!(
         "can't read {tok:?}: there's no field {word:?}{near}; to look for the text, put it in quotes"
     ))
@@ -241,6 +247,41 @@ enum Cond {
     Tag(Vec<String>),
     Is(Vec<String>),
     Has(Vec<String>),
+    /// A plugin's field (`sound.bpm`): its value as a number condition, when it reads as one, and
+    /// as words.
+    Plugin {
+        name: String,
+        num: Option<Num>,
+        text: Vec<String>,
+    },
+}
+
+/// `word` (before a colon) as a plugin's field: two names joined by a dot (`sound.bpm`), each
+/// as plugin ids and field names are, in lowercase.
+fn plugin_field(word: &str) -> Option<String> {
+    let word = word.to_ascii_lowercase();
+    let (plugin, field) = word.split_once('.')?;
+    let name = |s: &str| {
+        s.starts_with(|c: char| c.is_ascii_lowercase())
+            && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+    };
+    (name(plugin) && name(field)).then_some(word)
+}
+
+/// How far from a number typed (`128.4`) a value still matches it: half its last digit.
+fn precision(typed: &str) -> f64 {
+    let decimals = typed.trim().split_once('.').map_or(0, |(_, d)| d.len());
+    0.5 / 10f64.powi(decimals.min(12) as i32)
+}
+
+/// Whether `text` (normalised) has `word` (normalised) as whole words: `8a` is in `8a`, never in
+/// `18a`.
+fn has_words(text: &str, word: &str) -> bool {
+    text.match_indices(word).any(|(i, _)| {
+        let before = text[..i].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
+        let after = text[i + word.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric());
+        before && after
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -330,7 +371,19 @@ impl Filter {
                     // A word that names no field is a typo, not text to look for (see the module
                     // docs); a time (`3:30`) or a link (`https://...`) is text.
                     None if !f.is_empty() && f.chars().all(char::is_alphabetic) && !v.starts_with("://") => {
-                        return Err(unknown_field(tok, f));
+                        return Err(unknown_field(tok, f, FIELDS.iter().map(|(name, _)| *name)));
+                    }
+                    // A plugin's field (`sound.bpm`), found once its values are at hand.
+                    None if plugin_field(f).is_some() => {
+                        let value = &v[1..];
+                        if value.is_empty() {
+                            return Err(bad("nothing after the colon"));
+                        }
+                        let name = plugin_field(f).expect("one");
+                        let num = Num::parse(value, number, precision(value));
+                        let text = value.split('|').map(normalize).filter(|v| !v.is_empty()).collect();
+                        terms.push(Term { negate, field: None, cond: Cond::Plugin { name, num, text } });
+                        continue;
                     }
                     None => (None, tok),
                 },
@@ -425,12 +478,41 @@ impl Filter {
         self.terms.iter().any(|t| matches!(t.cond, Cond::Tag(_)))
     }
 
+    /// Whether anything in the filter needs what analyzers worked out (a plugin's field).
+    pub fn uses_fields(&self) -> bool {
+        self.terms.iter().any(|t| matches!(t.cond, Cond::Plugin { .. }))
+    }
+
     /// Refuse a filter `ctx` can't answer: one naming a playlist the library doesn't have, or
-    /// needing My Tags `ctx` wasn't given. Such a term would match no track, and negated, every
-    /// track. Selecting checks this; [`Filter::matches`] doesn't.
+    /// needing My Tags or analyzers' values `ctx` wasn't given, or a plugin's field no analyzer
+    /// declares, or a value its field can't hold. Such a term would match no track, and negated,
+    /// every track. Selecting checks this; [`Filter::matches`] doesn't.
     pub fn check(&self, ctx: &QueryContext<'_>) -> Result<()> {
         for term in &self.terms {
             match &term.cond {
+                Cond::Plugin { name, .. } if ctx.fields.is_none() => {
+                    return Err(Error::invalid(format!(
+                        "a {name}: term needs what analyzers worked out, and none was read"
+                    )));
+                }
+                Cond::Plugin { name, num, text } => {
+                    let declared = &ctx.fields.expect("given").declared;
+                    let Some(&kind) = declared.get(name) else {
+                        return Err(unknown_field(name, name, declared.keys().map(String::as_str)));
+                    };
+                    let bad = |what: &str| Err(Error::invalid(format!("can't read the {name} term: {what}")));
+                    let switch = |t: &String| ["true", "false", "yes", "no"].contains(&t.as_str());
+                    match kind {
+                        FieldType::Number | FieldType::Integer if num.is_none() => {
+                            return bad("it's a number: give one, a range or a comparison (>120, 120-128)");
+                        }
+                        FieldType::Boolean if text.is_empty() || !text.iter().all(switch) => {
+                            return bad("it's true or false");
+                        }
+                        _ if text.is_empty() && num.is_none() => return bad("nothing to look for"),
+                        _ => {}
+                    }
+                }
                 Cond::Playlist(specs) => {
                     if let Some(s) = specs.iter().find(|s| ctx.library.find_playlist(s).is_none()) {
                         return Err(Error::NotFound(format!("playlist {s:?}")));
@@ -515,6 +597,23 @@ impl Term {
                 "key" => !t.key.trim().is_empty(),
                 _ => !t.analyze_path.is_empty(),
             }),
+            Cond::Plugin { name, num, text } => {
+                let words = |s: &str| {
+                    let s = normalize(s);
+                    text.iter().any(|w| has_words(&s, w))
+                };
+                match ctx.fields.and_then(|f| f.get(t.id, name)) {
+                    None => false,
+                    Some(FieldValue::Integer(v)) => num.is_some_and(|n| n.test(*v as f64)),
+                    Some(FieldValue::Number(v)) => num.is_some_and(|n| n.test(*v)),
+                    Some(FieldValue::Boolean(b)) => {
+                        let says = |w: &String| matches!(w.as_str(), "true" | "yes") == *b;
+                        text.iter().any(|w| ["true", "false", "yes", "no"].contains(&w.as_str()) && says(w))
+                    }
+                    Some(FieldValue::String(s)) => words(s),
+                    Some(FieldValue::Strings(all)) => all.iter().any(|s| words(s)),
+                }
+            }
         }
     }
 }
@@ -524,6 +623,8 @@ pub struct QueryContext<'a> {
     pub library: &'a Library,
     /// My Tags by lowercase file key (see [`crate::paths::key`]), as `Category/Tag`.
     pub tags: Option<&'a FxHashMap<String, Vec<String>>>,
+    /// What analyzers worked out for the tracks, for plugins' fields (`sound.bpm`).
+    pub fields: Option<&'a TrackValues>,
     /// The drive's history lists, from both its databases (see [`DriveContext`]); without them,
     /// the library's own.
     history: Option<&'a [HistoryList]>,
@@ -540,6 +641,7 @@ impl<'a> QueryContext<'a> {
         QueryContext {
             library,
             tags: None,
+            fields: None,
             history: None,
             playlists: Default::default(),
             haystacks: Default::default(),
@@ -664,6 +766,38 @@ pub enum SortField {
     Time,
     Bitrate,
     Path,
+    /// A plugin's field: tracks without a value for it go last.
+    Field(FieldName),
+}
+
+/// A plugin's field as a sort names it (`sound.bpm`), kept for good: sort keys stay `Copy`
+/// (front ends pass them about), and there are few names to keep, the fields the plugins declare
+/// and those a saved sort names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, JsonSchema)]
+#[serde(transparent)]
+pub struct FieldName(&'static str);
+
+impl FieldName {
+    pub fn new(name: &str) -> FieldName {
+        static NAMES: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
+        let mut names = NAMES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let kept = names.iter().find(|n| **n == name).copied().unwrap_or_else(|| {
+            let n: &'static str = Box::leak(name.to_string().into_boxed_str());
+            names.push(n);
+            n
+        });
+        FieldName(kept)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for FieldName {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<FieldName, D::Error> {
+        String::deserialize(d).map(|s| FieldName::new(&s))
+    }
 }
 
 /// One level of a sort order, e.g. `-rating` (highest first).
@@ -676,6 +810,11 @@ pub struct SortKey {
 
 /// Parse `key,bpm` or `-rating,title` (a leading `-` sorts that level highest first).
 pub fn parse_sort(s: &str) -> Result<Vec<SortKey>> {
+    parse_sort_with(s, None)
+}
+
+/// [`parse_sort`], taking the plugins' fields `declared` (`-sound.bpm`) too, when they're given.
+pub fn parse_sort_with(s: &str, declared: Option<&Declared>) -> Result<Vec<SortKey>> {
     let keys: Vec<SortKey> = s
         .split(',')
         .map(str::trim)
@@ -701,6 +840,15 @@ pub fn parse_sort(s: &str) -> Result<Vec<SortKey>> {
                 "time" | "length" | "duration" => SortField::Time,
                 "bitrate" => SortField::Bitrate,
                 "path" | "file" => SortField::Path,
+                other if plugin_field(other).is_some() => match declared {
+                    Some(d) if d.contains_key(other) => SortField::Field(FieldName::new(other)),
+                    Some(d) => return Err(unknown_field(other, other, d.keys().map(String::as_str))),
+                    None => {
+                        return Err(Error::invalid(format!(
+                            "can't sort by {other:?} here: a plugin's field sorts track listings only"
+                        )));
+                    }
+                },
                 other => {
                     return Err(Error::invalid(format!(
                         "can't sort by {other:?} (title, artist, album, genre, label, key, bpm, rating, color, year, plays, added, time, bitrate, path)"
@@ -714,6 +862,26 @@ pub fn parse_sort(s: &str) -> Result<Vec<SortKey>> {
         return Err(Error::invalid("give a sort order, e.g. key,bpm"));
     }
     Ok(keys)
+}
+
+/// How two values of a plugin's field compare: numbers by size, text by its words, a list by its
+/// first, `false` before `true`.
+pub fn compare_values(a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
+    let number = |v: &FieldValue| match v {
+        FieldValue::Integer(n) => Some(*n as f64),
+        FieldValue::Number(n) => Some(*n),
+        _ => None,
+    };
+    let text = |v: &FieldValue| match v {
+        FieldValue::String(s) => normalize(s),
+        FieldValue::Strings(all) => all.first().map(|s| normalize(s)).unwrap_or_default(),
+        FieldValue::Boolean(b) => b.to_string(),
+        n => number(n).map(|n| n.to_string()).unwrap_or_default(),
+    };
+    match (number(a), number(b)) {
+        (Some(x), Some(y)) => x.total_cmp(&y),
+        _ => text(a).cmp(&text(b)),
+    }
 }
 
 fn compare(a: &Track, b: &Track, field: SortField) -> std::cmp::Ordering {
@@ -734,16 +902,34 @@ fn compare(a: &Track, b: &Track, field: SortField) -> std::cmp::Ordering {
         SortField::Time => a.duration_secs.cmp(&b.duration_secs),
         SortField::Bitrate => a.bitrate.cmp(&b.bitrate),
         SortField::Path => crate::paths::key(&a.file_path).cmp(&crate::paths::key(&b.file_path)),
+        // By its values (see `sort_tracks_with`).
+        SortField::Field(_) => std::cmp::Ordering::Equal,
     }
 }
 
 /// Stable sort: tracks equal under every key keep their order.
 pub fn sort_tracks(tracks: &mut [&Track], keys: &[SortKey]) {
+    sort_tracks_with(tracks, keys, None);
+}
+
+/// [`sort_tracks`] with what analyzers worked out, for keys naming a plugin's field: tracks
+/// without a value for it go last, either way (all of them, without `values`).
+pub fn sort_tracks_with(tracks: &mut [&Track], keys: &[SortKey], values: Option<&TrackValues>) {
     tracks.sort_by(|a, b| {
         keys.iter()
             .map(|k| {
-                let o = compare(a, b, k.field);
-                if k.descending { o.reverse() } else { o }
+                let directed = |o: std::cmp::Ordering| if k.descending { o.reverse() } else { o };
+                match k.field {
+                    // Those without a value last, whichever way it's sorted.
+                    SortField::Field(name) => {
+                        let value = |t: &Track| values.and_then(|v| v.get(t.id, name.as_str()));
+                        match (value(a), value(b)) {
+                            (Some(x), Some(y)) => directed(compare_values(x, y)),
+                            (x, y) => x.is_none().cmp(&y.is_none()),
+                        }
+                    }
+                    field => directed(compare(a, b, field)),
+                }
             })
             .find(|o| o.is_ne())
             .unwrap_or(std::cmp::Ordering::Equal)

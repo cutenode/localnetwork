@@ -183,6 +183,10 @@ pub enum Act {
     /// A plugin's command, by the plugin's id and its name (from the palette and the drive
     /// menu, never a key).
     Plugin(&'static str, &'static str),
+    /// Run a plugin's analyzer (the plugin's id, the analyzer's name) on the drive's tracks.
+    Analyze(&'static str, &'static str),
+    /// Show or hide the column of a plugin's field.
+    FieldColumn(locallibrary::query::FieldName),
 }
 
 /// The help's sections.

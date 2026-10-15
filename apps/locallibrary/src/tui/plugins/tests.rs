@@ -56,7 +56,7 @@ fn plugins_commands_are_in_the_palette() {
     assert_eq!(entry(&app, "answer the params…").1, Some("only on a plugged-in drive"));
 }
 
-/// The drive menu ends with plugins' commands and operations, which run on that drive.
+/// The drive menu ends with plugins' commands, operations and analyzers, which run on that drive.
 #[test]
 fn plugins_commands_are_in_the_drive_menu() {
     let (dir, root) = demo_drive();
@@ -69,7 +69,8 @@ fn plugins_commands_are_in_the_drive_menu() {
     press(&mut app, "e");
     let p = picker(&app);
     assert!(p.title.starts_with("Drive · "), "{}", p.title);
-    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("make a playlist…"));
+    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("analyze the tracks: file size"));
+    assert!(p.items.iter().any(|i| i.label == "make a playlist…"));
     assert_eq!(entry(&app, "answer the params…").1, None);
     press(&mut app, "wait until\n");
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Wait until cancelled"));
@@ -384,4 +385,109 @@ fn an_operation_without_a_drive_isnt_planned() {
     let hook = Cli::Operation(&manifest.contributes.operations[0]);
     app.run_plugin(Run { plugin: "echo", hook, root: None, context: Context::default() }, json!({ "name": "x" }));
     assert_eq!((app.job.is_none(), last_message(&app)), (true, "open a drive first"));
+}
+
+/// The demo drive open with the echo plugin, its second track's audio file made bigger than the
+/// first's (the echo plugin's analyzer measures `echo.bytes`, a file's size), not analysed yet.
+fn sized() -> (tempfile::TempDir, App) {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let app = app_on(&root);
+    let second = &app.loaded.as_ref().unwrap().library.tracks[1];
+    std::fs::write(root.join(second.file_path.trim_start_matches('/')), "x".repeat(4000)).unwrap();
+    (dir, app)
+}
+
+/// The tracks shown, by id.
+fn shown(app: &App) -> Vec<u32> {
+    let l = app.loaded.as_ref().unwrap();
+    app.visible.iter().map(|&i| l.library.tracks[i].id).collect()
+}
+
+/// Analysing from the palette: on a drive, in the background with esc to stop it, saying how it
+/// went; without one it says so. What it worked out shows in the column asked for (from the
+/// palette, saved for the next run), right away.
+#[test]
+fn analyzers_run_from_the_palette_and_fill_their_columns() {
+    let (_dir, _root) = demo_drive();
+    let (mut app, _store) = blank(Screen::Library);
+    echo_plugin(_dir.path());
+    press(&mut app, ":");
+    assert_eq!(entry(&app, "analyze the tracks: file size").1, Some("open a drive first"));
+    press(&mut app, "\u{1b}");
+
+    let (_dir, mut app) = sized();
+    let ids: Vec<u32> = app.loaded.as_ref().unwrap().library.tracks.iter().map(|t| t.id).collect();
+    press(&mut app, ":show the echo.bytes column\n");
+    assert_eq!(app.field_columns, [FieldName::new("echo.bytes")]);
+    wait(&mut app, |a| a.loaded.as_ref().unwrap().values().is_some());
+    let s = screen(&mut app, 120, 30);
+    assert!(s.contains("echo.bytes") && !s.contains("4000"), "not analysed yet:\n{s}");
+    press(&mut app, ":analyze the tracks: file\n");
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Analyzing"));
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "file size: 2 tracks analyzed, 0 already");
+    wait(&mut app, |a| a.loaded.as_ref().unwrap().values().is_some_and(|v| v.tracks.len() == 2));
+    let s = screen(&mut app, 120, 30);
+    assert!(s.contains("4000") && s.contains("500"), "{s}");
+    press(&mut app, ":analyze the tracks: file\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "file size: 0 tracks analyzed, 2 already");
+    assert_eq!(app.saved_state().field_columns, ["echo.bytes"]);
+    press(&mut app, ":hide the echo.bytes column\n");
+    assert!(app.field_columns.is_empty() && !screen(&mut app, 120, 30).contains("echo.bytes"));
+    assert_eq!(ids.len(), 2);
+}
+
+/// The search box filters by a plugin's field as `tracks --filter` does: a track without a value
+/// isn't matched; a typo says which field it meant.
+#[test]
+fn the_search_box_filters_by_plugins_fields() {
+    let (_dir, mut app) = sized();
+    let second = app.loaded.as_ref().unwrap().library.tracks[1].id;
+    let reading = |a: &App| matches!(a.loaded.as_ref().unwrap().fields, super::super::app::Fields::Reading);
+    press(&mut app, "/echo.bytes:>1000");
+    assert_eq!(app.filter_note.as_deref(), Some("reading what analyzers worked out…"));
+    wait(&mut app, |a| !reading(a));
+    assert!(app.visible.is_empty(), "nothing analysed: nothing matched");
+    press(&mut app, "\u{1b}");
+    press(&mut app, ":analyze the tracks: file\n");
+    wait(&mut app, |a| a.job.is_none());
+    press(&mut app, "/echo.bytes:>1000");
+    wait(&mut app, |a| !reading(a));
+    assert_eq!(shown(&app), [second]);
+    assert_eq!(app.filter_error, None);
+    press(&mut app, "\u{1b}/echo.byte:1");
+    let said = app.filter_error.clone().unwrap_or_default();
+    assert!(said.contains("did you mean echo.bytes?"), "{said}");
+}
+
+/// A plugin's column sorts by its values when its header's clicked, tracks without one last
+/// either way; a playlist can't be sorted on the drive by it.
+#[test]
+fn plugins_columns_sort_by_their_values() {
+    let (_dir, mut app) = sized();
+    press(&mut app, ":analyze the tracks: file\n");
+    wait(&mut app, |a| a.job.is_none());
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    let (first, second) = (lib.tracks[0].id, lib.tracks[1].id);
+    // The first's file changes: it has no value now.
+    let root = app.loaded.as_ref().unwrap().root().to_path_buf();
+    std::fs::write(root.join(lib.tracks[0].file_path.trim_start_matches('/')), "y").unwrap();
+    press(&mut app, ":show the echo.bytes column\n");
+    wait(&mut app, |a| a.loaded.as_ref().unwrap().values().is_some());
+    let header = super::super::app::testing::spot(&mut app, "echo.bytes");
+    super::super::app::testing::mouse(&mut app, super::super::app::testing::LEFT, header);
+    let field = SortField::Field(FieldName::new("echo.bytes"));
+    assert_eq!(app.sort.map(|k| (k.field, k.descending)), Some((field, false)));
+    assert_eq!(shown(&app), [second, first]);
+    assert!(screen(&mut app, 120, 30).contains("echo.bytes↑"));
+    super::super::app::testing::mouse(&mut app, super::super::app::testing::LEFT, header);
+    assert_eq!(shown(&app), [second, first], "the one without a value stays last");
+    // Shown a playlist, it can't be sorted on the drive by it.
+    let mut t = app.target().unwrap();
+    t.list = Some("Sets/Friday".into());
+    let items = super::super::edits::menu_items(&t);
+    let sort = items.iter().find(|i| i.action == super::super::edits::Action::SortList).unwrap();
+    assert_eq!(sort.unavailable.as_deref(), Some("a plugin's column can't sort the drive's playlists"));
 }

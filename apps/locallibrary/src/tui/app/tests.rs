@@ -2986,6 +2986,9 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
         press(&mut app, tc.draw(gs::sampled_from(KEYS)));
     }
+    // Plugins' columns, shown from the palette.
+    let shown = ["sound.bpm", "sound.key"].map(locallibrary::query::FieldName::new);
+    app.field_columns = shown[..tc.draw(gs::integers::<usize>().max_value(2))].to_vec();
     let saved = app.saved_state();
     state::save(&app.store_root, &saved);
     let read = state::load(&app.store_root);

@@ -482,7 +482,11 @@ fn build() -> Registry {
     r.read("drive.library", |_, req| Ok(api::drive_library_cached(&LIBRARIES, &req)?)).quick();
     r.read("playlists.tree", |_, req| Ok(api::playlists_tree(&LIBRARIES, &req)?)).quick();
     r.read("tracks.get", |_, req| Ok(api::tracks_get(&LIBRARIES, &req)?)).quick();
-    r.read("tracks.query", |_, req| Ok(api::tracks_query_cached(&LIBRARIES, &req)?)).quick();
+    r.read("tracks.query", |c, req| {
+        let fields = crate::plugins::Installed::with(c.existing()?);
+        Ok(api::tracks_query_with(&LIBRARIES, &req, Some(fields.source()))?)
+    })
+    .quick();
     r.read("track.analysis", |_, req| Ok(api::track_analysis_cached(&LIBRARIES, &req)?)).quick();
     r.read("tracks.analysis", |_, req| Ok(api::tracks_analysis(&LIBRARIES, &req)?)).quick();
     r.read("track.fields", |c, req| {

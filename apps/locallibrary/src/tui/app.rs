@@ -13,9 +13,10 @@ use std::time::{Duration, Instant};
 use locallibrary::anlz::{self, PhraseKind, TrackAnalysis};
 use locallibrary::api;
 use locallibrary::error::panic_text;
+use locallibrary::fields::TrackValues;
 use locallibrary::model::normalize;
 use locallibrary::op::AnyPlanned;
-use locallibrary::query::{Filter, SortField, SortKey};
+use locallibrary::query::{FieldName, Filter, SortField, SortKey};
 use locallibrary::sets::Set;
 use locallibrary::store::{LibraryRecord, SnapshotInfo};
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
@@ -148,6 +149,18 @@ pub enum MyTags {
     Failed(String),
 }
 
+/// What the analyzers installed worked out for the drive's tracks (see
+/// [`locallibrary::fields::TrackValues`]), for their columns, filters and sorts: read in the
+/// background the first time one asks.
+#[derive(Default)]
+pub enum Fields {
+    #[default]
+    Unread,
+    Reading,
+    Read(Arc<TrackValues>),
+    Failed(String),
+}
+
 /// A drive's library, loaded for browsing.
 pub struct Loaded {
     pub device: Device,
@@ -165,9 +178,10 @@ pub struct Loaded {
     /// Each category's values, worked out when Browse is first opened.
     groups: FxHashMap<Category, Vec<Group>>,
     /// Each track's place under a sort field, worked out when first sorted by it.
-    ranks: Vec<(SortField, Vec<u32>)>,
+    pub(super) ranks: Vec<(SortField, Vec<u32>)>,
     pub problems: Problems,
     pub my_tags: MyTags,
+    pub fields: Fields,
     /// The store's sets, for Browse › Sets: `None` until first read (see `App::read_sets`).
     sets: Option<Vec<Set>>,
     /// The drive went away: what's shown may be out of date, and can't be played or edited.
@@ -197,6 +211,7 @@ impl Loaded {
             ranks: Vec::new(),
             problems: Problems { missing: None, copy_of, copies },
             my_tags: MyTags::Unread,
+            fields: Fields::Unread,
             sets: None,
             stale: false,
         };
@@ -260,11 +275,23 @@ impl Loaded {
         let i = match self.ranks.iter().position(|(f, _)| *f == field) {
             Some(i) => i,
             None => {
-                self.ranks.push((field, browse::ranks(&self.library, field)));
+                let ranks = match (field, &self.fields) {
+                    (SortField::Field(name), Fields::Read(v)) => browse::field_ranks(&self.library, v, name),
+                    _ => browse::ranks(&self.library, field),
+                };
+                self.ranks.push((field, ranks));
                 self.ranks.len() - 1
             }
         };
         &self.ranks[i].1
+    }
+
+    /// What the analyzers worked out, once read.
+    pub fn values(&self) -> Option<&Arc<TrackValues>> {
+        match &self.fields {
+            Fields::Read(v) => Some(v),
+            _ => None,
+        }
     }
 
     /// The tracks of the list shown (library indexes, in the list's order).
@@ -702,6 +729,9 @@ pub enum Msg {
     Missing(u64, Vec<bool>),
     /// The drive's My Tags, for the library load with this generation.
     MyTags(u64, Result<FxHashMap<String, Vec<String>>, String>),
+    /// What the analyzers worked out for the drive's tracks, for the library load with this
+    /// generation.
+    Fields(u64, Result<Box<TrackValues>, String>),
     /// Sort ranks and Browse's groups, for the library load with this generation.
     Indexed(u64, Box<Index>),
     /// The store's sets, for the library load with this generation.
@@ -920,6 +950,8 @@ pub struct App {
     pub show_ratings: bool,
     /// The track list's My Tags column.
     pub show_tags_column: bool,
+    /// The track list's columns of plugins' fields (`sound.bpm`), in the order shown.
+    pub field_columns: Vec<FieldName>,
     pub details: Option<Details>,
     pub details_state: ListState,
     /// The selected track and since when, to look up its details once the selection settles.
@@ -1109,6 +1141,7 @@ impl App {
             show_crate: false,
             show_ratings: false,
             show_tags_column: false,
+            field_columns: Vec::new(),
             details: None,
             details_state: ListState::default(),
             details_seen: None,
@@ -1206,6 +1239,7 @@ impl App {
         self.show_crate = s.crate_panel;
         self.show_ratings = s.ratings;
         self.show_tags_column = s.tags_column;
+        self.field_columns = s.field_columns.iter().map(|f| FieldName::new(f)).collect();
         self.shuffle = s.shuffle;
         self.repeat = match s.repeat.as_deref() {
             Some("all") => Repeat::All,
@@ -1239,7 +1273,7 @@ impl App {
 
     /// What to remember for next time: the drive, list, view, sort, volume, visualiser, panels,
     /// crate and queue.
-    fn saved_state(&self) -> Saved {
+    pub(super) fn saved_state(&self) -> Saved {
         let l = self.loaded.as_ref();
         Saved {
             root: l.map(|l| l.root().to_path_buf()),
@@ -1253,6 +1287,7 @@ impl App {
             crate_panel: self.show_crate,
             ratings: self.show_ratings,
             tags_column: self.show_tags_column,
+            field_columns: self.field_columns.iter().map(|f| f.as_str().to_string()).collect(),
             shuffle: self.shuffle,
             repeat: Some(format!("{:?}", self.repeat).to_lowercase()),
             quantize: Some(self.deck.quantize),
@@ -1728,6 +1763,17 @@ impl App {
                     self.refresh_visible();
                 }
             }
+            Msg::Fields(generation, r) => {
+                if let Some(l) = self.loaded.as_mut().filter(|l| l.generation == generation) {
+                    l.fields = match r {
+                        Ok(values) => Fields::Read(Arc::from(values)),
+                        Err(e) => Fields::Failed(e),
+                    };
+                    // Sorted by a field before its values were in: sorted again by them.
+                    l.ranks.retain(|(f, _)| !matches!(f, SortField::Field(_)));
+                    self.refresh_visible();
+                }
+            }
             Msg::Sets(generation, r) => {
                 let Some(l) = self.loaded.as_mut().filter(|l| l.generation == generation) else { return };
                 let sets = match r {
@@ -1905,6 +1951,9 @@ impl App {
         if self.show_tags_column {
             self.read_my_tags();
         }
+        if !self.field_columns.is_empty() {
+            self.read_fields();
+        }
     }
 
     /// Whether rekordbox exported over edits recorded on the open drive, in the background: it
@@ -2007,6 +2056,10 @@ impl App {
         if tags {
             self.read_my_tags();
         }
+        let fields = filter.as_ref().is_some_and(|f| f.as_ref().is_ok_and(Filter::uses_fields));
+        if fields || self.sort.is_some_and(|k| matches!(k.field, SortField::Field(_))) {
+            self.read_fields();
+        }
         self.filter_note = None;
         let Some(l) = &mut self.loaded else {
             self.visible.clear();
@@ -2051,9 +2104,34 @@ impl App {
                         None
                     }
                 };
+                // What analyzers worked out, as `tracks --filter` reads it; until it's in, a
+                // plugin's field matches nothing.
+                let values = match &l.fields {
+                    Fields::Read(v) => Some(v.clone()),
+                    _ if !fields => None,
+                    Fields::Reading | Fields::Unread => {
+                        self.filter_note = Some("reading what analyzers worked out…".into());
+                        None
+                    }
+                    Fields::Failed(e) => {
+                        self.filter_note = Some(format!("can't read what analyzers worked out: {e}"));
+                        None
+                    }
+                };
+                let empty;
+                let values = match (fields, values.as_deref()) {
+                    (false, _) => None,
+                    (true, Some(v)) => Some(v),
+                    // Read with no values yet: what the fields are, to check the filter against.
+                    (true, None) => {
+                        let declared = crate::plugins::host().map(|p| p.fields()).unwrap_or_default();
+                        empty = TrackValues { declared, ..TrackValues::default() };
+                        Some(&empty)
+                    }
+                };
                 // Refused as `tracks --filter` refuses it: a `playlist:` naming nothing would match
                 // no track, and negated, every one.
-                match api::filter_context(&lib, &f, tags.then(|| my_tags.as_deref().unwrap_or(&none))) {
+                match api::filter_context(&lib, &f, tags.then(|| my_tags.as_deref().unwrap_or(&none)), values) {
                     Ok(ctx) => list.retain(|&i| f.matches(&lib.tracks[i], &ctx)),
                     Err(e) => {
                         self.filter_error = Some(e.to_string());
@@ -2067,6 +2145,12 @@ impl App {
         }
         if let Some(s) = self.sort {
             browse::sort_list(&mut list, l.rank(s.field), s.descending);
+            // Tracks without a value for a plugin's field go last, either way.
+            if let SortField::Field(name) = s.field {
+                let values = l.values();
+                let id = |i: usize| l.library.tracks[i].id;
+                list.sort_by_key(|&i| values.is_none_or(|v| v.get(id(i), name.as_str()).is_none()));
+            }
         }
         self.visible = list;
         let len = self.visible.len();
@@ -2130,6 +2214,23 @@ impl App {
             Msg::MyTags(generation, api::tags_by_track(&drive).map_err(|e| e.to_string()))
         };
         self.spawn_or(job, move |e| Msg::MyTags(generation, Err(e)));
+    }
+
+    /// Read what the analyzers installed worked out for the open drive's tracks in the
+    /// background, the first time a column, a filter or a sort needs it (again after analysing).
+    pub(super) fn read_fields(&mut self) {
+        let Some(l) = self.loaded.as_mut().filter(|l| matches!(l.fields, Fields::Unread)) else { return };
+        l.fields = Fields::Reading;
+        let (root, library, generation) = (l.root().to_path_buf(), l.library.clone(), l.generation);
+        let store_root = self.store_root.clone();
+        let job = move || {
+            let read = Device::open(&root).map(|device| {
+                let installed = crate::plugins::Installed::with(Store::open(&store_root).ok());
+                Box::new(TrackValues::read(installed.source(), &device, &library))
+            });
+            Msg::Fields(generation, read.map_err(|e| e.to_string()))
+        };
+        self.spawn_or(job, move |e| Msg::Fields(generation, Err(e)));
     }
 
     /// The selected track, as an index into the library.
@@ -3207,6 +3308,8 @@ impl App {
             Act::ExportList => self.export_list(),
             Act::ExportXml => self.export_xml(),
             Act::Plugin(plugin, name) => self.plugin_here(plugin, name),
+            Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, self.action_drive()),
+            Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::Details => {
                 self.show_details = !self.show_details;
                 if !self.show_details && self.focus == Focus::Details {

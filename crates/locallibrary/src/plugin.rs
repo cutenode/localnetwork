@@ -187,6 +187,13 @@ impl Plugins {
             .collect()
     }
 
+    /// Every analyzer's fields, by name as filters and sorts name them (`sound.bpm`), with their
+    /// types: in the order the plugins, and their analyzers, declare them.
+    pub fn fields(&self) -> crate::fields::Declared {
+        let all = self.manifests().flat_map(|m| m.contributes.analyzers.iter().map(move |a| (m, a)));
+        all.flat_map(|(m, a)| a.fields.iter().map(move |(name, &kind)| (format!("{}.{name}", m.id), kind))).collect()
+    }
+
     /// Whether the plugin is running now. Never waits.
     pub fn is_running(&self, plugin: &str) -> bool {
         self.slot(plugin).is_ok_and(|s| s.is_running())

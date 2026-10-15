@@ -2,9 +2,10 @@
 
 use locallibrary::api::{DriveStatus, FleetLibrary};
 use locallibrary::compare::Relation;
+use locallibrary::fields::FieldValue;
 use locallibrary::fleet::{Role, Standing};
 use locallibrary::local_time;
-use locallibrary::query::{SortField, SortKey};
+use locallibrary::query::{FieldName, SortField, SortKey};
 use locallibrary::{DeviceInfo, Track};
 use loclib_waveform::{CueLane, Detail, Overview, PhraseStrip, Pixels, Scope, Spectrum, bar_layout, cue_letter, vinyl};
 use ratatui::Frame;
@@ -613,6 +614,8 @@ enum Col {
     Bpm,
     Key,
     Time,
+    /// A plugin's field (`sound.bpm`).
+    Field(FieldName),
 }
 
 impl Col {
@@ -629,6 +632,7 @@ impl Col {
             Col::Bpm => SortField::Bpm,
             Col::Key => SortField::Key,
             Col::Time => SortField::Time,
+            Col::Field(name) => SortField::Field(name),
         })
     }
 
@@ -651,6 +655,10 @@ impl Col {
         ]
         .into_iter()
         .find(|c| c.field() == Some(f))
+        .or(match f {
+            SortField::Field(name) => Some(Col::Field(name)),
+            _ => None,
+        })
     }
 
     fn width(self) -> Constraint {
@@ -664,7 +672,26 @@ impl Col {
             Col::Plays | Col::Bpm => Constraint::Length(6),
             Col::Key => Constraint::Length(4),
             Col::Time => Constraint::Length(6),
+            // Room for its name and the sort's arrow.
+            Col::Field(name) => {
+                Constraint::Length(unicode_width::UnicodeWidthStr::width(name.as_str()).max(5) as u16 + 1)
+            }
         }
+    }
+}
+
+/// A plugin's field's value as its column shows it: numbers to two places at most, a list
+/// joined.
+fn field_cell(v: &FieldValue) -> Line<'static> {
+    match v {
+        FieldValue::Number(n) => {
+            let s = format!("{n:.2}");
+            Line::styled(s.trim_end_matches('0').trim_end_matches('.').to_string(), fg(theme::AMBER)).right_aligned()
+        }
+        FieldValue::Integer(n) => Line::styled(n.to_string(), fg(theme::AMBER)).right_aligned(),
+        FieldValue::Boolean(b) => Line::styled(if *b { "yes" } else { "no" }, dim()),
+        FieldValue::String(s) => Line::styled(s.clone(), fg(theme::CYAN)),
+        FieldValue::Strings(all) => Line::styled(all.join(", "), fg(theme::CYAN)),
     }
 }
 
@@ -691,6 +718,15 @@ fn columns(width: u16, sort: Option<SortKey>, ratings: bool, tags: bool) -> Vec<
     }
     v.extend([Col::Bpm, Col::Key, Col::Time]);
     v
+}
+
+/// `cols` with the columns of the plugins' `fields` asked for, in order, before tempo, key and
+/// time (one already there, as the sort column, staying where it is).
+fn with_fields(mut cols: Vec<Col>, fields: &[FieldName]) -> Vec<Col> {
+    let at = cols.len().saturating_sub(3);
+    let more: Vec<Col> = fields.iter().map(|&f| Col::Field(f)).filter(|c| !cols.contains(c)).collect();
+    cols.splice(at..at, more);
+    cols
 }
 
 /// The key the track list's keys are matched against, and whose file it is: the playing track's,
@@ -778,6 +814,8 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let cols = columns(area.width, app.sort, app.show_ratings, app.show_tags_column);
+    let cols = with_fields(cols, &app.field_columns);
+    let values = l.values().cloned();
     let my_tags = match &l.my_tags {
         super::app::MyTags::Read(t) => Some(t.clone()),
         _ => None,
@@ -884,6 +922,10 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                     }
                     Col::Key => Cell::from(Span::styled(format!(" {}", tr.key), fg(theme::CYAN))),
                     Col::Time => Cell::from(Line::styled(clock(tr.duration_secs as f64), dim()).right_aligned()),
+                    Col::Field(name) => {
+                        let value = values.as_ref().and_then(|v| v.get(tr.id, name.as_str()));
+                        Cell::from(value.map(field_cell).unwrap_or_default())
+                    }
                 });
             }
             let row = Row::new(cells);

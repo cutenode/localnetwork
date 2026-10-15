@@ -217,8 +217,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   work; a plugin's errors keep their kinds (`not_found`, `io`...). In the player, plugins'
   commands and operations are in the palette and a drive's menu (operations in the actions menu
   too), asking for their params in a form drawn from their schemas; a command answers in a panel,
-  an operation's plan is confirmed, written and undone like any edit, and what plugins log goes
-  to its messages (`!`). See
+  an operation's plan is confirmed, written and undone like any edit, analyzers run from the
+  palette and their fields are columns to sort and search by, and what plugins log goes to its
+  messages (`!`). `tracks --filter`, `tracks --sort` and the sidecar's `tracks.query` take
+  analyzers' fields (`sound.bpm:>120`, `-sound.bpm`). See
   docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), and `tracklist match`

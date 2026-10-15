@@ -38,6 +38,10 @@ listening to your library the way the players see it:
   takes it back. An operation, or a command of a plugin that reads the drive, needs one plugged
   in, not a folder opened by path. What plugins log goes to the messages (`!`). See
   [Plugins](plugins.md).
+- **Analyzers**: "analyze the tracks: …" in the palette (or a drive's `e` menu) runs a plugin's
+  analyzer over the drive's tracks in the background, those not analysed already. "show the
+  sound.bpm column" adds a column of what it worked out (remembered for the next run), sorted by
+  a click on its header like any column, and the search box filters by it: `sound.bpm:>120`.
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
 - **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you

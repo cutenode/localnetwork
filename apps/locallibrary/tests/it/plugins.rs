@@ -226,6 +226,48 @@ fn analyzers_fill_in_track_details() {
     assert!(without.json(&["track", "USB", "--track", "1"])[0].get("fields").is_none());
 }
 
+/// `tracks` filters and sorts by what analyzers worked out (`echo.bytes:>2000`, `-echo.bytes`),
+/// as the sidecar's `tracks.query` does: a track without a value isn't matched and sorts last; a
+/// field no analyzer declares, or a value its type can't hold, is refused.
+#[test]
+fn tracks_are_filtered_and_sorted_by_what_analyzers_worked_out() {
+    let env = env();
+    let listed = env.json(&["tracks", "USB"]);
+    let file = |i: usize| {
+        env.volumes.join("USB").join(listed["tracks"][i]["file_path"].as_str().unwrap().trim_start_matches('/'))
+    };
+    let ids =
+        |page: &Value| page["tracks"].as_array().unwrap().iter().map(|t| t["id"].as_u64().unwrap()).collect::<Vec<_>>();
+    let (first, second) = (listed["tracks"][0]["id"].as_u64().unwrap(), listed["tracks"][1]["id"].as_u64().unwrap());
+    // Not analysed yet: no track has a value.
+    assert_eq!(env.json(&["tracks", "USB", "-f", "echo.bytes:>0"])["total"], 0);
+    std::fs::write(file(1), "x".repeat(4000)).unwrap();
+    env.ok(&["analyze", "USB", "--analyzer", "size"]);
+    assert_eq!(ids(&env.json(&["tracks", "USB", "-f", "echo.bytes:>2000"])), [second]);
+    assert_eq!(ids(&env.json(&["tracks", "USB", "-f", "-echo.bytes:4000"])), [first]);
+    assert_eq!(ids(&env.json(&["tracks", "USB", "--sort", "-echo.bytes"])), [second, first]);
+    assert_eq!(ids(&env.json(&["tracks", "USB", "--sort", "echo.bytes"])), [first, second]);
+    let shown = env.ok(&["tracks", "USB", "-f", "echo.bytes:>2000", "--columns", "id"]);
+    assert_eq!(shown.lines().filter(|l| l.trim() == second.to_string().as_str()).count(), 1, "{shown}");
+    // A track whose file changed has no value: it isn't matched, and sorts last either way.
+    std::fs::write(file(0), "y".repeat(5000)).unwrap();
+    assert_eq!(ids(&env.json(&["tracks", "USB", "-f", "echo.bytes:>0"])), [second]);
+    assert_eq!(ids(&env.json(&["tracks", "USB", "--sort", "-echo.bytes"])), [second, first]);
+    assert_eq!(ids(&env.json(&["tracks", "USB", "--sort", "echo.bytes"])), [second, first]);
+    let err = env.fails(1, &["tracks", "USB", "-f", "echo.byte:1"]);
+    assert!(err.contains("there's no field \"echo.byte\" (did you mean echo.bytes?)"), "{err}");
+    assert!(env.fails(1, &["tracks", "USB", "-f", "echo.bytes:many"]).contains("it's a number"));
+    assert!(env.fails(1, &["tracks", "USB", "--sort", "echo.byte"]).contains("did you mean echo.bytes?"));
+
+    // The sidecar's `tracks.query` the same.
+    let mut s = Rpc::start(env.command());
+    let query = json!({ "drive": "USB", "filter": "echo.bytes:>0", "sort": "-echo.bytes" });
+    let page = s.call(1, "tracks.query", query);
+    assert_eq!(ids(&page["result"]), [second], "{page}");
+    let wrong = s.call(2, "tracks.query", json!({ "drive": "USB", "filter": "echo.byte:1" }));
+    assert_eq!(wrong["error"]["data"]["kind"], "invalid", "{wrong}");
+}
+
 /// The sound plugin locallibrary ships measures each track's tempo, key and loudness from its
 /// audio, once, and `track` shows every field it declares as `sound.FIELD`.
 #[test]

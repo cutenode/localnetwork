@@ -44,14 +44,15 @@ with each other are both left out.
 - **Analyzers** run with `locallibrary analyze [LIBRARY] [--plugin ID] [--analyzer NAME]`, which
   works out each track's values once (again only for a changed audio file) and keeps them in the
   store. `locallibrary track LIBRARY --track ID` shows them under the track's details, each as
-  `ID.FIELD` (`sound.bpm`).
+  `ID.FIELD` (`sound.bpm`), and `locallibrary tracks` filters and sorts by them (`--filter
+  "sound.bpm:>120" --sort -sound.bpm`), as the sidecar's `tracks.query` does.
 - **Export formats** are `locallibrary export LIBRARY --format FORMAT -o PATH`, with the
   plugin's options as `--option KEY=VALUE`. `--dry-run` lists what it would write (each file,
   what goes in, what the format can't hold), and overwriting a file is asked about first unless
   `--replace`.
-- **In the player** (`locallibrary tui`), commands and operations are in the palette (`:`) and a
-  drive's menu, operations in the actions menu (`e`) too, with a form for their params (see [the
-  player](player.md)).
+- **In the player** (`locallibrary tui`), commands, operations and analyzers are in the palette
+  (`:`) and a drive's menu, operations in the actions menu (`e`) too, with a form for their
+  params; analyzers' fields are columns to show, sort and search by (see [the player](player.md)).
 - **Settings**: `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets
   one and `plugin settings ID KEY --reset` puts it back to its default. They're kept in the store
   (`plugins/ID/settings.json`).

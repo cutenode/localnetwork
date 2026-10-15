@@ -63,7 +63,14 @@ fn what_is_saved_reads_back(tc: hegel::TestCase) {
     let saved = Saved {
         root: maybe(word()).map(|w| dir.path().join(format!("drives/d{w}"))),
         view: maybe(word()),
-        sort: tc.draw(gs::booleans()).then(|| SortKey { field: SortField::Bpm, descending: tc.draw(gs::booleans()) }),
+        sort: tc.draw(gs::booleans()).then(|| SortKey {
+            field: match tc.draw(gs::booleans()) {
+                true => SortField::Bpm,
+                false => SortField::Field(locallibrary::query::FieldName::new("sound.bpm")),
+            },
+            descending: tc.draw(gs::booleans()),
+        }),
+        field_columns: (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|i| format!("sound.f{i}")).collect(),
         search_all: tc.draw(gs::booleans()),
         volume: tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u8>().max_value(150)) as f32 / 100.0),
         vis: maybe(word()),
