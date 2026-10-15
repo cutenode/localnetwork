@@ -28,6 +28,8 @@ export class FakeNetwork {
 		SimpleSpaceConfig & { uri: string; members: Map<string, { read: boolean; write: boolean }> }
 	>();
 	readonly blobs = new Map<string, Uint8Array>();
+	/** Which repos hold each blob, by CID: a PDS refuses a record whose blobs the writer never uploaded. */
+	readonly blobHolders = new Map<string, Set<string>>();
 	failures = new Map<string, number>();
 	/** Called after every public-repo write, the way HappyView's Jetstream consumer hears of it. */
 	onRecord: (event: RecordEvent) => Promise<void> = async () => {};
@@ -47,6 +49,17 @@ export class FakeNetwork {
 			.filter(([key]) => key.startsWith(`${space}|`) && (!repo || key.split('|')[1] === repo))
 			.map(([, value]) => value)
 			.toArray();
+	}
+
+	/** Throws BlobNotFound, as a PDS does, when `record` references a blob `did` doesn't hold. */
+	assertBlobsHeld(did: string, record: JsonRecord): void {
+		// Blob refs are the only `$link`s in the records these tests write.
+		const missing = JSON.stringify(record)
+			.matchAll(/"\$link":"([^"]+)"/g)
+			.map(([, cid]) => cid)
+			.find((cid) => !this.blobHolders.get(cid)?.has(did));
+
+		if (missing) throw new XRPCError(400, 'BlobNotFound', `Could not find blob: ${missing}`);
 	}
 
 	maybeFail(did: string): void {
@@ -99,6 +112,7 @@ export class FakeRootClient implements RootRepoClient {
 		rkey: string,
 		record: JsonRecord
 	): Promise<RecordRef> {
+		this.net.assertBlobsHeld(this.did, record);
 		const uri = `${space}/${this.did}/${collection}/${rkey}`;
 		const cid = await cidOf(record);
 		this.net.spaceRecords.set(key, { uri, cid, value: structuredClone(record) });
@@ -136,6 +150,7 @@ export class FakeRootClient implements RootRepoClient {
 	async uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson> {
 		const cid = await cidOf({ bytes: Buffer.from(bytes).toString('base64') });
 		this.net.blobs.set(cid, bytes);
+		this.net.blobHolders.set(cid, (this.net.blobHolders.get(cid) ?? new Set()).add(this.did));
 
 		return { $type: 'blob', ref: { $link: cid }, mimeType, size: bytes.length };
 	}
@@ -216,6 +231,7 @@ export class FakeRootClient implements RootRepoClient {
 		swapRecord?: string | null;
 	}): Promise<RecordRef> {
 		this.net.maybeFail(this.did);
+		this.net.assertBlobsHeld(this.did, input.record);
 		const key = `${this.did}|${input.collection}|${input.rkey}`;
 		const existing = this.net.records.get(key);
 

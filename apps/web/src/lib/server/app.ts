@@ -24,6 +24,7 @@ import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
 import { RequestService } from './services/requests';
 import { StaffService } from './services/staff';
+import { DjService } from './services/dj';
 import { TracklistService } from './services/tracklists';
 import { SpaceSyncer } from './sync/engine';
 import { createProjections } from './sync/projections';
@@ -137,6 +138,7 @@ export async function createApp(options: CreateAppOptions) {
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
+	const dj = new DjService(identity, logger.child({ component: 'dj' }));
 
 	const syncer = new SpaceSyncer({
 		db,
@@ -201,6 +203,7 @@ export async function createApp(options: CreateAppOptions) {
 		planner,
 		projectAdmin,
 		tracklists,
+		dj,
 		sessions,
 		geocoder,
 		limits: {

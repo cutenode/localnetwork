@@ -1,7 +1,6 @@
 <script module lang="ts">
-	/** The look every text input and select shares. */
-	export const control =
-		'min-h-11 w-full rounded-lg border border-line-strong bg-well px-3 text-body text-fg placeholder:text-fg-subtle focus:border-link focus:outline-none aria-[invalid=true]:border-critical';
+	/** The look every text input and select shares: the `input` class in theme.css. */
+	export const control = 'input';
 </script>
 
 <script lang="ts">

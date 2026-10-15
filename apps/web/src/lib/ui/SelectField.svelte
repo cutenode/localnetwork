@@ -16,7 +16,7 @@
 
 <Field {id} {label} {hint} {error}>
 	{#snippet children({ describedby, invalid })}
-		<select {id} bind:value aria-describedby={describedby} aria-invalid={invalid || undefined} class={[control, 'pr-9']} {...rest}>
+		<select {id} bind:value aria-describedby={describedby} aria-invalid={invalid || undefined} class={control} {...rest}>
 			{#each options as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
 		</select>
 	{/snippet}

@@ -5,7 +5,6 @@
 	"ignoreDependencies": [
 		"@tailwindcss/forms",
 		"@tailwindcss/typography",
-		"@fontsource/vt323",
 		"@fontsource-variable/instrument-sans",
 		"@fontsource-variable/jetbrains-mono",
 		"tailwindcss"

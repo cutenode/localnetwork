@@ -1,8 +1,21 @@
 import { HappyViewError } from '#lib/server/happyview/client.ts';
+import { tools } from '#lib/tools/index.ts';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const { projects, geocoder } = locals.app;
+
+	// The tools' docs are bundled server-side, so the page gets only what its cards show.
+	const page = {
+		geocoder: geocoder.enabled,
+		tools: tools.map(({ id, name, kind, tagline, features }) => ({
+			id,
+			name,
+			kind,
+			tagline,
+			features: features.slice(0, 3)
+		}))
+	};
 
 	let directory;
 
@@ -12,16 +25,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 		if (!(error instanceof HappyViewError)) throw error;
 
 		// The home page still works without the directory: search and listing don't need it until they're used.
-		return { recent: [], stats: null, genres: [], cities: [], geocoder: geocoder.enabled };
+		return { ...page, recent: [], stats: null, genres: [], cities: [] };
 	}
 
 	const [recent, stats] = directory;
 
 	return {
+		...page,
 		recent,
 		stats: { active: stats.active, cities: stats.cityCount, unclaimed: stats.unclaimed },
 		genres: stats.genres.slice(0, 14),
-		cities: stats.cities.slice(0, 8),
-		geocoder: geocoder.enabled
+		cities: stats.cities.slice(0, 8)
 	};
 };

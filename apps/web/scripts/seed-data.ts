@@ -159,27 +159,78 @@ export const DEMO_PROJECTS: ProjectProfile[] = [
 	}
 ];
 
-/** Sets neon published with locallibrary (`sets publish`), for the project form's set picker. */
-export const DEMO_SETS = [
+/**
+ * What locallibrary would publish for neon.test, who manages Neon Tide: playing stats and three
+ * sets. The tracks, artists and labels are the made-up ones from src/lib/mix/sample.ts.
+ */
+export const DEMO_DJ_PROFILE = {
+	generatedAt: '2026-10-01T09:00:00.000Z',
+	precision: 'rounded',
+	basis: 'plays',
+	headline: 'Hypnotic techno between 126 and 134 BPM, mixed in key',
+	tags: [{ name: 'Mixes in key' }, { name: 'Long blends' }, { name: 'Builds through the night' }],
+	sets: { total: { atLeast: 40 }, since: 2016, medianTracks: 22 },
+	tempo: { low: 126, high: 134, median: 130 },
+	arc: { builds: 70, steady: 20, windsDown: 10 },
+	mixing: { harmonic: 85, smoothTempo: 90, genreChanges: 15 },
+	keys: { top: [{ key: '8A' }, { key: '9A' }, { key: '7A' }, { key: '10A' }], minor: 80 },
+	energy: { high: 40, mid: 45, low: 15 },
+	genres: [
+		{ name: 'techno', share: 55 },
+		{ name: 'dub techno', share: 25 },
+		{ name: 'hypnotic techno', share: 15 }
+	],
+	labels: [
+		{ name: 'Cobble Records', share: 10 },
+		{ name: 'Floor Two', share: 10 },
+		{ name: 'Saltmarsh', share: 5 }
+	],
+	artists: [
+		{ name: 'Ferrule', share: 10 },
+		{ name: 'Kestrel Unit', share: 5 },
+		{ name: 'Two Rooms', share: 5 }
+	],
+	era: { medianYear: 2021, recent: 35 },
+	signature: [
+		{ title: 'Night Bus', artist: 'Ferrule', bpmCentis: 12400, key: '8A' },
+		{ title: 'Halogen', artist: 'Two Rooms', bpmCentis: 12600, key: '9A' },
+		{ title: 'Static Bloom', artist: 'Kestrel Unit', bpmCentis: 12800, key: '3B' }
+	],
+	prep: { hotCues: 90, memoryCues: 60, loops: 20 },
+	collection: { tracks: { atLeast: 3000 }, playlists: { count: 48 } }
+};
+
+const demoTracks = [
+	{ title: 'Night Bus', artist: 'Ferrule', bpmCentis: 12400, key: '8A', startSeconds: 0 },
+	{ title: 'Signal Path', artist: 'Mira Okonkwo', bpmCentis: 12500, key: '8A', startSeconds: 300 },
+	{ title: 'Halogen', artist: 'Two Rooms', bpmCentis: 12600, key: '9A', startSeconds: 610 },
+	{ title: 'Low Tide (Dub)', artist: 'Ferrule, Ava Lind', bpmCentis: 12400, key: '10A', startSeconds: 1020 },
+	{ title: 'Static Bloom', artist: 'Kestrel Unit', bpmCentis: 12800, key: '3B', startSeconds: 1360 }
+];
+
+export const DEMO_DJ_SETS = [
 	{
-		title: 'Closing at Tresor',
-		date: '2026-09-12',
+		title: 'Tidal Hours',
+		date: '2026-09-26',
 		kind: 'club',
-		venue: 'Tresor',
-		location: { $type: 'community.lexicon.location.address', country: 'DE', locality: 'Berlin' },
-		tracks: [
-			{ title: 'Halogen', artist: 'Two Rooms' },
-			{ title: 'Low Tide', artist: 'Mareld' },
-			{ unidentified: true }
-		],
-		createdAt: '2026-09-13T10:00:00.000Z'
+		venue: 'Halle Nord',
+		location: { $type: 'community.lexicon.location.address', name: 'Halle Nord', locality: 'Berlin', country: 'DE' },
+		playedWith: [{ name: 'Halflight' }],
+		tracks: demoTracks
 	},
 	{
-		title: 'Radio hour',
-		date: '2026-08-02',
+		title: 'Late show',
+		date: '2026-09-12',
 		kind: 'radio',
-		venue: 'Cashmere Radio',
-		tracks: [{ title: 'Undertow', artist: 'Mareld' }],
-		createdAt: '2026-08-02T20:00:00.000Z'
+		venue: 'Studio Nord',
+		location: { $type: 'community.lexicon.location.address', name: 'Studio Nord', locality: 'Berlin', country: 'DE' },
+		tracks: demoTracks.slice(0, 3)
+	},
+	{
+		title: 'Tidal Hours 004',
+		date: '2026-08-30',
+		kind: 'mix',
+		links: [{ uri: 'https://soundcloud.com/example-neon-tide', name: 'SoundCloud' }],
+		tracks: demoTracks
 	}
 ];

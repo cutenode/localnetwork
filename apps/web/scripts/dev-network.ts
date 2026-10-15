@@ -15,9 +15,10 @@ import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
 import { COLLECTION } from '../src/lib/nsid.ts';
+import { sampleReport } from '../src/lib/mix/sample.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
 import { startHappyView } from './lib/happyview.ts';
-import { DEMO_PROJECTS, DEMO_SETS } from './seed-data.ts';
+import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_PROJECTS } from './seed-data.ts';
 
 const PLC_PORT = Number(process.env.DEV_PLC_PORT ?? 2582);
 
@@ -40,7 +41,11 @@ const ROOT = { handle: 'localnetwork.test', email: 'root@localnetwork.test', pas
 const ACCOUNTS = [
 	{ handle: 'ada.test', password: 'ada-pass', note: 'admin (ADMIN_DIDS)' },
 	{ handle: 'milo.test', password: 'milo-pass', note: 'regular account; make them a moderator in Staff' },
-	{ handle: 'neon.test', password: 'neon-pass', note: 'DJ; manages two demo projects, has two sets' },
+	{
+		handle: 'neon.test',
+		password: 'neon-pass',
+		note: 'DJ; manages two demo projects, has three sets and two press kits'
+	},
 	{ handle: 'pat.test', password: 'pat-pass', note: 'promoter' }
 ];
 
@@ -91,14 +96,50 @@ async function main() {
 		dids[account.handle] = result.data.did;
 	}
 
+	// neon.test's own records, as locallibrary would publish them: playing stats and recent sets.
+	const neon = new AtpAgent({ service: pds.url });
+	await neon.login({ identifier: 'neon.test', password: 'neon-pass' });
+	await neon.com.atproto.repo.putRecord({
+		repo: dids['neon.test'],
+		collection: 'computer.localnetwork.dj.profile',
+		rkey: 'self',
+		record: DEMO_DJ_PROFILE
+	});
+
+	// HappyView isn't running yet, so it reads the sets when neon first opens a set picker, as it would for older ones.
+	for (const set of DEMO_DJ_SETS) {
+		await neon.com.atproto.repo.createRecord({
+			repo: dids['neon.test'],
+			collection: COLLECTION.djSet,
+			record: validateRecord(COLLECTION.djSet, { ...set, createdAt: new Date().toISOString() })
+		});
+	}
+
+	log(`Seeded neon.test's dj.profile and ${DEMO_DJ_SETS.length} dj.set records`);
+
+	// A tracklist on Neon Tide's first mix, so its mix page has something to show: the sample report,
+	// stored in the root's repo the way an approved request leaves it.
+	const { data: report } = await rootAgent.com.atproto.repo.uploadBlob(
+		new TextEncoder().encode(JSON.stringify(sampleReport)),
+		{ encoding: 'application/json' }
+	);
+
+	const tracklist = {
+		$type: 'blob',
+		ref: { $link: report.blob.ref.toString() },
+		mimeType: report.blob.mimeType,
+		size: report.blob.size
+	};
+
 	const now = new Date().toISOString();
 
 	for (const [index, profile] of DEMO_PROJECTS.entries()) {
 		const managers = index < 2 ? [dids['neon.test']] : [];
+		const mixes = index === 0 ? profile.mixes?.map((mix, i) => (i === 0 ? { ...mix, tracklist } : mix)) : profile.mixes;
 
 		const record = validateRecord(COLLECTION.project, {
 			slug: slugify(profile.name),
-			profile: JSON.parse(JSON.stringify(profile)),
+			profile: JSON.parse(JSON.stringify({ ...profile, mixes })),
 			managers,
 			status: 'active',
 			revision: 1,
@@ -116,22 +157,6 @@ async function main() {
 	}
 
 	log(`Seeded ${DEMO_PROJECTS.length} demo projects`);
-
-	// HappyView isn't running yet, so it reads these when neon first opens a set picker, as it would for older sets.
-	const neon = new AtpAgent({ service: pds.url });
-	await neon.login({
-		identifier: 'neon.test',
-		password: ACCOUNTS.find((account) => account.handle === 'neon.test')!.password
-	});
-
-	for (const set of DEMO_SETS)
-		await neon.com.atproto.repo.createRecord({
-			repo: neon.assertDid,
-			collection: COLLECTION.djSet,
-			record: validateRecord(COLLECTION.djSet, set)
-		});
-
-	log(`Seeded ${DEMO_SETS.length} sets for neon.test`);
 
 	const happyView = await startHappyView({ plcUrl: plc.url, pdsUrl: pds.url });
 	log(`HappyView      ${happyView.url}`);

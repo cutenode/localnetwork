@@ -22,6 +22,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - A mix can also link a set a manager published with locallibrary (`locallibrary sets publish`), picked from a list on the edit form. The profile shows when and where it was played, and says so if the set changed after it was linked.
 - Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
+- A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from their own PDS when the page loads and streamed in, so a slow PDS never holds the page up. Nothing is stored; a few minutes' cache in memory keeps busy pages from asking again.
+- A press kit at `/projects/<slug>/epk`, put together from the profile, mixes, stats, sets and (for members) booking details, that prints or saves as a PDF on white. Managers see the sections it can't hold yet: press photos, quotes and a rider PDF.
 - Every claim and change is reviewed by a moderator, so profiles can't be hijacked.
 
 ### Tools
@@ -96,7 +98,7 @@ Accounts whose PDS doesn't run the spaces alpha can still sign in: the root file
 
 ### Mix tracklists
 
-A tracklist is a JSON blob (`application/json`, at most 1 MB) on a mix in the project record, following the `locallibrary.mix-report` format, version 1 or 2 (schema in `src/lib/mix/report.ts`). It moves like the photo: uploaded to the requester's PDS with the request, previewed by moderators from there (`/admin/requests/<rkey>/mixes/<n>`), then validated, re-serialized (dropping unknown fields), and uploaded to the root's repo on approval. A tracklist that is already published is kept by CID without being fetched again. Published tracklists are read with `com.atproto.sync.getBlob` from the root's PDS, validated, and cached in memory. The format carries no file paths, comments, or ratings; cover art is embedded as small `data:` images.
+A tracklist is a JSON blob (`application/json`, at most 1 MB) on a mix in the project record, following the `locallibrary.mix-report` format, version 1 or 2 (schema in `src/lib/mix/schema.ts`). It moves like the photo: uploaded to the requester's PDS with the request, previewed by moderators from there (`/admin/requests/<rkey>/mixes/<n>`), then validated, re-serialized (dropping unknown fields), and uploaded to the root's repo on approval. A tracklist that is already published is kept by CID without being fetched again. Published tracklists are read with `com.atproto.sync.getBlob` from the root's PDS, validated, and cached in memory. The format carries no file paths, comments, or ratings; cover art is embedded as small `data:` images.
 
 A mix can also link a set (`set`, a `com.atproto.repo.strongRef` to a `computer.localnetwork.dj.set` in a manager's own repo), alongside its tracklist. The edit form offers the project's managers' sets, which it reads from HappyView, and posts the set's URI and CID. When root publishes, each newly linked set must be one HappyView has, by a manager; the CID pins the version that was picked. The profile looks the sets up in HappyView and says when one has changed since it was linked (a different CID) or is gone. Only managers can link sets, so a new project's form has none to offer until it's approved.
 
@@ -176,7 +178,7 @@ Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files 
 
 ## Design system
 
-`src/lib/ui/` holds the design system the site is moving to: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. `theme.css` has the Tailwind tokens; `data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it, and **Patterns/Homepage** builds the product homepage from them. `pnpm storybook` to browse it. The live pages still use the BBS theme in `src/routes/layout.css` until they move over.
+`src/lib/ui/` holds the design system the site is built on: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. `theme.css` has the Tailwind tokens; `data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it, and **Patterns/Homepage** builds the product homepage from them. `pnpm storybook` to browse it. `src/routes/layout.css` imports the theme for the whole site; its shared classes (`btn-primary`, `input`, `card`, `chip`, `table-base` and the rest) live in `theme.css` so a plain form button and the `Button` component draw the same way. Printed pages switch the same tokens to light values.
 
 ## Configuration
 
