@@ -1,6 +1,7 @@
 //! Plugins' operations (`op/plan`): a plugin answers edits, which the host plans as one edit plan
 //! on the drive the user is on, and applies as it applies any (locked, checked against the drive
-//! as planned, backed up first and journaled). The plugin never writes to the drive.
+//! and the files the plugin read as planned, backed up first and journaled). The plugin never
+//! writes to the drive.
 
 use loclib_plugin::{Capability, Context, OpPlan, PlanOp, method};
 use serde_json::Value;
@@ -10,7 +11,7 @@ use super::process::Slot;
 use crate::api;
 use crate::artwork::ImageSource;
 use crate::edit::{self, Edit, EditOptions, EditPlan};
-use crate::op::{self, Planned, Touched};
+use crate::op::{self, Planned, Probe, Touched};
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result};
@@ -37,8 +38,15 @@ impl Plugins {
         let (context, device) = slot.context(context, store)?;
         let device = device.ok_or_else(|| Error::invalid(format!("{operation} edits a drive: say which")))?;
         let op = PlanOp { operation: operation.into(), params, context };
-        let OpPlan { summary, warnings, edits } = slot.call(method::PLAN_OP, &op, ctx)?;
+        let OpPlan { summary, warnings, edits, inputs } = slot.call(method::PLAN_OP, &op, ctx)?;
         let edits = edits.into_iter().enumerate().map(|(i, e)| slot.edit(i, e)).collect::<Result<Vec<_>>>()?;
+        if let Some(input) = inputs.iter().find(|f| !f.is_absolute()) {
+            return Err(slot.misbehaved(format!("it read {}, which isn't an absolute path", input.display())));
+        }
+        // Read again before it's applied: a pipe or a device could hold that up forever.
+        if let Some(input) = inputs.iter().find(|f| !std::fs::metadata(f).is_ok_and(|m| m.is_file())) {
+            return Err(slot.misbehaved(format!("it read {}, which isn't a file", input.display())));
+        }
         let planned = op::refusing_archive_writes(|| {
             let options = EditOptions { lenient: false, no_journal: false };
             let plan = edit::plan(&device, &edits, &options, ctx)?;
@@ -53,6 +61,9 @@ impl Plugins {
                 Capability::LibraryDelete
             )));
         }
+        // Applied as planned only while the files it was worked out from stay as they were.
+        let content = || vec![Probe::Content(vec![String::new()])];
+        let planned = inputs.iter().fold(planned, |p, input| p.touches(Touched::path(input, false, content())));
         let mut planned = planned.warnings(warnings);
         planned.summary.insert(0, summary);
         Ok(planned)

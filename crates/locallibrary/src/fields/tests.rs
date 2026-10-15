@@ -1,3 +1,5 @@
+use std::fs;
+
 use super::*;
 
 use filetime::FileTime;
@@ -23,13 +25,12 @@ fn store(dir: &Path) -> FieldStore {
 }
 
 /// Each analyzer's values come back with their types, beside the plugin's other analyzers' and
-/// other plugins', for the same file wherever it is (another drive, exported again); a filter
-/// picks one plugin.
+/// other plugins', for the same file wherever it is (another drive, exported again), of the
+/// analyzers asked for.
 #[test]
 fn fields_are_kept_by_file_plugin_and_analyzer() {
     let dir = tempfile::tempdir().unwrap();
     let store = store(dir.path());
-    assert!(store.last_written(None).is_empty(), "nothing kept yet");
     let track = audio(&dir.path().join("A/Contents"), "Track.mp3", b"some audio");
     let tempo = fields(&[
         ("bpm", FieldValue::Number(128.0)),
@@ -45,18 +46,17 @@ fn fields_are_kept_by_file_plugin_and_analyzer() {
     store.put(&track, &analyzer("analysis", "0.1.0", "key"), &key).unwrap();
     store.put(&track, &analyzer("other", "2.0.0", "score"), &score).unwrap();
 
-    let all = store.last_written(None);
-    let expected = [
-        analyzer("analysis", "0.1.0", "key"),
+    let all = [
         analyzer("analysis", "0.1.0", "tempo"),
+        analyzer("analysis", "0.1.0", "key"),
         analyzer("other", "2.0.0", "score"),
     ];
-    assert_eq!(all, expected);
+    assert!(store.get(&track, &all[..0]).is_empty(), "none asked for");
     let got = store.get(&track, &all);
     assert_eq!(got.keys().collect::<Vec<_>>(), ["analysis", "other"]);
     assert_eq!((&got["analysis"]["tempo"], &got["analysis"]["key"], &got["other"]["score"]), (&tempo, &key, &score));
-    assert_eq!(store.last_written(Some("other")), all[2..]);
-    assert!(store.last_written(Some("nope")).is_empty());
+    assert_eq!(store.get(&track, &all[2..]).keys().collect::<Vec<_>>(), ["other"]);
+    assert!(store.get(&track, &[analyzer("nope", "0.1.0", "tempo")]).is_empty());
 
     // The same file on another drive.
     let copy = audio(&dir.path().join("B/Contents/elsewhere"), "track.MP3", b"some audio");
@@ -64,8 +64,7 @@ fn fields_are_kept_by_file_plugin_and_analyzer() {
     assert!(store.get(&dir.path().join("gone.mp3"), &all).is_empty());
 }
 
-/// Readers read the versions they ask for; those that don't know read the version that wrote
-/// last. A file that changed since has no values.
+/// Readers read the versions they ask for. A file that changed since has no values.
 #[test]
 fn versions_are_read_as_asked_and_changed_files_not_at_all() {
     let dir = tempfile::tempdir().unwrap();
@@ -75,13 +74,11 @@ fn versions_are_read_as_asked_and_changed_files_not_at_all() {
     let (slow, fast) = (fields(&[("bpm", FieldValue::Number(120.0))]), fields(&[("bpm", FieldValue::Number(121.5))]));
     store.put(&a, &old, &slow).unwrap();
     store.put(&b, &old, &slow).unwrap();
-    assert_eq!(store.last_written(None), std::slice::from_ref(&old));
 
-    // A new version writes b: a reader of 0.1.0 still has both, the last written is 0.2.0.
+    // A new version writes b: a reader of 0.1.0 still has both.
     store.put(&b, &new, &fast).unwrap();
     assert_eq!(store.get(&a, std::slice::from_ref(&old))["analysis"]["tempo"], slow);
     assert_eq!(store.get(&b, std::slice::from_ref(&old))["analysis"]["tempo"], slow);
-    assert_eq!(store.last_written(None), std::slice::from_ref(&new));
     assert!(store.get(&a, std::slice::from_ref(&new)).is_empty());
     assert_eq!(store.get(&b, std::slice::from_ref(&new))["analysis"]["tempo"], fast);
 
@@ -91,7 +88,7 @@ fn versions_are_read_as_asked_and_changed_files_not_at_all() {
 }
 
 /// Names that can't be a folder, numbers JSON can't hold and audio that isn't there are
-/// refused, writing nothing; a last-written version that names no folder isn't read.
+/// refused, writing nothing.
 #[test]
 fn bad_fields_are_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -112,9 +109,5 @@ fn bad_fields_are_refused() {
     let nan = fields(&[("bpm", FieldValue::Number(f64::NAN))]);
     assert!(matches!(store.put(&track, &tempo, &nan), Err(Error::Invalid(m)) if m.contains("\"bpm\"")));
     assert!(matches!(store.put(&dir.path().join("gone.mp3"), &tempo, &ok), Err(Error::NotFound(_))));
-    assert!(store.last_written(None).is_empty());
-
-    fs::create_dir_all(store.root.join("odd/x")).unwrap();
-    fs::write(store.root.join("odd").join(LAST_WRITTEN), "../..").unwrap();
-    assert!(store.last_written(None).is_empty());
+    assert!(!store.root.exists(), "nothing was written");
 }

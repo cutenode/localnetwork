@@ -93,6 +93,42 @@ fn an_operation_is_planned_strictly() {
     assert!(!common::library(&f.drive).playlists.iter().any(|p| p.name == "x"));
 }
 
+/// A plan worked out from files (a tracklist) is applied only while they're as they were.
+#[test]
+fn an_operations_plan_is_stale_once_a_file_it_read_changes() {
+    let f = Fixture::echo();
+    let list = f.store.root().parent().unwrap().join("set.txt");
+    std::fs::write(&list, "one\n").unwrap();
+    let from = |name: &str, input: &Path| {
+        let create = json!({ "op": "create_playlist", "path": name });
+        f.plan(json!({ "name": name, "edits": [create], "inputs": [input] }))
+    };
+    let playlists = || common::library(&f.drive).playlists.into_iter().map(|p| p.name).collect::<Vec<_>>();
+    from("Kept", &list).unwrap().apply(None, &Ctx::silent()).unwrap();
+    assert!(playlists().contains(&"Kept".to_string()));
+    let planned = from("Stale", &list).unwrap();
+    std::fs::write(&list, "two\n").unwrap();
+    let e = planned.apply(None, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), "stale_plan", "{e}");
+    assert!(!playlists().contains(&"Stale".to_string()), "the drive is left as it was");
+    let e = from("Relative", Path::new("set.txt")).map_err(failure).unwrap_err();
+    assert_eq!(e, "the Echo plugin failed: it read set.txt, which isn't an absolute path");
+    // Only files: reading a pipe or a device to check it could wait forever.
+    let mut others = vec![f.store.root().to_path_buf(), list.with_file_name("gone.txt")];
+    #[cfg(unix)]
+    {
+        let pipe = list.with_file_name("pipe");
+        let c = std::ffi::CString::new(pipe.to_str().unwrap()).unwrap();
+        // SAFETY: the path is a NUL-terminated string that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        others.push(pipe);
+    }
+    for other in others {
+        let e = from("Other", &other).map_err(failure).unwrap_err();
+        assert_eq!(e, format!("the Echo plugin failed: it read {}, which isn't a file", other.display()));
+    }
+}
+
 #[test]
 fn an_export_is_confirmed_before_it_overwrites() {
     let f = Fixture::echo();
@@ -197,6 +233,46 @@ fn an_analyzers_fields_must_be_of_their_types() {
     let req = PluginFieldsRequest { library: LibraryRef::from(common::path(&f.drive)), tracks: None, plugin: None };
     let read = api::track_fields_of(LibraryCache::none(), Some(&f.store), &req, &f.plugins.analyzers()).unwrap();
     assert!(read.tracks.is_empty(), "nothing was kept");
+}
+
+/// The echo plugin, with an analyzer (`order`) declaring `b` before `a`, which the test plugin
+/// answers the other way round.
+fn ordered() -> Fixture {
+    let manifest = ECHO.replace(
+        "fields = { bytes = \"integer\" }\n",
+        "fields = { bytes = \"integer\" }\n\n[[contributes.analyzers]]\nname = \"order\"\ntitle = \"Order\"\n\
+         fields = { b = \"integer\", a = \"integer\" }\n",
+    );
+    Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default())
+}
+
+/// They're columns: kept and read back in the order the analyzer declares, whatever the answer's.
+#[test]
+fn an_analyzers_fields_keep_its_order() {
+    let f = ordered();
+    let tracks = common::library(&f.drive).tracks;
+    let analyzed = f.plugins.analyze("echo", "order", "USB", None, &f.store, &Ctx::silent()).unwrap();
+    assert_eq!((analyzed.analyzed, analyzed.failed), (tracks.len(), 0));
+    let req = PluginFieldsRequest { library: LibraryRef::from(common::path(&f.drive)), tracks: None, plugin: None };
+    let read = api::track_fields_of(LibraryCache::none(), Some(&f.store), &req, &f.plugins.analyzers()).unwrap();
+    assert_eq!(read.tracks.len(), tracks.len());
+    for t in &read.tracks {
+        let names: Vec<&str> = t.plugins["echo"]["order"].keys().map(String::as_str).collect();
+        assert_eq!(names, ["b", "a"], "track {}", t.track);
+    }
+}
+
+/// A track the plugin fails on is named once, by its path on the drive, though the plugin named
+/// its audio file.
+#[test]
+fn a_track_an_analyzer_fails_on_is_named_by_its_path_on_the_drive() {
+    let f = ordered();
+    let tracks = common::library(&f.drive).tracks;
+    std::fs::write(paths::to_fs(&f.drive, &paths::key(&tracks[0].file_path)), "").unwrap();
+    let warnings = common::Warnings::default();
+    let analyzed = f.plugins.analyze("echo", "order", "USB", None, &f.store, &warnings.ctx()).unwrap();
+    assert_eq!((analyzed.analyzed, analyzed.failed), (tracks.len() - 1, 1));
+    assert_eq!(warnings.said(), [format!("{} is empty (the Echo plugin)", tracks[0].file_path)]);
 }
 
 #[test]

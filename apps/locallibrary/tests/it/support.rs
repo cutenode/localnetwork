@@ -104,6 +104,8 @@ pub struct Env {
     ascii: bool,
     /// The commands get a home folder of their own ([`Env::home`]).
     own_home: bool,
+    /// The plugins the commands have besides locallibrary's (see [`Env::plugins`]).
+    plugins: Vec<PathBuf>,
 }
 
 impl Env {
@@ -113,7 +115,7 @@ impl Env {
         let root = dunce_canonicalize(dir.path());
         let volumes = root.join("volumes");
         std::fs::create_dir(&volumes).unwrap();
-        Env { _dir: dir, volumes, store: root.join("store"), ascii: false, own_home: false }
+        Env { _dir: dir, volumes, store: root.join("store"), ascii: false, own_home: false, plugins: Vec::new() }
     }
 
     /// Drives (A, [`dj_drive`] adopted and pulled into the library A; Club, [`club_drive`], not
@@ -180,8 +182,27 @@ impl Env {
         root
     }
 
+    /// The commands have these plugins too: manifests the plugin host's test plugin serves
+    /// (`LOCALLIBRARY_TEST_PLUGINS`), written beside the drives. Only in builds with debug
+    /// assertions, which serve it.
+    #[cfg(debug_assertions)]
+    pub fn plugins(&mut self, manifests: &[&str]) {
+        self.plugins = manifests
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let file = self.outside(&format!("plugin-{i}.toml"));
+                std::fs::write(&file, m).unwrap();
+                file
+            })
+            .collect();
+    }
+
     pub fn command(&self) -> Command {
         let mut c = crate::locallibrary(&self.store, &[&self.volumes]);
+        if !self.plugins.is_empty() {
+            c.env("LOCALLIBRARY_TEST_PLUGINS", std::env::join_paths(&self.plugins).unwrap());
+        }
         if self.ascii {
             c.arg("--ascii");
         }
@@ -270,6 +291,11 @@ impl Rpc {
         let stdin = child.stdin.take();
         let lines = BufReader::new(child.stdout.take().unwrap()).lines();
         Rpc { child, stdin, lines }
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn pid(&self) -> u32 {
+        self.child.id()
     }
 
     /// The response to request `id` (events and other responses before it are skipped). With
