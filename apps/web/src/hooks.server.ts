@@ -23,7 +23,7 @@ export const init: ServerInit = async () => {
 const setupPage = (message: string) =>
 	`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Local Network setup</title>
 <style>body{font:16px/1.5 system-ui,sans-serif;max-width:44rem;margin:4rem auto;padding:0 1rem;color:#18181b}pre{background:#f4f4f5;padding:1rem;border-radius:.5rem;white-space:pre-wrap}</style></head>
-<body><h1>Local Network isn't configured yet</h1><p>The server could not connect its root AT Protocol account. Check your environment variables (see <code>.env.example</code>) or run <code>pnpm dev:network</code> for a local spaces-enabled PDS.</p><pre>${message.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)}</pre></body></html>`;
+<body><h1>Local Network isn't configured yet</h1><p>The server could not connect its root AT Protocol account. Check your environment variables (see <code>.env.example</code>) or run <code>pnpm dev</code>, which starts a local spaces-enabled PDS too.</p><pre>${message.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)}</pre></body></html>`;
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 

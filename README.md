@@ -27,9 +27,11 @@ The repo root is both the pnpm workspace and the Cargo workspace, so commands ru
 
 ## Working on it
 
+The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](https://pnpm.io/installation). [fnm](https://github.com/Schniz/fnm) picks up `.node-version` for you: run `fnm install`, then `fnm use`, or set up its shell hook (`eval "$(fnm env --use-on-cd)"`) to switch on `cd`. The website's local network needs Docker (or OrbStack) running.
+
 ```bash
 pnpm install                 # every TypeScript app's dependencies and the git hooks
-pnpm dev                     # the website (see apps/web/README.md for its .env) and the extension's watch build
+pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
 
 cargo build                  # locallibrary
