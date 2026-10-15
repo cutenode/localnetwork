@@ -3206,7 +3206,7 @@ impl App {
             Act::SmartNew => self.smart_from_search(),
             Act::ExportList => self.export_list(),
             Act::ExportXml => self.export_xml(),
-            Act::Plugin(plugin, name) => self.plugin_act(plugin, name, None),
+            Act::Plugin(plugin, name) => self.plugin_here(plugin, name),
             Act::Details => {
                 self.show_details = !self.show_details;
                 if !self.show_details && self.focus == Focus::Details {

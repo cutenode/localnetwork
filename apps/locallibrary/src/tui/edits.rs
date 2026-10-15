@@ -1,10 +1,10 @@
 //! Changing the drive from the player, always opt-in: an actions menu (`e`, or right-click) for
-//! the marked or selected tracks, the playlist in view and the crate; the prompts and playlist
-//! picking some actions need; and the job every write goes through: plan it in the background,
-//! show the plan and wait for a yes, apply exactly that plan (the library backs the drive up
-//! first, and refuses if the drive changed since), then read the drive again, keeping the view.
-//! Any kind of plan goes through the same dialog ([`AnyPlanned`]); playlist and track edits show
-//! in detail.
+//! the marked or selected tracks, the playlist in view and the crate (plugins' operations last);
+//! the prompts and playlist picking some actions need; and the job every write goes through: plan
+//! it in the background, show the plan and wait for a yes, apply exactly that plan (the library
+//! backs the drive up first, and refuses if the drive changed since), then read the drive again,
+//! keeping the view. Any kind of plan goes through the same dialog ([`AnyPlanned`]); playlist and
+//! track edits show in detail.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -118,6 +118,8 @@ pub enum Action {
     Restore,
     /// Give the tracks a My Tag, or take one off.
     Tag,
+    /// A plugin's operation, by the plugin's id and its name.
+    Plugin(&'static str, &'static str),
 }
 
 /// What an action works on, captured when the menu opens so moving about afterwards (picking a
@@ -142,6 +144,8 @@ pub struct Target {
     pub crate_total: usize,
     /// The drive was unplugged.
     pub stale: bool,
+    /// The drive is a folder opened by path, not one plugged in: plugins can't name it.
+    pub folder_drive: bool,
 }
 
 pub struct MenuItem {
@@ -260,8 +264,15 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
             Action::Restore,
             stale.clone(),
         ),
-        item("y", keymap::name(Act::Replay).into(), Action::Replay, stale),
+        item("y", keymap::name(Act::Replay).into(), Action::Replay, stale.clone()),
     ]
+    .into_iter()
+    .chain(
+        super::plugins::offered(Some(!t.folder_drive), false)
+            .into_iter()
+            .map(|o| item("", o.label, Action::Plugin(o.plugin, o.name), stale.clone().or(o.unavailable))),
+    )
+    .collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -565,6 +576,7 @@ impl App {
             crated,
             crate_total: self.crate_list.len(),
             stale: l.stale,
+            folder_drive: self.pluggable(Some(l.root())) == Some(false),
         })
     }
 
@@ -826,6 +838,7 @@ impl App {
             Action::Replay => self.replay(t.root.clone()),
             Action::Tag => self.tag_tracks(),
             Action::Restore => self.restore_playlist(t.root.clone()),
+            Action::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(t.root.clone()), Some(&t)),
             Action::RatingMenu | Action::ColourMenu => {}
         }
     }

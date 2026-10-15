@@ -342,7 +342,9 @@ fn command_palette() {
     check(&mut app, "the library", &[": commands"], &[]);
 }
 
-/// A plugin's command in the palette, its form and what it answers, from the plugins' manifests.
+/// A plugin's command in the palette, its form and what it answers, and its operation in the
+/// actions menu, its form starting with the selected track and its plan to confirm: all from the
+/// plugins' manifests.
 #[test]
 fn plugins() {
     let Fixture { _dir, mut app, .. } = fixture();
@@ -351,7 +353,7 @@ fn plugins() {
     for c in ":answer the params".chars() {
         key(&mut app, KeyCode::Char(c));
     }
-    check(&mut app, "a plugin's command in the palette", &["Answer the params", "Echo"], &[]);
+    check(&mut app, "a plugin's command in the palette", &["answer the params…", "Echo"], &[]);
     key(&mut app, KeyCode::Enter);
     check(
         &mut app,
@@ -370,6 +372,28 @@ fn plugins() {
         &mut app,
         "a plugin's table",
         &["Titles", "Title         BPM", "Demo Track 1  128", "any other key closes"],
+        &[],
+    );
+    key(&mut app, KeyCode::Esc);
+
+    key(&mut app, KeyCode::Char('e'));
+    check(&mut app, "the actions menu with a plugin's operation", &["make a playlist…", "fetch cover art…"], &[]);
+    let Some(Modal::Menu(m)) = &app.modal else { panic!("no menu") };
+    let echo = m.items.iter().position(|i| i.label == "make a playlist…").unwrap();
+    for _ in 0..echo {
+        key(&mut app, KeyCode::Char('j'));
+    }
+    key(&mut app, KeyCode::Enter);
+    let id = app.loaded.as_ref().unwrap().library.tracks[app.visible[0]].id.to_string();
+    check(&mut app, "a plugin's operation's form", &["Make a playlist", "tracks", &id, "required"], &[]);
+    for c in "Warmup\n".chars() {
+        key(&mut app, if c == '\n' { KeyCode::Enter } else { KeyCode::Char(c) });
+    }
+    wait(&mut app, |a| a.job.is_none());
+    check(
+        &mut app,
+        "a plugin's plan to confirm",
+        &["Write to DEMO?", "Echo: make the playlist Warmup", "+ Warmup", "y write", "u takes this back"],
         &[],
     );
 }

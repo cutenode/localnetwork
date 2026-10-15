@@ -215,8 +215,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   and `track.fields` reads the installed plugins' versions. A plugin whose id or commands clash
   with locallibrary's or another plugin's is left out, with a warning saying why, and the others
   work; a plugin's errors keep their kinds (`not_found`, `io`...). In the player, plugins'
-  commands are in the palette and a drive's menu, asking for their params in a form drawn from
-  their schemas and answering in a panel, and what plugins log goes to its messages (`!`). See
+  commands and operations are in the palette and a drive's menu (operations in the actions menu
+  too), asking for their params in a form drawn from their schemas; a command answers in a panel,
+  an operation's plan is confirmed, written and undone like any edit, and what plugins log goes
+  to its messages (`!`). See
   docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), and `tracklist match`

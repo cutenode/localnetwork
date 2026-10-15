@@ -2,7 +2,9 @@ use loclib_plugin::{ListItem, Pair};
 use ratatui::crossterm::event::KeyCode;
 use serde_json::json;
 
-use super::super::app::testing::{app_on, blank, demo_drive, echo_plugin, key, last_message, press, wait};
+use super::super::app::testing::{
+    app_on, blank, confirming, demo_drive, echo_plugin, key, last_message, press, say_yes, wait,
+};
 use super::super::palette::Picker;
 use super::super::ui::screen;
 use super::*;
@@ -38,23 +40,23 @@ fn plugins_commands_are_in_the_palette() {
     echo_plugin(dir.path());
     let (mut app, _store) = blank(Screen::Library);
     press(&mut app, ":");
-    let (item, why) = entry(&app, "Answer the params");
+    let (item, why) = entry(&app, "answer the params…");
     assert_eq!((item.detail.as_str(), why), ("Echo", Some("open a drive first")));
-    assert_eq!(entry(&app, "Find a tracklist's tracks").0.detail, "Tracklist import");
+    assert_eq!(entry(&app, "find a tracklist's tracks…").0.detail, "Tracklist import");
     let p = picker(&app);
-    let echo = p.items.iter().position(|i| i.label == "Answer the params").unwrap();
+    let echo = p.items.iter().position(|i| i.label == "answer the params…").unwrap();
     assert!(p.items[..echo].iter().any(|i| i.label == "quit"), "the player's own first");
 
     let mut app = app_on(&root);
     press(&mut app, ":");
-    assert_eq!(entry(&app, "Answer the params").1, None);
+    assert_eq!(entry(&app, "answer the params…").1, None);
     press(&mut app, "\u{1b}");
     app.extra_roots.push(root.clone());
     press(&mut app, ":");
-    assert_eq!(entry(&app, "Answer the params").1, Some("only on a plugged-in drive"));
+    assert_eq!(entry(&app, "answer the params…").1, Some("only on a plugged-in drive"));
 }
 
-/// The drive menu ends with plugins' commands, which run on that drive.
+/// The drive menu ends with plugins' commands and operations, which run on that drive.
 #[test]
 fn plugins_commands_are_in_the_drive_menu() {
     let (dir, root) = demo_drive();
@@ -67,8 +69,8 @@ fn plugins_commands_are_in_the_drive_menu() {
     press(&mut app, "e");
     let p = picker(&app);
     assert!(p.title.starts_with("Drive · "), "{}", p.title);
-    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("Wait until cancelled"));
-    assert_eq!(entry(&app, "Answer the params").1, None);
+    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("make a playlist…"));
+    assert_eq!(entry(&app, "answer the params…").1, None);
     press(&mut app, "wait until\n");
     assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Wait until cancelled"));
     press(&mut app, "\u{1b}");
@@ -215,4 +217,171 @@ fn views_are_drawn_generically() {
     app.show_answer("T".into(), CommandOutput::View(view));
     let s = screen(&mut app, 80, 24);
     assert_eq!(s.lines().filter(|l| l.contains("xxxx") || l.contains("zzzz")).count(), 1, "{s}");
+}
+
+/// The actions menu (`e`) open now, as its items' labels and why each can't be done.
+fn menu(app: &App) -> Vec<(String, Option<String>)> {
+    match &app.modal {
+        Some(Modal::Menu(m)) => m.items.iter().map(|i| (i.label.clone(), i.unavailable.clone())).collect(),
+        _ => panic!("no menu: {}", last_message(app)),
+    }
+}
+
+/// Operations change a drive, so they need one plugged in, whatever their plugin reads: in the
+/// palette, and at the end of the actions menu (`e`), where an unplugged drive says so too. Those
+/// that ask for params first end in "…".
+#[test]
+fn operations_are_offered_where_they_can_run() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    // An echo plugin that reads nothing: its commands run without a drive.
+    let file = dir.path().join("echo.toml");
+    let manifest = std::fs::read_to_string(&file).unwrap();
+    let manifest =
+        manifest.replace(r#"capabilities = ["library:read", "library:plan"]"#, r#"capabilities = ["library:plan"]"#);
+    std::fs::write(&file, manifest).unwrap();
+    let (mut app, _store) = blank(Screen::Library);
+    press(&mut app, ":");
+    assert_eq!(entry(&app, "answer the params…").1, None);
+    assert_eq!(entry(&app, "make a playlist…").1, Some("open a drive first"));
+    assert_eq!(entry(&app, "make a playlist…").0.detail, "Echo");
+    assert_eq!(entry(&app, "fetch cover art…").1, Some("open a drive first"));
+
+    let mut app = app_on(&root);
+    press(&mut app, ":");
+    assert_eq!(entry(&app, "make a playlist…").1, None);
+    press(&mut app, "\u{1b}e");
+    let items = menu(&app);
+    let echo = items.iter().position(|(l, _)| l == "make a playlist…").expect("in the menu");
+    assert!(items[..echo].iter().any(|(l, _)| l == "clear the crate"), "after the player's own");
+    assert!(items.iter().all(|(l, _)| l != "answer the params…"), "commands change nothing: not here");
+    assert_eq!(items[echo].1, None);
+    press(&mut app, "\u{1b}");
+    app.loaded.as_mut().unwrap().stale = true;
+    press(&mut app, "e");
+    assert_eq!(menu(&app)[echo].1.as_deref(), Some("the drive was unplugged"));
+    press(&mut app, "\u{1b}");
+    app.loaded.as_mut().unwrap().stale = false;
+    app.extra_roots.push(root.clone());
+    press(&mut app, "e");
+    assert_eq!(menu(&app)[echo].1.as_deref(), Some("only on a plugged-in drive"));
+}
+
+/// An operation from the actions menu: its form starts with the marked tracks, it's planned in
+/// the background, its plan (the plugin's summary first) is confirmed as any edit is, applied
+/// with a backup, the drive read again, and `u` takes it back.
+#[test]
+fn an_operation_is_planned_confirmed_applied_and_undone() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let mut app = app_on(&root);
+    let ids: Vec<String> = app.loaded.as_ref().unwrap().library.tracks.iter().map(|t| t.id.to_string()).collect();
+    press(&mut app, "mjme");
+    let echo = menu(&app).iter().position(|(l, _)| l == "make a playlist…").unwrap();
+    for _ in 0..echo {
+        press(&mut app, "j");
+    }
+    press(&mut app, "\n");
+    let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
+    assert_eq!(f.fields[1].text, ids.join(", "), "the marked tracks");
+    press(&mut app, "Plugged\n");
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Planning"));
+    assert_eq!(confirming(&mut app), ("echo.playlist".into(), "make the playlist Plugged".into()));
+    let s = screen(&mut app, 120, 40);
+    for needle in ["Write to ", "Echo: make the playlist Plugged", "+ Plugged", "y write", "u takes this back"] {
+        assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
+    }
+    say_yes(&mut app);
+    assert!(last_message(&app).contains("u to undo"), "{}", last_message(&app));
+    let has = |app: &App| app.loaded.as_ref().unwrap().library.playlists.iter().any(|p| p.name == "Plugged");
+    assert!(has(&app), "read again");
+    press(&mut app, "u");
+    say_yes(&mut app);
+    assert!(!has(&app), "undone: {}", last_message(&app));
+}
+
+/// Planning an operation is stopped with esc, and nothing shows; planned again, it's confirmed.
+/// A plan that changes nothing says so, and one the plugin can't make says why, as an error.
+#[test]
+fn planning_an_operation_is_stopped_with_esc() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let mut app = app_on(&root);
+    press(&mut app, ":make a playlist…\nGone\n");
+    assert!(app.job.is_some());
+    press(&mut app, "\u{1b}");
+    assert_eq!((app.job.is_none(), last_message(&app)), (true, "cancelled"));
+    press(&mut app, ":make a playlist…\nKept\n");
+    assert_eq!(confirming(&mut app).1, "make the playlist Kept");
+    assert!(app.waiting.is_empty());
+    say_yes(&mut app);
+    press(&mut app, ":make a playlist…\nKept\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!((app.modal.is_none(), last_message(&app)), (true, "nothing to change"));
+    press(&mut app, ":make a playlist from a tracklist\n/nowhere/list.m3u\tFriday\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert!(app.modal.is_none());
+    let (said, level) = app.toast.clone().map(|t| (t.0, t.1)).unwrap();
+    assert!(level == Level::Error && said.contains("/nowhere/list.m3u"), "{said}");
+}
+
+/// A plan is a plugin's when its operation is one of a plugin's, by the plugin's id and its name.
+#[test]
+fn plans_are_known_by_their_plugins() {
+    let (dir, _root) = demo_drive();
+    echo_plugin(dir.path());
+    assert_eq!(planned_by("echo.playlist"), Some("Echo"));
+    assert_eq!(planned_by("tracklist.import"), Some("Tracklist import"));
+    for not in ["echo.echo", "echo.nope", "echo", "edit", "edits.replay", "echoplaylist"] {
+        assert_eq!(planned_by(not), None, "{not}");
+    }
+}
+
+/// Titles are named as the player's own commands are, a name in capitals kept.
+#[test]
+fn titles_are_named_as_the_players_own() {
+    assert_eq!(named("Fetch cover art"), "fetch cover art");
+    assert_eq!(named("M3U playlist"), "M3U playlist");
+    assert_eq!(named("A"), "A");
+    assert_eq!(named("A playlist"), "a playlist");
+    assert_eq!(named("3D view"), "3D view");
+    assert_eq!(named("Éclair"), "éclair");
+    assert_eq!(named(""), "");
+}
+
+/// The confirmation has what the plugin says about its plan, its warnings too, besides the edits.
+#[test]
+fn plugin_warnings_show_in_the_confirmation() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let mut app = app_on(&root);
+    let plugins = crate::plugins::host().unwrap();
+    // The test plugin plans the edits it's given, saying "as given" and warning "given".
+    let params = json!({ "name": "x", "edits": [{ "op": "create_playlist", "path": "Given" }] });
+    let context = Context { drive: Some(root.display().to_string()), ..Context::default() };
+    let plan = plugins.plan_op("echo", "playlist", params, context, None, &locallibrary::Ctx::silent()).unwrap();
+    app.show(Modal::Confirm(super::super::edits::Confirm {
+        drive: "DEMO".into(),
+        root,
+        plan: Box::new(plan),
+        scroll: 0,
+        shown: std::time::Instant::now(),
+        after: None,
+    }));
+    let s = screen(&mut app, 120, 40);
+    for needle in ["Echo: as given", "+ Given", "⚠ given"] {
+        assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
+    }
+}
+
+/// An operation is planned on a drive: without one, it says so.
+#[test]
+fn an_operation_without_a_drive_isnt_planned() {
+    let (dir, _root) = demo_drive();
+    echo_plugin(dir.path());
+    let (mut app, _store) = blank(Screen::Library);
+    let manifest = crate::plugins::host().unwrap().manifest("echo").unwrap();
+    let hook = Cli::Operation(&manifest.contributes.operations[0]);
+    app.run_plugin(Run { plugin: "echo", hook, root: None, context: Context::default() }, json!({ "name": "x" }));
+    assert_eq!((app.job.is_none(), last_message(&app)), (true, "open a drive first"));
 }

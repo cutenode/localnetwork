@@ -27,13 +27,17 @@ listening to your library the way the players see it:
   `fsp` finds "fill the smart playlists") and enter. It also has the commands with no key of their
   own: pull, check, set prep, sync, pack, restore, replay, export, xml, smart, smart apply, smart
   new and eject.
-- **Plugins' commands** are in the palette by title, with the plugin's name beside them, and at
-  the end of a drive's `e` menu in the Drives view. One that takes params asks for them in a form
-  first (`↑↓` or `tab` between fields, `←→` or `space` to pick a choice, `enter` to run; lists
-  take commas). It runs on the drive open, with the marked or selected tracks and the playlist
-  shown, in the background (`esc` stops it), and what it answers shows in a panel, or as a
-  message when it's a line. A plugin that reads the drive needs one plugged in, not a folder
-  opened by path. What plugins log goes to the messages (`!`). See [Plugins](plugins.md).
+- **Plugins' commands and operations** are in the palette by title, with the plugin's name beside
+  them, and at the end of a drive's `e` menu in the Drives view; operations, which change the
+  drive, end the actions menu (`e`) too. One that takes params asks for them in a form first
+  (`↑↓` or `tab` between fields, `←→` or `space` to pick a choice, `enter` to run; lists take
+  commas), a list of tracks starting with the marked or selected ones. It runs on the drive open,
+  with the marked or selected tracks and the playlist selected, in the background (`esc` stops
+  it). What a command answers shows in a panel, or as a message when it's a line; an operation's
+  plan, with what the plugin says about it first, is confirmed and written like any edit, and `u`
+  takes it back. An operation, or a command of a plugin that reads the drive, needs one plugged
+  in, not a folder opened by path. What plugins log goes to the messages (`!`). See
+  [Plugins](plugins.md).
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
 - **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you

@@ -49,8 +49,9 @@ with each other are both left out.
   plugin's options as `--option KEY=VALUE`. `--dry-run` lists what it would write (each file,
   what goes in, what the format can't hold), and overwriting a file is asked about first unless
   `--replace`.
-- **In the player** (`locallibrary tui`), commands are in the palette (`:`) and a drive's menu,
-  with a form for their params (see [the player](player.md)).
+- **In the player** (`locallibrary tui`), commands and operations are in the palette (`:`) and a
+  drive's menu, operations in the actions menu (`e`) too, with a form for their params (see [the
+  player](player.md)).
 - **Settings**: `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets
   one and `plugin settings ID KEY --reset` puts it back to its default. They're kept in the store
   (`plugins/ID/settings.json`).

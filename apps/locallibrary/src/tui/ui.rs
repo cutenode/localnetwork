@@ -2469,7 +2469,7 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
             typed => spans.push(Span::styled(clip(typed, room), text())),
         }
         if field.required && field.text.is_empty() {
-            spans.push(Span::styled("required", faint()));
+            spans.push(Span::styled(if on { " required" } else { "required" }, faint()));
         }
         let line = Line::from(spans);
         lines.push(if on { line.style(theme::selected()) } else { line });
@@ -2675,8 +2675,20 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(format!("{}: ", c.drive), bold(theme::PINK)),
                 Span::styled(p.databases.join(" and "), text()),
             ]));
+            // A plugin's operation: what the plugin says it does first.
+            let by = super::plugins::planned_by(c.plan.operation());
+            if let Some((by, said)) = by.zip(c.plan.summary().first()) {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{by}: "), bold(theme::CYAN)),
+                    Span::styled(said.clone(), text()),
+                ]));
+            }
             lines.push(Line::raw(""));
             edit_lines(p, &mut lines);
+            // What's said about the plan as a whole (a plugin's warnings), besides its edits'.
+            for w in c.plan.warnings().iter().filter(|w| !p.warnings.contains(w)) {
+                lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
+            }
             lines.push(Line::raw(""));
             lines.push(Line::styled("The drive is backed up first: u takes this back.", dim()));
             lines.push(Line::styled(

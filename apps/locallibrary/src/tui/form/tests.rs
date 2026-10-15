@@ -1,3 +1,4 @@
+use locallibrary::plugin::Cli;
 use loclib_plugin::{Command, Context, Manifest};
 use serde_json::json;
 
@@ -7,13 +8,18 @@ use super::*;
 
 /// A form for a command whose params are `params` (a JSON Schema, as TOML).
 fn form(params: &str) -> Form {
+    form_in(params, Context::default())
+}
+
+/// [`form`], where `context` says what's selected.
+fn form_in(params: &str, context: Context) -> Form {
     let manifest = format!(
         "id = \"t\"\nname = \"T\"\nversion = \"0.1.0\"\nprotocol = \"^0.1\"\n\
          [[contributes.commands]]\nname = \"c\"\ntitle = \"Do it\"\nmode = \"headless\"\n{params}"
     );
     let manifest = Manifest::parse(&manifest).unwrap();
     let command: &'static Command = Box::leak(Box::new(manifest.contributes.commands[0].clone()));
-    Form::new(Run { plugin: "t", command, context: Context::default() })
+    Form::new(Run { plugin: "t", hook: Cli::Command(command), root: None, context })
 }
 
 fn filled(f: &mut Form, texts: &[&str]) -> Result<Value, (usize, String)> {
@@ -42,6 +48,25 @@ fn fields_start_at_their_defaults() {
     assert_eq!(f.fields[2].choices(), ["", "a", "b"]);
     assert_eq!(f.fields[1].choices(), ["a", "b"], "a choice that's needed can't be none");
     assert!(f.fields[0].choices().is_empty());
+}
+
+/// A list of track ids called `tracks` starts as the tracks selected, which it then takes; one
+/// called otherwise, of another kind, with a default or with none selected starts empty.
+#[test]
+fn tracks_start_as_the_ones_selected() {
+    let selected = Context { tracks: vec![3, 812], ..Context::default() };
+    let ids = r#"type = "array", items = { type = "integer" }"#;
+    let schema = format!(
+        r#"params = {{ type = "object", properties = {{ tracks = {{ {ids} }}, others = {{ {ids} }}, also = {{ {ids}, default = [1] }} }} }}"#
+    );
+    let f = form_in(&schema, selected.clone());
+    let texts: Vec<&str> = f.fields.iter().map(|x| x.text.as_str()).collect();
+    assert_eq!(texts, ["3, 812", "", "1"]);
+    assert_eq!(f.params().unwrap()["tracks"], json!([3, 812]));
+    assert_eq!(form_in(&schema, Context::default()).fields[0].text, "");
+    let names =
+        r#"params = { type = "object", properties = { tracks = { type = "array", items = { type = "string" } } } }"#;
+    assert_eq!(form_in(names, selected).fields[0].text, "");
 }
 
 /// What's typed is read as the command line reads it: numbers, lists with commas between them,

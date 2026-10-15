@@ -65,24 +65,27 @@ impl Field {
 }
 
 impl Form {
-    /// The form for `run`'s params, each field filled in with its default (none when its command
-    /// takes none).
+    /// The form for `run`'s params, each field filled in with its default (none when it takes
+    /// none), or a list of track ids called `tracks` with the tracks selected.
     pub fn new(run: Run) -> Form {
-        let schema = run.command.params.as_ref();
+        let schema = run.params();
         let required: Vec<&str> =
             schema.and_then(|s| s["required"].as_array()).into_iter().flatten().filter_map(Value::as_str).collect();
         let fields: Vec<Field> = properties(schema)
             .map(|(name, schema)| {
                 let required = required.contains(&name.as_str());
                 let mut field = Field { name: name.clone(), schema: schema.clone(), required, text: String::new() };
+                let ids = &run.context.tracks;
+                let selected = name == "tracks" && takes(schema) == Some(Takes::Many("integer")) && !ids.is_empty();
                 field.text = match schema.get("default") {
                     Some(default) => cell(default),
+                    None if selected => ids.iter().map(u32::to_string).collect::<Vec<_>>().join(", "),
                     None => field.choices().first().cloned().unwrap_or_default(),
                 };
                 field
             })
             .collect();
-        Form { title: run.command.title.clone(), fields, selected: 0, error: None, run }
+        Form { title: run.title().to_string(), fields, selected: 0, error: None, run }
     }
 
     /// The params filled in, or which field won't do and why: one that's needed is empty, one
@@ -112,7 +115,7 @@ impl Form {
             given.insert(f.name.clone(), params::value(&f.schema, &raws, &f.label()).map_err(|e| (i, e))?);
         }
         let given = Value::Object(given);
-        check_params(self.run.command.params.as_ref(), &given).map_err(|e| {
+        check_params(self.run.params(), &given).map_err(|e| {
             // The field the schema's complaint is about (`/into`), named as it's shown.
             let path = e.data.and_then(|d| d.fields.get("path").and_then(Value::as_str).map(String::from));
             let at = path.as_deref().and_then(|p| p.trim_start_matches('/').split('/').next());

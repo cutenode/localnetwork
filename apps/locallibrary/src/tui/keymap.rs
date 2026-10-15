@@ -362,7 +362,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Library, &[K::Ch('t')], "t", A::CratePanel, "show or hide the crate", "show / hide the crate: tracks collected while browsing, a CDJ's TAG LIST", G::Crate),
     note(S::Library, "enter", "in the crate: play from there", G::Crate),
     note(S::Library, "", "Every change shows what it will do and asks first; the drive is backed up before it's written.", G::Changing),
-    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions that change the drive", "actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive", G::Changing),
+    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions that change the drive", "actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations", G::Changing),
     note(S::Library, "right-click", "the same, for what's under the pointer", G::Changing),
     key(S::Library, &[K::Ch('T')], "T", A::Tag, "give the tracks a My Tag, or take one off", "give the marked (or selected) tracks a My Tag, or take one off (asks first)", G::Changing),
     note(S::Library, "y", "after rekordbox exported over edits made here: replay them (it says so above the footer; esc puts it away)", G::Changing),

@@ -476,8 +476,9 @@ pub fn hold_volume_polls(app: &mut App) {
 }
 
 /// loclib-plugin's echo plugin, which the plugin host's test plugin serves: its export format
-/// renamed (`m3u` is locallibrary's), and its `echo` command taking a param of each kind the
-/// player's form fills in, besides the test plugin's `log` and `context`.
+/// renamed (`m3u` is locallibrary's), its `echo` command taking a param of each kind the player's
+/// form fills in, besides the test plugin's `log` and `context`, and its `playlist` operation
+/// `tracks` too (which it leaves be).
 const ECHO: &str = include_str!("../../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
 
 /// The plugins with the echo plugin among them, for this test: its manifest written in `dir` and
@@ -485,8 +486,14 @@ const ECHO: &str = include_str!("../../../../../crates/loclib-plugin/examples/ec
 /// before anything opens the palette or a menu.
 pub fn echo_plugin(dir: &Path) {
     let params = r#"params = { type = "object", required = ["name"], properties = { name = { type = "string", minLength = 2, description = "Who to greet" }, times = { type = "integer" }, loud = { type = "boolean" }, mood = { type = "string", enum = ["calm", "wild"] }, file = { type = "string", x-path = true }, tags = { type = "array", items = { type = "string" } }, log = { type = "string" }, context = { type = "boolean" } } }"#;
-    let manifest =
-        ECHO.replace("format = \"m3u\"", "format = \"echo-m3u\"").replacen("params = { type = \"object\" }", params, 1);
+    let operation = r#"params = { type = "object", properties = { name = { type = "string" }, tracks = { type = "array", items = { type = "integer" } } }, required = ["name"] }"#;
+    let manifest = ECHO
+        .replace("format = \"m3u\"", "format = \"echo-m3u\"")
+        .replacen("params = { type = \"object\" }", params, 1)
+        .replace(
+            r#"params = { type = "object", properties = { name = { type = "string" } }, required = ["name"] }"#,
+            operation,
+        );
     let file = dir.join("echo.toml");
     std::fs::write(&file, manifest).unwrap();
     // SAFETY: nextest runs each test in a process of its own, and this runs before the test
