@@ -6,7 +6,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 
-Local Network (web, from the repo root):
+Local Network and localtoolbox (from the repo root, or the app's folder for just that one):
 pnpm verify
 -->
 
