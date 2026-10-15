@@ -3989,6 +3989,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "locallibrary-plugin-coverart"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "locallibrary-plugin-interop"
 version = "0.1.0"
 dependencies = [
@@ -6302,7 +6317,9 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "h2",
  "http",
  "http-body",
