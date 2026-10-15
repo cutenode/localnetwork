@@ -123,58 +123,48 @@ With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons cha
 
 ## Getting started
 
-Requirements: Node.js 24 (see `.node-version` at the repo root), pnpm 12, and Docker (or OrbStack) for the local HappyView.
+Requirements: Node.js 24 (`.node-version` at the repo root; with [fnm](https://github.com/Schniz/fnm), `fnm install && fnm use`), [pnpm](https://pnpm.io/installation), and Docker (or OrbStack), running, for the local HappyView.
 
 The app lives in `apps/web` of a pnpm workspace whose root is the repo root. Run the commands below in `apps/web`; `pnpm install` there installs the whole workspace and the git hooks. The repo root forwards `dev`, `build`, `check`, `lint`, `format`, `test`, `knip`, and `verify` here.
 
 ```bash
 pnpm install
-```
-
-Start a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects) and a HappyView container fed by a local Jetstream stand-in. It writes `.env.local`:
-
-```bash
-pnpm dev:network
-```
-
-In another terminal:
-
-```bash
 pnpm dev
 ```
 
-Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
+`pnpm dev` starts a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects), a HappyView container fed by a local Jetstream stand-in, and the app wired to them. It also writes `.env.local`. Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
 
-| Handle      | Password    | Role                                        |
-| ----------- | ----------- | ------------------------------------------- |
-| `ada.test`  | `ada-pass`  | admin (via `ADMIN_DIDS`)                    |
-| `milo.test` | `milo-pass` | regular; make them a moderator under Staff  |
-| `neon.test` | `neon-pass` | DJ, manages two demo projects, has two sets |
-| `pat.test`  | `pat-pass`  | promoter                                    |
+| Handle      | Password    | Role                                                             |
+| ----------- | ----------- | ---------------------------------------------------------------- |
+| `ada.test`  | `ada-pass`  | admin (via `ADMIN_DIDS`)                                         |
+| `milo.test` | `milo-pass` | regular; make them a moderator under Staff                       |
+| `neon.test` | `neon-pass` | DJ, manages two demo projects, has three sets and two press kits |
+| `pat.test`  | `pat-pass`  | promoter                                                         |
 
-The network is temporary; restarting it resets everything (and the dev database).
+The network is temporary; Ctrl-C stops it, and restarting resets everything (and the dev database). To restart the app without resetting the network, run `pnpm dev:network` in one terminal and `pnpm dev:app` in another.
 
 ## Scripts
 
-| Script                              | What it does                                                            |
-| ----------------------------------- | ----------------------------------------------------------------------- |
-| `pnpm dev` / `pnpm dev:network`     | Dev server / local atproto network and HappyView                        |
-| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                |
-| `pnpm check`                        | `svelte-check` with TypeScript 6                                        |
-| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin        |
-| `pnpm format` / `pnpm format:check` | Oxfmt                                                                   |
-| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)     |
-| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container   |
-| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8` |
-| `pnpm test:build`                   | Production build, checked for sourcemaps and the client bundle budget   |
-| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                       |
-| `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it   |
-| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                 |
-| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe    |
-| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)              |
-| `pnpm knip`                         | Unused files, exports, and dependencies                                 |
-| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS       |
-| `pnpm verify`                       | CI's quick checks, in order                                             |
+| Script                              | What it does                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `pnpm dev`                          | Local atproto network, HappyView, and the dev server                      |
+| `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`) |
+| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                  |
+| `pnpm check`                        | `svelte-check` with TypeScript 6                                          |
+| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin          |
+| `pnpm format` / `pnpm format:check` | Oxfmt                                                                     |
+| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)       |
+| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container     |
+| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`   |
+| `pnpm test:build`                   | Production build, checked for sourcemaps and the client bundle budget     |
+| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                         |
+| `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it     |
+| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                   |
+| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe      |
+| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                |
+| `pnpm knip`                         | Unused files, exports, and dependencies                                   |
+| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS         |
+| `pnpm verify`                       | CI's quick checks, in order                                               |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
 
