@@ -383,6 +383,11 @@ fn written(output: &Path) -> Vec<(PathBuf, String)> {
     files(output).into_iter().map(|(path, bytes)| (path.clone(), readable(&path, &bytes))).collect()
 }
 
+/// The files an export answers, by path.
+fn paths(e: &Exported) -> Vec<PathBuf> {
+    e.files.iter().map(|f| f.path.clone()).collect()
+}
+
 #[test]
 fn the_manifest_is_valid_and_asks_for_what_the_exports_read() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
@@ -404,7 +409,7 @@ fn a_traktor_collection_is_what_loclib_interop_writes() {
     let session = start(&drive);
     let output = drive.dir.path().join("for traktor");
     let planned = session.export("traktor", &output, json!({}), true).unwrap();
-    assert_eq!(planned.files, [output.join("collection.nml")]);
+    assert_eq!(paths(&planned), [output.join("collection.nml")]);
     assert!(!output.exists(), "a dry run writes nothing");
 
     let done = session.export("traktor", &output, json!({}), false).unwrap();
@@ -413,8 +418,13 @@ fn a_traktor_collection_is_what_loclib_interop_writes() {
     let export = want.build(&drive.root, false, |s| traktor::build(s, &output, &Ctx::silent()).unwrap());
     assert_eq!(written(&output), contents(&export, &output, &output));
     assert_eq!((export.tracks, export.playlists, export.folders, export.beat_grids, export.cues), (4, 3, 1, 3, 5));
-    // The notes, then the warnings; every track's audio is there.
-    assert_eq!(done.warnings, [export.notes, export.warnings].concat());
+    // What loclib-interop says of it: each file's contents and size, the counts, the notes and
+    // (every track's audio being there) its warnings.
+    let described: Vec<(&str, u64)> = done.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect();
+    assert_eq!(described, export.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect::<Vec<_>>());
+    let counts: Vec<(&str, u64)> = done.counts.iter().map(|(label, n)| (label.as_str(), *n)).collect();
+    assert_eq!(counts, [("tracks", 4), ("playlists", 3), ("folders", 1), ("beat grids", 3), ("cues", 5)]);
+    assert_eq!((&done.notes, &done.warnings), (&export.notes, &export.warnings));
     assert_eq!(files(&drive.root), before, "the drive is only read");
 
     let library = session.calls("drive.library");
@@ -460,8 +470,8 @@ fn serato_crates_are_what_loclib_interop_writes() {
     assert_eq!(written(&output), contents(&export, &output, &output));
     let crates =
         ["Shows", "Shows%%Friday", "All", "Booth"].map(|n| output.join(format!("_Serato_/Subcrates/{n}.crate")));
-    assert_eq!(done.files, crates);
-    assert!(done.warnings.iter().any(|w| w.contains("write_tags writes them into copies")), "{:?}", done.warnings);
+    assert_eq!(paths(&done), crates);
+    assert!(done.notes.iter().any(|n| n.contains("write_tags writes them into copies")), "{:?}", done.notes);
     assert!(session.calls("tracks.analysis").is_empty(), "crates alone carry no analysis");
     session.stop();
 }
@@ -494,7 +504,8 @@ fn serato_tags_go_into_copies_only() {
         let copy = std::fs::read(output.join(copy)).unwrap();
         assert_eq!(copy.len() > original.len(), original.starts_with(b"ID3"), "only the MP3 is tagged");
     }
-    assert!(done.files.contains(&output.join("Contents/Plus/Only Plus.mp3")));
+    let copy = done.files.iter().find(|f| f.path == output.join("Contents/Plus/Only Plus.mp3")).unwrap();
+    assert_eq!(copy.what, "copy of the audio, with Serato's cue tag");
     assert!(
         done.warnings.iter().any(|w| w.contains("1 cue(s) left out")),
         "the memory cue has no place: {:?}",
@@ -518,19 +529,22 @@ fn an_engine_library_is_what_loclib_interop_writes() {
     let output = drive.dir.path().join("for engine");
     let done = session.export("engine", &output, json!({}), false).unwrap();
     let db = output.join("Engine Library/Database2/m.db");
-    assert_eq!(done.files, std::slice::from_ref(&db));
+    assert_eq!(paths(&done), std::slice::from_ref(&db));
     let out = resolved(&output);
     let want = expected(&drive, &[]);
     let export =
         want.build(&drive.root, false, |s| engine::build(s, &out, PathStyle::Relative, &Ctx::silent()).unwrap());
     assert_eq!(written(&output), contents(&export, &out, &output));
-    assert!(done.warnings[1].ends_with("or export with paths = drive to put it on the drive."), "{:?}", done.warnings);
+    assert!(done.notes[1].ends_with("or export with paths = drive to put it on the drive."), "{:?}", done.notes);
     assert!(session.calls("tracks.analysis").is_empty(), "Engine keeps no analysis");
+    let skipped = session.export("engine", &output, json!({ "skip_analysis": true }), true).unwrap();
+    assert_eq!(skipped.notes.last().unwrap(), "skip_analysis changes nothing here: no analysis is written anyway.");
+    assert_eq!(skipped.notes[..skipped.notes.len() - 1], done.notes[..]);
 
     let wal = db.with_file_name("m.db-wal");
     std::fs::write(&wal, b"stale").unwrap();
     let on_drive = json!({ "paths": "drive" });
-    assert_eq!(session.export("engine", &output, on_drive.clone(), true).unwrap().files, std::slice::from_ref(&db));
+    assert_eq!(paths(&session.export("engine", &output, on_drive.clone(), true).unwrap()), std::slice::from_ref(&db));
     assert!(wal.exists(), "a dry run removes nothing");
     session.export("engine", &output, on_drive, false).unwrap();
     assert!(!wal.exists());

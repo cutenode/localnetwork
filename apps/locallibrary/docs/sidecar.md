@@ -280,8 +280,11 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `plugins.op.apply {plan_id}`; it's stale once the drive changes, or a file on this computer
   the plugin worked it out from. `plugins.export.plan {plugin, exporter, drive, playlists?,
   history?, output, options}` (`output` absolute, never on a drive or in the store) answers
-  `{plugin, exporter, output, files, overwrites}`, destructive when it overwrites any, applied by
-  `plugins.export.apply {plan_id}` (`{files, warnings}`). Both applies also take the request,
+  `{plugin, exporter, output, files: [{path, what, bytes, exists}], counts, notes}` (`counts`:
+  labelled numbers of what goes in, in order; `notes`: what the format can't hold and what to
+  do with the files; the library's problems are the plan's `warnings`), destructive when a file
+  `exists` already, applied by `plugins.export.apply {plan_id}` (`{files: [{path, what, bytes}],
+  counts, notes, warnings}`). Both applies also take the request,
   planning and applying in one go. Plugins' plans are kept apart from the rest, so planning with
   plugins never pushes out a plan of locallibrary's own. `plugins.analyze {plugin, analyzer,
   drive, tracks?}` runs an analyzer on the drive's tracks (those it hasn't worked out already),

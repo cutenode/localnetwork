@@ -38,7 +38,7 @@ use crate::{Error, Result};
 pub use analyzers::Analyzed;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
-pub use exports::PluginExport;
+pub use exports::{ExportFile, PluginExport};
 
 use process::Slot;
 pub(crate) use process::THREAD_ELEVATED;

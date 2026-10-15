@@ -29,10 +29,14 @@ version must match.
    - `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
      `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`).
    - `export/write {exporter, source: {drive, playlists, history}, output, options, dry_run,
-     context}` -> `{"files", "warnings"}`. The plugin writes the files; with `dry_run` it only
-     says which it would, so the host can ask before overwriting any. An export reads the
-     drive's whole library as locallibrary combines it; `playlists` and `history` (lists, by
-     name) only narrow which lists go in.
+     context}` -> `{"files": [{path, what, bytes}], "counts", "notes", "warnings"}`. The plugin
+     writes the files; with `dry_run` it only says which it would (`what` each holds, its
+     size as far as it's known), so the host can ask before overwriting any. `counts`
+     (optional) are labelled numbers of what goes in, in the order to show them (`{"tracks":
+     12, "cues": 40}`); `notes` (optional) say what the format can't hold and what to do with
+     the files, `warnings` what's wrong with this library. An export reads the drive's whole
+     library as locallibrary combines it; `playlists` and `history` (lists, by name) only narrow
+     which lists go in.
    - `op/plan {operation, params, context}` -> `{"summary", "warnings", "edits", "inputs"}`,
      where each edit is an `Edit` as the sidecar's `edit.plan` takes it (`{"op":
      "create_playlist", ...}`). locallibrary plans them as one `edit.plan` (one confirmation, one

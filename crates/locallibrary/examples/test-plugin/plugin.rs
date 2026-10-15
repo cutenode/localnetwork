@@ -13,7 +13,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Exported, FieldValue, Host, OpPlan, PlanOp, Plugin, RpcError, RunCommand, WriteExport,
+    Analysis, AnalyzeTrack, Exported, ExportedFile, FieldValue, Host, OpPlan, PlanOp, Plugin, RpcError, RunCommand,
+    WriteExport,
 };
 use serde_json::{Value, json};
 
@@ -98,13 +99,14 @@ impl Plugin for Test {
 
     fn write_export(&self, req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
         if let Some(outside) = req.options["outside"].as_str() {
-            return Ok(Exported { files: vec![outside.into()], warnings: Vec::new() });
+            let file = ExportedFile { path: outside.into(), what: String::new(), bytes: 0 };
+            return Ok(Exported { files: vec![file], ..Exported::default() });
         }
         let extra = req.options["extra"].as_str().filter(|_| !req.dry_run).map(std::path::PathBuf::from);
         let mut exported = echo::Echo.write_export(req, host)?;
         if let Some(extra) = extra {
             std::fs::write(&extra, "more").map_err(|e| RpcError::failed("io", e.to_string()))?;
-            exported.files.push(extra);
+            exported.files.push(ExportedFile { path: extra, what: String::new(), bytes: 4 });
         }
         Ok(exported)
     }

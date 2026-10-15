@@ -138,19 +138,31 @@ fn an_export_is_confirmed_before_it_overwrites() {
         f.plugins.export_plan("echo", "m3u", source.clone(), &out, options, Some(&f.store), &Ctx::silent())
     };
     let planned = plan(Value::Null).unwrap();
-    assert!(!planned.destructive && planned.overwrites.is_empty());
-    assert_eq!(planned.files, std::slice::from_ref(&out));
-    assert!(!out.exists(), "a dry run writes nothing");
-    let written = planned.apply(None, &Ctx::silent()).unwrap();
-    assert_eq!(written.files, std::slice::from_ref(&out));
     let lines: Vec<String> = common::library(&f.drive).tracks.iter().map(|t| t.file_path.clone()).collect();
-    assert_eq!(std::fs::read_to_string(&out).unwrap(), format!("#EXTM3U\n{}\n", lines.join("\n")));
+    let text = format!("#EXTM3U\n{}\n", lines.join("\n"));
+    // As the plugin describes it, and not there yet.
+    let [file] = &planned.files[..] else { panic!("one file") };
+    assert_eq!(
+        (&file.file.path, file.file.what.as_str(), file.file.bytes, file.exists),
+        (&out, "playlist", text.len() as u64, false)
+    );
+    assert_eq!(planned.counts.iter().collect::<Vec<_>>(), [(&"tracks".to_string(), &(lines.len() as u64))]);
+    assert!(!planned.destructive && !out.exists(), "a dry run writes nothing");
+    let written = planned.apply(None, &Ctx::silent()).unwrap();
+    assert_eq!(written.files.iter().map(|f| &f.path).collect::<Vec<_>>(), [&out]);
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), text);
 
     let again = plan(Value::Null).unwrap();
     assert_eq!(&*again.operation, "echo.export.m3u");
     assert!(again.destructive);
-    assert_eq!(again.overwrites, std::slice::from_ref(&out));
-    assert_eq!(again.summary, [format!("write 1 file(s) to {}", out.display()), "overwrite 1 of them".into()]);
+    assert!(again.files[0].exists);
+    let size = locallibrary::op::bytes(text.len() as u64);
+    let summary = [
+        format!("write 1 file(s) ({size}) to {}", out.display()),
+        format!("{} tracks", lines.len()),
+        "overwrite 1 of them".into(),
+    ];
+    assert_eq!(again.summary, summary);
     std::fs::write(&out, "mine").unwrap();
     assert_eq!(again.apply(None, &Ctx::silent()).unwrap_err().code(), "stale_plan");
 

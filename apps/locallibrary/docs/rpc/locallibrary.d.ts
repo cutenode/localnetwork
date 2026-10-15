@@ -7559,17 +7559,53 @@ export type PluginExport = {
   /** The file, or folder, written to. */
   output: string;
   /** The files the export writes. */
-  files: string[];
-  /** Those of them there already, which it overwrites. */
-  overwrites: string[];
+  files: ExportFile[];
+  /** What goes in, in the plugin's words (`{"tracks": 12, "cues": 40}`). */
+  counts: { [key: string]: number };
+  /**
+   * What the format can't hold, and what to do with the files. (Problems with this library
+   * are the plan's warnings.)
+   */
+  notes: string[];
+};
+
+/**
+ * A file an export writes, as the plugin says, and whether it's there already (and so
+ * overwritten).
+ */
+export type ExportFile = {
+  /** Absolute, below the export's `output`. */
+  path: string;
+  /** What it holds, in a few words (`Traktor collection`). */
+  what?: string;
+  /** Its size, as far as it's known before it's written. */
+  bytes: number;
+  exists: boolean;
 };
 
 /** What `export/write` answers. */
 export type Exported = {
-  /** The files written (or, for a dry run, that would be), absolute. */
-  files: string[];
-  /** What the format left out or changed. */
+  /** The files written (or, for a dry run, that would be). */
+  files: PluginExportedFile[];
+  /**
+   * What went in, as labelled numbers in the order to show them (`{"tracks": 12, "cues":
+   * 40}`): the labels are the plugin's own words.
+   */
+  counts?: { [key: string]: number };
+  /** What the format can't hold, and what to do with the files: the same for any library. */
+  notes?: string[];
+  /** Problems with this library: missing audio, cues the format has no room for... */
   warnings: string[];
+};
+
+/** A file an export writes. */
+export type PluginExportedFile = {
+  /** Absolute, below the export's `output`. */
+  path: string;
+  /** What it holds, in a few words (`Traktor collection`). */
+  what?: string;
+  /** Its size, as far as it's known before it's written. */
+  bytes: number;
 };
 
 /** What analysing a drive's tracks did. */

@@ -174,8 +174,9 @@ fn operations_are_confirmed_and_applied_as_edits_are() {
     assert_eq!(again["outcome"], "applied");
 }
 
-/// A plugin's format is one `export --format` takes: a dry run writes nothing, and overwriting
-/// is asked about first (or not, with `--replace`).
+/// A plugin's format is one `export --format` takes: a dry run shows what goes in and each file
+/// (what it holds, its size), writing nothing, and overwriting is asked about first, the file
+/// marked (or not, with `--replace`).
 #[test]
 fn plugins_formats_ask_before_overwriting() {
     let env = env();
@@ -186,13 +187,15 @@ fn plugins_formats_ask_before_overwriting() {
         args.extend(more.iter().map(|m| m.to_string()));
         args
     };
-    env.ok(&strs(&export(&["--dry-run"])));
+    let planned = env.ok(&strs(&export(&["--dry-run"])));
+    assert!(planned.contains("\n• 2 tracks\n"), "{planned}");
+    assert!(planned.contains(&format!("\n  {}  playlist, ", out.display())), "{planned}");
     assert!(!out.exists());
     assert!(env.ok(&strs(&export(&[]))).contains("wrote 1 file(s)"));
     assert!(std::fs::read_to_string(&out).unwrap().starts_with("#EXTM3U\n/Contents/"));
     std::fs::write(&out, "mine").unwrap();
     let asked = env.exits(3, &strs(&export(&[])));
-    assert!(asked.contains("overwrite 1 of them"), "{asked}");
+    assert!(asked.contains("overwrite 1 of them") && asked.contains(" (already there)\n"), "{asked}");
     assert_eq!(std::fs::read_to_string(&out).unwrap(), "mine");
     env.ok(&strs(&export(&["--replace"])));
     assert!(std::fs::read_to_string(&out).unwrap().starts_with("#EXTM3U"));
@@ -353,8 +356,14 @@ fn the_sidecar_hosts_plugins() {
     assert_eq!(wrong["error"]["data"]["kind"], "invalid_params", "{wrong}");
     let planned = result(s.call(16, "plugins.export.plan", export));
     assert_eq!(planned["operation"], "echo.export.echo-m3u");
+    let file = &planned["files"][0];
+    let x = path(&env.outside("x.m3u")).to_string();
+    assert_eq!((&file["path"], &file["what"], &file["exists"]), (&json!(x), &json!("playlist"), &json!(false)));
+    assert_eq!((&planned["counts"], &planned["notes"]), (&json!({ "tracks": 2 }), &json!([])), "{planned}");
     let written = result(s.call(17, "plugins.export.apply", json!({ "plan_id": planned["plan_id"] })));
-    assert_eq!(written["files"], json!([path(&env.outside("x.m3u"))]));
+    let bytes = std::fs::metadata(&x).unwrap().len();
+    assert_eq!(written["files"], json!([{ "path": x, "what": "playlist", "bytes": bytes }]));
+    assert_eq!(file["bytes"], bytes, "a dry run says its size");
 
     // A plan worked out from a file is applied only while the file is as it was.
     let list = env.outside("list.txt");

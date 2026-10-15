@@ -11,6 +11,8 @@ use clap::{Args, ValueEnum};
 use locallibrary::api;
 use locallibrary::export::{Format, PathStyle};
 use locallibrary::interop::{InteropOptions, InteropPlan, Software};
+use locallibrary::op::Planned;
+use locallibrary::plugin::PluginExport;
 use locallibrary::progress::Ctx;
 use loclib_plugin::ExportSource;
 
@@ -264,10 +266,7 @@ fn run_plugin(
     let store = crate::diff_cmd::existing_store(store)?;
     let plan = plugins.export_plan(plugin, &format, source, &output, options, store.as_ref(), ctx)?;
     if !out.json {
-        crate::output::summary(&plan.summary, &plan.warnings);
-        for f in &plan.overwrites {
-            say!("    {} {}", f.display(), dim("(already there)"));
-        }
+        render_export(&plan);
     }
     if plan.noop {
         return Ok(out.nothing(&plan, "nothing to write"));
@@ -282,11 +281,35 @@ fn run_plugin(
     }
     let report = plan.apply(store.as_ref(), ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || {
-        for w in &report.warnings {
+        // Those the plan showed aren't said again.
+        for w in report.warnings.iter().filter(|w| !plan.warnings.contains(w)) {
             warn(w);
         }
         ok(format!("wrote {} file(s) to {}", report.files.len(), output.display()))
     }))
+}
+
+/// A plugin's export as locallibrary's own were shown: what it writes and what goes in, its first
+/// files (what each holds, and those there already), what the format can't hold, then problems
+/// with the library.
+fn render_export(p: &Planned<PluginExport>) {
+    crate::output::summary(&p.summary, &[]);
+    for f in p.files.iter().take(20) {
+        let about =
+            [(!f.file.what.is_empty()).then(|| f.file.what.clone()), (f.file.bytes > 0).then(|| bytes(f.file.bytes))];
+        let about = about.into_iter().flatten().collect::<Vec<_>>().join(", ");
+        let replaces = if f.exists { " (already there)" } else { "" };
+        say!("  {}  {}{replaces}", f.file.path.display(), dim(about));
+    }
+    if p.files.len() > 20 {
+        say!("  {}", dim(format!("... and {} more", p.files.len() - 20)));
+    }
+    for n in &p.notes {
+        say!("  {}", dim(n));
+    }
+    for w in &p.warnings {
+        warn(w);
+    }
 }
 
 fn render_plan(p: &InteropPlan, dry_run: bool) {

@@ -44,8 +44,9 @@ with each other are both left out.
   store. `locallibrary track LIBRARY --track ID` shows them under the track's details, each as
   `ID.FIELD` (`sound.bpm`).
 - **Export formats** are `locallibrary export LIBRARY --format FORMAT -o PATH`, with the
-  plugin's options as `--option KEY=VALUE`. `--dry-run` lists what it would write, and
-  overwriting a file is asked about first unless `--replace`.
+  plugin's options as `--option KEY=VALUE`. `--dry-run` lists what it would write (each file,
+  what goes in, what the format can't hold), and overwriting a file is asked about first unless
+  `--replace`.
 - **Settings**: `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets
   one and `plugin settings ID KEY --reset` puts it back to its default. They're kept in the store
   (`plugins/ID/settings.json`).

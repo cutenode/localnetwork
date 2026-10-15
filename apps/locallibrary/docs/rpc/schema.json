@@ -29356,16 +29356,25 @@
         "files": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/ExportFile"
           },
           "description": "The files the export writes."
         },
-        "overwrites": {
+        "counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "description": "What goes in, in the plugin's words (`{\"tracks\": 12, \"cues\": 40}`)."
+        },
+        "notes": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "Those of them there already, which it overwrites."
+          "description": "What the format can't hold, and what to do with the files. (Problems with this library\nare the plan's warnings.)"
         }
       },
       "required": [
@@ -29373,9 +29382,39 @@
         "exporter",
         "output",
         "files",
-        "overwrites"
+        "counts",
+        "notes"
       ],
       "description": "An export a plugin will write."
+    },
+    "ExportFile": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute, below the export's `output`."
+        },
+        "what": {
+          "type": "string",
+          "description": "What it holds, in a few words (`Traktor collection`)."
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Its size, as far as it's known before it's written.",
+          "default": 0
+        },
+        "exists": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "bytes",
+        "exists"
+      ],
+      "description": "A file an export writes, as the plugin says, and whether it's there already (and so\noverwritten)."
     },
     "Exported": {
       "type": "object",
@@ -29383,16 +29422,32 @@
         "files": {
           "type": "array",
           "items": {
+            "$ref": "#/$defs/PluginExportedFile"
+          },
+          "description": "The files written (or, for a dry run, that would be)."
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "description": "What went in, as labelled numbers in the order to show them (`{\"tracks\": 12, \"cues\":\n40}`): the labels are the plugin's own words."
+        },
+        "notes": {
+          "type": "array",
+          "items": {
             "type": "string"
           },
-          "description": "The files written (or, for a dry run, that would be), absolute."
+          "description": "What the format can't hold, and what to do with the files: the same for any library."
         },
         "warnings": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "What the format left out or changed.",
+          "description": "Problems with this library: missing audio, cues the format has no room for...",
           "default": []
         }
       },
@@ -29401,6 +29456,31 @@
         "warnings"
       ],
       "description": "What `export/write` answers."
+    },
+    "PluginExportedFile": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute, below the export's `output`."
+        },
+        "what": {
+          "type": "string",
+          "description": "What it holds, in a few words (`Traktor collection`)."
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "description": "Its size, as far as it's known before it's written.",
+          "default": 0
+        }
+      },
+      "required": [
+        "path",
+        "bytes"
+      ],
+      "description": "A file an export writes."
     },
     "Analyzed": {
       "type": "object",

@@ -208,8 +208,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   commands and operations to the command line (`locallibrary ID NAME`, or where the plugin puts
   them, like `playlist import`), with flags made from their params' JSON Schemas; an operation's
   plan is shown and asked about like any edit. `analyze` runs their analyzers on a library's
-  tracks and `track` shows what they worked out; `export --format` takes their formats, asking
-  before overwriting a file; `plugin` lists them and what each may do, and `plugin settings`
+  tracks and `track` shows what they worked out; `export --format` takes their formats, showing
+  each file, what goes in and what the format can't hold, and asking before overwriting a file; `plugin` lists them and what each may do, and `plugin settings`
   keeps their settings. The sidecar has all of it as `plugins.*` methods, their plans kept apart
   from locallibrary's own, and `track.fields` reads the installed plugins' versions. A plugin
   whose id or commands clash with locallibrary's or another plugin's is left out, with a warning
