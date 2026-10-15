@@ -1,5 +1,5 @@
 name: Feature request
-description: Something you'd like Local Network or locallibrary to do
+description: Something you'd like Local Network, locallibrary or localtoolbox to do
 labels: ["enhancement"]
 body:
   - type: dropdown
@@ -9,7 +9,8 @@ body:
       options:
         - Local Network (the website)
         - locallibrary
-        - Both, or something new
+        - localtoolbox
+        - More than one, or something new
     validations:
       required: true
 
