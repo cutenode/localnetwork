@@ -15,6 +15,15 @@ pub use crate::files::copy_dir;
 
 pub const PDB: &str = "PIONEER/rekordbox/export.pdb";
 
+/// `secs` of test signal `seed` at `rate` and `bits` bits, after `delay_ms` of silence, as a WAV.
+pub fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: usize) -> Vec<u8> {
+    use loclib_mixid::test_util::{resample, synth, wav_of};
+    let mut pcm = vec![0.0f32; rate as usize * delay_ms / 1000];
+    pcm.extend(resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate));
+    let scale = 12_000.0 * f32::from(1u16 << (bits - 16));
+    wav_of(rate, bits, pcm.iter().map(|s| (s * scale) as i32))
+}
+
 /// The library's test fixtures: real rekordbox exports (see the README there).
 pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures")

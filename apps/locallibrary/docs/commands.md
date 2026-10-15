@@ -138,7 +138,7 @@ its drives.
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--dry-run]` | The library for other DJ software, written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
 | `locallibrary export <library> [PLAYLIST] --format FORMAT -o PATH [--option KEY=VALUE]... [--dry-run] [--replace]` | A format a plugin adds; overwriting a file is asked about first unless `--replace`, see [Plugins](plugins.md) |
-| `locallibrary analyze [<library>] [--plugin ID] [--analyzer NAME] [--track ID]...` | Run plugins' analyzers on a library's tracks, once each; `track` shows what they worked out (only when a plugin has an analyzer), see [Plugins](plugins.md) |
+| `locallibrary analyze [<library>] [--plugin ID] [--analyzer NAME] [--track ID]...` | Run plugins' analyzers on a library's tracks, once each; `track` shows what they worked out as `PLUGIN.FIELD` (`sound.bpm`), see [Plugins](plugins.md) |
 | `locallibrary xml [<library>] -o rekordbox.xml [--only PLAYLIST]` | Export as rekordbox XML (`--only`: just those playlists or folders and their tracks) |
 
 **Editing**

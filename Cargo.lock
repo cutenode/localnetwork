@@ -3953,6 +3953,8 @@ dependencies = [
  "jsonschema",
  "libc",
  "locallibrary",
+ "locallibrary-plugin-coverart",
+ "locallibrary-plugin-sound",
  "loclib-mixid",
  "loclib-plugin",
  "loclib-progress",

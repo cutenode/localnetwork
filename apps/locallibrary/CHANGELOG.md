@@ -204,7 +204,7 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   analyzers' fields and each plugin's settings, and never starts one from an elevated process.
   An edit plan is destructive, and says so, when it leaves a playlist with fewer entries or
   deletes cues or My Tags, too.
-- **Plugins.** The plugins built into locallibrary (none yet; only built-in ones run) add
+- **Plugins.** The plugins built into locallibrary (only built-in ones run) add
   commands and operations to the command line (`locallibrary ID NAME`, or where the plugin puts
   them, like `playlist import`), with flags made from their params' JSON Schemas; an operation's
   plan is shown and asked about like any edit. `analyze` runs their analyzers on a library's

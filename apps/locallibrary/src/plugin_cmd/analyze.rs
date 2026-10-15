@@ -63,9 +63,10 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
         .filter(|(_, a)| args.analyzer.as_deref().is_none_or(|n| n == *a))
         .collect();
     if selected.is_empty() {
-        return Err(usage(match &args.analyzer {
-            Some(a) => format!("no plugin has an analyzer {a:?} (`locallibrary plugin list` lists them)"),
-            None => "no plugin locallibrary has analyses tracks".into(),
+        return Err(usage(match (&args.analyzer, &args.plugin) {
+            (Some(a), _) => format!("no plugin has an analyzer {a:?} (`locallibrary plugin list` lists them)"),
+            (None, Some(p)) => format!("the {p} plugin has no analyzer"),
+            (None, None) => "no plugin locallibrary has analyses tracks".into(),
         }));
     }
     let drive = crate::jobs_cmd::drive_or_default(args.drive, store_path, "analyze")?;
