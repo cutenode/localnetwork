@@ -2,6 +2,13 @@
 	"$schema": "https://unpkg.com/knip@6/schema.json",
 	"entry": ["src/routes/**/+*.{ts,svelte}", "scripts/*.ts", "tests/**/*.ts", "src/**/*.test.ts"],
 	"project": ["src/**/*.{ts,svelte}", "scripts/**/*.ts", "tests/**/*.ts"],
-	"ignoreDependencies": ["@tailwindcss/forms", "@tailwindcss/typography", "@fontsource/vt323", "tailwindcss"],
+	"ignoreDependencies": [
+		"@tailwindcss/forms",
+		"@tailwindcss/typography",
+		"@fontsource/vt323",
+		"@fontsource-variable/instrument-sans",
+		"@fontsource-variable/jetbrains-mono",
+		"tailwindcss"
+	],
 	"ignoreExportsUsedInFile": true
 }

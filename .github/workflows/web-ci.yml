@@ -41,7 +41,7 @@ jobs:
   # `pnpm test:build` builds the app and checks what ships to the browser: no sourcemaps, and the
   # client bundle within its budget.
   verify:
-    name: Format, lint, types, unit tests, build
+    name: Format, lint, types, unit tests, stories, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -63,6 +63,7 @@ jobs:
       - run: pnpm knip
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test
+      - run: pnpm test:storybook
       - run: pnpm test:build
 
   integration:
