@@ -8,13 +8,13 @@ use anyhow::{Result, bail};
 use clap::Args;
 use indexmap::IndexMap;
 use locallibrary::api::{self, LibraryCache, PluginFieldsRequest};
-use locallibrary::fields::PluginsFields;
+use locallibrary::fields::{FieldValue, PluginsFields};
 use locallibrary::plugin::Analyzed;
 use locallibrary::progress::Ctx;
 use serde::Serialize;
 
 use crate::jobs_cmd::usage;
-use crate::output::{self, Outcome, Output, dim, ok, warn};
+use crate::output::{self, Outcome, Output, ok, warn};
 use crate::plugins::{self, params::cell};
 
 /// `analyze`.
@@ -114,14 +114,17 @@ pub fn fields(drive: &str, tracks: Vec<u32>, store_path: &Option<PathBuf>) -> Re
     Ok(read.tracks.into_iter().map(|t| (t.track, t.plugins)).collect())
 }
 
-/// A track's fields under its details (`track show`).
+/// A track's fields under its details (`track show`), each named by its plugin's id and its own
+/// (`sound.bpm`): a plugin's analyzers never share a field name, so which one filled it is left
+/// out. Aligned with the details above, or with the longest name.
 pub fn show_fields(fields: &PluginsFields) {
-    for (plugin, analyzers) in fields {
-        for (analyzer, values) in analyzers {
-            for (name, value) in values {
-                let value = serde_json::to_value(value).unwrap_or_default();
-                say!("  {name:<11} {}  {}", cell(&value), dim(format!("{plugin} {analyzer}")));
-            }
-        }
+    let named: Vec<(String, &FieldValue)> = fields
+        .iter()
+        .flat_map(|(plugin, analyzers)| analyzers.values().flatten().map(move |(n, v)| (format!("{plugin}.{n}"), v)))
+        .collect();
+    let width = named.iter().map(|(name, _)| name.len()).max().unwrap_or(0).max(11);
+    for (name, value) in named {
+        let value = serde_json::to_value(value).unwrap_or_default();
+        say!("  {name:<width$} {}", cell(&value));
     }
 }

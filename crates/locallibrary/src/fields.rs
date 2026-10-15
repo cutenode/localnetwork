@@ -58,7 +58,7 @@ pub struct FieldStore {
 }
 
 /// Whether `s` can name a folder: plugin ids, versions and analyzers are short names
-/// (`analysis`, `0.1.0`, `tempo`).
+/// (`sound`, `0.1.0`, `tempo-key-loudness`).
 fn is_name(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('.') && s.chars().all(|c| c.is_ascii_alphanumeric() || "._+-".contains(c))
 }

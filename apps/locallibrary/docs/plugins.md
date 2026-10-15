@@ -31,7 +31,8 @@ with each other are both left out.
   back.
 - **Analyzers** run with `locallibrary analyze [LIBRARY] [--plugin ID] [--analyzer NAME]`, which
   works out each track's values once (again only for a changed audio file) and keeps them in the
-  store. `locallibrary track LIBRARY --track ID` shows them under the track's details.
+  store. `locallibrary track LIBRARY --track ID` shows them under the track's details, each as
+  `ID.FIELD` (`sound.bpm`).
 - **Export formats** are `locallibrary export LIBRARY --format FORMAT -o PATH`, with the
   plugin's options as `--option KEY=VALUE`. `--dry-run` lists what it would write, and
   overwriting a file is asked about first unless `--replace`.

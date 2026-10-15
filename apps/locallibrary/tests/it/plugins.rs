@@ -207,7 +207,7 @@ fn analyzers_fill_in_track_details() {
     let audio = env.volumes.join("USB").join(shown[0]["track"]["file_path"].as_str().unwrap().trim_start_matches('/'));
     let bytes = std::fs::metadata(audio).unwrap().len();
     assert_eq!(shown[0]["fields"], json!({ "echo": { "size": { "bytes": bytes } } }));
-    assert!(env.ok(&["track", "USB", "--track", "1"]).contains(&format!("bytes       {bytes}  echo size")));
+    assert!(env.ok(&["track", "USB", "--track", "1"]).contains(&format!("echo.bytes  {bytes}\n")));
     assert!(env.fails(2, &["analyze", "USB", "--analyzer", "tempo"]).contains("no plugin has an analyzer \"tempo\""));
     // Without the plugin, nothing it worked out is shown.
     let mut without = env;

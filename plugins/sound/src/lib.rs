@@ -1,7 +1,7 @@
-//! locallibrary's sound analysis plugin: one analyzer, `sound`, measuring a track's tempo, key
-//! and loudness from its audio with loclib-analysis, as doctor's `--analyze` does, for the host
-//! to keep and show as track-list columns. It reads nothing but the audio file it's handed, so it
-//! asks for no capabilities.
+//! locallibrary's sound analysis plugin, `sound`: one analyzer, `tempo-key-loudness`, measuring a
+//! track's tempo, key and loudness from its audio with loclib-analysis, as doctor's `--analyze`
+//! does, for the host to keep and show as track-list columns (`sound.bpm`). It reads nothing but
+//! the audio file it's handed, so it asks for no capabilities.
 
 use std::io::{Read, Write};
 

@@ -3976,19 +3976,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "locallibrary-plugin-analysis"
-version = "0.1.0"
-dependencies = [
- "hegeltest",
- "loclib-analysis",
- "loclib-mixid",
- "loclib-plugin",
- "loclib-progress",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "locallibrary-plugin-coverart"
 version = "0.1.0"
 dependencies = [
@@ -4016,6 +4003,19 @@ dependencies = [
  "rusqlite",
  "rustc-hash",
  "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-sound"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-analysis",
+ "loclib-mixid",
+ "loclib-plugin",
+ "loclib-progress",
  "serde_json",
  "tempfile",
 ]
