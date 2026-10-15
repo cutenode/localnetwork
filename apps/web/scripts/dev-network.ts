@@ -10,7 +10,7 @@
  *   pnpm dev:network          # the network only; then, in another terminal: pnpm dev:app
  */
 import { spawn } from 'node:child_process';
-import { rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { asDid, AtpAgent } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
@@ -54,6 +54,18 @@ const ACCOUNTS = [
 const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
 
 async function main() {
+	// The PDS's better-sqlite3 is built for the Node that ran `pnpm install`, which engineStrict holds to
+	// .node-version, but nothing checks the Node a script runs on, so another one crashes deep in the PDS.
+	const nodeVersion = readFileSync(new URL('../../../.node-version', import.meta.url), 'utf8').trim();
+	const isNodeVersion = process.versions.node.split('.')[0] === nodeVersion.split('.')[0];
+
+	if (!isNodeVersion) {
+		console.error(
+			`This repo runs on Node.js ${nodeVersion} (.node-version), not ${process.version}. Run \`fnm use\`, then try again.`
+		);
+		process.exit(1);
+	}
+
 	// First, so a missing Docker fails right away with what to do instead of after the seeding.
 	await checkDocker().catch((error) => {
 		console.error(error instanceof Error ? error.message : error);
