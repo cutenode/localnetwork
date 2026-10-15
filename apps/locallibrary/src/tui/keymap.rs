@@ -180,6 +180,9 @@ pub enum Act {
     MixZoom,
     MixExport,
     MixReport,
+    /// A plugin's command, by the plugin's id and its name (from the palette and the drive
+    /// menu, never a key).
+    Plugin(&'static str, &'static str),
 }
 
 /// The help's sections.
@@ -368,7 +371,7 @@ pub static KEYMAP: &[Binding] = &[
     // The Drives and Snapshots views
     // -----------------------------------------------------------------------------------------
     note(S::Drives, "enter", "open the drive in the library (a library: its newest clone)", G::Drives),
-    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
+    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject, plugins' commands; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
     tip(S::Drives, "↑↓", "select", 4),
     tip(S::Drives, "enter", "browse", 9),
     tip(S::Drives, "e", "actions", 8),
@@ -494,7 +497,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "4", A::ShowView(View::Profile), "the DJ profile", "", G::Player),
     key(S::Global, &[], "5", A::ShowView(View::Mixes), "recorded mixes", "", G::Player),
     key(S::Global, &[K::Ch('R'), K::Code(C::F(5))], "R  F5", A::Refresh, "refresh: read the drive and the view again", "read again: the drive, the drives' status, the snapshots, the profile, the recordings", G::Player),
-    key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), and the commands with no key", G::Player).hint("commands", 6),
+    key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), the commands with no key, and plugins' commands", G::Player).hint("commands", 6),
     key(S::Global, &[K::Ch('?')], "?", A::Help, "the keys", "this help", G::Player).hint("help", 5),
     key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the footer said since starting", G::Player),
     // Commands with no key of their own, for the drive open in the library (the selected one in

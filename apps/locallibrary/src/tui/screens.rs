@@ -342,6 +342,38 @@ fn command_palette() {
     check(&mut app, "the library", &[": commands"], &[]);
 }
 
+/// A plugin's command in the palette, its form and what it answers, from the plugins' manifests.
+#[test]
+fn plugins() {
+    let Fixture { _dir, mut app, .. } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    app.focus = Focus::Tracks;
+    for c in ":answer the params".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    check(&mut app, "a plugin's command in the palette", &["Answer the params", "Echo"], &[]);
+    key(&mut app, KeyCode::Enter);
+    check(
+        &mut app,
+        "a plugin's form",
+        &["Answer the params", "name", "required", "loud", "○ no", "Who to greet", "enter run · esc cancel"],
+        &[],
+    );
+    key(&mut app, KeyCode::Enter);
+    check(&mut app, "a plugin's form, short of a param", &["⚠ name is needed"], &[]);
+    key(&mut app, KeyCode::Esc);
+    let rows = vec![vec![serde_json::json!("Demo Track 1"), serde_json::json!(128)]];
+    let view =
+        loclib_plugin::View::Table { title: Some("Titles".into()), columns: vec!["Title".into(), "BPM".into()], rows };
+    app.show_answer("List the drive's tracks".into(), locallibrary::plugin::CommandOutput::View(view));
+    check(
+        &mut app,
+        "a plugin's table",
+        &["Titles", "Title         BPM", "Demo Track 1  128", "any other key closes"],
+        &[],
+    );
+}
+
 #[test]
 fn edit_menu_and_confirmation() {
     let Fixture { _dir, mut app, root } = fixture();

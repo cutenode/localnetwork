@@ -710,6 +710,8 @@ pub enum Msg {
     Opened(u64, Result<audio::OpenedFile, String>),
     /// Something background work has to say (a report written, say).
     Note(String, Level),
+    /// A line of a plugin's log, for the messages (`!`) alone.
+    Log(String),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
@@ -1010,7 +1012,7 @@ pub struct App {
     /// Said on the terminal after the screen is put back (how a write that ended the run went).
     pub exit_message: Option<String>,
     /// Drives opened by path that aren't mounted volumes (a folder holding an export).
-    extra_roots: Vec<PathBuf>,
+    pub(super) extra_roots: Vec<PathBuf>,
     /// Look at no drives but those it's given: the mounted ones aren't listed, nor their status
     /// read (tests, which mustn't touch the machine's drives).
     offline: bool,
@@ -1369,10 +1371,7 @@ impl App {
     /// Say something in the footer (and the log).
     pub fn toast(&mut self, msg: impl Into<String>, level: Level) {
         let msg = msg.into();
-        if self.log.len() >= LOG {
-            self.log.pop_front();
-        }
-        self.log.push_back((msg.clone(), level, Instant::now()));
+        self.remember(msg.clone(), level);
         // An error that wasn't dismissed stays on screen, above what came after it.
         if let Some((m, Level::Error, _)) = self.toast.take()
             && m != msg
@@ -1380,6 +1379,22 @@ impl App {
             self.held = Some(m);
         }
         self.toast = Some((msg, level, Instant::now()));
+    }
+
+    /// Keep a message in the log (`!`).
+    fn remember(&mut self, msg: String, level: Level) {
+        if self.log.len() >= LOG {
+            self.log.pop_front();
+        }
+        self.log.push_back((msg, level, Instant::now()));
+    }
+
+    /// Where plugins' logs go while the player runs: each line, with the plugin's id, to the log.
+    pub(super) fn plugin_log(&self) -> locallibrary::plugin::Log {
+        let tx = self.sender();
+        Arc::new(move |id, line| {
+            let _ = tx.send(Msg::Log(format!("{id}: {line}")));
+        })
     }
 
     /// Esc with an error on screen: put it away. Returns whether there was one.
@@ -1751,6 +1766,7 @@ impl App {
             }
             Msg::Opened(id, r) => self.opened(id, r),
             Msg::Note(msg, level) => self.toast(msg, level),
+            Msg::Log(line) => self.remember(line, Level::Info),
             Msg::TrackInfo(id, info) => {
                 let upcoming = self.upcoming.as_mut().map(|u| &mut u.now);
                 if let Some(now) = self.now.as_mut().into_iter().chain(upcoming).find(|n| n.id == id) {
@@ -3190,6 +3206,7 @@ impl App {
             Act::SmartNew => self.smart_from_search(),
             Act::ExportList => self.export_list(),
             Act::ExportXml => self.export_xml(),
+            Act::Plugin(plugin, name) => self.plugin_act(plugin, name, None),
             Act::Details => {
                 self.show_details = !self.show_details;
                 if !self.show_details && self.focus == Focus::Details {
@@ -3552,11 +3569,10 @@ impl App {
 
     /// Clicks while a dialog is open: menu items can be clicked; a click elsewhere closes it.
     fn on_modal_mouse(&mut self, m: MouseEvent) {
-        if let Some(Modal::Pick(_)) = &self.modal {
-            if let Some(Modal::Pick(p)) = self.modal.take() {
-                self.on_picker_mouse(p, m);
-            }
-            return;
+        match self.modal.take() {
+            Some(Modal::Pick(p)) => return self.on_picker_mouse(p, m),
+            Some(Modal::Form(f)) => return self.on_form_mouse(f, m),
+            other => self.modal = other,
         }
         if m.kind != MouseEventKind::Down(MouseButton::Left) {
             return;

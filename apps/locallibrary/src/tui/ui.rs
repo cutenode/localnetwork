@@ -62,6 +62,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Some(Modal::Ask(q, _)) => draw_ask(f, q.clone(), f.area()),
         Some(Modal::Pick(_)) => draw_picker(f, app, f.area()),
         Some(Modal::Report(_)) => draw_report(f, app, f.area()),
+        Some(Modal::Form(_)) => draw_form(f, app, f.area()),
         Some(Modal::Prompt(_)) | None => {}
     }
     if app.deck.outputs.is_some() {
@@ -312,7 +313,7 @@ fn message_lines(msg: &str, level: Level, width: u16) -> Vec<Line<'static>> {
 fn draw_toasts(f: &mut Frame, app: &App, area: Rect, footer: Rect) {
     let dialog = matches!(
         app.modal,
-        Some(Modal::Menu(_) | Modal::Confirm(_) | Modal::Ask(..) | Modal::Pick(_) | Modal::Report(_))
+        Some(Modal::Menu(_) | Modal::Confirm(_) | Modal::Ask(..) | Modal::Pick(_) | Modal::Report(_) | Modal::Form(_))
     );
     let footer_busy = matches!(app.modal, Some(Modal::Prompt(_))) || app.searching || app.picking.is_some();
     let mut lines: Vec<Line> = Vec::new();
@@ -2396,7 +2397,8 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
     app.areas.menu = r;
 }
 
-/// Results to read (a check's): a panel that scrolls, closed by any other key.
+/// Results to read (a check's, a plugin's command's): a panel that scrolls, closed by any other
+/// key.
 fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     use super::drives::Tone;
     let Some(Modal::Report(r)) = &mut app.modal else { return };
@@ -2409,10 +2411,15 @@ fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
             Tone::Ok => ("✓ ", fg(theme::GREEN)),
             Tone::Warning => ("⚠ ", fg(theme::AMBER)),
             Tone::Problem => ("✖ ", fg(theme::RED)),
-            Tone::Text => ("", text()),
+            Tone::Text | Tone::Row => ("", text()),
             Tone::Faint => ("", faint()),
+            Tone::Columns => ("", dim()),
         };
-        for (i, part) in wrap_text(text_, inner_w.saturating_sub(mark.chars().count())).into_iter().enumerate() {
+        let parts = match tone {
+            Tone::Columns | Tone::Row => vec![clip(text_, inner_w)],
+            _ => wrap_text(text_, inner_w.saturating_sub(mark.chars().count())),
+        };
+        for (i, part) in parts.into_iter().enumerate() {
             let lead = if i == 0 { mark.to_string() } else { " ".repeat(mark.chars().count()) };
             lines.push(Line::from(vec![Span::styled(lead, style), Span::styled(part, style)]));
         }
@@ -2426,6 +2433,65 @@ fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     r.scroll = r.scroll.min(total.saturating_sub(inner.height));
     f.render_widget(Clear, r_area);
     f.render_widget(Paragraph::new(lines).scroll((r.scroll, 0)).block(b), r_area);
+}
+
+/// A plugin's params to fill in: a row for each field (its label, then what's typed or picked),
+/// then what the selected one is for, and why what's filled in won't do.
+fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
+    use unicode_width::UnicodeWidthStr;
+    let Some(Modal::Form(form)) = &app.modal else { return };
+    let w = 72u16.min(area.width.saturating_sub(2));
+    let inner_w = w.saturating_sub(4) as usize;
+    let label_w = form.fields.iter().map(|x| x.label().width()).max().unwrap_or(0).min(inner_w / 3);
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, field) in form.fields.iter().enumerate() {
+        let on = i == form.selected;
+        let mut spans = vec![
+            Span::styled(if on { "▍" } else { " " }, fg(theme::PINK)),
+            Span::styled(
+                format!("{:<label_w$}  ", clip(&field.label(), label_w)),
+                if on { bold(theme::FG) } else { dim() },
+            ),
+        ];
+        let room = inner_w.saturating_sub(label_w + 3);
+        match field.text.as_str() {
+            "true" if field.is_switch() => spans.push(Span::styled("● yes", fg(theme::PINK))),
+            _ if field.is_switch() => spans.push(Span::styled("○ no", faint())),
+            picked if !field.choices().is_empty() => {
+                spans.push(Span::styled("‹ ", faint()));
+                spans.push(Span::styled(if picked.is_empty() { "none" } else { picked }.to_string(), text()));
+                spans.push(Span::styled(" ›", faint()));
+            }
+            typed if on => {
+                spans.push(Span::styled(typed_tail(typed, room.saturating_sub(1)).to_string(), bold(theme::FG)));
+                spans.push(Span::styled("▏", fg(theme::PINK)));
+            }
+            typed => spans.push(Span::styled(clip(typed, room), text())),
+        }
+        if field.required && field.text.is_empty() {
+            spans.push(Span::styled("required", faint()));
+        }
+        let line = Line::from(spans);
+        lines.push(if on { line.style(theme::selected()) } else { line });
+    }
+    let selected = &form.fields[form.selected];
+    let about = selected.schema["description"].as_str().or(selected.schema["title"].as_str()).unwrap_or_default();
+    if !about.is_empty() {
+        lines.push(Line::raw(""));
+        lines.extend(wrap_text(about, inner_w).into_iter().map(|l| Line::styled(l, dim())));
+    }
+    if let Some(e) = &form.error {
+        lines.push(Line::raw(""));
+        lines.extend(wrap_text(&format!("⚠ {e}"), inner_w).into_iter().map(|l| Line::styled(l, fg(theme::AMBER))));
+    }
+    let r = popup(area, w, lines.len() as u16 + 2, None);
+    let keys = if selected.choices().is_empty() { "" } else { "←→ change · " };
+    let b = block(title(&form.title, true), true)
+        .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter run · esc cancel "), faint()).right_aligned())
+        .padding(ratatui::widgets::Padding::horizontal(1));
+    f.render_widget(Clear, r);
+    f.render_widget(Paragraph::new(lines).block(b), r);
+    app.areas.menu = r;
 }
 
 /// The outputs to play through (`d`), the system's default first.

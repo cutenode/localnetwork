@@ -182,9 +182,10 @@ pub fn commands(view: View) -> Vec<(Act, Item)> {
 }
 
 impl App {
-    /// `:`: every action by name.
+    /// `:`: every action by name, then plugins' commands.
     pub(super) fn open_palette(&mut self) {
-        let (acts, items): (Vec<Act>, Vec<Item>) = commands(self.view).into_iter().unzip();
+        let (acts, items): (Vec<Act>, Vec<Item>) =
+            commands(self.view).into_iter().chain(self.plugin_commands(self.action_drive().as_deref())).unzip();
         let mut p = Picker::new("Commands", items, Then::Act(acts));
         p.empty = "no command has those letters";
         self.modal = Some(Modal::Pick(p));

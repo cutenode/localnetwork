@@ -1,5 +1,5 @@
-//! The plugins locallibrary ships, and the host the CLI and the sidecar run them in (see
-//! [`locallibrary::plugin`]). Only plugins linked into this binary run: each is started as
+//! The plugins locallibrary ships, and the host the CLI, the player and the sidecar run them in
+//! (see [`locallibrary::plugin`]). Only plugins linked into this binary run: each is started as
 //! `locallibrary plugin serve <id>`, a process of its own speaking the plugin protocol over its
 //! stdin and stdout. A plugin whose id or contributions locallibrary couldn't tell from its own
 //! commands, the sidecar's methods or another plugin's is left out (see [`check`]): the command
@@ -8,12 +8,13 @@
 
 pub mod params;
 
-use std::sync::{Arc, OnceLock};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
-use locallibrary::plugin::{Launch, Options, PluginSpec, Plugins, Reads};
+use locallibrary::plugin::{Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
 use loclib_plugin::{Capability, Manifest};
@@ -82,7 +83,8 @@ pub fn checked() -> Option<&'static Plugins> {
     LOADED.get()?.as_ref().ok().map(|l| &l.plugins)
 }
 
-/// The host the CLI and the sidecar run plugins in. Plugins start when they're first used.
+/// The host the CLI, the player and the sidecar run plugins in. Plugins start when they're first
+/// used.
 pub fn host() -> Result<&'static Plugins> {
     Ok(&loaded()?.plugins)
 }
@@ -102,7 +104,7 @@ fn load() -> Result<Loaded> {
         found.push((manifest, Serves::Test));
     }
     let (mut specs, mut serves, mut left_out) = (Vec::new(), FxHashMap::default(), Vec::new());
-    let program = std::env::current_exe().map_err(|e| Error::Invalid(format!("where locallibrary is: {e}")))?;
+    let program = exe().map_err(|e| Error::Invalid(format!("where locallibrary is: {e}")))?;
     let mut all = Vec::new();
     for (manifest, how) in found {
         // The shell's completion request would have it answer that instead of serving.
@@ -122,7 +124,41 @@ fn load() -> Result<Loaded> {
             }
         }
     }
-    Ok(Loaded { plugins: Plugins::new(specs, Arc::new(SidecarReads), Options::default())?, serves, left_out })
+    let stderr = Options::default().log;
+    let log: Log = Arc::new(move |id, line| match LOG.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+        Some(log) => log(id, line),
+        None => stderr(id, line),
+    });
+    let options = Options { log, ..Options::default() };
+    Ok(Loaded { plugins: Plugins::new(specs, Arc::new(SidecarReads), options)?, serves, left_out })
+}
+
+/// Where plugins' logs go instead of stderr, while the player draws on the terminal.
+static LOG: Mutex<Option<Log>> = Mutex::new(None);
+
+/// Sends plugins' logs to `log` (the player's messages), or with `None` back to stderr.
+#[cfg(feature = "tui")]
+pub fn log_to(log: Option<Log>) {
+    *LOG.lock().unwrap_or_else(PoisonError::into_inner) = log;
+}
+
+/// The locallibrary binary, which serves the plugins.
+#[cfg(not(test))]
+fn exe() -> std::io::Result<PathBuf> {
+    std::env::current_exe()
+}
+
+/// A unit test's binary is the test harness, which can't serve a plugin: the locallibrary binary
+/// cargo builds beside it for the integration tests does.
+#[cfg(test)]
+fn exe() -> std::io::Result<PathBuf> {
+    let deps = std::env::current_exe()?;
+    let dir = deps.parent().and_then(|d| d.parent()).ok_or_else(|| std::io::Error::other("no target folder"))?;
+    let exe = dir.join(format!("locallibrary{}", std::env::consts::EXE_SUFFIX));
+    match exe.is_file() {
+        true => Ok(exe),
+        false => Err(std::io::Error::other(format!("{} isn't built (cargo build)", exe.display()))),
+    }
 }
 
 /// A name a plugin adds where it must be its alone (the command line, `export --format`): whose

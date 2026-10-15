@@ -361,8 +361,10 @@ pub enum Modal {
     Ask(String, Box<dyn FnOnce(&mut App)>),
     /// A list to choose from by typing: the command palette, or an answer an action needs.
     Pick(super::palette::Picker),
-    /// Results to read (a check's).
+    /// Results to read (a check's, a plugin's command's).
     Report(Report),
+    /// A plugin's params to fill in.
+    Form(super::form::Form),
 }
 
 /// Choosing the playlist to add tracks to, in the sidebar tree.
@@ -655,6 +657,7 @@ impl App {
                 }
             },
             Modal::Pick(p) => self.on_picker_key(p, key),
+            Modal::Form(f) => self.on_form_key(f, key),
             Modal::Report(mut r) => {
                 r.scroll = match key.code {
                     KeyCode::Up | KeyCode::Char('k') => r.scroll.saturating_sub(1),
