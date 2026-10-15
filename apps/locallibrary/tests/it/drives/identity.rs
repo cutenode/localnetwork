@@ -145,6 +145,7 @@ fn the_registry_says_how_far_behind_each_drive_is() {
 
 /// Times print on this computer's calendar, whatever day it is in UTC, and `--json` keeps UTC.
 #[test]
+#[cfg_attr(windows, ignore = "chrono reads TZ only on Unix; Windows takes the zone from its settings")]
 fn times_print_in_the_local_time_zone() {
     use chrono::Timelike;
     // A zone whose date isn't UTC's for at least the next hour: 12 hours behind before 11:00 UTC,
