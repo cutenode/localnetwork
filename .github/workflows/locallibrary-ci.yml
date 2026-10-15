@@ -11,6 +11,7 @@ on:
     paths: &paths
       - "apps/locallibrary/**"
       - "crates/**"
+      - "plugins/**"
       - "vendor/**"
       - "Cargo.toml"
       - "Cargo.lock"

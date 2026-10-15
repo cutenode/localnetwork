@@ -1,0 +1,21 @@
+[package]
+name = "locallibrary-plugin-analysis"
+description = "locallibrary's sound analysis plugin: tempo, key and loudness from a track's audio"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+loclib-analysis.workspace = true
+loclib-mixid.workspace = true
+loclib-plugin.workspace = true
+
+[dev-dependencies]
+hegeltest.workspace = true
+loclib-mixid = { workspace = true, features = ["test-util"] }
+loclib-progress.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
