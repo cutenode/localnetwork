@@ -921,23 +921,6 @@ export type DeleteHistoryRequest = {
   force?: boolean;
 };
 
-export type ImportRequest = {
-  drive: string;
-  /**
-   * A tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or
-   * plain "Artist - Title" lines.
-   */
-  file: string;
-  /** The playlist to fill (created if needed). */
-  into: string;
-  /** For rekordbox XML: which of its playlists, by path (the whole collection otherwise). */
-  playlist?: string | null;
-  /** Add to the playlist instead of replacing its contents. */
-  append?: boolean;
-  /** Decisions for ambiguous entries: entry index (in the report) -> track id. */
-  choices?: Record<string, never>;
-};
-
 export type PackRequest = {
   source: string;
   target: string;
@@ -3898,96 +3881,6 @@ export type NotUpgraded = {
   file: string;
   why: string;
 };
-
-export type ImportPreview = {
-  report: Report;
-  /** `None` when no entry was found. */
-  plan: EditPlan | null;
-};
-
-/** Everything an import preview shows: the format read, the counts, and every entry's result. */
-export type Report = {
-  format: ImportFormat;
-  summary: ImportSummary;
-  entries: Matched[];
-};
-
-/** What a tracklist file is. */
-export type ImportFormat =
-  /** M3U / M3U8 playlists, and plain lists of file paths. */
-  | "m3u"
-  /** A table with a header row (Exportify, TuneMyMusic, Soundiiz, Beatport-style...). */
-  | "csv"
-  /** rekordbox's "Export a playlist to a file" text. */
-  | "rekordbox_text"
-  /** rekordbox XML (`DJ_PLAYLISTS`). */
-  | "rekordbox_xml"
-  /** One track per line. */
-  | "text";
-
-export type ImportSummary = {
-  entries: number;
-  found: number;
-  ambiguous: number;
-  missing: number;
-};
-
-export type Matched = {
-  entry: ImportEntry;
-} & (
-  | {
-    track_id: number;
-    how: MatchKind;
-    status: "found";
-  }
-  /**
-   * Needs a decision: several tracks fit equally well, or the only candidates are weak.
-   * Best first.
-   */
-  | {
-    candidates: number[];
-    status: "ambiguous";
-  }
-  | {
-    status: "missing";
-  });
-
-/** One track as an outside list describes it. */
-export type ImportEntry = {
-  /** 1-based line of the file where the entry starts. */
-  line: number;
-  /** The text it came from (the line, CSV record or XML tag), for messages. */
-  raw: string;
-  title: string;
-  /** Empty when the list names none. */
-  artist: string;
-  album: string | null;
-  /** Mix / version name, when the list has a column for it ("Original Mix"). */
-  mix: string | null;
-  duration_secs: number | null;
-  /**
-   * The file as the list names it, with `file://` URLs decoded (`/Users/me/Music/x.mp3`,
-   * `C:\Music\x.mp3`, `../x.mp3`).
-   */
-  path: string | null;
-  isrc: string | null;
-};
-
-/** How an entry was found. */
-export type MatchKind =
-  | "isrc"
-  /** Same file (by its trailing path components). */
-  | "path"
-  /** Same normalised artist and title, durations within 2 seconds. */
-  | "artist_title_duration"
-  /** Same normalised artist and title. */
-  | "artist_title"
-  /** The entry names no artist; same normalised title. */
-  | "title"
-  /** Close enough on fuzzy token similarity, with no close runner-up. */
-  | "fuzzy"
-  /** Picked from the candidates by hand. */
-  | "chosen";
 
 export type PackPlan = {
   source: string;
@@ -8273,10 +8166,6 @@ export interface Methods {
   "history.delete.plan": { params: DeleteHistoryRequest & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `history.delete.plan`; can delete or overwrite something */
   "history.delete.apply": { params: ApplyPlan | (DeleteHistoryRequest & WriteOptions); result: EditReport };
-  /** plan method; paired with `import.apply` */
-  "import.plan": { params: ImportRequest & WriteOptions; result: ImportPreview & PlanFields };
-  /** apply method; paired with `import.plan` */
-  "import.apply": { params: ApplyPlan | (ImportRequest & WriteOptions); result: EditReport };
   /** plan method; paired with `pack.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "pack.plan": { params: PackRequest & WriteOptions; result: PackPlan & PlanFields };
   /** apply method; paired with `pack.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

@@ -408,6 +408,12 @@ their old names.
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
   played twice, and reports picks made with `--choose` as `chosen`.
+- `playlist import` is the tracklist plugin's now, with the same flags (`--choose 0=...` is
+  refused as a usage error, exit status 2). `--json` gives the plan alone: `tracklist match LIBRARY
+  FILE` answers what it finds in the list, entry by entry. Over RPC, `import.plan` and
+  `import.apply` are gone: plan with `plugins.op.plan {plugin: "tracklist", operation: "import",
+  params: {file, into, ...}, context: {drive}}`, apply with `plugins.op.apply`, and read the
+  entries with `plugins.run {plugin: "tracklist", command: "match", ...}`.
 - `store prune` applies the plan it showed, refusing if a pull, label or drive change came in
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
   run reports exactly what it frees. `store gc` removes only snapshots of no library and files

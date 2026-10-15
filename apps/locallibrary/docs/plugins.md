@@ -13,6 +13,9 @@ are:
 
 - **sound**: works out each track's tempo, key and loudness from its audio, as `doctor
   --analyze` does (`locallibrary analyze`, then `sound.bpm`, `sound.key`... on the track).
+- **tracklist**: `locallibrary playlist import LIBRARY FILE --into PLAYLIST` makes a playlist
+  from a tracklist (see [Editing](editing.md)), and `locallibrary tracklist match LIBRARY FILE`
+  shows what it finds in the list without changing anything.
 - **coverart**: finds front covers for tracks without artwork on MusicBrainz and the Cover Art
   Archive (`locallibrary coverart fetch LIBRARY`, `--replace` for tracks with artwork too). It's
   the only one that goes online, and only when you run it.
@@ -30,9 +33,8 @@ with each other are both left out.
 ## Where they show up
 
 - **Commands and operations** are `locallibrary ID NAME` (`locallibrary coverart fetch`), or
-  where the plugin puts them (a group of locallibrary's commands, `locallibrary playlist NAME`).
-  Their params are flags (`--playlist Sets`, `--replace`; `KEY=VALUE` pairs for a map, repeated),
-  or JSON with `--params`.
+  where the plugin puts them (`locallibrary playlist import`). Their params are flags (`--into
+  Sets`, `--append`; `KEY=VALUE` pairs for a map, repeated), or JSON with `--params`.
   `locallibrary ID NAME --help` lists them. A command shows what it answers as a list or a table,
   or as text or JSON when it answers a plain value (`--json`: as it is); an operation shows its
   plan and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it

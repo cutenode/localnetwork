@@ -3955,6 +3955,7 @@ dependencies = [
  "locallibrary",
  "locallibrary-plugin-coverart",
  "locallibrary-plugin-sound",
+ "locallibrary-plugin-tracklist",
  "loclib-mixid",
  "loclib-plugin",
  "loclib-progress",

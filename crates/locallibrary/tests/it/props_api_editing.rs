@@ -1,7 +1,7 @@
 //! Properties of the service layer's edits (`api::editing`, `api::tags`, `api::cues`): edits
 //! made through it agree with the same edits made through `edit` directly, undo and replay give
-//! back the library they should, refused requests change nothing, and queries, imports, history
-//! deletions and smart playlists answer what the library and their models say.
+//! back the library they should, refused requests change nothing, and queries, history deletions
+//! and smart playlists answer what the library and their models say.
 
 use crate::common::{self, Before, library, path};
 
@@ -12,14 +12,13 @@ use std::path::{Path, PathBuf};
 use hegel::generators as gs;
 use hegel::{Generator, HealthCheck, TestCase};
 use locallibrary::api::{
-    self, ClearEdits, CueOp, DeleteHistoryRequest, DriveRef, EditCues, EditRequest, ImportRequest, ListCues,
-    PullRequest, RemoveSmartPlaylist, RestoreBackup, SetSmartPlaylist, TagAction, TagsEdit, TracksQuery, UndoRequest,
+    self, ClearEdits, CueOp, DeleteHistoryRequest, DriveRef, EditCues, EditRequest, ListCues, PullRequest,
+    RemoveSmartPlaylist, RestoreBackup, SetSmartPlaylist, TagAction, TagsEdit, TracksQuery, UndoRequest,
 };
 use locallibrary::cue_edit::{self, CueEdit, CuePosition, CueRef, HotCue, SetCue};
 use locallibrary::device::Device;
 use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
 use locallibrary::error::Reason;
-use locallibrary::import;
 use locallibrary::progress::Ctx;
 use locallibrary::query::{self, Filter, QueryContext, TrackSelector};
 use locallibrary::{Library, Store, Track, diff, paths};
@@ -332,56 +331,6 @@ fn history_is_deleted_only_once_kept(tc: TestCase) {
     assert!(plan.destructive && plan.operation == "history.delete");
     api::delete_history_apply(Some(&store), &req, &Ctx::silent()).unwrap();
     deleted(&root);
-}
-
-/// Importing a tracklist finds what `import` finds in the drive's library, and fills the
-/// playlist with the tracks found, in the list's order (after its entries, appending); a choice
-/// for an entry the list doesn't have, or of a track the drive lacks, is refused.
-#[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
-fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
-    let dir = tempfile::tempdir().unwrap();
-    common::isolate(dir.path(), None);
-    let root = fresh(dir.path(), "Main");
-    let lib = library(&root);
-    let mut names: Vec<String> = lib.tracks.iter().map(Track::display_name).collect();
-    names.extend(["Nobody - Nothing".to_string(), "Unknown Artist - Untitled".to_string()]);
-    let lines = tc.draw(gs::vecs(gs::sampled_from(names)).min_size(1).max_size(6));
-    let file = dir.path().join("set.txt");
-    fs::write(&file, lines.join("\n")).unwrap();
-    let into = tc.draw(gs::sampled_from(vec![
-        "Imported".to_string(),
-        lib.playlist_path(lib.playlists.iter().find(|p| !p.is_folder).unwrap().id),
-    ]));
-    let append = tc.draw(gs::booleans());
-    let req = ImportRequest {
-        drive: path(&root),
-        file: file.clone(),
-        into: into.clone(),
-        playlist: None,
-        append,
-        choices: IndexMap::new(),
-    };
-    let bytes = fs::read(&file).unwrap();
-    let entries = import::parse(&bytes, Some("set.txt")).unwrap();
-    let expected = import::match_entries(&lib, &entries);
-    let planned = api::import_plan(&req, &Ctx::silent()).unwrap();
-    assert_eq!(serde_json::to_value(&planned.plan.report.entries).unwrap(), serde_json::to_value(&expected).unwrap());
-    let found = planned.plan.report.track_ids();
-    assert_eq!(planned.plan.plan.is_none(), found.is_empty());
-    let existing: Vec<u32> =
-        lib.find_playlist(&into).filter(|_| append).map(|p| p.track_ids.clone()).unwrap_or_default();
-    match api::import_apply(&req, &Ctx::silent()) {
-        Ok(_) => {
-            let after = library(&root);
-            let entries = &after.find_playlist(&into).unwrap().track_ids;
-            assert_eq!(*entries, [existing, found].concat());
-        }
-        Err(e) => assert!(found.is_empty() && e.code() == "not_found", "{e}"),
-    }
-    let n = planned.plan.report.entries.len();
-    let choose = |i: usize, track: u32| ImportRequest { choices: [(i, track)].into_iter().collect(), ..req.clone() };
-    assert_eq!(api::import_plan(&choose(n, lib.tracks[0].id), &Ctx::silent()).unwrap_err().code(), "invalid");
-    assert_eq!(api::import_plan(&choose(0, 9999), &Ctx::silent()).unwrap_err().code(), "not_found");
 }
 
 /// Smart playlists kept in the store follow a model of rules by path: set adds or replaces,

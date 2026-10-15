@@ -9,7 +9,7 @@
 //! Only a trusted parent process may spawn and drive the sidecar: it acts with the user's rights.
 //! Requests name files and folders it reads and writes (`output` for exports, `interop.*` and
 //! `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`, images and audio for
-//! `art.*`, `file` for `firmware.*` and `import.*`, `db` for `collection.*`, any folder as a
+//! `art.*`, `file` for `firmware.*`, a plugin's path params, `db` for `collection.*`, any folder as a
 //! drive) and servers it fetches from (`pds` for `settings.import_published.*`, `client_id` and
 //! `scopes` for `account.login.begin`, which the user still approves in the browser; no token is
 //! ever sent back over the pipe). Never expose it on a socket or to another user, and never pass

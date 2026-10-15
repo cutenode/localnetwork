@@ -76,6 +76,7 @@ loclib-progress.workspace = true
 # The plugins locallibrary ships (`plugins::FIRST_PARTY`), each served by `plugin serve <id>`.
 locallibrary-plugin-sound = { version = "0.1.0", path = "../../plugins/sound" }
 locallibrary-plugin-coverart = { version = "0.1.0", path = "../../plugins/coverart" }
+locallibrary-plugin-tracklist = { version = "0.1.0", path = "../../plugins/tracklist" }
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.

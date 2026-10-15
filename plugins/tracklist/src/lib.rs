@@ -3,7 +3,7 @@
 //! itself, as it's the user's own file, and the drive's library through the host; the playlist it
 //! answers is an edit locallibrary plans, confirms and applies.
 
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use indexmap::IndexMap;
@@ -18,27 +18,32 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
-pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) -> io::Result<()> {
-    let manifest = Manifest::parse(MANIFEST).map_err(io::Error::other)?;
+pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
+    let manifest = Manifest::parse(MANIFEST).expect("the manifest parses");
     loclib_plugin::serve(&manifest, Tracklist, input, output);
-    Ok(())
 }
 
 struct Tracklist;
 
-/// The `import` command's and operation's params: the RPC sidecar's `import.plan` without the
-/// drive, which is the one the user is on (`context.drive`).
+/// The `match` command's params: which list, and the user's choices. The drive is the one the
+/// user is on (`context.drive`).
 #[derive(Deserialize)]
-struct Import {
+struct Match {
     file: PathBuf,
-    into: String,
     #[serde(default)]
     playlist: Option<String>,
-    #[serde(default)]
-    append: bool,
     /// Entry index (from 0) -> track id.
     #[serde(default)]
     choices: IndexMap<usize, u32>,
+}
+
+/// The `import` operation's besides [`Match`]'s: the playlist it fills. (Read apart from them:
+/// `serde(flatten)` would take `choices`' keys as strings, not numbers.)
+#[derive(Deserialize)]
+struct Import {
+    into: String,
+    #[serde(default)]
+    append: bool,
 }
 
 /// `drive.library`'s answer, as far as this plugin reads it.
@@ -57,21 +62,26 @@ struct Page {
 const CANDIDATES_SHOWN: usize = 5;
 
 impl Plugin for Tracklist {
-    /// `import`: the list's entries, each found, ambiguous (with its candidates) or missing.
+    /// `match`: the list's entries, each found (and how), ambiguous (with its candidates) or
+    /// missing.
     fn run_command(&self, req: RunCommand, host: &Host) -> Result<Value, RpcError> {
         let (report, _) = matched(&params(req.params)?, &req.context, host)?;
         Ok(serde_json::to_value(report).expect("a report is JSON"))
     }
 
-    /// `import`: the playlist filled with the tracks found, in the list's order.
+    /// `import`: the playlist filled with the tracks found, in the list's order. With none found,
+    /// a plan that changes nothing, saying so.
     fn plan_op(&self, req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
+        let list: Match = params(req.params.clone())?;
         let import: Import = params(req.params)?;
-        let (report, lib) = matched(&import, &req.context, host)?;
+        let (report, lib) = matched(&list, &req.context, host)?;
         let files = |ids: &[u32]| lib.tracks_by_id(ids).into_iter().map(|t| t.file_path.clone()).collect::<Vec<_>>();
         // As entries, by file: a set list that played a track twice keeps both.
         let mut paths = files(&report.track_ids());
-        if paths.is_empty() {
-            return Err(RpcError::failed("not_found", "not found: none of the list's tracks are on the drive"));
+        let mut warnings = warnings(&report, &lib);
+        let found = !paths.is_empty();
+        if !found {
+            warnings.push("none of the list's tracks are on the drive".into());
         }
         if import.append
             && let Some(p) = exact(&lib, &import.into)
@@ -81,22 +91,25 @@ impl Plugin for Tracklist {
         let s = &report.summary;
         let summary = format!(
             "{}: {} entr(ies) as {:?}: {} found, {} ambiguous, {} missing",
-            import.file.display(),
+            list.file.display(),
             s.entries,
             report.format,
             s.found,
             s.ambiguous,
             s.missing
         );
-        let edit = json!({ "op": "set_entries", "playlist": import.into, "paths": paths, "create": true });
+        let edits = match found {
+            true => vec![json!({ "op": "set_entries", "playlist": import.into, "paths": paths, "create": true })],
+            false => Vec::new(),
+        };
         // The list it was matched from: the host won't apply the plan once it changes.
-        Ok(OpPlan { summary, warnings: warnings(&report, &lib), edits: vec![edit], inputs: vec![import.file] })
+        Ok(OpPlan { summary, warnings, edits, inputs: vec![list.file] })
     }
 }
 
 /// The tracklist `req` names, found in the library of the drive the user is on, with the user's
 /// choices made; and that library.
-fn matched(req: &Import, context: &Context, host: &Host) -> Result<(Report, Library), RpcError> {
+fn matched(req: &Match, context: &Context, host: &Host) -> Result<(Report, Library), RpcError> {
     let drive = context.drive.as_deref().ok_or_else(|| RpcError::invalid_params("say which drive"))?;
     let file = req.file.display();
     let bytes = std::fs::read(&req.file).map_err(|e| RpcError::failed("io", format!("{file}: {e}")))?;

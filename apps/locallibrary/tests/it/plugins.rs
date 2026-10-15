@@ -24,7 +24,7 @@ cli = "say""#;
 }
 
 /// The plugins locallibrary ships, as it lists them (before the tests' own).
-const SHIPPED: [&str; 2] = ["coverart", "sound"];
+const SHIPPED: [&str; 3] = ["coverart", "sound", "tracklist"];
 
 /// An [`Env`] with the echo plugin, and the demo drive USB (two tracks, with audio).
 fn env() -> Env {

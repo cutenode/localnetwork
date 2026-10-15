@@ -78,10 +78,13 @@ fn playlist_command_lines_that_dont_say_enough_are_refused() {
     assert!(err.contains("no playlist \"nope\""), "{err}");
     let err = env.fails(2, &["playlist", "lss"]);
     assert!(err.contains("did you mean `locallibrary playlist ls`"), "{err}");
-    let err = env.fails(1, &["playlist", "import", d, "list.txt", "--into", "I", "--choose", "0=1"]);
-    assert!(err.contains("--choose takes ENTRY=TRACK"), "{err}");
+    let err = env.fails(2, &["playlist", "import", d, "list.txt", "--into", "I", "--choose", "0=1"]);
+    assert!(err.contains("--choose's keys count from 1: \"0\" isn't one"), "{err}");
 }
 
+/// The tracklist plugin's `import`, where locallibrary's own was: what it found, the entries
+/// that could be one of several tracks (with them) and those the drive doesn't have, then the
+/// plan, asked about like any edit.
 #[test]
 fn a_tracklist_is_imported_as_a_playlist() {
     let env = Env::ascii();
@@ -93,10 +96,16 @@ fn a_tracklist_is_imported_as_a_playlist() {
     let import = ["playlist", "import", d, path(&list), "--into", "Imported"];
     let out = env.ok(&[&["--yes"], &import[..]].concat());
     assert!(out.contains("list.txt: 3 entr(ies) as Text: 1 found, 1 ambiguous, 1 missing"), "{out}");
-    assert!(out.contains("   2. In Charge could be:\n         #2  [a]pendics.shuffle - A2 - In Charge\n"), "{out}");
-    assert!(out.contains("  ?   3. Nobody - Nothing"), "{out}");
-    assert!(out.contains("Settle ambiguous entries with --choose ENTRY=TRACK"), "{out}");
+    let ambiguous = "! 2. In Charge could be #2 [a]pendics.shuffle - A2 - In Charge: left out unless one is chosen\n";
+    assert!(out.contains(ambiguous), "{out}");
+    assert!(out.contains("! 3. Nobody - Nothing isn't on the drive\n"), "{out}");
     assert!(out.contains("    + Imported\n"), "{out}");
+    // What it found, entry by entry, changing nothing.
+    let matched = env.json(&["tracklist", "match", d, path(&list)]);
+    let statuses: Vec<&str> =
+        matched["entries"].as_array().unwrap().iter().map(|e| e["status"].as_str().unwrap()).collect();
+    assert_eq!(statuses, ["found", "ambiguous", "missing"], "{matched}");
+    assert_eq!(matched["entries"][1]["candidates"][0], 2, "{matched}");
     let out = env.ok(&[&["--yes"], &import[..], &["--choose", "2=#2", "--append"]].concat());
     assert!(out.contains("    ~ Imported +1, 1 -> 3 entries"), "{out}");
 

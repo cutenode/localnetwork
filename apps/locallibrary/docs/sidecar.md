@@ -45,7 +45,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 - **Trust.** Only a trusted parent process may spawn and drive the sidecar: it acts with your
   rights. Requests name files and folders it reads and writes (`output` for exports, `interop.*` and
   `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`, images and audio for
-  `art.*`, `file` for `firmware.*` and `import.*`, `db` for `collection.*`, any folder as a drive)
+  `art.*`, `file` for `firmware.*`, a plugin's path params (`file` for the tracklist plugin's
+  `import`), `db` for `collection.*`, any folder as a drive)
   and servers it fetches from (`pds` for `settings.import_published.*`, `client_id` and `scopes` for
   `account.login.begin`). Never expose it on a socket or to another user, and never pass web content
   (a page's or a renderer's input) into its parameters. It refuses relative paths to write to, a
@@ -221,7 +222,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `album_artist` (with an album), `isrc` and `release_date` (`YYYY-MM-DD`). Tracks are chosen with selectors (`{"ids": [12]}`,
   `{"filter": "bpm:>=128"}`, `{"paths": ["/Contents/..."]}`, `playlist`, `album`, `query`,
   `history`; a track must fit every field given). Also `edits.list`, `edits.replay.plan/apply`,
-  `edits.clear`, `import.plan/apply`, `dedupe.plan/apply` (`by_sound` also finds the same
+  `edits.clear`, `dedupe.plan/apply` (`by_sound` also finds the same
   recording in another file or encoding), `relocate.plan/apply` (`{drive, folders}`, absolute
   paths: finds missing tracks' files, `ambiguous` lists those with several, `unfit` those whose
   only file isn't as long), `upgrade.plan/apply`
@@ -271,6 +272,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `null` or left out: back to its default) answer `{plugin, settings: {key: value}}`.
   `plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
   command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw.
+  A tracklist is imported as the tracklist plugin's `import` operation (`{file, into, playlist?,
+  append?, choices?}`, `file` absolute; `choices` maps an entry, counting from 0, to a track id),
+  and its `match` command answers what it finds in the list, entry by entry, changing nothing.
   `plugins.op.plan {plugin, operation, params, context}` (`context.drive` is required) answers an
   edit plan whose `operation` is `<plugin>.<operation>`, its summary first, applied by
   `plugins.op.apply {plan_id}`; it's stale once the drive changes, or a file on this computer
