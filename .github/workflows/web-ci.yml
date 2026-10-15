@@ -6,23 +6,7 @@ name: Web CI
 on:
   push:
     branches: [main]
-    paths: &paths
-      - apps/web/**
-      - apps/*/README.md
-      - apps/*/docs/*.md
-      - packages/tokens/**
-      - package.json
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - .node-version
-      - .dockerignore
-      - lexicons/**
-      - .oxlintrc.json
-      - .oxfmtrc.json
-      - tools/oxlint/**
-      - .github/workflows/web-ci.yml
   pull_request:
-    paths: *paths
 
 permissions:
   contents: read
@@ -38,10 +22,49 @@ defaults:
 # Actions are pinned to commits, as in locallibrary-ci.yml. Firefox, WebKit and the phone viewports
 # run weekly in web-scheduled.yml; pull requests run the e2e tests in Chromium only.
 jobs:
+  # Pushes and pull requests always start this workflow, so the passed job at the end always
+  # reports. The other jobs run only when the files listed here change.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
+    outputs:
+      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true' }}
+    steps:
+      # A pull request's files come from the API; a push is diffed against the commit before it.
+      - if: github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            run:
+              - 'apps/web/**'
+              - 'apps/*/README.md'
+              - 'apps/*/docs/*.md'
+              - 'packages/tokens/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.node-version'
+              - '.dockerignore'
+              - 'lexicons/**'
+              - '.oxlintrc.json'
+              - '.oxfmtrc.json'
+              - 'tools/oxlint/**'
+              - '.github/workflows/web-ci.yml'
+
   # `pnpm test:build` builds the app and checks what ships to the browser: no sourcemaps, and the
   # client bundle within its budget.
   verify:
     name: Format, lint, types, unit tests, stories, build
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -68,6 +91,8 @@ jobs:
 
   integration:
     name: Integration (real spaces PDS) + coverage
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -93,6 +118,8 @@ jobs:
   # Every page the tests visit also goes through axe (tests/e2e/axe.ts).
   e2e:
     name: End-to-end (Playwright, Chromium)
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -120,6 +147,8 @@ jobs:
   # not to a Lighthouse server.
   lighthouse:
     name: Lighthouse
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -151,6 +180,8 @@ jobs:
   # network runs from the workspace, so it's installed here too.
   docker:
     name: Docker image
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -177,3 +208,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: scripts/docker-smoke.sh localnetwork:ci
+
+  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
+  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
+  passed:
+    name: Web CI passed
+    if: always()
+    needs: [changes, verify, integration, e2e, lighthouse, docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        working-directory: .
+        run: exit 1

@@ -5,18 +5,7 @@ name: localtoolbox CI
 on:
   push:
     branches: [main]
-    paths: &paths
-      - apps/localtoolbox/**
-      - .oxlintrc.json
-      - .oxfmtrc.json
-      - tools/oxlint/**
-      - package.json
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - .node-version
-      - .github/workflows/localtoolbox-ci.yml
   pull_request:
-    paths: *paths
 
 permissions:
   contents: read
@@ -31,8 +20,42 @@ defaults:
 
 # Actions are pinned to commits (Dependabot keeps them current, see .github/dependabot.yml).
 jobs:
+  # Pushes and pull requests always start this workflow, so the passed job at the end always
+  # reports. The other jobs run only when the files listed here change.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
+    outputs:
+      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true' }}
+    steps:
+      # A pull request's files come from the API; a push is diffed against the commit before it.
+      - if: github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            run:
+              - 'apps/localtoolbox/**'
+              - '.oxlintrc.json'
+              - '.oxfmtrc.json'
+              - 'tools/oxlint/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.node-version'
+              - '.github/workflows/localtoolbox-ci.yml'
+
   verify:
     name: Format, lint, types, tests with coverage, build
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -60,3 +83,16 @@ jobs:
         with:
           name: localtoolbox-coverage
           path: apps/localtoolbox/coverage/
+
+  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
+  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
+  passed:
+    name: localtoolbox CI passed
+    if: always()
+    needs: [changes, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        working-directory: .
+        run: exit 1

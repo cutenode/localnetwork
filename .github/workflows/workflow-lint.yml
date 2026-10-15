@@ -7,10 +7,7 @@ name: Workflow lint
 on:
   push:
     branches: [main]
-    paths: &paths
-      - .github/**
   pull_request:
-    paths: *paths
 
 permissions:
   contents: read
@@ -20,7 +17,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Pushes and pull requests always start this workflow, so the passed job at the end always
+  # reports. The other jobs run only when the files listed here change.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
+    outputs:
+      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true' }}
+    steps:
+      # A pull request's files come from the API; a push is diffed against the commit before it.
+      - if: github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            run:
+              - '.github/**'
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -37,3 +60,15 @@ jobs:
           "$(go env GOPATH)/bin/actionlint"
       # Offline: the online audits look up action tags and advisories through the GitHub API.
       - run: zizmor --offline --format github .github
+
+  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
+  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
+  passed:
+    name: Workflow lint passed
+    if: always()
+    needs: [changes, lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

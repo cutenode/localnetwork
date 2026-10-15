@@ -3,6 +3,7 @@
 	"version": "0.0.1",
 	"private": true,
 	"description": "Find local DJs for your shows. Built on the AT Protocol and atproto spaces.",
+	"license": "MIT",
 	"type": "module",
 	"imports": {
 		"#lib/*": "./src/lib/*"

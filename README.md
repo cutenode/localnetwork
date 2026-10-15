@@ -38,8 +38,16 @@ cargo test --workspace --locked
 
 The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change. The slow suites (mutation testing, fuzzing, the website in every browser, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows.
 
+## Contributing
+
+Read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before opening a pull request.
+
 ## Adding a tool
 
 A new tool goes in `apps/<tool>`, with shared code in `crates/` (Rust) or `packages/` (TypeScript). Records only it writes live under its own lexicon group, `computer.localnetwork.<tool>.*`; records other tools read too go in a shared group named for what they are, like `computer.localnetwork.dj.*` for DJ sets and profiles. Binaries and crates follow the same names as the rest: `local<thing>` for a tool, `loclib-*` for a Rust library.
 
 Its page on the website, `localnetwork.computer/tools/<tool>`, is one file in `apps/web/src/lib/tools/`, listed in that folder's `index.ts`. The page shows the tool's `README.md` and `docs/*.md` as its guides, and the website's Docker build picks them up from `apps/<tool>/` as they are.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
