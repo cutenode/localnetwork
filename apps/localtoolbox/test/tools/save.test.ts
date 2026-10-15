@@ -1,4 +1,4 @@
-// src/tools/third-party-downloads/save.ts — naming a file, telling a file from
+// src/tools/third-party-downloads/save.ts: naming a file, telling a file from
 // a page, and handing one to the browser.
 import { describe, it, expect } from 'vitest';
 import { filenameOf, looksLikeFile, safeName, save } from '../../src/tools/third-party-downloads/save.ts';
@@ -55,7 +55,7 @@ describe('filenameOf', () => {
 	});
 
 	// The segment is decoded before it is used, so a separator the link carried
-	// encoded is a real one by then — and a name with one in it is a path.
+	// encoded is a real one by then, and a name with one in it is a path.
 	it('makes a decoded segment one name, whatever separators it decodes to', () => {
 		expect(filenameOf('https://cdn.test/a/..%2F..%2Fevil.mp3')).toBe('-..-evil.mp3');
 		expect(filenameOf('https://cdn.test/a/..%5Cwin.wav')).toBe('-win.wav');
@@ -85,6 +85,11 @@ describe('looksLikeFile', () => {
 		expect(looksLikeFile('https://www.dropbox.com/s/abc/track?dl=0')).toBe(false);
 		expect(looksLikeFile('https://drive.google.com/uc?id=1&export=download')).toBe(true);
 		expect(looksLikeFile('https://drive.google.com/file/d/1/view')).toBe(false);
+	});
+
+	it('does not take a host that only ends in "dropbox.com" for Dropbox', () => {
+		expect(looksLikeFile('https://dl.dropbox.com/s/abc/track?dl=1')).toBe(true);
+		expect(looksLikeFile('https://notdropbox.com/s/abc/track?dl=1')).toBe(false);
 	});
 
 	it('says no to anything that is not a URL', () => {
@@ -168,8 +173,8 @@ describe('save', () => {
 	});
 
 	// The refusal is recognised by Chrome's own words for it, and words are all
-	// there are to go on. A rejection carrying no message — a value that is not
-	// an Error, or nothing thrown at all — cannot be that refusal however much
+	// there are to go on. A rejection carrying no message (a value that is not
+	// an Error, or nothing thrown at all) cannot be that refusal however much
 	// it looks like one, and asking again would drop a name Chrome never
 	// objected to and hide whatever really went wrong.
 	it('does not ask twice for a rejection that carries no message', async () => {
