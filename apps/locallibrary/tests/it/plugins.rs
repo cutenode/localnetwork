@@ -206,6 +206,15 @@ fn plugins_formats_ask_before_overwriting() {
     assert!(env.fails(1, &strs(&export(&["--split"]))).contains("are for locallibrary's own formats"));
 }
 
+/// A plugin's format is written into folders that aren't there yet, made as it's written.
+#[test]
+fn plugins_formats_make_the_folders_they_write_into() {
+    let env = env();
+    let out = env.outside("new/dir/list.m3u");
+    env.ok(&["--yes", "export", "USB", "--format", "echo-m3u", "-o", path(&out)]);
+    assert!(std::fs::read_to_string(&out).unwrap().starts_with("#EXTM3U"));
+}
+
 /// `analyze` runs the analyzers on a drive's tracks once; `track` shows what they worked out.
 #[test]
 fn analyzers_fill_in_track_details() {
