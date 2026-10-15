@@ -38,6 +38,8 @@ crates/loclib-waveform/     the player's ratatui widgets: overview and detail wa
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it
+plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
+                            library with loclib-interop into a folder on this computer
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
 crates/locallibrary/src/    the library, built on the crates above
   lib.rs       the crate's entry point (`model` and `harmony` are loclib-model's, re-exported), and the
