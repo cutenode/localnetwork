@@ -30,8 +30,9 @@ jobs:
       contents: read
       pull-requests: read
     # Scheduled and manual runs skip the filter, which leaves its output empty: they always audit.
+    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
     outputs:
-      run: ${{ steps.filter.outputs.run || 'true' }}
+      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run || 'true' }}
     steps:
       # A pull request's files come from the API; a push is diffed against the commit before it.
       - if: github.event_name == 'push'
