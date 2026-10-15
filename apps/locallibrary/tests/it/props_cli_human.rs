@@ -584,9 +584,14 @@ pub fn side_by_side<A, B: Send>(a: impl FnOnce() -> A, b: impl FnOnce() -> B + S
 pub fn as_in(json: Run, from: &Env, to: &Env) -> Run {
     let root = |fx: &Env| path(fx.volumes.parent().unwrap()).to_string();
     let (from, to) = (root(from), root(to));
-    // The JSON escapes a path's backslashes (Windows'), so its folders are found as it writes them.
+    // A message can quote a path as Debug does (`{spec:?}`), doubling Windows' backslashes, and the
+    // JSON escapes them again, so the folders are found in every spelling they're written in.
+    let debug = |s: &str| format!("{s:?}").trim_matches('"').to_string();
     let escaped = |s: &str| serde_json::to_string(s).unwrap().trim_matches('"').to_string();
-    Run { out: json.out.replace(&escaped(&from), &escaped(&to)), err: json.err.replace(&from, &to), code: json.code }
+    let (debug_from, debug_to) = (debug(&from), debug(&to));
+    let out = json.out.replace(&escaped(&debug_from), &escaped(&debug_to)).replace(&escaped(&from), &escaped(&to));
+    let err = json.err.replace(&debug_from, &debug_to).replace(&from, &to);
+    Run { out, err, code: json.code }
 }
 
 /// [`agree`] of each of `reads` in turn, run as it is in `h` and with `--json` in `j` (a
