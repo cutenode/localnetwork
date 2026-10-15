@@ -6,15 +6,7 @@ name: Mix report
 on:
   push:
     branches: [main]
-    paths: &paths
-      - crates/locallibrary/src/mix/**
-      - crates/loclib-mixid/**
-      - apps/locallibrary/src/mix_cmd.rs
-      - apps/web/src/lib/mix/**
-      - apps/web/scripts/mix-fixture.ts
-      - .github/workflows/mix-report.yml
   pull_request:
-    paths: *paths
 
 permissions:
   contents: read
@@ -24,7 +16,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Pushes and pull requests always start this workflow, so the passed job at the end always
+  # reports. The other jobs run only when the files listed here change.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      # A pull request's files come from the API; a push is diffed against the commit before it.
+      - if: github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            run:
+              - 'crates/locallibrary/src/mix/**'
+              - 'crates/loclib-mixid/**'
+              - 'apps/locallibrary/src/mix_cmd.rs'
+              - 'apps/web/src/lib/mix/**'
+              - 'apps/web/scripts/mix-fixture.ts'
+              - '.github/workflows/mix-report.yml'
+
   fixture:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -47,3 +69,15 @@ jobs:
       - name: The reader accepts it
         working-directory: apps/web
         run: pnpm exec vitest run --project server src/lib/mix
+
+  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
+  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
+  passed:
+    name: Mix report passed
+    if: always()
+    needs: [changes, fixture]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
