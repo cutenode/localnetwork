@@ -40,6 +40,8 @@ crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one messag
                             reads lines and reports errors with it
 plugins/analysis/           the analysis plugin: the `sound` analyzer, a track's tempo, key and loudness
                             measured with loclib-analysis, as doctor's `--analyze` measures them
+plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
+                            library with loclib-interop into a folder on this computer
 plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
                             loclib-tracklist, as one `set_entries` edit
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
