@@ -328,7 +328,10 @@ fn drive(tracks: Vec<Track>) -> Drive {
 /// `edit.plan` takes one, giving the tracks by file and the image's bytes, a JPEG.
 fn set(plan: &OpPlan) -> Vec<(Vec<String>, (u32, u32))> {
     let edit = |e: &Value| {
-        let keys: Vec<&str> = e.as_object().unwrap().keys().map(String::as_str).collect();
+        // In whichever order serde_json keeps them: insertion order once another crate in the
+        // build turns on its preserve_order, as locallibrary does.
+        let mut keys: Vec<&str> = e.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
         assert_eq!(keys, ["image", "op", "tracks"], "{e}");
         assert_eq!(e["op"], "set_artwork");
         assert_eq!(e["tracks"].as_object().unwrap().len(), 1, "only paths: {e}");

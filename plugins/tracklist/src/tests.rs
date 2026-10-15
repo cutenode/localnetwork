@@ -149,6 +149,7 @@ fn a_list_fills_the_playlist_with_what_is_found_and_warns_of_the_rest() {
     ];
     assert_eq!(plan.warnings, warnings);
     assert_eq!(plan.edits, [set_entries("Imported", &["/Contents/Bicep/Glue.mp3"])]);
+    assert_eq!(plan.inputs, [PathBuf::from(&list)]);
     s.stop();
 
     lib.playlists = vec![playlist(1, None, "Imported", false, &[1])];
