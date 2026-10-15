@@ -189,6 +189,15 @@ pub fn populate_library(root: &Path, lib: &Library) {
     }
 }
 
+/// Every file below `root` from two minutes ago, as a drive's files are older than its pull: well
+/// clear of FAT's 2 s racy window, so the hash cache and the snapshots vouch for them.
+pub fn age(root: &Path) {
+    let old = filetime::FileTime::from_unix_time(filetime::FileTime::now().unix_seconds() - 120, 0);
+    for e in walkdir::WalkDir::new(root).into_iter().map(Result::unwrap).filter(|e| e.file_type().is_file()) {
+        filetime::set_file_mtime(e.path(), old).unwrap();
+    }
+}
+
 /// rekordcrate's two-track "demo tracks" export (real ANLZ files, settings, exportExt.pdb).
 pub fn demo_drive(dir: &Path, name: &str) -> PathBuf {
     let root = dir.join(name);
