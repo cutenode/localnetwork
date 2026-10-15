@@ -272,7 +272,7 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   locallibrary are crates of their own in `crates/`, each with a README and an example, and
   JSON Schema behind a `schemars` feature in the ones whose types are serialisable. locallibrary re-exports them
   where they used to live (`model`, `harmony`, `progress`, `anlz`, `settings`, `equipment`,
-  `format::FsKind`, `import`, `mix`, `interop`), so the CLI, the RPC contract, the files written
+  `format::FsKind`, `import`, `mix`), so the CLI, the RPC contract, the files written
   and the error messages are unchanged.
   - `loclib-progress`: progress events and cooperative cancellation (`Ctx`, `CancelToken`,
     `Event`, `Cancelled`).
@@ -414,6 +414,14 @@ their old names.
   `import.apply` are gone: plan with `plugins.op.plan {plugin: "tracklist", operation: "import",
   params: {file, into, ...}, context: {drive}}`, apply with `plugins.op.apply`, and read the
   entries with `plugins.run {plugin: "tracklist", command: "match", ...}`.
+- `export --format traktor|serato|engine` is the interop plugin's now. Its options are
+  `--option`s: `--location-root DIR` is `--option location_root=DIR`, `--no-analysis` is `--option
+  skip_analysis=true`, `--write-tags` is `--option write_tags=true` and Engine's `--paths drive`
+  is `--option paths=drive`. Overwriting files already there is asked about first (exit status 3
+  without a terminal or `--yes`) unless `--replace`. Serato's `write_tags` no longer asks before
+  copying the audio: `--dry-run` lists each copy and its size first. Over RPC, `interop.plan`
+  and `interop.apply` are gone: use `plugins.export.plan {plugin: "interop", exporter, drive,
+  playlists?, output, options}` and `plugins.export.apply`.
 - `store prune` applies the plan it showed, refusing if a pull, label or drive change came in
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
   run reports exactly what it frees. `store gc` removes only snapshots of no library and files
@@ -468,7 +476,7 @@ their old names.
   breaking change: `Error` and `error::Reason`, progress `Event` and `Phase`, the sidecar's
   `Notice` and `JobEvent`, `WatchEvent` and `DriveChange`, doctor's `Problem`, `AudioProblem`,
   `Unplayable`, `CopyReason`, `fleet::Check`, `SpaceKind`, `TidyKind`, `Suggestion`,
-  `interop::Software`, `StepKind` and the import and export formats. A `match` on them needs a `_`
+  `StepKind` and the import and export formats. A `match` on them needs a `_`
   arm.
 - `pack` keeps the target's own player name and colour instead of stamping the source's on it, a
   cut-off `sync` or `pack` puts them back when it's finished, and undoing `drive player` no longer

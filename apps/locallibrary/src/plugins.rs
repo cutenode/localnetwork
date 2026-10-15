@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::export_cmd::ExportFormatArg;
+use crate::export_cmd::FormatArg;
 use params::properties;
 
 /// Serves a plugin over stdin and stdout until its input closes (the SDK's `serve`).
@@ -33,6 +33,7 @@ type Serve = fn(std::io::Stdin, std::io::Stdout);
 /// its crate.
 const FIRST_PARTY: &[(&str, Serve)] = &[
     (locallibrary_plugin_coverart::MANIFEST, locallibrary_plugin_coverart::serve),
+    (locallibrary_plugin_interop::MANIFEST, locallibrary_plugin_interop::serve),
     (locallibrary_plugin_sound::MANIFEST, locallibrary_plugin_sound::serve),
     (locallibrary_plugin_tracklist::MANIFEST, locallibrary_plugin_tracklist::serve),
 ];
@@ -154,7 +155,7 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
     let namespaces = crate::rpc::namespaces();
     let mut flags: Vec<&str> = cli.get_arguments().filter(|a| a.is_global_set()).filter_map(|a| a.get_long()).collect();
     flags.extend(["help", "version", PARAMS, DRY_RUN]);
-    let formats: FxHashMap<String, String> = ExportFormatArg::value_variants()
+    let formats: FxHashMap<String, String> = FormatArg::value_variants()
         .iter()
         .filter_map(ValueEnum::to_possible_value)
         .flat_map(|v| v.get_name_and_aliases().map(String::from).collect::<Vec<_>>())

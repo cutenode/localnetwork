@@ -77,6 +77,7 @@ loclib-progress.workspace = true
 locallibrary-plugin-sound = { version = "0.1.0", path = "../../plugins/sound" }
 locallibrary-plugin-coverart = { version = "0.1.0", path = "../../plugins/coverart" }
 locallibrary-plugin-tracklist = { version = "0.1.0", path = "../../plugins/tracklist" }
+locallibrary-plugin-interop = { version = "0.1.0", path = "../../plugins/interop" }
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.

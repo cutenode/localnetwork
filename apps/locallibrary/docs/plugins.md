@@ -16,6 +16,8 @@ are:
 - **tracklist**: `locallibrary playlist import LIBRARY FILE --into PLAYLIST` makes a playlist
   from a tracklist (see [Editing](editing.md)), and `locallibrary tracklist match LIBRARY FILE`
   shows what it finds in the list without changing anything.
+- **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
+  --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers for tracks without artwork on MusicBrainz and the Cover Art
   Archive (`locallibrary coverart fetch LIBRARY`, `--replace` for tracks with artwork too). It's
   the only one that goes online, and only when you run it.

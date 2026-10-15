@@ -170,7 +170,7 @@ impl Plugin for Interop {
         Ok(Exported {
             files: files.collect(),
             counts: counts.into_iter().map(|(label, n)| (label.to_string(), n as u64)).collect(),
-            notes: notes(&export, software, &options),
+            notes: notes(&export),
             warnings: export.warnings.iter().cloned().chain(missing_audio(&source)).collect(),
         })
     }
@@ -213,14 +213,9 @@ fn analyses(
 
 /// What the format leaves out and what to do with the files: the formats' notes, naming the
 /// options that choose loclib-interop's.
-fn notes(export: &Export, software: Software, options: &Options) -> Vec<String> {
-    let mut notes: Vec<String> = (export.notes.iter())
-        .map(|n| n.replace("`PathStyle::Drive`", "paths = drive").replace("`Copies`", "write_tags"))
-        .collect();
-    if software == Software::Engine && options.skip_analysis {
-        notes.push("skip_analysis changes nothing here: no analysis is written anyway.".into());
-    }
-    notes
+fn notes(export: &Export) -> Vec<String> {
+    let notes = export.notes.iter();
+    notes.map(|n| n.replace("`PathStyle::Drive`", "paths = drive").replace("`Copies`", "write_tags")).collect()
 }
 
 /// Tracks whose audio isn't where the files will say it is, as a warning.

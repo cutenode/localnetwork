@@ -537,9 +537,6 @@ fn an_engine_library_is_what_loclib_interop_writes() {
     assert_eq!(written(&output), contents(&export, &out, &output));
     assert!(done.notes[1].ends_with("or export with paths = drive to put it on the drive."), "{:?}", done.notes);
     assert!(session.calls("tracks.analysis").is_empty(), "Engine keeps no analysis");
-    let skipped = session.export("engine", &output, json!({ "skip_analysis": true }), true).unwrap();
-    assert_eq!(skipped.notes.last().unwrap(), "skip_analysis changes nothing here: no analysis is written anyway.");
-    assert_eq!(skipped.notes[..skipped.notes.len() - 1], done.notes[..]);
 
     let wal = db.with_file_name("m.db-wal");
     std::fs::write(&wal, b"stale").unwrap();

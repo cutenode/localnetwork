@@ -75,7 +75,6 @@ loclib-progress = { workspace = true, features = ["schemars"] }
 loclib-model = { workspace = true, features = ["schemars"] }
 loclib-tracklist = { workspace = true, features = ["schemars"] }
 loclib-mixid.workspace = true
-loclib-interop = { workspace = true, features = ["schemars"] }
 base64.workspace = true
 loclib-analysis = { workspace = true, features = ["schemars"] }
 loclib-transcode = { workspace = true, features = ["schemars"] }
@@ -86,6 +85,8 @@ ring = "0.17.14"
 unicode-segmentation = { version = "1.13.3", optional = true }
 # The plugin protocol the plugin host speaks (`plugin`).
 loclib-plugin.workspace = true
+# Escaping text for rekordbox XML (`xml`): other DJ software's exports are the interop plugin's.
+loclib-interop.workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true

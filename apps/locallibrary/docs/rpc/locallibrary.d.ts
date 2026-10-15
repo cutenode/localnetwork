@@ -2150,46 +2150,6 @@ export type CollectionExportRequest = {
   overwrite_archive?: boolean;
 };
 
-export type InteropRequest = {
-  drive: string;
-  software: Software;
-  /** The folder to write into (never on the drive). */
-  output: string;
-  /**
-   * The folder that will hold the drive's `Contents/` when the other software reads the files.
-   * Default: the drive's mount point.
-   */
-  location_root?: string | null;
-  /**
-   * Only these playlists and folders (paths like `Folder/Name`, or unique names) and their
-   * tracks. Everything when empty.
-   */
-  only?: string[];
-  /** Leave out beat grids and cues. */
-  skip_analysis?: boolean;
-  /** Replace files the output folder already holds. */
-  replace?: boolean;
-  /**
-   * Serato: copy the audio into the output folder and write cue points into the copies' tags
-   * (the drive's files are never changed); the crates list the copies.
-   */
-  write_tags?: boolean;
-  /**
-   * Engine DJ: track paths relative to where the library is written (`relative`, the
-   * default), or to the drive's root (`drive`, for an `Engine Library` folder copied there).
-   */
-  paths?: PathStyle;
-};
-
-/** The DJ software to write for. */
-export type Software =
-  /** Native Instruments Traktor Pro: `collection.nml`. */
-  | "traktor"
-  /** Serato DJ: `_Serato_/Subcrates/*.crate`. */
-  | "serato"
-  /** Engine DJ: `Engine Library/Database2/m.db`. */
-  | "engine";
-
 export type PluginRef = {
   /** The plugin's id. */
   plugin: string;
@@ -7332,34 +7292,6 @@ export type CollectionExportReport = {
   backup: string | null;
 };
 
-/** What an export writes, and what it leaves out. */
-export type InteropPlan = {
-  software: Software;
-  output: string;
-  files: PlannedFile[];
-  tracks: number;
-  playlists: number;
-  folders: number;
-  beat_grids: number;
-  /** Hot cues, memory cues and loops carried across. */
-  cues: number;
-  /** Bytes of audio copied (Serato with `write_tags`). */
-  copy_bytes: number;
-  /** What the format can't hold, and what to do with the files. */
-  notes: string[];
-  /** Problems with this library: missing audio, cues the format has no room for... */
-  warnings: string[];
-};
-
-export type PlannedFile = {
-  path: string;
-  /** What it holds. */
-  what: string;
-  bytes: number;
-  /** A file is already there (it's replaced only with [`InteropOptions::replace`]). */
-  exists: boolean;
-};
-
 /** A plugin, as `plugin list` and the sidecar's `plugins.list` show it. */
 export type Listed = {
   id: string;
@@ -8510,10 +8442,6 @@ export interface Methods {
   "collection.export.plan": { params: CollectionExportRequest & WriteOptions; result: CollectionExportPlan & PlanFields };
   /** apply method; paired with `collection.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "collection.export.apply": { params: ApplyPlan | (CollectionExportRequest & WriteOptions); result: CollectionExportReport };
-  /** plan method; paired with `interop.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "interop.plan": { params: InteropRequest & WriteOptions; result: InteropPlan & PlanFields };
-  /** apply method; paired with `interop.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "interop.apply": { params: ApplyPlan | (InteropRequest & WriteOptions); result: InteropPlan };
   /** read method */
   "plugins.list": { params: NoParams; result: Listed[] };
   /** read method */

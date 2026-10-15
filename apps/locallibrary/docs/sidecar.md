@@ -43,10 +43,10 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 ```
 
 - **Trust.** Only a trusted parent process may spawn and drive the sidecar: it acts with your
-  rights. Requests name files and folders it reads and writes (`output` for exports, `interop.*` and
-  `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`, images and audio for
-  `art.*`, `file` for `firmware.*`, a plugin's path params (`file` for the tracklist plugin's
-  `import`), `db` for `collection.*`, any folder as a drive)
+  rights. Requests name files and folders it reads and writes (`output` for exports,
+  `plugins.export.*` and `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`,
+  images and audio for `art.*`, `file` for `firmware.*`, a plugin's path params (`file` for the
+  tracklist plugin's `import`), `db` for `collection.*`, any folder as a drive)
   and servers it fetches from (`pds` for `settings.import_published.*`, `client_id` and `scopes` for
   `account.login.begin`). Never expose it on a socket or to another user, and never pass web content
   (a page's or a renderer's input) into its parameters. It refuses relative paths to write to, a
@@ -205,7 +205,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `keep_weekly`, `library`; says why each kept snapshot stays), `store.copy` (`path`, `mirror`,
   `verify`, `force`, `dry_run`), `store.copies`, `push.plan/apply`, `merge.plan/apply`,
   `clean.plan/apply`, `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG
-  previews), `xml.export`, `interop.plan/apply` (other DJ software), `store.*`, `disks.list`,
+  previews), `xml.export`, `store.*`, `disks.list`,
   `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the user confirmed is
   the one erased).
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by

@@ -3954,6 +3954,7 @@ dependencies = [
  "libc",
  "locallibrary",
  "locallibrary-plugin-coverart",
+ "locallibrary-plugin-interop",
  "locallibrary-plugin-sound",
  "locallibrary-plugin-tracklist",
  "loclib-mixid",

@@ -849,11 +849,6 @@ fn build() -> Registry {
     })
     .long()
     .destructive();
-    r.plan("interop.plan", |c, req| Ok(api::interop_plan(&req, c.ctx)?)).long().destructive().writes_to("output");
-    r.apply("interop.apply", PlanStore::None, |c, req| Ok(api::interop_apply(&req, c.ctx)?))
-        .long()
-        .destructive()
-        .writes_to("output");
 
     // Plugins.
     plugins::register(&mut r);

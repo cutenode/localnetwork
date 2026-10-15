@@ -111,6 +111,30 @@ fn reads_back(lib: &Library, root: &Path, style: PathStyle) {
         .unwrap();
     assert_eq!(version, engine::SCHEMA);
     assert!(uuid::Uuid::parse_str(&uuid).is_ok(), "{uuid}");
+    let mut tables: Vec<String> = db
+        .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    tables.sort();
+    let engines = [
+        "AlbumArt",
+        "ChangeLog",
+        "Information",
+        "Pack",
+        "PerformanceData",
+        "Playlist",
+        "PlaylistAllChildren",
+        "PlaylistAllParent",
+        "PlaylistEntity",
+        "PlaylistPath",
+        "PreparelistEntity",
+        "Smartlist",
+        "Track",
+    ];
+    assert_eq!(tables, engines, "Engine DJ's tables and views");
 
     // One row per file, whatever the case of its path.
     let file = |t: &Track| src.audio(t).to_string_lossy().to_lowercase();
@@ -148,16 +172,20 @@ fn reads_back(lib: &Library, root: &Path, style: PathStyle) {
         assert_eq!(row.rating, i64::from(t.rating.min(5)) * 20);
         assert_eq!(row.is_played, t.play_count > 0);
         assert_eq!((row.is_analyzed, row.album_art_id), (false, 1), "Engine analyses it; no artwork");
-        assert_eq!(row.origin_uuid, uuid);
+        assert_eq!((row.origin_uuid.as_str(), row.origin_track_id), (uuid.as_str(), row.id), "its own origin");
         match common::ymd(&t.date_added).and_then(|(y, m, d)| days(y, m, d)) {
             Some(days) => assert_eq!(row.date_added, days * 86_400, "{}", t.date_added),
             None => assert!((before..=after).contains(&row.date_added), "now for {:?}", t.date_added),
         }
-        let performance: Option<i64> = db
-            .query_row("SELECT trackId FROM PerformanceData WHERE trackId = ?1", [row.id], |r| r.get(0))
+        // Engine analyses the track itself: no beat grid or cues of rekordbox's.
+        type Blobs = (i64, Option<Vec<u8>>, Option<Vec<u8>>);
+        let performance: Option<Blobs> = db
+            .query_row("SELECT trackId, beatData, quickCues FROM PerformanceData WHERE trackId = ?1", [row.id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })
             .optional()
             .unwrap();
-        assert_eq!(performance, Some(row.id));
+        assert_eq!(performance, Some((row.id, None, None)));
     }
     let engine_id: FxHashMap<u32, i64> = lib.tracks.iter().map(|t| (t.id, row_of_file[&file(t)])).collect();
 
@@ -260,6 +288,7 @@ struct TrackRow {
     is_analyzed: bool,
     album_art_id: i64,
     origin_uuid: String,
+    origin_track_id: i64,
     date_added: i64,
 }
 
@@ -293,6 +322,7 @@ impl TrackRow {
             is_analyzed: r.get("isAnalyzed")?,
             album_art_id: r.get("albumArtId")?,
             origin_uuid: r.get("originDatabaseUuid")?,
+            origin_track_id: r.get("originTrackId")?,
             date_added: r.get("dateAdded")?,
         })
     }

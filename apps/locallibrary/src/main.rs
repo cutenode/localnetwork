@@ -421,7 +421,7 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     },
     /// Save drives into the store as they're plugged in (history lists rekordbox would delete), and keep their group in sync
     Watch(watch_cmd::WatchArgs),
-    /// Write a playlist, folder, history list or the whole library as M3U8, CSV or text, or for other DJ software
+    /// Write a playlist, folder, history list or the whole library as M3U8, CSV or text, or in a plugin's format (other DJ software's)
     Export(export_cmd::ExportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
     Xml {

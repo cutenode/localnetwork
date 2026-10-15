@@ -453,20 +453,6 @@ impl From<loclib_equipment::UnknownModels> for Error {
     }
 }
 
-impl From<loclib_interop::Error> for Error {
-    fn from(e: loclib_interop::Error) -> Self {
-        use loclib_interop::Error as E;
-        match e {
-            E::Cancelled(_) => Error::Cancelled,
-            E::Invalid(message) => Error::Invalid(message),
-            E::Io { path, source } => Error::Io { path, source },
-            E::Tags(message) => Error::Tags(message),
-            // A variant a newer loclib-interop adds keeps its message.
-            other => Error::invalid(other.to_string()),
-        }
-    }
-}
-
 impl From<loclib_progress::Cancelled> for Error {
     fn from(_: loclib_progress::Cancelled) -> Self {
         Error::Cancelled

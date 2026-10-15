@@ -121,7 +121,6 @@ crates/locallibrary/src/    the library, built on the crates above
   onelibrary/  exportLibrary.db: SQLCipher pages, WAL replay, reading and editing via SQLite
   xml.rs       rekordbox XML export
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
-  interop.rs   the library for other DJ software, planned and written through loclib-interop
   format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
                writer, fake-capacity probe
   equipment.rs loclib-equipment's table, and the player models remembered in the store (players.json)
@@ -145,8 +144,8 @@ crates/locallibrary/src/    the library, built on the crates above
                messages never name a CLI command or flag: the CLI's hints.rs words those)
 apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
-                            and the TypeScript types), the plugins it ships (plugins.rs: the sound, tracklist
-                            and coverart plugins linked in, each run as `locallibrary plugin serve <id>`;
+                            and the TypeScript types), the plugins it ships (plugins.rs: the sound, tracklist,
+                            interop and coverart plugins linked in, each run as `locallibrary plugin serve <id>`;
                             plugin_cmd/: what they add to the command line), and the player (tui/: ratatui +
                             rodio, drawing with loclib-waveform, the `tui` and `playback` features;
                             account_off.rs and the `playback`-less audio.rs stand in for what a build leaves

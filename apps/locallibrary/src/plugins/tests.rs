@@ -126,7 +126,7 @@ fn formats_that_clash_are_refused() {
         manifest(id, &toml)
     };
     assert_eq!(check(&[&exporter("a", "plain")]), [None]);
-    for format in ["csv", "m3u", "traktor"] {
+    for format in ["csv", "m3u", "txt"] {
         let e = refused(&[exporter("a", format)]);
         assert_eq!(e, format!("the a plugin's export format \"{format}\" is a locallibrary format already"));
     }
