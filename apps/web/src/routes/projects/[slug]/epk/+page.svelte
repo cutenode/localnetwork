@@ -1,26 +1,34 @@
 <script lang="ts">
-	import { ArrowLeft, Check, Copy, ExternalLink, FileText, ImagePlus, Printer, Quote } from '@lucide/svelte';
+	import { ArrowLeft, Check, Copy, ExternalLink, Lock, Plus, Printer } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import BookingDetails from '#lib/components/BookingDetails.svelte';
 	import DjSets from '#lib/components/DjSets.svelte';
 	import DjStats from '#lib/components/DjStats.svelte';
+	import EpkMixes from '#lib/components/epk/EpkMixes.svelte';
 	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import { presetFor } from '#lib/epk.ts';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
 	import type { PageProps } from './$types';
 
 	/**
-	 * A project's electronic press kit, put together from what's on file: the profile, its mixes, the
-	 * managers' playing stats and sets, and booking details for members. It reads like a document and
-	 * prints on white. Slots for what the site can't hold yet (press photos, quotes, a rider PDF)
-	 * show only to the project's managers.
+	 * A project's press kits: the ones its managers publish as records, listed first, then one put
+	 * together from what's on file (the profile, its mixes, the managers' playing stats and sets, and
+	 * booking details for members). That one reads like a document and prints on white.
 	 */
 	let { data }: PageProps = $props();
 
 	const project = $derived(data.project);
 
 	const profile = $derived(project.profile);
+
+	/** A mix's tracklist page, when it has one. */
+	function tracklistHref(url: string) {
+		const index = profile.mixes?.findIndex((mix) => mix.url === url && mix.tracklist) ?? -1;
+
+		return index < 0 ? null : `/projects/${project.slug}/mixes/${index + 1}`;
+	}
 
 	let copied = $state(false);
 
@@ -33,13 +41,6 @@
 			copied = false;
 		}
 	}
-
-	/** What a full press kit has that this one can't hold yet. */
-	const missing = [
-		{ icon: ImagePlus, title: 'Press photos', body: 'High-resolution photos promoters can use on flyers and listings.' },
-		{ icon: Quote, title: 'Press quotes', body: 'What venues, promoters and press have said about your sets.' },
-		{ icon: FileText, title: 'Technical rider PDF', body: 'A file to attach to contracts, beyond the rider text in your booking details.' }
-	];
 </script>
 
 <svelte:head>
@@ -55,9 +56,40 @@
 	</div>
 </div>
 
+<section aria-labelledby="press-kits" class="mx-auto flex w-full max-w-208 flex-col gap-4 px-4 pt-8 sm:px-8 print:hidden">
+	{#if data.deleted}<p role="status" class="notice notice-ok m-0">Press kit deleted.</p>{/if}
+	<div class="flex flex-wrap items-end justify-between gap-3">
+		<div class="flex flex-col gap-1">
+			<h2 id="press-kits" class="m-0 text-heading font-semibold">Press kits</h2>
+			<p class="m-0 text-small text-fg-muted">Published by {profile.name}'s managers, each for a different kind of booking.</p>
+		</div>
+		{#if data.isManager}<a class="btn-primary btn-sm" href="/epk/new?project={project.slug}"><Plus class="size-4" />New press kit</a>{/if}
+	</div>
+	{#await data.epks}
+		<div aria-busy="true" aria-label="Loading press kits" class="h-20 animate-pulse rounded-xl bg-surface"></div>
+	{:then epks}
+		{#if epks.length}
+			<ul class="m-0 grid list-none gap-3 p-0 sm:grid-cols-2">
+				{#each epks as epk (epk.uri)}
+					{@const preset = presetFor(epk.record.access)}
+					<li>
+						<a href="/epk/{epk.did}/{epk.rkey}" class="card flex h-full flex-col gap-1.5 p-4 text-fg no-underline transition-colors hover:border-line-strong">
+							<span class="text-emphasis font-semibold">{epk.record.title}</span>
+							{#if epk.record.headline}<span class="text-small text-fg-soft">{epk.record.headline}</span>{/if}
+							<span class="mt-auto inline-flex items-center gap-1.5 pt-1 text-caption text-fg-subtle"><Lock class="size-3" aria-hidden="true" />{preset?.label ?? 'Custom access'} · Updated {formatDate(epk.record.updatedAt ?? epk.record.createdAt)}</span>
+						</a>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<p class="m-0 text-small text-fg-muted">{data.isManager ? 'None yet. Make one to choose which mixes and photos everyone sees, and who gets the rest.' : 'None published yet. Below is one put together from the profile.'}</p>
+		{/if}
+	{/await}
+</section>
+
 <article class="mx-auto flex w-full max-w-208 flex-col gap-12 px-4 py-10 sm:px-8 print:max-w-none print:gap-8 print:px-0 print:py-0">
 	<header class="flex flex-col gap-5 border-b border-line pb-10 print:pb-6">
-		<p class="m-0 eyebrow text-fg-subtle">Press kit · Updated {formatDate(project.updatedAt)}</p>
+		<p class="m-0 eyebrow text-fg-subtle">From the profile · Updated {formatDate(project.updatedAt)}</p>
 		<div class="flex flex-col gap-5 sm:flex-row sm:items-center">
 			<Avatar src={project.avatarUrl} name={profile.name} size="xl" />
 			<div class="flex min-w-0 flex-col gap-2">
@@ -124,19 +156,7 @@
 	{#if profile.mixes?.length}
 		<section aria-labelledby="epk-mixes" class="flex flex-col gap-4">
 			<h2 id="epk-mixes" class="m-0 text-heading font-semibold">Mixes</h2>
-			<ol class="m-0 flex list-none flex-col p-0">
-				{#each profile.mixes as mix, index (index)}
-					<li class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-t border-line py-3 last:border-b">
-						<a class="font-semibold text-fg no-underline hover:underline" href={mix.url} rel="noopener noreferrer nofollow" target="_blank">{mix.title}</a>
-						<span class="flex flex-wrap gap-x-4 text-small text-fg-muted">
-							{#if mix.durationMinutes}<span class="font-mono text-label">{mix.durationMinutes} min</span>{/if}
-							{#if mix.year}<span class="font-mono text-label">{mix.year}</span>{/if}
-							{#if mix.tracklist}<a class="link print:hidden" href="/projects/{project.slug}/mixes/{index + 1}">Tracklist</a>{/if}
-							<span class="hidden break-all print:inline">{mix.url}</span>
-						</span>
-					</li>
-				{/each}
-			</ol>
+			<EpkMixes mixes={profile.mixes} tracklistHref={(url) => tracklistHref(url)} />
 		</section>
 	{/if}
 
@@ -144,24 +164,6 @@
 		<section aria-labelledby="epk-photos" class="flex flex-col gap-4 print:break-inside-avoid">
 			<h2 id="epk-photos" class="m-0 text-heading font-semibold">Photos</h2>
 			<a href={project.avatarUrl} target="_blank" rel="noopener noreferrer" class="block w-fit"><img src={project.avatarUrl} alt="{profile.name}, profile photo" class="max-h-80 rounded-xl border border-line object-cover" /></a>
-		</section>
-	{/if}
-
-	{#if data.isManager}
-		<section aria-labelledby="epk-missing" class="flex flex-col gap-4 print:hidden">
-			<div class="flex flex-col gap-1">
-				<h2 id="epk-missing" class="m-0 text-heading font-semibold">Not in your press kit yet</h2>
-				<p class="m-0 text-small text-fg-muted">Only you and the other managers see this. These sections appear once you can add them.</p>
-			</div>
-			<ul class="m-0 grid list-none gap-3 p-0 sm:grid-cols-3">
-				{#each missing as item (item.title)}
-					<li class="flex flex-col gap-2 rounded-xl border border-dashed border-line-strong p-4">
-						<item.icon class="size-5 text-fg-subtle" />
-						<p class="m-0 text-small font-semibold">{item.title}</p>
-						<p class="m-0 text-label text-fg-muted">{item.body}</p>
-					</li>
-				{/each}
-			</ul>
 		</section>
 	{/if}
 

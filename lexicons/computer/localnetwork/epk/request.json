@@ -1,0 +1,30 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.epk.request",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A request to see the private part of a press kit, written by the person asking into the press kit's space.",
+			"record": {
+				"type": "object",
+				"required": ["epk", "createdAt"],
+				"properties": {
+					"epk": { "type": "string", "format": "at-uri", "description": "The computer.localnetwork.epk record." },
+					"role": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["promoter", "venue", "agent", "press", "artist", "other"]
+					},
+					"message": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+					"onBehalfOf": {
+						"type": "string",
+						"format": "did",
+						"description": "Set when the Local Network root account wrote this for someone whose PDS can't write to spaces."
+					},
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

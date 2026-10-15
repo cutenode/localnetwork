@@ -1,21 +1,13 @@
 import { DJ_PROFILE, DJ_SET, type DjActivity, type DjProfile, type DjSet } from '#lib/dj.ts';
 import { djProfileSchema, djSetSchema } from '#lib/dj-schema.ts';
 import type { AccountView } from '#lib/types.ts';
-import { z } from 'zod';
+import type { PublicRepo } from '../atproto/public-repo';
 import type { Logger } from '../logger';
-
-/** Where an account's PDS is; the app's IdentityResolver. */
-type PdsResolver = { resolve(did: string): Promise<{ pds: string }> };
 
 /** How long an account's records are reused before they're fetched again. */
 const FRESH_MS = 5 * 60_000;
 
 const CACHE_SIZE = 200;
-
-/** What the PDS answers; the records inside are parsed by the DJ schemas. */
-const getRecordOutput = z.object({ value: z.unknown() });
-
-const listRecordsOutput = z.object({ records: z.array(z.object({ uri: z.string(), value: z.unknown() })) });
 
 /** Sets shown per account: the most recent ones. */
 const SET_LIMIT = 25;
@@ -33,9 +25,8 @@ export class DjService {
 	private readonly cache = new Map<string, { at: number; value: DjActivity }>();
 
 	constructor(
-		private readonly identity: PdsResolver,
+		private readonly repos: PublicRepo,
 		private readonly logger: Logger,
-		private readonly fetchImpl: typeof fetch = fetch,
 		private readonly now: () => number = Date.now
 	) {}
 
@@ -76,12 +67,7 @@ export class DjService {
 	}
 
 	private async profile(did: string): Promise<DjProfile | null> {
-		const body = await this.get(
-			did,
-			'com.atproto.repo.getRecord',
-			{ repo: did, collection: DJ_PROFILE, rkey: 'self' },
-			getRecordOutput
-		);
+		const body = await this.repos.getRecord(did, DJ_PROFILE, 'self');
 
 		if (!body) return null;
 
@@ -93,52 +79,14 @@ export class DjService {
 	}
 
 	private async sets(did: string): Promise<DjSet[]> {
-		const body = await this.get(
-			did,
-			'com.atproto.repo.listRecords',
-			{ repo: did, collection: DJ_SET, limit: String(SET_LIMIT) },
-			listRecordsOutput
-		);
+		const { records } = await this.repos.listRecords(did, DJ_SET, { limit: SET_LIMIT });
 
-		return (body?.records ?? [])
+		return records
 			.flatMap((record) => {
 				const parsed = djSetSchema.safeParse(record.value);
 
 				return parsed.success ? [{ ...parsed.data, uri: record.uri }] : [];
 			})
 			.sort((a, b) => b.date.localeCompare(a.date));
-	}
-
-	/** A public XRPC query against the account's PDS, parsed, or null when it has nothing or can't be reached. */
-	private async get<T>(
-		did: string,
-		nsid: string,
-		params: Record<string, string>,
-		output: z.ZodType<T>
-	): Promise<T | null> {
-		try {
-			const url = new URL(`/xrpc/${nsid}`, (await this.identity.resolve(did)).pds);
-
-			for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
-			const response = await this.fetchImpl(url, { signal: AbortSignal.timeout(5_000) });
-
-			if (!response.ok) {
-				// 400 is how a PDS says there's no such record (RecordNotFound).
-				if (response.status !== 400)
-					this.logger.warn({ did, nsid, status: response.status }, 'dj records request failed');
-
-				return null;
-			}
-
-			const parsed = output.safeParse(await response.json());
-
-			if (!parsed.success) this.logger.warn({ did, nsid }, 'dj records response does not parse');
-
-			return parsed.success ? parsed.data : null;
-		} catch (cause) {
-			this.logger.warn({ err: cause, did, nsid }, 'could not read dj records');
-
-			return null;
-		}
 	}
 }

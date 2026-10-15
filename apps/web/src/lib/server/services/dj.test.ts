@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEMO_DJ_PROFILE, DEMO_DJ_SETS } from '../../../../scripts/seed-data.ts';
+import { PublicRepo } from '../atproto/public-repo';
 import { silentLogger } from '../logger';
 import { DjService } from './dj';
 
@@ -41,7 +42,7 @@ const identity = { resolve: async () => ({ pds: PDS }) };
 describe('DjService', () => {
 	it("reads an account's stats and its sets, newest first", async () => {
 		const pds = fakePds({ [DJ]: { profile: DEMO_DJ_PROFILE, sets: DEMO_DJ_SETS.toReversed() } });
-		const service = new DjService(identity, silentLogger, pds.fetchImpl);
+		const service = new DjService(new PublicRepo(identity, silentLogger, pds.fetchImpl), silentLogger);
 
 		const [activity] = await service.activity([{ did: DJ, handle: 'neon.test' }]);
 
@@ -52,7 +53,7 @@ describe('DjService', () => {
 
 	it('leaves out accounts with nothing on file and skips sets that do not parse', async () => {
 		const pds = fakePds({ [DJ]: { sets: [DEMO_DJ_SETS[0], { date: 'someday' }] } });
-		const service = new DjService(identity, silentLogger, pds.fetchImpl);
+		const service = new DjService(new PublicRepo(identity, silentLogger, pds.fetchImpl), silentLogger);
 
 		const activity = await service.activity([
 			{ did: DJ, handle: null },
@@ -65,7 +66,10 @@ describe('DjService', () => {
 	});
 
 	it('treats a PDS that is down as nothing on file', async () => {
-		const service = new DjService(identity, silentLogger, fakePds({}, { down: true }).fetchImpl);
+		const service = new DjService(
+			new PublicRepo(identity, silentLogger, fakePds({}, { down: true }).fetchImpl),
+			silentLogger
+		);
 
 		expect(await service.activity([{ did: DJ, handle: null }])).toEqual([]);
 	});
@@ -73,7 +77,7 @@ describe('DjService', () => {
 	it('asks the PDS again only after a few minutes', async () => {
 		const pds = fakePds({ [DJ]: { profile: DEMO_DJ_PROFILE } });
 		let now = 0;
-		const service = new DjService(identity, silentLogger, pds.fetchImpl, () => now);
+		const service = new DjService(new PublicRepo(identity, silentLogger, pds.fetchImpl), silentLogger, () => now);
 
 		await service.activity([{ did: DJ, handle: null }]);
 		now = 60_000;
@@ -88,7 +92,7 @@ describe('DjService', () => {
 	it('hands over records without waiting only while every account is fresh in the cache', async () => {
 		const pds = fakePds({ [DJ]: { profile: DEMO_DJ_PROFILE } });
 		let now = 0;
-		const service = new DjService(identity, silentLogger, pds.fetchImpl, () => now);
+		const service = new DjService(new PublicRepo(identity, silentLogger, pds.fetchImpl), silentLogger, () => now);
 
 		const accounts = [
 			{ did: DJ, handle: 'neon.test' },

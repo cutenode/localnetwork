@@ -51,6 +51,28 @@ export class FakeNetwork {
 			.toArray();
 	}
 
+	/** Answers public getRecord and listRecords from the public repos, as a PDS does for anyone. */
+	readonly publicFetch: typeof fetch = async (input) => {
+		const url = new URL(input instanceof Request ? input.url : String(input));
+		const repo = url.searchParams.get('repo');
+		const collection = url.searchParams.get('collection');
+		const prefix = `${repo}|${collection}|`;
+
+		if (url.pathname.endsWith('getRecord')) {
+			const found = this.records.get(`${prefix}${url.searchParams.get('rkey')}`);
+
+			return found ? Response.json(found) : Response.json({ error: 'RecordNotFound' }, { status: 400 });
+		}
+
+		const records = this.records
+			.entries()
+			.filter(([key]) => key.startsWith(prefix))
+			.map(([, value]) => value)
+			.toArray();
+
+		return Response.json({ records });
+	};
+
 	/** Throws BlobNotFound, as a PDS does, when `record` references a blob `did` doesn't hold. */
 	assertBlobsHeld(did: string, record: JsonRecord): void {
 		// Blob refs are the only `$link`s in the records these tests write.
@@ -60,6 +82,17 @@ export class FakeNetwork {
 			.find((cid) => !this.blobHolders.get(cid)?.has(did));
 
 		if (missing) throw new XRPCError(400, 'BlobNotFound', `Could not find blob: ${missing}`);
+	}
+
+	/** Throws, as a PDS does, when a member-list space doesn't let `did` write. */
+	assertCanWrite(did: string, space: string): void {
+		const found = this.spaces.get(space);
+
+		if (!found || found.writePolicy.$type !== 'com.atproto.simplespace.defs#memberListPolicy') return;
+
+		if (space.startsWith(`at://${did}/`) || found.members.get(did)?.write) return;
+
+		throw new XRPCError(403, 'Forbidden', `${did} can't write to ${space}`);
 	}
 
 	maybeFail(did: string): void {
@@ -113,6 +146,7 @@ export class FakeRootClient implements RootRepoClient {
 		record: JsonRecord
 	): Promise<RecordRef> {
 		this.net.assertBlobsHeld(this.did, record);
+		this.net.assertCanWrite(this.did, space);
 		const uri = `${space}/${this.did}/${collection}/${rkey}`;
 		const cid = await cidOf(record);
 		this.net.spaceRecords.set(key, { uri, cid, value: structuredClone(record) });
@@ -191,15 +225,30 @@ export class FakeRootClient implements RootRepoClient {
 		if (input.appAccess) found.appAccess = input.appAccess;
 	}
 
-	async putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void> {
-		const found = this.net.spaces.get(input.space);
+	/** The space, if this account owns it; a PDS lets only the owner manage a space. */
+	private owned(space: string) {
+		const found = this.net.spaces.get(space);
 
 		if (!found) throw new XRPCError(404, 'SpaceNotFound');
-		found.members.set(input.did, { read: input.read, write: input.write });
+
+		if (!space.startsWith(`at://${this.did}/`)) throw new XRPCError(403, 'Forbidden');
+
+		return found;
+	}
+
+	async deleteSpace(space: string): Promise<void> {
+		this.owned(space);
+		this.net.spaces.delete(space);
+
+		for (const key of this.net.spaceRecords.keys()) if (key.startsWith(`${space}|`)) this.net.spaceRecords.delete(key);
+	}
+
+	async putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void> {
+		this.owned(input.space).members.set(input.did, { read: input.read, write: input.write });
 	}
 
 	async removeMember(input: { space: string; did: string }): Promise<void> {
-		this.net.spaces.get(input.space)?.members.delete(input.did);
+		this.owned(input.space).members.delete(input.did);
 	}
 
 	async listMembers(space: string) {

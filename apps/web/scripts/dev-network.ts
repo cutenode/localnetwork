@@ -14,11 +14,12 @@ import { asDid, AtpAgent } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
-import { COLLECTION } from '../src/lib/nsid.ts';
+import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
+import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
 import { startHappyView } from './lib/happyview.ts';
-import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_PROJECTS } from './seed-data.ts';
+import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_EPKS, DEMO_PROJECTS } from './seed-data.ts';
 
 const PLC_PORT = Number(process.env.DEV_PLC_PORT ?? 2582);
 
@@ -132,6 +133,7 @@ async function main() {
 	};
 
 	const now = new Date().toISOString();
+	const projectUris: string[] = [];
 
 	for (const [index, profile] of DEMO_PROJECTS.entries()) {
 		const managers = index < 2 ? [dids['neon.test']] : [];
@@ -148,15 +150,57 @@ async function main() {
 			updatedAt: now
 		});
 
-		await rootAgent.com.atproto.repo.putRecord({
+		const { data: written } = await rootAgent.com.atproto.repo.putRecord({
 			repo: root.did,
 			collection: COLLECTION.project,
 			rkey: TID.nextStr(),
 			record
 		});
+
+		projectUris.push(written.uri);
 	}
 
 	log(`Seeded ${DEMO_PROJECTS.length} demo projects`);
+
+	// neon.test's press kits for Neon Tide, written by the same client the site uses: a space per
+	// press kit with the root as a member, the private part in it, then the public record.
+	const neonClient = new AgentRepoClient(dids['neon.test'], neon);
+
+	for (const epk of DEMO_EPKS) {
+		const rkey = TID.nextStr();
+
+		const space = await neonClient.createSpace({
+			spaceType: SPACE_TYPE.epk,
+			skey: rkey,
+			readPolicy: { $type: 'com.atproto.simplespace.defs#memberListPolicy' },
+			writePolicy: { $type: 'com.atproto.simplespace.defs#publicPolicy' },
+			appAccess: { $type: 'com.atproto.simplespace.defs#open' }
+		});
+
+		await neonClient.putMember({ space, did: root.did, read: true, write: true });
+		await neonClient.putSpaceRecord({
+			space,
+			collection: COLLECTION.epkContent,
+			rkey: EPK_CONTENT_KEY,
+			record: validateRecord(COLLECTION.epkContent, { ...epk.content, updatedAt: now })
+		});
+		await neonClient.putRecord({
+			collection: COLLECTION.epk,
+			rkey,
+			record: validateRecord(COLLECTION.epk, {
+				project: projectUris[0],
+				title: epk.title,
+				headline: epk.headline,
+				bio: epk.bio,
+				mixes: epk.publicMixes.map((index) => DEMO_PROJECTS[0].mixes![index]),
+				access: epk.access,
+				createdAt: now,
+				updatedAt: now
+			})
+		});
+	}
+
+	log(`Seeded ${DEMO_EPKS.length} press kits for ${DEMO_PROJECTS[0].name}`);
 
 	const happyView = await startHappyView({ plcUrl: plc.url, pdsUrl: pds.url });
 	log(`HappyView      ${happyView.url}`);

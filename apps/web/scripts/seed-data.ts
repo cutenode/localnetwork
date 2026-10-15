@@ -234,3 +234,34 @@ export const DEMO_DJ_SETS = [
 		tracks: demoTracks
 	}
 ];
+
+/**
+ * Two press kits neon.test publishes for Neon Tide: one for clubs that people ask to see, and one
+ * for festivals anyone signed in can open. Each is the public record and the private part.
+ */
+export const DEMO_EPKS = [
+	{
+		title: 'Clubs',
+		headline: 'Rolling, hypnotic techno for late rooms',
+		bio: 'Neon Tide plays long, patient techno sets that build from dub textures into peak-time pressure.',
+		access: { bookedWith: 'auto', following: 'auto', promoters: 'review', anyone: 'review' },
+		publicMixes: [0],
+		content: {
+			bio: 'Neon Tide plays long, patient techno sets that build from dub textures into peak-time pressure. Resident at Halle Nord for four years, closing sets most months, and a regular on Late Show radio.',
+			mixes: [
+				{ title: 'Halle Nord closing set (promo)', url: 'https://soundcloud.com/example-neon-tide/halle-nord-closing' }
+			],
+			quotes: [{ text: 'The best closing set we had all year.', source: 'Halle Nord' }],
+			contact: { email: 'bookings@neon-tide.test', note: 'Replies within two days' },
+			techRider: '2x CDJ-3000, DJM-V10, two booth monitors'
+		}
+	},
+	{
+		title: 'Festivals',
+		headline: 'Big-room sets with a dub undertow',
+		bio: 'Neon Tide brings the long build of a club night to a festival stage, from dub textures to peak-time techno.',
+		access: { bookedWith: 'auto', following: 'auto', promoters: 'auto', anyone: 'auto' },
+		publicMixes: [0],
+		content: { contact: { email: 'festivals@neon-tide.test' } }
+	}
+];
