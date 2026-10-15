@@ -204,16 +204,28 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   analyzers' fields and each plugin's settings, and never starts one from an elevated process.
   An edit plan is destructive, and says so, when it leaves a playlist with fewer entries or
   deletes cues or My Tags, too.
-- **Plugins.** The plugins built into locallibrary (only built-in ones run) add
-  commands and operations to the command line (`locallibrary ID NAME`, or where the plugin puts
-  them, like `playlist import`), with flags made from their params' JSON Schemas; an operation's
-  plan is shown and asked about like any edit. `analyze` runs their analyzers on a library's
-  tracks and `track` shows what they worked out; `export --format` takes their formats, showing
-  each file, what goes in and what the format can't hold, and asking before overwriting a file; `plugin` lists them and what each may do, and `plugin settings`
-  keeps their settings. The sidecar has all of it as `plugins.*` methods, their plans kept apart
-  from locallibrary's own, and `track.fields` reads the installed plugins' versions. A plugin
-  whose id or commands clash with locallibrary's or another plugin's is left out, with a warning
-  saying why, and the others work; a plugin's errors keep their kinds (`not_found`, `io`...). See docs/plugins.md.
+- **Plugins.** The plugins built into locallibrary (only built-in ones run) add commands and
+  operations to the command line (`locallibrary ID NAME`, or where the plugin puts them, like
+  `playlist import`), with flags made from their params' JSON Schemas; an operation's plan is
+  shown and asked about like any edit. `analyze` runs their analyzers on a library's tracks and
+  `track` shows what they worked out (`sound.bpm`); `export --format` takes their formats, showing
+  each file, what goes in and what the format can't hold, and asking before overwriting a file;
+  `plugin` lists them and what each may do, and `plugin settings` keeps their settings. The
+  sidecar has all of it as `plugins.*` methods, their plans kept apart from locallibrary's own,
+  and `track.fields` reads the installed plugins' versions. A plugin whose id or commands clash
+  with locallibrary's or another plugin's is left out, with a warning saying why, and the others
+  work; a plugin's errors keep their kinds (`not_found`, `io`...). See docs/plugins.md. The ones
+  it ships:
+  - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
+    streaming playlists, rekordbox text or XML, "Artist - Title" lines), and `tracklist match`
+    shows what it finds in one, entry by entry, changing nothing.
+  - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
+    tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
+  - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, as `doctor
+    --analyze` does, kept as `sound.bpm`, `sound.key`, `sound.integrated_lufs`...
+  - `coverart`: `coverart fetch` finds front covers on MusicBrainz and the Cover Art Archive for
+    tracks without artwork (or all, with `--replace`), planned as artwork edits you confirm. It's
+    the only one that goes online, and only when it's run.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

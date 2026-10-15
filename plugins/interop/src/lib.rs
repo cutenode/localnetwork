@@ -34,8 +34,8 @@ pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'sta
 
 struct Interop;
 
-/// An exporter's options, as the RPC sidecar's `interop.plan` names them: each exporter takes
-/// those its schema lists.
+/// An exporter's options (`export --option`, `plugins.export.plan`'s `options`): each exporter
+/// takes those its schema lists.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Options {

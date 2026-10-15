@@ -36,7 +36,7 @@ additionalProperties = { type = "integer", minimum = 0 }
 x-cli = { flag = "choose", one_based = true }
 description = "Decisions for ambiguous entries: entry -> track id (entries count from 0, or from 1 on the command line)"
 
-# `locallibrary playlist import`, where locallibrary's own import was.
+# `locallibrary playlist import`, with the other playlist commands.
 [[contributes.operations]]
 name = "import"
 title = "Make a playlist from a tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or \"Artist - Title\" lines"

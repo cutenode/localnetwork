@@ -263,8 +263,8 @@ pub fn combined_library(device: &Device) -> Result<Library> {
     combined(&Databases::read(device)?)
 }
 
-/// [`combined_library`] for files other software reads (rekordbox XML, Traktor, Serato, Engine,
-/// playlists): OneLibrary's own tracks numbered on from `export.pdb`'s
+/// [`combined_library`] for files other software reads (rekordbox XML, playlist files; the
+/// interop plugin numbers its read the same way): OneLibrary's own tracks numbered on from `export.pdb`'s
 /// ([`Library::number_for_files`]), so no file carries an id with [`ONELIBRARY_ONLY`] set.
 pub fn export_library(device: &Device) -> Result<Library> {
     let mut library = combined_library(device)?;
