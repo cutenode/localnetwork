@@ -52,7 +52,8 @@ with each other are both left out.
   `--replace`.
 - **In the player** (`locallibrary tui`), commands, operations and analyzers are in the palette
   (`:`) and a drive's menu, operations in the actions menu (`e`) too, with a form for their
-  params; analyzers' fields are columns to show, sort and search by (see [the player](player.md)).
+  params; analyzers' fields are columns to show, sort and search by, and each plugin's settings
+  are a form in the palette too (see [the player](player.md)).
 - **Settings**: `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets
   one and `plugin settings ID KEY --reset` puts it back to its default. They're kept in the store
   (`plugins/ID/settings.json`).

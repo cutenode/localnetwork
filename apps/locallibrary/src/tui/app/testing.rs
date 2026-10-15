@@ -477,8 +477,8 @@ pub fn hold_volume_polls(app: &mut App) {
 
 /// loclib-plugin's echo plugin, which the plugin host's test plugin serves: its export format
 /// renamed (`m3u` is locallibrary's), its `echo` command taking a param of each kind the player's
-/// form fills in, besides the test plugin's `log` and `context`, and its `playlist` operation
-/// `tracks` too (which it leaves be).
+/// form fills in, besides the test plugin's `log` and `context`, its `playlist` operation
+/// `tracks` too (which it leaves be), and a setting of each kind beside its greeting.
 const ECHO: &str = include_str!("../../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
 
 /// The plugins with the echo plugin among them, for this test: its manifest written in `dir` and
@@ -494,8 +494,28 @@ pub fn echo_plugin(dir: &Path) {
             r#"params = { type = "object", properties = { name = { type = "string" } }, required = ["name"] }"#,
             operation,
         );
+    // Settings of each kind the player's form fills in, besides its greeting.
+    let settings = r#"
+[[contributes.settings]]
+key = "speed"
+title = "How fast"
+type = "number"
+default = 1.5
+
+[[contributes.settings]]
+key = "loud"
+title = "Shout"
+type = "boolean"
+
+[[contributes.settings]]
+key = "mood"
+title = "Mood"
+type = "enum"
+choices = ["calm", "wild"]
+default = "calm"
+"#;
     let file = dir.join("echo.toml");
-    std::fs::write(&file, manifest).unwrap();
+    std::fs::write(&file, manifest + settings).unwrap();
     // SAFETY: nextest runs each test in a process of its own, and this runs before the test
     // starts a thread.
     unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };

@@ -187,6 +187,8 @@ pub enum Act {
     Analyze(&'static str, &'static str),
     /// Show or hide the column of a plugin's field.
     FieldColumn(locallibrary::query::FieldName),
+    /// A plugin's settings (the plugin's id).
+    PluginSettings(&'static str),
 }
 
 /// The help's sections.

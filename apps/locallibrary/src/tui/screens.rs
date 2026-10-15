@@ -429,6 +429,24 @@ fn plugins_fields() {
     check(&mut app, "the search box filtering by a plugin's field", &["/ echo.bytes:>1000", "1 match", "4000"], &[]);
 }
 
+/// A plugin's settings in a form, as set now, from the palette.
+#[test]
+fn plugins_settings() {
+    let Fixture { _dir, mut app, .. } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    for c in ":echo plugin settings".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    check(&mut app, "a plugin's settings in the palette", &["Echo plugin settings…", "Echo"], &[]);
+    key(&mut app, KeyCode::Enter);
+    check(
+        &mut app,
+        "a plugin's settings",
+        &["Echo settings", "greeting", "hello", "speed", "1.5", "loud", "○ no", "‹ calm ›", "enter save"],
+        &[],
+    );
+}
+
 #[test]
 fn edit_menu_and_confirmation() {
     let Fixture { _dir, mut app, root } = fixture();

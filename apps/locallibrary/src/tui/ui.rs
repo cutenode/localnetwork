@@ -2528,8 +2528,12 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
     }
     let r = popup(area, w, lines.len() as u16 + 2, None);
     let keys = if selected.choices().is_empty() { "" } else { "←→ change · " };
+    let then = match form.then {
+        super::form::For::Run(_) => "run",
+        super::form::For::Settings(_) => "save",
+    };
     let b = block(title(&form.title, true), true)
-        .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter run · esc cancel "), faint()).right_aligned())
+        .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())
         .padding(ratatui::widgets::Padding::horizontal(1));
     f.render_widget(Clear, r);
     f.render_widget(Paragraph::new(lines).block(b), r);

@@ -3310,6 +3310,7 @@ impl App {
             Act::Plugin(plugin, name) => self.plugin_here(plugin, name),
             Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
+            Act::PluginSettings(plugin) => self.plugin_settings(plugin),
             Act::Details => {
                 self.show_details = !self.show_details;
                 if !self.show_details && self.focus == Focus::Details {

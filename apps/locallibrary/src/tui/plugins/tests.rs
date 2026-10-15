@@ -491,3 +491,126 @@ fn plugins_columns_sort_by_their_values() {
     let sort = items.iter().find(|i| i.action == super::super::edits::Action::SortList).unwrap();
     assert_eq!(sort.unavailable.as_deref(), Some("a plugin's column can't sort the drive's playlists"));
 }
+
+/// The settings of the plugin open in a form, from the palette.
+fn settings_form(app: &mut App) -> &super::super::form::Form {
+    press(app, ":echo plugin settings\n");
+    match &app.modal {
+        Some(Modal::Form(f)) => f,
+        _ => panic!("no form: {}", last_message(app)),
+    }
+}
+
+/// A plugin's settings are in the palette, with or without a drive, and open in a form as they're
+/// set now; saved, only what changed is kept, and one left empty goes back to its default.
+#[test]
+fn plugins_settings_are_a_form_kept_in_the_store() {
+    let (dir, _root) = demo_drive();
+    echo_plugin(dir.path());
+    let (mut app, _store) = blank(Screen::Library);
+    press(&mut app, ":");
+    assert_eq!(entry(&app, "Echo plugin settings…").1, None);
+    assert_eq!(entry(&app, "Cover art plugin settings…").0.detail, "Cover art");
+    assert!(picker(&app).items.iter().all(|i| i.label != "Sound analysis plugin settings…"), "it has none");
+    press(&mut app, "\u{1b}");
+    let (_drive, root) = demo_drive();
+    let mut on = app_on(&root);
+    on.drives = vec![
+        locallibrary::api::drive_info(&locallibrary::api::DriveRef { drive: root.display().to_string() }).unwrap(),
+    ];
+    on.drive_state.select(Some(0));
+    on.view = Screen::Drives;
+    press(&mut on, "e");
+    assert!(picker(&on).items.iter().all(|i| !i.label.ends_with("plugin settings…")), "not a drive's");
+    press(&mut app, "\u{1b}");
+    let texts = |f: &super::super::form::Form| f.fields.iter().map(|x| x.text.clone()).collect::<Vec<_>>();
+    let f = settings_form(&mut app);
+    assert_eq!(
+        (f.title.as_str(), texts(f)),
+        ("Echo settings", vec!["hello".into(), "1.5".into(), "false".into(), "calm".into()])
+    );
+    let s = screen(&mut app, 120, 40);
+    for needle in ["Echo settings", "greeting", "Greeting (empty for hello)", "enter save · esc cancel"] {
+        assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
+    }
+    // Changed: the greeting, the switch and the mood.
+    for _ in 0.."hello".len() {
+        key(&mut app, KeyCode::Backspace);
+    }
+    press(&mut app, "hi\t\t \t ");
+    press(&mut app, "\n");
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Saving settings"));
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "Echo settings saved");
+    let plugins = crate::plugins::host().unwrap();
+    let store_root = app.store_root.clone();
+    let kept = || {
+        let store = locallibrary::Store::open(&store_root).unwrap();
+        plugins.settings("echo", Some(&store)).unwrap()
+    };
+    assert_eq!(
+        serde_json::to_value(kept()).unwrap(),
+        json!({ "greeting": "hi", "speed": 1.5, "loud": true, "mood": "wild" })
+    );
+    let file = store_root.join("plugins/echo/settings.json");
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(written, json!({ "greeting": "hi", "loud": true, "mood": "wild" }), "only what changed");
+    // Open again: as set now. Nothing changed: nothing written.
+    assert_eq!(texts(settings_form(&mut app)), ["hi", "1.5", "true", "wild"]);
+    press(&mut app, "\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "nothing changed");
+    // The greeting left empty: back to its default.
+    settings_form(&mut app);
+    key(&mut app, KeyCode::Backspace);
+    key(&mut app, KeyCode::Backspace);
+    press(&mut app, "\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(kept()["greeting"], "hello");
+    let written: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert!(written.get("greeting").is_none(), "{written}");
+}
+
+/// A value its setting can't take is said on its field, and nothing is saved.
+#[test]
+fn a_setting_of_the_wrong_kind_isnt_saved() {
+    let (dir, _root) = demo_drive();
+    echo_plugin(dir.path());
+    let (mut app, _store) = blank(Screen::Library);
+    settings_form(&mut app);
+    press(&mut app, "\tfast\n");
+    let Some(Modal::Form(f)) = &app.modal else { panic!("closed") };
+    assert_eq!((f.selected, f.error.as_deref()), (1, Some("speed takes a number, not \"1.5fast\"")));
+    assert!(app.job.is_none() && !app.store_root.join("plugins").exists());
+}
+
+/// Each kind of setting as the form's schema has it, with its title and default said.
+#[test]
+fn settings_are_a_schema_of_their_kinds() {
+    let setting = |key: &str, kind, default: Option<Value>, choices: &[&str]| Setting {
+        key: key.into(),
+        title: key.to_uppercase(),
+        kind,
+        default,
+        choices: choices.iter().map(|c| c.to_string()).collect(),
+    };
+    let schema = settings_schema(&[
+        setting("a", SettingType::String, Some(json!("x")), &[]),
+        setting("b", SettingType::Number, None, &[]),
+        setting("c", SettingType::Boolean, Some(json!(true)), &[]),
+        setting("d", SettingType::Enum, None, &["p", "q"]),
+        setting("e", SettingType::File, None, &[]),
+        setting("f", SettingType::Directory, None, &[]),
+    ]);
+    assert_eq!(
+        schema["properties"],
+        json!({
+            "a": { "type": "string", "description": "A (empty for x)" },
+            "b": { "type": "number", "description": "B" },
+            "c": { "type": "boolean", "description": "C (empty for true)" },
+            "d": { "type": "string", "enum": ["p", "q"], "description": "D" },
+            "e": { "type": "string", "x-path": true, "description": "E" },
+            "f": { "type": "string", "x-path": true, "description": "F" },
+        })
+    );
+}

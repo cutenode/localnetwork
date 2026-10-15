@@ -42,6 +42,9 @@ listening to your library the way the players see it:
   analyzer over the drive's tracks in the background, those not analysed already. "show the
   sound.bpm column" adds a column of what it worked out (remembered for the next run), sorted by
   a click on its header like any column, and the search box filters by it: `sound.bpm:>120`.
+- **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
+  the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
+  to its default.
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
 - **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you
