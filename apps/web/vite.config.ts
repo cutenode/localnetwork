@@ -41,6 +41,13 @@ export default defineConfig({
 	preview: { host: '127.0.0.1', port: 4173 },
 	test: {
 		expect: { requireAssertions: true },
+		tags: [
+			{
+				name: 'budget',
+				description:
+					"Measures a limit (Lua instructions) that coverage doesn't change but whose wall time it multiplies, so test:coverage leaves it to pnpm test"
+			}
+		],
 		coverage: {
 			provider: 'v8',
 			include: ['src/lib/**/*.{ts,svelte}'],

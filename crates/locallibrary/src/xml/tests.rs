@@ -19,9 +19,14 @@ fn elements(xml: &str) -> Vec<(String, rustc_hash::FxHashMap<String, String>)> {
                 let attrs = e
                     .attributes()
                     .map(|a| a.unwrap())
-                    .map(|a| (String::from_utf8(a.key.as_ref().to_vec()).unwrap(), a.unescape_value().unwrap().into()))
+                    .map(|a| {
+                        (
+                            a.key.as_ref().to_owned(),
+                            a.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap().into(),
+                        )
+                    })
                     .collect();
-                out.push((String::from_utf8(e.name().as_ref().to_vec()).unwrap(), attrs));
+                out.push((e.name().as_ref().to_owned(), attrs));
             }
             quick_xml::events::Event::Eof => return out,
             _ => {}

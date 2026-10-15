@@ -1110,7 +1110,15 @@ fn mixes_lists_a_folder_of_sets_and_remembers_it() {
     app.view = View::Mixes;
     press(&mut app, &format!("O{}\n", sets.display()));
     listed(&mut app);
-    assert_eq!(shown(&app), ["loose.WAV · mixes", "Untitled.mp3 · one shot/techno", "Tierney Cyren.mp3 · tachycardia"]);
+    let techno = Path::new("one shot").join("techno");
+    assert_eq!(
+        shown(&app),
+        [
+            "loose.WAV · mixes".into(),
+            format!("Untitled.mp3 · {}", techno.display()),
+            "Tierney Cyren.mp3 · tachycardia".into()
+        ]
+    );
     assert!(app.toast.as_ref().is_some_and(|(m, ..)| m.starts_with("3 recordings in")), "{:?}", app.toast);
     app.save_state();
 
@@ -2982,6 +2990,9 @@ fn what_is_remembered_is_what_the_next_run_starts_with(tc: hegel::TestCase) {
     const KEYS: &[&str] =
         &["b", "B", "i", "t", "*", "#", "s", "r", "v", "Q", "S", "A", "+", "-", "a", "j", "\n", "2", "3", "1"];
     let (mut app, _dir) = app_with(library());
+    // A store off the drive: nothing is saved inside the drive that was open.
+    let home = tempfile::tempdir().unwrap();
+    app.store_root = home.path().join("store");
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(20)) {
         press(&mut app, tc.draw(gs::sampled_from(KEYS)));
     }

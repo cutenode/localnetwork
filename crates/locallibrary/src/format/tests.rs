@@ -115,9 +115,12 @@ fn plans_warn_where_formatting_is_untested() {
         untested(warnings(Some("linux"), false)),
         ["formatting hasn't been tested on Linux yet; check the result"]
     );
+    // Windows itself refuses the capacity check, so there the plan is made without one.
+    let checked = !cfg!(windows);
+    let what = if checked { "formatting with a capacity check" } else { "formatting" };
     assert_eq!(
-        untested(warnings(Some("windows"), true)),
-        ["formatting with a capacity check hasn't been tested on Windows yet; check the result"]
+        untested(warnings(Some("windows"), checked)),
+        [format!("{what} hasn't been tested on Windows yet; check the result")]
     );
     assert!(untested(warnings(Some("macos"), false)).is_empty());
 }
@@ -713,7 +716,9 @@ fn plans_follow_the_disk_and_the_options(tc: TestCase) {
     let fits = disk.problem(&[]).is_none()
         && disk.size < players::MBR_MAX
         && fs.check_cluster_size(cluster, disk.sector_size).is_ok()
-        && (fs != Filesystem::Fat32 || fat32::Layout::new(part, disk.sector_size, cluster, 0).is_ok());
+        && (fs != Filesystem::Fat32 || fat32::Layout::new(part, disk.sector_size, cluster, 0).is_ok())
+        // Windows itself makes no HFS+ and checks no capacity.
+        && !(cfg!(windows) && (fs == Filesystem::Hfsplus || opts.check_capacity));
     let p = match made {
         Ok(p) => p,
         Err(e) => {
@@ -736,7 +741,7 @@ fn plans_follow_the_disk_and_the_options(tc: TestCase) {
     let warned = p.warnings.iter().filter(|w| w.contains("isn't mounted")).count();
     assert_eq!(warned, unmounted.count());
     let untested = p.warnings.iter().any(|w| w.contains("hasn't been tested on"));
-    assert_eq!(untested, matches!(os, Some("linux" | "windows")));
+    assert_eq!(untested, matches!(os.unwrap_or(std::env::consts::OS), "linux" | "windows"));
     let all = p.compatibility.verdict == Verdict::AllPlayers;
     assert_eq!(p.warnings.iter().any(|w| w.contains("won't work on every player")), !all);
     assert_eq!(all, fs != Filesystem::Exfat);

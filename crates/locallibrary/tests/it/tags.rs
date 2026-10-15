@@ -474,7 +474,7 @@ fn a_damaged_exportext_is_refused() {
         fs::write(&path, &bytes).unwrap();
         let d = Device::open_export(&root).unwrap();
         let err = tags::read(&d).unwrap_err().to_string();
-        assert!(err.contains(paths::EXPORT_EXT_PDB), "{err}");
+        assert!(err.contains(&paths::EXPORT_EXT_PDB.replace('/', std::path::MAIN_SEPARATOR_STR)), "{err}");
         assert!(tags::plan(&d, &add("Genre/Probe", select(&d, "Demo Track 2"))).is_err());
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }

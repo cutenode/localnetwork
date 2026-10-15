@@ -74,20 +74,24 @@ fn a_pack_brings_what_its_lists_use_and_says_when_it_wont_fit(tc: TestCase) {
         assert_eq!(fs::read(paths::to_fs(club.root(), key)).unwrap(), art, "{key} came along");
     }
 
-    // A track of the set grows past the drive's free space (a sparse file: it takes no room).
-    let lib = common::library(&root);
-    let big =
-        paths::to_fs(&root, &paths::key(&lib.tracks[tc.draw(gs::integers::<usize>().max_value(n - 1))].file_path));
-    let free = locallibrary::fsutil::available_space(&root).unwrap();
-    fs::File::options().write(true).open(&big).unwrap().set_len(2 * free + (1 << 30)).unwrap();
-    let fresh = Device::open(common::blank(dir.path(), "Fresh")).unwrap();
-    let plan = pack::plan(&Device::open_export(&root).unwrap(), &fresh, &set, &Ctx::silent()).unwrap();
-    assert!(!plan.fits);
-    let said = format!(
-        "the pack needs about {} bytes (its files, copies, databases and backup) but only {} are free on Fresh",
-        plan.needed_bytes,
-        plan.free_space.unwrap()
-    );
-    assert!(plan.warnings.contains(&said), "{said:?} in {:?}", plan.warnings);
-    assert!(plan.needed_bytes > 2 * free, "{} for a file of {} bytes", plan.needed_bytes, 2 * free);
+    // Sparse only on Unix: NTFS would have to find the room for it.
+    #[cfg(unix)]
+    {
+        // A track of the set grows past the drive's free space (a sparse file: it takes no room).
+        let lib = common::library(&root);
+        let big =
+            paths::to_fs(&root, &paths::key(&lib.tracks[tc.draw(gs::integers::<usize>().max_value(n - 1))].file_path));
+        let free = locallibrary::fsutil::available_space(&root).unwrap();
+        fs::File::options().write(true).open(&big).unwrap().set_len(2 * free + (1 << 30)).unwrap();
+        let fresh = Device::open(common::blank(dir.path(), "Fresh")).unwrap();
+        let plan = pack::plan(&Device::open_export(&root).unwrap(), &fresh, &set, &Ctx::silent()).unwrap();
+        assert!(!plan.fits);
+        let said = format!(
+            "the pack needs about {} bytes (its files, copies, databases and backup) but only {} are free on Fresh",
+            plan.needed_bytes,
+            plan.free_space.unwrap()
+        );
+        assert!(plan.warnings.contains(&said), "{said:?} in {:?}", plan.warnings);
+        assert!(plan.needed_bytes > 2 * free, "{} for a file of {} bytes", plan.needed_bytes, 2 * free);
+    }
 }

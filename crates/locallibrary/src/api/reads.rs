@@ -13,7 +13,7 @@ use super::{ArtworkImage, DriveRef, IdentifiedMix, IdentifyMixRequest, LibraryCa
 use crate::anlz::{self, Beat, Cue, SongStructure, TrackAnalysis, Waveform, WaveformStyle};
 use crate::artwork;
 use crate::cue_edit::{self, TrackCues};
-use crate::device::Device;
+use crate::device::{Device, dunce_canonicalize, without_verbatim_prefix};
 use crate::mix::export::{self, MixExport};
 use crate::mix::index::Cache;
 use crate::mix::report::{self, Drive};
@@ -269,9 +269,11 @@ pub fn artwork_path(cache: &LibraryCache, req: &ArtworkRequest) -> Result<OneOrM
             if !f.is_file() {
                 continue;
             }
-            // Resolved again here: `checked_path` vouches for where it led, and this is that.
-            let resolved = f.canonicalize().map_err(|e| Error::Io { path: f.clone(), source: e })?;
-            let root = d.root().canonicalize().unwrap_or_else(|_| d.root().to_path_buf());
+            // Resolved again here: `checked_path` vouches for where it led, and this is that. As
+            // drive roots are, so a client gets the path it gave on Windows, not a `\\?\` one.
+            let resolved =
+                f.canonicalize().map(without_verbatim_prefix).map_err(|e| Error::Io { path: f.clone(), source: e })?;
+            let root = dunce_canonicalize(d.root());
             if !resolved.starts_with(&root) {
                 return Err(Error::invalid(format!("refusing {k:?}: it resolves outside {}", root.display())));
             }

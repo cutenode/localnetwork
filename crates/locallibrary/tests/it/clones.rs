@@ -172,11 +172,13 @@ fn a_sync_brings_the_recorded_edits_with_the_library() {
     std::fs::write(h.backup.join(locallibrary::paths::EXPORT_PDB), &export).unwrap();
     common::export_new_track(&h.backup, "Artist", "Fresh");
     let later = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
-    let pdb = std::fs::File::options().write(true).open(h.backup.join(locallibrary::paths::EXPORT_PDB)).unwrap();
-    pdb.set_modified(later).unwrap();
+    // Closed straight away: an open handle would keep Windows from replacing the file.
+    let pdb = h.backup.join(locallibrary::paths::EXPORT_PDB);
+    std::fs::File::options().write(true).open(pdb).unwrap().set_modified(later).unwrap();
     assert!(!playlists(&h.backup).contains(&"Friday".to_string()));
     let req = api::RefreshRequest { drive: Some(path(&h.backup)), ..Default::default() };
-    api::refresh_apply(&h.store, &req, &ctx).unwrap();
+    let report = api::refresh_apply(&h.store, &req, &ctx).unwrap();
+    assert!(report.stopped.is_none(), "{:?}", report.stopped);
     assert!(playlists(&h.backup).contains(&"Friday".to_string()));
 }
 
