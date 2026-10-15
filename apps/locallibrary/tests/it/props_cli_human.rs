@@ -333,6 +333,19 @@ pub fn build(s: State) -> Env {
 /// (by id too), recorded where `fx`'s were.
 pub fn twin(fx: &Env) -> Env {
     let root = fx.volumes.parent().unwrap();
+    // First every file a moment older than FAT's 2 s: the hash cache distrusts a hash taken within
+    // 2 s of a file's mtime, so until then the two copies, run side by side but not in step, could
+    // count different files verified.
+    let secs = || filetime::FileTime::now().unix_seconds();
+    let mtimes = walkdir::WalkDir::new(root).into_iter().flatten().filter_map(|e| e.metadata().ok());
+    let now = secs();
+    let newest =
+        mtimes.map(|m| filetime::FileTime::from_last_modification_time(&m).unix_seconds()).filter(|t| *t <= now);
+    if let Some(newest) = newest.max() {
+        while secs() <= newest + 2 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
     let template = crate::files::Template::of(root);
     let other = Env::from_template();
     let to = other.volumes.parent().unwrap();
@@ -571,9 +584,14 @@ pub fn side_by_side<A, B: Send>(a: impl FnOnce() -> A, b: impl FnOnce() -> B + S
 pub fn as_in(json: Run, from: &Env, to: &Env) -> Run {
     let root = |fx: &Env| path(fx.volumes.parent().unwrap()).to_string();
     let (from, to) = (root(from), root(to));
-    // The JSON escapes a path's backslashes (Windows'), so its folders are found as it writes them.
+    // A message can quote a path as Debug does (`{spec:?}`), doubling Windows' backslashes, and the
+    // JSON escapes them again, so the folders are found in every spelling they're written in.
+    let debug = |s: &str| format!("{s:?}").trim_matches('"').to_string();
     let escaped = |s: &str| serde_json::to_string(s).unwrap().trim_matches('"').to_string();
-    Run { out: json.out.replace(&escaped(&from), &escaped(&to)), err: json.err.replace(&from, &to), code: json.code }
+    let (debug_from, debug_to) = (debug(&from), debug(&to));
+    let out = json.out.replace(&escaped(&debug_from), &escaped(&debug_to)).replace(&escaped(&from), &escaped(&to));
+    let err = json.err.replace(&debug_from, &debug_to).replace(&from, &to);
+    Run { out, err, code: json.code }
 }
 
 /// [`agree`] of each of `reads` in turn, run as it is in `h` and with `--json` in `j` (a

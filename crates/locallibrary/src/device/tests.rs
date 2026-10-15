@@ -194,7 +194,9 @@ fn an_operation_cut_off_is_finished_before_anything_else(tc: hegel::TestCase) {
     let backup = tc.draw(gs::booleans()).then(|| "20261011T120000Z".to_string());
     let dir = tempfile::tempdir().unwrap();
     let mut d = Device::open(dir.path()).unwrap();
-    assert!(format!("{d:?}").contains(&dir.path().display().to_string()));
+    // The root as Debug shows a path (on Windows its backslashes are escaped).
+    let root = format!("{:?}", dunce_canonicalize(dir.path()));
+    assert!(format!("{d:?}").contains(root.trim_matches('"')), "{d:?}");
     d.begin(first, "the first", backup.clone()).unwrap();
     let copies = |op| matches!(op, LineageOp::Sync | LineageOp::Push | LineageOp::Pack | LineageOp::Export);
     let allowed = copies(next) || next == LineageOp::Restore || (backup.is_none() && !copies(first));

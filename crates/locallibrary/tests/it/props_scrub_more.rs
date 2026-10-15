@@ -10,7 +10,6 @@ use crate::{common, drawn};
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
@@ -21,20 +20,12 @@ use locallibrary::scrub::{self, FileProblem, ReferenceKind, RepairSource, ScrubO
 use locallibrary::store::Store;
 use locallibrary::sync::{self, PullOptions, SyncOptions};
 
-/// Every file below `root` older than FAT's racy window, so the hash cache vouches for them.
-fn age(root: &Path) {
-    let old = filetime::FileTime::from_unix_time(filetime::FileTime::now().unix_seconds() - 120, 0);
-    for e in walkdir::WalkDir::new(root).into_iter().map(Result::unwrap).filter(|e| e.file_type().is_file()) {
-        filetime::set_file_mtime(e.path(), old).unwrap();
-    }
-}
-
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
-    age(&root);
+    common::age(&root);
     let mut main = Device::open_export(&root).unwrap();
     main.adopt(Some("Main")).unwrap();
     let first = sync::pull(&store, &mut main, &PullOptions::default(), &Ctx::silent()).unwrap().snapshot.unwrap();
@@ -107,7 +98,7 @@ fn a_scrub_after_the_drive_changed_checks_what_the_store_knows(tc: TestCase) {
 fn repairs_that_cant_be_made_are_skipped_or_said(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let (root, _) = drawn::drive(&tc, dir.path(), "Main");
-    age(&root);
+    common::age(&root);
     let mut main = Device::open_export(&root).unwrap();
     main.adopt(Some("Main")).unwrap();
     let mut mirror = Device::open(common::blank(dir.path(), "Mirror")).unwrap();

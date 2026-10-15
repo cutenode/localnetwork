@@ -11,7 +11,8 @@
 //! 2. the drive's hash cache, when the file's size and modification time are what they were
 //!    when locallibrary last hashed or wrote it (a changed file has a new mtime; a damaged one
 //!    doesn't);
-//! 3. any snapshot holding the same path with the same size and modification time.
+//! 3. any snapshot holding the same path with the same size and modification time, taken
+//!    clearly after the file's modification time (so it isn't a rewrite since).
 //!
 //! Players and rekordbox rewrite database and analysis files legitimately, but they also change
 //! the modification time, so such files simply have no reference and count as unverified.
@@ -180,6 +181,7 @@ impl<'a> References<'a> {
             if let Some(f) = s.files.iter().find(|f| f.path.to_lowercase() == key)
                 && f.size == e.size
                 && fsutil::mtime_eq(f.mtime, e.mtime)
+                && settled(e.mtime, s.created.timestamp())
                 && let Some(hash) = f.hash
             {
                 return Some(Expected { hash, size: f.size, mtime: f.mtime, kind: ReferenceKind::History });
@@ -220,6 +222,16 @@ impl<'a> References<'a> {
         out.sort_by(|a, b| a.0.path.cmp(&b.0.path));
         out
     }
+}
+
+/// Whether a file modified at `mtime` (unix seconds) was written before a snapshot taken at
+/// `taken`, and so can't be a rewrite since: one made after it has an mtime of `taken` or later,
+/// less a second for FAT32's 2 s rounding. Without this, a database rekordbox or a player saved
+/// again moments after a pull, at the same size and within [`fsutil::mtime_eq`]'s 2 s, would be
+/// taken for damage and "repaired" back to the older copy (the hash cache distrusts its racy
+/// entries the same way, see [`HashIndex::lookup`]).
+fn settled(mtime: i64, taken: i64) -> bool {
+    mtime < taken - 1
 }
 
 /// Whether `tree` (hashed) holds `snapshot`'s databases as it saved them: then the drive holds the
