@@ -16,6 +16,7 @@ apps/locallibrary/    locallibrary's command line tool, player and sidecar, with
 apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its spec, checked by its tests)
 lexicons/             Every tool's lexicons (computer.localnetwork.*), plus copies of others' they use
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
+plugins/              locallibrary's own plugins, each a crate on its plugin SDK
 packages/tokens/      Shared colours for DJ data
 vendor/               Vendored Rust crates
 tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
