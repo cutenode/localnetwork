@@ -3,3 +3,9 @@
 [[profile.default.overrides]]
 filter = 'test(/^props_cli_(changes|human)::/)'
 priority = 100
+
+# The plugin protocol's tests talk over pipes: a broken peer would leave one waiting forever for a
+# message, so it fails after a minute instead.
+[[profile.default.overrides]]
+filter = 'package(loclib-plugin)'
+slow-timeout = { period = "30s", terminate-after = 2 }

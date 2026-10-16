@@ -1,11 +1,15 @@
 #![doc = include_str!("../README.md")]
 
+mod coalesce;
+
+pub use coalesce::{Coalesced, Flusher, Report};
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
@@ -29,7 +33,7 @@ pub enum Phase {
     Analyze,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(tag = "event", rename_all = "snake_case")]
 #[non_exhaustive]
