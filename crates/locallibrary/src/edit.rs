@@ -331,40 +331,30 @@ impl TrackFields {
                 *f = v.clone();
             }
         };
+        // The databases store no name for these when one is given blank; names the edit leaves
+        // alone are kept as they are.
+        let name = |v: &Option<String>, f: &mut String| {
+            if let Some(v) = v {
+                *f = if v.trim().is_empty() { String::new() } else { v.clone() };
+            }
+        };
         set(&self.title, &mut t.title);
-        set(&self.artist, &mut t.artist);
-        set(&self.genre, &mut t.genre);
-        set(&self.label, &mut t.label);
-        set(&self.key, &mut t.key);
-        set(&self.remixer, &mut t.remixer);
-        set(&self.original_artist, &mut t.original_artist);
-        set(&self.composer, &mut t.composer);
+        name(&self.artist, &mut t.artist);
+        name(&self.genre, &mut t.genre);
+        name(&self.label, &mut t.label);
+        name(&self.key, &mut t.key);
+        name(&self.remixer, &mut t.remixer);
+        name(&self.original_artist, &mut t.original_artist);
+        name(&self.composer, &mut t.composer);
         set(&self.comment, &mut t.comment);
         set(&self.mix_name, &mut t.mix_name);
-        set(&self.album_artist, &mut t.album_artist);
+        name(&self.album_artist, &mut t.album_artist);
         set(&self.isrc, &mut t.isrc);
         set(&self.release_date, &mut t.release_date);
-        if let Some(a) = &self.album {
-            t.album = a.clone();
-            if a.trim().is_empty() {
-                t.album_artist.clear();
-            }
-        }
-        // The databases store no name for these (as for a cleared album, its artist goes too).
-        for name in [
-            &mut t.artist,
-            &mut t.album,
-            &mut t.album_artist,
-            &mut t.genre,
-            &mut t.label,
-            &mut t.key,
-            &mut t.remixer,
-            &mut t.original_artist,
-            &mut t.composer,
-        ] {
-            if name.trim().is_empty() {
-                name.clear();
-            }
+        name(&self.album, &mut t.album);
+        // As a cleared album's row goes, its artist goes with it.
+        if self.album.is_some() && t.album.is_empty() {
+            t.album_artist.clear();
         }
         if let Some(r) = self.rating {
             t.rating = r;
@@ -899,14 +889,19 @@ impl EditDb for PdbDb {
                     ed.set_track_field(id, field, a)?;
                 }
             }
-            // An album row holds its artist: either changing takes the row of the pair.
+            // An album row holds its artist: either changing takes the row of the pair. Only a name
+            // given blank clears the album; the track's own is kept whatever it is.
             if f.album.is_some() || f.album_artist.is_some() {
-                let name = f.album.as_ref().unwrap_or(&album);
-                let album = if name.trim().is_empty() {
-                    0
-                } else {
-                    let a = artist(ed, f.album_artist.as_ref().unwrap_or(&album_artist))?;
-                    ed.album_id_for(name, a)?
+                let name = match &f.album {
+                    Some(name) => Some(name).filter(|n| !n.trim().is_empty()),
+                    None => Some(&album).filter(|a| !a.is_empty()),
+                };
+                let album = match name {
+                    None => 0,
+                    Some(name) => {
+                        let a = artist(ed, f.album_artist.as_ref().unwrap_or(&album_artist))?;
+                        ed.album_id_for(name, a)?
+                    }
                 };
                 ed.set_track_field(id, "album_id", album)?;
             }
