@@ -114,6 +114,7 @@ fn an_operations_plan_is_stale_once_a_file_it_read_changes() {
     let e = from("Relative", Path::new("set.txt")).map_err(failure).unwrap_err();
     assert_eq!(e, "the Echo plugin failed: it read set.txt, which isn't an absolute path");
     // Only files: reading a pipe or a device to check it could wait forever.
+    #[cfg_attr(not(unix), allow(unused_mut, reason = "only Unix adds a pipe"))]
     let mut others = vec![f.store.root().to_path_buf(), list.with_file_name("gone.txt")];
     #[cfg(unix)]
     {

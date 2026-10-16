@@ -296,7 +296,8 @@ impl Rpc {
         Rpc { child, stdin, lines }
     }
 
-    #[cfg(debug_assertions)]
+    /// For signalling it, which only Unix tests do.
+    #[cfg(all(unix, debug_assertions))]
     pub fn pid(&self) -> u32 {
         self.child.id()
     }
