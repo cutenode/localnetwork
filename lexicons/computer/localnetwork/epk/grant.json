@@ -1,0 +1,26 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.epk.grant",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "any",
+			"description": "Access to the private part of a press kit, keyed by the subject's DID. Written by the press kit's owner into its space, which also lists the subject as a reader. Deleting it, and removing the member, takes access away.",
+			"record": {
+				"type": "object",
+				"required": ["subject", "via", "createdAt"],
+				"properties": {
+					"subject": { "type": "string", "format": "did" },
+					"via": {
+						"type": "string",
+						"maxLength": 32,
+						"knownValues": ["auto", "approved", "invited"],
+						"description": "auto: the request matched a rule that approves at once. approved: the owner approved the request. invited: the owner added the subject without a request."
+					},
+					"request": { "type": "string", "format": "at-uri" },
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

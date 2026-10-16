@@ -15,7 +15,7 @@
  *
  * Finds the root account like the app does (PLC_URL, HANDLE_RESOLVER_URL, and
  * ROOT_SERVICE to skip the PDS lookup). Reads `.env` but not `.env.local`: that file
- * points at the temporary dev network, and `pnpm dev:network` publishes the
+ * points at the temporary dev network, and `pnpm dev` publishes the
  * lexicons there itself.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';

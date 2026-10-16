@@ -83,6 +83,11 @@ export function plannerSpace(userDid: string): string {
 	return spaceUri(userDid, SPACE_TYPE.planner, SELF_SPACE_KEY);
 }
 
+/** A press kit's space: under its owner, with the press kit record's key. */
+export function epkSpace(ownerDid: string, rkey: string): string {
+	return spaceUri(ownerDid, SPACE_TYPE.epk, rkey);
+}
+
 export function isSpaceType(value: string): value is SpaceType {
 	return Object.values<string>(SPACE_TYPE).includes(value);
 }

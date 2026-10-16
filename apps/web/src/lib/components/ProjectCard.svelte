@@ -8,30 +8,34 @@
 	let { project, children }: { project: ProjectView; children?: Snippet } = $props();
 
 	const profile = $derived(project.profile);
+
+	const distance = $derived(project.distanceKm ?? null);
+
+	const genres = $derived(profile.genres.slice(0, 3));
 </script>
 
-<article class="card group relative flex h-full flex-col gap-2 px-4 pt-3 pb-4 focus-within:border-ansi-yellow hover:border-ansi-bright-cyan">
-	<div class="flex items-start gap-3">
-		<Avatar src={project.avatarUrl} name={profile.name} />
+<!-- The name's link stretches over the card; `children` sits above it so its own links still work. -->
+<article class="card relative flex h-full flex-col gap-3 p-5 transition-colors outline-link outline-offset-2 hover:border-line-strong has-[a:focus-visible]:outline-2">
+	<div class="flex items-center gap-3">
+		<Avatar src={project.avatarUrl} name={profile.name} size="lg" />
 		<div class="min-w-0 flex-1">
-			<h3 class="line-clamp-2 text-2xl leading-none break-words">
-				<a href="/projects/{project.slug}" class="text-ansi-bright-cyan uppercase after:absolute after:inset-0 group-hover:underline focus:outline-none">{profile.name}</a>
+			<h3 class="line-clamp-2 text-emphasis font-semibold break-words">
+				<a href="/projects/{project.slug}" class="text-fg no-underline after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">{profile.name}</a>
 			</h3>
-			<p class="mt-1 flex flex-wrap gap-x-2 text-ansi-bright-green">
-				<span>{profile.location.city}, {profile.location.country}</span>
-				{#if project.distanceKm !== undefined && project.distanceKm !== null}
-					<span class="whitespace-nowrap text-ansi-white">{formatDistance(project.distanceKm)}</span>
-				{/if}
-			</p>
-			<p class="text-ansi-yellow">{[kindLabel(profile.kind), profile.fee && feeLabel(profile)].filter(Boolean).join(' · ')}</p>
+			<p class="text-label text-fg-muted">{kindLabel(profile.kind)} · {profile.location.city}, {profile.location.country}</p>
 		</div>
+		{#if distance !== null}<span class="self-start font-mono text-caption whitespace-nowrap text-fg-muted">{formatDistance(distance)}</span>{/if}
 	</div>
 	{#if project.managers.length === 0}
-		<p class="text-ansi-bright-red uppercase" title="Nobody has claimed this project yet">Unclaimed</p>
+		<span class="pill self-start bg-well text-fg-muted" title="Nobody has claimed this project yet">Unclaimed</span>
 	{/if}
-	{#if profile.tagline}<p class="line-clamp-2 text-ansi-white">{profile.tagline}</p>{/if}
-	<p class="mt-auto text-ansi-bright-magenta">
-		{profile.genres.slice(0, 5).join(' / ')}{#if profile.genres.length > 5}<span class="text-ansi-cyan"> +{profile.genres.length - 5}</span>{/if}
+	{#if profile.tagline}<p class="line-clamp-2 text-small text-fg-soft">{profile.tagline}</p>{/if}
+	<p class="mt-auto flex flex-wrap justify-between gap-x-3 gap-y-1 font-mono text-caption text-fg-muted">
+		<span class="flex flex-wrap gap-x-1.5">
+			{#each genres as genre, index (genre)}<span class="whitespace-nowrap">{index < genres.length - 1 ? `${genre} ·` : genre}</span>{/each}
+			{#if profile.genres.length > 3}<span class="text-fg-subtle">+{profile.genres.length - 3}</span>{/if}
+		</span>
+		{#if profile.fee}<span>{feeLabel(profile)}</span>{/if}
 	</p>
-	{#if children}<div class="relative z-10 border-t-2 border-dashed border-ansi-blue pt-2">{@render children()}</div>{/if}
+	{#if children}<div class="relative z-10 border-t border-line pt-3">{@render children()}</div>{/if}
 </article>

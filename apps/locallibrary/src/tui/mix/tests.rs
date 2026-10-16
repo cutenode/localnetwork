@@ -257,7 +257,10 @@ fn layered_wave_cells() {
 fn typed_and_dropped_paths() {
     assert_eq!(typed_path("  '/Volumes/DNA/set one.wav' "), PathBuf::from("/Volumes/DNA/set one.wav"));
     assert_eq!(typed_path("\"/a b.wav\""), PathBuf::from("/a b.wav"));
+    #[cfg(unix)]
     assert_eq!(typed_path("/Volumes/DNA/set\\ one.wav"), PathBuf::from("/Volumes/DNA/set one.wav"));
+    #[cfg(windows)]
+    assert_eq!(typed_path(r"C:\Sets\set one.wav"), PathBuf::from(r"C:\Sets\set one.wav"));
     if let Some(home) = std::env::var_os("HOME") {
         assert_eq!(typed_path("~/x.wav"), PathBuf::from(home).join("x.wav"));
     }
@@ -982,6 +985,8 @@ fn says_how_far(t: &mut MixTab, phase: Option<Phase>, items: (u64, u64), bytes: 
 
 /// A path typed or dropped into the terminal reads as itself: in quotes, with backslashes before
 /// what the shell would take, or as typed; `~/` is the home folder.
+// Only a Unix shell escapes with backslashes: on Windows they're the path's own.
+#[cfg(unix)]
 #[hegel::test(test_cases = 300)]
 fn a_typed_path_reads_as_the_path(tc: hegel::TestCase) {
     use hegel::generators as gs;
