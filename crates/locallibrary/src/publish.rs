@@ -17,7 +17,7 @@ use indexmap::IndexMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -48,16 +48,7 @@ pub fn snake(field: &str) -> String {
     out
 }
 
-/// A time as records carry it: UTC, to the millisecond.
-pub fn timestamp(t: DateTime<Utc>) -> String {
-    t.to_rfc3339_opts(SecondsFormat::Millis, true)
-}
-
-/// [`timestamp`] for serde: chrono's own format drops trailing zeros, so its length follows the
-/// clock (3, 6 or 9 digits of a second).
-pub fn serialize_timestamp<S: serde::Serializer>(t: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&timestamp(*t))
-}
+pub use crate::profile::timestamp;
 
 fn group(category: Category) -> &'static str {
     match category {
