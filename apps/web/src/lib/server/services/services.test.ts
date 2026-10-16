@@ -143,6 +143,7 @@ describe('services', () => {
 
 			expect(results[0].candidate.uri).toBe(project.uri);
 			expect(results[0].score).toBeGreaterThan(90);
+			expect(results[0].breakdown).toMatchObject({ genre: 100, distance: 100 });
 			expect(results[0].reasons).toEqual(['Plays techno', 'Local']);
 		});
 

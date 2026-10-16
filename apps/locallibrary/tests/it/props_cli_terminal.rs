@@ -4,9 +4,8 @@
 //! the listing printed, and a question asked in a terminal is answered by what's typed.
 
 use std::collections::BTreeSet;
-use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
@@ -175,6 +174,8 @@ fn completion_scripts_run_the_binary_found(tc: TestCase) {
         assert!(!script.contains("COMPLETE"), "a static script doesn't ask the binary");
         return;
     }
+    // The script quotes the path for its shell, which escapes a Windows path's backslashes.
+    #[cfg(unix)]
     assert!(script.contains(exe.to_str().unwrap()), "{script}");
     let mut by_name = Command::new("locallibrary");
     by_name
@@ -211,6 +212,9 @@ fn plain(s: &str) -> String {
 #[cfg(unix)]
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_paged_listing_is_the_listing(tc: TestCase) {
+    use std::io::Read;
+    use std::process::Stdio;
+
     use crate::support::terminal;
     let fx = Env::from_template();
     let listing = tc.draw(gs::sampled_from(
@@ -261,6 +265,9 @@ fn a_paged_listing_is_the_listing(tc: TestCase) {
 #[cfg(unix)]
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_question_is_answered_by_what_is_typed(tc: TestCase) {
+    use std::io::Write;
+    use std::process::Stdio;
+
     use crate::support::terminal;
     let fx = Env::from_template();
     let answer = tc.draw(gs::sampled_from(&["y", "yes", "Y", "n", "", "nope"][..]));
@@ -346,6 +353,7 @@ fn colour_is_what_color_says(tc: TestCase) {
     let mut coloured_any = false;
     for listing in tc.draw(gs::permutations(&listings[..])) {
         let ascii: &[&str] = if tc.draw(gs::booleans()) { &["--ascii"] } else { &[] };
+        #[cfg(unix)]
         let piped = fx.ok(&[ascii, listing].concat());
         for when in tc.draw(gs::permutations(vec!["always", "never", "auto"])) {
             let coloured = fx.ok(&[ascii, &["--color", when], listing].concat());

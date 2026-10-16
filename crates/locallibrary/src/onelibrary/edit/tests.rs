@@ -34,6 +34,21 @@ fn lookup_rows_go_once_no_track_uses_them() {
     assert_eq!(names(&one, "key").len(), keys.len() - 1);
 }
 
+/// Regression: changing only the album artist ran the blank-name check on the album's own name,
+/// so an album named with spaces was dropped.
+#[test]
+fn an_album_artist_edit_keeps_an_album_whatever_its_name() {
+    let mut one = OneLibrary::create().unwrap();
+    let mut t = loclib_model::test_util::track(1, "Artist", "Title", "/Contents/a.mp3");
+    t.album = " ".into();
+    let rec = ContentRecord::from_track(&t, false, &one.content_defaults().unwrap());
+    let id = one.add_track(&rec, &t.file_path, "", None).unwrap();
+
+    one.set_track_fields(&[id], &TrackFields { album_artist: Some("Band".into()), ..Default::default() }).unwrap();
+    let t = &one.library().unwrap().tracks[0];
+    assert_eq!((t.album.as_str(), t.album_artist.as_str()), (" ", "Band"));
+}
+
 #[test]
 fn nodes_and_tracks_that_arent_there_are_not_found() {
     let mut one = OneLibrary::create().unwrap();

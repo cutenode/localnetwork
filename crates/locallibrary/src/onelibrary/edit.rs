@@ -188,19 +188,20 @@ impl OneLibrary {
                     candidates.push((Lookup::Artist, old_id));
                 }
             }
-            // An album row holds its artist: either changing takes the row of the pair.
+            // An album row holds its artist: either changing takes the row of the pair. Only a name
+            // given blank clears the album; the track's own is kept whatever it is.
             if f.album.is_some() || f.album_artist.is_some() {
-                let name: String = match &f.album {
-                    Some(name) => name.clone(),
-                    None => self.conn.query_row(
-                        "SELECT coalesce((SELECT name FROM album WHERE album_id = ?1), '')",
-                        [old[4]],
-                        |r| r.get(0),
-                    )?,
+                let name: Option<String> = match &f.album {
+                    Some(name) => (!name.trim().is_empty()).then(|| name.clone()),
+                    None => self
+                        .conn
+                        .query_row("SELECT name FROM album WHERE album_id = ?1", [old[4]], |r| r.get(0))
+                        .optional()?
+                        .flatten(),
                 };
-                let album = match name.trim().is_empty() {
-                    true => None,
-                    false => {
+                let album = match name {
+                    None => None,
+                    Some(name) => {
                         let album_artist = match &f.album_artist {
                             Some(a) => artist(a)?,
                             None => (old[8] > 0).then_some(old[8]),

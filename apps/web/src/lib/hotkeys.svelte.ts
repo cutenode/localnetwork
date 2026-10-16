@@ -1,4 +1,4 @@
-/** Single-key BBS shortcuts. They can be switched off from the footer (WCAG 2.1.4). */
+/** Single-key shortcuts to the main pages. They can be switched off from the footer (WCAG 2.1.4). */
 export const hotkeys = $state({ enabled: true });
 
 const STORAGE_KEY = 'ln:hotkeys';

@@ -9,6 +9,11 @@ import bookingStatus from '../../../../../../lexicons/computer/localnetwork/book
 import address from '../../../../../../lexicons/community/lexicon/location/address.json' with { type: 'json' };
 import defs from '../../../../../../lexicons/computer/localnetwork/defs.json' with { type: 'json' };
 import directoryDefs from '../../../../../../lexicons/computer/localnetwork/directory/defs.json' with { type: 'json' };
+import epk from '../../../../../../lexicons/computer/localnetwork/epk.json' with { type: 'json' };
+import epkContent from '../../../../../../lexicons/computer/localnetwork/epk/content.json' with { type: 'json' };
+import epkDefs from '../../../../../../lexicons/computer/localnetwork/epk/defs.json' with { type: 'json' };
+import epkGrant from '../../../../../../lexicons/computer/localnetwork/epk/grant.json' with { type: 'json' };
+import epkRequest from '../../../../../../lexicons/computer/localnetwork/epk/request.json' with { type: 'json' };
 import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
 import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
 import getSets from '../../../../../../lexicons/computer/localnetwork/directory/getSets.json' with { type: 'json' };
@@ -27,6 +32,7 @@ import project from '../../../../../../lexicons/computer/localnetwork/project.js
 import projectDetails from '../../../../../../lexicons/computer/localnetwork/project/details.json' with { type: 'json' };
 import spaceAudit from '../../../../../../lexicons/computer/localnetwork/space/audit.json' with { type: 'json' };
 import spaceBooking from '../../../../../../lexicons/computer/localnetwork/space/booking.json' with { type: 'json' };
+import spaceEpk from '../../../../../../lexicons/computer/localnetwork/space/epk.json' with { type: 'json' };
 import spaceIndustry from '../../../../../../lexicons/computer/localnetwork/space/industry.json' with { type: 'json' };
 import spaceModeration from '../../../../../../lexicons/computer/localnetwork/space/moderation.json' with { type: 'json' };
 import spacePlanner from '../../../../../../lexicons/computer/localnetwork/space/planner.json' with { type: 'json' };
@@ -47,12 +53,18 @@ export const LEXICON_DOCS = [
 	bookingStatus,
 	plannerSave,
 	plannerShow,
+	epkDefs,
+	epk,
+	epkContent,
+	epkRequest,
+	epkGrant,
 	spaceAudit,
 	spaceModeration,
 	spaceStaff,
 	spaceIndustry,
 	spaceBooking,
 	spacePlanner,
+	spaceEpk,
 	permissions,
 	directoryDefs,
 	searchProjects,

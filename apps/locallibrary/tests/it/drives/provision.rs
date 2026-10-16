@@ -47,7 +47,7 @@ fn provision_makes_another_copy_of_a_library_named() {
     let spare = env.blank("SPARE");
     let like = ["provision", path(&spare), "--like", "Home", "--no-settings", "--no-verify"];
     let out = env.ok(&[&like[..], &["--dry-run"]].concat());
-    assert!(line(&out, "1. ").ends_with("/SPARE an identity"), "{out}");
+    assert!(line(&out, "1. ").ends_with(&format!("{}SPARE an identity", std::path::MAIN_SEPARATOR)), "{out}");
     assert_eq!(line(&out, "2. "), "  2. make it another copy of \"Home\", from MAIN", "{out}");
     env.ok(&[&["--yes"], &like[..]].concat());
     let libraries = env.json(&["library", "ls"]);

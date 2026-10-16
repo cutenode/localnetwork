@@ -34,7 +34,7 @@ const pending = <T>() => new Promise<T>(() => {});
 describe('StatusPill', () => {
 	it('humanizes statuses', async () => {
 		await render(StatusPill, { status: 'changes_requested' });
-		await expect.element(page.getByText('changes requested')).toBeInTheDocument();
+		await expect.element(page.getByText('Changes requested')).toBeInTheDocument();
 	});
 });
 
@@ -118,7 +118,24 @@ describe('MixList', () => {
 	it('renders mixes that repeat a link', async () => {
 		const mix = { title: 'Tidal Hours', url: 'https://soundcloud.com/neon/tidal-hours' };
 		await render(MixList, { mixes: [mix, { ...mix }] });
-		await expect.element(page.getByRole('button', { name: 'Play' }).nth(1)).toBeInTheDocument();
+		await expect.element(page.getByRole('button', { name: 'Play Tidal Hours' }).nth(1)).toBeInTheDocument();
+	});
+
+	it('opens a player on demand and links a mix with a report to its tracklist', async () => {
+		const tracklist = { $type: 'blob' as const, ref: { $link: 'bafkrei' }, mimeType: 'application/json', size: 1 };
+		await render(MixList, {
+			mixes: [{ title: 'Tidal Hours', url: 'https://soundcloud.com/neon/tidal-hours', durationMinutes: 90, tracklist }],
+			tracklistHref: (i: number) => `/projects/neon-tide/mixes/${i + 1}`
+		});
+		await expect.element(page.getByText('SoundCloud · 1 h 30 min')).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('link', { name: 'Tracklist' }))
+			.toHaveAttribute('href', '/projects/neon-tide/mixes/1');
+		// Clicking would load SoundCloud's player, so this stops at the closed state.
+		await expect
+			.element(page.getByRole('button', { name: 'Play Tidal Hours' }))
+			.toHaveAttribute('aria-expanded', 'false');
+		await expect.element(page.getByTitle('Tidal Hours')).not.toBeInTheDocument();
 	});
 });
 
@@ -156,7 +173,7 @@ describe('MixReport', () => {
 		await render(MixReport, { report: sampleReport });
 		await expect.element(page.getByRole('heading', { level: 1, name: 'Sunday Warm-up' })).toBeInTheDocument();
 
-		for (const name of ['The mix', 'Tempo', 'Key journey', 'Tracklist']) {
+		for (const name of ['Timeline', 'Tracklist', 'Key moves', 'Tempo']) {
 			await expect.element(page.getByRole('heading', { level: 2, name })).toBeInTheDocument();
 		}
 

@@ -65,6 +65,7 @@ fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
         .env_remove("CLICOLOR_FORCE")
+        .env_remove("TERM")
         .env_remove("LC_ALL")
         .env_remove("LC_CTYPE")
         .env_remove("LANG")

@@ -1,9 +1,12 @@
+<script lang="ts">
+	import SectionHeader from '#lib/ui/SectionHeader.svelte';
+</script>
+
 <svelte:head><title>How it works · Local Network</title></svelte:head>
 
-<div class="container-page max-w-3xl py-12">
-	<p class="eyebrow">How it works</p>
-	<h1 class="mt-2 text-4xl">Built on the AT Protocol</h1>
-	<div class="prose prose-ansi mt-8 max-w-none">
+<div class="container-page flex flex-col gap-8 py-10 sm:gap-10 sm:py-14">
+	<SectionHeader level={1} eyebrow="How it works" title="Built on the AT Protocol" />
+	<div class="prose prose-site">
 		<p>Local Network stores its data on the <a href="https://atproto.com">AT Protocol</a>, not in a private database. Public profiles are ordinary atproto records; everything private uses <a href="https://atproto.com/blog/atproto-spaces-alpha">atproto spaces</a>, the protocol's permissioned-data extension. The app keeps a local index for fast search, and it can rebuild that index from the network.</p>
 
 		<h2 id="projects">Projects</h2>

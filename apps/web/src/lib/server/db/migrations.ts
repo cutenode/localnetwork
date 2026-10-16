@@ -172,10 +172,42 @@ const init = statements(
 	`CREATE TABLE geocode_cache (query TEXT PRIMARY KEY, results TEXT NOT NULL, created_at TEXT NOT NULL)`
 );
 
+/** Press kit access: requests people make and grants owners write, as both sides' PDSes hold them. */
+const epk = statements(
+	`CREATE TABLE epk_request (
+		uri TEXT PRIMARY KEY,
+		space_uri TEXT NOT NULL,
+		epk_uri TEXT NOT NULL,
+		requester_did TEXT NOT NULL,
+		role TEXT,
+		message TEXT,
+		rule TEXT NOT NULL,
+		status TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		decided_at TEXT
+	)`,
+	`CREATE INDEX epk_request_space ON epk_request (space_uri, status)`,
+	`CREATE INDEX epk_request_requester ON epk_request (requester_did, space_uri)`,
+	`CREATE TABLE epk_grant (
+		space_uri TEXT NOT NULL,
+		subject_did TEXT NOT NULL,
+		uri TEXT NOT NULL,
+		via TEXT NOT NULL,
+		request_uri TEXT,
+		created_at TEXT NOT NULL,
+		PRIMARY KEY (space_uri, subject_did)
+	)`
+);
+
 const migrations = {
 	'001_init': {
 		async up(db) {
 			for (const statement of init) await sql.raw(statement).execute(db);
+		}
+	},
+	'002_epk': {
+		async up(db) {
+			for (const statement of epk) await sql.raw(statement).execute(db);
 		}
 	}
 } satisfies Record<string, Migration>;
