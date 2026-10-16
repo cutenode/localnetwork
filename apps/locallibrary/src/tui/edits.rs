@@ -16,6 +16,7 @@ use locallibrary::api::{self, EditRequest};
 use locallibrary::edit::{Edit, EditOptions, EditPlan, TrackFields};
 use locallibrary::model::TrackColor;
 use locallibrary::op::{AnyPlanned, Planned};
+use locallibrary::plugin::PluginExport;
 use locallibrary::progress::{Event, Phase, Progress};
 use locallibrary::query::{SortField, SortKey, TrackSelector};
 use locallibrary::{CancelToken, Ctx, Error};
@@ -26,6 +27,7 @@ use super::app::{App, Focus, Level, Msg, View, edit_line};
 use super::browse::{COLOURS, NodeId, colour_name, sort_label, sort_spec};
 use super::drives::{After, Report};
 use super::keymap::{self, Act};
+use crate::output::plural;
 
 // ---------------------------------------------------------------------------------------------
 // Edits
@@ -352,6 +354,11 @@ impl Confirm {
         self.plan.as_any().downcast_ref::<Planned<EditPlan>>().map(|p| &p.plan)
     }
 
+    /// The plan, when it's a plugin's export (shown in detail).
+    pub fn export(&self) -> Option<&Planned<PluginExport>> {
+        self.plan.as_any().downcast_ref::<Planned<PluginExport>>()
+    }
+
     /// The plan, when it's undoing (shown in detail).
     pub fn undo(&self) -> Option<&api::UndoPlan> {
         self.plan.as_any().downcast_ref::<Planned<api::UndoPlan, bool>>().map(|p| &p.plan)
@@ -485,6 +492,15 @@ pub struct Wording {
 }
 
 pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
+    // A plugin's export writes files on this computer: overwriting any is the question.
+    if let Some(e) = plan.as_any().downcast_ref::<Planned<PluginExport>>() {
+        let (ask, yes) = match e.plan.files.iter().filter(|f| f.exists).count() {
+            0 => (format!("Write {}?", plural(e.plan.files.len(), "file")), "write"),
+            n => (format!("Overwrite {}?", plural(n, "file")), "overwrite"),
+        };
+        let who = e.plan.output.display().to_string();
+        return Wording { ask, yes, who, what: "export".into(), doing: "Exporting".into() };
+    }
     let written: Vec<&str> = (plan.drives().iter()).filter(|t| t.writes && t.drive).map(|t| t.name.as_str()).collect();
     let who = if written.is_empty() { drive.to_string() } else { written.join(", ") };
     let w =
@@ -1142,6 +1158,7 @@ impl App {
                 let msg = match (plan.operation(), plan.warnings().first()) {
                     ("undo", _) => format!("nothing to undo on {drive}: it's as its last backup left it"),
                     ("pull", _) => plan.summary().first().cloned().unwrap_or_else(|| "saved already".into()),
+                    _ if plan.as_any().is::<Planned<PluginExport>>() => "nothing to write".into(),
                     (_, Some(w)) => format!("nothing to change: {w}"),
                     (_, None) => "nothing to change".into(),
                 };
@@ -1287,6 +1304,15 @@ impl App {
                 }
                 self.toast(msg, Level::Info);
                 self.refresh_status();
+            }
+            Ok(Applied { operation, report }) if super::plugins::planned_by(&operation, true).is_some() => {
+                let by = super::plugins::planned_by(&operation, true).unwrap_or_default();
+                let n = report["files"].as_array().map_or(0, Vec::len);
+                let mut msg = format!("{by}: {} written", plural(n, "file"));
+                if let Some(w) = report["warnings"].as_array().and_then(|w| w.first()).and_then(|w| w.as_str()) {
+                    msg.push_str(&format!(" · {w}"));
+                }
+                self.toast(msg, Level::Info);
             }
             Ok(Applied { operation, report }) if operation == "undo" => {
                 let when = report["created"].as_str().and_then(|t| t.get(..16)).unwrap_or("").replace('T', " ");

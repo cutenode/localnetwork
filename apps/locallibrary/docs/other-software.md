@@ -86,8 +86,10 @@ files the folder already holds is asked about first unless `--replace` (the fold
 program's own), and they're replaced only once every new file is written beside them;
 `--option skip_analysis=true` leaves beat grids and cues out (Traktor, and Serato's tags), and
 `--dry-run` lists each file with its size, what goes in and what the format leaves out, without
-writing. RPC: `plugins.export.plan` and `plugins.export.apply` with `plugin: "interop"`, the
-format as `exporter` and the options as `options` (see [Building a GUI](sidecar.md)).
+writing. In the player, "export for traktor…" (serato, engine) in the palette does the same,
+for the marked playlists or the whole drive (see [the player](player.md)). RPC:
+`plugins.export.plan` and `plugins.export.apply` with `plugin: "interop"`, the format as
+`exporter` and the options as `options` (see [Building a GUI](sidecar.md)).
 
 - **Traktor** (`collection.nml`): tracks with their details, tempo and key, the beat grid as one
   grid marker on the first downbeat (locked, so Traktor doesn't analyse it again), hot cues A-H

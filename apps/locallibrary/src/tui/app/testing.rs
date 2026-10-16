@@ -520,3 +520,11 @@ default = "calm"
     // starts a thread.
     unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };
 }
+
+/// The drives in `dir` taken for mounted ones, for this test: a plugin finds the drive it's
+/// given by its name among those (the echo plugin's exporter reads the drive). Call it before the
+/// app starts.
+pub fn mounted(dir: &Path) {
+    // SAFETY: as in `echo_plugin`.
+    unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", dir) };
+}

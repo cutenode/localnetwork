@@ -2,7 +2,8 @@
 //! (operations in the actions menu, `e`, too), a form for their params (see [`super::form`]), and
 //! each run in the background as any task is (esc stops one). A command's answer shows in a panel;
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. Analyzers run
-//! from the palette too, and each plugin's settings are a form, kept in the store. Nothing here
+//! from the palette too, exports are planned and confirmed (overwriting asked about) before the
+//! plugin writes them, and each plugin's settings are a form, kept in the store. Nothing here
 //! tells one plugin from another: it's all drawn from their manifests, through the host the
 //! command line uses (see [`crate::plugins`]).
 
@@ -10,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use locallibrary::Store;
 use locallibrary::plugin::{Cli, CommandOutput};
-use loclib_plugin::{Capability, Context, Setting, SettingType, View};
+use loclib_plugin::{Capability, Context, ExportSource, Setting, SettingType, View};
 use serde_json::{Map, Value, json};
 
 use super::app::Fields;
@@ -106,16 +107,25 @@ fn named(title: &str) -> String {
     }
 }
 
-/// The name of the plugin whose operation `operation` (`<plugin>.<name>`, as its plan is called)
-/// is, if it's a plugin's.
-pub fn planned_by(operation: &str) -> Option<&'static str> {
+/// The name of the plugin whose operation (`<plugin>.<name>`) or, with `export`, export
+/// (`<plugin>.export.<format>`) `operation` is, as its plan is called, if it's a plugin's.
+pub fn planned_by(operation: &str, export: bool) -> Option<&'static str> {
     let mut all = crate::plugins::host().ok()?.manifests();
     let ours = all.find(|m| {
-        let name = operation.strip_prefix(m.id.as_str()).and_then(|rest| rest.strip_prefix('.'));
-        name.is_some_and(|name| m.contributes.operations.iter().any(|o| o.name == name))
+        let c = &m.contributes;
+        match (operation.strip_prefix(m.id.as_str()).and_then(|rest| rest.strip_prefix('.')), export) {
+            (Some(rest), true) => {
+                rest.strip_prefix("export.").is_some_and(|f| c.exporters.iter().any(|e| e.format == f))
+            }
+            (Some(name), false) => c.operations.iter().any(|o| o.name == name),
+            (None, _) => false,
+        }
     });
     ours.map(|m| m.name.as_str())
 }
+
+/// The form's own field an export's output is typed in, beside the format's options.
+const WRITE_TO: &str = "write_to";
 
 /// Settings as a form's JSON Schema: each as text, a number, a switch, one of its choices or a
 /// path, said with its title and its default.
@@ -190,8 +200,8 @@ impl App {
         root.map(|root| !self.extra_roots.iter().any(|r| r == root))
     }
 
-    /// Every plugin's commands, operations and analyzers, as the palette and the drive menu list
-    /// them for the drive at `root`: by title, with the plugin's name beside each.
+    /// Every plugin's commands, operations, analyzers and export formats, as the palette and the
+    /// drive menu list them for the drive at `root`: by title, with the plugin's name beside each.
     pub(super) fn plugin_items(&self, root: Option<&Path>) -> Vec<(Act, Item)> {
         let drive = self.pluggable(root);
         let all = offered(drive, true).into_iter();
@@ -199,7 +209,8 @@ impl App {
             .map(|o| (Act::Plugin(o.plugin, o.name), Item { unavailable: o.unavailable, ..Item::new(o.label, o.by) }))
             .collect();
         let Ok(plugins) = crate::plugins::host() else { return items };
-        // An analyzer reads the tracks' audio files: on a drive plugged in, as a command.
+        // An analyzer reads the tracks' audio files and an exporter the library: on a drive plugged
+        // in, as a command.
         let why = match drive {
             None => Some("open a drive first"),
             Some(false) => Some("only on a plugged-in drive"),
@@ -211,8 +222,83 @@ impl App {
                 let item = Item { unavailable: why.map(String::from), ..Item::new(label, &m.name) };
                 items.push((Act::Analyze(&m.id, &a.name), item));
             }
+            for e in &m.contributes.exporters {
+                let item = Item {
+                    unavailable: why.map(String::from),
+                    ..Item::new(format!("export for {}…", e.format), &m.name)
+                };
+                items.push((Act::Export(&m.id, &e.format), item));
+            }
         }
         items
+    }
+
+    /// The drive at `root`, when plugins can run on it; else `None`, saying why.
+    fn plugged(&mut self, root: Option<PathBuf>) -> Option<PathBuf> {
+        match (self.pluggable(root.as_deref()), root) {
+            (Some(true), Some(root)) => Some(root),
+            (None, _) => {
+                self.toast("open a drive first", Level::Info);
+                None
+            }
+            _ => {
+                self.toast("only on a plugged-in drive", Level::Info);
+                None
+            }
+        }
+    }
+
+    /// Export the drive at `root` in a plugin's format (the playlists marked in the tree only, when
+    /// it's the drive open and some are, as rekordbox XML is): a form asks where (a file or folder
+    /// on this computer, named after the drive) and for the format's options first.
+    pub(super) fn plugin_export(&mut self, plugin: &'static str, format: &'static str, root: Option<PathBuf>) {
+        let Ok(plugins) = crate::plugins::host() else { return };
+        let Some(root) = self.plugged(root) else { return };
+        let exporter =
+            plugins.manifest(plugin).ok().and_then(|m| m.contributes.exporters.iter().find(|e| e.format == format));
+        let Some(e) = exporter else { return };
+        let name = self.drive_label(&root);
+        let (to, what) = match &e.extension {
+            Some(ext) => (format!("~/Music/{name}.{ext}"), "The file to write, on this computer"),
+            None => (format!("~/Music/{name} for {format}"), "The folder to write into, on this computer"),
+        };
+        let mut fields = Map::new();
+        fields.insert(WRITE_TO.into(), json!({ "type": "string", "x-path": true, "description": what }));
+        fields.extend(properties(e.options.as_ref()).map(|(k, v)| (k.clone(), v.clone())));
+        let mut schema = e.options.clone().unwrap_or_else(|| json!({ "type": "object" }));
+        schema["properties"] = Value::Object(fields);
+        let mut required = vec![Value::from(WRITE_TO)];
+        required.extend(schema["required"].as_array().cloned().unwrap_or_default());
+        schema["required"] = Value::Array(required);
+        let filled = Map::from_iter([(WRITE_TO.to_string(), Value::from(to))]);
+        let open = self.loaded.as_ref().is_some_and(|l| l.root() == root);
+        let playlists = if open { self.list_marks.clone() } else { Vec::new() };
+        let then = For::Export { plugin, format, root, playlists };
+        let form = Form::with(e.title.clone(), Some(schema), &filled, then);
+        self.modal = Some(Modal::Form(form));
+    }
+
+    /// Plan the export the form has (`given`: where, and the format's options) in the background:
+    /// the plugin says which files it would write, writing none, and the plan comes back to
+    /// confirm, as any change does (overwriting files there already asked about).
+    pub(super) fn plan_export(
+        &mut self,
+        plugin: &'static str,
+        format: &'static str,
+        root: PathBuf,
+        playlists: Vec<String>,
+        given: Value,
+    ) {
+        let Ok(plugins) = crate::plugins::host() else { return };
+        let mut options = given;
+        let output = options.as_object_mut().and_then(|o| o.remove(WRITE_TO));
+        let output = PathBuf::from(output.as_ref().and_then(Value::as_str).unwrap_or_default());
+        let store_root = self.store_root.clone();
+        let source = ExportSource { drive: root.display().to_string(), playlists, history: Vec::new() };
+        self.plan(root, move |ctx| {
+            let store = Store::open(&store_root).ok();
+            Ok(Box::new(plugins.export_plan(plugin, format, source, &output, options, store.as_ref(), ctx)?))
+        });
     }
 
     /// The settings of each plugin that has some, as the palette lists them, wherever it's open.
@@ -289,11 +375,7 @@ impl App {
     /// it), keeping what it works out in the store; then its columns, filters and sorts read it.
     pub(super) fn analyze(&mut self, plugin: &'static str, analyzer: &'static str, root: Option<PathBuf>) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let root = match (self.pluggable(root.as_deref()), root) {
-            (Some(true), Some(root)) => root,
-            (None, _) => return self.toast("open a drive first", Level::Info),
-            _ => return self.toast("only on a plugged-in drive", Level::Info),
-        };
+        let Some(root) = self.plugged(root) else { return };
         let Some(declared) =
             plugins.manifest(plugin).ok().and_then(|m| m.contributes.analyzers.iter().find(|a| a.name == analyzer))
         else {

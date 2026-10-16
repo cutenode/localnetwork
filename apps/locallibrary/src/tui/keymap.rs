@@ -189,6 +189,8 @@ pub enum Act {
     FieldColumn(locallibrary::query::FieldName),
     /// A plugin's settings (the plugin's id).
     PluginSettings(&'static str),
+    /// Export the drive in a plugin's format (the plugin's id, the format).
+    Export(&'static str, &'static str),
 }
 
 /// The help's sections.

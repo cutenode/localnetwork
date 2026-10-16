@@ -2529,7 +2529,7 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
     let r = popup(area, w, lines.len() as u16 + 2, None);
     let keys = if selected.choices().is_empty() { "" } else { "←→ change · " };
     let then = match form.then {
-        super::form::For::Run(_) => "run",
+        super::form::For::Run(_) | super::form::For::Export { .. } => "run",
         super::form::For::Settings(_) => "save",
     };
     let b = block(title(&form.title, true), true)
@@ -2711,6 +2711,40 @@ fn undo_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
     }
 }
 
+/// A plugin's export, as `export --dry-run` shows it: what it writes and what goes in, its first
+/// files (what each holds, and those there already, by their place in the output's folder), what
+/// the format can't hold, then problems with the library.
+fn export_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
+    use crate::export_cmd::{FILES_SHOWN, about};
+    let Some(p) = c.export() else { return };
+    // The summary says where (`write 2 file(s) to ...`).
+    for s in &p.summary {
+        lines.push(Line::from(vec![Span::styled("• ", fg(theme::CYAN)), Span::styled(s.clone(), bold(theme::FG))]));
+    }
+    let dir = p.plan.output.parent().unwrap_or(&p.plan.output);
+    for f in p.plan.files.iter().take(FILES_SHOWN) {
+        let path = f.file.path.strip_prefix(dir).unwrap_or(&f.file.path).display().to_string();
+        let mut spans = vec![Span::styled(format!("  {path}  "), text()), Span::styled(about(f), dim())];
+        if f.exists {
+            spans.push(Span::styled(" (already there)", fg(theme::AMBER)));
+        }
+        lines.push(Line::from(spans));
+    }
+    if p.plan.files.len() > FILES_SHOWN {
+        lines.push(Line::styled(format!("  and {} more", p.plan.files.len() - FILES_SHOWN), dim()));
+    }
+    for n in &p.plan.notes {
+        lines.push(Line::styled(n.clone(), dim()));
+    }
+    for w in &p.warnings {
+        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
+    }
+    if p.destructive {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled("This replaces files already there.", fg(theme::AMBER)));
+    }
+}
+
 fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(Modal::Confirm(c)) = &mut app.modal else { return };
     let wording = super::edits::wording(&*c.plan, &c.drive);
@@ -2722,7 +2756,7 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(p.databases.join(" and "), text()),
             ]));
             // A plugin's operation: what the plugin says it does first.
-            let by = super::plugins::planned_by(c.plan.operation());
+            let by = super::plugins::planned_by(c.plan.operation(), false);
             if let Some((by, said)) = by.zip(c.plan.summary().first()) {
                 lines.push(Line::from(vec![
                     Span::styled(format!("{by}: "), bold(theme::CYAN)),
@@ -2744,6 +2778,7 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             ));
         }
         None if c.undo().is_some() => undo_lines(c, &mut lines),
+        None if c.export().is_some() => export_lines(c, &mut lines),
         None => {
             let plan = &c.plan;
             lines.push(Line::from(vec![

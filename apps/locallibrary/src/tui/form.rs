@@ -1,4 +1,4 @@
-//! A form for a plugin's params, or its settings: a field for each property of a JSON Schema,
+//! A form for a plugin's params, its settings, or an export's: a field for each property of a JSON Schema,
 //! each typed as the command line takes it (see [`crate::plugins::params`]), and checked against
 //! the schema before anything runs or is saved. A switch and a choice of a few values are picked
 //! rather than typed.
@@ -31,6 +31,9 @@ pub enum For {
     Run(Run),
     /// The settings of the plugin with this id.
     Settings(&'static str),
+    /// Where to export the drive at `root` (its `playlists` only, when some are named) in a
+    /// plugin's format, and the format's options.
+    Export { plugin: &'static str, format: &'static str, root: std::path::PathBuf, playlists: Vec<String> },
 }
 
 pub struct Field {
@@ -168,6 +171,9 @@ impl App {
                     return match f.then {
                         For::Run(run) => self.run_plugin(run, params),
                         For::Settings(plugin) => self.save_settings(plugin, params),
+                        For::Export { plugin, format, root, playlists } => {
+                            self.plan_export(plugin, format, root, playlists, params)
+                        }
                     };
                 }
                 Err((i, why)) => (f.selected, f.error) = (i, Some(why)),

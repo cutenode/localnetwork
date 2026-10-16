@@ -103,7 +103,11 @@ impl Plugin for Test {
             return Ok(Exported { files: vec![file], ..Exported::default() });
         }
         let extra = req.options["extra"].as_str().filter(|_| !req.dry_run).map(std::path::PathBuf::from);
+        let playlists = req.source.playlists.clone();
         let mut exported = echo::Echo.write_export(req, host)?;
+        if !playlists.is_empty() {
+            exported.notes.push(format!("playlists: {}", playlists.join(", ")));
+        }
         if let Some(extra) = extra {
             std::fs::write(&extra, "more").map_err(|e| RpcError::failed("io", e.to_string()))?;
             exported.files.push(ExportedFile { path: extra, what: String::new(), bytes: 4 });

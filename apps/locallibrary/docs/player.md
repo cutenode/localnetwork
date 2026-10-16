@@ -144,7 +144,10 @@ listening to your library the way the players see it:
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
 - **Export**: in the palette, "export" writes the playlist, set, session or all tracks shown as
   M3U8, CSV or text, and "xml" writes rekordbox XML of the drive (just the marked playlists when
-  some are), asking where first.
+  some are), asking where first. A plugin's format ("export for traktor…", in a drive's `e` menu
+  too) asks where and for the format's options in a form, then shows what it would write (each
+  file, what goes in, what the format can't hold) and writes it on `y`, asking first when that
+  overwrites files there already; it takes the marked playlists too.
 - **Mixes** (`5`): a recorded set and the tracks it plays, like [`locallibrary mix`](sets.md#mixes)
   against the drive open in the library. Pick one of the drive's recordings (XDJ-AZ and OPUS-QUAD
   MASTER REC files), or `O` to type the path of a recording or a folder of them on this computer. A

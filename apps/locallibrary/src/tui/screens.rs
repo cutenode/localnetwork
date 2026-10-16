@@ -447,6 +447,54 @@ fn plugins_settings() {
     );
 }
 
+/// An export in a plugin's format: its form, with the format's options, and its plan to confirm,
+/// a file there already to overwrite.
+#[test]
+fn plugins_exports() {
+    let Fixture { _dir, mut app, root } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    super::app::testing::mounted(root.parent().unwrap());
+    for c in ":export for traktor".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    check(
+        &mut app,
+        "an export's form",
+        &["Traktor Pro: collection.nml", "write to", "~/Music/", "location root", "skip analysis", "○ no", "enter run"],
+        &[],
+    );
+    key(&mut app, KeyCode::Esc);
+    let out = _dir.path().join("Friday.m3u");
+    std::fs::write(&out, "mine").unwrap();
+    let source =
+        loclib_plugin::ExportSource { drive: root.display().to_string(), playlists: Vec::new(), history: Vec::new() };
+    let plugins = crate::plugins::host().unwrap();
+    let plan =
+        plugins.export_plan("echo", "echo-m3u", source, &out, serde_json::Value::Null, None, &Ctx::silent()).unwrap();
+    app.modal = Some(Modal::Confirm(Confirm {
+        root: root.clone(),
+        drive: app.drive_label(&root),
+        plan: Box::new(plan),
+        scroll: 0,
+        shown: Instant::now() - Duration::from_secs(1),
+        after: None,
+    }));
+    check(
+        &mut app,
+        "an export's plan to confirm",
+        &[
+            "Overwrite 1 file?",
+            "write 1 file(s)",
+            "2 tracks",
+            "Friday.m3u  playlist,",
+            "(already there)",
+            "y overwrite",
+        ],
+        &[],
+    );
+}
+
 #[test]
 fn edit_menu_and_confirmation() {
     let Fixture { _dir, mut app, root } = fixture();

@@ -3311,6 +3311,7 @@ impl App {
             Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
+            Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
             Act::Details => {
                 self.show_details = !self.show_details;
                 if !self.show_details && self.focus == Focus::Details {

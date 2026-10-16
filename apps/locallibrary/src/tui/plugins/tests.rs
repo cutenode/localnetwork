@@ -3,7 +3,7 @@ use ratatui::crossterm::event::KeyCode;
 use serde_json::json;
 
 use super::super::app::testing::{
-    app_on, blank, confirming, demo_drive, echo_plugin, key, last_message, press, say_yes, wait,
+    app_on, blank, confirming, demo_drive, echo_plugin, key, last_message, mounted, press, say_yes, wait,
 };
 use super::super::palette::Picker;
 use super::super::ui::screen;
@@ -56,7 +56,8 @@ fn plugins_commands_are_in_the_palette() {
     assert_eq!(entry(&app, "answer the params…").1, Some("only on a plugged-in drive"));
 }
 
-/// The drive menu ends with plugins' commands, operations and analyzers, which run on that drive.
+/// The drive menu ends with plugins' commands, operations, analyzers and export formats, which
+/// run on that drive.
 #[test]
 fn plugins_commands_are_in_the_drive_menu() {
     let (dir, root) = demo_drive();
@@ -69,7 +70,8 @@ fn plugins_commands_are_in_the_drive_menu() {
     press(&mut app, "e");
     let p = picker(&app);
     assert!(p.title.starts_with("Drive · "), "{}", p.title);
-    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("analyze the tracks: file size"));
+    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("export for echo-m3u…"));
+    assert!(p.items.iter().any(|i| i.label == "analyze the tracks: file size"));
     assert!(p.items.iter().any(|i| i.label == "make a playlist…"));
     assert_eq!(entry(&app, "answer the params…").1, None);
     press(&mut app, "wait until\n");
@@ -326,15 +328,22 @@ fn planning_an_operation_is_stopped_with_esc() {
     assert!(level == Level::Error && said.contains("/nowhere/list.m3u"), "{said}");
 }
 
-/// A plan is a plugin's when its operation is one of a plugin's, by the plugin's id and its name.
+/// A plan is a plugin's when its operation is one of a plugin's operations or exports, by the
+/// plugin's id and its name (or `export.` and the format).
 #[test]
 fn plans_are_known_by_their_plugins() {
     let (dir, _root) = demo_drive();
     echo_plugin(dir.path());
-    assert_eq!(planned_by("echo.playlist"), Some("Echo"));
-    assert_eq!(planned_by("tracklist.import"), Some("Tracklist import"));
+    assert_eq!(planned_by("echo.playlist", false), Some("Echo"));
+    assert_eq!(planned_by("tracklist.import", false), Some("Tracklist import"));
+    assert_eq!(planned_by("echo.export.echo-m3u", true), Some("Echo"));
+    assert_eq!(planned_by("interop.export.traktor", true), Some("Other DJ software"));
+    assert_eq!(planned_by("echo.export.echo-m3u", false), None, "not an operation");
+    assert_eq!(planned_by("echo.playlist", true), None, "not an export");
+    assert_eq!(planned_by("echo.export.nope", true), None);
+    assert_eq!(planned_by("echo.echo-m3u", true), None, "an export is `export.` and its format");
     for not in ["echo.echo", "echo.nope", "echo", "edit", "edits.replay", "echoplaylist"] {
-        assert_eq!(planned_by(not), None, "{not}");
+        assert_eq!(planned_by(not, false), None, "{not}");
     }
 }
 
@@ -613,4 +622,120 @@ fn settings_are_a_schema_of_their_kinds() {
             "f": { "type": "string", "x-path": true, "description": "F" },
         })
     );
+}
+
+/// The export form open, its "write to" replaced with `to`.
+fn export_to(app: &mut App, to: &std::path::Path) {
+    press(app, ":export for echo\n");
+    let Some(Modal::Form(f)) = &mut app.modal else { panic!("no form: {}", last_message(app)) };
+    f.fields[0].text = to.display().to_string();
+    press(app, "\n");
+}
+
+/// Exporting from the palette: on a drive plugged in, a form asks where (named after the drive)
+/// and for the format's options; the plugin says what it would write, writing nothing, shown as
+/// the command line's dry run is, and a yes writes it. Files there already are asked about as
+/// overwriting, and a no leaves them be.
+#[test]
+fn an_export_is_planned_confirmed_and_written() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let (mut app, _store) = blank(Screen::Library);
+    press(&mut app, ":");
+    assert_eq!(entry(&app, "export for echo-m3u…").1, Some("open a drive first"));
+    assert_eq!(entry(&app, "export for traktor…").0.detail, "Other DJ software");
+    press(&mut app, "\u{1b}");
+    app.plugin_export("echo", "echo-m3u", None);
+    assert_eq!((app.modal.is_none(), last_message(&app)), (true, "open a drive first"));
+
+    mounted(dir.path());
+    let mut app = app_on(&root);
+    press(&mut app, ":export for echo\n");
+    let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
+    let name = app.drive_label(&root);
+    assert_eq!((f.title.as_str(), f.fields[0].text.clone()), ("M3U playlist", format!("~/Music/{name}.m3u")));
+    press(&mut app, "\u{1b}");
+    let out = dir.path().join("list.m3u");
+    export_to(&mut app, &out);
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Planning"));
+    let (operation, summary) = confirming(&mut app);
+    assert_eq!(operation, "echo.export.echo-m3u");
+    assert!(
+        summary.starts_with("write 1 file(s) (") && summary.ends_with(&format!("to {}", out.display())),
+        "{summary}"
+    );
+    assert!(!out.exists(), "a dry run writes nothing");
+    let s = screen(&mut app, 120, 40);
+    for needle in ["Write 1 file?", "2 tracks", "list.m3u  playlist,", "y write"] {
+        assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
+    }
+    say_yes(&mut app);
+    assert_eq!(last_message(&app), "Echo: 1 file written");
+    assert!(std::fs::read_to_string(&out).unwrap().starts_with("#EXTM3U"));
+
+    // There already: asked about as overwriting, and left be on a no.
+    std::fs::write(&out, "mine").unwrap();
+    export_to(&mut app, &out);
+    confirming(&mut app);
+    let s = screen(&mut app, 120, 40);
+    for needle in ["Overwrite 1 file?", "(already there)", "This replaces files already there.", "y overwrite"] {
+        assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
+    }
+    super::super::app::testing::settle(&mut app);
+    press(&mut app, "n");
+    assert_eq!((last_message(&app), std::fs::read_to_string(&out).unwrap().as_str()), ("nothing written", "mine"));
+}
+
+/// An export is never written onto a drive: planning it says so, as an error, and writes nothing.
+#[test]
+fn an_export_onto_the_drive_is_refused() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    mounted(dir.path());
+    let mut app = app_on(&root);
+    export_to(&mut app, &root.join("list.m3u"));
+    wait(&mut app, |a| a.job.is_none());
+    let (said, level) = app.toast.clone().map(|t| (t.0, t.1)).unwrap();
+    assert!(level == Level::Error && said.contains("choose a folder on this computer"), "{said}");
+    assert!(app.modal.is_none() && !root.join("list.m3u").exists());
+}
+
+/// A format's options are fields of the export's form, after where to write it, which a folder
+/// format names after the drive and the format.
+#[test]
+fn an_exports_form_has_the_formats_options() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let mut app = app_on(&root);
+    press(&mut app, ":export for traktor\n");
+    let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
+    let names: Vec<&str> = f.fields.iter().map(|x| x.name.as_str()).collect();
+    assert_eq!(names, ["write_to", "location_root", "skip_analysis"]);
+    let name = app.drive_label(&root);
+    assert_eq!(f.fields[0].text, format!("~/Music/{name} for traktor"));
+    assert!(f.fields[0].required && f.fields[2].is_switch());
+}
+
+/// Playlists marked in the tree are what's exported, as with rekordbox XML: the plugin gets
+/// exactly those.
+#[test]
+fn an_export_takes_the_marked_playlists() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    mounted(dir.path());
+    let mut app = app_on(&root);
+    // (The test plugin takes any names: it only says which it got.)
+    let names = ["Sets/Friday".to_string(), "Warmup".to_string()];
+    app.list_marks = names.to_vec();
+    export_to(&mut app, &dir.path().join("marked.m3u"));
+    confirming(&mut app);
+    let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
+    assert_eq!(c.export().unwrap().plan.notes, [format!("playlists: {}", names.join(", "))]);
+    assert!(screen(&mut app, 120, 40).contains(&format!("playlists: {}", names[0])));
+    press(&mut app, "\u{1b}");
+    app.list_marks.clear();
+    export_to(&mut app, &dir.path().join("all.m3u"));
+    confirming(&mut app);
+    let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
+    assert!(c.export().unwrap().plan.notes.is_empty(), "none marked: the whole drive");
 }
