@@ -29,6 +29,7 @@ pub(crate) fn write(export: &Export, output: &Path, ctx: &Ctx<'_>) -> Result<(),
         ctx.check()?;
         let dir = f.path.parent().unwrap_or(output);
         std::fs::create_dir_all(dir).map_err(|e| io(dir, e))?;
+        #[cfg_attr(not(unix), allow(unused_mut, reason = "only Unix sets its permissions"))]
         let mut builder = tempfile::Builder::new();
         // Made as any other file is (the umask decides), not readable by its owner alone.
         #[cfg(unix)]
