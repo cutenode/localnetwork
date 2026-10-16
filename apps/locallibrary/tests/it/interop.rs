@@ -6,7 +6,6 @@
 //! overwriting, and the exit statuses.
 
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 use locallibrary::anlz::{self, CueFile, CuePoint};
 use locallibrary::device::Device;
@@ -176,6 +175,8 @@ fn a_relative_output_folder_is_written() {
 #[cfg(unix)]
 #[test]
 fn copies_for_serato_outnumber_the_open_file_limit() {
+    use std::process::{Command, Stdio};
+
     use rekordbox_pdb::NewTrack;
     let env = Env::new();
     let root = env.drive("Main");
