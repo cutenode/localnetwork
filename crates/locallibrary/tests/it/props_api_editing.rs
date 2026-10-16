@@ -144,9 +144,7 @@ fn edits_agree_with_edit_and_undo_and_replay(tc: TestCase) {
         };
         assert_eq!((&*planned.operation, planned.noop), ("edit", direct.is_noop()));
         assert_eq!(planned.summary[..direct.changes.len()], direct.changes[..]);
-        let destructive =
-            !direct.tracks_removed.is_empty() || !direct.playlists_deleted.is_empty() || !direct.files.is_empty();
-        assert_eq!(planned.destructive, destructive);
+        assert_eq!(planned.destructive, direct.destructive());
         // The plan shown, or planned again and applied in one go.
         let report = match tc.draw(gs::booleans()) {
             true => planned.apply(None, &Ctx::silent()).unwrap(),
