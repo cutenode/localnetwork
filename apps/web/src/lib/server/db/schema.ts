@@ -24,6 +24,8 @@ export interface Database {
 	bookingThread: BookingThreadTable;
 	bookingParticipant: BookingParticipantTable;
 	bookingEvent: BookingEventTable;
+	epkRequest: EpkRequestTable;
+	epkGrant: EpkGrantTable;
 	geocodeCache: GeocodeCacheTable;
 }
 
@@ -197,6 +199,29 @@ export interface BookingEventTable {
 	authorDid: string;
 	kind: 'inquiry' | 'message' | 'status';
 	record: string;
+	createdAt: string;
+}
+
+export interface EpkRequestTable {
+	uri: string;
+	spaceUri: string;
+	epkUri: string;
+	requesterDid: string;
+	role: string | null;
+	message: string | null;
+	/** What the press kit's rules said when the request came in: auto, review or none. */
+	rule: string;
+	status: 'pending' | 'approved' | 'declined' | 'withdrawn';
+	createdAt: string;
+	decidedAt: string | null;
+}
+
+export interface EpkGrantTable {
+	spaceUri: string;
+	subjectDid: string;
+	uri: string;
+	via: string;
+	requestUri: string | null;
 	createdAt: string;
 }
 

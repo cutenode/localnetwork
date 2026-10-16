@@ -4,27 +4,11 @@ name: locallibrary CI
 # suites (Bombadil, every feature combination, mutation testing, fuzzing, the CLI's timings, a
 # release build) and a weekly advisory check are in locallibrary-scheduled.yml, and the benchmarks
 # in locallibrary-bench.yml. Changes to Markdown alone skip CI, except the crates' READMEs, which are
-# their crate docs and doctests. (A later pattern wins.)
+# their crate docs and doctests (the paths are in the changes job).
 on:
   push:
     branches: [main]
-    paths: &paths
-      - "apps/locallibrary/**"
-      - "crates/**"
-      - "vendor/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "rustfmt.toml"
-      - "clippy.toml"
-      - "deny.toml"
-      - ".cargo/**"
-      - "lexicons/**"
-      - ".github/workflows/locallibrary-*.yml"
-      - "!**.md"
-      - "crates/*/README.md"
   pull_request:
-    paths: *paths
 
 permissions:
   contents: read
@@ -42,7 +26,48 @@ env:
 # Every job but msrv builds with the toolchain rust-toolchain.toml pins: `rustup toolchain
 # install` with no arguments installs it, with clippy and rustfmt.
 jobs:
+  # Pushes and pull requests always start this workflow, so the passed job at the end always
+  # reports. The other jobs run only when the files listed here change.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
+    outputs:
+      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true' }}
+    steps:
+      # A pull request's files come from the API; a push is diffed against the commit before it.
+      - if: github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            rust:
+              - 'apps/locallibrary/**'
+              - 'crates/**'
+              - 'vendor/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - 'rustfmt.toml'
+              - 'clippy.toml'
+              - 'deny.toml'
+              - '.cargo/**'
+              - 'lexicons/**'
+              - '.github/workflows/locallibrary-*.yml'
+              - '!**/*.md'
+            readmes:
+              - 'crates/*/README.md'
+
   test:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -66,7 +91,7 @@ jobs:
         run: |
           brew install sqlcipher
           echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo fmt --all --check
@@ -86,6 +111,8 @@ jobs:
   # passes clippy without ALSA's headers. locallibrary-scheduled.yml runs its tests and every
   # other combination.
   features:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -100,6 +127,8 @@ jobs:
   # Only the library and the CLI, what `cargo install` builds (with their default features): the
   # tests' dev-dependencies may need a newer Rust.
   msrv:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -115,6 +144,8 @@ jobs:
       - run: cargo +1.91 check --workspace --locked
 
   docs:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -132,6 +163,8 @@ jobs:
   # RustSec advisories, banned crates and where crates come from (see deny.toml).
   # locallibrary-scheduled.yml also checks advisories weekly, for ones published between pushes.
   deny:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -139,7 +172,19 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: cargo-deny
       - run: cargo deny --locked check advisories bans licenses sources
+
+  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
+  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
+  passed:
+    name: locallibrary CI passed
+    if: always()
+    needs: [changes, test, features, msrv, docs, deny]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

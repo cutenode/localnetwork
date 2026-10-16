@@ -410,6 +410,36 @@ impl Device {
         Ok(p)
     }
 
+    /// The key of the file at `key` ignoring letter case, as the drive spells it (an exact match
+    /// first). DJ drives are FAT32, exFAT or HFS+, where both name one file; a drive in a folder
+    /// that tells case apart (Linux's, say) has it under one spelling only. `None` when no one
+    /// file matches, or `key` would leave the drive.
+    pub fn file_key(&self, key: &str) -> Option<String> {
+        if !paths::is_safe_key(key) {
+            return None;
+        }
+        let (mut at, mut found) = (self.root.clone(), Vec::new());
+        for name in key.split('/') {
+            let names: Vec<std::ffi::OsString> =
+                std::fs::read_dir(&at).ok()?.flatten().map(|e| e.file_name()).collect();
+            let spelled = |n: &std::ffi::OsString| paths::key(&n.to_string_lossy());
+            let real = match names.iter().find(|n| spelled(n) == name) {
+                Some(n) => n,
+                None => {
+                    let mut near = names.iter().filter(|n| spelled(n).to_lowercase() == name.to_lowercase());
+                    match (near.next(), near.next()) {
+                        (Some(n), None) => n,
+                        _ => return None,
+                    }
+                }
+            };
+            found.push(spelled(real));
+            at.push(real);
+        }
+        let inside = dunce_canonicalize(&at).starts_with(&self.root);
+        (inside && at.is_file()).then(|| found.join("/"))
+    }
+
     /// Whether the drive holds a rekordbox export: `export.pdb`, `exportLibrary.db` or both.
     pub fn has_export(&self) -> bool {
         self.has_device_library() || self.has_library_plus()
@@ -864,18 +894,22 @@ impl Device {
 /// `\\?\` prefix [`Path::canonicalize`] adds, so it compares equal to [`Device::root`] and to the
 /// mount points the OS reports (`E:\`).
 pub fn dunce_canonicalize(p: &Path) -> PathBuf {
-    let c = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    // Strip Windows' verbatim prefix so paths stay readable and joinable.
+    without_verbatim_prefix(p.canonicalize().unwrap_or_else(|_| p.to_path_buf()))
+}
+
+/// `p` without the `\\?\` prefix [`Path::canonicalize`] adds on Windows (a `\\?\UNC\` share
+/// keeps it), so it stays readable and joinable. Elsewhere `p` itself.
+pub fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
-        let s = c.to_string_lossy();
+        let s = p.to_string_lossy();
         if let Some(rest) = s.strip_prefix(r"\\?\")
             && !rest.starts_with("UNC\\")
         {
             return PathBuf::from(rest);
         }
     }
-    c
+    p
 }
 
 // ---------------------------------------------------------------------------------------------

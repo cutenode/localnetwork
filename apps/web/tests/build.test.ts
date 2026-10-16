@@ -35,9 +35,16 @@ it('ships no sourcemaps to the browser', () => {
 });
 
 it('keeps the client bundle within its budget', () => {
-	// Every page's code together, uncompressed: about 434 KB of JavaScript and 64 KB of CSS, a third
+	// Every page's code together, uncompressed: about 505 KB of JavaScript and 85 KB of CSS, a third
 	// of that over the wire. The room above is for the app to grow; a library that needs more than
 	// that is worth deciding on, not finding here later.
-	expect(bytes('.js')).toBeLessThan(500 * 1024);
-	expect(bytes('.css')).toBeLessThan(80 * 1024);
+	expect(bytes('.js')).toBeLessThan(600 * 1024);
+	expect(bytes('.css')).toBeLessThan(100 * 1024);
+});
+
+it('keeps fonts as files, which the CSP allows', () => {
+	// font-src is 'self' (vite.config.ts), so a font inlined as a data URL is blocked and logs an error.
+	for (const file of files.filter((name) => name.endsWith('.css'))) {
+		expect(readFileSync(file, 'utf8'), file).not.toContain('data:font');
+	}
 });

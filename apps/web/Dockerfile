@@ -20,7 +20,8 @@ RUN pnpm --filter localnetwork build
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm --filter localnetwork deploy --prod --ignore-scripts /prod
 
 FROM base AS runtime
-ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 DATABASE_PATH=/data/localnetwork.db
+# Forms carry photos (press kit photos up to 5 MB each) and tracklists; adapter-node allows 512 KB by default.
+ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 DATABASE_PATH=/data/localnetwork.db BODY_SIZE_LIMIT=40M
 COPY --from=build --chown=node:node /prod/package.json ./
 COPY --from=build --chown=node:node /prod/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps/web/build ./build

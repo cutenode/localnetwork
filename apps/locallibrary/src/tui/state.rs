@@ -108,7 +108,10 @@ pub fn save(store_root: &Path, saved: &Saved) {
     let Some(dir) = (if has_store(store_root) { Some(store_root.to_path_buf()) } else { fallback(store_root) }) else {
         return;
     };
-    if saved.root.as_deref().is_some_and(|r| dir.starts_with(r)) {
+    // Compared resolved: the drive's root comes resolved (macOS's /var is /private/var), the
+    // store's folder as it was given.
+    let resolved = locallibrary::fsutil::resolved;
+    if saved.root.as_deref().is_some_and(|r| resolved(&dir).starts_with(resolved(r))) {
         return;
     }
     if let Ok(json) = serde_json::to_vec_pretty(saved)

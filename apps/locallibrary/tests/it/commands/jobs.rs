@@ -60,7 +60,7 @@ fn setup_gives_a_drive_it_knew_its_identity_back_and_imports_settings_once() {
     // Erased (its identity gone), the drive is recognised by what it holds.
     std::fs::remove_dir_all(demo.join(".locallibrary")).unwrap();
     let out = env.ok(&["--yes", "setup", path(&demo), "--library", "Home", "--no-settings"]);
-    assert!(out.contains("/REKORDBOX the identity of REKORDBOX ("), "{out}");
+    assert!(out.contains(&format!("{}REKORDBOX the identity of REKORDBOX (", std::path::MAIN_SEPARATOR)), "{out}");
 }
 
 #[test]
