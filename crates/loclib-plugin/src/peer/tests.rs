@@ -379,6 +379,21 @@ fn a_reporting_request_gets_its_progress_before_its_response() {
     assert_eq!(pending.progress().count(), 0);
 }
 
+/// Regression: the reader drops a response's sender only after handing the response over, so
+/// waiting again straight after it came could time out instead of failing with `closed`.
+#[test]
+fn waiting_again_after_the_response_fails_even_before_the_sender_goes() {
+    let (peer, _incoming, mut raw) = connect();
+    let pending = peer.send_request("m", &json!({})).unwrap();
+    raw.recv();
+    // As the reader does, mid-way: the response handed over, its sender not yet dropped.
+    let waiting = lock(&peer.0.waiting);
+    waiting.as_ref().unwrap()[&pending.id()].response.send(Ok(json!(1))).unwrap();
+    assert_eq!(pending.wait_timeout::<u32>(Duration::ZERO).unwrap().unwrap(), 1);
+    assert_eq!(pending.wait_timeout::<u32>(Duration::ZERO).unwrap().unwrap_err().kind(), Some("closed"));
+    drop(waiting);
+}
+
 /// What the other end gets wrong goes to the log a host gives.
 #[test]
 fn what_the_other_end_gets_wrong_is_logged() {
