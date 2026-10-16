@@ -1,10 +1,29 @@
 <script lang="ts">
-	import Hotkey from '#lib/components/Hotkey.svelte';
 	import NearInput from '#lib/components/NearInput.svelte';
-	import { feeLabel, kindLabel } from '#lib/format.ts';
+	import ProjectCard from '#lib/components/ProjectCard.svelte';
+	import { pluralize } from '#lib/format.ts';
+	import Button from '#lib/ui/Button.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Section from '#lib/ui/Section.svelte';
+	import SectionHeader from '#lib/ui/SectionHeader.svelte';
+	import Tag from '#lib/ui/Tag.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	const pillars = [
+		['Found by sound', 'A search for house finds deep house and afro house too.'],
+		['Matched by distance', 'Results sort by how far each DJ is from your venue.'],
+		['Booked in private', 'Every inquiry is its own members-only thread.'],
+		['Owned by the DJ', 'Profiles are records on the AT Protocol.']
+	];
+
+	const perks = [
+		['/match', 'Match a show', 'Describe the night and get a shortlist, with the reasons each DJ made it.'],
+		['/bookings', 'Private inquiries', 'Each booking is its own thread, shared only with the project’s managers.'],
+		['/planner', 'Planner', 'Keep shortlists and build a lineup slot by slot, in a space only you can read.'],
+		['/about#spaces', 'Booking details', 'Email, phone, rate notes, rider and hospitality, for signed-in members.']
+	];
 </script>
 
 <svelte:head>
@@ -12,101 +31,133 @@
 	<meta name="description" content="Promoters find local DJs who fit their show. DJs get a profile they control, built on the AT Protocol." />
 </svelte:head>
 
-<div class="container-page flex flex-col gap-8 pt-6">
-	<section class="flex flex-col gap-4">
-		<p class="eyebrow">For promoters and DJs</p>
-		<h1 class="text-[clamp(2.5rem,5.8vw,5rem)] leading-[0.92] text-balance uppercase">Book the right DJ <span class="text-ansi-bright-magenta">from your own scene.</span></h1>
-		<p class="max-w-3xl">Search local DJ projects by sound, distance, budget, and the slot you need to fill. DJs keep a profile they control, with booking details kept private.</p>
-		<form action="/projects" method="GET" role="search" aria-label="Find DJs" class="card flex max-w-4xl flex-col gap-2.5 border-ansi-magenta px-5 pt-2 pb-5">
-			<p class="text-ansi-bright-magenta uppercase">Quick search</p>
-			<div class="grid items-center gap-x-3 gap-y-2 sm:grid-cols-[11rem_1fr]">
-				<label for="hero-q" class="text-ansi-bright-green">Sound or name:</label>
+<section aria-labelledby="hero-title" class="border-b border-line bg-canvas bg-grid">
+	<div class="container-page flex flex-col items-center gap-8 py-14 sm:gap-10 sm:py-24">
+		<SectionHeader id="hero-title" level={1} size="display" align="center" title="The home for local DJs and the nights they play." lede="Promoters find DJs by sound, distance and budget. DJs keep a profile they own, with their booking details kept private." />
+		<form action="/projects" method="GET" role="search" aria-label="Find DJs" class="grid w-full max-w-3xl items-end gap-3 rounded-2xl border border-line bg-surface p-4 sm:grid-cols-[1fr_1fr_auto] sm:p-5">
+			<div>
+				<label for="hero-q" class="label">Sound or name</label>
 				<input id="hero-q" name="q" class="input" placeholder="disco, jungle, a name" />
-				<label for="hero-near" class="text-ansi-bright-green">Near:</label>
+			</div>
+			<div>
+				<label for="hero-near" class="label">Near</label>
 				<NearInput id="hero-near" geocoder={data.geocoder} />
 			</div>
-			<button class="btn-accent mt-1 self-start">Find DJs</button>
+			<button class="btn-primary">Find DJs</button>
 		</form>
-	</section>
-
-	<div class="flex flex-wrap gap-6">
-		<section class="card min-w-0 flex-[2_1_32rem] border-ansi-bright-blue px-4 pt-2 pb-3">
-			<h2 class="section-title mb-2">Sounds on file</h2>
-			{#if data.genres.length}
-				<ul class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,13rem),1fr))] gap-x-4">
-					{#each data.genres as genre (genre.value)}
-						<li><a class="menu-link px-0.5" href="/projects?genres={encodeURIComponent(genre.value)}">{genre.value} <span class="text-ansi-yellow">({genre.count})</span></a></li>
-					{/each}
-				</ul>
-			{:else}
-				<p class="muted">{data.stats ? 'No projects listed yet.' : "The directory isn't answering. Try again in a minute."}</p>
-			{/if}
-		</section>
-		<section class="card min-w-0 flex-[1_1_16rem] border-ansi-green px-4 pt-2 pb-3">
-			<h2 class="section-title mb-2 bg-ansi-green text-ansi-black">System</h2>
-			<dl class="grid grid-cols-[1fr_auto] gap-x-4">
-				{#if data.stats}
-					<dt class="muted">Projects</dt>
-					<dd class="text-ansi-white tabular-nums">{data.stats.active}</dd>
-					<dt class="muted">Cities</dt>
-					<dd class="text-ansi-white tabular-nums">{data.stats.cities}</dd>
-					<dt class="muted">Up for claiming</dt>
-					<dd class="tabular-nums"><a class="link" href="/projects?unclaimed=on">{data.stats.unclaimed}</a></dd>
-				{:else}
-					<dt class="muted">Directory</dt>
-					<dd class="text-ansi-bright-red" title="The directory isn't answering. Try again in a minute.">Offline</dd>
-				{/if}
-				<dt class="muted">Changes</dt>
-				<dd class="text-ansi-bright-green">Reviewed</dd>
-			</dl>
-		</section>
+		<p class="m-0 text-small text-fg-muted">Play out yourself? <a class="link" href="/projects/new">List your project</a></p>
 	</div>
+</section>
 
-	{#if data.recent.length}
-		<section class="card px-5 pt-3 pb-1">
-			<div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
-				<h2 class="text-4xl uppercase">New files <span class="text-base text-ansi-cyan normal-case">Newly listed projects</span></h2>
-				<a class="menu-link px-1" href="/projects?sort=recent">See all</a>
+<div class="border-b border-line bg-canvas">
+	<div class="container-page">
+		<ul class="m-0 grid list-none grid-cols-2 gap-px bg-line p-0 lg:grid-cols-4">
+			{#each pillars as [title, body] (title)}<li class="bg-canvas px-4 py-5 sm:px-6 sm:py-7"><p class="m-0 text-small font-semibold sm:text-body">{title}</p><p class="m-0 mt-1 text-label text-fg-muted sm:text-small">{body}</p></li>{/each}
+		</ul>
+	</div>
+</div>
+
+<Section labelledby="recent-title">
+	<div class="flex flex-col gap-8 sm:gap-12">
+		<div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+			<div class="flex flex-col gap-3">
+				<SectionHeader id="recent-title" eyebrow="DJ profiles" tone="low" title="New on the directory" />
+				{#if data.stats?.active}
+					<p class="m-0 text-lede text-fg-muted">
+						{pluralize(data.stats.active, 'project')} in {pluralize(data.stats.cities, 'city', 'cities')}{#if data.stats.unclaimed}, <a class="link" href="/projects?unclaimed=on">{data.stats.unclaimed} up for claiming</a>{/if}.
+					</p>
+				{/if}
 			</div>
-			<ol class="mt-2">
+			{#if data.recent.length}<Button variant="secondary" href="/projects?sort=recent">See all projects</Button>{/if}
+		</div>
+		{#if !data.stats}
+			<Card tone="outline" padding="lg" radius="2xl">
+				<p class="m-0 font-semibold">The directory isn't answering right now.</p>
+				<p class="m-0 mt-1 text-fg-muted">Try again in a minute.</p>
+			</Card>
+		{:else if data.recent.length === 0}
+			<Card tone="outline" padding="lg" radius="2xl" class="flex flex-col items-start gap-3">
+				<div>
+					<p class="m-0 font-semibold">No projects listed yet.</p>
+					<p class="m-0 mt-1 text-fg-muted">Be the first DJ on the map.</p>
+				</div>
+				<Button size="sm" href="/projects/new">List your project</Button>
+			</Card>
+		{:else}
+			<!-- A row to swipe on a phone, so the section stays about one screen tall. -->
+			<ul class="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(min(100%,18rem),1fr))] gap-4 p-0 max-sm:-mx-4 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:pb-2">
 				{#each data.recent as project (project.uri)}
-					{@const profile = project.profile}
-					<li class="border-t-2 border-dashed border-ansi-blue py-3">
-						<p class="flex flex-wrap items-baseline gap-x-5">
-							<a class="menu-link text-3xl leading-none uppercase" href="/projects/{project.slug}">{profile.name}<span aria-hidden="true" class="text-ansi-cyan">.PRJ</span></a>
-							<span class="text-ansi-bright-green">{profile.location.city}, {profile.location.country}</span>
-							<span class="text-ansi-yellow">{[kindLabel(profile.kind), profile.fee && feeLabel(profile)].filter(Boolean).join(' · ')}</span>
-							{#if project.managers.length === 0}<span class="text-ansi-bright-red uppercase sm:ml-auto" title="Nobody has claimed this project yet">Unclaimed</span>{/if}
-						</p>
-						{#if profile.tagline}<p class="ml-[2ch] text-ansi-white">{profile.tagline}</p>{/if}
-						<p class="ml-[2ch] text-ansi-bright-magenta">{profile.genres.join(' / ')}</p>
-					</li>
-				{/each}
-			</ol>
-		</section>
-	{/if}
-
-	{#if data.cities.length}
-		<section class="card border-ansi-bright-blue px-4 pt-2 pb-3">
-			<h2 class="section-title mb-2">Browse by city</h2>
-			<ul class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-x-4">
-				{#each data.cities as city (city.city + city.country)}
-					<li><a class="menu-link px-0.5" href="/projects?q={encodeURIComponent(city.city)}&country={city.country}">{city.city}, {city.country} <span class="text-ansi-yellow">({city.count})</span></a></li>
+					<li class="max-sm:w-[82%] max-sm:shrink-0 max-sm:snap-start"><ProjectCard {project} /></li>
 				{/each}
 			</ul>
-		</section>
-	{/if}
+		{/if}
+	</div>
+</Section>
 
-	<section class="card flex flex-wrap items-end gap-x-10 gap-y-4 border-ansi-bright-red px-5 pt-3 pb-5">
-		<div class="min-w-0 flex-[1_1_30rem]">
-			<p class="text-ansi-bright-red uppercase">Message from the sysop</p>
-			<h2 class="mt-1 text-[clamp(2.25rem,4.4vw,3.5rem)] leading-[0.95] uppercase">You play out? Put your project on the map.</h2>
-			<p class="mt-2 max-w-2xl">List a solo act, a b2b duo, or a whole crew. Already listed by an admin? Claim it. Your profile is published from a record on the AT Protocol, so it's portable, and your private booking details stay in a members-only space. Every change is reviewed by a moderator.</p>
+{#if data.genres.length || data.cities.length}
+	<Section tone="sunken" labelledby="browse-title">
+		<div class="flex flex-col gap-8 sm:gap-12">
+			<SectionHeader id="browse-title" eyebrow="Browse" tone="mid" title="Find DJs by sound or city" />
+			<div class="grid gap-8 md:grid-cols-2 md:gap-12">
+				{#if data.genres.length}
+					<div class="flex flex-col gap-3">
+						<h3 class="m-0 text-body font-semibold">By sound</h3>
+						<ul class="m-0 flex list-none flex-wrap gap-2 p-0">
+							{#each data.genres as genre (genre.value)}
+								<li><Tag href="/projects?genres={encodeURIComponent(genre.value)}">{genre.value} <span class="font-mono text-caption text-fg-subtle">{genre.count}</span></Tag></li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+				{#if data.cities.length}
+					<div class="flex flex-col gap-3">
+						<h3 class="m-0 text-body font-semibold">By city</h3>
+						<ul class="m-0 flex list-none flex-wrap gap-2 p-0">
+							{#each data.cities as city (city.city + city.country)}
+								<li><Tag href="/projects?q={encodeURIComponent(city.city)}&country={city.country}">{city.city}, {city.country} <span class="font-mono text-caption text-fg-subtle">{city.count}</span></Tag></li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+			</div>
 		</div>
-		<nav aria-label="For DJs" class="flex flex-col gap-1 text-xl">
-			<a class="menu-link flex items-center gap-2 px-1" href="/projects/new" aria-keyshortcuts="N"><Hotkey key="N" />List a project</a>
-			<a class="menu-link flex items-center gap-2 px-1" href="/projects?unclaimed=on" aria-keyshortcuts="C"><Hotkey key="C" />Claim a project</a>
-			<a class="menu-link flex items-center gap-2 px-1" href="/for-djs" aria-keyshortcuts="D"><Hotkey key="D" />How it works for DJs</a>
-		</nav>
-	</section>
-</div>
+	</Section>
+{/if}
+
+<Section labelledby="promoters-title">
+	<div class="flex flex-col gap-8 sm:gap-12">
+		<SectionHeader id="promoters-title" eyebrow="For promoters" tone="aqua" title="Describe the night. Get a shortlist with reasons." lede="The matcher scores every DJ on sound, distance, budget and room size, and tells you why each one made the list." />
+		<ul class="m-0 grid list-none grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-4 p-0">
+			{#each perks as [href, title, body] (href)}
+				<li><Card {href} tone="outline" padding="lg" radius="2xl" class="flex h-full flex-col gap-2 max-sm:p-4"><span class="text-emphasis font-semibold">{title}</span><span class="text-fg-muted">{body}</span></Card></li>
+			{/each}
+		</ul>
+	</div>
+</Section>
+
+<Section tone="sunken" labelledby="tools-title">
+	<div class="flex flex-col gap-8 sm:gap-12">
+		<SectionHeader id="tools-title" eyebrow="Tools for DJs" tone="high" title="From the crate to the booth." />
+		<ul class="m-0 flex list-none flex-wrap gap-4 p-0">
+			{#each data.tools as tool (tool.id)}
+				<li class="flex min-w-0 flex-[1_1_26rem]">
+					<Card href="/tools/{tool.id}" padding="none" radius="2xl" class="flex w-full flex-col overflow-hidden">
+						<span class="flex flex-col gap-2 p-5 sm:p-6">
+							<span class="flex flex-wrap items-baseline gap-x-2.5 text-heading font-semibold">{tool.name} <span class="font-mono text-caption font-normal text-fg-subtle">{tool.kind}</span></span>
+							<span class="text-fg-muted">{tool.tagline}</span>
+						</span>
+						<span class="mt-auto flex flex-col border-t border-line bg-canvas px-5 py-2 sm:px-6">
+							{#each tool.features as feature (feature)}<span class="border-b border-well py-2 text-small text-fg-soft last:border-b-0">{feature}</span>{/each}
+						</span>
+					</Card>
+				</li>
+			{/each}
+		</ul>
+	</div>
+</Section>
+
+<Section tone="grid" labelledby="closing-title">
+	<SectionHeader id="closing-title" align="center" title="You play out? Put your project on the map." lede="List a solo act, a b2b duo or a whole crew. Already listed by an admin? Claim it. Every change is reviewed by a moderator.">
+		{#snippet actions()}<Button size="lg" href="/projects/new">List your project</Button><Button size="lg" variant="secondary" href="/projects?unclaimed=on">Claim a project</Button><Button size="lg" variant="ghost" href="/for-djs">How it works for DJs</Button>{/snippet}
+	</SectionHeader>
+</Section>

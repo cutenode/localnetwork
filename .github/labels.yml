@@ -1,0 +1,59 @@
+# The repo's labels, kept in step by .github/workflows/labels.yml. Labels missing from here are
+# left alone, so removing one from this file doesn't delete it.
+
+# Which tool an issue or pull request is about. The bug forms apply these, and
+# .github/workflows/pr-labels.yml adds them to pull requests from the files they change.
+- name: web
+  color: "1f7a5a"
+  description: The Local Network website (apps/web)
+- name: locallibrary
+  color: "8a4fd8"
+  description: locallibrary and the loclib-* crates
+- name: localtoolbox
+  color: "d97a1f"
+  description: The localtoolbox Chrome extension
+- name: lexicons
+  color: "3b6fd4"
+  description: The computer.localnetwork.* lexicons
+
+- name: bug
+  color: "d73a4a"
+  description: Something isn't working
+- name: enhancement
+  color: "a2eeef"
+  description: New feature or request
+- name: question
+  color: "d876e3"
+  description: Further information is requested
+- name: documentation
+  color: "0075ca"
+  description: Improvements or additions to documentation
+- name: duplicate
+  color: "cfd3d7"
+  description: This issue or pull request already exists
+- name: good first issue
+  color: "7057ff"
+  description: Good for newcomers
+- name: help wanted
+  color: "008672"
+  description: Extra attention is needed
+- name: invalid
+  color: "e4e669"
+  description: This doesn't seem right
+- name: wontfix
+  color: "ffffff"
+  description: This will not be worked on
+
+# Dependabot's.
+- name: dependencies
+  color: "0366d6"
+  description: Pull requests that update a dependency file
+- name: rust
+  color: "000000"
+  description: Pull requests that update rust code
+- name: javascript
+  color: "168700"
+  description: Pull requests that update javascript code
+- name: github_actions
+  color: "000000"
+  description: Pull requests that update GitHub Actions code

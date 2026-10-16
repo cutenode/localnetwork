@@ -206,7 +206,7 @@ fn read_xml(text: &str) -> Xml {
         let (e, empty) = match &event {
             Event::Start(e) => (e.clone(), false),
             Event::Empty(e) => (e.clone(), true),
-            Event::End(e) if e.name().as_ref() == b"NODE" => {
+            Event::End(e) if e.name().as_ref() == "NODE" => {
                 if open_playlist {
                     open_playlist = false;
                 } else {
@@ -220,19 +220,19 @@ fn read_xml(text: &str) -> Xml {
         let attr = |name: &str| {
             e.attributes()
                 .flatten()
-                .find(|a| a.key.as_ref() == name.as_bytes())
-                .map(|a| a.unescape_value().unwrap().into_owned())
+                .find(|a| a.key.as_ref() == name)
+                .map(|a| a.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap().into_owned())
         };
         match e.name().as_ref() {
-            b"COLLECTION" => out.entries = attr("Entries").unwrap().parse().unwrap(),
-            b"TRACK" if attr("Key").is_some() => {
+            "COLLECTION" => out.entries = attr("Entries").unwrap().parse().unwrap(),
+            "TRACK" if attr("Key").is_some() => {
                 out.playlists.last_mut().unwrap().1.push(attr("Key").unwrap().parse().unwrap())
             }
-            b"TRACK" => {
+            "TRACK" => {
                 let id = attr("TrackID").unwrap().parse().unwrap();
                 out.tracks.insert(id, (attr("Name").unwrap(), attr("Artist").unwrap(), attr("Location").unwrap()));
             }
-            b"NODE" => {
+            "NODE" => {
                 let name = attr("Name").unwrap();
                 match attr("Type").as_deref() {
                     Some("1") => {
@@ -316,7 +316,9 @@ fn xml_holds_the_drives_library(tc: TestCase) {
     for t in &tracks {
         let (name, artist, loc) = &x.tracks[&t.id];
         assert_eq!((name, artist), (&t.title, &t.artist));
-        let want = paths::to_fs(&base, &paths::key(&t.file_path)).to_string_lossy().into_owned();
+        // A URL's path: `/`-separated, and on Windows `/C:/...`.
+        let want = paths::to_fs(&base, &paths::key(&t.file_path)).to_string_lossy().replace('\\', "/");
+        let want = if want.starts_with('/') { want } else { format!("/{want}") };
         assert_eq!(unpercent(loc.strip_prefix("file://localhost").unwrap()), want);
     }
     let mut want: Vec<(String, Vec<u32>)> =
@@ -496,15 +498,20 @@ fn xml_marks(text: &str) -> Marks {
         let attrs: IndexMap<String, String> = e
             .attributes()
             .flatten()
-            .map(|a| (String::from_utf8(a.key.as_ref().to_vec()).unwrap(), a.unescape_value().unwrap().into_owned()))
+            .map(|a| {
+                (
+                    a.key.as_ref().to_owned(),
+                    a.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap().into_owned(),
+                )
+            })
             .collect();
         match e.name().as_ref() {
-            b"TRACK" if attrs.contains_key("TrackID") => {
+            "TRACK" if attrs.contains_key("TrackID") => {
                 let id = attrs["TrackID"].parse().unwrap();
                 out.insert(id, (attrs, Vec::new()));
                 current = Some(id);
             }
-            b"POSITION_MARK" => out[&current.unwrap()].1.push(attrs),
+            "POSITION_MARK" => out[&current.unwrap()].1.push(attrs),
             _ => {}
         }
     }

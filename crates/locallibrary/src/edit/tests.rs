@@ -773,6 +773,7 @@ fn recorded_history_lists_are_deleted_by_name_and_entries(tc: hegel::TestCase) {
 /// A track is pointed only at an audio file on the drive that no other track has, and only when
 /// no other track shares its own file (the databases' edits find it by its file).
 #[hegel::test(test_cases = 100)]
+#[hegel::explicit_test_case(shared = false, id = 1u32, path = "/contents/NEW.mp3")]
 fn a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (dir, device) = empty_drive();
@@ -810,7 +811,9 @@ fn a_track_is_pointed_only_at_an_audio_file_of_its_own(tc: hegel::TestCase) {
     match got {
         Ok((ops, _, _)) => {
             assert!((on_drive || own) && !(shared && id == 1), "pointed {id} at {path}");
-            assert_eq!(ops.len(), 1);
+            // At the file as the drive spells it, whatever case it was given in.
+            let want = if on_drive { "/Contents/new.mp3" } else { path };
+            assert!(matches!(ops.as_slice(), [Op::SetPath { path: p, .. }] if p == want), "{ops:?}");
         }
         Err(e) => {
             let why = e.to_string();

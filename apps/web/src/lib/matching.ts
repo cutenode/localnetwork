@@ -16,10 +16,14 @@ export type MatchCriteria = {
 /** One reason a project fits a show, or one concern, as the directory reports it. */
 export type MatchNote = { code: string; genres?: string[]; distanceM?: number; setType?: string; formats?: string[] };
 
+/** How well a project fits on each factor the directory scores, 0 to 100. */
+export type MatchBreakdown = Record<'genre' | 'distance' | 'budget' | 'capacity' | 'setType' | 'format', number>;
+
 export type MatchResult = {
 	candidate: ProjectView;
 	/** 0 to 100. */
 	score: number;
+	breakdown: MatchBreakdown;
 	reasons: string[];
 	warnings: string[];
 };

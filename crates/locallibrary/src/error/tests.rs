@@ -173,9 +173,11 @@ fn io_errors_name_their_path(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let name = tc.draw(gs::sampled_from(vec!["export.pdb", "Ünï/ANLZ0000.DAT", "a b"]));
     let r: io::Result<()> = Err(io::Error::new(io::ErrorKind::NotFound, "no such file"));
-    let e = r.at(Path::new("/Volumes/USB").join(name)).unwrap_err();
+    // Written out rather than joined, so the path reads the same with Windows' separator.
+    let path = format!("/Volumes/USB/{name}");
+    let e = r.at(PathBuf::from(&path)).unwrap_err();
     assert_eq!(e.code(), "io");
-    assert_eq!(e.detail().fields["path"], format!("/Volumes/USB/{name}"));
+    assert_eq!(e.detail().fields["path"], path);
     assert!(e.to_string().ends_with("no such file"), "{e}");
 }
 

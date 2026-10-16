@@ -69,14 +69,14 @@
 		<div class="relative">
 			<label class="label" for="place-search">Find a city</label>
 			<div class="relative">
-				<Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ansi-haze" />
+				<Search class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-subtle" />
 				<input id="place-search" class="input pl-9" bind:value={query} oninput={search} placeholder="Start typing a city…" autocomplete="off" />
 			</div>
 			{#if results.length}
-				<ul class="card absolute z-20 mt-1 max-h-64 w-full overflow-auto p-1 text-sm" role="listbox">
+				<ul class="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-line-strong bg-raised p-1 text-small" role="listbox">
 					{#each results as place (place.label + place.latE6)}
 						<li>
-							<button type="button" class="w-full px-3 py-1 text-left hover:bg-ansi-blue hover:text-ansi-white" onclick={() => choose(place)}>{place.label}</button>
+							<button type="button" class="w-full rounded-md px-3 py-2 text-left text-fg-soft hover:bg-well hover:text-fg" onclick={() => choose(place)}>{place.label}</button>
 						</li>
 					{/each}
 				</ul>
@@ -101,8 +101,8 @@
 	</div>
 	<input type="hidden" name="latE6" value={latE6} />
 	<input type="hidden" name="lngE6" value={lngE6} />
-	<p class="hint flex items-center gap-1">
-		<LocateFixed class="size-3" />
+	<p class="hint flex items-start gap-1.5">
+		<LocateFixed aria-hidden="true" class="mt-0.5 size-3.5 shrink-0" />
 		{#if latE6 && lngE6}Coordinates set ({(Number(latE6) / 1e6).toFixed(3)}, {(Number(lngE6) / 1e6).toFixed(3)}), so distance search works.{:else}Pick a city from the search to enable distance search.{/if}
 	</p>
 </div>

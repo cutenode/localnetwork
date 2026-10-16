@@ -275,8 +275,11 @@ pub fn copy(store: &Store, dest: &Path, opts: &CopyOptions, ctx: &Ctx<'_>) -> Re
     // `/Volumes/NAS` means the share isn't mounted, not a place to start a copy.
     if existing.is_none() {
         if !dest.is_dir() {
+            // Only a missing parent means an unmounted disk: Windows also says a path through a
+            // file isn't there.
+            let parent_missing = dest.parent().is_none_or(|p| !p.exists());
             fs::create_dir(&dest).map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => Error::NotFound(format!(
+                std::io::ErrorKind::NotFound if parent_missing => Error::NotFound(format!(
                     "{}, the folder to make the copy in (is its disk or share mounted?)",
                     dest.parent().unwrap_or(&dest).display()
                 )),
