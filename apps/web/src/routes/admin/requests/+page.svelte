@@ -3,6 +3,7 @@
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { timeAgo } from '#lib/format.ts';
+	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -16,38 +17,52 @@
 		{ value: 'all', label: 'All' }
 	] as const;
 
+	const kinds = [
+		{ value: '', label: 'Any kind' },
+		{ value: 'create', label: 'New' },
+		{ value: 'claim', label: 'Claims' },
+		{ value: 'update', label: 'Changes' }
+	] as const;
+
 	const kindLabel = { create: 'New project', claim: 'Claim', update: 'Changes' } as const;
+
+	const chip = (active: boolean) => ['chip min-h-9 px-3 transition-colors hover:border-fg-subtle', active && 'border-fg bg-fg font-semibold text-fg-inverse hover:border-fg'];
 </script>
 
 <svelte:head><title>Requests · Staff</title></svelte:head>
 
-<h1 class="text-3xl">Requests</h1>
-<p class="muted mt-1">New projects, claims, and changes. You can't review your own requests.</p>
-<div class="mt-6 flex flex-wrap gap-2">
-	{#each tabs as tab (tab.value)}
-		<a href="?status={tab.value}{data.kind ? `&kind=${data.kind}` : ''}" class="btn-sm {data.status === tab.value ? 'btn-primary' : 'btn-secondary'}">
-			{tab.label}{#if tab.value !== 'all'} <span class="opacity-70">{data.counts[tab.value]}</span>{/if}
-		</a>
-	{/each}
-	<span class="mx-2 border-l-2 border-ansi-dark"></span>
-	{#each [['', 'Any kind'], ['create', 'New'], ['claim', 'Claims'], ['update', 'Changes']] as [value, label] (value)}
-		<a href="?status={data.status}{value ? `&kind=${value}` : ''}" class="btn-sm {data.kind === value ? 'btn-primary' : 'btn-ghost'}">{label}</a>
-	{/each}
-</div>
+<div class="flex flex-col gap-6">
+	<SectionHeader level={1} title="Requests" lede="New projects, claims and changes. You can't review your own requests." />
 
-<div class="mt-6">
+	<div class="flex flex-col gap-3">
+		<nav aria-label="Status" class="flex flex-wrap gap-2">
+			{#each tabs as tab (tab.value)}
+				{@const active = data.status === tab.value}
+				<a href="?status={tab.value}{data.kind ? `&kind=${data.kind}` : ''}" aria-current={active ? 'page' : undefined} class={chip(active)}>
+					{tab.label}{#if tab.value !== 'all'}<span class="font-mono {active ? '' : 'text-fg-subtle'}">{data.counts[tab.value]}</span>{/if}
+				</a>
+			{/each}
+		</nav>
+		<nav aria-label="Kind" class="flex flex-wrap gap-2">
+			{#each kinds as kind (kind.value)}
+				{@const active = data.kind === kind.value}
+				<a href="?status={data.status}{kind.value ? `&kind=${kind.value}` : ''}" aria-current={active ? 'page' : undefined} class={chip(active)}>{kind.label}</a>
+			{/each}
+		</nav>
+	</div>
+
 	{#if data.requests.length === 0}
 		<EmptyState title="Nothing here" body="No requests match this filter." />
 	{:else}
 		<div class="card overflow-x-auto">
-			<table class="table-base">
+			<table class="table-base min-w-150">
 				<thead><tr><th>Request</th><th>From</th><th>Submitted</th><th>Status</th></tr></thead>
 				<tbody>
 					{#each data.requests as request (request.uri)}
-						<tr class="hover:bg-ansi-blue">
-							<td><a class="menu-link" href="/admin/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? 'Unnamed'}</a>{#if request.record.onBehalfOf}<p class="muted text-xs">filed by root on their behalf</p>{/if}</td>
+						<tr class="transition-colors hover:bg-raised">
+							<td><a class="font-medium text-fg no-underline hover:underline" href="/admin/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? 'Unnamed'}</a>{#if request.record.onBehalfOf}<p class="text-label text-fg-subtle">Filed by root on their behalf</p>{/if}</td>
 							<td><Handle account={request.requester} /></td>
-							<td class="whitespace-nowrap">{timeAgo(request.createdAt)}</td>
+							<td class="whitespace-nowrap text-fg-muted">{timeAgo(request.createdAt)}</td>
 							<td><StatusPill status={request.status} /></td>
 						</tr>
 					{/each}

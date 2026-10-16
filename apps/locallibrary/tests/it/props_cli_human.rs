@@ -333,6 +333,19 @@ pub fn build(s: State) -> Env {
 /// (by id too), recorded where `fx`'s were.
 pub fn twin(fx: &Env) -> Env {
     let root = fx.volumes.parent().unwrap();
+    // First every file a moment older than FAT's 2 s: the hash cache distrusts a hash taken within
+    // 2 s of a file's mtime, so until then the two copies, run side by side but not in step, could
+    // count different files verified.
+    let secs = || filetime::FileTime::now().unix_seconds();
+    let mtimes = walkdir::WalkDir::new(root).into_iter().flatten().filter_map(|e| e.metadata().ok());
+    let now = secs();
+    let newest =
+        mtimes.map(|m| filetime::FileTime::from_last_modification_time(&m).unix_seconds()).filter(|t| *t <= now);
+    if let Some(newest) = newest.max() {
+        while secs() <= newest + 2 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
     let template = crate::files::Template::of(root);
     let other = Env::from_template();
     let to = other.volumes.parent().unwrap();
@@ -545,6 +558,8 @@ pub fn agree_runs(args: &[&str], human: &Run, json: &Run, spec: &[&str], univers
 /// failure's message said the same way; a success's text holding what `spec` picks out of its
 /// JSON (see [`expected`]), and naming nothing of `universe` the JSON or `args` don't. The JSON, when it
 /// succeeded.
+// Only props_cli_asked, which is Unix-only, uses it so far.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn agree(fx: &Env, args: &[&str], spec: &[&str], universe: &[String]) -> Option<Value> {
     let words: Vec<String> = args.iter().map(|w| fill(fx, w)).collect();
     let args: Vec<&str> = words.iter().map(String::as_str).collect();
@@ -569,7 +584,14 @@ pub fn side_by_side<A, B: Send>(a: impl FnOnce() -> A, b: impl FnOnce() -> B + S
 pub fn as_in(json: Run, from: &Env, to: &Env) -> Run {
     let root = |fx: &Env| path(fx.volumes.parent().unwrap()).to_string();
     let (from, to) = (root(from), root(to));
-    Run { out: json.out.replace(&from, &to), err: json.err.replace(&from, &to), code: json.code }
+    // A message can quote a path as Debug does (`{spec:?}`), doubling Windows' backslashes, and the
+    // JSON escapes them again, so the folders are found in every spelling they're written in.
+    let debug = |s: &str| format!("{s:?}").trim_matches('"').to_string();
+    let escaped = |s: &str| serde_json::to_string(s).unwrap().trim_matches('"').to_string();
+    let (debug_from, debug_to) = (debug(&from), debug(&to));
+    let out = json.out.replace(&escaped(&debug_from), &escaped(&debug_to)).replace(&escaped(&from), &escaped(&to));
+    let err = json.err.replace(&debug_from, &debug_to).replace(&from, &to);
+    Run { out, err, code: json.code }
 }
 
 /// [`agree`] of each of `reads` in turn, run as it is in `h` and with `--json` in `j` (a
@@ -616,12 +638,16 @@ pub fn run_in(fx: &Env, args: &[&str]) -> Run {
             let store = fx.home(&format!("no-store {}", words.join(" ").replace('/', "|")));
             command.env("LOCALLIBRARY_VOLUMES", fx.home("no-drives")).env("LOCALLIBRARY_STORE", store);
         }
-        // Only drive A plugged in (the folder of drives holds a link to it).
+        // Only drive A plugged in (the folder of drives holds a link to it, or on Windows, where
+        // a symlink takes a privilege, a copy of it made the first time).
         Some("@one") => {
             let one = fx.home("one-drive");
             if !one.exists() {
                 std::fs::create_dir_all(&one).unwrap();
+                #[cfg(unix)]
                 std::os::unix::fs::symlink(fx.volumes.join("A"), one.join("A")).unwrap();
+                #[cfg(not(unix))]
+                crate::support::copy_dir(&fx.volumes.join("A"), &one.join("A"));
             }
             command.env("LOCALLIBRARY_VOLUMES", one);
         }
@@ -636,7 +662,12 @@ pub fn run_in(fx: &Env, args: &[&str]) -> Run {
         }
         Some("@sudo-me") => {
             // SAFETY: getuid only reads this process's user id.
-            command.env_remove("LOCALLIBRARY_STORE").env("SUDO_UID", unsafe { libc::getuid() }.to_string());
+            #[cfg(unix)]
+            let me = unsafe { libc::getuid() }.to_string();
+            // Windows has no uids: only Unix reads the value, to see whose the store is.
+            #[cfg(not(unix))]
+            let me = String::new();
+            command.env_remove("LOCALLIBRARY_STORE").env("SUDO_UID", me);
         }
         _ => return fx.run(&args),
     }

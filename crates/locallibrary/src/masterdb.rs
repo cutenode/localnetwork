@@ -162,19 +162,19 @@ impl CloudFolders {
                 quick_xml::events::Event::Eof => break,
                 _ => continue,
             };
-            if e.name().as_ref() != b"VALUE" {
+            if e.name().as_ref() != "VALUE" {
                 continue;
             }
-            let attr = |name: &[u8]| -> Option<String> {
+            let attr = |name: &str| -> Option<String> {
                 let a = e.attributes().flatten().find(|a| a.key.as_ref() == name)?;
-                a.unescape_value().ok().map(|v| v.into_owned())
+                a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok().map(|v| v.into_owned())
             };
-            let slot = match attr(b"name").as_deref() {
+            let slot = match attr("name").as_deref() {
                 Some("DropboxSharingPath") => &mut out.dropbox,
                 Some("GoogleDriveSharingPath") => &mut out.google_drive,
                 _ => continue,
             };
-            *slot = attr(b"val").filter(|v| !v.is_empty()).map(PathBuf::from);
+            *slot = attr("val").filter(|v| !v.is_empty()).map(PathBuf::from);
         }
         Ok(out)
     }

@@ -17,7 +17,11 @@ export const COLLECTION = {
 	plannerSave: `${NS}.planner.save`,
 	plannerShow: `${NS}.planner.show`,
 	/** A DJ's set, written by locallibrary to the DJ's own repo. */
-	djSet: `${NS}.dj.set`
+	djSet: `${NS}.dj.set`,
+	epk: `${NS}.epk`,
+	epkContent: `${NS}.epk.content`,
+	epkRequest: `${NS}.epk.request`,
+	epkGrant: `${NS}.epk.grant`
 } as const;
 
 /** Queries served by the directory, the HappyView AppView that indexes published projects and their managers' sets. */
@@ -37,13 +41,17 @@ export const SPACE_TYPE = {
 	staff: `${NS}.space.staff`,
 	industry: `${NS}.space.industry`,
 	booking: `${NS}.space.booking`,
-	planner: `${NS}.space.planner`
+	planner: `${NS}.space.planner`,
+	epk: `${NS}.space.epk`
 } as const;
 
 export type SpaceType = (typeof SPACE_TYPE)[keyof typeof SPACE_TYPE];
 
 /** Space keys for the singleton spaces anchored on the root account. */
 export const ROOT_SPACE_KEY = 'main' as const;
+
+/** The private part of a press kit's single record key in its space. */
+export const EPK_CONTENT_KEY = 'self' as const;
 
 /** Space key for personal spaces anchored on a user's own DID. */
 export const SELF_SPACE_KEY = 'self' as const;

@@ -1,334 +1,48 @@
-@import 'tailwindcss';
-@import '@fontsource/vt323';
-@plugin '@tailwindcss/forms';
-@plugin '@tailwindcss/typography';
-
 /*
- * Local Network BBS: the 16-color VGA palette on black, set entirely in VT323.
- * Boxes are double-ruled, menus carry [K]ey hints, and inputs are blue bars.
- * The look is dark only, so `dark:` never applies.
+ * The site's stylesheet: the design system in src/lib/ui (tokens, fonts, base styles and the shared
+ * classes like btn-primary, input and card), plus the prose styles for the tools' guides.
  */
-@custom-variant dark (&:where([data-never-dark]));
+@import 'tailwindcss';
+@import '../lib/ui/theme.css';
 
-@theme {
-	--font-sans: 'VT323', ui-monospace, 'Cascadia Mono', 'Courier New', monospace;
-	--font-display: var(--font-sans);
-	--font-mono: var(--font-sans);
-
-	--color-*: initial;
-	--color-ansi-black: #000000;
-	--color-ansi-blue: #0000aa;
-	--color-ansi-green: #00aa00;
-	--color-ansi-cyan: #00aaaa;
-	--color-ansi-red: #aa0000;
-	--color-ansi-magenta: #aa00aa;
-	--color-ansi-brown: #aa5500;
-	--color-ansi-gray: #aaaaaa;
-	--color-ansi-dark: #555555;
-	--color-ansi-bright-blue: #5555ff;
-	--color-ansi-bright-green: #55ff55;
-	--color-ansi-bright-cyan: #55ffff;
-	--color-ansi-bright-red: #ff5555;
-	--color-ansi-bright-magenta: #ff55ff;
-	--color-ansi-yellow: #ffff55;
-	--color-ansi-white: #ffffff;
-	/* Placeholder text on a blue input bar. */
-	--color-ansi-haze: #b4b4ff;
-
-	/* VT323 reads small, so every step runs about 1.4x the Tailwind default. */
-	--text-xs: 1.125rem;
-	--text-xs--line-height: 1.15;
-	--text-sm: 1.25rem;
-	--text-sm--line-height: 1.2;
-	--text-base: 1.375rem;
-	--text-base--line-height: 1.25;
-	--text-lg: 1.5rem;
-	--text-lg--line-height: 1.2;
-	--text-xl: 1.75rem;
-	--text-xl--line-height: 1.15;
-	--text-2xl: 2rem;
-	--text-2xl--line-height: 1.05;
-	--text-3xl: 2.5rem;
-	--text-3xl--line-height: 1;
-	--text-4xl: 3rem;
-	--text-4xl--line-height: 0.95;
-	--text-5xl: 3.75rem;
-	--text-5xl--line-height: 0.92;
-	--text-6xl: 4.5rem;
-	--text-6xl--line-height: 0.9;
-	--text-7xl: 6rem;
-	--text-7xl--line-height: 0.88;
-
-	/* Square corners and no soft shadows anywhere. */
-	--radius-*: initial;
-	--shadow-*: initial;
-}
-
-@layer base {
-	:root {
-		color-scheme: dark;
-	}
-	html {
-		@apply bg-ansi-black text-ansi-gray;
-		font-synthesis: none;
-	}
-	/* Set the size on body so rem stays 16px for spacing. */
-	body {
-		@apply text-base;
-	}
-	h1 {
-		@apply text-ansi-yellow;
-	}
-	h2,
-	h3,
-	h4,
-	strong,
-	b {
-		@apply text-ansi-white;
-	}
-	h1,
-	h2,
-	h3,
-	h4,
-	strong,
-	b {
-		font-weight: 400;
-	}
-	:focus-visible {
-		@apply outline-2 outline-offset-2 outline-ansi-yellow;
-	}
-	::selection {
-		@apply bg-ansi-blue text-ansi-white;
-	}
-	.lucide {
-		shape-rendering: crispEdges;
-		stroke-linecap: square;
-		stroke-linejoin: miter;
-	}
-	select.input {
-		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23ffff55' stroke-linecap='square' stroke-width='2' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-	}
-	input[type='file']::file-selector-button {
-		@apply mr-3 cursor-pointer border-0 bg-ansi-blue px-3 py-1 text-ansi-white;
-		font: inherit;
-	}
-	input[type='file']::file-selector-button:hover {
-		@apply bg-ansi-bright-blue;
-	}
-	input[type='date']::-webkit-calendar-picker-indicator {
-		filter: invert(1);
-	}
-}
-
-@layer components {
-	.container-page {
-		@apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
-	}
-	.card {
-		@apply border-[6px] border-double border-ansi-cyan bg-ansi-black;
-	}
-	.card-pad {
-		@apply p-4 sm:p-5;
-	}
-	.btn-primary {
-		@apply btn bg-ansi-gray text-ansi-black hover:bg-ansi-white;
-	}
-	.btn-accent {
-		@apply btn bg-ansi-cyan text-ansi-black hover:bg-ansi-bright-cyan;
-	}
-	.btn-secondary {
-		@apply btn bg-ansi-blue text-ansi-white hover:bg-ansi-bright-blue;
-	}
-	.btn-ghost {
-		@apply btn text-ansi-bright-cyan hover:bg-ansi-cyan hover:text-ansi-black;
-	}
-	.btn-danger {
-		@apply btn bg-ansi-red text-ansi-white hover:bg-ansi-bright-red hover:text-ansi-black;
-	}
-	.btn-sm {
-		@apply min-h-0 px-1.5 py-0 text-base;
-	}
-	.label {
-		@apply mb-1 block text-ansi-bright-green;
-	}
-	.hint {
-		@apply mt-1 text-base text-ansi-cyan;
-	}
-	.input {
-		@apply block w-full rounded-none border-0 bg-ansi-blue px-2.5 py-1 text-base text-ansi-white placeholder:text-ansi-haze focus:ring-2 focus:ring-ansi-yellow focus:outline-none;
-	}
-	.checkbox {
-		@apply size-5 rounded-none border-2 border-ansi-cyan bg-ansi-black text-ansi-cyan focus:ring-ansi-yellow focus:ring-offset-ansi-black;
-	}
-	.chip-accent {
-		@apply chip border-ansi-magenta text-ansi-bright-magenta;
-	}
-	a.chip-accent:hover {
-		@apply bg-ansi-magenta text-ansi-white;
-	}
-	/* A checkbox styled as a toggle chip; the input itself is visually hidden. It applies chip
-	   itself, as .chip-accent does: the chip class would outrank the checked colors below (utilities
-	   beat components), leaving gray text on magenta. */
-	.chip-toggle {
-		@apply chip cursor-pointer select-none hover:border-ansi-bright-magenta;
-	}
-	.chip-toggle::before {
-		content: '[ ]';
-		@apply text-ansi-bright-magenta;
-	}
-	.chip-toggle:has(:checked) {
-		@apply border-ansi-bright-magenta bg-ansi-magenta text-ansi-white;
-	}
-	.chip-toggle:has(:checked)::before {
-		content: '[x]';
-		@apply text-ansi-yellow;
-	}
-	.chip-toggle:has(:focus-visible) {
-		@apply outline-2 outline-offset-2 outline-ansi-yellow;
-	}
-	.pill {
-		@apply inline-flex items-center px-1.5 text-base whitespace-nowrap uppercase;
-	}
-	.eyebrow {
-		@apply text-ansi-white uppercase;
-	}
-	.eyebrow::before {
-		content: '-=[ ';
-		@apply text-ansi-cyan;
-	}
-	.eyebrow::after {
-		content: ' ]=-';
-		@apply text-ansi-cyan;
-	}
-	.muted {
-		@apply text-ansi-cyan;
-	}
-	.link {
-		@apply text-ansi-bright-cyan underline decoration-ansi-cyan underline-offset-4 hover:bg-ansi-cyan hover:text-ansi-black hover:no-underline;
-	}
-	/* Menu entries: no underline, inverse on hover, like a BBS option list. */
-	.menu-link {
-		@apply text-ansi-bright-cyan hover:bg-ansi-cyan hover:text-ansi-black;
-	}
-	.menu-link[aria-current='page'] {
-		@apply bg-ansi-blue text-ansi-white;
-	}
-	.menu-link:hover .hotkey,
-	.menu-link:hover .hotkey > span {
-		color: inherit;
-	}
-	.hotkey {
-		@apply text-ansi-bright-magenta;
-	}
-	.hotkey > span {
-		@apply text-ansi-yellow;
-	}
-	.table-base {
-		@apply w-full text-left;
-	}
-	.table-base th {
-		@apply border-b-2 border-dashed border-ansi-blue px-3 py-1 font-normal text-ansi-yellow uppercase;
-	}
-	.table-base td {
-		@apply border-b border-dashed border-ansi-blue px-3 py-1.5 align-top;
-	}
-	.section-title {
-		@apply inline-flex w-fit items-center gap-2 bg-ansi-bright-blue px-2 text-base text-ansi-white uppercase;
-	}
-	.mono {
-		@apply font-mono text-sm break-all;
-	}
-	.notice {
-		@apply border-2 border-dashed border-ansi-yellow px-4 py-2 text-ansi-yellow;
-	}
-	.notice-info {
-		@apply border-ansi-cyan text-ansi-gray;
-	}
-	.notice-ok {
-		@apply border-ansi-green text-ansi-bright-green;
-	}
-	.notice-error {
-		@apply border-ansi-red text-ansi-bright-red;
-	}
-	.code-block {
-		@apply overflow-x-auto border-2 border-dashed border-ansi-blue p-3 text-base text-ansi-bright-green;
-	}
-	.ansi-logo {
-		@apply leading-[0.85] tracking-[0.02em];
-		text-shadow: 0.05em 0.05em 0 var(--color-ansi-blue);
-	}
-}
-
-@utility btn {
-	@apply inline-flex min-h-10 items-center justify-center gap-2 px-3 py-0.5 text-lg select-none disabled:cursor-not-allowed disabled:opacity-50;
-	&::before {
-		content: '[';
-	}
-	&::after {
-		content: ']';
-	}
-}
-
-@utility chip {
-	@apply inline-flex items-center gap-1 border border-ansi-dark px-1.5 text-base text-ansi-gray;
-}
-
-/* Three rows of logo colors, used as a banner rule above page headers. */
-@utility ansi-stripes {
-	background: linear-gradient(
-		to bottom,
-		var(--color-ansi-bright-cyan) 0 33.3%,
-		var(--color-ansi-bright-magenta) 33.3% 66.6%,
-		var(--color-ansi-yellow) 66.6% 100%
-	);
-}
-
-/* Unlayered so these win over the typography plugin, which sits in the utilities layer. */
-.prose-ansi {
-	@apply text-base;
-	line-height: 1.35;
-	--tw-prose-body: var(--color-ansi-gray);
-	--tw-prose-headings: var(--color-ansi-white);
-	--tw-prose-lead: var(--color-ansi-white);
-	--tw-prose-links: var(--color-ansi-bright-cyan);
-	--tw-prose-bold: var(--color-ansi-white);
-	--tw-prose-counters: var(--color-ansi-yellow);
-	--tw-prose-bullets: var(--color-ansi-bright-magenta);
-	--tw-prose-hr: var(--color-ansi-blue);
-	--tw-prose-quotes: var(--color-ansi-white);
-	--tw-prose-quote-borders: var(--color-ansi-magenta);
-	--tw-prose-captions: var(--color-ansi-cyan);
-	--tw-prose-code: var(--color-ansi-bright-green);
-	--tw-prose-pre-code: var(--color-ansi-bright-green);
-	--tw-prose-pre-bg: var(--color-ansi-black);
-	--tw-prose-th-borders: var(--color-ansi-blue);
-	--tw-prose-td-borders: var(--color-ansi-blue);
-}
-.prose-ansi :where(h2, h3, h4):not(:where(.not-prose *)) {
-	font-weight: 400;
-}
-.prose-ansi :where(h2):not(:where(.not-prose *)) {
-	@apply text-ansi-yellow;
-}
 /*
  * Long guides: a long command or path wraps instead of widening the page, code and tables keep the
- * body size (VT323 is small already), inline code drops the plugin's backticks, code blocks look
- * like .code-block, and a table too wide for a phone scrolls in its own box instead of squeezing.
+ * body size, inline code drops the plugin's backticks, code blocks look like .code-block, and a
+ * table too wide for a phone scrolls in its own box instead of squeezing.
  */
-.prose-ansi {
+.prose-site {
+	@apply text-body;
 	overflow-wrap: break-word;
+	--tw-prose-body: var(--color-fg-soft);
+	--tw-prose-headings: var(--color-fg);
+	--tw-prose-lead: var(--color-fg-muted);
+	--tw-prose-links: var(--color-link);
+	--tw-prose-bold: var(--color-fg);
+	--tw-prose-counters: var(--color-fg-subtle);
+	--tw-prose-bullets: var(--color-line-strong);
+	--tw-prose-hr: var(--color-line);
+	--tw-prose-quotes: var(--color-fg);
+	--tw-prose-quote-borders: var(--color-line-strong);
+	--tw-prose-captions: var(--color-fg-subtle);
+	--tw-prose-code: var(--color-fg);
+	--tw-prose-pre-code: var(--color-fg-soft);
+	--tw-prose-pre-bg: var(--color-canvas);
+	--tw-prose-th-borders: var(--color-line-strong);
+	--tw-prose-td-borders: var(--color-line);
 }
-.prose-ansi :where(code, pre, table):not(:where(.not-prose *)) {
-	font-size: inherit;
+.prose-site :where(code, pre):not(:where(.not-prose *)) {
+	@apply font-mono text-label;
 }
-.prose-ansi :where(code):not(:where(.not-prose *))::before,
-.prose-ansi :where(code):not(:where(.not-prose *))::after {
+.prose-site :where(table):not(:where(.not-prose *)) {
+	@apply text-small;
+}
+.prose-site :where(code):not(:where(.not-prose *))::before,
+.prose-site :where(code):not(:where(.not-prose *))::after {
 	content: none;
 }
-.prose-ansi :where(pre):not(:where(.not-prose *)) {
-	@apply rounded-none border-2 border-dashed border-ansi-blue leading-tight;
+.prose-site :where(pre):not(:where(.not-prose *)) {
+	@apply rounded-lg border border-line leading-relaxed;
 }
-.prose-ansi :where(table):not(:where(.not-prose *)) {
+.prose-site :where(table):not(:where(.not-prose *)) {
 	min-width: 32rem;
-	line-height: 1.25;
 }

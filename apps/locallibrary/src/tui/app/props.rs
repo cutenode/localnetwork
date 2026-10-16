@@ -326,7 +326,9 @@ fn quitting_waits_for_a_write_and_only_a_write(tc: TestCase) {
     if writing.is_some() {
         app.request_quit();
         let tx = app.sender();
-        std::thread::spawn(move || tx.send(Msg::Applied { job: 99, root, result: Err(Error::Cancelled) }));
+        std::thread::spawn(move || {
+            let _ = tx.send(Msg::Applied { job: 99, root, result: Err(Error::Cancelled) });
+        });
         app.finish_write();
         assert!(app.job.is_none() && app.quit, "quits once written");
     }

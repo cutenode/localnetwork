@@ -1276,7 +1276,7 @@ fn drives_are_found_by_path_name_and_id(tc: TestCase) {
             _ => swap_case(&tc, &m.volume),
         };
         // What the word names, as the model takes it.
-        let meant: Vec<&Mounted> = if word.contains('/') {
+        let meant: Vec<&Mounted> = if word.contains(std::path::is_separator) {
             vec![m]
         } else {
             let lower = word.to_lowercase();

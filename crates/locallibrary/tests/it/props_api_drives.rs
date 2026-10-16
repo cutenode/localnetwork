@@ -753,6 +753,8 @@ pub(crate) fn saved_demo() -> &'static (Template, Template) {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open_or_init(dir.path().join("store")).unwrap();
         let root = common::demo_drive(dir.path(), "Main");
+        // Written well before the pull, so the snapshot tells a rewrite since by its later mtime.
+        common::age(&root);
         common::adopt(Some(&store), &root, "Main");
         let pull = api::PullRequest { drive: path(&root), ..Default::default() };
         api::pull(&store, &pull, &Ctx::silent()).unwrap();
