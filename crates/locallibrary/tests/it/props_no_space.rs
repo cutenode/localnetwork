@@ -67,7 +67,7 @@ fn attempt(command: u8, root: &Path, guest: &Path, fits: bool) -> (Result<()>, u
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_plan_the_drive_has_no_room_for_changes_nothing(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     // The demo export (real analysis, for cues) or the twelve-track one drawn on, with a demo
     // sample to clean.
     let main = match tc.draw(gs::booleans()) {

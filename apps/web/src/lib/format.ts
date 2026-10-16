@@ -90,7 +90,8 @@ export function kindLabel(kind: string): string {
 export function placeLabel(profile: ProjectProfile): string {
 	const { city, region, country } = profile.location;
 
-	return [city, region, country].filter(Boolean).join(', ');
+	// A city that's its own region (Berlin, Berlin) is named once.
+	return [city, region === city ? undefined : region, country].filter(Boolean).join(', ');
 }
 
 export function initials(name: string): string {

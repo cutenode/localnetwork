@@ -409,7 +409,7 @@ fn removals_wait_for_unknown_tables_that_name_tracks(tc: TestCase) {
 fn written_databases_replace_the_drives_and_its_wal(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     // As the drive sees itself (temporary folders can sit behind a symlink).
-    let root = dir.path().canonicalize().unwrap().join("drive");
+    let root = locallibrary::device::dunce_canonicalize(dir.path()).join("drive");
     let db = paths::to_fs(&root, paths::LIBRARY_PLUS_DB);
     std::fs::create_dir_all(db.parent().unwrap()).unwrap();
     let device = Device::open(&root).unwrap();

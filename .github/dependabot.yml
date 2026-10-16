@@ -8,6 +8,9 @@
 # Cargo (the workspace, and fuzz/ with a lockfile of its own) and npm: the lockfiles only, the
 # semver-compatible updates `cargo update` and `pnpm update` would make. Cargo.toml (and its `=`
 # pins) and package.json are changed by hand.
+#
+# Security updates don't wait for the month or the cooldown: they come as soon as an advisory is
+# published, grouped into one pull request per ecosystem by the `*-security` groups.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -19,6 +22,9 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
   - package-ecosystem: cargo
     directories: ["/", "/fuzz"]
     schedule:
@@ -29,6 +35,9 @@ updates:
     groups:
       cargo:
         patterns: ["*"]
+      cargo-security:
+        applies-to: security-updates
+        patterns: ["*"]
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -38,4 +47,7 @@ updates:
     versioning-strategy: lockfile-only
     groups:
       npm:
+        patterns: ["*"]
+      npm-security:
+        applies-to: security-updates
         patterns: ["*"]

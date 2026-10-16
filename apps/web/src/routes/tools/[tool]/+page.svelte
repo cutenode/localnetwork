@@ -1,5 +1,8 @@
 <script lang="ts">
 	import GuideList from '#lib/components/GuideList.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import CodeBlock from '#lib/ui/CodeBlock.svelte';
+	import SectionHeader from '#lib/ui/SectionHeader.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -12,48 +15,44 @@
 	<meta name="description" content="{tool.name}: {tool.tagline}" />
 </svelte:head>
 
-<div class="container-page py-12">
-	<div class="max-w-3xl">
-		<p class="eyebrow"><a class="menu-link" href="/tools">Tools</a></p>
-		<h1 class="mt-2 text-5xl">{tool.name}</h1>
-		<p class="mt-4 text-xl text-ansi-white">{tool.tagline}</p>
-		<p class="muted mt-4 text-lg">{tool.summary}</p>
+<div class="container-page flex flex-col gap-8 py-10 sm:gap-12 sm:py-14">
+	<div class="flex flex-col gap-5">
+		<nav aria-label="Breadcrumb"><a class="menu-link text-small" href="/tools">Tools</a></nav>
+		<SectionHeader level={1} eyebrow={tool.kind} tone="high" title={tool.name} lede={tool.tagline} />
+		<p class="m-0 max-w-190 text-fg-soft">{tool.summary}</p>
 	</div>
-	<div class="mt-12 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+	<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-10">
 		<div class="flex min-w-0 flex-col gap-6">
-			<section aria-labelledby="features-title" class="card card-pad">
-				<h2 id="features-title" class="section-title mb-3">What it does</h2>
-				<ul class="space-y-1">
-					{#each tool.features as feature (feature)}
-						<li class="flex gap-2"><span class="text-ansi-bright-magenta" aria-hidden="true">*</span><span>{feature}</span></li>
-					{/each}
+			<Card as="section" padding="lg" radius="2xl" class="max-sm:p-5">
+				<h2 class="m-0 text-heading font-semibold">What it does</h2>
+				<ul class="m-0 mt-4 flex list-disc flex-col gap-2 pl-5 text-fg-soft marker:text-fg-subtle">
+					{#each tool.features as feature (feature)}<li>{feature}</li>{/each}
 				</ul>
-			</section>
-			<section aria-labelledby="install-title" class="card card-pad">
-				<h2 id="install-title" class="section-title mb-3">Install</h2>
-				{#if tool.install.note}<p>{tool.install.note}</p>{/if}
-				<ol class="mt-3 list-decimal space-y-4 pl-7 marker:text-ansi-yellow">
-					{#each tool.install.steps as step (step.text)}
-						<li class="space-y-2">
-							<p>{step.text}</p>
-							{#if step.command}
-								<!-- It scrolls sideways, so it takes focus to scroll from the keyboard. -->
-								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-								<pre class="code-block" tabindex="0">{step.command}</pre>
-							{/if}
+			</Card>
+			<Card as="section" padding="lg" radius="2xl" class="max-sm:p-5">
+				<h2 class="m-0 text-heading font-semibold">Install</h2>
+				{#if tool.install.note}<p class="m-0 mt-2 text-fg-muted">{tool.install.note}</p>{/if}
+				<ol class="m-0 mt-5 flex list-none flex-col gap-5 p-0">
+					{#each tool.install.steps as step, i (step.text)}
+						<li class="flex gap-3.5">
+							<span class="grid size-7 shrink-0 place-items-center rounded-full bg-raised font-mono text-caption text-fg-soft" aria-hidden="true">{i + 1}</span>
+							<div class="flex min-w-0 flex-1 flex-col gap-3 pt-0.5">
+								<p class="m-0">{step.text}</p>
+								{#if step.command}<CodeBlock language="shell" code={step.command} />{/if}
+							</div>
 						</li>
 					{/each}
 				</ol>
-			</section>
+			</Card>
 			{#each data.sections as section, i (section.title)}
-				<section aria-labelledby="section-{i}" class="card card-pad">
-					<h2 id="section-{i}" class="section-title mb-3">{section.title}</h2>
+				<Card as="section" padding="lg" radius="2xl" class="max-sm:p-5">
+					<h2 class="m-0 text-heading font-semibold">{section.title}</h2>
 					<!-- Rendered on the server from the registry's Markdown, with raw HTML escaped. -->
-					<div class="prose prose-ansi max-w-none">{@html section.html}</div>
-				</section>
+					<div class="prose prose-site mt-3 max-w-none">{@html section.html}</div>
+				</Card>
 			{/each}
 		</div>
-		<div class="min-w-0">
+		<div class="min-w-0 lg:sticky lg:top-6 lg:self-start">
 			<GuideList tool={tool.id} guides={data.guides} />
 		</div>
 	</div>

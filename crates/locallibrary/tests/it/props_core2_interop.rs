@@ -37,7 +37,7 @@ fn serato_tags_go_into_copies_of_every_track(tc: TestCase) {
     // Each track's audio once, by its key folded as the drive folds names.
     let audio: IndexMap<String, String> =
         lib.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), paths::key(&t.file_path))).collect();
-    let out = dir.path().canonicalize().unwrap().join("Serato");
+    let out = locallibrary::device::dunce_canonicalize(dir.path()).join("Serato");
     let opts = InteropOptions { write_tags: true, ..Default::default() };
 
     let elsewhere = InteropOptions { location_root: Some(dir.path().join("Music")), ..opts.clone() };

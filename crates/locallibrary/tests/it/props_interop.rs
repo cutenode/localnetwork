@@ -61,7 +61,7 @@ fn an_export_writes_what_it_planned(tc: TestCase) {
         ..Default::default()
     };
     // Canonical, as the formats name the files they write.
-    let out = dir.path().canonicalize().unwrap().join("Export");
+    let out = locallibrary::device::dunce_canonicalize(dir.path()).join("Export");
 
     // On the drive itself, never.
     assert!(interop::plan(&d, software, &root.join("Export"), &opts, &Ctx::silent()).is_err());

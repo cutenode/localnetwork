@@ -90,8 +90,9 @@ fn serato_copies_go_as_planned() {
 
     let done = apply(&d, Software::Serato, &out, &opts, &Ctx::silent()).unwrap();
     for f in done.files.iter().filter(|f| f.what.starts_with("copy of the audio")) {
-        let key = f.path.strip_prefix(fsutil::resolved(&out)).unwrap().to_str().unwrap();
-        let (copy, from) = (std::fs::read(&f.path).unwrap(), std::fs::read(d.path(key)).unwrap());
+        // As a key, `/`-separated whatever the OS's separator.
+        let key = crate::paths::key(&f.path.strip_prefix(fsutil::resolved(&out)).unwrap().to_string_lossy());
+        let (copy, from) = (std::fs::read(&f.path).unwrap(), std::fs::read(d.path(&key)).unwrap());
         match f.what.ends_with("with Serato's cue tag") {
             true => assert!(copy.len() > from.len() && copy.len() as u64 <= f.bytes, "{}", f.path.display()),
             false => assert_eq!((copy, f.bytes), (from.clone(), from.len() as u64), "{}", f.path.display()),

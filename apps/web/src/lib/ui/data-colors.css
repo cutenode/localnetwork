@@ -1,0 +1,29 @@
+/* Generated from packages/tokens/colors.json: don't edit by hand. Regenerate with `TOKENS_BLESS=1 pnpm vitest run --project server src/lib/ui/data-colors.test.ts`. */
+@theme {
+	--color-band-low: #3987e5;
+	--color-band-mid: #d95926;
+	--color-band-high: #ece9df;
+	--color-phrase-intro: #4670e8;
+	--color-phrase-up: #e8a83c;
+	--color-phrase-verse: #e8a83c;
+	--color-phrase-chorus: #ec528e;
+	--color-phrase-down: #40b8de;
+	--color-phrase-bridge: #40b8de;
+	--color-phrase-outro: #845cde;
+	--color-phrase-unknown: #5a5a70;
+	--color-cue-hot: #28e214;
+	--color-cue-memory: #e83030;
+	--color-cue-loop: #ff8c1e;
+	--color-track-pink: #f852c9;
+	--color-track-red: #e83030;
+	--color-track-orange: #ff8c1e;
+	--color-track-yellow: #f0dc28;
+	--color-track-green: #3cc850;
+	--color-track-aqua: #28c8dc;
+	--color-track-blue: #3060f0;
+	--color-track-purple: #9648e6;
+	--color-good: #78de8c;
+	--color-warning: #ffc456;
+	--color-critical: #ff6464;
+	--color-playhead: #ffffff;
+}

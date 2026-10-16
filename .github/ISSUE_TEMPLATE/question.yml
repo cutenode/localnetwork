@@ -1,0 +1,29 @@
+name: Question
+description: Ask how Local Network, locallibrary or localtoolbox works
+labels: ["question"]
+body:
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which tool?
+      options:
+        - Local Network (the website)
+        - locallibrary
+        - localtoolbox
+        - More than one, or something new
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What you want to know, and what you're trying to do.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you've tried or read
+      description: Commands you ran, pages of the docs you checked, or anything else that didn't answer it.

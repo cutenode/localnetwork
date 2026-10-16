@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use console::style;
 use locallibrary::Store;
@@ -838,7 +838,7 @@ fn store_root(store: &Option<PathBuf>) -> Result<PathBuf> {
     if let Some(uid) = std::env::var("SUDO_UID").ok().and_then(|u| u.parse().ok())
         && someone_elses(&root, uid)
     {
-        bail!(
+        anyhow::bail!(
             "under sudo the default store is {}, which isn't yours: pass --store with your store's folder",
             root.display()
         );

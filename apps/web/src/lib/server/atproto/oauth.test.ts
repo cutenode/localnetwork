@@ -71,6 +71,20 @@ describe('OAuth scopes', () => {
 		).toBe(false);
 	});
 
+	it("lets a DJ run their own press kit spaces, and anyone ask for access to someone else's", () => {
+		const permissions = new ScopePermissions(granted);
+		const own = { type: SPACE_TYPE.epk, authority: user, skey: '3mabc' } as const;
+		const theirs = { ...own, authority: 'did:plc:other' } as const;
+
+		expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: COLLECTION.project, action: 'create' })).toBe(false);
+		expect(permissions.allowsSpace({ ...own, manage: 'update' })).toBe(true);
+		expect(permissions.allowsSpace({ ...own, action: 'create', collection: COLLECTION.epkGrant })).toBe(true);
+		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkRequest })).toBe(true);
+		expect(permissions.allowsSpace({ ...theirs, action: 'create', collection: COLLECTION.epkGrant })).toBe(false);
+		expect(permissions.allowsSpace({ ...theirs, action: 'read' })).toBe(false);
+	});
+
 	it('lets users upload avatars and mix tracklists to their own PDS, and nothing else', () => {
 		// The PDS checks uploadBlob against the token's scopes like this.
 		const permissions = new ScopePermissionsTransition(full);
