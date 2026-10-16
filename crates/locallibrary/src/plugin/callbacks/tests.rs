@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use loclib_plugin::Manifest;
 use serde_json::json;
@@ -96,13 +96,15 @@ fn reads_take_only_the_params_listed() {
 #[test]
 fn drives_are_found_by_the_host() {
     let m = granted(&["library:read", "health:read", "plays:read"]);
+    // A root as the platform joins it (`\Volumes\USB` on Windows).
+    let root = |name: &str| json!(Path::new("/Volumes").join(name));
     let given = check(&m, "tracks.query", json!({ "drive": "USB", "combined": true })).unwrap();
-    assert_eq!((given["drive"].clone(), given["combined"].clone()), (json!("/Volumes/USB"), json!(true)));
+    assert_eq!((given["drive"].clone(), given["combined"].clone()), (root("USB"), json!(true)));
     assert_eq!(
         check(&m, "check", json!({ "drives": ["USB", "SD"] })).unwrap()["drives"],
-        json!(["/Volumes/USB", "/Volumes/SD"])
+        json!([root("USB"), root("SD")])
     );
-    assert_eq!(check(&m, "plays.stats", json!({ "source": "SD" })).unwrap()["source"], "/Volumes/SD");
+    assert_eq!(check(&m, "plays.stats", json!({ "source": "SD" })).unwrap()["source"], root("SD"));
     assert_eq!(check(&m, "doctor", json!({ "drive": null })).unwrap()["drive"], Value::Null);
     let e = check(&m, "tracks.query", json!({ "drive": "/Volumes/USB" })).unwrap_err();
     assert_eq!((e.kind, e.message.as_str()), ("not_found", "not found: drive \"/Volumes/USB\""));
