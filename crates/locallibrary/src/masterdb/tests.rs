@@ -1,4 +1,5 @@
 use rusqlite::params;
+use rand::RngCore;
 
 use super::*;
 use crate::model::Playlist;
@@ -1060,7 +1061,9 @@ fn values_of_any_sqlite_type_read_as_what_they_say(tc: hegel::TestCase) {
 fn a_collection_that_cant_be_trusted_is_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
-    let codec = Codec::with_key(DEFAULT_KEY.as_bytes(), [9; 16]);
+    let mut salt = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut salt);
+    let codec = Codec::with_key(DEFAULT_KEY.as_bytes(), salt);
     let tables: Vec<&str> = TABLES.iter().map(|(name, _)| *name).collect();
     // Each kind of damage, once a case.
     for kind in 0..4 {
