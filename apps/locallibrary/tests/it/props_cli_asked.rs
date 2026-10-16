@@ -207,9 +207,13 @@ fn setup_does_what_it_was_told(tc: TestCase) {
     if let (Some(m), Some(true)) = (&models_given, players) {
         assert_eq!(fx.json(&["players"])["default"], serde_json::json!([m]), "{said}");
     }
+    // Archive drives are kept as they are; the others get the contact details.
     if let (Some(c), Some(yes)) = (&contact_given, contact) {
-        let found = std::fs::read_to_string(fx.volumes.join(&taken[0]).join("IF FOUND.txt")).unwrap_or_default();
-        assert_eq!(found.contains(c.as_str()), yes, "{said}");
+        for d in &taken {
+            let archived = role_of(d) == Some(Value::from("archive"));
+            let found = std::fs::read_to_string(fx.volumes.join(d).join("IF FOUND.txt")).unwrap_or_default();
+            assert_eq!(found.contains(c.as_str()), yes && !archived, "{d}\n{said}");
+        }
     }
 }
 
