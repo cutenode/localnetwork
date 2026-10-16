@@ -63,18 +63,18 @@
 
 <div class="relative">
 	<div class="relative">
-		<MapPin class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ansi-haze" />
+		<MapPin class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-subtle" />
 		<input {id} name="place" class="input pr-10 pl-9" bind:value={label} oninput={search} placeholder="City or venue area" autocomplete="off" />
-		<button type="button" class="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-ansi-bright-cyan hover:bg-ansi-cyan hover:text-ansi-black" aria-label="Use my location" title="Use my location" onclick={locate} disabled={locating}>
+		<button type="button" class="absolute top-1/2 right-1.5 grid size-8 -translate-y-1/2 place-items-center rounded-md text-fg-muted hover:bg-raised hover:text-fg disabled:opacity-50" aria-label="Use my location" title="Use my location" onclick={locate} disabled={locating}>
 			<LocateFixed class="size-4 {locating ? 'animate-pulse' : ''}" />
 		</button>
 	</div>
 	<input type="hidden" name="lat" value={latValue} />
 	<input type="hidden" name="lng" value={lngValue} />
 	{#if results.length}
-		<ul class="card absolute z-30 mt-1 max-h-64 w-full overflow-auto p-1 text-sm">
+		<ul class="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-line-strong bg-raised p-1 text-small">
 			{#each results as item (item.label + item.latE6)}
-				<li><button type="button" class="w-full px-3 py-1 text-left hover:bg-ansi-blue hover:text-ansi-white" onclick={() => choose(item)}>{item.label}</button></li>
+				<li><button type="button" class="w-full rounded-md px-3 py-2 text-left text-fg-soft hover:bg-well hover:text-fg" onclick={() => choose(item)}>{item.label}</button></li>
 			{/each}
 		</ul>
 	{/if}

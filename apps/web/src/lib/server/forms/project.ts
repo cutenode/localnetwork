@@ -1,4 +1,5 @@
-import { MIX_REPORT_MAX_BYTES, parseMixReportText } from '#lib/mix/report.ts';
+import { MIX_REPORT_MAX_BYTES } from '#lib/mix/report.ts';
+import { parseMixReportText } from '#lib/mix/schema.ts';
 import { COLLECTION } from '#lib/nsid.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import { FEE_TIERS, FORMATS, isOneOf, LINK_KINDS, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';

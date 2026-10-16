@@ -41,11 +41,21 @@ async function signIn(page: Page, handle: string, password: string, next = '/me'
 	await page.waitForLoadState('networkidle');
 }
 
+/**
+ * Signs out from /me and waits for the redirect home: /logout records the audit entry and revokes
+ * the OAuth session first, and a sign-in started before it finishes would find the old session.
+ */
+async function signOut(page: Page) {
+	await page.goto('/me');
+	await page.getByRole('button', { name: 'Sign out' }).click();
+	await page.waitForURL((url) => url.pathname === '/');
+}
+
 test.describe('public pages', () => {
 	test('home page lists seeded projects and links to search', async ({ page }) => {
 		await page.goto('/');
-		await expect(page.getByRole('heading', { level: 1 })).toContainText('Book the right DJ');
-		await expect(page.getByText('Newly listed projects')).toBeVisible();
+		await expect(page.getByRole('heading', { level: 1 })).toContainText('The home for local DJs');
+		await expect(page.getByRole('heading', { name: 'New on the directory' })).toBeVisible();
 		await expectAccessible(page);
 		await page.getByRole('link', { name: 'Find DJs' }).first().click();
 		await expect(page).toHaveURL(/\/projects$/);
@@ -61,6 +71,20 @@ test.describe('public pages', () => {
 		await page.getByRole('link', { name: 'Halflight' }).click();
 		await expect(page.getByRole('heading', { name: 'Halflight' })).toBeVisible();
 		await expect(page.getByText('Sign in to see booking contacts')).toBeVisible();
+		await expectAccessible(page);
+	});
+
+	test('a profile shows how the DJ plays, and its press kit prints', async ({ page }) => {
+		await page.goto('/projects/neon-tide');
+		await expect(page.getByRole('heading', { name: 'How they play' })).toBeVisible();
+		await expect(page.getByText('126–134')).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Recent sets' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'Press kit' }).click();
+		await expect(page).toHaveURL(/\/projects\/neon-tide\/epk$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'Neon Tide' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Sound' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Print or save as PDF' })).toBeVisible();
 		await expectAccessible(page);
 	});
 
@@ -99,7 +123,7 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Send for review' }).click();
 		await expect(page.getByText('Submitted. A moderator will review it soon')).toBeVisible();
 		await expectAccessible(page);
-		await page.getByRole('button', { name: 'Sign out' }).click();
+		await signOut(page);
 
 		await signIn(page, 'ada.test', 'ada-pass', '/admin/requests');
 		await expectAccessible(page);
@@ -119,6 +143,41 @@ test.describe('signed in', () => {
 		await page.goto('/projects/saffron-social');
 		await expect(page.getByText(tagline)).toBeVisible();
 		await expectAccessible(page);
+	});
+
+	test('someone asks to see a press kit, and its owner lets them in', async ({ page }) => {
+		await signIn(page, 'milo.test', 'milo-pass', '/projects/neon-tide/epk');
+		await page.getByRole('link', { name: /Clubs/ }).click();
+		await expect(page.getByRole('heading', { name: 'The rest of this press kit' })).toBeVisible();
+		await expect(page.getByText('bookings@neon-tide.test')).toHaveCount(0);
+		await expectAccessible(page);
+		await page.getByLabel("You're a").selectOption('press');
+		await page.getByLabel(/Message/).fill('Writing about Berlin residents');
+		await page.getByRole('button', { name: 'Ask for access' }).click();
+		await expect(page.getByText(/You asked on/)).toBeVisible();
+		const kit = new URL(page.url()).pathname;
+		await signOut(page);
+
+		await signIn(page, 'neon.test', 'neon-pass', `${kit}/access`);
+		await expectAccessible(page);
+		await page
+			.getByRole('listitem')
+			.filter({ hasText: 'Writing about Berlin residents' })
+			.getByRole('button', { name: 'Let in' })
+			.click();
+		await expect(page.getByText('Approved. They can see the whole press kit now.')).toBeVisible();
+		await signOut(page);
+
+		await signIn(page, 'milo.test', 'milo-pass', kit);
+		await expect(page.getByText('bookings@neon-tide.test')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Halle Nord closing set (promo)' })).toBeVisible();
+		await expectAccessible(page);
+		await signOut(page);
+
+		// Each browser runs against the same network, so the owner takes access away again.
+		await signIn(page, 'neon.test', 'neon-pass', `${kit}/access`);
+		await page.getByRole('listitem').filter({ hasText: '@milo.test' }).getByRole('button', { name: 'Remove' }).click();
+		await expect(page.getByText('Access removed.')).toBeVisible();
 	});
 
 	test('a promoter sends a booking inquiry', async ({ page }) => {

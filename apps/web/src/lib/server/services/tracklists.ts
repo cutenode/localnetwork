@@ -1,4 +1,5 @@
-import { MIX_REPORT_MAX_BYTES, type MixReport, parseMixReportText } from '#lib/mix/report.ts';
+import { MIX_REPORT_MAX_BYTES, type MixReport } from '#lib/mix/report.ts';
+import { parseMixReportText } from '#lib/mix/schema.ts';
 import type { BlobRefJson } from '#lib/types.ts';
 import { type Core, UserError } from '../core';
 

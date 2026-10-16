@@ -12,7 +12,7 @@ use locallibrary::anlz::{self, CueFile, CuePoint};
 use locallibrary::device::Device;
 use locallibrary::onelibrary::OneLibrary;
 use locallibrary::{convert, paths};
-use rekordbox_pdb::{NewTrack, PdbEditor};
+use rekordbox_pdb::PdbEditor;
 use serde_json::{Value, json};
 
 use crate::support::{Env, PDB, Rpc, path};
@@ -176,6 +176,7 @@ fn a_relative_output_folder_is_written() {
 #[cfg(unix)]
 #[test]
 fn copies_for_serato_outnumber_the_open_file_limit() {
+    use rekordbox_pdb::NewTrack;
     let env = Env::new();
     let root = env.drive("Main");
     let mut ed = PdbEditor::from_file(root.join(PDB)).unwrap();

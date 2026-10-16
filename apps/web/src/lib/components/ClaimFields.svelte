@@ -6,9 +6,9 @@
 
 <fieldset>
 	<legend class="label">How are you connected?</legend>
-	<div class="space-y-2">
+	<div class="flex flex-col gap-2.5">
 		{#each CLAIM_RELATIONSHIPS as option (option.value)}
-			<label class="flex items-center gap-2 text-sm"><input type="radio" class="checkbox rounded-full" name="relationship" value={option.value} required checked={values.relationship === option.value} />{option.label}</label>
+			<label class="flex items-center gap-2.5 text-body text-fg-soft"><input type="radio" class="checkbox rounded-full" name="relationship" value={option.value} required checked={values.relationship === option.value} />{option.label}</label>
 		{/each}
 	</div>
 </fieldset>

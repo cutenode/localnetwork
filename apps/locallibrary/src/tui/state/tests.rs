@@ -46,6 +46,16 @@ fn round_trips_beside_the_store_until_there_is_one() {
     let on_drive = drive.join("store");
     save(&on_drive, &Saved { root: Some(drive.clone()), ..Default::default() });
     assert!(!drive.exists());
+    // Nor when the store's path reaches the drive through a link (as macOS's /var is
+    // /private/var): the drive's root comes resolved.
+    #[cfg(unix)]
+    {
+        std::fs::create_dir_all(&drive).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&drive, &link).unwrap();
+        save(&link.join("store"), &Saved { root: Some(drive.canonicalize().unwrap()), ..Default::default() });
+        assert_eq!(std::fs::read_dir(&drive).unwrap().count(), 0);
+    }
 }
 
 /// Whatever's saved reads back the same, beside the store before there is one and in it

@@ -295,7 +295,7 @@ fn relocate_points_at_moved_files_and_lists_the_ones_it_cant_tell_apart() {
     let out = env.ok(&["track", "relocate", d, "--look-in", path(&music), "--dry-run"]);
     assert!(out.contains("~ Loopmasters - Demo Track 1  now Contents/Moved/Demo Track 1.mp3"), "{out}");
     assert!(out.contains("? Loopmasters - Demo Track 2  more than one file fits"), "{out}");
-    assert!(out.contains(&format!("{}  ", music.join("a/Demo Track 2.mp3").display())), "{out}");
+    assert!(out.contains(&format!("{}  ", music.join("a").join("Demo Track 2.mp3").display())), "{out}");
     let out = env.ok(&["--yes", "track", "relocate", d, "--look-in", path(&music)]);
     assert!(out.contains("relocated 1 track(s)"), "{out}");
     let v = env.json(&["track", "relocate", d, "--look-in", path(&music)]);
@@ -308,7 +308,8 @@ fn relocate_points_at_moved_files_and_lists_the_ones_it_cant_tell_apart() {
     // With one copy left in the folder, that one is copied back.
     std::fs::remove_dir_all(music.join("b")).unwrap();
     let out = env.ok(&["--yes", "track", "relocate", d, "--look-in", path(&music)]);
-    let copied = format!("+ Loopmasters - Demo Track 2  copied from {}", music.join("a/Demo Track 2.mp3").display());
+    let copied =
+        format!("+ Loopmasters - Demo Track 2  copied from {}", music.join("a").join("Demo Track 2.mp3").display());
     assert!(out.contains(&copied) && out.contains("relocated 1 track(s)"), "{out}");
     std::fs::remove_file(demo.join("Contents/Moved/Demo Track 1.mp3")).unwrap();
     let out = env.ok(&["track", "relocate", d]);
