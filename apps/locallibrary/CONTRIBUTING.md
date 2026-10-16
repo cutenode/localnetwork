@@ -57,6 +57,9 @@ pushes to `main` that change the workspace (not when only Markdown changed):
   [cargo-nextest](https://nexte.st) (`cargo nextest run --workspace` locally), doctests with
   `cargo test --doc`. On Linux they run under coverage (see below). On macOS and Linux the tests
   have the `sqlcipher` CLI, and must find it (see the fixtures below);
+- the plugin tests in a job of their own on macOS (`cargo nextest run --profile plugins`; the
+  test job runs the rest with `--profile core`), since Windows runners run as an administrator
+  and locallibrary starts no plugin from an elevated process;
 - clippy on the CLI without its default features, on Linux without the ALSA headers;
 - the MSRV check, and the docs build with warnings denied;
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) with `deny.toml`: RustSec advisories
