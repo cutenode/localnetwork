@@ -1,9 +1,12 @@
 <script lang="ts">
-	import { ArrowRight, CalendarHeart, ClipboardList, Disc3, History, NotebookPen, Plus } from '@lucide/svelte';
+	import { ArrowRight, History, LogOut, NotebookPen, Plus } from '@lucide/svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import ProjectCard from '#lib/components/ProjectCard.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { accountLabel, timeAgo } from '#lib/format.ts';
+	import Button from '#lib/ui/Button.svelte';
+	import Card from '#lib/ui/Card.svelte';
+	import Eyebrow from '#lib/ui/Eyebrow.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -13,85 +16,86 @@
 
 <svelte:head><title>My account · Local Network</title></svelte:head>
 
-<div class="container-page py-10">
-	<div class="flex flex-wrap items-end justify-between gap-4">
-		<div>
-			<p class="eyebrow">Dashboard</p>
-			<h1 class="mt-1 text-4xl">{accountLabel(data.viewer)}</h1>
-			<p class="muted mono mt-1">{data.viewer?.did}</p>
+<div class="container-page flex flex-col gap-12 py-10 sm:py-14">
+	<header class="flex flex-wrap items-end justify-between gap-x-10 gap-y-6">
+		<div class="flex min-w-0 flex-col gap-3">
+			<Eyebrow>Dashboard</Eyebrow>
+			<h1 class="m-0 text-title font-semibold break-words">{accountLabel(data.viewer)}</h1>
+			<p class="m-0 font-mono text-caption break-all text-fg-subtle">{data.viewer?.did}</p>
 		</div>
-		<div class="flex flex-wrap gap-2">
-			<a href="/projects/new" class="btn-accent"><Plus class="size-4" />List a project</a>
-			<a href="/planner" class="btn-secondary"><NotebookPen class="size-4" />Planner</a>
-			<a href="/me/activity" class="btn-secondary"><History class="size-4" />My activity</a>
+		<div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+			<Button href="/projects/new" class="col-span-2"><Plus class="size-4" />List a project</Button>
+			<Button variant="secondary" href="/planner"><NotebookPen class="size-4" />Planner</Button>
+			<Button variant="secondary" href="/me/activity"><History class="size-4" />My activity</Button>
+			<form method="POST" action="/logout" class="col-span-2 flex"><button class="btn-ghost w-full"><LogOut class="size-4" />Sign out</button></form>
 		</div>
-	</div>
+	</header>
 
 	{#if !data.viewer?.spacesCapable}
-		<div class="mt-6 notice notice-info">
-			Your PDS didn't grant atproto spaces access, so requests and bookings are filed for you by Local Network's root account and your private planner is unavailable. Everything you do is still audited. If your PDS adds spaces support, sign out and back in.
-		</div>
+		<p class="notice notice-info m-0">
+			Your PDS didn't grant atproto spaces access, so Local Network's root account files your requests and bookings for you, and the private planner is unavailable. Everything you do is still audited. If your PDS adds spaces support, sign out and back in.
+		</p>
 	{/if}
 
-	<section class="mt-10">
-		<h2 class="section-title mb-4 flex items-center gap-2"><Disc3 class="size-5" />Projects you manage</h2>
+	<section aria-labelledby="projects" class="flex flex-col gap-5">
+		<h2 id="projects" class="m-0 text-heading font-semibold">Projects you manage</h2>
 		{#if data.projects.length}
 			<div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
 				{#each data.projects as project (project.uri)}
 					<ProjectCard {project}>
 						<div class="flex gap-2">
-							<a class="btn-secondary btn-sm" href="/projects/{project.slug}/edit">Propose changes</a>
-							<a class="btn-ghost btn-sm" href="/projects/{project.slug}">View</a>
+							<Button variant="secondary" size="sm" href="/projects/{project.slug}/edit">Propose changes</Button>
+							<Button variant="ghost" size="sm" href="/projects/{project.slug}">View</Button>
 						</div>
 					</ProjectCard>
 				{/each}
 			</div>
 		{:else}
 			<EmptyState title="You don't manage any projects yet" body="List your own project, or find one an admin already added and claim it.">
-				<div class="flex gap-2"><a href="/projects/new" class="btn-primary">List a project</a><a href="/projects" class="btn-secondary">Find yours</a></div>
+				<div class="flex flex-wrap justify-center gap-2"><Button href="/projects/new">List a project</Button><Button variant="secondary" href="/projects">Find yours</Button></div>
 			</EmptyState>
 		{/if}
 	</section>
 
-	<div class="mt-10 grid gap-6 lg:grid-cols-2">
-		<section class="card card-pad">
-			<h2 class="section-title mb-4 flex items-center gap-2"><ClipboardList class="size-5" />Your requests</h2>
+	<div class="grid gap-6 lg:grid-cols-2">
+		<Card as="section" padding="none">
+			<h2 class="m-0 border-b border-line px-5 py-4 text-emphasis font-semibold">Your requests</h2>
 			{#if data.requests.length}
-				<ul class="divide-y-2 divide-dashed divide-ansi-blue">
+				<ul class="m-0 list-none divide-y divide-line p-0">
 					{#each data.requests as request (request.uri)}
-						<li class="flex items-center justify-between gap-3 py-3">
-							<div class="min-w-0">
-								<a class="menu-link" href="/me/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? 'Project'}</a>
-								<p class="muted text-xs">{timeAgo(request.createdAt)}</p>
+						<li class="flex items-center justify-between gap-3 px-5 py-3.5">
+							<div class="flex min-w-0 flex-col gap-0.5">
+								<a class="truncate text-fg no-underline hover:text-link" href="/me/requests/{request.rkey}">{kindLabel[request.kind]}: {request.project?.name ?? request.record.profile?.name ?? 'Project'}</a>
+								<p class="m-0 text-caption text-fg-subtle">{timeAgo(request.createdAt)}</p>
 							</div>
 							<StatusPill status={request.status} />
 						</li>
 					{/each}
 				</ul>
 			{:else}
-				<p class="muted text-sm">No requests yet.</p>
+				<p class="m-0 px-5 py-6 text-small text-fg-muted">No requests yet.</p>
 			{/if}
-		</section>
-		<section class="card card-pad">
-			<div class="mb-4 flex items-center justify-between">
-				<h2 class="section-title flex items-center gap-2"><CalendarHeart class="size-5" />Recent bookings</h2>
-				<a href="/bookings" class="link text-sm">All <ArrowRight class="inline size-3" /></a>
+		</Card>
+		<Card as="section" padding="none">
+			<div class="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+				<h2 class="m-0 text-emphasis font-semibold">Recent bookings</h2>
+				<a href="/bookings" class="inline-flex items-center gap-1 text-small text-fg-muted no-underline hover:text-fg">All bookings<ArrowRight class="size-3.5" /></a>
 			</div>
 			{#if data.threads.length}
-				<ul class="divide-y-2 divide-dashed divide-ansi-blue">
+				<ul class="m-0 list-none divide-y divide-line p-0">
 					{#each data.threads as thread (thread.space)}
-						<li class="flex items-center justify-between gap-3 py-3">
-							<div class="min-w-0">
-								<a class="menu-link" href="/bookings/{thread.skey}">{thread.title ?? 'Booking'} · {thread.project?.name}</a>
-								<p class="muted text-xs">{timeAgo(thread.lastActivityAt)}</p>
+						<li class="flex items-center justify-between gap-3 px-5 py-3.5">
+							<div class="flex min-w-0 flex-col gap-0.5">
+								<a class="truncate text-fg no-underline hover:text-link" href="/bookings/{thread.skey}">{thread.title ?? 'Booking'} · {thread.project?.name}</a>
+								<p class="m-0 text-caption text-fg-subtle">{timeAgo(thread.lastActivityAt)}</p>
 							</div>
 							<StatusPill status={thread.status} />
 						</li>
 					{/each}
 				</ul>
 			{:else}
-				<p class="muted text-sm">No booking threads yet.</p>
+				<p class="m-0 px-5 py-6 text-small text-fg-muted">No booking threads yet.</p>
 			{/if}
-		</section>
+		</Card>
 	</div>
 </div>

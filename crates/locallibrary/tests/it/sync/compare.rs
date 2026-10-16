@@ -222,7 +222,7 @@ fn image(from: &std::path::Path, to: &std::path::Path) {
 #[test]
 fn a_sync_cut_off_before_its_flush_is_finished_by_the_next_run() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let mut a = Device::open_export(common::bigger_drive(&root, "A")).unwrap();
     std::fs::create_dir(root.join("B")).unwrap();
     let mut b = Device::open(root.join("B")).unwrap();

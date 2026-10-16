@@ -1,4 +1,5 @@
 import { isValidLatLng } from '#lib/geo.ts';
+import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { FEE_TIERS, FORMATS, isOneOf, PROJECT_KINDS, SET_TYPES } from '#lib/taxonomy/options.ts';
 import type { PageServerLoad } from './$types';
 
@@ -46,7 +47,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 
 	const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
 
-	const [result, stats] = await Promise.all([
+	// Null when the directory is offline: the filters still render, so a retry is one click.
+	const result = await unlessOffline(locals.log, () =>
 		projects.search({
 			q: filters.q || undefined,
 			near: hasNear ? { lat, lng } : undefined,
@@ -61,9 +63,8 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 			sort,
 			page,
 			pageSize: 24
-		}),
-		projects.stats()
-	]);
+		})
+	);
 
-	return { result, filters, topGenres: stats.genres.slice(0, 24), geocoder: geocoder.enabled };
+	return { result, filters, geocoder: geocoder.enabled };
 };

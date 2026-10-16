@@ -67,7 +67,7 @@ fn attrs(e: &BytesStart<'_>) -> FxHashMap<String, String> {
     e.attributes()
         .map(|a| {
             let a = a.unwrap();
-            (String::from_utf8(a.key.as_ref().to_vec()).unwrap(), a.unescape_value().unwrap().into_owned())
+            (a.key.as_ref().to_owned(), a.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap().into_owned())
         })
         .collect()
 }
@@ -96,7 +96,7 @@ fn parse_nml(text: &str) -> Nml {
         match r.read_event().unwrap() {
             Event::Eof => break,
             Event::Start(e) | Event::Empty(e) => {
-                let name = String::from_utf8(e.name().as_ref().to_vec()).unwrap();
+                let name = e.name().as_ref().to_owned();
                 let a = attrs(&e);
                 match name.as_str() {
                     "COLLECTION" => nml.collection_count = a["ENTRIES"].parse().unwrap(),
@@ -130,8 +130,8 @@ fn parse_nml(text: &str) -> Nml {
                 }
             }
             Event::End(e) => match e.name().as_ref() {
-                b"ENTRY" if path.is_empty() => in_entry = false,
-                b"NODE" => {
+                "ENTRY" if path.is_empty() => in_entry = false,
+                "NODE" => {
                     path.pop();
                 }
                 _ => {}
@@ -452,7 +452,7 @@ fn serato_tags_go_into_copies_only() {
     let t1 = lib.track(1).unwrap();
     let copy = out.join(paths::key(&t1.file_path));
     let crate_paths = read_crate(&out.join("_Serato_/Subcrates/All.crate")).1;
-    let canonical_copy = out.canonicalize().unwrap().join(paths::key(&t1.file_path));
+    let canonical_copy = locallibrary::device::dunce_canonicalize(&out).join(paths::key(&t1.file_path));
     assert!(
         crate_paths[0] == volume_relative(&copy) || crate_paths[0] == volume_relative(&canonical_copy),
         "the crates list the copies: {}",
@@ -596,7 +596,7 @@ fn engine_library_reads_back() {
         ]
     );
 
-    let library_dir = out.canonicalize().unwrap().join("Engine Library");
+    let library_dir = locallibrary::device::dunce_canonicalize(&out).join("Engine Library");
     let mut ids = FxHashMap::default();
     for t in &lib.tracks {
         let file = paths::key(&t.file_path).rsplit('/').next().unwrap().to_string();

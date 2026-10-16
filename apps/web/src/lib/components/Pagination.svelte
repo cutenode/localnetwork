@@ -16,7 +16,7 @@
 {#if pages > 1}
 	<nav class="mt-8 flex items-center justify-center gap-2" aria-label="Pagination">
 		{#if page > 1}<a class="btn-secondary btn-sm" href={hrefFor(page - 1)} rel="prev">Previous</a>{/if}
-		<span class="muted text-sm">Page {page} of {pages}</span>
+		<span class="font-mono text-caption text-fg-muted">Page {page} of {pages}</span>
 		{#if page < pages}<a class="btn-secondary btn-sm" href={hrefFor(page + 1)} rel="next">Next</a>{/if}
 	</nav>
 {/if}

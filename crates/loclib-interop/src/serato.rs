@@ -152,7 +152,8 @@ fn volume_relative(path: &Path) -> (String, PathBuf) {
         return (s[2..].trim_start_matches('/').to_string(), PathBuf::from(format!("{}\\", &s[..2])));
     }
     if let Some((volume, rest)) = s.strip_prefix("/Volumes/").and_then(|r| r.split_once('/')) {
-        return (rest.to_string(), PathBuf::from("/Volumes").join(volume));
+        // Written out rather than joined, so a Mac volume reads the same when exported on Windows.
+        return (rest.to_string(), PathBuf::from(format!("/Volumes/{volume}")));
     }
     (s.trim_start_matches('/').to_string(), PathBuf::from("/"))
 }

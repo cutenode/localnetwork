@@ -23,6 +23,8 @@ export type HappyView = { url: string; apiKey: string; stop(): Promise<void> };
  * Resolves once it answers, with an admin API key. `stop()` removes the container and its data.
  */
 export async function startHappyView(options: { plcUrl: string; pdsUrl: string }): Promise<HappyView> {
+	await checkDocker();
+
 	const hasImage = await docker('image', 'inspect', IMAGE).then(
 		() => true,
 		() => false
@@ -147,6 +149,21 @@ async function freePort(): Promise<number> {
 	return port;
 }
 
+/**
+ * Says what to do when Docker is missing or its daemon isn't running. `docker info` fails in both
+ * cases, while other commands' errors for a stopped daemon vary between Docker versions.
+ */
+export async function checkDocker(): Promise<void> {
+	await execFileAsync('docker', ['info']).catch((error) => {
+		// SAFETY: execFile rejects with the spawn error code or the command's output.
+		const isMissing = (error as NodeJS.ErrnoException).code === 'ENOENT';
+
+		throw new Error(`HappyView runs in Docker: ${isMissing ? 'install' : 'start'} Docker (or OrbStack) first.`, {
+			cause: error
+		});
+	});
+}
+
 /** Runs the docker CLI and returns everything it printed. */
 async function docker(...args: string[]): Promise<string> {
 	try {
@@ -154,12 +171,8 @@ async function docker(...args: string[]): Promise<string> {
 
 		return stdout + stderr;
 	} catch (error) {
-		// SAFETY: execFile rejects with the spawn error code or the command's output.
-		const { code, stderr } = error as NodeJS.ErrnoException & { stderr?: string };
-
-		if (code === 'ENOENT') {
-			throw new Error('HappyView runs in Docker: install Docker (or OrbStack) first.', { cause: error });
-		}
+		// SAFETY: execFile rejects with the command's output.
+		const { stderr } = error as { stderr?: string };
 
 		throw new Error(`docker ${args[0]} failed: ${stderr?.trim()}`, { cause: error });
 	}

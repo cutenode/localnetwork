@@ -19,7 +19,7 @@ use locallibrary::device::Device;
 use locallibrary::edit::Edit;
 use locallibrary::onelibrary::OneLibrary;
 use locallibrary::progress::Ctx;
-use locallibrary::{Error, Library, paths, pdb, tags};
+use locallibrary::{Library, paths, pdb, tags};
 
 fn fold(s: &str) -> String {
     paths::key(s).to_lowercase()
@@ -344,20 +344,25 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
     assert_eq!(err.code(), "stale_plan", "{err}");
     before.untouched(&root).unwrap();
 
-    // Artwork bigger than the drive (a sparse file: it takes no room itself).
-    let root = drive(dir.path(), "Big", false);
-    common::media::set_art(&root, &[1]);
-    let art = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().track(1).unwrap().artwork_path.clone().unwrap();
-    let free = locallibrary::fsutil::available_space(&root).unwrap();
-    fs::File::options().write(true).open(file(&root, &art)).unwrap().set_len(2 * free + (1 << 30)).unwrap();
-    let mut d = Device::open_export(&root).unwrap();
-    let plan = convert::plan(&d, &to, &ctx).unwrap();
-    assert!(!plan.fits, "{plan:?}");
-    let full = format!("needs about {} bytes but only {} are free", plan.needed_bytes, plan.free_space.unwrap());
-    assert!(plan.warnings.contains(&full), "{:?}", plan.warnings);
-    let err = convert::apply(&plan, &mut d, &to, &ctx).unwrap_err();
-    assert!(matches!(err, Error::NoSpace { needed, .. } if needed == plan.needed_bytes), "{err}");
-    assert!(!d.has_library_plus());
+    // Sparse only on Unix: NTFS would have to find the room for it.
+    #[cfg(unix)]
+    {
+        // Artwork bigger than the drive (a sparse file: it takes no room itself).
+        let root = drive(dir.path(), "Big", false);
+        common::media::set_art(&root, &[1]);
+        let art =
+            pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().track(1).unwrap().artwork_path.clone().unwrap();
+        let free = locallibrary::fsutil::available_space(&root).unwrap();
+        fs::File::options().write(true).open(file(&root, &art)).unwrap().set_len(2 * free + (1 << 30)).unwrap();
+        let mut d = Device::open_export(&root).unwrap();
+        let plan = convert::plan(&d, &to, &ctx).unwrap();
+        assert!(!plan.fits, "{plan:?}");
+        let full = format!("needs about {} bytes but only {} are free", plan.needed_bytes, plan.free_space.unwrap());
+        assert!(plan.warnings.contains(&full), "{:?}", plan.warnings);
+        let err = convert::apply(&plan, &mut d, &to, &ctx).unwrap_err();
+        assert!(matches!(err, locallibrary::Error::NoSpace { needed, .. } if needed == plan.needed_bytes), "{err}");
+        assert!(!d.has_library_plus());
+    }
 
     // Analysis files that can't be read (rekordbox's demo export's are real ones).
     let root = drive(dir.path(), "Garbled", true);

@@ -25,12 +25,12 @@ loclib-tracklist = { path = "crates/loclib-tracklist", version = "0.1.0" }
 loclib-waveform = { path = "crates/loclib-waveform", version = "0.1.0" }
 rekordbox-pdb = { path = "vendor/rekordbox-pdb" }
 rekordcrate = { version = "0.3", default-features = false }
-aes = "0.8"
+aes = "0.9.3"
 anyhow = "1"
 # Base64 for data URIs, packed waveforms, PowerShell's -EncodedCommand and Serato's cue tag.
 base64 = "0.22"
 blake3 = "1.8"
-cbc = "0.1"
+cbc = "0.2.1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
 clap = { version = "4.5", features = ["derive", "env", "wrap_help"] }
 # Shell completion (`locallibrary completions`), dynamic: the shell asks the binary, which lists
