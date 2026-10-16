@@ -1,8 +1,11 @@
 <script lang="ts">
-	import { Plus, Trash2 } from '@lucide/svelte';
+	import { ArrowLeft, Plus, Trash2 } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import GenreInput from '#lib/components/GenreInput.svelte';
 	import { FEE_TIERS, SET_TYPES } from '#lib/taxonomy/options.ts';
+	import Card from '#lib/ui/Card.svelte';
+	import Eyebrow from '#lib/ui/Eyebrow.svelte';
+	import Monogram from '#lib/ui/Monogram.svelte';
 	import type { PageProps } from './$types';
 
 	type Slot = { project: string; slot?: string; status?: string };
@@ -39,12 +42,16 @@
 
 <svelte:head><title>{details?.title ?? 'New show'} · Planner</title></svelte:head>
 
-<div class="container-page max-w-3xl py-10">
-	<a href="/planner" class="link text-sm">← Planner</a>
-	<h1 class="mt-3 text-3xl">{data.isNew ? 'Plan a show' : details?.title}</h1>
-	<form method="POST" class="mt-8 space-y-6">
+<div class="container-page flex max-w-3xl flex-col gap-8 py-10 sm:py-14">
+	<a href="/planner" class="inline-flex items-center gap-1.5 self-start text-small text-fg-muted no-underline hover:text-fg"><ArrowLeft class="size-4" />Planner</a>
+	<header class="flex flex-col gap-3">
+		<Eyebrow>{data.isNew ? 'New show' : 'Show'}</Eyebrow>
+		<h1 class="m-0 text-title font-semibold">{data.isNew ? 'Plan a show' : details?.title}</h1>
+	</header>
+	<form method="POST" class="flex flex-col gap-6">
 		<FormMessage {form} />
-		<section class="card card-pad space-y-4">
+		<Card as="section" class="flex flex-col gap-4 sm:p-6">
+			<h2 class="m-0 text-emphasis font-semibold">Details</h2>
 			<div><label class="label" for="title">Show name</label><input id="title" name="title" class="input" required maxlength="120" value={v.title ?? ''} /></div>
 			<div class="grid gap-4 sm:grid-cols-3">
 				<div><label class="label" for="date">Date</label><input id="date" type="date" name="date" class="input" value={v.date ?? ''} /></div>
@@ -56,33 +63,41 @@
 				<div><label class="label" for="setType">Main slot</label><select id="setType" name="setType" class="input"><option value="">Not set</option>{#each SET_TYPES as o (o.value)}<option value={o.value} selected={v.setType === o.value}>{o.label}</option>{/each}</select></div>
 			</div>
 			<div><label class="label" for="genres">Sound</label><GenreInput value={v.genres ?? ''} /></div>
-			<div><label class="label" for="notes">Notes</label><textarea id="notes" name="notes" class="input min-h-24" maxlength="2000">{v.notes ?? ''}</textarea></div>
-		</section>
-		<section class="card card-pad space-y-3">
-			<h2 class="section-title">Lineup</h2>
-			{#each lineup as slot, index (slot.project)}
-				<div class="flex flex-wrap items-center gap-2 border-2 border-ansi-blue p-2">
-					<input type="hidden" name="slotProject" value={slot.project} />
-					<a class="min-w-40 flex-1 menu-link" href="/projects/{projects[slot.project]?.slug}">{projects[slot.project]?.profile.name ?? 'Removed project'}</a>
-					<input name="slotLabel" class="input w-40" placeholder="e.g. 23:00–01:00" value={slot.slot ?? ''} aria-label="Slot" />
-					<select name="slotStatus" class="input w-36" value={slot.status ?? 'considering'} aria-label="Status">
-						<option value="considering">Considering</option><option value="contacted">Contacted</option><option value="confirmed">Confirmed</option>
-					</select>
-					<button type="button" class="btn-ghost px-2" aria-label="Remove" onclick={() => (lineup = lineup.filter((_, i) => i !== index))}><Trash2 class="size-4" /></button>
-				</div>
+			<div><label class="label" for="notes">Notes</label><textarea id="notes" name="notes" class="input min-h-24 py-2.5" maxlength="2000">{v.notes ?? ''}</textarea></div>
+		</Card>
+		<Card as="section" class="flex flex-col gap-4 sm:p-6">
+			<h2 class="m-0 text-emphasis font-semibold">Lineup</h2>
+			{#if lineup.length}
+				<ol class="m-0 flex list-none flex-col gap-2 p-0">
+					{#each lineup as slot, index (slot.project)}
+						{@const name = projects[slot.project]?.profile.name ?? 'Removed project'}
+						<li class="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-well p-2.5 sm:grid sm:grid-cols-[minmax(0,1fr)_9rem_10rem_auto]">
+							<input type="hidden" name="slotProject" value={slot.project} />
+							<div class="flex min-w-0 basis-[calc(100%-3.5rem)] items-center gap-2.5">
+								<Monogram {name} size="sm" />
+								<a class="truncate text-fg no-underline hover:text-link" href="/projects/{projects[slot.project]?.slug}">{name}</a>
+							</div>
+							<button type="button" class="btn-ghost ml-auto px-2.5 sm:order-last" aria-label="Remove {name}" onclick={() => (lineup = lineup.filter((_, i) => i !== index))}><Trash2 class="size-4" /></button>
+							<input name="slotLabel" class="input min-w-0 grow basis-[calc(50%-0.25rem)]" placeholder="e.g. 23:00–01:00" value={slot.slot ?? ''} aria-label="Slot" />
+							<select name="slotStatus" class="input min-w-0 grow basis-[calc(50%-0.25rem)]" value={slot.status ?? 'considering'} aria-label="Status">
+								<option value="considering">Considering</option><option value="contacted">Contacted</option><option value="confirmed">Confirmed</option>
+							</select>
+						</li>
+					{/each}
+				</ol>
 			{:else}
-				<p class="muted text-sm">Add projects from your saved list.</p>
-			{/each}
+				<p class="m-0 text-small text-fg-muted">Add projects from your saved list.</p>
+			{/if}
 			{#if addable.length}
 				<div class="flex gap-2">
-					<select class="input" bind:value={adding} aria-label="Add a saved project">
+					<select class="input min-w-0 flex-1" bind:value={adding} aria-label="Add a saved project">
 						<option value="">Add a saved project…</option>
 						{#each addable as save (save.rkey)}<option value={save.project}>{projects[save.project]?.profile.name ?? save.project}</option>{/each}
 					</select>
 					<button type="button" class="btn-secondary" disabled={!adding} onclick={() => { lineup = [...lineup, { project: adding, status: 'considering' }]; adding = ''; }}><Plus class="size-4" />Add</button>
 				</div>
 			{/if}
-		</section>
-		<div class="flex justify-end"><button class="btn-accent">Save show</button></div>
+		</Card>
+		<div class="flex sm:justify-end"><button class="btn-primary w-full sm:w-auto">Save show</button></div>
 	</form>
 </div>

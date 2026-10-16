@@ -338,7 +338,7 @@ const USER_FILES: &[&str] = &["notes.txt", "Music/mine.mp3", "Music/Old/set.wav"
 impl Copies {
     fn new(tc: &TestCase, cfg: Config) -> Copies {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = locallibrary::device::dunce_canonicalize(dir.path());
         let main = main_drive(&root, tc.draw(gs::booleans()));
         let b = root.join("B");
         fs::create_dir_all(&b).unwrap();
@@ -801,7 +801,7 @@ impl Progress for CancelOnFirstCopy {
 fn sync_onto_another_library_cancelled_anywhere(template: &Path, opts: &SyncOptions, then: impl Fn(&Path, &Path)) {
     for n in 0.. {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = locallibrary::device::dunce_canonicalize(dir.path());
         // A copy keeps OneLibrary's database, and so its cached key derivation.
         let main = root.join("Main");
         copy_tree(template, &main);
@@ -840,7 +840,7 @@ fn sync_onto_another_library_cancelled_anywhere(template: &Path, opts: &SyncOpti
 #[test]
 fn a_delete_first_sync_left_unfinished_never_leaves_a_library_missing_its_audio() {
     let dir = tempfile::tempdir().unwrap();
-    let main = main_drive(&dir.path().canonicalize().unwrap(), false);
+    let main = main_drive(&locallibrary::device::dunce_canonicalize(dir.path()), false);
     let opts = SyncOptions { delete_first: true, ..SyncOptions::default() };
     sync_onto_another_library_cancelled_anywhere(&main, &opts, |main, c| {
         let cancel = CancelToken::new();
@@ -859,7 +859,7 @@ fn a_delete_first_sync_left_unfinished_never_leaves_a_library_missing_its_audio(
 #[test]
 fn a_database_the_source_lacks_goes_before_the_audio_it_uses() {
     let dir = tempfile::tempdir().unwrap();
-    let main = main_drive(&dir.path().canonicalize().unwrap(), true);
+    let main = main_drive(&locallibrary::device::dunce_canonicalize(dir.path()), true);
     for key in [paths::EXPORT_PDB, paths::EXPORT_EXT_PDB] {
         let _ = fs::remove_file(main.join(key));
     }
@@ -937,7 +937,7 @@ struct PackConfig {
 /// with exports and sets in between and runs stopped at any checkpoint.
 fn run_packs(tc: TestCase, cfg: PackConfig) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let main = pack_source(&root, tc.draw(gs::booleans()));
     let club = if tc.draw(gs::booleans()) {
         let club = common::demo_drive(&root, "Club");
@@ -1137,7 +1137,7 @@ fn an_unplugged_pack_is_finished_by_the_next_run(tc: TestCase) {
 /// checkpoint, then undone.
 fn run_merge(tc: TestCase, outside: bool) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let main = main_drive(&root, tc.draw(gs::booleans()));
     let guest = common::demo_drive(&root, "Guest");
     let mut candidates: Vec<String> = USER_FILES.iter().map(|k| k.to_string()).collect();

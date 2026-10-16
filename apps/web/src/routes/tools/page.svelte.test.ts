@@ -15,19 +15,33 @@ const guides = [
 ];
 
 describe('/tools', () => {
-	it('lists Local Network and every tool, each linking to its page', async () => {
+	it('lists every tool with what it does, each linking to its page', async () => {
 		await render(ToolsPage, {
 			params: {},
 			form,
 			data: {
 				...layout,
-				tools: [{ id: 'localthing', name: 'localthing', kind: 'Chrome extension', tagline: 'Does a thing.' }]
+				tools: [
+					{
+						id: 'localthing',
+						name: 'localthing',
+						kind: 'Chrome extension',
+						tagline: 'Does a thing.',
+						features: ['Keeps drives in sync']
+					}
+				]
 			}
 		});
-		await expect.element(page.getByRole('link', { name: 'Local Network' })).toHaveAttribute('href', '/');
-		await expect.element(page.getByRole('link', { name: 'localthing' })).toHaveAttribute('href', '/tools/localthing');
+		await expect.element(page.getByRole('heading', { level: 1 })).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('link', { name: 'localthing', exact: true }))
+			.toHaveAttribute('href', '/tools/localthing');
+		await expect
+			.element(page.getByRole('link', { name: 'Install localthing' }))
+			.toHaveAttribute('href', '/tools/localthing');
 		await expect.element(page.getByText('Chrome extension')).toBeInTheDocument();
 		await expect.element(page.getByText('Does a thing.')).toBeInTheDocument();
+		await expect.element(page.getByText('Keeps drives in sync')).toBeInTheDocument();
 	});
 });
 

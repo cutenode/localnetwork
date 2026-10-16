@@ -361,8 +361,10 @@ fn any_title_slugs_to_a_file_name(tc: TestCase) {
 /// for; a `file:` URL leads to its path.
 #[hegel::test(test_cases = 300)]
 fn urls_read_back_as_their_paths(tc: TestCase) {
+    // One piece each: on Windows a backslash separates too, and a colon makes a drive.
+    let separators = if cfg!(windows) { "/\\:\0" } else { "/\0" };
     let parts: Vec<String> =
-        tc.draw(gs::vecs(gs::text().min_size(1).max_size(10).exclude_characters("/\0")).min_size(1).max_size(4));
+        tc.draw(gs::vecs(gs::text().min_size(1).max_size(10).exclude_characters(separators)).min_size(1).max_size(4));
     for part in &parts {
         let encoded = url_encode(part);
         assert!(encoded.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.~%".contains(&b)), "{encoded}");

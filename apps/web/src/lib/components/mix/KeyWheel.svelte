@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { colors, keysPlayed, parseCamelot, type Camelot, type MixReport } from '#lib/mix/report.ts';
+	import { keysPlayed, parseCamelot, playColor, type Camelot, type MixReport } from '#lib/mix/report.ts';
+	import { onColour } from '#lib/ui/contrast.ts';
 
 	let { report, selected = $bindable(null) }: { report: MixReport; selected?: number | null } = $props();
 
@@ -7,19 +8,18 @@
 
 	const C = S / 2;
 
-	const R_OUT = 150;
+	const NODE = { major: 140, minor: 92 };
 
-	const R_MID = 106;
-
-	const R_IN = 62;
-
-	const NODE = { major: 128, minor: 84 };
+	const R = 19;
 
 	const angle = (n: number) => ((n % 12) / 12) * Math.PI * 2 - Math.PI / 2;
 
-	const pos = (k: Camelot, r = k.major ? NODE.major : NODE.minor) => [C + Math.cos(angle(k.n)) * r, C + Math.sin(angle(k.n)) * r];
+	const pos = (k: Camelot) => [C + Math.cos(angle(k.n)) * (k.major ? NODE.major : NODE.minor), C + Math.sin(angle(k.n)) * (k.major ? NODE.major : NODE.minor)];
 
 	const used = $derived(keysPlayed(report));
+
+	/** Each key in the colour of the first track heard in it. */
+	const swatch = (plays: number[]) => onColour(playColor(plays[0]));
 
 	const moves = $derived(
 		report.transitions.flatMap((t) => {
@@ -38,6 +38,16 @@
 		})
 	);
 
+	/** Keys in the order they were heard, each move marked when it clashed. */
+	const order = $derived(
+		report.plays.flatMap((p, i) => {
+			if (!p.playedKey) return [];
+			const into = report.transitions.find((t) => t.to === i);
+
+			return [{ i, key: p.playedKey, clash: into?.harmony === 'clash' }];
+		})
+	);
+
 	const cells = Array.from({ length: 12 }, (_, i) => i + 1);
 
 	let focus = $state<string | null>(null);
@@ -45,58 +55,69 @@
 	const focusPlays = $derived(focus ? (used.get(focus) ?? []) : []);
 </script>
 
-<svg viewBox="0 0 {S} {S}" class="mx-auto block w-full max-w-sm font-sans" role="img" aria-label="Keys as played, in order, on the Camelot wheel">
-	{#each [R_OUT, R_MID, R_IN] as r (r)}
-		<circle cx={C} cy={C} {r} class="fill-none stroke-ansi-blue" stroke-width="2" />
-	{/each}
-	{#each cells as n (n)}
-		{@const a = angle(n) + Math.PI / 12}
-		<line x1={C + Math.cos(a) * R_IN} y1={C + Math.sin(a) * R_IN} x2={C + Math.cos(a) * R_OUT} y2={C + Math.sin(a) * R_OUT} class="stroke-ansi-blue" stroke-width="2" />
-		{#each [true, false] as major (major)}
-			{@const id = `${n}${major ? 'B' : 'A'}`}
-			{#if !used.has(id)}
-				{@const [x, y] = pos({ n, major })}
-				<text {x} y={y + 5} text-anchor="middle" font-size="15" class="fill-ansi-dark">{id}</text>
-			{/if}
+{#if order.length}
+	<ol aria-label="Keys in order" class="m-0 flex list-none flex-wrap items-center gap-1.5 p-0 sm:hidden">
+		{#each order as step, k (step.i)}
+			{@const tile = onColour(playColor(step.i))}
+			<li class="flex items-center gap-1.5">
+				{#if k}<span aria-hidden="true" class={step.clash ? 'text-critical' : 'text-fg-subtle'}>→</span>{#if step.clash}<span class="sr-only">clash,</span>{/if}{/if}
+				<span class="rounded-xs px-1.5 font-mono text-caption" style:background-color={tile.background} style:color={tile.ink}>{step.key}</span>
+			</li>
 		{/each}
-	{/each}
-	{#each moves as m (m.key)}
-		<path d={m.d} class="fill-none stroke-ansi-bright-cyan" style:stroke={m.clash ? colors.status.dark.critical : undefined} stroke-width="3" stroke-dasharray={m.clash ? '6 4' : undefined} />
-	{/each}
-	{#each [...used] as [id, plays] (id)}
-		{@const k = parseCamelot(id)!}
-		{@const [x, y] = pos(k)}
-		{@const [lx, ly] = pos(k, k.major ? NODE.major + 24 : NODE.minor - 24)}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<g
-			role="button"
-			tabindex="0"
-			aria-label="{id}: track{plays.length > 1 ? 's' : ''} {plays.map((i) => i + 1).join(', ')}"
-			class="cursor-pointer"
-			onpointerenter={() => (focus = id)}
-			onpointerleave={() => (focus = null)}
-			onfocus={() => (focus = id)}
-			onblur={() => (focus = null)}
-			onclick={() => (selected = plays[0])}
-		>
-			<rect x={x - 14} y={y - 12} width="28" height="24" class={plays.includes(selected ?? -1) ? 'fill-ansi-yellow' : 'fill-ansi-magenta'} />
-			<text {x} y={y + 6} text-anchor="middle" font-size="17" class={plays.includes(selected ?? -1) ? 'fill-ansi-black' : 'fill-ansi-white'}>{plays.length > 1 ? `${plays[0] + 1}+` : plays[0] + 1}</text>
-			<text x={lx} y={ly + 5} text-anchor="middle" font-size="15" class="fill-ansi-yellow">{id}</text>
-		</g>
-	{/each}
-	<text x={C} y={C - 2} text-anchor="middle" font-size="34" class="fill-ansi-white">{used.size}</text>
-	<text x={C} y={C + 20} text-anchor="middle" font-size="15" class="fill-ansi-cyan">{used.size === 1 ? 'key' : 'keys'}</text>
-</svg>
-<div class="mt-2 flex flex-wrap gap-x-4 text-sm">
-	<span class="flex items-center gap-1.5"><span class="inline-block h-1 w-4 bg-ansi-bright-cyan"></span>Harmonic move</span>
-	<span class="flex items-center gap-1.5"><span class="inline-block h-1 w-4" style:background-color={colors.status.dark.critical}></span>Clash</span>
+	</ol>
+{:else}
+	<p class="m-0 text-label text-fg-muted sm:hidden">The library has no keys for these tracks.</p>
+{/if}
+
+<div class="max-sm:hidden">
+	<svg viewBox="0 0 {S} {S}" class="mx-auto block w-full max-w-72 font-mono" role="img" aria-label="Keys as played, in order, on the Camelot wheel">
+		{#each cells as n (n)}
+			{#each [true, false] as major (major)}
+				{@const id = `${n}${major ? 'B' : 'A'}`}
+				{#if !used.has(id)}
+					{@const [x, y] = pos({ n, major })}
+					<circle cx={x} cy={y} r={R} class="fill-well" />
+					<text {x} y={y + 4.5} text-anchor="middle" font-size="13" class="fill-fg-subtle">{id}</text>
+				{/if}
+			{/each}
+		{/each}
+		{#each moves as m (m.key)}
+			<path d={m.d} class={['fill-none', m.clash ? 'stroke-critical' : 'stroke-fg-muted']} stroke-width="2" stroke-dasharray={m.clash ? '5 4' : undefined} />
+		{/each}
+		{#each [...used] as [id, plays] (id)}
+			{@const [x, y] = pos(parseCamelot(id)!)}
+			{@const tile = swatch(plays)}
+			{@const active = plays.includes(selected ?? -1)}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<g
+				role="button"
+				tabindex="0"
+				aria-label="{id}: track{plays.length > 1 ? 's' : ''} {plays.map((i) => i + 1).join(', ')}"
+				aria-pressed={active}
+				class="cursor-pointer outline-none"
+				onpointerenter={() => (focus = id)}
+				onpointerleave={() => (focus = null)}
+				onfocus={() => (focus = id)}
+				onblur={() => (focus = null)}
+				onclick={() => (selected = plays[0])}
+			>
+				{#if active || focus === id}<circle cx={x} cy={y} r={R + 4} class="fill-none stroke-fg" stroke-width="2" />{/if}
+				<circle cx={x} cy={y} r={R} style:fill={tile.background} />
+				<text {x} y={y + 4.5} text-anchor="middle" font-size="13" font-weight="600" style:fill={tile.ink}>{id}</text>
+			</g>
+		{/each}
+	</svg>
+	<ul class="m-0 mt-3 flex list-none flex-wrap justify-center gap-x-4 p-0 text-label text-fg-muted">
+		<li class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-fg-muted"></span>Harmonic move</li>
+		<li class="flex items-center gap-1.5"><span class="h-0.5 w-4 rounded-full bg-critical"></span>Clash</li>
+	</ul>
+	<p class="m-0 mt-1 min-h-10 text-center text-label text-fg-muted" aria-live="polite">
+		{#if focus}
+			<span class="font-mono text-fg">{focus}</span>: {focusPlays.map((i) => `${i + 1}. ${report.plays[i].track.title}`).join(', ')}
+		{:else if used.size}
+			{used.size === 1 ? '1 key' : `${used.size} keys`}. Point at one for the tracks heard in it.
+		{:else}
+			The library has no keys for these tracks.
+		{/if}
+	</p>
 </div>
-<p class="mt-1 min-h-6 text-sm text-ansi-cyan" aria-live="polite">
-	{#if focus}
-		<span class="text-ansi-yellow">{focus}</span>: {focusPlays.map((i) => `${i + 1}. ${report.plays[i].track.title}`).join(', ')}
-	{:else if used.size}
-		Point at a key for the tracks heard in it.
-	{:else}
-		The library has no keys for these tracks.
-	{/if}
-</p>

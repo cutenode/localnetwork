@@ -1521,7 +1521,10 @@ fn sets_become_playlists_on_a_drive(tc: TestCase) {
     for (line, t) in listed.iter().zip(&found) {
         match output {
             Some(_) => assert_eq!(line, &t.file_path[1..]),
-            None => assert!(line.ends_with(&t.file_path) && line.starts_with('/'), "{line} is {}", t.file_path),
+            None => {
+                let file = Path::new(line);
+                assert!(file.is_absolute() && file.ends_with(&t.file_path[1..]), "{line} is {}", t.file_path);
+            }
         }
     }
 

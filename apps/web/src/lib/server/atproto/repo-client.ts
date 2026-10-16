@@ -57,13 +57,7 @@ export interface RepoClient {
 		limit?: number;
 	}): Promise<{ records: ListedSpaceRecord[]; cursor?: string }>;
 	uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson>;
-	/** Personal (self-authority) simplespace management. */
-	createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig): Promise<string>;
-	getSpace(space: string): Promise<SimpleSpaceView | null>;
-}
-
-/** Extra operations only the root account performs. */
-export interface RootRepoClient extends RepoClient {
+	/** Records in the account's own public repo. */
 	putRecord(input: {
 		collection: string;
 		rkey: string;
@@ -72,10 +66,18 @@ export interface RootRepoClient extends RepoClient {
 	}): Promise<RecordRef>;
 	getRecord(input: { collection: string; rkey: string }): Promise<StoredRecord | null>;
 	deleteRecord(input: { collection: string; rkey: string }): Promise<void>;
-	updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>): Promise<void>;
+	/** Simplespace management for spaces under the account's own DID. */
+	createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig): Promise<string>;
+	getSpace(space: string): Promise<SimpleSpaceView | null>;
+	deleteSpace(space: string): Promise<void>;
 	putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void>;
 	removeMember(input: { space: string; did: string }): Promise<void>;
 	listMembers(space: string): Promise<{ did: string; read: boolean; write: boolean }[]>;
+}
+
+/** Extra operations only the root account performs. */
+export interface RootRepoClient extends RepoClient {
+	updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>): Promise<void>;
 	getDelegationToken(space: string): Promise<string>;
 	/** Spaces the root holds a repo in (used to rediscover booking spaces). */
 	listSpaces(spaceType: string): Promise<string[]>;
@@ -205,9 +207,7 @@ export class AgentRepoClient implements RepoClient {
 			throw error;
 		}
 	}
-}
 
-export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 	async putRecord(input: { collection: string; rkey: string; record: JsonRecord; swapRecord?: string | null }) {
 		const { data } = await this.agent.com.atproto.repo.putRecord({
 			repo: this.did,
@@ -235,8 +235,8 @@ export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 		await this.agent.com.atproto.repo.deleteRecord({ repo: this.did, ...input });
 	}
 
-	async updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>) {
-		await this.agent.com.atproto.simplespace.updateSpace(input);
+	async deleteSpace(space: string) {
+		await this.agent.com.atproto.simplespace.deleteSpace({ space });
 	}
 
 	async putMember(input: { space: string; did: string; read: boolean; write: boolean }) {
@@ -258,6 +258,12 @@ export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
 		} while (cursor);
 
 		return members;
+	}
+}
+
+export class AgentRootClient extends AgentRepoClient implements RootRepoClient {
+	async updateSpace(input: { space: string } & Partial<SimpleSpaceConfig>) {
+		await this.agent.com.atproto.simplespace.updateSpace(input);
 	}
 
 	async getDelegationToken(space: string) {

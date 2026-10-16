@@ -37,7 +37,10 @@ pub fn demo_drive(dir: &Path, name: &str) -> PathBuf {
     for t in &Database::from_file(root.join(PDB)).unwrap().tracks {
         let p = root.join(t.file_path().trim_start_matches('/'));
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(p, format!("audio {}", t.title()).repeat(100)).unwrap();
+        std::fs::write(&p, format!("audio {}", t.title()).repeat(100)).unwrap();
+        // From long before any pull, as a drive's audio is: a snapshot taken within FAT's 2 s of
+        // a file's mtime can't tell damage from a rewrite since.
+        filetime::set_file_mtime(&p, filetime::FileTime::from_unix_time(1_790_000_000, 0)).unwrap();
     }
     root
 }
@@ -328,6 +331,8 @@ pub fn end(child: &mut Child, grace: std::time::Duration) {
 
 /// A child process ended (and waited for) when it's dropped, so a test that fails or is stopped
 /// part way leaves nothing of it running.
+// Only props_cli_asked, which is Unix-only, uses it so far.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub struct Running(pub Child);
 
 impl Drop for Running {
