@@ -53,6 +53,12 @@ pub fn timestamp(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
+/// [`timestamp`] for serde: chrono's own format drops trailing zeros, so its length follows the
+/// clock (3, 6 or 9 digits of a second).
+pub fn serialize_timestamp<S: serde::Serializer>(t: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&timestamp(*t))
+}
+
 fn group(category: Category) -> &'static str {
     match category {
         Category::Player => "player",

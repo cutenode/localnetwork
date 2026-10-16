@@ -395,6 +395,7 @@ pub enum Count {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileDocument {
     pub version: u32,
+    #[serde(serialize_with = "crate::publish::serialize_timestamp")]
     pub generated_at: DateTime<Utc>,
     pub precision: Precision,
     /// `plays`, `sessions` or `collection` (see [`Basis`]).
