@@ -128,3 +128,21 @@ fn the_journal_says_version_3_only_for_edits_that_need_it() {
     edit::journal::clear(&Device::open_export(&root).unwrap(), None).unwrap();
     assert_eq!(version(), 2);
 }
+
+/// Regression: clearing only the album artist ran export.pdb's blank-name check on the track's own
+/// album, so an album named with spaces was dropped.
+#[test]
+fn clearing_the_album_artist_keeps_an_album_whatever_its_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "Main");
+    let pdb_path = root.join(locallibrary::paths::EXPORT_PDB);
+    let id = pdb_library(&root).tracks[0].id;
+    let mut ed = rekordbox_pdb::PdbEditor::from_file(&pdb_path).unwrap();
+    let album = ed.album_id_for(" ", 0).unwrap();
+    ed.set_track_field(id, "album_id", album).unwrap();
+    ed.save(&pdb_path).unwrap();
+
+    let fields = TrackFields { album_artist: Some(String::new()), ..Default::default() };
+    common::apply(&root, &[Edit::EditTracks { tracks: ids(&[id]), fields }]);
+    assert_eq!(pdb_library(&root).track(id).unwrap().album, " ");
+}
