@@ -1,4 +1,4 @@
-import type { RepoClient, RootRepoClient } from './atproto/repo-client';
+import type { RepoClient, RootRepoClient, StoredRecord } from './atproto/repo-client';
 import type { RootSpaces } from './atproto/spaces';
 import type { AuditLog } from './audit/log';
 import type { Db } from './db';
@@ -21,6 +21,13 @@ export type Core = {
 	watchSpace?: (space: string) => Promise<void>;
 	/** Downloads a blob referenced from a space record, using the root's space credential. */
 	fetchSpaceBlob?: (space: string, repoDid: string, cid: string) => Promise<{ bytes: Uint8Array; mimeType: string }>;
+	/** Reads a record from a space the root account is a member of, using its space credential. */
+	readSpaceRecord?: (input: {
+		space: string;
+		repo: string;
+		collection: string;
+		rkey: string;
+	}) => Promise<StoredRecord | null>;
 	/** Downloads a blob from an account's public repo (at most `maxBytes`). */
 	fetchBlob?: (did: string, cid: string, maxBytes: number) => Promise<{ bytes: Uint8Array; mimeType: string }>;
 };

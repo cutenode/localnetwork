@@ -6,6 +6,7 @@ import { parseSpaceUri } from '../atproto/spaces';
 import type { AuditLog } from '../audit/log';
 import type { Core } from '../core';
 import type { BookingRecord, BookingService } from '../services/bookings';
+import type { EpkService } from '../services/epk';
 import type { ProjectService } from '../services/projects';
 import { isRequestKind, type RequestService } from '../services/requests';
 import { type StaffService, staffRoleRecord } from '../services/staff';
@@ -14,7 +15,8 @@ import type { ChangeHandler } from './engine';
 /**
  * Maps records synced from spaces onto the local index. Records are checked
  * against our lexicons, and authority rules are enforced here: only the root
- * account's decisions, roles, and details count.
+ * account's decisions, roles, and details count, and only a press kit owner's
+ * grants.
  */
 export function createProjections(deps: {
 	core: Core;
@@ -23,8 +25,9 @@ export function createProjections(deps: {
 	requests: RequestService;
 	staff: StaffService;
 	bookings: BookingService;
+	epks: EpkService;
 }): ChangeHandler {
-	const { core, audit, projects, requests, staff, bookings } = deps;
+	const { core, audit, projects, requests, staff, bookings, epks } = deps;
 	const { spaces, rootDid } = core;
 
 	return async (change) => {
@@ -56,6 +59,10 @@ export function createProjections(deps: {
 				core.logger.warn({ uri: change.uri }, 'an audit copy was deleted');
 			} else if (type === SPACE_TYPE.booking) {
 				await core.db.deleteFrom('bookingEvent').where('uri', '=', change.uri).execute();
+			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkGrant) {
+				await epks.unindexGrant(change.space, change.uri);
+			} else if (type === SPACE_TYPE.epk && change.collection === COLLECTION.epkRequest) {
+				await epks.unindexRequest(change.uri);
 			}
 
 			return;
@@ -148,6 +155,16 @@ export function createProjections(deps: {
 						value: value as BookingRecord
 					});
 				}
+
+				return;
+			case COLLECTION.epkRequest:
+				if (type === SPACE_TYPE.epk)
+					await epks.indexRequest({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
+
+				return;
+			case COLLECTION.epkGrant:
+				if (type === SPACE_TYPE.epk)
+					await epks.indexGrant({ space: change.space, uri: change.uri, repoDid: change.repoDid, value });
 
 				return;
 			default:

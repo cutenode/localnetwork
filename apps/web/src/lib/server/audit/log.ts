@@ -32,12 +32,18 @@ export type AuditAction =
 	| 'planner.save'
 	| 'planner.unsave'
 	| 'planner.show'
+	| 'epk.save'
+	| 'epk.delete'
+	| 'epk.request'
+	| 'epk.grant'
+	| 'epk.decline'
+	| 'epk.revoke'
 	| 'system.bootstrap'
 	| 'system.space';
 
 export type ActorRole = 'admin' | 'moderator' | 'member' | 'system';
 
-export type SubjectKind = 'account' | 'project' | 'request' | 'role' | 'booking' | 'planner' | 'space';
+export type SubjectKind = 'account' | 'project' | 'request' | 'role' | 'booking' | 'planner' | 'space' | 'epk';
 
 export type AuditChange = { field: string; before?: string; after?: string };
 

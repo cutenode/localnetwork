@@ -65,6 +65,8 @@ pub fn temp_for(dir: &Path, path: &Path, suffix: &str) -> Result<tempfile::Named
     if let Ok(meta) = fs::metadata(path) {
         let _ = fs::set_permissions(tmp.path(), meta.permissions());
     }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(tmp)
 }
 

@@ -73,7 +73,12 @@ fn files_an_export_since_dropped_are_not_missing() {
 #[test]
 fn a_file_the_hash_cache_forgot_is_checked_against_an_older_snapshot() {
     let dir = tempfile::tempdir().unwrap();
-    let (store, d) = pulled(dir.path());
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    // Written well before the pull, so the snapshot tells a rewrite since by its later mtime.
+    common::age(&root);
+    let mut d = Device::open(root).unwrap();
+    sync::pull(&store, &mut d, &PullOptions::default(), &Ctx::silent()).unwrap();
     // The library changes since the pull, and the drive loses its hash cache.
     common::export_new_track(d.root(), "New", "Track");
     std::fs::remove_file(d.state_dir().join("index.json")).unwrap();
@@ -87,6 +92,29 @@ fn a_file_the_hash_cache_forgot_is_checked_against_an_older_snapshot() {
     assert_eq!((damaged.path.as_str(), damaged.reference), (audio.as_str(), Some(ReferenceKind::History)));
     assert_eq!(damaged.repair, Some(RepairSource::Store));
     assert_ne!(damaged.expected, damaged.actual);
+}
+
+/// A database rekordbox or a player saves again, at the same size, in the seconds after a pull
+/// isn't damage: its modification time can't tell it from the copy the pull saw, so it's taken as
+/// it is rather than "repaired" back to that copy.
+#[test]
+fn a_database_saved_again_just_after_a_pull_is_not_damage() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let mut d = Device::open(common::demo_drive(dir.path(), "Main")).unwrap();
+    let pdb = d.path(paths::EXPORT_PDB);
+    filetime::set_file_mtime(&pdb, filetime::FileTime::now()).unwrap();
+    let pulled = sync::pull(&store, &mut d, &PullOptions::default(), &Ctx::silent()).unwrap().snapshot.unwrap();
+    let taken = store.load_snapshot(&pulled.id).unwrap().created.timestamp();
+    let mut bytes = std::fs::read(&pdb).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0xFF;
+    std::fs::write(&pdb, bytes).unwrap();
+    filetime::set_file_mtime(&pdb, filetime::FileTime::from_unix_time(taken, 0)).unwrap();
+
+    let r = scrub(&d, Some(&store), &ScrubOptions::default());
+    assert_eq!(r.snapshot, None);
+    assert!(r.damaged.is_empty(), "{:?}", r.damaged);
 }
 
 #[cfg(unix)]

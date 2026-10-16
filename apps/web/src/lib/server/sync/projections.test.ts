@@ -1,11 +1,13 @@
 import type { JsonObject } from '@atproto/lex-json';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
-import { bookingSpace } from '../atproto/spaces';
+import { bookingSpace, epkSpace } from '../atproto/spaces';
 import { createTestServices, ROOT } from '../testing/core';
 import { createProjections } from './projections';
 
 const ALICE = 'did:plc:alice';
+
+const BOB = 'did:plc:bob';
 
 describe('createProjections', () => {
 	let t: Awaited<ReturnType<typeof createTestServices>>;
@@ -19,7 +21,8 @@ describe('createProjections', () => {
 			projects: t.projects,
 			requests: t.requests,
 			staff: t.staff,
-			bookings: t.bookings
+			bookings: t.bookings,
+			epks: t.epks
 		});
 	});
 	afterEach(async () => {
@@ -165,5 +168,28 @@ describe('createProjections', () => {
 			uri: stored!.actorUri!
 		});
 		expect((await t.audit.get(entry.id))?.actorStatus).toBe('failed');
+	});
+
+	it("counts a press kit grant only from the press kit's owner, and drops it when deleted", async () => {
+		const space = epkSpace(ALICE, '3kit');
+		const grant = { subject: BOB, via: 'approved', createdAt: new Date().toISOString() };
+
+		await upsert(space, BOB, COLLECTION.epkGrant, BOB, grant);
+		expect(await t.db.selectFrom('epkGrant').selectAll().execute()).toEqual([]);
+
+		await upsert(space, ALICE, COLLECTION.epkGrant, BOB, grant);
+		expect(await t.db.selectFrom('epkGrant').select(['subjectDid', 'via']).execute()).toEqual([
+			{ subjectDid: BOB, via: 'approved' }
+		]);
+
+		await project({
+			kind: 'delete',
+			space,
+			repoDid: ALICE,
+			collection: COLLECTION.epkGrant,
+			rkey: BOB,
+			uri: `${space}/${ALICE}/${COLLECTION.epkGrant}/${BOB}`
+		});
+		expect(await t.db.selectFrom('epkGrant').selectAll().execute()).toEqual([]);
 	});
 });

@@ -134,7 +134,9 @@ as \"outcome\", and errors as {\"error\": {kind, message}, \"outcome\"}. Every c
 );
 
 #[derive(Parser)]
-#[command(name = "locallibrary", version, about = "Store, sync, compare, merge and configure rekordbox USB libraries", long_about = None)]
+// bin_name: usage says `locallibrary` like the hints and completions do, not argv[0]'s
+// `locallibrary.exe` on Windows.
+#[command(name = "locallibrary", bin_name = "locallibrary", version, about = "Store, sync, compare, merge and configure rekordbox USB libraries", long_about = None)]
 #[command(after_help = AFTER_HELP, after_long_help = AFTER_LONG_HELP)]
 pub struct Cli {
     /// Store location [default: $LOCALLIBRARY_STORE or the platform data directory]

@@ -1,0 +1,17 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.space.epk",
+	"defs": {
+		"main": {
+			"type": "space",
+			"description": "The private part of one press kit, owned by the manager who published it. Anyone signed in can write a request into it; only its members (the owner, Local Network, and the people granted access) can read it.",
+			"key": "tid",
+			"name": "Local Network press kit",
+			"collections": [
+				"computer.localnetwork.epk.content",
+				"computer.localnetwork.epk.request",
+				"computer.localnetwork.epk.grant"
+			]
+		}
+	}
+}

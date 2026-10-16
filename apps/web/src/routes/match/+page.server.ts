@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { isValidLatLng } from '#lib/geo.ts';
+import { unlessOffline } from '#lib/server/happyview/offline.ts';
 import { normalizeGenres } from '#lib/taxonomy/genres.ts';
 import { FEE_TIERS, FORMATS, isOneOf, SET_TYPES } from '#lib/taxonomy/options.ts';
 import type { ShowDetails } from '#lib/types.ts';
@@ -34,7 +35,8 @@ function criteriaFrom(params: URLSearchParams) {
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const criteria = criteriaFrom(url.searchParams);
 	const searched = url.searchParams.has('go');
-	const results = searched ? await locals.app.projects.match(criteria, 30) : [];
+	// Null when the directory is offline: the form keeps what was entered, so a retry is one click.
+	const results = searched ? await unlessOffline(locals.log, () => locals.app.projects.match(criteria, 30)) : [];
 
 	return { criteria, searched, results, geocoder: locals.app.geocoder.enabled };
 };
