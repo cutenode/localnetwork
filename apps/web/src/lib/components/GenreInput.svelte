@@ -43,16 +43,16 @@
 </script>
 
 {#if enhanced}
-	<div class="input flex min-h-10 flex-wrap items-center gap-1.5 px-2 py-1.5 focus-within:ring-2 focus-within:ring-ansi-yellow">
+	<div class="input flex h-auto flex-wrap items-center gap-1.5 py-1.5 focus-within:border-link">
 		{#each tags as tag (tag)}
-			<span class="chip-accent">
+			<span class="chip gap-1 pr-1">
 				{tag}
-				<button type="button" class="hover:bg-ansi-bright-magenta hover:text-ansi-black" aria-label="Remove {tag}" onclick={() => (tags = tags.filter((t) => t !== tag))}><X class="size-3" /></button>
+				<button type="button" class="grid size-5 place-items-center rounded-full text-fg-subtle hover:bg-raised hover:text-fg" aria-label="Remove {tag}" onclick={() => (tags = tags.filter((t) => t !== tag))}><X class="size-3" /></button>
 			</span>
 		{/each}
 		<input
 			{id}
-			class="min-w-32 flex-1 border-0 bg-transparent p-0.5 text-base text-ansi-white placeholder:text-ansi-haze focus:ring-0"
+			class="min-h-8 min-w-32 flex-1 border-0 bg-transparent p-0 text-body text-fg placeholder:text-fg-subtle focus:ring-0 focus:outline-none"
 			list="{id}-options"
 			bind:value={draft}
 			{onkeydown}

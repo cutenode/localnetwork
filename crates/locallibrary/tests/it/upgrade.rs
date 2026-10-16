@@ -295,8 +295,12 @@ fn each_track_that_cant_be_upgraded_says_why() {
     let dir = tempfile::tempdir().unwrap();
     let (root, lossless, song) = setup(dir.path());
     let _store = store(dir.path());
-    // The lossless file renamed with a colon and in NFD: the copy's name is made safe.
-    let nfd = "Song: Live\u{0301}.wav";
+    // The lossless file renamed with a colon (but on Windows, whose own disks take none) and in
+    // NFD: the copy's name is made safe.
+    let (nfd, safe) = match cfg!(windows) {
+        false => ("Song: Live\u{0301}.wav", "Contents/Sound/Song_ Livé.wav"),
+        true => ("Song Live\u{0301}.wav", "Contents/Sound/Song Livé.wav"),
+    };
     fs::rename(lossless.join("Album/Song.wav"), lossless.join("Album").join(nfd)).unwrap();
     let options = |players: &[&str]| UpgradeOptions {
         folders: vec![lossless.clone()],
@@ -307,7 +311,7 @@ fn each_track_that_cant_be_upgraded_says_why() {
         |o| api::upgrade_plan(&UpgradeRequest { drive: common::path(&root), options: o }, &Ctx::silent()).unwrap();
     let p = plan(options(&[]));
     let [u] = p.upgrades.as_slice() else { panic!("{:?}", p.not_upgraded) };
-    assert_eq!(u.to, "Contents/Sound/Song_ Livé.wav");
+    assert_eq!(u.to, safe);
     // The CDJ-2000NXS plays WAV at 48 kHz at most.
     fs::write(lossless.join("Album").join(nfd), recording(7919, 40.0, 96_000, 24, 0)).unwrap();
     let p = plan(options(&["CDJ-2000NXS"]));

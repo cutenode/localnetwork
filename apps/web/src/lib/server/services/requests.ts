@@ -1,8 +1,10 @@
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
 import { COLLECTION } from '#lib/nsid.ts';
-import { parseMixReportText } from '#lib/mix/report.ts';
+import { MIX_REPORT_MAX_BYTES } from '#lib/mix/report.ts';
+import { parseMixReportText } from '#lib/mix/schema.ts';
 import type {
+	BlobRefJson,
 	ClaimEvidence,
 	ProjectDetails,
 	ProjectMix,
@@ -134,7 +136,7 @@ export class RequestService {
 		}
 
 		const client = await this.actorClient(actor);
-		const profile = input.profile ? await this.attachFiles(input.profile, input, client) : undefined;
+		const profile = input.profile ? await this.attachFiles(input.profile, input, client, project) : undefined;
 
 		const record: RequestRecord = { kind, createdAt: nowIso() };
 
@@ -192,15 +194,21 @@ export class RequestService {
 		return view;
 	}
 
-	/** Uploads a new avatar and mix tracklists to the writer's repo and references them. */
+	/**
+	 * Uploads a new avatar and mix tracklists to the writer's repo and references them. A PDS only
+	 * accepts a record whose blobs it holds, so an avatar or tracklist kept from the published
+	 * project (root's) is copied to the writer's repo too, under the same CID.
+	 */
 	private async attachFiles(
 		profile: ProjectProfile,
 		files: Pick<SubmitInput, 'avatar' | 'tracklists'>,
-		client: RepoClient | null
+		client: RepoClient | null,
+		published: ProjectView | null
 	): Promise<ProjectProfile> {
-		if (!files.avatar && !files.tracklists?.some(Boolean)) return profile;
 		const writer = client ?? (await this.core.root());
-		let next = profile;
+		let next = await this.keepPublished(profile, published, writer);
+
+		if (!files.avatar && !files.tracklists?.some(Boolean)) return next;
 
 		if (files.avatar) next = { ...next, avatar: await writer.uploadBlob(files.avatar.bytes, files.avatar.mimeType) };
 
@@ -212,6 +220,48 @@ export class RequestService {
 					mixes[index] = { ...mixes[index], tracklist: await writer.uploadBlob(file.bytes, file.mimeType) };
 			}
 
+			next = { ...next, mixes };
+		}
+
+		return next;
+	}
+
+	/** Copies the published blobs a proposed profile still references into the writer's repo. */
+	private async keepPublished(
+		profile: ProjectProfile,
+		published: ProjectView | null,
+		writer: RepoClient
+	): Promise<ProjectProfile> {
+		if (!published || writer.did === this.core.rootDid) return profile;
+
+		const kept = new Set(
+			[published.profile.avatar, ...(published.profile.mixes ?? []).map((mix) => mix.tracklist)]
+				.values()
+				.filter((blob) => blob !== undefined)
+				.map((blob) => blob.ref.$link)
+		);
+
+		const fetchBlob = this.core.fetchBlob;
+
+		const copy = async (blob: BlobRefJson): Promise<BlobRefJson> => {
+			if (!kept.has(blob.ref.$link)) return blob;
+
+			if (!fetchBlob) throw new Error('No blob fetcher configured to copy published files');
+			// Avatars and tracklists are both capped at 1 MB.
+			const { bytes } = await fetchBlob(this.core.rootDid, blob.ref.$link, MIX_REPORT_MAX_BYTES);
+
+			return writer.uploadBlob(bytes, blob.mimeType);
+		};
+
+		let next = profile;
+
+		if (profile.avatar) next = { ...next, avatar: await copy(profile.avatar) };
+
+		if (profile.mixes) {
+			const mixes = [];
+
+			for (const mix of profile.mixes)
+				mixes.push(mix.tracklist ? { ...mix, tracklist: await copy(mix.tracklist) } : mix);
 			next = { ...next, mixes };
 		}
 
@@ -234,7 +284,8 @@ export class RequestService {
 		const client = row.repoDid === actor.did ? await this.core.userClient(actor.did) : null;
 
 		if (row.repoDid === actor.did && !client) throw new UserError('Sign in again to edit this request');
-		const profile = input.profile ? await this.attachFiles(input.profile, input, client) : current.profile;
+		const published = row.projectUri ? await this.projects.byUri(row.projectUri) : null;
+		const profile = input.profile ? await this.attachFiles(input.profile, input, client, published) : current.profile;
 		const next: RequestRecord = { ...current, updatedAt: nowIso() };
 
 		if (profile) next.profile = profile;

@@ -64,9 +64,9 @@ impl OneLibrary {
             .ok_or_else(|| Error::NotFound(format!("My Tag #{id} in exportLibrary.db")))
     }
 
-    /// Add a category (`parent` 0) or a tag after its siblings, with the given id (not 0, which
-    /// would be every category's parent). A first sibling is numbered like the rest of its kind
-    /// (from 0 if there are none).
+    /// Add a category (`parent` 0) or a tag after its siblings, with the given id (not 0, which is
+    /// every category's parent). A first sibling is numbered like the rest of its kind (from 0 if
+    /// there are none).
     pub fn add_my_tag(&mut self, id: i64, parent: i64, name: &str, is_category: bool) -> Result<()> {
         refuse_parent_id(id)?;
         let taken: bool =
@@ -103,8 +103,8 @@ impl OneLibrary {
     }
 
     /// Remove a tag with its track links, or a category with its tags and their links. Later
-    /// siblings move up, so `sequenceNo` stays without gaps. Id 0, every category's parent, is
-    /// refused.
+    /// siblings move up, so `sequenceNo` stays without gaps. Id 0 is refused: it's every
+    /// category's parent, so removing it would remove them all.
     pub fn remove_my_tag(&mut self, id: i64) -> Result<()> {
         refuse_parent_id(id)?;
         let row = self.my_tag(id)?;

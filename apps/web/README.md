@@ -22,6 +22,9 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - A mix can carry a tracklist: a mix report exported from [locallibrary](../locallibrary) (`locallibrary mix … --export`), shown at `/projects/<slug>/mixes/<n>` with the waveform and track lanes, tempo, key moves on the Camelot wheel, and every transition. `/mixes/preview` renders an export locally without uploading it.
 - A mix can also link a set a manager published with locallibrary (`locallibrary sets publish`), picked from a list on the edit form. The profile shows when and where it was played, and says so if the set changed after it was linked.
 - Private booking details (email, phone, rates, tech rider, hospitality) visible only to signed-in members.
+- A project page shows how its DJs play: the playing stats and recent sets each manager publishes from locallibrary (`computer.localnetwork.dj.profile` and `dj.set`), read from their own PDS when the page loads and streamed in, so a slow PDS never holds the page up. Nothing is stored; a few minutes' cache in memory keeps busy pages from asking again.
+- Press kits as records. A manager publishes as many as they like for a project (`/epk/new?project=<slug>`), one per kind of booking. Each is a public `computer.localnetwork.epk` record in their own repo, holding the mixes and photos they choose to show everyone, plus a space of their own holding the rest: a full bio, on-request mixes and photos, press quotes, contact and rider. People ask for access at `/epk/<did>/<rkey>`; the owner's rules approve them at once, send them for review, or don't take requests, per group (people they've booked with, people they follow on Bluesky, promoters, anyone signed in), with seven presets from open to closed. Every approval writes a grant record to the owner's PDS and adds the person to the space; automatic ones are written as soon as the owner's session allows. The owner sees and answers requests, adds and removes people at `/epk/<did>/<rkey>/access`, and gets a press-photo checklist (3 or more photos, every orientation, 3,000 px, credited).
+- `/projects/<slug>/epk` lists a project's press kits, then one put together from the profile, mixes, stats, sets and (for members) booking details. Both print or save as a PDF on white.
 - Every claim and change is reviewed by a moderator, so profiles can't be hijacked.
 
 ### Tools
@@ -48,6 +51,8 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 | Audit entries (`computer.localnetwork.audit.entry`)   | Both the actor's repo and the root's repo in the audit space      | Actor and root                       | Staff                 |
 | Booking threads                                       | One booking space per thread; each party writes in their own repo | Promoter and managers                | Thread members only   |
 | Planner                                               | A personal planner space under the promoter's own DID             | The promoter                         | The promoter only     |
+| Press kits (`computer.localnetwork.epk`)              | The manager's public repo                                         | The manager                          | Everyone              |
+| Press kits' private part, requests and grants         | One space per press kit under the manager's DID                   | Owner (content, grants), askers      | Owner, root, granted  |
 
 Space policies (`com.atproto.simplespace`):
 
@@ -59,6 +64,7 @@ Space policies (`com.atproto.simplespace`):
 | industry             | public (any authenticated account) | member list (root)                          |
 | booking (per thread) | member list (promoter + managers)  | member list                                 |
 | planner (personal)   | member list (owner)                | member list                                 |
+| epk (per press kit)  | member list (owner, root, granted) | public (anyone can ask; only owner's count) |
 
 ```mermaid
 flowchart LR
@@ -96,7 +102,7 @@ Accounts whose PDS doesn't run the spaces alpha can still sign in: the root file
 
 ### Mix tracklists
 
-A tracklist is a JSON blob (`application/json`, at most 1 MB) on a mix in the project record, following the `locallibrary.mix-report` format, version 1 or 2 (schema in `src/lib/mix/report.ts`). It moves like the photo: uploaded to the requester's PDS with the request, previewed by moderators from there (`/admin/requests/<rkey>/mixes/<n>`), then validated, re-serialized (dropping unknown fields), and uploaded to the root's repo on approval. A tracklist that is already published is kept by CID without being fetched again. Published tracklists are read with `com.atproto.sync.getBlob` from the root's PDS, validated, and cached in memory. The format carries no file paths, comments, or ratings; cover art is embedded as small `data:` images.
+A tracklist is a JSON blob (`application/json`, at most 1 MB) on a mix in the project record, following the `locallibrary.mix-report` format, version 1 or 2 (schema in `src/lib/mix/schema.ts`). It moves like the photo: uploaded to the requester's PDS with the request, previewed by moderators from there (`/admin/requests/<rkey>/mixes/<n>`), then validated, re-serialized (dropping unknown fields), and uploaded to the root's repo on approval. A tracklist that is already published is kept by CID without being fetched again. Published tracklists are read with `com.atproto.sync.getBlob` from the root's PDS, validated, and cached in memory. The format carries no file paths, comments, or ratings; cover art is embedded as small `data:` images.
 
 A mix can also link a set (`set`, a `com.atproto.repo.strongRef` to a `computer.localnetwork.dj.set` in a manager's own repo), alongside its tracklist. The edit form offers the project's managers' sets, which it reads from HappyView, and posts the set's URI and CID. When root publishes, each newly linked set must be one HappyView has, by a manager; the CID pins the version that was picked. The profile looks the sets up in HappyView and says when one has changed since it was linked (a different CID) or is gone. Only managers can link sets, so a new project's form has none to offer until it's approved.
 
@@ -117,59 +123,56 @@ With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons cha
 
 ## Getting started
 
-Requirements: Node.js 24 (see `.node-version` at the repo root), pnpm 12, and Docker (or OrbStack) for the local HappyView.
+Requirements: Node.js 24 (`.node-version` at the repo root; with [fnm](https://github.com/Schniz/fnm), `fnm install && fnm use`), [pnpm](https://pnpm.io/installation), and Docker (or OrbStack), running, for the local HappyView.
 
 The app lives in `apps/web` of a pnpm workspace whose root is the repo root. Run the commands below in `apps/web`; `pnpm install` there installs the whole workspace and the git hooks. The repo root forwards `dev`, `build`, `check`, `lint`, `format`, `test`, `knip`, and `verify` here.
 
 ```bash
 pnpm install
-```
-
-Start a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects) and a HappyView container fed by a local Jetstream stand-in. It writes `.env.local`:
-
-```bash
-pnpm dev:network
-```
-
-In another terminal:
-
-```bash
 pnpm dev
 ```
 
-Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
+`pnpm dev` starts a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects), a HappyView container fed by a local Jetstream stand-in, and the app wired to them. It also writes `.env.local`. Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
 
-| Handle      | Password    | Role                                        |
-| ----------- | ----------- | ------------------------------------------- |
-| `ada.test`  | `ada-pass`  | admin (via `ADMIN_DIDS`)                    |
-| `milo.test` | `milo-pass` | regular; make them a moderator under Staff  |
-| `neon.test` | `neon-pass` | DJ, manages two demo projects, has two sets |
-| `pat.test`  | `pat-pass`  | promoter                                    |
+| Handle      | Password    | Role                                                             |
+| ----------- | ----------- | ---------------------------------------------------------------- |
+| `ada.test`  | `ada-pass`  | admin (via `ADMIN_DIDS`)                                         |
+| `milo.test` | `milo-pass` | regular; make them a moderator under Staff                       |
+| `neon.test` | `neon-pass` | DJ, manages two demo projects, has three sets and two press kits |
+| `pat.test`  | `pat-pass`  | promoter                                                         |
 
-The network is temporary; restarting it resets everything (and the dev database).
+The network is temporary; Ctrl-C stops it, and restarting resets everything (and the dev database). To restart the app without resetting the network, run `pnpm dev:network` in one terminal and `pnpm dev:app` in another.
 
 ## Scripts
 
-| Script                              | What it does                                                          |
-| ----------------------------------- | --------------------------------------------------------------------- |
-| `pnpm dev` / `pnpm dev:network`     | Dev server / local atproto network and HappyView                      |
-| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                              |
-| `pnpm check`                        | `svelte-check` with TypeScript 6                                      |
-| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin      |
-| `pnpm format` / `pnpm format:check` | Oxfmt                                                                 |
-| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)   |
-| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container |
-| `pnpm test:coverage`                | Unit + component + integration with `@vitest/coverage-v8`             |
-| `pnpm test:build`                   | Production build, checked for sourcemaps and the client bundle budget |
-| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe  |
-| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)            |
-| `pnpm knip`                         | Unused files, exports, and dependencies                               |
-| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS     |
-| `pnpm verify`                       | CI's quick checks, in order                                           |
+| Script                              | What it does                                                              |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| `pnpm dev`                          | Local atproto network, HappyView, and the dev server                      |
+| `pnpm dev:network` / `pnpm dev:app` | The network and HappyView only / the dev server only (reads `.env.local`) |
+| `pnpm build` / `pnpm start`         | Production build (adapter-node) / run it                                  |
+| `pnpm check`                        | `svelte-check` with TypeScript 6                                          |
+| `pnpm lint`                         | Oxlint with type-aware rules (tsgolint) and the anti-slop plugin          |
+| `pnpm format` / `pnpm format:check` | Oxfmt                                                                     |
+| `pnpm test`                         | Unit tests (Node) + component tests (Vitest browser mode, Chromium)       |
+| `pnpm test:integration`             | Full flows against an in-process spaces PDS and a HappyView container     |
+| `pnpm test:coverage`                | Unit + component + story + integration tests with `@vitest/coverage-v8`   |
+| `pnpm test:build`                   | Production build, checked for sourcemaps and the client bundle budget     |
+| `pnpm storybook`                    | The design system in Storybook, at localhost:6006                         |
+| `pnpm test:storybook`               | Every story rendered in Chromium; an accessibility violation fails it     |
+| `pnpm build-storybook`              | Static Storybook in `storybook-static/`                                   |
+| `pnpm test:e2e`                     | Playwright (desktop browsers and phones) on an isolated network, axe      |
+| `pnpm test:lighthouse`              | Lighthouse CI on the production build (`lighthouserc.cjs`)                |
+| `pnpm knip`                         | Unused files, exports, and dependencies                                   |
+| `pnpm lexicons:publish`             | Publish lexicons from the root account and check or set their DNS         |
+| `pnpm verify`                       | CI's quick checks, in order                                               |
 
 Pull requests run the e2e tests in Chromium only (`pnpm test:e2e --project chromium`); the other browsers and the phones run weekly.
 
 Git hooks (lefthook, from the root `lefthook.yml`) format and lint staged files on commit and run type checks and unit tests on push.
+
+## Design system
+
+`src/lib/ui/` holds the design system the site is built on: dark ink surfaces, white type, Instrument Sans for words and JetBrains Mono for data, and no brand accent, since colour comes only from DJ data. `theme.css` has the Tailwind tokens; `data-colors.css` is generated from `packages/tokens/colors.json` (a test fails when it's stale and says how to regenerate it). Each component has stories beside it, and **Patterns/Homepage** builds the product homepage from them. `pnpm storybook` to browse it. `src/routes/layout.css` imports the theme for the whole site; its shared classes (`btn-primary`, `input`, `card`, `chip`, `table-base` and the rest) live in `theme.css` so a plain form button and the `Button` component draw the same way. Printed pages switch the same tokens to light values.
 
 ## Configuration
 
@@ -236,6 +239,7 @@ lua/                            HappyView scripts: the project and set record ga
 scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
+src/lib/ui/                     The design system: theme tokens, components and their stories
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery
 src/lib/server/happyview/       HappyView client, script bundling, and boot sync
@@ -246,6 +250,7 @@ src/lib/tools/                  The tools: one entry per tool, with its guides b
 src/routes/                     SvelteKit 3 pages, form actions, and endpoints
 tests/integration/              Flows against an in-process spaces PDS and a HappyView container
 tests/e2e/                      Playwright
+.storybook/                     Storybook config; stories render with src/lib/ui/theme.css only
 ```
 
 ## Known limitations

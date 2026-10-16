@@ -28,6 +28,8 @@ export class FakeNetwork {
 		SimpleSpaceConfig & { uri: string; members: Map<string, { read: boolean; write: boolean }> }
 	>();
 	readonly blobs = new Map<string, Uint8Array>();
+	/** Which repos hold each blob, by CID: a PDS refuses a record whose blobs the writer never uploaded. */
+	readonly blobHolders = new Map<string, Set<string>>();
 	failures = new Map<string, number>();
 	/** Called after every public-repo write, the way HappyView's Jetstream consumer hears of it. */
 	onRecord: (event: RecordEvent) => Promise<void> = async () => {};
@@ -47,6 +49,50 @@ export class FakeNetwork {
 			.filter(([key]) => key.startsWith(`${space}|`) && (!repo || key.split('|')[1] === repo))
 			.map(([, value]) => value)
 			.toArray();
+	}
+
+	/** Answers public getRecord and listRecords from the public repos, as a PDS does for anyone. */
+	readonly publicFetch: typeof fetch = async (input) => {
+		const url = new URL(input instanceof Request ? input.url : String(input));
+		const repo = url.searchParams.get('repo');
+		const collection = url.searchParams.get('collection');
+		const prefix = `${repo}|${collection}|`;
+
+		if (url.pathname.endsWith('getRecord')) {
+			const found = this.records.get(`${prefix}${url.searchParams.get('rkey')}`);
+
+			return found ? Response.json(found) : Response.json({ error: 'RecordNotFound' }, { status: 400 });
+		}
+
+		const records = this.records
+			.entries()
+			.filter(([key]) => key.startsWith(prefix))
+			.map(([, value]) => value)
+			.toArray();
+
+		return Response.json({ records });
+	};
+
+	/** Throws BlobNotFound, as a PDS does, when `record` references a blob `did` doesn't hold. */
+	assertBlobsHeld(did: string, record: JsonRecord): void {
+		// Blob refs are the only `$link`s in the records these tests write.
+		const missing = JSON.stringify(record)
+			.matchAll(/"\$link":"([^"]+)"/g)
+			.map(([, cid]) => cid)
+			.find((cid) => !this.blobHolders.get(cid)?.has(did));
+
+		if (missing) throw new XRPCError(400, 'BlobNotFound', `Could not find blob: ${missing}`);
+	}
+
+	/** Throws, as a PDS does, when a member-list space doesn't let `did` write. */
+	assertCanWrite(did: string, space: string): void {
+		const found = this.spaces.get(space);
+
+		if (!found || found.writePolicy.$type !== 'com.atproto.simplespace.defs#memberListPolicy') return;
+
+		if (space.startsWith(`at://${did}/`) || found.members.get(did)?.write) return;
+
+		throw new XRPCError(403, 'Forbidden', `${did} can't write to ${space}`);
 	}
 
 	maybeFail(did: string): void {
@@ -99,6 +145,8 @@ export class FakeRootClient implements RootRepoClient {
 		rkey: string,
 		record: JsonRecord
 	): Promise<RecordRef> {
+		this.net.assertBlobsHeld(this.did, record);
+		this.net.assertCanWrite(this.did, space);
 		const uri = `${space}/${this.did}/${collection}/${rkey}`;
 		const cid = await cidOf(record);
 		this.net.spaceRecords.set(key, { uri, cid, value: structuredClone(record) });
@@ -136,6 +184,7 @@ export class FakeRootClient implements RootRepoClient {
 	async uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson> {
 		const cid = await cidOf({ bytes: Buffer.from(bytes).toString('base64') });
 		this.net.blobs.set(cid, bytes);
+		this.net.blobHolders.set(cid, (this.net.blobHolders.get(cid) ?? new Set()).add(this.did));
 
 		return { $type: 'blob', ref: { $link: cid }, mimeType, size: bytes.length };
 	}
@@ -176,15 +225,30 @@ export class FakeRootClient implements RootRepoClient {
 		if (input.appAccess) found.appAccess = input.appAccess;
 	}
 
-	async putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void> {
-		const found = this.net.spaces.get(input.space);
+	/** The space, if this account owns it; a PDS lets only the owner manage a space. */
+	private owned(space: string) {
+		const found = this.net.spaces.get(space);
 
 		if (!found) throw new XRPCError(404, 'SpaceNotFound');
-		found.members.set(input.did, { read: input.read, write: input.write });
+
+		if (!space.startsWith(`at://${this.did}/`)) throw new XRPCError(403, 'Forbidden');
+
+		return found;
+	}
+
+	async deleteSpace(space: string): Promise<void> {
+		this.owned(space);
+		this.net.spaces.delete(space);
+
+		for (const key of this.net.spaceRecords.keys()) if (key.startsWith(`${space}|`)) this.net.spaceRecords.delete(key);
+	}
+
+	async putMember(input: { space: string; did: string; read: boolean; write: boolean }): Promise<void> {
+		this.owned(input.space).members.set(input.did, { read: input.read, write: input.write });
 	}
 
 	async removeMember(input: { space: string; did: string }): Promise<void> {
-		this.net.spaces.get(input.space)?.members.delete(input.did);
+		this.owned(input.space).members.delete(input.did);
 	}
 
 	async listMembers(space: string) {
@@ -216,6 +280,7 @@ export class FakeRootClient implements RootRepoClient {
 		swapRecord?: string | null;
 	}): Promise<RecordRef> {
 		this.net.maybeFail(this.did);
+		this.net.assertBlobsHeld(this.did, input.record);
 		const key = `${this.did}|${input.collection}|${input.rkey}`;
 		const existing = this.net.records.get(key);
 

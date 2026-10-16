@@ -17,3 +17,6 @@ test-results
 *.db-shm
 /.lighthouseci
 /lighthouse-report
+
+*storybook.log
+storybook-static

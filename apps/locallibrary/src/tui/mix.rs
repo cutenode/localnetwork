@@ -395,8 +395,8 @@ pub fn forget(app: &mut App) {
     app.toast(format!("forgot {forgot}"), Level::Info);
 }
 
-/// What a path typed or dropped into the terminal means: quotes and backslash escapes taken off,
-/// `~` for the home folder.
+/// What a path typed or dropped into the terminal means: quotes and (on Unix, where a shell
+/// escapes with them) backslash escapes taken off, `~` for the home folder.
 pub(super) fn typed_path(s: &str) -> PathBuf {
     let s = s.trim();
     let s = s
@@ -408,7 +408,7 @@ pub(super) fn typed_path(s: &str) -> PathBuf {
             let mut out = String::new();
             let mut chars = s.chars();
             while let Some(c) = chars.next() {
-                if c == '\\' {
+                if c == '\\' && cfg!(unix) {
                     out.extend(chars.next());
                 } else {
                     out.push(c);
