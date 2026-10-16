@@ -3,6 +3,7 @@
 //! number of threads; one thread reads, handing responses to whoever waits for them and the
 //! other end's requests and notifications to the owner.
 
+use std::cell::Cell;
 use std::io::{BufReader, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -78,6 +79,9 @@ pub struct Pending {
     id: u64,
     response: Receiver<Result<Value, RpcError>>,
     progress: Option<Receiver<ProgressReport>>,
+    /// Its response came: the reader drops its sender only after handing it over, so the
+    /// channel alone can't say so yet.
+    answered: Cell<bool>,
 }
 
 impl Pending {
@@ -98,8 +102,14 @@ impl Pending {
     /// [`Pending::wait`] for at most `timeout`: `None` when the response hasn't come by then.
     /// Once it has, waiting again fails with `closed`.
     pub fn wait_timeout<R: DeserializeOwned>(&self, timeout: Duration) -> Option<Result<R, RpcError>> {
+        if self.answered.get() {
+            return Some(Err(RpcError::closed()));
+        }
         match self.response.recv_timeout(timeout) {
-            Ok(response) => Some(response.and_then(result)),
+            Ok(response) => {
+                self.answered.set(true);
+                Some(response.and_then(result))
+            }
             Err(RecvTimeoutError::Timeout) => None,
             Err(RecvTimeoutError::Disconnected) => Some(Err(RpcError::closed())),
         }
@@ -209,7 +219,7 @@ impl Peer {
             self.take_waiter(id);
             return Err(e);
         }
-        Ok(Pending { peer: self.clone(), id, response, progress })
+        Ok(Pending { peer: self.clone(), id, response, progress, answered: Cell::new(false) })
     }
 
     fn take_waiter(&self, id: u64) -> Option<Waiter> {
