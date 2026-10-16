@@ -252,7 +252,13 @@ export class ProjectService {
 			if (!candidate) return [];
 
 			return [
-				{ candidate, score: match.score, reasons: noteTexts(match.reasons), warnings: noteTexts(match.warnings) }
+				{
+					candidate,
+					score: match.score,
+					breakdown: match.breakdown,
+					reasons: noteTexts(match.reasons),
+					warnings: noteTexts(match.warnings)
+				}
 			];
 		});
 	}

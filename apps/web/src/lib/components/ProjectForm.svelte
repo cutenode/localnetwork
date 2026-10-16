@@ -107,11 +107,21 @@
 	const has = (key: 'formats' | 'setTypes', option: string) => (values[key] ?? []).includes(option);
 </script>
 
+<!-- Floated, a legend leaves the fieldset's border alone and lays out like the other flex items. -->
+{#snippet legend(title: string, description: string)}
+	<legend class="eyebrow float-left -mb-3.5 text-fg-subtle">{title}</legend>
+	<p class="text-small text-fg-muted">{description}</p>
+{/snippet}
+
+{#snippet remove(label: string, onclick: () => void)}
+	<button type="button" class="grid size-11 shrink-0 place-items-center rounded-lg text-fg-muted hover:bg-raised hover:text-fg" aria-label={label} {onclick}><Trash2 class="size-4" /></button>
+{/snippet}
+
 <form
 	method="POST"
 	{action}
 	enctype="multipart/form-data"
-	class="space-y-8"
+	class="flex flex-col gap-6"
 	use:enhance={() => {
 		submitting = true;
 		return async ({ update }) => {
@@ -120,11 +130,8 @@
 		};
 	}}
 >
-	<section class="card card-pad space-y-5">
-		<div>
-			<h2 class="section-title">The basics</h2>
-			<p class="muted text-sm">How promoters will see the project in search results.</p>
-		</div>
+	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+		{@render legend('The basics', 'How promoters will see the project in search results.')}
 		<div class="grid gap-4 sm:grid-cols-[1fr_14rem]">
 			<div>
 				<label class="label" for="name">Project name</label>
@@ -143,7 +150,7 @@
 				<input id="tagline" class="input" name="tagline" value={v('tagline')} maxlength="140" placeholder="Hypnotic, rolling techno for late rooms" />
 			</div>
 			<div>
-				<label class="label" for="pronouns">Pronouns <span class="muted">(optional)</span></label>
+				<label class="label" for="pronouns">Pronouns <span class="font-normal text-fg-subtle">(optional)</span></label>
 				<input id="pronouns" class="input" name="pronouns" value={v('pronouns')} maxlength="24" />
 			</div>
 		</div>
@@ -154,33 +161,30 @@
 		</div>
 		<div>
 			<label class="label" for="bio">Bio</label>
-			<textarea id="bio" class="input min-h-36" name="bio" maxlength="30000">{v('bio')}</textarea>
+			<textarea id="bio" class="input min-h-36 py-2.5" name="bio" maxlength="30000">{v('bio')}</textarea>
 		</div>
-		<div class="flex items-center gap-4">
-			<Avatar src={avatarUrl} name={v('name') || 'New project'} size="lg" />
-			<div class="flex-1">
+		<div class="flex items-start gap-4">
+			<Avatar src={avatarUrl} name={v('name') || 'New project'} size="xl" />
+			<div class="min-w-0 flex-1">
 				<label class="label" for="avatar">Photo or logo</label>
-				<input id="avatar" type="file" name="avatar" accept="image/png,image/jpeg,image/webp" class="block w-full text-base" />
+				<input id="avatar" type="file" name="avatar" accept="image/png,image/jpeg,image/webp" class="block w-full text-small text-fg-muted" />
 				<p class="hint">PNG, JPEG, or WebP, up to 1 MB.</p>
 				{#if avatarUrl}
-					<label class="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" class="checkbox" name="removeAvatar" /> Remove the current image</label>
+					<label class="mt-3 flex items-center gap-2.5 text-small text-fg-soft"><input type="checkbox" class="checkbox" name="removeAvatar" /> Remove the current image</label>
 				{/if}
 			</div>
 		</div>
-	</section>
+	</fieldset>
 
-	<section class="card card-pad space-y-5">
-		<div>
-			<h2 class="section-title">Where</h2>
-			<p class="muted text-sm">Local matters: promoters search by distance from their venue.</p>
-		</div>
+	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+		{@render legend('Where', 'Local matters: promoters search by distance from their venue.')}
 		<PlacePicker {values} {geocoder} />
-		<div class="grid gap-4 sm:grid-cols-3">
+		<div class="grid gap-4 sm:grid-cols-[14rem_1fr] sm:items-end">
 			<div>
 				<label class="label" for="travelRadiusKm">Will travel up to (km)</label>
 				<input id="travelRadiusKm" class="input" type="number" name="travelRadiusKm" min="0" max="20000" value={v('travelRadiusKm')} />
 			</div>
-			<label class="flex items-center gap-2 self-end pb-2 text-sm">
+			<label class="flex min-h-11 items-center gap-2.5 text-small text-fg-soft">
 				<input type="checkbox" class="checkbox" name="international" checked={values.international} /> Open to international bookings
 			</label>
 		</div>
@@ -188,19 +192,16 @@
 			<label class="label" for="travelNotes">Travel notes</label>
 			<input id="travelNotes" class="input" name="travelNotes" value={v('travelNotes')} maxlength="300" placeholder="Has a car; needs a hotel for gigs over 200 km" />
 		</div>
-	</section>
+	</fieldset>
 
-	<section class="card card-pad space-y-5">
-		<div>
-			<h2 class="section-title">Sets and setup</h2>
-			<p class="muted text-sm">Helps match the project to the right slot.</p>
-		</div>
+	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+		{@render legend('Sets and setup', 'Helps match the project to the right slot.')}
 		<fieldset>
 			<legend class="label">Set types</legend>
 			<div class="flex flex-wrap gap-2">
 				{#each SET_TYPES as option (option.value)}
-					<label class="chip-toggle gap-2 py-0.5">
-						<input type="checkbox" class="checkbox" name="setTypes" value={option.value} checked={has('setTypes', option.value)} />{option.label}
+					<label class="chip-toggle">
+						<input type="checkbox" class="sr-only" name="setTypes" value={option.value} checked={has('setTypes', option.value)} />{option.label}
 					</label>
 				{/each}
 			</div>
@@ -209,13 +210,13 @@
 			<legend class="label">Formats</legend>
 			<div class="flex flex-wrap gap-2">
 				{#each FORMATS as option (option.value)}
-					<label class="chip-toggle gap-2 py-0.5">
-						<input type="checkbox" class="checkbox" name="formats" value={option.value} checked={has('formats', option.value)} />{option.label}
+					<label class="chip-toggle">
+						<input type="checkbox" class="sr-only" name="formats" value={option.value} checked={has('formats', option.value)} />{option.label}
 					</label>
 				{/each}
 			</div>
 		</fieldset>
-		<div class="grid gap-4 sm:grid-cols-5">
+		<div class="grid grid-cols-2 gap-4 md:grid-cols-5">
 			<div>
 				<label class="label" for="setMin">Shortest set (min)</label>
 				<input id="setMin" class="input" type="number" name="setMin" min="15" max="720" value={v('setMin')} />
@@ -237,15 +238,12 @@
 				<input id="activeSince" class="input" type="number" name="activeSince" min="1950" max="2100" value={v('activeSince')} placeholder="2018" />
 			</div>
 		</div>
-	</section>
+	</fieldset>
 
-	<section class="card card-pad space-y-5">
-		<div>
-			<h2 class="section-title">Fees</h2>
-			<p class="muted text-sm">The tier is public and used for budget matching. Amounts are optional.</p>
-		</div>
-		<div class="grid gap-4 sm:grid-cols-4">
-			<div class="sm:col-span-1">
+	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+		{@render legend('Fees', 'The tier is public and used for budget matching. Amounts are optional.')}
+		<div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+			<div>
 				<label class="label" for="feeTier">Tier</label>
 				<select id="feeTier" class="input" name="feeTier">
 					<option value="">Not listed</option>
@@ -265,54 +263,50 @@
 				<input id="feeMax" class="input" type="number" min="0" name="feeMax" value={v('feeMax')} />
 			</div>
 		</div>
-	</section>
+	</fieldset>
 
-	<section class="card card-pad space-y-5">
-		<div>
-			<h2 class="section-title">Links and mixes</h2>
-			<p class="muted text-sm">SoundCloud, Mixcloud, and YouTube mixes can be played right on the profile.</p>
-		</div>
-		<div class="space-y-2">
-			<span class="label">Links</span>
+	<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+		{@render legend('Links and mixes', 'SoundCloud, Mixcloud, and YouTube mixes can be played right on the profile.')}
+		<div class="flex flex-col gap-2">
+			<span class="label mb-0">Links</span>
 			{#each links as link, index (index)}
-				<!-- On phones the type takes its own line, so the URL beside the remove button stays wide enough to use. -->
-				<div class="flex gap-2 max-sm:flex-wrap">
-					<select class="input w-44 max-sm:w-full" name="linkKind" bind:value={link.kind} aria-label="Link type">
+				<!-- On a phone the URL takes its own row under the type and the remove button. -->
+				<div class="flex flex-wrap gap-2 sm:flex-nowrap">
+					<select class="input min-w-0 flex-1 sm:w-44 sm:flex-none" name="linkKind" bind:value={link.kind} aria-label="Link type">
 						{#each LINK_KINDS as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
 					</select>
-					<input class="input max-sm:w-auto max-sm:min-w-0 max-sm:flex-1" name="linkUrl" bind:value={link.url} placeholder="https://" aria-label="Link URL" />
+					<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="linkUrl" bind:value={link.url} placeholder="https://" aria-label="Link URL" />
 					<!-- No field edits this here; posting it back keeps it on save. -->
 					<input type="hidden" name="linkLabel" value={link.label ?? ''} />
-					<button type="button" class="btn-ghost px-2" aria-label="Remove link" onclick={() => (links = links.filter((_, i) => i !== index))}><Trash2 class="size-4" /></button>
+					{@render remove('Remove link', () => (links = links.filter((_, i) => i !== index)))}
 				</div>
 			{/each}
 			{#if links.length < 12}
-				<button type="button" class="btn-ghost btn-sm" onclick={() => (links = [...links, { kind: 'website', url: '' }])}><Plus class="size-3" />Add link</button>
+				<button type="button" class="btn-ghost btn-sm self-start" onclick={() => (links = [...links, { kind: 'website', url: '' }])}><Plus class="size-4" />Add link</button>
 			{/if}
 		</div>
-		<div class="space-y-2">
-			<span class="label">Mixes</span>
+		<div class="flex flex-col gap-2">
+			<span class="label mb-0">Mixes</span>
 			{#each mixes as mix (mix.key)}
-				<div class="space-y-1">
-					<!-- On phones the title takes its own line, like a link's type. -->
-					<div class="flex gap-2 max-sm:flex-wrap">
-						<input class="input w-56 max-sm:w-full" name="mixTitle" bind:value={mix.title} placeholder="Title" aria-label="Mix title" />
-						<input class="input max-sm:w-auto max-sm:min-w-0 max-sm:flex-1" name="mixUrl" bind:value={mix.url} placeholder="https://soundcloud.com/…" aria-label="Mix URL" />
-						<button type="button" class="btn-ghost px-2" aria-label="Remove mix" onclick={() => (mixes = mixes.filter((m) => m.key !== mix.key))}><Trash2 class="size-4" /></button>
+				<div class="flex flex-col gap-2">
+					<div class="flex flex-wrap gap-2 sm:flex-nowrap">
+						<input class="input min-w-0 flex-1 sm:w-56 sm:flex-none" name="mixTitle" bind:value={mix.title} placeholder="Title" aria-label="Mix title" />
+						<input class="input order-last sm:order-none sm:min-w-0 sm:flex-1" name="mixUrl" bind:value={mix.url} placeholder="https://soundcloud.com/…" aria-label="Mix URL" />
+						{@render remove('Remove mix', () => (mixes = mixes.filter((m) => m.key !== mix.key)))}
 					</div>
-					<div class="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1 text-base">
+					<div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-small text-fg-muted">
 						<input type="hidden" name="mixTracklistCid" value={mix.tracklist?.ref.$link ?? ''} />
 						<!-- No fields edit these here; posting them back keeps them on save. -->
 						<input type="hidden" name="mixDuration" value={mix.durationMinutes ?? ''} />
 						<input type="hidden" name="mixYear" value={mix.year ?? ''} />
 						{#if mix.tracklist}
-							<span class="text-ansi-bright-green">Tracklist attached</span>
+							<span class="text-good">Tracklist attached</span>
 							<button type="button" class="btn-ghost btn-sm" onclick={() => (mix.tracklist = undefined)}>Remove</button>
-							<span class="muted">or replace it:</span>
+							<span>or replace it:</span>
 						{:else}
-							<span class="muted">Tracklist (optional):</span>
+							<span>Tracklist (optional):</span>
 						{/if}
-						<input type="file" name="mixTracklist" accept=".json,application/json" class="max-w-full text-base" aria-label="Tracklist for {mix.title || 'this mix'}" />
+						<input type="file" name="mixTracklist" accept=".json,application/json" class="max-w-full text-small" aria-label="Tracklist for {mix.title || 'this mix'}" />
 					</div>
 					{#if sets}
 						<div class="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1 text-base">
@@ -327,10 +321,10 @@
 				</div>
 			{/each}
 			{#if mixes.length < 12}
-				<button type="button" class="btn-ghost btn-sm" onclick={() => (mixes = [...mixes, { title: '', url: '', key: nextMixKey++ }])}><Plus class="size-3" />Add mix</button>
+				<button type="button" class="btn-ghost btn-sm self-start" onclick={() => (mixes = [...mixes, { title: '', url: '', key: nextMixKey++ }])}><Plus class="size-4" />Add mix</button>
 			{/if}
 			<p class="hint">
-				A tracklist is a mix report from locallibrary (<code>locallibrary mix … --export set.mix.json</code>): what you played, when, and how you mixed it, shown
+				A tracklist is a mix report from locallibrary (<code class="font-mono text-fg-muted">locallibrary mix … --export set.mix.json</code>): what you played, when, and how you mixed it, shown
 				under the mix. <a class="link" href="/mixes/preview" target="_blank">Preview a file</a> before you add it.
 			</p>
 			{#if sets}
@@ -339,21 +333,18 @@
 		</div>
 		<div>
 			<label class="label" for="highlights">Highlights</label>
-			<textarea id="highlights" class="input min-h-24" name="highlights" placeholder="One per line: residencies, festivals, releases">{v('highlights')}</textarea>
+			<textarea id="highlights" class="input min-h-24 py-2.5" name="highlights" placeholder="One per line: residencies, festivals, releases">{v('highlights')}</textarea>
 			<p class="hint">Up to 12.</p>
 		</div>
 		<div>
 			<label class="label" for="lookingFor">Looking for</label>
-			<textarea id="lookingFor" class="input" name="lookingFor" maxlength="5000" placeholder="Warm-up slots at queer parties, daytime outdoor events…">{v('lookingFor')}</textarea>
+			<textarea id="lookingFor" class="input py-2.5" name="lookingFor" maxlength="5000" placeholder="Warm-up slots at queer parties, daytime outdoor events…">{v('lookingFor')}</textarea>
 		</div>
-	</section>
+	</fieldset>
 
 	{#if showDetails}
-		<section class="card card-pad space-y-5">
-			<div>
-				<h2 class="section-title">Private booking details</h2>
-				<p class="muted text-sm">Only signed-in members see these. They're stored in a private atproto space, not your public repo.</p>
-			</div>
+		<fieldset class="card flex flex-col gap-5 p-5 sm:p-6">
+			{@render legend('Private booking details', "Only signed-in members see these. They're stored in a private atproto space, not your public repo.")}
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div>
 					<label class="label" for="bookingEmail">Booking email</label>
@@ -366,32 +357,32 @@
 			</div>
 			<div>
 				<label class="label" for="rateNotes">Rates</label>
-				<textarea id="rateNotes" class="input" name="rateNotes">{v('rateNotes')}</textarea>
+				<textarea id="rateNotes" class="input py-2.5" name="rateNotes">{v('rateNotes')}</textarea>
 			</div>
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div>
 					<label class="label" for="techRider">Tech rider</label>
-					<textarea id="techRider" class="input min-h-28" name="techRider" placeholder="2× CDJ-3000, DJM-900NXS2, booth monitors">{v('techRider')}</textarea>
+					<textarea id="techRider" class="input min-h-28 py-2.5" name="techRider" placeholder="2× CDJ-3000, DJM-900NXS2, booth monitors">{v('techRider')}</textarea>
 				</div>
 				<div>
 					<label class="label" for="hospitality">Hospitality</label>
-					<textarea id="hospitality" class="input min-h-28" name="hospitality">{v('hospitality')}</textarea>
+					<textarea id="hospitality" class="input min-h-28 py-2.5" name="hospitality">{v('hospitality')}</textarea>
 				</div>
 			</div>
-		</section>
+		</fieldset>
 	{/if}
 
 	{#if children}{@render children()}{/if}
 
 	{#if showMessage}
-		<section class="card card-pad space-y-3">
-			<label class="label" for="message">Note to moderators <span class="muted">(optional)</span></label>
-			<textarea id="message" class="input" name="message" maxlength="2000">{v('message')}</textarea>
-		</section>
+		<div class="card p-5 sm:p-6">
+			<label class="label" for="message">Note to moderators <span class="font-normal text-fg-subtle">(optional)</span></label>
+			<textarea id="message" class="input py-2.5" name="message" maxlength="2000">{v('message')}</textarea>
+		</div>
 	{/if}
 
 	<div class="flex flex-wrap items-center justify-end gap-3">
 		{#if footer}{@render footer()}{/if}
-		<button class="btn-accent" disabled={submitting}>{submitting ? 'Saving…' : submitLabel}</button>
+		<button class="btn-primary" disabled={submitting}>{submitting ? 'Saving…' : submitLabel}</button>
 	</div>
 </form>

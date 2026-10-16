@@ -56,7 +56,7 @@ fn bank_list(root: &Path, in_folder: bool) {
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn merging_with_onelibrary_on_both_sides_keeps_the_targets_databases_alike(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let main = common::bigger_drive(&root, "Main");
     let only_plus = tc.draw(gs::booleans());
     match only_plus {
@@ -143,7 +143,7 @@ enum Defect {
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
 fn exactly_the_source_tracks_with_audio_inside_the_library_are_merged(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     // The twelve-track export's analysis paths are outside PIONEER/ (so none is found), and drawn
     // tracks' inside it.
     let guest = common::bigger_drive(&root, "Guest");
@@ -235,7 +235,7 @@ fn exactly_the_source_tracks_with_audio_inside_the_library_are_merged(tc: TestCa
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_merge_the_target_cant_take_is_refused_when_planning(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root = locallibrary::device::dunce_canonicalize(dir.path());
     let long = |n: usize| "x".repeat(4000 + n);
     // Each refusal on drives of its own. For a name, the most characters past 4,000 that still
     // fit: a playlist's row is 20 bytes and the name (4,024 ASCII characters fit), a history

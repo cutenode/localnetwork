@@ -3,6 +3,7 @@
 	"version": "2.11.0",
 	"private": true,
 	"description": "SoundCloud tools for DJs as a Chrome extension: track lists, download links, artists, and a queue to batch them.",
+	"license": "MIT",
 	"type": "module",
 	"scripts": {
 		"dev": "vite build --mode development --watch",

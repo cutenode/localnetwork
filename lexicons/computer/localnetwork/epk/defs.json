@@ -1,0 +1,66 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.epk.defs",
+	"defs": {
+		"photo": {
+			"type": "object",
+			"required": ["image", "alt"],
+			"properties": {
+				"image": { "type": "blob", "accept": ["image/jpeg", "image/png", "image/webp"], "maxSize": 5000000 },
+				"alt": { "type": "string", "maxLength": 10000, "maxGraphemes": 1000 },
+				"credit": {
+					"type": "string",
+					"maxLength": 2000,
+					"maxGraphemes": 200,
+					"description": "The photographer, for the caption press prints with it."
+				},
+				"aspectRatio": { "type": "ref", "ref": "#aspectRatio" }
+			}
+		},
+		"aspectRatio": {
+			"type": "object",
+			"required": ["width", "height"],
+			"properties": {
+				"width": { "type": "integer", "minimum": 1 },
+				"height": { "type": "integer", "minimum": 1 }
+			}
+		},
+		"access": {
+			"type": "object",
+			"description": "Who can ask to see the private part of a press kit, and whether they get it straight away. Each audience is auto (approved at once), review (the owner decides) or none (can't ask). Someone in several audiences gets the most open of their answers. The owner can always add people directly.",
+			"required": ["anyone", "promoters", "following", "bookedWith"],
+			"properties": {
+				"anyone": { "type": "ref", "ref": "#accessRule", "description": "Anyone signed in." },
+				"promoters": {
+					"type": "ref",
+					"ref": "#accessRule",
+					"description": "Accounts that have sent a booking inquiry on Local Network."
+				},
+				"following": { "type": "ref", "ref": "#accessRule", "description": "Accounts the owner follows on Bluesky." },
+				"bookedWith": {
+					"type": "ref",
+					"ref": "#accessRule",
+					"description": "Accounts that have a booking thread with the project."
+				}
+			}
+		},
+		"accessRule": { "type": "string", "maxLength": 32, "knownValues": ["auto", "review", "none"] },
+		"quote": {
+			"type": "object",
+			"required": ["text", "source"],
+			"properties": {
+				"text": { "type": "string", "minLength": 1, "maxLength": 5000, "maxGraphemes": 500 },
+				"source": { "type": "string", "minLength": 1, "maxLength": 2000, "maxGraphemes": 200 },
+				"url": { "type": "string", "format": "uri", "maxLength": 2048 }
+			}
+		},
+		"contact": {
+			"type": "object",
+			"properties": {
+				"email": { "type": "string", "maxLength": 320 },
+				"phone": { "type": "string", "maxLength": 64 },
+				"note": { "type": "string", "maxLength": 5000, "maxGraphemes": 500 }
+			}
+		}
+	}
+}

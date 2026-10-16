@@ -2,7 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { JsonObject } from '@atproto/lex-json';
 import type { LexiconDoc } from '@atproto/lexicon';
 import { z } from 'zod';
-import type { MatchNote } from '#lib/matching.ts';
+import type { MatchBreakdown, MatchNote } from '#lib/matching.ts';
 import { DIRECTORY } from '#lib/nsid.ts';
 import type { DjSetView } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
@@ -19,7 +19,7 @@ export type DirectoryMatch = {
 	project: DirectoryProject;
 	score: number;
 	inRange: boolean;
-	breakdown: Record<'genre' | 'distance' | 'budget' | 'capacity' | 'setType' | 'format', number>;
+	breakdown: MatchBreakdown;
 	reasons: MatchNote[];
 	warnings: MatchNote[];
 };

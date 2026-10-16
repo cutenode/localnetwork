@@ -1,14 +1,4 @@
-<!--
-apps/locallibrary/CONTRIBUTING.md has the checks CI runs for locallibrary. Running the ones for what you touched first saves a round trip.
-
-locallibrary (Rust, from the repo root):
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo test --workspace --locked
-
-Local Network (web, from the repo root):
-pnpm verify
--->
+<!-- The checks CI runs, and how to run them first: https://github.com/cutenode/localnetwork/blob/main/.github/CONTRIBUTING.md#checks -->
 
 ## What and why
 
@@ -18,8 +8,13 @@ pnpm verify
 
 <!-- The tests that cover it, and anything you ran by hand: which commands, pages, drives, players or rekordbox version. -->
 
+## Screenshots
+
+<!-- For UI changes: before and after, at phone and wide widths, in light and dark if it matters. Delete this section otherwise. -->
+
 ## Checklist
 
 - [ ] Tests cover the change
+- [ ] For the website: Storybook stories cover any new UI states
 - [ ] For locallibrary: `apps/locallibrary/CHANGELOG.md` has a line under Unreleased, if people using it will notice
 - [ ] The READMEs, `docs/` and `--help` still say what the code does (`apps/locallibrary/docs/rpc/` too, for a sidecar change)
