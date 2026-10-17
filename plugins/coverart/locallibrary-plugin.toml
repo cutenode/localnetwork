@@ -1,0 +1,44 @@
+id = "coverart"
+name = "Cover art"
+version = "0.1.0"
+protocol = "^0.1"
+# It reads the drive's tracks and plans artwork edits. The Cover Art Archive's images are served
+# by archive.org, which redirects them to its own servers (`*.us.archive.org`, `*.ca.archive.org`):
+# `net:archive.org` stands for those too.
+capabilities = [
+    "library:read",
+    "artwork:plan",
+    "net:musicbrainz.org",
+    "net:coverartarchive.org",
+    "net:archive.org",
+]
+
+[[contributes.operations]]
+name = "fetch"
+title = "Fetch cover art"
+long_running = true
+
+[contributes.operations.params]
+type = "object"
+additionalProperties = false
+
+[contributes.operations.params.properties.tracks]
+type = "array"
+items = { type = "integer", minimum = 0 }
+description = "Only these tracks, by id (the ones selected otherwise)"
+
+[contributes.operations.params.properties.playlist]
+type = "string"
+minLength = 1
+description = "Only this playlist's tracks, by path or unique name (the one open otherwise)"
+
+[contributes.operations.params.properties.replace]
+type = "boolean"
+description = "Replace artwork tracks have already (only tracks without any otherwise)"
+
+# MusicBrainz asks every program to say how to reach whoever runs it.
+[[contributes.settings]]
+key = "contact"
+title = "Contact for MusicBrainz (a web page or email address)"
+type = "string"
+default = "https://localnetwork.computer"

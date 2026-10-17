@@ -15,8 +15,8 @@ use locallibrary::api;
 use locallibrary::error::panic_text;
 use locallibrary::model::normalize;
 use locallibrary::op::AnyPlanned;
-use locallibrary::query::{Filter, QueryContext, SortField, SortKey};
-use locallibrary::sets::{Set, SetBook};
+use locallibrary::query::{Filter, SortField, SortKey};
+use locallibrary::sets::Set;
 use locallibrary::store::{LibraryRecord, SnapshotInfo};
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
 use locallibrary::{Ctx, Device, DeviceInfo, Error, Library, Store, Track, artwork, paths};
@@ -433,7 +433,9 @@ pub struct TrackInfo {
 fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>) -> TrackInfo {
     let device = Device::open(root).ok();
     let analysis = device.as_ref().map(|d| anlz::load(d, track)).unwrap_or_default();
-    let art = device.as_ref().and_then(|d| read_art(d, track)).and_then(|b| Art::decode(&b));
+    let art = (device.as_ref().and_then(|d| artwork::file_on_drive(d, track)))
+        .and_then(|f| std::fs::read(f).ok())
+        .and_then(|b| Art::decode(&b));
     let playlists = library.as_deref().map(|lib| playlists_of(lib, track)).unwrap_or_default();
     let matches = library.map(|lib| Matches::find(lib, root.to_path_buf(), track, 40));
     TrackInfo { analysis, art, matches, playlists }
@@ -732,7 +734,7 @@ pub enum Msg {
     Applied {
         job: u64,
         root: PathBuf,
-        result: Result<super::edits::Applied, Error>,
+        result: Result<Box<super::edits::Applied>, Error>,
     },
     /// Whether replaying the open drive's recorded edits would change it, for the library load
     /// with this generation: how many edits are recorded, 0 when replaying changes nothing.
@@ -2033,20 +2035,18 @@ impl App {
                         None
                     }
                 };
-                let mut ctx = QueryContext::new(&lib);
-                if tags {
-                    ctx = ctx.with_tags(my_tags.as_deref().unwrap_or(&none));
-                }
                 // Refused as `tracks --filter` refuses it: a `playlist:` naming nothing would match
                 // no track, and negated, every one.
-                if let Err(e) = f.check(&ctx) {
-                    self.filter_error = Some(e.to_string());
-                    if self.searching && !self.visible.is_empty() {
-                        return; // keep the last good result while the filter is being typed
+                match api::filter_context(&lib, &f, tags.then(|| my_tags.as_deref().unwrap_or(&none))) {
+                    Ok(ctx) => list.retain(|&i| f.matches(&lib.tracks[i], &ctx)),
+                    Err(e) => {
+                        self.filter_error = Some(e.to_string());
+                        if self.searching && !self.visible.is_empty() {
+                            return; // keep the last good result while the filter is being typed
+                        }
+                        list.clear();
                     }
-                    list.clear();
                 }
-                list.retain(|&i| f.matches(&lib.tracks[i], &ctx));
             }
         }
         if let Some(s) = self.sort {
@@ -2096,7 +2096,7 @@ impl App {
         let (store_root, generation) = (self.store_root.clone(), l.generation);
         let job = move || {
             let sets = match Store::open(&store_root) {
-                Ok(store) => SetBook::load(&store).map(|b| b.sets).map_err(|e| e.to_string()),
+                Ok(store) => api::sets_list(&store, &api::SetsQuery::default()).map_err(|e| e.to_string()),
                 Err(_) => Ok(Vec::new()),
             };
             Msg::Sets(generation, sets)
@@ -3652,16 +3652,6 @@ impl App {
 
 fn plural_marks(n: usize) -> String {
     if n == 1 { "mark".into() } else { format!("{n} marks") }
-}
-
-/// A track's artwork from the drive: the larger thumbnail when there is one.
-fn read_art(device: &Device, t: &Track) -> Option<Vec<u8>> {
-    let key = paths::key(t.artwork_path.as_ref()?);
-    [artwork::medium_variant(&key), key]
-        .iter()
-        .filter_map(|k| device.checked_path(k).ok())
-        .find(|p| p.is_file())
-        .and_then(|p| std::fs::read(p).ok())
 }
 
 #[cfg(test)]

@@ -105,6 +105,7 @@ pub mod pdb;
 pub mod peers;
 pub mod player;
 pub mod plays;
+pub mod plugin;
 pub mod probe;
 pub mod profile;
 pub mod progress;
@@ -149,6 +150,12 @@ pub mod testing {
         crate::device::THREAD_VOLUMES.with(|v| *v.borrow_mut() = folders);
     }
 
+    /// Plugins started from this thread are refused as from an elevated process (`Some(true)`),
+    /// or not (`Some(false)`), whatever this process is (`None`: as it is).
+    pub fn elevated_on_this_thread(elevated: Option<bool>) {
+        crate::plugin::THREAD_ELEVATED.with(|e| e.set(elevated));
+    }
+
     /// Plans on this thread warn as they would on `os` (`linux`, `windows`; `None`: this one)
     /// about what hasn't been tested there (see [`crate::format::untested_here`]).
     pub fn os_on_this_thread(os: Option<&'static str>) {
@@ -157,6 +164,12 @@ pub mod testing {
 }
 
 pub use loclib_model::{harmony, model, tokens};
+
+/// A mutex's guard, though a thread panicked holding it: what it guards is left whole by every
+/// change made under it.
+pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 pub use device::{Device, DeviceInfo};
 pub use error::{Error, Result};

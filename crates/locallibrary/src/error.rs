@@ -341,6 +341,18 @@ impl Error {
         self.edit(|d| d.actions.push(action))
     }
 
+    /// The same error, without the actions that send the request again (with some parameters
+    /// added): for a request that can't be sent again so.
+    pub fn without_retries(self) -> Self {
+        match self {
+            Error::Detailed { error, mut detail } => {
+                detail.actions.retain(|a| a.method.is_some());
+                Error::Detailed { error, detail }
+            }
+            e => e,
+        }
+    }
+
     fn edit(self, f: impl FnOnce(&mut Detail)) -> Self {
         match self {
             Error::Detailed { error, mut detail } => {

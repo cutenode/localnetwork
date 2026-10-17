@@ -34,7 +34,7 @@ use crate::edit::Replayed;
 use crate::error::IoContext;
 use crate::fsutil;
 use crate::hash::Hash;
-use crate::model::{Library, TrackRef};
+use crate::model::{Library, Track, TrackRef};
 use crate::onelibrary;
 use crate::paths;
 use crate::pdb;
@@ -706,15 +706,14 @@ pub fn missing(device: &Device, library: &Library) -> Vec<TrackRef> {
 /// Read a track's artwork from a drive (medium size if present), e.g. for a UI preview.
 pub fn read_from_drive(device: &Device, library: &Library, track_id: u32) -> Result<Option<Vec<u8>>> {
     let t = library.track(track_id).ok_or_else(|| Error::no_track(track_id))?;
-    let Some(p) = &t.artwork_path else { return Ok(None) };
-    let key = paths::key(p);
-    for k in [medium_variant(&key), key] {
-        let Ok(f) = device.checked_path(&k) else { continue };
-        if f.is_file() {
-            return std::fs::read(&f).at(&f).map(Some);
-        }
-    }
-    Ok(None)
+    file_on_drive(device, t).map(|f| std::fs::read(&f).at(&f)).transpose()
+}
+
+/// A track's artwork file on a drive: the medium size players show when there is one, else the
+/// thumbnail.
+pub fn file_on_drive(device: &Device, t: &Track) -> Option<PathBuf> {
+    let key = paths::key(t.artwork_path.as_ref()?);
+    [medium_variant(&key), key].iter().filter_map(|k| device.checked_path(k).ok()).find(|f| f.is_file())
 }
 
 const FOLDER_IMAGES: &[&str] = &["cover", "folder", "front", "album", "artwork"];

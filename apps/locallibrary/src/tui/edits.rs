@@ -345,7 +345,7 @@ impl Confirm {
 /// What applying a plan came to.
 pub struct Applied {
     /// The plan's operation: `edit`, `pack`...
-    pub operation: &'static str,
+    pub operation: String,
     /// Its report, as `*.apply` answers over RPC.
     pub report: serde_json::Value,
 }
@@ -461,14 +461,15 @@ pub struct Wording {
     pub ask: String,
     pub yes: &'static str,
     pub who: String,
-    pub what: &'static str,
+    pub what: String,
     pub doing: String,
 }
 
 pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
     let written: Vec<&str> = (plan.drives().iter()).filter(|t| t.writes && t.drive).map(|t| t.name.as_str()).collect();
     let who = if written.is_empty() { drive.to_string() } else { written.join(", ") };
-    let w = |ask: String, yes, what, doing: String| Wording { ask, yes, who: who.clone(), what, doing };
+    let w =
+        |ask: String, yes, what: &str, doing: String| Wording { ask, yes, who: who.clone(), what: what.into(), doing };
     match plan.operation() {
         "pull" => w(
             format!("Save {drive} in the store?"),
@@ -1175,15 +1176,15 @@ impl App {
                 Err(Error::Cancelled)
             } else {
                 let store = locallibrary::Store::open(&store_root).ok();
-                let operation = plan.operation();
-                plan.apply_json(store.as_ref(), &ctx).map(|report| Applied { operation, report })
+                let operation = plan.operation().to_string();
+                plan.apply_json(store.as_ref(), &ctx).map(|report| Box::new(Applied { operation, report }))
             };
             Msg::Applied { job: id, root, result }
         };
         self.spawn_or(job, move |e| Msg::Applied { job: id, root: failed_root, result: Err(Error::Invalid(e)) });
     }
 
-    pub(super) fn on_applied(&mut self, job: u64, root: PathBuf, result: Result<Applied, Error>) {
+    pub(super) fn on_applied(&mut self, job: u64, root: PathBuf, result: Result<Box<Applied>, Error>) {
         let (touched, after) = match self.job.take_if(|j| j.id == job) {
             Some(j) => (j.touched, j.after),
             None => (Vec::new(), None),
@@ -1195,8 +1196,8 @@ impl App {
         {
             self.last_backup = Some(self.drive_at(root.clone()));
         }
-        match result {
-            Ok(Applied { operation: "pull", report }) => {
+        match result.map(|a| *a) {
+            Ok(Applied { operation, report }) if operation == "pull" => {
                 let lib = report["library"].as_str().unwrap_or("its library");
                 let snap = report["snapshot"]["short_id"].as_str().map(|s| &s[..8.min(s.len())]).unwrap_or("");
                 let msg = if report["up_to_date"].as_bool() == Some(true) {
@@ -1214,14 +1215,14 @@ impl App {
                 self.refresh_status();
                 self.history = None;
             }
-            Ok(Applied { operation: "eject", report }) => {
+            Ok(Applied { operation, report }) if operation == "eject" => {
                 let off = report.as_array().is_some_and(|r| r.iter().all(|e| e["powered_off"].as_bool() == Some(true)));
                 let msg =
                     if off { format!("ejected {drive}: it can be unplugged") } else { format!("unmounted {drive}") };
                 self.toast(msg, Level::Info);
                 self.refresh_drives();
             }
-            Ok(Applied { operation: "sync.group", report }) => {
+            Ok(Applied { operation, report }) if operation == "sync.group" => {
                 let results = report.as_array().cloned().unwrap_or_default();
                 let failed: Vec<String> = (results.iter())
                     .filter(|r| !r["error"].is_null())
@@ -1243,7 +1244,7 @@ impl App {
                 }
                 self.refresh_status();
             }
-            Ok(Applied { operation: "tags", report }) => {
+            Ok(Applied { operation, report }) if operation == "tags" => {
                 let n = report["tracks_changed"].as_u64().unwrap_or(0);
                 let mut msg = format!("My Tags changed on {n} track{} on {drive}", if n == 1 { "" } else { "s" });
                 if report["backup"].is_string() {
@@ -1251,7 +1252,7 @@ impl App {
                 }
                 self.toast(msg, Level::Info);
             }
-            Ok(Applied { operation: "pack", report }) => {
+            Ok(Applied { operation, report }) if operation == "pack" => {
                 let copied = report["copied"].as_u64().unwrap_or(0);
                 let bytes = report["copied_bytes"].as_u64().unwrap_or(0);
                 let mut msg = format!(
@@ -1265,7 +1266,7 @@ impl App {
                 self.toast(msg, Level::Info);
                 self.refresh_status();
             }
-            Ok(Applied { operation: "undo", report }) => {
+            Ok(Applied { operation, report }) if operation == "undo" => {
                 let when = report["created"].as_str().and_then(|t| t.get(..16)).unwrap_or("").replace('T', " ");
                 let why = report["reason"].as_str().unwrap_or("a change");
                 self.toast(format!("undone on {drive}: put back the backup ({why}, {when})"), Level::Info);

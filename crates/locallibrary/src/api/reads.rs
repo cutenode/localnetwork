@@ -15,7 +15,7 @@ use crate::anlz::{self, Beat, Cue, SongStructure, TrackAnalysis, Waveform, Wavef
 use crate::artwork;
 use crate::cue_edit::{self, TrackCues};
 use crate::device::{Device, dunce_canonicalize, without_verbatim_prefix};
-use crate::fields::{FieldStore, PluginsFields};
+use crate::fields::{Analyzer, FieldStore, PluginsFields};
 use crate::mix::export::{self, MixExport};
 use crate::mix::index::Cache;
 use crate::mix::report::{self, Drive};
@@ -278,26 +278,18 @@ pub struct ArtworkFile {
 pub fn artwork_path(cache: &LibraryCache, req: &ArtworkRequest) -> Result<OneOrMany<ArtworkFile>> {
     req.each(cache, |d, lib, track| {
         let t = lib.track(track).ok_or_else(|| Error::no_track(track))?;
-        let Some(p) = &t.artwork_path else { return Ok(None) };
-        let key = paths::key(p);
-        for k in [artwork::medium_variant(&key), key] {
-            let Ok(f) = d.checked_path(&k) else { continue };
-            if !f.is_file() {
-                continue;
-            }
-            // Resolved again here: `checked_path` vouches for where it led, and this is that. As
-            // drive roots are, so a client gets the path it gave on Windows, not a `\\?\` one.
-            let resolved =
-                f.canonicalize().map(without_verbatim_prefix).map_err(|e| Error::Io { path: f.clone(), source: e })?;
-            let root = dunce_canonicalize(d.root());
-            if !resolved.starts_with(&root) {
-                return Err(Error::invalid(format!("refusing {k:?}: it resolves outside {}", root.display())));
-            }
-            let ext = resolved.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            let mime = if ext == "png" { "image/png" } else { "image/jpeg" };
-            return Ok(Some(ArtworkFile { path: resolved, mime }));
+        let Some(f) = artwork::file_on_drive(d, t) else { return Ok(None) };
+        // Resolved again here: `checked_path` vouches for where it led, and this is that. As
+        // drive roots are, so a client gets the path it gave on Windows, not a `\\?\` one.
+        let resolved =
+            f.canonicalize().map(without_verbatim_prefix).map_err(|e| Error::Io { path: f.clone(), source: e })?;
+        let root = dunce_canonicalize(d.root());
+        if !resolved.starts_with(&root) {
+            return Err(Error::invalid(format!("refusing track #{track}'s artwork: it resolves outside the drive")));
         }
-        Ok(None)
+        let ext = resolved.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let mime = if ext == "png" { "image/png" } else { "image/jpeg" };
+        Ok(Some(ArtworkFile { path: resolved, mime }))
     })
 }
 
@@ -524,19 +516,24 @@ pub struct PluginFields {
     pub missing: Vec<u32>,
 }
 
-/// What analyzer plugins worked out for the drive's tracks ([`crate::fields`]). Until the
-/// plugin host says which versions are installed, each plugin's values are those of its version
-/// that wrote last ([`FieldStore::last_written`]). Without a store, none.
-pub fn track_fields(cache: &LibraryCache, store: Option<&Store>, req: &PluginFieldsRequest) -> Result<PluginFields> {
+/// What the analyzers `installed` (the plugin host's, see [`crate::plugin::Plugins::analyzers`])
+/// worked out for the drive's tracks ([`crate::fields`]): what other versions of them worked out
+/// is left out. Without a store, none.
+pub fn track_fields_of(
+    cache: &LibraryCache,
+    store: Option<&Store>,
+    req: &PluginFieldsRequest,
+    installed: &[Analyzer],
+) -> Result<PluginFields> {
     let (d, _, lib) = cache.read(&req.library)?;
     let (tracks, missing) = match &req.tracks {
         Some(ids) => by_ids(&lib, ids),
         None => (lib.tracks.iter().collect(), Vec::new()),
     };
-    let fields = store.map(FieldStore::in_store);
-    let analyzers = fields.as_ref().map(|f| f.last_written(req.plugin.as_deref())).unwrap_or_default();
+    let analyzers: Vec<Analyzer> =
+        installed.iter().filter(|a| req.plugin.as_ref().is_none_or(|p| *p == a.plugin)).cloned().collect();
     // Nothing kept: no audio file needs looking at.
-    let Some(fields) = fields.filter(|_| !analyzers.is_empty()) else {
+    let Some(fields) = store.map(FieldStore::in_store).filter(|_| !analyzers.is_empty()) else {
         return Ok(PluginFields { tracks: Vec::new(), missing });
     };
     let tracks = tracks
