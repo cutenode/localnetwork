@@ -1829,3 +1829,31 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
         assert_eq!(screen(&mut app, w, h).lines().count(), h as usize);
     }
 }
+
+/// Plugins' columns go before tempo, key and time, in the order asked for; one shown already as
+/// the sort's stays where it is.
+#[test]
+fn plugins_columns_go_before_tempo_key_and_time() {
+    let (bpm, key) = (FieldName::new("sound.bpm"), FieldName::new("sound.key"));
+    let base = columns(80, None, false, false);
+    assert_eq!(
+        with_fields(base.clone(), &[bpm, key]),
+        [Col::Title, Col::Artist, Col::Field(bpm), Col::Field(key), Col::Bpm, Col::Key, Col::Time]
+    );
+    assert_eq!(with_fields(base.clone(), &[]), base);
+    let sorted = columns(80, Some(SortKey { field: SortField::Field(key), descending: false }), false, false);
+    assert_eq!(sorted[2], Col::Field(key), "the sort column, not otherwise shown");
+    assert_eq!(with_fields(sorted, &[bpm, key]).iter().filter(|c| **c == Col::Field(key)).count(), 1);
+}
+
+/// A plugin's value as its column shows it: numbers to two places at most, a list joined.
+#[test]
+fn plugins_values_show_shortly() {
+    let text = |v: FieldValue| field_cell(&v).to_string();
+    assert_eq!(text(FieldValue::Number(121.0)), "121");
+    assert_eq!(text(FieldValue::Number(121.256)), "121.26");
+    assert_eq!(text(FieldValue::Number(-8.5)), "-8.5");
+    assert_eq!(text(FieldValue::Integer(4000)), "4000");
+    assert_eq!(text(FieldValue::Boolean(true)), "yes");
+    assert_eq!(text(FieldValue::Strings(vec!["deep".into(), "warm".into()])), "deep, warm");
+}

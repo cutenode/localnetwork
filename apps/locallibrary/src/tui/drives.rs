@@ -57,6 +57,10 @@ pub enum Tone {
     Problem,
     Text,
     Faint,
+    /// A table's headings, and its rows: cut at the panel's edge rather than wrapped, so the
+    /// columns stay aligned.
+    Columns,
+    Row,
 }
 
 /// The lines of a check's report: how it went, then each drive's items, problems and warnings
@@ -318,13 +322,16 @@ impl App {
             Act::Replay => self.replay(root),
             Act::Undo => self.undo_on(root),
             Act::Eject => self.eject(vec![root]),
+            Act::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(root), None),
+            Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, Some(root)),
+            Act::Export(plugin, format) => self.plugin_export(plugin, format, Some(root)),
             act => self.perform(act, None),
         }
     }
 
-    /// `e` in the Drives view: what can be done to the selected drive. What's chosen is done to
-    /// that drive (by its identity: see [`DriveKey`]), even if another is selected by then, or
-    /// refused once it's been unplugged.
+    /// `e` in the Drives view: what can be done to the selected drive (plugins' commands and
+    /// operations last). What's chosen is done to that drive (by its identity: see [`DriveKey`]),
+    /// even if another is selected by then, or refused once it's been unplugged.
     pub(super) fn drive_menu(&mut self) {
         match self.header() {
             Some(DriveRow::Library(id)) => return self.library_menu(id),
@@ -351,7 +358,7 @@ impl App {
             item(Act::Undo, undo_key, &None),
             item(Act::Eject, "", &None),
         ];
-        let (acts, items): (Vec<Act>, Vec<Item>) = items.into_iter().unzip();
+        let (acts, items): (Vec<Act>, Vec<Item>) = items.into_iter().chain(self.plugin_items(Some(&root))).unzip();
         let drive = self.drive_at(root);
         self.modal =
             Some(Modal::Pick(Picker::new(format!("Drive · {name}"), items, Then::Drive { drive, name, acts })));

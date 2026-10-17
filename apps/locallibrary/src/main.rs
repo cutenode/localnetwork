@@ -26,6 +26,8 @@ mod mix_cmd;
 mod pager;
 mod players_cmd;
 mod plays_cmd;
+mod plugin_cmd;
+mod plugins;
 mod profile_cmd;
 #[cfg(feature = "account")]
 mod publish_cmd;
@@ -410,6 +412,10 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     Players(players_cmd::PlayersArgs),
     /// How well rekordbox's keys and tempos, and the analysis doctor runs, match annotated datasets
     Analysis(analysis_cmd::AnalysisArgs),
+    /// Run plugins' analyzers on a library's tracks: `track show` shows what they work out
+    Analyze(plugin_cmd::AnalyzeArgs),
+    /// The plugins locallibrary has: what each may do, what it adds, and their settings
+    Plugin(plugin_cmd::PluginArgs),
     /// Inspect and maintain the store
     Store {
         #[command(subcommand)]
@@ -417,7 +423,7 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     },
     /// Save drives into the store as they're plugged in (history lists rekordbox would delete), and keep their group in sync
     Watch(watch_cmd::WatchArgs),
-    /// Write a playlist, folder, history list or the whole library as M3U8, CSV or text, or for other DJ software
+    /// Write a playlist, folder, history list or the whole library as M3U8, CSV or text, or in a plugin's format (other DJ software's)
     Export(export_cmd::ExportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
     Xml {
@@ -493,8 +499,18 @@ impl Command {
     fn owns_output(&self) -> bool {
         match self {
             Command::Rpc { .. } => true,
+            Command::Plugin(a) => a.serves(),
             #[cfg(feature = "tui")]
             Command::Tui { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// The sidecar and a plugin serving: they handle signals themselves.
+    fn handles_signals(&self) -> bool {
+        match self {
+            Command::Rpc { .. } => true,
+            Command::Plugin(a) => a.serves(),
             _ => false,
         }
     }
@@ -552,6 +568,7 @@ macro_rules! filter_help {
 const TRACKS_LONG_HELP: &str = concat!(
     filter_help!(),
     "
+  sound.bpm:>120  sound.key:8A   what an analyzer plugin worked out (`locallibrary analyze`); --sort takes them too
 
 Examples:
   locallibrary tracks -s \"daft punk\"
@@ -589,7 +606,7 @@ struct TracksArgs {
     /// Only tracks matching a filter, e.g. "bpm:120-128 key:8A~ rating:>=4" (syntax below)
     #[arg(long, short, allow_hyphen_values = true)]
     filter: Option<String>,
-    /// Order, e.g. key,bpm or -rating (title, artist, album, genre, label, key, bpm, rating, color, year, plays, added, time, bitrate, path)
+    /// Order, e.g. key,bpm or -rating (title, artist, album, genre, label, key, bpm, rating, color, year, plays, added, time, bitrate, path, or a plugin's field like sound.bpm)
     #[arg(long, allow_hyphen_values = true)]
     sort: Option<String>,
     /// Show at most this many
@@ -984,13 +1001,14 @@ fn main() -> ExitCode {
     // A shell asking what to complete (`COMPLETE=bash locallibrary -- ...`) is answered here.
     completion::complete();
     let cmd = help::command();
-    let matches = match cmd.clone().try_get_matches() {
+    let mut matches = match cmd.clone().try_get_matches() {
         Ok(m) => m,
         Err(e) => match help::prep_moved(&e) {
             Some(moved) => return usage_error(cmd.clone().error(clap::error::ErrorKind::InvalidSubcommand, moved)),
             None => return usage_error(help::tidy_suggestions(e, &cmd)),
         },
     };
+    let contributed = plugin_cmd::take(&mut matches);
     let cli = match Cli::from_arg_matches(&matches) {
         Ok(cli) => cli,
         Err(e) => return usage_error(e),
@@ -999,19 +1017,30 @@ fn main() -> ExitCode {
     output::configure(cli.json, cli.quiet, cli.ascii, cli.color);
     // Piped into `head`, stop quietly rather than fail writing (the player and the sidecar
     // handle their own output).
-    if !cli.command.as_ref().is_none_or(Command::owns_output) {
+    if contributed.is_some() || !cli.command.as_ref().is_none_or(Command::owns_output) {
         pager::default_sigpipe();
     }
     locallibrary::op::allow_archive_writes(cli.overwrite_archive);
-    // A test switch that hides every drive and disk: never let it pass unnoticed.
-    if let Some(dirs) = locallibrary::device::volume_folders() {
+    // A test switch that hides every drive and disk: never let it pass unnoticed (but by a plugin
+    // serving, whose host has said so).
+    let serving = matches!(&cli.command, Some(Command::Plugin(a)) if a.serves());
+    if let Some(dirs) = locallibrary::device::volume_folders().filter(|_| !serving) {
         let dirs: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
         output::diag(format!(
             "LOCALLIBRARY_VOLUMES is set (a test switch): drives are looked for only in {}",
             if dirs.is_empty() { "no folder".into() } else { dirs.join(", ") }
         ));
     }
-    let code = run(cli, out);
+    if !serving {
+        for (m, why) in plugins::left_out() {
+            output::diag(format!("the {} plugin is left out: {why}", m.id));
+        }
+    }
+    let code = run(cli, out, contributed);
+    // Plugins started for the command stop with it.
+    if let Ok(plugins) = plugins::host() {
+        plugins.shutdown();
+    }
     pager::finish();
     match code {
         Ok(code) => code,
@@ -1102,10 +1131,10 @@ fn open_store(cli_store: &Option<PathBuf>) -> Result<Store> {
     Store::open_or_init(&root).with_context(|| format!("opening store at {}", root.display()))
 }
 
-fn run(cli: Cli, out: Output) -> Result<ExitCode> {
+fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> Result<ExitCode> {
     let cancel = CancelToken::new();
     // The sidecar handles signals itself, for every request it runs.
-    if !matches!(cli.command, Some(Command::Rpc { .. })) {
+    if !cli.command.as_ref().is_some_and(Command::handles_signals) {
         let c = cancel.clone();
         // The first Ctrl-C (or SIGTERM) stops at the next safe point; a second exits once no
         // database swap is under way. The player quits on its own, putting the terminal back.
@@ -1129,6 +1158,9 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
     let ctx = Ctx::new(&progress, cancel);
     let store = || open_store(&cli.store);
 
+    if let Some(c) = contributed {
+        return plugin_cmd::run_contributed(c, &cli.store, out, &ctx);
+    }
     let Some(command) = cli.command else {
         // Bare `locallibrary`: the player in a terminal, the usage everywhere else.
         #[cfg(feature = "tui")]
@@ -1156,9 +1188,11 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
             // --search is free text in the filter.
             let filter: Vec<String> = a.search.as_deref().map(search_terms).into_iter().chain(a.filter).collect();
             let filter = (!filter.is_empty()).then(|| filter.join(" "));
+            let fields = plugins::Installed::with(diff_cmd::existing_store(&cli.store)?);
             let reads = each_drive::read(a.drive, |drive| {
                 let (filter, playlist, sort) = (filter.clone(), a.playlist.clone(), a.sort.clone());
-                api::tracks_query(&api::TracksQuery { drive, filter, playlist, sort, offset: 0, limit: a.limit })
+                let req = api::TracksQuery { library: drive.into(), filter, playlist, sort, offset: 0, limit: a.limit };
+                api::tracks_query_with(api::LibraryCache::none(), &req, Some(fields.source()))
             })?;
             out.page();
             // Several drives' TSV or CSV is one listing, for the program reading it.
@@ -1172,7 +1206,7 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         }
         Command::Playlist(a) => return edit_cmd::playlist(a, out, &ctx),
         Command::Playlists { drive } => return edit_cmd::tree(drive, out),
-        Command::Track(a) => return edit_cmd::track(a, out, &ctx),
+        Command::Track(a) => return edit_cmd::track(a, &cli.store, out, &ctx),
         Command::Smart(a) => return edit_cmd::smart(a, &cli.store, out, &ctx),
         Command::Edits(a) => return edit_cmd::edits(a, out, &ctx),
         Command::Pack {
@@ -1437,6 +1471,8 @@ fn run(cli: Cli, out: Output) -> Result<ExitCode> {
         Command::Check(args) => return check_cmd::run(args, &cli.store, out, &ctx),
         Command::Players(args) => return players_cmd::run(args, &cli.store, out, &ctx),
         Command::Analysis(args) => return analysis_cmd::run(args, out, &ctx),
+        Command::Analyze(args) => return plugin_cmd::analyze(args, &cli.store, out, &ctx),
+        Command::Plugin(args) => return plugin_cmd::run(args, &cli.store, out),
         Command::Mix(args) => return mix_cmd::run(args, &cli.store, out, &ctx),
         #[cfg(feature = "tui")]
         Command::Tui { drive } => {
@@ -1817,23 +1853,7 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
         }
         ArtCommand::Set { drive, image, select, dry_run } => {
             let req = api::SetArtwork { drive, image, tracks: select.selector() };
-            let plan = api::artwork_set_plan(&req)?;
-            if !out.json {
-                output::summary(&plan.summary, &plan.warnings);
-                for t in plan.tracks.iter().take(10) {
-                    say!("    {}", output::dim(&t.name));
-                }
-                if plan.tracks.len() > 10 {
-                    say!("    {}", output::dim(format!("and {} more", plan.tracks.len() - 10)));
-                }
-            }
-            if let Some(o) = out.decide(dry_run, "Set it?") {
-                return Ok(out.not_applied(&plan, o));
-            }
-            let r = plan.apply(None, ctx)?;
-            return Ok(out.applied(&plan, &r, Outcome::Applied, || {
-                output::ok(format!("artwork set on {} track(s)", r.tracks_updated))
-            }));
+            return edit_cmd::confirm_and_apply(&req.drive, api::artwork_set_plan(&req, ctx)?, dry_run, out, ctx);
         }
         ArtCommand::Auto { drive, dry_run } => {
             let drives = match drive {

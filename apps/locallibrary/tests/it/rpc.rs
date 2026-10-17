@@ -8,7 +8,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use assert_cmd::cargo::CommandCargoExt;
+use locallibrary::Store;
 use locallibrary::device::dunce_canonicalize;
+use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields};
 use serde_json::{Value, json};
 
 use crate::support::{blank_drive, demo_drive};
@@ -681,6 +683,42 @@ fn reads_keep_the_library_until_it_changes_and_come_in_pieces() {
         json!([{ "track": 1, "image": null }, { "track": 2, "image": null }])
     );
     assert_eq!(s.call(10, "art.get", json!({ "drive": a, "track": 1 }))["result"], Value::Null);
+    assert!(s.exit().success());
+}
+
+/// Several tracks' analyses come in one request, without scrolling waveforms, up to a cap; the
+/// fields analyzer plugins kept are read without making a store when there's none, and only
+/// those of plugins locallibrary has.
+#[test]
+fn analyses_of_several_tracks_and_plugin_fields() {
+    let mut s = Sidecar::start();
+    let root = s.root().to_path_buf();
+    let a = demo_drive(&root, "A");
+    let many = s.call(1, "tracks.analysis", json!({ "drive": a, "ids": [2, 404, 1] }))["result"].clone();
+    let tracks: Vec<&Value> = many["tracks"].as_array().unwrap().iter().map(|t| &t["track"]).collect();
+    assert_eq!((tracks, &many["missing"]), (vec![&json!(2), &json!(1)], &json!([404])), "{many}");
+    let one = s.call(2, "track.analysis", json!({ "drive": a, "track": 1, "waveform": "none" }))["result"].clone();
+    assert_eq!(many["tracks"][1]["analysis"], one);
+    let too_many = s.call(3, "tracks.analysis", json!({ "drive": a, "ids": vec![1; 101] }));
+    assert_eq!(kind(&too_many), "invalid", "{too_many}");
+    let scrolling = s.call(8, "tracks.analysis", json!({ "drive": a, "ids": [1], "waveform": "detail" }));
+    assert_eq!(kind(&scrolling), "invalid", "{scrolling}");
+
+    let store = root.join("store");
+    let nothing = json!({ "tracks": [], "missing": [] });
+    assert_eq!(s.call(4, "track.fields", json!({ "drive": a }))["result"], nothing);
+    assert!(!store.exists(), "a read made the store");
+    let file = s.call(5, "tracks.get", json!({ "drive": a, "ids": [1] }))["result"]["tracks"][0]["file_path"].clone();
+    let audio = a.join(file.as_str().unwrap().trim_start_matches('/'));
+    let fields = FieldStore::in_store(&Store::open_or_init(&store).unwrap());
+    let bpm: Fields = [("bpm".to_string(), FieldValue::Number(128.0))].into_iter().collect();
+    let tempo = Analyzer { plugin: "analysis".into(), version: "0.1.0".into(), analyzer: "tempo".into() };
+    fields.put(&audio, &tempo, &bpm).unwrap();
+    // Only the fields of plugins locallibrary has are read, and it has none here (tests/it/plugins.rs
+    // gives it the test plugin).
+    assert_eq!(s.call(6, "track.fields", json!({ "drive": a }))["result"], nothing);
+    let other = s.call(7, "track.fields", json!({ "drive": a, "tracks": [2, 404, 1], "plugin": "other" }));
+    assert_eq!(other["result"], json!({ "tracks": [], "missing": [404] }));
     assert!(s.exit().success());
 }
 

@@ -6,8 +6,9 @@ phrases). It was split out of [locallibrary](https://github.com/cutenode/localne
 reads and writes these from rekordbox USB exports, so the fields follow what rekordbox keeps.
 
 - `model`: `Library`, `Track`, `Playlist` and `TrackColor`, finding playlists by path, searching
-  tracks, `LibraryDiff` between two exports of one library, and `untangle` for a playlist tree read
-  from a damaged file.
+  tracks, the part of a library an export of some playlists writes, numbering tracks only
+  OneLibrary has for files (`ONELIBRARY_ONLY`), `LibraryDiff` between two exports of one library,
+  and `untangle` for a playlist tree read from a damaged file.
 - `harmony`: keys on the Camelot wheel in any notation rekordbox shows, their relative and
   parallel keys, which keys mix, mix costs (going easier on keys an analyzer isn't sure of),
   harmonic suggestions and set ordering (cancellable through a loclib-progress `Ctx`).

@@ -15,6 +15,15 @@ pub use crate::files::copy_dir;
 
 pub const PDB: &str = "PIONEER/rekordbox/export.pdb";
 
+/// `secs` of test signal `seed` at `rate` and `bits` bits, after `delay_ms` of silence, as a WAV.
+pub fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: usize) -> Vec<u8> {
+    use loclib_mixid::test_util::{resample, synth, wav_of};
+    let mut pcm = vec![0.0f32; rate as usize * delay_ms / 1000];
+    pcm.extend(resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate));
+    let scale = 12_000.0 * f32::from(1u16 << (bits - 16));
+    wav_of(rate, bits, pcm.iter().map(|s| (s * scale) as i32))
+}
+
 /// The library's test fixtures: real rekordbox exports (see the README there).
 pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures")
@@ -107,6 +116,8 @@ pub struct Env {
     ascii: bool,
     /// The commands get a home folder of their own ([`Env::home`]).
     own_home: bool,
+    /// The plugins the commands have besides locallibrary's (see [`Env::plugins`]).
+    plugins: Vec<PathBuf>,
 }
 
 impl Env {
@@ -116,7 +127,7 @@ impl Env {
         let root = dunce_canonicalize(dir.path());
         let volumes = root.join("volumes");
         std::fs::create_dir(&volumes).unwrap();
-        Env { _dir: dir, volumes, store: root.join("store"), ascii: false, own_home: false }
+        Env { _dir: dir, volumes, store: root.join("store"), ascii: false, own_home: false, plugins: Vec::new() }
     }
 
     /// Drives (A, [`dj_drive`] adopted and pulled into the library A; Club, [`club_drive`], not
@@ -183,8 +194,27 @@ impl Env {
         root
     }
 
+    /// The commands have these plugins too: manifests the plugin host's test plugin serves
+    /// (`LOCALLIBRARY_TEST_PLUGINS`), written beside the drives. Only in builds with debug
+    /// assertions, which serve it.
+    #[cfg(debug_assertions)]
+    pub fn plugins(&mut self, manifests: &[&str]) {
+        self.plugins = manifests
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let file = self.outside(&format!("plugin-{i}.toml"));
+                std::fs::write(&file, m).unwrap();
+                file
+            })
+            .collect();
+    }
+
     pub fn command(&self) -> Command {
         let mut c = crate::locallibrary(&self.store, &[&self.volumes]);
+        if !self.plugins.is_empty() {
+            c.env("LOCALLIBRARY_TEST_PLUGINS", std::env::join_paths(&self.plugins).unwrap());
+        }
         if self.ascii {
             c.arg("--ascii");
         }
@@ -273,6 +303,12 @@ impl Rpc {
         let stdin = child.stdin.take();
         let lines = BufReader::new(child.stdout.take().unwrap()).lines();
         Rpc { child, stdin, lines }
+    }
+
+    /// For signalling it, which only Unix tests do.
+    #[cfg(all(unix, debug_assertions))]
+    pub fn pid(&self) -> u32 {
+        self.child.id()
     }
 
     /// The response to request `id` (events and other responses before it are skipped). With

@@ -261,9 +261,10 @@ fn typed_and_dropped_paths() {
     assert_eq!(typed_path("/Volumes/DNA/set\\ one.wav"), PathBuf::from("/Volumes/DNA/set one.wav"));
     #[cfg(windows)]
     assert_eq!(typed_path(r"C:\Sets\set one.wav"), PathBuf::from(r"C:\Sets\set one.wav"));
-    if let Some(home) = std::env::var_os("HOME") {
-        assert_eq!(typed_path("~/x.wav"), PathBuf::from(home).join("x.wav"));
-    }
+    let home = std::env::home_dir().unwrap();
+    assert_eq!(typed_path("~/x.wav"), home.join("x.wav"));
+    #[cfg(windows)]
+    assert_eq!(typed_path(r"~\x.wav"), home.join("x.wav"));
 }
 
 #[test]

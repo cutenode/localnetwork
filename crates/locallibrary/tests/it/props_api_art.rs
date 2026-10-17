@@ -48,7 +48,7 @@ fn a_tracks_artwork_file_is_the_size_players_show(tc: TestCase) {
     }
     let medium: Vec<bool> = lib.tracks.iter().map(|t| medium_of(t).is_file()).collect();
     let cache = LibraryCache::new(1);
-    let many = ArtworkRequest::Many { drive: path(&root), tracks: ids.clone() };
+    let many = ArtworkRequest::Many { library: path(&root).into(), tracks: ids.clone() };
     let OneOrMany::Many(files) = api::artwork_path(&cache, &many).unwrap() else { panic!("one for many") };
     for ((t, f), has_medium) in lib.tracks.iter().zip(&files).zip(&medium) {
         let file = f.image.as_ref().expect("a file");
@@ -59,18 +59,19 @@ fn a_tracks_artwork_file_is_the_size_players_show(tc: TestCase) {
         };
         assert_eq!(file.path, dunce_canonicalize(&paths::to_fs(&root, &want)));
         assert!(file.path.starts_with(&root) && file.mime == "image/jpeg", "{file:?}");
-        let one = ArtworkRequest::One { drive: path(&root), track: t.id };
+        let one = ArtworkRequest::One { library: path(&root).into(), track: t.id };
         let OneOrMany::One(alone) = api::artwork_path(&cache, &one).unwrap() else { panic!("many for one") };
         assert_eq!(alone.map(|a| a.path), Some(file.path.clone()));
     }
     let unknown = ids.iter().max().unwrap() + 1;
     let asked: Vec<u32> = ids.iter().rev().copied().chain([unknown]).collect();
-    let got = api::tracks_get(&cache, &TracksGet { drive: path(&root), ids: asked.clone() }).unwrap();
+    let got = api::tracks_get(&cache, &TracksGet { library: path(&root).into(), ids: asked.clone() }).unwrap();
     assert_eq!(got.tracks.iter().map(|t| t.id).collect::<Vec<_>>(), asked[..ids.len()]);
     assert_eq!(got.missing, [unknown]);
     // Analysis with each waveform chosen.
     for waveform in [WaveformChoice::None, WaveformChoice::Preview, WaveformChoice::Detail, WaveformChoice::All] {
-        let req = AnalysisRequest { drive: path(&root), track: ids[0], waveform, encoding: WaveformEncoding::Json };
+        let req =
+            AnalysisRequest { library: path(&root).into(), track: ids[0], waveform, encoding: WaveformEncoding::Json };
         let view = api::track_analysis_cached(&cache, &req).unwrap();
         let all = api::track_analysis(&api::TrackRequest { drive: path(&root), track: ids[0] }).unwrap();
         let wants = |w: WaveformChoice| waveform == WaveformChoice::All || waveform == w;
@@ -91,6 +92,6 @@ fn a_tracks_artwork_file_is_the_size_players_show(tc: TestCase) {
     assert_eq!(why.len(), 3);
     // Cached, but not past a change: a track exported since is found.
     let fresh = common::export_new_track(&root, "Artist", "Since");
-    let got = api::tracks_get(&cache, &TracksGet { drive: path(&root), ids: vec![fresh] }).unwrap();
+    let got = api::tracks_get(&cache, &TracksGet { library: path(&root).into(), ids: vec![fresh] }).unwrap();
     assert_eq!((got.tracks.len(), got.missing.len()), (1, 0));
 }

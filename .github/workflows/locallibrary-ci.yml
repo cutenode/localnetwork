@@ -51,6 +51,7 @@ jobs:
             rust:
               - 'apps/locallibrary/**'
               - 'crates/**'
+              - 'plugins/**'
               - 'vendor/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
@@ -95,14 +96,20 @@ jobs:
         run: |
           brew install sqlcipher
           echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
+      # Windows runners run as an administrator, and locallibrary starts no plugin from an elevated
+      # process; debug builds take this to mean it isn't, so the tests can start theirs.
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The plugin tests run in the plugins job below.
       - if: runner.os != 'Linux'
-        run: cargo nextest run --workspace --locked --no-fail-fast
-      # Linux runs the same tests under coverage, failing below the thresholds in
+        run: cargo nextest run --workspace --locked --no-fail-fast --profile core
+      # Linux runs every test under coverage, the plugin tests too, failing below the thresholds in
       # .cargo/config.toml.
       - if: runner.os == 'Linux'
         run: |
@@ -110,6 +117,35 @@ jobs:
           cargo coverage
       # nextest doesn't run doctests.
       - run: cargo test --doc --workspace --locked
+
+  # The plugin tests (see .config/nextest.toml), apart from the rest. Linux runs them under
+  # coverage in the test job.
+  plugins:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        # Only main saves this cache, which pull requests restore.
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # As in the test job: the runner is elevated, the tests' plugins must start anyway.
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run --workspace --locked --no-fail-fast --profile plugins
 
   # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
   # passes clippy without ALSA's headers. locallibrary-scheduled.yml runs its tests and every
@@ -192,7 +228,7 @@ jobs:
   passed:
     name: locallibrary CI passed
     if: always()
-    needs: [changes, test, features, msrv, docs, deny]
+    needs: [changes, test, plugins, features, msrv, docs, deny]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

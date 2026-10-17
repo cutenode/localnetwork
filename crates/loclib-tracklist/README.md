@@ -3,8 +3,8 @@
 Reads tracklists from outside a DJ library (an M3U from a computer, a Spotify export, rekordbox's
 playlist text or XML, a set list pasted from a web page) and finds their tracks in a
 `loclib_model::Library`. It was split out of
-[locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary), which uses it to import playlists onto
-rekordbox USB drives.
+[locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary), whose tracklist plugin
+(`plugins/tracklist`) uses it to import playlists onto rekordbox USB drives.
 
 `parse` detects the format and reads bytes into `Entry`s (title, artist, album, mix name,
 duration, file path, ISRC, and the line each came from). `match_entries`, or a `Matcher` built

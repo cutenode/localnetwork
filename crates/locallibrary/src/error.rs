@@ -299,6 +299,17 @@ impl Error {
         Error::Invalid(message.into())
     }
 
+    /// A track id the library read doesn't have, saying so when it's one of OneLibrary's own
+    /// tracks in a combined library ([`crate::convert::ONELIBRARY_ONLY`]).
+    pub(crate) fn no_track(id: u32) -> Self {
+        match crate::convert::is_onelibrary_only(id) {
+            true => Error::NotFound(format!(
+                "track #{id} is one only OneLibrary has: reads see it with `combined`, and edits can't change it"
+            )),
+            false => Error::NotFound(format!("track #{id}")),
+        }
+    }
+
     /// A `conflict`: a decision is needed first.
     pub(crate) fn conflict(reason: Reason, message: impl Into<String>) -> Self {
         Error::Conflict(message.into()).because(reason)
@@ -328,6 +339,18 @@ impl Error {
     /// The same error, with something that would resolve it.
     pub fn action(self, action: Action) -> Self {
         self.edit(|d| d.actions.push(action))
+    }
+
+    /// The same error, without the actions that send the request again (with some parameters
+    /// added): for a request that can't be sent again so.
+    pub fn without_retries(self) -> Self {
+        match self {
+            Error::Detailed { error, mut detail } => {
+                detail.actions.retain(|a| a.method.is_some());
+                Error::Detailed { error, detail }
+            }
+            e => e,
+        }
     }
 
     fn edit(self, f: impl FnOnce(&mut Detail)) -> Self {
@@ -427,20 +450,6 @@ impl From<loclib_equipment::UnknownModels> for Error {
     fn from(e: loclib_equipment::UnknownModels) -> Self {
         let known: Vec<&str> = loclib_equipment::MODELS.iter().map(|m| m.name).collect();
         Error::invalid(format!("not a model locallibrary knows: {} (it knows {})", e.0.join(", "), known.join(", ")))
-    }
-}
-
-impl From<loclib_interop::Error> for Error {
-    fn from(e: loclib_interop::Error) -> Self {
-        use loclib_interop::Error as E;
-        match e {
-            E::Cancelled(_) => Error::Cancelled,
-            E::Invalid(message) => Error::Invalid(message),
-            E::Io { path, source } => Error::Io { path, source },
-            E::Tags(message) => Error::Tags(message),
-            // A variant a newer loclib-interop adds keeps its message.
-            other => Error::invalid(other.to_string()),
-        }
     }
 }
 

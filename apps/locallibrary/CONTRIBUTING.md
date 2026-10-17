@@ -1,8 +1,9 @@
 # Contributing
 
 locallibrary is the CLI in this folder plus the library crates in the repository's `crates/` and
-`vendor/`, one Cargo workspace whose root is the repository root. Paths below that start with
-`crates/`, `vendor/` or `.github/` are from there; the rest are from this folder.
+`vendor/` and the plugins it ships in `plugins/`, one Cargo workspace whose root is the
+repository root. Paths below that start with `crates/`, `vendor/`, `plugins/` or `.github/` are
+from there; the rest are from this folder.
 
 ```bash
 cargo test --workspace --locked     # unit + integration tests against real rekordbox export fixtures
@@ -34,6 +35,13 @@ need locallibrary's fixtures stay in locallibrary. Each one's README is its crat
 README's examples are doctests: run `cargo test --doc -p <crate>` after changing one, since CI
 skips changes to Markdown alone.
 
+The plugins locallibrary ships are a crate each in `plugins/<id>/` (`locallibrary-plugin-<id>`),
+written on loclib-plugin's SDK (see [Plugins](docs/plugins.md)). Like the crates above, they never
+depend on `locallibrary`: they read the library through the host's callbacks, and the CLI links
+them into its binary (`apps/locallibrary/src/plugins.rs`). Their tests sit beside their code,
+driving the plugin over in-memory pipes with a fake host; the CLI's tests run them through the
+real one.
+
 **Toolchain:** `rust-toolchain.toml` pins the Rust that CI and
 release builds use (1.96.1, with clippy and rustfmt), and rustup installs it the first time
 cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
@@ -49,6 +57,10 @@ pushes to `main` that change the workspace (not when only Markdown changed):
   [cargo-nextest](https://nexte.st) (`cargo nextest run --workspace` locally), doctests with
   `cargo test --doc`. On Linux they run under coverage (see below). On macOS and Linux the tests
   have the `sqlcipher` CLI, and must find it (see the fixtures below);
+- the plugin tests in a job of their own on macOS and Windows (`cargo nextest run --profile
+  plugins`; the test job runs the rest with `--profile core`). Windows runners run as an
+  administrator, and locallibrary starts no plugin from an elevated process: in debug builds,
+  `LOCALLIBRARY_TEST_NOT_ELEVATED` says it isn't, so the tests' plugins start;
 - clippy on the CLI without its default features, on Linux without the ALSA headers;
 - the MSRV check, and the docs build with warnings denied;
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) with `deny.toml`: RustSec advisories
@@ -62,10 +74,10 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   library and the CLI with none and of the CLI with only `account`, and clippy over every
   combination of features with [cargo-hack](https://github.com/taiki-e/cargo-hack);
 - the Bombadil explorations below;
-- mutation testing of the past week's changes to the `loclib-*` crates and `rekordbox-pdb` with
-  [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in shards. Missed
-  mutants don't fail it: the run's summary lists them, and each shard's `mutants.out` artifact has
-  their diffs. `cargo mutants -p loclib-progress` runs it locally;
+- mutation testing of the past week's changes to the `loclib-*` crates, the plugins and
+  `rekordbox-pdb` with [cargo-mutants](https://mutants.rs) (settings in `.cargo/mutants.toml`), in
+  shards. Missed mutants don't fail it: the run's summary lists them, and each shard's
+  `mutants.out` artifact has their diffs. `cargo mutants -p loclib-progress` runs it locally;
 - the release CLI's timings with [hyperfine](https://github.com/sharkdp/hyperfine) against the
   same branch a week earlier (`tools/cli-timings.sh NEW [OLD]` runs them locally), failing when a
   command's fastest run is more than 25% (and 3 ms) slower;

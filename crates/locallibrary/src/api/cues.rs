@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use super::{TrackSelector, resolve_drive};
+use super::{LibraryCache, LibraryRef, TrackSelector, resolve_drive};
 use crate::cue_edit::{self, CueEdit, CuePlan, CueRef, CueReport, SetCue, TrackCues, UpdateCue};
 use crate::device::Device;
 use crate::op::{Operation, Planned, Probe, Touched};
@@ -14,15 +14,14 @@ use crate::{Error, Result};
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct ListCues {
-    pub drive: String,
+    #[serde(flatten)]
+    pub library: LibraryRef,
     #[serde(flatten)]
     pub tracks: TrackSelector,
 }
 
 pub fn cues_list(req: &ListCues) -> Result<Vec<TrackCues>> {
-    let d = resolve_drive(&req.drive)?;
-    let ids = req.tracks.select_on(&d, &d.library()?)?;
-    cue_edit::list(&d, &ids)
+    super::cues_list_cached(LibraryCache::none(), req)
 }
 
 /// What to do to the selected tracks' cues, tagged by `op`:

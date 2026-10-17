@@ -43,12 +43,19 @@ use crate::{Error, Result, fsutil, paths};
 
 thread_local! {
     static FAIL_BEFORE_SWAP: Cell<bool> = const { Cell::new(false) };
+    static FAIL_AFTER_SWAP: Cell<bool> = const { Cell::new(false) };
 }
 
 /// For tests: make every commit on this thread fail just before its swap, as a crash or a full
 /// disk would, to check what it leaves behind.
 pub fn fail_before_swap(yes: bool) {
     FAIL_BEFORE_SWAP.with(|f| f.set(yes));
+}
+
+/// For tests: make every commit on this thread fail just after its swap, the drive changed, as a
+/// full disk can while it deletes or records what it did.
+pub fn fail_after_swap(yes: bool) {
+    FAIL_AFTER_SWAP.with(|f| f.set(yes));
 }
 
 /// Hash of a drive's database files, to notice a change between planning and applying.
@@ -340,7 +347,14 @@ pub(crate) fn commit(device: &mut Device, changes: Changes<'_>, opts: Options<'_
     }
     done.databases.extend(dbs.iter().map(|s| s.key.rsplit('/').next().unwrap_or_default().to_string()));
     steps.extend(dbs.into_iter().map(|s| Swap::Place(s.tmp, s.dst)));
+    device.swapping();
     swap(steps)?;
+    if FAIL_AFTER_SWAP.with(Cell::get) {
+        return Err(Error::Io {
+            path: device.root().to_path_buf(),
+            source: std::io::Error::other("failed after the swap (test)"),
+        });
+    }
 
     // What nothing references any more.
     if !deletes.is_empty() {
