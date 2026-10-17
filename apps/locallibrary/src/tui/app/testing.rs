@@ -292,6 +292,12 @@ pub fn press(app: &mut App, keys: &str) {
     }
 }
 
+/// A dialog, the outputs list, the help or the log is open: drawn over the screen, it covers the
+/// header and footer when it doesn't fit between them.
+pub fn overlay(app: &App) -> bool {
+    app.help || app.show_log || app.modal.is_some() || app.deck.outputs.is_some()
+}
+
 /// A key that isn't typed, such as an arrow or page down.
 pub fn key(app: &mut App, code: KeyCode) {
     app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
