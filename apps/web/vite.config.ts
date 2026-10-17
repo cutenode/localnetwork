@@ -87,7 +87,8 @@ export default defineConfig({
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.ts', 'scripts/**/*.{test,spec}.ts'],
-					exclude: ['src/**/*.svelte.{test,spec}.ts']
+					exclude: ['src/**/*.svelte.{test,spec}.ts'],
+					setupFiles: ['src/lib/server/testing/setup.ts']
 				}
 			},
 			{
@@ -111,6 +112,7 @@ export default defineConfig({
 					name: 'integration',
 					environment: 'node',
 					include: ['tests/integration/**/*.test.ts'],
+					setupFiles: ['src/lib/server/testing/setup.ts'],
 					testTimeout: 120_000,
 					hookTimeout: 180_000,
 					fileParallelism: false
