@@ -91,6 +91,11 @@ jobs:
         run: |
           brew install sqlcipher
           echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
+      # Windows runners run as an administrator, and locallibrary starts no plugin from an elevated
+      # process; debug builds take this to mean it isn't, so the tests can start theirs.
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: cargo-nextest,cargo-llvm-cov
@@ -108,13 +113,16 @@ jobs:
       # nextest doesn't run doctests.
       - run: cargo test --doc --workspace --locked
 
-  # The plugin tests (see .config/nextest.toml) start plugins, which locallibrary refuses to do
-  # from an elevated process, and Windows runners run as an administrator: until the tests can
-  # say otherwise, they run on macOS here and on Linux under coverage in the test job.
+  # The plugin tests (see .config/nextest.toml), apart from the rest. Linux runs them under
+  # coverage in the test job.
   plugins:
     needs: changes
     if: needs.changes.outputs.run == 'true'
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -122,6 +130,10 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # As in the test job: the runner is elevated, the tests' plugins must start anyway.
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: cargo-nextest
