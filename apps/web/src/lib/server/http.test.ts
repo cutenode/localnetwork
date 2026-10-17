@@ -83,6 +83,17 @@ describe('safeNext', () => {
 		expect(safeNext('https://evil.test', '/')).toBe('/');
 		expect(safeNext(null)).toBe('/me');
 	});
+
+	it('refuses paths a browser would read as another site', () => {
+		// Browsers drop tabs and newlines from a URL and read a backslash as a slash, so each of
+		// these becomes `//evil.test`.
+		for (const next of ['/\t/evil.test', '/\n/evil.test', '/\r\n/evil.test', '/\\\\evil.test', '/x\\..\\\\evil.test']) {
+			expect(safeNext(next)).toBe('/me');
+		}
+
+		expect(safeNext('/ /evil.test')).toBe('/me');
+		expect(safeNext('/%09/evil.test')).toBe('/%09/evil.test');
+	});
 });
 
 describe('guards', () => {
