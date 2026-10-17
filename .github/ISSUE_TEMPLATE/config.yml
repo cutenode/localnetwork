@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Question
+    url: https://github.com/cutenode/localnetwork/discussions
+    about: Ask how Local Network, locallibrary or localtoolbox works.
   - name: Documentation
     url: https://github.com/cutenode/localnetwork#readme
     about: What each tool does, and where its guides are.

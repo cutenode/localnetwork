@@ -8,6 +8,10 @@ This covers the whole repository. Each tool has more in its own docs:
 
 Found a security problem? See [SECURITY.md](SECURITY.md) instead of opening an issue.
 
+Have a question about how something works? Ask in [Discussions](https://github.com/cutenode/localnetwork/discussions).
+
+Found a bug? "Report a bug" in the website's footer, localtoolbox's settings, or `locallibrary bug` fills in your version and setup for you.
+
 ## Setup
 
 Use the Node version in `.node-version` (24). From the repository root:
