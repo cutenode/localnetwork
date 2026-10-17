@@ -524,9 +524,9 @@ fn a_builds_the_profile_from_the_open_drive() {
     let Scope::Drive(_, name) = app.profile.scope.clone() else { panic!("{:?}", app.profile.scope) };
     assert_eq!(last_message(&app), format!("profile from {name} only"));
     assert!(app.profile.loading);
-    // The header says so while it builds.
-    app.profile.progress[1].store(12, Ordering::Relaxed);
-    app.profile.progress[0].store(3, Ordering::Relaxed);
+    // The header says so while it builds. Counters of the test's own: the build's thread keeps
+    // the ones it was given, and counting there can't overwrite these.
+    app.profile.progress = Arc::new([AtomicU64::new(3), AtomicU64::new(12)]);
     let s = screen(&mut app, 140, 30);
     assert!(s.contains("Building profile… 3/12 tracks"), "{s}");
     // A build started before this one is stopped, and what it sends back ignored.
