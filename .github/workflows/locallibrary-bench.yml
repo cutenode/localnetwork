@@ -78,7 +78,10 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
+      # Only main saves its cache (see locallibrary-ci.yml).
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The CLI's default `playback` feature builds ALSA's bindings, which need its headers.
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       # Keep in step with codspeed-criterion-compat's version in Cargo.toml. It has no
