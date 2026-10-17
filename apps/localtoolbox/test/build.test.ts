@@ -259,9 +259,16 @@ describe('the bundle', () => {
 			// artist's bio (src/tools/artists/profiles.js), which is opened when
 			// its badge is pressed and never fetched: the host is the bio's, not
 			// the bundle's. Svelte's own errors end in a link to their page on
-			// svelte.dev, which is text in a message, not a request.
+			// svelte.dev, which is text in a message, not a request. The settings
+			// sheet's "report a bug" is a link to this repository's issue form
+			// (src/lib/bug-report.ts), opened in a tab and never fetched.
 			for (const [, url] of code.matchAll(/["'`](https?:\/\/[^"'`\s]+)/g)) {
-				if (/^https:\/\/\$\{\w+\}$/.test(url) || url.startsWith('https://svelte.dev/e/')) continue;
+				const isLinkOut =
+					/^https:\/\/\$\{\w+\}$/.test(url) ||
+					url.startsWith('https://svelte.dev/e/') ||
+					url === 'https://github.com/cutenode/localnetwork/issues/new';
+
+				if (isLinkOut) continue;
 				expect(url, `${file}: ${url}`).toMatch(
 					/soundcloud\.com|sndcdn\.com|beatport\.com|bandcamp\.com|zipdj\.com|mp3poolonline\.com|hypeddit|droploud|toneden|fanlink|laylo|feature\.fm|ffm\.to|pumpyoursound|gate\.sc|cloudfront\.net|w3\.org|json-schema\.org|dropbox|drive\.google/i
 				);
