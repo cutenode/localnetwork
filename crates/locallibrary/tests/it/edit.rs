@@ -1,4 +1,5 @@
 mod api;
+mod destructive;
 mod details;
 mod drifted_databases;
 mod journal_replay;

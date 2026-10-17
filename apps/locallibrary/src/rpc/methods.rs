@@ -306,7 +306,7 @@ impl Registry {
         Pl: AnyPlanned + PlanOf + JsonSchema + 'static,
         F: Fn(&Call<'_>, P) -> Result<Pl, RpcError> + Send + Sync + 'static,
     {
-        let run: Run = Box::new(move |c, v| c.plans.keep(f(c, params(v)?)?));
+        let run: Run = Box::new(move |c, v| c.plans.keep(name, f(c, params(v)?)?));
         let m = self.add(Method::new(name, Kind::Plan, schema::<P>, schema::<Pl>, Some(run)));
         m.applies = Some(schema::<<Pl as PlanOf>::Report>);
         m.operation = name.strip_suffix(".plan");
@@ -328,17 +328,17 @@ impl Registry {
             let operation = registry().get(name).and_then(|m| m.operation).unwrap_or(operation);
             // The store first: a plan taken out is only put back by a refusal below.
             let store = c.plan_store(store)?;
-            let (made, plan) = c.plans.take(id, operation)?;
+            let (made, plan) = c.plans.take(name, id, operation)?;
             // Refused before anything was written (a changed or archive drive, or one in use), the
             // plan stays, to be applied again (with `overwrite_archive`, say).
             if let Err(e) = plan.check(store.as_ref()) {
-                c.plans.put_back(made, plan);
+                c.plans.put_back(name, made, plan);
                 return Err(e.into());
             }
             match plan.apply_json(store.as_ref(), c.ctx) {
                 Ok(report) => ok(report),
                 Err(e @ locallibrary::Error::Locked(_)) if plan.check(store.as_ref()).is_ok() => {
-                    c.plans.put_back(made, plan);
+                    c.plans.put_back(name, made, plan);
                     Err(e.into())
                 }
                 Err(e) => Err(RpcError::from(e).plan_used()),
@@ -485,7 +485,11 @@ fn build() -> Registry {
     r.read("tracks.query", |_, req| Ok(api::tracks_query_cached(&LIBRARIES, &req)?)).quick();
     r.read("track.analysis", |_, req| Ok(api::track_analysis_cached(&LIBRARIES, &req)?)).quick();
     r.read("tracks.analysis", |_, req| Ok(api::tracks_analysis(&LIBRARIES, &req)?)).quick();
-    r.read("track.fields", |c, req| Ok(api::track_fields(&LIBRARIES, c.existing()?.as_ref(), &req)?));
+    r.read("track.fields", |c, req| {
+        // Plugins that were refused have nothing to show either.
+        let installed = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
+        Ok(api::track_fields_of(&LIBRARIES, c.existing()?.as_ref(), &req, &installed)?)
+    });
     r.read("track.show", |_, req| Ok(api::track_details_cached(&LIBRARIES, &req)?)).quick();
     r.read("track.matches", |_, req| Ok(api::harmonic_matches_cached(&LIBRARIES, &req)?)).quick();
 
@@ -853,6 +857,9 @@ fn build() -> Registry {
         .destructive()
         .writes_to("output");
 
+    // Plugins.
+    plugins::register(&mut r);
+
     // For the sidecar's own tests only (`LOCALLIBRARY_RPC_TEST=1`, not listed).
     r.read("$/test.wait", |c, req: Wait| {
         if std::env::var_os("LOCALLIBRARY_RPC_TEST").is_none_or(|v| v != "1") {
@@ -876,6 +883,8 @@ fn build() -> Registry {
 
     r.finish()
 }
+
+mod plugins;
 
 #[cfg(test)]
 mod tests;

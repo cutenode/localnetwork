@@ -2139,6 +2139,25 @@ impl EditPlan {
             && self.replay.is_none()
     }
 
+    /// Whether applying it loses something: tracks (and their files), playlists or history
+    /// lists removed, a playlist left with fewer entries, cues deleted, or My Tags taken off
+    /// tracks or deleted.
+    pub fn destructive(&self) -> bool {
+        let mut steps = self.replay.iter().flat_map(|s| &s.steps);
+        !self.tracks_removed.is_empty()
+            || !self.playlists_deleted.is_empty()
+            || self.history_removed > 0
+            || !self.files.is_empty()
+            || self.playlists_changed.iter().any(|c| c.after < c.before)
+            || steps.any(|e| {
+                matches!(
+                    e,
+                    Edit::Cues { change: CueChange::Delete(_), .. }
+                        | Edit::MyTag(TagChange::Remove { .. } | TagChange::Delete { .. })
+                )
+            })
+    }
+
     /// Ops whose changes the counts above can miss: renames, moves, repoints (which can change
     /// only history entries or My Tag links) and new audio paths.
     fn uncounted_ops(&self) -> bool {

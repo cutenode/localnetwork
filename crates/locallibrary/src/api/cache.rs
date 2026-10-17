@@ -13,7 +13,7 @@ use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::Duration;
 
 use super::resolve_drive;
@@ -23,7 +23,7 @@ use crate::model::Library;
 use crate::progress::Ctx;
 use crate::tags::MyTags;
 use crate::watch::LibraryStamp;
-use crate::{Result, tags};
+use crate::{Result, lock, tags};
 
 // The library a read is about: the drive's, as players see it or whole (see
 // `CachedLibrary::view`). Not a doc comment: requests flatten it, and the schema would give its
@@ -84,10 +84,6 @@ enum IdentifierSlot {
 
 /// Each track's My Tags (`Category/Tag`) by its file key, as [`tags::by_track`] gives them.
 pub type TagsByTrack = FxHashMap<String, Vec<String>>;
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 impl CachedLibrary {
     /// Reads the drive's library now.

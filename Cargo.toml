@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/locallibrary", "crates/locallibrary", "crates/loclib-analysis", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-plugin", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-transcode", "crates/loclib-waveform", "vendor/rekordbox-pdb"]
+members = ["apps/locallibrary", "crates/locallibrary", "crates/loclib-analysis", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-plugin", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-transcode", "crates/loclib-waveform", "plugins/coverart", "vendor/rekordbox-pdb"]
 
 [workspace.package]
 version = "0.1.0"
@@ -76,7 +76,9 @@ schemars = { version = "1.2", default-features = false, features = ["derive", "s
 serde = { version = "1", features = ["derive"] }
 # `float_roundtrip`: an f64 written to the store (a report's coverage, a set's BPM) reads back as
 # the same f64, not one bit off. (Test builds get it from jsonschema anyway; this is for the rest.)
-serde_json = { version = "1", features = ["float_roundtrip"] }
+# `preserve_order`: JSON objects keep their order (a plugin's params and an analyzer's fields, the
+# sidecar's answers). Here, so every build of every crate writes JSON in one order.
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 # Where in a request a bad parameter is (`edits[0].op`), for invalid_params errors (loclib-plugin's,
 # which the RPC sidecar shares).
 serde_path_to_error = "0.1"
