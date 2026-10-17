@@ -85,6 +85,9 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the fuzz targets, five minutes each (see Fuzzing);
 - cargo-deny's advisory check, for advisories published since the last push.
 
+A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
+the next weekly run that passes closes it.
+
 `.github/workflows/locallibrary-bench.yml` runs the benchmarks under
 [CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
 some, and reports each one's change against `main`.
