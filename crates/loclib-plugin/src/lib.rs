@@ -14,8 +14,8 @@ mod view;
 
 pub use error::{ErrorData, RpcError, params};
 pub use manifest::{
-    Analyzer, Capability, Command, Contributions, Exporter, FieldType, FieldValue, Manifest, ManifestError, Mode,
-    Operation, Setting, SettingType, check_params,
+    Analyzer, Capability, CliHints, Command, Contributions, Exporter, FieldType, FieldValue, Manifest, ManifestError,
+    Mode, Operation, Setting, SettingType, check_params, is_path,
 };
 pub use peer::{Incoming, Peer, Pending, Request};
 pub use protocol::*;

@@ -6,76 +6,60 @@
     "$ref": "#/$defs/Model"
   },
   "$defs": {
-    "Audio": {
-      "description": "One audio format a model plays, at these sample rates (Hz) and bit depths.",
+    "Model": {
       "type": "object",
       "properties": {
-        "codec": {
-          "$ref": "#/$defs/Codec"
+        "name": {
+          "description": "As AlphaTheta writes it: `CDJ-2000NXS2`, `OPUS-QUAD`.",
+          "type": "string"
         },
-        "depths": {
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        },
+        "export_pdb": {
+          "description": "Reads Device Library (`export.pdb`).",
+          "$ref": "#/$defs/Spec_for_boolean"
+        },
+        "onelibrary": {
+          "description": "Reads OneLibrary (`exportLibrary.db`, called Device Library Plus before October 2025).",
+          "$ref": "#/$defs/Spec_for_boolean"
+        },
+        "exfat": {
+          "$ref": "#/$defs/Spec_for_Exfat"
+        },
+        "audio": {
+          "description": "The formats it plays. A format missing from the list doesn't play.",
           "type": "array",
           "items": {
-            "type": "integer",
-            "format": "uint16",
-            "maximum": 65535,
-            "minimum": 0
+            "$ref": "#/$defs/Audio"
           }
         },
-        "inferred": {
+        "audio_inferred": {
+          "description": "The list of formats is itself inferred: a format missing from it probably doesn't play.",
           "type": "boolean"
         },
-        "rates": {
+        "notes": {
+          "description": "What else is worth knowing about it.",
           "type": "array",
           "items": {
-            "type": "integer",
-            "format": "uint32",
-            "minimum": 0
+            "type": "string"
           }
+        },
+        "source": {
+          "description": "Where the values come from.",
+          "type": "string"
         }
       },
       "required": [
-        "codec",
-        "rates",
-        "depths",
-        "inferred"
-      ]
-    },
-    "Codec": {
-      "description": "An audio format players list.",
-      "type": "string",
-      "enum": [
-        "mp3",
-        "aac",
-        "wav",
-        "aiff",
-        "flac",
-        "alac"
-      ]
-    },
-    "Exfat": {
-      "description": "Whether a model reads exFAT.",
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": [
-            "no",
-            "yes"
-          ]
-        },
-        {
-          "description": "With this firmware version or later.",
-          "type": "object",
-          "properties": {
-            "firmware": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "firmware"
-          ]
-        }
+        "name",
+        "kind",
+        "export_pdb",
+        "onelibrary",
+        "exfat",
+        "audio",
+        "audio_inferred",
+        "notes",
+        "source"
       ]
     },
     "Kind": {
@@ -97,71 +81,31 @@
         }
       ]
     },
-    "Model": {
+    "Spec_for_boolean": {
+      "description": "A value, and whether it's inferred rather than documented.",
       "type": "object",
       "properties": {
-        "audio": {
-          "description": "The formats it plays. A format missing from the list doesn't play.",
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Audio"
-          }
-        },
-        "audio_inferred": {
-          "description": "The list of formats is itself inferred: a format missing from it probably doesn't play.",
+        "value": {
           "type": "boolean"
         },
-        "exfat": {
-          "$ref": "#/$defs/Spec_for_Exfat"
-        },
-        "export_pdb": {
-          "description": "Reads Device Library (`export.pdb`).",
-          "$ref": "#/$defs/Spec_for_boolean"
-        },
-        "kind": {
-          "$ref": "#/$defs/Kind"
-        },
-        "name": {
-          "description": "As AlphaTheta writes it: `CDJ-2000NXS2`, `OPUS-QUAD`.",
-          "type": "string"
-        },
-        "notes": {
-          "description": "What else is worth knowing about it.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "onelibrary": {
-          "description": "Reads OneLibrary (`exportLibrary.db`, called Device Library Plus before October 2025).",
-          "$ref": "#/$defs/Spec_for_boolean"
-        },
-        "source": {
-          "description": "Where the values come from.",
-          "type": "string"
+        "inferred": {
+          "type": "boolean"
         }
       },
       "required": [
-        "name",
-        "kind",
-        "export_pdb",
-        "onelibrary",
-        "exfat",
-        "audio",
-        "audio_inferred",
-        "notes",
-        "source"
+        "value",
+        "inferred"
       ]
     },
     "Spec_for_Exfat": {
       "description": "A value, and whether it's inferred rather than documented.",
       "type": "object",
       "properties": {
-        "inferred": {
-          "type": "boolean"
-        },
         "value": {
           "$ref": "#/$defs/Exfat"
+        },
+        "inferred": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -169,20 +113,76 @@
         "inferred"
       ]
     },
-    "Spec_for_boolean": {
-      "description": "A value, and whether it's inferred rather than documented.",
+    "Exfat": {
+      "description": "Whether a model reads exFAT.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "no",
+            "yes"
+          ]
+        },
+        {
+          "description": "With this firmware version or later.",
+          "type": "object",
+          "properties": {
+            "firmware": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "firmware"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Audio": {
+      "description": "One audio format a model plays, at these sample rates (Hz) and bit depths.",
       "type": "object",
       "properties": {
-        "inferred": {
-          "type": "boolean"
+        "codec": {
+          "$ref": "#/$defs/Codec"
         },
-        "value": {
+        "rates": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "depths": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "minimum": 0,
+            "maximum": 65535
+          }
+        },
+        "inferred": {
           "type": "boolean"
         }
       },
       "required": [
-        "value",
+        "codec",
+        "rates",
+        "depths",
         "inferred"
+      ]
+    },
+    "Codec": {
+      "description": "An audio format players list.",
+      "type": "string",
+      "enum": [
+        "mp3",
+        "aac",
+        "wav",
+        "aiff",
+        "flac",
+        "alac"
       ]
     }
   }

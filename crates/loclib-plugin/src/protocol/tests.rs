@@ -41,6 +41,27 @@ fn progress_from_a_newer_plugin_reads_as_unknown() {
     ));
 }
 
+/// A plan worked out from no files says nothing of them, as plugins before `inputs` did.
+#[test]
+fn an_op_plan_without_inputs_leaves_them_out() {
+    let plan = OpPlan {
+        summary: "make it".into(),
+        warnings: Vec::new(),
+        edits: vec![json!({ "op": "create_playlist", "path": "x" })],
+        inputs: Vec::new(),
+    };
+    let sent = serde_json::to_value(&plan).unwrap();
+    assert_eq!(
+        sent,
+        json!({ "summary": "make it", "warnings": [], "edits": [{ "op": "create_playlist", "path": "x" }] })
+    );
+    assert_eq!(serde_json::from_value::<OpPlan>(sent).unwrap(), plan);
+    let read = OpPlan { inputs: vec!["/music/set.txt".into()], ..plan };
+    let sent = serde_json::to_value(&read).unwrap();
+    assert_eq!(sent["inputs"], json!(["/music/set.txt"]));
+    assert_eq!(serde_json::from_value::<OpPlan>(sent).unwrap(), read);
+}
+
 #[test]
 fn protocol_versions_are_compatible_by_semvers_caret() {
     for (theirs, compatible) in

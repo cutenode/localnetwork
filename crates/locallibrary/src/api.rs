@@ -68,6 +68,11 @@ pub fn set_store_root(root: PathBuf) {
     let _ = STORE_ROOT.set(root);
 }
 
+/// The store's folder [`set_store_root`] named (this thread's, in tests), if it was named.
+pub fn store_root() -> Option<PathBuf> {
+    default_store_root()
+}
+
 /// The store whose registry drive lookups consult, if it exists.
 pub(crate) fn registry() -> Option<Store> {
     default_store_root().and_then(|r| Store::open(r).ok())

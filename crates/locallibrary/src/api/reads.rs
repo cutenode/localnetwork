@@ -516,16 +516,9 @@ pub struct PluginFields {
     pub missing: Vec<u32>,
 }
 
-/// What analyzer plugins worked out for the drive's tracks ([`crate::fields`]), for a reader that
-/// doesn't know which plugins are installed: each plugin's values are those of its version that
-/// wrote last ([`FieldStore::last_written`]). Without a store, none.
-pub fn track_fields(cache: &LibraryCache, store: Option<&Store>, req: &PluginFieldsRequest) -> Result<PluginFields> {
-    let analyzers = store.map(|s| FieldStore::in_store(s).last_written(req.plugin.as_deref())).unwrap_or_default();
-    track_fields_of(cache, store, req, &analyzers)
-}
-
-/// [`track_fields`], of the analyzers `installed` (the plugin host's, see
-/// [`crate::plugin::Plugins::analyzers`]): what other versions of them worked out is left out.
+/// What the analyzers `installed` (the plugin host's, see [`crate::plugin::Plugins::analyzers`])
+/// worked out for the drive's tracks ([`crate::fields`]): what other versions of them worked out
+/// is left out. Without a store, none.
 pub fn track_fields_of(
     cache: &LibraryCache,
     store: Option<&Store>,

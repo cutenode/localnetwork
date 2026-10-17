@@ -361,7 +361,7 @@ fn says_what_a_write_came_to() {
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let drive = app.drive_label(&root);
     let mut applied = |operation: &'static str, report: serde_json::Value| {
-        let result = Ok(Applied { operation: operation.into(), report });
+        let result = Ok(Box::new(Applied { operation: operation.into(), report }));
         app.handle_msg(Msg::Applied { job: 1, root: root.clone(), result });
         last_message(&app).to_string()
     };
@@ -636,7 +636,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
     if tc.draw(gs::booleans()) {
         app.job = Some(super::super::edits::Job { id: 5, ..job(true, false) });
     }
-    app.handle_msg(Msg::Applied { job: 5, root: root.clone(), result });
+    app.handle_msg(Msg::Applied { job: 5, root: root.clone(), result: result.map(Box::new) });
     assert_eq!(last_message(&app), want);
     assert!(app.job.is_none(), "the write is done");
     assert_eq!(app.last_backup.as_ref().map(|k| &k.root), backed.then_some(&root), "what u takes back");

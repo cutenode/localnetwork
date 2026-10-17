@@ -92,6 +92,7 @@ impl Plugin for Echo {
             summary: format!("make the playlist {name}"),
             warnings: Vec::new(),
             edits: vec![json!({ "op": "create_playlist", "path": name })],
+            inputs: Vec::new(),
         })
     }
 }

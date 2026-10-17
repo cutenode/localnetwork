@@ -206,6 +206,10 @@ pub struct OpPlan {
     /// which the host checks against its own schema. Whether they're destructive is the host's
     /// to work out.
     pub edits: Vec<Value>,
+    /// Files on this computer (absolute) the plan was worked out from, a tracklist say: applying
+    /// it is refused once one of them changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<PathBuf>,
 }
 
 /// A `progress` notification's params.

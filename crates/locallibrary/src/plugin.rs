@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::IndexMap;
-use loclib_plugin::{Command, Manifest, SettingType, check_params};
+use loclib_plugin::{Command, Manifest, Operation, SettingType, check_params};
 use rustc_hash::FxHashSet;
 use serde_json::{Map, Value};
 
@@ -43,11 +43,21 @@ pub use exports::PluginExport;
 use process::Slot;
 pub(crate) use process::THREAD_ELEVATED;
 
+/// A plugin's command or operation, as the command line runs it.
+#[derive(Debug, Clone, Copy)]
+pub enum Cli<'a> {
+    Command(&'a Command),
+    Operation(&'a Operation),
+}
+
 /// How the app starts a plugin: a program and its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Launch {
     pub program: PathBuf,
     pub args: Vec<OsString>,
+    /// Environment variables it's started without: those that would have it do something else
+    /// first (answer a shell's completion request, say).
+    pub env_remove: Vec<OsString>,
 }
 
 /// A plugin the app hands the host.
@@ -111,8 +121,8 @@ pub struct Plugins {
 impl Plugins {
     /// The host for `specs`, reading for them through `reads`. Refused: a plugin locallibrary
     /// doesn't ship, an invalid manifest, one with a secret setting (none can be kept yet), two
-    /// plugins with one id, and two commands with one `cli` name (the app checks them against
-    /// its own commands).
+    /// plugins with one id, and two commands (or operations) with one `cli` place (the app checks
+    /// them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
         let host = Arc::new(process::Host { reads, options });
         let mut plugins = IndexMap::new();
@@ -129,9 +139,9 @@ impl Plugins {
                     m.id, s.key
                 )));
             }
-            if let Some(name) =
-                m.contributes.commands.iter().filter_map(|c| c.cli.as_deref()).find(|n| !cli.insert(n.to_string()))
-            {
+            let commands = m.contributes.commands.iter().filter_map(|c| c.cli.as_deref());
+            let operations = m.contributes.operations.iter().filter_map(|o| o.cli.as_deref());
+            if let Some(name) = commands.chain(operations).find(|n| !cli.insert(n.to_string())) {
                 return Err(Error::invalid(format!("the {} plugin's command {name:?} is another plugin's too", m.id)));
             }
             if plugins.contains_key(&m.id) {
@@ -152,10 +162,14 @@ impl Plugins {
         Ok(&self.slot(plugin)?.manifest)
     }
 
-    /// The command a top-level CLI command (`locallibrary import`) runs, with its plugin's id.
-    pub fn cli_command(&self, name: &str) -> Option<(&str, &Command)> {
+    /// The command or operation with a place of its own on the command line (`import`,
+    /// `playlist import`), with its plugin's id.
+    pub fn cli(&self, place: &str) -> Option<(&str, Cli<'_>)> {
         self.manifests().find_map(|m| {
-            Some((m.id.as_str(), m.contributes.commands.iter().find(|c| c.cli.as_deref() == Some(name))?))
+            let c = &m.contributes;
+            let command = c.commands.iter().find(|c| c.cli.as_deref() == Some(place)).map(Cli::Command);
+            let operation = || c.operations.iter().find(|o| o.cli.as_deref() == Some(place)).map(Cli::Operation);
+            Some((m.id.as_str(), command.or_else(operation)?))
         })
     }
 
@@ -179,7 +193,9 @@ impl Plugins {
     }
 
     /// Stops every plugin running, all at once, each given its grace to exit before it's killed
-    /// (a hook under way holds its plugin until it's answered). They start again when used.
+    /// (a hook under way holds its plugin until it's answered). They start again when used. One
+    /// already stopping (idle, or another caller's shutdown) is waited for: once this returns,
+    /// none is left stopping, so the host can exit.
     pub fn shutdown(&self) {
         std::thread::scope(|s| {
             for slot in self.plugins.values() {
