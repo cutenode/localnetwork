@@ -448,16 +448,18 @@ fn plugin_fields_are_read_for_a_drives_tracks() {
         tracks,
         plugin: plugin.map(Into::into),
     };
-    let read = |store, req| serde_json::to_value(api::track_fields(&cache, store, &req).unwrap()).unwrap();
-    let none = json!({ "tracks": [], "missing": [] });
-    assert_eq!(read(Some(&store), req(None, None, false)), none, "nothing kept yet");
-
-    let fields = FieldStore::in_store(&store);
     let analyzer = |plugin: &str, analyzer: &str| Analyzer {
         plugin: plugin.into(),
         version: "0.1.0".into(),
         analyzer: analyzer.into(),
     };
+    let installed = [analyzer("analysis", "tempo"), analyzer("analysis", "key"), analyzer("keys", "key")];
+    let read =
+        |store, req| serde_json::to_value(api::track_fields_of(&cache, store, &req, &installed).unwrap()).unwrap();
+    let none = json!({ "tracks": [], "missing": [] });
+    assert_eq!(read(Some(&store), req(None, None, false)), none, "nothing kept yet");
+
+    let fields = FieldStore::in_store(&store);
     let bpm: Fields = [("bpm".to_string(), FieldValue::Number(128.0))].into_iter().collect();
     let key: Fields = [("key".to_string(), FieldValue::String("8A".into()))].into_iter().collect();
     let (first, only) = (&whole_lib.tracks[0], whole_lib.tracks.iter().find(|t| t.title == "Only Plus").unwrap());

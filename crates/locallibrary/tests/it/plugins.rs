@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use locallibrary::api::RpcFailure;
 use locallibrary::api::{self, LibraryCache};
-use locallibrary::plugin::{CommandOutput, Launch, Options, PluginSpec, Plugins, Reads};
+use locallibrary::plugin::{Cli, CommandOutput, Launch, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::{Error, Result};
@@ -43,8 +43,11 @@ fn spec(dir: &Path, manifest: &str, args: &[&str]) -> PluginSpec {
         std::fs::write(&file, manifest).unwrap();
         args.extend(["--manifest".into(), file.display().to_string()]);
     }
-    PluginSpec::first_party(manifest, Launch { program: program(), args: args.into_iter().map(Into::into).collect() })
-        .unwrap()
+    PluginSpec::first_party(
+        manifest,
+        Launch { program: program(), args: args.into_iter().map(Into::into).collect(), env_remove: Vec::new() },
+    )
+    .unwrap()
 }
 
 /// The echo manifest, granting `capabilities` besides its own.
@@ -227,8 +230,10 @@ fn only_plugins_locallibrary_ships_are_hosted() {
     };
     assert_eq!(new(vec![cli("one"), cli("two")]), "the two plugin's command \"say\" is another plugin's too");
     let hosted = Plugins::new(vec![cli("one")], Arc::new(NoReads), Options::default()).unwrap();
-    assert_eq!(hosted.cli_command("say").map(|(id, c)| (id, c.name.as_str())), Some(("one", "echo")));
-    assert!(hosted.cli_command("echo").is_none());
+    let said =
+        hosted.cli("say").map(|(id, c)| (id, matches!(c, locallibrary::plugin::Cli::Command(c) if c.name == "echo")));
+    assert_eq!(said, Some(("one", true)));
+    assert!(hosted.cli("echo").is_none());
     let secret = ECHO.replace("type = \"string\"\ndefault = \"hello\"", "type = \"secret\"");
     let secret = PluginSpec { manifest: loclib_plugin::Manifest::parse(&secret).unwrap(), ..echo.clone() };
     assert_eq!(
@@ -244,8 +249,62 @@ fn only_plugins_locallibrary_ships_are_hosted() {
     assert_eq!(e.to_string(), "the echo plugin's manifest: name: is empty");
 }
 
+#[test]
+fn an_operation_has_a_place_on_the_command_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let placed = |id: &str, title: &str| {
+        let toml = ECHO
+            .replace("id = \"echo\"", &format!("id = \"{id}\""))
+            .replace(title, &format!("{title}\ncli = \"playlist make\""));
+        spec(dir.path(), &toml, &[])
+    };
+    let operation = |id: &str| placed(id, "title = \"Make a playlist\"");
+    let command = |id: &str| placed(id, "title = \"Answer the params\"");
+    let hosted = Plugins::new(vec![operation("one")], Arc::new(NoReads), Options::default()).unwrap();
+    let found = hosted.cli("playlist make").map(|(id, c)| (id, matches!(c, Cli::Operation(o) if o.name == "playlist")));
+    assert_eq!(found, Some(("one", true)));
+    assert!(hosted.cli("playlist").is_none());
+    // One place is one plugin's, whether a command or an operation has it.
+    for specs in [vec![operation("one"), command("two")], vec![command("one"), operation("two")]] {
+        let e = Plugins::new(specs, Arc::new(NoReads), Options::default()).err().unwrap();
+        assert_eq!(e.to_string(), "the two plugin's command \"playlist make\" is another plugin's too");
+    }
+}
+
+/// A plugin's error is locallibrary's of the kind it says, naming the plugin, with the values it
+/// gives: a front end handles it as it handles any other. An `io` or `parse` error names its
+/// file, or it's the plugin failing, as a `permission` or `stale_plan` error is.
+#[test]
+fn a_plugins_error_keeps_its_kind_and_fields() {
+    let f = Fixture::echo();
+    let fail = |kind: &str, fields: Value| {
+        f.echo_params(json!({ "fail": kind, "message": "it went wrong", "fields": fields })).unwrap_err()
+    };
+    let path = f.store.root().join("set.txt");
+    for kind in ["invalid", "not_found", "conflict", "parse", "io"] {
+        let e = fail(kind, json!({ "path": path }));
+        assert_eq!(e.code(), kind, "{e}");
+        assert!(e.to_string().ends_with("it went wrong (the Echo plugin)"), "{kind}: {e}");
+    }
+    assert_eq!(fail("not_found", json!({})).to_string(), "not found: it went wrong (the Echo plugin)");
+    // An error about a file names the file. Running locallibrary elevated can't help a plugin,
+    // and only locallibrary's own plans go stale.
+    for kind in ["io", "parse", "permission", "stale_plan"] {
+        let e = fail(kind, json!({}));
+        assert_eq!((e.code(), e.detail().actions.len()), ("external", 0), "{kind}");
+    }
+    let e = fail("io", json!({ "path": path }));
+    assert_eq!(e.to_string(), format!("{}: it went wrong (the Echo plugin)", path.display()));
+    assert_eq!(e.detail().fields["path"], json!(path));
+    let e = fail("conflict", json!({ "playlist": "Warmup" }));
+    assert_eq!((e.code(), e.detail().fields["playlist"].clone()), ("conflict", json!("Warmup")));
+    assert!(matches!(fail("cancelled", json!({})), Error::Cancelled));
+    // A kind locallibrary has no error of is the plugin failing.
+    assert_eq!(failure(fail("explode", json!({}))), "the Echo plugin failed: it went wrong");
+}
+
 fn launch_nothing() -> Launch {
-    Launch { program: "nothing".into(), args: Vec::new() }
+    Launch { program: "nothing".into(), args: Vec::new(), env_remove: Vec::new() }
 }
 
 /// Reads for plugins that never call back.
@@ -429,4 +488,34 @@ fn shutting_down_stops_every_plugin() {
     f.plugins.shutdown();
     assert!(!f.plugins.is_running("echo") && !f.plugins.is_running("other"));
     assert_eq!(f.echo_params(json!({ "after": 1 })).unwrap(), json!({ "after": 1 }), "used again, it starts");
+}
+
+/// A plugin is started without the environment variables its launch leaves out.
+#[test]
+fn a_plugin_starts_without_what_its_launch_leaves_out() {
+    let f = Fixture::new(
+        |dir| {
+            let mut echo = spec(dir, ECHO, &[]);
+            echo.launch.env_remove = vec!["PATH".into()];
+            vec![echo]
+        },
+        Options::default(),
+    );
+    assert_eq!(f.echo_params(json!({ "env": "PATH" })).unwrap(), Value::Null);
+    let g = Fixture::echo();
+    assert!(g.echo_params(json!({ "env": "PATH" })).unwrap().is_string());
+}
+
+/// A file a plugin is given is named by an absolute path, whoever gives it: a plugin runs in a
+/// folder of its own.
+#[test]
+fn a_file_param_is_an_absolute_path() {
+    let file = r#"params = { type = "object", properties = { file = { type = "string", x-path = true } } }"#;
+    let toml = ECHO.replacen(r#"params = { type = "object" }"#, file, 1);
+    let f = Fixture::new(|dir| vec![spec(dir, &toml, &[])], Options::default());
+    let e = f.echo_params(json!({ "file": "list.txt" })).unwrap_err();
+    assert_eq!((e.code(), e.detail().fields["path"].clone()), ("invalid", json!("/file")));
+    assert!(e.to_string().ends_with("\"list.txt\" isn't an absolute path"), "{e}");
+    let absolute = f.store.root().join("list.txt");
+    assert_eq!(f.echo_params(json!({ "file": absolute })).unwrap(), json!({ "file": absolute }));
 }

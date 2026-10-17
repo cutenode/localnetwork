@@ -51,10 +51,13 @@ pub fn command() -> Command {
     with_candidates(crate::help::command())
 }
 
+/// The environment variable a shell asks for completions with (`COMPLETE=bash locallibrary`).
+pub const VAR: &str = "COMPLETE";
+
 /// Answer a completion request (`COMPLETE=bash locallibrary -- ...`) and exit; otherwise do
 /// nothing. First thing in `main`: nothing may be printed before it.
 pub fn complete() {
-    clap_complete::CompleteEnv::with_factory(command).bin("locallibrary").complete();
+    clap_complete::CompleteEnv::with_factory(command).var(VAR).bin("locallibrary").complete();
 }
 
 /// The script, or under `--json` the script in a document (`{shell, static, script}`), as every
@@ -92,12 +95,16 @@ fn completer() -> String {
 
 /// The pages, written or printed (under `--json`, what was written, or the page in a document).
 pub fn man(args: ManArgs, out: Output) -> Result<ExitCode> {
-    use clap::CommandFactory;
-    // No page for `help` at every level.
+    // No page for `help` at every level. The command line is built already (its help lists its
+    // commands), so clap has added each one: hidden, it gets no page and isn't listed.
     fn no_help(cmd: Command) -> Command {
-        cmd.disable_help_subcommand(true).mut_subcommands(no_help)
+        cmd.mut_subcommands(|c| match c.get_name() {
+            "help" => c.hide(true),
+            _ => no_help(c),
+        })
     }
-    let cmd = no_help(crate::Cli::command());
+    // The command line as it's parsed: with what plugins add, without what its help leaves out.
+    let cmd = no_help(crate::help::command());
     match args.output {
         Some(dir) => {
             std::fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;

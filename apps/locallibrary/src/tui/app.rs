@@ -734,7 +734,7 @@ pub enum Msg {
     Applied {
         job: u64,
         root: PathBuf,
-        result: Result<super::edits::Applied, Error>,
+        result: Result<Box<super::edits::Applied>, Error>,
     },
     /// Whether replaying the open drive's recorded edits would change it, for the library load
     /// with this generation: how many edits are recorded, 0 when replaying changes nothing.

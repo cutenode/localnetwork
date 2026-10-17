@@ -52,7 +52,150 @@ fn cli_names_are_names_and_unique() {
     let m = Manifest::parse(&format!("{HEAD}{}{}", command("a", "go"), command("b", "go"))).unwrap();
     assert_eq!(m.validate(true).unwrap_err().to_string(), "contributes.commands[1].cli: \"go\" is used twice");
     let m = Manifest::parse(&format!("{HEAD}{}", command("a", "Go"))).unwrap();
-    assert!(m.validate(true).unwrap_err().to_string().contains("\"Go\" isn't a name"));
+    assert!(m.validate(true).unwrap_err().to_string().contains("\"Go\" isn't one or two names"));
+    // Commands and operations share the command line.
+    let operation = "[[contributes.operations]]\nname = \"a\"\ntitle = \"T\"\ncli = \"go\"\n";
+    let m = Manifest::parse(&format!("{HEAD}{}{operation}", command("a", "go"))).unwrap();
+    assert_eq!(m.validate(true).unwrap_err().to_string(), "contributes.operations[0].cli: \"go\" is used twice");
+}
+
+#[test]
+fn only_first_party_plugins_give_operations_a_cli_place() {
+    let m = Manifest::parse(&format!(
+        "{HEAD}[[contributes.operations]]\nname = \"import\"\ntitle = \"Import\"\ncli = \"playlist import\"\n"
+    ))
+    .unwrap();
+    m.validate(true).unwrap();
+    assert_eq!(m.contributes.operations[0].cli.as_deref(), Some("playlist import"));
+    let e = m.validate(false).unwrap_err().to_string();
+    assert_eq!(e, "contributes.operations[0].cli: only plugins locallibrary ships add CLI commands");
+}
+
+#[test]
+fn a_cli_place_is_one_or_two_names() {
+    let place = |cli: &str| {
+        let toml = format!("{HEAD}[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\ncli = {cli:?}\n");
+        match Manifest::parse(&toml).unwrap().validate(true) {
+            Ok(()) => String::new(),
+            Err(e) => e.to_string(),
+        }
+    };
+    for fine in ["import", "playlist import", "tags-2 set_all"] {
+        assert_eq!(place(fine), "", "{fine}");
+    }
+    for wrong in ["playlist import now", "playlist  import", " import", "import ", "Playlist import", "a/b", ""] {
+        let e = place(wrong);
+        assert!(e.starts_with(&format!("contributes.operations[0].cli: {wrong:?} isn't one or two names (")), "{e}");
+    }
+}
+
+/// `x-cli` is checked wherever params or options are, so the CLI can rely on it.
+#[test]
+fn a_propertys_cli_hints_are_checked() {
+    let hinted = |hints: &str| {
+        problem(&format!(
+            "[[contributes.commands]]\nname = \"c\"\ntitle = \"C\"\nmode = \"headless\"\n\
+             params = {{ type = \"object\", properties = {{ from = {{ type = \"string\", x-cli = {hints} }} }} }}\n"
+        ))
+    };
+    assert_eq!(hinted("{ flag = \"source\", positional = true }"), "");
+    let at = "contributes.commands[0].params.properties.from.x-cli: ";
+    for (hints, said) in [
+        ("{ short = \"f\" }", "unknown field `short`"),
+        ("{ flag = \"From\" }", "its flag \"From\" isn't a name: "),
+        ("{ flag = \"--from\" }", "its flag \"--from\" isn't a name: "),
+        ("{ positional = \"yes\" }", "invalid type: string \"yes\", expected a boolean"),
+        ("{ path = true }", "unknown field `path`"),
+        ("{ one_based = true }", "only an object's keys are one_based"),
+        ("5", "invalid type: integer `5`"),
+    ] {
+        let e = hinted(hints);
+        assert!(e.starts_with(&format!("{at}{said}")), "{hints}: {e}");
+    }
+    let e = problem(
+        "[[contributes.exporters]]\nformat = \"f\"\ntitle = \"F\"\nfolder = true\n\
+         options = { type = \"object\", properties = { to = { x-cli = { flag = \"To\" } } } }\n",
+    );
+    assert!(e.starts_with("contributes.exporters[0].options.properties.to.x-cli: its flag \"To\""), "{e}");
+}
+
+/// A command line makes flags of params' names, and gives one of them without a flag at most.
+#[test]
+fn params_are_named_for_flags_and_one_is_positional() {
+    let params = |properties: &str| {
+        problem(&format!(
+            "[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\n\
+             params = {{ type = \"object\", properties = {{ {properties} }} }}\n"
+        ))
+    };
+    assert_eq!(params("min_bpm = { type = \"number\" }"), "");
+    for name in ["\"min-bpm\"", "\"Bpm\"", "\"2x\"", "\"a b\""] {
+        let e = params(&format!("{name} = {{ type = \"string\" }}"));
+        assert!(e.contains("isn't a param's name: lowercase letters, digits and _"), "{name}: {e}");
+    }
+    let positional = "{ type = \"string\", x-cli = { positional = true } }";
+    assert_eq!(params(&format!("file = {positional}")), "");
+    // Flags around it are fine.
+    let flag = "{ type = \"string\" }";
+    assert_eq!(params(&format!("dest = {flag}, file = {positional}, to = {flag}")), "");
+    let e = params(&format!("file = {positional}, list = {positional}"));
+    assert_eq!(e, "contributes.operations[0].params.properties.list.x-cli: \"file\" is positional already");
+    let e = params("n = { type = \"integer\", x-cli = { positional = true } }");
+    assert!(e.ends_with("only a string is positional"), "{e}");
+}
+
+/// A file or folder is a string (or a list of them) marked `x-path`, and hosts take it only as
+/// an absolute path.
+#[test]
+fn paths_are_strings_and_absolute() {
+    let params = |properties: &str| {
+        problem(&format!(
+            "[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\n\
+             params = {{ type = \"object\", properties = {{ {properties} }} }}\n"
+        ))
+    };
+    assert_eq!(params("file = { type = \"string\", x-path = true }"), "");
+    assert_eq!(params("files = { type = \"array\", items = { type = \"string\" }, x-path = true }"), "");
+    let wrong = "contributes.operations[0].params.properties.n.x-path: is true or false, on a string or a list of them";
+    assert_eq!(params("n = { type = \"integer\", x-path = true }"), wrong);
+    assert_eq!(params("n = { type = \"string\", x-path = \"yes\" }"), wrong);
+
+    let schema = json!({ "type": "object", "properties": {
+        "file": { "type": "string", "x-path": true },
+        "files": { "type": "array", "items": { "type": "string" }, "x-path": true },
+        "name": { "type": "string" },
+    } });
+    let absolute = if cfg!(windows) { "C:\\list.txt" } else { "/list.txt" };
+    let fine = json!({ "file": absolute, "files": [absolute], "name": "list.txt" });
+    assert_eq!(check_params(Some(&schema), &fine), Ok(()));
+    for (params, at) in [(json!({ "file": "list.txt" }), "/file"), (json!({ "files": [absolute, "b.txt"] }), "/files")]
+    {
+        let e = check_params(Some(&schema), &params).unwrap_err();
+        assert!(e.message.ends_with("isn't an absolute path"), "{e}");
+        assert_eq!((e.code, e.data.unwrap().fields["path"].clone()), (crate::code::INVALID_PARAMS, json!(at)));
+    }
+}
+
+#[test]
+fn cli_hints_are_read_from_a_property() {
+    let property = json!({ "type": "object", "x-cli": { "flag": "choose", "one_based": true } });
+    let hints = CliHints::of(&property).unwrap();
+    assert_eq!(hints, CliHints { flag: Some("choose".into()), one_based: true, positional: false });
+    assert!(is_path(&json!({ "type": "string", "x-path": true })));
+    assert!(!is_path(&json!({ "type": "string" })));
+    assert_eq!(CliHints::of(&json!({ "type": "string" })).unwrap(), CliHints::default());
+}
+
+/// An analyzer's fields are columns, in the order its manifest gives them.
+#[test]
+fn an_analyzers_fields_keep_the_manifests_order() {
+    let m = Manifest::parse(&format!(
+        "{HEAD}[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\n\
+         fields = {{ zeta = \"integer\", alpha = \"number\", mid = \"string\" }}\n"
+    ))
+    .unwrap();
+    let names: Vec<&str> = m.contributes.analyzers[0].fields.keys().map(String::as_str).collect();
+    assert_eq!(names, ["zeta", "alpha", "mid"]);
 }
 
 #[test]

@@ -1177,14 +1177,14 @@ impl App {
             } else {
                 let store = locallibrary::Store::open(&store_root).ok();
                 let operation = plan.operation().to_string();
-                plan.apply_json(store.as_ref(), &ctx).map(|report| Applied { operation, report })
+                plan.apply_json(store.as_ref(), &ctx).map(|report| Box::new(Applied { operation, report }))
             };
             Msg::Applied { job: id, root, result }
         };
         self.spawn_or(job, move |e| Msg::Applied { job: id, root: failed_root, result: Err(Error::Invalid(e)) });
     }
 
-    pub(super) fn on_applied(&mut self, job: u64, root: PathBuf, result: Result<Applied, Error>) {
+    pub(super) fn on_applied(&mut self, job: u64, root: PathBuf, result: Result<Box<Applied>, Error>) {
         let (touched, after) = match self.job.take_if(|j| j.id == job) {
             Some(j) => (j.touched, j.after),
             None => (Vec::new(), None),
@@ -1196,7 +1196,7 @@ impl App {
         {
             self.last_backup = Some(self.drive_at(root.clone()));
         }
-        match result {
+        match result.map(|a| *a) {
             Ok(Applied { operation, report }) if operation == "pull" => {
                 let lib = report["library"].as_str().unwrap_or("its library");
                 let snap = report["snapshot"]["short_id"].as_str().map(|s| &s[..8.min(s.len())]).unwrap_or("");

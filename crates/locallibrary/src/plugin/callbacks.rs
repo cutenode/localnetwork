@@ -268,7 +268,7 @@ pub(crate) fn for_plugin(e: RpcFailure, roots: &[(String, String)]) -> RpcError 
     fields.values_mut().for_each(|v| scrub_value(v, roots));
     let reason = e.detail.reason.and_then(|r| serde_json::to_value(r).ok()).and_then(|r| r.as_str().map(String::from));
     let data = ErrorData { kind: e.kind.into(), reason, fields };
-    RpcError { code: e.code, message: scrub(&e.message, roots), data: Some(data) }
+    RpcError { code: e.code, message: scrub(&e.message, roots), data: Some(Box::new(data)) }
 }
 
 fn scrub_value(v: &mut Value, roots: &[(String, String)]) {

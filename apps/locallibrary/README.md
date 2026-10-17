@@ -154,6 +154,7 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
 - [Atmosphere account](docs/account.md) (alpha): signing in and publishing sets, settings and your profile
 - [rekordbox and other DJ software](docs/other-software.md): rekordbox's own collection, Traktor,
   Serato and Engine DJ
+- [Plugins](docs/plugins.md): what plugins add, and where it shows up
 - [How it works](docs/how-it-works.md): the design, safety and known limitations
 
 Building on locallibrary: [the JSON-RPC sidecar](docs/sidecar.md) for desktop apps, and

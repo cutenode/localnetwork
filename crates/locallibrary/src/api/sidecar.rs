@@ -186,18 +186,19 @@ pub struct RpcFailure {
     pub message: String,
     pub kind: &'static str,
     /// Its reason, the values it's about and what would resolve it (see [`Error::detail`]).
-    pub detail: Detail,
+    // Boxed: it's most of the failure's size, which every `Result` carrying one would be.
+    pub detail: Box<Detail>,
 }
 
 impl From<Error> for RpcFailure {
     fn from(e: Error) -> Self {
-        RpcFailure { code: code::FAILED, kind: e.code(), message: e.to_string(), detail: e.detail() }
+        RpcFailure { code: code::FAILED, kind: e.code(), message: e.to_string(), detail: Box::new(e.detail()) }
     }
 }
 
 impl RpcFailure {
     pub fn new(code: i64, kind: &'static str, message: impl Into<String>) -> RpcFailure {
-        RpcFailure { code, kind, message: message.into(), detail: Detail::default() }
+        RpcFailure { code, kind, message: message.into(), detail: Box::default() }
     }
 
     pub fn method_not_found(method: &str) -> RpcFailure {
