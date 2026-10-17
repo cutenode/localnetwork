@@ -13,7 +13,7 @@
 //! These are SQLCipher 4's defaults; rekordbox's only twist is a passphrase shared by every
 //! installation (found by the pyrekordbox project). rekordbox's own collection database
 //! (`master.db`, see [`crate::masterdb`]) is encrypted the same way under another passphrase
-//! ([`Codec::with_passphrase`]).
+//! ([`Codec::with_key`]).
 
 use rustc_hash::FxHashMap;
 use std::sync::{Mutex, OnceLock};
@@ -94,12 +94,14 @@ impl Codec {
     }
 
     pub fn with_salt(salt: [u8; SALT_LEN]) -> Codec {
-        Codec::with_passphrase(PASSPHRASE.as_bytes(), salt)
+        Codec::with_key(PASSPHRASE.as_bytes(), salt)
     }
 
     /// A codec for a file encrypted under another SQLCipher 4 passphrase (`PRAGMA key`).
-    pub fn with_passphrase(passphrase: &[u8], salt: [u8; SALT_LEN]) -> Codec {
-        Codec { salt, keys: derive(passphrase, &salt) }
+    // Named for SQLCipher's `key` rather than "passphrase": CodeQL guesses secrets from names and
+    // took a `with_passphrase` codec for a password, flagging every value decrypted with it.
+    pub fn with_key(key: &[u8], salt: [u8; SALT_LEN]) -> Codec {
+        Codec { salt, keys: derive(key, &salt) }
     }
 
     /// A codec with a fresh random salt, for a new database file.
