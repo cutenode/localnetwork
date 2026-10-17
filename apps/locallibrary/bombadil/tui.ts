@@ -81,13 +81,13 @@ function helpOpen(s: Screen): boolean {
 }
 
 /** A dialog drawn over the screen: help (or a report), the edit menu, a confirmation, a
- *  question, or a list to choose from (the command palette, a drive's actions, a snapshot, a
- *  tag). */
+ *  question, the outputs to play through, or a list to choose from (the command palette, a
+ *  drive's actions, a snapshot, a tag). */
 function overlay(s: Screen): boolean {
   return (
     helpOpen(s) ||
     confirming(s) ||
-    s.lines.some((l) => /╭ (Edit · |Sure\? )/.test(l)) ||
+    s.lines.some((l) => /╭ (Edit · |Sure\? |Output )/.test(l)) ||
     s.lines.some((l) => l.includes("↑↓ choose · enter · esc close")) ||
     // Squeezed into a small terminal, a dialog may show only its border.
     s.header.trimStart().startsWith("╭")
