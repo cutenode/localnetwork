@@ -20,3 +20,6 @@ schemars = ["dep:schemars"]
 
 [dev-dependencies]
 hegeltest.workspace = true
+
+[lints]
+workspace = true

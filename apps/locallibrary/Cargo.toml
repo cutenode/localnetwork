@@ -1,6 +1,9 @@
 [package]
 name = "locallibrary-cli"
 description = "Command line interface for locallibrary"
+# Released with dist (archives, installers, Homebrew), not to crates.io: the locallibrary crate,
+# the plugins and the vendored rekordbox-pdb it's built from aren't published.
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,7 +18,9 @@ path = "src/main.rs"
 doc = false
 
 # Release packaging (see dist-workspace.toml): name the Homebrew formula after the command.
+# `dist = true` because dist leaves out a package with `publish = false` unless told otherwise.
 [package.metadata.dist]
+dist = true
 formula = "locallibrary"
 
 [features]
@@ -105,3 +110,6 @@ jacquard-oauth.workspace = true
 tokio.workspace = true
 # Splits hints into words the way a shell does, to check their quoting.
 shlex = "2.0.1"
+
+[lints]
+workspace = true

@@ -9,6 +9,12 @@ rust-version = "1.91"
 license = "MIT"
 repository = "https://github.com/cutenode/localnetwork"
 
+# Every crate that could go to crates.io has the metadata it needs there (description, license,
+# repository, keywords, categories), so a new one can't be added without it. Only this lint from
+# clippy's `cargo` group: `multiple_crate_versions` would fire on the dependency tree.
+[workspace.lints.clippy]
+cargo_common_metadata = "warn"
+
 [workspace.dependencies]
 # Without its default features (the Atmosphere account): the CLI turns them on with its own.
 locallibrary = { path = "crates/locallibrary", default-features = false }

@@ -1,6 +1,9 @@
 [package]
 name = "locallibrary"
 description = "Store, sync, compare, merge and configure rekordbox USB library exports"
+# Not on crates.io: it's built on the vendored rekordbox-pdb, which isn't published either. The
+# loclib-* crates are its parts that can be.
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -109,3 +112,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [target."cfg(unix)".dependencies]
 # Whether this process runs as root: plugins are never started from one.
 libc = "0.2"
+
+[lints]
+workspace = true
