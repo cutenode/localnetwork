@@ -1,9 +1,10 @@
 //! Browsing a library: the sidebar tree (the playlists, plus CDJ-style categories under Browse),
 //! the track list's sort order, and which of its two modes the search box is in.
 
+use locallibrary::fields::TrackValues;
 use locallibrary::harmony::{self, Camelot};
 use locallibrary::model::{TrackColor, normalize};
-use locallibrary::query::{SortField, SortKey};
+use locallibrary::query::{FieldName, SortField, SortKey, compare_values};
 use locallibrary::sets::Set;
 use locallibrary::{Library, Playlist, Track, paths};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -477,6 +478,7 @@ pub fn sort_label(f: SortField) -> &'static str {
         SortField::Time => "Time",
         SortField::Bitrate => "Bitrate",
         SortField::Path => "Path",
+        SortField::Field(name) => name.as_str(),
     }
 }
 
@@ -499,6 +501,7 @@ pub fn sort_spec(k: SortKey) -> String {
         SortField::Time => "time",
         SortField::Bitrate => "bitrate",
         SortField::Path => "path",
+        SortField::Field(name) => name.as_str(),
     };
     format!("{}{name}", if k.descending { "-" } else { "" })
 }
@@ -561,7 +564,19 @@ pub fn ranks(lib: &Library, field: SortField) -> Vec<u32> {
         SortField::Added => rank_by(t.len(), |a, b| t[a].date_added.cmp(&t[b].date_added)),
         SortField::Time => rank_by(t.len(), |a, b| t[a].duration_secs.cmp(&t[b].duration_secs)),
         SortField::Bitrate => rank_by(t.len(), |a, b| t[a].bitrate.cmp(&t[b].bitrate)),
+        // By its values, once they're read (see `field_ranks`).
+        SortField::Field(_) => vec![0; t.len()],
     }
+}
+
+/// Every track's rank under a plugin's field `name`, by its `values` as
+/// `locallibrary::query::sort_tracks_with` orders them (tracks without one share the last).
+pub fn field_ranks(lib: &Library, values: &TrackValues, name: FieldName) -> Vec<u32> {
+    let value = |i: usize| values.get(lib.tracks[i].id, name.as_str());
+    rank_by(lib.tracks.len(), |a, b| match (value(a), value(b)) {
+        (Some(x), Some(y)) => compare_values(x, y),
+        (x, y) => x.is_none().cmp(&y.is_none()),
+    })
 }
 
 fn rank_by(n: usize, cmp: impl Fn(usize, usize) -> Ordering) -> Vec<u32> {

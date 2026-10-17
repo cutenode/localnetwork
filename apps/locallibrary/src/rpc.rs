@@ -7,10 +7,10 @@
 //! `schema.json` and TypeScript types (see [`contract`]).
 //!
 //! Only a trusted parent process may spawn and drive the sidecar: it acts with the user's rights.
-//! Requests name files and folders it reads and writes (`output` for exports, `interop.*` and
-//! `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`, images and audio for
-//! `art.*`, `file` for `firmware.*` and `import.*`, `db` for `collection.*`, any folder as a
-//! drive) and servers it fetches from (`pds` for `settings.import_published.*`, `client_id` and
+//! Requests name files and folders it reads and writes (`output` for exports, `plugins.export.*`
+//! and `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`, images and audio for
+//! `art.*`, `file` for `firmware.*`, a plugin's path params, `db` for `collection.*`, any folder as
+//! a drive) and servers it fetches from (`pds` for `settings.import_published.*`, `client_id` and
 //! `scopes` for `account.login.begin`, which the user still approves in the browser; no token is
 //! ever sent back over the pipe). Never expose it on a socket or to another user, and never pass
 //! web content (a page's or a renderer's input) into its parameters. It refuses relative paths to
@@ -60,7 +60,7 @@ mod typescript;
 
 use indexmap::IndexMap;
 use std::collections::VecDeque;
-use std::io::{BufRead, Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -68,10 +68,12 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use locallibrary::api;
-use locallibrary::error::Detail;
+use locallibrary::api::RpcFailure as RpcError;
 use locallibrary::op::AnyPlanned;
-use locallibrary::progress::{CancelToken, Ctx, Event, Phase, Progress, Scope};
+use locallibrary::progress::{CancelToken, Coalesced, Ctx, Event, Flusher, Progress, Report, Scope};
 use locallibrary::watch::{DriveChange, VolumeWatcher, WatchEvent};
+use loclib_plugin::code::{FAILED, INTERNAL, INVALID_PARAMS, INVALID_REQUEST, PARSE_ERROR};
+use loclib_plugin::framing::{Line, MAX_LINE, read_line};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
@@ -119,30 +121,45 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 /// Requests run at once in each pool (reads, and everything else), unless `--workers` says.
 pub const WORKERS: usize = 4;
 
-/// The longest line read, far more than any request needs: a longer one is skipped, so a client
-/// that never ends a line can't make the sidecar hold it all.
-const MAX_LINE: usize = 16 << 20;
+/// Sends the progress requests hold back once it has waited long enough (see [`RpcProgress`]).
+static PROGRESS: Flusher = Flusher::new();
 
 /// Parsed libraries kept between requests (see [`api::LibraryCache`]): the last few drives read.
 static LIBRARIES: api::LibraryCache = api::LibraryCache::new(4);
 
 /// Plans `*.plan` made, until they're applied (once), expire or make room for newer ones. One
-/// lock, shared by every worker: a plan is taken out under it, so two `*.apply` with the same
-/// `plan_id` can't both get it. An apply refused before anything was written puts it back.
+/// lock for each of its caches, shared by every worker: a plan is taken out under it, so two
+/// `*.apply` with the same `plan_id` can't both get it. An apply refused before anything was
+/// written puts it back. Plugins' plans (the `plugins.*` methods') are kept apart, so planning
+/// with plugins never makes one of locallibrary's own go before it's applied.
 #[derive(Default)]
-struct Plans(Mutex<VecDeque<(Instant, Box<dyn AnyPlanned>)>>);
+struct Plans {
+    own: Kept,
+    plugins: Kept,
+}
+
+type Kept = Mutex<VecDeque<(Instant, Box<dyn AnyPlanned>)>>;
 
 impl Plans {
-    fn lock(&self) -> MutexGuard<'_, VecDeque<(Instant, Box<dyn AnyPlanned>)>> {
-        let mut kept = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+    const fn new() -> Plans {
+        Plans { own: Mutex::new(VecDeque::new()), plugins: Mutex::new(VecDeque::new()) }
+    }
+
+    /// The cache the plans the method `method` makes or applies are kept in.
+    fn cache(&self, method: &str) -> &Kept {
+        if method.starts_with(PLUGINS) { &self.plugins } else { &self.own }
+    }
+
+    fn lock(kept: &Kept) -> MutexGuard<'_, VecDeque<(Instant, Box<dyn AnyPlanned>)>> {
+        let mut kept = kept.lock().unwrap_or_else(PoisonError::into_inner);
         kept.retain(|(made, _)| made.elapsed() < PLAN_TTL);
         kept
     }
 
-    /// Keep a plan: `*.plan`'s answer.
-    fn keep(&self, plan: impl AnyPlanned + 'static) -> Result<Value, RpcError> {
+    /// Keep a plan: the answer of `method` (a `*.plan`).
+    fn keep(&self, method: &str, plan: impl AnyPlanned + 'static) -> Result<Value, RpcError> {
         let json = plan.to_json();
-        let mut kept = self.lock();
+        let mut kept = Plans::lock(self.cache(method));
         while kept.len() >= MAX_PLANS {
             kept.pop_front();
         }
@@ -150,29 +167,50 @@ impl Plans {
         Ok(json)
     }
 
-    /// Take out the plan `id` (made by `operation.plan`) to apply it, with when it was made.
-    fn take(&self, id: &str, operation: &str) -> Result<(Instant, Box<dyn AnyPlanned>), RpcError> {
-        let mut kept = self.lock();
-        let i = kept.iter().position(|(_, p)| p.id() == id).ok_or_else(|| {
-            RpcError::new(
-                -32000,
+    /// Take out the plan `id` for `method` (a `*.apply` of plans made by `operation.plan`) to
+    /// apply it, with when it was made.
+    fn take(&self, method: &str, id: &str, operation: &str) -> Result<(Instant, Box<dyn AnyPlanned>), RpcError> {
+        let cache = self.cache(method);
+        let mut kept = Plans::lock(cache);
+        let Some(i) = kept.iter().position(|(_, p)| p.id() == id) else {
+            drop(kept);
+            // One the other cache has is for other applies.
+            let other = if std::ptr::eq(cache, &self.own) { &self.plugins } else { &self.own };
+            if let Some((_, plan)) = Plans::lock(other).iter().find(|(_, p)| p.id() == id) {
+                return Err(invalid_params(format!("plan {id} is a {} plan, not {operation}", plan.operation())));
+            }
+            return Err(RpcError::new(
+                FAILED,
                 "stale_plan",
                 format!(
                     "there's no plan {id}: it was applied already (or failed while being applied), it expired, or \
                      the sidecar restarted; plan again"
                 ),
-            )
-        })?;
+            ));
+        };
         let made = kept[i].1.operation();
-        if made != operation {
+        if applied_as(method, made) != operation {
             return Err(invalid_params(format!("plan {id} is a {made} plan, not {operation}")));
         }
         Ok(kept.remove(i).expect("found above"))
     }
 
-    /// Keep a plan [`Plans::take`] took out again, as when it was made.
-    fn put_back(&self, made: Instant, plan: Box<dyn AnyPlanned>) {
-        self.lock().push_back((made, plan));
+    /// Keep a plan [`Plans::take`] took out for `method` again, as when it was made.
+    fn put_back(&self, method: &str, made: Instant, plan: Box<dyn AnyPlanned>) {
+        Plans::lock(self.cache(method)).push_back((made, plan));
+    }
+}
+
+/// The operation (see [`methods::Method::operation`]) of the `.apply` that applies a plan of
+/// `operation`, for `method`: the plan's own, but a plugin's operation (`<plugin>.<operation>`) is
+/// `plugins.op`'s and its export (`<plugin>.export.<format>`) `plugins.export`'s.
+fn applied_as<'a>(method: &str, operation: &'a str) -> &'a str {
+    if !method.starts_with(PLUGINS) {
+        return operation;
+    }
+    match operation.split('.').collect::<Vec<_>>()[..] {
+        [_, "export", _] => "plugins.export",
+        _ => "plugins.op",
     }
 }
 
@@ -214,204 +252,65 @@ fn send(out: &Out, msg: &Value) {
     let _ = o.flush();
 }
 
-struct RpcError {
-    code: i64,
-    message: String,
-    kind: &'static str,
-    /// Its reason, the values it's about and what would resolve it (see
-    /// [`locallibrary::Error::detail`]).
-    detail: Detail,
-}
-
-impl From<locallibrary::Error> for RpcError {
-    fn from(e: locallibrary::Error) -> Self {
-        RpcError { code: -32000, kind: e.code(), message: e.to_string(), detail: e.detail() }
-    }
-}
-
-impl RpcError {
-    fn new(code: i64, kind: &'static str, message: impl Into<String>) -> RpcError {
-        RpcError { code, kind, message: message.into(), detail: Detail::default() }
-    }
-
-    fn method_not_found(method: &str) -> RpcError {
-        RpcError::new(-32601, "method_not_found", format!("unknown method {method:?}"))
-    }
-
-    /// Makes the actions that send the request again (`method` absent) calls to `method` with
-    /// `params` and theirs.
-    fn resolve(mut self, method: &str, params: &Value) -> RpcError {
-        for a in self.detail.actions.iter_mut().filter(|a| a.method.is_none()) {
-            let mut all = params.as_object().cloned().unwrap_or_default();
-            all.extend(std::mem::take(&mut a.params));
-            a.method = Some(method.to_string());
-            a.params = all;
-        }
-        self
-    }
-
-    /// The error of applying a plan by id that's used up: sending the request again can't help,
-    /// so actions that would are dropped.
-    fn plan_used(mut self) -> RpcError {
-        self.detail.actions.retain(|a| a.method.is_some());
-        self
-    }
-
-    /// `error.data`.
-    fn data(&self) -> api::ErrorData {
-        api::ErrorData {
-            kind: self.kind.to_string(),
-            reason: self.detail.reason,
-            fields: self.detail.fields.clone(),
-            actions: self.detail.actions.clone(),
-        }
-    }
-}
-
 fn invalid_request(message: impl Into<String>) -> RpcError {
-    RpcError::new(-32600, "invalid_request", message)
+    RpcError::new(INVALID_REQUEST, "invalid_request", message)
 }
 
 fn invalid_params(e: impl std::fmt::Display) -> RpcError {
-    RpcError::new(-32602, "invalid_params", format!("invalid params: {e}"))
+    RpcError::new(INVALID_PARAMS, "invalid_params", format!("invalid params: {e}"))
 }
 
 /// A request's parameters as `T`; when they don't fit, `invalid_params` says where
 /// (`fields.path`, `edits[0].op`).
 fn params<T: DeserializeOwned>(v: Value) -> Result<T, RpcError> {
-    serde_path_to_error::deserialize(v).map_err(|e| {
-        let path = e.path().to_string();
-        if path == "." {
-            return invalid_params(e.inner());
-        }
-        let mut err = invalid_params(format!("{path}: {}", e.inner()));
-        err.detail.fields.insert("path".into(), path.into());
+    loclib_plugin::params(v).map_err(|e| {
+        let mut err = RpcError::new(INVALID_PARAMS, "invalid_params", e.message);
+        err.detail.fields = e.data.map(|d| d.fields).unwrap_or_default();
         err
     })
 }
 
 fn ok<T: serde::Serialize>(v: T) -> Result<Value, RpcError> {
-    serde_json::to_value(v).map_err(|e| RpcError::new(-32603, "internal", e.to_string()))
+    serde_json::to_value(v).map_err(|e| RpcError::new(INTERNAL, "internal", e.to_string()))
 }
 
-/// Sends a request's progress notifications. Byte counts and per-file events are coalesced, so
-/// a 100 GB copy or a 10,000-track export sends about ten lines a second, not one per chunk or
-/// file: bytes are added up, and an `item` event stands for the files since the last one sent
-/// (`items` says how many when that's more than one). Other events go out at once, after
-/// anything held back. Each scope (drive, step) is coalesced separately.
-struct RpcProgress {
-    id: Value,
-    out: Out,
-    held: Mutex<Held>,
-}
-
-struct Held {
-    /// When held events were last sent.
-    sent: Instant,
-    scopes: Vec<HeldScope>,
-}
-
-struct HeldScope {
-    scope: Scope,
-    /// The latest item, and how many items it stands for.
-    item: Option<(Event, u64)>,
-    bytes: Option<(Phase, u64)>,
-}
-
-impl Held {
-    fn scope(&mut self, scope: &Scope) -> &mut HeldScope {
-        let i = match self.scopes.iter().position(|h| h.scope == *scope) {
-            Some(i) => i,
-            None => {
-                self.scopes.push(HeldScope { scope: scope.clone(), item: None, bytes: None });
-                self.scopes.len() - 1
-            }
-        };
-        &mut self.scopes[i]
-    }
-}
+/// Sends a request's progress notifications, coalesced (see [`Coalesced`]): a 100 GB copy or a
+/// 10,000-track export sends about ten lines a second, not one per chunk or file.
+struct RpcProgress(Arc<Coalesced>);
 
 impl RpcProgress {
     fn new(id: Value, out: Out) -> Self {
-        RpcProgress { id, out, held: Mutex::new(Held { sent: Instant::now(), scopes: Vec::new() }) }
-    }
-
-    fn lock(&self) -> MutexGuard<'_, Held> {
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Sends `event` with its scope (and, for a coalesced item, how many it stands for).
-    fn emit(&self, scope: &Scope, event: api::Progressed, items: Option<u64>) {
-        let params = api::ProgressParams {
-            id: self.id.clone(),
-            event: api::ProgressEvent { event, scope: scope.clone(), items: items.filter(|n| *n > 1) },
+        let emit = move |scope: &Scope, report: Report| {
+            let (event, items) = match report {
+                Report::Event { event, items } => (api::Progressed::Event(event), items),
+                Report::Step => (api::Progressed::Step(api::StepStarted::new()), None),
+            };
+            let params = api::ProgressParams {
+                id: id.clone(),
+                event: api::ProgressEvent { event, scope: scope.clone(), items },
+            };
+            send(&out, &json!({ "jsonrpc": "2.0", "method": "progress", "params": params }));
         };
-        send(&self.out, &json!({ "jsonrpc": "2.0", "method": "progress", "params": params }));
-    }
-
-    /// Sends everything held back.
-    fn flush(&self, held: &mut Held) {
-        for h in held.scopes.drain(..) {
-            if let Some((item, n)) = h.item {
-                self.emit(&h.scope, api::Progressed::Event(item), Some(n));
-            }
-            if let Some((phase, bytes)) = h.bytes {
-                self.emit(&h.scope, api::Progressed::Event(Event::Bytes { phase, bytes }), None);
-            }
-        }
-        held.sent = Instant::now();
-    }
-
-    /// Sends what's held back once it has waited long enough, for when no event follows soon
-    /// (a slow file after quick ones).
-    fn flush_due(&self) {
-        let mut held = self.lock();
-        if !held.scopes.is_empty() && held.sent.elapsed() >= PROGRESS_EVERY {
-            self.flush(&mut held);
-        }
+        RpcProgress(Arc::new(Coalesced::new(PROGRESS_EVERY, emit)))
     }
 
     /// Sends everything held back (before the response).
     fn finish(&self) {
-        self.flush(&mut self.lock());
+        self.0.finish();
     }
 }
 
 impl Progress for RpcProgress {
     fn on_event(&self, event: &Event) {
-        self.on_scoped_event(&Scope::default(), event);
+        self.0.on_event(event);
     }
 
     fn on_scoped_event(&self, scope: &Scope, event: &Event) {
-        let mut held = self.lock();
-        match event {
-            Event::Bytes { phase, bytes } => {
-                if held.scope(scope).bytes.is_some_and(|(p, _)| p != *phase) {
-                    self.flush(&mut held);
-                }
-                let slot = &mut held.scope(scope).bytes;
-                *slot = Some((*phase, slot.map_or(0, |(_, n)| n) + bytes));
-            }
-            Event::Item { .. } => {
-                let slot = &mut held.scope(scope).item;
-                let n = slot.as_ref().map_or(0, |(_, n)| *n);
-                *slot = Some((event.clone(), n + 1));
-            }
-            other => {
-                self.flush(&mut held);
-                self.emit(scope, api::Progressed::Event(other.clone()), None);
-                return;
-            }
-        }
-        if held.sent.elapsed() >= PROGRESS_EVERY {
-            self.flush(&mut held);
-        }
+        self.0.on_scoped_event(scope, event);
     }
 
     fn on_step(&self, scope: &Scope) {
-        let mut held = self.lock();
-        self.flush(&mut held);
-        self.emit(scope, api::Progressed::Step(api::StepStarted::new()), None);
+        self.0.on_step(scope);
     }
 }
 
@@ -440,7 +339,6 @@ struct Job {
     method: String,
     started: DateTime<Utc>,
     cancel: CancelToken,
-    progress: Arc<RpcProgress>,
     /// Waiting for a worker (see [`Pool`]).
     queued: bool,
 }
@@ -455,7 +353,7 @@ impl Jobs {
     fn start(&self, job: Job) -> Result<u64, RpcError> {
         let mut s = self.lock();
         if s.stopping {
-            return Err(RpcError::new(-32000, "cancelled", "locallibrary is shutting down"));
+            return Err(RpcError::new(FAILED, "cancelled", "locallibrary is shutting down"));
         }
         if !job.id.is_null()
             && let Some(other) = s.running.values().find(|j| j.id == job.id)
@@ -546,25 +444,6 @@ impl Jobs {
         while !s.running.is_empty() {
             s = self.changed.wait(s).unwrap_or_else(PoisonError::into_inner);
         }
-    }
-
-    /// Blocks until a request is running, then returns where each running one sends progress.
-    fn wait_busy(&self) -> Vec<Arc<RpcProgress>> {
-        let mut s = self.lock();
-        while s.running.is_empty() {
-            s = self.changed.wait(s).unwrap_or_else(PoisonError::into_inner);
-        }
-        s.running.values().map(|j| j.progress.clone()).collect()
-    }
-}
-
-/// Sends progress that coalescing has held back long enough, while requests run.
-fn flush_progress(jobs: &Jobs) {
-    loop {
-        for progress in jobs.wait_busy() {
-            progress.flush_due();
-        }
-        std::thread::sleep(PROGRESS_EVERY);
     }
 }
 
@@ -709,8 +588,7 @@ pub fn serve(store_root: PathBuf, workers: usize) -> anyhow::Result<()> {
         plans: Arc::default(),
     };
     watch_signals(&server)?;
-    let jobs = server.jobs.clone();
-    std::thread::spawn(move || flush_progress(&jobs));
+    std::thread::spawn(|| PROGRESS.run(PROGRESS_EVERY));
 
     let mut input = std::io::stdin().lock();
     let mut buf = Vec::new();
@@ -721,7 +599,7 @@ pub fn serve(store_root: PathBuf, workers: usize) -> anyhow::Result<()> {
             Ok(Line::Read) => {}
             Ok(Line::TooLong) => {
                 let e = format!("parse error: a line is longer than {} MiB", MAX_LINE >> 20);
-                send(&server.out, &response(&Value::Null, Err(RpcError::new(-32700, "parse_error", e))));
+                send(&server.out, &response(&Value::Null, Err(RpcError::new(PARSE_ERROR, "parse_error", e))));
                 continue;
             }
             Err(e) => {
@@ -741,6 +619,7 @@ pub fn serve(store_root: PathBuf, workers: usize) -> anyhow::Result<()> {
     server.jobs.wait_idle();
     // A signal sets the exit status, even when input closed while it was being handled.
     if let Some(signal) = server.jobs.lock().signal {
+        stop_plugins();
         exit_after_signal(&server.out, signal);
     }
     match failed {
@@ -749,36 +628,13 @@ pub fn serve(store_root: PathBuf, workers: usize) -> anyhow::Result<()> {
     }
 }
 
-/// What [`read_line`] read.
-#[derive(Debug, PartialEq, Eq)]
-enum Line {
-    Read,
-    /// Longer than [`MAX_LINE`]: read to its end and dropped.
-    TooLong,
-    /// The input closed.
-    End,
-}
-
-/// The next line of `input` into `buf`, holding at most [`MAX_LINE`] bytes of it.
-fn read_line(input: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<Line> {
-    buf.clear();
-    if input.by_ref().take(MAX_LINE as u64 + 1).read_until(b'\n', buf)? == 0 {
-        return Ok(Line::End);
-    }
-    if buf.len() <= MAX_LINE || buf.ends_with(b"\n") {
-        return Ok(Line::Read);
-    }
-    buf.clear();
-    loop {
-        let chunk = input.fill_buf()?;
-        let (used, end) = match chunk.iter().position(|&b| b == b'\n') {
-            Some(i) => (i + 1, true),
-            None => (chunk.len(), chunk.is_empty()),
-        };
-        input.consume(used);
-        if end {
-            return Ok(Line::TooLong);
-        }
+/// Stops the plugins running, each given its grace to exit: before exiting on a signal (`main`
+/// stops them otherwise). Not on a second signal, which exits at once. A signal and closed input
+/// can bring two threads here (or one here and `main`) at once: each returns only once the
+/// plugins have stopped, whichever stopped them.
+fn stop_plugins() {
+    if let Ok(plugins) = crate::plugins::host() {
+        plugins.shutdown();
     }
 }
 
@@ -806,6 +662,7 @@ fn watch_signals(server: &Server) -> anyhow::Result<()> {
         std::thread::spawn(move || {
             jobs.interrupt(signal);
             jobs.wait_idle();
+            stop_plugins();
             exit_after_signal(&out, signal);
         });
     };
@@ -835,7 +692,7 @@ impl Server {
         let msg: Value = match serde_json::from_slice(line) {
             Ok(v) => v,
             Err(e) => {
-                let e = RpcError::new(-32700, "parse_error", format!("parse error: {e}"));
+                let e = RpcError::new(PARSE_ERROR, "parse_error", format!("parse error: {e}"));
                 send(&self.out, &response(&Value::Null, Err(e)));
                 return true;
             }
@@ -910,7 +767,7 @@ impl Server {
     fn start_watch(&self, req: api::StartWatch) -> Result<Value, RpcError> {
         let mut slot = self.watch.lock().unwrap_or_else(PoisonError::into_inner);
         if slot.is_some() {
-            return Err(RpcError::new(-32000, "conflict", "already watching; watch.stop first"));
+            return Err(RpcError::new(FAILED, "conflict", "already watching; watch.stop first"));
         }
         let options = api::WatchOptions {
             pull: req.pull,
@@ -922,14 +779,8 @@ impl Server {
             watching.every = Duration::from_millis(ms.max(100));
         }
         let cancel = CancelToken::new();
-        let job = Job {
-            id: Value::Null,
-            method: "watch".into(),
-            started: Utc::now(),
-            cancel: cancel.clone(),
-            progress: Arc::new(RpcProgress::new(Value::Null, self.out.clone())),
-            queued: false,
-        };
+        let job =
+            Job { id: Value::Null, method: "watch".into(), started: Utc::now(), cancel: cancel.clone(), queued: false };
         let started = job.started;
         let key = self.jobs.start(job)?;
         let event = api::JobEvent::Started { id: Value::Null, method: "watch".into(), started };
@@ -979,15 +830,10 @@ impl Server {
     /// Runs a request on its own thread.
     fn spawn(&self, id: Value, method: String, params: Value) {
         let cancel = CancelToken::new();
-        let progress = Arc::new(RpcProgress::new(id.clone(), self.out.clone()));
-        let job = Job {
-            id: id.clone(),
-            method: method.clone(),
-            started: Utc::now(),
-            cancel: cancel.clone(),
-            progress: progress.clone(),
-            queued: true,
-        };
+        let progress = RpcProgress::new(id.clone(), self.out.clone());
+        PROGRESS.watch(&progress.0);
+        let job =
+            Job { id: id.clone(), method: method.clone(), started: Utc::now(), cancel: cancel.clone(), queued: true };
         let started = job.started;
         let key = match self.jobs.start(job) {
             Ok(key) => key,
@@ -1004,7 +850,7 @@ impl Server {
             if !jobs.begin(key) {
                 return;
             }
-            let ctx = Ctx::new(&*progress, cancel);
+            let ctx = Ctx::new(&progress, cancel);
             // Workers are reused: this request's permission, and no other's.
             locallibrary::op::allow_archive_writes(params.get("overwrite_archive") == Some(&Value::Bool(true)));
             // What was asked, for the actions an error offers.
@@ -1017,7 +863,7 @@ impl Server {
                 m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(&method)))
             };
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| {
-                Err(RpcError::new(-32603, "internal", format!("internal error while handling {method:?}")))
+                Err(RpcError::new(INTERNAL, "internal", format!("internal error while handling {method:?}")))
             });
             let result = result.map_err(|e| e.resolve(&method, &asked));
             if !m.changes_no_drive() {
@@ -1035,6 +881,26 @@ impl Server {
             jobs.finish(key, &out, (!id.is_null()).then(|| response(&id, result)).as_ref());
         }));
     }
+}
+
+/// What the methods about plugins are named with: their plans are kept apart (see [`Plans`]).
+const PLUGINS: &str = "plugins.";
+
+/// The namespaces of the sidecar's methods: `drive` for `drive.info`.
+pub fn namespaces() -> Vec<&'static str> {
+    registry().names().into_iter().filter_map(|n| n.split('.').next()).collect()
+}
+
+/// Runs the read method `method` on this thread, as a worker would: plugins' callbacks (see
+/// [`crate::plugins`]). Any other method is refused.
+pub fn read(method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcError> {
+    // Reads keep no plans.
+    static NONE: Plans = Plans::new();
+    let m = registry().get(method).filter(|m| m.kind == Kind::Read && !m.hidden);
+    let m = m.ok_or_else(|| RpcError::method_not_found(method))?;
+    let root = api::store_root().unwrap_or_else(locallibrary::Store::default_root);
+    let call = Call { root: &root, plans: &NONE, ctx };
+    m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(method)))
 }
 
 fn response(id: &Value, result: Result<Value, RpcError>) -> Value {

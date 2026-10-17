@@ -180,6 +180,17 @@ pub enum Act {
     MixZoom,
     MixExport,
     MixReport,
+    /// A plugin's command, by the plugin's id and its name (from the palette and the drive
+    /// menu, never a key).
+    Plugin(&'static str, &'static str),
+    /// Run a plugin's analyzer (the plugin's id, the analyzer's name) on the drive's tracks.
+    Analyze(&'static str, &'static str),
+    /// Show or hide the column of a plugin's field.
+    FieldColumn(locallibrary::query::FieldName),
+    /// A plugin's settings (the plugin's id).
+    PluginSettings(&'static str),
+    /// Export the drive in a plugin's format (the plugin's id, the format).
+    Export(&'static str, &'static str),
 }
 
 /// The help's sections.
@@ -359,7 +370,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Library, &[K::Ch('t')], "t", A::CratePanel, "show or hide the crate", "show / hide the crate: tracks collected while browsing, a CDJ's TAG LIST", G::Crate),
     note(S::Library, "enter", "in the crate: play from there", G::Crate),
     note(S::Library, "", "Every change shows what it will do and asks first; the drive is backed up before it's written.", G::Changing),
-    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions that change the drive", "actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive", G::Changing),
+    key(S::Library, &[K::Ch('e')], "e", A::Actions, "actions that change the drive", "actions for the marked or selected tracks, the playlist shown and the crate: rating, colour, add to a playlist, remove, new / rename / delete a playlist or folder, sort a playlist on the drive, plugins' operations", G::Changing),
     note(S::Library, "right-click", "the same, for what's under the pointer", G::Changing),
     key(S::Library, &[K::Ch('T')], "T", A::Tag, "give the tracks a My Tag, or take one off", "give the marked (or selected) tracks a My Tag, or take one off (asks first)", G::Changing),
     note(S::Library, "y", "after rekordbox exported over edits made here: replay them (it says so above the footer; esc puts it away)", G::Changing),
@@ -368,7 +379,7 @@ pub static KEYMAP: &[Binding] = &[
     // The Drives and Snapshots views
     // -----------------------------------------------------------------------------------------
     note(S::Drives, "enter", "open the drive in the library (a library: its newest clone)", G::Drives),
-    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
+    key(S::Drives, &[K::Ch('e')], "e", A::DriveActions, "actions for the drive", "what can be done to the selected drive: save a snapshot, check, sync, pack, bring back a playlist, replay edits, undo, eject, plugins' commands; to a library's clones: sync, check, eject (each shows its plan and asks first)", G::Drives),
     tip(S::Drives, "↑↓", "select", 4),
     tip(S::Drives, "enter", "browse", 9),
     tip(S::Drives, "e", "actions", 8),
@@ -494,7 +505,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[], "4", A::ShowView(View::Profile), "the DJ profile", "", G::Player),
     key(S::Global, &[], "5", A::ShowView(View::Mixes), "recorded mixes", "", G::Player),
     key(S::Global, &[K::Ch('R'), K::Code(C::F(5))], "R  F5", A::Refresh, "refresh: read the drive and the view again", "read again: the drive, the drives' status, the snapshots, the profile, the recordings", G::Player),
-    key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), and the commands with no key", G::Player).hint("commands", 6),
+    key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), the commands with no key, and plugins' commands", G::Player).hint("commands", 6),
     key(S::Global, &[K::Ch('?')], "?", A::Help, "the keys", "this help", G::Player).hint("help", 5),
     key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the footer said since starting", G::Player),
     // Commands with no key of their own, for the drive open in the library (the selected one in

@@ -1,4 +1,4 @@
-use locallibrary::progress::Steps;
+use locallibrary::progress::{Phase, Steps};
 
 use super::*;
 
@@ -158,19 +158,44 @@ fn a_plan_is_taken_once_by_one_worker() {
     let plans = Arc::new(Plans::default());
     let mut ids = Vec::new();
     for _ in 0..MAX_PLANS + 1 {
-        let Ok(kept) = plans.keep(api::store_gc_plan(&store).unwrap()) else { panic!("kept") };
+        let Ok(kept) = plans.keep("store.gc.plan", api::store_gc_plan(&store).unwrap()) else { panic!("kept") };
         ids.push(kept["plan_id"].as_str().unwrap().to_string());
     }
     // The oldest made room.
-    assert_eq!(plans.take(&ids[0], "store.gc").err().map(|e| e.kind), Some("stale_plan"));
+    assert_eq!(plans.take("store.gc.apply", &ids[0], "store.gc").err().map(|e| e.kind), Some("stale_plan"));
     let id = ids.pop().unwrap();
     let takers: Vec<_> = (0..8)
         .map(|_| {
             let (plans, id) = (plans.clone(), id.clone());
-            std::thread::spawn(move || plans.take(&id, "store.gc").is_ok())
+            std::thread::spawn(move || plans.take("store.gc.apply", &id, "store.gc").is_ok())
         })
         .collect();
     let taken = takers.into_iter().map(|t| t.join().unwrap()).filter(|took| *took).count();
     assert_eq!(taken, 1);
-    assert_eq!(plans.take(&ids[1], "other").err().map(|e| e.kind), Some("invalid_params"));
+    assert_eq!(plans.take("other.apply", &ids[1], "other").err().map(|e| e.kind), Some("invalid_params"));
+}
+
+/// Plugins' plans are kept apart: as many as there's room for don't push out one of
+/// locallibrary's own, and a plan id given to the other kind of apply is refused as one, naming
+/// what it is.
+#[test]
+fn plugins_plans_are_kept_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = locallibrary::Store::open_or_init(dir.path()).unwrap();
+    let plans = Plans::default();
+    let id = |kept: Result<Value, RpcError>| kept.unwrap()["plan_id"].as_str().unwrap().to_string();
+    let own = id(plans.keep("store.gc.plan", api::store_gc_plan(&store).unwrap()));
+    let theirs: Vec<String> =
+        (0..MAX_PLANS + 1).map(|_| id(plans.keep("plugins.op.plan", api::store_gc_plan(&store).unwrap()))).collect();
+    let refused = |method: &str, id: &str, operation: &str| plans.take(method, id, operation).err().map(|e| e.message);
+    let message = refused("plugins.op.apply", &own, "plugins.op").unwrap();
+    assert_eq!(message, format!("invalid params: plan {own} is a store.gc plan, not plugins.op"));
+    let message = refused("store.gc.apply", &theirs[1], "store.gc").unwrap();
+    assert_eq!(message, format!("invalid params: plan {} is a store.gc plan, not store.gc", theirs[1]));
+    assert!(refused("plugins.op.apply", &theirs[0], "plugins.op").unwrap().starts_with("there's no plan"));
+    assert!(plans.take("store.gc.apply", &own, "store.gc").is_ok());
+    // A plugin's operation and export are each applied by their own apply.
+    assert_eq!(applied_as("plugins.op.apply", "echo.playlist"), "plugins.op");
+    assert_eq!(applied_as("plugins.export.apply", "echo.export.m3u"), "plugins.export");
+    assert_eq!(applied_as("store.gc.apply", "store.gc"), "store.gc");
 }

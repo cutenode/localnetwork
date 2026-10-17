@@ -11,7 +11,7 @@ use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
 use crate::props_cli_human::{FLAGS, State, TRACK_1, agree_runs, as_in, build, side_by_side, twin, universe, write};
-use crate::support::{Env, Run, path};
+use crate::support::{Env, Run, path, recording};
 
 /// A tenth of a second of silence, as a WAV file.
 fn silent_wav() -> Vec<u8> {
@@ -678,15 +678,6 @@ fn jobs_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let order = tc.draw(gs::permutations((0..JOBS_CHANGES.len()).collect::<Vec<usize>>()));
     changes_agree(&flags, order, JOBS_CHANGES);
-}
-
-/// `secs` of test signal `seed` at `rate` and `bits` bits, after `delay_ms` of silence, as a WAV.
-fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: usize) -> Vec<u8> {
-    use loclib_mixid::test_util::{resample, synth, wav_of};
-    let mut pcm = vec![0.0f32; rate as usize * delay_ms / 1000];
-    pcm.extend(resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate));
-    let scale = 12_000.0 * f32::from(1u16 << (bits - 16));
-    wav_of(rate, bits, pcm.iter().map(|s| (s * scale) as i32))
 }
 
 /// The detail waveform (`PWV5`) of the analysis file `ext` redrawn from `wav` (16-bit stereo at

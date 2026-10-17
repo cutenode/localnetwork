@@ -88,3 +88,20 @@ fn analyses_serialise_as_their_schema_describes(tc: TestCase) {
     assert_eq!(json["cues"][0]["loop_beats"], expected);
     assert_eq!(json["detail"], serde_json::Value::Null);
 }
+
+/// Beats and cues read back as they're written, as a plugin reads them from the host.
+#[test]
+fn beats_and_cues_read_back() {
+    let beat = Beat { beat_number: 1, bpm: 128.5, time_ms: 25 };
+    let cue = Cue {
+        hot_cue: Some(4),
+        start_ms: 60_025,
+        end_ms: Some(60_259),
+        comment: "Vocal ♪".into(),
+        color: Some([0xe6, 0x28, 0x28]),
+        color_id: 0,
+        loop_beats: Some((1, 2)),
+    };
+    let json = serde_json::to_string(&(beat, &cue)).unwrap();
+    assert_eq!(serde_json::from_str::<(Beat, Cue)>(&json).unwrap(), (beat, cue));
+}

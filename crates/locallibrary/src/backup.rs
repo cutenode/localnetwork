@@ -133,6 +133,15 @@ pub(crate) fn create(device: &Device, reason: &str, extra: &[String], undoes: Op
     Ok(info)
 }
 
+/// Take backup `id` away again, its change having failed before it changed anything: with the
+/// backups folder when that leaves it empty.
+pub(crate) fn discard(device: &Device, id: &str) -> Result<()> {
+    let dir = dir(device, id);
+    std::fs::remove_dir_all(&dir).at(&dir)?;
+    let _ = std::fs::remove_dir(backups_dir(device));
+    Ok(())
+}
+
 /// Space on the drive [`create`] needs for a backup with `extra`, each file rounded up to the
 /// drive's allocation unit, so a plan can tell a drive too full for it before it starts.
 pub(crate) fn needed_bytes<'a>(device: &Device, extra: impl IntoIterator<Item = &'a str>) -> u64 {

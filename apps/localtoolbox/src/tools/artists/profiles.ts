@@ -270,7 +270,7 @@ const linkOf = (url: string, filed: string | undefined, title: string | undefine
 // its scheme.
 const KNOWN_HOSTS = Object.values(NETWORKS)
 	.flatMap((network) => network.hosts)
-	.map((host) => host.replace(/\./g, '\\.'))
+	.map((host) => RegExp.escape(host))
 	.join('|');
 
 const BIO_URL = new RegExp(

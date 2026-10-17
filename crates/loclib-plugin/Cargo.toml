@@ -1,0 +1,28 @@
+[package]
+name = "loclib-plugin"
+description = "The locallibrary plugin protocol (JSON-RPC over stdio), its manifest and an SDK for writing plugins in Rust"
+readme = "README.md"
+keywords = ["dj", "plugin", "json-rpc", "rekordbox"]
+categories = ["development-tools"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+jsonschema.workspace = true
+loclib-progress = { workspace = true, features = ["schemars"] }
+rustc-hash.workspace = true
+schemars = { version = "1.2", default-features = false, features = ["derive", "std", "indexmap2"] }
+semver = "1.0.28"
+serde.workspace = true
+serde_json.workspace = true
+serde_path_to_error.workspace = true
+thiserror.workspace = true
+# `preserve_order`: an analyzer's fields (columns) keep the order its manifest gives them.
+toml = { version = "1.1.6", default-features = false, features = ["std", "serde", "parse", "preserve_order"] }
+
+[dev-dependencies]
+tempfile.workspace = true

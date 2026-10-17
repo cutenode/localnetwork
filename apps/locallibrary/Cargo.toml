@@ -37,7 +37,8 @@ playback = ["tui", "rodio/playback"]
 locallibrary.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
-clap.workspace = true
+# `string`: the commands, flags and formats plugins add are named at run time.
+clap = { workspace = true, features = ["string"] }
 clap_complete.workspace = true
 clap_mangen.workspace = true
 console.workspace = true
@@ -63,12 +64,20 @@ rustfft = { workspace = true, optional = true }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_path_to_error.workspace = true
 # Columns a typed character takes (ratatui already depends on it).
 unicode-width = "0.2"
 uuid.workspace = true
 rustc-hash.workspace = true
 indexmap.workspace = true
+# The RPC sidecar's framing, error codes and invalid_params errors, shared with the plugin protocol.
+loclib-plugin.workspace = true
+# The test plugin the CLI's tests register (`LOCALLIBRARY_TEST_PLUGINS`) reports progress with it.
+loclib-progress.workspace = true
+# The plugins locallibrary ships (`plugins::FIRST_PARTY`), each served by `plugin serve <id>`.
+locallibrary-plugin-sound = { version = "0.1.0", path = "../../plugins/sound" }
+locallibrary-plugin-coverart = { version = "0.1.0", path = "../../plugins/coverart" }
+locallibrary-plugin-tracklist = { version = "0.1.0", path = "../../plugins/tracklist" }
+locallibrary-plugin-interop = { version = "0.1.0", path = "../../plugins/interop" }
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.

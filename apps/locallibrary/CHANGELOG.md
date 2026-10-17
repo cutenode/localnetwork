@@ -47,9 +47,10 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   a library can be had without a drive rekordbox exported to; tracks Cloud Library Sync keeps in
   Dropbox or Google Drive come along, online-only ones downloaded as they're copied.
 - **Editing on the drive.** Playlists and folders (create, rename, move, delete, fill, sort,
-  order for mixing, import), track details, ratings and colours, My Tags, hot cues, memory cues
-  and loops, replacing duplicates and deleting tracks, with a backup before every change and a
-  journal so `edits replay` can redo them after rekordbox exports again. `undo` takes the last
+  order for mixing, import), track details (BPM, album artist, ISRC and release date too),
+  ratings and colours, My Tags, hot cues, memory cues and loops, cover art, replacing duplicates
+  and deleting tracks, with a backup before every change and a journal so `edits replay` can redo
+  them after rekordbox exports again. One plan can mix them all, under one backup. `undo` takes the last
   change back (run again, the one before) and is refused when the drive changed since (a
   rekordbox export, a sync, history players recorded) unless `--force`; putting a backup back
   backs up what it replaces, so an undo can be redone. `backups` and `restore` reach older ones,
@@ -191,7 +192,47 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   call, and bad parameters say where they are. The library's messages leave commands and flags to
   the CLI, which prints them as hints. The mix report lives in the library: `mix.identify` can
   answer each play's waveform, cues and phrases and keep the report in the store, and
-  `mix.reports.list`, `.get` and `.html` find kept reports and write their pages.
+  `mix.reports.list`, `.get` and `.html` find kept reports and write their pages. Library reads
+  take `combined: true` for the whole library exports are made from (OneLibrary's own tracks, with
+  ids of their own, and playlists too), `tracks.analysis` answers up to 100 tracks' analyses at
+  once, and `track.fields` reads what analyzer plugins worked out for each track, kept in the store
+  by audio file. The library hosts the plugins locallibrary ships (`plugin::Plugins`), each a
+  child process started when it's first used: it checks every read a plugin calls back for
+  against the plugin's capabilities and the params each read lets a plugin give, finds the drives
+  a plugin names itself, plans an operation's edits as one edit plan (never onto an archive
+  drive), asks before an export overwrites a file and never writes one to a drive, keeps
+  analyzers' fields and each plugin's settings, and never starts one from an elevated process.
+  An edit plan is destructive, and says so, when it leaves a playlist with fewer entries or
+  deletes cues or My Tags, too.
+- **Plugins.** The plugins built into locallibrary (only built-in ones run) add commands and
+  operations to the command line (`locallibrary ID NAME`, or where the plugin puts them, like
+  `playlist import`), with flags made from their params' JSON Schemas; an operation's plan is
+  shown and asked about like any edit. `analyze` runs their analyzers on a library's tracks and
+  `track` shows what they worked out (`sound.bpm`); `export --format` takes their formats, showing
+  each file, what goes in and what the format can't hold, and asking before overwriting a file;
+  `plugin` lists them and what each may do, and `plugin settings` keeps their settings. The
+  sidecar has all of it as `plugins.*` methods, their plans kept apart from locallibrary's own,
+  and `track.fields` reads the installed plugins' versions. A plugin whose id or commands clash
+  with locallibrary's or another plugin's is left out, with a warning saying why, and the others
+  work; a plugin's errors keep their kinds (`not_found`, `io`...). In the player, plugins'
+  commands, operations and export formats are in the palette and a drive's menu (operations in
+  the actions menu too), asking for their params or options in a form drawn from their schemas;
+  a command answers in a panel, an operation's plan is confirmed, written and undone like any
+  edit, an export shows what it would write and asks before overwriting, analyzers run from the
+  palette and their fields are columns to sort and search by, plugins' settings are a form in the
+  palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks --sort`
+  and the sidecar's `tracks.query` take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`). See
+  docs/plugins.md. The ones it ships:
+  - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
+    streaming playlists, rekordbox text or XML, "Artist - Title" lines), and `tracklist match`
+    shows what it finds in one, entry by entry, changing nothing.
+  - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
+    tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
+  - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, as `doctor
+    --analyze` does, kept as `sound.bpm`, `sound.key`, `sound.integrated_lufs`...
+  - `coverart`: `coverart fetch` finds front covers on MusicBrainz and the Cover Art Archive for
+    tracks without artwork (or all, with `--replace`), planned as artwork edits you confirm. It's
+    the only one that goes online, and only when it's run.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -250,7 +291,7 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   locallibrary are crates of their own in `crates/`, each with a README and an example, and
   JSON Schema behind a `schemars` feature in the ones whose types are serialisable. locallibrary re-exports them
   where they used to live (`model`, `harmony`, `progress`, `anlz`, `settings`, `equipment`,
-  `format::FsKind`, `import`, `mix`, `interop`), so the CLI, the RPC contract, the files written
+  `format::FsKind`, `import`, `mix`), so the CLI, the RPC contract, the files written
   and the error messages are unchanged.
   - `loclib-progress`: progress events and cooperative cancellation (`Ctx`, `CancelToken`,
     `Event`, `Cancelled`).
@@ -280,6 +321,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
     caller passes.
+  - `loclib-plugin`: the plugin protocol (versioned on its own, at 0.1.0), the
+    `locallibrary-plugin.toml` manifest and its checks, a JSON-RPC peer over a pair of pipes and
+    an SDK for writing plugins in Rust. The RPC sidecar reads lines and reports errors with it.
 
 ### Changed
 
@@ -383,6 +427,20 @@ their old names.
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
   played twice, and reports picks made with `--choose` as `chosen`.
+- `playlist import` is the tracklist plugin's now, with the same flags (`--choose 0=...` is
+  refused as a usage error, exit status 2). `--json` gives the plan alone: `tracklist match LIBRARY
+  FILE` answers what it finds in the list, entry by entry. Over RPC, `import.plan` and
+  `import.apply` are gone: plan with `plugins.op.plan {plugin: "tracklist", operation: "import",
+  params: {file, into, ...}, context: {drive}}`, apply with `plugins.op.apply`, and read the
+  entries with `plugins.run {plugin: "tracklist", command: "match", ...}`.
+- `export --format traktor|serato|engine` is the interop plugin's now. Its options are
+  `--option`s: `--location-root DIR` is `--option location_root=DIR`, `--no-analysis` is `--option
+  skip_analysis=true`, `--write-tags` is `--option write_tags=true` and Engine's `--paths drive`
+  is `--option paths=drive`. Overwriting files already there is asked about first (exit status 3
+  without a terminal or `--yes`) unless `--replace`. Serato's `write_tags` no longer asks before
+  copying the audio: `--dry-run` lists each copy and its size first. Over RPC, `interop.plan`
+  and `interop.apply` are gone: use `plugins.export.plan {plugin: "interop", exporter, drive,
+  playlists?, output, options}` and `plugins.export.apply`.
 - `store prune` applies the plan it showed, refusing if a pull, label or drive change came in
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
   run reports exactly what it frees. `store gc` removes only snapshots of no library and files
@@ -437,7 +495,7 @@ their old names.
   breaking change: `Error` and `error::Reason`, progress `Event` and `Phase`, the sidecar's
   `Notice` and `JobEvent`, `WatchEvent` and `DriveChange`, doctor's `Problem`, `AudioProblem`,
   `Unplayable`, `CopyReason`, `fleet::Check`, `SpaceKind`, `TidyKind`, `Suggestion`,
-  `interop::Software`, `StepKind` and the import and export formats. A `match` on them needs a `_`
+  `StepKind` and the import and export formats. A `match` on them needs a `_`
   arm.
 - `pack` keeps the target's own player name and colour instead of stamping the source's on it, a
   cut-off `sync` or `pack` puts them back when it's finished, and undoing `drive player` no longer

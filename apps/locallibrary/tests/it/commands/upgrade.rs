@@ -4,18 +4,9 @@
 
 use std::path::Path;
 
-use loclib_mixid::test_util::{resample, synth, wav_of};
 use rekordbox_pdb::{NewTrack, PdbEditor};
 
-use crate::support::{Env, PDB, path};
-
-/// `secs` of test signal `seed` at `rate` and `bits` bits, after `delay_ms` of silence.
-fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: usize) -> Vec<u8> {
-    let mut pcm = vec![0.0f32; rate as usize * delay_ms / 1000];
-    pcm.extend(resample(&synth(secs, seed), loclib_mixid::fingerprint::RATE, rate));
-    let scale = 12_000.0 * f32::from(1u16 << (bits - 16));
-    wav_of(rate, bits, pcm.iter().map(|s| (s * scale) as i32))
-}
+use crate::support::{Env, PDB, path, recording};
 
 #[test]
 fn track_upgrade_points_an_mp3_at_its_lossless_file() {

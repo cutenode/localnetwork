@@ -14,7 +14,7 @@ use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
 use locallibrary::{Ctx, Device, Store};
 use ratatui::crossterm::event::KeyCode;
 
-use super::app::testing::{demo_drive, key, set, wait};
+use super::app::testing::{demo_drive, key, overlay, set, wait};
 use super::app::{App, Focus, View};
 use super::browse::{Category, NodeId};
 use super::edits::{Confirm, Modal, set_rating};
@@ -97,8 +97,7 @@ fn check(app: &mut App, what: &str, needles: &[&str], wide: &[&str]) {
         let s = screen(app, w, h);
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), h as usize);
-        let overlay = app.help || app.show_log || app.modal.is_some();
-        if !overlay {
+        if !overlay(app) {
             assert!(lines[0].contains("◉ locallibrary") && lines[0].contains("5 Mixes"), "{what} {w}x{h}: header\n{s}");
             assert!(!lines[h as usize - 1].trim().is_empty(), "{what} {w}x{h}: footer\n{s}");
         }
@@ -340,6 +339,159 @@ fn command_palette() {
     // In the footer, among the hints: how to open it.
     key(&mut app, KeyCode::Esc);
     check(&mut app, "the library", &[": commands"], &[]);
+}
+
+/// A plugin's command in the palette, its form and what it answers, and its operation in the
+/// actions menu, its form starting with the selected track and its plan to confirm: all from the
+/// plugins' manifests.
+#[test]
+fn plugins() {
+    let Fixture { _dir, mut app, .. } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    app.focus = Focus::Tracks;
+    for c in ":answer the params".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    check(&mut app, "a plugin's command in the palette", &["answer the params…", "Echo"], &[]);
+    key(&mut app, KeyCode::Enter);
+    check(
+        &mut app,
+        "a plugin's form",
+        &["Answer the params", "name", "required", "loud", "○ no", "Who to greet", "enter run · esc cancel"],
+        &[],
+    );
+    key(&mut app, KeyCode::Enter);
+    check(&mut app, "a plugin's form, short of a param", &["⚠ name is needed"], &[]);
+    key(&mut app, KeyCode::Esc);
+    let rows = vec![vec![serde_json::json!("Demo Track 1"), serde_json::json!(128)]];
+    let view =
+        loclib_plugin::View::Table { title: Some("Titles".into()), columns: vec!["Title".into(), "BPM".into()], rows };
+    app.show_answer("List the drive's tracks".into(), locallibrary::plugin::CommandOutput::View(view));
+    check(
+        &mut app,
+        "a plugin's table",
+        &["Titles", "Title         BPM", "Demo Track 1  128", "any other key closes"],
+        &[],
+    );
+    key(&mut app, KeyCode::Esc);
+
+    key(&mut app, KeyCode::Char('e'));
+    check(&mut app, "the actions menu with a plugin's operation", &["make a playlist…", "fetch cover art…"], &[]);
+    let Some(Modal::Menu(m)) = &app.modal else { panic!("no menu") };
+    let echo = m.items.iter().position(|i| i.label == "make a playlist…").unwrap();
+    for _ in 0..echo {
+        key(&mut app, KeyCode::Char('j'));
+    }
+    key(&mut app, KeyCode::Enter);
+    let id = app.loaded.as_ref().unwrap().library.tracks[app.visible[0]].id.to_string();
+    check(&mut app, "a plugin's operation's form", &["Make a playlist", "tracks", &id, "required"], &[]);
+    for c in "Warmup\n".chars() {
+        key(&mut app, if c == '\n' { KeyCode::Enter } else { KeyCode::Char(c) });
+    }
+    wait(&mut app, |a| a.job.is_none());
+    check(
+        &mut app,
+        "a plugin's plan to confirm",
+        &["Write to DEMO?", "Echo: make the playlist Warmup", "+ Warmup", "y write", "u takes this back"],
+        &[],
+    );
+}
+
+/// What an analyzer plugin worked out, as a column of the track list sorted by it, and the
+/// search box filtering by it: from the plugins' manifests and the store.
+#[test]
+fn plugins_fields() {
+    let Fixture { _dir, mut app, root } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    std::fs::write(root.join(lib.tracks[1].file_path.trim_start_matches('/')), "x".repeat(4000)).unwrap();
+    let store = Store::open(&app.store_root).unwrap();
+    crate::plugins::host()
+        .unwrap()
+        .analyze("echo", "size", &root.display().to_string(), None, &store, &Ctx::silent())
+        .unwrap();
+    app.focus = Focus::Tracks;
+    for c in ":show the echo.bytes column".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    app.sort = Some(locallibrary::query::SortKey {
+        field: locallibrary::query::SortField::Field(locallibrary::query::FieldName::new("echo.bytes")),
+        descending: true,
+    });
+    wait(&mut app, |a| a.loaded.as_ref().unwrap().values().is_some());
+    app.refresh_visible();
+    check(&mut app, "a plugin's column, sorted by it", &["echo.bytes↓", "4000", "echo.bytes ↓"], &[]);
+    for c in "/echo.bytes:>1000".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    check(&mut app, "the search box filtering by a plugin's field", &["/ echo.bytes:>1000", "1 match", "4000"], &[]);
+}
+
+/// A plugin's settings in a form, as set now, from the palette.
+#[test]
+fn plugins_settings() {
+    let Fixture { _dir, mut app, .. } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    for c in ":echo plugin settings".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    check(&mut app, "a plugin's settings in the palette", &["Echo plugin settings…", "Echo"], &[]);
+    key(&mut app, KeyCode::Enter);
+    check(
+        &mut app,
+        "a plugin's settings",
+        &["Echo settings", "greeting", "hello", "speed", "1.5", "loud", "○ no", "‹ calm ›", "enter save"],
+        &[],
+    );
+}
+
+/// An export in a plugin's format: its form, with the format's options, and its plan to confirm,
+/// a file there already to overwrite.
+#[test]
+fn plugins_exports() {
+    let Fixture { _dir, mut app, root } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    super::app::testing::mounted(root.parent().unwrap());
+    for c in ":export for traktor".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    check(
+        &mut app,
+        "an export's form",
+        &["Traktor Pro: collection.nml", "write to", "~/Music/", "location root", "skip analysis", "○ no", "enter run"],
+        &[],
+    );
+    key(&mut app, KeyCode::Esc);
+    let out = _dir.path().join("Friday.m3u");
+    std::fs::write(&out, "mine").unwrap();
+    let source =
+        loclib_plugin::ExportSource { drive: root.display().to_string(), playlists: Vec::new(), history: Vec::new() };
+    let plugins = crate::plugins::host().unwrap();
+    let plan =
+        plugins.export_plan("echo", "echo-m3u", source, &out, serde_json::Value::Null, None, &Ctx::silent()).unwrap();
+    app.modal = Some(Modal::Confirm(Confirm {
+        root: root.clone(),
+        drive: app.drive_label(&root),
+        plan: Box::new(plan),
+        scroll: 0,
+        shown: Instant::now() - Duration::from_secs(1),
+        after: None,
+    }));
+    check(
+        &mut app,
+        "an export's plan to confirm",
+        &[
+            "Overwrite 1 file?",
+            "write 1 file(s)",
+            "2 tracks",
+            "Friday.m3u  playlist,",
+            "(already there)",
+            "y overwrite",
+        ],
+        &[],
+    );
 }
 
 #[test]

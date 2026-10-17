@@ -781,3 +781,62 @@ fn labelled_tuples_are_arrays_named_in_their_schema(tc: TestCase) {
         assert_eq!(titled, [("first", Some("The first value, over two lines.")), ("second", None)]);
     }
 }
+
+/// Exporting some playlists keeps them, everything in a chosen folder, the folders above them and
+/// their tracks; a playlist that isn't there is named.
+#[test]
+fn a_subset_keeps_its_folders_and_tracks() {
+    let node = |id, parent_id, name: &str, track_ids: Vec<u32>| Playlist {
+        id,
+        parent_id,
+        name: name.into(),
+        is_folder: track_ids.is_empty(),
+        sort_order: id,
+        track_ids,
+    };
+    let library = Library {
+        tracks: (1..=4).map(|id| track(id, "A", "T", &format!("/Contents/{id}.mp3"))).collect(),
+        playlists: vec![
+            node(1, None, "Sets", vec![]),
+            node(2, Some(1), "Shows", vec![]),
+            node(3, Some(2), "Friday", vec![1]),
+            node(4, Some(1), "Saturday", vec![2, 3]),
+            node(5, None, "All", vec![1, 2, 3, 4]),
+        ],
+        ..Default::default()
+    };
+    let kept = |only: &[&str]| {
+        let s = library.clone().subset(&only.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
+        (s.playlists.iter().map(|p| p.id).collect::<Vec<_>>(), s.tracks.iter().map(|t| t.id).collect::<Vec<_>>())
+    };
+    assert_eq!(kept(&["Sets/Shows"]), (vec![1, 2, 3], vec![1]));
+    assert_eq!(kept(&["Saturday", "Friday"]), (vec![1, 2, 3, 4], vec![1, 2, 3]));
+    assert_eq!(kept(&[]), (vec![1, 2, 3, 4, 5], vec![1, 2, 3, 4]));
+    let only = ["Friday".to_string(), "Sunday".to_string()];
+    assert_eq!(library.subset(&only), Err("Sunday"));
+}
+
+/// Tracks only OneLibrary has are numbered on from the others for files, in library order, and
+/// the lists name them by their new numbers; their old ids are answered by the new.
+#[test]
+fn onelibrary_only_tracks_are_numbered_on_for_files() {
+    let list =
+        |id, track_ids| Playlist { id, parent_id: None, name: "L".into(), is_folder: false, sort_order: 0, track_ids };
+    let (a, b) = (ONELIBRARY_ONLY | 9, ONELIBRARY_ONLY | 2);
+    let mut library = Library {
+        tracks: [3, a, 7, b].into_iter().map(|id| track(id, "A", "T", &format!("/Contents/{id}.mp3"))).collect(),
+        playlists: vec![list(1, vec![b, 3, a])],
+        history: vec![list(2, vec![a, 7])],
+        ..Default::default()
+    };
+    let old = library.number_for_files();
+    assert_eq!(library.tracks.iter().map(|t| t.id).collect::<Vec<_>>(), [3, 8, 7, 9]);
+    assert_eq!(
+        (library.playlists[0].track_ids.as_slice(), library.history[0].track_ids.as_slice()),
+        (&[9, 3, 8][..], &[8, 7][..])
+    );
+    assert_eq!(old, FxHashMap::from_iter([(8, a), (9, b)]));
+    let mut plain = Library { tracks: vec![track(4, "A", "T", "/Contents/4.mp3")], ..Default::default() };
+    assert!(plain.number_for_files().is_empty());
+    assert_eq!(plain.tracks[0].id, 4);
+}

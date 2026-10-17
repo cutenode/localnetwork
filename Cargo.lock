@@ -1767,6 +1767,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dunce"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3869,12 +3875,14 @@ dependencies = [
  "jsonschema",
  "keyring",
  "keyring-core",
+ "libc",
  "loclib-analysis",
  "loclib-equipment",
  "loclib-interop",
  "loclib-mixid",
  "loclib-model",
  "loclib-mysettings",
+ "loclib-plugin",
  "loclib-progress",
  "loclib-tracklist",
  "loclib-transcode",
@@ -3902,6 +3910,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "winapi-util",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3925,7 +3934,13 @@ dependencies = [
  "jsonschema",
  "libc",
  "locallibrary",
+ "locallibrary-plugin-coverart",
+ "locallibrary-plugin-interop",
+ "locallibrary-plugin-sound",
+ "locallibrary-plugin-tracklist",
  "loclib-mixid",
+ "loclib-plugin",
+ "loclib-progress",
  "loclib-waveform",
  "ratatui",
  "rekordbox-pdb",
@@ -3936,7 +3951,6 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "serde_path_to_error",
  "shlex",
  "signal-hook",
  "tempfile",
@@ -3944,6 +3958,64 @@ dependencies = [
  "unicode-width 0.2.2",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "locallibrary-plugin-coverart"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "locallibrary-plugin-interop"
+version = "0.1.0"
+dependencies = [
+ "dunce",
+ "fs4",
+ "loclib-interop",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "rusqlite",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-sound"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-analysis",
+ "loclib-mixid",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-tracklist"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-tracklist",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -4045,6 +4117,24 @@ dependencies = [
  "schemars",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "loclib-plugin"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "jsonschema",
+ "loclib-progress",
+ "rustc-hash",
+ "schemars",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml",
 ]
 
 [[package]]
@@ -6213,7 +6303,9 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "h2",
  "http",
  "http-body",
@@ -6739,6 +6831,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
@@ -7724,9 +7817,12 @@ version = "1.1.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
 dependencies = [
+ "indexmap",
+ "serde_core",
  "serde_spanned",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
@@ -7759,6 +7855,12 @@ checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.1.3+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
 name = "tower"

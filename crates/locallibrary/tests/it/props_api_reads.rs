@@ -15,9 +15,9 @@ use hegel::generators as gs;
 use hegel::{Generator, HealthCheck, TestCase};
 use locallibrary::anlz::{WaveColumn, WaveLayer, Waveform, WaveformStyle};
 use locallibrary::api::{
-    self, AnalysisRequest, ArtworkRequest, DriveRef, LibraryCache, LibraryRequest, ListCues, MatchesRequest, OneOrMany,
-    PackedWaveform, PlaylistNode, TrackDetailsRequest, TrackRequest, TracksGet, WaveformChoice, WaveformData,
-    WaveformEncoding,
+    self, AnalysisRequest, ArtworkRequest, DriveRef, LibraryCache, LibraryRef, LibraryRequest, ListCues,
+    MatchesRequest, OneOrMany, PackedWaveform, PlaylistNode, TrackDetailsRequest, TrackRequest, TracksGet,
+    WaveformChoice, WaveformData, WaveformEncoding,
 };
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::query::TrackSelector;
@@ -89,7 +89,8 @@ fn reads_agree_with_the_library(tc: TestCase) {
 
     // Unpaged, as `drive.library`; paged, a slice of the tracks with the rest as it is.
     let whole =
-        api::drive_library_cached(&cache, &LibraryRequest { drive: drive.spec(), offset: None, limit: None }).unwrap();
+        api::drive_library_cached(&cache, &LibraryRequest { library: drive.spec().into(), offset: None, limit: None })
+            .unwrap();
     assert!(whole.page.is_none());
     assert_eq!(whole.library, lib);
     assert_eq!(
@@ -100,7 +101,7 @@ fn reads_agree_with_the_library(tc: TestCase) {
     for _ in 0..4 {
         let offset = tc.draw(gs::optional(gs::integers::<usize>().max_value(n + 2)));
         let limit = tc.draw(gs::optional(gs::integers::<usize>().max_value(n + 2)));
-        let req = LibraryRequest { drive: drive.spec(), offset, limit };
+        let req = LibraryRequest { library: drive.spec().into(), offset, limit };
         let page = api::drive_library_cached(&cache, &req).unwrap();
         let start = offset.unwrap_or(0).min(n);
         let end = limit.map_or(n, |l| (start + l).min(n));
@@ -116,7 +117,7 @@ fn reads_agree_with_the_library(tc: TestCase) {
         }
     }
 
-    let tree = api::playlists_tree(&cache, &DriveRef { drive: drive.spec() }).unwrap();
+    let tree = api::playlists_tree(&cache, &LibraryRef { drive: drive.spec(), combined: false }).unwrap();
     assert_tree(&tree.playlists, &lib.playlists, &lib);
     assert_tree(&tree.history, &lib.history, &lib);
 
@@ -125,7 +126,7 @@ fn reads_agree_with_the_library(tc: TestCase) {
     let ids = tc.draw(
         gs::vecs(hegel::one_of!(gs::sampled_from(known.clone()), gs::integers::<u32>().max_value(40))).max_size(5),
     );
-    let got = api::tracks_get(&cache, &TracksGet { drive: drive.spec(), ids: ids.clone() }).unwrap();
+    let got = api::tracks_get(&cache, &TracksGet { library: drive.spec().into(), ids: ids.clone() }).unwrap();
     let expected: Vec<_> = ids.iter().filter_map(|id| lib.track(*id).cloned()).collect();
     let missing: Vec<u32> = ids.iter().copied().filter(|id| lib.track(*id).is_none()).collect();
     assert_eq!((got.tracks, got.missing), (expected, missing));
@@ -133,7 +134,7 @@ fn reads_agree_with_the_library(tc: TestCase) {
     // Details, in the order selected.
     let selected = tc.draw(gs::vecs(gs::sampled_from(known.clone())).min_size(1).max_size(3).unique(true));
     let req = TrackDetailsRequest {
-        drive: drive.spec(),
+        library: drive.spec().into(),
         tracks: TrackSelector { ids: selected.clone(), ..Default::default() },
     };
     let details = api::track_details_cached(&cache, &req).unwrap();
@@ -192,7 +193,8 @@ fn reads_agree_with_the_library(tc: TestCase) {
         // Matches are harmony's suggestions for the track.
         let limit = tc.draw(gs::optional(gs::integers::<usize>().max_value(5)));
         let matches =
-            api::harmonic_matches_cached(&cache, &MatchesRequest { drive: drive.spec(), track: t.id, limit }).unwrap();
+            api::harmonic_matches_cached(&cache, &MatchesRequest { library: drive.spec().into(), track: t.id, limit })
+                .unwrap();
         let suggested = harmony::suggestions(&lib, t, limit.unwrap_or(40));
         assert_eq!(
             matches.iter().map(|m| (m.track.id, m.key.clone(), m.relation)).collect::<Vec<_>>(),
@@ -212,7 +214,7 @@ fn reads_agree_with_the_library(tc: TestCase) {
         for encoding in [WaveformEncoding::Json, WaveformEncoding::Base64] {
             let view = api::track_analysis_cached(
                 &cache,
-                &AnalysisRequest { drive: drive.spec(), track: t.id, waveform, encoding },
+                &AnalysisRequest { library: drive.spec().into(), track: t.id, waveform, encoding },
             )
             .unwrap();
             assert_eq!(serde_json::to_value(&view.beats).unwrap(), serde_json::to_value(&a.beats).unwrap());
@@ -235,14 +237,17 @@ fn reads_agree_with_the_library(tc: TestCase) {
     }
     let unknown = 1 + known.iter().max().unwrap();
     assert!(matches!(
-        api::harmonic_matches_cached(&cache, &MatchesRequest { drive: drive.spec(), track: unknown, limit: None }),
+        api::harmonic_matches_cached(
+            &cache,
+            &MatchesRequest { library: drive.spec().into(), track: unknown, limit: None }
+        ),
         Err(Error::NotFound(_))
     ));
     assert!(matches!(
         api::track_analysis_cached(
             &cache,
             &AnalysisRequest {
-                drive: drive.spec(),
+                library: drive.spec().into(),
                 track: unknown,
                 waveform: WaveformChoice::All,
                 encoding: WaveformEncoding::Json
@@ -253,7 +258,7 @@ fn reads_agree_with_the_library(tc: TestCase) {
 
     // Artwork: a batch answers what each track alone does, in the order asked.
     let asked = tc.draw(gs::vecs(gs::sampled_from(known.clone())).max_size(4));
-    let many = ArtworkRequest::Many { drive: drive.spec(), tracks: asked.clone() };
+    let many = ArtworkRequest::Many { library: drive.spec().into(), tracks: asked.clone() };
     let OneOrMany::Many(files) = api::artwork_path(&cache, &many).unwrap() else { panic!("one for many") };
     let OneOrMany::Many(images) = api::artwork_get_cached(&cache, &many).unwrap() else { panic!("one for many") };
     assert_eq!(files.iter().map(|f| f.track).collect::<Vec<_>>(), asked);
@@ -261,7 +266,7 @@ fn reads_agree_with_the_library(tc: TestCase) {
     let root = dunce_canonicalize(&drive.root);
     for (file, image) in files.iter().zip(&images) {
         let t = lib.track(file.track).unwrap();
-        let one = ArtworkRequest::One { drive: drive.spec(), track: file.track };
+        let one = ArtworkRequest::One { library: drive.spec().into(), track: file.track };
         let OneOrMany::One(alone) = api::artwork_path(&cache, &one).unwrap() else { panic!("many for one") };
         assert_eq!(alone.as_ref().map(|f| &f.path), file.image.as_ref().map(|f| &f.path));
         if let Some(f) = &file.image {
@@ -272,7 +277,7 @@ fn reads_agree_with_the_library(tc: TestCase) {
             assert!(t.artwork_path.is_none() || image.image.is_none());
         }
     }
-    assert!(api::artwork_path(&cache, &ArtworkRequest::One { drive: drive.spec(), track: unknown }).is_err());
+    assert!(api::artwork_path(&cache, &ArtworkRequest::One { library: drive.spec().into(), track: unknown }).is_err());
 }
 
 /// The cached reads of My Tags, cues and play history agree with the uncached ones, and with
@@ -291,7 +296,7 @@ fn cached_and_uncached_lists_agree(tc: TestCase) {
 
     let ids = tc
         .draw(gs::vecs(gs::sampled_from(lib.tracks.iter().map(|t| t.id).collect::<Vec<_>>())).min_size(1).max_size(3));
-    let req = ListCues { drive: drive.spec(), tracks: TrackSelector { ids, ..Default::default() } };
+    let req = ListCues { library: drive.spec().into(), tracks: TrackSelector { ids, ..Default::default() } };
     let cached = api::cues_list_cached(&cache, &req).unwrap();
     assert_eq!(serde_json::to_value(&cached).unwrap(), serde_json::to_value(api::cues_list(&req).unwrap()).unwrap());
 
@@ -382,7 +387,7 @@ impl CacheMachine {
             let (_, before, stale) = self.kept.remove(k);
             assert_eq!(Arc::ptr_eq(&got, &before), !stale, "{} read again: {}", root.display(), !stale);
         }
-        assert_eq!(got.library, Device::open(&root).unwrap().library().unwrap());
+        assert_eq!(*got.library, Device::open(&root).unwrap().library().unwrap());
         assert_eq!(got.root, root);
         if self.capacity > 0 {
             self.kept.push((root, got, false));
