@@ -45,6 +45,7 @@ mod pack;
 mod peers;
 mod plans;
 mod plays;
+mod plugins;
 mod profile;
 mod props_after_set;
 mod props_anlz;

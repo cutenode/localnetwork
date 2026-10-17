@@ -6,7 +6,7 @@ web:
 locallibrary:
   - changed-files:
       - any-glob-to-any-file:
-          ["apps/locallibrary/**", "crates/**", "vendor/**", "fuzz/**", "Cargo.toml", "Cargo.lock"]
+          ["apps/locallibrary/**", "crates/**", "plugins/**", "vendor/**", "fuzz/**", "Cargo.toml", "Cargo.lock"]
 
 localtoolbox:
   - changed-files:

@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Exported, Host, Manifest, OpPlan, PlanOp, Plugin, RpcError, RunCommand, View, WriteExport,
-    params,
+    Analysis, AnalyzeTrack, Exported, FieldValue, Host, Manifest, OpPlan, PlanOp, Plugin, RpcError, RunCommand, View,
+    WriteExport, params,
 };
 use loclib_progress::{Event, Phase, Steps};
 use serde::Deserialize;
@@ -72,7 +72,8 @@ impl Plugin for Echo {
 
     fn analyze_track(&self, req: AnalyzeTrack, _: &Host) -> Result<Analysis, RpcError> {
         let bytes = std::fs::metadata(&req.track.audio_path).map_err(|e| RpcError::failed("io", e.to_string()))?.len();
-        Ok(Analysis { fields: [("bytes".into(), bytes.into())].into_iter().collect() })
+        let bytes = FieldValue::Integer(bytes.try_into().unwrap_or(i64::MAX));
+        Ok(Analysis { fields: [("bytes".into(), bytes)].into_iter().collect() })
     }
 
     fn write_export(&self, req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
@@ -91,6 +92,7 @@ impl Plugin for Echo {
             summary: format!("make the playlist {name}"),
             warnings: Vec::new(),
             edits: vec![json!({ "op": "create_playlist", "path": name })],
+            inputs: Vec::new(),
         })
     }
 }

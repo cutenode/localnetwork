@@ -21,8 +21,9 @@ pub struct RpcError {
     pub code: i64,
     pub message: String,
     /// Always sent; `None` for an error from a peer that sends none.
+    // Boxed: it's most of the error's size, which every `Result` carrying one would be.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub data: Option<ErrorData>,
+    pub data: Option<Box<ErrorData>>,
 }
 
 /// `error.data`: what the other side can act on without reading the message.
@@ -44,7 +45,7 @@ pub struct ErrorData {
 impl RpcError {
     pub fn new(code: i64, kind: &str, message: impl Into<String>) -> RpcError {
         let data = ErrorData { kind: kind.into(), reason: None, fields: Map::new() };
-        RpcError { code, message: message.into(), data: Some(data) }
+        RpcError { code, message: message.into(), data: Some(Box::new(data)) }
     }
 
     /// A failure of kind `kind` (code -32000).
@@ -104,7 +105,7 @@ pub fn params<T: DeserializeOwned>(v: Value) -> Result<T, RpcError> {
         let message = format!("{path}: {}", e.inner());
         let fields = Map::from_iter([("path".to_string(), Value::from(path))]);
         let data = ErrorData { kind: "invalid_params".into(), reason: None, fields };
-        RpcError { data: Some(data), ..RpcError::invalid_params(message) }
+        RpcError { data: Some(Box::new(data)), ..RpcError::invalid_params(message) }
     })
 }
 

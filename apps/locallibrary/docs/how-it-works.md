@@ -38,6 +38,9 @@ crates/loclib-waveform/     the player's ratatui widgets: overview and detail wa
 crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one message a line), the plugin manifest
                             and its checks, a peer over a pair of pipes and the Rust plugin SDK; the sidecar
                             reads lines and reports errors with it
+plugins/coverart/           the coverart plugin: front covers for tracks without artwork (or all, asked to),
+                            each album looked up on MusicBrainz and its cover fetched from the Cover Art
+                            Archive, as `set_artwork` edits
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
 crates/locallibrary/src/    the library, built on the crates above
   lib.rs       the crate's entry point (`model` and `harmony` are loclib-model's, re-exported), and the
@@ -81,6 +84,11 @@ crates/locallibrary/src/    the library, built on the crates above
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
   audio_cache.rs  what's worked out from each audio file (fingerprints, analyses), cached in the store
                by file name, size and modification time, and worked out in parallel when it isn't
+  fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, version
+               and analyzer
+  plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
+               the reads they may call back for (callbacks.rs), and their commands, operations
+               (planned as edit plans), exports, analyzers and settings
   sound/       tempo, key and loudness through loclib-analysis: doctor's analysis section, how sure each
                key is for the set planner, the check's loudness item, and `analysis bench` (bench.rs)
   mix/         which library tracks a recorded set plays, through loclib-mixid: the drive's tracks, the

@@ -12,7 +12,7 @@ use locallibrary::api;
 use locallibrary::collection_export::CollectionExportOptions;
 use locallibrary::masterdb::CollectionInfo;
 use locallibrary::progress::Ctx;
-use locallibrary::query::{self, Filter, QueryContext};
+use locallibrary::query::{self, Filter};
 
 use crate::output::{self, Outcome, Output, bytes, dim, duration, heading, ok, warn};
 
@@ -114,11 +114,7 @@ pub fn run(args: CollectionArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx
             if let Some(f) = &filter {
                 let f = Filter::parse(f)?;
                 let tags = f.uses_tags().then(|| c.tags_by_file());
-                let mut ctx = QueryContext::new(lib);
-                if let Some(t) = &tags {
-                    ctx = ctx.with_tags(t);
-                }
-                f.check(&ctx)?;
+                let ctx = api::filter_context(lib, &f, tags.as_ref())?;
                 tracks.retain(|t| f.matches(t, &ctx));
             }
             if let Some(s) = &sort {

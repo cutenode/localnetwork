@@ -801,7 +801,7 @@ pub fn playlist(args: PlaylistArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCo
     run_edits(drive, edits, dry.dry_run, out, ctx)
 }
 
-pub fn track(args: TrackArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
+pub fn track(args: TrackArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let command = match (args.command, args.drive) {
         (Some(c), _) => c,
         (None, Some(drive)) => {
@@ -838,19 +838,36 @@ pub fn track(args: TrackArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
             return crate::upgrade_cmd::run(drive, options, dry.dry_run, out, ctx);
         }
         TrackCommand::Show { drive, select } => {
-            let list = api::track_details(&api::TrackDetailsRequest { drive, tracks: selector(&select)? })?;
-            out.emit_paged(&list, |l| {
-                for (i, d) in l.iter().enumerate() {
+            let req = api::TrackDetailsRequest { library: drive.clone().into(), tracks: selector(&select)? };
+            let list = api::track_details(&req)?;
+            // What analyzer plugins worked out for them, with each one's details.
+            let fields = crate::plugin_cmd::fields(&drive, list.iter().map(|d| d.track.id).collect(), store_path)?;
+            let shown: Vec<serde_json::Value> = list
+                .iter()
+                .map(|d| {
+                    let mut v = serde_json::to_value(d).expect("serialisable");
+                    if let Some(f) = fields.get(&d.track.id) {
+                        v["fields"] = serde_json::to_value(f).expect("serialisable");
+                    }
+                    v
+                })
+                .collect();
+            out.emit_paged(&shown, |_| {
+                for (i, d) in list.iter().enumerate() {
                     if i > 0 {
                         say!();
                     }
                     crate::render::track_details(d);
+                    if let Some(f) = fields.get(&d.track.id) {
+                        crate::plugin_cmd::show_fields(f);
+                    }
                 }
             });
             return Ok(ExitCode::SUCCESS);
         }
         TrackCommand::Matches { drive, track, limit } => {
-            let list = api::harmonic_matches(&api::MatchesRequest { drive, track, limit: Some(limit) })?;
+            let list =
+                api::harmonic_matches(&api::MatchesRequest { library: drive.into(), track, limit: Some(limit) })?;
             out.emit(&list, |l| {
                 if l.is_empty() {
                     say!("no tracks on the drive mix into that one (its key may be unknown)");

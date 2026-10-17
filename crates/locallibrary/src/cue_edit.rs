@@ -489,7 +489,7 @@ pub fn list_in(device: &Device, library: &Library, track_ids: &[u32]) -> Result<
     let by_path = plus.as_ref().map(|(lib, _)| plus_ids(lib));
     let mut out = Vec::new();
     for id in track_ids {
-        let t = library.track(*id).ok_or_else(|| Error::NotFound(format!("track #{id}")))?;
+        let t = library.track(*id).ok_or_else(|| Error::no_track(*id))?;
         let mut track_warnings = warnings.clone();
         let (cues, beats) = match load(device, t) {
             Ok(l) => (l.cues, l.beats),
@@ -843,7 +843,7 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
         return Err(Error::invalid(format!("{} tracks selected; pick one", track_ids.len())));
     }
     let library = device.library()?;
-    let track = |id: u32| library.track(id).ok_or_else(|| Error::NotFound(format!("track #{id}")));
+    let track = |id: u32| library.track(id).ok_or_else(|| Error::no_track(id));
     let mut warnings = Vec::new();
     let plus = crate::clean::open_plus(device, device.has_device_library(), &mut warnings)?;
     let by_path = plus.as_ref().map(|(lib, _)| plus_ids(lib));

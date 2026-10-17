@@ -1,5 +1,6 @@
 use locallibrary::anlz::{Beat, Mood, Phrase, SongStructure};
-use locallibrary::sets::{EntryOrigin, SetEntry};
+use locallibrary::query::QueryContext;
+use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
 
 use super::testing::*;
 use super::*;
@@ -1770,7 +1771,7 @@ fn the_drive_menu_acts_on_its_own_drive() {
     press(&mut app, "\n");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
-    assert_eq!((op, c.root.as_path()), ("pull", root.as_path()));
+    assert_eq!((op.as_str(), c.root.as_path()), ("pull", root.as_path()));
     let s = super::super::ui::screen(&mut app, 100, 30);
     assert!(s.contains("Save DEMO in the store?") && s.contains("y save") && s.contains("DEMO: save it"), "{s}");
     press(&mut app, "\u{1b}");
@@ -1811,7 +1812,7 @@ fn the_drive_menu_and_u_know_their_drive_by_identity() {
     press(&mut app, "\n");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
-    assert_eq!((op, c.root.as_path()), ("pull", moved.as_path()));
+    assert_eq!((op.as_str(), c.root.as_path()), ("pull", moved.as_path()));
     press(&mut app, "\u{1b}");
 
     app.last_backup = Some(app.drive_at(moved.clone()));
@@ -1878,14 +1879,14 @@ fn u_after_packing_undoes_on_the_drive_packed_onto() {
     press(&mut app, "u");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
-    assert_eq!((op, c.root.as_path()), ("undo", target.as_path()));
+    assert_eq!((op.as_str(), c.root.as_path()), ("undo", target.as_path()));
 
     press(&mut app, "\u{1b}");
     app.handle_msg(Msg::Drives(vec![Device::open(&root).unwrap().info()]));
     press(&mut app, "u");
     let (op, _) = confirming(&mut app);
     let Some(Modal::Confirm(c)) = &app.modal else { panic!() };
-    assert_eq!((op, c.root.as_path()), ("undo", root.as_path()));
+    assert_eq!((op.as_str(), c.root.as_path()), ("undo", root.as_path()));
 }
 
 #[test]

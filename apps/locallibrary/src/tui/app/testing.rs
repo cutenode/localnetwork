@@ -352,10 +352,10 @@ pub fn last_message(app: &App) -> &str {
 }
 
 /// The confirmation up now, once planned, as the plan's operation and first summary line.
-pub fn confirming(app: &mut App) -> (&'static str, String) {
+pub fn confirming(app: &mut App) -> (String, String) {
     wait(app, |a| a.job.is_none());
     match &app.modal {
-        Some(Modal::Confirm(c)) => (c.plan.operation(), c.plan.summary().first().cloned().unwrap_or_default()),
+        Some(Modal::Confirm(c)) => (c.plan.operation().into(), c.plan.summary().first().cloned().unwrap_or_default()),
         _ => panic!("no confirmation: {}", last_message(app)),
     }
 }

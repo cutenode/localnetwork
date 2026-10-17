@@ -98,10 +98,11 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   request itself, as before, plans and applies in one go: it isn't bound to what anyone confirmed.
 - Writes to archive and retired drives are refused (`conflict`) unless the request (the plan's or
   the apply's) has `"overwrite_archive": true`.
-- Requests run concurrently, on two pools of workers: quick reads (`tracks.query`, `track.*`,
-  `art.*` previews and paths, `drive.library`, `playlists.tree`, `tracks.get`, `cues.list`,
-  `tags.list`, `drives.*`, listings) in one, everything else (writes, plans, scans, mixes) in the
-  other, so a long job never holds up a GUI's reads. Each runs 4 requests at once
+- Requests run concurrently, on two pools of workers: quick reads (`tracks.query`, `track.*`
+  but `track.fields`, `art.*` previews and paths, `drive.library`, `playlists.tree`,
+  `tracks.get`, `tracks.analysis`, `cues.list`, `tags.list`, `drives.*`, listings) in one,
+  everything else (writes, plans, scans, mixes, `track.fields`) in the other, so a long job never
+  holds up a GUI's reads. Each runs 4 requests at once
   (`locallibrary rpc --workers N`, or `LOCALLIBRARY_RPC_WORKERS`); a request waiting for a worker
   shows in `jobs.list` with `queued: true`, and `$/cancel` answers it at once.
 - The sidecar keeps the parsed libraries of the last 4 drives it read, so paging through tracks,
@@ -242,10 +243,48 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `{encoding: "base64", style, columns_per_sec, columns, back, front}` and a layer is
   `{heights, colors}`: one byte a column of height (0-255 of the full height) and three of red,
   green and blue, in base64 (`front` is `null` when no column has one: scrolling and blue
-  waveforms). `art.get` and `art.path` take `track` (one answer, `null` without artwork) or
-  `tracks` (a list of `{track, image}` in the order asked); `art.path` returns `{path, mime}`, an
-  absolute path inside the drive with symlinks resolved (never one leading out of it), for a
-  webview to load directly.
+  waveforms). `tracks.analysis {drive, ids}` answers up to 100 tracks at once as `{tracks:
+  [{track, analysis}], missing}` in the order asked, with the same `encoding` and `waveform`
+  `none` (the default here) or `preview`; scrolling waveforms come one track at a time. `art.get`
+  and `art.path` take `track` (one answer, `null` without artwork) or `tracks` (a list of
+  `{track, image}` in the order asked); `art.path` returns `{path, mime}`, an absolute path
+  inside the drive with symlinks resolved (never one leading out of it), for a webview to load
+  directly.
+- The reads above, `track.show`, `track.matches`, `cues.list` and `track.fields` see the library
+  players see; with `combined: true` they read the whole library exports are made from, adding
+  the tracks, playlists and history only OneLibrary holds on a drive with both databases. Those
+  tracks keep OneLibrary's id with the top bit set (2^31 and up), so the id never names an
+  `export.pdb` track, even after another export; reads without `combined` and edits refuse it.
+- `track.fields {drive, tracks?, plugin?}` answers what analyzer plugins worked out and the store
+  keeps: `{tracks: [{track, plugins: {<plugin>: {<analyzer>: {<field>: value}}}}], missing}`,
+  for tracks whose audio file hasn't changed since (`missing` lists ids asked for that the
+  library lacks), from the plugins locallibrary has, at the versions it has. Without a store
+  there are none, and none is made.
+- Plugins (see [Plugins](plugins.md)): `plugins.list` answers each plugin's `{id, name, version,
+  capabilities: [{capability, means}], commands, operations, analyzers, exporters, settings,
+  running, left_out}`, `means` saying in plain words what a capability lets it do and `left_out`
+  why a plugin isn't loaded, when it clashes with a command, a method or another plugin (else
+  `null`); `plugins.describe
+  {plugin}` answers `{manifest, capabilities, settings, running}`, the manifest with the JSON
+  Schemas of each command's and operation's `params` and each exporter's `options`, to draw forms
+  from. `plugins.settings {plugin}` and `plugins.settings.set {plugin, key, value}` (`value`
+  `null` or left out: back to its default) answer `{plugin, settings: {key: value}}`.
+  `plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
+  command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw.
+  `plugins.op.plan {plugin, operation, params, context}` (`context.drive` is required) answers an
+  edit plan whose `operation` is `<plugin>.<operation>`, its summary first, applied by
+  `plugins.op.apply {plan_id}`; it's stale once the drive changes, or a file on this computer
+  the plugin worked it out from. `plugins.export.plan {plugin, exporter, drive, playlists?,
+  history?, output, options}` (`output` absolute, never on a drive or in the store) answers
+  `{plugin, exporter, output, files, overwrites}`, destructive when it overwrites any, applied by
+  `plugins.export.apply {plan_id}` (`{files, warnings}`). Both applies also take the request,
+  planning and applying in one go. Plugins' plans are kept apart from the rest, so planning with
+  plugins never pushes out a plan of locallibrary's own. `plugins.analyze {plugin, analyzer,
+  drive, tracks?}` runs an analyzer on the drive's tracks (those it hasn't worked out already),
+  with progress (an `analyze` phase) and `$/cancel`, answering `{analyzed, kept, failed}`. A
+  plugin starts when it's first used and stops once it's idle a while, and when the sidecar
+  exits. A plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the
+  plugin named in the message.
 - Reading: `tracks.query` (filter, sort, paging), `track.analysis` (beat grid, cues, waveforms,
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
   (harmonic matches), `doctor` (`analyze`: the analysis section), `doctor.orphans.plan/apply`,

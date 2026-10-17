@@ -348,3 +348,63 @@ fn a_closed_output_fails_requests() {
     peer.respond(&json!(1), Ok(Value::Null));
     peer.notify("progress", &json!({}));
 }
+
+/// A hook's progress comes to it, before its response; progress about other requests still goes
+/// to the owner.
+#[test]
+fn a_reporting_request_gets_its_progress_before_its_response() {
+    let (peer, incoming, mut raw) = connect();
+    let pending = peer.send_request_reporting("command/run", &json!({})).unwrap();
+    let id = raw.recv()["id"].clone();
+    assert!(pending.wait_timeout::<Value>(Duration::from_millis(10)).is_none(), "no response yet");
+    let warning = json!({ "event": "warning", "message": "slow" });
+    raw.send(&json!({ "jsonrpc": "2.0", "method": "progress", "params": { "id": id, "event": warning } }).to_string());
+    raw.send(&json!({ "jsonrpc": "2.0", "method": "progress", "params": { "id": 99, "event": warning } }).to_string());
+    raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": 1 }).to_string());
+    assert_eq!(pending.wait_timeout::<u32>(Duration::from_secs(10)).unwrap().unwrap(), 1);
+    let reports: Vec<Value> = pending.progress().map(|r| serde_json::to_value(r).unwrap()).collect();
+    assert_eq!(reports, std::slice::from_ref(&warning));
+    match next(&incoming) {
+        Incoming::Notification { params, .. } => assert_eq!(params["id"], 99),
+        other => panic!("{other:?}"),
+    }
+    // Answered: waiting again finds the connection's end of it closed.
+    assert_eq!(pending.wait_timeout::<u32>(Duration::ZERO).unwrap().unwrap_err().kind(), Some("closed"));
+
+    // A request sent without asking for its progress leaves it to the owner.
+    let pending = peer.send_request("command/run", &json!({})).unwrap();
+    let id = raw.recv()["id"].clone();
+    raw.send(&json!({ "jsonrpc": "2.0", "method": "progress", "params": { "id": id, "event": warning } }).to_string());
+    assert!(matches!(next(&incoming), Incoming::Notification { .. }));
+    assert_eq!(pending.progress().count(), 0);
+}
+
+/// Regression: the reader drops a response's sender only after handing the response over, so
+/// waiting again straight after it came could time out instead of failing with `closed`.
+#[test]
+fn waiting_again_after_the_response_fails_even_before_the_sender_goes() {
+    let (peer, _incoming, mut raw) = connect();
+    let pending = peer.send_request("m", &json!({})).unwrap();
+    raw.recv();
+    // As the reader does, mid-way: the response handed over, its sender not yet dropped.
+    let waiting = lock(&peer.0.waiting);
+    waiting.as_ref().unwrap()[&pending.id()].response.send(Ok(json!(1))).unwrap();
+    assert_eq!(pending.wait_timeout::<u32>(Duration::ZERO).unwrap().unwrap(), 1);
+    assert_eq!(pending.wait_timeout::<u32>(Duration::ZERO).unwrap().unwrap_err().kind(), Some("closed"));
+    drop(waiting);
+}
+
+/// What the other end gets wrong goes to the log a host gives.
+#[test]
+fn what_the_other_end_gets_wrong_is_logged() {
+    let (peer_in, mut to_peer) = pipe().unwrap();
+    let (_from_peer, peer_out) = pipe().unwrap();
+    let logged = Arc::new(Mutex::new(Vec::new()));
+    let log = logged.clone();
+    let (_peer, incoming) = Peer::with_log(peer_in, peer_out, move |line| log.lock().unwrap().push(line.to_string()));
+    to_peer
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":5,\"result\":1}\n{\"jsonrpc\":\"2.0\",\"method\":\"ping\"}\n")
+        .unwrap();
+    assert!(matches!(next(&incoming), Incoming::Notification { .. }), "read on");
+    assert_eq!(*logged.lock().unwrap(), ["a response to 5, which no request is waiting for"]);
+}

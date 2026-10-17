@@ -6,7 +6,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::*;
-use crate::{View, code};
+use crate::{FieldValue, View, code};
 
 #[path = "../../examples/echo/plugin.rs"]
 mod echo;
@@ -148,7 +148,7 @@ fn an_analyzer_answers_its_fields() {
     let track = json!({ "id": 3, "file_path": "/Contents/a.mp3", "audio_path": audio });
     let analysis: Analysis =
         s.host.request(method::ANALYZE_TRACK, &json!({ "analyzer": "size", "track": track })).unwrap();
-    assert_eq!(analysis.fields["bytes"], json!(5));
+    assert_eq!(analysis.fields["bytes"], FieldValue::Integer(5));
 
     let track = json!({ "id": 3, "file_path": "/Contents/b.mp3", "audio_path": dir.path().join("b.mp3") });
     let e = s.call(method::ANALYZE_TRACK, json!({ "analyzer": "size", "track": track })).unwrap_err();
