@@ -14,7 +14,7 @@ use locallibrary::sets::{EntryOrigin, SetBook, SetEntry};
 use locallibrary::{Ctx, Device, Store};
 use ratatui::crossterm::event::KeyCode;
 
-use super::app::testing::{demo_drive, key, set, wait};
+use super::app::testing::{demo_drive, key, overlay, set, wait};
 use super::app::{App, Focus, View};
 use super::browse::{Category, NodeId};
 use super::edits::{Confirm, Modal, set_rating};
@@ -97,8 +97,7 @@ fn check(app: &mut App, what: &str, needles: &[&str], wide: &[&str]) {
         let s = screen(app, w, h);
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), h as usize);
-        let overlay = app.help || app.show_log || app.modal.is_some();
-        if !overlay {
+        if !overlay(app) {
             assert!(lines[0].contains("◉ locallibrary") && lines[0].contains("5 Mixes"), "{what} {w}x{h}: header\n{s}");
             assert!(!lines[h as usize - 1].trim().is_empty(), "{what} {w}x{h}: footer\n{s}");
         }

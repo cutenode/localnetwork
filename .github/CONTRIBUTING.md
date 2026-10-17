@@ -45,4 +45,4 @@ CI runs a tool's checks only when its files (or the shared ones) change. Each wo
 - For UI changes, add before and after screenshots at phone and wide widths.
 - Pull requests merge with a merge commit. Squash and rebase merges are off.
 
-Labels for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`) are added automatically from the files a pull request changes.
+Labels for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`) are added automatically from the files a pull request changes, and [CODEOWNERS](CODEOWNERS) requests a review from whoever owns them.
