@@ -1,4 +1,5 @@
 use super::*;
+use crate::masterdb::tests::scratch_db;
 
 /// A project's binary XML the way Audacity writes it (UTF-32 names), titled REC001, with
 /// `clips` of four samples on one track, each `(offset, trimLeft, block id)`.
@@ -47,7 +48,7 @@ fn odd_rates_deep_nesting_and_views_are_refused() {
     let dir = tempfile::tempdir().unwrap();
     let open = |name: &str, x: Xml| {
         let path = dir.path().join(name);
-        let db = Connection::open(&path).unwrap();
+        let db = scratch_db(&path);
         let table = if name == "view.aup3" { "stored" } else { "project" };
         db.execute_batch(&format!("CREATE TABLE {table}(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);")).unwrap();
         db.execute(&format!("INSERT INTO {table} VALUES (1, ?1, ?2)"), (x.dict, x.doc)).unwrap();
@@ -164,7 +165,7 @@ impl Xml {
 /// `autosave`) and the sample blocks, each `(id, format, samples)`.
 pub(crate) fn project(dir: &Path, table: &str, xml: Option<&Xml>, blocks: &[(i64, i64, Vec<u8>)]) -> PathBuf {
     let path = dir.join(format!("{}.aup3", std::fs::read_dir(dir).unwrap().count()));
-    let db = Connection::open(&path).unwrap();
+    let db = scratch_db(&path);
     db.execute_batch(
         "CREATE TABLE project(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);
              CREATE TABLE autosave(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);
@@ -660,7 +661,7 @@ fn odd_projects_are_refused_for_what_is_odd(tc: TestCase) {
         1 => {
             let table = tc.draw(gs::sampled_from(vec!["project", "autosave"]));
             let path = dir.path().join("view.aup3");
-            let db = Connection::open(&path).unwrap();
+            let db = scratch_db(&path);
             db.execute_batch("CREATE TABLE stored(id INTEGER PRIMARY KEY, dict BLOB, doc BLOB);").unwrap();
             db.execute("INSERT INTO stored VALUES (1, ?1, ?2)", (&x.dict, &x.doc)).unwrap();
             db.execute_batch(&format!("CREATE VIEW {table} AS SELECT * FROM stored")).unwrap();
