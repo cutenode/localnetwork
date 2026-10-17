@@ -62,9 +62,12 @@ mod tracklist;
 /// read on stdin. It looks for drives only in the folders `volumes` (none: it sees no drive), never
 /// among the ones plugged into the machine (see `LOCALLIBRARY_VOLUMES`), and has only the plugins
 /// it ships. The account settings of whoever runs the tests don't reach it, nor do their
-/// terminal's: it prints as it does piped (no colour) in a UTF-8 locale.
+/// terminal's: it prints as it does piped (no colour) in a UTF-8 locale. Others' Lexicon documents
+/// come from [`lexicons`], so nothing it checks is fetched.
 fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
     let mut c = Command::cargo_bin("locallibrary").unwrap();
+    #[cfg(feature = "account")]
+    c.env("LOCALLIBRARY_LEXICONS", lexicons());
     c.env("LOCALLIBRARY_STORE", store)
         .env("LOCALLIBRARY_VOLUMES", std::env::join_paths(volumes).unwrap())
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
@@ -77,4 +80,19 @@ fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
         .env_remove("LANG")
         .stdin(Stdio::null());
     c
+}
+
+/// A folder of stand-ins for the Lexicon documents others maintain (see `LOCALLIBRARY_LEXICONS`),
+/// written once for every test.
+#[cfg(feature = "account")]
+fn lexicons() -> &'static Path {
+    use locallibrary::atmosphere::lexicon::ADDRESS;
+    static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = locallibrary::testing::address_lexicon().to_string();
+        std::fs::write(dir.path().join(format!("{ADDRESS}.json")), doc).unwrap();
+        dir
+    })
+    .path()
 }

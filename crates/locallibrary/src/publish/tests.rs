@@ -134,6 +134,7 @@ const RELEASE: Uuid = uuid::uuid!("5f6f2c4e-1d7a-4b4e-8f5c-2a9b3c1d0e7f");
 
 #[test]
 fn a_set_fits_the_set_lexicon_and_unidentified_tracks_say_nothing() {
+    crate::testing::address_lexicon_stand_in();
     let mut track = loclib_model::test_util::track(1, "Bicep", "Glue", "/Contents/Bicep/Glue.mp3");
     track.isrc = "GB-AHT-17-00123".into();
     track.bpm = 129.98;

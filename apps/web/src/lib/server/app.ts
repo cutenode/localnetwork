@@ -1,4 +1,5 @@
 import type { Viewer } from '#lib/types.ts';
+import { loadReferencedLexicons, REFERENCED_NSIDS } from './atproto/lexicons';
 import { z } from 'zod';
 import { SpaceCredentialManager, XrpcResponseError } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
@@ -55,6 +56,10 @@ export async function createApp(options: CreateAppOptions) {
 		options.logger ?? createLogger({ level: config.logLevel, pretty: config.dev && config.env !== 'test' });
 
 	const db = options.db ?? (await openDatabase(config.databasePath));
+
+	// Before anything validates a record or uploads lexicons to HappyView: both need the ones ours reference.
+	await loadReferencedLexicons();
+	logger.debug({ lexicons: REFERENCED_NSIDS }, 'fetched the lexicons ours reference');
 
 	const identity = new IdentityResolver({
 		plcUrl: config.plcUrl,
