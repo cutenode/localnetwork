@@ -8,6 +8,10 @@ local PROJECT = 'computer.localnetwork.project'
 
 local SET = 'computer.localnetwork.dj.set'
 
+local SHOW = 'computer.localnetwork.show'
+
+local FOLLOW = 'computer.localnetwork.follow'
+
 -- The mean Earth radius the app's distances have always used.
 local EARTH_RADIUS_KM = 6371.0088
 
@@ -76,6 +80,43 @@ local function meters(km)
 	return math.floor(km * 1000 + 0.5)
 end
 
+-- A lat/lng box around every point within `radiusKm` of `center`, for a cheap SQL prefilter before exact distances.
+local function boundingBox(center, radiusKm)
+	local latDelta = radiusKm / 111.32
+	local lngDelta = center.cos < 1e-6 and 180 or math.min(180, radiusKm / (111.32 * center.cos))
+	return {
+		minLat = math.max(-90, center.lat - latDelta),
+		maxLat = math.min(90, center.lat + latDelta),
+		minLng = center.lng - lngDelta,
+		maxLng = center.lng + lngDelta,
+	}
+end
+
+-- An SQL condition keeping the latE6 and lngE6 under `location` (a JSON path into `column`) inside a boundingBox
+-- around `center`, and its placeholders' values. A box that crosses the antimeridian takes longitudes on both sides.
+local function withinBox(center, radiusKm, column, location)
+	local box = boundingBox(center, radiusKm)
+	local lat = 'json_extract(' .. column .. ", '" .. location .. ".latE6')"
+	local lng = 'json_extract(' .. column .. ", '" .. location .. ".lngE6')"
+	local clause = lat .. ' BETWEEN ? AND ?'
+	local values = { math.floor(box.minLat * 1e6), math.ceil(box.maxLat * 1e6) }
+	local ranges = { { box.minLng, box.maxLng } }
+	if box.maxLng - box.minLng >= 360 then
+		return clause, values
+	elseif box.minLng < -180 then
+		ranges = { { box.minLng + 360, 180 }, { -180, box.maxLng } }
+	elseif box.maxLng > 180 then
+		ranges = { { box.minLng, 180 }, { -180, box.maxLng - 360 } }
+	end
+	local either = {}
+	for i, range in ipairs(ranges) do
+		either[i] = lng .. ' BETWEEN ? AND ?'
+		values[#values + 1] = math.floor(range[1] * 1e6)
+		values[#values + 1] = math.ceil(range[2] * 1e6)
+	end
+	return clause .. ' AND (' .. table.concat(either, ' OR ') .. ')', values
+end
+
 -- Records ---------------------------------------------------------------------------------------------------------
 
 -- The root account's project records, as projectViews ({ uri, cid, record }), narrowed by `where` (SQL starting
@@ -104,6 +145,44 @@ local function sets(where, args, order)
 		out[i] = set
 	end
 	return toarray(out)
+end
+
+-- Shows -------------------------------------------------------------------------------------------------------------
+
+-- SQL (starting with ' AND ') for a show, aliased s, that hasn't ended. One without an end stays on for 12 hours after
+-- it starts, through the night. datetime() reads each time's UTC offset, so this compares instants.
+local UPCOMING = " AND coalesce(datetime(json_extract(s.record, '$.endsAt')),"
+	.. " datetime(json_extract(s.record, '$.startsAt'), '+12 hours')) > datetime('now')"
+
+-- Shows (aliased s) by a current manager of the active root project they name (aliased p), narrowed by `where` (SQL
+-- starting with ' AND ') and followed by `order` (ORDER BY and LIMIT, or ''), their placeholders filled from `args`.
+-- Each row has the show's uri, cid, and record JSON, its latE6 and lngE6, and the project's projectUri, projectCid,
+-- and project JSON, so callers decode only the rows they return.
+local function showRows(where, args, order)
+	local values = { SHOW, PROJECT, ROOT_DID }
+	for _, arg in ipairs(args) do values[#values + 1] = arg end
+	return db.raw(
+		'SELECT s.uri, s.cid, s.record,'
+			.. " json_extract(s.record, '$.location.latE6') AS latE6, json_extract(s.record, '$.location.lngE6') AS lngE6,"
+			.. ' p.uri AS projectUri, p.cid AS projectCid, p.record AS project'
+			.. " FROM happyview_records s JOIN happyview_records p ON p.uri = json_extract(s.record, '$.project')"
+			.. " WHERE s.collection = ? AND p.collection = ? AND p.did = ? AND json_extract(p.record, '$.status') = 'active'"
+			.. " AND EXISTS (SELECT 1 FROM json_each(p.record, '$.managers') WHERE value = s.did)"
+			.. where
+			.. order,
+		values
+	)
+end
+
+-- A showRows row as a showView, `km` from the searched place when there was one.
+local function showView(row, km)
+	return {
+		uri = row.uri,
+		cid = row.cid,
+		record = json.decode(row.record),
+		project = { uri = row.projectUri, cid = row.projectCid, record = json.decode(row.project) },
+		distanceM = km and meters(km),
+	}
 end
 
 -- Genres ----------------------------------------------------------------------------------------------------------

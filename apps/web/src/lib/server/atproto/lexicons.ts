@@ -6,7 +6,11 @@ import auditEntry from '../../../../../../lexicons/computer/localnetwork/audit/e
 import bookingInquiry from '../../../../../../lexicons/computer/localnetwork/booking/inquiry.json' with { type: 'json' };
 import bookingMessage from '../../../../../../lexicons/computer/localnetwork/booking/message.json' with { type: 'json' };
 import bookingStatus from '../../../../../../lexicons/computer/localnetwork/booking/status.json' with { type: 'json' };
+import calendarEvent from '../../../../../../lexicons/community/lexicon/calendar/event.json' with { type: 'json' };
 import address from '../../../../../../lexicons/community/lexicon/location/address.json' with { type: 'json' };
+import fsq from '../../../../../../lexicons/community/lexicon/location/fsq.json' with { type: 'json' };
+import geo from '../../../../../../lexicons/community/lexicon/location/geo.json' with { type: 'json' };
+import hthree from '../../../../../../lexicons/community/lexicon/location/hthree.json' with { type: 'json' };
 import defs from '../../../../../../lexicons/computer/localnetwork/defs.json' with { type: 'json' };
 import directoryDefs from '../../../../../../lexicons/computer/localnetwork/directory/defs.json' with { type: 'json' };
 import epk from '../../../../../../lexicons/computer/localnetwork/epk.json' with { type: 'json' };
@@ -14,17 +18,22 @@ import epkContent from '../../../../../../lexicons/computer/localnetwork/epk/con
 import epkDefs from '../../../../../../lexicons/computer/localnetwork/epk/defs.json' with { type: 'json' };
 import epkGrant from '../../../../../../lexicons/computer/localnetwork/epk/grant.json' with { type: 'json' };
 import epkRequest from '../../../../../../lexicons/computer/localnetwork/epk/request.json' with { type: 'json' };
+import follow from '../../../../../../lexicons/computer/localnetwork/follow.json' with { type: 'json' };
+import getFollowStatus from '../../../../../../lexicons/computer/localnetwork/directory/getFollowStatus.json' with { type: 'json' };
 import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
 import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
 import getSets from '../../../../../../lexicons/computer/localnetwork/directory/getSets.json' with { type: 'json' };
+import getShows from '../../../../../../lexicons/computer/localnetwork/directory/getShows.json' with { type: 'json' };
 import getStats from '../../../../../../lexicons/computer/localnetwork/directory/getStats.json' with { type: 'json' };
 import listSets from '../../../../../../lexicons/computer/localnetwork/directory/listSets.json' with { type: 'json' };
+import listShows from '../../../../../../lexicons/computer/localnetwork/directory/listShows.json' with { type: 'json' };
 import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
 import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
 import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
 import searchProjects from '../../../../../../lexicons/computer/localnetwork/directory/searchProjects.json' with { type: 'json' };
 import decision from '../../../../../../lexicons/computer/localnetwork/moderation/decision.json' with { type: 'json' };
 import request from '../../../../../../lexicons/computer/localnetwork/moderation/request.json' with { type: 'json' };
+import show from '../../../../../../lexicons/computer/localnetwork/show.json' with { type: 'json' };
 import permissions from '../../../../../../lexicons/computer/localnetwork/permissions.json' with { type: 'json' };
 import plannerSave from '../../../../../../lexicons/computer/localnetwork/planner/save.json' with { type: 'json' };
 import plannerShow from '../../../../../../lexicons/computer/localnetwork/planner/show.json' with { type: 'json' };
@@ -74,17 +83,30 @@ export const LEXICON_DOCS = [
 	getStats,
 	getSets,
 	listSets,
+	listShows,
+	getShows,
+	getFollowStatus,
 	djDefs,
-	djSet
+	djSet,
+	show,
+	follow
 ].map((doc) => parseLexiconDoc(doc));
 
 /** The permission set as PDSes read it to expand `include:computer.localnetwork.permissions` at sign-in. */
 export const PERMISSION_SET = lexPermissionSet.parse(permissions.defs.main);
 
-/** Other authorities' lexicons that ours reference. They publish these themselves, so publishLexicons leaves them out. */
-export const REFERENCED_DOCS = [address, ...schemas.filter((doc) => doc.id === 'com.atproto.repo.strongRef')].map(
-	(doc) => parseLexiconDoc(doc)
-);
+/**
+ * Other authorities' lexicons that ours reference or this app writes (calendar events, and the locations they use).
+ * They publish these themselves, so publishLexicons leaves them out.
+ */
+export const REFERENCED_DOCS = [
+	address,
+	geo,
+	fsq,
+	hthree,
+	calendarEvent,
+	...schemas.filter((doc) => doc.id === 'com.atproto.repo.strongRef')
+].map((doc) => parseLexiconDoc(doc));
 
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
 export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...REFERENCED_DOCS]));

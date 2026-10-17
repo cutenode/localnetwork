@@ -5,7 +5,7 @@ import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
 import { type HappyView, startHappyView } from '../../scripts/lib/happyview.ts';
 import { publishLexicons } from '../../src/lib/server/atproto/lexicons.ts';
-import { grantsAll } from '../../src/lib/server/atproto/oauth.ts';
+import { grantsPublicRecords, grantsSpaces } from '../../src/lib/server/atproto/oauth.ts';
 import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
 import { type App, createApp } from '../../src/lib/server/app.ts';
 import { loadConfig } from '../../src/lib/server/config.ts';
@@ -99,10 +99,11 @@ export class TestNetwork {
 
 	/**
 	 * Signs a user in through the app's OAuth client and records the login like the callback does.
-	 * `approve` narrows what they consent to, as the PDS lets people do. Returns the granted scope.
+	 * `approve` narrows what they consent to, as the PDS lets people do. `requested` asks for other scopes
+	 * than the app's first choice, like the fallback for a PDS without spaces. Returns the granted scope.
 	 */
-	async signInWithOAuth(name: string, approve?: string): Promise<string> {
-		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve);
+	async signInWithOAuth(name: string, approve?: string, requested?: string): Promise<string> {
+		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve, requested);
 		await this.recordLogin(name, scope);
 
 		return scope;
@@ -116,7 +117,8 @@ export class TestNetwork {
 			handle: user.handle,
 			pdsUrl: this.pds.url,
 			grantedScope,
-			spacesCapable: grantsAll(grantedScope, this.app.oauth.scopes.full, user.did)
+			spacesCapable: grantsSpaces(grantedScope, user.did),
+			publicWrites: grantsPublicRecords(grantedScope, user.did)
 		});
 	}
 
@@ -159,8 +161,17 @@ export class TestNetwork {
  * way its authorization page does in a browser, then swaps their client for the OAuth session.
  * Returns the granted scope.
  */
-async function signInWithOAuth(app: App, user: TestUser, password: string, approve?: string): Promise<string> {
-	const page = await app.oauth.authorize(user.handle, '{}');
+async function signInWithOAuth(
+	app: App,
+	user: TestUser,
+	password: string,
+	approve?: string,
+	requested?: string
+): Promise<string> {
+	const page = requested
+		? await app.oauth.client.authorize(user.handle, { scope: requested, state: '{}' })
+		: await app.oauth.authorize(user.handle, '{}');
+
 	// The page's scripts normally pick up a CSRF cookie; the API only checks it matches the header.
 	const csrf = 'c'.repeat(24);
 	const cookies = new Map([['csrf-token', csrf]]);

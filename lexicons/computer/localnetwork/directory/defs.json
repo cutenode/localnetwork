@@ -1,7 +1,7 @@
 {
 	"lexicon": 1,
 	"id": "computer.localnetwork.directory.defs",
-	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects and their managers' sets.",
+	"description": "Views served by the Local Network directory, the HappyView AppView that indexes published projects, their managers' sets and shows, and follows.",
 	"defs": {
 		"projectView": {
 			"type": "object",
@@ -31,6 +31,22 @@
 				"venue": { "type": "string" },
 				"location": { "type": "ref", "ref": "community.lexicon.location.address" },
 				"trackCount": { "type": "integer", "minimum": 0 }
+			}
+		},
+		"showView": {
+			"type": "object",
+			"description": "A show as the directory keeps it, with the project it's for.",
+			"required": ["uri", "cid", "record", "project"],
+			"properties": {
+				"uri": { "type": "string", "format": "at-uri" },
+				"cid": { "type": "string", "format": "cid" },
+				"record": { "type": "unknown", "description": "The computer.localnetwork.show record." },
+				"project": { "type": "ref", "ref": "#projectView" },
+				"distanceM": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Meters from the searched location, when the search had one and the show has coordinates."
+				}
 			}
 		},
 		"match": {

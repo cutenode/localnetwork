@@ -1,4 +1,3 @@
-import { setTimeout as sleep } from 'node:timers/promises';
 import { TID } from '@atproto/common-web';
 import type { JsonValue } from '@atproto/lex-json';
 import { type LatLng, toE6 } from '#lib/geo.ts';
@@ -19,6 +18,7 @@ import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
 import type { DirectoryProject, DirectoryStats, HappyViewClient } from '../happyview/client';
+import { awaitIndexed } from '../happyview/indexed';
 import { diff } from './diff';
 import { SetService } from './sets';
 
@@ -75,10 +75,8 @@ export function slugify(input: string): string {
 	return slug.length >= 2 ? slug : `project-${slug || 'x'}`;
 }
 
-/** How long `publish` waits for the directory to serve a write before answering without it. */
-const INDEX_WAIT_MS = 5_000;
-
-const INDEX_POLL_MS = 100;
+/** How long a write waits for the directory to serve it before answering without it. */
+export const INDEX_WAIT_MS = 5_000;
 
 /** The most URIs one getProjects call takes (its lexicon's maxLength). */
 const URIS_PER_LOOKUP = 25;
@@ -360,21 +358,12 @@ export class ProjectService {
 		return { project: projectView(this.core.rootDid, { ...ref, rkey }, record), changes };
 	}
 
-	/**
-	 * Polls the directory until it serves `ref`, so the next page load reads this write. Gives up
-	 * after a few seconds rather than failing: the write happened, and the directory catches up on its own.
-	 */
+	/** Waits for the directory to serve `ref`, so the next page load reads this write. */
 	private async awaitIndexed(ref: RecordRef): Promise<void> {
-		const deadline = Date.now() + this.indexWaitMs;
+		const served = async () => (await this.directory.query('getProject', { uri: ref.uri })).project?.cid === ref.cid;
 
-		while (Date.now() < deadline) {
-			const served = await this.directory.query('getProject', { uri: ref.uri }).catch(() => null);
-
-			if (served?.project?.cid === ref.cid) return;
-			await sleep(INDEX_POLL_MS);
-		}
-
-		this.core.logger.warn({ uri: ref.uri, cid: ref.cid }, 'the directory has not caught up with a project write yet');
+		if (!(await awaitIndexed(served, this.indexWaitMs)))
+			this.core.logger.warn({ uri: ref.uri, cid: ref.cid }, 'the directory has not caught up with a project write yet');
 	}
 
 	/** The rkey of one of the root account's project records, or null for any other URI. */
@@ -389,7 +378,7 @@ export class ProjectService {
 	}
 
 	/** The app's view of a directory project, or null (logged) if it isn't a valid project the root published. */
-	private toView({ uri, cid, record, distanceM }: DirectoryProject): ProjectView | null {
+	toView({ uri, cid, record, distanceM }: DirectoryProject): ProjectView | null {
 		const rkey = this.projectRkey(uri);
 
 		if (!rkey) {

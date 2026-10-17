@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { ArrowLeft, Send } from '@lucide/svelte';
+	import { ArrowLeft, Megaphone, Send } from '@lucide/svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
@@ -33,6 +33,13 @@
 	);
 
 	let draft = $state('');
+
+	// A confirmed booking is a show the project's managers can announce, filled in from these details.
+	const announce = $derived(
+		thread.status === 'confirmed' && thread.project && thread.participants.some((p) => p.did === data.viewer?.did && p.role === 'manager')
+			? `/projects/${thread.project.slug}/shows/new?booking=${thread.skey}`
+			: null
+	);
 </script>
 
 <svelte:head><title>{thread.title ?? 'Booking'} · Local Network</title></svelte:head>
@@ -71,9 +78,10 @@
 			{/if}
 		</div>
 		<form method="POST" action="?/status" class="flex flex-col gap-3 border-t border-line bg-sunken p-5" use:enhance>
-			<div class="flex items-center gap-2.5">
+			<div class="flex flex-wrap items-center gap-2.5">
 				<h2 class="m-0 text-small font-medium text-fg-soft">Status</h2>
 				<StatusPill status={thread.status} />
+				{#if announce}<a class="btn-secondary btn-sm ml-auto" href={announce}><Megaphone class="size-4" />Announce this show</a>{/if}
 			</div>
 			<div class="flex flex-col gap-2 sm:flex-row">
 				<select name="status" class="input sm:w-44" aria-label="Status">

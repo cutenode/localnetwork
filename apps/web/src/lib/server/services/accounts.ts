@@ -17,6 +17,8 @@ export class AccountService {
 		pdsUrl: string | null;
 		grantedScope: string;
 		spacesCapable: boolean;
+		/** Whether the grant lets the app write shows and follows to the account's public repo. */
+		publicWrites: boolean;
 	}) {
 		const now = nowIso();
 		await this.db
@@ -29,6 +31,7 @@ export class AccountService {
 				pdsUrl: input.pdsUrl,
 				spacesCapable: input.spacesCapable ? 1 : 0,
 				grantedScope: input.grantedScope,
+				publicWrites: input.publicWrites ? 1 : 0,
 				createdAt: now,
 				updatedAt: now,
 				lastLoginAt: now
@@ -39,6 +42,7 @@ export class AccountService {
 					pdsUrl: input.pdsUrl,
 					spacesCapable: input.spacesCapable ? 1 : 0,
 					grantedScope: input.grantedScope,
+					publicWrites: input.publicWrites ? 1 : 0,
 					updatedAt: now,
 					lastLoginAt: now
 				})
@@ -94,6 +98,7 @@ export class AccountService {
 						pdsUrl: resolved.pds,
 						spacesCapable: 0,
 						grantedScope: null,
+						publicWrites: null,
 						createdAt: now,
 						updatedAt: now,
 						lastLoginAt: null

@@ -11,16 +11,19 @@
  */
 import { spawn } from 'node:child_process';
 import { rmSync, writeFileSync } from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { asDid, AtpAgent } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
 import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
-import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
+import { HappyViewClient } from '../src/lib/server/happyview/client.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
+import { eventRecord, showRecord } from '../src/lib/server/services/shows.ts';
 import { checkDocker, startHappyView } from './lib/happyview.ts';
-import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_EPKS, DEMO_PROJECTS } from './seed-data.ts';
+import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_EPKS, DEMO_FOLLOWS, DEMO_PROJECTS, DEMO_SHOWS } from './seed-data.ts';
 
 const PLC_PORT = Number(process.env.DEV_PLC_PORT ?? 2582);
 
@@ -46,9 +49,9 @@ const ACCOUNTS = [
 	{
 		handle: 'neon.test',
 		password: 'neon-pass',
-		note: 'DJ; manages two demo projects, has three sets and two press kits'
+		note: 'DJ; manages two demo projects, has three sets, two press kits, and four shows'
 	},
-	{ handle: 'pat.test', password: 'pat-pass', note: 'promoter' }
+	{ handle: 'pat.test', password: 'pat-pass', note: "promoter; follows both of neon's projects" }
 ];
 
 const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
@@ -209,8 +212,42 @@ async function main() {
 
 	log(`Seeded ${DEMO_EPKS.length} press kits for ${DEMO_PROJECTS[0].name}`);
 
+	// neon.test's shows, written the way the announce form writes them: the calendar event, then the show copying it.
+	for (const { project, days, show } of DEMO_SHOWS) {
+		const input = {
+			...show,
+			date: new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10),
+			cancelled: !!show.cancelled
+		};
+
+		const rkey = TID.nextStr();
+		const event = validateRecord(CALENDAR_EVENT, eventRecord(input));
+		const ref = await neonClient.putRecord({ collection: CALENDAR_EVENT, rkey, record: event });
+		const record = JSON.parse(JSON.stringify(showRecord(projectUris[project], ref, input, event)));
+		await neonClient.putRecord({ collection: COLLECTION.show, rkey, record: validateRecord(COLLECTION.show, record) });
+	}
+
+	for (const { handle, project } of DEMO_FOLLOWS) {
+		const agent = new AtpAgent({ service: pds.url });
+		await agent.login({
+			identifier: handle,
+			password: ACCOUNTS.find((account) => account.handle === handle)!.password
+		});
+		await agent.com.atproto.repo.createRecord({
+			repo: dids[handle],
+			collection: COLLECTION.follow,
+			record: validateRecord(COLLECTION.follow, { subject: projectUris[project], createdAt: now })
+		});
+	}
+
+	log(`Seeded ${DEMO_SHOWS.length} shows and ${DEMO_FOLLOWS.length} follows`);
+
 	const happyView = await startHappyView({ plcUrl: plc.url, pdsUrl: pds.url });
 	log(`HappyView      ${happyView.url}`);
+	void backfillSeeds(new HappyViewClient(happyView), projectUris, [
+		{ collection: COLLECTION.show, did: dids['neon.test'] },
+		...DEMO_FOLLOWS.map(({ handle }) => ({ collection: COLLECTION.follow, did: dids[handle] }))
+	]);
 
 	// No NODE_ENV: Vite applies it from .env files, so `pnpm build` would ship
 	// Svelte's dev runtime. `vite dev` defaults to development on its own.
@@ -280,6 +317,27 @@ async function main() {
 
 	process.on('SIGINT', () => void shutdown());
 	process.on('SIGTERM', () => void shutdown());
+}
+
+/**
+ * HappyView hears of the seeded shows and follows only through a backfill, and keeps them only once the app has
+ * uploaded their lexicons and scripts and HappyView has the projects they name, which happens when the app boots
+ * (maybe later, with `pnpm dev:app`). So this waits for that in the background, then has HappyView read them.
+ */
+async function backfillSeeds(
+	client: HappyViewClient,
+	projects: string[],
+	repos: { collection: string; did: string }[]
+) {
+	const ready = async () =>
+		(await client.lexicon(COLLECTION.follow)) !== null &&
+		(await client.query('getProjects', { uris: projects })).projects.length === projects.length;
+
+	while (!(await ready().catch(() => false))) await sleep(1_000);
+
+	for (const { collection, did } of new Map(repos.map((repo) => [`${repo.collection} ${repo.did}`, repo])).values())
+		await client.awaitBackfill(await client.backfill(collection, did), 30_000);
+	log('HappyView has the demo shows and follows');
 }
 
 main().catch((error) => {

@@ -17,6 +17,7 @@
 
 	const items = $derived<MenuItem[]>([
 		{ key: 'F', href: '/projects', label: 'Find DJs' },
+		{ key: 'W', href: '/shows', label: 'Shows' },
 		{ key: 'M', href: '/match', label: 'Match a show' },
 		{ key: 'D', href: '/for-djs', label: 'For DJs' },
 		{ key: 'O', href: '/tools', label: 'Tools' },

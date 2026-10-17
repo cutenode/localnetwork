@@ -1,7 +1,7 @@
 import { error, fail, isHttpError, isRedirect, redirect } from '@sveltejs/kit';
 import type { Viewer } from '#lib/types.ts';
 import { RecordValidationError } from './atproto/lexicons';
-import { UserError } from './core';
+import { ReauthError, UserError } from './core';
 
 type LocalsLike = { viewer: Viewer | null };
 
@@ -45,12 +45,18 @@ export async function act<T, V extends object = never>(run: () => Promise<T>, va
 		if (isRedirect(cause) || isHttpError(cause)) throw cause;
 
 		if (cause instanceof UserError)
-			return fail(cause.status === 401 ? 401 : cause.status, { error: cause.message, values });
+			return fail(cause.status, { error: cause.message, values, reauth: cause instanceof ReauthError });
 
+		// The same shape as above: TypeScript would drop `reauth` from the action's result type otherwise.
 		if (cause instanceof RecordValidationError)
-			return fail(400, { error: `That doesn't fit the record format: ${cause.message}`, values });
+			return fail(400, { error: `That doesn't fit the record format: ${cause.message}`, values, reauth: false });
 		throw cause;
 	}
+}
+
+/** Whether `value` is a full http(s) address, the only kind of link pages make clickable. */
+export function isWebUrl(value: string): boolean {
+	return URL.canParse(value) && ['http:', 'https:'].includes(new URL(value).protocol);
 }
 
 export function text(form: FormData, name: string, max = 10_000): string {

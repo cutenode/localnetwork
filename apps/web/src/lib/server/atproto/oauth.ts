@@ -19,24 +19,49 @@ import { AgentRepoClient, type RepoClient } from './repo-client';
 const permissions = new IncludeScope(PERMISSIONS);
 
 /**
+ * Calendar events are another authority's lexicon, and a permission set can only grant collections under its own
+ * NSID authority, so writing them is asked for on its own.
+ */
+const CALENDAR_EVENTS = 'repo:community.lexicon.calendar.event?action=create&action=update&action=delete';
+
+/**
+ * The records the app writes to an account's public repo for any account, spaces or not: shows with their calendar
+ * events, and follows. A grant without them still counts as one with spaces, so adding them didn't send everyone back
+ * through sign-in; the writes that need them ask for a fresh sign-in themselves.
+ */
+const PUBLIC_RECORDS = [
+	'repo:computer.localnetwork.show?action=create&action=update&action=delete',
+	'repo:computer.localnetwork.follow?action=create&action=delete',
+	CALENDAR_EVENTS
+].join(' ');
+
+/**
  * Granular OAuth scopes. Local Network's permission set (lexicons/computer/localnetwork/permissions.json)
- * grants write access to the user's own repos in the audit, moderation, and booking spaces, plus a
- * personal planner space under the user's own DID. The set leaves the shared spaces' authority open,
- * since one published document serves every network and each has its own root DID. Blob uploads
- * stay explicit: a permission set can only hold repo, rpc, and space permissions. Nothing grants
- * reading other users' data; the app reads shared spaces with credentials issued to the root
- * authority. The base fallback is plain `atproto`, since without spaces the root account writes and
- * uploads everything on the user's behalf.
+ * grants write access to the user's own repos in the audit, moderation, and booking spaces, a
+ * personal planner space under the user's own DID, and the records it writes to the user's public
+ * repo (press kits, shows, follows). The set leaves the shared spaces' authority open, since one
+ * published document serves every network and each has its own root DID. Blob uploads and calendar
+ * events stay explicit: a permission set can only hold repo, rpc, and space permissions, and only
+ * for its own namespace. Nothing grants reading other users' data; the app reads shared spaces with
+ * credentials issued to the root authority. The base fallback, for a PDS without spaces, asks for
+ * the public records anyone can write (follows, and shows with their events); the root account
+ * writes and uploads everything else on the user's behalf.
  */
 export const SCOPES = {
 	full: [
 		'atproto',
 		// Project avatars, and the JSON mix reports DJs attach to their mixes as tracklists.
 		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
+		CALENDAR_EVENTS,
 		permissions.toString()
 	].join(' '),
-	base: 'atproto'
+	base: `atproto ${PUBLIC_RECORDS}`,
+	/** For a PDS that refuses even the base scopes' granular permissions. */
+	minimal: 'atproto'
 };
+
+/** Every scope the app may ask for. A PDS refuses an authorization for any scope its client metadata doesn't list. */
+export const DECLARED_SCOPES = [...new Set(Object.values(SCOPES).flatMap((scope) => scope.split(' ')))].join(' ');
 
 /**
  * Whether `did`'s granted scope includes every scope in `requested`. The PDS grants scopes in
@@ -44,7 +69,12 @@ export const SCOPES = {
  * authority resolved to the user's DID, minus any it doesn't support or the user declined, so
  * both sides are expanded and normalized that way before comparing.
  */
-export function grantsAll(granted: string | undefined | null, requested: string, did: string): boolean {
+export function grantsAll(
+	granted: string | undefined | null,
+	requested: string,
+	did: string,
+	except: string[] = []
+): boolean {
 	const normalize = (scope: string): string[] => {
 		if (scope === permissions.toString()) return permissions.toScopes(PERMISSION_SET).flatMap(normalize);
 
@@ -56,11 +86,25 @@ export function grantsAll(granted: string | undefined | null, requested: string,
 	};
 
 	const scopes = new Set(granted?.split(' ').flatMap(normalize));
+	const skipped = new Set(except.flatMap(normalize));
 
 	return requested
 		.split(' ')
 		.flatMap(normalize)
-		.every((scope) => scopes.has(scope));
+		.every((scope) => scopes.has(scope) || skipped.has(scope));
+}
+
+/**
+ * Whether a grant lets the app make the space writes it makes with a user's session, which is what makes an account
+ * spaces-capable. The public records aren't needed for that (see PUBLIC_RECORDS).
+ */
+export function grantsSpaces(granted: string | undefined | null, did: string): boolean {
+	return grantsAll(granted, SCOPES.full, did, PUBLIC_RECORDS.split(' '));
+}
+
+/** Whether a grant lets the app write shows, calendar events, and follows to the account's public repo. */
+export function grantsPublicRecords(granted: string | undefined | null, did: string): boolean {
+	return grantsAll(granted, PUBLIC_RECORDS, did);
 }
 
 export function isLoopback(publicUrl: string): boolean {
@@ -124,7 +168,7 @@ export class OAuthService {
 
 	constructor(private readonly deps: { config: Config; db: Db; logger: Logger }) {
 		this.client = new NodeOAuthClient({
-			clientMetadata: clientMetadata(deps.config, this.scopes.full),
+			clientMetadata: clientMetadata(deps.config, DECLARED_SCOPES),
 			allowHttp: deps.config.dev,
 			plcDirectoryUrl: deps.config.plcUrl,
 			handleResolver: deps.config.handleResolverUrl,
@@ -140,19 +184,25 @@ export class OAuthService {
 
 	/**
 	 * Starts an authorization. If the user's PDS rejects the spaces scopes
-	 * (it does not run the spaces alpha yet), falls back to plain `atproto`
-	 * and the root account writes on the user's behalf.
+	 * (it does not run the spaces alpha yet), falls back to the base scopes
+	 * and the root account writes on the user's behalf, then to plain
+	 * `atproto` for a PDS that doesn't know granular scopes at all.
 	 */
 	async authorize(handle: string, state: string): Promise<URL> {
-		try {
-			return await this.client.authorize(handle, { scope: this.scopes.full, state });
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+		const [first, ...fallbacks] = [this.scopes.full, this.scopes.base, this.scopes.minimal];
+		let scope = first;
 
-			if (!/scope/i.test(message)) throw error;
-			this.deps.logger.info({ handle, err: error }, 'PDS rejected spaces scopes; using base scope');
+		for (;;) {
+			try {
+				return await this.client.authorize(handle, { scope, state });
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				const next = fallbacks.shift();
 
-			return this.client.authorize(handle, { scope: this.scopes.base, state });
+				if (!next || !/scope/i.test(message)) throw error;
+				this.deps.logger.info({ handle, err: error, scope: next }, 'PDS rejected scopes; asking for fewer');
+				scope = next;
+			}
 		}
 	}
 

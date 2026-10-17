@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { ArrowLeft, Trash2 } from '@lucide/svelte';
 	import EpkForm from '#lib/components/epk/EpkForm.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
+	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -21,7 +23,7 @@
 		<p class="m-0 eyebrow text-fg-subtle">{data.project.profile.name}</p>
 		<h1 class="m-0 text-title font-semibold">Edit {data.epk.record.title}</h1>
 	</div>
-	<FormMessage {form} />
+	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{:else}<FormMessage {form} />{/if}
 	<EpkForm {values} action="?/save" photoBase="{base}/photos" editHref="/projects/{data.project.slug}/edit" submitLabel="Save changes">
 		{#snippet actions()}
 			{#if confirming}

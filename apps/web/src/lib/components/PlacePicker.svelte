@@ -6,8 +6,15 @@
 	let {
 		values = {},
 		geocoder = true,
-		required = true
-	}: { values?: Pick<ProjectFormValues, 'city' | 'region' | 'country' | 'latE6' | 'lngE6'>; geocoder?: boolean; required?: boolean } = $props();
+		required = true,
+		missing = 'Pick a city from the search to enable distance search.'
+	}: {
+		values?: Pick<ProjectFormValues, 'city' | 'region' | 'country' | 'latE6' | 'lngE6'>;
+		geocoder?: boolean;
+		required?: boolean;
+		/** What the hint says while no city from the search has set coordinates. */
+		missing?: string;
+	} = $props();
 
 	let city = $derived(values.city ?? '');
 
@@ -103,6 +110,6 @@
 	<input type="hidden" name="lngE6" value={lngE6} />
 	<p class="hint flex items-start gap-1.5">
 		<LocateFixed aria-hidden="true" class="mt-0.5 size-3.5 shrink-0" />
-		{#if latE6 && lngE6}Coordinates set ({(Number(latE6) / 1e6).toFixed(3)}, {(Number(lngE6) / 1e6).toFixed(3)}), so distance search works.{:else}Pick a city from the search to enable distance search.{/if}
+		{#if latE6 && lngE6}Coordinates set ({(Number(latE6) / 1e6).toFixed(3)}, {(Number(lngE6) / 1e6).toFixed(3)}), so distance search works.{:else}{missing}{/if}
 	</p>
 </div>

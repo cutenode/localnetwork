@@ -5,7 +5,7 @@
 		"main": {
 			"type": "permission-set",
 			"title": "Local Network",
-			"detail": "Submit and manage DJ projects, publish press kits and decide who sees them, book DJs, keep a private planner, and record an audit trail of your actions.",
+			"detail": "Submit and manage DJ projects, publish press kits and decide who sees them, announce shows, follow DJs, book DJs, keep a private planner, and record an audit trail of your actions.",
 			"permissions": [
 				{
 					"type": "permission",
@@ -51,6 +51,18 @@
 					"resource": "repo",
 					"collection": ["computer.localnetwork.epk"],
 					"action": ["create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.show"],
+					"action": ["create", "update", "delete"]
+				},
+				{
+					"type": "permission",
+					"resource": "repo",
+					"collection": ["computer.localnetwork.follow"],
+					"action": ["create", "delete"]
 				},
 				{
 					"type": "permission",

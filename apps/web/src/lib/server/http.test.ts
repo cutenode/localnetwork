@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { describe, expect, it } from 'vitest';
 import type { StaffRole, Viewer } from '#lib/types.ts';
 import { RecordValidationError } from './atproto/lexicons';
-import { UserError } from './core';
+import { ReauthError, UserError } from './core';
 import {
 	act,
 	all,
@@ -59,7 +59,9 @@ describe('act', () => {
 	it('turns user and record errors into failures that echo the values', async () => {
 		const values = { title: 'Echo' };
 		const failed = await act(() => Promise.reject(new UserError('Nope', 409)), values);
-		expect(failed).toMatchObject({ status: 409, data: { error: 'Nope', values } });
+		expect(failed).toMatchObject({ status: 409, data: { error: 'Nope', values, reauth: false } });
+		const lapsed = await act(() => Promise.reject(new ReauthError('Sign in again to follow DJs')));
+		expect(lapsed).toMatchObject({ status: 401, data: { error: 'Sign in again to follow DJs', reauth: true } });
 		const invalid = await act(() => Promise.reject(new RecordValidationError('x', 'too long')), values);
 		expect(invalid).toMatchObject({ status: 400, data: { error: expect.stringMatching(/record format/), values } });
 		expect(await act(() => Promise.resolve({ ok: true }))).toEqual({ ok: true });

@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import EpkForm from '#lib/components/epk/EpkForm.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
+	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -19,6 +21,6 @@
 	{#if !data.spacesCapable}
 		<p class="notice m-0">Your PDS doesn't support atproto spaces yet, so you can't publish a press kit from it.</p>
 	{/if}
-	<FormMessage {form} />
+	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{:else}<FormMessage {form} />{/if}
 	<EpkForm {values} photoBase={null} editHref="/projects/{data.project.slug}/edit" submitLabel="Publish press kit" />
 </div>

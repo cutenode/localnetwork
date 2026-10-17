@@ -1,0 +1,23 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.follow",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "Following a project, to see its upcoming shows. In the follower's own repo; deleting it unfollows.",
+			"record": {
+				"type": "object",
+				"required": ["subject", "createdAt"],
+				"properties": {
+					"subject": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The computer.localnetwork.project record followed."
+					},
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

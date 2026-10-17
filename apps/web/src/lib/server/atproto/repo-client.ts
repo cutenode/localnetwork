@@ -1,6 +1,7 @@
 import { type Agent, type ComAtprotoRepoGetRecord, type ComAtprotoSimplespaceGetSpace, XRPCError } from '@atproto/api';
+import { cidForLex } from '@atproto/lex-cbor';
 import { lexToJson } from '@atproto/lexicon';
-import type { JsonObject } from '@atproto/lex-json';
+import { type JsonObject, jsonToLex } from '@atproto/lex-json';
 import { z } from 'zod';
 
 export type JsonRecord = JsonObject;
@@ -10,6 +11,11 @@ export type RecordRef = { uri: string; cid: string };
 export type StoredRecord = { uri: string; cid: string; value: JsonRecord };
 
 export type ListedSpaceRecord = { collection: string; rkey: string; cid: string; value: JsonRecord };
+
+/** One write in an applyWrites batch to an account's own public repo. */
+export type RepoWrite =
+	| { action: 'create' | 'update'; collection: string; rkey: string; record: JsonRecord }
+	| { action: 'delete'; collection: string; rkey: string };
 
 export type BlobJson = { $type: 'blob'; ref: { $link: string }; mimeType: string; size: number };
 
@@ -64,7 +70,11 @@ export interface RepoClient {
 		record: JsonRecord;
 		swapRecord?: string | null;
 	}): Promise<RecordRef>;
+	/** A new record in the account's own public repo, under a fresh key: unlike putRecord, it needs no update permission. */
+	createRecord(input: { collection: string; record: JsonRecord }): Promise<RecordRef>;
 	getRecord(input: { collection: string; rkey: string }): Promise<StoredRecord | null>;
+	/** Several writes to the account's own public repo, made all together or not at all. */
+	applyWrites(writes: RepoWrite[]): Promise<void>;
 	deleteRecord(input: { collection: string; rkey: string }): Promise<void>;
 	/** Simplespace management for spaces under the account's own DID. */
 	createSpace(input: { spaceType: string; skey: string } & SimpleSpaceConfig): Promise<string>;
@@ -81,6 +91,11 @@ export interface RootRepoClient extends RepoClient {
 	getDelegationToken(space: string): Promise<string>;
 	/** Spaces the root holds a repo in (used to rediscover booking spaces). */
 	listSpaces(spaceType: string): Promise<string[]>;
+}
+
+/** The CID a PDS gives `record` (with its `$type`) when it writes it. */
+export async function recordCid(record: JsonRecord): Promise<string> {
+	return (await cidForLex(jsonToLex(record))).toString();
 }
 
 /** The XRPC error name of a failed {@link RepoClient} call. Implementations reject with `XRPCError`. */
@@ -206,6 +221,28 @@ export class AgentRepoClient implements RepoClient {
 			if (isNotFound(error)) return null;
 			throw error;
 		}
+	}
+
+	async createRecord(input: { collection: string; record: JsonRecord }) {
+		const { data } = await this.agent.com.atproto.repo.createRecord({ ...input, repo: this.did });
+
+		return { uri: data.uri, cid: data.cid };
+	}
+
+	async applyWrites(writes: RepoWrite[]) {
+		await this.agent.com.atproto.repo.applyWrites({
+			repo: this.did,
+			writes: writes.map((write) =>
+				write.action === 'delete'
+					? { $type: 'com.atproto.repo.applyWrites#delete', collection: write.collection, rkey: write.rkey }
+					: {
+							$type: `com.atproto.repo.applyWrites#${write.action}`,
+							collection: write.collection,
+							rkey: write.rkey,
+							value: write.record
+						}
+			)
+		});
 	}
 
 	async putRecord(input: { collection: string; rkey: string; record: JsonRecord; swapRecord?: string | null }) {

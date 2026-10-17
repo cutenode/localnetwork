@@ -4,18 +4,6 @@
 
 local BY_NAME = " ORDER BY lower(json_extract(record, '$.profile.name')), json_extract(record, '$.profile.name'), uri"
 
--- A lat/lng box around every point within `radiusKm` of `center`, for a cheap SQL prefilter before exact distances.
-local function boundingBox(center, radiusKm)
-	local latDelta = radiusKm / 111.32
-	local lngDelta = center.cos < 1e-6 and 180 or math.min(180, radiusKm / (111.32 * center.cos))
-	return {
-		minLat = math.max(-90, center.lat - latDelta),
-		maxLat = math.min(90, center.lat + latDelta),
-		minLng = center.lng - lngDelta,
-		maxLng = center.lng + lngDelta,
-	}
-end
-
 -- Up to 8 lowercase words from `q`. UTF-8 bytes count as word characters, so accented words stay whole.
 local function terms(q)
 	local out = {}
@@ -95,19 +83,7 @@ function handle()
 
 	local near = point(params.latE6, params.lngE6)
 	local radius = integer(params.radiusKm) or 50
-	if near then
-		local box = boundingBox(near, radius)
-		filter(
-			"json_extract(record, '$.profile.location.latE6') BETWEEN ? AND ?"
-				.. " AND json_extract(record, '$.profile.location.lngE6') BETWEEN ? AND ?",
-			{
-				math.floor(box.minLat * 1e6),
-				math.ceil(box.maxLat * 1e6),
-				math.floor(box.minLng * 1e6),
-				math.ceil(box.maxLng * 1e6),
-			}
-		)
-	end
+	if near then filter(withinBox(near, radius, 'record', '$.profile.location')) end
 
 	local close = {}
 	for _, want in ipairs(normalizeGenres(list(params.genres, 20), 20)) do

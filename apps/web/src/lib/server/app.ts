@@ -2,7 +2,7 @@ import type { Viewer } from '#lib/types.ts';
 import { z } from 'zod';
 import { SpaceCredentialManager, XrpcResponseError } from './atproto/credentials';
 import { IdentityResolver } from './atproto/identity';
-import { grantsAll, OAuthService } from './atproto/oauth';
+import { grantsSpaces, OAuthService } from './atproto/oauth';
 import { PublicRepo } from './atproto/public-repo';
 import type { RepoClient } from './atproto/repo-client';
 import { RootAccount } from './atproto/root';
@@ -23,10 +23,12 @@ import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
 import { DjService } from './services/dj';
 import { EpkService } from './services/epk';
+import { FollowService } from './services/follows';
 import { PlannerService } from './services/planner';
 import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
 import { RequestService } from './services/requests';
+import { ShowService } from './services/shows';
 import { StaffService } from './services/staff';
 import { TracklistService } from './services/tracklists';
 import { SpaceSyncer } from './sync/engine';
@@ -166,6 +168,8 @@ export async function createApp(options: CreateAppOptions) {
 	const publicRepo = new PublicRepo(identity, logger.child({ component: 'public-repo' }));
 	const dj = new DjService(publicRepo, logger.child({ component: 'dj' }));
 	const epks = new EpkService(core, projects, publicRepo, (identifier) => identity.resolveIdentifier(identifier));
+	const shows = new ShowService(core, projects, happyView, publicRepo);
+	const follows = new FollowService(core, happyView);
 
 	const syncer = new SpaceSyncer({
 		db,
@@ -232,6 +236,8 @@ export async function createApp(options: CreateAppOptions) {
 		tracklists,
 		dj,
 		epks,
+		shows,
+		follows,
 		sessions,
 		geocoder,
 		limits: {
@@ -248,7 +254,7 @@ export async function createApp(options: CreateAppOptions) {
 		async viewer(did: string): Promise<Viewer | null> {
 			const [account, roles] = await Promise.all([accounts.get(did), staff.roles(did)]);
 
-			if (account?.spacesCapable === 1 && !grantsAll(account.grantedScope, oauth.scopes.full, did)) return null;
+			if (account?.spacesCapable === 1 && !grantsSpaces(account.grantedScope, did)) return null;
 
 			return {
 				did,
@@ -266,7 +272,7 @@ export async function createApp(options: CreateAppOptions) {
 
 		/**
 		 * Uploads this app's lexicons and scripts to HappyView where they changed and backfills the root's
-		 * projects, when there's an API key. A failure is logged and kept for the System page rather than
+		 * projects, then each manager's shows, when there's an API key. A failure is logged and kept for the System page rather than
 		 * thrown: the rest of the app works without the directory, and HappyView keeps its last scripts.
 		 */
 		async syncDirectory() {
@@ -276,6 +282,8 @@ export async function createApp(options: CreateAppOptions) {
 				const uploaded = await syncHappyView(happyView, happyViewBundle(rootDid), rootDid);
 				logger.info(uploaded, 'synced the HappyView directory');
 				directorySync = { at: nowIso(), error: null };
+				// In the background: the shows Jetstream missed don't hold the app up.
+				void shows.reindexManagers().catch((error) => logger.warn({ err: error }, 'could not re-read shows'));
 			} catch (error) {
 				logger.error({ err: error }, 'could not sync the HappyView directory');
 				directorySync = { at: nowIso(), error: error instanceof Error ? error.message : String(error) };

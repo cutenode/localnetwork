@@ -209,6 +209,12 @@ const migrations = {
 		async up(db) {
 			for (const statement of epk) await sql.raw(statement).execute(db);
 		}
+	},
+	// Whether the last sign-in's grant covers shows and follows; null for sign-ins from before the app asked.
+	'003_public_writes': {
+		async up(db) {
+			await sql.raw('ALTER TABLE account ADD COLUMN public_writes INTEGER').execute(db);
+		}
 	}
 } satisfies Record<string, Migration>;
 
