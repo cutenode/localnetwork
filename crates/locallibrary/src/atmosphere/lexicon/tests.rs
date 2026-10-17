@@ -574,3 +574,22 @@ fn booleans_unknowns_and_what_the_check_doesnt_know(tc: hegel::TestCase) {
     let err = check(SET, &json!({ "type": "string", "format": format }), &json!("dj.example.com"), "s").unwrap_err();
     assert_eq!(err, format!("s: the check doesn't know the format {format:?}"));
 }
+
+/// A fetched document whose refs go round in a circle stops at [`MAX_REFS`], rather than
+/// recursing until the stack runs out.
+#[test]
+fn refs_that_go_round_in_a_circle_stop() {
+    keep(ADDRESS, json!({ "lexicon": 1, "id": ADDRESS, "defs": { "main": { "type": "ref", "ref": "#main" } } }));
+    let err = check(SET, &json!({ "type": "ref", "ref": ADDRESS }), &json!({}), "place").unwrap_err();
+    assert_eq!(err, format!("place: refs nest more than {MAX_REFS} deep"));
+}
+
+/// What's fetched is kept only if it's the document asked for.
+#[test]
+fn a_fetched_document_has_to_be_the_one_asked_for() {
+    assert!(as_document(ADDRESS, json!({ "id": ADDRESS, "defs": {} })).is_ok());
+    for doc in [json!({ "id": "community.lexicon.other", "defs": {} }), json!({ "id": ADDRESS }), json!("text")] {
+        let err = as_document(ADDRESS, doc).unwrap_err().to_string();
+        assert!(err.contains("isn't that document"), "{err}");
+    }
+}

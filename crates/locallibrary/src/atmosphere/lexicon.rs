@@ -80,10 +80,23 @@ pub(crate) fn keep(nsid: &'static str, doc: Value) -> &'static Value {
 /// One of [`REFERENCED`] as its authority publishes it now; or, while `$LOCALLIBRARY_LEXICONS`
 /// names a folder (a test switch, so tests don't reach the network), as `<nsid>.json` there has it.
 fn fetch(nsid: &str) -> Result<Value> {
-    let Some(dir) = std::env::var_os("LOCALLIBRARY_LEXICONS") else { return super::fetch_lexicon(nsid) };
-    let path = std::path::Path::new(&dir).join(format!("{nsid}.json"));
-    let text = std::fs::read_to_string(&path).at(&path)?;
-    serde_json::from_str(&text).map_err(|e| Error::Parse { path, message: e.to_string() })
+    let doc = match std::env::var_os("LOCALLIBRARY_LEXICONS") {
+        None => super::fetch_lexicon(nsid)?,
+        Some(dir) => {
+            let path = std::path::Path::new(&dir).join(format!("{nsid}.json"));
+            let text = std::fs::read_to_string(&path).at(&path)?;
+            serde_json::from_str(&text).map_err(|e| Error::Parse { path, message: e.to_string() })?
+        }
+    };
+    as_document(nsid, doc)
+}
+
+/// `doc`, fetched as the document `nsid`, if it is one: its `id` is `nsid`, and it has definitions.
+fn as_document(nsid: &str, doc: Value) -> Result<Value> {
+    if doc["id"] != nsid || !doc["defs"].is_object() {
+        return Err(Error::invalid(format!("what was fetched as the Lexicon {nsid} isn't that document")));
+    }
+    Ok(doc)
 }
 
 /// The definition `name` in the document `doc`, fetching `doc` if it's one of [`REFERENCED`] not
@@ -152,15 +165,28 @@ fn is_uri(s: &str) -> bool {
         && !rest.contains(char::is_whitespace)
 }
 
+/// How many refs deep a value may be checked: far more than these documents nest, and a stop for
+/// a fetched document whose refs go round in a circle.
+const MAX_REFS: u32 = 32;
+
 /// Check `v` against `schema`, a definition in the document `nsid` (local refs resolve there).
 fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Result<(), String> {
+    walk(nsid, schema, v, path, 0)
+}
+
+/// [`check`], `refs` refs deep already.
+fn walk(nsid: &str, schema: &Value, v: &Value, path: &str, refs: u32) -> std::result::Result<(), String> {
     let num = |key: &str| schema[key].as_i64();
+    let deeper = || {
+        let refs = refs + 1;
+        if refs > MAX_REFS { Err(format!("{}: refs nest more than {MAX_REFS} deep", what(path))) } else { Ok(refs) }
+    };
     match schema["type"].as_str().unwrap_or_default() {
         "ref" => {
             let r = schema["ref"].as_str().unwrap_or_default();
             let (doc, name) = target(nsid, r);
             let found = resolve(doc, name, r, path)?;
-            check(doc, found, v, path)
+            walk(doc, found, v, path, deeper()?)
         }
         // A union's value names its type in `$type`: `nsid` for a document's main definition,
         // `nsid#name` for another. A type the union doesn't list passes unless it's closed.
@@ -183,7 +209,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
             let found = resolve(doc, name, r, path)?;
             let mut rest = fields.clone();
             rest.remove("$type");
-            check(doc, found, &Value::Object(rest), path)
+            walk(doc, found, &Value::Object(rest), path, deeper()?)
         }
         "object" => {
             let Value::Object(fields) = v else { return Err(format!("{} should be an object", what(path))) };
@@ -201,7 +227,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 if x.is_null() && nullable.is_some_and(|n| n.iter().any(|k| k == key.as_str())) {
                     continue;
                 }
-                check(nsid, property, x, &at)?;
+                walk(nsid, property, x, &at, refs)?;
             }
             Ok(())
         }
@@ -252,7 +278,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 return Err(format!("{} has {n} entries, outside what the Lexicon allows", what(path)));
             }
             for (i, x) in items.iter().enumerate() {
-                check(nsid, &schema["items"], x, &format!("{}[{i}]", what(path)))?;
+                walk(nsid, &schema["items"], x, &format!("{}[{i}]", what(path)), refs)?;
             }
             Ok(())
         }
