@@ -4,7 +4,7 @@
 
 // The echo plugin's manifest is for `main.rs`: locallibrary serves the manifest a test gives.
 #[allow(dead_code)]
-#[path = "../../../loclib-plugin/examples/echo/plugin.rs"]
+#[path = "../../../../loclib-plugin/examples/echo/plugin.rs"]
 pub mod echo;
 
 use std::path::PathBuf;
