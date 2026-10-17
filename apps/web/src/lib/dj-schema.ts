@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bareMbid } from './supports.ts';
 
 /**
  * Schemas for what locallibrary publishes about a DJ (see dj.ts). The site doesn't publish these
@@ -6,6 +7,10 @@ import { z } from 'zod';
  * malformed section is left out rather than failing the record. Pages import dj.ts instead, so zod
  * stays out of their bundles.
  */
+
+/** A section that parses or is dropped, so one odd section doesn't hide the rest of a profile. */
+const section = <T extends z.ZodType>(schema: T) => schema.optional().catch(undefined);
+
 const percent = z.number().int().min(0).max(100);
 
 const bpm = z.number().int().min(20).max(400);
@@ -17,17 +22,21 @@ const camelot = z.string().regex(/^(1[0-2]|[1-9])[AB]$/);
 
 const share = z.object({ name: z.string().max(200), share: percent });
 
+/** A MusicBrainz ID as a bare lowercase UUID, whichever form the record has it in, or dropped if it isn't one. */
+const mbid = z.string().transform(bareMbid).optional().catch(undefined);
+
 const track = z.object({
 	title: z.string().max(400).optional(),
 	artist: z.string().max(400).optional(),
+	artists: section(z.array(z.object({ artistName: z.string().min(1).max(2560), artistMbId: mbid })).max(32)),
+	isrc: section(z.string().length(12)),
+	recordingMbId: mbid,
+	releaseMbId: mbid,
 	bpmCentis: z.number().int().optional(),
 	key: camelot.optional(),
 	startSeconds: z.number().int().min(0).optional(),
 	unidentified: z.boolean().optional()
 });
-
-/** A section that parses or is dropped, so one odd section doesn't hide the rest of a profile. */
-const section = <T extends z.ZodType>(schema: T) => schema.optional().catch(undefined);
 
 export const djProfileSchema = z.object({
 	generatedAt: z.string(),

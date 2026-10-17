@@ -122,3 +122,14 @@ export function clientIp(event: { getClientAddress(): string }): string {
 		return 'unknown';
 	}
 }
+
+/**
+ * Lets a page that shows the same thing to everyone be cached for `seconds`: by anyone when nobody is signed in, by
+ * the browser alone when someone is, since the page carries their account.
+ */
+export function cacheBriefly(
+	event: { locals: LocalsLike; setHeaders(headers: Record<string, string>): void },
+	seconds = 60
+): void {
+	event.setHeaders({ 'cache-control': `${event.locals.viewer ? 'private' : 'public'}, max-age=${seconds}` });
+}

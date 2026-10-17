@@ -6,6 +6,7 @@ import { UserError } from './core';
 import {
 	act,
 	all,
+	cacheBriefly,
 	clientIp,
 	limit,
 	optionalCurrency,
@@ -137,5 +138,28 @@ describe('guards', () => {
 				}
 			})
 		).toBe('unknown');
+	});
+});
+
+describe('cacheBriefly', () => {
+	it('lets anyone cache a page for a minute, but only the browser when someone is signed in', () => {
+		const headers = (viewer: Viewer | null) => {
+			let set: Record<string, string> = {};
+			cacheBriefly({ locals: { viewer }, setHeaders: (value) => (set = value) });
+
+			return set;
+		};
+
+		const signedIn: Viewer = {
+			did: 'did:plc:pat',
+			handle: 'pat.test',
+			roles: [],
+			isAdmin: false,
+			isStaff: false,
+			spacesCapable: true
+		};
+
+		expect(headers(null)).toEqual({ 'cache-control': 'public, max-age=60' });
+		expect(headers(signedIn)).toEqual({ 'cache-control': 'private, max-age=60' });
 	});
 });
