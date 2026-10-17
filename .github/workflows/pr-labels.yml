@@ -1,6 +1,6 @@
 name: PR labels
 
-# Labels each pull request with the tools whose files it changes (.github/labeler.yml).
+# Labels each pull request with the tools, areas and kinds of file it changes (.github/labeler.yml).
 # pull_request_target is what lets it label pull requests from forks. It runs this workflow and the
 # config as they are on main, and never checks out or runs the pull request's code.
 on:
