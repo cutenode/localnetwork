@@ -110,12 +110,16 @@ jobs:
       - if: runner.os != 'Linux'
         run: cargo nextest run --workspace --locked --no-fail-fast --profile core
       # Linux runs every test under coverage, the plugin tests too, failing below the thresholds in
-      # .cargo/config.toml. It writes its totals as JSON for the summary below, in place of the
-      # per-file table.
+      # .cargo/config.toml, then the Hegel property tests alone against the same thresholds
+      # (tools/hegel-coverage.sh), a filtered rerun that reuses the instrumented dependencies
+      # (cargo-llvm-cov rebuilds only the workspace's crates). Each writes its totals as JSON for
+      # the summary below, in place of the per-file table.
       - if: runner.os == 'Linux'
         run: |
           rustup component add llvm-tools-preview
           cargo coverage --json --summary-only --output-path target/coverage.json
+      - if: runner.os == 'Linux' && !cancelled()
+        run: tools/hegel-coverage.sh --json --summary-only --output-path target/coverage-hegel.json
       # To the run's summary, and for the report job to put on the pull request.
       - if: runner.os == 'Linux' && !cancelled()
         name: Coverage summary
@@ -129,11 +133,12 @@ jobs:
           {
             echo "## Rust coverage"
             echo
-            echo "From [run $GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). Held to the thresholds in .cargo/config.toml."
+            echo "From [run $GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). Both are held to the thresholds in .cargo/config.toml."
             echo
             echo "| Tests | Lines | Functions | Regions |"
             echo "| --- | ---: | ---: | ---: |"
             totals All target/coverage.json
+            totals "Hegel property tests alone" target/coverage-hegel.json
           } | tee coverage.md >> "$GITHUB_STEP_SUMMARY"
       - if: runner.os == 'Linux' && !cancelled()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
