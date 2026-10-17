@@ -1,17 +1,21 @@
 //! `locallibrary export`: playlists, folders, history lists or a whole library as M3U8, CSV or
-//! text, or the library for other DJ software (`--format traktor|serato|engine`).
+//! text, or in a format a plugin adds (the interop plugin's for other DJ software: `--format
+//! traktor|serato|engine`).
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
+use clap::builder::{PossibleValue, PossibleValuesParser};
 use clap::{Args, ValueEnum};
 use locallibrary::api;
 use locallibrary::export::{Format, PathStyle};
-use locallibrary::interop::{InteropOptions, InteropPlan, Software};
+use locallibrary::op::Planned;
+use locallibrary::plugin::{ExportFile, PluginExport};
 use locallibrary::progress::Ctx;
+use loclib_plugin::ExportSource;
 
-use crate::output::{Outcome, Output, bytes, dim, heading, ok, warn};
+use crate::output::{Outcome, Output, bytes, dim, ok, warn};
 
 #[derive(Args)]
 #[command(after_long_help = "Examples:
@@ -26,33 +30,29 @@ pub struct ExportArgs {
     /// A history list (name or path) instead of a playlist
     #[arg(long, conflicts_with = "playlist")]
     history: Option<String>,
-    /// File format, or the DJ software to write for [default: from the file name, else m3u8]
-    #[arg(long, value_enum)]
-    format: Option<ExportFormatArg>,
-    /// File to write (with --split, the folder to write into; for other DJ software, the folder to write into)
+    /// File format, or a format a plugin adds (Traktor, Serato and Engine DJ are the interop
+    /// plugin's) [default: from the file name, else m3u8]
+    #[arg(long, value_parser = formats())]
+    format: Option<String>,
+    /// File to write (with --split, or for a plugin's format that writes a folder, the folder to write into)
     #[arg(long, short)]
     output: PathBuf,
-    /// How paths to the audio are written (Engine DJ: relative to its Engine Library folder, or drive for one copied onto the drive)
+    /// How paths to the audio are written
     #[arg(long, value_enum, default_value_t = PathsArg::Relative)]
     paths: PathsArg,
     /// For a folder: one file per playlist (in folders like the playlist tree's) instead of one file
     #[arg(long)]
     split: bool,
-    /// Other DJ software: where the drive's Contents/ will be when it reads the files [default: the drive's mount point]
-    #[arg(long, value_name = "DIR")]
-    location_root: Option<PathBuf>,
-    /// Other DJ software: leave out beat grids and cues
-    #[arg(long)]
-    no_analysis: bool,
     /// Replace files already there
     #[arg(long)]
     replace: bool,
-    /// Other DJ software: list what would be written, and write nothing
+    /// Plugins' formats: list what would be written, and write nothing
     #[arg(long)]
     dry_run: bool,
-    /// Serato: copy the audio into the output folder and write cue points into the copies' tags (asks first)
-    #[arg(long)]
-    write_tags: bool,
+    /// A plugin's format: an option for it, like key=value (repeatable; `locallibrary plugin
+    /// info` shows them)
+    #[arg(long = "option", value_name = "KEY=VALUE")]
+    options: Vec<String>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -77,39 +77,6 @@ impl From<FormatArg> for Format {
     }
 }
 
-/// `export --format`: the list formats, and other DJ software's.
-#[derive(Clone, Copy, ValueEnum)]
-pub enum ExportFormatArg {
-    /// Extended M3U in UTF-8 (#EXTM3U / #EXTINF), for media players and DJ software
-    #[value(alias = "m3u")]
-    M3u8,
-    /// Spreadsheet: title, artist, album, genre, BPM, key, rating, duration, comment, path...
-    Csv,
-    /// "01. Artist - Title", one per line
-    #[value(alias = "text")]
-    Txt,
-    /// Traktor Pro: collection.nml with tracks, beat grids, cues and playlists (-o is a folder)
-    Traktor,
-    /// Serato DJ: a crate per playlist (-o is a folder; --write-tags for cue points)
-    Serato,
-    /// Engine DJ: a new Engine Library with tracks and playlists (-o is a folder; --paths drive to put it on the drive)
-    Engine,
-}
-
-impl ExportFormatArg {
-    /// The list format, or the DJ software the format is for.
-    fn kind(self) -> Result<Format, Software> {
-        match self {
-            ExportFormatArg::M3u8 => Ok(Format::M3u8),
-            ExportFormatArg::Csv => Ok(Format::Csv),
-            ExportFormatArg::Txt => Ok(Format::Txt),
-            ExportFormatArg::Traktor => Err(Software::Traktor),
-            ExportFormatArg::Serato => Err(Software::Serato),
-            ExportFormatArg::Engine => Err(Software::Engine),
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum PathsArg {
     /// Relative to the file written (keeps working when the file sits on the drive)
@@ -130,14 +97,25 @@ impl From<PathsArg> for PathStyle {
     }
 }
 
+/// `--format`'s values: the list formats, and those plugins add.
+fn formats() -> PossibleValuesParser {
+    let own = FormatArg::value_variants().iter().filter_map(ValueEnum::to_possible_value);
+    let plugins = crate::plugins::checked().into_iter().flat_map(|p| p.manifests());
+    let added = plugins.flat_map(|m| &m.contributes.exporters).map(|e| PossibleValue::new(&e.format).help(&e.title));
+    PossibleValuesParser::new(own.chain(added).collect::<Vec<_>>())
+}
+
 pub fn run(args: ExportArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let format = match args.format.map(ExportFormatArg::kind) {
-        Some(Err(software)) => return run_interop(args, software, out, ctx),
-        Some(Ok(f)) => Some(f),
+    let format = match args.format.as_deref().map(|f| (f, FormatArg::from_str(f, true))) {
+        Some((f, Err(_))) => return run_plugin(f.to_string(), args, store, out, ctx),
+        Some((_, Ok(f))) => Some(Format::from(f)),
         None => None,
     };
-    if args.location_root.is_some() || args.no_analysis || args.dry_run || args.write_tags {
-        bail!("--location-root, --no-analysis, --dry-run and --write-tags are for other DJ software's formats");
+    if !args.options.is_empty() {
+        bail!("--option is for plugins' formats");
+    }
+    if args.dry_run {
+        bail!("--dry-run is for plugins' formats");
     }
     let req = api::ExportPlaylist {
         drive: args.drive,
@@ -163,71 +141,77 @@ pub fn run(args: ExportArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>
     Ok(ExitCode::SUCCESS)
 }
 
-/// `--format traktor|serato|engine`: the library for other DJ software, in a folder on this
-/// computer.
-fn run_interop(args: ExportArgs, software: Software, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    if args.history.is_some() || args.split {
-        bail!("--history and --split don't apply to {}", software.name());
+/// A plugin's format: the plugin says which files it would write, overwriting any is asked about
+/// first (unless `--replace`), then it writes them.
+fn run_plugin(
+    format: String,
+    args: ExportArgs,
+    store: &Option<PathBuf>,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    if args.split || args.paths != PathsArg::Relative {
+        bail!("--split and --paths are for locallibrary's own formats");
     }
-    let req = api::InteropRequest {
+    let plugins = crate::plugins::host()?;
+    let (plugin, exporter) = plugins
+        .manifests()
+        .find_map(|m| Some((m.id.as_str(), m.contributes.exporters.iter().find(|e| e.format == format)?)))
+        .expect("--format takes the formats there are");
+    let options = crate::plugin_cmd::options(exporter.options.as_ref(), &args.options)?;
+    let source = ExportSource {
         drive: args.drive,
-        software,
-        output: args.output,
-        options: InteropOptions {
-            location_root: args.location_root,
-            only: args.playlist.into_iter().collect(),
-            skip_analysis: args.no_analysis,
-            replace: args.replace,
-            write_tags: args.write_tags,
-            paths: args.paths.into(),
-        },
+        playlists: args.playlist.into_iter().collect(),
+        history: args.history.into_iter().collect(),
     };
-    let plan = api::interop_plan(&req, ctx)?;
+    let output = std::path::absolute(&args.output)?;
+    let store = crate::diff_cmd::existing_store(store)?;
+    let plan = plugins.export_plan(plugin, &format, source, &output, options, store.as_ref(), ctx)?;
     if !out.json {
-        render_plan(&plan, args.dry_run);
+        render_export(&plan);
     }
-    // Tags mean copying the audio: ask first.
-    let question = format!(
-        "Copy {} of audio into {} and write Serato's cue tags into the copies?",
-        bytes(plan.copy_bytes),
-        plan.output.display()
-    );
-    let stop = match args.dry_run || !args.write_tags {
-        true => args.dry_run.then_some(Outcome::DryRun),
-        false => out.decide(false, &question),
+    if plan.noop {
+        return Ok(out.nothing(&plan, "nothing to write"));
+    }
+    let stop = match args.dry_run {
+        true => Some(Outcome::DryRun),
+        false if plan.destructive && !args.replace => out.decide(false, "Overwrite them?"),
+        false => None,
     };
     if let Some(o) = stop {
-        if !out.json {
-            say!("{}", dim("nothing was written"));
-        }
         return Ok(out.not_applied(&plan, o));
     }
-    let report = plan.apply(None, ctx)?;
+    let report = plan.apply(store.as_ref(), ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || {
-        ok(format!("wrote {} file(s) for {} to {}", report.files.len(), software.name(), report.output.display()))
+        // Those the plan showed aren't said again.
+        for w in report.warnings.iter().filter(|w| !plan.warnings.contains(w)) {
+            warn(w);
+        }
+        ok(format!("wrote {} file(s) to {}", report.files.len(), output.display()))
     }))
 }
 
-fn render_plan(p: &InteropPlan, dry_run: bool) {
-    heading(&format!(
-        "{} for {}: {} tracks, {} playlists in {} folders, {} beat grids, {} cues",
-        if dry_run { "Would write" } else { "Writing" },
-        p.software.name(),
-        p.tracks,
-        p.playlists,
-        p.folders,
-        p.beat_grids,
-        p.cues
-    ));
-    if p.copy_bytes > 0 {
-        say!("  {}", dim(format!("{} of audio to copy", bytes(p.copy_bytes))));
-    }
-    for f in p.files.iter().take(20) {
+/// How many of a plugin's export's files are listed before "and N more" (here and in the player).
+pub(crate) const FILES_SHOWN: usize = 20;
+
+/// What one of a plugin's export's files holds and its size, as far as the plugin says.
+pub(crate) fn about(f: &ExportFile) -> String {
+    let about =
+        [(!f.file.what.is_empty()).then(|| f.file.what.clone()), (f.file.bytes > 0).then(|| bytes(f.file.bytes))];
+    about.into_iter().flatten().collect::<Vec<_>>().join(", ")
+}
+
+/// A plugin's export as locallibrary's own were shown: what it writes and what goes in, its first
+/// files (what each holds, and those there already), what the format can't hold, then problems
+/// with the library.
+fn render_export(p: &Planned<PluginExport>) {
+    crate::output::summary(&p.summary, &[]);
+    for f in p.files.iter().take(FILES_SHOWN) {
         let replaces = if f.exists { " (already there)" } else { "" };
-        say!("  {}  {}{}", f.path.display(), dim(format!("{}, {}", f.what, bytes(f.bytes))), replaces);
+        say!("  {}  {}{replaces}", f.file.path.display(), dim(about(f)));
     }
-    if p.files.len() > 20 {
-        say!("  {}", dim(format!("... and {} more", p.files.len() - 20)));
+    if p.files.len() > FILES_SHOWN {
+        say!("  {}", dim(format!("... and {} more", p.files.len() - FILES_SHOWN)));
     }
     for n in &p.notes {
         say!("  {}", dim(n));

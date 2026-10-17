@@ -154,6 +154,7 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
 - [Atmosphere account](docs/account.md) (alpha): signing in and publishing sets, settings and your profile
 - [rekordbox and other DJ software](docs/other-software.md): rekordbox's own collection, Traktor,
   Serato and Engine DJ
+- [Plugins](docs/plugins.md): what plugins add, and where it shows up
 - [How it works](docs/how-it-works.md): the design, safety and known limitations
 
 Building on locallibrary: [the JSON-RPC sidecar](docs/sidecar.md) for desktop apps, and
@@ -181,6 +182,8 @@ Some of locallibrary's parts are Rust crates of their own, which don't depend on
 - [loclib-interop](../../crates/loclib-interop): writing a library for Traktor, Serato and Engine DJ
 - [loclib-waveform](../../crates/loclib-waveform): ratatui widgets for waveforms, cues, phrases, a
   spectrum and cover art
+- [loclib-plugin](../../crates/loclib-plugin): the plugin protocol (JSON-RPC over stdio), the
+  plugin manifest, and an SDK for writing plugins in Rust
 
 They aren't on crates.io yet.
 

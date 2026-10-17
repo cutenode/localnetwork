@@ -1,0 +1,23 @@
+[package]
+name = "locallibrary-plugin-coverart"
+description = "locallibrary's online cover art, as a plugin: finds covers for tracks without artwork on MusicBrainz and the Cover Art Archive"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64.workspace = true
+image.workspace = true
+indexmap.workspace = true
+loclib-model.workspace = true
+loclib-plugin.workspace = true
+loclib-progress.workspace = true
+reqwest = { workspace = true, features = ["blocking"] }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+loclib-model = { workspace = true, features = ["test-util"] }

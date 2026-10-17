@@ -2,9 +2,9 @@
 //! wherever they're stored (locallibrary reads them from rekordbox's ANLZ files), and rekordbox's
 //! hot cue palette.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Beat {
     /// Position in the bar, 1-4.
@@ -13,7 +13,7 @@ pub struct Beat {
     pub time_ms: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Cue {
     /// `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ...

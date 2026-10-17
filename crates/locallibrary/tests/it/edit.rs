@@ -1,6 +1,9 @@
 mod api;
+mod destructive;
+mod details;
 mod drifted_databases;
 mod journal_replay;
+mod mixed;
 mod refusals;
 mod set_path;
 
@@ -440,7 +443,8 @@ fn the_journal_has_a_version() {
     assert_eq!(edit::journal::edits(&d).unwrap(), [Edit::CreatePlaylist { path: "Old".into(), folder: false }]);
     apply(&root, &[Edit::CreatePlaylist { path: "New".into(), folder: false }]);
     let stored: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
-    assert_eq!(stored["version"], edit::journal::VERSION);
+    // The lowest version its edits need (see `edit::journal::VERSION`).
+    assert_eq!(stored["version"], 2);
     assert_eq!(stored["entries"].as_array().unwrap().len(), 2);
 
     let newer = r#"{"version": 99, "entries": [{"at": "2027-01-01T00:00:00Z", "edits": [{"op": "something_new"}]}]}"#;
@@ -782,83 +786,6 @@ fn removing_a_guest_crate_takes_its_tracks_and_files() {
     }
 }
 
-#[test]
-fn importing_a_spotify_csv_makes_a_playlist_in_both_databases() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = both_databases(dir.path());
-    let lib = pdb_library(&root);
-    let (a, b) = (&lib.tracks[5], &lib.tracks[7]);
-    let csv = format!(
-        "\"Track Name\",\"Artist Name(s)\",\"Duration (ms)\"\n\"{}\",\"{}\",{}\n\"{}\",\"{}\",{}\n\"Not on the drive\",\"Nobody\",1000\n",
-        a.title,
-        a.artist,
-        a.duration_secs * 1000,
-        b.title,
-        b.artist,
-        b.duration_secs * 1000
-    );
-    let file = dir.path().join("spotify.csv");
-    fs::write(&file, csv).unwrap();
-    let req = locallibrary::api::ImportRequest {
-        drive: root.display().to_string(),
-        file,
-        into: "From Spotify".into(),
-        playlist: None,
-        append: false,
-        choices: Default::default(),
-    };
-    let preview = locallibrary::api::import_plan(&req, &Ctx::silent()).unwrap();
-    assert_eq!((preview.report.summary.found, preview.report.summary.missing), (2, 1));
-    locallibrary::api::import_apply(&req, &Ctx::silent()).unwrap();
-    for l in [pdb_library(&root), common::plus_library(&root)] {
-        assert_eq!(files(&l, "From Spotify"), [a.file_path.clone(), b.file_path.clone()]);
-    }
-}
-
-/// Regression: an imported list lost the tracks it played twice, `--into` filled a playlist of
-/// that name in another folder, and a track picked by hand was reported as found by its path.
-#[test]
-fn importing_keeps_repeats_and_fills_exactly_its_path() {
-    use locallibrary::import::{MatchKind, Status};
-    let dir = tempfile::tempdir().unwrap();
-    let root = common::bigger_drive(dir.path(), "Main");
-    let lib = pdb_library(&root);
-    let (a, b) = (&lib.tracks[5], &lib.tracks[7]);
-    apply(
-        &root,
-        &[Edit::SetEntries { playlist: "Shows/Friday".into(), paths: vec![b.file_path.clone()], create: true }],
-    );
-    let m3u = format!(
-        "#EXTM3U\n/Users/me/Music{a}\n/Users/me/Music{b}\n/Users/me/Music{a}\n#EXTINF:5000,{title}\n/nowhere/x.mp3\n",
-        a = a.file_path,
-        b = b.file_path,
-        title = b.title
-    );
-    let file = dir.path().join("set.m3u8");
-    fs::write(&file, m3u).unwrap();
-    let req = |append, choices: &[(usize, u32)]| locallibrary::api::ImportRequest {
-        drive: root.display().to_string(),
-        file: file.clone(),
-        into: "Friday".into(),
-        playlist: None,
-        append,
-        choices: choices.iter().copied().collect(),
-    };
-    let preview = locallibrary::api::import_plan(&req(false, &[]), &Ctx::silent()).unwrap();
-    assert_eq!(preview.report.entries[3].status, Status::Ambiguous { candidates: vec![b.id] }, "its length is off");
-    let preview = locallibrary::api::import_plan(&req(false, &[(3, b.id)]), &Ctx::silent()).unwrap();
-    assert_eq!(preview.report.entries[3].status, Status::Found { track_id: b.id, how: MatchKind::Chosen });
-    locallibrary::api::import_apply(&req(false, &[(3, b.id)]), &Ctx::silent()).unwrap();
-    let (fa, fb) = (a.file_path.as_str(), b.file_path.as_str());
-    let lib = pdb_library(&root);
-    assert_eq!(files(&lib, "Shows/Friday"), [fb], "the nested namesake is left alone");
-    let top = lib.children(None).into_iter().find(|p| p.name == "Friday").unwrap();
-    assert_eq!(lib.playlist_path(top.id), "Friday");
-    assert_eq!(files(&lib, "Friday"), [fa, fb, fa, fb]);
-    locallibrary::api::import_apply(&req(true, &[]), &Ctx::silent()).unwrap();
-    assert_eq!(files(&pdb_library(&root), "Friday"), [fa, fb, fa, fb, fa, fb, fa]);
-}
-
 /// Regression: a history list was selected from export.pdb's lists only, so one a player that
 /// reads only OneLibrary recorded there couldn't be.
 #[test]
@@ -888,48 +815,6 @@ fn history_lists_only_onelibrary_has_are_selected() {
     );
     let want = [plus.tracks[3].file_path.as_str(), plus.tracks[1].file_path.as_str()];
     assert_eq!(files(&pdb_library(&root), "Played"), want);
-}
-
-/// Regression: importing a rekordbox XML playlist took the first whose path matched ignoring
-/// case, so asking for "SET" next to "Set" imported "Set".
-#[test]
-fn importing_an_xml_playlist_takes_the_one_of_exactly_its_path() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = common::bigger_drive(dir.path(), "Main");
-    let lib = pdb_library(&root);
-    let (a, b) = (&lib.tracks[5], &lib.tracks[7]);
-    let location = |t: &locallibrary::Track| format!("file://localhost/Volumes/USB{}", t.file_path.replace(' ', "%20"));
-    let xml = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<DJ_PLAYLISTS Version="1.0.0">
-  <COLLECTION Entries="2">
-    <TRACK TrackID="1" Name="a" Location="{}"/>
-    <TRACK TrackID="2" Name="b" Location="{}"/>
-  </COLLECTION>
-  <PLAYLISTS>
-    <NODE Type="0" Name="ROOT" Count="2">
-      <NODE Name="Set" Type="1" KeyType="0" Entries="1"><TRACK Key="1"/></NODE>
-      <NODE Name="SET" Type="1" KeyType="0" Entries="1"><TRACK Key="2"/></NODE>
-    </NODE>
-  </PLAYLISTS>
-</DJ_PLAYLISTS>
-"#,
-        location(a),
-        location(b)
-    );
-    let file = dir.path().join("rekordbox.xml");
-    fs::write(&file, xml).unwrap();
-    let req = |playlist: &str| locallibrary::api::ImportRequest {
-        drive: root.display().to_string(),
-        file: file.clone(),
-        into: "Imported".into(),
-        playlist: Some(playlist.into()),
-        append: false,
-        choices: Default::default(),
-    };
-    locallibrary::api::import_apply(&req("SET"), &Ctx::silent()).unwrap();
-    assert_eq!(files(&pdb_library(&root), "Imported"), [b.file_path.as_str()]);
-    assert!(locallibrary::api::import_plan(&req("set"), &Ctx::silent()).is_err(), "two match ignoring case");
 }
 
 #[test]
@@ -967,7 +852,7 @@ fn my_tags_follow_removed_and_replaced_tracks() {
 
     // `tag:` filters see them.
     let page = locallibrary::api::tracks_query(&locallibrary::api::TracksQuery {
-        drive: root.display().to_string(),
+        library: root.display().to_string().into(),
         filter: Some("tag:deep".into()),
         ..Default::default()
     })
@@ -1093,7 +978,7 @@ fn track_details_say_where_a_track_is_filed_and_what_is_wrong_with_it() {
         .collect();
     playlists.sort();
     assert!(playlists.len() >= 2, "{playlists:?}");
-    let req = |tracks| locallibrary::api::TrackDetailsRequest { drive: root.display().to_string(), tracks };
+    let req = |tracks| locallibrary::api::TrackDetailsRequest { library: root.display().to_string().into(), tracks };
     let got = locallibrary::api::track_details(&req(ids(&[orig.id, copy]))).unwrap();
     assert_eq!(got.iter().map(|d| d.track.id).collect::<Vec<_>>(), [orig.id, copy], "in the order asked for");
     let d = &got[0];
@@ -1114,7 +999,7 @@ fn track_details_say_where_a_track_is_filed_and_what_is_wrong_with_it() {
     // Real analysis files: rekordbox's beat grid and phrases.
     let demo = common::demo_drive(dir.path(), "Demo");
     let req = locallibrary::api::TrackDetailsRequest {
-        drive: demo.display().to_string(),
+        library: demo.display().to_string().into(),
         tracks: TrackSelector { query: Some("demo track 1".into()), ..Default::default() },
     };
     let a = &locallibrary::api::track_details(&req).unwrap()[0].analysis;

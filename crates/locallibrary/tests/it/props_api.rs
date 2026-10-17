@@ -1806,7 +1806,7 @@ fn art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
         tc.draw(gs::integers::<u32>().min_value(1).max_value(48)),
     );
     fs::write(&small, common::media::png(w, h, 0)).unwrap();
-    let refused = api::artwork_set_plan(&set(&small, &[lib.tracks[0].id])).map(|p| p.noop).unwrap_err();
+    let refused = api::artwork_set_plan(&set(&small, &[lib.tracks[0].id]), &ctx).map(|p| p.noop).unwrap_err();
     assert_eq!(refused.code(), "image", "{refused}");
     let embed = api::EmbedArtwork { files: vec![], image: small };
     assert_eq!(api::artwork_embed_plan(&embed).map(|p| p.noop).unwrap_err().code(), "image");
@@ -1816,17 +1816,22 @@ fn art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
     let image = dir.path().join("cover.png");
     fs::write(&image, common::media::png(w, h, tc.draw(gs::integers::<u8>()))).unwrap();
     let set = set(&image, &ids);
-    match api::artwork_set_plan(&set) {
+    match api::artwork_set_plan(&set, &ctx) {
         Err(e) => assert!(ids.is_empty() && matches!(e, Error::Invalid(_)), "selecting no tracks: {e}"),
         Ok(plan) => {
             assert_described(&plan);
-            assert_eq!((plan.width, plan.height), (w, h));
-            assert_eq!(plan.tracks.iter().map(|t| t.id).collect::<Vec<_>>(), ids);
+            assert_eq!(plan.changes, [format!("set the artwork of {} track(s)", ids.len())]);
+            let files: Vec<String> = lib.tracks_by_id(&ids).into_iter().map(|t| t.file_path.clone()).collect();
+            assert!(
+                matches!(&plan.recorded[..], [Edit::SetArtwork { tracks, .. }] if tracks.paths == files),
+                "{:?}",
+                plan.recorded
+            );
             let report = match tc.draw(gs::booleans()) {
                 true => plan.apply(None, &ctx).unwrap(),
                 false => api::artwork_set(&set, &ctx).unwrap(),
             };
-            assert_eq!(report.tracks_updated, ids.len());
+            assert_eq!(report.changes, 1);
             for id in &ids {
                 let art = api::artwork_get(&api::GetArtwork { drive: path(&root), track: *id }).unwrap().unwrap();
                 let jpeg = BASE64_STANDARD.decode(&art.base64).unwrap();

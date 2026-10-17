@@ -1,0 +1,73 @@
+id = "interop"
+name = "Other DJ software"
+version = "0.1.0"
+protocol = "^0.1"
+# library:read for the library exports read (`combined`), analysis:read for beat grids and cues,
+# drive:info for where the drive is mounted: the files name the audio by its full path.
+capabilities = ["library:read", "analysis:read", "drive:info"]
+
+[[contributes.exporters]]
+format = "traktor"
+title = "Traktor Pro: collection.nml with tracks, beat grids, cues and playlists"
+folder = true
+
+[contributes.exporters.options]
+type = "object"
+additionalProperties = false
+
+[contributes.exporters.options.properties.location_root]
+type = "string"
+minLength = 1
+x-path = true
+description = "Where the drive's Contents/ will be when Traktor reads the files, absolute (default: the drive's mount point)"
+
+[contributes.exporters.options.properties.skip_analysis]
+type = "boolean"
+default = false
+description = "Leave out beat grids and cues"
+
+[[contributes.exporters]]
+format = "serato"
+title = "Serato DJ: a crate per playlist"
+folder = true
+
+[contributes.exporters.options]
+type = "object"
+additionalProperties = false
+
+[contributes.exporters.options.properties.location_root]
+type = "string"
+minLength = 1
+x-path = true
+description = "Where the drive's Contents/ will be when Serato reads the crates, absolute (default: the drive's mount point)"
+
+[contributes.exporters.options.properties.skip_analysis]
+type = "boolean"
+default = false
+description = "With write_tags: leave out cue points"
+
+[contributes.exporters.options.properties.write_tags]
+type = "boolean"
+default = false
+description = "Copy the audio into the output folder and write cue points into the copies' tags; the crates list the copies"
+
+[[contributes.exporters]]
+format = "engine"
+title = "Engine DJ: a new Engine Library with tracks and playlists"
+folder = true
+
+[contributes.exporters.options]
+type = "object"
+additionalProperties = false
+
+[contributes.exporters.options.properties.location_root]
+type = "string"
+minLength = 1
+x-path = true
+description = "Where the drive's Contents/ will be when Engine DJ reads the library, absolute (default: the drive's mount point)"
+
+[contributes.exporters.options.properties.paths]
+type = "string"
+enum = ["relative", "drive"]
+default = "relative"
+description = "Track paths relative to where the library is written, or to the drive's root (for an Engine Library folder copied there)"

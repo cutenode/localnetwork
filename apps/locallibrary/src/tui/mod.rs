@@ -12,11 +12,13 @@ mod crate_list;
 mod deck;
 mod drives;
 mod edits;
+mod form;
 mod keymap;
 mod keys;
 mod mix;
 mod mytags;
 mod palette;
+mod plugins;
 mod profile;
 #[cfg(test)]
 mod props;
@@ -45,6 +47,8 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     on_panic();
     // Open the audio device before taking over the screen: some backends print while starting.
     let mut app = App::new(store_root, drive);
+    // Plugins' logs would draw over the screen: they go to the messages (`!`) while it runs.
+    crate::plugins::log_to(Some(app.plugin_log()));
     // (Not `ratatui::init`, whose panic hook would put the screen back for a worker's panic.)
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -54,6 +58,7 @@ pub fn run(store_root: PathBuf, drive: Option<String>) -> Result<()> {
     let result = event_loop(&mut terminal, &mut app);
     let _ = execute!(stdout(), DisableMouseCapture);
     ratatui::restore();
+    crate::plugins::log_to(None);
     SIGNAL.store(IDLE, Ordering::Relaxed);
     // The loop also ends when the terminal goes away mid-write: the write still finishes.
     app.finish_write();

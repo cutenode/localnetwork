@@ -3,12 +3,14 @@
 //! sidecar's contract (`rpc.describe`) describes them the same way.
 
 use chrono::{DateTime, Utc};
+use loclib_plugin::code;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use super::WatchAction;
-use crate::error::{Action, Reason};
+use crate::Error;
+use crate::error::{Action, Detail, Reason};
 use crate::progress::{Event, Scope};
 use crate::watch::{MountedDrive, WatchEvent};
 
@@ -174,6 +176,63 @@ pub struct DescribeRequest {
     /// One method (or an alias of one); default every method.
     #[serde(default)]
     pub method: Option<String>,
+}
+
+/// A request that failed, as the sidecar answers it: `error`'s code and message, and its `data`
+/// (see [`RpcFailure::data`]). The plugin host reads the reads it makes for plugins as these too.
+#[derive(Debug, Clone)]
+pub struct RpcFailure {
+    pub code: i64,
+    pub message: String,
+    pub kind: &'static str,
+    /// Its reason, the values it's about and what would resolve it (see [`Error::detail`]).
+    // Boxed: it's most of the failure's size, which every `Result` carrying one would be.
+    pub detail: Box<Detail>,
+}
+
+impl From<Error> for RpcFailure {
+    fn from(e: Error) -> Self {
+        RpcFailure { code: code::FAILED, kind: e.code(), message: e.to_string(), detail: Box::new(e.detail()) }
+    }
+}
+
+impl RpcFailure {
+    pub fn new(code: i64, kind: &'static str, message: impl Into<String>) -> RpcFailure {
+        RpcFailure { code, kind, message: message.into(), detail: Box::default() }
+    }
+
+    pub fn method_not_found(method: &str) -> RpcFailure {
+        RpcFailure::new(code::METHOD_NOT_FOUND, "method_not_found", format!("unknown method {method:?}"))
+    }
+
+    /// Makes the actions that send the request again (`method` absent) calls to `method` with
+    /// `params` and theirs.
+    pub fn resolve(mut self, method: &str, params: &Value) -> RpcFailure {
+        for a in self.detail.actions.iter_mut().filter(|a| a.method.is_none()) {
+            let mut all = params.as_object().cloned().unwrap_or_default();
+            all.extend(std::mem::take(&mut a.params));
+            a.method = Some(method.to_string());
+            a.params = all;
+        }
+        self
+    }
+
+    /// The error of applying a plan by id that's used up: sending the request again can't help,
+    /// so actions that would are dropped.
+    pub fn plan_used(mut self) -> RpcFailure {
+        self.detail.actions.retain(|a| a.method.is_some());
+        self
+    }
+
+    /// `error.data`.
+    pub fn data(&self) -> ErrorData {
+        ErrorData {
+            kind: self.kind.to_string(),
+            reason: self.detail.reason,
+            fields: self.detail.fields.clone(),
+            actions: self.detail.actions.clone(),
+        }
+    }
 }
 
 /// An error response's `error.data`: what a front end can act on without reading the message.

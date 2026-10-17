@@ -2,9 +2,10 @@
 
 use locallibrary::api::{DriveStatus, FleetLibrary};
 use locallibrary::compare::Relation;
+use locallibrary::fields::FieldValue;
 use locallibrary::fleet::{Role, Standing};
 use locallibrary::local_time;
-use locallibrary::query::{SortField, SortKey};
+use locallibrary::query::{FieldName, SortField, SortKey};
 use locallibrary::{DeviceInfo, Track};
 use loclib_waveform::{CueLane, Detail, Overview, PhraseStrip, Pixels, Scope, Spectrum, bar_layout, cue_letter, vinyl};
 use ratatui::Frame;
@@ -62,6 +63,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Some(Modal::Ask(q, _)) => draw_ask(f, q.clone(), f.area()),
         Some(Modal::Pick(_)) => draw_picker(f, app, f.area()),
         Some(Modal::Report(_)) => draw_report(f, app, f.area()),
+        Some(Modal::Form(_)) => draw_form(f, app, f.area()),
         Some(Modal::Prompt(_)) | None => {}
     }
     if app.deck.outputs.is_some() {
@@ -312,7 +314,7 @@ fn message_lines(msg: &str, level: Level, width: u16) -> Vec<Line<'static>> {
 fn draw_toasts(f: &mut Frame, app: &App, area: Rect, footer: Rect) {
     let dialog = matches!(
         app.modal,
-        Some(Modal::Menu(_) | Modal::Confirm(_) | Modal::Ask(..) | Modal::Pick(_) | Modal::Report(_))
+        Some(Modal::Menu(_) | Modal::Confirm(_) | Modal::Ask(..) | Modal::Pick(_) | Modal::Report(_) | Modal::Form(_))
     );
     let footer_busy = matches!(app.modal, Some(Modal::Prompt(_))) || app.searching || app.picking.is_some();
     let mut lines: Vec<Line> = Vec::new();
@@ -612,6 +614,8 @@ enum Col {
     Bpm,
     Key,
     Time,
+    /// A plugin's field (`sound.bpm`).
+    Field(FieldName),
 }
 
 impl Col {
@@ -628,6 +632,7 @@ impl Col {
             Col::Bpm => SortField::Bpm,
             Col::Key => SortField::Key,
             Col::Time => SortField::Time,
+            Col::Field(name) => SortField::Field(name),
         })
     }
 
@@ -650,6 +655,10 @@ impl Col {
         ]
         .into_iter()
         .find(|c| c.field() == Some(f))
+        .or(match f {
+            SortField::Field(name) => Some(Col::Field(name)),
+            _ => None,
+        })
     }
 
     fn width(self) -> Constraint {
@@ -663,7 +672,26 @@ impl Col {
             Col::Plays | Col::Bpm => Constraint::Length(6),
             Col::Key => Constraint::Length(4),
             Col::Time => Constraint::Length(6),
+            // Room for its name and the sort's arrow.
+            Col::Field(name) => {
+                Constraint::Length(unicode_width::UnicodeWidthStr::width(name.as_str()).max(5) as u16 + 1)
+            }
         }
+    }
+}
+
+/// A plugin's field's value as its column shows it: numbers to two places at most, a list
+/// joined.
+fn field_cell(v: &FieldValue) -> Line<'static> {
+    match v {
+        FieldValue::Number(n) => {
+            let s = format!("{n:.2}");
+            Line::styled(s.trim_end_matches('0').trim_end_matches('.').to_string(), fg(theme::AMBER)).right_aligned()
+        }
+        FieldValue::Integer(n) => Line::styled(n.to_string(), fg(theme::AMBER)).right_aligned(),
+        FieldValue::Boolean(b) => Line::styled(if *b { "yes" } else { "no" }, dim()),
+        FieldValue::String(s) => Line::styled(s.clone(), fg(theme::CYAN)),
+        FieldValue::Strings(all) => Line::styled(all.join(", "), fg(theme::CYAN)),
     }
 }
 
@@ -690,6 +718,15 @@ fn columns(width: u16, sort: Option<SortKey>, ratings: bool, tags: bool) -> Vec<
     }
     v.extend([Col::Bpm, Col::Key, Col::Time]);
     v
+}
+
+/// `cols` with the columns of the plugins' `fields` asked for, in order, before tempo, key and
+/// time (one already there, as the sort column, staying where it is).
+fn with_fields(mut cols: Vec<Col>, fields: &[FieldName]) -> Vec<Col> {
+    let at = cols.len().saturating_sub(3);
+    let more: Vec<Col> = fields.iter().map(|&f| Col::Field(f)).filter(|c| !cols.contains(c)).collect();
+    cols.splice(at..at, more);
+    cols
 }
 
 /// The key the track list's keys are matched against, and whose file it is: the playing track's,
@@ -777,6 +814,8 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let cols = columns(area.width, app.sort, app.show_ratings, app.show_tags_column);
+    let cols = with_fields(cols, &app.field_columns);
+    let values = l.values().cloned();
     let my_tags = match &l.my_tags {
         super::app::MyTags::Read(t) => Some(t.clone()),
         _ => None,
@@ -883,6 +922,10 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                     }
                     Col::Key => Cell::from(Span::styled(format!(" {}", tr.key), fg(theme::CYAN))),
                     Col::Time => Cell::from(Line::styled(clock(tr.duration_secs as f64), dim()).right_aligned()),
+                    Col::Field(name) => {
+                        let value = values.as_ref().and_then(|v| v.get(tr.id, name.as_str()));
+                        Cell::from(value.map(field_cell).unwrap_or_default())
+                    }
                 });
             }
             let row = Row::new(cells);
@@ -2396,7 +2439,8 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
     app.areas.menu = r;
 }
 
-/// Results to read (a check's): a panel that scrolls, closed by any other key.
+/// Results to read (a check's, a plugin's command's): a panel that scrolls, closed by any other
+/// key.
 fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     use super::drives::Tone;
     let Some(Modal::Report(r)) = &mut app.modal else { return };
@@ -2409,10 +2453,15 @@ fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
             Tone::Ok => ("✓ ", fg(theme::GREEN)),
             Tone::Warning => ("⚠ ", fg(theme::AMBER)),
             Tone::Problem => ("✖ ", fg(theme::RED)),
-            Tone::Text => ("", text()),
+            Tone::Text | Tone::Row => ("", text()),
             Tone::Faint => ("", faint()),
+            Tone::Columns => ("", dim()),
         };
-        for (i, part) in wrap_text(text_, inner_w.saturating_sub(mark.chars().count())).into_iter().enumerate() {
+        let parts = match tone {
+            Tone::Columns | Tone::Row => vec![clip(text_, inner_w)],
+            _ => wrap_text(text_, inner_w.saturating_sub(mark.chars().count())),
+        };
+        for (i, part) in parts.into_iter().enumerate() {
             let lead = if i == 0 { mark.to_string() } else { " ".repeat(mark.chars().count()) };
             lines.push(Line::from(vec![Span::styled(lead, style), Span::styled(part, style)]));
         }
@@ -2426,6 +2475,69 @@ fn draw_report(f: &mut Frame, app: &mut App, area: Rect) {
     r.scroll = r.scroll.min(total.saturating_sub(inner.height));
     f.render_widget(Clear, r_area);
     f.render_widget(Paragraph::new(lines).scroll((r.scroll, 0)).block(b), r_area);
+}
+
+/// A plugin's params to fill in: a row for each field (its label, then what's typed or picked),
+/// then what the selected one is for, and why what's filled in won't do.
+fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
+    use unicode_width::UnicodeWidthStr;
+    let Some(Modal::Form(form)) = &app.modal else { return };
+    let w = 72u16.min(area.width.saturating_sub(2));
+    let inner_w = w.saturating_sub(4) as usize;
+    let label_w = form.fields.iter().map(|x| x.label().width()).max().unwrap_or(0).min(inner_w / 3);
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, field) in form.fields.iter().enumerate() {
+        let on = i == form.selected;
+        let mut spans = vec![
+            Span::styled(if on { "▍" } else { " " }, fg(theme::PINK)),
+            Span::styled(
+                format!("{:<label_w$}  ", clip(&field.label(), label_w)),
+                if on { bold(theme::FG) } else { dim() },
+            ),
+        ];
+        let room = inner_w.saturating_sub(label_w + 3);
+        match field.text.as_str() {
+            "true" if field.is_switch() => spans.push(Span::styled("● yes", fg(theme::PINK))),
+            _ if field.is_switch() => spans.push(Span::styled("○ no", faint())),
+            picked if !field.choices().is_empty() => {
+                spans.push(Span::styled("‹ ", faint()));
+                spans.push(Span::styled(if picked.is_empty() { "none" } else { picked }.to_string(), text()));
+                spans.push(Span::styled(" ›", faint()));
+            }
+            typed if on => {
+                spans.push(Span::styled(typed_tail(typed, room.saturating_sub(1)).to_string(), bold(theme::FG)));
+                spans.push(Span::styled("▏", fg(theme::PINK)));
+            }
+            typed => spans.push(Span::styled(clip(typed, room), text())),
+        }
+        if field.required && field.text.is_empty() {
+            spans.push(Span::styled(if on { " required" } else { "required" }, faint()));
+        }
+        let line = Line::from(spans);
+        lines.push(if on { line.style(theme::selected()) } else { line });
+    }
+    let selected = &form.fields[form.selected];
+    let about = selected.schema["description"].as_str().or(selected.schema["title"].as_str()).unwrap_or_default();
+    if !about.is_empty() {
+        lines.push(Line::raw(""));
+        lines.extend(wrap_text(about, inner_w).into_iter().map(|l| Line::styled(l, dim())));
+    }
+    if let Some(e) = &form.error {
+        lines.push(Line::raw(""));
+        lines.extend(wrap_text(&format!("⚠ {e}"), inner_w).into_iter().map(|l| Line::styled(l, fg(theme::AMBER))));
+    }
+    let r = popup(area, w, lines.len() as u16 + 2, None);
+    let keys = if selected.choices().is_empty() { "" } else { "←→ change · " };
+    let then = match form.then {
+        super::form::For::Run(_) | super::form::For::Export { .. } => "run",
+        super::form::For::Settings(_) => "save",
+    };
+    let b = block(title(&form.title, true), true)
+        .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())
+        .padding(ratatui::widgets::Padding::horizontal(1));
+    f.render_widget(Clear, r);
+    f.render_widget(Paragraph::new(lines).block(b), r);
+    app.areas.menu = r;
 }
 
 /// The outputs to play through (`d`), the system's default first.
@@ -2599,6 +2711,40 @@ fn undo_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
     }
 }
 
+/// A plugin's export, as `export --dry-run` shows it: what it writes and what goes in, its first
+/// files (what each holds, and those there already, by their place in the output's folder), what
+/// the format can't hold, then problems with the library.
+fn export_lines(c: &super::edits::Confirm, lines: &mut Vec<Line<'static>>) {
+    use crate::export_cmd::{FILES_SHOWN, about};
+    let Some(p) = c.export() else { return };
+    // The summary says where (`write 2 file(s) to ...`).
+    for s in &p.summary {
+        lines.push(Line::from(vec![Span::styled("• ", fg(theme::CYAN)), Span::styled(s.clone(), bold(theme::FG))]));
+    }
+    let dir = p.plan.output.parent().unwrap_or(&p.plan.output);
+    for f in p.plan.files.iter().take(FILES_SHOWN) {
+        let path = f.file.path.strip_prefix(dir).unwrap_or(&f.file.path).display().to_string();
+        let mut spans = vec![Span::styled(format!("  {path}  "), text()), Span::styled(about(f), dim())];
+        if f.exists {
+            spans.push(Span::styled(" (already there)", fg(theme::AMBER)));
+        }
+        lines.push(Line::from(spans));
+    }
+    if p.plan.files.len() > FILES_SHOWN {
+        lines.push(Line::styled(format!("  and {} more", p.plan.files.len() - FILES_SHOWN), dim()));
+    }
+    for n in &p.plan.notes {
+        lines.push(Line::styled(n.clone(), dim()));
+    }
+    for w in &p.warnings {
+        lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
+    }
+    if p.destructive {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled("This replaces files already there.", fg(theme::AMBER)));
+    }
+}
+
 fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(Modal::Confirm(c)) = &mut app.modal else { return };
     let wording = super::edits::wording(&*c.plan, &c.drive);
@@ -2609,8 +2755,20 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
                 Span::styled(format!("{}: ", c.drive), bold(theme::PINK)),
                 Span::styled(p.databases.join(" and "), text()),
             ]));
+            // A plugin's operation: what the plugin says it does first.
+            let by = super::plugins::planned_by(c.plan.operation(), false);
+            if let Some((by, said)) = by.zip(c.plan.summary().first()) {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{by}: "), bold(theme::CYAN)),
+                    Span::styled(said.clone(), text()),
+                ]));
+            }
             lines.push(Line::raw(""));
             edit_lines(p, &mut lines);
+            // What's said about the plan as a whole (a plugin's warnings), besides its edits'.
+            for w in c.plan.warnings().iter().filter(|w| !p.warnings.contains(w)) {
+                lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
+            }
             lines.push(Line::raw(""));
             lines.push(Line::styled("The drive is backed up first: u takes this back.", dim()));
             lines.push(Line::styled(
@@ -2620,6 +2778,7 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             ));
         }
         None if c.undo().is_some() => undo_lines(c, &mut lines),
+        None if c.export().is_some() => export_lines(c, &mut lines),
         None => {
             let plan = &c.plan;
             lines.push(Line::from(vec![

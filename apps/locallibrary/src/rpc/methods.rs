@@ -306,7 +306,7 @@ impl Registry {
         Pl: AnyPlanned + PlanOf + JsonSchema + 'static,
         F: Fn(&Call<'_>, P) -> Result<Pl, RpcError> + Send + Sync + 'static,
     {
-        let run: Run = Box::new(move |c, v| c.plans.keep(f(c, params(v)?)?));
+        let run: Run = Box::new(move |c, v| c.plans.keep(name, f(c, params(v)?)?));
         let m = self.add(Method::new(name, Kind::Plan, schema::<P>, schema::<Pl>, Some(run)));
         m.applies = Some(schema::<<Pl as PlanOf>::Report>);
         m.operation = name.strip_suffix(".plan");
@@ -328,17 +328,17 @@ impl Registry {
             let operation = registry().get(name).and_then(|m| m.operation).unwrap_or(operation);
             // The store first: a plan taken out is only put back by a refusal below.
             let store = c.plan_store(store)?;
-            let (made, plan) = c.plans.take(id, operation)?;
+            let (made, plan) = c.plans.take(name, id, operation)?;
             // Refused before anything was written (a changed or archive drive, or one in use), the
             // plan stays, to be applied again (with `overwrite_archive`, say).
             if let Err(e) = plan.check(store.as_ref()) {
-                c.plans.put_back(made, plan);
+                c.plans.put_back(name, made, plan);
                 return Err(e.into());
             }
             match plan.apply_json(store.as_ref(), c.ctx) {
                 Ok(report) => ok(report),
                 Err(e @ locallibrary::Error::Locked(_)) if plan.check(store.as_ref()).is_ok() => {
-                    c.plans.put_back(made, plan);
+                    c.plans.put_back(name, made, plan);
                     Err(e.into())
                 }
                 Err(e) => Err(RpcError::from(e).plan_used()),
@@ -482,8 +482,18 @@ fn build() -> Registry {
     r.read("drive.library", |_, req| Ok(api::drive_library_cached(&LIBRARIES, &req)?)).quick();
     r.read("playlists.tree", |_, req| Ok(api::playlists_tree(&LIBRARIES, &req)?)).quick();
     r.read("tracks.get", |_, req| Ok(api::tracks_get(&LIBRARIES, &req)?)).quick();
-    r.read("tracks.query", |_, req| Ok(api::tracks_query_cached(&LIBRARIES, &req)?)).quick();
+    r.read("tracks.query", |c, req| {
+        let fields = crate::plugins::Installed::with(c.existing()?);
+        Ok(api::tracks_query_with(&LIBRARIES, &req, Some(fields.source()))?)
+    })
+    .quick();
     r.read("track.analysis", |_, req| Ok(api::track_analysis_cached(&LIBRARIES, &req)?)).quick();
+    r.read("tracks.analysis", |_, req| Ok(api::tracks_analysis(&LIBRARIES, &req)?)).quick();
+    r.read("track.fields", |c, req| {
+        // Plugins that were refused have nothing to show either.
+        let installed = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
+        Ok(api::track_fields_of(&LIBRARIES, c.existing()?.as_ref(), &req, &installed)?)
+    });
     r.read("track.show", |_, req| Ok(api::track_details_cached(&LIBRARIES, &req)?)).quick();
     r.read("track.matches", |_, req| Ok(api::harmonic_matches_cached(&LIBRARIES, &req)?)).quick();
 
@@ -598,8 +608,6 @@ fn build() -> Registry {
         Ok(api::delete_history_apply(c.existing()?.as_ref(), &req, c.ctx)?)
     })
     .destructive();
-    r.plan("import.plan", |c, req| Ok(api::import_plan(&req, c.ctx)?));
-    r.apply("import.apply", PlanStore::None, |c, req| Ok(api::import_apply(&req, c.ctx)?));
     r.plan("pack.plan", |c, req| Ok(api::pack_plan(&req, c.ctx)?)).long().destructive();
     r.apply("pack.apply", Optional, |c, req| Ok(api::pack_apply(c.store_opt().as_ref(), &req, c.ctx)?))
         .long()
@@ -639,7 +647,7 @@ fn build() -> Registry {
     r.read("art.missing", |_, req| Ok(api::artwork_missing(&req)?)).quick();
     r.read("art.get", |_, req| Ok(api::artwork_get_cached(&LIBRARIES, &req)?)).quick();
     r.read("art.path", |_, req| Ok(api::artwork_path(&LIBRARIES, &req)?)).quick();
-    r.plan("art.set.plan", |_, req| Ok(api::artwork_set_plan(&req)?)).destructive();
+    r.plan("art.set.plan", |c, req| Ok(api::artwork_set_plan(&req, c.ctx)?)).destructive();
     r.apply("art.set.apply", PlanStore::None, |c, req| Ok(api::artwork_set(&req, c.ctx)?))
         .alias("art.set")
         .destructive();
@@ -845,11 +853,9 @@ fn build() -> Registry {
     })
     .long()
     .destructive();
-    r.plan("interop.plan", |c, req| Ok(api::interop_plan(&req, c.ctx)?)).long().destructive().writes_to("output");
-    r.apply("interop.apply", PlanStore::None, |c, req| Ok(api::interop_apply(&req, c.ctx)?))
-        .long()
-        .destructive()
-        .writes_to("output");
+
+    // Plugins.
+    plugins::register(&mut r);
 
     // For the sidecar's own tests only (`LOCALLIBRARY_RPC_TEST=1`, not listed).
     r.read("$/test.wait", |c, req: Wait| {
@@ -874,6 +880,8 @@ fn build() -> Registry {
 
     r.finish()
 }
+
+mod plugins;
 
 #[cfg(test)]
 mod tests;

@@ -6,7 +6,6 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use locallibrary::api::{self, AccountInfo, Client};
-use locallibrary::atmosphere;
 use locallibrary::error::Reason;
 use locallibrary::local_time;
 use locallibrary::progress::{CancelToken, Ctx, NoProgress};
@@ -56,8 +55,8 @@ pub struct Account {
 impl Account {
     /// Read who's signed in from the store folder (no network).
     pub fn load(&mut self, store_root: &Path) {
-        self.info = atmosphere::status(store_root).ok().flatten();
-        self.last_handle = atmosphere::last_handle(store_root);
+        let status = api::account_status(store_root).ok();
+        (self.info, self.last_handle) = status.map(|s| (s.account, s.last_handle)).unwrap_or_default();
     }
 
     /// Whether signing in or out is under way (the header spins).

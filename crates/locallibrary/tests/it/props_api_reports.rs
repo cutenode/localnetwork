@@ -1,5 +1,5 @@
 //! Properties of the service layer's reports and outputs (`api::check`, `api::diff`,
-//! `api::plays`, `api::export`, `api::interop`, `api::doctor`, `api::mix`, `api::sidecar`):
+//! `api::plays`, `api::export`, `api::doctor`, `api::mix`, `api::sidecar`):
 //! each agrees with the library it reports on, a model of what it remembers, or the direct call
 //! it wraps; outputs write what their plans say and replace nothing unasked; and the sidecar's
 //! messages read back as they were written.
@@ -14,14 +14,13 @@ use hegel::generators as gs;
 use hegel::{Generator, HealthCheck, TestCase};
 use locallibrary::api::{
     self, CheckRequest, ClearPlayers, DiffRequest, DoctorRequest, DriveRef, ExportPlaylist, HistoryArchiveRequest,
-    InteropRequest, PlayStatsRequest, PullRequest, SetPlayers,
+    PlayStatsRequest, PullRequest, SetPlayers,
 };
 use locallibrary::check::CheckOptions;
 use locallibrary::device::Device;
 use locallibrary::doctor::{self, DoctorOptions};
 use locallibrary::error::Reason;
 use locallibrary::export::{Format, PathStyle};
-use locallibrary::interop::{InteropOptions, Software};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::{Library, diff, plays};
@@ -350,10 +349,9 @@ fn diffs_and_play_statistics_agree_with_the_libraries(tc: TestCase) {
 
 /// Exporting a playlist, a folder (whole or split), a history list or the whole library writes
 /// one file per selection holding as many tracks as it has, in the format asked for or its
-/// file's; files already there are refused unless replacing, and left as they were. Exports for
-/// other DJ software write nothing when planned and what the plan says when applied, refused
-/// over files already there unless replacing. A doctor report is `doctor`'s, and cleaning
-/// orphans deletes exactly the files planted where nothing uses them.
+/// file's; files already there are refused unless replacing, and left as they were. A doctor
+/// report is `doctor`'s, and cleaning orphans deletes exactly the files planted where nothing
+/// uses them.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn outputs_write_what_they_say(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -444,25 +442,6 @@ fn outputs_write_what_they_say(tc: TestCase) {
             ExportPlaylist { history: Some("HISTORY 404".into()), playlist: None, split: false, ..req.clone() };
         assert_eq!(api::export_playlist(None, &missing, &Ctx::silent()).unwrap_err().code(), "not_found");
     }
-
-    // For other DJ software.
-    let software =
-        tc.draw(gs::sampled_from(vec![Software::Traktor, Software::Serato, Software::Engine]).print_as_debug());
-    let target = out.join("dj");
-    let req =
-        InteropRequest { drive: path(&root), software, output: target.clone(), options: InteropOptions::default() };
-    let plan = api::interop_plan(&req, &Ctx::silent()).unwrap();
-    assert!(!target.exists(), "planning wrote");
-    assert!(!plan.destructive && plan.plan.tracks == lib.tracks.len());
-    let done = api::interop_apply(&req, &Ctx::silent()).unwrap();
-    for f in &plan.plan.files {
-        assert!(f.path.is_file(), "{:?} planned but not written", f.path);
-    }
-    assert_eq!(done.files.len(), plan.plan.files.len());
-    let replan = api::interop_plan(&req, &Ctx::silent()).unwrap();
-    assert!(replan.destructive && replan.plan.files.iter().all(|f| f.exists));
-    let replace = InteropRequest { options: InteropOptions { replace: true, ..Default::default() }, ..req.clone() };
-    assert!(api::interop_apply(&replace, &Ctx::silent()).is_ok());
 
     // Doctor, and orphans planted where nothing uses them.
     let report =

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/locallibrary", "crates/locallibrary", "crates/loclib-analysis", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-transcode", "crates/loclib-waveform", "vendor/rekordbox-pdb"]
+members = ["apps/locallibrary", "crates/locallibrary", "crates/loclib-analysis", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-plugin", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-transcode", "crates/loclib-waveform", "plugins/coverart", "plugins/interop", "plugins/sound", "plugins/tracklist", "vendor/rekordbox-pdb"]
 
 [workspace.package]
 version = "0.1.0"
@@ -18,6 +18,7 @@ loclib-interop = { path = "crates/loclib-interop", version = "0.1.0" }
 loclib-mixid = { path = "crates/loclib-mixid", version = "0.1.0" }
 loclib-model = { path = "crates/loclib-model", version = "0.1.0" }
 loclib-mysettings = { path = "crates/loclib-mysettings", version = "0.1.0" }
+loclib-plugin = { path = "crates/loclib-plugin", version = "0.1.0" }
 loclib-progress = { path = "crates/loclib-progress", version = "0.1.0" }
 loclib-transcode = { path = "crates/loclib-transcode", version = "0.1.0" }
 loclib-tracklist = { path = "crates/loclib-tracklist", version = "0.1.0" }
@@ -75,8 +76,11 @@ schemars = { version = "1.2", default-features = false, features = ["derive", "s
 serde = { version = "1", features = ["derive"] }
 # `float_roundtrip`: an f64 written to the store (a report's coverage, a set's BPM) reads back as
 # the same f64, not one bit off. (Test builds get it from jsonschema anyway; this is for the rest.)
-serde_json = { version = "1", features = ["float_roundtrip"] }
-# Where in a request a bad parameter is (`edits[0].op`), for the RPC sidecar's invalid_params errors.
+# `preserve_order`: JSON objects keep their order (a plugin's params and an analyzer's fields, the
+# sidecar's answers). Here, so every build of every crate writes JSON in one order.
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+# Where in a request a bad parameter is (`edits[0].op`), for invalid_params errors (loclib-plugin's,
+# which the RPC sidecar shares).
 serde_path_to_error = "0.1"
 sha2 = "0.10"
 # Edit distance, for "did you mean" on a mistyped filter field or subcommand.
@@ -93,7 +97,8 @@ walkdir = "2.5"
 # `static-engine` links Hegel's engine as an ordinary dependency, so it's in Cargo.lock: without
 # it, hegeltest's build script fetches and builds the engine in a nested, unlocked cargo build.
 hegeltest = { version = "=0.48.1", features = ["static-engine"] }
-# The property tests' JSON Schema validator (dev only), for the RPC contract and the API's schemas.
+# JSON Schema validation: the property tests check the RPC contract and the API's schemas with it,
+# and loclib-plugin checks that a plugin manifest's params and options schemas compile.
 # Without its default features: no fetching schemas over HTTP or from files.
 jsonschema = { version = "0.58.6", default-features = false }
 

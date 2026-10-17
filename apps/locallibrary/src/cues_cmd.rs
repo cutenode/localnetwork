@@ -239,7 +239,7 @@ pub fn run(args: CuesArgs, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     };
     let (req, dry_run) = match command {
         CuesCommand::List { drive, track } => {
-            let list = api::cues_list(&ListCues { drive, tracks: track.selector() })?;
+            let list = api::cues_list(&ListCues { library: drive.into(), tracks: track.selector() })?;
             out.emit(&list, |l| render_list(l));
             return Ok(ExitCode::SUCCESS);
         }
