@@ -245,7 +245,7 @@ lexicons:
 
 documentation:
   - changed-files:
-      - any-glob-to-any-file: ["**/*.{md,mdx}", "apps/*/docs/**"]
+      - any-glob-to-any-file: ["**/*.{md,mdx}", "apps/*/docs/**", "LICENSE"]
 
 tests:
   - changed-files:
@@ -273,6 +273,7 @@ tooling:
   - changed-files:
       - any-glob-to-any-file:
           - ".github/*"
+          - ".github/rulesets/**"
           - ".github/ISSUE_TEMPLATE/**"
           - "{.cargo,.config,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,lefthook.yml,.node-version}"
