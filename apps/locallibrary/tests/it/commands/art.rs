@@ -27,10 +27,12 @@ fn art_commands_say_what_they_found() {
     let image = env.outside("art.png");
     image::RgbImage::from_pixel(300, 300, image::Rgb([30, 30, 200])).save(&image).unwrap();
     let plan = env.ok(&["art", "set", "A", path(&image), "--track", "2", "--dry-run"]);
-    assert!(plan.contains("    Loopmasters - Demo Track 2"), "{plan}");
-    assert!(
-        env.ok(&["--yes", "art", "set", "A", path(&image), "--track", "2"]).contains("✓ artwork set on 1 track(s)")
-    );
+    assert!(plan.contains("  - set the artwork of 1 track(s)\n"), "{plan}");
+    let set = env.ok(&["--yes", "art", "set", "A", path(&image), "--track", "2"]);
+    assert!(set.contains("✓ 1 change(s) written to export.pdb\n"), "{set}");
+    // Again on that track alone: its images are replaced, the database stays.
+    let again = env.ok(&["--yes", "art", "set", "A", path(&image), "--track", "2"]);
+    assert!(again.contains("✓ 1 change(s) written\n"), "{again}");
     let out = env.outside("saved.jpg");
     assert!(env.ok(&["art", "get", "A", "2", "-o", path(&out)]).contains("✓ wrote "));
     assert!(std::fs::read(&out).unwrap().starts_with(b"\xff\xd8\xff"), "a JPEG");

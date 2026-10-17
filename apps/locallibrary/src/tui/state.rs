@@ -39,6 +39,8 @@ pub struct Saved {
     pub ratings: bool,
     /// The track list's My Tags column.
     pub tags_column: bool,
+    /// The track list's columns of plugins' fields (`sound.bpm`), in order.
+    pub field_columns: Vec<String>,
     pub shuffle: bool,
     /// `off`, `all` or `one`.
     pub repeat: Option<String>,

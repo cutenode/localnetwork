@@ -5,10 +5,9 @@ use indexmap::IndexMap;
 
 use binrw::BinRead;
 
-use locallibrary::api::{self, DriveRef, LibraryCache};
+use locallibrary::api::{self, LibraryCache, LibraryRef};
 use locallibrary::compare::{self, Relation, Side};
 use locallibrary::device::Device;
-use locallibrary::interop::{self, InteropOptions, Software};
 use locallibrary::merge::{self, MergeOptions};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
@@ -202,16 +201,21 @@ fn a_playlist_tree_repeating_a_folder_id_is_walked_once() {
     let d = Device::open_export(&root).unwrap();
     let lib = d.library().unwrap();
     assert_eq!(lib.playlists.iter().map(|p| (p.id, p.name.as_str())).collect::<Vec<_>>(), [(folder, "F")]);
-    // Every walk over the tree ends: the XML, the other software's exports, a folder's playlist
-    // files and the sidecar's tree.
+    // Every walk over the tree ends: the XML, the library other software's exports are made from
+    // (the interop plugin reads it, `drive.library` with `combined`), a folder's playlist files
+    // and the sidecar's tree.
     let (xml, _) = xml::export(&d, &XmlOptions::default(), &Ctx::silent()).unwrap();
     assert_eq!(xml.matches("Name=\"F\"").count(), 1);
-    for software in [Software::Traktor, Software::Serato, Software::Engine] {
-        let plan = interop::plan(&d, software, &dir.path().join("out"), &InteropOptions::default(), &Ctx::silent());
-        assert_eq!(plan.unwrap().folders, 1);
-    }
+    let combined = LibraryRef { drive: root.display().to_string(), combined: true };
+    let read = api::drive_library_cached(
+        &LibraryCache::new(1),
+        &api::LibraryRequest { library: combined, offset: None, limit: None },
+    );
+    assert_eq!(read.unwrap().library.playlists.iter().map(|p| p.id).collect::<Vec<_>>(), [folder]);
     assert!(export::select(&lib, Some("F"), true, "all").unwrap().is_empty());
-    let tree = api::playlists_tree(&LibraryCache::new(1), &DriveRef { drive: root.display().to_string() }).unwrap();
+    let tree =
+        api::playlists_tree(&LibraryCache::new(1), &LibraryRef { drive: root.display().to_string(), combined: false })
+            .unwrap();
     assert_eq!((tree.playlists.len(), tree.playlists[0].children.len()), (1, 0));
 }
 

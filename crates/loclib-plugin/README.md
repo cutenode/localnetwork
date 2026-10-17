@@ -20,25 +20,35 @@ version must match.
    know are ignored.
 2. `describe` answers the plugin's manifest as JSON. locallibrary refuses a plugin whose answer
    differs from the manifest it knows.
-3. The host calls hooks, one for each kind of contribution:
+3. The host calls hooks, one for each kind of contribution, each with a `context`: the drive
+   (by id or name), for a command or an operation the playlist and tracks the user is on, and
+   the plugin's `settings`.
    - `command/run {command, params, context}`: any JSON for a headless command; for a view
      command a view, `{"kind": "list" | "table" | "kv" | "text", ...}` (`View`), which each
      host draws its own way.
-   - `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}}` ->
-     `{"fields": {name: value}}`, of the types the manifest declares.
-   - `export/write {exporter, source: {drive, playlists, history}, output, options, dry_run}`
-     -> `{"files", "warnings"}`. The plugin writes the files; with `dry_run` it only says which
-     it would, so the host can ask before overwriting any. An export reads the drive's whole
+   - `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
+     `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`).
+   - `export/write {exporter, source: {drive, playlists, history}, output, options, dry_run,
+     context}` -> `{"files": [{path, what, bytes}], "counts", "notes", "warnings"}`. The plugin
+     writes the files; with `dry_run` it only says which it would (`what` each holds, its
+     size as far as it's known), so the host can ask before overwriting any. `counts`
+     (optional) are labelled numbers of what goes in, in the order to show them (`{"tracks":
+     12, "cues": 40}`); `notes` (optional) say what the format can't hold and what to do with
+     the files, `warnings` what's wrong with this library. An export reads the drive's whole
      library as locallibrary combines it; `playlists` and `history` (lists, by name) only narrow
      which lists go in.
-   - `op/plan {operation, params, context}` -> `{"summary", "warnings", "edits"}`, where each
-     edit is an `Edit` as the sidecar's `edit.plan` takes it (`{"op": "create_playlist", ...}`).
-     locallibrary plans them as one `edit.plan` (one confirmation, one backup, applied together)
-     and applies them itself.
+   - `op/plan {operation, params, context}` -> `{"summary", "warnings", "edits", "inputs"}`,
+     where each edit is an `Edit` as the sidecar's `edit.plan` takes it (`{"op":
+     "create_playlist", ...}`). locallibrary plans them as one `edit.plan` (one confirmation, one
+     backup, applied together) and applies them itself. `inputs` (optional) lists the files on
+     the computer the plan was worked out from (absolute): it isn't applied once one changes.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
-   (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call; writes
-   never can be.
+   (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
+   they don't grant fails with kind `denied`); writes never can be, nor reads of files on the
+   computer. Each read takes only some of its params from a plugin: drives by id or name (never
+   a path), no files, servers or secrets, and pages of at most 500. A plugin has a few calls
+   under way at once (more fail with kind `busy`).
 5. `progress {id, event}` notifications (from the plugin; `id` is the host's request) have the
    sidecar's `progress` shape: a loclib-progress event (or `{"event": "step"}`) with the
    `target` drive, the `step` and, for a coalesced `item`, how many `items` it stands for. A host
@@ -49,7 +59,9 @@ version must match.
 A response is never answered, not even a bad one. Errors use the RPC sidecar's codes: -32700
 (parse error), -32600 (invalid request), -32601 (method not found), -32602 (invalid params),
 -32603 (internal), and -32000 with `data.kind` saying which failure (`cancelled`, `not_found`,
-`incompatible`...).
+`incompatible`...). locallibrary shows a hook's error as one of its own of that kind (`invalid`,
+`not_found`, `conflict`, `stale_plan`, `permission`, and `io` or `parse` about the file
+`data.fields.path` names), with the plugin named; any other kind is the plugin failing.
 
 ## The manifest
 
@@ -80,7 +92,7 @@ let manifest = Manifest::parse(r#"
     fields = { bpm = "number", confident = "boolean" }
 "#)?;
 assert_eq!(manifest.capabilities[2], Capability::Net("musicbrainz.org".into()));
-// Only plugins locallibrary ships may add top-level CLI commands.
+// Only plugins locallibrary ships may give commands places of their own on the command line.
 assert!(manifest.validate(true).is_ok());
 assert!(manifest.validate(false).is_err());
 # Ok::<(), loclib_plugin::ManifestError>(())
@@ -93,8 +105,17 @@ assert!(manifest.validate(false).is_err());
   Any other is refused, and each is granted once.
 - `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `params` (a JSON
   Schema for an object) and `cli`.
-- `[[contributes.operations]]`: `name`, `title`, `long_running`, `params`. Whether one is
-  destructive, the host works out from the edits it plans.
+- `[[contributes.operations]]`: `name`, `title`, `long_running`, `params` and `cli`. Whether one
+  is destructive, the host works out from the edits it plans.
+- `cli` (first-party plugins only) is a command's or operation's own place on the command line:
+  one name (`import`) or two, the first a group of the host's commands (`playlist import`).
+  Otherwise it's `locallibrary <id> <name>`. A params property's `x-cli` says how the command
+  line gives it (`CliHints`): `flag` (`--from` rather than `--playlist`), `one_based = true` (an
+  object whose keys are positions, `--choose 1=42` for key `0`) and `positional = true` (a
+  string given without a flag, after the drive: `playlist import DRIVE FILE`; one param at most).
+- A params or options property marked `x-path = true` (a string, or a list of them) is a file or
+  folder on the computer: every host refuses a relative one, and the command line makes it
+  absolute.
 - `[[contributes.analyzers]]`: `name`, `title`, `fields` (each `number`, `integer`, `string`,
   `boolean` or `string[]`). Fields become columns, so no two analyzers have one of a name.
 - `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
@@ -116,8 +137,10 @@ that sends progress (coalesced as the sidecar does) and notices the host cancell
 under way when the host cancels fails with `cancelled` at once.
 
 `Peer` is the connection itself, for a host or a plugin: either end sends requests and
-notifications from any thread, and its reader thread hands the other end's to its owner. Here
-it plays the host:
+notifications from any thread, and its reader thread hands the other end's to its owner (a
+host's hook sent with `send_request_reporting` gets its own `progress`, in order before its
+answer). What the other end gets wrong goes to stderr, or to a host's log (`Peer::with_log`). `check_params` checks a hook's params or options against the contribution's schema.
+Here it plays the host:
 
 ```rust
 use loclib_plugin::{Host, Incoming, Manifest, Peer, Plugin, RpcError, RunCommand, View, method, serve};

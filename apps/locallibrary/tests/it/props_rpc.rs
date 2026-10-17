@@ -310,6 +310,8 @@ const STEADY_READS: &[&str] = &[
     "tracks.get",
     "tracks.query",
     "track.analysis",
+    "tracks.analysis",
+    "track.fields",
     "track.show",
     "track.matches",
     "tags.list",

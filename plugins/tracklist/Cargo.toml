@@ -1,0 +1,21 @@
+[package]
+name = "locallibrary-plugin-tracklist"
+description = "locallibrary's tracklist import, as a plugin: makes a playlist from an M3U, CSV, rekordbox text or XML file, or \"Artist - Title\" lines"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+indexmap.workspace = true
+loclib-model.workspace = true
+loclib-plugin.workspace = true
+loclib-tracklist.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+loclib-model = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true

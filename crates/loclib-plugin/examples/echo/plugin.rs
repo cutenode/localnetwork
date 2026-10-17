@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Exported, Host, Manifest, OpPlan, PlanOp, Plugin, RpcError, RunCommand, View, WriteExport,
-    params,
+    Analysis, AnalyzeTrack, Exported, ExportedFile, FieldValue, Host, Manifest, OpPlan, PlanOp, Plugin, RpcError,
+    RunCommand, View, WriteExport, params,
 };
 use loclib_progress::{Event, Phase, Steps};
 use serde::Deserialize;
@@ -72,17 +72,19 @@ impl Plugin for Echo {
 
     fn analyze_track(&self, req: AnalyzeTrack, _: &Host) -> Result<Analysis, RpcError> {
         let bytes = std::fs::metadata(&req.track.audio_path).map_err(|e| RpcError::failed("io", e.to_string()))?.len();
-        Ok(Analysis { fields: [("bytes".into(), bytes.into())].into_iter().collect() })
+        let bytes = FieldValue::Integer(bytes.try_into().unwrap_or(i64::MAX));
+        Ok(Analysis { fields: [("bytes".into(), bytes)].into_iter().collect() })
     }
 
     fn write_export(&self, req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
-        if req.dry_run {
-            return Ok(Exported { files: vec![req.output], warnings: Vec::new() });
-        }
         let lines: Vec<String> = tracks(host, &req.source.drive)?.into_iter().map(|t| t.file_path).collect();
-        std::fs::write(&req.output, format!("#EXTM3U\n{}\n", lines.join("\n")))
-            .map_err(|e| RpcError::failed("io", e.to_string()))?;
-        Ok(Exported { files: vec![req.output], warnings: Vec::new() })
+        let text = format!("#EXTM3U\n{}\n", lines.join("\n"));
+        if !req.dry_run {
+            std::fs::write(&req.output, &text).map_err(|e| RpcError::failed("io", e.to_string()))?;
+        }
+        let file = ExportedFile { path: req.output, what: "playlist".into(), bytes: text.len() as u64 };
+        let counts = [("tracks".to_string(), lines.len() as u64)].into_iter().collect();
+        Ok(Exported { files: vec![file], counts, ..Exported::default() })
     }
 
     fn plan_op(&self, req: PlanOp, _: &Host) -> Result<OpPlan, RpcError> {
@@ -91,6 +93,7 @@ impl Plugin for Echo {
             summary: format!("make the playlist {name}"),
             warnings: Vec::new(),
             edits: vec![json!({ "op": "create_playlist", "path": name })],
+            inputs: Vec::new(),
         })
     }
 }

@@ -105,15 +105,25 @@ fn track_fields(tc: &TestCase) -> (TrackFields, Option<Option<Option<TrackColor>
         play_count: some(tc).then(|| tc.draw(gs::integers::<u16>())),
         track_number: some(tc).then(|| tc.draw(gs::integers::<u32>())),
         disc_number: some(tc).then(|| tc.draw(gs::integers::<u16>())),
+        album_artist: name(tc),
+        bpm: some(tc).then(|| tc.draw(gs::floats::<f64>().min_value(1.0).max_value(999.99))),
+        isrc: some(tc).then(|| tc.draw(gs::sampled_from(vec!["", "GBDUW0000059", "USRC17607839"])).to_string()),
+        release_date: some(tc).then(|| tc.draw(gs::sampled_from(vec!["", "2001-03-12"])).to_string()),
     };
     (f, colour.map(|c| c.1))
 }
 
 /// What `t` reads back as once `f` (whose colour means `colour`) is applied. A blank name clears
-/// its field; a new album keeps the old one's artist.
+/// its field; a new album keeps the old one's artist, and without an album there is none.
 fn applied(t: &mut Track, f: &TrackFields, colour: Option<Option<TrackColor>>) {
     let name = |v: &str| if v.trim().is_empty() { String::new() } else { v.to_string() };
-    for (field, value) in [(&mut t.title, &f.title), (&mut t.comment, &f.comment), (&mut t.mix_name, &f.mix_name)] {
+    for (field, value) in [
+        (&mut t.title, &f.title),
+        (&mut t.comment, &f.comment),
+        (&mut t.mix_name, &f.mix_name),
+        (&mut t.isrc, &f.isrc),
+        (&mut t.release_date, &f.release_date),
+    ] {
         if let Some(v) = value {
             *field = v.clone();
         }
@@ -126,17 +136,17 @@ fn applied(t: &mut Track, f: &TrackFields, colour: Option<Option<TrackColor>>) {
         (&mut t.genre, &f.genre),
         (&mut t.label, &f.label),
         (&mut t.key, &f.key),
+        (&mut t.album, &f.album),
+        (&mut t.album_artist, &f.album_artist),
     ] {
         if let Some(v) = value {
             *field = name(v);
         }
     }
-    if let Some(v) = &f.album {
-        t.album = name(v);
-        if t.album.is_empty() {
-            t.album_artist.clear();
-        }
+    if t.album.is_empty() {
+        t.album_artist.clear();
     }
+    t.bpm = f.bpm.map_or(t.bpm, |b| (b * 100.0).round() / 100.0);
     t.rating = f.rating.unwrap_or(t.rating);
     t.color = colour.unwrap_or(t.color);
     t.year = f.year.unwrap_or(t.year);

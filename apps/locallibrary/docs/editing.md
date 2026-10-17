@@ -42,9 +42,9 @@ edit(s): run `locallibrary refresh "REKORDBOX"`"): rekordbox exported to it afte
 edit, and making the edits again would change something. On a drive with both databases, an export
 is when both were written since: a player writes only the one it reads (history lists, a CDJ-3000X's
 playlist edits), so a set isn't taken for one. With no drive, `refresh` takes the one mounted drive
-flagged so, else the only mounted drive, or the newest drive of the one library plugged in. My Tag
-and cue edits count once the drive was exported to after them, since telling whether they're in
-place means making them.
+flagged so, else the only mounted drive, or the newest drive of the one library plugged in. My Tag,
+cue and artwork edits count once the drive was exported to after them, since telling whether
+they're in place means making them.
 
 ## Editing playlists and tracks
 
@@ -61,6 +61,7 @@ locallibrary playlist delete Home "Sam" --with-tracks   # a guest's merged crate
 locallibrary playlist unfiled Home                   # tracks in no playlist, so players can find them
 locallibrary playlist import Home spotify.csv --into "From Spotify"
 locallibrary track set Home --filter "bpm:>=128 genre:techno" --rating 5 --colour red
+locallibrary track set Home --track 12 --bpm 126.5 --isrc GBDUW0000059 --release-date 2019-05-01
 locallibrary track rm Home --filter "is:unfiled plays:0" --dry-run
 locallibrary track dedupe Home                       # replace Sync Manager copies (--hash-audio: identical audio too)
 locallibrary track dedupe Home --by-sound            # ...and a FLAC and an MP3 of one recording
@@ -134,7 +135,9 @@ column), rekordbox's playlist text export, rekordbox XML (`--from` picks one of 
 plain "Artist - Title" lists. Tracks are matched by file path, then ISRC, then artist, title and
 length (within 2 s), then artist and title alone, then fuzzily; entries that fit several
 tracks are listed instead of guessed (settle them with `--choose ENTRY=TRACK`). It works offline:
-export a streaming playlist to CSV first.
+export a streaming playlist to CSV first. The tracklist plugin does it (see [Plugins](plugins.md)):
+`locallibrary tracklist match Home spotify.csv` lists how each entry was found, and every candidate
+of an ambiguous one, without changing anything.
 
 ### Upgrading to lossless
 
@@ -195,6 +198,7 @@ track. `--filter` takes the same filter `tracks --filter` does:
 | `rating:>=4`, `plays:0`, `year:1999`, `time:>6:00`, `bitrate:<320` | numbers, ranges, comparisons |
 | `color:aqua`, `color:none`, `added:2026-09`, `added:>=2026-01-01` | colour, date added |
 | `playlist:Sets/Friday`, `tag:Genre/Deep`, `is:unfiled`, `is:unplayed`, `has:artwork` | membership, My Tags, state |
+| `sound.bpm:>120`, `sound.key:8A` | what an analyzer [plugin](plugins.md) worked out (`tracks` and the player's search only) |
 
 `playlist:` takes a path or a unique name, as `--playlist` does, and a folder means everything in
 it; one that names no playlist is refused. So is a word before a colon that names no field
@@ -202,7 +206,8 @@ it; one that names no playlist is refused. So is a word before a colon that name
 (`"re:zero"`) it's text. `tag:` reads the drive's My Tags wherever a filter goes, and `--history`
 finds lists in both databases.
 
-Sort orders are lists of fields, highest first with a `-`: `key,bpm`, `-rating,title`.
+Sort orders are lists of fields, highest first with a `-`: `key,bpm`, `-rating,title`. `tracks
+--sort` also takes a plugin's field (`-sound.bpm`); tracks without a value for it go last.
 
 ### When rekordbox exports again
 
@@ -218,23 +223,25 @@ locallibrary xml --only "Sets/2026" -o sets.xml   # or take playlists back into 
 `locallibrary refresh` makes the edits again along with the rest an export replaces, see [After
 rekordbox exports](#after-rekordbox-exports).
 
-Playlist, track, My Tag and cue edits (including those made in the player and by `smart apply`)
-are recorded with tracks named by file, so they replay on a new export where row ids differ: a
+Playlist, track, My Tag, cue and artwork edits (including those made in the player and by `smart
+apply`) are recorded with tracks named by file, so they replay on a new export where row ids differ: a
 selection (`--track`, `--query`, `--filter`...) as the tracks it picked, `playlist order` as
 the order it made, playlists by their exact paths, and deleting history lists as the lists it
 deleted, each with its entries (a list a player recorded since under the same name stays). Edits
 that changed nothing aren't recorded. A replay leaves out tracks the new export no longer has,
-with a warning, instead of skipping the whole edit. It makes the My Tag and cue edits first, in
-the order they were made, then the others, and backs the drive up once before all of it, so
-`undo` takes back the whole replay. Removing and moving entries are recorded as the files removed
+with a warning, instead of skipping the whole edit. It makes the My Tag, cue and artwork edits
+first, in the order they were made, then the others, and backs the drive up once before all of it,
+so `undo` takes back the whole replay. A plan made through the sidecar's `edit.plan` can mix them
+the same way: one backup, one undo and one journal entry for all of it. Removing and moving entries are recorded as the files removed
 or moved, and deleting a playlist with its tracks as the tracks it deleted, so a replay keeps
 entries the new export added. rekordbox can export over one database and leave the other, so a
 replay makes edits again in whichever lacks them. The recorded edits travel with the library: a sync copies the
 source drive's onto the drives it updates, so `refresh` makes edits made on any of the library's
 drives again. A push or pack, which gives a drive a library from a snapshot or a selection, forgets
 the edits recorded for the one it held (its plan says so). `edits.json` says which version of its
-format it is: a locallibrary older than the one that wrote it refuses to read it or add to it
-(and says so) rather than misreading it. Builds from before it had a version read it as a plain
+format it is, the lowest its edits need (artwork edits, and a BPM, album artist, ISRC or release
+date, need the newest): a locallibrary older than that refuses to read it or add to it (and says
+so) rather than misreading it. Builds from before it had a version read it as a plain
 list: they change the drive, then fail to record the edit. Update every copy (the CLI and the
 app's sidecar) before editing a drive this version has edited.
 
@@ -394,7 +401,10 @@ the seek index rekordbox stored for VBR MP3s. For your computer's collection, `a
 will rewrite and asks first, and keeps a copy of each file as it was in the store
 (`embed-backups/`, the last 5 embeds, counted in `store info`): `art unembed` puts them back,
 each one only if it hasn't changed since (`--list` shows the embeds kept, `--backup ID` picks
-one). `art set` asks first too, and the drive is backed up before it's written. `art auto` given
+one). `art set` is an edit like the others: it shows its plan and asks first, the drive is backed
+up before it's written, and it's recorded with the picture kept on the drive
+(`.locallibrary/artwork/`, the 240×240 JPEG, named by its hash), so `edits replay` sets it again
+after rekordbox exports. `art auto` given
 no drive takes each library plugged in (and each rekordbox drive of none) but archive and retired
 drives: it shows each plan and asks once.
 

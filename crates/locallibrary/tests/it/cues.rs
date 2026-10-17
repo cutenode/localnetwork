@@ -233,7 +233,8 @@ fn apply(root: &Path, ids: &[u32], op: CueOp) -> locallibrary::cue_edit::CueRepo
 }
 
 fn listed(root: &Path, id: u32) -> Vec<locallibrary::cue_edit::CueInfo> {
-    let req = ListCues { drive: drive_arg(root), tracks: TrackSelector { ids: vec![id], ..Default::default() } };
+    let req =
+        ListCues { library: drive_arg(root).into(), tracks: TrackSelector { ids: vec![id], ..Default::default() } };
     api::cues_list(&req).unwrap().remove(0).cues
 }
 
@@ -464,7 +465,7 @@ fn onelibrary_rows_follow_and_keep_their_ids() {
     assert_eq!((rows[1].1, rows[1].2), (0, 45_000_000));
     assert!(bank_entries(&root).is_empty());
     let report = api::cues_list(&ListCues {
-        drive: drive_arg(&root),
+        library: drive_arg(&root).into(),
         tracks: TrackSelector { ids: vec![1], ..Default::default() },
     });
     assert_eq!(report.unwrap()[0].onelibrary_cues, Some(2));
@@ -526,7 +527,7 @@ fn needs_analysis_files() {
     assert!(matches!(&r, Err(Error::Invalid(m)) if m.contains("no analysis files")), "{r:?}");
     // Listing reports it instead of failing.
     let listed = api::cues_list(&ListCues {
-        drive: drive_arg(&root),
+        library: drive_arg(&root).into(),
         tracks: TrackSelector { ids: vec![t.id], ..Default::default() },
     });
     assert!(!listed.unwrap()[0].warnings.is_empty());

@@ -4,7 +4,8 @@
 //! `a<id>_m.jpg` variant (240x240), referenced by an Artwork row in `export.pdb`. OneLibrary
 //! (`exportLibrary.db`) has its own `b<id>.jpg` / `b<id>_m.jpg` pairs and image rows. Setting art
 //! on a drive renders both sizes and updates whichever databases the drive has; the audio files
-//! are left alone.
+//! are left alone. It's an edit ([`crate::edit::Edit::SetArtwork`]): the image is staged on the
+//! drive by its hash, so the journal names it and a replay sets it again.
 //!
 //! **Why not embed art into the audio files on the drive?** Rewriting a file's tags shifts the
 //! audio data, which invalidates the seek index rekordbox stored in the analysis files for VBR
@@ -16,6 +17,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
+use base64::prelude::*;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat};
 use lofty::config::WriteOptions;
@@ -28,10 +30,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::commit::{self, Changes, NewDatabases, NewFile, Options};
 use crate::device::{Device, LineageOp};
+use crate::edit::Replayed;
 use crate::error::IoContext;
 use crate::fsutil;
 use crate::hash::Hash;
-use crate::model::{Library, TrackRef};
+use crate::model::{Library, Track, TrackRef};
 use crate::onelibrary;
 use crate::paths;
 use crate::pdb;
@@ -339,14 +342,150 @@ pub struct ArtworkReport {
     pub fingerprint: Option<Hash>,
 }
 
-/// Set the same artwork on `track_ids` of a drive (ids from [`Device::library`]).
-///
-/// If those tracks are exactly the users of one existing artwork row, its image files are
-/// replaced in place (no database change). Otherwise a new row is added and the tracks point at
-/// it, so tracks that merely shared the old art (e.g. the rest of an album) keep theirs. Both
-/// databases are updated when the drive has both (OneLibrary's tracks are matched by file path).
-pub fn set_on_drive(device: &mut Device, track_ids: &[u32], art: &Artwork, ctx: &Ctx<'_>) -> Result<ArtworkReport> {
-    apply_batches(device, &[(track_ids.to_vec(), art)], ctx)
+/// The image an artwork edit gives tracks (see [`crate::edit::Edit::SetArtwork`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageSource {
+    /// An image file on this computer, or an audio file whose embedded art to use.
+    Path(PathBuf),
+    /// The image file's bytes, in base64.
+    Base64(String),
+    /// An image staged on the drive (`.locallibrary/artwork/<hash>.jpg`, a JPEG of the larger
+    /// size players show), by its hash: how the journal records the others.
+    Staged(Hash),
+}
+
+/// Where the drive keeps the images artwork edits staged, below its state folder.
+const STAGED: &str = "artwork";
+
+fn staged_path(device: &Device, hash: &Hash) -> PathBuf {
+    device.state_dir().join(STAGED).join(format!("{hash}.jpg"))
+}
+
+/// The image an artwork edit sets, as the drive keeps it for the journal: a JPEG of the larger
+/// size players show, named by its hash, with its bytes unless it was given staged (the plan holds
+/// them, so pruning the drive's copy before it's applied can't lose them). The players' two sizes
+/// are made from those bytes, so a replay sets exactly the same artwork.
+pub(crate) fn stage(device: &Device, image: &ImageSource) -> Result<(Hash, Option<Vec<u8>>)> {
+    let art = match image {
+        ImageSource::Staged(hash) if staged_path(device, hash).is_file() => return Ok((*hash, None)),
+        ImageSource::Staged(hash) => {
+            return Err(Error::NotFound(format!("the staged image {} on {}", hash.short(), device.name())));
+        }
+        ImageSource::Path(path) => Artwork::from_path(path)?,
+        ImageSource::Base64(text) => Artwork::from_bytes(
+            &BASE64_STANDARD.decode(text).map_err(|e| Error::Image(format!("the image isn't base64: {e}")))?,
+        )?,
+    };
+    let bytes = art.jpeg(MEDIUM_SIZE)?;
+    Ok((Hash::of(&bytes), Some(bytes)))
+}
+
+/// Keep only the staged images in `keep` (the ones the journal names, see [`stage`]).
+pub(crate) fn prune_staged(device: &Device, keep: &FxHashSet<Hash>) -> Result<()> {
+    let dir = device.state_dir().join(STAGED);
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(()) };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let named = name.strip_suffix(".jpg").and_then(|h| h.parse::<Hash>().ok());
+        if !named.is_some_and(|h| keep.contains(&h)) {
+            fsutil::remove_if_exists(&e.path())?;
+        }
+    }
+    Ok(())
+}
+
+/// Give `target` the staged images in `images` that `source` has and it lacks.
+pub(crate) fn copy_staged(source: &Device, target: &Device, images: &FxHashSet<Hash>) -> Result<()> {
+    for hash in images {
+        let (from, to) = (staged_path(source, hash), staged_path(target, hash));
+        if from.is_file() && !to.is_file() {
+            fsutil::copy_file(&from, &to, None, Some(*hash), true, &Ctx::silent())?;
+        }
+    }
+    Ok(())
+}
+
+/// The images, in each database, of the tracks of these audio files (device paths): what setting
+/// their artwork may replace in place, for the backup made first.
+pub(crate) fn image_files(device: &Device, files: &[String]) -> Result<Vec<String>> {
+    let wanted: FxHashSet<String> = files.iter().map(|f| paths::key(f).to_lowercase()).collect();
+    let mut libraries = vec![device.library()?];
+    libraries.extend(crate::clean::open_plus(device, device.has_device_library(), &mut Vec::new())?.map(|(l, _)| l));
+    let mut out = Vec::new();
+    for t in libraries.iter().flat_map(|l| &l.tracks) {
+        let Some(image) =
+            t.artwork_path.as_deref().filter(|_| wanted.contains(&paths::key(&t.file_path).to_lowercase()))
+        else {
+            continue;
+        };
+        let key = paths::key(image);
+        for k in [medium_variant(&key), key] {
+            if paths::is_safe_key(&k) && device.checked_path(&k).is_ok_and(|p| p.is_file()) {
+                out.push(k);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Make an artwork edit of a plan's on the tracks of these audio files (device paths), its image
+/// staged as `hash` (from `images`, else the drive's copy), under the backup and lock the plan
+/// took (see [`crate::edit::apply`]). The image is staged first, for the journal entry to name.
+/// Replaying (not `strict`), one that no longer applies is skipped with a warning, and tracks that
+/// are gone are left out; an error is a failure while writing.
+pub(crate) fn replay(
+    device: &mut Device,
+    files: &[String],
+    hash: &Hash,
+    images: &FxHashMap<Hash, Vec<u8>>,
+    strict: bool,
+    ctx: &Ctx<'_>,
+) -> Result<Replayed> {
+    let mut out = Replayed::default();
+    let described = format!("set the artwork of {} track(s)", files.len());
+    let library = device.library()?;
+    let by_key: FxHashMap<String, u32> =
+        library.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect();
+    let id = |f: &String| by_key.get(&paths::key(f).to_lowercase()).copied();
+    let ids: Vec<u32> = files.iter().filter_map(id).collect();
+    if let Some(example) = files.iter().find(|f| id(f).is_none()) {
+        out.tracks_gone(strict, files.len() - ids.len(), example, &described)?;
+    }
+    if ids.is_empty() {
+        return out.skipped(strict, &described, Error::NotFound("the tracks".into()));
+    }
+    let path = staged_path(device, hash);
+    let medium = match images.get(hash).cloned().map_or_else(|| std::fs::read(&path), Ok) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            let gone = Error::NotFound(format!("the staged image {} on {}", hash.short(), device.name()));
+            return out.skipped(strict, &described, gone);
+        }
+    };
+    let thumb = Artwork::from_bytes(&medium)?.jpeg(THUMB_SIZE)?;
+    let fresh = !path.is_file();
+    if fresh {
+        fsutil::write_atomic(&path, &medium)?;
+    }
+    let swaps = device.swaps();
+    let set = apply_batches(device, &[(ids, Sizes { thumb, medium })], None, &mut out.warnings, ctx);
+    // Failing before it changed the drive, it leaves no staged image either (best effort: the
+    // error that got here is what's reported).
+    if set.is_err() && fresh && device.swaps() == swaps {
+        let _ = fsutil::remove_if_exists(&path);
+        let _ = path.parent().map(std::fs::remove_dir);
+    }
+    let (report, databases) = set?;
+    out.databases = report.files_written.into_iter().chain(databases).collect();
+    out.fingerprint = report.fingerprint;
+    Ok(out)
+}
+
+/// An image as the JPEGs players show: an 80x80 thumbnail and a 240x240 one.
+struct Sizes {
+    thumb: Vec<u8>,
+    medium: Vec<u8>,
 }
 
 /// For each batch of track ids (sorted), the image key to overwrite in place when the tracks are
@@ -384,17 +523,20 @@ struct PlusBatches {
     in_place: Vec<Option<String>>,
 }
 
-fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ctx<'_>) -> Result<ArtworkReport> {
-    let _lock = commit::lock(device, None)?;
+/// Give each batch of tracks (ids from [`Device::library`]) its image, on a drive the caller
+/// locked, backed up first with `backup` (the reason). If a batch's tracks are exactly the users
+/// of one artwork row, its image files are replaced in place (no database change). Otherwise a
+/// new row is added and the tracks point at it, so tracks that merely shared the old art (the rest
+/// of an album, say) keep theirs. Both databases are updated when the drive has both (OneLibrary's
+/// tracks are matched by file path). Returns the databases written too.
+fn apply_batches(
+    device: &mut Device,
+    batches: &[(Vec<u32>, Sizes)],
+    backup: Option<&str>,
+    warnings: &mut Vec<String>,
+    ctx: &Ctx<'_>,
+) -> Result<(ArtworkReport, Vec<String>)> {
     let library = device.library()?;
-    for (ids, _) in batches {
-        if ids.is_empty() {
-            return Err(Error::invalid("no tracks selected"));
-        }
-        for id in ids {
-            library.track(*id).ok_or_else(|| Error::NotFound(format!("track #{id}")))?;
-        }
-    }
     let sorted: Vec<Vec<u32>> = batches
         .iter()
         .map(|(ids, _)| {
@@ -405,8 +547,7 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
         })
         .collect();
     let has_pdb = device.has_device_library();
-    let mut warnings = Vec::new();
-    let mut plus = crate::clean::open_plus(device, has_pdb, &mut warnings)?;
+    let mut plus = crate::clean::open_plus(device, has_pdb, warnings)?;
 
     // The same batches in OneLibrary's ids. `library` is export.pdb's when the drive has one.
     let mut plus_plan: Option<PlusBatches> = None;
@@ -445,9 +586,6 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
         let in_place = plan_in_place(plus_lib, &shared, &batches_plus);
         plus_plan = Some(PlusBatches { ids: batches_plus, in_place });
     }
-    for w in warnings {
-        ctx.warn(w);
-    }
     let pdb_in_place = if has_pdb { plan_in_place(&library, &FxHashSet::default(), &sorted) } else { Vec::new() };
 
     let mut report = ArtworkReport {
@@ -473,10 +611,8 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
     let mut pdb_bytes = None;
     let mut editor = if has_pdb { Some(PdbEditor::from_bytes(device.pdb_bytes()?)) } else { None };
     let mut pdb_changed = false;
-    for (i, (_, art)) in batches.iter().enumerate() {
+    for (i, (_, Sizes { thumb, medium })) in batches.iter().enumerate() {
         ctx.check()?;
-        let thumb = art.jpeg(THUMB_SIZE)?;
-        let medium = art.jpeg(MEDIUM_SIZE)?;
         if let Some(editor) = &mut editor {
             let key = match &pdb_in_place[i] {
                 Some(k) => k.clone(),
@@ -494,7 +630,7 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
                     })?
                 }
             };
-            stage_images(&key, &thumb, &medium)?;
+            stage_images(&key, thumb, medium)?;
         }
         if let (Some((_, one)), Some(p)) = (&mut plus, &plus_plan) {
             if p.ids[i].is_empty() {
@@ -510,7 +646,7 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
                     key
                 }
             };
-            stage_images(&key, &thumb, &medium)?;
+            stage_images(&key, thumb, medium)?;
         }
     }
     if let Some(mut editor) = editor.filter(|_| pdb_changed) {
@@ -545,12 +681,13 @@ fn apply_batches(device: &mut Device, batches: &[(Vec<u32>, &Artwork)], ctx: &Ct
         deletes: Vec::new(),
         remove_first: Vec::new(),
     };
-    let opts = Options::new(LineageOp::Artwork, "set artwork").backup("before setting artwork");
+    let mut opts = Options::new(LineageOp::Artwork, "set artwork");
+    opts.backup = backup.map(str::to_string);
     let done = commit::commit(device, changes, opts, ctx)?;
     report.backup = done.backup;
     report.fingerprint = done.fingerprint;
     report.files_written = done.written;
-    Ok(report)
+    Ok((report, done.databases))
 }
 
 /// Tracks whose artwork is missing (no row, or the image file is gone).
@@ -568,16 +705,15 @@ pub fn missing(device: &Device, library: &Library) -> Vec<TrackRef> {
 
 /// Read a track's artwork from a drive (medium size if present), e.g. for a UI preview.
 pub fn read_from_drive(device: &Device, library: &Library, track_id: u32) -> Result<Option<Vec<u8>>> {
-    let t = library.track(track_id).ok_or_else(|| Error::NotFound(format!("track #{track_id}")))?;
-    let Some(p) = &t.artwork_path else { return Ok(None) };
-    let key = paths::key(p);
-    for k in [medium_variant(&key), key] {
-        let Ok(f) = device.checked_path(&k) else { continue };
-        if f.is_file() {
-            return std::fs::read(&f).at(&f).map(Some);
-        }
-    }
-    Ok(None)
+    let t = library.track(track_id).ok_or_else(|| Error::no_track(track_id))?;
+    file_on_drive(device, t).map(|f| std::fs::read(&f).at(&f)).transpose()
+}
+
+/// A track's artwork file on a drive: the medium size players show when there is one, else the
+/// thumbnail.
+pub fn file_on_drive(device: &Device, t: &Track) -> Option<PathBuf> {
+    let key = paths::key(t.artwork_path.as_ref()?);
+    [medium_variant(&key), key].iter().filter_map(|k| device.checked_path(k).ok()).find(|f| f.is_file())
 }
 
 const FOLDER_IMAGES: &[&str] = &["cover", "folder", "front", "album", "artwork"];
@@ -645,16 +781,13 @@ pub fn apply_auto(device: &mut Device, plan: &AutoArtworkPlan, ctx: &Ctx<'_>) ->
             groups.entry(Hash::of(&bytes)).or_insert_with(|| (Vec::new(), bytes)).0.push(t.id);
         }
     }
-    let decoded: Vec<(Vec<u32>, Artwork)> = groups
-        .into_values()
-        .filter_map(|(ids, bytes)| match Artwork::from_bytes(&bytes) {
-            Ok(a) => Some((ids, a)),
-            Err(e) => {
-                ctx.warn(format!("skipping undecodable artwork for {} track(s): {e}", ids.len()));
-                None
-            }
-        })
-        .collect();
+    let mut decoded: Vec<(Vec<u32>, Sizes)> = Vec::new();
+    for (ids, bytes) in groups.into_values() {
+        match Artwork::from_bytes(&bytes) {
+            Ok(a) => decoded.push((ids, Sizes { thumb: a.jpeg(THUMB_SIZE)?, medium: a.jpeg(MEDIUM_SIZE)? })),
+            Err(e) => ctx.warn(format!("skipping undecodable artwork for {} track(s): {e}", ids.len())),
+        }
+    }
     // Nothing to set (no art found, or none of it decodes): the drive isn't written, not even a
     // backup.
     if decoded.is_empty() {
@@ -666,8 +799,13 @@ pub fn apply_auto(device: &mut Device, plan: &AutoArtworkPlan, ctx: &Ctx<'_>) ->
             fingerprint: None,
         });
     }
-    let batches: Vec<(Vec<u32>, &Artwork)> = decoded.iter().map(|(ids, a)| (ids.clone(), a)).collect();
-    apply_batches(device, &batches, ctx)
+    let _lock = commit::lock(device, None)?;
+    let mut warnings = Vec::new();
+    let (report, _) = apply_batches(device, &decoded, Some("before setting artwork"), &mut warnings, ctx)?;
+    for w in warnings {
+        ctx.warn(w);
+    }
+    Ok(report)
 }
 
 /// Encode any supported image as PNG (handy for UIs that want a lossless preview).

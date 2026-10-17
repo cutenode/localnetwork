@@ -42,7 +42,7 @@ fn a_profile_record_reads_as_a_line_per_section() {
             "Signature tracks: Floorplan - Never Grow Old; Untitled",
             "Prep: hot cues 90%, memory cues 50%, loops 10%",
             "Collection: 1200 tracks, ? playlists",
-            "Player style: made_up x, Quantize Off",
+            "Player style: Quantize Off, made_up x",
         ]
     );
     assert!(profile_lines(&json!({})).is_empty());

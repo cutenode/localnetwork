@@ -130,8 +130,7 @@ fn art_for_tracks_onelibrary_lacks_is_said(tc: TestCase) {
     ids.push(late);
     let warnings = common::Warnings::default();
     let mut d = Device::open_export(&root).unwrap();
-    let art = Artwork::from_bytes(&media::png(30, 30, 7)).unwrap();
-    artwork::set_on_drive(&mut d, &ids, &art, &warnings.ctx()).unwrap();
+    media::set_artwork(&mut d, &ids, &media::png(30, 30, 7), &warnings.ctx()).unwrap();
     assert!(warnings.said().iter().any(|w| w.contains("aren't in exportLibrary.db")), "{:?}", warnings.said());
     assert!(d.library().unwrap().track(late).unwrap().artwork_path.is_some());
 }

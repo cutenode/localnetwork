@@ -27,6 +27,24 @@ listening to your library the way the players see it:
   `fsp` finds "fill the smart playlists") and enter. It also has the commands with no key of their
   own: pull, check, set prep, sync, pack, restore, replay, export, xml, smart, smart apply, smart
   new and eject.
+- **Plugins' commands and operations** are in the palette by title, with the plugin's name beside
+  them, and at the end of a drive's `e` menu in the Drives view; operations, which change the
+  drive, end the actions menu (`e`) too. One that takes params asks for them in a form first
+  (`↑↓` or `tab` between fields, `←→` or `space` to pick a choice, `enter` to run; lists take
+  commas), a list of tracks starting with the marked or selected ones. It runs on the drive open,
+  with the marked or selected tracks and the playlist selected, in the background (`esc` stops
+  it). What a command answers shows in a panel, or as a message when it's a line; an operation's
+  plan, with what the plugin says about it first, is confirmed and written like any edit, and `u`
+  takes it back. An operation, or a command of a plugin that reads the drive, needs one plugged
+  in, not a folder opened by path. What plugins log goes to the messages (`!`). See
+  [Plugins](plugins.md).
+- **Analyzers**: "analyze the tracks: …" in the palette (or a drive's `e` menu) runs a plugin's
+  analyzer over the drive's tracks in the background, those not analysed already. "show the
+  sound.bpm column" adds a column of what it worked out (remembered for the next run), sorted by
+  a click on its header like any column, and the search box filters by it: `sound.bpm:>120`.
+- **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
+  the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
+  to its default.
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
 - **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you
@@ -126,7 +144,10 @@ listening to your library the way the players see it:
   signs in (type your handle, approve in the browser), and signed in, `L` twice signs out.
 - **Export**: in the palette, "export" writes the playlist, set, session or all tracks shown as
   M3U8, CSV or text, and "xml" writes rekordbox XML of the drive (just the marked playlists when
-  some are), asking where first.
+  some are), asking where first. A plugin's format ("export for traktor…", in a drive's `e` menu
+  too) asks where and for the format's options in a form, then shows what it would write (each
+  file, what goes in, what the format can't hold) and writes it on `y`, asking first when that
+  overwrites files there already; it takes the marked playlists too.
 - **Mixes** (`5`): a recorded set and the tracks it plays, like [`locallibrary mix`](sets.md#mixes)
   against the drive open in the library. Pick one of the drive's recordings (XDJ-AZ and OPUS-QUAD
   MASTER REC files), or `O` to type the path of a recording or a folder of them on this computer. A
@@ -174,7 +195,7 @@ output, `o` goes to a track, `w` writes a file, `e` opens the Library and Drives
 | `l` | loop here / exit the loop (`(` `)`: halve / double it) |
 | `+` `-` | volume (`=` `_` too) |
 | `d` | the output to play through |
-| `:` | commands: every action by name, and those with no key |
+| `:` | commands: every action by name, those with no key, and plugins' commands |
 | `s` `r` | shuffle / repeat (off, all, one) |
 | `S` | autoplay off (single play: stop after each track) / on |
 | `A` | auto cue: start tracks at their first memory cue or beat |

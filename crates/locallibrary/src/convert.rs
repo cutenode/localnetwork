@@ -246,12 +246,30 @@ impl Additions {
     }
 }
 
+/// The bit set in the ids [`combined_library`] gives tracks only OneLibrary has.
+pub use loclib_model::model::ONELIBRARY_ONLY;
+
+/// Whether `id` is one [`combined_library`] gave a track only OneLibrary has.
+pub fn is_onelibrary_only(id: u32) -> bool {
+    id & ONELIBRARY_ONLY != 0
+}
+
 /// The drive's library with what only OneLibrary has added when it has `export.pdb` too (whose
 /// library players see): its tracks, playlists, their missing entries and history lists, as
 /// converting into `export.pdb` would add them. For readers that show the whole library, such as
-/// exports for other software.
+/// exports for other software. OneLibrary's own tracks keep their OneLibrary id with
+/// [`ONELIBRARY_ONLY`] set.
 pub fn combined_library(device: &Device) -> Result<Library> {
     combined(&Databases::read(device)?)
+}
+
+/// [`combined_library`] for files other software reads (rekordbox XML, playlist files; the
+/// interop plugin numbers its read the same way): OneLibrary's own tracks numbered on from `export.pdb`'s
+/// ([`Library::number_for_files`]), so no file carries an id with [`ONELIBRARY_ONLY`] set.
+pub fn export_library(device: &Device) -> Result<Library> {
+    let mut library = combined_library(device)?;
+    library.number_for_files();
+    Ok(library)
 }
 
 /// [`combined_library`] of a drive's or a snapshot's databases.
@@ -261,11 +279,16 @@ pub(crate) fn combined(dbs: &Databases) -> Result<Library> {
     let target = library.clone();
     let additions = Additions::of(plus, &target);
     let mut ids = additions.matches.clone();
-    let mut next = target.tracks.iter().map(|t| t.id).max().unwrap_or(0);
+    let mut taken: FxHashSet<u32> = target.tracks.iter().map(|t| t.id).collect();
     for t in plus.tracks.iter().filter(|t| additions.new_tracks.contains(&t.id)) {
-        next += 1;
-        library.tracks.push(Track { id: next, ..t.clone() });
-        ids.insert(t.id, next);
+        // The same id each time the drive is read; the next free one in the range should an
+        // id OneLibrary counted past 2^31 meet another.
+        let mut id = t.id | ONELIBRARY_ONLY;
+        while !taken.insert(id) {
+            id = id.wrapping_add(1) | ONELIBRARY_ONLY;
+        }
+        library.tracks.push(Track { id, ..t.clone() });
+        ids.insert(t.id, id);
     }
     additions.write(&mut library, plus, &target, &ids)?;
     Ok(library)

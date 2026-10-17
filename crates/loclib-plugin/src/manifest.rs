@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 use std::fmt;
+use std::path::Path;
 use std::str::FromStr;
 
 use indexmap::IndexMap;
@@ -12,7 +13,7 @@ use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::PROTOCOL_VERSION;
+use crate::{PROTOCOL_VERSION, RpcError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -56,7 +57,7 @@ pub struct Command {
     /// A JSON Schema for its params (an object).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
-    /// A top-level CLI command (`locallibrary import`). First-party plugins only.
+    /// Its own place on the command line (see [`Operation::cli`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli: Option<String>,
 }
@@ -83,6 +84,51 @@ pub struct Operation {
     /// A JSON Schema for its params (an object).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
+    /// Its own place on the command line, rather than `locallibrary <plugin> <name>`: a
+    /// top-level command (`import`), or one in a group of the host's (`playlist import`).
+    /// First-party plugins only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli: Option<String>,
+}
+
+/// What a param's (or option's) JSON Schema says about giving it on the command line, under its
+/// `x-cli` keyword: `{ flag = "from", one_based = true }`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CliHints {
+    /// Its flag, rather than the one its name makes (`--min-bpm` for `min_bpm`): a name.
+    pub flag: Option<String>,
+    /// An object whose keys are positions (`--choose 1=42`), counted from 1 on the command line
+    /// and from 0 in the params.
+    pub one_based: bool,
+    /// Given without a flag, after the drive (`playlist import DRIVE FILE`): a string, and one
+    /// param at most.
+    pub positional: bool,
+}
+
+impl CliHints {
+    /// `property`'s hints (none, without `x-cli`).
+    pub fn of(property: &Value) -> Result<CliHints, String> {
+        let Some(hints) = property.get("x-cli") else { return Ok(CliHints::default()) };
+        let hints = CliHints::deserialize(hints).map_err(|e| e.to_string())?;
+        if let Some(flag) = hints.flag.as_deref().filter(|f| !is_name(f)) {
+            return Err(format!("its flag {flag:?} isn't a name: {NAME_RULE}"));
+        }
+        if hints.positional && property["type"] != "string" {
+            return Err("only a string is positional".into());
+        }
+        if hints.one_based && property["type"] != "object" {
+            return Err("only an object's keys are one_based".into());
+        }
+        Ok(hints)
+    }
+}
+
+/// Whether `property` (a param's or option's JSON Schema) is a file or folder on the computer
+/// (`x-path = true`), which must be given as an absolute path: a plugin runs in a folder of its
+/// own, and hosts in others.
+pub fn is_path(property: &Value) -> bool {
+    property.get("x-path") == Some(&Value::Bool(true))
 }
 
 /// Run with `track/analyze`; its fields become columns.
@@ -109,16 +155,29 @@ pub enum FieldType {
 }
 
 impl FieldType {
-    /// Whether `value` is one of these.
-    pub fn accepts(self, value: &Value) -> bool {
-        match self {
-            FieldType::Number => value.is_number(),
-            FieldType::Integer => value.is_i64() || value.is_u64(),
-            FieldType::String => value.is_string(),
-            FieldType::Boolean => value.is_boolean(),
-            FieldType::Strings => value.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
-        }
+    /// Whether `value` is one of these (an integer is a number too).
+    pub fn accepts(self, value: &FieldValue) -> bool {
+        matches!(
+            (self, value),
+            (FieldType::Number, FieldValue::Number(_) | FieldValue::Integer(_))
+                | (FieldType::Integer, FieldValue::Integer(_))
+                | (FieldType::String, FieldValue::String(_))
+                | (FieldType::Boolean, FieldValue::Boolean(_))
+                | (FieldType::Strings, FieldValue::Strings(_))
+        )
     }
+}
+
+/// A field's value, as an analyzer answers it and the host keeps it: of the type the manifest
+/// declares (numbers are finite, as JSON's are).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum FieldValue {
+    Integer(i64),
+    Number(f64),
+    Boolean(bool),
+    String(String),
+    Strings(Vec<String>),
 }
 
 /// Run with `export/write`.
@@ -168,13 +227,15 @@ pub enum SettingType {
     Secret,
 }
 
-impl SettingType {
-    fn accepts(self, value: &Value, choices: &[String]) -> bool {
-        match self {
+impl Setting {
+    /// Whether `value` can be this setting's: of its type (for an enum, one of its choices). A
+    /// secret takes none here: it's kept in the keychain.
+    pub fn accepts(&self, value: &Value) -> bool {
+        match self.kind {
             SettingType::String | SettingType::File | SettingType::Directory => value.is_string(),
             SettingType::Number => value.is_number(),
             SettingType::Boolean => value.is_boolean(),
-            SettingType::Enum => value.as_str().is_some_and(|v| choices.iter().any(|c| c == v)),
+            SettingType::Enum => value.as_str().is_some_and(|v| self.choices.iter().any(|c| c == v)),
             SettingType::Secret => false,
         }
     }
@@ -347,14 +408,89 @@ fn unique_names<'a>(
     Ok(())
 }
 
-/// `schema` (at `at`), when there is one, a valid JSON Schema for an object.
+/// `schema` (at `at`), when there is one, a valid JSON Schema for an object, whose properties'
+/// [`CliHints`] can be read.
 fn object_schema(at: String, schema: Option<&Value>) -> Result<(), ManifestError> {
     let Some(schema) = schema else { return Ok(()) };
     if schema.get("type") != Some(&Value::from("object")) {
         return Err(invalid(at, "must be a JSON Schema for an object (type = \"object\")"));
     }
-    jsonschema::validator_for(schema).map_err(|e| invalid(at, format!("isn't a valid JSON Schema: {e}")))?;
+    jsonschema::validator_for(schema).map_err(|e| invalid(&at, format!("isn't a valid JSON Schema: {e}")))?;
+    let mut positional = None;
+    for (name, property) in schema["properties"].as_object().into_iter().flatten() {
+        let at = format!("{at}.properties.{name}");
+        if !is_param_name(name) {
+            return Err(invalid(at, format!("{name:?} isn't a param's name: {PARAM_RULE}")));
+        }
+        let hints = CliHints::of(property).map_err(|e| invalid(format!("{at}.x-cli"), e))?;
+        if hints.positional
+            && let Some(other) = positional.replace(name)
+        {
+            return Err(invalid(format!("{at}.x-cli"), format!("{other:?} is positional already")));
+        }
+        let paths = property["type"] == "string" || property["items"]["type"] == "string";
+        match property.get("x-path") {
+            None => {}
+            Some(Value::Bool(_)) if paths => {}
+            Some(_) => return Err(invalid(format!("{at}.x-path"), "is true or false, on a string or a list of them")),
+        }
+    }
     Ok(())
+}
+
+/// What [`is_param_name`] takes.
+const PARAM_RULE: &str = "lowercase letters, digits and _, starting with a letter";
+
+/// A params or options property's name: one a host can make a flag of.
+fn is_param_name(s: &str) -> bool {
+    s.len() <= 64
+        && s.starts_with(|c: char| c.is_ascii_lowercase())
+        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// A place on the command line: one or two names (`import`, `playlist import`).
+fn is_cli_path(s: &str) -> bool {
+    let words: Vec<&str> = s.split(' ').collect();
+    words.len() <= 2 && words.iter().all(|w| is_name(w))
+}
+
+/// Whether `params` fit `schema`, a contribution's `params` or `options` (without one, any object
+/// does), files and folders (see [`is_path`]) as absolute paths: `invalid_params` says where they
+/// don't (`fields.path`, a JSON pointer like `/name`).
+pub fn check_params(schema: Option<&Value>, params: &Value) -> Result<(), RpcError> {
+    let Some(schema) = schema else {
+        return match params.is_object() {
+            true => Ok(()),
+            false => Err(RpcError::invalid_params("expected an object")),
+        };
+    };
+    let validator = jsonschema::validator_for(schema).map_err(|e| RpcError::internal(e.to_string()))?;
+    if let Err(e) = validator.validate(params) {
+        let path = e.instance_path().to_string();
+        return Err(match path.is_empty() {
+            true => RpcError::invalid_params(e.to_string()),
+            false => invalid_at(&path, &e.to_string()),
+        });
+    }
+    for (name, _) in schema["properties"].as_object().into_iter().flatten().filter(|(_, p)| is_path(p)) {
+        let given: Vec<&str> = match &params[name] {
+            Value::Array(list) => list.iter().filter_map(Value::as_str).collect(),
+            one => one.as_str().into_iter().collect(),
+        };
+        if let Some(relative) = given.into_iter().find(|p| !Path::new(p).is_absolute()) {
+            return Err(invalid_at(&format!("/{name}"), &format!("{relative:?} isn't an absolute path")));
+        }
+    }
+    Ok(())
+}
+
+/// `invalid_params` about the param at `path` (a JSON pointer).
+fn invalid_at(path: &str, message: &str) -> RpcError {
+    let mut error = RpcError::invalid_params(format!("{path}: {message}"));
+    if let Some(data) = error.data.as_mut() {
+        data.fields.insert("path".into(), path.into());
+    }
+    error
 }
 
 /// `text` (at `at`) isn't blank.
@@ -377,8 +513,8 @@ impl Manifest {
     }
 
     /// Checks what parsing doesn't: names, titles, versions, capabilities, schemas and settings.
-    /// `first_party`: the host ships this plugin itself, so its commands may be top-level CLI
-    /// commands (`cli`).
+    /// `first_party`: the host ships this plugin itself, so its commands and operations may have
+    /// places of their own on the command line (`cli`).
     pub fn validate(&self, first_party: bool) -> Result<(), ManifestError> {
         if !is_name(&self.id) {
             return Err(invalid("id", format!("{:?} isn't a name: {NAME_RULE}", self.id)));
@@ -394,15 +530,26 @@ impl Manifest {
             return Err(invalid(format!("capabilities[{i}]"), format!("{c} is there twice")));
         }
         let c = &self.contributes;
+        let commands = c.commands.iter().enumerate().map(|(i, x)| ("contributes.commands", i, x.cli.as_deref()));
+        let operations = c.operations.iter().enumerate().map(|(i, x)| ("contributes.operations", i, x.cli.as_deref()));
+        let mut places = FxHashSet::default();
+        for (at, i, cli) in commands.chain(operations).filter_map(|(at, i, cli)| Some((at, i, cli?))) {
+            let at = format!("{at}[{i}].cli");
+            if !first_party {
+                return Err(invalid(at, "only plugins locallibrary ships add CLI commands"));
+            }
+            if !is_cli_path(cli) {
+                return Err(invalid(
+                    at,
+                    format!("{cli:?} isn't one or two names ({NAME_RULE}), like \"playlist import\""),
+                ));
+            }
+            if !places.insert(cli) {
+                return Err(invalid(at, format!("{cli:?} is used twice")));
+            }
+        }
         let at = "contributes.commands";
         unique_names(at, "name", c.commands.iter().map(|x| x.name.as_str()).enumerate())?;
-        let cli = c.commands.iter().enumerate().filter_map(|(i, x)| Some((i, x.cli.as_deref()?)));
-        if let Some((i, _)) = cli.clone().next()
-            && !first_party
-        {
-            return Err(invalid(format!("{at}[{i}].cli"), "only plugins locallibrary ships add CLI commands"));
-        }
-        unique_names(at, "cli", cli)?;
         for (i, x) in c.commands.iter().enumerate() {
             shown(format!("{at}[{i}].title"), &x.title)?;
             object_schema(format!("{at}[{i}].params"), x.params.as_ref())?;
@@ -456,7 +603,7 @@ impl Manifest {
             if let Some(choice) = x.choices.iter().find(|c| !choices.insert(*c)) {
                 return Err(invalid(format!("{at}[{i}].choices"), format!("{choice:?} is there twice")));
             }
-            if x.default.as_ref().is_some_and(|d| !x.kind.accepts(d, &x.choices)) {
+            if x.default.as_ref().is_some_and(|d| !x.accepts(d)) {
                 return Err(invalid(
                     format!("{at}[{i}].default"),
                     "doesn't fit the setting's type (and a secret has none)",

@@ -74,23 +74,20 @@ fn art_on_a_onelibrary_only_drive_shows_on_exactly_those_tracks(tc: TestCase) {
     let mut d = Device::open_export(&root).unwrap();
     let lib = d.library().unwrap();
     let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
-    let art = Artwork::from_bytes(&media::png(24, 24, 9)).unwrap();
+    let art = media::png(24, 24, 9);
 
     let before = common::drive_files(&root);
-    assert!(matches!(artwork::set_on_drive(&mut d, &[], &art, &Ctx::silent()), Err(Error::Invalid(_))));
+    assert!(matches!(media::set_artwork(&mut d, &[], &art, &Ctx::silent()), Err(Error::Invalid(_))));
     let stranger = ids.iter().max().unwrap() + 1;
-    assert!(matches!(
-        artwork::set_on_drive(&mut d, &[ids[0], stranger], &art, &Ctx::silent()),
-        Err(Error::NotFound(_))
-    ));
+    assert!(matches!(media::set_artwork(&mut d, &[ids[0], stranger], &art, &Ctx::silent()), Err(Error::NotFound(_))));
     assert!(common::changed_files(&before, &common::drive_files(&root)).is_empty());
 
     let mut chosen: Vec<u32> = drawn::some(&tc, &ids);
     if chosen.is_empty() {
         chosen.push(ids[0]);
     }
-    let r = artwork::set_on_drive(&mut d, &chosen, &art, &Ctx::silent()).unwrap();
-    assert_eq!(r.tracks_updated, chosen.len());
+    let r = media::set_artwork(&mut d, &chosen, &art, &Ctx::silent()).unwrap();
+    assert_eq!(r.changes, 1);
     let after = d.library().unwrap();
     for id in &ids {
         let shown = artwork::read_from_drive(&d, &after, *id).unwrap();

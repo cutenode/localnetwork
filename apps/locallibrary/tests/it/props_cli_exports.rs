@@ -1,5 +1,6 @@
 //! Property tests of what's written out of a library: `export` (playlists, folders and history
-//! lists as M3U8, CSV or text, and libraries for Traktor, Serato and Engine DJ), rekordbox's own
+//! lists as M3U8, CSV or text, and libraries for Traktor, Serato and Engine DJ, the interop
+//! plugin's), rekordbox's own
 //! collection (`collection`: what's in it, what a drive lacks against it, exporting it), and
 //! `analysis bench`. Printed for people, each says what its `--json` does, and what it writes is
 //! what it said it would.
@@ -25,7 +26,7 @@ fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
 /// A playlist, folder, history list or whole library of drive A or Club, written in any list
 /// format, as one file or a file per playlist, with paths any way: each file the JSON reports is
 /// there with its tracks (one line each, as text), and printed, the run names each; and the
-/// options only other DJ software's formats take are refused.
+/// flags only plugins' formats take are refused.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn playlists_are_written_as_reported(tc: TestCase) {
     let fx = Env::from_template();
@@ -49,10 +50,10 @@ fn playlists_are_written_as_reported(tc: TestCase) {
         args.push("--split".into());
     }
     args.extend(["--paths".into(), tc.draw(gs::sampled_from(&["relative", "drive", "absolute"][..])).into()]);
-    let foreign =
-        tc.draw(gs::sampled_from(&[None, None, Some("--dry-run"), Some("--no-analysis"), Some("--write-tags")][..]));
+    let foreign: Option<&[&str]> =
+        tc.draw(gs::sampled_from(&[None, None, Some(&["--dry-run"][..]), Some(&["--option", "a=b"][..])][..]));
     if let Some(f) = foreign {
-        args.push(f.into());
+        args.extend(f.iter().map(|a| a.to_string()));
     }
     let json = tc.draw(gs::booleans());
     let mut all: Vec<&str> = if json { vec!["--json"] } else { vec![] };
@@ -112,27 +113,63 @@ fn playlists_are_written_as_reported(tc: TestCase) {
     assert_eq!(fx.run(&replace).code, 0);
 }
 
-/// Drive A or Club for Traktor, Serato or Engine DJ, whole or one playlist, with or without
-/// analysis and tags: the plan printed (as a dry run, which writes nothing) is the JSON's, every
-/// file it lists is written when it's applied, and copying audio for Serato's tags asks first.
+/// Every file below `dir` but locallibrary's own state, with its bytes.
+fn drive_files(dir: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut files: Vec<_> = files_under(dir)
+        .into_iter()
+        .filter(|f| !f.components().any(|c| c.as_os_str() == ".locallibrary"))
+        .map(|f| {
+            let bytes = std::fs::read(&f).unwrap();
+            (f, bytes)
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// Drive A (on OneLibrary too, or not; some of its audio taken away) or Club (no audio at all),
+/// whole or the playlist holding every track, for Traktor, Serato or Engine DJ through the
+/// interop plugin, with options drawn (some its format refuses): the plan printed, as a dry run
+/// writing nothing, is the JSON's; it counts every track, warns of those without audio, and
+/// carries no analysis when told not to. Applied, every file it lists is written at its size (a
+/// tagged copy at no more), the drive is only read, and again it asks before overwriting unless
+/// replacing.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn other_dj_software_gets_the_files_planned(tc: TestCase) {
     let fx = Env::from_template();
     let drive = tc.draw(gs::sampled_from(&["A", "Club"][..]));
+    let root = fx.volumes.join(drive);
+    let tracks = if drive == "A" { 2 } else { 12 };
+    let mut gone = 0;
+    if drive == "A" {
+        if tc.draw(gs::weighted_booleans(0.3)) {
+            fx.ok(&["--yes", "convert", "A", "--to", "onelibrary"]);
+        }
+        gone = tc.draw(gs::integers::<usize>().max_value(2));
+        for n in 1..=gone {
+            std::fs::remove_file(root.join(format!("Contents/Loopmasters/UnknownAlbum/Demo Track {n}.mp3"))).unwrap();
+        }
+    }
     let software = tc.draw(gs::sampled_from(&["traktor", "serato", "engine"][..]));
     let out = fx.home("for-dj");
+    let music = path(&fx.home("music")).to_string();
     let mut args: Vec<String> = vec!["export".into(), drive.into()];
     if tc.draw(gs::booleans()) {
         args.push(if drive == "A" { "Set" } else { "aab" }.into());
     }
     args.extend(["--format".into(), software.into(), "-o".into(), path(&out).into()]);
-    for (flag, p) in [("--no-analysis", 0.3), ("--write-tags", 0.3)] {
+    let mut options: Vec<String> = Vec::new();
+    for (option, p) in [("skip_analysis=true", 0.3), ("write_tags=true", 0.3), ("paths=drive", 0.2)] {
         if tc.draw(gs::weighted_booleans(p)) {
-            args.push(flag.into());
+            options.push(option.into());
         }
     }
-    if tc.draw(gs::weighted_booleans(0.3)) {
-        args.extend(["--location-root".into(), path(&fx.home("music")).into()]);
+    let elsewhere = tc.draw(gs::weighted_booleans(0.3));
+    if elsewhere {
+        options.push(format!("location_root={music}"));
+    }
+    for o in &options {
+        args.extend(["--option".into(), o.clone()]);
     }
     if tc.draw(gs::weighted_booleans(0.2)) {
         args.extend(["--history".into(), "HISTORY 001".into()]);
@@ -148,16 +185,9 @@ fn other_dj_software_gets_the_files_planned(tc: TestCase) {
     }
     let v: Value = serde_json::from_str(&planned.out).unwrap();
     let p = &v["plan"];
-    let name = match software {
-        "traktor" => "Traktor",
-        "serato" => "Serato",
-        _ => "Engine DJ",
-    };
-    let head = format!(
-        "Would write for {name}: {} tracks, {} playlists in {} folders, {} beat grids, {} cues",
-        p["tracks"], p["playlists"], p["folders"], p["beat_grids"], p["cues"]
-    );
-    assert!(printed.out.starts_with(&head), "{head:?}: {said}");
+    for line in p["summary"].as_array().unwrap() {
+        assert!(printed.out.contains(&format!("• {}\n", line.as_str().unwrap())), "{line}: {said}");
+    }
     let files = p["files"].as_array().unwrap();
     for f in files.iter().take(20) {
         assert!(printed.out.contains(f["path"].as_str().unwrap()), "{f}: {said}");
@@ -167,38 +197,41 @@ fn other_dj_software_gets_the_files_planned(tc: TestCase) {
         files.len() > 20,
         "{said}"
     );
-    for n in p["notes"].as_array().unwrap() {
+    for n in p["notes"].as_array().unwrap().iter().chain(p["warnings"].as_array().unwrap()) {
         assert!(printed.out.contains(n.as_str().unwrap()), "{n}: {said}");
     }
-    assert!(printed.out.contains("nothing was written"), "{said}");
-
-    let asks = args.contains(&"--write-tags");
-    if asks {
-        let r = fx.run(&args);
-        assert_eq!(r.code, 3, "without --yes: {}\n{}", r.out, r.err);
-        assert!(!out.exists() || files_under(&out).is_empty(), "{}", r.out);
+    // Every track, those without audio where the files say warned of, analysis left out as told.
+    let counts = &p["counts"];
+    assert_eq!(counts["tracks"], tracks, "{said}");
+    let missing = if elsewhere || drive == "Club" { tracks } else { gone };
+    let warned =
+        p["warnings"].as_array().unwrap().iter().filter_map(Value::as_str).find(|w| w.contains("have no audio"));
+    assert_eq!(warned.map(|w| w.starts_with(&format!("{missing} track(s)"))), (missing > 0).then_some(true), "{said}");
+    if options.iter().any(|o| o == "skip_analysis=true") {
+        assert_eq!((&counts["beat grids"], &counts["cues"]), (&Value::from(0), &Value::from(0)), "{said}");
     }
-    let json = tc.draw(gs::booleans());
-    let flags: &[&str] = if json { &["--yes", "--json"] } else { &["--yes"] };
-    let r = fx.run(&[flags, &args[..]].concat());
-    // Drive A's audio is only placeholder bytes, which take no tags: copies that would get cues
-    // can't be written.
-    let tagged = p["notes"].as_array().unwrap().iter().filter_map(|n| n.as_str()).find_map(|n| {
-        let (_, rest) = n.split_once("the crates list the copies; ")?;
-        rest.split_whitespace().next()?.parse::<usize>().ok()
-    });
-    let placeholder = asks && drive == "A" && tagged.is_some_and(|n| n > 0);
-    if placeholder {
-        assert!(r.code == 1 && (r.out.clone() + &r.err).contains("tags: "), "{}\n{}", r.out, r.err);
+    if p["noop"] == true {
         return;
     }
+
+    let before = drive_files(&root);
+    let json = tc.draw(gs::booleans());
+    let flags: &[&str] = if json { &["--json"] } else { &[] };
+    let r = fx.run(&[flags, &args[..]].concat());
     assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
     for f in files {
-        assert!(Path::new(f["path"].as_str().unwrap()).exists(), "{f} wasn't written: {}", r.out);
+        let len = std::fs::metadata(f["path"].as_str().unwrap()).unwrap_or_else(|e| panic!("{f}: {e}")).len();
+        let (tagged, bytes) =
+            (f["what"].as_str().unwrap().ends_with("with Serato's cue tag"), f["bytes"].as_u64().unwrap());
+        assert!(if tagged { len <= bytes } else { len == bytes }, "{f}: {len}");
     }
+    assert_eq!(drive_files(&root), before, "the drive is only read");
     if !json {
-        assert!(r.out.contains(&format!("for {name} to {}", out.display())), "{}", r.out);
+        assert!(r.out.contains(&format!("wrote {} file(s) to {}", files.len(), out.display())), "{}", r.out);
     }
+    // Again: asked before overwriting (JSON never prompts), unless replacing.
+    assert_eq!(fx.run(&[&["--json"], &args[..]].concat()).code, 3);
+    assert_eq!(fx.run(&[&args[..], &["--replace"]].concat()).code, 0);
 }
 
 /// rekordbox's collection (a `master.db` as plain SQLite with rekordbox 7's tables) of drawn

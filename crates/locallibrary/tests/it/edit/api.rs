@@ -42,35 +42,6 @@ fn edits_are_recorded_and_made_again_after_an_export() {
     assert!(playlist_names(&root).contains(&"Friday".to_string()));
 }
 
-/// A tracklist none of whose tracks are on the drive plans nothing, and can't be applied; a
-/// choice for an entry must name a track the drive has, and an entry the list has.
-#[test]
-fn a_tracklist_of_nothing_the_drive_has_or_a_bad_choice_is_refused() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = common::demo_drive(dir.path(), "Main");
-    let first = Device::open(&root).unwrap().library().unwrap().tracks[0].id;
-    let list = dir.path().join("list.txt");
-    std::fs::write(&list, "Nobody - Nothing\n").unwrap();
-    let import = |choices: &[(usize, u32)]| api::ImportRequest {
-        drive: path(&root),
-        file: list.clone(),
-        into: "Set".into(),
-        playlist: None,
-        append: false,
-        choices: choices.iter().copied().collect(),
-    };
-
-    let plan = api::import_plan(&import(&[]), &Ctx::silent()).unwrap();
-    assert!(plan.noop && plan.plan.plan.is_none());
-    assert_eq!(plan.summary, ["none of the list's tracks are on the drive"]);
-    assert!(matches!(api::import_apply(&import(&[]), &Ctx::silent()), Err(Error::NotFound(_))));
-    let err = api::import_plan(&import(&[(0, 999)]), &Ctx::silent()).expect_err("refused");
-    assert!(matches!(&err, Error::NotFound(m) if m == "track #999"), "{err}");
-    let err = api::import_plan(&import(&[(5, first)]), &Ctx::silent()).expect_err("refused");
-    assert!(err.to_string().contains("no entry 5"), "{err}");
-    assert!(!playlist_names(&root).contains(&"Set".to_string()), "nothing was made");
-}
-
 /// History lists are deleted only once the store holds them (or when forced); a name the drive
 /// doesn't have is refused.
 #[test]
