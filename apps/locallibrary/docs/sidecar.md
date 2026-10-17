@@ -43,9 +43,10 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 ```
 
 - **Trust.** Only a trusted parent process may spawn and drive the sidecar: it acts with your
-  rights. Requests name files and folders it reads and writes (`output` for exports, `interop.*` and
-  `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`, images and audio for
-  `art.*`, `file` for `firmware.*` and `import.*`, `db` for `collection.*`, any folder as a drive)
+  rights. Requests name files and folders it reads and writes (`output` for exports,
+  `plugins.export.*` and `mix.export`, `to` for `recordings.collect.*`, `path` for `store.copy`,
+  images and audio for `art.*`, `file` for `firmware.*`, a plugin's path params (`file` for the
+  tracklist plugin's `import`), `db` for `collection.*`, any folder as a drive)
   and servers it fetches from (`pds` for `settings.import_published.*`, `client_id` and `scopes` for
   `account.login.begin`). Never expose it on a socket or to another user, and never pass web content
   (a page's or a renderer's input) into its parameters. It refuses relative paths to write to, a
@@ -204,7 +205,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `keep_weekly`, `library`; says why each kept snapshot stays), `store.copy` (`path`, `mirror`,
   `verify`, `force`, `dry_run`), `store.copies`, `push.plan/apply`, `merge.plan/apply`,
   `clean.plan/apply`, `convert.plan/apply`, `settings.*`, `art.*` (`art.get` returns base64 JPEG
-  previews), `xml.export`, `interop.plan/apply` (other DJ software), `store.*`, `disks.list`,
+  previews), `xml.export`, `store.*`, `disks.list`,
   `format.plan/apply` (`format.apply` needs the plan's `identity`, so the disk the user confirmed is
   the one erased).
 - Editing: `edit.plan/apply` takes `{"drive": "Home", "edits": [...]}`, a list of edits tagged by
@@ -221,7 +222,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `album_artist` (with an album), `isrc` and `release_date` (`YYYY-MM-DD`). Tracks are chosen with selectors (`{"ids": [12]}`,
   `{"filter": "bpm:>=128"}`, `{"paths": ["/Contents/..."]}`, `playlist`, `album`, `query`,
   `history`; a track must fit every field given). Also `edits.list`, `edits.replay.plan/apply`,
-  `edits.clear`, `import.plan/apply`, `dedupe.plan/apply` (`by_sound` also finds the same
+  `edits.clear`, `dedupe.plan/apply` (`by_sound` also finds the same
   recording in another file or encoding), `relocate.plan/apply` (`{drive, folders}`, absolute
   paths: finds missing tracks' files, `ambiguous` lists those with several, `unfit` those whose
   only file isn't as long), `upgrade.plan/apply`
@@ -271,13 +272,19 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `null` or left out: back to its default) answer `{plugin, settings: {key: value}}`.
   `plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
   command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw.
+  A tracklist is imported as the tracklist plugin's `import` operation (`{file, into, playlist?,
+  append?, choices?}`, `file` absolute; `choices` maps an entry, counting from 0, to a track id),
+  and its `match` command answers what it finds in the list, entry by entry, changing nothing.
   `plugins.op.plan {plugin, operation, params, context}` (`context.drive` is required) answers an
   edit plan whose `operation` is `<plugin>.<operation>`, its summary first, applied by
   `plugins.op.apply {plan_id}`; it's stale once the drive changes, or a file on this computer
   the plugin worked it out from. `plugins.export.plan {plugin, exporter, drive, playlists?,
   history?, output, options}` (`output` absolute, never on a drive or in the store) answers
-  `{plugin, exporter, output, files, overwrites}`, destructive when it overwrites any, applied by
-  `plugins.export.apply {plan_id}` (`{files, warnings}`). Both applies also take the request,
+  `{plugin, exporter, output, files: [{path, what, bytes, exists}], counts, notes}` (`counts`:
+  labelled numbers of what goes in, in order; `notes`: what the format can't hold and what to
+  do with the files; the library's problems are the plan's `warnings`), destructive when a file
+  `exists` already, applied by `plugins.export.apply {plan_id}` (`{files: [{path, what, bytes}],
+  counts, notes, warnings}`). Both applies also take the request,
   planning and applying in one go. Plugins' plans are kept apart from the rest, so planning with
   plugins never pushes out a plan of locallibrary's own. `plugins.analyze {plugin, analyzer,
   drive, tracks?}` runs an analyzer on the drive's tracks (those it hasn't worked out already),

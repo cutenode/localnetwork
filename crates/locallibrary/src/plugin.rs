@@ -1,6 +1,6 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters
-//! and settings. The CLI, the TUI and the RPC sidecar all host them through [`Plugins`].
+//! and settings. The CLI and the RPC sidecar host them through [`Plugins`] (the TUI doesn't yet).
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -38,7 +38,7 @@ use crate::{Error, Result};
 pub use analyzers::Analyzed;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
-pub use exports::PluginExport;
+pub use exports::{ExportFile, PluginExport};
 
 use process::Slot;
 pub(crate) use process::THREAD_ELEVATED;

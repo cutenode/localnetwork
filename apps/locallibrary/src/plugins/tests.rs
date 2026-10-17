@@ -74,7 +74,7 @@ fn ids_and_places_that_clash_are_refused() {
     assert_eq!(refused(&[echo.clone(), echo.clone()]), "the echo plugin's id is the echo plugin already");
     let place = |p: &str| manifest("other", &operation("go", &format!("cli = \"{p}\"")));
     let taken = |p: &str| format!("the other plugin's command \"{p}\" is a locallibrary command already");
-    for p in ["status", "playlist import", "playlist ls"] {
+    for p in ["status", "playlist new", "playlist ls"] {
         assert_eq!(refused(&[place(p)]), taken(p));
     }
     for (p, group) in [("status go", "status"), ("nope go", "nope")] {
@@ -126,7 +126,7 @@ fn formats_that_clash_are_refused() {
         manifest(id, &toml)
     };
     assert_eq!(check(&[&exporter("a", "plain")]), [None]);
-    for format in ["csv", "m3u", "traktor"] {
+    for format in ["csv", "m3u", "txt"] {
         let e = refused(&[exporter("a", format)]);
         assert_eq!(e, format!("the a plugin's export format \"{format}\" is a locallibrary format already"));
     }

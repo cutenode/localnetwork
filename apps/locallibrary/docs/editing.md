@@ -135,7 +135,9 @@ column), rekordbox's playlist text export, rekordbox XML (`--from` picks one of 
 plain "Artist - Title" lists. Tracks are matched by file path, then ISRC, then artist, title and
 length (within 2 s), then artist and title alone, then fuzzily; entries that fit several
 tracks are listed instead of guessed (settle them with `--choose ENTRY=TRACK`). It works offline:
-export a streaming playlist to CSV first.
+export a streaming playlist to CSV first. The tracklist plugin does it (see [Plugins](plugins.md)):
+`locallibrary tracklist match Home spotify.csv` lists how each entry was found, and every candidate
+of an ambiguous one, without changing anything.
 
 ### Upgrading to lossless
 

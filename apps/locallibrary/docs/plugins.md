@@ -8,7 +8,19 @@ it reads the library through locallibrary, within what its capabilities allow, a
 hands locallibrary the edits it would make, which you're shown and asked about as any edit is,
 backed up and journaled.
 
-For now only plugins built into locallibrary run. There's no way to install another yet.
+For now only plugins built into locallibrary run. There's no way to install another yet. Those
+are:
+
+- **sound**: works out each track's tempo, key and loudness from its audio, as `doctor
+  --analyze` does (`locallibrary analyze`, then `sound.bpm`, `sound.key`... on the track).
+- **tracklist**: `locallibrary playlist import LIBRARY FILE --into PLAYLIST` makes a playlist
+  from a tracklist (see [Editing](editing.md)), and `locallibrary tracklist match LIBRARY FILE`
+  shows what it finds in the list without changing anything.
+- **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
+  --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
+- **coverart**: finds front covers for tracks without artwork on MusicBrainz and the Cover Art
+  Archive (`locallibrary coverart fetch LIBRARY`, `--replace` for tracks with artwork too). It's
+  the only one that goes online, and only when you run it.
 
 ## What you have
 
@@ -22,7 +34,7 @@ with each other are both left out.
 
 ## Where they show up
 
-- **Commands and operations** are `locallibrary ID NAME` (`locallibrary tracklist import`), or
+- **Commands and operations** are `locallibrary ID NAME` (`locallibrary coverart fetch`), or
   where the plugin puts them (`locallibrary playlist import`). Their params are flags (`--into
   Sets`, `--append`; `KEY=VALUE` pairs for a map, repeated), or JSON with `--params`.
   `locallibrary ID NAME --help` lists them. A command shows what it answers as a list or a table,
@@ -31,10 +43,12 @@ with each other are both left out.
   back.
 - **Analyzers** run with `locallibrary analyze [LIBRARY] [--plugin ID] [--analyzer NAME]`, which
   works out each track's values once (again only for a changed audio file) and keeps them in the
-  store. `locallibrary track LIBRARY --track ID` shows them under the track's details.
+  store. `locallibrary track LIBRARY --track ID` shows them under the track's details, each as
+  `ID.FIELD` (`sound.bpm`).
 - **Export formats** are `locallibrary export LIBRARY --format FORMAT -o PATH`, with the
-  plugin's options as `--option KEY=VALUE`. `--dry-run` lists what it would write, and
-  overwriting a file is asked about first unless `--replace`.
+  plugin's options as `--option KEY=VALUE`. `--dry-run` lists what it would write (each file,
+  what goes in, what the format can't hold), and overwriting a file is asked about first unless
+  `--replace`.
 - **Settings**: `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets
   one and `plugin settings ID KEY --reset` puts it back to its default. They're kept in the store
   (`plugins/ID/settings.json`).

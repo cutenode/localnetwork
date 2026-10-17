@@ -1554,7 +1554,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.6",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -3934,6 +3934,10 @@ dependencies = [
  "jsonschema",
  "libc",
  "locallibrary",
+ "locallibrary-plugin-coverart",
+ "locallibrary-plugin-interop",
+ "locallibrary-plugin-sound",
+ "locallibrary-plugin-tracklist",
  "loclib-mixid",
  "loclib-plugin",
  "loclib-progress",
@@ -3983,6 +3987,32 @@ dependencies = [
  "loclib-progress",
  "rusqlite",
  "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-sound"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-analysis",
+ "loclib-mixid",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-tracklist"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-tracklist",
  "serde",
  "serde_json",
  "tempfile",

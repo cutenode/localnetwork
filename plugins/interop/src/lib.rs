@@ -15,7 +15,7 @@ use loclib_interop::{Error, Export, Software, Source, engine, serato, traktor};
 use loclib_model::analysis::{Beat, Cue, TrackAnalysis};
 use loclib_model::paths::{self, PathStyle};
 use loclib_model::{Library, Track};
-use loclib_plugin::{Exported, Host, Manifest, Plugin, RpcError, WriteExport, code, params};
+use loclib_plugin::{Exported, ExportedFile, Host, Manifest, Plugin, RpcError, WriteExport, code, params};
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -34,8 +34,8 @@ pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'sta
 
 struct Interop;
 
-/// An exporter's options, as the RPC sidecar's `interop.plan` names them: each exporter takes
-/// those its schema lists.
+/// An exporter's options (`export --option`, `plugins.export.plan`'s `options`): each exporter
+/// takes those its schema lists.
 #[derive(Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Options {
@@ -154,12 +154,25 @@ impl Plugin for Interop {
         if !req.dry_run {
             write::write(&export, &output, &ctx)?;
         }
-        let files = export
-            .files
-            .iter()
-            .map(|f| f.path.strip_prefix(&output).map_or_else(|_| f.path.clone(), |rest| req.output.join(rest)))
-            .collect();
-        Ok(Exported { files, warnings: warnings(&export, &source) })
+        let files = export.files.iter().map(|f| ExportedFile {
+            path: f.path.strip_prefix(&output).map_or_else(|_| f.path.clone(), |rest| req.output.join(rest)),
+            what: f.what.clone(),
+            bytes: f.bytes,
+        });
+        // Copied audio is in the files, with its size.
+        let counts = [
+            ("tracks", export.tracks),
+            ("playlists", export.playlists),
+            ("folders", export.folders),
+            ("beat grids", export.beat_grids),
+            ("cues", export.cues),
+        ];
+        Ok(Exported {
+            files: files.collect(),
+            counts: counts.into_iter().map(|(label, n)| (label.to_string(), n as u64)).collect(),
+            notes: notes(&export),
+            warnings: export.warnings.iter().cloned().chain(missing_audio(&source)).collect(),
+        })
     }
 }
 
@@ -198,12 +211,11 @@ fn analyses(
     Ok(out)
 }
 
-/// What the format leaves out and what to do with the files (the formats' notes, naming the
-/// options that choose loclib-interop's), then problems with this library.
-fn warnings(export: &Export, source: &Source<'_>) -> Vec<String> {
-    let notes =
-        export.notes.iter().map(|n| n.replace("`PathStyle::Drive`", "paths = drive").replace("`Copies`", "write_tags"));
-    notes.chain(export.warnings.iter().cloned()).chain(missing_audio(source)).collect()
+/// What the format leaves out and what to do with the files: the formats' notes, naming the
+/// options that choose loclib-interop's.
+fn notes(export: &Export) -> Vec<String> {
+    let notes = export.notes.iter();
+    notes.map(|n| n.replace("`PathStyle::Drive`", "paths = drive").replace("`Copies`", "write_tags")).collect()
 }
 
 /// Tracks whose audio isn't where the files will say it is, as a warning.

@@ -175,11 +175,33 @@ pub struct ExportSource {
 /// What `export/write` answers.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Exported {
-    /// The files written (or, for a dry run, that would be), absolute.
-    pub files: Vec<PathBuf>,
-    /// What the format left out or changed.
+    /// The files written (or, for a dry run, that would be).
+    pub files: Vec<ExportedFile>,
+    /// What went in, as labelled numbers in the order to show them (`{"tracks": 12, "cues":
+    /// 40}`): the labels are the plugin's own words.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub counts: IndexMap<String, u64>,
+    /// What the format can't hold, and what to do with the files: the same for any library.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+    /// Problems with this library: missing audio, cues the format has no room for...
     #[serde(default)]
     pub warnings: Vec<String>,
+}
+
+/// A file an export writes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+// Named apart from locallibrary's list exports' `ExportedFile` in the sidecar's contract.
+#[schemars(rename = "PluginExportedFile")]
+pub struct ExportedFile {
+    /// Absolute, below the export's `output`.
+    pub path: PathBuf,
+    /// What it holds, in a few words (`Traktor collection`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub what: String,
+    /// Its size, as far as it's known before it's written.
+    #[serde(default)]
+    pub bytes: u64,
 }
 
 /// `op/plan`.

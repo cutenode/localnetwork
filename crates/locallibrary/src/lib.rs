@@ -34,8 +34,6 @@
 //! * [`xml`]: export a drive's library as rekordbox XML (to import it back into rekordbox).
 //! * [`masterdb`]: read rekordbox's own collection (`master.db`) on this computer, and compare a
 //!   drive with it.
-//! * [`interop`]: export a drive's library for other DJ software (the formats are written by
-//!   loclib-interop).
 //! * [`op`]: planned operations: what a change will do, confirmed and then applied exactly as
 //!   planned.
 //! * [`opener`]: hand an https address to the browser, or a file to the app that opens it.
@@ -88,7 +86,6 @@ pub mod fsutil;
 pub mod hash;
 pub mod import;
 mod incoming;
-pub mod interop;
 pub mod library_write;
 mod local_time;
 pub mod masterdb;
