@@ -45,4 +45,4 @@ CI runs a tool's checks only when its files (or the shared ones) change. Each wo
 - For UI changes, add before and after screenshots at phone and wide widths.
 - Pull requests merge with a merge commit. Squash and rebase merges are off.
 
-Labels for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`) are added automatically from the files a pull request changes, and [CODEOWNERS](CODEOWNERS) requests a review from whoever owns them.
+Labels are added automatically from the files a pull request changes ([labeler.yml](labeler.yml)): one for each tool (`web`, `locallibrary`, `localtoolbox`, `lexicons`), one for each area inside a tool (`web: epk`, `locallibrary: player`), and `tests`, `documentation`, `dependencies`, `github_actions` and `tooling`. [CODEOWNERS](CODEOWNERS) requests a review from whoever owns the tools it changes.

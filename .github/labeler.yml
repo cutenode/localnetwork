@@ -1,4 +1,4 @@
-# Which tool's label a pull request gets from the files it changes (see .github/workflows/pr-labels.yml).
+# Which labels a pull request gets from the files it changes (see .github/workflows/pr-labels.yml).
 web:
   - changed-files:
       - any-glob-to-any-file: ["apps/web/**", "packages/tokens/**"]
@@ -6,7 +6,7 @@ web:
 locallibrary:
   - changed-files:
       - any-glob-to-any-file:
-          ["apps/locallibrary/**", "crates/**", "vendor/**", "fuzz/**", "Cargo.toml", "Cargo.lock"]
+          ["apps/locallibrary/**", "crates/**", "plugins/**", "vendor/**", "fuzz/**", "Cargo.toml", "Cargo.lock"]
 
 localtoolbox:
   - changed-files:
@@ -15,3 +15,268 @@ localtoolbox:
 lexicons:
   - changed-files:
       - any-glob-to-any-file: ["lexicons/**"]
+
+# The area inside a tool. A file can be in more than one (a feature's command is also part of the
+# cli), and lexicons go with the feature that reads or writes them.
+
+"web: directory":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/+page.*"
+          - "apps/web/src/routes/projects/+page.*"
+          - "apps/web/src/routes/match/**"
+          - "apps/web/src/routes/api/places/**"
+          - "apps/web/src/lib/{matching,places,geo}.*"
+          - "apps/web/src/lib/taxonomy/**"
+          - "apps/web/src/lib/server/geocode.*"
+          - "apps/web/src/lib/server/happyview/directory.*"
+          - "apps/web/src/lib/components/{GenreInput,NearInput,PlacePicker,ScoreBar}.svelte"
+          - "apps/web/lua/**"
+          - "lexicons/computer/localnetwork/directory/**"
+
+"web: projects":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/projects/*/**"
+          - "apps/web/src/lib/{dj,dj-schema}.*"
+          - "apps/web/src/lib/server/services/{projects,dj,sets}.*"
+          - "apps/web/src/lib/server/project-page.*"
+          - "apps/web/src/lib/server/forms/{claim,project}.*"
+          - "apps/web/src/lib/components/{Project*,ClaimFields,DjSets,DjStats,LinkedSet}.svelte"
+          - "apps/web/src/lib/components/profile.svelte.test.ts"
+          - "lexicons/computer/localnetwork/project{.json,/**}"
+          - "lexicons/computer/localnetwork/dj/**"
+
+"web: mixes":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/mixes/**"
+          - "apps/web/src/routes/projects/*/mixes/**"
+          - "apps/web/src/lib/mix/**"
+          - "apps/web/src/lib/components/mix/**"
+          - "apps/web/src/lib/components/MixList.svelte"
+          - "apps/web/src/lib/server/services/tracklists.*"
+          - "apps/web/scripts/mix-fixture.ts"
+
+"web: epk":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/epk/**"
+          - "apps/web/src/routes/projects/*/epk/**"
+          - "apps/web/src/lib/{epk,epk-schema}.*"
+          - "apps/web/src/lib/components/epk/**"
+          - "apps/web/src/lib/server/{epk-page,services/epk,forms/epk}.*"
+          - "lexicons/computer/localnetwork/epk{.json,/**}"
+
+"web: bookings":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/bookings/**"
+          - "apps/web/src/lib/server/services/bookings.*"
+          - "apps/web/src/lib/components/BookingDetails.svelte"
+          - "lexicons/computer/localnetwork/booking/**"
+
+"web: planner":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/planner/**"
+          - "apps/web/src/lib/server/services/planner.*"
+          - "lexicons/computer/localnetwork/planner/**"
+
+"web: staff":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/admin/**"
+          - "apps/web/src/routes/me/requests/**"
+          - "apps/web/src/lib/server/services/{staff,project-admin,requests,diff}.*"
+          - "apps/web/src/lib/server/audit/**"
+          - "apps/web/src/lib/components/DiffTable.svelte"
+          - "lexicons/computer/localnetwork/{audit,moderation,staff}/**"
+
+"web: accounts":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/routes/{login,logout,oauth,me,oauth-client-metadata.json}/**"
+          - "apps/web/src/lib/server/auth/**"
+          - "apps/web/src/lib/server/atproto/oauth.*"
+          - "apps/web/src/lib/server/services/accounts.*"
+          - "lexicons/computer/localnetwork/permissions.json"
+
+"web: tools":
+  - changed-files:
+      - any-glob-to-any-file:
+          ["apps/web/src/routes/tools/**", "apps/web/src/lib/tools/**", "apps/web/src/lib/server/tools/**"]
+
+"web: server":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/hooks.server.ts"
+          - "apps/web/src/lib/server/{atproto,db,happyview,sync,testing}/**"
+          - "apps/web/src/lib/server/{app,bootstrap,compress,config,core,http,logger,rate-limit}.*"
+          - "apps/web/src/routes/{xrpc,.well-known,media,healthz}/**"
+          - "apps/web/lua/**"
+          - "apps/web/scripts/**"
+          - "apps/web/{Dockerfile,.env.example}"
+          - "lexicons/computer/localnetwork/space/**"
+
+"web: ui":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/web/src/lib/{ui,components,assets}/**"
+          - "apps/web/src/routes/{+layout.svelte,+error.svelte,layout.css}"
+          - "apps/web/src/routes/{about,for-djs,privacy}/**"
+          - "apps/web/src/{app.html,lib/format.ts,lib/format.test.ts,lib/hotkeys.svelte.ts}"
+          - "apps/web/{.storybook,static}/**"
+          - "packages/tokens/**"
+
+"locallibrary: cli":
+  - changed-files:
+      - all-globs-to-any-file: ["apps/locallibrary/{src,tests}/**", "!apps/locallibrary/src/{tui,rpc}{.rs,/**}"]
+      - any-glob-to-any-file: ["apps/locallibrary/{build.rs,docs/commands.md}"]
+
+"locallibrary: player":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/locallibrary/src/tui/**"
+          - "apps/locallibrary/docs/player.md"
+          - "apps/locallibrary/bombadil/**"
+          - "crates/loclib-waveform/**"
+
+"locallibrary: sidecar":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/locallibrary/src/rpc{.rs,/**}"
+          - "apps/locallibrary/docs/{sidecar.md,rpc/**}"
+          - "crates/locallibrary/src/api{.rs,/**}"
+
+"locallibrary: core":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/{locallibrary,loclib-model,loclib-progress,loclib-mysettings,loclib-equipment}/**"
+          - "vendor/**"
+          - "fuzz/**"
+
+"locallibrary: analysis":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/loclib-analysis/**"
+          - "plugins/{analysis,sound}/**"
+          - "crates/locallibrary/src/sound{.rs,/**}"
+          - "apps/locallibrary/src/analysis_cmd.rs"
+          - "apps/locallibrary/src/tui/analyzer{.rs,/**}"
+
+"locallibrary: mixes":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/loclib-mixid/**"
+          - "crates/locallibrary/src/mix/**"
+          - "apps/locallibrary/src/mix_cmd{.rs,/**}"
+          - "apps/locallibrary/src/tui/mix{.rs,/**}"
+
+"locallibrary: tracklists":
+  - changed-files:
+      - any-glob-to-any-file:
+          ["crates/loclib-tracklist/**", "plugins/tracklist/**", "fuzz/fuzz_targets/tracklist.rs"]
+
+"locallibrary: interop":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/loclib-interop/**"
+          - "plugins/interop/**"
+          - "crates/locallibrary/src/interop{.rs,/**}"
+          - "apps/locallibrary/docs/other-software.md"
+
+"locallibrary: transcode":
+  - changed-files:
+      - any-glob-to-any-file: ["crates/loclib-transcode/**"]
+
+"locallibrary: plugins":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/loclib-plugin/**"
+          - "plugins/**"
+          - "{apps,crates}/locallibrary/**/plugin{,s,_cmd}{.rs,.md,/**}"
+          - "crates/locallibrary/examples/test-plugin/**"
+
+"locallibrary: publishing":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/locallibrary/src/{atmosphere,publish,sets,profile}{.rs,/**}"
+          - "apps/locallibrary/src/{account_cmd,publish_cmd,sets_cmd,profile_cmd}{.rs,/**}"
+          - "apps/locallibrary/src/tui/{account,account_off,profile}{.rs,/**}"
+          - "apps/locallibrary/docs/{account,sets}.md"
+          - "lexicons/computer/localnetwork/{dj,locallibrary}/**"
+          - "lexicons/computer/localnetwork/locallibraryPublishing.json"
+
+"localtoolbox: core":
+  - changed-files:
+      - all-globs-to-any-file: ["apps/localtoolbox/src/**", "!apps/localtoolbox/src/tools/**"]
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/state-transfer.ts"
+          - "apps/localtoolbox/{docs,scripts,icons,test/lib}/**"
+
+"localtoolbox: content script":
+  - changed-files:
+      - any-glob-to-any-file: ["apps/localtoolbox/content.{ts,css}", "apps/localtoolbox/test/content/**"]
+
+"localtoolbox: playlist to text":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/src/tools/soundcloud-playlist-to-text/**"
+          - "apps/localtoolbox/test/**/playlist-to-text.*"
+
+"localtoolbox: manager":
+  - changed-files:
+      - any-glob-to-any-file: ["apps/localtoolbox/src/tools/manager/**", "apps/localtoolbox/test/**/manager.*"]
+
+"localtoolbox: artists":
+  - changed-files:
+      - any-glob-to-any-file: ["apps/localtoolbox/src/tools/artists/**", "apps/localtoolbox/test/**/artists.*"]
+
+"localtoolbox: downloads":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "apps/localtoolbox/src/tools/third-party-downloads/**"
+          - "apps/localtoolbox/src/lib/{downloaded,downloader}.*"
+          - "apps/localtoolbox/downloaded-store.ts"
+          - "apps/localtoolbox/test/**/{third-party-downloads,downloaded,downloaded-store}.*"
+
+# Across the tools.
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.{md,mdx}", "apps/*/docs/**"]
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/{test,tests,__snapshots__}/**"
+          - "**/tests.rs"
+          - "**/*.{test,e2e}.ts"
+          - "**/{vitest,vitest.stryker,playwright}.config.ts"
+          - "**/stryker*.{mjs,ts}"
+          - "apps/web/src/lib/server/testing/**"
+          - "apps/locallibrary/bombadil/**"
+          - "fuzz/**"
+          - ".config/nextest.toml"
+          - ".cargo/mutants.toml"
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: ["pnpm-lock.yaml", "Cargo.lock", "**/package-lock.json"]
+
+github_actions:
+  - changed-files:
+      - any-glob-to-any-file: [".github/workflows/**", ".github/actionlint.yaml"]
+
+tooling:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/*"
+          - ".github/ISSUE_TEMPLATE/**"
+          - "{.cargo,.config,tools,patches}/**"
+          - "{package.json,pnpm-workspace.yaml,lefthook.yml,.node-version}"
+          - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace}.toml"
+          - "{.oxlintrc.json,.oxfmtrc.json,.editorconfig,.gitattributes,.gitignore,.dockerignore}"
+          - "apps/*/{package.json,tsconfig*.json,*.config.{ts,cjs},components.json,lighthouserc.cjs}"
+          - "apps/*/{.oxlintrc.json,knip.json,.vscode/**}"

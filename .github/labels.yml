@@ -16,6 +16,101 @@
   color: "3b6fd4"
   description: The computer.localnetwork.* lexicons
 
+# The area inside a tool, in a lighter shade of its color. pr-labels.yml adds these too.
+- name: "web: directory"
+  color: "a5cfbd"
+  description: Directory search, the show matcher, genres and places
+- name: "web: projects"
+  color: "a5cfbd"
+  description: Project profiles, claims, and the DJ stats and sets on them
+- name: "web: mixes"
+  color: "a5cfbd"
+  description: Mixes, their tracklists and mix reports
+- name: "web: epk"
+  color: "a5cfbd"
+  description: Press kits and who can see them
+- name: "web: bookings"
+  color: "a5cfbd"
+  description: Booking inquiries and their threads
+- name: "web: planner"
+  color: "a5cfbd"
+  description: Promoters' private planner
+- name: "web: staff"
+  color: "a5cfbd"
+  description: Admin, moderation and the audit log
+- name: "web: accounts"
+  color: "a5cfbd"
+  description: Signing in, sessions and the account pages
+- name: "web: tools"
+  color: "a5cfbd"
+  description: The /tools pages for locallibrary and localtoolbox
+- name: "web: server"
+  color: "a5cfbd"
+  description: Spaces, sync, HappyView, the database and the server around them
+- name: "web: ui"
+  color: "a5cfbd"
+  description: Shared components, design tokens, layout and the static pages
+- name: "locallibrary: cli"
+  color: "c9adef"
+  description: The locallibrary command line
+- name: "locallibrary: player"
+  color: "c9adef"
+  description: The terminal player and its waveforms
+- name: "locallibrary: sidecar"
+  color: "c9adef"
+  description: The JSON-RPC sidecar and the api module it serves
+- name: "locallibrary: core"
+  color: "c9adef"
+  description: The core crate, the data model and rekordbox's formats
+- name: "locallibrary: analysis"
+  color: "c9adef"
+  description: Tempo, key and loudness from tracks' audio
+- name: "locallibrary: mixes"
+  color: "c9adef"
+  description: Finding the tracks a recorded mix plays, and mix reports
+- name: "locallibrary: tracklists"
+  color: "c9adef"
+  description: Reading tracklists and finding their tracks
+- name: "locallibrary: interop"
+  color: "c9adef"
+  description: Libraries for Traktor, Serato and Engine DJ
+- name: "locallibrary: transcode"
+  color: "c9adef"
+  description: Player-safe copies of lossless libraries
+- name: "locallibrary: plugins"
+  color: "c9adef"
+  description: The plugin protocol, its host and the first-party plugins
+- name: "locallibrary: publishing"
+  color: "c9adef"
+  description: The Atmosphere account, and the sets and profile published to it
+- name: "localtoolbox: core"
+  color: "efc29b"
+  description: The menu, session queue, settings, saved state and shared code
+- name: "localtoolbox: content script"
+  color: "efc29b"
+  description: What runs on SoundCloud's pages
+- name: "localtoolbox: playlist to text"
+  color: "efc29b"
+  description: The SoundCloud playlist to text tool
+- name: "localtoolbox: manager"
+  color: "efc29b"
+  description: The Manager tool
+- name: "localtoolbox: artists"
+  color: "efc29b"
+  description: The artists tool
+- name: "localtoolbox: downloads"
+  color: "efc29b"
+  description: The third-party downloads tool
+
+# Across the tools. pr-labels.yml adds these, and documentation, dependencies and github_actions
+# below, from the files a pull request changes.
+- name: tests
+  color: "c2e0c6"
+  description: Tests, fixtures and test harnesses
+- name: tooling
+  color: "ededed"
+  description: Repo config, lint and build tooling, and GitHub settings
+
 - name: bug
   color: "d73a4a"
   description: Something isn't working
