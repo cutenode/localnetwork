@@ -762,3 +762,23 @@ fn the_document_publishes_what_the_preferences_allow(tc: TestCase) {
         assert!(d.headline.is_none() && d.tags.is_empty());
     }
 }
+
+/// A document says when it was made to the millisecond, whatever the clock's resolution: the
+/// same report written twice is the same length (chrono's own format drops trailing zeros).
+#[hegel::test(test_cases = 100)]
+fn a_document_is_dated_to_the_millisecond(tc: TestCase) {
+    let o = ProfileOptions {
+        since: None,
+        until: None,
+        min_set_tracks: 1,
+        top: 5,
+        analysis: false,
+        genre_aliases: IndexMap::new(),
+    };
+    let nanos = tc.draw(gs::integers::<u32>().max_value(999_999_999));
+    let at = DateTime::from_timestamp(1_760_000_000, nanos).unwrap();
+    let doc = document::document(&compute(&builder(&o), Basis::Sessions, 0, at), &ProfilePrefs::default());
+    let json = serde_json::to_value(&doc).unwrap();
+    let millis = at.timestamp_subsec_millis();
+    assert_eq!(json["generatedAt"], format!("2025-10-09T08:53:20.{millis:03}Z"), "{nanos}");
+}
