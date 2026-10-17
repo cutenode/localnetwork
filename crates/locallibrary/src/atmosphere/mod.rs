@@ -22,10 +22,13 @@
 //! * Records ([`repo`]): writing the record types locallibrary publishes ([`lexicon`]) with the
 //!   session, which needs the [`PUBLISH_SCOPES`] ([`PUBLISH_SET`] grants them), and reading
 //!   anyone's without one.
+//! * Bug reports ([`bug_report`]), posted from the account to userinput.app, which need
+//!   [`REPORT_SCOPE`].
 //!
 //! One account is signed in at a time. Bluesky's servers end a public client's session two weeks
 //! after sign-in however often it's refreshed ([`AccountInfo::sign_in_again_by`]).
 
+pub mod bug_report;
 mod callback;
 pub mod lexicon;
 mod net;
@@ -99,18 +102,42 @@ pub fn publish_scopes() -> Vec<String> {
     DEFAULT_SCOPES.iter().map(|s| s.to_string()).chain([format!("include:{PUBLISH_SET}")]).collect()
 }
 
+/// What filing a bug report needs besides `atproto`: to create the records a bug report is
+/// ([`lexicon::DISCUSSION`]), not to change or delete them, and nothing else in the account. Only
+/// `locallibrary bug` asks for it, signing in again when the session doesn't have it.
+pub const REPORT_SCOPE: &str = "repo:app.userinput.discussion?action=create";
+
+/// Whether the account's granted scopes (the server's, with [`PUBLISH_SET`] already replaced by
+/// what it grants) include each of `needed`. `transition:generic`, the old all-or-nothing scope
+/// (an app password's powers), includes them all.
+fn grants<E>(info: &AccountInfo, needed: impl IntoIterator<Item = std::result::Result<Scope<SmolStr>, E>>) -> bool {
+    let Ok(granted) = Scopes::new(SmolStr::new(info.scopes.join(" "))) else { return false };
+    let mut needed = needed.into_iter();
+    granted.grants(&Scope::transition_generic()) || needed.all(|s| s.is_ok_and(|s| granted.grants(&s)))
+}
+
 /// The scope a session needs to write (create and replace) records of `collection`, when the
-/// account's granted scopes don't include it. `None`: it may write them. The granted scopes are
-/// the server's, with [`PUBLISH_SET`] already replaced by what it grants.
+/// account's granted scopes don't include it. `None`: it may write them.
 pub fn missing_scope(info: &AccountInfo, collection: &str) -> Option<String> {
-    let granted = Scopes::new(SmolStr::new(info.scopes.join(" "))).ok();
-    let grants = |s: &Scope| granted.as_ref().is_some_and(|g| g.grants(s));
-    let writes = match (Scope::repo_create(collection), Scope::repo_update(collection)) {
-        (Ok(create), Ok(update)) => grants(&create) && grants(&update),
-        _ => false,
-    };
-    // `transition:generic` is the old all-or-nothing scope: an app password's powers.
-    (!writes && !grants(&Scope::transition_generic())).then(|| format!("repo:{collection}?action=create&action=update"))
+    let writes = grants(info, [Scope::repo_create(collection), Scope::repo_update(collection)]);
+    (!writes).then(|| format!("repo:{collection}?action=create&action=update"))
+}
+
+/// Whether the session may create records of `collection` (not necessarily replace them).
+pub fn may_create(info: &AccountInfo, collection: &str) -> bool {
+    grants(info, [Scope::repo_create(collection)])
+}
+
+/// What signing `info`'s account in again asks for, so the session keeps what it may do now:
+/// `atproto`, publishing ([`PUBLISH_SET`]) when it may publish, and [`REPORT_SCOPE`] when it may
+/// file bug reports. Add what the new sign-in is for.
+pub fn kept_scopes(info: &AccountInfo) -> Vec<String> {
+    let publishes = lexicon::COLLECTIONS.iter().all(|c| missing_scope(info, c).is_none());
+    let mut kept = if publishes { publish_scopes() } else { DEFAULT_SCOPES.map(String::from).to_vec() };
+    if may_create(info, lexicon::DISCUSSION) {
+        kept.push(REPORT_SCOPE.to_string());
+    }
+    kept
 }
 
 /// How long Bluesky's servers keep a public client's session, refreshed or not.
@@ -724,14 +751,15 @@ async fn revoke(session: &Session) -> bool {
 /// The client metadata document to host at `client_id` (an HTTPS URL, conventionally ending in
 /// `/oauth-client-metadata.json`) for [`Client::Hosted`]. Servers then show its host as the app's
 /// name and remember approvals. Its `scope` is the most any sign-in may ask for: `atproto`,
-/// [`PUBLISH_SET`], and `extra`.
+/// [`PUBLISH_SET`], [`REPORT_SCOPE`], and `extra`.
 pub fn client_metadata(client_id: &str, extra: &[String]) -> Result<serde_json::Value> {
     let url = uri(client_id)?;
     if url.scheme().as_str() != "https" {
         return Err(Error::invalid(format!("a hosted client ID is an https:// URL, not {client_id:?}")));
     }
     let host = url.authority().map(|a| a.host().to_string()).unwrap_or_default();
-    let scope = self::scopes(&[publish_scopes(), extra.to_vec()].concat())?.to_normalized_string();
+    let scope =
+        self::scopes(&[publish_scopes(), vec![REPORT_SCOPE.into()], extra.to_vec()].concat())?.to_normalized_string();
     Ok(serde_json::json!({
         "client_id": client_id,
         "client_name": "locallibrary",

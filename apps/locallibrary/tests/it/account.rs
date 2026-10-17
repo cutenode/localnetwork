@@ -38,8 +38,11 @@ fn client_metadata_for_a_hosted_client() {
     let v: Value = serde_json::from_str(&out).unwrap();
     assert_eq!(v["client_id"], id);
     assert_eq!(v["application_type"], "native");
-    // Every document allows publishing locallibrary's records, so sign-in can ask for it.
-    assert_eq!(v["scope"], "atproto include:computer.localnetwork.locallibraryPublishing repo:app.example.thing");
+    // Every document allows publishing locallibrary's records and filing bug reports, so sign-in
+    // can ask for them.
+    let scope = "atproto include:computer.localnetwork.locallibraryPublishing repo:app.example.thing \
+                 repo:app.userinput.discussion?action=create";
+    assert_eq!(v["scope"], scope);
     let file = env.outside("meta.json");
     let write = |more: &[&str]| {
         env.run(&[&["account", "client-metadata", "--client-id", id, "-o", path(&file)], more].concat())

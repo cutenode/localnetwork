@@ -7,21 +7,23 @@
 //! [`SET`] (a set, one per set) are shared by Local Network's tools, under the authority
 //! `dj.localnetwork.computer`, with the definitions they share in [`DEFS`]. Documents they refer
 //! to that others maintain are copied in unchanged, in their own authority's folder: [`ADDRESS`]
-//! (where a set was played).
+//! (where a set was played) and [`STRONG_REF`] (a record's at:// URI and CID). So is
+//! [`DISCUSSION`], userinput.app's record type, which a bug report is.
 //!
 //! [`validate`] checks a record against its document before it's written. It's strict, so a field
 //! the document doesn't define is an error, and it follows the AT Protocol's data model, which has
 //! no fractional numbers. It covers the parts of Lexicon these documents use: objects, refs (within
-//! a document and to another one), unions, strings, integers, booleans and arrays, and the string
-//! formats `datetime`, `at-uri`, `did` and `uri`. The AT Protocol library's parsers check DIDs and
-//! at:// URIs and chrono checks times; a `uri` only gets the light check the protocol's reference
-//! implementation gives one (a scheme, then no spaces).
+//! a document and to another one), unions, strings, integers, booleans, arrays and blobs, and the
+//! string formats `datetime`, `at-uri`, `did`, `cid` and `uri`. The AT Protocol library's parsers
+//! check DIDs, at:// URIs and CIDs and chrono checks times; a `uri` only gets the light check the
+//! protocol's reference implementation gives one (a scheme, then no spaces).
 
 use rustc_hash::FxHashMap;
 use std::sync::LazyLock;
 
 use jacquard_common::SmolStr;
 use jacquard_common::types::aturi::AtUri;
+use jacquard_common::types::cid::Cid;
 use jacquard_common::types::did::validate_did;
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
@@ -38,17 +40,24 @@ pub const SET: &str = "computer.localnetwork.dj.set";
 pub const DEFS: &str = "computer.localnetwork.dj.defs";
 /// A street address, from Lexicon Community: where a set was played. Not a record type.
 pub const ADDRESS: &str = "community.lexicon.location.address";
+/// A bug report (or any feedback) posted to a space on userinput.app (record key: a TID).
+pub const DISCUSSION: &str = "app.userinput.discussion";
+/// A record's at:// URI and CID, from the AT Protocol: the space a discussion is posted to. Not a
+/// record type.
+pub const STRONG_REF: &str = "com.atproto.repo.strongRef";
 
-/// Every record type locallibrary writes.
+/// Every record type locallibrary publishes.
 pub const COLLECTIONS: [&str; 3] = [SETTINGS, PROFILE, SET];
 
 /// The Lexicon documents, by NSID: the ones locallibrary writes and the ones they refer to.
-pub const DOCUMENTS: [(&str, &str); 5] = [
+pub const DOCUMENTS: [(&str, &str); 7] = [
     (SETTINGS, include_str!("../../../../lexicons/computer/localnetwork/locallibrary/settings.json")),
     (PROFILE, include_str!("../../../../lexicons/computer/localnetwork/dj/profile.json")),
     (SET, include_str!("../../../../lexicons/computer/localnetwork/dj/set.json")),
     (DEFS, include_str!("../../../../lexicons/computer/localnetwork/dj/defs.json")),
     (ADDRESS, include_str!("../../../../lexicons/community/lexicon/location/address.json")),
+    (DISCUSSION, include_str!("../../../../lexicons/app/userinput/discussion.json")),
+    (STRONG_REF, include_str!("../../../../lexicons/com/atproto/repo/strongRef.json")),
 ];
 
 static PARSED: LazyLock<FxHashMap<&'static str, Value>> = LazyLock::new(|| {
@@ -194,6 +203,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 "datetime" => (chrono::DateTime::parse_from_rfc3339(s).is_ok(), "a date and time"),
                 "at-uri" => (AtUri::<SmolStr>::new_owned(s).is_ok(), "an at:// URI"),
                 "did" => (validate_did(s).is_ok(), "a DID"),
+                "cid" => (Cid::str(s).is_valid(), "a CID"),
                 "uri" => (is_uri(s), "a URI"),
                 other => return Err(format!("{}: the check doesn't know the format {other:?}", what(path))),
             };
@@ -219,6 +229,25 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
             }
             for (i, x) in items.iter().enumerate() {
                 check(nsid, &schema["items"], x, &format!("{}[{i}]", what(path)))?;
+            }
+            Ok(())
+        }
+        // A file the record links to: its media type, its size, and the CID of its bytes.
+        "blob" => {
+            let mime = v["mimeType"].as_str().unwrap_or_default();
+            let size = v["size"].as_i64();
+            let linked = v["ref"]["$link"].as_str().is_some_and(|l| Cid::str(l).is_valid());
+            let Some(size) = size.filter(|_| v["$type"] == "blob" && linked && !mime.is_empty()) else {
+                return Err(format!("{} isn't a blob", what(path)));
+            };
+            let takes = |a: &str| {
+                a == "*/*" || a == mime || a.strip_suffix("/*").is_some_and(|t| mime.split('/').next() == Some(t))
+            };
+            if schema["accept"].as_array().is_some_and(|a| !a.iter().filter_map(Value::as_str).any(takes)) {
+                return Err(format!("{} is {mime}, which the Lexicon doesn't take", what(path)));
+            }
+            if num("maxSize").is_some_and(|m| size > m) {
+                return Err(format!("{} is {size} bytes, more than the Lexicon takes", what(path)));
             }
             Ok(())
         }
