@@ -122,6 +122,20 @@ jobs:
       - run: pnpm test
       - run: pnpm test:storybook
       - run: pnpm test:build
+      # What the browser downloads, for the report job; main's runs keep theirs for pull requests
+      # to compare with. adapter-node writes a brotli copy beside each file (precompress), which is
+      # what the server sends a browser that takes it.
+      - name: Measure the client bundle
+        run: |
+          bytes() { find build/client -type f -name "$1" -exec cat {} + | wc -c; }
+          jq -n --argjson js "$(bytes '*.js')" --argjson js_br "$(bytes '*.js.br')" \
+            --argjson css "$(bytes '*.css')" --argjson css_br "$(bytes '*.css.br')" \
+            '{"Client JavaScript": $js, "Client JavaScript, brotli": $js_br,
+              "Client CSS": $css, "Client CSS, brotli": $css_br}' > sizes.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sizes
+          path: apps/web/sizes.json
 
   integration:
     name: Integration (real spaces PDS) + coverage
@@ -266,31 +280,32 @@ jobs:
           cache-to: type=gha,mode=max
       - run: scripts/docker-smoke.sh localnetwork:ci
 
-  # Coverage on the pull request, in one comment each push updates: the integration job's
+  # Coverage and size on the pull request, in one comment each push updates: the integration job's
   # coverage against main's latest (davelosert/vitest-coverage-report-action, with each changed
-  # file's). It goes to the run's summary too, which is all a fork's pull request gets: its token
-  # can't comment. Not one of passed's needs, so a comment that can't post never holds up a merge.
+  # file's), then the client bundle's size against main's (.github/actions/size-report). Both go
+  # to the run's summary too, which is all a fork's pull request gets: its token can't comment.
+  # Not one of passed's needs, so a comment that can't post never holds up a merge.
   report:
-    name: Coverage report
-    needs: [changes, integration]
+    name: Coverage and size report
+    needs: [changes, verify, integration]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-      # main's coverage, from its runs' artifacts.
+      # main's coverage and sizes, from its runs' artifacts.
       actions: read
       pull-requests: write
     steps:
-      # For the local action and vite.config.ts, whose coverage thresholds the report shows.
+      # For the local actions and vite.config.ts, whose coverage thresholds the report shows.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Into apps/web/coverage. Missing when its job failed before uploading it, and the step that
-      # needs it skips.
+      # Into apps/web/coverage and apps/web/sizes. An artifact whose job failed before uploading it
+      # is missing, and the steps that need it skip.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: coverage
+          pattern: "{coverage,sizes}"
           path: apps/web
       - id: main-coverage
         uses: ./.github/actions/main-artifact
@@ -302,6 +317,20 @@ jobs:
         with:
           working-directory: apps/web
           json-summary-compare-path: ${{ steps.main-coverage.outputs.found == 'true' && format('{0}/main-coverage/coverage-summary.json', runner.temp) || '' }}
+      - id: size
+        if: hashFiles('apps/web/sizes/sizes.json') != ''
+        uses: ./.github/actions/size-report
+        with:
+          sizes: apps/web/sizes/sizes.json
+          output: ${{ runner.temp }}/size.md
+      # Added to the coverage action's comment, found by the marker its README documents (its
+      # postfix is the working directory), so the pull request keeps one comment.
+      - if: steps.size.outcome == 'success'
+        uses: ./.github/actions/pr-comment
+        with:
+          marker: <!-- vitest-coverage-report-marker-apps/web -->
+          section: size
+          body-path: ${{ runner.temp }}/size.md
 
   # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
   # cancelled, and passes when they all passed or were skipped because nothing they check changed.
