@@ -130,6 +130,9 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        # Only main saves this cache, which pull requests restore.
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # As in the test job: the runner is elevated, the tests' plugins must start anyway.
       - if: runner.os == 'Windows'
         shell: bash

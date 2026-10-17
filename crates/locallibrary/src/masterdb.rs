@@ -293,7 +293,7 @@ fn decrypt_copy(path: &Path, key: &str, dir: &Path) -> Result<Copy> {
         return Err(Error::parse(path, format!("{len} bytes is not a whole number of 4096-byte pages")));
     }
     let salt: [u8; cipher::SALT_LEN] = first[..cipher::SALT_LEN].try_into().expect("16 bytes");
-    let codec = cipher::Codec::with_passphrase(key.as_bytes(), salt);
+    let codec = cipher::Codec::with_key(key.as_bytes(), salt);
     let wrong_key = || {
         Error::invalid(format!(
             "{} can't be decrypted with this key: it isn't a rekordbox 6/7 collection, or rekordbox changed its \

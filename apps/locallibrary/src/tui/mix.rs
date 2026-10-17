@@ -416,8 +416,10 @@ pub(super) fn typed_path(s: &str) -> PathBuf {
             }
             out
         });
-    match s.strip_prefix("~/") {
-        Some(rest) => std::env::var_os("HOME").map(|h| PathBuf::from(h).join(rest)).unwrap_or_else(|| s.clone().into()),
+    // `~` is the home folder, which Windows names by its profile (no `HOME`), with either slash.
+    let rest = s.strip_prefix("~/").or_else(|| s.strip_prefix("~\\").filter(|_| cfg!(windows)));
+    match rest {
+        Some(rest) => std::env::home_dir().map(|h| h.join(rest)).unwrap_or_else(|| s.clone().into()),
         None => s.into(),
     }
 }

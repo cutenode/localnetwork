@@ -100,7 +100,7 @@ export function looksLikeFile(url: string) {
 	// Dropbox and Drive serve a page unless asked for the bytes.
 	const host = parsed.hostname.replace(/^www\./, '');
 
-	if (host.endsWith('dropbox.com')) return parsed.searchParams.get('dl') === '1';
+	if (host === 'dropbox.com' || host.endsWith('.dropbox.com')) return parsed.searchParams.get('dl') === '1';
 
 	if (host === 'drive.google.com') return parsed.searchParams.get('export') === 'download';
 

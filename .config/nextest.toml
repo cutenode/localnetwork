@@ -10,6 +10,12 @@ priority = 100
 filter = 'package(loclib-plugin)'
 slow-timeout = { period = "30s", terminate-after = 2 }
 
+# A plugin test waits on a plugin process: one that never answers fails after two minutes instead
+# of holding the job until its timeout.
+[[profile.default.overrides]]
+filter = 'test(/(^|::)plugins?(::|_|$)/)'
+slow-timeout = { period = "60s", terminate-after = 2 }
+
 # The plugin tests (the protocol, the host, the first-party plugins and what shows them): CI runs
 # them in a job of their own (`--profile plugins`) and the rest with `--profile core`. The default
 # profile runs both.
