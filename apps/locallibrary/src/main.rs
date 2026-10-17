@@ -568,6 +568,7 @@ macro_rules! filter_help {
 const TRACKS_LONG_HELP: &str = concat!(
     filter_help!(),
     "
+  sound.bpm:>120  sound.key:8A   what an analyzer plugin worked out (`locallibrary analyze`); --sort takes them too
 
 Examples:
   locallibrary tracks -s \"daft punk\"
@@ -605,7 +606,7 @@ struct TracksArgs {
     /// Only tracks matching a filter, e.g. "bpm:120-128 key:8A~ rating:>=4" (syntax below)
     #[arg(long, short, allow_hyphen_values = true)]
     filter: Option<String>,
-    /// Order, e.g. key,bpm or -rating (title, artist, album, genre, label, key, bpm, rating, color, year, plays, added, time, bitrate, path)
+    /// Order, e.g. key,bpm or -rating (title, artist, album, genre, label, key, bpm, rating, color, year, plays, added, time, bitrate, path, or a plugin's field like sound.bpm)
     #[arg(long, allow_hyphen_values = true)]
     sort: Option<String>,
     /// Show at most this many
@@ -1187,16 +1188,11 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             // --search is free text in the filter.
             let filter: Vec<String> = a.search.as_deref().map(search_terms).into_iter().chain(a.filter).collect();
             let filter = (!filter.is_empty()).then(|| filter.join(" "));
+            let fields = plugins::Installed::with(diff_cmd::existing_store(&cli.store)?);
             let reads = each_drive::read(a.drive, |drive| {
                 let (filter, playlist, sort) = (filter.clone(), a.playlist.clone(), a.sort.clone());
-                api::tracks_query(&api::TracksQuery {
-                    library: drive.into(),
-                    filter,
-                    playlist,
-                    sort,
-                    offset: 0,
-                    limit: a.limit,
-                })
+                let req = api::TracksQuery { library: drive.into(), filter, playlist, sort, offset: 0, limit: a.limit };
+                api::tracks_query_with(api::LibraryCache::none(), &req, Some(fields.source()))
             })?;
             out.page();
             // Several drives' TSV or CSV is one listing, for the program reading it.

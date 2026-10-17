@@ -1,6 +1,6 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters
-//! and settings. The CLI and the RPC sidecar host them through [`Plugins`] (the TUI doesn't yet).
+//! and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -185,6 +185,13 @@ impl Plugins {
                 })
             })
             .collect()
+    }
+
+    /// Every analyzer's fields, by name as filters and sorts name them (`sound.bpm`), with their
+    /// types: in the order the plugins, and their analyzers, declare them.
+    pub fn fields(&self) -> crate::fields::Declared {
+        let all = self.manifests().flat_map(|m| m.contributes.analyzers.iter().map(move |a| (m, a)));
+        all.flat_map(|(m, a)| a.fields.iter().map(move |(name, &kind)| (format!("{}.{name}", m.id), kind))).collect()
     }
 
     /// Whether the plugin is running now. Never waits.

@@ -1,10 +1,10 @@
 //! Changing the drive from the player, always opt-in: an actions menu (`e`, or right-click) for
-//! the marked or selected tracks, the playlist in view and the crate; the prompts and playlist
-//! picking some actions need; and the job every write goes through: plan it in the background,
-//! show the plan and wait for a yes, apply exactly that plan (the library backs the drive up
-//! first, and refuses if the drive changed since), then read the drive again, keeping the view.
-//! Any kind of plan goes through the same dialog ([`AnyPlanned`]); playlist and track edits show
-//! in detail.
+//! the marked or selected tracks, the playlist in view and the crate (plugins' operations last);
+//! the prompts and playlist picking some actions need; and the job every write goes through: plan
+//! it in the background, show the plan and wait for a yes, apply exactly that plan (the library
+//! backs the drive up first, and refuses if the drive changed since), then read the drive again,
+//! keeping the view. Any kind of plan goes through the same dialog ([`AnyPlanned`]); playlist and
+//! track edits show in detail.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -16,8 +16,9 @@ use locallibrary::api::{self, EditRequest};
 use locallibrary::edit::{Edit, EditOptions, EditPlan, TrackFields};
 use locallibrary::model::TrackColor;
 use locallibrary::op::{AnyPlanned, Planned};
+use locallibrary::plugin::PluginExport;
 use locallibrary::progress::{Event, Phase, Progress};
-use locallibrary::query::{SortKey, TrackSelector};
+use locallibrary::query::{SortField, SortKey, TrackSelector};
 use locallibrary::{CancelToken, Ctx, Error};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
@@ -26,6 +27,7 @@ use super::app::{App, Focus, Level, Msg, View, edit_line};
 use super::browse::{COLOURS, NodeId, colour_name, sort_label, sort_spec};
 use super::drives::{After, Report};
 use super::keymap::{self, Act};
+use crate::output::plural;
 
 // ---------------------------------------------------------------------------------------------
 // Edits
@@ -118,6 +120,8 @@ pub enum Action {
     Restore,
     /// Give the tracks a My Tag, or take one off.
     Tag,
+    /// A plugin's operation, by the plugin's id and its name.
+    Plugin(&'static str, &'static str),
 }
 
 /// What an action works on, captured when the menu opens so moving about afterwards (picking a
@@ -142,6 +146,8 @@ pub struct Target {
     pub crate_total: usize,
     /// The drive was unplugged.
     pub stale: bool,
+    /// The drive is a folder opened by path, not one plugged in: plugins can't name it.
+    pub folder_drive: bool,
 }
 
 pub struct MenuItem {
@@ -231,7 +237,12 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
                 _ => "sort this playlist on the drive".into(),
             },
             Action::SortList,
-            stale.clone().or(not_list).or(because(t.sort.is_none(), "sort the list first (b, or click a column)")),
+            stale.clone().or(not_list).or(because(t.sort.is_none(), "sort the list first (b, or click a column)")).or(
+                because(
+                    t.sort.is_some_and(|k| matches!(k.field, SortField::Field(_))),
+                    "a plugin's column can't sort the drive's playlists",
+                ),
+            ),
         ),
         item("N", format!("new playlist{into}…"), Action::NewPlaylist, stale.clone()),
         item("F", format!("new folder{into}…"), Action::NewFolder, stale.clone()),
@@ -260,8 +271,15 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
             Action::Restore,
             stale.clone(),
         ),
-        item("y", keymap::name(Act::Replay).into(), Action::Replay, stale),
+        item("y", keymap::name(Act::Replay).into(), Action::Replay, stale.clone()),
     ]
+    .into_iter()
+    .chain(
+        super::plugins::offered(Some(!t.folder_drive), false)
+            .into_iter()
+            .map(|o| item("", o.label, Action::Plugin(o.plugin, o.name), stale.clone().or(o.unavailable))),
+    )
+    .collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -336,6 +354,11 @@ impl Confirm {
         self.plan.as_any().downcast_ref::<Planned<EditPlan>>().map(|p| &p.plan)
     }
 
+    /// The plan, when it's a plugin's export (shown in detail).
+    pub fn export(&self) -> Option<&Planned<PluginExport>> {
+        self.plan.as_any().downcast_ref::<Planned<PluginExport>>()
+    }
+
     /// The plan, when it's undoing (shown in detail).
     pub fn undo(&self) -> Option<&api::UndoPlan> {
         self.plan.as_any().downcast_ref::<Planned<api::UndoPlan, bool>>().map(|p| &p.plan)
@@ -361,8 +384,10 @@ pub enum Modal {
     Ask(String, Box<dyn FnOnce(&mut App)>),
     /// A list to choose from by typing: the command palette, or an answer an action needs.
     Pick(super::palette::Picker),
-    /// Results to read (a check's).
+    /// Results to read (a check's, a plugin's command's).
     Report(Report),
+    /// A plugin's params to fill in.
+    Form(super::form::Form),
 }
 
 /// Choosing the playlist to add tracks to, in the sidebar tree.
@@ -423,6 +448,7 @@ fn phase_name(p: Phase) -> &'static str {
         Phase::Delete => "deleting files",
         Phase::Verify => "verifying",
         Phase::Format => "formatting",
+        Phase::Analyze => "analyzing",
         // Mix identification's phases (edits don't run them), and any newer.
         _ => "working",
     }
@@ -466,6 +492,15 @@ pub struct Wording {
 }
 
 pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
+    // A plugin's export writes files on this computer: overwriting any is the question.
+    if let Some(e) = plan.as_any().downcast_ref::<Planned<PluginExport>>() {
+        let (ask, yes) = match e.plan.files.iter().filter(|f| f.exists).count() {
+            0 => (format!("Write {}?", plural(e.plan.files.len(), "file")), "write"),
+            n => (format!("Overwrite {}?", plural(n, "file")), "overwrite"),
+        };
+        let who = e.plan.output.display().to_string();
+        return Wording { ask, yes, who, what: "export".into(), doing: "Exporting".into() };
+    }
     let written: Vec<&str> = (plan.drives().iter()).filter(|t| t.writes && t.drive).map(|t| t.name.as_str()).collect();
     let who = if written.is_empty() { drive.to_string() } else { written.join(", ") };
     let w =
@@ -563,6 +598,7 @@ impl App {
             crated,
             crate_total: self.crate_list.len(),
             stale: l.stale,
+            folder_drive: self.pluggable(Some(l.root())) == Some(false),
         })
     }
 
@@ -655,6 +691,7 @@ impl App {
                 }
             },
             Modal::Pick(p) => self.on_picker_key(p, key),
+            Modal::Form(f) => self.on_form_key(f, key),
             Modal::Report(mut r) => {
                 r.scroll = match key.code {
                     KeyCode::Up | KeyCode::Char('k') => r.scroll.saturating_sub(1),
@@ -823,6 +860,7 @@ impl App {
             Action::Replay => self.replay(t.root.clone()),
             Action::Tag => self.tag_tracks(),
             Action::Restore => self.restore_playlist(t.root.clone()),
+            Action::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(t.root.clone()), Some(&t)),
             Action::RatingMenu | Action::ColourMenu => {}
         }
     }
@@ -1120,6 +1158,7 @@ impl App {
                 let msg = match (plan.operation(), plan.warnings().first()) {
                     ("undo", _) => format!("nothing to undo on {drive}: it's as its last backup left it"),
                     ("pull", _) => plan.summary().first().cloned().unwrap_or_else(|| "saved already".into()),
+                    _ if plan.as_any().is::<Planned<PluginExport>>() => "nothing to write".into(),
                     (_, Some(w)) => format!("nothing to change: {w}"),
                     (_, None) => "nothing to change".into(),
                 };
@@ -1265,6 +1304,15 @@ impl App {
                 }
                 self.toast(msg, Level::Info);
                 self.refresh_status();
+            }
+            Ok(Applied { operation, report }) if super::plugins::planned_by(&operation, true).is_some() => {
+                let by = super::plugins::planned_by(&operation, true).unwrap_or_default();
+                let n = report["files"].as_array().map_or(0, Vec::len);
+                let mut msg = format!("{by}: {} written", plural(n, "file"));
+                if let Some(w) = report["warnings"].as_array().and_then(|w| w.first()).and_then(|w| w.as_str()) {
+                    msg.push_str(&format!(" · {w}"));
+                }
+                self.toast(msg, Level::Info);
             }
             Ok(Applied { operation, report }) if operation == "undo" => {
                 let when = report["created"].as_str().and_then(|t| t.get(..16)).unwrap_or("").replace('T', " ");

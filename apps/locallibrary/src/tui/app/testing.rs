@@ -480,3 +480,57 @@ impl locallibrary::op::AnyPlanned for Plan {
 pub fn hold_volume_polls(app: &mut App) {
     app.last_volume_poll = Instant::now() + Duration::from_secs(3600);
 }
+
+/// loclib-plugin's echo plugin, which the plugin host's test plugin serves: its export format
+/// renamed (`m3u` is locallibrary's), its `echo` command taking a param of each kind the player's
+/// form fills in, besides the test plugin's `log` and `context`, its `playlist` operation
+/// `tracks` too (which it leaves be), and a setting of each kind beside its greeting.
+const ECHO: &str = include_str!("../../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
+
+/// The plugins with the echo plugin among them, for this test: its manifest written in `dir` and
+/// named by `LOCALLIBRARY_TEST_PLUGINS`, which the host reads once, as it's first used. Call it
+/// before anything opens the palette or a menu.
+pub fn echo_plugin(dir: &Path) {
+    let params = r#"params = { type = "object", required = ["name"], properties = { name = { type = "string", minLength = 2, description = "Who to greet" }, times = { type = "integer" }, loud = { type = "boolean" }, mood = { type = "string", enum = ["calm", "wild"] }, file = { type = "string", x-path = true }, tags = { type = "array", items = { type = "string" } }, log = { type = "string" }, context = { type = "boolean" } } }"#;
+    let operation = r#"params = { type = "object", properties = { name = { type = "string" }, tracks = { type = "array", items = { type = "integer" } } }, required = ["name"] }"#;
+    let manifest = ECHO
+        .replace("format = \"m3u\"", "format = \"echo-m3u\"")
+        .replacen("params = { type = \"object\" }", params, 1)
+        .replace(
+            r#"params = { type = "object", properties = { name = { type = "string" } }, required = ["name"] }"#,
+            operation,
+        );
+    // Settings of each kind the player's form fills in, besides its greeting.
+    let settings = r#"
+[[contributes.settings]]
+key = "speed"
+title = "How fast"
+type = "number"
+default = 1.5
+
+[[contributes.settings]]
+key = "loud"
+title = "Shout"
+type = "boolean"
+
+[[contributes.settings]]
+key = "mood"
+title = "Mood"
+type = "enum"
+choices = ["calm", "wild"]
+default = "calm"
+"#;
+    let file = dir.join("echo.toml");
+    std::fs::write(&file, manifest + settings).unwrap();
+    // SAFETY: nextest runs each test in a process of its own, and this runs before the test
+    // starts a thread.
+    unsafe { std::env::set_var("LOCALLIBRARY_TEST_PLUGINS", &file) };
+}
+
+/// The drives in `dir` taken for mounted ones, for this test: a plugin finds the drive it's
+/// given by its name among those (the echo plugin's exporter reads the drive). Call it before the
+/// app starts.
+pub fn mounted(dir: &Path) {
+    // SAFETY: as in `echo_plugin`.
+    unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", dir) };
+}

@@ -6,17 +6,23 @@
 //! its values, and a changed file's are never read. Each analyzer of each plugin version has a
 //! folder, `<store>/cache/fields/<plugin>/<version>/<analyzer>/`. Readers say which versions
 //! they read: the plugin host's, those installed.
+//!
+//! Filters and sorts name a field by its plugin's id and its own (`sound.bpm`): a plugin's
+//! analyzers never share a field name. [`TrackValues`] has a library's, for them.
 
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
+use rustc_hash::FxHashMap;
 
 use crate::audio_cache::{CACHE_DIR, Cache, Kind};
+use crate::device::Device;
+use crate::model::Library;
 use crate::store::Store;
-use crate::{Error, Result};
+use crate::{Error, Result, paths};
 
-/// One field's value, of the types a plugin's manifest declares.
-pub use loclib_plugin::FieldValue;
+/// One field's value, and the types a plugin's manifest declares.
+pub use loclib_plugin::{FieldType, FieldValue};
 
 /// An analyzer's fields for one track, by name.
 pub type Fields = IndexMap<String, FieldValue>;
@@ -96,6 +102,52 @@ impl FieldStore {
             }
         }
         out
+    }
+}
+
+/// The fields the analyzers installed declare, by name as filters and sorts name them
+/// (`sound.bpm`), with their types, in the order the plugins declare them.
+pub type Declared = IndexMap<String, FieldType>;
+
+/// Where what analyzers worked out is read for filters and sorts naming their fields: the store
+/// (none: nothing was worked out), and the analyzers installed with the fields they declare.
+#[derive(Clone, Copy)]
+pub struct Source<'a> {
+    pub store: Option<&'a Store>,
+    pub analyzers: &'a [Analyzer],
+    pub declared: &'a Declared,
+}
+
+/// What the analyzers installed worked out for a library's tracks, as filters and sorts read it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TrackValues {
+    pub declared: Declared,
+    /// Each track's values by its id, then field (`sound.bpm`); a track with none is left out.
+    pub tracks: FxHashMap<u32, Fields>,
+}
+
+impl TrackValues {
+    /// What `source` has for the tracks of `library`, the library of `device`.
+    pub fn read(source: Source<'_>, device: &Device, library: &Library) -> TrackValues {
+        let store = source.store.map(FieldStore::in_store).filter(|_| !source.analyzers.is_empty());
+        let tracks = store.map_or_else(FxHashMap::default, |fields| {
+            let values = |t: &crate::model::Track| {
+                let audio = device.checked_path(&paths::key(&t.file_path)).ok()?;
+                let named: Fields = (fields.get(&audio, source.analyzers).into_iter())
+                    .flat_map(|(plugin, analyzers)| {
+                        analyzers.into_values().flatten().map(move |(name, v)| (format!("{plugin}.{name}"), v))
+                    })
+                    .collect();
+                (!named.is_empty()).then_some((t.id, named))
+            };
+            library.tracks.iter().filter_map(values).collect()
+        });
+        TrackValues { declared: source.declared.clone(), tracks }
+    }
+
+    /// Track `id`'s value of the field `name`, if it has one.
+    pub fn get(&self, id: u32, name: &str) -> Option<&FieldValue> {
+        self.tracks.get(&id)?.get(name)
     }
 }
 

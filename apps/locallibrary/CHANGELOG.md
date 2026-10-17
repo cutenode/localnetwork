@@ -214,8 +214,15 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   sidecar has all of it as `plugins.*` methods, their plans kept apart from locallibrary's own,
   and `track.fields` reads the installed plugins' versions. A plugin whose id or commands clash
   with locallibrary's or another plugin's is left out, with a warning saying why, and the others
-  work; a plugin's errors keep their kinds (`not_found`, `io`...). See docs/plugins.md. The ones
-  it ships:
+  work; a plugin's errors keep their kinds (`not_found`, `io`...). In the player, plugins'
+  commands, operations and export formats are in the palette and a drive's menu (operations in
+  the actions menu too), asking for their params or options in a form drawn from their schemas;
+  a command answers in a panel, an operation's plan is confirmed, written and undone like any
+  edit, an export shows what it would write and asks before overwriting, analyzers run from the
+  palette and their fields are columns to sort and search by, plugins' settings are a form in the
+  palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks --sort`
+  and the sidecar's `tracks.query` take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`). See
+  docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), and `tracklist match`
     shows what it finds in one, entry by entry, changing nothing.

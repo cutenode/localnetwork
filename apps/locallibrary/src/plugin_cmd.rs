@@ -6,7 +6,7 @@
 mod analyze;
 mod contributed;
 mod listing;
-mod view;
+pub(crate) mod view;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

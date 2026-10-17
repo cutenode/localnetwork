@@ -13,6 +13,7 @@ use serde_json::Value;
 use super::Plugins;
 use super::process::Slot;
 use crate::api;
+use crate::error::IoContext;
 use crate::op::{Operation, Planned, Probe, Touched};
 use crate::progress::Ctx;
 use crate::store::Store;
@@ -165,10 +166,13 @@ impl Operation for PluginExport {
     type Request = ();
     type Report = Exported;
 
-    /// Has the plugin write the files it said it would, refusing (once written) any other.
+    /// Has the plugin write the files it said it would, refusing (once written) any other. The
+    /// folder the output is in is made first, as locallibrary's own exports make it.
     fn apply(planned: &Planned<Self>, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<Exported> {
         let e = &planned.plan;
         outside_drives(&e.output, store)?;
+        let dir = e.output.parent().unwrap_or(&e.output);
+        std::fs::create_dir_all(dir).at(dir)?;
         let slot = e.slot.upgrade().ok_or_else(|| Error::stale(format!("the {} plugin", e.plugin), "stopped"))?;
         let written: Exported = slot.call(method::WRITE_EXPORT, &e.write, ctx)?;
         // By path: a file's size is known exactly only once it's written.

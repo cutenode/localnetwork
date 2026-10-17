@@ -3,12 +3,12 @@
 //! with `message` and `fields`), answers an environment variable (`env`), takes this many
 //! milliseconds to stop once its input closes (`linger`), writes a file once it has stopped
 //! (`stopped`), exits (`exit`), never stops (`stuck`), answers its context (`context`) or calls
-//! back (`call` with `params`) when its params say so; its operation answers
-//! the `edits` (and `inputs`) it's given; an analyzer named `order` answers fields `a` then `b`,
-//! or fails naming an empty audio file; and its exporter would write to `outside`, or writes
-//! `extra` too without saying so first. `--manifest <file>` serves another manifest,
-//! `--protocol <version>` answers `hello` with another protocol and stops, `--silent` never
-//! answers, and `--wrong-fields` answers fields of the wrong type.
+//! back (`call` with `params`) when its params say so; its operation answers the `edits` (and
+//! `inputs`) it's given; an analyzer named `order` answers fields `a` then `b`, or fails naming
+//! an empty audio file; and its exporter names the playlists it's given in a note, and would
+//! write to `outside`, or writes `extra` too without saying so first. `--manifest <file>` serves
+//! another manifest, `--protocol <version>` answers `hello` with another protocol and stops,
+//! `--silent` never answers, and `--wrong-fields` answers fields of the wrong type.
 
 mod plugin;
 

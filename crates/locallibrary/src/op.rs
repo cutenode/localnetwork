@@ -161,6 +161,9 @@ pub struct Touched {
     pub drive: bool,
     #[serde(skip)]
     probes: Vec<Probe>,
+    /// It was there when planned: a folder an operation makes (an export's) may not be yet.
+    #[serde(skip)]
+    existed: bool,
     #[serde(skip)]
     state: Hash,
     /// Its [`Probe::Databases`] alone, if probed, for the write to check again under the lock.
@@ -181,6 +184,7 @@ impl Touched {
             drive: true,
             probes,
             databases,
+            existed: true,
         }
     }
 
@@ -199,6 +203,7 @@ impl Touched {
             drive: false,
             probes,
             databases: None,
+            existed: path.exists(),
         }
     }
 
@@ -526,12 +531,14 @@ impl<P, R> Planned<P, R> {
     }
 
     /// Whether the plan can still be applied: every drive and file it touches is as it was when
-    /// planned ([`Error::StalePlan`] otherwise), and none it writes is an archive or retired
-    /// drive unless the plan was made to write to one.
+    /// planned, there or not ([`Error::StalePlan`] otherwise), and none it writes is an archive or
+    /// retired drive unless the plan was made to write to one.
     pub fn check(&self, store: Option<&Store>) -> Result<()> {
         for t in &self.drives {
-            if !t.root.exists() {
-                return Err(Error::stale(&t.name, "is gone"));
+            match (t.existed, t.root.exists()) {
+                (true, false) => return Err(Error::stale(&t.name, "is gone")),
+                (false, true) => return Err(Error::stale(&t.name, "is there now")),
+                _ => {}
             }
             if t.changed() {
                 return Err(Error::stale(&t.name, "changed"));

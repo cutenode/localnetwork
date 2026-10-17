@@ -11,7 +11,7 @@ use clap::{Args, ValueEnum};
 use locallibrary::api;
 use locallibrary::export::{Format, PathStyle};
 use locallibrary::op::Planned;
-use locallibrary::plugin::PluginExport;
+use locallibrary::plugin::{ExportFile, PluginExport};
 use locallibrary::progress::Ctx;
 use loclib_plugin::ExportSource;
 
@@ -191,20 +191,27 @@ fn run_plugin(
     }))
 }
 
+/// How many of a plugin's export's files are listed before "and N more" (here and in the player).
+pub(crate) const FILES_SHOWN: usize = 20;
+
+/// What one of a plugin's export's files holds and its size, as far as the plugin says.
+pub(crate) fn about(f: &ExportFile) -> String {
+    let about =
+        [(!f.file.what.is_empty()).then(|| f.file.what.clone()), (f.file.bytes > 0).then(|| bytes(f.file.bytes))];
+    about.into_iter().flatten().collect::<Vec<_>>().join(", ")
+}
+
 /// A plugin's export as locallibrary's own were shown: what it writes and what goes in, its first
 /// files (what each holds, and those there already), what the format can't hold, then problems
 /// with the library.
 fn render_export(p: &Planned<PluginExport>) {
     crate::output::summary(&p.summary, &[]);
-    for f in p.files.iter().take(20) {
-        let about =
-            [(!f.file.what.is_empty()).then(|| f.file.what.clone()), (f.file.bytes > 0).then(|| bytes(f.file.bytes))];
-        let about = about.into_iter().flatten().collect::<Vec<_>>().join(", ");
+    for f in p.files.iter().take(FILES_SHOWN) {
         let replaces = if f.exists { " (already there)" } else { "" };
-        say!("  {}  {}{replaces}", f.file.path.display(), dim(about));
+        say!("  {}  {}{replaces}", f.file.path.display(), dim(about(f)));
     }
-    if p.files.len() > 20 {
-        say!("  {}", dim(format!("... and {} more", p.files.len() - 20)));
+    if p.files.len() > FILES_SHOWN {
+        say!("  {}", dim(format!("... and {} more", p.files.len() - FILES_SHOWN)));
     }
     for n in &p.notes {
         say!("  {}", dim(n));
