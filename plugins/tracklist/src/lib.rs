@@ -89,7 +89,8 @@ impl Plugin for Tracklist {
             s.missing
         );
         let edit = json!({ "op": "set_entries", "playlist": import.into, "paths": paths, "create": true });
-        Ok(OpPlan { summary, warnings: warnings(&report, &lib), edits: vec![edit] })
+        // The list it was matched from: the host won't apply the plan once it changes.
+        Ok(OpPlan { summary, warnings: warnings(&report, &lib), edits: vec![edit], inputs: vec![import.file] })
     }
 }
 
