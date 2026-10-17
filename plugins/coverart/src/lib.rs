@@ -152,7 +152,7 @@ impl Plugin for Coverart {
         let edits = covers.into_iter().map(
             |(image, paths)| json!({ "op": "set_artwork", "tracks": { "paths": paths }, "image": { "base64": image } }),
         );
-        Ok(OpPlan { summary, warnings, edits: edits.collect() })
+        Ok(OpPlan { summary, warnings, edits: edits.collect(), inputs: Vec::new() })
     }
 }
 
