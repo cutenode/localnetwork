@@ -79,7 +79,11 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
+      # Only main saves its caches, which pull requests restore. A cache saved by each pull request
+      # would push main's out of the repo's 10 GB.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The TUI's audio output goes through ALSA on Linux. The sqlcipher CLI checks that SQLCipher
       # itself reads what locallibrary encrypts; LOCALLIBRARY_REQUIRE_SQLCIPHER makes those tests
       # fail when they can't find it, where they'd otherwise skip the check (as on Windows).
@@ -121,6 +125,8 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy -p locallibrary-cli --no-default-features --locked -- -D warnings
 
   # The oldest Rust the workspace supports: `rust-version` in Cargo.toml (keep the two in step).
@@ -140,6 +146,8 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install 1.91 --profile minimal
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo +1.91 check --workspace --locked
 
@@ -156,6 +164,8 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The CLI's default `playback` feature builds ALSA's bindings, which need its headers.
       - run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo doc --workspace --no-deps --locked
