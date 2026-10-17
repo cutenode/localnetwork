@@ -111,9 +111,20 @@ impl Drop for Busy<'_> {
     }
 }
 
+/// A debug build with this set counts as not elevated, for CI's Windows runners, which run as an
+/// administrator; a release never reads it.
+#[cfg(debug_assertions)]
+const TEST_NOT_ELEVATED: &str = "LOCALLIBRARY_TEST_NOT_ELEVATED";
+
 /// Whether this process runs elevated (as root, or as an administrator with Windows' elevation).
 fn elevated() -> bool {
-    THREAD_ELEVATED.with(Cell::get).unwrap_or_else(process_elevated)
+    THREAD_ELEVATED.with(Cell::get).unwrap_or_else(|| {
+        #[cfg(debug_assertions)]
+        if std::env::var_os(TEST_NOT_ELEVATED).is_some() {
+            return false;
+        }
+        process_elevated()
+    })
 }
 
 #[cfg(unix)]
