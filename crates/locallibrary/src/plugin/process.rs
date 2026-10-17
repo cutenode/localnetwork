@@ -3,6 +3,7 @@
 
 use std::cell::Cell;
 use std::io::BufReader;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -54,8 +55,9 @@ pub(crate) struct Slot {
     pub(crate) host: Arc<Host>,
     /// The process while it runs. Only ever locked for a moment.
     process: Mutex<Option<Arc<Process>>>,
-    /// Held while a process starts and shakes hands, so one starts at a time.
-    starting: Mutex<()>,
+    /// Held while a process starts (and shakes hands) or stops, so one does at a time: whoever
+    /// stops it next waits for a stop under way, as a host exiting must.
+    changing: Mutex<()>,
 }
 
 /// A plugin's process, once it has shaken hands. Dropping the last of it stops it.
@@ -186,7 +188,7 @@ fn printable(line: &str) -> String {
 
 impl Slot {
     pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
-        Slot { manifest, launch, host, process: Mutex::new(None), starting: Mutex::new(()) }
+        Slot { manifest, launch, host, process: Mutex::new(None), changing: Mutex::new(()) }
     }
 
     /// How errors name it: "the Echo plugin".
@@ -199,18 +201,31 @@ impl Slot {
         Error::External { command: self.label(), message: message.into() }
     }
 
-    /// The plugin's error as locallibrary's: cancelled and invalid params keep their kinds,
-    /// the rest is the plugin failing. Its connection closing means it stopped.
+    /// The plugin's error as locallibrary's, of the kind it says (`not_found`, `invalid`,
+    /// `conflict`) with the fields it gives, naming the plugin: a front end handles it as it
+    /// handles locallibrary's own. `io` and `parse` are about the file `fields.path` names.
+    /// Another kind (or one of those without a file) is the plugin failing, `permission` (a
+    /// plugin never runs elevated, so running locallibrary so can't help) and `stale_plan` (only
+    /// the host's plans go stale) too. Its connection closing means it stopped.
     fn error(&self, p: &Process, e: RpcError) -> Error {
-        match e.kind() {
-            Some("cancelled") => Error::Cancelled,
-            Some("closed") => {
+        let said = format!("{} ({})", e.message, self.label());
+        let fields = e.data.as_ref().map(|d| d.fields.clone()).unwrap_or_default();
+        let file = fields.get("path").and_then(|p| p.as_str()).map(PathBuf::from);
+        let error = match (e.kind(), file) {
+            (Some("cancelled"), _) => return Error::Cancelled,
+            (Some("closed"), _) => {
                 p.dead.store(true, Ordering::SeqCst);
-                self.misbehaved("it stopped unexpectedly")
+                return self.misbehaved("it stopped unexpectedly");
             }
-            _ if e.code == code::INVALID_PARAMS => Error::Invalid(e.message),
-            _ => self.misbehaved(e.message),
-        }
+            _ if e.code == code::INVALID_PARAMS => Error::Invalid(said),
+            (Some("invalid"), _) => Error::Invalid(said),
+            (Some("not_found"), _) => Error::NotFound(said),
+            (Some("conflict"), _) => Error::Conflict(said),
+            (Some("io"), Some(path)) => Error::Io { path, source: std::io::Error::other(said) },
+            (Some("parse"), Some(path)) => Error::Parse { path, message: said },
+            _ => return self.misbehaved(e.message),
+        };
+        fields.into_iter().fold(error, |error, (key, value)| error.with(&key, value))
     }
 
     /// The process, if it's running. Never waits.
@@ -227,7 +242,7 @@ impl Slot {
         if let Some(p) = self.running() {
             return Ok(p);
         }
-        let _one = lock(&self.starting);
+        let _one = lock(&self.changing);
         // Another caller may have started it meanwhile.
         if let Some(p) = self.running() {
             return Ok(p);
@@ -242,8 +257,10 @@ impl Slot {
         Ok(p)
     }
 
-    /// Stops the process, if it's running: see [`Process`]'s drop.
+    /// Stops the process, if it's running (see [`Process`]'s drop), or waits for it to stop if
+    /// that's under way.
     pub(crate) fn stop(&self) {
+        let _one = lock(&self.changing);
         let stopped = lock(&self.process).take();
         drop(stopped);
     }
@@ -255,7 +272,11 @@ impl Slot {
                 self.label()
             )));
         }
-        let mut child = Command::new(&self.launch.program)
+        let mut command = Command::new(&self.launch.program);
+        for var in &self.launch.env_remove {
+            command.env_remove(var);
+        }
+        let mut child = command
             .args(&self.launch.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -407,16 +428,19 @@ fn reap(slot: &Weak<Slot>, process: &Weak<Process>, idle: Duration) {
             continue;
         }
         let Some(slot) = slot.upgrade() else { return };
+        let one = lock(&slot.changing);
         let mut running = lock(&slot.process);
         if !running.as_ref().is_some_and(|r| Arc::ptr_eq(r, &p)) {
             return;
         }
         // Checked again, now that nothing else can take it out.
         if idle_for(&p).is_zero() {
-            // Stopped once nothing else holds it (a hook that has just started still can).
+            // Stopped once nothing else holds it (a hook that has just started still can), while
+            // `changing` is held.
             let stopped = running.take();
             drop(running);
-            drop(stopped);
+            drop((stopped, p));
+            drop(one);
             return;
         }
     }

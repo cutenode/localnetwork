@@ -29,6 +29,9 @@ mod interop;
 mod jobs;
 #[cfg(feature = "peers")]
 mod peers;
+// A release has no test plugin to serve.
+#[cfg(debug_assertions)]
+mod plugins;
 mod profile;
 mod props_cli;
 mod props_cli_account;
@@ -55,15 +58,16 @@ mod tags;
 
 /// `locallibrary`, the binary cargo built for the tests, with its store at `store` and nothing to
 /// read on stdin. It looks for drives only in the folders `volumes` (none: it sees no drive), never
-/// among the ones plugged into the machine (see `LOCALLIBRARY_VOLUMES`). The account settings of
-/// whoever runs the tests don't reach it, nor do their terminal's: it prints as it does piped (no
-/// colour) in a UTF-8 locale.
+/// among the ones plugged into the machine (see `LOCALLIBRARY_VOLUMES`), and has only the plugins
+/// it ships. The account settings of whoever runs the tests don't reach it, nor do their
+/// terminal's: it prints as it does piped (no colour) in a UTF-8 locale.
 fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
     let mut c = Command::cargo_bin("locallibrary").unwrap();
     c.env("LOCALLIBRARY_STORE", store)
         .env("LOCALLIBRARY_VOLUMES", std::env::join_paths(volumes).unwrap())
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
+        .env_remove("LOCALLIBRARY_TEST_PLUGINS")
         .env_remove("CLICOLOR_FORCE")
         .env_remove("TERM")
         .env_remove("LC_ALL")

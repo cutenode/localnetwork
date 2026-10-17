@@ -128,22 +128,38 @@ static PROGRESS: Flusher = Flusher::new();
 static LIBRARIES: api::LibraryCache = api::LibraryCache::new(4);
 
 /// Plans `*.plan` made, until they're applied (once), expire or make room for newer ones. One
-/// lock, shared by every worker: a plan is taken out under it, so two `*.apply` with the same
-/// `plan_id` can't both get it. An apply refused before anything was written puts it back.
+/// lock for each of its caches, shared by every worker: a plan is taken out under it, so two
+/// `*.apply` with the same `plan_id` can't both get it. An apply refused before anything was
+/// written puts it back. Plugins' plans (the `plugins.*` methods') are kept apart, so planning
+/// with plugins never makes one of locallibrary's own go before it's applied.
 #[derive(Default)]
-struct Plans(Mutex<VecDeque<(Instant, Box<dyn AnyPlanned>)>>);
+struct Plans {
+    own: Kept,
+    plugins: Kept,
+}
+
+type Kept = Mutex<VecDeque<(Instant, Box<dyn AnyPlanned>)>>;
 
 impl Plans {
-    fn lock(&self) -> MutexGuard<'_, VecDeque<(Instant, Box<dyn AnyPlanned>)>> {
-        let mut kept = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+    const fn new() -> Plans {
+        Plans { own: Mutex::new(VecDeque::new()), plugins: Mutex::new(VecDeque::new()) }
+    }
+
+    /// The cache the plans the method `method` makes or applies are kept in.
+    fn cache(&self, method: &str) -> &Kept {
+        if method.starts_with(PLUGINS) { &self.plugins } else { &self.own }
+    }
+
+    fn lock(kept: &Kept) -> MutexGuard<'_, VecDeque<(Instant, Box<dyn AnyPlanned>)>> {
+        let mut kept = kept.lock().unwrap_or_else(PoisonError::into_inner);
         kept.retain(|(made, _)| made.elapsed() < PLAN_TTL);
         kept
     }
 
-    /// Keep a plan: `*.plan`'s answer.
-    fn keep(&self, plan: impl AnyPlanned + 'static) -> Result<Value, RpcError> {
+    /// Keep a plan: the answer of `method` (a `*.plan`).
+    fn keep(&self, method: &str, plan: impl AnyPlanned + 'static) -> Result<Value, RpcError> {
         let json = plan.to_json();
-        let mut kept = self.lock();
+        let mut kept = Plans::lock(self.cache(method));
         while kept.len() >= MAX_PLANS {
             kept.pop_front();
         }
@@ -151,29 +167,50 @@ impl Plans {
         Ok(json)
     }
 
-    /// Take out the plan `id` (made by `operation.plan`) to apply it, with when it was made.
-    fn take(&self, id: &str, operation: &str) -> Result<(Instant, Box<dyn AnyPlanned>), RpcError> {
-        let mut kept = self.lock();
-        let i = kept.iter().position(|(_, p)| p.id() == id).ok_or_else(|| {
-            RpcError::new(
+    /// Take out the plan `id` for `method` (a `*.apply` of plans made by `operation.plan`) to
+    /// apply it, with when it was made.
+    fn take(&self, method: &str, id: &str, operation: &str) -> Result<(Instant, Box<dyn AnyPlanned>), RpcError> {
+        let cache = self.cache(method);
+        let mut kept = Plans::lock(cache);
+        let Some(i) = kept.iter().position(|(_, p)| p.id() == id) else {
+            drop(kept);
+            // One the other cache has is for other applies.
+            let other = if std::ptr::eq(cache, &self.own) { &self.plugins } else { &self.own };
+            if let Some((_, plan)) = Plans::lock(other).iter().find(|(_, p)| p.id() == id) {
+                return Err(invalid_params(format!("plan {id} is a {} plan, not {operation}", plan.operation())));
+            }
+            return Err(RpcError::new(
                 FAILED,
                 "stale_plan",
                 format!(
                     "there's no plan {id}: it was applied already (or failed while being applied), it expired, or \
                      the sidecar restarted; plan again"
                 ),
-            )
-        })?;
+            ));
+        };
         let made = kept[i].1.operation();
-        if made != operation {
+        if applied_as(method, made) != operation {
             return Err(invalid_params(format!("plan {id} is a {made} plan, not {operation}")));
         }
         Ok(kept.remove(i).expect("found above"))
     }
 
-    /// Keep a plan [`Plans::take`] took out again, as when it was made.
-    fn put_back(&self, made: Instant, plan: Box<dyn AnyPlanned>) {
-        self.lock().push_back((made, plan));
+    /// Keep a plan [`Plans::take`] took out for `method` again, as when it was made.
+    fn put_back(&self, method: &str, made: Instant, plan: Box<dyn AnyPlanned>) {
+        Plans::lock(self.cache(method)).push_back((made, plan));
+    }
+}
+
+/// The operation (see [`methods::Method::operation`]) of the `.apply` that applies a plan of
+/// `operation`, for `method`: the plan's own, but a plugin's operation (`<plugin>.<operation>`) is
+/// `plugins.op`'s and its export (`<plugin>.export.<format>`) `plugins.export`'s.
+fn applied_as<'a>(method: &str, operation: &'a str) -> &'a str {
+    if !method.starts_with(PLUGINS) {
+        return operation;
+    }
+    match operation.split('.').collect::<Vec<_>>()[..] {
+        [_, "export", _] => "plugins.export",
+        _ => "plugins.op",
     }
 }
 
@@ -582,11 +619,22 @@ pub fn serve(store_root: PathBuf, workers: usize) -> anyhow::Result<()> {
     server.jobs.wait_idle();
     // A signal sets the exit status, even when input closed while it was being handled.
     if let Some(signal) = server.jobs.lock().signal {
+        stop_plugins();
         exit_after_signal(&server.out, signal);
     }
     match failed {
         Some(e) => Err(anyhow::Error::new(e).context("reading requests")),
         None => Ok(()),
+    }
+}
+
+/// Stops the plugins running, each given its grace to exit: before exiting on a signal (`main`
+/// stops them otherwise). Not on a second signal, which exits at once. A signal and closed input
+/// can bring two threads here (or one here and `main`) at once: each returns only once the
+/// plugins have stopped, whichever stopped them.
+fn stop_plugins() {
+    if let Ok(plugins) = crate::plugins::host() {
+        plugins.shutdown();
     }
 }
 
@@ -614,6 +662,7 @@ fn watch_signals(server: &Server) -> anyhow::Result<()> {
         std::thread::spawn(move || {
             jobs.interrupt(signal);
             jobs.wait_idle();
+            stop_plugins();
             exit_after_signal(&out, signal);
         });
     };
@@ -832,6 +881,26 @@ impl Server {
             jobs.finish(key, &out, (!id.is_null()).then(|| response(&id, result)).as_ref());
         }));
     }
+}
+
+/// What the methods about plugins are named with: their plans are kept apart (see [`Plans`]).
+const PLUGINS: &str = "plugins.";
+
+/// The namespaces of the sidecar's methods: `drive` for `drive.info`.
+pub fn namespaces() -> Vec<&'static str> {
+    registry().names().into_iter().filter_map(|n| n.split('.').next()).collect()
+}
+
+/// Runs the read method `method` on this thread, as a worker would: plugins' callbacks (see
+/// [`crate::plugins`]). Any other method is refused.
+pub fn read(method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcError> {
+    // Reads keep no plans.
+    static NONE: Plans = Plans::new();
+    let m = registry().get(method).filter(|m| m.kind == Kind::Read && !m.hidden);
+    let m = m.ok_or_else(|| RpcError::method_not_found(method))?;
+    let root = api::store_root().unwrap_or_else(locallibrary::Store::default_root);
+    let call = Call { root: &root, plans: &NONE, ctx };
+    m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(method)))
 }
 
 fn response(id: &Value, result: Result<Value, RpcError>) -> Value {

@@ -687,7 +687,8 @@ fn reads_keep_the_library_until_it_changes_and_come_in_pieces() {
 }
 
 /// Several tracks' analyses come in one request, without scrolling waveforms, up to a cap; the
-/// fields analyzer plugins kept are read without making a store when there's none.
+/// fields analyzer plugins kept are read without making a store when there's none, and only
+/// those of plugins locallibrary has.
 #[test]
 fn analyses_of_several_tracks_and_plugin_fields() {
     let mut s = Sidecar::start();
@@ -713,9 +714,9 @@ fn analyses_of_several_tracks_and_plugin_fields() {
     let bpm: Fields = [("bpm".to_string(), FieldValue::Number(128.0))].into_iter().collect();
     let tempo = Analyzer { plugin: "analysis".into(), version: "0.1.0".into(), analyzer: "tempo".into() };
     fields.put(&audio, &tempo, &bpm).unwrap();
-    let plugins = json!({ "analysis": { "tempo": { "bpm": 128.0 } } });
-    let kept = json!({ "tracks": [{ "track": 1, "plugins": plugins }], "missing": [] });
-    assert_eq!(s.call(6, "track.fields", json!({ "drive": a }))["result"], kept);
+    // Only the fields of plugins locallibrary has are read, and it has none here (tests/it/plugins.rs
+    // gives it the test plugin).
+    assert_eq!(s.call(6, "track.fields", json!({ "drive": a }))["result"], nothing);
     let other = s.call(7, "track.fields", json!({ "drive": a, "tracks": [2, 404, 1], "plugin": "other" }));
     assert_eq!(other["result"], json!({ "tracks": [], "missing": [404] }));
     assert!(s.exit().success());

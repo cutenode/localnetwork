@@ -37,7 +37,8 @@ playback = ["tui", "rodio/playback"]
 locallibrary.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
-clap.workspace = true
+# `string`: the commands, flags and formats plugins add are named at run time.
+clap = { workspace = true, features = ["string"] }
 clap_complete.workspace = true
 clap_mangen.workspace = true
 console.workspace = true
@@ -70,6 +71,8 @@ rustc-hash.workspace = true
 indexmap.workspace = true
 # The RPC sidecar's framing, error codes and invalid_params errors, shared with the plugin protocol.
 loclib-plugin.workspace = true
+# The test plugin the CLI's tests register (`LOCALLIBRARY_TEST_PLUGINS`) reports progress with it.
+loclib-progress.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # Sending a long listing through a pager (dup2), and SIGPIPE for output piped into `head`.

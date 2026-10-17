@@ -1554,7 +1554,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -3936,6 +3936,7 @@ dependencies = [
  "locallibrary",
  "loclib-mixid",
  "loclib-plugin",
+ "loclib-progress",
  "loclib-waveform",
  "ratatui",
  "rekordbox-pdb",
@@ -3953,6 +3954,21 @@ dependencies = [
  "unicode-width 0.2.2",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "locallibrary-plugin-coverart"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -6257,7 +6273,9 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "h2",
  "http",
  "http-body",
@@ -6783,6 +6801,7 @@ version = "1.0.151"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",
