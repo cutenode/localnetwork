@@ -295,7 +295,8 @@ fn an_operation_is_planned_confirmed_applied_and_undone() {
         assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
     }
     say_yes(&mut app);
-    assert!(last_message(&app).contains("u to undo"), "{}", last_message(&app));
+    // Not echoed on failure: CodeQL takes a toast written after an apply for something secret.
+    assert!(last_message(&app).contains("u to undo"));
     let has = |app: &App| app.loaded.as_ref().unwrap().library.playlists.iter().any(|p| p.name == "Plugged");
     assert!(has(&app), "read again");
     press(&mut app, "u");
