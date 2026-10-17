@@ -65,7 +65,12 @@ pushes to `main` that change the workspace (not when only Markdown changed):
 - the MSRV check, and the docs build with warnings denied;
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) with `deny.toml`: RustSec advisories
   (each ignored one says why), banned crates (OpenSSL: TLS goes through rustls) and crate
-  sources, and that every shipped dependency's licence is one `deny.toml` allows.
+  sources, and that every shipped dependency's licence is one `deny.toml` allows;
+- on pull requests that change a `loclib-*` crate,
+  [cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks) against the branch the
+  pull request merges into. Breaking changes to a crate's public API don't fail it: the run's
+  summary lists them, for deciding the crate's next version.
+  `cargo semver-checks -p loclib-progress --baseline-rev origin/main` runs it locally.
 
 `.github/workflows/locallibrary-scheduled.yml` runs the slow suites every Monday, and on any
 branch from the Actions tab (locallibrary scheduled, Run workflow):
