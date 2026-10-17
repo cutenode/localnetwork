@@ -76,12 +76,12 @@ fn what_is_typed_becomes_the_params() {
     let mut f = form(
         r#"params = { type = "object", properties = { bpm = { type = "number" }, ids = { type = "array", items = { type = "integer" } }, pick = { type = "object", additionalProperties = { type = "integer" } }, file = { type = "string", x-path = true }, note = { type = "string" } } }"#,
     );
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = std::env::home_dir().unwrap();
     let params = filled(&mut f, &["120.5", "1, #2,3,", "1=4, 2=5", "~/list.m3u", ""]).unwrap();
     assert_eq!(params["bpm"], json!(120.5));
     assert_eq!(params["ids"], json!([1, 2, 3]));
     assert_eq!(params["pick"], json!({ "1": 4, "2": 5 }));
-    assert_eq!(params["file"], json!(format!("{home}/list.m3u")));
+    assert_eq!(params["file"], json!(home.join("list.m3u")));
     assert!(params.get("note").is_none());
     assert_eq!(filled(&mut f, &["fast"]).unwrap_err(), (0, "bpm takes a number, not \"fast\"".into()));
     assert_eq!(filled(&mut f, &["", "1", "4"]).unwrap_err(), (2, "pick takes KEY=VALUE, not \"4\"".into()));
