@@ -32,7 +32,10 @@ export const DIRECTORY = {
 	getProjects: `${NS}.directory.getProjects`,
 	getStats: `${NS}.directory.getStats`,
 	getSets: `${NS}.directory.getSets`,
-	listSets: `${NS}.directory.listSets`
+	listSets: `${NS}.directory.listSets`,
+	getCharts: `${NS}.directory.getCharts`,
+	getArtist: `${NS}.directory.getArtist`,
+	searchArtists: `${NS}.directory.searchArtists`
 } as const;
 
 export const SPACE_TYPE = {

@@ -14,6 +14,8 @@ import epkContent from '../../../../../../lexicons/computer/localnetwork/epk/con
 import epkDefs from '../../../../../../lexicons/computer/localnetwork/epk/defs.json' with { type: 'json' };
 import epkGrant from '../../../../../../lexicons/computer/localnetwork/epk/grant.json' with { type: 'json' };
 import epkRequest from '../../../../../../lexicons/computer/localnetwork/epk/request.json' with { type: 'json' };
+import getArtist from '../../../../../../lexicons/computer/localnetwork/directory/getArtist.json' with { type: 'json' };
+import getCharts from '../../../../../../lexicons/computer/localnetwork/directory/getCharts.json' with { type: 'json' };
 import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
 import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
 import getSets from '../../../../../../lexicons/computer/localnetwork/directory/getSets.json' with { type: 'json' };
@@ -22,6 +24,7 @@ import listSets from '../../../../../../lexicons/computer/localnetwork/directory
 import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
 import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
 import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
+import searchArtists from '../../../../../../lexicons/computer/localnetwork/directory/searchArtists.json' with { type: 'json' };
 import searchProjects from '../../../../../../lexicons/computer/localnetwork/directory/searchProjects.json' with { type: 'json' };
 import decision from '../../../../../../lexicons/computer/localnetwork/moderation/decision.json' with { type: 'json' };
 import request from '../../../../../../lexicons/computer/localnetwork/moderation/request.json' with { type: 'json' };
@@ -74,6 +77,9 @@ export const LEXICON_DOCS = [
 	getStats,
 	getSets,
 	listSets,
+	getCharts,
+	getArtist,
+	searchArtists,
 	djDefs,
 	djSet
 ].map((doc) => parseLexiconDoc(doc));

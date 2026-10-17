@@ -2,8 +2,10 @@
 	import { ExternalLink } from '@lucide/svelte';
 	import { type DjSet, setPlace, trackBpm } from '#lib/dj.ts';
 	import { clock } from '#lib/mix/report.ts';
+	import { musicBrainzUrl, trackArtists } from '#lib/supports.ts';
 	import DateBlock from '#lib/ui/DateBlock.svelte';
 	import Tag from '#lib/ui/Tag.svelte';
+	import ArtistLinks from './supports/ArtistLinks.svelte';
 
 	/** Sets a DJ played, newest first, each with its tracklist folded away under it. */
 	let { sets, limit = 5 }: { sets: DjSet[]; limit?: number } = $props();
@@ -36,9 +38,14 @@
 					<summary class="cursor-pointer text-small text-fg-muted marker:text-fg-subtle hover:text-fg">Tracklist</summary>
 					<ol class="m-0 mt-2 list-none p-0">
 						{#each set.tracks as track, i (i)}
+							{@const artists = track.unidentified ? [] : trackArtists(track)}
 							<li class="grid grid-cols-[3rem_minmax(0,1fr)_auto_2.5rem] items-baseline gap-3 py-1.5 text-small">
 								<span class="font-mono text-caption text-fg-subtle">{track.startSeconds === undefined ? i + 1 : clock(track.startSeconds)}</span>
-								<span class="min-w-0"><span class="font-semibold">{track.unidentified ? 'Unreleased' : (track.title ?? 'Untitled')}</span>{#if track.artist}{" "}<span class="text-fg-muted">{track.artist}</span>{/if}</span>
+								<span class="min-w-0"
+									><span class="font-semibold"
+										>{track.unidentified ? 'Unreleased' : (track.title ?? 'Untitled')}{#if track.recordingMbId && !track.unidentified}{' '}<a class="inline-flex text-fg-subtle hover:text-fg" href={musicBrainzUrl('recording', track.recordingMbId)} rel="noopener noreferrer" target="_blank" aria-label="{track.title ?? 'Track'} on MusicBrainz"><ExternalLink class="size-3" /></a>{/if}</span
+									>{#if artists.length}{' '}<ArtistLinks {artists} />{/if}</span
+								>
 								<span class="font-mono text-caption text-fg-muted max-sm:hidden">{trackBpm(track.bpmCentis) ?? ''}</span>
 								<span class="text-center font-mono text-caption">{track.key ?? ''}</span>
 							</li>

@@ -38,6 +38,27 @@ describe('djSetSchema', () => {
 		expect(djSetSchema.safeParse({ date: '2026-09-26' }).success).toBe(false);
 	});
 
+	it("keeps a track's IDs and artists, with MusicBrainz IDs as bare lowercase UUIDs", () => {
+		const set = djSetSchema.parse({
+			...DEMO_DJ_SETS[0],
+			tracks: [
+				{
+					...DEMO_DJ_SETS[0].tracks[0],
+					releaseMbId: 'not an id',
+					artists: [{ artistName: 'Ferrule', artistMbId: '2A8E4F60-1C3B-4D7E-9A05-6B1F0C2D3E41' }]
+				}
+			]
+		});
+
+		expect(set.tracks[0]).toMatchObject({
+			title: 'Night Bus',
+			isrc: 'DEA622600101',
+			recordingMbId: '6f1c2d84-3b9e-4c1a-9d57-0e2b8a4f7c31',
+			artists: [{ artistName: 'Ferrule', artistMbId: '2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41' }]
+		});
+		expect(set.tracks[0].releaseMbId).toBeUndefined();
+	});
+
 	it('leaves out a link that isn’t a URL', () => {
 		const set = djSetSchema.parse({ ...DEMO_DJ_SETS[2], links: [{ uri: 'not a url' }] });
 
