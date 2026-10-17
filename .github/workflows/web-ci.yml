@@ -33,6 +33,7 @@ jobs:
     # The API lists at most 3000 of a pull request's files, so one that size runs everything.
     outputs:
       run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true' }}
+      lighthouse: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.lighthouse == 'true' }}
     steps:
       # A pull request's files come from the API; a push is diffed against the commit before it.
       - if: github.event_name == 'push'
@@ -42,6 +43,7 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
+          predicate-quantifier: some-with-excludes
           filters: |
             run:
               - 'apps/web/**'
@@ -58,6 +60,38 @@ jobs:
               - '.oxfmtrc.json'
               - 'tools/oxlint/**'
               - '.github/workflows/web-ci.yml'
+            # What the pages Lighthouse measures are built and served from: the app's code, static
+            # files and Lua (HappyView answers the directory's queries), the dev network and seed
+            # data it measures them on, its build and Lighthouse config, the dependencies, and the
+            # README and guides of the one tool page lighthouserc.cjs visits (add a tool here when
+            # its page goes in there). Left out: the app's tests and the helpers and fixture only
+            # they import (src/lib/server/testing, the mix fixture), stories and Storybook docs, and
+            # everything outside these paths (tests/, .storybook/, the lint and format configs, the
+            # website's README, the Dockerfile).
+            lighthouse:
+              - 'apps/web/src/**'
+              - 'apps/web/static/**'
+              - 'apps/web/lua/**'
+              - 'apps/web/scripts/**'
+              - 'apps/web/package.json'
+              - 'apps/web/vite.config.ts'
+              - 'apps/web/tsconfig.json'
+              - 'apps/web/lighthouserc.cjs'
+              - 'apps/locallibrary/README.md'
+              - 'apps/locallibrary/docs/*.md'
+              - 'packages/tokens/**'
+              - 'lexicons/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.node-version'
+              - '.github/workflows/web-ci.yml'
+              - '!apps/web/**/*.test.ts'
+              - '!apps/web/**/*.spec.ts'
+              - '!apps/web/**/*.stories.svelte'
+              - '!apps/web/**/*.mdx'
+              - '!apps/web/src/lib/server/testing/**'
+              - '!apps/web/src/lib/mix/fixtures/**'
 
   # `pnpm test:build` builds the app and checks what ships to the browser: no sourcemaps, and the
   # client bundle within its budget.
@@ -143,12 +177,13 @@ jobs:
           path: apps/web/playwright-report/
 
   # Lighthouse on the production build, with the e2e tests' network and seeded projects behind it,
-  # against the floors and budgets in lighthouserc.cjs. The reports go to this run's artifacts,
-  # not to a Lighthouse server.
+  # against the floors and budgets in lighthouserc.cjs, when something the pages are built from
+  # changed (the changes job's lighthouse filter). The scores and any failed assertion go to the
+  # run's summary and the reports to its artifacts, not to a Lighthouse server.
   lighthouse:
     name: Lighthouse
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: needs.changes.outputs.lighthouse == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -169,6 +204,28 @@ jobs:
       - name: Pull the HappyView image (scripts/lib/happyview.ts)
         run: docker pull ghcr.io/gamesgamesgamesgamesgames/happyview:2.16.0
       - run: pnpm test:lighthouse
+      # Each page's scores from the run lhci reports as representative (its median), then each
+      # assertion that failed: lhci writes both even when one does.
+      - name: Scores to the run's summary
+        if: ${{ !cancelled() && hashFiles('apps/web/lighthouse-report/manifest.json') != '' }}
+        run: |
+          {
+            echo "## Lighthouse"
+            echo
+            echo "| Page | Performance | Accessibility | Best practices | SEO |"
+            echo "| --- | ---: | ---: | ---: | ---: |"
+            jq -r '.[] | select(.isRepresentativeRun) | .summary as $s
+              | "| \(.url | sub("^https?://[^/]+"; "")) | \([$s.performance, $s.accessibility, $s["best-practices"], $s.seo]
+                | map(. * 100 | round) | join(" | ")) |"' lighthouse-report/manifest.json
+            # An empty list when every assertion passed.
+            if jq -e 'length > 0' .lighthouseci/assertion-results.json > /dev/null 2>&1; then
+              echo
+              echo "Failed:"
+              echo
+              jq -r '.[] | "- \(.url | sub("^https?://[^/]+"; "")): \(.auditId)\(.auditProperty // "" | if . != "" then ".\(.)" else "" end)"
+                + " was \(.actual * 100 | round / 100), expected \(.operator) \(.expected)"' .lighthouseci/assertion-results.json
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
