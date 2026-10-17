@@ -606,6 +606,19 @@ impl Outputs {
     pub const NONE: Outputs =
         Outputs { list: || (Vec::new(), None), open: |_| anyhow::bail!("no audio output device") };
 
+    /// One that plays to no one, in real time (see [`Audio::silent`]).
+    pub const SILENT: Outputs = Outputs { list: || (Vec::new(), None), open: |_| Ok(Audio::silent()) };
+
+    /// The machine's devices, or [`Outputs::SILENT`] when `$LOCALLIBRARY_AUDIO` is `silent`: a
+    /// test switch, for harnesses that play tracks in the player (the AT Store screenshots) and
+    /// mustn't be heard.
+    pub fn from_env() -> Outputs {
+        match std::env::var_os("LOCALLIBRARY_AUDIO") {
+            Some(v) if v == "silent" => Outputs::SILENT,
+            _ => Outputs::DEVICES,
+        }
+    }
+
     /// Open the output called `name` (the default one for `None`), else the default. Also says
     /// why the one asked for didn't open.
     pub fn open_preferring(self, name: Option<&str>) -> (Result<Audio>, Option<String>) {
@@ -699,7 +712,6 @@ pub struct Audio {
 
 impl Audio {
     /// Playing into `mixer`, with no device.
-    #[cfg(any(test, feature = "playback"))]
     fn with(mixer: Mixer) -> Audio {
         Audio {
             #[cfg(feature = "playback")]
@@ -719,11 +731,31 @@ impl Audio {
         self.device.as_deref()
     }
 
-    /// For tests: no device; what plays is read from the mixer returned, mono at `rate`.
-    #[cfg(test)]
+    /// No device: what plays is read from the mixer returned, mono at `rate`.
     pub fn offline(rate: u32) -> (Audio, rodio::mixer::MixerSource) {
         let (mixer, out) = rodio::mixer::mixer(ChannelCount::MIN, SampleRate::new(rate).unwrap());
         (Audio::with(mixer), out)
+    }
+
+    /// No device, with a thread of its own reading what plays as fast as a device would and
+    /// throwing it away, so the playhead and the visualisers move as they do through speakers.
+    /// The thread lasts as long as the process: [`Outputs::SILENT`] lists no outputs to switch to,
+    /// so it's opened once a run.
+    fn silent() -> Audio {
+        const RATE: u32 = 44_100;
+        /// A hundredth of a second of samples, read at a time.
+        const CHUNK: usize = RATE as usize / 100;
+        let (audio, mut out) = Audio::offline(RATE);
+        std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            for n in 1u32.. {
+                out.by_ref().take(CHUNK).for_each(drop);
+                std::thread::sleep(
+                    (start + Duration::from_millis(10) * n).saturating_duration_since(std::time::Instant::now()),
+                );
+            }
+        });
+        audio
     }
 
     /// Start playing an opened file (from the beginning, or where auto cue put it), replacing

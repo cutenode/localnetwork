@@ -401,7 +401,8 @@ their old names.
   unmounts.
 - `LOCALLIBRARY_VOLUMES` is a test switch: it also hides drives the store knows outside its
   folders, `drive disks` and `format` refuse while it's set, it lists each volume once without
-  the boot volume, and every command warns when it's set.
+  the boot volume, and every command warns when it's set. `LOCALLIBRARY_AUDIO=silent`, another,
+  has the player play to no output at all, in real time, so a harness can play tracks unheard.
 - The sidecar refuses relative paths to write to (`art.embed.*` files included), `mix.export`
   refuses to replace a file without `replace: true`, `drive.reidentify` is a `.plan`/`.apply` pair
   (the old name still works), a second SIGINT or SIGTERM waits for a database swap under way,

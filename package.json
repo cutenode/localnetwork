@@ -13,7 +13,8 @@
 		"lexicons:format": "oxfmt lexicons/computer",
 		"test": "pnpm -r test",
 		"knip": "pnpm -r knip",
-		"verify": "pnpm lexicons:format --check && pnpm -r verify"
+		"verify": "pnpm lexicons:format --check && pnpm -r verify",
+		"atstore": "pnpm -C packages/atstore assets"
 	},
 	"devDependencies": {
 		"@oxlint/plugins": "1.86.0",

@@ -17,6 +17,7 @@ apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its
 lexicons/             Every tool's lexicons (computer.localnetwork.*), plus copies of others' they use
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 packages/tokens/      Shared colours for DJ data
+packages/atstore/     Makes each tool's AT Store listing pictures (pnpm atstore)
 vendor/               Vendored Rust crates
 tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
 ```
@@ -33,6 +34,7 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
+pnpm atstore                 # each tool's AT Store icon, hero and screenshots (packages/atstore)
 
 cargo build                  # locallibrary
 cargo test --workspace --locked
