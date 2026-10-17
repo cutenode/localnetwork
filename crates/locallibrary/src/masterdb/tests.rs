@@ -2,7 +2,7 @@ use rusqlite::params;
 
 use super::*;
 use crate::model::Playlist;
-use crate::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SQLITE_MAGIC};
+use crate::onelibrary::cipher::{Codec, PAGE_SIZE, RESERVE, SALT_LEN, SQLITE_MAGIC};
 
 /// Columns every table but `djmdProperty` ends with.
 const STATS: &str = "UUID VARCHAR(255), rb_data_status INTEGER DEFAULT 0, rb_local_data_status INTEGER DEFAULT 0, \
@@ -139,8 +139,16 @@ impl Fixture {
 
     /// The database encrypted as rekordbox does, under `key`.
     pub(crate) fn encrypted(&self, key: &str) -> Vec<u8> {
-        Codec::with_key(key.as_bytes(), [9; 16]).encrypt(&self.plain()).unwrap()
+        codec(key).encrypt(&self.plain()).unwrap()
     }
+}
+
+/// A codec under `key` with a fresh salt, as a new file gets one: a file's salt is read back from
+/// it, so no test depends on which.
+fn codec(key: &str) -> Codec {
+    let mut salt = [0; SALT_LEN];
+    getrandom::fill(&mut salt).unwrap();
+    Codec::with_key(key.as_bytes(), salt)
 }
 
 /// Three tracks (and a deleted one), a folder with a playlist, an intelligent playlist, a
@@ -290,7 +298,7 @@ fn a_damaged_page_is_reported_as_master_dbs() {
 fn a_damaged_b_tree_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let f = sample();
-    let codec = Codec::with_key(DEFAULT_KEY.as_bytes(), [9; 16]);
+    let codec = codec(DEFAULT_KEY);
     let bytes = crate::onelibrary::tests::with_broken_table(&f.conn, &codec, f.plain(), "djmdCue");
     let path = write(dir.path(), &bytes);
     let err = open(&path, DEFAULT_KEY).unwrap_err().to_string();
@@ -308,7 +316,7 @@ fn a_plain_database_reads_as_it_is() {
 fn committed_wal_frames_are_replayed_and_the_original_is_left_alone() {
     let dir = tempfile::tempdir().unwrap();
     let f = sample();
-    let codec = Codec::with_key(DEFAULT_KEY.as_bytes(), [9; 16]);
+    let codec = codec(DEFAULT_KEY);
     let before = f.plain();
     f.exec("UPDATE djmdContent SET Title = 'One More Time (WAL)' WHERE ID = '84935471'");
     f.track("5", "/Users/dj/Music/New.mp3", "Newcomer", "Added Later");
@@ -958,7 +966,8 @@ fn a_collection_reads_with_the_changes_its_wal_holds(tc: hegel::TestCase) {
             copied
         }
         true => {
-            let codec = Codec::with_key(DEFAULT_KEY.as_bytes(), [9; 16]);
+            let codec =
+                Codec::with_key(DEFAULT_KEY.as_bytes(), tc.draw(gs::arrays::<_, _, SALT_LEN>(gs::integers::<u8>())));
             let before = f.plain();
             change(&f.conn);
             let after = f.plain();
@@ -1060,7 +1069,7 @@ fn values_of_any_sqlite_type_read_as_what_they_say(tc: hegel::TestCase) {
 fn a_collection_that_cant_be_trusted_is_refused(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
-    let codec = Codec::with_key(DEFAULT_KEY.as_bytes(), [9; 16]);
+    let codec = Codec::with_key(DEFAULT_KEY.as_bytes(), tc.draw(gs::arrays::<_, _, SALT_LEN>(gs::integers::<u8>())));
     let tables: Vec<&str> = TABLES.iter().map(|(name, _)| *name).collect();
     // Each kind of damage, once a case.
     for kind in 0..4 {
