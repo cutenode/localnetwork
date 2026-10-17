@@ -26,7 +26,8 @@ const permissions = new IncludeScope(PERMISSIONS);
  * stay explicit: a permission set can only hold repo, rpc, and space permissions. Nothing grants
  * reading other users' data; the app reads shared spaces with credentials issued to the root
  * authority. The base fallback is plain `atproto`, since without spaces the root account writes and
- * uploads everything on the user's behalf.
+ * uploads everything on the user's behalf. Posting a bug report to userinput.app is asked for only
+ * when someone first sends one, so it stays out of `full` and never sends anyone back through sign-in.
  */
 export const SCOPES = {
 	full: [
@@ -35,7 +36,8 @@ export const SCOPES = {
 		'blob?accept=image/jpeg&accept=image/png&accept=image/webp&accept=application/json',
 		permissions.toString()
 	].join(' '),
-	base: 'atproto'
+	base: 'atproto',
+	bugReport: 'repo:app.userinput.discussion?action=create'
 };
 
 /**
@@ -124,7 +126,8 @@ export class OAuthService {
 
 	constructor(private readonly deps: { config: Config; db: Db; logger: Logger }) {
 		this.client = new NodeOAuthClient({
-			clientMetadata: clientMetadata(deps.config, this.scopes.full),
+			// Lists every scope a sign-in may ask for: the PDS refuses any request beyond it.
+			clientMetadata: clientMetadata(deps.config, `${this.scopes.full} ${this.scopes.bugReport}`),
 			allowHttp: deps.config.dev,
 			plcDirectoryUrl: deps.config.plcUrl,
 			handleResolver: deps.config.handleResolverUrl,
@@ -139,20 +142,22 @@ export class OAuthService {
 	}
 
 	/**
-	 * Starts an authorization. If the user's PDS rejects the spaces scopes
-	 * (it does not run the spaces alpha yet), falls back to plain `atproto`
-	 * and the root account writes on the user's behalf.
+	 * Starts an authorization, asking for `extra` scopes too. If the user's PDS rejects the spaces
+	 * scopes (it does not run the spaces alpha yet), falls back to plain `atproto` and the root
+	 * account writes on the user's behalf.
 	 */
-	async authorize(handle: string, state: string): Promise<URL> {
+	async authorize(handle: string, state: string, extra?: string): Promise<URL> {
+		const scope = (base: string) => (extra ? `${base} ${extra}` : base);
+
 		try {
-			return await this.client.authorize(handle, { scope: this.scopes.full, state });
+			return await this.client.authorize(handle, { scope: scope(this.scopes.full), state });
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 
 			if (!/scope/i.test(message)) throw error;
 			this.deps.logger.info({ handle, err: error }, 'PDS rejected spaces scopes; using base scope');
 
-			return this.client.authorize(handle, { scope: this.scopes.base, state });
+			return this.client.authorize(handle, { scope: scope(this.scopes.base), state });
 		}
 	}
 

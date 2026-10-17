@@ -58,6 +58,7 @@ export interface RepoClient {
 	}): Promise<{ records: ListedSpaceRecord[]; cursor?: string }>;
 	uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson>;
 	/** Records in the account's own public repo. */
+	createRecord(input: { collection: string; record: JsonRecord }): Promise<RecordRef>;
 	putRecord(input: {
 		collection: string;
 		rkey: string;
@@ -206,6 +207,12 @@ export class AgentRepoClient implements RepoClient {
 			if (isNotFound(error)) return null;
 			throw error;
 		}
+	}
+
+	async createRecord(input: { collection: string; record: JsonRecord }) {
+		const { data } = await this.agent.com.atproto.repo.createRecord({ repo: this.did, ...input });
+
+		return { uri: data.uri, cid: data.cid };
 	}
 
 	async putRecord(input: { collection: string; rkey: string; record: JsonRecord; swapRecord?: string | null }) {

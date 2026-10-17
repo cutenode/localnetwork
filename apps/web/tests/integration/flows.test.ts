@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
+import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { COLLECTION, SPACE_TYPE } from '../../src/lib/nsid.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
 import { ForbiddenError, UserError } from '../../src/lib/server/core.ts';
@@ -518,6 +519,30 @@ describe('Local Network on a real atproto spaces network', () => {
 		const entries = await net.app.audit.list({ actor: remy.did });
 		expect(entries.length).toBeGreaterThanOrEqual(10);
 		expect(entries.filter((entry) => entry.actorStatus !== 'verified')).toEqual([]);
+	});
+
+	it('posts a bug report to userinput.app from the account that approved it, and only once they have', async () => {
+		const sol = net.user('sol');
+		const report = { title: 'The map is blank', body: 'On /match it never loads.' };
+		await net.signInWithOAuth('sol');
+		expect(await net.app.bugReports.canPost(sol.did)).toBe(false);
+		await expect(net.app.bugReports.post(sol.did, report)).rejects.toThrow('Missing required scope');
+		// Approving it later keeps everything else they'd approved.
+		await net.signInWithOAuth('sol', undefined, net.app.oauth.scopes.bugReport);
+		expect(await net.app.bugReports.canPost(sol.did)).toBe(true);
+		expect((await net.viewer('sol')).spacesCapable).toBe(true);
+
+		const url = await net.app.bugReports.post(sol.did, report);
+
+		const [, rkey] = url.split(`https://userinput.app/d/${sol.did}/`);
+
+		const read = (repo: string, collection: string, key: string) =>
+			sol.agent.com.atproto.repo.getRecord({ repo, collection, rkey: key });
+
+		const { data } = await read(sol.did, USERINPUT.discussion, rkey);
+		const { data: space } = await read(net.rootDid, USERINPUT.space, net.app.config.userinputSpace!.split('/').at(-1)!);
+
+		expect(data.value).toMatchObject({ ...report, tags: ['bug', 'web'], space: { uri: space.uri, cid: space.cid } });
 	});
 
 	it('files on behalf of accounts whose PDS lacks spaces support, and says so in the audit log', async () => {

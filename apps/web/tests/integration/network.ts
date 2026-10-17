@@ -4,6 +4,7 @@ import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
 import { type HappyView, startHappyView } from '../../scripts/lib/happyview.ts';
+import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { publishLexicons } from '../../src/lib/server/atproto/lexicons.ts';
 import { grantsAll } from '../../src/lib/server/atproto/oauth.ts';
 import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
@@ -50,6 +51,13 @@ export class TestNetwork {
 		// declarations it needs to grant the app's OAuth scopes.
 		pds.ctx.cfg.lexicon.didAuthority = asDid(root.data.did);
 		await publishLexicons(rootAgent);
+
+		const { data: userinputSpace } = await rootAgent.com.atproto.repo.createRecord({
+			repo: root.data.did,
+			collection: USERINPUT.space,
+			record: { $type: USERINPUT.space, name: 'Local Network', createdAt: new Date().toISOString() }
+		});
+
 		const users = new Map<string, TestUser>();
 
 		for (const name of names) {
@@ -75,7 +83,8 @@ export class TestNetwork {
 			ADMIN_DIDS: (options.admins ?? []).map((name) => users.get(name)!.did).join(','),
 			SYNC_NOTIFY: 'false',
 			GEOCODER: 'none',
-			AUDIT_MAX_ATTEMPTS: '3'
+			AUDIT_MAX_ATTEMPTS: '3',
+			USERINPUT_SPACE: userinputSpace.uri
 		});
 
 		const app = await createApp({
@@ -99,10 +108,11 @@ export class TestNetwork {
 
 	/**
 	 * Signs a user in through the app's OAuth client and records the login like the callback does.
-	 * `approve` narrows what they consent to, as the PDS lets people do. Returns the granted scope.
+	 * `approve` narrows what they consent to, as the PDS lets people do, and `extra` asks for more than
+	 * sign-in does. Returns the granted scope.
 	 */
-	async signInWithOAuth(name: string, approve?: string): Promise<string> {
-		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve);
+	async signInWithOAuth(name: string, approve?: string, extra?: string): Promise<string> {
+		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve, extra);
 		await this.recordLogin(name, scope);
 
 		return scope;
@@ -159,8 +169,14 @@ export class TestNetwork {
  * way its authorization page does in a browser, then swaps their client for the OAuth session.
  * Returns the granted scope.
  */
-async function signInWithOAuth(app: App, user: TestUser, password: string, approve?: string): Promise<string> {
-	const page = await app.oauth.authorize(user.handle, '{}');
+async function signInWithOAuth(
+	app: App,
+	user: TestUser,
+	password: string,
+	approve?: string,
+	extra?: string
+): Promise<string> {
+	const page = await app.oauth.authorize(user.handle, '{}', extra);
 	// The page's scripts normally pick up a CSRF cookie; the API only checks it matches the header.
 	const csrf = 'c'.repeat(24);
 	const cookies = new Map([['csrf-token', csrf]]);

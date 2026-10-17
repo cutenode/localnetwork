@@ -273,6 +273,10 @@ export class FakeRootClient implements RootRepoClient {
 		return [...spaces];
 	}
 
+	async createRecord(input: { collection: string; record: JsonRecord }): Promise<RecordRef> {
+		return this.putRecord({ ...input, rkey: TID.nextStr(), swapRecord: null });
+	}
+
 	async putRecord(input: {
 		collection: string;
 		rkey: string;

@@ -31,6 +31,11 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 
 - `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` with what it does, how to install it, and its guides (its README and `docs/*.md`), which are bundled from the repo at build time. See [Tools' pages and hosts](#tools-pages-and-hosts).
 
+### Bug reports
+
+- "Report a bug" in the footer opens `/report`. Signed in, it posts the report from the person's own account to Local Network's space on [userinput.app](https://userinput.app) (an `app.userinput.discussion` record in their repo, tagged `bug` and `web`, with the page they came from and their browser), then links to it there. Signed out, or without `USERINPUT_SPACE`, it opens GitHub's website bug form with the page and browser filled in, and so does a report that fails to post, with what they wrote.
+- Posting asks for one more OAuth scope, `repo:app.userinput.discussion?action=create`, the first time someone sends a report, not at sign-in: sessions from before it keep working, and the client metadata lists it so the PDS allows the request.
+
 ### Staff
 
 - Admins add and edit projects directly, change visibility, manage managers, and grant moderator/admin roles.
@@ -132,7 +137,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` starts a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects), a HappyView container fed by a local Jetstream stand-in, and the app wired to them. It also writes `.env.local`. Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
+`pnpm dev` starts a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects, and a stand-in for the userinput.app space that bug reports post to), a HappyView container fed by a local Jetstream stand-in, and the app wired to them. It also writes `.env.local`. Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
 
 | Handle      | Password    | Role                                                             |
 | ----------- | ----------- | ---------------------------------------------------------------- |
@@ -184,6 +189,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
 - `HAPPYVIEW_URL`: the HappyView instance that serves the directory. Use its public URL: HappyView only answers the host its own `PUBLIC_URL` names. If HappyView is down, the app still starts, and pages that need projects say the directory is offline.
 - `HAPPYVIEW_API_KEY`: a HappyView API key with `lexicons:read`, `lexicons:create`, `scripts:read`, `scripts:manage`, `backfill:create`, and `backfill:read`. Optional; without it, upload the lexicons and scripts yourself, and the set picker only lists sets HappyView heard about over Jetstream.
 - `LOCALLIBRARY_HOST`: [locallibrary's own host](#tools-pages-and-hosts) (default `locallibrary.localnetwork.computer`).
+- `USERINPUT_SPACE`: Local Network's space on [userinput.app](https://userinput.app), as `at://<did>/app.userinput.space/<rkey>`. See [Bug reports](#bug-reports). Optional; without it, "Report a bug" opens GitHub's issue form.
 
 ## Deploying
 
@@ -212,7 +218,7 @@ Each tool has an entry in `src/lib/tools/` (name, tagline, what it does, install
 
 A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
 
-[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, and create/update on the records it publishes (`computer.localnetwork.locallibrary.settings`, `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`).
+[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, its publishing permission set (`include:computer.localnetwork.locallibraryPublishing`, which grants create/update on `computer.localnetwork.locallibrary.settings`, `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`), and `repo:app.userinput.discussion?action=create` for `locallibrary bug`.
 
 locallibrary writes the document; after changing its scopes, regenerate it here before releasing the locallibrary version that asks for them:
 
@@ -224,7 +230,7 @@ Until the host answers, locallibrary signs in as a local development app instead
 
 ## Security notes
 
-- OAuth uses DPoP-bound tokens and granular scopes: a permission set ([`permissions.json`](../../lexicons/computer/localnetwork/permissions.json), requested as `include:computer.localnetwork.permissions`) with write-only access to the user's own repos in the audit, moderation, and booking spaces and a self-authority planner space, plus blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists. The PDS grants the set as the scopes it lists. Accounts without spaces support are asked for plain `atproto` only; they, and anyone who approves only part of the request, have the root account write on their behalf. Sessions granted before the app asked for a new scope are sent back through sign-in to approve it. Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
+- OAuth uses DPoP-bound tokens and granular scopes: a permission set ([`permissions.json`](../../lexicons/computer/localnetwork/permissions.json), requested as `include:computer.localnetwork.permissions`) with write-only access to the user's own repos in the audit, moderation, and booking spaces and a self-authority planner space, plus blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists. The PDS grants the set as the scopes it lists. Accounts without spaces support are asked for plain `atproto` only; they, and anyone who approves only part of the request, have the root account write on their behalf. Sessions granted before the app asked for a new scope are sent back through sign-in to approve it. Posting bug reports to userinput.app is asked for separately, when someone first sends one, and only allows creating `app.userinput.discussion` records. Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
 - Browser sessions are opaque random tokens stored as SHA-256 hashes; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS.
 - CSP with per-request nonces, `frame-ancestors 'none'`, `nosniff`, strict referrer policy, HSTS on HTTPS, and SvelteKit's CSRF origin checks.
 - Service endpoints from DID documents are checked against private address ranges in production (SSRF guard).
