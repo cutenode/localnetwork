@@ -921,23 +921,6 @@ export type DeleteHistoryRequest = {
   force?: boolean;
 };
 
-export type ImportRequest = {
-  drive: string;
-  /**
-   * A tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or
-   * plain "Artist - Title" lines.
-   */
-  file: string;
-  /** The playlist to fill (created if needed). */
-  into: string;
-  /** For rekordbox XML: which of its playlists, by path (the whole collection otherwise). */
-  playlist?: string | null;
-  /** Add to the playlist instead of replacing its contents. */
-  append?: boolean;
-  /** Decisions for ambiguous entries: entry index (in the report) -> track id. */
-  choices?: Record<string, never>;
-};
-
 export type PackRequest = {
   source: string;
   target: string;
@@ -2166,46 +2149,6 @@ export type CollectionExportRequest = {
   /** Write to an archive or retired drive (see [`crate::fleet::check_target`]). */
   overwrite_archive?: boolean;
 };
-
-export type InteropRequest = {
-  drive: string;
-  software: Software;
-  /** The folder to write into (never on the drive). */
-  output: string;
-  /**
-   * The folder that will hold the drive's `Contents/` when the other software reads the files.
-   * Default: the drive's mount point.
-   */
-  location_root?: string | null;
-  /**
-   * Only these playlists and folders (paths like `Folder/Name`, or unique names) and their
-   * tracks. Everything when empty.
-   */
-  only?: string[];
-  /** Leave out beat grids and cues. */
-  skip_analysis?: boolean;
-  /** Replace files the output folder already holds. */
-  replace?: boolean;
-  /**
-   * Serato: copy the audio into the output folder and write cue points into the copies' tags
-   * (the drive's files are never changed); the crates list the copies.
-   */
-  write_tags?: boolean;
-  /**
-   * Engine DJ: track paths relative to where the library is written (`relative`, the
-   * default), or to the drive's root (`drive`, for an `Engine Library` folder copied there).
-   */
-  paths?: PathStyle;
-};
-
-/** The DJ software to write for. */
-export type Software =
-  /** Native Instruments Traktor Pro: `collection.nml`. */
-  | "traktor"
-  /** Serato DJ: `_Serato_/Subcrates/*.crate`. */
-  | "serato"
-  /** Engine DJ: `Engine Library/Database2/m.db`. */
-  | "engine";
 
 export type PluginRef = {
   /** The plugin's id. */
@@ -3898,96 +3841,6 @@ export type NotUpgraded = {
   file: string;
   why: string;
 };
-
-export type ImportPreview = {
-  report: Report;
-  /** `None` when no entry was found. */
-  plan: EditPlan | null;
-};
-
-/** Everything an import preview shows: the format read, the counts, and every entry's result. */
-export type Report = {
-  format: ImportFormat;
-  summary: ImportSummary;
-  entries: Matched[];
-};
-
-/** What a tracklist file is. */
-export type ImportFormat =
-  /** M3U / M3U8 playlists, and plain lists of file paths. */
-  | "m3u"
-  /** A table with a header row (Exportify, TuneMyMusic, Soundiiz, Beatport-style...). */
-  | "csv"
-  /** rekordbox's "Export a playlist to a file" text. */
-  | "rekordbox_text"
-  /** rekordbox XML (`DJ_PLAYLISTS`). */
-  | "rekordbox_xml"
-  /** One track per line. */
-  | "text";
-
-export type ImportSummary = {
-  entries: number;
-  found: number;
-  ambiguous: number;
-  missing: number;
-};
-
-export type Matched = {
-  entry: ImportEntry;
-} & (
-  | {
-    track_id: number;
-    how: MatchKind;
-    status: "found";
-  }
-  /**
-   * Needs a decision: several tracks fit equally well, or the only candidates are weak.
-   * Best first.
-   */
-  | {
-    candidates: number[];
-    status: "ambiguous";
-  }
-  | {
-    status: "missing";
-  });
-
-/** One track as an outside list describes it. */
-export type ImportEntry = {
-  /** 1-based line of the file where the entry starts. */
-  line: number;
-  /** The text it came from (the line, CSV record or XML tag), for messages. */
-  raw: string;
-  title: string;
-  /** Empty when the list names none. */
-  artist: string;
-  album: string | null;
-  /** Mix / version name, when the list has a column for it ("Original Mix"). */
-  mix: string | null;
-  duration_secs: number | null;
-  /**
-   * The file as the list names it, with `file://` URLs decoded (`/Users/me/Music/x.mp3`,
-   * `C:\Music\x.mp3`, `../x.mp3`).
-   */
-  path: string | null;
-  isrc: string | null;
-};
-
-/** How an entry was found. */
-export type MatchKind =
-  | "isrc"
-  /** Same file (by its trailing path components). */
-  | "path"
-  /** Same normalised artist and title, durations within 2 seconds. */
-  | "artist_title_duration"
-  /** Same normalised artist and title. */
-  | "artist_title"
-  /** The entry names no artist; same normalised title. */
-  | "title"
-  /** Close enough on fuzzy token similarity, with no close runner-up. */
-  | "fuzzy"
-  /** Picked from the candidates by hand. */
-  | "chosen";
 
 export type PackPlan = {
   source: string;
@@ -7439,34 +7292,6 @@ export type CollectionExportReport = {
   backup: string | null;
 };
 
-/** What an export writes, and what it leaves out. */
-export type InteropPlan = {
-  software: Software;
-  output: string;
-  files: PlannedFile[];
-  tracks: number;
-  playlists: number;
-  folders: number;
-  beat_grids: number;
-  /** Hot cues, memory cues and loops carried across. */
-  cues: number;
-  /** Bytes of audio copied (Serato with `write_tags`). */
-  copy_bytes: number;
-  /** What the format can't hold, and what to do with the files. */
-  notes: string[];
-  /** Problems with this library: missing audio, cues the format has no room for... */
-  warnings: string[];
-};
-
-export type PlannedFile = {
-  path: string;
-  /** What it holds. */
-  what: string;
-  bytes: number;
-  /** A file is already there (it's replaced only with [`InteropOptions::replace`]). */
-  exists: boolean;
-};
-
 /** A plugin, as `plugin list` and the sidecar's `plugins.list` show it. */
 export type Listed = {
   id: string;
@@ -7666,17 +7491,53 @@ export type PluginExport = {
   /** The file, or folder, written to. */
   output: string;
   /** The files the export writes. */
-  files: string[];
-  /** Those of them there already, which it overwrites. */
-  overwrites: string[];
+  files: ExportFile[];
+  /** What goes in, in the plugin's words (`{"tracks": 12, "cues": 40}`). */
+  counts: { [key: string]: number };
+  /**
+   * What the format can't hold, and what to do with the files. (Problems with this library
+   * are the plan's warnings.)
+   */
+  notes: string[];
+};
+
+/**
+ * A file an export writes, as the plugin says, and whether it's there already (and so
+ * overwritten).
+ */
+export type ExportFile = {
+  /** Absolute, below the export's `output`. */
+  path: string;
+  /** What it holds, in a few words (`Traktor collection`). */
+  what?: string;
+  /** Its size, as far as it's known before it's written. */
+  bytes: number;
+  exists: boolean;
 };
 
 /** What `export/write` answers. */
 export type Exported = {
-  /** The files written (or, for a dry run, that would be), absolute. */
-  files: string[];
-  /** What the format left out or changed. */
+  /** The files written (or, for a dry run, that would be). */
+  files: PluginExportedFile[];
+  /**
+   * What went in, as labelled numbers in the order to show them (`{"tracks": 12, "cues":
+   * 40}`): the labels are the plugin's own words.
+   */
+  counts?: { [key: string]: number };
+  /** What the format can't hold, and what to do with the files: the same for any library. */
+  notes?: string[];
+  /** Problems with this library: missing audio, cues the format has no room for... */
   warnings: string[];
+};
+
+/** A file an export writes. */
+export type PluginExportedFile = {
+  /** Absolute, below the export's `output`. */
+  path: string;
+  /** What it holds, in a few words (`Traktor collection`). */
+  what?: string;
+  /** Its size, as far as it's known before it's written. */
+  bytes: number;
 };
 
 /** What analysing a drive's tracks did. */
@@ -8273,10 +8134,6 @@ export interface Methods {
   "history.delete.plan": { params: DeleteHistoryRequest & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `history.delete.plan`; can delete or overwrite something */
   "history.delete.apply": { params: ApplyPlan | (DeleteHistoryRequest & WriteOptions); result: EditReport };
-  /** plan method; paired with `import.apply` */
-  "import.plan": { params: ImportRequest & WriteOptions; result: ImportPreview & PlanFields };
-  /** apply method; paired with `import.plan` */
-  "import.apply": { params: ApplyPlan | (ImportRequest & WriteOptions); result: EditReport };
   /** plan method; paired with `pack.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "pack.plan": { params: PackRequest & WriteOptions; result: PackPlan & PlanFields };
   /** apply method; paired with `pack.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -8585,10 +8442,6 @@ export interface Methods {
   "collection.export.plan": { params: CollectionExportRequest & WriteOptions; result: CollectionExportPlan & PlanFields };
   /** apply method; paired with `collection.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "collection.export.apply": { params: ApplyPlan | (CollectionExportRequest & WriteOptions); result: CollectionExportReport };
-  /** plan method; paired with `interop.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "interop.plan": { params: InteropRequest & WriteOptions; result: InteropPlan & PlanFields };
-  /** apply method; paired with `interop.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "interop.apply": { params: ApplyPlan | (InteropRequest & WriteOptions); result: InteropPlan };
   /** read method */
   "plugins.list": { params: NoParams; result: Listed[] };
   /** read method */

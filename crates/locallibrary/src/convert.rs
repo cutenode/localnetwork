@@ -246,10 +246,8 @@ impl Additions {
     }
 }
 
-/// The bit set in the ids [`combined_library`] gives tracks only OneLibrary has: `export.pdb`
-/// counts its ids up from 1, so a later export never gives one of these to another track. Edits
-/// refuse them.
-pub const ONELIBRARY_ONLY: u32 = 1 << 31;
+/// The bit set in the ids [`combined_library`] gives tracks only OneLibrary has.
+pub use loclib_model::model::ONELIBRARY_ONLY;
 
 /// Whether `id` is one [`combined_library`] gave a track only OneLibrary has.
 pub fn is_onelibrary_only(id: u32) -> bool {
@@ -265,24 +263,12 @@ pub fn combined_library(device: &Device) -> Result<Library> {
     combined(&Databases::read(device)?)
 }
 
-/// [`combined_library`] for files other software reads (rekordbox XML, Traktor, Serato, Engine,
-/// playlists): OneLibrary's own tracks numbered on from `export.pdb`'s, so no file carries an id
-/// with [`ONELIBRARY_ONLY`] set. Those formats use the ids only within the file, if at all
-/// (rekordbox XML's `TrackID`, which its playlists' `Key`s name).
+/// [`combined_library`] for files other software reads (rekordbox XML, playlist files; the
+/// interop plugin numbers its read the same way): OneLibrary's own tracks numbered on from `export.pdb`'s
+/// ([`Library::number_for_files`]), so no file carries an id with [`ONELIBRARY_ONLY`] set.
 pub fn export_library(device: &Device) -> Result<Library> {
     let mut library = combined_library(device)?;
-    let mut next = library.tracks.iter().map(|t| t.id).filter(|id| !is_onelibrary_only(*id)).max().unwrap_or(0);
-    let mut ids: FxHashMap<u32, u32> = FxHashMap::default();
-    for t in library.tracks.iter_mut().filter(|t| is_onelibrary_only(t.id)) {
-        next += 1;
-        ids.insert(t.id, next);
-        t.id = next;
-    }
-    for list in library.playlists.iter_mut().chain(library.history.iter_mut()) {
-        for id in &mut list.track_ids {
-            *id = ids.get(id).copied().unwrap_or(*id);
-        }
-    }
+    library.number_for_files();
     Ok(library)
 }
 

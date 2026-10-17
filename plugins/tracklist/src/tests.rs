@@ -19,7 +19,7 @@ type Call = (String, Value);
 /// library and that answers its reads as locallibrary does.
 struct Session {
     host: Peer,
-    served: JoinHandle<io::Result<()>>,
+    served: JoinHandle<()>,
     answering: JoinHandle<()>,
     calls: Arc<Mutex<Vec<Call>>>,
 }
@@ -74,14 +74,14 @@ impl Session {
     }
 
     fn report(&self, params: Value) -> Result<Report, RpcError> {
-        let run = json!({ "command": "import", "params": params, "context": { "drive": "USB" } });
+        let run = json!({ "command": "match", "params": params, "context": { "drive": "USB" } });
         self.host.request(method::RUN_COMMAND, &run)
     }
 
     /// Closes the plugin's input: it stops. Answers the reads it called back for.
     fn stop(self) -> Vec<Call> {
         self.host.close();
-        self.served.join().unwrap().unwrap();
+        self.served.join().unwrap();
         self.answering.join().unwrap();
         Arc::try_unwrap(self.calls).unwrap().into_inner().unwrap()
     }
@@ -123,7 +123,9 @@ fn the_manifest_is_a_first_party_one_that_reads_and_plans() {
     assert!(manifest.validate(false).is_err(), "only a plugin locallibrary ships has a top-level CLI command");
     let capabilities = [Capability::LibraryRead, Capability::LibraryPlan, Capability::LibraryDelete];
     assert_eq!(manifest.capabilities, capabilities);
-    assert_eq!(manifest.contributes.commands[0].cli.as_deref(), Some("import"));
+    let (command, operation) = (&manifest.contributes.commands[0], &manifest.contributes.operations[0]);
+    assert_eq!((command.name.as_str(), command.cli.as_deref()), ("match", None));
+    assert_eq!((operation.name.as_str(), operation.cli.as_deref()), ("import", Some("playlist import")));
     let s = start(Library::default());
     let described: Manifest = s.host.request(method::DESCRIBE, &Value::Null).unwrap();
     assert_eq!(described, manifest);
@@ -204,9 +206,9 @@ fn a_list_keeps_its_repeats_and_fills_exactly_its_path() {
     );
     let list = write(dir.path(), "set.m3u8", &m3u);
     let s = start(Library { tracks: tracks.clone(), playlists: shows(), ..Default::default() });
-    let report = s.report(json!({ "file": list, "into": "Friday" })).unwrap();
+    let report = s.report(json!({ "file": list })).unwrap();
     assert_eq!(report.entries[3].status, Status::Ambiguous { candidates: vec![2] }, "its length is off");
-    let report = s.report(json!({ "file": list, "into": "Friday", "choices": { "3": 2 } })).unwrap();
+    let report = s.report(json!({ "file": list, "choices": { "3": 2 } })).unwrap();
     assert_eq!(report.entries[3].status, Status::Found { track_id: 2, how: MatchKind::Chosen });
     let plan = s.plan(json!({ "file": list, "into": "Friday", "choices": { "3": 2 } })).unwrap();
     assert_eq!(plan.edits, [set_entries("Friday", &[a, b, a, b])]);
@@ -246,7 +248,7 @@ fn an_xml_playlist_is_the_one_of_exactly_its_path() {
     let plan = s.plan(json!({ "file": list, "into": "Imported", "playlist": " /SET/ " })).unwrap();
     assert_eq!(plan.summary, format!("{list}: 1 entr(ies) as RekordboxXml: 1 found, 0 ambiguous, 0 missing"));
     assert_eq!(plan.edits, [set_entries("Imported", &["/Contents/Kettama/In Charge.mp3"])]);
-    let all = s.report(json!({ "file": list, "into": "Imported" })).unwrap();
+    let all = s.report(json!({ "file": list })).unwrap();
     assert_eq!((all.format, all.summary.found), (Format::RekordboxXml, 2), "the whole collection");
     for name in ["set", "Nowhere"] {
         let e = s.plan(json!({ "file": list, "into": "Imported", "playlist": name })).unwrap_err();
@@ -255,15 +257,22 @@ fn an_xml_playlist_is_the_one_of_exactly_its_path() {
     s.stop();
 }
 
-/// A list none of whose tracks are on the drive isn't found, as `import.apply` said; a choice
-/// must name an entry the list has and a track the drive has.
+/// A list none of whose tracks are on the drive plans nothing, saying so, as `playlist import`
+/// did; a choice must name an entry the list has and a track the drive has.
 #[test]
-fn a_list_of_nothing_the_drive_has_or_a_bad_choice_is_refused() {
+fn a_list_of_nothing_the_drive_has_plans_nothing_and_a_bad_choice_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let list = write(dir.path(), "list.txt", "Nobody - Nothing\n");
     let s = start(club());
-    let e = s.plan(json!({ "file": list, "into": "Set" })).unwrap_err();
-    assert_eq!(kind(&e), ("not_found", "not found: none of the list's tracks are on the drive"));
+    for append in [false, true] {
+        let plan = s.plan(json!({ "file": list, "into": "Set", "append": append })).unwrap();
+        assert_eq!(plan.summary, format!("{list}: 1 entr(ies) as Text: 0 found, 0 ambiguous, 1 missing"));
+        assert_eq!(
+            plan.warnings,
+            ["1. Nobody - Nothing isn't on the drive", "none of the list's tracks are on the drive"]
+        );
+        assert!(plan.edits.is_empty(), "{plan:?}");
+    }
     let e = s.plan(json!({ "file": list, "into": "Set", "choices": { "0": 999 } })).unwrap_err();
     assert_eq!(kind(&e), ("not_found", "not found: track #999"));
     let e = s.plan(json!({ "file": list, "into": "Set", "choices": { "5": 1 } })).unwrap_err();
@@ -271,7 +280,8 @@ fn a_list_of_nothing_the_drive_has_or_a_bad_choice_is_refused() {
     s.stop();
 }
 
-/// The command answers what loclib-tracklist finds, as `import.plan`'s report did.
+/// The `match` command answers what loclib-tracklist finds, as `playlist import --json`'s report
+/// did.
 #[test]
 fn the_command_answers_each_entry_as_loclib_tracklist_finds_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -279,7 +289,7 @@ fn the_command_answers_each_entry_as_loclib_tracklist_finds_it() {
     let list = write(dir.path(), "set.txt", text);
     let lib = club();
     let s = start(lib.clone());
-    let report = s.report(json!({ "file": list, "into": "Imported" })).unwrap();
+    let report = s.report(json!({ "file": list })).unwrap();
     let entries = tracklist::parse(text.as_bytes(), Some("set.txt")).unwrap();
     assert_eq!(report, Report::new(Format::Text, tracklist::match_entries(&lib, &entries)));
     assert_eq!((report.summary.found, report.summary.ambiguous, report.summary.missing), (2, 1, 1));
