@@ -118,3 +118,23 @@ fn bad_fields_are_refused() {
     fs::write(store.root.join("odd").join(LAST_WRITTEN), "../..").unwrap();
     assert!(store.last_written(None).is_empty());
 }
+
+/// Regression: an analyzer's workers keep values at once, and each rewrote `.version` when it was
+/// out of date, so on Windows all but one failed ("Access is denied").
+#[test]
+fn values_kept_at_once_all_land() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let a = analyzer("sound", "1.0.0", "tempo");
+    let tracks: Vec<PathBuf> = (0..16)
+        .map(|i| audio(&dir.path().join("A/Contents"), &format!("{i}.mp3"), format!("{i}").as_bytes()))
+        .collect();
+    let bpm = fields(&[("bpm", FieldValue::Number(128.0))]);
+    std::thread::scope(|s| {
+        for t in &tracks {
+            s.spawn(|| store.put(t, &a, &bpm).unwrap());
+        }
+    });
+    assert_eq!(store.last_written(None), std::slice::from_ref(&a));
+    assert!(tracks.iter().all(|t| !store.get(t, std::slice::from_ref(&a)).is_empty()));
+}

@@ -10,6 +10,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 use indexmap::IndexMap;
 
@@ -46,6 +47,11 @@ impl Kind for Values {
 /// The file in a plugin's folder naming the version that wrote last (never a version's folder:
 /// those don't start with a dot).
 const LAST_WRITTEN: &str = ".version";
+
+/// Held to check and rewrite a plugin's `.version`: an analyzer's workers keep values at once, and
+/// on Windows two renames onto one file at once fail ("Access is denied"), so the first rewrites
+/// it and the rest find it written.
+static LAST_WRITTEN_LOCK: Mutex<()> = Mutex::new(());
 
 /// One analyzer of a plugin, at a version.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +108,7 @@ impl FieldStore {
         let key = Cache::<Values>::key(audio).ok_or_else(|| Error::NotFound(audio.display().to_string()))?;
         self.values(a).put(&key, fields)?;
         let last = self.root.join(&a.plugin).join(LAST_WRITTEN);
+        let _held = LAST_WRITTEN_LOCK.lock().unwrap_or_else(PoisonError::into_inner);
         if fs::read_to_string(&last).ok().as_deref() != Some(a.version.as_str()) {
             fsutil::write_deferred(&last, a.version.as_bytes())?;
         }
