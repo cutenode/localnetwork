@@ -85,6 +85,18 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The tests' temporary folders go on a Dev Drive: on the runner's C: drive, Defender scans
+      # every file they make and each flush takes milliseconds, which made the tests that write
+      # files run several times longer than on macOS or Linux. Defender's performance mode only
+      # applies to a trusted Dev Drive, and the runner is thrown away after the job.
+      - if: runner.os == 'Windows'
+        uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
+        with:
+          drive-size: 10GB
+          trusted-dev-drive: true
+          env-mapping: |
+            TMP,{{ DEV_DRIVE }}
+            TEMP,{{ DEV_DRIVE }}
       # The TUI's audio output goes through ALSA on Linux. The sqlcipher CLI checks that SQLCipher
       # itself reads what locallibrary encrypts; LOCALLIBRARY_REQUIRE_SQLCIPHER makes those tests
       # fail when they can't find it, where they'd otherwise skip the check (as on Windows).
