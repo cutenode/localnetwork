@@ -33,7 +33,7 @@
 		"test:lighthouse": "pnpm build && lhci autorun",
 		"lexicons:publish": "tsx scripts/publish-lexicons.ts",
 		"fixtures:mix": "tsx scripts/mix-fixture.ts",
-		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm test && pnpm test:storybook && pnpm test:build",
+		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm knip && pnpm test && pnpm test:storybook && pnpm test:build",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build",
 		"test:storybook": "vitest run --project storybook"

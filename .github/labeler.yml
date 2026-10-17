@@ -160,7 +160,7 @@ lexicons:
   - changed-files:
       - any-glob-to-any-file:
           - "crates/loclib-analysis/**"
-          - "plugins/{analysis,sound}/**"
+          - "plugins/sound/**"
           - "crates/locallibrary/src/sound{.rs,/**}"
           - "apps/locallibrary/src/analysis_cmd.rs"
           - "apps/locallibrary/src/tui/analyzer{.rs,/**}"

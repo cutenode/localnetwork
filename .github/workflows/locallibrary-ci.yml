@@ -53,6 +53,7 @@ jobs:
               - 'crates/**'
               - 'plugins/**'
               - 'vendor/**'
+              - 'packages/tokens/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'
