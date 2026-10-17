@@ -719,6 +719,7 @@ fn assert_set_record(r: &Value, set: &Set, names: &[Named], hidden: &BTreeSet<us
 /// (a title over 100 graphemes, a partner's DID that isn't one, more than 20 partners...).
 #[hegel::test(test_cases = 300)]
 fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestCase) {
+    locallibrary::testing::address_lexicon_stand_in();
     let (s, names, mut broken) = set(&tc, true);
     let hidden: BTreeSet<usize> = tc
         .draw(gs::vecs(gs::integers::<usize>().min_value(1).max_value(s.tracks.len() + 2)).max_size(3))
@@ -743,6 +744,7 @@ fn a_set_record_names_only_what_it_should_and_fits_unless_the_set_cant(tc: TestC
 /// another type, a track's MusicBrainz ID, an optional field left out.
 #[hegel::test(test_cases = 300)]
 fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCase) {
+    locallibrary::testing::address_lexicon_stand_in();
     let (s, _, _) = set(&tc, false);
     let mut r = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let n = s.tracks.len();
@@ -905,6 +907,7 @@ fn account_with(scopes: Vec<String>) -> AccountInfo {
 /// what's there; one the session can't write, or with nobody signed in, stops with nothing sent.
 #[hegel::test(test_cases = 100)]
 fn a_plan_keeps_when_a_set_first_went_out_and_knows_when_nothing_changed(tc: TestCase) {
+    locallibrary::testing::address_lexicon_stand_in();
     let (s, _, _) = set(&tc, false);
     let record = publish::set_record(&s, &BTreeSet::new(), None, time(&tc));
     let (scopes, may_write) = tc.draw(gs::sampled_from(scope_sets()));
@@ -1297,6 +1300,7 @@ fn unnamed_note(positions: &[usize], why: &str) -> Option<String> {
 /// looked at.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_published_set_is_its_record_and_replaces_only_what_was_read(tc: TestCase) {
+    locallibrary::testing::address_lexicon_stand_in();
     let pds = MockPds::start();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("store");

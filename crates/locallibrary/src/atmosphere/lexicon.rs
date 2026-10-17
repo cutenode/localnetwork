@@ -6,8 +6,8 @@
 //! `locallibrary.localnetwork.computer`. [`PROFILE`] (the public profile, one per account) and
 //! [`SET`] (a set, one per set) are shared by Local Network's tools, under the authority
 //! `dj.localnetwork.computer`, with the definitions they share in [`DEFS`]. Documents they refer
-//! to that others maintain are copied in unchanged, in their own authority's folder: [`ADDRESS`]
-//! (where a set was played).
+//! to that others maintain, [`REFERENCED`] ([`ADDRESS`], where a set was played), are fetched from
+//! their authority the first time a record needs one, and kept for the rest of the run.
 //!
 //! [`validate`] checks a record against its document before it's written. It's strict, so a field
 //! the document doesn't define is an error, and it follows the AT Protocol's data model, which has
@@ -18,7 +18,7 @@
 //! implementation gives one (a scheme, then no spaces).
 
 use rustc_hash::FxHashMap;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, PoisonError, RwLock};
 
 use jacquard_common::SmolStr;
 use jacquard_common::types::aturi::AtUri;
@@ -26,6 +26,7 @@ use jacquard_common::types::did::validate_did;
 use serde_json::Value;
 use unicode_segmentation::UnicodeSegmentation;
 
+use crate::error::IoContext;
 use crate::{Error, Result};
 
 /// A DJ's My Settings (record key `self`).
@@ -42,14 +43,16 @@ pub const ADDRESS: &str = "community.lexicon.location.address";
 /// Every record type locallibrary writes.
 pub const COLLECTIONS: [&str; 3] = [SETTINGS, PROFILE, SET];
 
-/// The Lexicon documents, by NSID: the ones locallibrary writes and the ones they refer to.
-pub const DOCUMENTS: [(&str, &str); 5] = [
+/// The Lexicon documents locallibrary writes records of, by NSID, and the ones they share.
+pub const DOCUMENTS: [(&str, &str); 4] = [
     (SETTINGS, include_str!("../../../../lexicons/computer/localnetwork/locallibrary/settings.json")),
     (PROFILE, include_str!("../../../../lexicons/computer/localnetwork/dj/profile.json")),
     (SET, include_str!("../../../../lexicons/computer/localnetwork/dj/set.json")),
     (DEFS, include_str!("../../../../lexicons/computer/localnetwork/dj/defs.json")),
-    (ADDRESS, include_str!("../../../../lexicons/community/lexicon/location/address.json")),
 ];
+
+/// The documents others maintain that [`DOCUMENTS`] refer to, fetched as they publish them.
+pub const REFERENCED: [&str; 1] = [ADDRESS];
 
 static PARSED: LazyLock<FxHashMap<&'static str, Value>> = LazyLock::new(|| {
     DOCUMENTS
@@ -58,9 +61,40 @@ static PARSED: LazyLock<FxHashMap<&'static str, Value>> = LazyLock::new(|| {
         .collect()
 });
 
-/// The Lexicon document for `nsid`, if it's one of [`DOCUMENTS`].
+/// The [`REFERENCED`] documents fetched so far this run. Each is fetched once and kept for good,
+/// so what's handed out lives as long as the process.
+static FETCHED: LazyLock<RwLock<FxHashMap<&'static str, &'static Value>>> = LazyLock::new(Default::default);
+
+/// The Lexicon document for `nsid`: one of [`DOCUMENTS`], or one of [`REFERENCED`] fetched already.
 pub fn document(nsid: &str) -> Option<&'static Value> {
-    PARSED.get(nsid)
+    PARSED.get(nsid).or_else(|| FETCHED.read().unwrap_or_else(PoisonError::into_inner).get(nsid).copied())
+}
+
+/// Keeps `doc` as the [`REFERENCED`] document `nsid` for the rest of the run, unless one is kept
+/// already, and returns the one kept.
+pub(crate) fn keep(nsid: &'static str, doc: Value) -> &'static Value {
+    let mut fetched = FETCHED.write().unwrap_or_else(PoisonError::into_inner);
+    fetched.entry(nsid).or_insert_with(|| Box::leak(Box::new(doc)))
+}
+
+/// One of [`REFERENCED`] as its authority publishes it now; or, while `$LOCALLIBRARY_LEXICONS`
+/// names a folder (a test switch, so tests don't reach the network), as `<nsid>.json` there has it.
+fn fetch(nsid: &str) -> Result<Value> {
+    let Some(dir) = std::env::var_os("LOCALLIBRARY_LEXICONS") else { return super::fetch_lexicon(nsid) };
+    let path = std::path::Path::new(&dir).join(format!("{nsid}.json"));
+    let text = std::fs::read_to_string(&path).at(&path)?;
+    serde_json::from_str(&text).map_err(|e| Error::Parse { path, message: e.to_string() })
+}
+
+/// The definition `name` in the document `doc`, fetching `doc` if it's one of [`REFERENCED`] not
+/// fetched yet. `r` is the ref that named it, and `path` where in the record it was met.
+fn resolve(doc: &str, name: &str, r: &str, path: &str) -> std::result::Result<&'static Value, String> {
+    let fetched = match (document(doc), REFERENCED.iter().find(|id| **id == doc)) {
+        (Some(found), _) => found,
+        (None, Some(id)) => keep(id, fetch(id).map_err(|e| format!("{}: {e}", what(path)))?),
+        (None, None) => return Err(format!("{}: unknown ref {r}", what(path))),
+    };
+    fetched["defs"].get(name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))
 }
 
 /// The last part of an NSID: `settings` for [`SETTINGS`].
@@ -125,7 +159,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
         "ref" => {
             let r = schema["ref"].as_str().unwrap_or_default();
             let (doc, name) = target(nsid, r);
-            let found = def(doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))?;
+            let found = resolve(doc, name, r, path)?;
             check(doc, found, v, path)
         }
         // A union's value names its type in `$type`: `nsid` for a document's main definition,
@@ -146,7 +180,7 @@ fn check(nsid: &str, schema: &Value, v: &Value, path: &str) -> std::result::Resu
                 };
             };
             let (doc, name) = target(nsid, r);
-            let found = def(doc, name).ok_or_else(|| format!("{}: unknown ref {r}", what(path)))?;
+            let found = resolve(doc, name, r, path)?;
             let mut rest = fields.clone();
             rest.remove("$type");
             check(doc, found, &Value::Object(rest), path)
