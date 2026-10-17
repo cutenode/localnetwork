@@ -786,83 +786,6 @@ fn removing_a_guest_crate_takes_its_tracks_and_files() {
     }
 }
 
-#[test]
-fn importing_a_spotify_csv_makes_a_playlist_in_both_databases() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = both_databases(dir.path());
-    let lib = pdb_library(&root);
-    let (a, b) = (&lib.tracks[5], &lib.tracks[7]);
-    let csv = format!(
-        "\"Track Name\",\"Artist Name(s)\",\"Duration (ms)\"\n\"{}\",\"{}\",{}\n\"{}\",\"{}\",{}\n\"Not on the drive\",\"Nobody\",1000\n",
-        a.title,
-        a.artist,
-        a.duration_secs * 1000,
-        b.title,
-        b.artist,
-        b.duration_secs * 1000
-    );
-    let file = dir.path().join("spotify.csv");
-    fs::write(&file, csv).unwrap();
-    let req = locallibrary::api::ImportRequest {
-        drive: root.display().to_string(),
-        file,
-        into: "From Spotify".into(),
-        playlist: None,
-        append: false,
-        choices: Default::default(),
-    };
-    let preview = locallibrary::api::import_plan(&req, &Ctx::silent()).unwrap();
-    assert_eq!((preview.report.summary.found, preview.report.summary.missing), (2, 1));
-    locallibrary::api::import_apply(&req, &Ctx::silent()).unwrap();
-    for l in [pdb_library(&root), common::plus_library(&root)] {
-        assert_eq!(files(&l, "From Spotify"), [a.file_path.clone(), b.file_path.clone()]);
-    }
-}
-
-/// Regression: an imported list lost the tracks it played twice, `--into` filled a playlist of
-/// that name in another folder, and a track picked by hand was reported as found by its path.
-#[test]
-fn importing_keeps_repeats_and_fills_exactly_its_path() {
-    use locallibrary::import::{MatchKind, Status};
-    let dir = tempfile::tempdir().unwrap();
-    let root = common::bigger_drive(dir.path(), "Main");
-    let lib = pdb_library(&root);
-    let (a, b) = (&lib.tracks[5], &lib.tracks[7]);
-    apply(
-        &root,
-        &[Edit::SetEntries { playlist: "Shows/Friday".into(), paths: vec![b.file_path.clone()], create: true }],
-    );
-    let m3u = format!(
-        "#EXTM3U\n/Users/me/Music{a}\n/Users/me/Music{b}\n/Users/me/Music{a}\n#EXTINF:5000,{title}\n/nowhere/x.mp3\n",
-        a = a.file_path,
-        b = b.file_path,
-        title = b.title
-    );
-    let file = dir.path().join("set.m3u8");
-    fs::write(&file, m3u).unwrap();
-    let req = |append, choices: &[(usize, u32)]| locallibrary::api::ImportRequest {
-        drive: root.display().to_string(),
-        file: file.clone(),
-        into: "Friday".into(),
-        playlist: None,
-        append,
-        choices: choices.iter().copied().collect(),
-    };
-    let preview = locallibrary::api::import_plan(&req(false, &[]), &Ctx::silent()).unwrap();
-    assert_eq!(preview.report.entries[3].status, Status::Ambiguous { candidates: vec![b.id] }, "its length is off");
-    let preview = locallibrary::api::import_plan(&req(false, &[(3, b.id)]), &Ctx::silent()).unwrap();
-    assert_eq!(preview.report.entries[3].status, Status::Found { track_id: b.id, how: MatchKind::Chosen });
-    locallibrary::api::import_apply(&req(false, &[(3, b.id)]), &Ctx::silent()).unwrap();
-    let (fa, fb) = (a.file_path.as_str(), b.file_path.as_str());
-    let lib = pdb_library(&root);
-    assert_eq!(files(&lib, "Shows/Friday"), [fb], "the nested namesake is left alone");
-    let top = lib.children(None).into_iter().find(|p| p.name == "Friday").unwrap();
-    assert_eq!(lib.playlist_path(top.id), "Friday");
-    assert_eq!(files(&lib, "Friday"), [fa, fb, fa, fb]);
-    locallibrary::api::import_apply(&req(true, &[]), &Ctx::silent()).unwrap();
-    assert_eq!(files(&pdb_library(&root), "Friday"), [fa, fb, fa, fb, fa, fb, fa]);
-}
-
 /// Regression: a history list was selected from export.pdb's lists only, so one a player that
 /// reads only OneLibrary recorded there couldn't be.
 #[test]
@@ -892,48 +815,6 @@ fn history_lists_only_onelibrary_has_are_selected() {
     );
     let want = [plus.tracks[3].file_path.as_str(), plus.tracks[1].file_path.as_str()];
     assert_eq!(files(&pdb_library(&root), "Played"), want);
-}
-
-/// Regression: importing a rekordbox XML playlist took the first whose path matched ignoring
-/// case, so asking for "SET" next to "Set" imported "Set".
-#[test]
-fn importing_an_xml_playlist_takes_the_one_of_exactly_its_path() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = common::bigger_drive(dir.path(), "Main");
-    let lib = pdb_library(&root);
-    let (a, b) = (&lib.tracks[5], &lib.tracks[7]);
-    let location = |t: &locallibrary::Track| format!("file://localhost/Volumes/USB{}", t.file_path.replace(' ', "%20"));
-    let xml = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<DJ_PLAYLISTS Version="1.0.0">
-  <COLLECTION Entries="2">
-    <TRACK TrackID="1" Name="a" Location="{}"/>
-    <TRACK TrackID="2" Name="b" Location="{}"/>
-  </COLLECTION>
-  <PLAYLISTS>
-    <NODE Type="0" Name="ROOT" Count="2">
-      <NODE Name="Set" Type="1" KeyType="0" Entries="1"><TRACK Key="1"/></NODE>
-      <NODE Name="SET" Type="1" KeyType="0" Entries="1"><TRACK Key="2"/></NODE>
-    </NODE>
-  </PLAYLISTS>
-</DJ_PLAYLISTS>
-"#,
-        location(a),
-        location(b)
-    );
-    let file = dir.path().join("rekordbox.xml");
-    fs::write(&file, xml).unwrap();
-    let req = |playlist: &str| locallibrary::api::ImportRequest {
-        drive: root.display().to_string(),
-        file: file.clone(),
-        into: "Imported".into(),
-        playlist: Some(playlist.into()),
-        append: false,
-        choices: Default::default(),
-    };
-    locallibrary::api::import_apply(&req("SET"), &Ctx::silent()).unwrap();
-    assert_eq!(files(&pdb_library(&root), "Imported"), [b.file_path.as_str()]);
-    assert!(locallibrary::api::import_plan(&req("set"), &Ctx::silent()).is_err(), "two match ignoring case");
 }
 
 #[test]

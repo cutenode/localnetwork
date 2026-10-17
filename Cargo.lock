@@ -1767,6 +1767,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dunce"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3928,6 +3934,10 @@ dependencies = [
  "jsonschema",
  "libc",
  "locallibrary",
+ "locallibrary-plugin-coverart",
+ "locallibrary-plugin-interop",
+ "locallibrary-plugin-sound",
+ "locallibrary-plugin-tracklist",
  "loclib-mixid",
  "loclib-plugin",
  "loclib-progress",
@@ -3951,19 +3961,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "locallibrary-plugin-analysis"
-version = "0.1.0"
-dependencies = [
- "hegeltest",
- "loclib-analysis",
- "loclib-mixid",
- "loclib-plugin",
- "loclib-progress",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "locallibrary-plugin-coverart"
 version = "0.1.0"
 dependencies = [
@@ -3976,6 +3973,49 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "locallibrary-plugin-interop"
+version = "0.1.0"
+dependencies = [
+ "dunce",
+ "fs4",
+ "loclib-interop",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-progress",
+ "rusqlite",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-sound"
+version = "0.1.0"
+dependencies = [
+ "hegeltest",
+ "loclib-analysis",
+ "loclib-mixid",
+ "loclib-plugin",
+ "loclib-progress",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "locallibrary-plugin-tracklist"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "loclib-model",
+ "loclib-plugin",
+ "loclib-tracklist",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

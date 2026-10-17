@@ -30,10 +30,10 @@ fn start() -> Session {
 }
 
 impl Session {
-    /// `track/analyze` with `sound`, as the host sends it.
+    /// `track/analyze` with `tempo-key-loudness`, as the host sends it.
     fn analyze(&self, audio: &Path) -> Pending {
         let track = json!({ "id": 1, "file_path": "/Contents/track.wav", "audio_path": audio });
-        let req = json!({ "analyzer": "sound", "track": track, "context": { "drive": "USB" } });
+        let req = json!({ "analyzer": "tempo-key-loudness", "track": track, "context": { "drive": "USB" } });
         self.host.send_request(method::ANALYZE_TRACK, &req).unwrap()
     }
 
@@ -67,7 +67,7 @@ fn describes_one_analyzer_and_asks_for_nothing() {
     manifest.validate(true).unwrap();
     assert!(manifest.capabilities.is_empty(), "{manifest:?}");
     let [analyzer] = &manifest.contributes.analyzers[..] else { panic!("{manifest:?}") };
-    assert_eq!(analyzer.name, "sound");
+    assert_eq!((manifest.id.as_str(), analyzer.name.as_str()), ("sound", "tempo-key-loudness"));
     let mut columns: Vec<&str> = analyzer.fields.keys().map(String::as_str).collect();
     columns.sort();
     let expected =

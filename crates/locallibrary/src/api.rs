@@ -2153,8 +2153,6 @@ mod snapshots;
 pub use snapshots::*;
 mod collection;
 pub use collection::*;
-mod interop;
-pub use interop::*;
 #[cfg(feature = "account")]
 mod publish;
 #[cfg(feature = "account")]

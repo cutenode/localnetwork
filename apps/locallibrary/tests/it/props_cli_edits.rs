@@ -137,7 +137,7 @@ fn tag_plan_is_printed(p: &Value, out: &str, said: &str) {
     has_line(out, &format!("changes {}", dbs.join(" and ")), said);
 }
 
-/// The edit plan `p` is or holds (an import's, a restored playlist's).
+/// The edit plan `p` is or holds (a restored playlist's).
 fn edit_plan(p: &Value) -> Option<&Value> {
     [p, &p["plan"]].into_iter().find(|p| p.get("changes").is_some() && p.get("playlists_created").is_some())
 }
@@ -149,19 +149,12 @@ pub fn plan_is_printed(p: &Value, out: &str, said: &str) {
         Some("tags") => return tag_plan_is_printed(p, out, said),
         _ => {}
     }
-    // A tracklist imported: what was found in it, what could be one of several tracks and what
-    // isn't on the drive.
-    if let Some(s) = p["report"]["summary"].as_object() {
-        let counts = format!("{} found, {} ambiguous, {} missing", s["found"], s["ambiguous"], s["missing"]);
-        assert!(out.lines().next().is_some_and(|l| l.ends_with(&counts)), "{counts:?}:\n{said}");
-        for (i, e) in p["report"]["entries"].as_array().unwrap().iter().enumerate() {
-            let raw = e["entry"]["raw"].as_str().unwrap().trim();
-            match e["status"].as_str().unwrap() {
-                "ambiguous" => has_line(out, &format!("! {:>3}. {raw} could be:", i + 1), said),
-                "missing" => has_line(out, &format!("? {:>3}. {raw}", i + 1), said),
-                _ => {}
-            }
-        }
+    // A tracklist imported (the tracklist plugin's `import`): what was found in it comes first.
+    // What could be one of several tracks and what isn't on the drive are its warnings, which
+    // every edit plan prints.
+    if p["operation"] == "tracklist.import" {
+        let found = p["summary"][0].as_str().unwrap();
+        assert!(found.contains(" found, ") && out.lines().next() == Some(found), "{found:?}:\n{said}");
     }
     // Plans with a summary of their own (`edits clear`) print it; the others print what follows.
     let mut own = false;

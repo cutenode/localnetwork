@@ -373,7 +373,7 @@ pub fn build<E: From<Error>>(
         } else {
             format!("crate {} ({} tracks)", lib.playlist_path(p.id), tracks.len())
         };
-        export.file(output.join("_Serato_/Subcrates").join(format!("{name}.crate")), what, crate_file(&tracks));
+        export.file(output.join("_Serato_").join("Subcrates").join(format!("{name}.crate")), what, crate_file(&tracks));
     }
     export.tracks = lib.tracks.len();
     let volume = volume.unwrap_or_else(|| volume_relative(&root.join("Contents")).1);
@@ -385,7 +385,7 @@ pub fn build<E: From<Error>>(
     export.notes.push(format!(
         "Copy the .crate files from {} into {serato_home}, next to any crates already there, then restart Serato: \
          crates belong to the volume that holds their music. Folders become crates holding their crates.",
-        output.join("_Serato_/Subcrates").display()
+        output.join("_Serato_").join("Subcrates").display()
     ));
     export.notes.push(
         "Crates only list tracks: Serato reads each file's own tags and analyses it again. Beat grids aren't carried."

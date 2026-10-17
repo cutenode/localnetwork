@@ -46,6 +46,7 @@ mod props_cli_profile;
 mod props_cli_sets;
 mod props_cli_smart;
 mod props_cli_terminal;
+mod props_cli_tracklist;
 mod props_rpc;
 mod props_rpc_every;
 mod props_rpc_flows;
@@ -55,6 +56,7 @@ mod rpc;
 mod sets;
 mod support;
 mod tags;
+mod tracklist;
 
 /// `locallibrary`, the binary cargo built for the tests, with its store at `store` and nothing to
 /// read on stdin. It looks for drives only in the folders `volumes` (none: it sees no drive), never

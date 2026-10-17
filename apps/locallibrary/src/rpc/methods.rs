@@ -604,8 +604,6 @@ fn build() -> Registry {
         Ok(api::delete_history_apply(c.existing()?.as_ref(), &req, c.ctx)?)
     })
     .destructive();
-    r.plan("import.plan", |c, req| Ok(api::import_plan(&req, c.ctx)?));
-    r.apply("import.apply", PlanStore::None, |c, req| Ok(api::import_apply(&req, c.ctx)?));
     r.plan("pack.plan", |c, req| Ok(api::pack_plan(&req, c.ctx)?)).long().destructive();
     r.apply("pack.apply", Optional, |c, req| Ok(api::pack_apply(c.store_opt().as_ref(), &req, c.ctx)?))
         .long()
@@ -851,11 +849,6 @@ fn build() -> Registry {
     })
     .long()
     .destructive();
-    r.plan("interop.plan", |c, req| Ok(api::interop_plan(&req, c.ctx)?)).long().destructive().writes_to("output");
-    r.apply("interop.apply", PlanStore::None, |c, req| Ok(api::interop_apply(&req, c.ctx)?))
-        .long()
-        .destructive()
-        .writes_to("output");
 
     // Plugins.
     plugins::register(&mut r);

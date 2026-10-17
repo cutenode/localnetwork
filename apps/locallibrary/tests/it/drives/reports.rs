@@ -192,33 +192,36 @@ fn export_writes_playlists_as_lists() {
     assert!(out.contains("no playlists there; nothing written"), "{out}");
 }
 
+/// Other DJ software's formats (the interop plugin's) show their plan first: what goes in, each
+/// file and what it holds, what the format can't hold. Copies of the audio for Serato's tags are
+/// listed with their sizes; nothing asks before they're written.
 #[test]
 fn export_for_other_dj_software_shows_its_plan_first() {
     let env = Env::new();
     let main = env.drive("Main");
     let to = env.outside("For Traktor");
     let out = env.ok(&["export", path(&main), "--format", "traktor", "-o", path(&to), "--dry-run"]);
-    assert!(out.starts_with("Would write for Traktor: 2 tracks, 1 playlists"), "{out}");
+    assert!(out.starts_with("• write 1 file(s) (") && out.contains("\n• 2 tracks, 1 playlists, 0 folders, "), "{out}");
     assert!(
         line(&out, "collection.nml").contains("  Traktor collection: tracks, beat grids, cues and playlists, "),
         "{out}"
     );
-    assert!(out.contains("nothing was written") && !to.exists(), "{out}");
+    assert!(out.contains("Import another Collection") && !to.exists(), "{out}");
     let out = env.ok(&["export", path(&main), "--format", "traktor", "-o", path(&to)]);
-    assert!(out.starts_with("Writing for Traktor") && out.contains("wrote 1 file(s) for Traktor to"), "{out}");
+    assert!(out.contains("wrote 1 file(s) to"), "{out}");
 
-    // Serato's tags mean copying the audio: asked first.
     let to = env.outside("For Serato");
-    let r = env.run(&["export", path(&main), "--format", "serato", "-o", path(&to), "--write-tags"]);
-    assert_eq!(r.code, 3, "{}", r.err);
-    assert!(r.out.contains("of audio to copy") && r.out.contains("nothing was written"), "{}", r.out);
+    let tags = ["--format", "serato", "-o", path(&to), "--option", "write_tags=true"];
+    let out = env.ok(&[&["export", path(&main)], &tags[..], &["--dry-run"]].concat());
+    assert!(line(&out, "Demo Track 1.mp3").contains("  copy of the audio, "), "{out}");
 
-    for (args, error) in [
-        (&["--format", "serato", "--history", "HISTORY 001"][..], "--history and --split don't apply to Serato"),
-        (&["--format", "m3u8", "--no-analysis"][..], "are for other DJ software's formats"),
+    for (args, code, error) in [
+        (&["--format", "serato", "--history", "HISTORY 001"][..], 1, "Serato doesn't take history lists"),
+        (&["--format", "m3u8", "--dry-run"][..], 1, "--dry-run is for plugins' formats"),
+        (&["--format", "m3u8", "--no-analysis"][..], 2, "unexpected argument '--no-analysis'"),
     ] {
         let r = env.run(&[&["export", path(&main), "-o", path(&to)], args].concat());
-        assert_eq!(r.code, 1, "{args:?}");
+        assert_eq!(r.code, code, "{args:?}");
         assert!(r.err.contains(error), "{args:?}: {}", r.err);
     }
 }
