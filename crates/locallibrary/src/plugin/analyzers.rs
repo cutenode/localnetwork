@@ -96,10 +96,14 @@ impl Plugins {
                         }
                         Some(_) => None,
                     });
-                    match wrong {
-                        Some(wrong) => Err(slot.misbehaved(wrong)),
-                        None => Ok(a.fields),
+                    if let Some(wrong) = wrong {
+                        return Err(slot.misbehaved(wrong));
                     }
+                    // In the order the analyzer declares them (they're columns), whatever the
+                    // answer's.
+                    let mut fields = a.fields;
+                    fields.sort_by_cached_key(|name, _| declared.fields.get_index_of(name));
+                    Ok(fields)
                 });
                 match answer {
                     Ok(answer) => {
@@ -108,7 +112,13 @@ impl Plugins {
                     }
                     Err(Error::Cancelled) => return Err(Error::Cancelled),
                     Err(e) => {
-                        ctx.warn(format!("{}: {e}", track.file_path));
+                        // The track by its path on the drive, once, whether or not the plugin
+                        // named its audio file.
+                        let said = e.to_string().replace(&track.audio_path.display().to_string(), &track.file_path);
+                        ctx.warn(match said.contains(&track.file_path) {
+                            true => said,
+                            false => format!("{}: {said}", track.file_path),
+                        });
                         failed.fetch_add(1, Ordering::SeqCst);
                     }
                 }

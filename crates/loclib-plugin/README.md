@@ -33,10 +33,11 @@ version must match.
      says which it would, so the host can ask before overwriting any. An export reads the
      drive's whole library as locallibrary combines it; `playlists` and `history` (lists, by
      name) only narrow which lists go in.
-   - `op/plan {operation, params, context}` -> `{"summary", "warnings", "edits"}`, where each
-     edit is an `Edit` as the sidecar's `edit.plan` takes it (`{"op": "create_playlist", ...}`).
-     locallibrary plans them as one `edit.plan` (one confirmation, one backup, applied together)
-     and applies them itself.
+   - `op/plan {operation, params, context}` -> `{"summary", "warnings", "edits", "inputs"}`,
+     where each edit is an `Edit` as the sidecar's `edit.plan` takes it (`{"op":
+     "create_playlist", ...}`). locallibrary plans them as one `edit.plan` (one confirmation, one
+     backup, applied together) and applies them itself. `inputs` (optional) lists the files on
+     the computer the plan was worked out from (absolute): it isn't applied once one changes.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
@@ -54,7 +55,9 @@ version must match.
 A response is never answered, not even a bad one. Errors use the RPC sidecar's codes: -32700
 (parse error), -32600 (invalid request), -32601 (method not found), -32602 (invalid params),
 -32603 (internal), and -32000 with `data.kind` saying which failure (`cancelled`, `not_found`,
-`incompatible`...).
+`incompatible`...). locallibrary shows a hook's error as one of its own of that kind (`invalid`,
+`not_found`, `conflict`, `stale_plan`, `permission`, and `io` or `parse` about the file
+`data.fields.path` names), with the plugin named; any other kind is the plugin failing.
 
 ## The manifest
 
@@ -85,7 +88,7 @@ let manifest = Manifest::parse(r#"
     fields = { bpm = "number", confident = "boolean" }
 "#)?;
 assert_eq!(manifest.capabilities[2], Capability::Net("musicbrainz.org".into()));
-// Only plugins locallibrary ships may add top-level CLI commands.
+// Only plugins locallibrary ships may give commands places of their own on the command line.
 assert!(manifest.validate(true).is_ok());
 assert!(manifest.validate(false).is_err());
 # Ok::<(), loclib_plugin::ManifestError>(())
@@ -98,8 +101,17 @@ assert!(manifest.validate(false).is_err());
   Any other is refused, and each is granted once.
 - `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `params` (a JSON
   Schema for an object) and `cli`.
-- `[[contributes.operations]]`: `name`, `title`, `long_running`, `params`. Whether one is
-  destructive, the host works out from the edits it plans.
+- `[[contributes.operations]]`: `name`, `title`, `long_running`, `params` and `cli`. Whether one
+  is destructive, the host works out from the edits it plans.
+- `cli` (first-party plugins only) is a command's or operation's own place on the command line:
+  one name (`import`) or two, the first a group of the host's commands (`playlist import`).
+  Otherwise it's `locallibrary <id> <name>`. A params property's `x-cli` says how the command
+  line gives it (`CliHints`): `flag` (`--from` rather than `--playlist`), `one_based = true` (an
+  object whose keys are positions, `--choose 1=42` for key `0`) and `positional = true` (a
+  string given without a flag, after the drive: `playlist import DRIVE FILE`; one param at most).
+- A params or options property marked `x-path = true` (a string, or a list of them) is a file or
+  folder on the computer: every host refuses a relative one, and the command line makes it
+  absolute.
 - `[[contributes.analyzers]]`: `name`, `title`, `fields` (each `number`, `integer`, `string`,
   `boolean` or `string[]`). Fields become columns, so no two analyzers have one of a name.
 - `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,

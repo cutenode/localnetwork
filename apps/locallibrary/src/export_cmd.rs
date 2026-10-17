@@ -1,15 +1,18 @@
 //! `locallibrary export`: playlists, folders, history lists or a whole library as M3U8, CSV or
-//! text, or the library for other DJ software (`--format traktor|serato|engine`).
+//! text, or the library for other DJ software (`--format traktor|serato|engine`), or in a format
+//! a plugin adds.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Result, bail};
+use clap::builder::{PossibleValue, PossibleValuesParser};
 use clap::{Args, ValueEnum};
 use locallibrary::api;
 use locallibrary::export::{Format, PathStyle};
 use locallibrary::interop::{InteropOptions, InteropPlan, Software};
 use locallibrary::progress::Ctx;
+use loclib_plugin::ExportSource;
 
 use crate::output::{Outcome, Output, bytes, dim, heading, ok, warn};
 
@@ -26,9 +29,10 @@ pub struct ExportArgs {
     /// A history list (name or path) instead of a playlist
     #[arg(long, conflicts_with = "playlist")]
     history: Option<String>,
-    /// File format, or the DJ software to write for [default: from the file name, else m3u8]
-    #[arg(long, value_enum)]
-    format: Option<ExportFormatArg>,
+    /// File format, the DJ software to write for, or a format a plugin adds [default: from the
+    /// file name, else m3u8]
+    #[arg(long, value_parser = formats())]
+    format: Option<String>,
     /// File to write (with --split, the folder to write into; for other DJ software, the folder to write into)
     #[arg(long, short)]
     output: PathBuf,
@@ -47,9 +51,13 @@ pub struct ExportArgs {
     /// Replace files already there
     #[arg(long)]
     replace: bool,
-    /// Other DJ software: list what would be written, and write nothing
+    /// Other DJ software and plugins' formats: list what would be written, and write nothing
     #[arg(long)]
     dry_run: bool,
+    /// A plugin's format: an option for it, like key=value (repeatable; `locallibrary plugin
+    /// info` shows them)
+    #[arg(long = "option", value_name = "KEY=VALUE")]
+    options: Vec<String>,
     /// Serato: copy the audio into the output folder and write cue points into the copies' tags (asks first)
     #[arg(long)]
     write_tags: bool,
@@ -130,8 +138,24 @@ impl From<PathsArg> for PathStyle {
     }
 }
 
+/// `--format`'s values: the list formats, other DJ software's, and those plugins add.
+fn formats() -> PossibleValuesParser {
+    let own = ExportFormatArg::value_variants().iter().filter_map(ValueEnum::to_possible_value);
+    let plugins = crate::plugins::checked().into_iter().flat_map(|p| p.manifests());
+    let added = plugins.flat_map(|m| &m.contributes.exporters).map(|e| PossibleValue::new(&e.format).help(&e.title));
+    PossibleValuesParser::new(own.chain(added).collect::<Vec<_>>())
+}
+
 pub fn run(args: ExportArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let format = match args.format.map(ExportFormatArg::kind) {
+    let format = match args.format.as_deref().map(|f| (f, ExportFormatArg::from_str(f, true))) {
+        Some((f, Err(_))) => return run_plugin(f.to_string(), args, store, out, ctx),
+        Some((_, Ok(f))) => Some(f),
+        None => None,
+    };
+    if !args.options.is_empty() {
+        bail!("--option is for plugins' formats");
+    }
+    let format = match format.map(ExportFormatArg::kind) {
         Some(Err(software)) => return run_interop(args, software, out, ctx),
         Some(Ok(f)) => Some(f),
         None => None,
@@ -205,6 +229,63 @@ fn run_interop(args: ExportArgs, software: Software, out: Output, ctx: &Ctx<'_>)
     let report = plan.apply(None, ctx)?;
     Ok(out.applied(&plan, &report, Outcome::Applied, || {
         ok(format!("wrote {} file(s) for {} to {}", report.files.len(), software.name(), report.output.display()))
+    }))
+}
+
+/// A plugin's format: the plugin says which files it would write, overwriting any is asked about
+/// first (unless `--replace`), then it writes them.
+fn run_plugin(
+    format: String,
+    args: ExportArgs,
+    store: &Option<PathBuf>,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    if args.split
+        || args.location_root.is_some()
+        || args.no_analysis
+        || args.write_tags
+        || args.paths != PathsArg::Relative
+    {
+        bail!("--split, --paths, --location-root, --no-analysis and --write-tags are for locallibrary's own formats");
+    }
+    let plugins = crate::plugins::host()?;
+    let (plugin, exporter) = plugins
+        .manifests()
+        .find_map(|m| Some((m.id.as_str(), m.contributes.exporters.iter().find(|e| e.format == format)?)))
+        .expect("--format takes the formats there are");
+    let options = crate::plugin_cmd::options(exporter.options.as_ref(), &args.options)?;
+    let source = ExportSource {
+        drive: args.drive,
+        playlists: args.playlist.into_iter().collect(),
+        history: args.history.into_iter().collect(),
+    };
+    let output = std::path::absolute(&args.output)?;
+    let store = crate::diff_cmd::existing_store(store)?;
+    let plan = plugins.export_plan(plugin, &format, source, &output, options, store.as_ref(), ctx)?;
+    if !out.json {
+        crate::output::summary(&plan.summary, &plan.warnings);
+        for f in &plan.overwrites {
+            say!("    {} {}", f.display(), dim("(already there)"));
+        }
+    }
+    if plan.noop {
+        return Ok(out.nothing(&plan, "nothing to write"));
+    }
+    let stop = match args.dry_run {
+        true => Some(Outcome::DryRun),
+        false if plan.destructive && !args.replace => out.decide(false, "Overwrite them?"),
+        false => None,
+    };
+    if let Some(o) = stop {
+        return Ok(out.not_applied(&plan, o));
+    }
+    let report = plan.apply(store.as_ref(), ctx)?;
+    Ok(out.applied(&plan, &report, Outcome::Applied, || {
+        for w in &report.warnings {
+            warn(w);
+        }
+        ok(format!("wrote {} file(s) to {}", report.files.len(), output.display()))
     }))
 }
 
