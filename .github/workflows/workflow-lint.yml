@@ -60,7 +60,7 @@ jobs:
       - run: |
           "$(go env GOPATH)/bin/actionlint"
       # Offline: the online audits look up action tags and advisories through the GitHub API.
-      - run: zizmor --offline --format github .github
+      - run: zizmor --offline --format github --config .github/zizmor.yml .github
 
   # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
   # cancelled, and passes when they all passed or were skipped because nothing they check changed.
