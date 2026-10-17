@@ -105,7 +105,9 @@ fn serato_crates_and_copies_are_written_unasked() {
     let copy = ["export", d, "--format", "serato", "-o", path(&tags), "--option", "write_tags=true"];
     let planned = env.ok(&[&copy[..], &["--dry-run"]].concat());
     let size = std::fs::metadata(main.join(TRACK_1)).unwrap().len();
-    let listed = format!("{}  copy of the audio, {}", tags.join(TRACK_1).display(), locallibrary::op::bytes(size));
+    // Shown as the platform writes paths (`\` between folders on Windows).
+    let copy_path = TRACK_1.split('/').fold(tags.clone(), |p, part| p.join(part));
+    let listed = format!("{}  copy of the audio, {}", copy_path.display(), locallibrary::op::bytes(size));
     assert!(planned.contains(&listed), "{listed:?}:\n{planned}");
     assert!(!tags.exists());
     let v = env.json(&copy);
