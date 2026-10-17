@@ -7,7 +7,7 @@ use std::process::Stdio;
 use loclib_plugin::Manifest;
 use serde_json::{Value, json};
 
-use crate::support::{Env, Rpc, path};
+use crate::support::{Env, Rpc, path, recording};
 
 /// loclib-plugin's echo plugin, which the test plugin is.
 const ECHO: &str = include_str!("../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
@@ -22,6 +22,9 @@ cli = "say""#;
         .replacen("params = { type = \"object\" }", params, 1)
         .replace("title = \"Make a playlist\"", "title = \"Make a playlist\"\ncli = \"playlist fresh\"")
 }
+
+/// The plugins locallibrary ships, as it lists them (before the tests' own).
+const SHIPPED: [&str; 4] = ["coverart", "interop", "sound", "tracklist"];
 
 /// An [`Env`] with the echo plugin, and the demo drive USB (two tracks, with audio).
 fn env() -> Env {
@@ -69,15 +72,18 @@ fn a_plugin_serves_on_stdout_alone() {
 /// `plugin settings` shows, sets (asking first) and resets its settings.
 #[test]
 fn plugins_are_listed_and_their_settings_kept() {
-    assert!(Env::new().ok(&["plugin"]).contains("no plugins"));
+    let ids = |listed: &Value| listed.as_array().unwrap().iter().map(|p| p["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(ids(&Env::new().json(&["plugin", "list"])), SHIPPED);
     let env = env();
     let list = env.ok(&["plugin"]);
     assert!(list.contains("echo  Echo 0.1.0"), "{list}");
     assert!(list.contains("may read your libraries' tracks and playlists"), "{list}");
     assert!(list.contains("adds commands echo, titles, steps, wait; operation playlist; analyzer size"), "{list}");
     let listed = env.json(&["plugin", "list"]);
-    assert_eq!((&listed[0]["id"], &listed[0]["running"]), (&json!("echo"), &json!(false)));
-    assert_eq!(listed[0]["capabilities"][1]["capability"], "library:plan");
+    assert_eq!(ids(&listed), [&SHIPPED[..], &["echo"]].concat());
+    let echo = &listed[SHIPPED.len()];
+    assert_eq!(echo["running"], json!(false));
+    assert_eq!(echo["capabilities"][1]["capability"], "library:plan");
 
     let info = env.ok(&["plugin", "info", "echo"]);
     for line in ["Echo (echo) 0.1.0", "locallibrary say", "locallibrary echo titles", "locallibrary playlist fresh"] {
@@ -168,8 +174,9 @@ fn operations_are_confirmed_and_applied_as_edits_are() {
     assert_eq!(again["outcome"], "applied");
 }
 
-/// A plugin's format is one `export --format` takes: a dry run writes nothing, and overwriting
-/// is asked about first (or not, with `--replace`).
+/// A plugin's format is one `export --format` takes: a dry run shows what goes in and each file
+/// (what it holds, its size), writing nothing, and overwriting is asked about first, the file
+/// marked (or not, with `--replace`).
 #[test]
 fn plugins_formats_ask_before_overwriting() {
     let env = env();
@@ -180,13 +187,15 @@ fn plugins_formats_ask_before_overwriting() {
         args.extend(more.iter().map(|m| m.to_string()));
         args
     };
-    env.ok(&strs(&export(&["--dry-run"])));
+    let planned = env.ok(&strs(&export(&["--dry-run"])));
+    assert!(planned.contains("\n• 2 tracks\n"), "{planned}");
+    assert!(planned.contains(&format!("\n  {}  playlist, ", out.display())), "{planned}");
     assert!(!out.exists());
     assert!(env.ok(&strs(&export(&[]))).contains("wrote 1 file(s)"));
     assert!(std::fs::read_to_string(&out).unwrap().starts_with("#EXTM3U\n/Contents/"));
     std::fs::write(&out, "mine").unwrap();
     let asked = env.exits(3, &strs(&export(&[])));
-    assert!(asked.contains("overwrite 1 of them"), "{asked}");
+    assert!(asked.contains("overwrite 1 of them") && asked.contains(" (already there)\n"), "{asked}");
     assert_eq!(std::fs::read_to_string(&out).unwrap(), "mine");
     env.ok(&strs(&export(&["--replace"])));
     assert!(std::fs::read_to_string(&out).unwrap().starts_with("#EXTM3U"));
@@ -201,18 +210,63 @@ fn plugins_formats_ask_before_overwriting() {
 #[test]
 fn analyzers_fill_in_track_details() {
     let env = env();
-    assert!(env.ok(&["analyze", "USB"]).contains("size (echo): 2 tracks analyzed, 0 already"));
+    // The demo drive's audio files hold no audio the sound plugin could measure: echo's analyzer
+    // only reads their size.
+    assert!(env.ok(&["analyze", "USB", "--analyzer", "size"]).contains("size (echo): 2 tracks analyzed, 0 already"));
     assert!(env.ok(&["analyze", "USB", "--plugin", "echo"]).contains("0 tracks analyzed, 2 already"));
     let shown = env.json(&["track", "USB", "--track", "1"]);
     let audio = env.volumes.join("USB").join(shown[0]["track"]["file_path"].as_str().unwrap().trim_start_matches('/'));
     let bytes = std::fs::metadata(audio).unwrap().len();
     assert_eq!(shown[0]["fields"], json!({ "echo": { "size": { "bytes": bytes } } }));
-    assert!(env.ok(&["track", "USB", "--track", "1"]).contains(&format!("bytes       {bytes}  echo size")));
+    assert!(env.ok(&["track", "USB", "--track", "1"]).contains(&format!("echo.bytes  {bytes}\n")));
     assert!(env.fails(2, &["analyze", "USB", "--analyzer", "tempo"]).contains("no plugin has an analyzer \"tempo\""));
     // Without the plugin, nothing it worked out is shown.
     let mut without = env;
     without.plugins(&[]);
     assert!(without.json(&["track", "USB", "--track", "1"])[0].get("fields").is_none());
+}
+
+/// The sound plugin locallibrary ships measures each track's tempo, key and loudness from its
+/// audio, once, and `track` shows every field it declares as `sound.FIELD`.
+#[test]
+fn the_sound_plugin_measures_tracks() {
+    let env = Env::new();
+    let album = env.demo("USB").join("Contents/Loopmasters/UnknownAlbum");
+    for (n, seed) in [(1, 7919), (2, 31)] {
+        std::fs::write(album.join(format!("Demo Track {n}.mp3")), recording(seed, 30.0, 44_100, 16, 0)).unwrap();
+    }
+    let analyzed = env.ok(&["analyze", "USB"]);
+    assert!(analyzed.contains("tempo-key-loudness (sound): 2 tracks analyzed, 0 already"), "{analyzed}");
+    assert!(env.ok(&["analyze", "USB"]).contains("0 tracks analyzed, 2 already"));
+    let manifest = Manifest::parse(locallibrary_plugin_sound::MANIFEST).unwrap();
+    let declared: Vec<&String> = manifest.contributes.analyzers[0].fields.keys().collect();
+    let shown = env.json(&["track", "USB", "--track", "1"]);
+    let fields = shown[0]["fields"]["sound"]["tempo-key-loudness"].as_object().unwrap();
+    assert_eq!(fields.keys().collect::<Vec<_>>(), declared, "{fields:?}");
+    let text = env.ok(&["track", "USB", "--track", "1"]);
+    for name in declared {
+        assert!(text.contains(&format!("  sound.{name} ")), "{name}: {text}");
+    }
+}
+
+/// The coverart plugin locallibrary ships says which servers it talks to, and plans for tracks
+/// that need no cover without going online.
+#[test]
+fn the_coverart_plugin_plans_without_going_online() {
+    let env = Env::new();
+    env.demo("USB");
+    let info = env.ok(&["plugin", "info", "coverart"]);
+    for line in ["Cover art (coverart) 0.1.0", "talk to musicbrainz.org", "locallibrary coverart fetch"] {
+        assert!(info.contains(line), "{line}: {info}");
+    }
+    let planned = env.ok(&["coverart", "fetch", "USB", "--tracks", "99", "--dry-run"]);
+    for line in ["no track chosen needs cover art", "track #99 isn't on the drive", "nothing to change"] {
+        assert!(planned.contains(line), "{line}: {planned}");
+    }
+    assert!(
+        env.fails(2, &["analyze", "USB", "--plugin", "coverart"])
+            .contains("error: the coverart plugin has no analyzer\n")
+    );
 }
 
 /// A plugin whose id is a namespace of the sidecar's methods is left out, saying why, and the
@@ -228,11 +282,14 @@ fn a_plugin_that_clashes_is_left_out() {
     assert_eq!(env.ok(&["say", "--name", "x"]), "{\n  \"name\": \"x\"\n}\n");
     assert!(env.fails(2, &["events", "echo"]).contains("unrecognized subcommand 'events'"));
     let listed = env.json(&["plugin", "list"]);
-    assert_eq!(listed.as_array().unwrap().len(), 1, "{listed}");
+    let ids: Vec<&Value> = listed.as_array().unwrap().iter().map(|p| &p["id"]).collect();
+    assert_eq!(ids, [&SHIPPED[..], &["echo"]].concat());
     let listed = Rpc::start(env.command()).call(1, "plugins.list", Value::Null)["result"].clone();
-    let left_out: Vec<(&Value, &Value)> =
-        listed.as_array().unwrap().iter().map(|p| (&p["id"], &p["left_out"])).collect();
-    assert_eq!(left_out, [(&json!("echo"), &Value::Null), (&json!("events"), &json!(why))]);
+    let left_out: Vec<(Value, Value)> =
+        listed.as_array().unwrap().iter().map(|p| (p["id"].clone(), p["left_out"].clone())).collect();
+    let mut kept: Vec<(Value, Value)> = SHIPPED.iter().map(|id| (json!(id), Value::Null)).collect();
+    kept.push((json!("echo"), Value::Null));
+    assert_eq!(left_out, [kept, vec![(json!("events"), json!(why))]].concat());
 }
 
 /// The sidecar lists and describes plugins, keeps their settings, runs their commands, plans and
@@ -246,7 +303,7 @@ fn the_sidecar_hosts_plugins() {
     let mut s = Rpc::start(env.command());
     let result = |r: Value| r.get("result").cloned().unwrap_or_else(|| panic!("{r}"));
     let listed = result(s.call(1, "plugins.list", Value::Null));
-    assert_eq!(listed[0]["id"], "echo");
+    assert_eq!(listed[SHIPPED.len()]["id"], "echo");
     let described = result(s.call(2, "plugins.describe", json!({ "plugin": "echo" })));
     assert_eq!(described["manifest"]["contributes"]["commands"][0]["cli"], "say");
     let set = result(s.call(3, "plugins.settings.set", json!({ "plugin": "echo", "key": "greeting", "value": "hi" })));
@@ -299,8 +356,14 @@ fn the_sidecar_hosts_plugins() {
     assert_eq!(wrong["error"]["data"]["kind"], "invalid_params", "{wrong}");
     let planned = result(s.call(16, "plugins.export.plan", export));
     assert_eq!(planned["operation"], "echo.export.echo-m3u");
+    let file = &planned["files"][0];
+    let x = path(&env.outside("x.m3u")).to_string();
+    assert_eq!((&file["path"], &file["what"], &file["exists"]), (&json!(x), &json!("playlist"), &json!(false)));
+    assert_eq!((&planned["counts"], &planned["notes"]), (&json!({ "tracks": 2 }), &json!([])), "{planned}");
     let written = result(s.call(17, "plugins.export.apply", json!({ "plan_id": planned["plan_id"] })));
-    assert_eq!(written["files"], json!([path(&env.outside("x.m3u"))]));
+    let bytes = std::fs::metadata(&x).unwrap().len();
+    assert_eq!(written["files"], json!([{ "path": x, "what": "playlist", "bytes": bytes }]));
+    assert_eq!(file["bytes"], bytes, "a dry run says its size");
 
     // A plan worked out from a file is applied only while the file is as it was.
     let list = env.outside("list.txt");
@@ -320,7 +383,7 @@ fn the_sidecar_hosts_plugins() {
     assert_eq!(analyzed, json!({ "analyzed": 2, "kept": 0, "failed": 0 }));
     let fields = result(s.call(22, "track.fields", json!({ "drive": drive, "tracks": [1] })));
     assert!(fields["tracks"][0]["plugins"]["echo"]["size"]["bytes"].as_u64().unwrap() > 0, "{fields}");
-    assert_eq!(result(s.call(23, "plugins.list", Value::Null))[0]["running"], true);
+    assert_eq!(result(s.call(23, "plugins.list", Value::Null))[SHIPPED.len()]["running"], true);
 
     // Slow to stop: the sidecar waits for it (within its grace) before it exits.
     let stopped = env.outside("stopped");

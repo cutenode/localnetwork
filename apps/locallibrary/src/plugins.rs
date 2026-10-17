@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::export_cmd::ExportFormatArg;
+use crate::export_cmd::FormatArg;
 use params::properties;
 
 /// Serves a plugin over stdin and stdout until its input closes (the SDK's `serve`).
@@ -31,7 +31,12 @@ type Serve = fn(std::io::Stdin, std::io::Stdout);
 /// The plugins linked into locallibrary: each one's manifest (its crate's
 /// `locallibrary-plugin.toml`) and how it serves. Adding one is a line here and a dependency on
 /// its crate.
-const FIRST_PARTY: &[(&str, Serve)] = &[];
+const FIRST_PARTY: &[(&str, Serve)] = &[
+    (locallibrary_plugin_coverart::MANIFEST, locallibrary_plugin_coverart::serve),
+    (locallibrary_plugin_interop::MANIFEST, locallibrary_plugin_interop::serve),
+    (locallibrary_plugin_sound::MANIFEST, locallibrary_plugin_sound::serve),
+    (locallibrary_plugin_tracklist::MANIFEST, locallibrary_plugin_tracklist::serve),
+];
 
 /// Plugins the CLI's and the sidecar's tests add: manifest files (a list, as `PATH` is), each
 /// served by the plugin host's test plugin. Only in builds with debug assertions (the tests'):
@@ -97,27 +102,23 @@ fn load() -> Result<Loaded> {
         found.push((manifest, Serves::Test));
     }
     let (mut specs, mut serves, mut left_out) = (Vec::new(), FxHashMap::default(), Vec::new());
-    // Without plugins, there's nothing to check, nor any need to know where locallibrary is:
-    // starting up stays quick.
-    if !found.is_empty() {
-        let program = std::env::current_exe().map_err(|e| Error::Invalid(format!("where locallibrary is: {e}")))?;
-        let mut all = Vec::new();
-        for (manifest, how) in found {
-            // The shell's completion request would have it answer that instead of serving.
-            let env_remove = vec![crate::completion::VAR.into()];
-            let mut spec =
-                PluginSpec::first_party(&manifest, Launch { program: program.clone(), args: Vec::new(), env_remove })?;
-            spec.launch.args = vec!["plugin".into(), "serve".into(), spec.manifest.id.clone().into()];
-            all.push((spec, how));
-        }
-        let clashes = check(&all.iter().map(|(s, _)| &s.manifest).collect::<Vec<_>>());
-        for ((spec, how), clash) in all.into_iter().zip(clashes) {
-            match clash {
-                Some(why) => left_out.push((spec.manifest, why)),
-                None => {
-                    serves.insert(spec.manifest.id.clone(), how);
-                    specs.push(spec);
-                }
+    let program = std::env::current_exe().map_err(|e| Error::Invalid(format!("where locallibrary is: {e}")))?;
+    let mut all = Vec::new();
+    for (manifest, how) in found {
+        // The shell's completion request would have it answer that instead of serving.
+        let env_remove = vec![crate::completion::VAR.into()];
+        let mut spec =
+            PluginSpec::first_party(&manifest, Launch { program: program.clone(), args: Vec::new(), env_remove })?;
+        spec.launch.args = vec!["plugin".into(), "serve".into(), spec.manifest.id.clone().into()];
+        all.push((spec, how));
+    }
+    let clashes = check(&all.iter().map(|(s, _)| &s.manifest).collect::<Vec<_>>());
+    for ((spec, how), clash) in all.into_iter().zip(clashes) {
+        match clash {
+            Some(why) => left_out.push((spec.manifest, why)),
+            None => {
+                serves.insert(spec.manifest.id.clone(), how);
+                specs.push(spec);
             }
         }
     }
@@ -154,7 +155,7 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
     let namespaces = crate::rpc::namespaces();
     let mut flags: Vec<&str> = cli.get_arguments().filter(|a| a.is_global_set()).filter_map(|a| a.get_long()).collect();
     flags.extend(["help", "version", PARAMS, DRY_RUN]);
-    let formats: FxHashMap<String, String> = ExportFormatArg::value_variants()
+    let formats: FxHashMap<String, String> = FormatArg::value_variants()
         .iter()
         .filter_map(ValueEnum::to_possible_value)
         .flat_map(|v| v.get_name_and_aliases().map(String::from).collect::<Vec<_>>())

@@ -41,6 +41,12 @@ crates/loclib-plugin/       the plugin protocol (JSON-RPC over stdio, one messag
 plugins/coverart/           the coverart plugin: front covers for tracks without artwork (or all, asked to),
                             each album looked up on MusicBrainz and its cover fetched from the Cover Art
                             Archive, as `set_artwork` edits
+plugins/interop/            the interop plugin: exporters for Traktor, Serato and Engine DJ, writing a drive's
+                            library with loclib-interop into a folder on this computer
+plugins/sound/              the sound plugin: the `tempo-key-loudness` analyzer, a track's tempo, key and
+                            loudness measured with loclib-analysis, as doctor's `--analyze` measures them
+plugins/tracklist/          the tracklist plugin: a playlist from a tracklist, read and matched with
+                            loclib-tracklist, as one `set_entries` edit
 vendor/rekordbox-pdb/       export.pdb and exportExt.pdb reader/editor (MIT), with locallibrary's patches, see PATCHES.md
 crates/locallibrary/src/    the library, built on the crates above
   lib.rs       the crate's entry point (`model` and `harmony` are loclib-model's, re-exported), and the
@@ -115,7 +121,6 @@ crates/locallibrary/src/    the library, built on the crates above
   onelibrary/  exportLibrary.db: SQLCipher pages, WAL replay, reading and editing via SQLite
   xml.rs       rekordbox XML export
   masterdb.rs  rekordbox's own collection (master.db), decrypted from a copy and read; comparing a drive with it
-  interop.rs   the library for other DJ software, planned and written through loclib-interop
   format/      drive formatting: which layouts players read, diskutil/lsblk/PowerShell backends, FAT32
                writer, fake-capacity probe
   equipment.rs loclib-equipment's table, and the player models remembered in the store (players.json)
@@ -139,9 +144,12 @@ crates/locallibrary/src/    the library, built on the crates above
                messages never name a CLI command or flag: the CLI's hints.rs words those)
 apps/locallibrary/          `locallibrary` (clap), the JSON-RPC sidecar (rpc.rs; rpc/methods.rs: every method in
                             one registry, rpc/contract.rs and rpc/typescript.rs: `rpc.describe`, schema.json
-                            and the TypeScript types), and the player (tui/: ratatui + rodio, drawing with
-                            loclib-waveform, the `tui` and `playback` features; account_off.rs and the
-                            `playback`-less audio.rs stand in for what a build leaves out)
+                            and the TypeScript types), the plugins it ships (plugins.rs: the sound, tracklist,
+                            interop and coverart plugins linked in, each run as `locallibrary plugin serve <id>`;
+                            plugin_cmd/: what they add to the command line), and the player (tui/: ratatui +
+                            rodio, drawing with loclib-waveform, the `tui` and `playback` features;
+                            account_off.rs and the `playback`-less audio.rs stand in for what a build leaves
+                            out)
 apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary.d.ts (`rpc --emit-schema`)
 ```
 

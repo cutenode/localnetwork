@@ -1,4 +1,5 @@
 use std::io::pipe;
+use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -6,7 +7,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use super::*;
-use crate::{FieldValue, View, code};
+use crate::{ExportedFile, FieldValue, View, code};
 
 #[path = "../../examples/echo/plugin.rs"]
 mod echo;
@@ -168,8 +169,11 @@ fn an_exporter_writes_its_files() {
     let pending = s.host.send_request(method::WRITE_EXPORT, &req).unwrap();
     s.answer_tracks_query();
     let exported: Exported = pending.wait().unwrap();
-    assert_eq!(exported, Exported { files: vec![output.clone()], warnings: vec![] });
-    assert_eq!(std::fs::read_to_string(&output).unwrap(), "#EXTM3U\n/Contents/USB.mp3\n");
+    let text = "#EXTM3U\n/Contents/USB.mp3\n";
+    let file = ExportedFile { path: output.clone(), what: "playlist".into(), bytes: text.len() as u64 };
+    let counts = [("tracks".to_string(), 1)].into_iter().collect();
+    assert_eq!(exported, Exported { files: vec![file], counts, ..Exported::default() });
+    assert_eq!(std::fs::read_to_string(&output).unwrap(), text);
     s.stop();
 }
 
@@ -182,8 +186,11 @@ fn an_exporters_dry_run_writes_nothing() {
     let s = greeted(echo::Echo);
     let source = json!({ "drive": "USB", "playlists": ["Sets/Friday"], "history": ["HISTORY 001"] });
     let req = json!({ "exporter": "m3u", "source": source, "output": output, "dry_run": true });
-    let exported: Exported = s.host.request(method::WRITE_EXPORT, &req).unwrap();
-    assert_eq!(exported.files, std::slice::from_ref(&output));
+    let pending = s.host.send_request(method::WRITE_EXPORT, &req).unwrap();
+    s.answer_tracks_query();
+    let exported: Exported = pending.wait().unwrap();
+    let paths: Vec<&Path> = exported.files.iter().map(|f| f.path.as_path()).collect();
+    assert_eq!((paths, exported.files[0].bytes), (vec![output.as_path()], 26));
     assert!(!output.exists());
     s.stop();
 }

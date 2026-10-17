@@ -107,32 +107,9 @@ pub fn export(device: &Device, opts: &XmlOptions, ctx: &Ctx<'_>) -> Result<(Stri
     Ok((x, report))
 }
 
-/// The playlists and folders in `only` (with the folders above them, so their paths stay the same)
-/// and the tracks they hold. The whole library when `only` is empty.
-pub(crate) fn subset(mut library: Library, only: &[String]) -> Result<Library> {
-    if only.is_empty() {
-        return Ok(library);
-    }
-    let mut keep = rustc_hash::FxHashSet::default();
-    for query in only {
-        let p = library.find_playlist(query).ok_or_else(|| Error::NotFound(format!("playlist {query:?}")))?;
-        // The node and everything below it...
-        let mut queue = vec![p.id];
-        while let Some(id) = queue.pop() {
-            if keep.insert(id) {
-                queue.extend(library.children(Some(id)).iter().map(|c| c.id));
-            }
-        }
-        // ...and the folders above it.
-        let mut parent = p.parent_id;
-        while let Some(id) = parent.filter(|id| keep.insert(*id)) {
-            parent = library.playlist(id).and_then(|f| f.parent_id);
-        }
-    }
-    library.playlists.retain(|p| keep.contains(&p.id));
-    let used: rustc_hash::FxHashSet<u32> = library.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
-    library.tracks.retain(|t| used.contains(&t.id));
-    Ok(library)
+/// The playlists and folders in `only` and the tracks they hold ([`Library::subset`]).
+pub(crate) fn subset(library: Library, only: &[String]) -> Result<Library> {
+    library.subset(only).map_err(|query| Error::NotFound(format!("playlist {query:?}")))
 }
 
 fn write_track(x: &mut String, t: &Track, root: &Path, analysis: Option<anlz::TrackAnalysis>, report: &mut XmlReport) {

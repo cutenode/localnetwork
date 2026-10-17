@@ -4,7 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
-use loclib_plugin::{Context, ExportSource, Exported, WriteExport, method};
+use indexmap::IndexMap;
+use loclib_plugin::{Context, ExportSource, Exported, ExportedFile, WriteExport, method};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -25,9 +26,12 @@ pub struct PluginExport {
     /// The file, or folder, written to.
     pub output: PathBuf,
     /// The files the export writes.
-    pub files: Vec<PathBuf>,
-    /// Those of them there already, which it overwrites.
-    pub overwrites: Vec<PathBuf>,
+    pub files: Vec<ExportFile>,
+    /// What goes in, in the plugin's words (`{"tracks": 12, "cues": 40}`).
+    pub counts: IndexMap<String, u64>,
+    /// What the format can't hold, and what to do with the files. (Problems with this library
+    /// are the plan's warnings.)
+    pub notes: Vec<String>,
     #[serde(skip)]
     #[schemars(skip)]
     write: WriteExport,
@@ -35,6 +39,15 @@ pub struct PluginExport {
     #[serde(skip)]
     #[schemars(skip)]
     slot: Weak<Slot>,
+}
+
+/// A file an export writes, as the plugin says, and whether it's there already (and so
+/// overwritten).
+#[derive(Serialize, JsonSchema)]
+pub struct ExportFile {
+    #[serde(flatten)]
+    pub file: ExportedFile,
+    pub exists: bool,
 }
 
 impl Plugins {
@@ -69,7 +82,7 @@ impl Plugins {
         let source = ExportSource { drive: context.drive.clone().unwrap_or_default(), ..source };
         let mut write =
             WriteExport { exporter: exporter.into(), source, output: output.into(), options, dry_run: true, context };
-        let Exported { files, warnings } = slot.call(method::WRITE_EXPORT, &write, ctx)?;
+        let Exported { files, counts, notes, warnings } = slot.call(method::WRITE_EXPORT, &write, ctx)?;
         write.dry_run = false;
         // Checked again before it's written: the files in the folder the output is in (an output
         // that's a folder of its own may not be there yet).
@@ -77,22 +90,31 @@ impl Plugins {
         let keys = files
             .iter()
             .map(|f| {
-                let key = f.starts_with(output).then(|| key(dir, f)).flatten();
-                key.ok_or_else(|| slot.misbehaved(format!("it would write {} outside the output", f.display())))
+                let key = f.path.starts_with(output).then(|| key(dir, &f.path)).flatten();
+                key.ok_or_else(|| slot.misbehaved(format!("it would write {} outside the output", f.path.display())))
             })
             .collect::<Result<Vec<_>>>()?;
-        let overwrites: Vec<PathBuf> = files.iter().filter(|f| f.exists()).cloned().collect();
-        let mut summary = vec![format!("write {} file(s) to {}", files.len(), output.display())];
-        if !overwrites.is_empty() {
-            summary.push(format!("overwrite {} of them", overwrites.len()));
+        let files: Vec<ExportFile> =
+            files.into_iter().map(|file| ExportFile { exists: file.path.exists(), file }).collect();
+        let overwrites = files.iter().filter(|f| f.exists).count();
+        let size: u64 = files.iter().map(|f| f.file.bytes).sum();
+        let size = if size > 0 { format!(" ({})", crate::op::bytes(size)) } else { String::new() };
+        let mut summary = vec![format!("write {} file(s){size} to {}", files.len(), output.display())];
+        if !counts.is_empty() {
+            let counted: Vec<String> = counts.iter().map(|(label, n)| format!("{n} {label}")).collect();
+            summary.push(counted.join(", "));
         }
-        let (destructive, noop) = (!overwrites.is_empty(), files.is_empty());
+        if overwrites > 0 {
+            summary.push(format!("overwrite {overwrites} of them"));
+        }
+        let (destructive, noop) = (overwrites > 0, files.is_empty());
         let export = PluginExport {
             plugin: plugin.into(),
             exporter: exporter.into(),
             output: output.into(),
             files,
-            overwrites,
+            counts,
+            notes,
             write,
             slot: Arc::downgrade(slot),
         };
@@ -149,13 +171,16 @@ impl Operation for PluginExport {
         outside_drives(&e.output, store)?;
         let slot = e.slot.upgrade().ok_or_else(|| Error::stale(format!("the {} plugin", e.plugin), "stopped"))?;
         let written: Exported = slot.call(method::WRITE_EXPORT, &e.write, ctx)?;
+        // By path: a file's size is known exactly only once it's written.
+        let said: Vec<&Path> = e.files.iter().map(|f| f.file.path.as_path()).collect();
+        let wrote: Vec<&Path> = written.files.iter().map(|f| f.path.as_path()).collect();
         let unannounced: Vec<String> =
-            written.files.iter().filter(|f| !e.files.contains(f)).map(|f| f.display().to_string()).collect();
+            wrote.iter().filter(|f| !said.contains(f)).map(|f| f.display().to_string()).collect();
         if !unannounced.is_empty() {
             return Err(slot.misbehaved(format!("it wrote what it didn't say it would: {}", unannounced.join(", "))));
         }
         let unwritten: Vec<String> =
-            e.files.iter().filter(|f| !written.files.contains(f)).map(|f| f.display().to_string()).collect();
+            said.iter().filter(|f| !wrote.contains(f)).map(|f| f.display().to_string()).collect();
         if !unwritten.is_empty() {
             return Err(slot.misbehaved(format!("it didn't write what it said it would: {}", unwritten.join(", "))));
         }
