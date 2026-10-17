@@ -6,7 +6,8 @@
  * (scripts/lib/happyview.ts) to index them. Writes `.env.local`, including
  * HAPPYVIEW_URL and HAPPYVIEW_API_KEY.
  *
- *   pnpm dev:network          # then, in another terminal: pnpm dev
+ *   pnpm dev                  # the network and the app
+ *   pnpm dev:network          # the network only; then, in another terminal: pnpm dev:app
  */
 import { spawn } from 'node:child_process';
 import { rmSync, writeFileSync } from 'node:fs';
@@ -18,7 +19,7 @@ import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
 import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
-import { startHappyView } from './lib/happyview.ts';
+import { checkDocker, startHappyView } from './lib/happyview.ts';
 import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_EPKS, DEMO_PROJECTS } from './seed-data.ts';
 
 const PLC_PORT = Number(process.env.DEV_PLC_PORT ?? 2582);
@@ -29,7 +30,7 @@ const DB_PATH = process.env.DEV_DB_PATH ?? 'data/dev.db';
 
 const ENV_FILE = process.env.DEV_ENV_FILE ?? '.env.local';
 
-/** With --app, also start the SvelteKit dev server wired to this network (used by Playwright). */
+/** With --app, also start the SvelteKit dev server wired to this network (`pnpm dev`, and Playwright). */
 const START_APP = process.argv.includes('--app');
 
 /** With --production as well, the app is the production build in build/ instead (used by Lighthouse). */
@@ -53,6 +54,12 @@ const ACCOUNTS = [
 const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
 
 async function main() {
+	// First, so a missing Docker fails right away with what to do instead of after the seeding.
+	await checkDocker().catch((error) => {
+		console.error(error instanceof Error ? error.message : error);
+		process.exit(1);
+	});
+
 	rmSync(DB_PATH, { force: true });
 	rmSync(`${DB_PATH}-wal`, { force: true });
 	rmSync(`${DB_PATH}-shm`, { force: true });
@@ -227,7 +234,10 @@ async function main() {
 
 	if (ENV_FILE) {
 		const lines = Object.entries(vars).map(([key, value]) => `${key}=${value}`);
-		writeFileSync(ENV_FILE, ['# Written by `pnpm dev:network`. Regenerated on every run.', ...lines, ''].join('\n'));
+		writeFileSync(
+			ENV_FILE,
+			['# Written by `pnpm dev` and `pnpm dev:network`. Regenerated on every run.', ...lines, ''].join('\n')
+		);
 		log(`Wrote ${ENV_FILE}`);
 	}
 
@@ -240,8 +250,10 @@ async function main() {
 		);
 	}
 
+	const next = START_APP ? 'Open' : 'Now run `pnpm dev:app` and open';
+
 	console.log(
-		`\n  Now run \`pnpm dev\` and open http://127.0.0.1:${APP_PORT}\n  Ctrl-C stops the network (all data is in-memory/temporary).\n`
+		`\n  ${next} http://127.0.0.1:${APP_PORT}\n  Ctrl-C stops the network (all data is in-memory/temporary).\n`
 	);
 
 	// The production build only reaches this network's loopback PDS and PLC with the SSRF guard off.

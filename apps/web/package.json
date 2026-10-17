@@ -9,8 +9,9 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "tsx scripts/dev-network.ts --app",
 		"dev:network": "tsx scripts/dev-network.ts",
+		"dev:app": "vite dev",
 		"build": "vite build",
 		"preview": "vite preview",
 		"start": "node build",
