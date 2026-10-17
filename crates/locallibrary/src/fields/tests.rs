@@ -147,3 +147,21 @@ fn a_librarys_values_are_named_by_plugin_and_field() {
         assert!(none.tracks.is_empty() && none.declared == declared);
     }
 }
+
+/// An analyzer's workers keep values at once, and every value lands.
+#[test]
+fn values_kept_at_once_all_land() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let a = analyzer("sound", "1.0.0", "tempo");
+    let tracks: Vec<PathBuf> = (0..16)
+        .map(|i| audio(&dir.path().join("A/Contents"), &format!("{i}.mp3"), format!("{i}").as_bytes()))
+        .collect();
+    let bpm = fields(&[("bpm", FieldValue::Number(128.0))]);
+    std::thread::scope(|s| {
+        for t in &tracks {
+            s.spawn(|| store.put(t, &a, &bpm).unwrap());
+        }
+    });
+    assert!(tracks.iter().all(|t| !store.get(t, std::slice::from_ref(&a)).is_empty()));
+}
