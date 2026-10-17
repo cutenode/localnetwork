@@ -448,7 +448,11 @@ fn edits_print_their_plan_and_do_what_it_says(tc: TestCase) {
                     } else {
                         assert!(applied.out.contains(&format!("written to {}", dbs.join(" and "))), "{said}");
                     }
-                    let drive = words.iter().find(|w| *w == d.name || w.ends_with(&format!("/{}", d.name))).unwrap();
+                    // The drive as named, or by its mount path (`\` between folders on Windows).
+                    let drive = words
+                        .iter()
+                        .find(|w| std::path::Path::new(w).file_name() == Some(std::ffi::OsStr::new(d.name)))
+                        .unwrap();
                     assert!(applied.out.contains(&format!("locallibrary undo {drive}")), "{said}");
                 }
             }
