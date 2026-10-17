@@ -17,7 +17,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, Mo
 use ratatui::layout::{Position, Rect};
 use rustc_hash::FxHashSet;
 
-use super::app::testing::{Template, mouse, wait};
+use super::app::testing::{Template, mouse, overlay, wait};
 use super::app::{App, Focus, View};
 use super::browse;
 use super::edits::{Modal, PromptFor};
@@ -228,8 +228,7 @@ fn check(app: &mut App, (w, h): (u16, u16)) {
     let s = screen(app, w, h);
     let lines: Vec<&str> = s.lines().collect();
     assert_eq!(lines.len(), h as usize, "{w}x{h}");
-    let overlay = app.help || app.show_log || app.modal.is_some();
-    if !overlay && w >= 80 && h >= 3 {
+    if !overlay(app) && w >= 80 && h >= 3 {
         assert!(lines[0].contains("◉ locallibrary"), "no header at {w}x{h}:\n{s}");
         assert!(!lines[h as usize - 1].trim().is_empty(), "no footer at {w}x{h}:\n{s}");
     }
@@ -412,6 +411,17 @@ const LIBRARY_KEYS: &[&str] = &[
 #[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
 fn library_walks_keep_the_player_whole(tc: TestCase) {
     walk_in(&tc, "1", LIBRARY_KEYS, 30);
+}
+
+/// What a library walk found: the outputs list (`d`) in a terminal three rows tall is drawn over
+/// the header, as a dialog is.
+#[test]
+fn the_outputs_list_may_cover_the_header() {
+    let Fixture { _dir, mut app, .. } = walk_fixture();
+    app.on_key(key_event("1"));
+    app.on_key(key_event("d"));
+    assert!(screen(&mut app, 80, 3).contains("the system's default"));
+    check(&mut app, (80, 3));
 }
 
 /// The Drives and Snapshots views' keys, and their menus and dialogs'.
