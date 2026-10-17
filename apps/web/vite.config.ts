@@ -77,7 +77,8 @@ export default defineConfig({
 				'src/lib/**/*.stories.svelte',
 				'src/lib/**/types.ts'
 			],
-			reporter: ['text', 'html', 'lcov', 'json-summary'],
+			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
+			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
 			thresholds: { lines: 91, functions: 90, statements: 89, branches: 77 }
 		},
 		projects: [

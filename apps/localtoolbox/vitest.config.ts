@@ -115,7 +115,9 @@ export default defineConfig({
 			// Copied from the shadcn-svelte registry rather than written here, and
 			// the entry point, which is three lines of mounting.
 			exclude: ['src/lib/components/ui/**', 'src/main.ts', '**/*.d.ts'],
-			reporter: ['text', 'html', 'lcov', 'json-summary'],
+			// CI's pull request comment reads the summary, and json for each
+			// changed file's uncovered lines.
+			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
 			reportsDirectory: 'coverage',
 			// A glob's thresholds are checked *in addition to* the global ones, so
 			// the global figures are the floor every file clears — components

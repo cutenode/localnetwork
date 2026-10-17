@@ -38,6 +38,8 @@ cargo test --workspace --locked
 
 CI runs a tool's checks only when its files (or the shared ones) change. Each workflow ends with a "… passed" check that reports either way, and those are the checks `main` requires before a merge. The slow suites run weekly in the `*-scheduled.yml` workflows, and you can start them on any branch from the Actions tab. A weekly run that fails opens an issue labelled `scheduled-failure`, and the next weekly run that passes closes it.
 
+On a pull request, each tool's workflow keeps one comment up to date with its coverage: the Rust workspace's, and the website's and the extension's against `main`, with each changed file's. A pull request from a fork can't be commented on, so it finds the same in the run's summary.
+
 ## Pull requests
 
 - Keep each pull request to one concern.

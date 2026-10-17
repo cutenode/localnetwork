@@ -209,6 +209,43 @@ jobs:
           cache-to: type=gha,mode=max
       - run: scripts/docker-smoke.sh localnetwork:ci
 
+  # Coverage on the pull request, in one comment each push updates: the integration job's
+  # coverage against main's latest (davelosert/vitest-coverage-report-action, with each changed
+  # file's). It goes to the run's summary too, which is all a fork's pull request gets: its token
+  # can't comment. Not one of passed's needs, so a comment that can't post never holds up a merge.
+  report:
+    name: Coverage report
+    needs: [changes, integration]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # main's coverage, from its runs' artifacts.
+      actions: read
+      pull-requests: write
+    steps:
+      # For the local action and vite.config.ts, whose coverage thresholds the report shows.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Into apps/web/coverage. Missing when its job failed before uploading it, and the step that
+      # needs it skips.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: coverage
+          path: apps/web
+      - id: main-coverage
+        uses: ./.github/actions/main-artifact
+        with:
+          name: coverage
+          path: ${{ runner.temp }}/main-coverage
+      - if: hashFiles('apps/web/coverage/coverage-summary.json') != ''
+        uses: davelosert/vitest-coverage-report-action@8f86cfb56ed6d5613ea8cdc5259f207fbfd51ece # v2.13.1
+        with:
+          working-directory: apps/web
+          json-summary-compare-path: ${{ steps.main-coverage.outputs.found == 'true' && format('{0}/main-coverage/coverage-summary.json', runner.temp) || '' }}
+
   # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
   # cancelled, and passes when they all passed or were skipped because nothing they check changed.
   passed:
