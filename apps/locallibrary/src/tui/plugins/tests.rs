@@ -321,11 +321,13 @@ fn planning_an_operation_is_stopped_with_esc() {
     press(&mut app, ":make a playlist…\nKept\n");
     wait(&mut app, |a| a.job.is_none());
     assert_eq!((app.modal.is_none(), last_message(&app)), (true, "nothing to change"));
-    press(&mut app, ":make a playlist from a tracklist\n/nowhere/list.m3u\tFriday\n");
+    // A file that isn't there, named as the platform names it.
+    let list = dir.path().join("nowhere").join("list.m3u");
+    press(&mut app, &format!(":make a playlist from a tracklist\n{}\tFriday\n", list.display()));
     wait(&mut app, |a| a.job.is_none());
     assert!(app.modal.is_none());
     let (said, level) = app.toast.clone().map(|t| (t.0, t.1)).unwrap();
-    assert!(level == Level::Error && said.contains("/nowhere/list.m3u"), "{said}");
+    assert!(level == Level::Error && said.contains(&list.display().to_string()), "{said}");
 }
 
 /// A plan is a plugin's when its operation is one of a plugin's operations or exports, by the
