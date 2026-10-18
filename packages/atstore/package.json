@@ -1,0 +1,36 @@
+{
+	"name": "atstore",
+	"private": true,
+	"description": "Makes each Local Network tool's AT Store listing images: its icon, hero and screenshots.",
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"assets": "node src/cli.ts",
+		"check": "tsc",
+		"lint": "oxlint --type-aware",
+		"format": "oxfmt",
+		"format:check": "oxfmt --check",
+		"knip": "knip",
+		"test": "vitest run",
+		"test:coverage": "vitest run --coverage",
+		"verify": "pnpm format:check && pnpm lint && pnpm check && pnpm knip && pnpm test:coverage"
+	},
+	"devDependencies": {
+		"@atproto/lex-resolver": "^0.3.2",
+		"@fontsource-variable/instrument-sans": "^5.3.0",
+		"@fontsource-variable/jetbrains-mono": "^5.3.0",
+		"@types/node": "^24.19.1",
+		"@vitest/coverage-v8": "^5.0.3",
+		"image-size": "^2.0.4",
+		"knip": "^6.40.0",
+		"oxfmt": "^0.71.0",
+		"oxlint": "1.86.0",
+		"oxlint-tsgolint": "^7.0.2004",
+		"playwright": "^1.64.0",
+		"typescript": "^6.0.3",
+		"vitest": "^5.0.3"
+	},
+	"engines": {
+		"node": ">=24.12"
+	}
+}

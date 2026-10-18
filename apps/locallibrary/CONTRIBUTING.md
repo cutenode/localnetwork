@@ -123,6 +123,9 @@ documents others maintain that locallibrary's records refer to (Lexicon Communit
 fetched as their authority publishes them, except while it names a folder, which then holds them as
 `<nsid>.json`. The CLI's tests set it to a stand-in, and the library's own tests call
 `locallibrary::testing::address_lexicon_stand_in`, so no test reaches the network.
+`LOCALLIBRARY_AUDIO=silent` is a third: the player plays through no device, reading what plays as
+fast as one would and dropping it, so the playhead and visualisers move with nothing heard (the AT
+Store screenshots, `pnpm atstore` at the repository root, play tracks this way).
 
 ```bash
 cargo test -p locallibrary --test it                        # the library's integration tests

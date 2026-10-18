@@ -1,6 +1,7 @@
 packages:
   - apps/web
   - apps/localtoolbox
+  - packages/atstore
 linkWorkspacePackages: false
 engineStrict: true
 allowBuilds:
