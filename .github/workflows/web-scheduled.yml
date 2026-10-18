@@ -46,3 +46,18 @@ jobs:
         with:
           name: playwright-report
           path: apps/web/playwright-report/
+
+  # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
+  # that passes closes it (scheduled-issue.yml).
+  report:
+    needs: [e2e]
+    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    permissions:
+      actions: read
+      issues: write
+    uses: ./.github/workflows/scheduled-issue.yml
+    with:
+      label: web
+      details: >-
+        The Playwright report, with each failed test's trace and screenshots, is the run's
+        playwright-report artifact.

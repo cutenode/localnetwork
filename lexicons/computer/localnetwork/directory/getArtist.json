@@ -1,0 +1,48 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.getArtist",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "Which of the directory's DJs played an artist's tracks, and where: each track that appears in their sets, most supported first, with every play, newest first (at most 1,000 plays). Asked for by mbid or by name. The output has no artist when no set credits them.",
+			"parameters": {
+				"type": "params",
+				"properties": {
+					"mbid": {
+						"type": "string",
+						"maxLength": 64,
+						"description": "The artist's MusicBrainz ID: the UUID, bare or as mbid:<uuid>."
+					},
+					"name": {
+						"type": "string",
+						"maxLength": 2560,
+						"description": "The artist's name, in any case, when there's no mbid. It finds the artist sets credit under that name: the name alone when some sets give it no MBID, otherwise the MBID sets give it."
+					}
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["tracks", "djs"],
+					"properties": {
+						"artist": {
+							"type": "ref",
+							"ref": "computer.localnetwork.directory.defs#supportedArtist",
+							"description": "Their supports over every set, with no track minimum."
+						},
+						"tracks": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#trackPlays" }
+						},
+						"djs": {
+							"type": "array",
+							"description": "Every DJ who played one of the tracks, with the active projects they manage.",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#djView" }
+						}
+					}
+				}
+			}
+		}
+	}
+}

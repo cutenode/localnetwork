@@ -89,6 +89,15 @@ fn empty() -> Vec<u8> {
     page
 }
 
+/// A connection for building a test's database. Each statement commits on its own, and on Windows
+/// a commit's journal file and flushes take milliseconds, which hundreds of property test cases turn
+/// into minutes. A temporary file doesn't need either.
+pub(crate) fn scratch_db(path: &Path) -> Connection {
+    let conn = Connection::open(path).unwrap();
+    conn.execute_batch("PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF;").unwrap();
+    conn
+}
+
 /// A small rekordbox-shaped `master.db`, built in plain SQLite and encrypted on request.
 pub(crate) struct Fixture {
     _dir: tempfile::TempDir,
@@ -101,7 +110,7 @@ impl Fixture {
         let dir = tempfile::tempdir().unwrap();
         let plain = dir.path().join("plain.db");
         std::fs::write(&plain, empty()).unwrap();
-        let conn = Connection::open(&plain).unwrap();
+        let conn = scratch_db(&plain);
         for (name, columns) in TABLES {
             conn.execute_batch(&format!("CREATE TABLE {name} ({columns}, {STATS});")).unwrap();
         }
@@ -498,7 +507,7 @@ fn files_that_arent_a_collection_are_refused() {
     assert!(err(&[0; PAGE_SIZE + 10]).ends_with("4106 bytes is not a whole number of 4096-byte pages"));
 
     let other = dir.path().join("other.db");
-    Connection::open(&other).unwrap().execute_batch("CREATE TABLE notes (body TEXT)").unwrap();
+    scratch_db(&other).execute_batch("CREATE TABLE notes (body TEXT)").unwrap();
     let message = err(&std::fs::read(&other).unwrap());
     assert!(message.ends_with("no djmdContent table; not a rekordbox collection database"), "{message}");
 }
@@ -850,7 +859,7 @@ fn files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
         }
         2 => {
             let other = dir.path().join("other.db");
-            Connection::open(&other).unwrap().execute_batch("CREATE TABLE notes (body TEXT)").unwrap();
+            scratch_db(&other).execute_batch("CREATE TABLE notes (body TEXT)").unwrap();
             (std::fs::read(&other).unwrap(), "no djmdContent table")
         }
         // Few keys: deriving one takes a while, and each is derived once.

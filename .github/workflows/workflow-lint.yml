@@ -2,8 +2,9 @@ name: Workflow lint
 
 # The workflows themselves: actionlint for mistakes in their syntax, expressions and shell (with
 # shellcheck, which the runner has), and zizmor for security problems such as actions not pinned
-# to a commit, checkouts that keep the token, and template injection. Config in
-# .github/actionlint.yaml; zizmor's exceptions are comments on the lines they cover.
+# to a commit, checkouts that keep the token, and template injection, in the workflows and the
+# local actions. Config in .github/actionlint.yaml and .github/zizmor.yml; zizmor's other
+# exceptions are comments on the lines they cover.
 #
 # Also typos, which spell checks every file in the repository (config in typos.toml), so its job
 # runs on every push and pull request, without the changes filter.
@@ -62,7 +63,7 @@ jobs:
       - run: |
           "$(go env GOPATH)/bin/actionlint"
       # Offline: the online audits look up action tags and advisories through the GitHub API.
-      - run: zizmor --offline --format github .github
+      - run: zizmor --offline --format github --config .github/zizmor.yml .github
 
   # Known misspellings, in code, docs and file names. The action runs the typos version it's
   # pinned to, so new words in typos' dictionary arrive with a Dependabot update, not on a

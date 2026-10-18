@@ -77,7 +77,8 @@ export default defineConfig({
 				'src/lib/**/*.stories.svelte',
 				'src/lib/**/types.ts'
 			],
-			reporter: ['text', 'html', 'lcov', 'json-summary'],
+			// CI's pull request comment reads the summary, and json for each changed file's uncovered lines.
+			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
 			thresholds: { lines: 91, functions: 90, statements: 89, branches: 77 }
 		},
 		projects: [
@@ -87,7 +88,8 @@ export default defineConfig({
 					name: 'server',
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.ts', 'scripts/**/*.{test,spec}.ts'],
-					exclude: ['src/**/*.svelte.{test,spec}.ts']
+					exclude: ['src/**/*.svelte.{test,spec}.ts'],
+					setupFiles: ['src/lib/server/testing/setup.ts']
 				}
 			},
 			{
@@ -111,6 +113,7 @@ export default defineConfig({
 					name: 'integration',
 					environment: 'node',
 					include: ['tests/integration/**/*.test.ts'],
+					setupFiles: ['src/lib/server/testing/setup.ts'],
 					testTimeout: 120_000,
 					hookTimeout: 180_000,
 					fileParallelism: false

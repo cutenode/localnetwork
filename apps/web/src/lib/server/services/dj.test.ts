@@ -47,7 +47,8 @@ describe('DjService', () => {
 		const [activity] = await service.activity([{ did: DJ, handle: 'neon.test' }]);
 
 		expect(activity.profile?.tempo?.median).toBe(130);
-		expect(activity.sets.map((set) => set.date)).toEqual(['2026-09-26', '2026-09-12', '2026-08-30']);
+		// The demo sets are listed newest first, and played some days before today.
+		expect(activity.sets.map((set) => set.date)).toEqual(DEMO_DJ_SETS.map((set) => set.date));
 		expect(activity.handle).toBe('neon.test');
 	});
 
