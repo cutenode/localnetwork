@@ -357,3 +357,21 @@ jobs:
           path: target/distrib/
           merge-multiple: true
       - run: dist build --artifacts=global
+
+  # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
+  # that passes closes it (scheduled-issue.yml).
+  report:
+    needs:
+      [advisories, features, bombadil, mutants, fuzz, cli-timings, release-plan, release-build, release-global]
+    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    permissions:
+      actions: read
+      issues: write
+    uses: ./.github/workflows/scheduled-issue.yml
+    with:
+      label: locallibrary
+      details: >-
+        Each job's log is on the run page. Surviving mutants are in the run's summary, one section
+        per mutants shard, with their diffs in the mutants-N artifacts; the CLI's timings are in the
+        summary too. Bombadil's traces are in the bombadil-OS artifacts and a fuzz crash's input in
+        fuzz-artifacts.

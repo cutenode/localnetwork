@@ -15,6 +15,9 @@
 - name: lexicons
   color: "3b6fd4"
   description: The computer.localnetwork.* lexicons
+- name: atstore
+  color: "c2507a"
+  description: The AT Store listing pictures (packages/atstore)
 
 # The area inside a tool, in a lighter shade of its color. pr-labels.yml adds these too.
 - name: "web: directory"
@@ -152,3 +155,8 @@
 - name: github_actions
   color: "000000"
   description: Pull requests that update GitHub Actions code
+
+# Opened and closed by .github/workflows/scheduled-issue.yml, which finds its open issue by it.
+- name: scheduled-failure
+  color: "b60205"
+  description: A weekly scheduled run failed

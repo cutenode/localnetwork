@@ -14,10 +14,11 @@ Tools for DJs and the people who book them, built on the AT Protocol. Each tool 
 apps/web/             Local Network, the website (its README covers setup and deployment)
 apps/locallibrary/    locallibrary's command line tool, player and sidecar, with its docs
 apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its spec, checked by its tests)
-lexicons/             Every tool's lexicons (computer.localnetwork.*), plus copies of others' they use
+lexicons/             Every tool's lexicons (computer.localnetwork.*); others' they use are fetched as published
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 plugins/              locallibrary's own plugins, each a crate on its plugin SDK
 packages/tokens/      Shared colours for DJ data
+packages/atstore/     Makes each tool's AT Store listing pictures (pnpm atstore)
 vendor/               Vendored Rust crates
 tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
 ```
@@ -34,12 +35,13 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
+pnpm atstore                 # each tool's AT Store icon, hero and screenshots (packages/atstore)
 
 cargo build                  # locallibrary
 cargo test --workspace --locked
 ```
 
-The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change. The slow suites (mutation testing, fuzzing, the website in every browser, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows.
+The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's own extends) and one format config (`.oxfmtrc.json`). CI runs each tool's checks only when its files (or the shared ones) change, and comments on a pull request with each tool's coverage and, for the website and the extension, its size against `main`. The slow suites (mutation testing, fuzzing, the website in every browser, the CLI's timings, a release build) run weekly, in the `*-scheduled.yml` workflows; a weekly run that fails opens an issue, which the next one that passes closes.
 
 ## Contributing
 

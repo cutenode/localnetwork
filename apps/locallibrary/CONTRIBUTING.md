@@ -55,8 +55,9 @@ pushes to `main` that change the workspace (not when only Markdown changed):
 
 - format, clippy and the tests on macOS, Linux and Windows. Tests run under
   [cargo-nextest](https://nexte.st) (`cargo nextest run --workspace` locally), doctests with
-  `cargo test --doc`. On Linux they run under coverage (see below). On macOS and Linux the tests
-  have the `sqlcipher` CLI, and must find it (see the fixtures below);
+  `cargo test --doc`. On Linux they run under coverage (see below), and a comment on the pull
+  request shows the totals. On macOS and Linux the tests have the `sqlcipher` CLI, and must find it
+  (see the fixtures below);
 - the plugin tests in a job of their own on macOS and Windows (`cargo nextest run --profile
   plugins`; the test job runs the rest with `--profile core`). Windows runners run as an
   administrator, and locallibrary starts no plugin from an elevated process: in debug builds,
@@ -65,7 +66,12 @@ pushes to `main` that change the workspace (not when only Markdown changed):
 - the MSRV check, and the docs build with warnings denied;
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) with `deny.toml`: RustSec advisories
   (each ignored one says why), banned crates (OpenSSL: TLS goes through rustls) and crate
-  sources, and that every shipped dependency's licence is one `deny.toml` allows.
+  sources, and that every shipped dependency's licence is one `deny.toml` allows;
+- on pull requests that change a `loclib-*` crate,
+  [cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks) against the branch the
+  pull request merges into. Breaking changes to a crate's public API don't fail it: the run's
+  summary lists them, for deciding the crate's next version.
+  `cargo semver-checks -p loclib-progress --baseline-rev origin/main` runs it locally.
 
 `.github/workflows/locallibrary-scheduled.yml` runs the slow suites every Monday, and on any
 branch from the Actions tab (locallibrary scheduled, Run workflow):
@@ -84,6 +90,9 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - the fuzz targets, five minutes each (see Fuzzing);
 - cargo-deny's advisory check, for advisories published since the last push.
+
+A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
+the next weekly run that passes closes it.
 
 `.github/workflows/locallibrary-bench.yml` runs the benchmarks under
 [CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
@@ -109,7 +118,14 @@ commands in them.
 never among the machine's mount points or where the store last saw them outside those folders,
 and `drive disks`, `drive format`, `drive fsck` and `drive rename --label` refuse to run. Every
 command warns when it's set. Tests sharing a process name their folders for their own thread
-(`locallibrary::testing::volumes_on_this_thread`).
+(`locallibrary::testing::volumes_on_this_thread`). `LOCALLIBRARY_LEXICONS` is another: the Lexicon
+documents others maintain that locallibrary's records refer to (Lexicon Community's address) are
+fetched as their authority publishes them, except while it names a folder, which then holds them as
+`<nsid>.json`. The CLI's tests set it to a stand-in, and the library's own tests call
+`locallibrary::testing::address_lexicon_stand_in`, so no test reaches the network.
+`LOCALLIBRARY_AUDIO=silent` is a third: the player plays through no device, reading what plays as
+fast as one would and dropping it, so the playhead and visualisers move with nothing heard (the AT
+Store screenshots, `pnpm atstore` at the repository root, play tracks this way).
 
 ```bash
 cargo test -p locallibrary --test it                        # the library's integration tests

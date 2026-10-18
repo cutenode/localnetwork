@@ -238,6 +238,10 @@ pub struct Resampler {
     /// Kernel half-width, in units.
     half: u64,
     table: Vec<f32>,
+    /// The kernel's weights for an output `r` units past an input sample (`phases[r]`), one a
+    /// tap from the first input it reaches: outputs `unit` apart share their taps' distances,
+    /// so each phase's weights are worked out once, the first time an output needs them.
+    phases: Vec<Vec<f32>>,
     /// Input not yet fully consumed; `pos` (in units) indexes into it.
     pending: Vec<f32>,
     pos: u64,
@@ -273,6 +277,7 @@ impl Resampler {
             unit,
             half: (half * unit as f64) as u64,
             table,
+            phases: vec![Vec::new(); unit as usize],
             pending: Vec::new(),
             pos: 0,
             out: Vec::new(),
@@ -302,14 +307,19 @@ impl Resampler {
         self.out.clear();
         // Until the input runs out, or (still streaming) until an output's taps would.
         while if flush { self.pos < end } else { self.pos + self.half < end } {
-            let lo = self.pos.saturating_sub(self.half).div_ceil(self.unit) as usize;
-            let hi = (((self.pos + self.half) / self.unit) as usize).min(n - 1);
+            let (at, r) = (self.pos / self.unit, self.pos % self.unit);
+            // The kernel reaches `before` inputs back from input `at` (the half-width is
+            // several inputs, so wider than `r`), and as far ahead as the input goes.
+            let before = (self.half - r) / self.unit;
+            let lo = at.saturating_sub(before);
+            let hi = (at + (r + self.half) / self.unit).min(n as u64 - 1);
+            if self.phases[r as usize].is_empty() {
+                self.phases[r as usize] = self.weights(r);
+            }
+            let weights = &self.phases[r as usize][(lo + before - at) as usize..];
             let mut acc = 0.0f32;
-            for i in lo..=hi {
-                // The nearest of the kernel's phases to the tap's distance, ties away from 0.
-                let d = (i as u64 * self.unit).abs_diff(self.pos);
-                let k = ((2 * d * PHASES as u64 + self.unit) / (2 * self.unit)) as usize;
-                acc += self.pending[i] * self.table[k.min(self.table.len() - 1)];
+            for (x, w) in self.pending[lo as usize..=hi as usize].iter().zip(weights) {
+                acc += x * w;
             }
             self.out.push(acc);
             self.pos += self.step;
@@ -321,6 +331,20 @@ impl Resampler {
         let keep_from = ((self.pos.saturating_sub(self.half) / self.unit) as usize).min(n);
         self.pending.drain(..keep_from);
         self.pos -= keep_from as u64 * self.unit;
+    }
+
+    /// The weights of [`Resampler::phases`]`[r]`.
+    fn weights(&self, r: u64) -> Vec<f32> {
+        let before = (self.half - r) / self.unit;
+        let taps = before + (r + self.half) / self.unit + 1;
+        (0..taps)
+            .map(|j| {
+                // The nearest of the kernel's phases to the tap's distance, ties away from 0.
+                let d = (j * self.unit).abs_diff(before * self.unit + r);
+                let k = ((2 * d * PHASES as u64 + self.unit) / (2 * self.unit)) as usize;
+                self.table[k.min(self.table.len() - 1)]
+            })
+            .collect()
     }
 }
 

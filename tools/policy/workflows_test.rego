@@ -47,6 +47,14 @@ test_passed_misses_a_job if {
 	".github/workflows/site-ci.yml: the passed job should need \"verify\"" in workflows.deny with input as with_ci(broken)
 }
 
+test_report_and_semver_stay_outside_passed if {
+	extra := json.patch(ci, [
+		{"op": "add", "path": "/jobs/report", "value": {"needs": ["changes"], "runs-on": "ubuntu-latest"}},
+		{"op": "add", "path": "/jobs/semver", "value": {"needs": "changes", "runs-on": "ubuntu-latest"}},
+	])
+	count(workflows.deny) == 0 with input as with_ci(extra)
+}
+
 test_passed_misnamed if {
 	broken := json.patch(ci, [{"op": "replace", "path": "/jobs/passed/name", "value": "passed"}])
 	".github/workflows/site-ci.yml: name the passed job \"<workflow> passed\"; the ruleset requires it by name" in workflows.deny with input as with_ci(broken)

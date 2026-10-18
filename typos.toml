@@ -1,0 +1,86 @@
+# typos (https://github.com/crate-ci/typos), a spell checker for code that only flags known
+# misspellings. workflow-lint.yml runs it on every pull request; CONTRIBUTING.md has the command.
+
+[files]
+# The workflows and other dotfiles are checked too, all but .git.
+ignore-hidden = false
+extend-exclude = [
+    ".git/",
+    # Others' code and schemas, kept as they wrote them.
+    "vendor/",
+    "tools/oxlint/anti-slop/vendor/",
+    "patches/",
+    "lexicons/community/",
+    # Engine DJ's and rekordbox's database schemas, copied as their software writes them.
+    "crates/loclib-interop/src/engine.sql",
+    "crates/locallibrary/src/onelibrary/schema.sql",
+    # Lockfiles.
+    "Cargo.lock",
+    "fuzz/Cargo.lock",
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    # Test data and snapshots.
+    "crates/locallibrary/tests/fixtures/",
+    "apps/web/src/lib/mix/fixtures/",
+    "apps/localtoolbox/test/__snapshots__/",
+    # Generated: fix what they're generated from.
+    "crates/loclib-model/src/tokens.rs",
+    "crates/loclib-equipment/equipment.schema.json",
+    "apps/locallibrary/docs/rpc/schema.json",
+    "apps/locallibrary/docs/rpc/locallibrary.d.ts",
+]
+
+[default]
+extend-ignore-re = [
+    # The tests' P-256 key: its JWK coordinates are 43 characters of base64url.
+    '"[xyd]": "[A-Za-z0-9_-]{43}"',
+    # Spotify ids.
+    "spotify:[a-z]+:[0-9A-Za-z]{22}",
+]
+
+[default.extend-identifiers]
+# A playlist and rule name that differs from `Foo` only in case.
+FoO = "FoO"
+# A plural of an all-caps word, which typos splits at the case change.
+SELECTs = "SELECTs"
+
+[default.extend-words]
+# Names from formats and APIs that aren't ours: rekordbox's master.db (Commnt), its OneLibrary
+# (isComplation) and backup files (rbDevLibBaInfo), Engine DJ's schema
+# (isPerfomanceDataOfPackedTrackChanged), MP4's trak atom, Hypeddit's page
+# (current_download_file_listner), a USB drive model (SanDisk Cruzer) and a crate (ratatui).
+commnt = "commnt"
+complation = "complation"
+ba = "ba"
+perfomance = "perfomance"
+trak = "trak"
+listner = "listner"
+cruzer = "cruzer"
+ratatui = "ratatui"
+# Test names drop apostrophes ("the library's" is `librarys`), and Markdown heading anchors do too.
+librarys = "librarys"
+theyre = "theyre"
+copys = "copys"
+whos = "whos"
+propertys = "propertys"
+# Ordinals (255ths), plurals of "from", short variable names (`pn` for a partition number, `ba`
+# beside `ab`), and a spelling typos doesn't know.
+ths = "ths"
+froms = "froms"
+pn = "pn"
+unparseable = "unparseable"
+# Misspellings and prefixes the tests type on purpose, for "did you mean", fuzzy matching and
+# search, and words cut short at an escaped accent (`Caf\xe9`) or that are real track and artist
+# names ("So U Kno").
+arround = "arround"
+histroy = "histroy"
+shwo = "shwo"
+mian = "mian"
+tme = "tme"
+porcelian = "porcelian"
+puls = "puls"
+hom = "hom"
+caf = "caf"
+smal = "smal"
+locall = "locall"
+kno = "kno"

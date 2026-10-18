@@ -32,7 +32,7 @@ import { syncLexiconRecords } from './lib/lexicon-dns.ts';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 
-// Ours only: lexicons/community/ holds copies of other authorities' lexicons, which they publish.
+// Every lexicon in lexicons/ is ours; the ones ours reference from other authorities are fetched as they publish them.
 const ours = join(import.meta.dirname, '../../../lexicons/computer');
 
 const docs = readdirSync(ours, { recursive: true, encoding: 'utf8' })

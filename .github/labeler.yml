@@ -16,6 +16,10 @@ lexicons:
   - changed-files:
       - any-glob-to-any-file: ["lexicons/**"]
 
+atstore:
+  - changed-files:
+      - any-glob-to-any-file: ["packages/atstore/**"]
+
 # The area inside a tool. A file can be in more than one (a feature's command is also part of the
 # cli), and lexicons go with the feature that reads or writes them.
 
@@ -267,7 +271,7 @@ dependencies:
 
 github_actions:
   - changed-files:
-      - any-glob-to-any-file: [".github/workflows/**", ".github/actionlint.yaml"]
+      - any-glob-to-any-file: [".github/workflows/**", ".github/actions/**", ".github/actionlint.yaml"]
 
 tooling:
   - changed-files:

@@ -4,9 +4,19 @@ package workflows
 
 import data.lib
 
-# Pull request workflows that don't gate merges: benchmarks report to CodSpeed, and the release
-# workflow is dist's own, which only plans a release on pull requests.
-ungated := {".github/workflows/locallibrary-bench.yml", ".github/workflows/locallibrary-release.yml"}
+# Pull request workflows that don't gate merges: benchmarks report to CodSpeed, the release
+# workflow is dist's own, which only plans a release on pull requests, and dependency review is
+# GitHub's own check of what a pull request adds, which isn't a required check.
+ungated := {
+	".github/workflows/locallibrary-bench.yml",
+	".github/workflows/locallibrary-release.yml",
+	".github/workflows/dependency-review.yml",
+}
+
+# Jobs that stay out of the passed check's needs on purpose: `report` posts coverage on the pull
+# request, so a comment that can't post never holds up a merge, and `semver` only reports breaking
+# changes in the loclib-* crates, which aren't published yet.
+outside_passed := {"report", "semver"}
 
 # YAML 1.1 reads the `on:` key as true, which is how conftest parses it.
 triggers(wf) := wf["true"]
@@ -61,7 +71,7 @@ deny contains msg if {
 	some path, wf in gated
 	passed := wf.jobs.passed
 	others := {id | some id, _ in wf.jobs; id != "passed"}
-	some id in (others - needs(passed))
+	some id in ((others - needs(passed)) - outside_passed)
 	msg := sprintf("%s: the passed job should need %q", [path, id])
 }
 

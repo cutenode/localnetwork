@@ -14,6 +14,7 @@ import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
 import { StaffService } from '../services/staff';
+import { SupportService } from '../services/supports';
 import { TracklistService } from '../services/tracklists';
 import type { Viewer } from '#lib/types.ts';
 import { FakeNetwork } from './fakes';
@@ -89,6 +90,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
+	const supports = new SupportService(directory, accounts, silentLogger);
 
 	const publicRepo = new PublicRepo(
 		{ resolve: async () => ({ pds: 'https://pds.test' }) },
@@ -120,6 +122,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	return {
 		db,
 		net,
+		happyView,
 		directory,
 		core,
 		audit,
@@ -131,6 +134,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		planner,
 		projectAdmin,
 		tracklists,
+		supports,
 		epks,
 		viewer,
 		capable,

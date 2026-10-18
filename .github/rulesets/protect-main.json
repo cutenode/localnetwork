@@ -53,6 +53,9 @@
 					},
 					{
 						"context": "Repo checks passed"
+					},
+					{
+						"context": "atstore CI passed"
 					}
 				]
 			}
