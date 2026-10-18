@@ -16,6 +16,10 @@ lexicons:
   - changed-files:
       - any-glob-to-any-file: ["lexicons/**"]
 
+atstore:
+  - changed-files:
+      - any-glob-to-any-file: ["packages/atstore/**"]
+
 # The area inside a tool. A file can be in more than one (a feature's command is also part of the
 # cli), and lexicons go with the feature that reads or writes them.
 
@@ -160,7 +164,7 @@ lexicons:
   - changed-files:
       - any-glob-to-any-file:
           - "crates/loclib-analysis/**"
-          - "plugins/{analysis,sound}/**"
+          - "plugins/sound/**"
           - "crates/locallibrary/src/sound{.rs,/**}"
           - "apps/locallibrary/src/analysis_cmd.rs"
           - "apps/locallibrary/src/tui/analyzer{.rs,/**}"
@@ -245,7 +249,7 @@ lexicons:
 
 documentation:
   - changed-files:
-      - any-glob-to-any-file: ["**/*.{md,mdx}", "apps/*/docs/**"]
+      - any-glob-to-any-file: ["**/*.{md,mdx}", "apps/*/docs/**", "LICENSE"]
 
 tests:
   - changed-files:
@@ -267,12 +271,13 @@ dependencies:
 
 github_actions:
   - changed-files:
-      - any-glob-to-any-file: [".github/workflows/**", ".github/actionlint.yaml"]
+      - any-glob-to-any-file: [".github/workflows/**", ".github/actions/**", ".github/actionlint.yaml"]
 
 tooling:
   - changed-files:
       - any-glob-to-any-file:
           - ".github/*"
+          - ".github/rulesets/**"
           - ".github/ISSUE_TEMPLATE/**"
           - "{.cargo,.config,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,lefthook.yml,.node-version}"

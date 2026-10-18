@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["apps/locallibrary", "crates/locallibrary", "crates/loclib-analysis", "crates/loclib-equipment", "crates/loclib-interop", "crates/loclib-mixid", "crates/loclib-model", "crates/loclib-mysettings", "crates/loclib-plugin", "crates/loclib-progress", "crates/loclib-tracklist", "crates/loclib-transcode", "crates/loclib-waveform", "plugins/coverart", "plugins/interop", "plugins/sound", "plugins/tracklist", "vendor/rekordbox-pdb"]
+members = ["apps/locallibrary", "crates/*", "plugins/*", "vendor/rekordbox-pdb"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,6 +8,12 @@ edition = "2024"
 rust-version = "1.91"
 license = "MIT"
 repository = "https://github.com/cutenode/localnetwork"
+
+# Every crate that could go to crates.io has the metadata it needs there (description, license,
+# repository, keywords, categories), so a new one can't be added without it. Only this lint from
+# clippy's `cargo` group: `multiple_crate_versions` would fire on the dependency tree.
+[workspace.lints.clippy]
+cargo_common_metadata = "warn"
 
 [workspace.dependencies]
 # Without its default features (the Atmosphere account): the CLI turns them on with its own.

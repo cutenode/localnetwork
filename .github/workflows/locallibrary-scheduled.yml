@@ -133,9 +133,10 @@ jobs:
       - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: cargo-nextest,cargo-mutants
-      # The crates below the library and the CLI, and the plugins it ships, whose tests are quick
-      # enough to run once per mutant. `--in-place` mutates this checkout rather than a copy of it. A step timeout,
-      # inside the job's, still leaves the partial results to report and upload.
+      # Every workspace package but the library and the CLI (the crates below them, the plugins and
+      # rekordbox-pdb), whose tests are quick enough to run once per mutant, so a new crate or plugin
+      # is in without an edit here. `--in-place` mutates this checkout rather than a copy of it. A
+      # step timeout, inside the job's, still leaves the partial results to report and upload.
       - timeout-minutes: 90
         run: |
           base=$(git rev-list -1 --first-parent --before='1 week ago' HEAD)
@@ -144,13 +145,11 @@ jobs:
             exit 0
           fi
           git diff "$base" HEAD > "$RUNNER_TEMP/week.diff"
+          list=$(set -o pipefail; cargo metadata --no-deps --format-version 1 --locked |
+            jq -r '.packages[].name | select(. != "locallibrary" and . != "locallibrary-cli") | "-p", .')
+          mapfile -t packages <<< "$list"
           status=0
-          cargo mutants --in-place --shard "$SHARD" --in-diff "$RUNNER_TEMP/week.diff" \
-            -p loclib-analysis -p loclib-equipment -p loclib-interop -p loclib-mixid \
-            -p loclib-model -p loclib-mysettings -p loclib-plugin -p loclib-progress \
-            -p loclib-tracklist -p loclib-transcode -p loclib-waveform -p rekordbox-pdb \
-            -p locallibrary-plugin-tracklist -p locallibrary-plugin-interop \
-            -p locallibrary-plugin-coverart -p locallibrary-plugin-sound || status=$?
+          cargo mutants --in-place --shard "$SHARD" --in-diff "$RUNNER_TEMP/week.diff" "${packages[@]}" || status=$?
           case $status in 0 | 2 | 3) ;; *) exit "$status" ;; esac
       - if: ${{ !cancelled() && hashFiles('mutants.out/outcomes.json') != '' }}
         run: |

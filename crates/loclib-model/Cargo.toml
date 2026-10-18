@@ -27,3 +27,6 @@ test-util = []
 hegeltest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+
+[lints]
+workspace = true
