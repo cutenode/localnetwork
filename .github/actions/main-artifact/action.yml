@@ -1,0 +1,50 @@
+name: Artifact from main
+description: >-
+  Downloads an artifact from the newest of this workflow's recent push runs on main that kept one,
+  for a pull request to compare its numbers with, so main's are never rebuilt in the pull request's
+  run. `found` is false when none did (the artifact is new, or main hasn't changed what makes it
+  lately). Needs `actions: read`.
+
+inputs:
+  name:
+    description: The artifact's name.
+    required: true
+  path:
+    description: The directory to extract it into.
+    required: true
+
+outputs:
+  found:
+    description: Whether an artifact was downloaded.
+    value: ${{ steps.download.outputs.found }}
+  run-url:
+    description: The run it came from.
+    value: ${{ steps.download.outputs.run-url }}
+
+runs:
+  using: composite
+  steps:
+    # Only push runs on main: a pull request from a fork's own `main` branch runs on the
+    # pull_request event, so its artifacts never count as main's.
+    - id: download
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        NAME: ${{ inputs.name }}
+        DIR: ${{ inputs.path }}
+      run: |
+        workflow=${GITHUB_WORKFLOW_REF%@*}
+        runs=$(gh run list --workflow "${workflow##*/}" --branch main --event push --limit 20 \
+          --json databaseId --jq '.[].databaseId')
+        for run in $runs; do
+          if gh run download "$run" --name "$NAME" --dir "$DIR" 2> /dev/null; then
+            {
+              echo "found=true"
+              echo "run-url=$GITHUB_SERVER_URL/$GH_REPO/actions/runs/$run"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        done
+        echo "::notice::None of main's last 20 runs kept $NAME, so there's nothing to compare with"
+        echo "found=false" >> "$GITHUB_OUTPUT"

@@ -219,7 +219,7 @@ async function publishSet(hv: FakeHappyView, did: string, fields: JsonObject = {
 }
 
 describe('set record script', () => {
-	it("keeps sets by the root's projects' managers only, without their tracks", async () => {
+	it("keeps sets by the root's projects' managers only, and serves them without their tracks", async () => {
 		const hv = new FakeHappyView(ROOT);
 		// A project in someone else's repo doesn't make its managers count.
 		await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
@@ -289,6 +289,323 @@ describe('getSets and listSets', () => {
 		expect(await titles({ actors: ['did:plc:a', 'did:plc:b'] })).toEqual(['B2', 'A2', 'B1', 'A1']);
 		expect(await titles({ actors: 'did:plc:c' })).toEqual(['C1']);
 		expect(await titles({ actors: ['did:plc:a', 'did:plc:b'], limit: 1 })).toEqual(['B2']);
+	});
+});
+
+type Charts = DirectoryOutputs['getCharts'];
+
+type Artist = DirectoryOutputs['getArtist'];
+
+const address = (locality: string) => ({ $type: 'community.lexicon.location.address', country: 'DE', locality });
+
+/** An active project for each of `djs` (did:plc:<dj>), so each counts as a DJ of their own. */
+async function acts(hv: FakeHappyView, ...djs: string[]) {
+	for (const dj of djs) await publish(hv, {}, { managers: [`did:plc:${dj}`] });
+}
+
+/** A MusicBrainz ID that's easy to tell apart in a test. */
+const mbid = (n: number) => `bead0000-cafe-4000-8000-${String(n).padStart(12, '0')}`;
+
+describe('getCharts', () => {
+	it('counts a DJ once per track, charts tracks three DJs support, and counts only those for artists', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+		const hit = { title: 'Hit', artist: 'Ferrule' };
+		const pair = { title: 'Pair', artist: 'Ferrule' };
+		await publishSet(hv, 'did:plc:a', { tracks: [hit, pair, hit] });
+		await publishSet(hv, 'did:plc:a', { tracks: [hit] });
+		await publishSet(hv, 'did:plc:b', { tracks: [hit, pair] });
+		await publishSet(hv, 'did:plc:c', { tracks: [hit] });
+
+		const charts = await query<Charts>(hv, 'getCharts');
+
+		expect(charts.tracks).toEqual([
+			{ id: 'name:ferrule\nhit', title: 'Hit', artist: 'Ferrule', artists: [{ name: 'Ferrule' }], supports: 3 }
+		]);
+		expect(charts.artists).toEqual([{ name: 'Ferrule', supports: 3, djCount: 3 }]);
+	});
+
+	it('gives an artist at most five supports from one DJ', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+		const tracks = Array.from({ length: 7 }, (_, i) => ({ title: `Cut ${i}`, artist: 'Kestrel Unit' }));
+
+		for (const dj of ['a', 'b', 'c']) await publishSet(hv, `did:plc:${dj}`, { tracks });
+
+		const charts = await query<Charts>(hv, 'getCharts', { limit: 2 });
+		expect(charts.artists).toEqual([{ name: 'Kestrel Unit', supports: 15, djCount: 3 }]);
+		expect(charts.tracks.map((track) => track.supports)).toEqual([3, 3]);
+	});
+
+	it('narrows to a city and a time, and lists the cities', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+
+		for (const dj of ['a', 'b', 'c']) {
+			const did = `did:plc:${dj}`;
+			const location = address('Berlin');
+			await publishSet(hv, did, { date: '2026-09-10', location, tracks: [{ title: 'September', artist: 'X' }] });
+			await publishSet(hv, did, { date: '2026-08-31', location, tracks: [{ title: 'August', artist: 'X' }] });
+
+			await publishSet(hv, did, {
+				date: '2026-09-11',
+				location: address('Hamburg'),
+				tracks: [{ title: 'Harbour', artist: 'Y' }]
+			});
+		}
+
+		const titles = async (params: Params) =>
+			(await query<Charts>(hv, 'getCharts', params)).tracks.map((track) => track.title).sort();
+
+		expect(await titles({})).toEqual(['August', 'Harbour', 'September']);
+		expect(await titles({ city: 'berlin', country: 'de' })).toEqual(['August', 'September']);
+		expect(await titles({ since: '2026-09-01', before: '2026-10-01' })).toEqual(['Harbour', 'September']);
+		expect(await titles({ since: '2026-09-01', city: 'Hamburg', country: 'DE' })).toEqual(['Harbour']);
+		expect(await titles({ before: '2026-09-01' })).toEqual(['August']);
+
+		expect((await query<Charts>(hv, 'getCharts', { city: 'Hamburg', country: 'DE' })).places).toEqual([
+			{ city: 'Berlin', country: 'DE', count: 6 },
+			{ city: 'Hamburg', country: 'DE', count: 3 }
+		]);
+	});
+
+	it('counts a track as one whether a set names it by MBID (either form), ISRC, or title', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c', 'd');
+
+		const plays = {
+			a: {
+				title: 'Glow',
+				artist: 'Two Rooms',
+				artists: [{ artistName: 'Two Rooms', artistMbId: `mbid:${mbid(9)}` }],
+				recordingMbId: `mbid:${mbid(1).toUpperCase()}`,
+				isrc: 'deaa12600001'
+			},
+			b: {
+				title: 'Glow',
+				artist: 'Two Rooms',
+				artists: [{ artistName: 'Two Rooms', artistMbId: mbid(9) }],
+				recordingMbId: mbid(1)
+			},
+			// Without a recording MBID, its ISRC finds the recording, and its artist's name finds theirs.
+			c: { title: 'Glow (Edit)', artist: 'Two Rooms', isrc: 'DEAA12600001' },
+			// With neither, its credit and title find it, in any case and spacing.
+			d: { title: 'glow ', artist: 'two  ROOMS' }
+		};
+
+		for (const [dj, track] of Object.entries(plays)) await publishSet(hv, `did:plc:${dj}`, { tracks: [track] });
+
+		const charts = await query<Charts>(hv, 'getCharts');
+		expect(charts.tracks).toHaveLength(1);
+		expect(charts.tracks[0]).toMatchObject({ id: `mbid:${mbid(1)}`, recordingMbId: mbid(1), supports: 4 });
+		expect(charts.artists).toEqual([{ name: 'Two Rooms', mbid: mbid(9), supports: 4, djCount: 4 }]);
+	});
+});
+
+describe('who counts', () => {
+	const hit = { title: 'Hit', artist: 'Ferrule' };
+
+	const supports = async (hv: FakeHappyView) =>
+		(await query<Charts>(hv, 'getCharts')).tracks.map((track) => track.supports);
+
+	it('counts a crew whose managers each publish the gig as one DJ', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { managers: ['did:plc:a', 'did:plc:b'] });
+		await acts(hv, 'c', 'd');
+
+		for (const dj of ['a', 'b', 'c']) await publishSet(hv, `did:plc:${dj}`, { tracks: [hit] });
+
+		expect(await supports(hv)).toEqual([]);
+		await publishSet(hv, 'did:plc:d', { tracks: [hit] });
+		expect(await supports(hv)).toEqual([3]);
+		expect((await query<Artist>(hv, 'getArtist', { name: 'Ferrule' })).artist).toEqual({
+			name: 'Ferrule',
+			supports: 3,
+			djCount: 3
+		});
+	});
+
+	it("stops counting a DJ's sets once they don't manage an active project, and doesn't show them", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b');
+		await publish(hv, {}, { managers: ['did:plc:c'] }, { rkey: 'crew' });
+		await publish(hv, {}, { managers: ['did:plc:d'] }, { rkey: 'later' });
+
+		for (const dj of ['a', 'b', 'c', 'd']) {
+			await publishSet(hv, `did:plc:${dj}`, { location: address('Berlin'), tracks: [hit] });
+		}
+
+		const plays = async () =>
+			(await query<Artist>(hv, 'getArtist', { name: 'Ferrule' })).tracks.flatMap((track) =>
+				track.plays.map((play) => play.did)
+			);
+
+		expect(await supports(hv)).toEqual([4]);
+		await publish(hv, {}, { managers: ['did:plc:c'], status: 'hidden' }, { rkey: 'crew' });
+		await publish(hv, {}, { managers: [] }, { rkey: 'later' });
+
+		expect(await supports(hv)).toEqual([]);
+		expect((await plays()).sort()).toEqual(['did:plc:a', 'did:plc:b']);
+		expect((await query<Artist>(hv, 'getArtist', { name: 'Ferrule' })).djs.map((dj) => dj.did).sort()).toEqual([
+			'did:plc:a',
+			'did:plc:b'
+		]);
+		expect((await query<Charts>(hv, 'getCharts')).places).toEqual([{ city: 'Berlin', country: 'DE', count: 2 }]);
+	});
+});
+
+describe('what counts', () => {
+	it("keeps only sets played on a real day, and doesn't credit placeholders", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a');
+		const loose = await publishSet(hv, 'did:plc:a', { date: '2026-9-1' });
+
+		await publishSet(hv, 'did:plc:a', {
+			tracks: [
+				{ title: 'ID', artist: 'Ferrule' },
+				{ title: 'Night Bus', artist: 'ID - ID' },
+				{ title: 'Signal', artist: 'Unknown Artist' },
+				{
+					title: 'Compiled',
+					artist: 'Various Artists',
+					artists: [
+						{ artistName: 'Various Artists', artistMbId: '89ad4ac3-39f7-470e-963a-56509c546377' },
+						{ artistName: 'Someone', artistMbId: '125ec42a-7229-4250-afc5-e057484327fe' },
+						{ artistName: 'Two Rooms' }
+					]
+				}
+			]
+		});
+
+		expect(hv.logs).toEqual([`skipped ${loose.uri}: bad date or tracks`]);
+		const { artists } = await query<{ artists: { name: string }[] }>(hv, 'searchArtists');
+		expect(artists.map((artist) => artist.name)).toEqual(['Two Rooms']);
+	});
+
+	it('tells same-titled tracks apart by their artists when sets give no credit line', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+
+		for (const dj of ['a', 'b', 'c']) {
+			await publishSet(hv, `did:plc:${dj}`, {
+				tracks: [
+					{ title: 'Intro', artists: [{ artistName: 'Ferrule' }] },
+					{ title: 'Intro', artists: [{ artistName: 'Two Rooms' }] }
+				]
+			});
+		}
+
+		const charts = await query<Charts>(hv, 'getCharts');
+		expect(charts.tracks.map((track) => [track.title, track.artists, track.supports])).toEqual([
+			['Intro', [{ name: 'Ferrule' }], 3],
+			['Intro', [{ name: 'Two Rooms' }], 3]
+		]);
+	});
+
+	it('gives a play with only an ISRC the recording MBID its title has, when that ISRC is the title’s only one', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+		await publishSet(hv, 'did:plc:a', { tracks: [{ title: 'Glow', artist: 'Two Rooms', recordingMbId: mbid(1) }] });
+		await publishSet(hv, 'did:plc:b', { tracks: [{ title: 'Glow', artist: 'Two Rooms', isrc: 'NLA112600087' }] });
+		await publishSet(hv, 'did:plc:c', { tracks: [{ title: 'Glow', artist: 'Two Rooms' }] });
+
+		expect((await query<Charts>(hv, 'getCharts')).tracks).toMatchObject([{ id: `mbid:${mbid(1)}`, supports: 3 }]);
+	});
+});
+
+describe('getArtist and searchArtists', () => {
+	const signal = (startSeconds?: number) => ({
+		title: 'Signal Path',
+		artist: 'Mira Okonkwo',
+		artists: [{ artistName: 'Mira Okonkwo', artistMbId: mbid(7) }],
+		startSeconds
+	});
+
+	const nightBus = {
+		title: 'Night Bus',
+		artist: 'Ferrule & Mira Okonkwo',
+		artists: [{ artistName: 'Ferrule' }, { artistName: 'mira okonkwo' }]
+	};
+
+	async function network() {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, { name: 'Neon Tide' }, { slug: 'neon-tide', managers: ['did:plc:a'] });
+		await publish(hv, { name: 'Hidden' }, { slug: 'hidden', managers: ['did:plc:a'], status: 'hidden' });
+		await publish(hv, { name: 'Halflight' }, { slug: 'halflight', managers: ['did:plc:b'] });
+
+		const late = await publishSet(hv, 'did:plc:a', {
+			date: '2026-09-26',
+			kind: 'club',
+			venue: 'Halle Nord',
+			location: address('Berlin'),
+			tracks: [nightBus, signal(300)]
+		});
+
+		const early = await publishSet(hv, 'did:plc:b', { date: '2026-09-12', tracks: [signal()] });
+		const first = await publishSet(hv, 'did:plc:a', { date: '2026-09-01', tracks: [signal(), nightBus] });
+
+		return { hv, late, early, first };
+	}
+
+	it("lists an artist's tracks by supports, with every play and the projects of the DJs who played them", async () => {
+		const { hv, late, early, first } = await network();
+		const result = await query<Artist>(hv, 'getArtist', { mbid: mbid(7) });
+
+		expect(result.artist).toEqual({ name: 'Mira Okonkwo', mbid: mbid(7), supports: 3, djCount: 2 });
+		expect(result.tracks.map(({ track, plays }) => [track.title, track.supports, plays])).toEqual([
+			[
+				'Signal Path',
+				2,
+				[
+					{
+						did: 'did:plc:a',
+						startSeconds: 300,
+						set: {
+							...late,
+							date: '2026-09-26',
+							kind: 'club',
+							venue: 'Halle Nord',
+							location: { country: 'DE', locality: 'Berlin' },
+							trackCount: 2
+						}
+					},
+					{ did: 'did:plc:b', set: { ...early, date: '2026-09-12', trackCount: 1 } },
+					{ did: 'did:plc:a', set: { ...first, date: '2026-09-01', trackCount: 2 } }
+				]
+			],
+			['Night Bus', 1, [expect.objectContaining({ did: 'did:plc:a' }), expect.objectContaining({ did: 'did:plc:a' })]]
+		]);
+		expect(result.tracks[1].track.artists).toEqual([{ name: 'Ferrule' }, { name: 'mira okonkwo' }]);
+		expect(result.djs).toEqual([
+			{ did: 'did:plc:a', projects: [{ slug: 'neon-tide', name: 'Neon Tide' }] },
+			{ did: 'did:plc:b', projects: [{ slug: 'halflight', name: 'Halflight' }] }
+		]);
+	});
+
+	it('finds an artist by either form of their MBID, or by a name sets give that MBID, and keeps the two apart', async () => {
+		const { hv } = await network();
+		const byMbid = await query<Artist>(hv, 'getArtist', { mbid: mbid(7) });
+
+		expect(await query<Artist>(hv, 'getArtist', { mbid: `mbid:${mbid(7).toUpperCase()}` })).toEqual(byMbid);
+		expect(await query<Artist>(hv, 'getArtist', { name: ' MIRA  okonkwo' })).toEqual(byMbid);
+		const none = { tracks: [], djs: [] };
+		expect(await query<Artist>(hv, 'getArtist', { name: 'Nobody' })).toEqual(none);
+		expect(await query<Artist>(hv, 'getArtist', { mbid: mbid(8) })).toEqual(none);
+		// A name that looks like an MBID is still a name, and a name isn't an MBID.
+		expect(await query<Artist>(hv, 'getArtist', { name: mbid(7) })).toEqual(none);
+		expect(await query<Artist>(hv, 'getArtist', { mbid: 'Mira Okonkwo' })).toEqual(none);
+	});
+
+	it('finds artists by part of their name in any case, most supported first', async () => {
+		const { hv } = await network();
+		const search = async (params: Params) => (await query<{ artists: unknown[] }>(hv, 'searchArtists', params)).artists;
+
+		expect(await search({ q: 'RULE' })).toEqual([{ name: 'Ferrule', supports: 1, djCount: 1 }]);
+		expect(await search({})).toEqual([
+			{ name: 'Mira Okonkwo', mbid: mbid(7), supports: 3, djCount: 2 },
+			{ name: 'Ferrule', supports: 1, djCount: 1 }
+		]);
+		expect(await search({ q: 'nobody' })).toEqual([]);
 	});
 });
 
@@ -613,4 +930,122 @@ describe('instruction budget', () => {
 
 		expect(Object.entries(used).filter(([, instructions]) => instructions >= 750_000)).toEqual([]);
 	});
+
+	it(
+		'keeps a 500-track set and counts supports over 2,000 sets and 500-track ones well under the limit',
+		{ tags: ['budget'], timeout: 120_000 },
+		async () => {
+			const hv = new FakeHappyView(ROOT);
+			const djs = Array.from({ length: 50 }, (_, i) => `did:plc:dj${i}`);
+			await publish(hv, { name: 'Crew' }, { slug: 'crew', managers: [djs[0]] });
+
+			await publishSet(hv, djs[0], {
+				tracks: Array.from({ length: 500 }, (_, i) => ({
+					title: `Track ${i}`,
+					artist: `Artist ${i} & Guest`,
+					artists: [{ artistName: `Artist ${i}`, artistMbId: mbid(i) }, { artistName: 'Guest' }],
+					recordingMbId: mbid(i),
+					isrc: `DEAA126${String(i).padStart(5, '0')}`,
+					startSeconds: i * 300
+				}))
+			});
+			const used: Record<string, number> = {};
+			used['record script, 500 tracks'] = hv.instructions;
+
+			// Stored as the record script leaves them, without running it 2,000 times: 50 DJs, each with a project of their
+			// own, with 40 sets of 25 tracks, from 3,000 tracks by 600 artists, some played far more than others, and a
+			// third of them without IDs. One of them also has 20 sets of 500 tracks, all crediting one artist.
+			let seed = 1;
+
+			const random = () => {
+				seed = (seed * 48_271) % 2_147_483_647;
+
+				return seed / 2_147_483_647;
+			};
+
+			const stored = (n: number) => {
+				const artist = `Artist ${n % 600}`;
+				const ids = n % 3 ? { recordingMbId: mbid(n), isrc: `DEAA126${String(n).padStart(5, '0')}` } : {};
+
+				const artists = [
+					{ artistName: artist, key: artist.toLowerCase(), ...(n % 3 && { artistMbId: mbid(100_000 + (n % 600)) }) }
+				];
+
+				return { title: `Track ${n}`, artist, artists, ...ids, key: `${artist.toLowerCase()}\ntrack ${n}` };
+			};
+
+			const cid = (await cidForLex(jsonToLex({ seeded: true }))).toString();
+			const cities = ['Berlin', 'Hamburg', 'Leipzig', 'Cologne', 'Munich'];
+
+			const projects = djs.slice(1).map((did) => projectRecord({}, { managers: [did] }));
+
+			hv.seed(
+				projects.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value }))
+			);
+
+			const long = Array.from({ length: 20 }, (_set, s) => ({
+				did: djs[1],
+				collection: COLLECTION.djSet,
+				rkey: `3u${String(s).padStart(11, '0')}`,
+				cid,
+				record: {
+					date: `2026-08-${String(s + 1).padStart(2, '0')}`,
+					kind: 'mix',
+					trackCount: 500,
+					tracks: Array.from({ length: 500 }, (_track, t) => ({
+						title: `Long ${t}`,
+						artist: 'Marathon',
+						artists: [{ artistName: 'Marathon', key: 'marathon' }],
+						key: `marathon\nlong ${t}`,
+						startSeconds: t * 60
+					}))
+				}
+			}));
+
+			hv.seed(long);
+
+			hv.seed(
+				djs.flatMap((did, d) =>
+					Array.from({ length: 40 }, (_set, s) => {
+						const tracks = Array.from({ length: 25 }, (_track, t) => ({
+							...stored(Math.floor(3000 * random() ** 3)),
+							startSeconds: t * 240
+						}));
+
+						return {
+							did,
+							collection: COLLECTION.djSet,
+							rkey: `3t${String(d * 40 + s).padStart(11, '0')}`,
+							cid,
+							record: {
+								date: new Date(Date.UTC(2026, 0, 1 + ((d * 7 + s * 11) % 280))).toISOString().slice(0, 10),
+								kind: 'club',
+								location: { country: 'DE', locality: cities[(d + s) % cities.length] },
+								trackCount: tracks.length,
+								tracks
+							}
+						};
+					})
+				)
+			);
+
+			const queries: [keyof typeof DIRECTORY, Params][] = [
+				['getCharts', {}],
+				['getCharts', { since: '2026-09-01', before: '2026-10-01', city: 'Berlin', country: 'DE', limit: 100 }],
+				['getArtist', { name: 'Artist 0' }],
+				['getArtist', { mbid: mbid(100_001) }],
+				['getArtist', { name: 'Marathon' }],
+				['listSets', { actors: djs[1], limit: 100 }],
+				['searchArtists', { q: 'artist 1', limit: 50 }],
+				['searchArtists', {}]
+			];
+
+			for (const [name, params] of queries) {
+				await query(hv, name, params);
+				used[`${name} ${JSON.stringify(params)}`] = hv.instructions;
+			}
+
+			expect(Object.entries(used).filter(([, instructions]) => instructions >= 750_000)).toEqual([]);
+		}
+	);
 });

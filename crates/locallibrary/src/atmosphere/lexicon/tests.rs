@@ -36,6 +36,11 @@ fn walk(nsid: &str, v: &Value, at: &str, problems: &mut Vec<String>) {
                 .chain(v["refs"].as_array().into_iter().flatten().map(|r| r.as_str().unwrap_or_default()));
             for r in refs {
                 let (doc, name) = target(nsid, r);
+                // Others' documents are fetched as they publish them: that they're listed is all
+                // that can be checked here.
+                if REFERENCED.contains(&doc) {
+                    continue;
+                }
                 if def(doc, name).is_none() {
                     problems.push(format!("{nsid} {at}: ref {r} doesn't resolve"));
                 }
@@ -192,6 +197,7 @@ fn a_set_lists_objects_it_can_grow() {
 /// another document's `main` (`nsid`), and that definition's own refs resolve in its document.
 #[test]
 fn refs_to_other_documents_are_checked_there() {
+    crate::testing::address_lexicon_stand_in();
     // The set's location is an open union: an address is checked against the address
     // document, and a kind of location the set's document doesn't list passes as it is.
     let at = |location: Value| json!({ "$type": SET, "date": "2026-10-03", "tracks": [], "createdAt": "2026-10-04T09:30:00.000Z", "location": location });
@@ -273,6 +279,7 @@ fn string_formats_are_checked() {
 /// a document that does.
 #[test]
 fn nullable_fields_closed_enums_and_unknowns_are_checked() {
+    crate::testing::address_lexicon_stand_in();
     let object = json!({
         "type": "object",
         "nullable": ["note"],
@@ -459,6 +466,7 @@ fn objects_need_what_is_required_and_hold_nothing_else(tc: hegel::TestCase) {
 /// and one it doesn't list passes when the union is open and is refused when it's closed.
 #[hegel::test(test_cases = 200)]
 fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) {
+    crate::testing::address_lexicon_stand_in();
     let link = format!("{SET}#link");
     let closed = tc.draw(gs::booleans());
     let schema = json!({ "type": "union", "refs": ["#link", ADDRESS], "closed": closed });
@@ -600,4 +608,23 @@ fn cids_and_blobs_are_checked() {
     let mut b = blob("image/png", 10);
     b["ref"]["$link"] = "bafy-not-one".into();
     assert_eq!(check(SET, &schema, &b, "b").unwrap_err(), "b isn't a blob");
+}
+
+/// A fetched document whose refs go round in a circle stops at [`MAX_REFS`], rather than
+/// recursing until the stack runs out.
+#[test]
+fn refs_that_go_round_in_a_circle_stop() {
+    keep(ADDRESS, json!({ "lexicon": 1, "id": ADDRESS, "defs": { "main": { "type": "ref", "ref": "#main" } } }));
+    let err = check(SET, &json!({ "type": "ref", "ref": ADDRESS }), &json!({}), "place").unwrap_err();
+    assert_eq!(err, format!("place: refs nest more than {MAX_REFS} deep"));
+}
+
+/// What's fetched is kept only if it's the document asked for.
+#[test]
+fn a_fetched_document_has_to_be_the_one_asked_for() {
+    assert!(as_document(ADDRESS, json!({ "id": ADDRESS, "defs": {} })).is_ok());
+    for doc in [json!({ "id": "community.lexicon.other", "defs": {} }), json!({ "id": ADDRESS }), json!("text")] {
+        let err = as_document(ADDRESS, doc).unwrap_err().to_string();
+        assert!(err.contains("isn't that document"), "{err}");
+    }
 }

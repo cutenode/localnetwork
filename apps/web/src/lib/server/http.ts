@@ -27,9 +27,17 @@ export function requireAdmin(locals: LocalsLike, url: URL): Viewer {
 	return viewer;
 }
 
-/** Only allow same-site relative redirects after sign-in. */
+/**
+ * Only allow same-site relative redirects after sign-in. Browsers drop tabs and newlines from a
+ * URL and read a backslash as a slash, so those are refused outright, and what's left has to
+ * resolve to this site the way a browser would resolve it.
+ */
 export function safeNext(value: string | null | undefined, fallback = '/me'): string {
-	if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return fallback;
+	if (!value || !value.startsWith('/') || /[\s\\\p{Cc}]/u.test(value)) return fallback;
+
+	const base = 'http://same.site';
+
+	if (new URL(value, base).origin !== base) return fallback;
 
 	return value;
 }
@@ -121,4 +129,15 @@ export function clientIp(event: { getClientAddress(): string }): string {
 	} catch {
 		return 'unknown';
 	}
+}
+
+/**
+ * Lets a page that shows the same thing to everyone be cached for `seconds`: by anyone when nobody is signed in, by
+ * the browser alone when someone is, since the page carries their account.
+ */
+export function cacheBriefly(
+	event: { locals: LocalsLike; setHeaders(headers: Record<string, string>): void },
+	seconds = 60
+): void {
+	event.setHeaders({ 'cache-control': `${event.locals.viewer ? 'private' : 'public'}, max-age=${seconds}` });
 }
