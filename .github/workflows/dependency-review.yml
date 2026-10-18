@@ -38,7 +38,8 @@ jobs:
           fail-on-scopes: runtime
           # The same list as [licenses] allow in deny.toml, so both ecosystems follow one policy.
           # Keep the two in step. OFL-1.1 is added for the website's fonts (@fontsource-variable),
-          # which no Rust crate ships.
+          # which no Rust crate ships, and MITNFA for bowser, which the bug reports read the
+          # browser with: MIT, plus a clause that a changed copy can't claim its authors made it.
           allow-licenses: >-
             0BSD,
             Apache-2.0,
@@ -55,7 +56,8 @@ jobs:
             Unicode-3.0,
             Unlicense,
             Zlib,
-            OFL-1.1
+            OFL-1.1,
+            MITNFA
           # rust-cache is LGPL-3.0. It runs in CI and nothing it contains ships with the tools.
           allow-dependencies-licenses: pkg:githubactions/Swatinem/rust-cache
           comment-summary-in-pr: on-failure
