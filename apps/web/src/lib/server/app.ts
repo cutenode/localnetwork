@@ -1,3 +1,4 @@
+import { COLLECTION } from '#lib/nsid.ts';
 import type { Viewer } from '#lib/types.ts';
 import { loadReferencedLexicons, REFERENCED_NSIDS } from './atproto/lexicons';
 import { z } from 'zod';
@@ -29,6 +30,7 @@ import { ProjectAdmin } from './services/project-admin';
 import { ProjectService } from './services/projects';
 import { RequestService } from './services/requests';
 import { StaffService } from './services/staff';
+import { SupportService } from './services/supports';
 import { TracklistService } from './services/tracklists';
 import { SpaceSyncer } from './sync/engine';
 import { createProjections } from './sync/projections';
@@ -45,10 +47,13 @@ export type CreateAppOptions = {
 	background?: boolean;
 };
 
-/** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
 /** What com.atproto.space.getRecord answers, kept as JSON for validateRecord. */
 const spaceRecordOutput = z.object({ uri: z.string(), cid: z.string(), value: z.record(z.string(), z.json()) });
 
+/** HappyView's record script for DJ sets, whose changes only apply to sets it reads after them. */
+const SET_SCRIPT = `record.index:${COLLECTION.djSet}`;
+
+/** Wires the whole server side together. Used by SvelteKit hooks and integration tests. */
 export async function createApp(options: CreateAppOptions) {
 	const { config } = options;
 
@@ -170,6 +175,7 @@ export async function createApp(options: CreateAppOptions) {
 	const tracklists = new TracklistService(core);
 	const publicRepo = new PublicRepo(identity, logger.child({ component: 'public-repo' }));
 	const dj = new DjService(publicRepo, logger.child({ component: 'dj' }));
+	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 	const epks = new EpkService(core, projects, publicRepo, (identifier) => identity.resolveIdentifier(identifier));
 
 	const syncer = new SpaceSyncer({
@@ -236,6 +242,7 @@ export async function createApp(options: CreateAppOptions) {
 		projectAdmin,
 		tracklists,
 		dj,
+		supports,
 		epks,
 		sessions,
 		geocoder,
@@ -281,9 +288,25 @@ export async function createApp(options: CreateAppOptions) {
 				const uploaded = await syncHappyView(happyView, happyViewBundle(rootDid), rootDid);
 				logger.info(uploaded, 'synced the HappyView directory');
 				directorySync = { at: nowIso(), error: null };
+				await app.refreshSets(uploaded.scripts.includes(SET_SCRIPT));
 			} catch (error) {
 				logger.error({ err: error }, 'could not sync the HappyView directory');
 				directorySync = { at: nowIso(), error: error instanceof Error ? error.message : String(error) };
+			}
+		},
+
+		/**
+		 * Has HappyView re-read the managers' sets once for its current set script (`uploaded` when it just got it).
+		 * A failure is logged and tried again on the next round, without marking the directory sync failed.
+		 */
+		async refreshSets(uploaded = false) {
+			if (!config.happyView.apiKey) return;
+			const script = happyViewBundle(rootDid).scripts.find((candidate) => candidate.id === SET_SCRIPT)!.body;
+
+			try {
+				await projects.sets.refreshForScript(script, uploaded, () => projects.managers());
+			} catch (error) {
+				logger.warn({ err: error }, "could not have HappyView re-read managers' sets");
 			}
 		},
 
@@ -300,11 +323,13 @@ export async function createApp(options: CreateAppOptions) {
 		start() {
 			every(config.syncPollIntervalMs, () => (bootstrapped ? syncer.syncAll() : app.bootstrap()), 'sync');
 			every(15_000, () => audit.processPending(), 'audit-retry');
-			// Retries a failed directory sync, so a HappyView that was down at boot still gets this app's scripts.
+			// Retries a failed directory sync, so a HappyView that was down at boot still gets this app's scripts, and
+			// the managers' sets until HappyView has re-read them all.
 			every(
 				config.syncPollIntervalMs,
 				async () => {
 					if (directorySync?.error) await app.syncDirectory();
+					else if (directorySync) await app.refreshSets();
 				},
 				'directory-sync'
 			);

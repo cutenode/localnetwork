@@ -98,6 +98,52 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test('the charts rank tracks several DJs played, and an artist page lists who played them', async ({ page }) => {
+		const tracks = page.getByRole('region', { name: 'Tracks' });
+
+		// The demo sets reach the directory in a backfill after the app first syncs it, so this waits for them.
+		await expect(async () => {
+			await page.goto('/charts');
+			await expect(tracks.getByRole('listitem').first()).toBeVisible({ timeout: 2_000 });
+		}).toPass({ timeout: 60_000 });
+
+		await expect(tracks).toContainText('Signal Path');
+		// Played by two DJs, one short of charting.
+		await expect(tracks).not.toContainText('Static Bloom');
+		await expectAccessible(page);
+
+		await page.getByLabel('Where').selectOption('London, GB');
+		await page.getByRole('button', { name: 'Show charts' }).click();
+		await expect(page).toHaveURL(/place=London/);
+		await expect(page.getByText('Nothing charted yet')).toBeVisible();
+		await expectAccessible(page);
+
+		await page.goto('/charts');
+		await page.getByRole('region', { name: 'Artists' }).getByRole('link', { name: 'Mira Okonkwo' }).click();
+		await expect(page).toHaveURL(/\/artists\/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'Mira Okonkwo' })).toBeVisible();
+		const plays = page.getByRole('list', { name: 'Plays of Signal Path' });
+		await expect(plays.getByRole('listitem').first()).toContainText('Neon Tide');
+		await expect(plays.getByRole('link', { name: 'Pirate Signal' }).first()).toHaveAttribute(
+			'href',
+			'/projects/pirate-signal'
+		);
+		await expectAccessible(page);
+
+		await page.goto('/artists?q=okon');
+		await expect(page.getByRole('link', { name: 'Mira Okonkwo', exact: true })).toBeVisible();
+		await expectAccessible(page);
+	});
+
+	test("a profile's sets link their artists to who played them", async ({ page }) => {
+		await page.goto('/projects/neon-tide');
+		await page.locator('summary', { hasText: 'Tracklist' }).first().click();
+		await page.getByRole('link', { name: 'Kestrel Unit' }).first().click();
+		await expect(page).toHaveURL(/\/artists\/name\/Kestrel%20Unit$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'Kestrel Unit' })).toBeVisible();
+		await expectAccessible(page);
+	});
+
 	test('staff pages require sign-in', async ({ page }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);

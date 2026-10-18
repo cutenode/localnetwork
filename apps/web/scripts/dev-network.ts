@@ -25,7 +25,7 @@ import { COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
 import { checkDocker, startHappyView } from './lib/happyview.ts';
-import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_EPKS, DEMO_PROJECTS } from './seed-data.ts';
+import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_DJS, DEMO_EPKS, DEMO_PROJECTS } from './seed-data.ts';
 
 const PLC_PORT = Number(process.env.DEV_PLC_PORT ?? 2582);
 
@@ -53,7 +53,12 @@ const ACCOUNTS = [
 		password: 'neon-pass',
 		note: 'DJ; manages two demo projects, has three sets and two press kits'
 	},
-	{ handle: 'pat.test', password: 'pat-pass', note: 'promoter' }
+	{ handle: 'pat.test', password: 'pat-pass', note: 'promoter' },
+	...DEMO_DJS.map((dj) => ({
+		handle: dj.handle,
+		password: dj.password,
+		note: `DJ; manages ${DEMO_PROJECTS[dj.project].name}, has ${dj.sets.length} sets`
+	}))
 ];
 
 const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
@@ -134,16 +139,29 @@ async function main() {
 		record: DEMO_DJ_PROFILE
 	});
 
-	// HappyView isn't running yet, so it reads the sets when neon first opens a set picker, as it would for older ones.
-	for (const set of DEMO_DJ_SETS) {
-		await neon.com.atproto.repo.createRecord({
-			repo: dids['neon.test'],
-			collection: COLLECTION.djSet,
-			record: validateRecord(COLLECTION.djSet, { ...set, createdAt: new Date().toISOString() })
-		});
+	// HappyView isn't running yet, so it reads these sets when the app first syncs its scripts, as it would for older
+	// ones.
+	const djs: { handle: string; agent: AtpAgent; sets: object[] }[] = [
+		{ handle: 'neon.test', agent: neon, sets: DEMO_DJ_SETS }
+	];
+
+	for (const dj of DEMO_DJS) {
+		const agent = new AtpAgent({ service: pds.url });
+		await agent.login({ identifier: dj.handle, password: dj.password });
+		djs.push({ handle: dj.handle, agent, sets: dj.sets });
 	}
 
-	log(`Seeded neon.test's dj.profile and ${DEMO_DJ_SETS.length} dj.set records`);
+	for (const dj of djs) {
+		for (const set of dj.sets) {
+			await dj.agent.com.atproto.repo.createRecord({
+				repo: dids[dj.handle],
+				collection: COLLECTION.djSet,
+				record: validateRecord(COLLECTION.djSet, { ...set, createdAt: new Date().toISOString() })
+			});
+		}
+	}
+
+	log(`Seeded neon.test's dj.profile and ${djs.reduce((sum, dj) => sum + dj.sets.length, 0)} dj.set records`);
 
 	// A tracklist on Neon Tide's first mix, so its mix page has something to show: the sample report,
 	// stored in the root's repo the way an approved request leaves it.
@@ -163,7 +181,11 @@ async function main() {
 	const projectUris: string[] = [];
 
 	for (const [index, profile] of DEMO_PROJECTS.entries()) {
-		const managers = index < 2 ? [dids['neon.test']] : [];
+		const managers = [
+			...(index < 2 ? [dids['neon.test']] : []),
+			...DEMO_DJS.filter((dj) => dj.project === index).map((dj) => dids[dj.handle])
+		];
+
 		const mixes = index === 0 ? profile.mixes?.map((mix, i) => (i === 0 ? { ...mix, tracklist } : mix)) : profile.mixes;
 
 		const record = validateRecord(COLLECTION.project, {

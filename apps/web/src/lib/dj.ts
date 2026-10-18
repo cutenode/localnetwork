@@ -25,7 +25,7 @@ export function countLabel(value: NonNullable<DjProfile['sets']>['total']): stri
 }
 
 /** "Halle Nord, Berlin" from what a set says about where it was. */
-export function setPlace(set: DjSet): string | null {
+export function setPlace(set: Pick<DjSet, 'venue' | 'location'>): string | null {
 	const parts = [set.venue ?? set.location?.name, set.location?.locality].filter((part): part is string =>
 		Boolean(part)
 	);

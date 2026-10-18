@@ -1,0 +1,34 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.searchArtists",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "Find artists the directory's DJs played, most supported first, with their supports over every set (no track minimum).",
+			"parameters": {
+				"type": "params",
+				"properties": {
+					"q": {
+						"type": "string",
+						"maxLength": 100,
+						"description": "Text to find anywhere in the artist's name, in any case. Without it, every artist."
+					},
+					"limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 25 }
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["artists"],
+					"properties": {
+						"artists": {
+							"type": "array",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#supportedArtist" }
+						}
+					}
+				}
+			}
+		}
+	}
+}
