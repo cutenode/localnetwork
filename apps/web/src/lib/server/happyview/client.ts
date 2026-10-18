@@ -4,16 +4,17 @@ import type { LexiconDoc } from '@atproto/lexicon';
 import { z } from 'zod';
 import type { MatchBreakdown, MatchNote } from '#lib/matching.ts';
 import { DIRECTORY } from '#lib/nsid.ts';
-import type { DjSetView } from '#lib/types.ts';
+import type { Charts, DirectoryDj, DirectoryPlace, DjSetView, SupportedArtist, TrackPlays } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
 import type { HappyViewScript } from './bundle';
+
+/** The longest search text the directory's queries take, in UTF-8 bytes (their lexicons' maxLength). */
+export const QUERY_BYTES = 100;
 
 /** A published project as the directory serves it (`computer.localnetwork.directory.defs#projectView`). */
 export type DirectoryProject = { uri: string; cid: string; record: JsonObject; distanceM?: number };
 
 type Facet = { value: string; count: number };
-
-type Place = { city: string; country: string; count: number };
 
 export type DirectoryMatch = {
 	project: DirectoryProject;
@@ -30,9 +31,19 @@ export type DirectoryOutputs = {
 	matchProjects: { matches: DirectoryMatch[] };
 	getProject: { project?: DirectoryProject };
 	getProjects: { projects: DirectoryProject[] };
-	getStats: { total: number; active: number; unclaimed: number; cityCount: number; genres: Facet[]; cities: Place[] };
+	getStats: {
+		total: number;
+		active: number;
+		unclaimed: number;
+		cityCount: number;
+		genres: Facet[];
+		cities: DirectoryPlace[];
+	};
 	getSets: { sets: DjSetView[] };
 	listSets: { sets: DjSetView[] };
+	getCharts: Charts;
+	getArtist: { artist?: SupportedArtist; tracks: TrackPlays[]; djs: DirectoryDj[] };
+	searchArtists: { artists: SupportedArtist[] };
 };
 
 export type DirectoryStats = DirectoryOutputs['getStats'];

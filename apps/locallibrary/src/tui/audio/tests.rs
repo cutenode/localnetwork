@@ -221,6 +221,21 @@ fn outputs_by_name_fall_back_to_the_default() {
     assert!((Outputs::NONE.open)(None).is_err() && (Outputs::NONE.list)().0.is_empty());
 }
 
+/// The silent output plays to no one, at the pace a device would: half a second on, the track
+/// has moved on by about that much, not run to its end.
+#[test]
+fn the_silent_output_plays_in_real_time() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ten-seconds.wav");
+    std::fs::write(&path, wav(8000, 80_000, 1000)).unwrap();
+    assert!((Outputs::SILENT.list)().0.is_empty());
+    let mut audio = (Outputs::SILENT.open)(None).unwrap();
+    audio.play(open_file(&path).unwrap(), false);
+    std::thread::sleep(ms(500));
+    let at = audio.position();
+    assert!(at >= ms(100) && at <= ms(3000), "{at:?}");
+}
+
 /// A loop goes round as the track plays through the player, and once exited, playback
 /// carries on through its end.
 #[test]

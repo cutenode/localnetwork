@@ -27,6 +27,14 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - `/projects/<slug>/epk` lists a project's press kits, then one put together from the profile, mixes, stats, sets and (for members) booking details. Both print or save as a PDF on white.
 - Every claim and change is reviewed by a moderator, so profiles can't be hijacked.
 
+### Artists and charts
+
+- `/artists/<mbid>` (or `/artists/name/<name>` for an artist sets give no MusicBrainz ID) shows who played an artist's tracks: each of their tracks that appears in a published set, with every play (the DJ and the projects they manage, the date, the venue and city, the kind of set, and how far into the set it starts, where the set knows), and their all-time supports. `/artists` finds them by name.
+- `/charts` ranks tracks and artists by how many DJs supported them, for the last 30 days or a month, everywhere or in one city, counted like 1001Tracklists' Top 101 Producers: a DJ supports a track once however often they play it, a track charts once three DJs support it, and an artist gets at most five supports from one DJ, counting only tracks that chart.
+- A DJ is an act: an active project, whose managers count as one (a crew whose members each publish the same gig counts once). A back-to-back set published by two acts counts for both. A set stops counting when its author no longer manages an active project.
+- A track is its recording's MusicBrainz ID, else its ISRC, else its artist and title (any case or spacing). A play without an ID counts with the plays that have one when only one fits, so sets published before IDs were filled in still add up.
+- Set tracklists on profiles and press kits link tracks with an MBID to MusicBrainz, and artists to their pages.
+
 ### Tools
 
 - `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` with what it does, how to install it, and its guides (its README and `docs/*.md`), which are bundled from the repo at build time. See [Tools' pages and hosts](#tools-pages-and-hosts).
@@ -84,7 +92,7 @@ flowchart LR
   SH -- notifyWrite --> App
   App -- space credential: listRepos / listRepoOps / getRepo --> SH & UR
   PUB -- relay + Jetstream --> HV[(HappyView)]
-  SETS[(DJ's repo: sets)] -- Jetstream, or a backfill when the picker opens --> HV
+  SETS[(DJ's repo: sets)] -- Jetstream, or a backfill --> HV
   App -- directory queries --> HV
 ```
 
@@ -115,8 +123,9 @@ The app is a space syncer. For each watched space it mints a space credential (d
 Published projects are served by [HappyView](https://happyview.dev) 2.16, not the app. HappyView follows Jetstream for `computer.localnetwork.project` and `computer.localnetwork.dj.set` records and answers the `computer.localnetwork.directory.*` queries ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)) with Lua scripts in `lua/`:
 
 - `project.lua` runs on every incoming project record and keeps only the root account's, since Jetstream filters by collection and anyone can write one.
-- `dj/set.lua` keeps only sets by accounts that manage one of the root's projects, and stores what the site shows (title, date, kind, venue, address, track count), not the tracks. Jetstream only brings new sets, so when the edit form's set picker opens, the app has HappyView re-read each manager's sets from their PDS (one backfill per account, at most every ten minutes).
-- `searchProjects`, `matchProjects`, `getProject`, `getProjects`, and `getStats` do the search, ranking, and lookups. Match results carry reason codes, which the app turns into text. `getSets` and `listSets` look up sets by URI and by account.
+- `dj/set.lua` keeps only sets by accounts that manage one of the root's projects, and stores what the site shows (title, date, kind, venue, address, track count) plus each named track's title, artists, IDs and start, which the support queries count. MusicBrainz IDs are stored as bare lowercase UUIDs whether a set writes `mbid:<uuid>` or the UUID; placeholder credits (ID, Unknown Artist, Various Artists) aren't, and a set whose date isn't YYYY-MM-DD isn't kept. Jetstream only brings new sets, so the app has HappyView re-read each manager's sets from their PDS: when the edit form's set picker opens (one backfill per account, at most every ten minutes), when a project gains a manager and HappyView serves it, and for every manager once per version of `dj/set.lua` (four at a time, retried until all start, the version kept in the app database).
+- `searchProjects`, `matchProjects`, `getProject`, `getProjects`, and `getStats` do the search, ranking, and lookups. Match results carry reason codes, which the app turns into text. `getSets` and `listSets` look up sets by URI and by account, without their tracks.
+- `getCharts`, `getArtist`, and `searchArtists` count supports. They group every stored play by track and artist in SQL on each request (about a third of a second for 2,000 sets of 25 tracks on a laptop), so no counts are kept anywhere; the app reuses an answer for a minute, and the pages may be cached for as long.
 - The genre taxonomy and fee tiers are generated into the scripts from `src/lib/taxonomy/`, so TypeScript stays the source of truth.
 
 With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons changed when it boots (scripts first, so the record gate is in place before ingestion starts), then has HappyView re-read the root's repo and waits for that to finish. After publishing a project it waits (up to 5 seconds) for HappyView to index the new version, so the next page shows it.
@@ -140,6 +149,8 @@ pnpm dev
 | `milo.test` | `milo-pass` | regular; make them a moderator under Staff                       |
 | `neon.test` | `neon-pass` | DJ, manages two demo projects, has three sets and two press kits |
 | `pat.test`  | `pat-pass`  | promoter                                                         |
+
+`harbour.test`, `pirate.test`, and `glasshouse.test` (passwords `harbour-pass` and so on) manage Harbour Lights, Pirate Signal, and Glasshouse and have sets of their own, so `/charts` has tracks several DJs played.
 
 The network is temporary; Ctrl-C stops it, and restarting resets everything (and the dev database). To restart the app without resetting the network, run `pnpm dev:network` in one terminal and `pnpm dev:app` in another.
 
