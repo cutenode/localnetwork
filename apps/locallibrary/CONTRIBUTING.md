@@ -58,7 +58,7 @@ Windows each run the same jobs:
 | `lint` | `cargo fmt --check`, clippy, and the doctests (`cargo test --doc`; nextest doesn't run them) |
 | `build` | `cargo llvm-cov nextest-archive`: every test, built once with coverage, packed for the shards |
 | `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
-| `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage) |
+| `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); Linux's totals go to the run summary and a comment on the pull request |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. The test
 jobs set up what some tests need, the same way on each OS:
@@ -97,6 +97,9 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - the fuzz targets, five minutes each (see Fuzzing);
 - cargo-deny's advisory check, for advisories published since the last push.
 
+A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
+the next weekly run that passes closes it.
+
 `.github/workflows/locallibrary-bench.yml` runs the benchmarks under
 [CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
 some, and reports each one's change against `main`.
@@ -121,7 +124,11 @@ commands in them.
 never among the machine's mount points or where the store last saw them outside those folders,
 and `drive disks`, `drive format`, `drive fsck` and `drive rename --label` refuse to run. Every
 command warns when it's set. Tests sharing a process name their folders for their own thread
-(`locallibrary::testing::volumes_on_this_thread`).
+(`locallibrary::testing::volumes_on_this_thread`). `LOCALLIBRARY_LEXICONS` is another: the Lexicon
+documents others maintain that locallibrary's records refer to (Lexicon Community's address) are
+fetched as their authority publishes them, except while it names a folder, which then holds them as
+`<nsid>.json`. The CLI's tests set it to a stand-in, and the library's own tests call
+`locallibrary::testing::address_lexicon_stand_in`, so no test reaches the network.
 
 ```bash
 cargo test -p locallibrary --test it                        # the library's integration tests
