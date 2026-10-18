@@ -46,7 +46,7 @@ const FIRST_PARTY: &[(&str, Serve)] = &[
 const TEST_PLUGINS: &str = "LOCALLIBRARY_TEST_PLUGINS";
 
 #[cfg(debug_assertions)]
-#[path = "../../../crates/locallibrary/examples/test-plugin/plugin.rs"]
+#[path = "../../../crates/locallibrary/src/bin/test-plugin/plugin.rs"]
 mod test_plugin;
 
 /// The flag a contributed command or operation takes its params as JSON with.

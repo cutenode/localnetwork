@@ -1,7 +1,8 @@
 [package]
 name = "locallibrary"
 description = "Store, sync, compare, merge and configure rekordbox USB library exports"
-# Not on crates.io: it's built on the vendored rekordbox-pdb, which isn't published either. The
+# Not on crates.io: it's built on the vendored rekordbox-pdb, which isn't published either, it's to
+# be renamed `locallibrary-core` first (TODO.md), and it carries the test plugin below. The
 # loclib-* crates are its parts that can be.
 publish = false
 version.workspace = true
@@ -9,6 +10,14 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+
+# The plugin the plugin host's tests start (`tests/it/plugins.rs`). As a binary, cargo builds it
+# with them and hands them its path (`CARGO_BIN_EXE_test-plugin`), and nextest's archives carry it.
+[[bin]]
+name = "test-plugin"
+path = "src/bin/test-plugin/main.rs"
+test = false
+doc = false
 
 [features]
 default = ["account", "peers"]

@@ -75,7 +75,12 @@ jobs:
               - '!crates/*/examples/**'
               - '!**/*.md'
 
-  test:
+  # Every OS runs the same jobs: lint, and build, then test in 3 shards, then coverage. The build
+  # job compiles the tests once, instrumented for coverage, into a nextest archive that the shards
+  # run, and the coverage job merges the shards' profiles and fails below the thresholds in
+  # .cargo/config.toml. A matrix job waits for every leg of the one it needs, so each stage starts
+  # once all three OSes have finished the one before.
+  lint:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     strategy:
@@ -83,7 +88,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,6 +99,64 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The TUI's audio output goes through ALSA on Linux.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # nextest doesn't run doctests.
+      - run: cargo test --doc --workspace --locked
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      - run: cargo llvm-cov nextest-archive --workspace --locked --archive-file tests.tar.zst
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tests-${{ runner.os }}
+          path: tests.tar.zst
+          retention-days: 1
+
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+        shard: [1, 2, 3]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      # Keep the number of shards in step with the matrix.
+      SHARD: ${{ matrix.shard }}/3
+      # The tests start processes by the thousand, and cargo-llvm-cov's default writes a profile for
+      # each (18 GB in all on macOS). With no `%p` they add to a pool of 4 files per binary instead
+      # (78 MB), named for the shard so the coverage job can hold every shard's.
+      LLVM_PROFILE_FILE_NAME: shard${{ matrix.shard }}-%4m.profraw
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
       # The tests' temporary folders go on a Dev Drive: on the runner's C: drive, Defender scans
       # every file they make and each flush takes milliseconds, which made the tests that write
       # files run several times longer than on macOS or Linux. Defender's performance mode only
@@ -106,17 +169,21 @@ jobs:
           env-mapping: |
             TMP,{{ DEV_DRIVE }}
             TEMP,{{ DEV_DRIVE }}
-      # The TUI's audio output goes through ALSA on Linux. The sqlcipher CLI checks that SQLCipher
-      # itself reads what locallibrary encrypts; LOCALLIBRARY_REQUIRE_SQLCIPHER makes those tests
-      # fail when they can't find it, where they'd otherwise skip the check (as on Windows).
+      # The sqlcipher CLI checks that SQLCipher itself reads what locallibrary encrypts;
+      # LOCALLIBRARY_REQUIRE_SQLCIPHER makes those tests fail when they can't find it, where they'd
+      # otherwise skip the check. Windows takes it from the runner's MSYS2, which isn't on PATH.
       - if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher
-          echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher
       - if: runner.os == 'macOS'
+        run: brew install sqlcipher
+      - if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          brew install sqlcipher
-          echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
+          C:\msys64\usr\bin\pacman.exe -Sy --noconfirm --needed --noprogressbar mingw-w64-ucrt-x86_64-sqlcipher
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+      - shell: bash
+        run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
       # Windows runners run as an administrator, and locallibrary starts no plugin from an elevated
       # process; debug builds take this to mean it isn't, so the tests can start theirs.
       - if: runner.os == 'Windows'
@@ -125,18 +192,56 @@ jobs:
       - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           tool: cargo-nextest,cargo-llvm-cov
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      # The plugin tests run in the plugins job below.
-      - if: runner.os != 'Linux'
-        run: cargo nextest run --workspace --locked --no-fail-fast --profile core
-      # Linux runs every test under coverage, the plugin tests too, failing below the thresholds in
-      # .cargo/config.toml. It writes its totals as JSON for the summary below, in place of the
-      # per-file table.
-      - if: runner.os == 'Linux'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests-${{ runner.os }}
+      # cargo-llvm-cov unpacks the archive into target/llvm-cov-target, which has to exist.
+      - shell: bash
         run: |
-          rustup component add llvm-tools-preview
-          cargo coverage --json --summary-only --output-path target/coverage.json
+          mkdir -p target/llvm-cov-target
+          cargo coverage --archive-file tests.tar.zst --partition "count:$SHARD" --no-report
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: profiles-${{ runner.os }}-${{ matrix.shard }}
+          path: target/llvm-cov-target/*.profraw
+          retention-days: 1
+
+  coverage:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      # nextest lists the tests by running each binary, which links ALSA on Linux.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-nextest,cargo-llvm-cov
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tests-${{ runner.os }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: profiles-${{ runner.os }}-*
+          merge-multiple: true
+          path: target/llvm-cov-target
+      # Runs no tests: it unpacks the archive for the binaries and reports on the shards' profiles,
+      # which --no-clean keeps.
+      - if: runner.os != 'Linux'
+        run: cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
+      # Linux writes its totals as JSON for the summary below, in place of the per-file table.
+      - if: runner.os == 'Linux'
+        run: >-
+          cargo coverage --no-clean --archive-file tests.tar.zst -E "none()" --no-tests=pass
+          --json --summary-only --output-path target/coverage.json
       # To the run's summary, and for the report job to put on the pull request.
       - if: runner.os == 'Linux' && !cancelled()
         name: Coverage summary
@@ -162,37 +267,6 @@ jobs:
           name: rust-coverage
           path: coverage.md
           if-no-files-found: ignore
-      # nextest doesn't run doctests.
-      - run: cargo test --doc --workspace --locked
-
-  # The plugin tests (see .config/nextest.toml), apart from the rest. Linux runs them under
-  # coverage in the test job.
-  plugins:
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        # Only main saves this cache, which pull requests restore.
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # As in the test job: the runner is elevated, the tests' plugins must start anyway.
-      - if: runner.os == 'Windows'
-        shell: bash
-        run: echo LOCALLIBRARY_TEST_NOT_ELEVATED=1 >> "$GITHUB_ENV"
-      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
-        with:
-          tool: cargo-nextest
-      - run: cargo nextest run --workspace --locked --no-fail-fast --profile plugins
 
   # The headless sidecar (no default features: no `account`, `tui` or `playback`) builds and
   # passes clippy without ALSA's headers. locallibrary-scheduled.yml runs its tests and every
@@ -338,12 +412,12 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The coverage summary from the Linux test job on the pull request, in one comment each push
+  # The coverage summary from the Linux coverage job on the pull request, in one comment each push
   # updates. A fork's pull request gets a read-only token, so its summary stays in the run's. Not
   # one of passed's needs, so a comment that can't post never holds up a merge.
   report:
     name: Coverage report
-    needs: [changes, test]
+    needs: [changes, coverage]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -355,7 +429,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Into rust-coverage/. Missing when the Linux job stopped before its summary; then there's
+      # Into rust-coverage/. Missing when the Linux coverage job stopped before its summary; then there's
       # nothing to post.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -373,7 +447,7 @@ jobs:
   passed:
     name: locallibrary CI passed
     if: always()
-    needs: [changes, test, plugins, features, msrv, docs, deny]
+    needs: [changes, lint, build, test, coverage, features, msrv, docs, deny]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
