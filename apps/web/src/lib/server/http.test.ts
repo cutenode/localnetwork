@@ -153,10 +153,10 @@ describe('guards', () => {
 });
 
 describe('cacheBriefly', () => {
-	it('lets anyone cache a page for a minute, but only the browser when someone is signed in', () => {
-		const headers = (viewer: Viewer | null) => {
+	it('lets anyone cache a page for a minute, but only the browser when the request has a session', () => {
+		const headers = (viewer: Viewer | null, sessionToken?: string) => {
 			let set: Record<string, string> = {};
-			cacheBriefly({ locals: { viewer }, setHeaders: (value) => (set = value) });
+			cacheBriefly({ locals: { viewer, sessionToken }, setHeaders: (value) => (set = value) });
 
 			return set;
 		};
@@ -170,7 +170,9 @@ describe('cacheBriefly', () => {
 			spacesCapable: true
 		};
 
-		expect(headers(null)).toEqual({ 'cache-control': 'public, max-age=60' });
-		expect(headers(signedIn)).toEqual({ 'cache-control': 'private, max-age=60' });
+		expect(headers(null)).toEqual({ 'cache-control': 'public, max-age=60', vary: 'Cookie' });
+		expect(headers(signedIn, 'token')).toEqual({ 'cache-control': 'private, max-age=60', vary: 'Cookie' });
+		// A session that ended: no viewer, but the cookie is there (to be cleared, or to ask to sign in again).
+		expect(headers(null, 'ended')).toEqual({ 'cache-control': 'private, max-age=60', vary: 'Cookie' });
 	});
 });

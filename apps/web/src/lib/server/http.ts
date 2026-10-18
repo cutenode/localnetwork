@@ -132,12 +132,16 @@ export function clientIp(event: { getClientAddress(): string }): string {
 }
 
 /**
- * Lets a page that shows the same thing to everyone be cached for `seconds`: by anyone when nobody is signed in, by
- * the browser alone when someone is, since the page carries their account.
+ * Lets a page that shows the same thing to everyone be cached for `seconds`: by anyone when the request has no
+ * session cookie, by the browser alone when it has one. A signed-in page carries the account, and one whose session
+ * ended asks to sign in again or clears the cookie, so neither may reach a shared cache. It varies on the cookie, so
+ * signing in or out isn't answered from a copy made before.
  */
 export function cacheBriefly(
-	event: { locals: LocalsLike; setHeaders(headers: Record<string, string>): void },
+	event: { locals: LocalsLike & { sessionToken?: string }; setHeaders(headers: Record<string, string>): void },
 	seconds = 60
 ): void {
-	event.setHeaders({ 'cache-control': `${event.locals.viewer ? 'private' : 'public'}, max-age=${seconds}` });
+	const isAnonymous = !event.locals.viewer && !event.locals.sessionToken;
+
+	event.setHeaders({ 'cache-control': `${isAnonymous ? 'public' : 'private'}, max-age=${seconds}`, vary: 'Cookie' });
 }
