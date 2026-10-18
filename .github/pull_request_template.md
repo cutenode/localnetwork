@@ -19,7 +19,7 @@
 - [ ] I went through [Adding an app or plugin](https://github.com/cutenode/localnetwork/blob/main/.github/NEW_PROJECT.md) and did every step for this kind of project, and Repo checks passes
 - [ ] The steps no check sees are done too: `CODEOWNERS` if someone else reviews it, a changelog line, and READMEs that say what it does
 - [ ] Apps: its "… passed" check is in `.github/rulesets/protect-main.json`, and an admin runs `tools/ruleset.sh apply` once this merges
-- [ ] Apps that run as a service: its Railway service reads its `railway.json` and deploys from `main` once checks pass
+- [ ] Apps that run as a service: it has a service in `.railway/railway.ts`, applied with `railway config apply`, that deploys from `main` once checks pass
 
 ## Checklist
 

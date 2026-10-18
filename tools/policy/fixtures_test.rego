@@ -36,10 +36,11 @@ repo := [
 	}},
 	{"path": "apps/site/Dockerfile", "contents": []},
 	{"path": "packages/kit/package.json", "contents": {"name": "kit"}},
-	{"path": "apps/site/railway.json", "contents": {
+	{"path": "/scratch/railway-project.json", "contents": {"resources": [{
+		"type": "service", "name": "site",
 		"build": {"dockerfilePath": "apps/site/Dockerfile"},
-		"deploy": {"healthcheckPath": "/healthz", "numReplicas": 2},
-	}},
+		"deploy": {"healthcheckPath": "/healthz", "multiRegionConfig": {"us-east4": {"numReplicas": 2}}},
+	}]}},
 	{"path": "apps/tool/Cargo.toml", "contents": {"package": object.union({"name": "tool"}, package_fields), "lints": {"workspace": true}}},
 	{"path": "Cargo.toml", "contents": {"workspace": {"members": ["apps/tool", "crates/*", "plugins/*", "vendor/pdb"]}}},
 	{"path": "crates/loclib-x/Cargo.toml", "contents": {"package": object.union({"name": "loclib-x", "readme": "README.md"}, package_fields), "lints": {"workspace": true}}},

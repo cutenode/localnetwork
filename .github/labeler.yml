@@ -279,7 +279,7 @@ tooling:
           - ".github/*"
           - ".github/rulesets/**"
           - ".github/ISSUE_TEMPLATE/**"
-          - "{.cargo,.config,tools,patches}/**"
+          - "{.cargo,.config,.railway,tools,patches}/**"
           - "{package.json,pnpm-workspace.yaml,lefthook.yml,.node-version}"
           - "{rust-toolchain,rustfmt,clippy,deny,dist-workspace}.toml"
           - "{.oxlintrc.json,.oxfmtrc.json,.editorconfig,.gitattributes,.gitignore,.dockerignore}"
