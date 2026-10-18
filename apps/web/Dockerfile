@@ -11,13 +11,15 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 # pnpm checks every patch pnpm-workspace.yaml lists, even for packages this install skips.
 COPY patches patches/
 COPY apps/web/package.json apps/web/
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile --filter localnetwork
+# No cache mount: Railway only accepts one whose id names its service, and the layer cache already
+# skips this step while the lockfile and manifests are unchanged.
+RUN pnpm install --frozen-lockfile --filter localnetwork
 COPY lexicons lexicons/
 COPY packages/tokens packages/tokens/
 # apps/web, and the tools' READMEs and docs for their pages (.dockerignore sends only those).
 COPY apps apps/
 RUN pnpm --filter localnetwork build
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm --filter localnetwork deploy --prod --ignore-scripts /prod
+RUN pnpm --filter localnetwork deploy --prod --ignore-scripts /prod
 
 FROM base AS runtime
 # Forms carry photos (press kit photos up to 5 MB each) and tracklists; adapter-node allows 512 KB by default.
@@ -25,9 +27,13 @@ ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 DATABASE_PATH=/data/localnetwork.
 COPY --from=build --chown=node:node /prod/package.json ./
 COPY --from=build --chown=node:node /prod/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps/web/build ./build
+# The database lives on a volume mounted at /data (`-v` locally, a Railway volume in production);
+# Railway refuses a `VOLUME` line.
 RUN mkdir -p /data && chown node:node /data
-USER node
-VOLUME /data
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+# Railway mounts its volume owned by root, so the container starts as root, hands /data to the node
+# user, and runs the app as node. Started as another user (`docker run --user`), it runs as that.
+# If /data can't be handed over, it stops rather than run the app as root.
+ENTRYPOINT ["sh", "-c", "if [ \"$(id -u)\" = 0 ]; then chown -R node:node /data || exit 1; exec setpriv --reuid=node --regid=node --init-groups -- \"$@\"; fi; exec \"$@\"", "--"]
 CMD ["node", "build"]
