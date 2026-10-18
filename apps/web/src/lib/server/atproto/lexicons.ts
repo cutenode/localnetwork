@@ -7,6 +7,7 @@ import auditEntry from '../../../../../../lexicons/computer/localnetwork/audit/e
 import bookingInquiry from '../../../../../../lexicons/computer/localnetwork/booking/inquiry.json' with { type: 'json' };
 import bookingMessage from '../../../../../../lexicons/computer/localnetwork/booking/message.json' with { type: 'json' };
 import bookingStatus from '../../../../../../lexicons/computer/localnetwork/booking/status.json' with { type: 'json' };
+import discussion from '../../../../../../lexicons/app/userinput/discussion.json' with { type: 'json' };
 import defs from '../../../../../../lexicons/computer/localnetwork/defs.json' with { type: 'json' };
 import directoryDefs from '../../../../../../lexicons/computer/localnetwork/directory/defs.json' with { type: 'json' };
 import epk from '../../../../../../lexicons/computer/localnetwork/epk.json' with { type: 'json' };
@@ -93,8 +94,11 @@ export const REFERENCED_NSIDS = ['community.lexicon.location.address'];
 /** strongRef, as the AT Protocol's own client library ships it. */
 const STRONG_REF = schemas.filter((doc) => doc.id === 'com.atproto.repo.strongRef').map((doc) => parseLexiconDoc(doc));
 
+/** Other apps' records this app writes for its users: bug reports on userinput.app. Only validated, never published or indexed. */
+const WRITTEN_DOCS = [discussion].map((doc) => parseLexiconDoc(doc));
+
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
-export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...STRONG_REF]));
+export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...STRONG_REF, ...WRITTEN_DOCS]));
 
 /** Fetches one lexicon as its authority publishes it. */
 export type LexiconSource = (nsid: string) => Promise<LexiconDoc>;

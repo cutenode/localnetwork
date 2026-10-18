@@ -38,11 +38,11 @@ Cargo features choose what's built. All four are on unless `--no-default-feature
 off:
 
 - `account`: the Atmosphere account and publishing to it (`account`, `profile publish`, `sets
-  publish`, `settings publish`, `settings import --from-handle` and `--from-account`, the player's
-  sign-in, and the sidecar's `account.*` and `*.publish.*` methods). Half the dependencies are for
-  this alone (an HTTP client, an async runtime, TLS, DNS, the system keychain): about 220 of the 530
-  crates the command builds. Without it the profile and its document are still made, just not
-  published.
+  publish`, `settings publish`, `settings import --from-handle` and `--from-account`, posting
+  with `bug`, the player's sign-in, and the sidecar's `account.*` and `*.publish.*` methods). Half
+  the dependencies are for this alone (an HTTP client, an async runtime, TLS, DNS, the system
+  keychain): about 220 of the 530 crates the command builds. Without it the profile and its
+  document are still made, just not published, and `bug` opens GitHub's bug report form.
 - `tui`: the player (`locallibrary tui`, and `locallibrary` on its own in a terminal).
 - `playback`: the player's audio output, and with it ALSA on Linux. Without it the player
   browses, edits and shows waveforms, but has no output to play through.

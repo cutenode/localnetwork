@@ -9,6 +9,7 @@
 	<div class="prose prose-site">
 		<h2>Public</h2>
 		<p>Published project profiles (name, genres, city, links, mixes, fee tier, managers' DIDs) are public atproto records anyone can read.</p>
+		<p>A bug report you send while signed in is a public post on userinput.app, kept in your own repo, with the page you sent it from and your browser.</p>
 		<h2>Members only</h2>
 		<p>Private booking details (email, phone, rates, tech rider) are stored in the industry space and shown only to signed-in members.</p>
 		<h2>Staff only</h2>

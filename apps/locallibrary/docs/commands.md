@@ -184,6 +184,7 @@ its drives.
 | --- | --- |
 | `locallibrary account [login\|logout\|status]` | Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps; alpha), see [Atmosphere account](account.md) |
 | `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset]]]` | The plugins locallibrary has, what each may do and adds, and their settings; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them, see [Plugins](plugins.md) |
+| `locallibrary bug [--title T] [-m TEXT] [--no-browser]` | Report a bug, with this version and system filled in: posted from your Atmosphere account to userinput.app, or on GitHub's bug report form, see [Reporting a bug](account.md#reporting-a-bug) |
 | `locallibrary completions SHELL [--static]` | Shell completion for bash, zsh, fish, elvish or PowerShell, see [Shell completion and man pages](install.md#shell-completion-and-man-pages) |
 | `locallibrary man [-o DIR]` | Man pages for every command (not in `--help`) |
 | `locallibrary rpc` | JSON-RPC server for GUIs (not in `--help`), see [Building a GUI](sidecar.md) |

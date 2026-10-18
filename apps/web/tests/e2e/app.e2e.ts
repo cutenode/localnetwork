@@ -152,7 +152,10 @@ test.describe('public pages', () => {
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
 		const metadata = await request.get('/oauth-client-metadata.json');
-		expect((await metadata.json()).scope).toContain('include:computer.localnetwork.permissions');
+		const { scope } = await metadata.json();
+		expect(scope).toContain('include:computer.localnetwork.permissions');
+		// Asked for only when someone first sends a bug report, but the PDS refuses any scope not listed here.
+		expect(scope).toContain('repo:app.userinput.discussion?action=create');
 		const did = await (await request.get('/.well-known/did.json')).json();
 		expect(did.service[0]).toMatchObject({ id: '#localnetwork_syncer', serviceEndpoint: 'http://127.0.0.1:5199' });
 	});
@@ -239,6 +242,57 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Send' }).click();
 		await expect(page.getByText('Budget is flexible.')).toBeVisible();
 		await expectAccessible(page);
+	});
+});
+
+test.describe('bug reports', () => {
+	test("signed out, Report a bug opens GitHub's form with the page and browser filled in", async ({
+		page,
+		request
+	}) => {
+		await page.goto('/match');
+		const link = page.getByRole('contentinfo').getByRole('link', { name: 'Report a bug' });
+		await expect(link).toHaveAttribute('href', '/report?from=%2Fmatch');
+		// Followed by hand, so the test never loads GitHub.
+		const response = await request.get('/report?from=%2Fmatch', { maxRedirects: 0 });
+		const github = new URL(response.headers().location);
+		expect(github.origin + github.pathname).toBe('https://github.com/cutenode/localnetwork/issues/new');
+		expect(github.searchParams.get('template')).toBe('web-bug.yml');
+		expect(github.searchParams.get('steps')).toContain('/match');
+	});
+
+	test('signed in, someone approves posting once and reports a bug from their own account', async ({ page }) => {
+		// A fresh sign-in asks only for what the site needs, so posting has to be approved first.
+		await signIn(page, 'pat.test', 'pat-pass', '/match');
+		await page.getByRole('contentinfo').getByRole('link', { name: 'Report a bug' }).click();
+		await expect(page.getByRole('heading', { name: 'Approve posting first' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Approve' }).click();
+		// The PDS may ask for the password again before it shows what's being approved.
+		const password = page.locator('input[type="password"]');
+		const authorize = page.getByRole('button', { name: 'Authorize' });
+		await expect(password.or(authorize).first()).toBeVisible();
+
+		if (await password.isVisible()) {
+			await password.fill('pat-pass');
+			await page.getByRole('button', { name: 'Sign in' }).click();
+		}
+
+		await authorize.click();
+		await page.waitForURL((url) => url.port === '5199' && url.pathname === '/report');
+		await page.waitForLoadState('networkidle');
+		await expect(page.getByText('Also sent: /match')).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('textbox', { name: 'Title' }).fill("The map doesn't load on a show");
+		await page.getByRole('textbox', { name: 'What happened?' }).fill('I added a venue and the map stayed grey.');
+		await page.getByRole('button', { name: 'Post report' }).click();
+		await expect(page.getByRole('heading', { name: "Thanks, it's posted" })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'View your report' })).toHaveAttribute(
+			'href',
+			/^https:\/\/userinput\.app\/d\/did:plc:[a-z0-9]+\/[a-z0-9]+$/
+		);
+		await expectAccessible(page);
+		await signOut(page);
 	});
 });
 

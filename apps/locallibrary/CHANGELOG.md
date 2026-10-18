@@ -282,6 +282,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   all on by default. `--no-default-features` builds a headless sidecar of about 150 crates
   instead of 430, with no ALSA; without `account`, the account and publishing commands and RPC
   methods aren't there and `initialize` doesn't list the `account` capability.
+- **Reporting a bug.** `bug` posts a report from your Atmosphere account to Local Network's space on
+  userinput.app (asking first, and signing in again to allow only that), or opens GitHub's bug
+  report form, with the version, the system and how it was installed filled in either way.
 - **Shell completion and man pages.** `locallibrary completions SHELL` for bash, zsh, fish,
   elvish and PowerShell: the shell asks `locallibrary` on Tab, so mounted drives, their playlist
   paths, My Tags and history lists, the store's libraries, sets and sessions, player models and

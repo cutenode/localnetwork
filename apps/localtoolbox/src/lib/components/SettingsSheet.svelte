@@ -23,13 +23,15 @@
   name, the badge switches and the casing below are in the popup's own
   localStorage because nothing outside the popup has any use for them.
 
-  The last section is not a setting at all. Everything the extension has saved
+  One section is not a setting at all. Everything the extension has saved
   — the marks, the looked-up details, the Manager's list, the session queue and
   every panel option — goes out to one file there and reads back in
   (StateTransfer.svelte). It was in the Manager panel's footer, which was the
   wrong place for it twice over: the file carries four other tools' worth of
   state, and a backup is something you take before opening a playlist rather
-  than while looking at one.
+  than while looking at one. Nor is the last: which version this is, and a
+  link to report a bug with that version already filled in ($lib/bug-report.ts),
+  since this sheet is about the extension rather than any one tool.
 
   A sheet rather than a tool, and for the reason the session queue is one: it
   is about the tools rather than beside them. It comes up over whichever one is
@@ -43,6 +45,7 @@
 <script lang="ts">
   import { fly, fade } from 'svelte/transition';
   import { cubicOut } from 'svelte/easing';
+  import Bug from '@lucide/svelte/icons/bug';
   import Monitor from '@lucide/svelte/icons/monitor';
   import Moon from '@lucide/svelte/icons/moon';
   import Settings from '@lucide/svelte/icons/settings';
@@ -54,11 +57,13 @@
   import { Label } from '$lib/components/ui/label/index.ts';
   import { Switch } from '$lib/components/ui/switch/index.ts';
   import * as Tooltip from '$lib/components/ui/tooltip/index.ts';
+  import { bugReportUrl, extensionVersion } from '$lib/bug-report.ts';
   import { downloader } from '$lib/downloader.svelte.ts';
   import { searchSites } from '$lib/search-sites.svelte.ts';
   import { settings } from '$lib/settings.svelte.ts';
   import { theme } from '$lib/theme.svelte.ts';
   import { titleCasing } from '$lib/title-case.svelte.ts';
+  import { view } from '$lib/view.svelte.ts';
 
   interface Props {
     /** Puts the sheet away, leaving the view under it where it was. */
@@ -90,6 +95,11 @@
     'as typed; a field shouted in capitals is re-cased.';
 
   const badges = $derived(searchSites.all);
+
+  const version = extensionVersion();
+
+  // The tool under the sheet, if any, is the part a report is most likely about.
+  const reportUrl = $derived(bugReportUrl(view.open));
 
   const THEMES = [
     { mode: 'system', icon: Monitor, label: 'system' },
@@ -302,8 +312,8 @@
             {/if}
           </section>
 
-          <!-- Last, and a section of its own (StateTransfer.svelte): it is the
-               only thing here that writes anything but a setting, and the one
+          <!-- A section of its own (StateTransfer.svelte): it is the only
+               thing here that writes anything but a setting, and the one
                control in the sheet that can take something away. -->
           <StateTransfer />
 
@@ -347,6 +357,26 @@
                   {TITLE_CASE_HINT}
                 </p>
               </div>
+            </div>
+          </section>
+
+          <section class="flex flex-col gap-2 rounded-xl border border-border/70 bg-card p-2.5">
+            <h3 class="text-[11.5px] font-semibold">about</h3>
+            <div class="flex items-center gap-2.5">
+              <p class="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                localtoolbox {version}
+              </p>
+              <Button
+                size="xs"
+                variant="outline"
+                class="text-muted-foreground"
+                href={reportUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Bug />
+                report a bug
+              </Button>
             </div>
           </section>
         </div>

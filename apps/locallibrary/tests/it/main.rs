@@ -19,6 +19,7 @@ mod schema;
 mod session;
 
 mod account;
+mod bug;
 mod cli;
 mod collection;
 mod command_line;
@@ -73,6 +74,7 @@ fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
         .env_remove("LOCALLIBRARY_TEST_PLUGINS")
+        .env_remove("LOCALLIBRARY_USERINPUT_SPACE")
         .env_remove("CLICOLOR_FORCE")
         .env_remove("TERM")
         .env_remove("LC_ALL")

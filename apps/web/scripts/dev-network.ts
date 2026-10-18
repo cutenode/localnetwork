@@ -14,6 +14,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { asDid, AtpAgent } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
+import { USERINPUT } from '../src/lib/bug-report.ts';
 import {
 	LEXICON_DOCS,
 	loadReferencedLexicons,
@@ -114,6 +115,21 @@ async function main() {
 	await rootAgent.login({ identifier: ROOT.handle, password: ROOT.password });
 	await publishLexicons(rootAgent);
 	log(`Published ${LEXICON_DOCS.length} lexicons from ${ROOT.handle}`);
+
+	// A stand-in for Local Network's board on userinput.app, so signed-in bug reports post here.
+	const { data: userinputSpace } = await rootAgent.com.atproto.repo.createRecord({
+		repo: rootDid,
+		collection: USERINPUT.space,
+		record: {
+			$type: USERINPUT.space,
+			name: 'Local Network',
+			tags: [
+				{ value: 'bug', label: 'Bug' },
+				{ value: 'web', label: 'Web' }
+			],
+			createdAt: new Date().toISOString()
+		}
+	});
 
 	const dids: Record<string, string> = {};
 
@@ -269,6 +285,7 @@ async function main() {
 		HANDLE_RESOLVER_URL: pds.url,
 		HAPPYVIEW_URL: happyView.url,
 		HAPPYVIEW_API_KEY: happyView.apiKey,
+		USERINPUT_SPACE: userinputSpace.uri,
 		SYNC_POLL_INTERVAL_MS: '10000',
 		GEOCODER: process.env.GEOCODER ?? 'open-meteo',
 		LOG_LEVEL: process.env.LOG_LEVEL ?? 'debug'

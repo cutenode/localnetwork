@@ -90,7 +90,9 @@ fn publish_flow(
         if let Some(o) = out.decide(false, "Sign in again to allow publishing?") {
             return Ok(stop(out, &p, o));
         }
-        let signed_in = crate::account_cmd::sign_in_to_publish(root, &account, browser, out, ctx)?;
+        let publishing = locallibrary::atmosphere::publish_scopes();
+        let signed_in =
+            crate::account_cmd::sign_in_again(root, &account, &publishing, "publishing", browser, out, ctx)?;
         // Planned again for whoever the browser approved, which needn't be the account before.
         p = plan()?;
         if !out.json {

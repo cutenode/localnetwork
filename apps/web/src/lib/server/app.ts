@@ -23,6 +23,7 @@ import { createLogger, type Logger } from './logger';
 import { RateLimiter } from './rate-limit';
 import { AccountService } from './services/accounts';
 import { BookingService } from './services/bookings';
+import { BugReportService } from './services/bug-reports';
 import { DjService } from './services/dj';
 import { EpkService } from './services/epk';
 import { PlannerService } from './services/planner';
@@ -178,6 +179,14 @@ export async function createApp(options: CreateAppOptions) {
 	const supports = new SupportService(happyView, accounts, logger.child({ component: 'supports' }));
 	const epks = new EpkService(core, projects, publicRepo, (identifier) => identity.resolveIdentifier(identifier));
 
+	const bugReports = new BugReportService({
+		space: config.userinputSpace,
+		repos: publicRepo,
+		userClient,
+		accounts,
+		logger: logger.child({ component: 'bug-reports' })
+	});
+
 	const syncer = new SpaceSyncer({
 		db,
 		logger: logger.child({ component: 'sync' }),
@@ -244,6 +253,7 @@ export async function createApp(options: CreateAppOptions) {
 		dj,
 		supports,
 		epks,
+		bugReports,
 		sessions,
 		geocoder,
 		limits: {

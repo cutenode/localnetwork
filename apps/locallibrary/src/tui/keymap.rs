@@ -508,6 +508,7 @@ pub static KEYMAP: &[Binding] = &[
     key(S::Global, &[K::Ch(':')], ":", A::Palette, "", "commands: every action by name (type a few of its letters), the commands with no key, and plugins' commands", G::Player).hint("commands", 6),
     key(S::Global, &[K::Ch('?')], "?", A::Help, "the keys", "this help", G::Player).hint("help", 5),
     key(S::Global, &[K::Ch('!')], "!", A::Messages, "messages since starting", "messages: everything the footer said since starting", G::Player),
+    note(S::Global, "", "found a bug? locallibrary bug, in a terminal, reports it", G::Player),
     // Commands with no key of their own, for the drive open in the library (the selected one in
     // the Drives view).
     key(S::Global, &[], "pull", A::Pull, "save a snapshot of the drive", "save the drive in the store, a snapshot of its library (shows what that adds first)", G::Commands),

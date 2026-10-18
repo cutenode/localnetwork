@@ -16,7 +16,7 @@ const GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Plays and players", &["plays", "sets", "mix", "profile", "players"]),
-    ("Other", &["account", "plugin", "completions", "help"]),
+    ("Other", &["account", "plugin", "bug", "completions", "help"]),
 ];
 
 /// The old top-level names of commands that moved into a group, and where they went: a "did you
@@ -220,6 +220,7 @@ fn color_asked() -> Option<clap::ColorChoice> {
 /// Neither does `account login`: signing in is done in the browser.)
 const WRITES: &[&str] = &[
     "role", "forget", "retire", "set", "unset", "add", "rm", "rename", "label", "unlabel", "reset", "setup", "delete",
+    "bug",
 ];
 
 /// `--json` on a command that writes says it needs `--yes`; on one that only reads, it doesn't.

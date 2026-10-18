@@ -42,6 +42,21 @@ const didList = z
 
 const absoluteUrl = z.url().transform((value) => value.replace(/\/+$/, ''));
 
+/** A userinput.app space's at:// URI. Left empty, it reads as unset. */
+const userinputSpace = z
+	.string()
+	.optional()
+	.transform((value) => value || undefined)
+	.pipe(
+		z
+			.string()
+			.regex(
+				/^at:\/\/did:[a-z]+:[\w.:%-]+\/app\.userinput\.space\/[\w.~:-]+$/,
+				'must be at://<did>/app.userinput.space/<rkey>'
+			)
+			.optional()
+	);
+
 const envSchema = z.object({
 	NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 	PUBLIC_URL: absoluteUrl.default('http://127.0.0.1:5173'),
@@ -55,6 +70,7 @@ const envSchema = z.object({
 	HANDLE_RESOLVER_URL: absoluteUrl.optional(),
 	HAPPYVIEW_URL: z.string('set HAPPYVIEW_URL to the HappyView instance that indexes projects').pipe(absoluteUrl),
 	HAPPYVIEW_API_KEY: z.string().min(1).optional(),
+	USERINPUT_SPACE: userinputSpace,
 	SERVICE_DID: z.string().startsWith('did:').optional(),
 	SYNC_POLL_INTERVAL_MS: intString(60_000, 1_000),
 	SYNC_NOTIFY: booleanString,
@@ -76,6 +92,8 @@ export type Config = {
 	handleResolverUrl?: string;
 	/** The HappyView instance that indexes published projects. With an API key, the app uploads its lexicons and scripts. */
 	happyView: { url: string; apiKey?: string };
+	/** The userinput.app space signed-in people post bug reports to. Unset, every report goes to GitHub instead. */
+	userinputSpace?: string;
 	/** did:web identity of this app, used as the notification target for spaces. */
 	serviceDid: string;
 	/** Service id (DID + fragment) that space hosts deliver notifyWrite to. */
@@ -133,6 +151,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		plcUrl: value.PLC_URL,
 		handleResolverUrl: value.HANDLE_RESOLVER_URL,
 		happyView: { url: value.HAPPYVIEW_URL, apiKey: value.HAPPYVIEW_API_KEY },
+		userinputSpace: value.USERINPUT_SPACE,
 		serviceDid,
 		syncService: `${serviceDid}#${SYNC_SERVICE_FRAGMENT}`,
 		syncPollIntervalMs: value.SYNC_POLL_INTERVAL_MS,

@@ -17,7 +17,8 @@ locallibrary never sees your password. Give your handle, a DID, or your server
 one). Signing in only asks to know who you are: locallibrary can't post or change anything.
 [Publishing](#publishing) asks for more the first time, by signing in again: permission to create
 and replace the three record types it publishes, not to delete them, and nothing else in the
-account. `account login --publish` asks for it up front.
+account. `account login --publish` asks for it up front. [Reporting a bug](#reporting-a-bug) asks
+the same way, the first time, for permission to post bug reports and nothing else.
 
 - **Publishing's permission is a permission set**, the Lexicon
   [`computer.localnetwork.locallibraryPublishing`](../../../lexicons/computer/localnetwork/locallibraryPublishing.json):
@@ -54,8 +55,8 @@ account. `account login --publish` asks for it up front.
   front page to locallibrary's page on localnetwork.computer. Until it's online, sign-in says so
   and falls back to the `http://localhost` development client, which servers show as "a local app"
   and ask about every time (`account` says when a session is the development client's). The
-  document lists every scope a sign-in may ask for, publishing's included, and servers refuse a
-  sign-in that asks for more: a release that asks for new scopes needs the hosted document updated
+  document lists every scope a sign-in may ask for, publishing's and bug reports' included
+  (`repo:app.userinput.discussion?action=create`), and servers refuse a sign-in that asks for more: a release that asks for new scopes needs the hosted document updated
   first. Until it allows them, sign-in stops and says so. `--dev-client` chooses that client on
   purpose; `--client-id` (or `LOCALLIBRARY_OAUTH_CLIENT_ID`) another document.
 
@@ -120,3 +121,40 @@ they use is [Lexicon Community](https://tangled.org/lexicon.community/lexicons)'
 publishes it the first time a set needs it. Each record is checked against its Lexicon before it's
 written. Everything published is public and copied around the network:
 deleting a record later doesn't delete the copies.
+
+## Reporting a bug
+
+```bash
+locallibrary bug                                      # asks for a title and what happened
+locallibrary bug --title "Sync stops at 99%" -m "It stopped while copying to SD."
+```
+
+`locallibrary bug` reports a bug with what GitHub's bug form asks about filled in: the version, as
+`locallibrary --version` prints it, the operating system, and how locallibrary was installed when
+it can tell (Homebrew, `cargo install` or the installer script).
+
+Signed in, it posts the report from your account to Local Network's space on
+[userinput.app](https://userinput.app), a feedback site built on the AT Protocol. It asks for a
+title and what happened (or takes `--title` and `--message`), shows the report and asks before
+posting it, then prints its link. The report is an `app.userinput.discussion` record in your own
+repository, tagged `bug` and `locallibrary`: like anything published, anyone can read it. Its
+Lexicon is userinput.app's, copied into the repo's
+[`lexicons/app/userinput/`](../../../lexicons/app/userinput/) with the AT Protocol's
+`com.atproto.repo.strongRef` it uses, and each report is checked against it before it's posted:
+titles take up to 300 characters and the rest up to 10,000. The first time, it asks you to sign in again
+to allow it (`repo:app.userinput.discussion?action=create`: creating bug reports, not changing or
+deleting them, and nothing else in the account). Signing in again keeps what the session allowed
+already, publishing included; `--paste`, `--no-browser` and `--timeout` work as for `account
+login`. Plain sign-in and publishing never ask for it.
+
+Signed out, built without the account, or when posting doesn't work out (you'd rather not sign in
+again, there's no terminal to ask in, the server refused), it opens GitHub's bug report form in the
+browser, filled in, with what you typed. `--no-browser` prints its link instead, and `--json` prints
+`{"url", "opened"}`. A report that was posted prints, with `--json`, the plan and `{uri, cid, url}`.
+
+The space reports go to is set in the source: `SPACE` in
+[`crates/locallibrary/src/atmosphere/bug_report.rs`](../../../crates/locallibrary/src/atmosphere/bug_report.rs).
+It's unset until Local Network has one, so for now every report goes to GitHub.
+`LOCALLIBRARY_USERINPUT_SPACE` names another (`at://<DID>/app.userinput.space/<record key>`;
+anything else is refused). The report points at the space's current version, which locallibrary
+reads from its owner's data server when it posts.

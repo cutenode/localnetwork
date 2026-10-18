@@ -99,6 +99,7 @@ Every change shows what it will do and asks first. It ends with the commands you
 | You changed your mind about the last change | `locallibrary undo` |
 | You want to browse and listen | `locallibrary` |
 | You want to know what a command does | `locallibrary help sync` |
+| Something went wrong | `locallibrary bug` (reports it, with your version and system filled in) |
 
 With one library plugged in, the commands above need nothing more. Edits name the library:
 `locallibrary playlist new Home Friday` makes the playlist on its newest drive, then copies that
@@ -151,7 +152,8 @@ such as `REKORDBOX`) or its mount path. `locallibrary --help` lists every comman
   mixes, your DJ profile
 - [Drives](docs/drives.md): your library's drives, roles, health, space, formatting, the doctor's
   report
-- [Atmosphere account](docs/account.md) (alpha): signing in and publishing sets, settings and your profile
+- [Atmosphere account](docs/account.md) (alpha): signing in, publishing sets, settings and your
+  profile, and reporting bugs
 - [rekordbox and other DJ software](docs/other-software.md): rekordbox's own collection, Traktor,
   Serato and Engine DJ
 - [Plugins](docs/plugins.md): what plugins add, and where it shows up
