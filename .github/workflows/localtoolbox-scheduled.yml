@@ -40,3 +40,18 @@ jobs:
         with:
           name: localtoolbox-mutation
           path: apps/localtoolbox/reports/mutation/
+
+  # Weekly runs only: a failed job opens an issue, or comments on the open one, and the next run
+  # that passes closes it (scheduled-issue.yml).
+  report:
+    needs: [mutation]
+    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    permissions:
+      actions: read
+      issues: write
+    uses: ./.github/workflows/scheduled-issue.yml
+    with:
+      label: localtoolbox
+      details: >-
+        The mutation report, with every surviving mutant, is the run's localtoolbox-mutation
+        artifact.

@@ -55,8 +55,9 @@ pushes to `main` that change the workspace (not when only Markdown changed):
 
 - format, clippy and the tests on macOS, Linux and Windows. Tests run under
   [cargo-nextest](https://nexte.st) (`cargo nextest run --workspace` locally), doctests with
-  `cargo test --doc`. On Linux they run under coverage (see below). On macOS and Linux the tests
-  have the `sqlcipher` CLI, and must find it (see the fixtures below);
+  `cargo test --doc`. On Linux they run under coverage (see below), and a comment on the pull
+  request shows the totals. On macOS and Linux the tests have the `sqlcipher` CLI, and must find it
+  (see the fixtures below);
 - the plugin tests in a job of their own on macOS and Windows (`cargo nextest run --profile
   plugins`; the test job runs the rest with `--profile core`). Windows runners run as an
   administrator, and locallibrary starts no plugin from an elevated process: in debug builds,
@@ -84,6 +85,9 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - the fuzz targets, five minutes each (see Fuzzing);
 - cargo-deny's advisory check, for advisories published since the last push.
+
+A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
+the next weekly run that passes closes it.
 
 `.github/workflows/locallibrary-bench.yml` runs the benchmarks under
 [CodSpeed](https://codspeed.io) on the same pull requests and pushes as CI, once the workspace has
