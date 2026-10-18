@@ -22,3 +22,6 @@ image = ["dep:image"]
 [dev-dependencies]
 hegeltest.workspace = true
 image.workspace = true
+
+[lints]
+workspace = true

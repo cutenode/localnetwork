@@ -17,7 +17,6 @@ here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lib.sh"
 # The Cargo workspace: the repository root.
 repo=$(cd "$here/../../.." && pwd)
-fixtures="$repo/crates/locallibrary/tests/fixtures"
 
 cargo build --quiet --locked --manifest-path "$repo/Cargo.toml" -p locallibrary-cli
 bin="${CARGO_TARGET_DIR:-$repo/target}/debug/locallibrary"
@@ -26,11 +25,8 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/locallibrary-bombadil.XXXXXX")
 out="${OUTPUT_PATH:-$work/out}"
 drive="$work/volumes/BOMBADIL"
 
-# 12 tracks, a playlist and the demo export's analysis and settings files.
-mkdir -p "$drive" "$work/store" "$work/bin" "$work/home"
-cp -R "$fixtures/rekordcrate/demo_tracks/PIONEER" "$drive/"
-cp "$repo/vendor/rekordbox-pdb/tests/data/bigger-export.pdb" "$drive/PIONEER/rekordbox/export.pdb"
-rm -f "$drive/PIONEER/rekordbox/exportExt.pdb"
+fixture_drive "$drive"
+mkdir -p "$work/store" "$work/bin" "$work/home"
 
 for cmd in open xdg-open; do
   printf '#!/bin/sh\necho "%s $*" >> "%s/opened.log"\n' "$cmd" "$work" > "$work/bin/$cmd"

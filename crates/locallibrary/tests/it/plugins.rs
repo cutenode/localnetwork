@@ -1,4 +1,4 @@
-//! The plugin host, running the test plugin (`examples/test-plugin`: loclib-plugin's echo
+//! The plugin host, running the test plugin (`src/bin/test-plugin`: loclib-plugin's echo
 //! example, and what these tests need besides) as a child process, on a fixture drive.
 
 mod callbacks;
@@ -16,7 +16,7 @@ use locallibrary::plugin::{Cli, CommandOutput, Launch, Options, PluginSpec, Plug
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
 use locallibrary::{Error, Result};
-use loclib_plugin::{Context, View};
+use loclib_plugin::{Context, HelloReply, Incoming, Manifest, PROTOCOL_VERSION, Peer, RpcError, View, method};
 use serde_json::{Value, json};
 
 use crate::common;
@@ -24,13 +24,12 @@ use crate::common;
 /// The echo plugin's manifest: the test plugin serves it unless told otherwise.
 const ECHO: &str = include_str!("../../../loclib-plugin/examples/echo/locallibrary-plugin.toml");
 
-/// The test plugin, as cargo builds it with the tests.
+/// The test plugin, as cargo builds it with the tests. Its path is looked up when the test runs,
+/// not built in, so it holds when nextest runs the tests from an archive somewhere else.
 fn program() -> PathBuf {
-    let deps = std::env::current_exe().unwrap();
-    let examples = deps.parent().unwrap().parent().unwrap().join("examples");
-    let exe = examples.join(format!("test-plugin{}", std::env::consts::EXE_SUFFIX));
-    assert!(exe.exists(), "cargo builds the examples with the tests: {}", exe.display());
-    exe
+    std::env::var_os("CARGO_BIN_EXE_test-plugin")
+        .expect("cargo (1.94 and up) and nextest set it for integration tests")
+        .into()
 }
 
 /// The test plugin with `args`, serving `manifest` (the echo plugin's unless it's another,
@@ -518,4 +517,35 @@ fn a_file_param_is_an_absolute_path() {
     assert!(e.to_string().ends_with("\"list.txt\" isn't an absolute path"), "{e}");
     let absolute = f.store.root().join("list.txt");
     assert_eq!(f.echo_params(json!({ "file": absolute })).unwrap(), json!({ "file": absolute }));
+}
+
+/// loclib-plugin's SDK serving the test plugin as its own process over real stdio, spoken to with
+/// the SDK's `Peer` and no host: it says who it is and what its manifest is, answers, and when its
+/// input closes while a hook runs, the hook is cancelled and answers before the plugin exits.
+#[test]
+fn the_sdk_serves_a_plugin_over_stdio() {
+    let mut child = std::process::Command::new(program())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (host, incoming) = Peer::new(child.stdout.take().unwrap(), child.stdin.take().unwrap());
+    let hello =
+        json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" }, "features": [] });
+    let reply: HelloReply = host.request(method::HELLO, &hello).unwrap();
+    assert_eq!(reply.plugin.id, "echo");
+    let described: Manifest = host.request(method::DESCRIBE, &json!({})).unwrap();
+    assert_eq!(described, Manifest::parse(ECHO).unwrap());
+    let run =
+        |command: &str, params: Value| json!({ "command": command, "params": params, "context": { "drive": null } });
+    let answer: Value = host.request(method::RUN_COMMAND, &run("echo", json!({ "n": 1 }))).unwrap();
+    assert_eq!(answer, json!({ "n": 1 }));
+    let waiting = host.send_request(method::RUN_COMMAND, &run("wait", json!({}))).unwrap();
+    assert!(
+        matches!(incoming.recv_timeout(Duration::from_secs(10)), Ok(Incoming::Notification { .. })),
+        "it has started"
+    );
+    host.close();
+    assert_eq!(waiting.wait::<Value>().unwrap_err(), RpcError::cancelled());
+    assert!(child.wait().unwrap().success());
 }

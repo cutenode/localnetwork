@@ -19,6 +19,7 @@
 		{ key: 'F', href: '/projects', label: 'Find DJs' },
 		{ key: 'W', href: '/shows', label: 'Shows' },
 		{ key: 'M', href: '/match', label: 'Match a show' },
+		{ key: 'R', href: '/charts', label: 'Charts' },
 		{ key: 'D', href: '/for-djs', label: 'For DJs' },
 		{ key: 'O', href: '/tools', label: 'Tools' },
 		...(data.viewer
@@ -79,6 +80,7 @@
 		<a class="menu-link" href="/about" aria-keyshortcuts={shortcut('A')}>How it works</a>
 		<a class="menu-link" href="/privacy" aria-keyshortcuts={shortcut('P')}>Privacy</a>
 		<a class="menu-link" href="/tools">Tools</a>
+		<a class="menu-link" href="/report?from={encodeURIComponent(page.url.pathname)}">Report a bug</a>
 		<button type="button" class="menu-link inline-flex min-h-9 items-center gap-2" aria-pressed={hotkeys.enabled} onclick={() => setHotkeysEnabled(!hotkeys.enabled)}>Keyboard shortcuts: {hotkeys.enabled ? 'on' : 'off'}</button>
 		<span class="text-fg-subtle sm:ml-auto">Records on the AT Protocol · private data in atproto spaces</span>
 	</div>

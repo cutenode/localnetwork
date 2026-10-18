@@ -45,7 +45,9 @@ const PUBLIC_RECORDS = [
  * for its own namespace. Nothing grants reading other users' data; the app reads shared spaces with
  * credentials issued to the root authority. The base fallback, for a PDS without spaces, asks for
  * the public records anyone can write (follows, and shows with their events); the root account
- * writes and uploads everything else on the user's behalf.
+ * writes and uploads everything else on the user's behalf. Posting a bug report to userinput.app is
+ * asked for only when someone first sends one, so it stays out of `full` and never sends anyone back
+ * through sign-in.
  */
 export const SCOPES = {
 	full: [
@@ -57,7 +59,8 @@ export const SCOPES = {
 	].join(' '),
 	base: `atproto ${PUBLIC_RECORDS}`,
 	/** For a PDS that refuses even the base scopes' granular permissions. */
-	minimal: 'atproto'
+	minimal: 'atproto',
+	bugReport: 'repo:app.userinput.discussion?action=create'
 };
 
 /** Every scope the app may ask for. A PDS refuses an authorization for any scope its client metadata doesn't list. */
@@ -183,18 +186,18 @@ export class OAuthService {
 	}
 
 	/**
-	 * Starts an authorization. If the user's PDS rejects the spaces scopes
-	 * (it does not run the spaces alpha yet), falls back to the base scopes
-	 * and the root account writes on the user's behalf, then to plain
-	 * `atproto` for a PDS that doesn't know granular scopes at all.
+	 * Starts an authorization, asking for `extra` scopes too. If the user's PDS rejects the spaces
+	 * scopes (it does not run the spaces alpha yet), falls back to the base scopes and the root
+	 * account writes on the user's behalf, then to plain `atproto` for a PDS that doesn't know
+	 * granular scopes at all.
 	 */
-	async authorize(handle: string, state: string): Promise<URL> {
+	async authorize(handle: string, state: string, extra?: string): Promise<URL> {
 		const [first, ...fallbacks] = [this.scopes.full, this.scopes.base, this.scopes.minimal];
 		let scope = first;
 
 		for (;;) {
 			try {
-				return await this.client.authorize(handle, { scope, state });
+				return await this.client.authorize(handle, { scope: extra ? `${scope} ${extra}` : scope, state });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const next = fallbacks.shift();

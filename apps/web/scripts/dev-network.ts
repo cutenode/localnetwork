@@ -10,12 +10,18 @@
  *   pnpm dev:network          # the network only; then, in another terminal: pnpm dev:app
  */
 import { spawn } from 'node:child_process';
-import { rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { asDid, AtpAgent } from '@atproto/api';
 import { TID } from '@atproto/common-web';
 import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
-import { LEXICON_DOCS, publishLexicons, validateRecord } from '../src/lib/server/atproto/lexicons.ts';
+import { USERINPUT } from '../src/lib/bug-report.ts';
+import {
+	LEXICON_DOCS,
+	loadReferencedLexicons,
+	publishLexicons,
+	validateRecord
+} from '../src/lib/server/atproto/lexicons.ts';
 import { AgentRepoClient } from '../src/lib/server/atproto/repo-client.ts';
 import { CALENDAR_EVENT, COLLECTION, EPK_CONTENT_KEY, SPACE_TYPE } from '../src/lib/nsid.ts';
 import { sampleReport } from '../src/lib/mix/sample.ts';
@@ -23,7 +29,15 @@ import { HappyViewClient } from '../src/lib/server/happyview/client.ts';
 import { slugify } from '../src/lib/server/services/projects.ts';
 import { eventRecord, showRecord } from '../src/lib/server/services/shows.ts';
 import { checkDocker, startHappyView } from './lib/happyview.ts';
-import { DEMO_DJ_PROFILE, DEMO_DJ_SETS, DEMO_EPKS, DEMO_FOLLOWS, DEMO_PROJECTS, DEMO_SHOWS } from './seed-data.ts';
+import {
+	DEMO_DJ_PROFILE,
+	DEMO_DJ_SETS,
+	DEMO_DJS,
+	DEMO_EPKS,
+	DEMO_FOLLOWS,
+	DEMO_PROJECTS,
+	DEMO_SHOWS
+} from './seed-data.ts';
 
 const PLC_PORT = Number(process.env.DEV_PLC_PORT ?? 2582);
 
@@ -51,17 +65,38 @@ const ACCOUNTS = [
 		password: 'neon-pass',
 		note: 'DJ; manages two demo projects, has three sets, two press kits, and four shows'
 	},
-	{ handle: 'pat.test', password: 'pat-pass', note: "promoter; follows both of neon's projects" }
+	{ handle: 'pat.test', password: 'pat-pass', note: "promoter; follows both of neon's projects" },
+	...DEMO_DJS.map((dj) => ({
+		handle: dj.handle,
+		password: dj.password,
+		note: `DJ; manages ${DEMO_PROJECTS[dj.project].name}, has ${dj.sets.length} sets`
+	}))
 ];
 
 const log = (message: string) => console.log(`\x1b[35m▸\x1b[0m ${message}`);
 
 async function main() {
+	// The PDS's better-sqlite3 is built for the Node that ran `pnpm install`, which engineStrict holds to
+	// .node-version, but nothing checks the Node a script runs on, so another one crashes deep in the PDS.
+	const nodeVersion = readFileSync(new URL('../../../.node-version', import.meta.url), 'utf8').trim();
+	const isNodeVersion = process.versions.node.split('.')[0] === nodeVersion.split('.')[0];
+
+	if (!isNodeVersion) {
+		console.error(
+			`This repo runs on Node.js ${nodeVersion} (.node-version), not ${process.version}. Run \`fnm use\`, then try again.`
+		);
+		process.exit(1);
+	}
+
 	// First, so a missing Docker fails right away with what to do instead of after the seeding.
 	await checkDocker().catch((error) => {
 		console.error(error instanceof Error ? error.message : error);
 		process.exit(1);
 	});
+
+	// The seed records use other authorities' lexicons (a set's venue is an address, and a show is a calendar event),
+	// fetched as published.
+	await loadReferencedLexicons();
 
 	rmSync(DB_PATH, { force: true });
 	rmSync(`${DB_PATH}-wal`, { force: true });
@@ -93,6 +128,21 @@ async function main() {
 	await publishLexicons(rootAgent);
 	log(`Published ${LEXICON_DOCS.length} lexicons from ${ROOT.handle}`);
 
+	// A stand-in for Local Network's board on userinput.app, so signed-in bug reports post here.
+	const { data: userinputSpace } = await rootAgent.com.atproto.repo.createRecord({
+		repo: rootDid,
+		collection: USERINPUT.space,
+		record: {
+			$type: USERINPUT.space,
+			name: 'Local Network',
+			tags: [
+				{ value: 'bug', label: 'Bug' },
+				{ value: 'web', label: 'Web' }
+			],
+			createdAt: new Date().toISOString()
+		}
+	});
+
 	const dids: Record<string, string> = {};
 
 	for (const account of ACCOUNTS) {
@@ -117,16 +167,29 @@ async function main() {
 		record: DEMO_DJ_PROFILE
 	});
 
-	// HappyView isn't running yet, so it reads the sets when neon first opens a set picker, as it would for older ones.
-	for (const set of DEMO_DJ_SETS) {
-		await neon.com.atproto.repo.createRecord({
-			repo: dids['neon.test'],
-			collection: COLLECTION.djSet,
-			record: validateRecord(COLLECTION.djSet, { ...set, createdAt: new Date().toISOString() })
-		});
+	// HappyView isn't running yet, so it reads these sets when the app first syncs its scripts, as it would for older
+	// ones.
+	const djs: { handle: string; agent: AtpAgent; sets: object[] }[] = [
+		{ handle: 'neon.test', agent: neon, sets: DEMO_DJ_SETS }
+	];
+
+	for (const dj of DEMO_DJS) {
+		const agent = new AtpAgent({ service: pds.url });
+		await agent.login({ identifier: dj.handle, password: dj.password });
+		djs.push({ handle: dj.handle, agent, sets: dj.sets });
 	}
 
-	log(`Seeded neon.test's dj.profile and ${DEMO_DJ_SETS.length} dj.set records`);
+	for (const dj of djs) {
+		for (const set of dj.sets) {
+			await dj.agent.com.atproto.repo.createRecord({
+				repo: dids[dj.handle],
+				collection: COLLECTION.djSet,
+				record: validateRecord(COLLECTION.djSet, { ...set, createdAt: new Date().toISOString() })
+			});
+		}
+	}
+
+	log(`Seeded neon.test's dj.profile and ${djs.reduce((sum, dj) => sum + dj.sets.length, 0)} dj.set records`);
 
 	// A tracklist on Neon Tide's first mix, so its mix page has something to show: the sample report,
 	// stored in the root's repo the way an approved request leaves it.
@@ -146,7 +209,11 @@ async function main() {
 	const projectUris: string[] = [];
 
 	for (const [index, profile] of DEMO_PROJECTS.entries()) {
-		const managers = index < 2 ? [dids['neon.test']] : [];
+		const managers = [
+			...(index < 2 ? [dids['neon.test']] : []),
+			...DEMO_DJS.filter((dj) => dj.project === index).map((dj) => dids[dj.handle])
+		];
+
 		const mixes = index === 0 ? profile.mixes?.map((mix, i) => (i === 0 ? { ...mix, tracklist } : mix)) : profile.mixes;
 
 		const record = validateRecord(COLLECTION.project, {
@@ -264,6 +331,7 @@ async function main() {
 		HANDLE_RESOLVER_URL: pds.url,
 		HAPPYVIEW_URL: happyView.url,
 		HAPPYVIEW_API_KEY: happyView.apiKey,
+		USERINPUT_SPACE: userinputSpace.uri,
 		SYNC_POLL_INTERVAL_MS: '10000',
 		GEOCODER: process.env.GEOCODER ?? 'open-meteo',
 		LOG_LEVEL: process.env.LOG_LEVEL ?? 'debug'

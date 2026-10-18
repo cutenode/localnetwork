@@ -81,7 +81,7 @@ struct LoginArgs {
 /// How the browser round trip goes.
 #[derive(Args, Clone, Copy)]
 pub struct BrowserArgs {
-    /// Print the sign-in link instead of opening the browser
+    /// Print links instead of opening the browser
     #[arg(long)]
     no_browser: bool,
     /// The browser runs on another computer: paste the address it ends up on after approving
@@ -93,6 +93,12 @@ pub struct BrowserArgs {
 }
 
 impl BrowserArgs {
+    /// Whether to open links in the browser here: not with `--no-browser`, nor `--paste`, whose
+    /// browser runs on another computer.
+    pub fn opens(&self) -> bool {
+        !self.no_browser && !self.paste
+    }
+
     /// How long the browser is waited for: `--timeout`, up to the longest sign-in waits.
     fn wait(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.timeout).min(atmosphere::LONGEST_LOGIN_WAIT)
@@ -206,7 +212,7 @@ pub fn sign_in(
     }
 
     // The link goes to stderr so stdout stays the result (JSON with --json).
-    let opened = !browser.no_browser && !browser.paste && locallibrary::opener::open_url(&start.url).is_ok();
+    let opened = browser.opens() && locallibrary::opener::open_url(&start.url).is_ok();
     if opened {
         eprintln!("Opening your browser to sign in with your Atmosphere account at {}…", style(&start.server).bold());
         eprintln!("{}", dim(format!("If it didn't open: {}", start.url)));
@@ -235,16 +241,25 @@ pub fn sign_in(
     }
 }
 
-/// Sign the signed-in account in again, allowing publishing too (the same storage and, when it
-/// isn't locallibrary's own, the same client document). The browser may approve another
-/// account: the result says which.
-pub fn sign_in_to_publish(
+/// Sign the signed-in account in again, asking for the scopes `more` too and keeping what its
+/// session may do now (with the same storage and, when it isn't locallibrary's own, the same
+/// client document): `allowing` says what for. The browser may approve another account: the
+/// result says which.
+pub fn sign_in_again(
     root: &std::path::Path,
     account: &AccountInfo,
+    more: &[String],
+    allowing: &str,
     browser: BrowserArgs,
     out: Output,
     ctx: &Ctx<'_>,
 ) -> Result<AccountInfo> {
+    let mut scopes = atmosphere::kept_scopes(account);
+    for s in more {
+        if !scopes.contains(s) {
+            scopes.push(s.clone());
+        }
+    }
     let req = api::AccountLoginRequest {
         handle: Some(account.handle.clone().unwrap_or_else(|| account.did.clone())),
         client_id: match &account.client {
@@ -252,12 +267,12 @@ pub fn sign_in_to_publish(
             _ => None,
         },
         session_file: Some(account.storage == Storage::File),
-        publish: true,
+        scopes,
         ..Default::default()
     };
     let info = sign_in(root, &req, browser, out, ctx)?;
     if !out.json {
-        ok(format!("Signed in again as {}, allowing publishing", style(info.name()).bold()));
+        ok(format!("Signed in again as {}, allowing {allowing}", style(info.name()).bold()));
     }
     Ok(info)
 }
@@ -304,12 +319,22 @@ fn render_details(a: &AccountInfo) {
         "the session has likely ended; sign in again".to_string()
     };
     say!("  signed in {} · {again}", local_time(a.signed_in_at, "%Y-%m-%d"));
-    let can = if a.scopes.iter().all(|s| s == "atproto") {
-        "knows who you are; can't post or change anything".to_string()
-    } else if a.scopes.iter().all(|s| s == "atproto" || atmosphere::PUBLISH_SCOPES.contains(&s.as_str())) {
-        "can publish your My Settings, profile and sets; can't post or change anything else".to_string()
-    } else {
-        format!("allowed: {}", a.scopes.join(" "))
+    let publishes = a.scopes.iter().any(|s| atmosphere::PUBLISH_SCOPES.contains(&s.as_str()));
+    let reports = a.scopes.iter().any(|s| s == atmosphere::REPORT_SCOPE);
+    let known = |s: &String| {
+        s == "atproto" || s == atmosphere::REPORT_SCOPE || atmosphere::PUBLISH_SCOPES.contains(&s.as_str())
+    };
+    let can = match (a.scopes.iter().all(known), publishes, reports) {
+        (false, ..) => format!("allowed: {}", a.scopes.join(" ")),
+        (true, false, false) => "knows who you are; can't post or change anything".to_string(),
+        (true, true, false) => {
+            "can publish your My Settings, profile and sets; can't post or change anything else".to_string()
+        }
+        (true, false, true) => "can post bug reports; can't post or change anything else".to_string(),
+        (true, true, true) => {
+            "can publish your My Settings, profile and sets and post bug reports; can't post or change anything else"
+                .to_string()
+        }
     };
     say!("  {}", dim(format!("{can} · session kept {}", storage_name(a.storage))));
     match &a.client {

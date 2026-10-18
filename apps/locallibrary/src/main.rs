@@ -8,6 +8,7 @@ mod output;
 mod account_cmd;
 mod analysis_cmd;
 mod autostart;
+mod bug_cmd;
 mod check_cmd;
 mod collection_cmd;
 mod completion;
@@ -406,6 +407,9 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     /// Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps), or sign out (alpha)
     #[cfg(feature = "account")]
     Account(account_cmd::AccountArgs),
+    /// Report a bug in locallibrary, with this version and system filled in
+    #[command(after_help = BUG_HELP)]
+    Bug(bug_cmd::BugArgs),
     /// rekordbox's own collection on this computer (master.db), read only: info, tracks, playlists, and what a drive lacks
     Collection(collection_cmd::CollectionArgs),
     /// The player models `check` uses when none are given, and what each model reads
@@ -590,6 +594,10 @@ headline and precision.
   locallibrary profile document -o profile.json";
 
 const FILTER_HELP: &str = filter_help!();
+
+const BUG_HELP: &str = "Signed in to your Atmosphere account, it shows the report and asks, then posts it from your \
+account to Local Network's board on userinput.app, where anyone can read it. Signed out, or if posting doesn't work \
+out, it opens GitHub's bug report form instead.";
 
 /// `tracks`.
 #[derive(Args)]
@@ -1175,7 +1183,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         let _ = help::command().write_help(&mut std::io::stderr());
         return Ok(ExitCode::from(2));
     };
-    if !(matches!(command, Command::Setup(_)) || command.owns_output()) {
+    if !(matches!(command, Command::Setup(_) | Command::Bug(_)) || command.owns_output()) {
         jobs_cmd::suggest_setup(&cli.store, out);
     }
     match command {
@@ -1481,6 +1489,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
             }
             tui::run(cli.store.clone().unwrap_or_else(Store::default_root), drive)?;
         }
+        Command::Bug(args) => return bug_cmd::run(args, &cli.store, out, &ctx),
         Command::Completions(a) => return completion::completions(a, out),
         Command::Man(a) => return completion::man(a, out),
         Command::Rpc { emit_schema: Some(dir), .. } => {

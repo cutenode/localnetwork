@@ -374,17 +374,8 @@ export class ShowService {
 	 * brought (while HappyView was down, say). Runs when the app boots.
 	 */
 	async reindexManagers(): Promise<void> {
-		const managers = new Set<string>();
-
-		for (let page = 1; ; page++) {
-			const result = await this.projects.search({ sort: 'name', page, pageSize: 60 });
-
-			for (const project of result.items) for (const did of project.managers) managers.add(did);
-
-			if (page * result.pageSize >= result.total) break;
-		}
-
-		for (const did of managers) await reindex(this.directory, this.core.logger, COLLECTION.show, did);
+		for (const did of await this.projects.managers())
+			await reindex(this.directory, this.core.logger, COLLECTION.show, did);
 	}
 
 	/** The show with key `rkey` in the client's own repo, and its calendar event. */

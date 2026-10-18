@@ -33,9 +33,22 @@ All data lives on the AT Protocol. Public profiles are ordinary atproto records;
 - Follow a project from its page with any Atmosphere account. The follow is a `computer.localnetwork.follow` record in the follower's own repo; unfollowing deletes it. The page shows the follower count.
 - `/shows` lists upcoming shows by date near a city (picked with the same city search as the directory, and remembered in a cookie), or, under Following, the shows of the projects you follow, nearest first once you pick a city. A show drops off once it ends, or 12 hours after it starts when it has no end. There are no email or push notifications yet.
 
+### Artists and charts
+
+- `/artists/<mbid>` (or `/artists/name/<name>` for an artist sets give no MusicBrainz ID) shows who played an artist's tracks: each of their tracks that appears in a published set, with every play (the DJ and the projects they manage, the date, the venue and city, the kind of set, and how far into the set it starts, where the set knows), and their all-time supports. `/artists` finds them by name.
+- `/charts` ranks tracks and artists by how many DJs supported them, for the last 30 days or a month, everywhere or in one city, counted like 1001Tracklists' Top 101 Producers: a DJ supports a track once however often they play it, a track charts once three DJs support it, and an artist gets at most five supports from one DJ, counting only tracks that chart.
+- A DJ is an act: an active project, whose managers count as one (a crew whose members each publish the same gig counts once). A back-to-back set published by two acts counts for both. A set stops counting when its author no longer manages an active project.
+- A track is its recording's MusicBrainz ID, else its ISRC, else its artist and title (any case or spacing). A play without an ID counts with the plays that have one when only one fits, so sets published before IDs were filled in still add up.
+- Set tracklists on profiles and press kits link tracks with an MBID to MusicBrainz, and artists to their pages.
+
 ### Tools
 
 - `/tools` lists Local Network's other tools, [locallibrary](../locallibrary) and [localtoolbox](../localtoolbox). Each has a page at `/tools/<id>` with what it does, how to install it, and its guides (its README and `docs/*.md`), which are bundled from the repo at build time. See [Tools' pages and hosts](#tools-pages-and-hosts).
+
+### Bug reports
+
+- "Report a bug" in the footer opens `/report`. Signed in, it posts the report from the person's own account to Local Network's space on [userinput.app](https://userinput.app) (an `app.userinput.discussion` record in their repo, tagged `bug` and `web`, with the page they came from and their browser), then links to it there. Signed out, or without `USERINPUT_SPACE`, it opens GitHub's website bug form with the page and browser filled in, and so does a report that fails to post, with what they wrote.
+- Posting asks for one more OAuth scope, `repo:app.userinput.discussion?action=create`, the first time someone sends a report, not at sign-in: sessions from before it keep working, and the client metadata lists it so the PDS allows the request.
 
 ### Staff
 
@@ -92,7 +105,7 @@ flowchart LR
   SH -- notifyWrite --> App
   App -- space credential: listRepos / listRepoOps / getRepo --> SH & UR
   PUB -- relay + Jetstream --> HV[(HappyView)]
-  SETS[(DJ's repo: sets)] -- Jetstream, or a backfill when the picker opens --> HV
+  SETS[(DJ's repo: sets)] -- Jetstream, or a backfill --> HV
   FANS[(managers' and fans' repos: shows, follows)] -- Jetstream, or a backfill of one repo --> HV
   App -- directory queries --> HV
 ```
@@ -124,10 +137,11 @@ The app is a space syncer. For each watched space it mints a space credential (d
 Published projects are served by [HappyView](https://happyview.dev) 2.16, not the app. HappyView follows Jetstream for `computer.localnetwork.project`, `computer.localnetwork.dj.set`, `computer.localnetwork.show`, and `computer.localnetwork.follow` records and answers the `computer.localnetwork.directory.*` queries ([`lexicons/computer/localnetwork/directory/`](../../lexicons/computer/localnetwork/directory/)) with Lua scripts in `lua/`:
 
 - `project.lua` runs on every incoming project record and keeps only the root account's, since Jetstream filters by collection and anyone can write one.
-- `dj/set.lua` keeps only sets by accounts that manage one of the root's projects, and stores what the site shows (title, date, kind, venue, address, track count), not the tracks. Jetstream only brings new sets, so when the edit form's set picker opens, the app has HappyView re-read each manager's sets from their PDS (one backfill per account, at most every ten minutes).
+- `dj/set.lua` keeps only sets by accounts that manage one of the root's projects, and stores what the site shows (title, date, kind, venue, address, track count) plus each named track's title, artists, IDs and start, which the support queries count. MusicBrainz IDs are stored as bare lowercase UUIDs whether a set writes `mbid:<uuid>` or the UUID; placeholder credits (ID, Unknown Artist, Various Artists) aren't, and a set whose date isn't YYYY-MM-DD isn't kept. Jetstream only brings new sets, so the app has HappyView re-read each manager's sets from their PDS: when the edit form's set picker opens (one backfill per account, at most every ten minutes), when a project gains a manager and HappyView serves it, and for every manager once per version of `dj/set.lua` (four at a time, retried until all start, the version kept in the app database).
 - `show.lua` keeps only shows with coordinates by an account that manages the project they name, and only http(s) ticket links; `follow.lua` keeps only follows of the root's projects. HappyView never indexes `community.lexicon.calendar.event` itself, which would take in every account's events: each show carries its own copy, and its strongRef to the event says when the event changed since.
 - `listShows` lists upcoming shows by project, near a place, or by the projects an account follows, and checks again that each show's announcer still manages its active project. `getShows` looks shows up by URI, and `getFollowStatus` counts a project's followers and finds an account's follow.
-- `searchProjects`, `matchProjects`, `getProject`, `getProjects`, and `getStats` do the search, ranking, and lookups. Match results carry reason codes, which the app turns into text. `getSets` and `listSets` look up sets by URI and by account.
+- `searchProjects`, `matchProjects`, `getProject`, `getProjects`, and `getStats` do the search, ranking, and lookups. Match results carry reason codes, which the app turns into text. `getSets` and `listSets` look up sets by URI and by account, without their tracks.
+- `getCharts`, `getArtist`, and `searchArtists` count supports. They group every stored play by track and artist in SQL on each request (about a third of a second for 2,000 sets of 25 tracks on a laptop), so no counts are kept anywhere; the app reuses an answer for a minute, and the pages may be cached for as long.
 - The genre taxonomy and fee tiers are generated into the scripts from `src/lib/taxonomy/`, so TypeScript stays the source of truth.
 
 With `HAPPYVIEW_API_KEY` set, the app uploads whichever scripts and lexicons changed when it boots (scripts first, so the record gate is in place before ingestion starts), then has HappyView re-read the root's repo and waits for that to finish, and then each manager's shows, one repo at a time. After publishing a project, a show, or a follow it waits (up to 5 seconds) for HappyView to index it, so the next page shows it; when a show or follow doesn't show up in time, HappyView re-reads that collection from that one account's repo.
@@ -143,7 +157,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` starts a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects), a HappyView container fed by a local Jetstream stand-in, and the app wired to them. It also writes `.env.local`. Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
+`pnpm dev` starts a local, spaces-enabled AT Protocol network (PLC directory + alpha PDS, root and demo accounts, published lexicons, 12 demo projects, and a stand-in for the userinput.app space that bug reports post to), a HappyView container fed by a local Jetstream stand-in, and the app wired to them. It also writes `.env.local`. Open http://127.0.0.1:5173 and sign in with a handle. The PDS asks for the password:
 
 | Handle      | Password    | Role                                                                          |
 | ----------- | ----------- | ----------------------------------------------------------------------------- |
@@ -151,6 +165,8 @@ pnpm dev
 | `milo.test` | `milo-pass` | regular; make them a moderator under Staff                                    |
 | `neon.test` | `neon-pass` | DJ, manages two demo projects, has three sets, two press kits, and four shows |
 | `pat.test`  | `pat-pass`  | promoter, follows both of neon's projects                                     |
+
+`harbour.test`, `pirate.test`, and `glasshouse.test` (passwords `harbour-pass` and so on) manage Harbour Lights, Pirate Signal, and Glasshouse and have sets of their own, so `/charts` has tracks several DJs played.
 
 The network is temporary; Ctrl-C stops it, and restarting resets everything (and the dev database). To restart the app without resetting the network, run `pnpm dev:network` in one terminal and `pnpm dev:app` in another.
 
@@ -195,6 +211,7 @@ See [`.env.example`](.env.example) for every option. The essentials:
 - `HAPPYVIEW_URL`: the HappyView instance that serves the directory. Use its public URL: HappyView only answers the host its own `PUBLIC_URL` names. If HappyView is down, the app still starts, and pages that need projects say the directory is offline.
 - `HAPPYVIEW_API_KEY`: a HappyView API key with `lexicons:read`, `lexicons:create`, `scripts:read`, `scripts:manage`, `backfill:create`, and `backfill:read`. Optional; without it, upload the lexicons and scripts yourself, and the set picker only lists sets HappyView heard about over Jetstream.
 - `LOCALLIBRARY_HOST`: [locallibrary's own host](#tools-pages-and-hosts) (default `locallibrary.localnetwork.computer`).
+- `USERINPUT_SPACE`: Local Network's space on [userinput.app](https://userinput.app), as `at://<did>/app.userinput.space/<rkey>`. See [Bug reports](#bug-reports). Optional; without it, "Report a bug" opens GitHub's issue form.
 
 ## Deploying
 
@@ -219,11 +236,11 @@ See [`.env.example`](.env.example) for every option. The essentials:
 
 ### Tools' pages and hosts
 
-Each tool has an entry in `src/lib/tools/` (name, tagline, what it does, install steps) and a page at `/tools/<id>`. Its guides are the tool's own `README.md` and `docs/*.md` in `apps/<tool>/`, bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`.
+Each tool has an entry in `src/lib/tools/` (name, tagline, what it does, install steps) and a page at `/tools/<id>`. Its guides are the tool's own `README.md` and `docs/*.md` in `apps/<tool>/`, bundled at build time and rendered on the server with GitHub's heading ids. Links to the tool's other guides stay on this site, links to other files in the repo go to GitHub, and raw HTML in the Markdown shows as text. Adding a tool is one file there, listed in `src/lib/tools/index.ts`, plus the steps in [Adding an app or plugin](../../.github/NEW_PROJECT.md).
 
 A tool with a host of its own lists it in its entry, and this app answers that host before anything else runs, so it works even while the app isn't configured. `/` redirects (308) to the tool's page on `PUBLIC_URL` (`https://localnetwork.computer` when it isn't set), `/oauth-client-metadata.json` serves the tool's OAuth client document if it has one, and every other path is a 404.
 
-[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, and create/update on the records it publishes (`computer.localnetwork.locallibrary.settings`, `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`).
+[locallibrary](../locallibrary) signs people in with their Atmosphere accounts as `https://locallibrary.localnetwork.computer/oauth-client-metadata.json` (`LOCALLIBRARY_HOST` changes the host). That document is separate from this app's own `/oauth-client-metadata.json`, which describes the Local Network web client; a native app needs a client that redirects to `127.0.0.1`. It lists every scope locallibrary may ask for: `atproto` to sign in, its publishing permission set (`include:computer.localnetwork.locallibraryPublishing`, which grants create/update on `computer.localnetwork.locallibrary.settings`, `computer.localnetwork.dj.profile` and `computer.localnetwork.dj.set`), and `repo:app.userinput.discussion?action=create` for `locallibrary bug`.
 
 locallibrary writes the document; after changing its scopes, regenerate it here before releasing the locallibrary version that asks for them:
 
@@ -235,7 +252,7 @@ Until the host answers, locallibrary signs in as a local development app instead
 
 ## Security notes
 
-- OAuth uses DPoP-bound tokens and granular scopes: a permission set ([`permissions.json`](../../lexicons/computer/localnetwork/permissions.json), requested as `include:computer.localnetwork.permissions`) with write-only access to the user's own repos in the audit, moderation, and booking spaces and a self-authority planner space, and to the press kits, shows, and follows in their public repo, plus blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists, and calendar events (`repo:community.lexicon.calendar.event`, asked for on its own since a permission set can only grant its own namespace). The PDS grants the set as the scopes it lists. Accounts without spaces support are asked for `atproto` plus the show, follow, and calendar event writes, and fall back to plain `atproto` if their PDS refuses those; they, and anyone who approves only part of the request, have the root account write their space records on their behalf. Sessions granted before the app asked for a new space or blob scope are sent back through sign-in on their next page load. Show, follow, and calendar event writes are asked for when they're needed instead, with a one-click "Sign in again"; a PDS that still won't grant them after that gets a plain "your account's server doesn't allow this yet". Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
+- OAuth uses DPoP-bound tokens and granular scopes: a permission set ([`permissions.json`](../../lexicons/computer/localnetwork/permissions.json), requested as `include:computer.localnetwork.permissions`) with write-only access to the user's own repos in the audit, moderation, and booking spaces and a self-authority planner space, and to the press kits, shows, and follows in their public repo, plus blob uploads limited to PNG, JPEG, and WebP avatars and JSON tracklists, and calendar events (`repo:community.lexicon.calendar.event`, asked for on its own since a permission set can only grant its own namespace). The PDS grants the set as the scopes it lists. Accounts without spaces support are asked for `atproto` plus the show, follow, and calendar event writes, and fall back to plain `atproto` if their PDS refuses those; they, and anyone who approves only part of the request, have the root account write their space records on their behalf. Sessions granted before the app asked for a new space or blob scope are sent back through sign-in on their next page load. Show, follow, and calendar event writes are asked for when they're needed instead, with a one-click "Sign in again"; a PDS that still won't grant them after that gets a plain "your account's server doesn't allow this yet". Posting bug reports to userinput.app is asked for separately, when someone first sends one, and only allows creating `app.userinput.discussion` records. Nothing lets the app read other users' data with a user's session; shared spaces are read with credentials issued to the root authority.
 - Browser sessions are opaque random tokens stored as SHA-256 hashes; cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS.
 - CSP with per-request nonces, `frame-ancestors 'none'`, `nosniff`, strict referrer policy, HSTS on HTTPS, and SvelteKit's CSRF origin checks.
 - Service endpoints from DID documents are checked against private address ranges in production (SSRF guard).

@@ -18,6 +18,7 @@ import { defineConfig, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import blankSpace from 'ts-blank-space';
+import { execFileSync } from 'node:child_process';
 import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -88,6 +89,22 @@ const dropCrossorigin = (): Plugin => ({
 	}
 });
 
+// The commit the build was made from, which the settings sheet shows beside the
+// version and puts into a bug report: the manifest's number alone says which
+// release, and a build from source is usually somewhere between two. A copy of
+// the source with no git (a zip) builds without one.
+function commit() {
+	try {
+		return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+			cwd: here,
+			encoding: 'utf8',
+			stdio: ['ignore', 'pipe', 'ignore']
+		}).trim();
+	} catch (_e) {
+		return '';
+	}
+}
+
 const injectClassicScripts = (): Plugin => ({
 	name: 'toolbox-classic-scripts',
 	transformIndexHtml() {
@@ -112,6 +129,7 @@ export default defineConfig(({ mode }) => ({
 	resolve: {
 		alias: { $lib: resolve(root, 'lib') }
 	},
+	define: { 'import.meta.env.VITE_COMMIT': JSON.stringify(commit()) },
 	build: {
 		outDir: '../dist',
 		// A release starts from an empty folder; a watch does not. `pnpm dev`

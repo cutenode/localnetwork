@@ -135,6 +135,30 @@ fn resampling_keeps_length_and_level(tc: TestCase) {
     }
 }
 
+/// Each output is the kernel at its exact position, to the bit: every input within the kernel's
+/// half-width, weighed by the table entry nearest its distance (ties away from 0), summed in
+/// order. The same rate passes the input through.
+#[hegel::test(test_cases = 40)]
+fn each_output_is_the_kernel_at_its_position(tc: TestCase) {
+    let (from, to) = (rate(&tc), rate(&tc));
+    let x: Vec<f32> = tc.draw(gs::vecs(gs::floats::<f32>().min_value(-1.0).max_value(1.0)).max_size(2000));
+    let r = Resampler::new(from, to);
+    let (unit, half, table, n) = (r.unit, r.half, &r.table, x.len() as u64);
+    let at = |pos: u64| {
+        let lo = pos.saturating_sub(half).div_ceil(unit);
+        let hi = ((pos + half) / unit).min(n - 1);
+        (lo..=hi).fold(0.0f32, |acc, i| {
+            let k = ((2 * (i * unit).abs_diff(pos) * PHASES as u64 + unit) / (2 * unit)) as usize;
+            acc + x[i as usize] * table[k.min(table.len() - 1)]
+        })
+    };
+    let model: Vec<f32> = match from == to {
+        true => x.clone(),
+        false => (0..).map(|o| o * r.step).take_while(|&pos| pos < n * unit).map(at).collect(),
+    };
+    assert!(crate::test_util::resample(&x, from, to) == model, "{from} Hz to {to} Hz");
+}
+
 /// A WAV of any rate, depth and length decodes to its samples exactly, at its own rate and
 /// to mono at it, and says how long it is; a sink that has heard enough stops the decode a
 /// packet or so later.

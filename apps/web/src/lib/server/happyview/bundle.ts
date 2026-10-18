@@ -2,7 +2,7 @@ import type { LexiconDoc } from '@atproto/lexicon';
 import { COLLECTION, NS } from '#lib/nsid.ts';
 import { GENRE_ALIASES, GENRE_FAMILIES } from '#lib/taxonomy/genres.ts';
 import { FEE_TIER_ORDER } from '#lib/taxonomy/options.ts';
-import { LEXICON_DOCS, REFERENCED_DOCS } from '../atproto/lexicons';
+import { LEXICON_DOCS, referencedLexicons } from '../atproto/lexicons';
 
 /** A HappyView script, keyed by its trigger, e.g. `xrpc.query:computer.localnetwork.directory.searchProjects`. */
 export type HappyViewScript = { id: string; body: string };
@@ -16,26 +16,22 @@ const LUA = import.meta.glob<string>('/lua/**/*.lua', { query: '?raw', import: '
 const LIBRARY = '/lua/lib/';
 
 /**
- * The records HappyView indexes (projects, DJ sets, shows, and follows), the defs they use, and the directory queries,
- * in an order where each document's refs come before it. HappyView needs nothing else. Calendar events stay out: as a
- * record lexicon HappyView would take in every account's events, which is what a show's copy of its event avoids.
+ * Our lexicons HappyView needs: the records it indexes (projects, DJ sets, shows, and follows), the defs they use, and
+ * the directory queries, in an order where each document's refs come before it. The bundle puts the other authorities'
+ * lexicons they refer to ahead of them.
  */
-const LEXICONS = [
-	...REFERENCED_DOCS.filter((doc) =>
-		['com.atproto.repo.strongRef', 'community.lexicon.location.address'].includes(doc.id)
-	),
-	...LEXICON_DOCS.filter(
-		(doc) =>
-			[
-				`${NS}.defs`,
-				COLLECTION.project,
-				`${NS}.dj.defs`,
-				COLLECTION.djSet,
-				COLLECTION.show,
-				COLLECTION.follow
-			].includes(doc.id) || doc.id.startsWith(`${NS}.directory.`)
-	)
-];
+const LEXICONS = LEXICON_DOCS.filter(
+	(doc) =>
+		[`${NS}.defs`, COLLECTION.project, `${NS}.dj.defs`, COLLECTION.djSet, COLLECTION.show, COLLECTION.follow].includes(
+			doc.id
+		) || doc.id.startsWith(`${NS}.directory.`)
+);
+
+/**
+ * The other authorities' lexicons ours refer to. Calendar events, and the locations only they use, stay out: as a record
+ * lexicon HappyView would take in every account's events, which is what a show's copy of its event avoids.
+ */
+const REFERENCED = new Set(['com.atproto.repo.strongRef', 'community.lexicon.location.address']);
 
 /** `text` as a Lua long string, with enough `=` in its brackets that nothing inside can close it early. */
 function longString(text: string): string {
@@ -74,7 +70,7 @@ export function happyViewBundle(rootDid: string): HappyViewBundle {
 	const queryPrelude = [root, `local TAXONOMY = json.decode(${longString(JSON.stringify(taxonomy))})`, ...library];
 
 	return {
-		lexicons: LEXICONS,
+		lexicons: [...referencedLexicons().filter((doc) => REFERENCED.has(doc.id)), ...LEXICONS],
 		scripts: files
 			.filter(([path]) => !path.startsWith(LIBRARY))
 			.map(([path, body]) => {

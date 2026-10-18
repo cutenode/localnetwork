@@ -1,0 +1,25 @@
+{
+	"$schema": "https://railway.com/railway.schema.json",
+	"build": {
+		"builder": "DOCKERFILE",
+		"dockerfilePath": "apps/web/Dockerfile",
+		"watchPatterns": [
+			"package.json",
+			"pnpm-lock.yaml",
+			"pnpm-workspace.yaml",
+			".dockerignore",
+			"patches/**",
+			"lexicons/**",
+			"packages/tokens/**",
+			"apps/web/**",
+			"apps/*/README.md",
+			"apps/*/docs/*.md"
+		]
+	},
+	"deploy": {
+		"healthcheckPath": "/healthz",
+		"numReplicas": 1,
+		"requiredMountPath": "/data",
+		"restartPolicyType": "ON_FAILURE"
+	}
+}

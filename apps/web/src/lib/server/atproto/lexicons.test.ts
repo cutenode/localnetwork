@@ -1,6 +1,8 @@
 import type { JsonObject } from '@atproto/lex-json';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { COLLECTION } from '#lib/nsid.ts';
+import { DEMO_DJ_SETS } from '../../../../scripts/seed-data.ts';
+import { standInLexicons } from '../testing/lexicons.ts';
 import { LEXICON_DOCS, RecordValidationError, validateRecord } from './lexicons.ts';
 
 describe('LEXICON_DOCS', () => {
@@ -41,6 +43,52 @@ describe('validateRecord', () => {
 	it('rejects legacy blob refs, which the app types never model', () => {
 		expect(() => validateRecord(COLLECTION.project, project({ cid, mimeType: 'image/png' }))).toThrow(
 			RecordValidationError
+		);
+	});
+});
+
+describe('loadReferencedLexicons', () => {
+	/** lexicons.ts as a process that hasn't loaded them yet has it. */
+	const fresh = async () => {
+		vi.resetModules();
+
+		return import('./lexicons.ts');
+	};
+
+	const venue = { ...DEMO_DJ_SETS[0], createdAt: '2026-10-17T12:00:00.000Z' };
+
+	it('fetches each one once, after which records that use them validate', async () => {
+		const loader = await fresh();
+		const asked: string[] = [];
+
+		const source = async (nsid: string) => {
+			asked.push(nsid);
+
+			return standInLexicons(nsid);
+		};
+
+		expect(venue.location).toMatchObject({ $type: 'community.lexicon.location.address' });
+		expect(() => loader.referencedLexicons()).toThrow('not loaded yet');
+		expect(() => loader.validateRecord(COLLECTION.djSet, venue)).toThrow('community.lexicon.location.address');
+
+		const docs = await loader.loadReferencedLexicons(source);
+		await loader.loadReferencedLexicons(source);
+
+		expect(asked).toEqual(loader.REFERENCED_NSIDS);
+		expect(docs.map((doc) => doc.id)).toEqual([...loader.REFERENCED_NSIDS, 'com.atproto.repo.strongRef']);
+		expect(loader.referencedLexicons()).toBe(docs);
+		expect(loader.validateRecord(COLLECTION.djSet, venue)).toMatchObject({ $type: COLLECTION.djSet });
+	});
+
+	it('tries again after a fetch fails', async () => {
+		const loader = await fresh();
+
+		await expect(loader.loadReferencedLexicons(async () => Promise.reject(new Error('offline')))).rejects.toThrow(
+			'offline'
+		);
+		expect(() => loader.referencedLexicons()).toThrow('not loaded yet');
+		await expect(loader.loadReferencedLexicons(standInLexicons)).resolves.toHaveLength(
+			loader.REFERENCED_NSIDS.length + 1
 		);
 	});
 });

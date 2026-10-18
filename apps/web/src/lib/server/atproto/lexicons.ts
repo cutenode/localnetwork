@@ -1,16 +1,13 @@
 import { type Agent, schemas } from '@atproto/api';
 import { isObject } from '@atproto/lex-data';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
-import { jsonToLex, lexPermissionSet, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
+import { jsonToLex, lexPermissionSet, type LexiconDoc, Lexicons, parseLexiconDoc } from '@atproto/lexicon';
+import { LexResolver } from '@atproto/lex-resolver';
 import auditEntry from '../../../../../../lexicons/computer/localnetwork/audit/entry.json' with { type: 'json' };
 import bookingInquiry from '../../../../../../lexicons/computer/localnetwork/booking/inquiry.json' with { type: 'json' };
 import bookingMessage from '../../../../../../lexicons/computer/localnetwork/booking/message.json' with { type: 'json' };
 import bookingStatus from '../../../../../../lexicons/computer/localnetwork/booking/status.json' with { type: 'json' };
-import calendarEvent from '../../../../../../lexicons/community/lexicon/calendar/event.json' with { type: 'json' };
-import address from '../../../../../../lexicons/community/lexicon/location/address.json' with { type: 'json' };
-import fsq from '../../../../../../lexicons/community/lexicon/location/fsq.json' with { type: 'json' };
-import geo from '../../../../../../lexicons/community/lexicon/location/geo.json' with { type: 'json' };
-import hthree from '../../../../../../lexicons/community/lexicon/location/hthree.json' with { type: 'json' };
+import discussion from '../../../../../../lexicons/app/userinput/discussion.json' with { type: 'json' };
 import defs from '../../../../../../lexicons/computer/localnetwork/defs.json' with { type: 'json' };
 import directoryDefs from '../../../../../../lexicons/computer/localnetwork/directory/defs.json' with { type: 'json' };
 import epk from '../../../../../../lexicons/computer/localnetwork/epk.json' with { type: 'json' };
@@ -19,6 +16,8 @@ import epkDefs from '../../../../../../lexicons/computer/localnetwork/epk/defs.j
 import epkGrant from '../../../../../../lexicons/computer/localnetwork/epk/grant.json' with { type: 'json' };
 import epkRequest from '../../../../../../lexicons/computer/localnetwork/epk/request.json' with { type: 'json' };
 import follow from '../../../../../../lexicons/computer/localnetwork/follow.json' with { type: 'json' };
+import getArtist from '../../../../../../lexicons/computer/localnetwork/directory/getArtist.json' with { type: 'json' };
+import getCharts from '../../../../../../lexicons/computer/localnetwork/directory/getCharts.json' with { type: 'json' };
 import getFollowStatus from '../../../../../../lexicons/computer/localnetwork/directory/getFollowStatus.json' with { type: 'json' };
 import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
 import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
@@ -30,6 +29,7 @@ import listShows from '../../../../../../lexicons/computer/localnetwork/director
 import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
 import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
 import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
+import searchArtists from '../../../../../../lexicons/computer/localnetwork/directory/searchArtists.json' with { type: 'json' };
 import searchProjects from '../../../../../../lexicons/computer/localnetwork/directory/searchProjects.json' with { type: 'json' };
 import decision from '../../../../../../lexicons/computer/localnetwork/moderation/decision.json' with { type: 'json' };
 import request from '../../../../../../lexicons/computer/localnetwork/moderation/request.json' with { type: 'json' };
@@ -86,6 +86,9 @@ export const LEXICON_DOCS = [
 	listShows,
 	getShows,
 	getFollowStatus,
+	getCharts,
+	getArtist,
+	searchArtists,
 	djDefs,
 	djSet,
 	show,
@@ -96,20 +99,68 @@ export const LEXICON_DOCS = [
 export const PERMISSION_SET = lexPermissionSet.parse(permissions.defs.main);
 
 /**
- * Other authorities' lexicons that ours reference or this app writes (calendar events, and the locations they use).
- * They publish these themselves, so publishLexicons leaves them out.
+ * Other authorities' lexicons that ours reference or this app writes (calendar events, and the locations they can
+ * hold), which they publish: fetched as published (see loadReferencedLexicons).
  */
-export const REFERENCED_DOCS = [
-	address,
-	geo,
-	fsq,
-	hthree,
-	calendarEvent,
-	...schemas.filter((doc) => doc.id === 'com.atproto.repo.strongRef')
-].map((doc) => parseLexiconDoc(doc));
+export const REFERENCED_NSIDS = [
+	'community.lexicon.location.address',
+	'community.lexicon.location.geo',
+	'community.lexicon.location.fsq',
+	'community.lexicon.location.hthree',
+	'community.lexicon.calendar.event'
+];
+
+/** strongRef, as the AT Protocol's own client library ships it. */
+const STRONG_REF = schemas.filter((doc) => doc.id === 'com.atproto.repo.strongRef').map((doc) => parseLexiconDoc(doc));
+
+/** Other apps' records this app writes for its users: bug reports on userinput.app. Only validated, never published or indexed. */
+const WRITTEN_DOCS = [discussion].map((doc) => parseLexiconDoc(doc));
 
 // Lexicons rewrites refs in place (`#claim` becomes `lex:…#claim`), so it gets a copy and the exported docs stay publishable.
-export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...REFERENCED_DOCS]));
+export const lexicons = new Lexicons(structuredClone([...LEXICON_DOCS, ...STRONG_REF, ...WRITTEN_DOCS]));
+
+/** Fetches one lexicon as its authority publishes it. */
+export type LexiconSource = (nsid: string) => Promise<LexiconDoc>;
+
+/** Its `_lexicon` DNS record names the authority's DID, and the lexicon is a record in that DID's repo. */
+const live: LexiconSource = async (nsid) => parseLexiconDoc((await new LexResolver({}).get(nsid)).lexicon);
+
+let referenced: Promise<LexiconDoc[]> | undefined;
+
+let loaded: LexiconDoc[] | undefined;
+
+async function load(source: LexiconSource): Promise<LexiconDoc[]> {
+	const docs = await Promise.all(REFERENCED_NSIDS.map((nsid) => source(nsid)));
+
+	for (const doc of docs) lexicons.add(structuredClone(doc));
+
+	loaded = [...docs, ...STRONG_REF];
+
+	return loaded;
+}
+
+/**
+ * The other authorities' lexicons ours reference (REFERENCED_NSIDS) with strongRef, fetched from `source` once per
+ * process and added to `lexicons`, so records that use them validate. A failed fetch is tried again on the next call.
+ */
+export function loadReferencedLexicons(source: LexiconSource = live): Promise<LexiconDoc[]> {
+	if (referenced) return referenced;
+
+	const loading = load(source);
+	referenced = loading;
+	loading.catch(() => {
+		if (referenced === loading) referenced = undefined;
+	});
+
+	return loading;
+}
+
+/** What loadReferencedLexicons fetched, which has to have finished first (the app waits for it as it starts). */
+export function referencedLexicons(): LexiconDoc[] {
+	if (!loaded) throw new Error('The lexicons ours reference are not loaded yet: await loadReferencedLexicons() first');
+
+	return loaded;
+}
 
 /** Publishes every lexicon as a com.atproto.lexicon.schema record in the agent's own repo. */
 export async function publishLexicons(agent: Agent): Promise<void> {

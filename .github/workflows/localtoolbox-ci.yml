@@ -83,6 +83,73 @@ jobs:
         with:
           name: localtoolbox-coverage
           path: apps/localtoolbox/coverage/
+      # The zip that goes to the Chrome Web Store, and the folder it unpacks to, for the report
+      # job; main's runs keep theirs for pull requests to compare with.
+      - run: pnpm zip
+      - name: Measure the package
+        run: |
+          zip=$(wc -c < localtoolbox.zip)
+          dist=$(find dist -type f -exec cat {} + | wc -c)
+          jq -n --argjson zip "$zip" --argjson dist "$dist" \
+            '{"Packaged (localtoolbox.zip)": $zip, "Unpacked (dist/)": $dist}' > sizes.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sizes
+          path: apps/localtoolbox/sizes.json
+
+  # Coverage and size on the pull request, in one comment each push updates: the coverage against
+  # main's latest (davelosert/vitest-coverage-report-action, with each changed file's), then the
+  # package's size against main's (.github/actions/size-report). Both go to the run's summary
+  # too, which is all a fork's pull request gets: its token can't comment. Not one of passed's
+  # needs, so a comment that can't post never holds up a merge.
+  report:
+    name: Coverage and size report
+    needs: [changes, verify]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # main's coverage and sizes, from its runs' artifacts.
+      actions: read
+      pull-requests: write
+    steps:
+      # For the local actions and vitest.config.ts, whose coverage thresholds the report shows.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Into apps/localtoolbox/localtoolbox-coverage and apps/localtoolbox/sizes. An artifact whose
+      # step didn't get to upload it is missing, and the steps that need it skip.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "{localtoolbox-coverage,sizes}"
+          path: apps/localtoolbox
+      - id: main-coverage
+        uses: ./.github/actions/main-artifact
+        with:
+          name: localtoolbox-coverage
+          path: ${{ runner.temp }}/main-coverage
+      - if: hashFiles('apps/localtoolbox/localtoolbox-coverage/coverage-summary.json') != ''
+        uses: davelosert/vitest-coverage-report-action@8f86cfb56ed6d5613ea8cdc5259f207fbfd51ece # v2.13.1
+        with:
+          working-directory: apps/localtoolbox
+          json-summary-path: localtoolbox-coverage/coverage-summary.json
+          json-final-path: localtoolbox-coverage/coverage-final.json
+          json-summary-compare-path: ${{ steps.main-coverage.outputs.found == 'true' && format('{0}/main-coverage/coverage-summary.json', runner.temp) || '' }}
+      - id: size
+        if: hashFiles('apps/localtoolbox/sizes/sizes.json') != ''
+        uses: ./.github/actions/size-report
+        with:
+          sizes: apps/localtoolbox/sizes/sizes.json
+          output: ${{ runner.temp }}/size.md
+      # Added to the coverage action's comment, found by the marker its README documents (its
+      # postfix is the working directory), so the pull request keeps one comment.
+      - if: steps.size.outcome == 'success'
+        uses: ./.github/actions/pr-comment
+        with:
+          marker: <!-- vitest-coverage-report-marker-apps/localtoolbox -->
+          section: size
+          body-path: ${{ runner.temp }}/size.md
 
   # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
   # cancelled, and passes when they all passed or were skipped because nothing they check changed.

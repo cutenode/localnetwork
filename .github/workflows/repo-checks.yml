@@ -1,0 +1,108 @@
+name: Repo checks
+
+# The repository's own conventions (.github/NEW_PROJECT.md): tools/policy.sh's policies over its
+# config files, goat over the lexicons, and on main, that GitHub's "Protect Main" ruleset is
+# .github/rulesets/protect-main.json.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly, for a ruleset changed in GitHub's settings.
+  schedule:
+    - cron: "11 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Pushes and pull requests always start this workflow, so the passed job at the end always
+  # reports. The policies are quick and read files from all over, so they always run; the
+  # lexicon checks run when the lexicons change.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    # Scheduled and manual runs skip the filter, which leaves its output empty: they check
+    # everything. The API lists at most 3000 of a pull request's files, so one that size does too.
+    outputs:
+      lexicons: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.lexicons || 'true' }}
+    steps:
+      # A pull request's files come from the API; a push is diffed against the commit before it.
+      - if: github.event_name == 'push'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name == 'push' || github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            lexicons:
+              - 'lexicons/**'
+              - 'tools/lexicons.sh'
+              - '.github/workflows/repo-checks.yml'
+
+  policy:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: tools/policy.sh
+
+  lexicons:
+    needs: changes
+    if: needs.changes.outputs.lexicons == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # goat has no action of its own: tools/lexicons.sh runs its pinned version with `go run`, and
+      # Go checks the module against its public checksum database. goat needs a newer Go than the
+      # runner's.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - run: tools/lexicons.sh lint
+      # Compares with the published lexicons, so it skips any that aren't published yet.
+      - run: tools/lexicons.sh breaking
+
+  # Not on pull requests: a new required check goes into the file with the workflow that reports
+  # it, and an admin applies the file once it merges (tools/ruleset.sh apply). Until then, this
+  # fails on main.
+  ruleset:
+    needs: changes
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: tools/ruleset.sh check
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
+  # cancelled, and passes when they all passed or were skipped.
+  passed:
+    name: Repo checks passed
+    if: always()
+    needs: [changes, policy, lexicons, ruleset]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

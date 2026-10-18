@@ -132,18 +132,27 @@ local function projects(where, args, order)
 	return rows
 end
 
--- Sets as setViews: the record script (computer/localnetwork/dj/set.lua) stores each one's view fields, so this
--- adds the URI and CID. Narrowed and sorted like projects(), with `order` required.
+-- A stored set's view fields (its record without the tracks, as JSON) as a setView, with `uri` and `cid`.
+local function setView(record, uri, cid)
+	local set = json.decode(record)
+	set.uri, set.cid = uri, cid
+	return set
+end
+
+-- SQL for a stored set's record without its tracks, which only the support queries read.
+local SET_FIELDS = "json_remove(record, '$.tracks') AS record"
+
+-- Sets as setViews: the record script (computer/localnetwork/dj/set.lua) stores each one's view fields and named
+-- tracks. Narrowed and sorted like projects(), with `order` required.
 local function sets(where, args, order)
 	local values = { SET }
 	for _, arg in ipairs(args) do values[#values + 1] = arg end
-	local rows = db.raw('SELECT uri, cid, record FROM happyview_records WHERE collection = ?' .. where .. order, values)
+	local rows = db.raw(
+		'SELECT uri, cid, ' .. SET_FIELDS .. ' FROM happyview_records WHERE collection = ?' .. where .. order,
+		values
+	)
 	local out = {}
-	for i, row in ipairs(rows) do
-		local set = json.decode(row.record)
-		set.uri, set.cid = row.uri, row.cid
-		out[i] = set
-	end
+	for i, row in ipairs(rows) do out[i] = setView(row.record, row.uri, row.cid) end
 	return toarray(out)
 end
 
@@ -182,6 +191,128 @@ local function showView(row, km)
 		record = json.decode(row.record),
 		project = { uri = row.projectUri, cid = row.projectCid, record = json.decode(row.project) },
 		distanceM = km and meters(km),
+	}
+end
+
+-- Supports --------------------------------------------------------------------------------------------------------
+
+-- How the support queries count, after 1001Tracklists' Top 101 Producers: a DJ supports a track once however often
+-- they play it, an artist gets at most 5 supports from one DJ, and a track charts once 3 DJs support it. A DJ is an
+-- act: a project, so a crew whose managers each publish the same gig counts once.
+local MAX_SUPPORTS_PER_DJ = 5
+
+local MIN_DJS_TO_CHART = 3
+
+local UUID = '^' .. string.rep('%x', 8) .. string.rep('%-' .. string.rep('%x', 4), 3) .. '%-'
+	.. string.rep('%x', 12) .. '$'
+
+-- Like the record script's normalize(), which made the keys these queries compare against. ASCII-only lowercasing,
+-- as Lua has no Unicode case tables, so "Ä" and "ä" stay two names.
+local function normalize(name)
+	return (name:lower():gsub('%s+', ' '):match('^ ?(.-) ?$'))
+end
+
+-- A MusicBrainz ID param (`mbid:<uuid>` or the bare UUID) as the bare lowercase UUID the record script stores, or
+-- nil when it isn't one.
+local function mbid(value)
+	return (value:lower():gsub('^mbid:', '')):match(UUID)
+end
+
+-- The accounts that manage an active root project, each with their act: the first such project (by URI), so a
+-- crew's managers count as one DJ. Checked on every query, since the record script only checks when a set arrives.
+-- Its placeholders are the project collection and the root DID.
+local DJS = [[djs AS MATERIALIZED (
+	SELECT m.value AS did, min(p.uri) AS act FROM happyview_records AS p, json_each(p.record, '$.managers') AS m
+	WHERE p.collection = ? AND p.did = ? AND json_extract(p.record, '$.status') = 'active'
+	GROUP BY m.value
+)]]
+
+-- Every named track of the current DJs' sets as a play: a row per play and artist it credits, with the track and
+-- the artist it counts for. A track is its recording MBID, else its ISRC, else its credit and title; an artist is
+-- their MBID, else their name. A play without an ID takes the one other plays have when only one fits (an ISRC's
+-- recording, a title's recording or ISRC, a name's artist), so sets published before their writer filled in IDs
+-- count with the ones after. It reads every set each time, which is why each query builds it once (MATERIALIZED)
+-- and keeps only scalars in it, going back to a set's record for the few tracks it shows. playsArgs() gives its
+-- placeholders.
+local PLAYS = 'WITH ' .. DJS .. [[, sets AS (
+	SELECT s.uri, s.did, d.act, s.record, json_extract(s.record, '$.date') AS date,
+		json_extract(s.record, '$.location.locality') AS city, upper(json_extract(s.record, '$.location.country')) AS country
+	FROM happyview_records AS s JOIN djs AS d ON d.did = s.did WHERE s.collection = ?
+), credits AS MATERIALIZED (
+	SELECT s.uri AS setUri, t.key AS position, s.did, s.act, s.date, s.city, s.country,
+		json_extract(t.value, '$.startSeconds') AS startSeconds, json_extract(t.value, '$.recordingMbId') AS mbid,
+		json_extract(t.value, '$.isrc') AS isrc, json_extract(t.value, '$.key') AS name,
+		json_extract(a.value, '$.artistMbId') AS artistMbid, json_extract(a.value, '$.key') AS artistKey,
+		json_extract(a.value, '$.artistName') AS artistName
+	FROM sets AS s, json_each(s.record, '$.tracks') AS t, json_each(t.value, '$.artists') AS a
+), isrcMbids AS (
+	SELECT isrc, min(mbid) AS mbid FROM credits WHERE isrc IS NOT NULL AND mbid IS NOT NULL
+	GROUP BY isrc HAVING count(DISTINCT mbid) = 1
+), nameMbids AS (
+	SELECT name, min(mbid) AS mbid FROM credits WHERE mbid IS NOT NULL GROUP BY name HAVING count(DISTINCT mbid) = 1
+), nameIsrcs AS (
+	SELECT name, min(isrc) AS isrc FROM credits WHERE isrc IS NOT NULL GROUP BY name HAVING count(DISTINCT isrc) = 1
+), artistMbids AS (
+	SELECT artistKey, min(artistMbid) AS mbid FROM credits WHERE artistMbid IS NOT NULL
+	GROUP BY artistKey HAVING count(DISTINCT artistMbid) = 1
+), plays AS MATERIALIZED (
+	SELECT c.setUri, c.position, c.did, c.act, c.date, c.city, c.country, c.startSeconds, c.artistKey, c.artistName,
+		coalesce(
+			'mbid:' || coalesce(c.mbid, i.mbid, CASE WHEN c.isrc IS NULL OR ni.isrc = c.isrc THEN n.mbid END),
+			'isrc:' || coalesce(c.isrc, ni.isrc),
+			'name:' || c.name
+		) AS trackId,
+		coalesce('mbid:' || coalesce(c.artistMbid, am.mbid), 'name:' || c.artistKey) AS artistId
+	FROM credits AS c
+	LEFT JOIN isrcMbids AS i ON i.isrc = c.isrc
+	LEFT JOIN nameMbids AS n ON n.name = c.name
+	LEFT JOIN nameIsrcs AS ni ON ni.name = c.name
+	LEFT JOIN artistMbids AS am ON am.artistKey = c.artistKey
+)]]
+
+-- PLAYS' placeholders, then `...`.
+local function playsArgs(...)
+	local args = { PROJECT, ROOT_DID, SET }
+	for _, arg in ipairs({ ... }) do args[#args + 1] = arg end
+	return args
+end
+
+-- SQL for a play's track as its set has it, from a happyview_records row `set` and a plays row `play`.
+local function playedTrack(set, play)
+	return 'json_extract(' .. set .. ".record, '$.tracks[' || " .. play .. ".position || ']')"
+end
+
+-- Continues PLAYS, once `source` (a CTE of plays rows) is defined, with `topArtists` (the artists in it by supports:
+-- each act's distinct tracks of theirs, at most MAX_SUPPORTS_PER_DJ, summed; its placeholder is the limit) and
+-- `artistNames` (each one's name as plays credit it most).
+local function rankArtists(source)
+	return ', perAct AS (SELECT artistId, act, min(count(DISTINCT trackId), ' .. MAX_SUPPORTS_PER_DJ .. ') AS n'
+		.. ' FROM ' .. source .. ' GROUP BY artistId, act)'
+		.. ', topArtists AS (SELECT artistId, sum(n) AS supports, count(*) AS djCount FROM perAct GROUP BY artistId'
+		.. ' ORDER BY supports DESC, djCount DESC, artistId LIMIT ?)'
+		.. ', artistNames AS (SELECT artistId, artistName FROM (SELECT artistId, artistName,'
+		.. ' row_number() OVER (PARTITION BY artistId ORDER BY count(*) DESC, max(date) DESC, artistName) AS rank'
+		.. ' FROM plays WHERE artistId IN (SELECT artistId FROM topArtists) GROUP BY artistId, artistName)'
+		.. ' WHERE rank = 1)'
+end
+
+local function artistView(row)
+	return { name = row.name, mbid = row.id:match('^mbid:(.+)$'), supports = row.supports, djCount = row.djCount }
+end
+
+-- A track (JSON, as a set has it) as a trackView, with its id and `supports`.
+local function trackView(id, encoded, supports)
+	local track = json.decode(encoded)
+	local artists = {}
+	for i, artist in ipairs(track.artists) do artists[i] = { name = artist.artistName, mbid = artist.artistMbId } end
+	return {
+		id = id,
+		title = track.title,
+		artist = track.artist,
+		artists = toarray(artists),
+		recordingMbId = id:match('^mbid:(.+)$'),
+		isrc = id:match('^isrc:(.+)$') or track.isrc,
+		supports = supports
 	}
 end
 

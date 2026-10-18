@@ -41,7 +41,10 @@ export const DIRECTORY = {
 	listSets: `${NS}.directory.listSets`,
 	listShows: `${NS}.directory.listShows`,
 	getShows: `${NS}.directory.getShows`,
-	getFollowStatus: `${NS}.directory.getFollowStatus`
+	getFollowStatus: `${NS}.directory.getFollowStatus`,
+	getCharts: `${NS}.directory.getCharts`,
+	getArtist: `${NS}.directory.getArtist`,
+	searchArtists: `${NS}.directory.searchArtists`
 } as const;
 
 export const SPACE_TYPE = {

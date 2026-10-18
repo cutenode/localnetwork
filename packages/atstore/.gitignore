@@ -1,0 +1,3 @@
+coverage/
+# What `pnpm atstore` makes, one folder per tool.
+out/

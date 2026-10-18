@@ -1,0 +1,54 @@
+name: Pull request comment section
+description: >-
+  Writes a Markdown file into a section of the pull request comment that carries `marker`, or
+  starts that comment, so each workflow keeps one comment and updates it in place. The section
+  replaces its previous version and leaves the rest of the comment alone. A token that can't
+  comment (a fork's pull request) gets a warning, not a failure: the run's summary has the same.
+  Needs `pull-requests: write`.
+
+inputs:
+  marker:
+    description: The HTML comment that identifies the comment.
+    required: true
+  section:
+    description: The section's name, unique within the comment.
+    required: true
+  body-path:
+    description: The Markdown file to write into the section.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        PR: ${{ github.event.pull_request.number }}
+        MARKER: ${{ inputs.marker }}
+        SECTION: ${{ inputs.section }}
+        BODY_PATH: ${{ inputs.body-path }}
+      run: |
+        start="<!-- $SECTION -->"
+        end="<!-- /$SECTION -->"
+        section=$(printf '%s\n%s\n%s' "$start" "$(cat "$BODY_PATH")" "$end")
+        # `||` turns off `set -e` inside the function, so each step returns on failure itself.
+        post() {
+          local comments comment
+          comments=$(gh api --paginate "repos/$GH_REPO/issues/$PR/comments") || return
+          comment=$(jq -s --arg marker "$MARKER" \
+            'first(.[][] | select(.body | contains($marker))) // empty' <<< "$comments") || return
+          if [ -z "$comment" ]; then
+            gh pr comment "$PR" --body "$MARKER"$'\n\n'"$section"
+            return
+          fi
+          jq --arg start "$start" --arg end "$end" --arg section "$section" '{body: (
+            (.body | split($start)) as $parts
+            | if ($parts | length) > 1
+              then $parts[0] + $section + ($parts[1] | split($end) | .[1:] | join($end))
+              else .body + "\n\n" + $section
+              end
+          )}' <<< "$comment" \
+            | gh api --method PATCH "repos/$GH_REPO/issues/comments/$(jq .id <<< "$comment")" --input - > /dev/null
+        }
+        post || echo "::warning::Couldn't comment on the pull request (a fork's token can't); the run's summary has the same"

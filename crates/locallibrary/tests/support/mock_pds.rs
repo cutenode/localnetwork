@@ -1,6 +1,7 @@
 //! A pretend Atmosphere data server (PDS) on 127.0.0.1, for tests that publish without the
-//! network: it keeps records in memory, answers `com.atproto.repo.getRecord` and `putRecord`
-//! (`swapRecord: null` meaning there must be no record yet), `com.atproto.server.getSession` and
+//! network: it keeps records in memory, answers `com.atproto.repo.getRecord`, `putRecord`
+//! (`swapRecord: null` meaning there must be no record yet) and `createRecord` (under a key of its
+//! own, numbered from 1), `com.atproto.server.getSession` and
 //! token revocation the way a PDS does, and records every request it gets. [`granted`] is what
 //! its sign-in would grant: it doesn't sign anyone in, since that needs a browser.
 //!
@@ -373,7 +374,7 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
                 None => (400, vec![], json!({ "error": "RecordNotFound", "message": "Could not locate record" })),
             }
         }
-        ("POST", "/xrpc/com.atproto.repo.putRecord") => {
+        ("POST", path @ ("/xrpc/com.atproto.repo.putRecord" | "/xrpc/com.atproto.repo.createRecord")) => {
             let auth = req.header("authorization").unwrap_or_default();
             if !auth.starts_with("DPoP ") || req.dpop().is_none() {
                 return (401, vec![], json!({ "error": "AuthRequired", "message": "a DPoP-bound token is required" }));
@@ -411,7 +412,9 @@ fn answer(req: &Request, state: &Mutex<State>, base: &str) -> Answer {
             }
             let body = req.json();
             let key = |k: &str| body[k].as_str().unwrap_or_default().to_string();
-            let id = (key("repo"), key("collection"), key("rkey"));
+            let created = path.ends_with("createRecord");
+            let rkey = if created { format!("3mockrecord{:02}", s.records.len() + 1) } else { key("rkey") };
+            let id = (key("repo"), key("collection"), rkey);
             // A CID: what's there must be that record. `null`: there must be nothing there.
             let swap = body.get("swapRecord").map(|s| s.as_str());
             if let Some(swap) = swap

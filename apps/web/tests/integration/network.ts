@@ -4,6 +4,7 @@ import { mockNetworkUtilities, TestPds, TestPlc } from '@atproto/dev-env';
 import type { JsonObject, JsonValue } from '@atproto/lex-json';
 import { z } from 'zod';
 import { type HappyView, startHappyView } from '../../scripts/lib/happyview.ts';
+import { USERINPUT } from '../../src/lib/bug-report.ts';
 import { publishLexicons } from '../../src/lib/server/atproto/lexicons.ts';
 import { grantsPublicRecords, grantsSpaces } from '../../src/lib/server/atproto/oauth.ts';
 import { AgentRepoClient, type RepoClient } from '../../src/lib/server/atproto/repo-client.ts';
@@ -13,6 +14,9 @@ import { silentLogger } from '../../src/lib/server/logger.ts';
 import type { Viewer } from '../../src/lib/types.ts';
 
 export type TestUser = { did: string; handle: string; client: RepoClient; agent: AtpAgent };
+
+/** What a test sign-in asks for besides the app's own sign-in: other scopes `requested` instead, or `extra` ones too. */
+type ScopeRequest = { requested?: string; extra?: string };
 
 /**
  * A real atproto network: in-process, a PLC directory and an alpha PDS with
@@ -50,6 +54,13 @@ export class TestNetwork {
 		// declarations it needs to grant the app's OAuth scopes.
 		pds.ctx.cfg.lexicon.didAuthority = asDid(root.data.did);
 		await publishLexicons(rootAgent);
+
+		const { data: userinputSpace } = await rootAgent.com.atproto.repo.createRecord({
+			repo: root.data.did,
+			collection: USERINPUT.space,
+			record: { $type: USERINPUT.space, name: 'Local Network', createdAt: new Date().toISOString() }
+		});
+
 		const users = new Map<string, TestUser>();
 
 		for (const name of names) {
@@ -75,7 +86,8 @@ export class TestNetwork {
 			ADMIN_DIDS: (options.admins ?? []).map((name) => users.get(name)!.did).join(','),
 			SYNC_NOTIFY: 'false',
 			GEOCODER: 'none',
-			AUDIT_MAX_ATTEMPTS: '3'
+			AUDIT_MAX_ATTEMPTS: '3',
+			USERINPUT_SPACE: userinputSpace.uri
 		});
 
 		const app = await createApp({
@@ -100,10 +112,11 @@ export class TestNetwork {
 	/**
 	 * Signs a user in through the app's OAuth client and records the login like the callback does.
 	 * `approve` narrows what they consent to, as the PDS lets people do. `requested` asks for other scopes
-	 * than the app's first choice, like the fallback for a PDS without spaces. Returns the granted scope.
+	 * than the app's first choice, like the fallback for a PDS without spaces, and `extra` asks for more
+	 * than sign-in does. Returns the granted scope.
 	 */
-	async signInWithOAuth(name: string, approve?: string, requested?: string): Promise<string> {
-		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve, requested);
+	async signInWithOAuth(name: string, approve?: string, scopes: ScopeRequest = {}): Promise<string> {
+		const scope = await signInWithOAuth(this.app, this.user(name), `${name}-password`, approve, scopes);
 		await this.recordLogin(name, scope);
 
 		return scope;
@@ -166,11 +179,11 @@ async function signInWithOAuth(
 	user: TestUser,
 	password: string,
 	approve?: string,
-	requested?: string
+	{ requested, extra }: ScopeRequest = {}
 ): Promise<string> {
 	const page = requested
 		? await app.oauth.client.authorize(user.handle, { scope: requested, state: '{}' })
-		: await app.oauth.authorize(user.handle, '{}');
+		: await app.oauth.authorize(user.handle, '{}', extra);
 
 	// The page's scripts normally pick up a CSRF cookie; the API only checks it matches the header.
 	const csrf = 'c'.repeat(24);

@@ -37,6 +37,45 @@ export type DjSetView = StrongRef & {
 	trackCount: number;
 };
 
+/** A city with sets, and how many (`computer.localnetwork.directory.defs#place`). */
+export type DirectoryPlace = { city: string; country: string; count: number };
+
+/** An artist a track credits (`#artistCredit`). `mbid` is a bare lowercase UUID. */
+export type ArtistCredit = { name: string; mbid?: string };
+
+/** An artist whose tracks the directory's DJs played, with their supports (`#supportedArtist`). */
+export type SupportedArtist = ArtistCredit & { supports: number; djCount: number };
+
+/** A track the directory's DJs played, and how many of them did (`#supportedTrack`). */
+export type SupportedTrack = {
+	id: string;
+	title: string;
+	artist?: string;
+	artists: ArtistCredit[];
+	recordingMbId?: string;
+	isrc?: string;
+	supports: number;
+};
+
+/** One time a DJ (the set's author) played a track (`#play`). */
+export type TrackPlay = { did: string; set: DjSetView; startSeconds?: number };
+
+/** A track and every time it was played (`#trackPlays`). */
+export type TrackPlays = { track: SupportedTrack; plays: TrackPlay[] };
+
+/** A DJ and the active projects they manage (`#djView`). */
+export type DirectoryDj = { did: string; projects: { slug: string; name: string }[] };
+
+/** What an artist's page shows: their supports, their tracks' plays, and the DJs by DID. No `artist` when no set credits them. */
+export type ArtistSupports = {
+	artist?: SupportedArtist;
+	tracks: TrackPlays[];
+	djs: Record<string, AccountView & DirectoryDj>;
+};
+
+/** The charts: the most supported tracks and artists, and the cities with sets. */
+export type Charts = { tracks: SupportedTrack[]; artists: SupportedArtist[]; places: DirectoryPlace[] };
+
 export type ProjectProfile = {
 	name: string;
 	kind: string;

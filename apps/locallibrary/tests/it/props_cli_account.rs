@@ -16,15 +16,25 @@ use crate::mock_pds::{MockPds, Writes, granted};
 use crate::support::account::{DID, PUBLISHING, sign_in};
 use crate::support::{Env, path};
 
+/// Filing bug reports.
+const REPORTING: &str = "repo:app.userinput.discussion?action=create";
+
 /// What a session that asked for `scopes` may do, as `account status` says it.
 fn allows(scopes: &[&str]) -> String {
     let scopes = granted(scopes);
-    if scopes.iter().all(|s| *s == "atproto") {
-        "knows who you are; can't post or change anything".into()
-    } else if scopes.iter().all(|s| granted(&PUBLISHING).contains(s)) {
-        "can publish your My Settings, profile and sets; can't post or change anything else".into()
-    } else {
-        format!("allowed: {}", scopes.join(" "))
+    let publishing = granted(&PUBLISHING);
+    let publishes = scopes.iter().any(|s| s != "atproto" && publishing.contains(s));
+    let reports = scopes.iter().any(|s| s == REPORTING);
+    if !scopes.iter().all(|s| publishing.contains(s) || s == REPORTING) {
+        return format!("allowed: {}", scopes.join(" "));
+    }
+    match (publishes, reports) {
+        (false, false) => "knows who you are; can't post or change anything".into(),
+        (true, false) => "can publish your My Settings, profile and sets; can't post or change anything else".into(),
+        (false, true) => "can post bug reports; can't post or change anything else".into(),
+        (true, true) => "can publish your My Settings, profile and sets and post bug reports; can't post or change \
+                         anything else"
+            .into(),
     }
 }
 
@@ -38,9 +48,11 @@ fn the_account_says_what_its_session_allows(tc: TestCase) {
     let pds = MockPds::start();
     pds.set_account(DID, "dj.example.com");
     let fx = Env::from_template();
-    let scopes: Vec<&str> = match tc.draw(gs::integers::<u8>().max_value(2)) {
+    let scopes: Vec<&str> = match tc.draw(gs::integers::<u8>().max_value(4)) {
         0 => vec!["atproto"],
         1 => PUBLISHING.to_vec(),
+        2 => vec!["atproto", REPORTING],
+        3 => [&PUBLISHING[..], &[REPORTING]].concat(),
         _ => vec!["atproto", "transition:generic"],
     };
     let hours = tc.draw(gs::sampled_from(&[-48i64, 2, 24 * 30][..]));

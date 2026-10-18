@@ -155,6 +155,19 @@ describe('OAuth scopes', () => {
 			expect(grantsAll(granted.filter((scope) => scope !== dropped).join(' '), full, user)).toBe(false);
 	});
 
+	it('asks separately to post bug reports to userinput.app, and for nothing more there', () => {
+		const permissions = new ScopePermissions(SCOPES.bugReport.split(' '));
+		const discussion = 'app.userinput.discussion';
+
+		expect(permissions.allowsRepo({ collection: discussion, action: 'create' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: discussion, action: 'update' })).toBe(false);
+		expect(permissions.allowsRepo({ collection: 'app.userinput.upvote', action: 'create' })).toBe(false);
+		// Asking for it at sign-in would send every older session back to approve it.
+		expect(grantsAll(SCOPES.bugReport, full, user)).toBe(false);
+		expect(grantsAll(granted.join(' '), SCOPES.bugReport, user)).toBe(false);
+		expect(grantsAll(`${granted.join(' ')} ${SCOPES.bugReport}`, full, user)).toBe(true);
+	});
+
 	it('builds loopback metadata for local development and web metadata otherwise', () => {
 		expect(isLoopback('http://127.0.0.1:5173')).toBe(true);
 		expect(isLoopback('https://localnetwork.computer')).toBe(false);
