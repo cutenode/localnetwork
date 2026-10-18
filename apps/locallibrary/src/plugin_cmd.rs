@@ -29,7 +29,7 @@ pub struct PluginArgs {
 #[derive(Subcommand)]
 enum PluginCommand {
     /// The plugins locallibrary has: what each may do, and what it adds (the default)
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
     /// One plugin in full: what it may do, its commands, operations, analyzers, export formats
     /// and settings

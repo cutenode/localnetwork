@@ -112,6 +112,39 @@ opt-level = 3
 [profile.dev.package.ring]
 opt-level = 3
 
+# Hashing a drive's files and decrypting OneLibrary's pages: unoptimised, they took most of the
+# CPU time of a test's write to a drive.
+[profile.dev.package.blake3]
+opt-level = 3
+
+[profile.dev.package.aes]
+opt-level = 3
+
+[profile.dev.package.inout]
+opt-level = 3
+
+[profile.dev.package.hybrid-array]
+opt-level = 3
+
+# What every run of the CLI does first: reading its command line (with clap's checks of it) and
+# checking the plugins' manifests, whose JSON Schemas are compiled against the 2020-12 meta-schema.
+# Unoptimised, that was a third of the CPU time of the tests that run the CLI hundreds of times.
+[profile.dev.package.clap_builder]
+opt-level = 3
+
+[profile.dev.package.jsonschema]
+opt-level = 3
+
+[profile.dev.package.referencing]
+opt-level = 3
+
+# Decoding audio, for the tests that match recordings and upgrades by their sound.
+[profile.dev.package.symphonia-core]
+opt-level = 3
+
+[profile.dev.package.symphonia-codec-pcm]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

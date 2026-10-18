@@ -13,6 +13,7 @@ default = ["account", "peers"]
 # `atmosphere` and `publish` modules and the `account_*` and `*_publish_*` API. Most of the
 # library's dependencies (an HTTP client, an async runtime, TLS, DNS) are for this alone.
 account = [
+    "dep:hickory-resolver",
     "dep:http",
     "dep:jacquard-api",
     "dep:jacquard-common",
@@ -87,6 +88,7 @@ unicode-segmentation = { version = "1.13.3", optional = true }
 loclib-plugin.workspace = true
 # Escaping text for rekordbox XML (`xml`): other DJ software's exports are the interop plugin's.
 loclib-interop.workspace = true
+hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"], optional = true }
 
 [dev-dependencies]
 hegeltest.workspace = true

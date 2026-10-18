@@ -1057,6 +1057,10 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
             10 => {
                 // Full screen, the pick among the matches (clicked twice, or enter) plays next.
                 app.fullscreen = true;
+                // A key or click first catches up with what played (`follow_queue`): a track that
+                // ended since goes on to the next, with matches of its own, so catch up before
+                // giving the playing one its matches.
+                app.tick();
                 if let Some(now) = app.now.as_ref().filter(|n| n.matches.as_ref().is_none_or(|m| m.items.is_empty())) {
                     let items = vec![Mix {
                         index: n - 1,

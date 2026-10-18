@@ -121,6 +121,87 @@
 				"country": { "type": "string" },
 				"count": { "type": "integer", "minimum": 0 }
 			}
+		},
+		"supportedArtist": {
+			"type": "object",
+			"description": "An artist whose tracks DJs played. An artist is their MusicBrainz ID, else their name in any case; a name some sets give one MBID counts as that MBID's. A DJ is an act: a project whose managers are all counted as one, and only while it's active.",
+			"required": ["name", "supports", "djCount"],
+			"properties": {
+				"name": { "type": "string", "description": "The name sets credit them as most." },
+				"mbid": { "type": "string", "description": "Their MusicBrainz artist ID, as a bare lowercase UUID." },
+				"supports": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "Each DJ's distinct tracks of theirs, at most 5 per DJ, summed."
+				},
+				"djCount": { "type": "integer", "minimum": 0, "description": "How many DJs that is." }
+			}
+		},
+		"supportedTrack": {
+			"type": "object",
+			"description": "A track DJs played, as its latest play names it. A track is its recording's MusicBrainz ID, else its ISRC, else its credit and title in any case; a track without an ID counts as the one other plays give it, when only one fits.",
+			"required": ["id", "title", "artists", "supports"],
+			"properties": {
+				"id": {
+					"type": "string",
+					"description": "Opaque: tells tracks apart within one answer and between answers. Clients shouldn't read meaning into it."
+				},
+				"title": { "type": "string" },
+				"artist": { "type": "string", "description": "The artist credit, as one line." },
+				"artists": {
+					"type": "array",
+					"description": "The artists it credits, one by one, or its whole credit as one.",
+					"items": { "type": "ref", "ref": "#artistCredit" }
+				},
+				"recordingMbId": { "type": "string", "description": "Its MusicBrainz recording ID, as a bare lowercase UUID." },
+				"isrc": { "type": "string" },
+				"supports": { "type": "integer", "minimum": 0, "description": "How many DJs played it." }
+			}
+		},
+		"artistCredit": {
+			"type": "object",
+			"required": ["name"],
+			"properties": {
+				"name": { "type": "string" },
+				"mbid": { "type": "string", "description": "Their MusicBrainz artist ID, as a bare lowercase UUID." }
+			}
+		},
+		"trackPlays": {
+			"type": "object",
+			"description": "A track and every time it was played.",
+			"required": ["track", "plays"],
+			"properties": {
+				"track": { "type": "ref", "ref": "#supportedTrack" },
+				"plays": { "type": "array", "items": { "type": "ref", "ref": "#play" } }
+			}
+		},
+		"play": {
+			"type": "object",
+			"description": "One time a DJ played a track.",
+			"required": ["did", "set"],
+			"properties": {
+				"did": { "type": "string", "format": "did", "description": "The DJ: the set's author." },
+				"set": { "type": "ref", "ref": "#setView" },
+				"startSeconds": {
+					"type": "integer",
+					"minimum": 0,
+					"description": "When it starts in the set, when the set knows."
+				}
+			}
+		},
+		"djView": {
+			"type": "object",
+			"description": "A DJ and the active projects they manage.",
+			"required": ["did", "projects"],
+			"properties": {
+				"did": { "type": "string", "format": "did" },
+				"projects": { "type": "array", "items": { "type": "ref", "ref": "#projectLink" } }
+			}
+		},
+		"projectLink": {
+			"type": "object",
+			"required": ["slug", "name"],
+			"properties": { "slug": { "type": "string" }, "name": { "type": "string" } }
 		}
 	}
 }

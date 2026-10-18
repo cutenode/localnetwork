@@ -2,8 +2,8 @@
 //
 // The extension is two kinds of code, and the tests treat them as such.
 //
-// What runs *in the page* — content.ts and the store it shares with the popup
-// — is still what it always was: classic browser scripts that reach their
+// What runs *in the page* (content.ts and the store it shares with the popup)
+// is still what it always was: classic browser scripts that reach their
 // collaborators through globals (`document`, `chrome`, `TbxDownloaded`). Those
 // are loaded through Vitest's module pipeline against globals prepared first
 // (see test/helpers), which keeps coverage attribution exact without touching
@@ -19,7 +19,7 @@ import { resolve } from 'node:path';
 
 const here = import.meta.dirname;
 
-// The pure logic — everything that is not a component — is held to full
+// The pure logic, everything that is not a component, is held to full
 // coverage, file by file. Components are held to less: a rendered panel has
 // branches (a hover card, a transition's end state) that a jsdom test cannot
 // reach, and chasing them teaches nothing about the tool.
@@ -28,7 +28,7 @@ const LOGIC = ['content.ts', 'downloaded-store.ts', 'state-transfer.ts', 'src/li
 // The page scripts: classic scripts written in TypeScript, which the build
 // ships with their types blanked out (vite.config.ts, `pageScripts`). The tests
 // load them the same way rather than through Vite's own TypeScript transform,
-// so what runs here is byte for byte what runs on soundcloud.com — and the
+// so what runs here is byte for byte what runs on soundcloud.com, and the
 // `v8 ignore` hints inside expressions, which that transform drops, are still
 // there for coverage to read.
 const PAGE_SCRIPTS = /\/(content|downloaded-store|state-transfer)\.ts$/;
@@ -93,7 +93,7 @@ export default defineConfig({
 		include: ['test/**/*.test.ts'],
 		setupFiles: ['test/setup.ts'],
 		// Mounting a panel is quick; mounting one under coverage instrumentation,
-		// in a jsdom of its own, alongside every other file's, is not — and the
+		// in a jsdom of its own, alongside every other file's, is not. The
 		// default five seconds is close enough to that to fail on a busy machine
 		// rather than on anything a test found. `pnpm verify` runs the whole
 		// suite four times over, back to back, which is where the slowest mount
@@ -115,18 +115,20 @@ export default defineConfig({
 			// Copied from the shadcn-svelte registry rather than written here, and
 			// the entry point, which is three lines of mounting.
 			exclude: ['src/lib/components/ui/**', 'src/main.ts', '**/*.d.ts'],
-			reporter: ['text', 'html', 'lcov', 'json-summary'],
+			// CI's pull request comment reads the summary, and json for each
+			// changed file's uncovered lines.
+			reporter: ['text', 'html', 'lcov', 'json-summary', 'json'],
 			reportsDirectory: 'coverage',
 			// A glob's thresholds are checked *in addition to* the global ones, so
-			// the global figures are the floor every file clears — components
-			// included — and the glob holds the logic to the full standard.
+			// the global figures are the floor every file clears (components
+			// included), and the glob holds the logic to the full standard.
 			//
 			// The floor is what a component can reasonably reach: Svelte compiles
 			// every interpolated attribute into a "has this changed?" branch whose
 			// unchanged half a freshly mounted component never takes, so a
 			// component's branch percentage says more about the compiler than about
 			// the test. The same goes for the two components that are nothing but
-			// interpolation — the loading ghost, the toast list — which is why the
+			// interpolation (the loading ghost, the toast list), which is why the
 			// branch floor is as low as it is.
 			//
 			// Their statements, functions and lines still have to be exercised, and
