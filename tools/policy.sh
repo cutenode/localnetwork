@@ -2,7 +2,8 @@
 # Checks the repository against the conventions in .github/NEW_PROJECT.md: every app, crate and
 # plugin registered where it has to be. The policies are Rego in tools/policy/, run by conftest
 # over the files below; OPA checks their format and runs their tests (*_test.rego), which have to
-# cover every line. Both run from pinned images, so this needs Docker, as CI's repo-checks.yml does.
+# cover every line. Both run from pinned images, so this needs Docker, as CI's repo-checks.yml does,
+# and Node with the workspace root's dev dependencies, to read .railway/railway.ts.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,7 +15,7 @@ list() { git ls-files --cached --others --exclude-standard "$@"; }
 
 files=()
 while IFS= read -r file; do files+=("$file"); done < <(list -- package.json pnpm-workspace.yaml Cargo.toml lefthook.yml \
-  ':(glob)apps/*/package.json' ':(glob)apps/*/Cargo.toml' ':(glob)apps/*/Dockerfile' ':(glob)apps/*/railway.json' ':(glob)packages/*/package.json' \
+  ':(glob)apps/*/package.json' ':(glob)apps/*/Cargo.toml' ':(glob)apps/*/Dockerfile' ':(glob)packages/*/package.json' \
   ':(glob)crates/*/Cargo.toml' ':(glob)plugins/*/Cargo.toml' ':(glob)vendor/*/Cargo.toml' \
   ':(glob).github/workflows/*.yml' .github/labels.yml .github/labeler.yml ':(glob).github/ISSUE_TEMPLATE/*.yml' \
   ':(glob).github/rulesets/*.json' ':(glob)lexicons/**/*.json')
@@ -23,6 +24,10 @@ while IFS= read -r file; do files+=("$file"); done < <(list -- package.json pnpm
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 list | jq -R -s '{files: split("\n")[:-1]}' > "$scratch/tracked-files.json"
+# The Railway project as Railway's SDK evaluates .railway/railway.ts, for the railway policy.
+node --experimental-strip-types --input-type=module \
+  -e 'const { default: railway } = await import(process.argv[1]); process.stdout.write(JSON.stringify(railway()));' \
+  "$PWD/.railway/railway.ts" > "$scratch/railway-project.json"
 
 run() {
   docker run --rm -v "$PWD:/repo:ro" -v "$scratch:/scratch:ro" -w /repo "$@"
@@ -37,4 +42,4 @@ if [ -n "$uncovered" ]; then
   echo "$uncovered"
   exit 1
 fi
-run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json
+run "$conftest" test --combine --all-namespaces --no-color --policy tools/policy "${files[@]}" /scratch/tracked-files.json /scratch/railway-project.json
