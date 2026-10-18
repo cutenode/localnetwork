@@ -73,7 +73,6 @@ repo := [
 	{"path": ".github/ISSUE_TEMPLATE/site-bug.yml", "contents": {"labels": ["bug", "site"]}},
 	{"path": ".github/ISSUE_TEMPLATE/tool-bug.yml", "contents": {"labels": ["bug", "tool"]}},
 	{"path": ".github/ISSUE_TEMPLATE/feature_request.yml", "contents": {"body": [{"id": "tool", "attributes": {"options": ["site", "tool", "Something new"]}}]}},
-	{"path": ".github/ISSUE_TEMPLATE/question.yml", "contents": {"body": [{"id": "about"}, {"id": "tool", "attributes": {"options": ["site", "tool"]}}]}},
 	{"path": ".github/rulesets/protect-main.json", "contents": {"rules": [
 		{"type": "deletion"},
 		{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": "Site CI passed"}, {"context": "Rust passed"}, {"context": "Deps passed"}, {"context": "Lint passed"}]}},

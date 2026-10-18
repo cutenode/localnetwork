@@ -35,7 +35,7 @@ test_no_bug_form if {
 
 test_tool_not_in_dropdown if {
 	broken := {"body": [{"id": "tool", "attributes": {"options": ["site"]}}]}
-	".github/ISSUE_TEMPLATE/question.yml: add \"tool\" to the \"Which tool?\" options" in labels.deny with input as fixtures.with_file(".github/ISSUE_TEMPLATE/question.yml", broken)
+	".github/ISSUE_TEMPLATE/feature_request.yml: add \"tool\" to the \"Which tool?\" options" in labels.deny with input as fixtures.with_file(".github/ISSUE_TEMPLATE/feature_request.yml", broken)
 }
 
 test_website_is_named_in_dropdowns if {
