@@ -137,7 +137,7 @@ jobs:
           retention-days: 1
 
   test:
-    needs: build
+    needs: [changes, build]
     strategy:
       fail-fast: false
       matrix:
@@ -207,7 +207,7 @@ jobs:
           retention-days: 1
 
   coverage:
-    needs: test
+    needs: [changes, test]
     strategy:
       fail-fast: false
       matrix:
