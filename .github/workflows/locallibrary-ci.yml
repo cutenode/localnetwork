@@ -37,6 +37,7 @@ jobs:
     # The API lists at most 3000 of a pull request's files, so one that size runs everything.
     outputs:
       run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true' }}
+      semver: ${{ github.event_name == 'pull_request' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.semver == 'true') }}
     steps:
       # A pull request's files come from the API; a push is diffed against the commit before it.
       - if: github.event_name == 'push'
@@ -65,6 +66,13 @@ jobs:
               - '!**/*.md'
             readmes:
               - 'crates/*/README.md'
+            semver:
+              - 'crates/loclib-*/**'
+              - 'Cargo.toml'
+              - '.github/workflows/locallibrary-ci.yml'
+              - '!crates/*/tests/**'
+              - '!crates/*/examples/**'
+              - '!**/*.md'
 
   test:
     needs: changes
@@ -261,6 +269,74 @@ jobs:
           tool: cargo-deny
       - run: cargo deny --locked check advisories bans licenses sources
 
+  # Breaking changes to the public API of the loclib-* libraries, against the branch a pull request
+  # merges into. None of them is on crates.io yet, so this is a note for maintainers deciding the
+  # next version, not a gate: what broke goes to the run's summary and a warning, and the job
+  # passes either way. It isn't in `passed`'s needs, so a pull request never waits on it.
+  semver:
+    needs: changes
+    if: needs.changes.outputs.semver == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # The merge commit and its first parent, the base branch the pull request merges into.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - run: rustup toolchain install
+      # No rust-cache: only main saves caches, and this job never runs there. cargo-semver-checks
+      # builds each crate, and its baseline, in a target directory of its own anyway.
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-semver-checks
+      - name: Check the loclib-* crates against the base branch
+        run: |
+          base=$(git rev-parse HEAD^1)
+          crates=$(cargo metadata --no-deps --format-version 1 --locked | jq -r '.packages[].name | select(startswith("loclib-"))')
+          breaking=()
+          errors=()
+          for crate in $crates; do
+            out="$RUNNER_TEMP/$crate.txt"
+            if cargo semver-checks --package "$crate" --baseline-rev "$base" --color never > "$out" 2>&1; then
+              continue
+            fi
+            cat "$out"
+            # Breaking changes end the output with "Summary semver requires new major version" (or
+            # minor). Anything else, such as a crate the base doesn't have yet, couldn't be checked.
+            if grep -q 'semver requires new' "$out"; then
+              breaking+=("$crate")
+              echo "::warning title=Breaking change::$crate's public API has breaking changes (see the run's summary)"
+            else
+              errors+=("$crate")
+              echo "::warning title=Semver check failed::cargo-semver-checks couldn't check $crate (see the run's summary)"
+            fi
+          done
+          {
+            echo "## Semver checks against ${base:0:7}"
+            echo
+            if [ ${#breaking[@]} -eq 0 ] && [ ${#errors[@]} -eq 0 ]; then
+              echo "No breaking changes in the loclib-* crates."
+            fi
+            if [ ${#breaking[@]} -gt 0 ]; then
+              echo "Breaking changes in: ${breaking[*]}"
+              echo
+            fi
+            if [ ${#errors[@]} -gt 0 ]; then
+              echo "Couldn't check: ${errors[*]}"
+              echo
+            fi
+            for crate in "${breaking[@]}" "${errors[@]}"; do
+              echo "<details><summary><code>$crate</code></summary>"
+              echo
+              echo '```'
+              cat "$RUNNER_TEMP/$crate.txt"
+              echo '```'
+              echo
+              echo "</details>"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # The coverage summary from the Linux test job on the pull request, in one comment each push
   # updates. A fork's pull request gets a read-only token, so its summary stays in the run's. Not
   # one of passed's needs, so a comment that can't post never holds up a merge.
@@ -290,8 +366,9 @@ jobs:
           section: coverage
           body-path: rust-coverage/coverage.md
 
-  # The check the "Protect Main" ruleset requires: it fails if any job above failed or was
-  # cancelled, and passes when they all passed or were skipped because nothing they check changed.
+  # The check the "Protect Main" ruleset requires: it fails if any job above but semver and report
+  # failed or was cancelled, and passes when they all passed or were skipped because nothing they
+  # check changed.
   passed:
     name: locallibrary CI passed
     if: always()
