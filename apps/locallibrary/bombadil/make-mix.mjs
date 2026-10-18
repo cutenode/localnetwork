@@ -1,8 +1,8 @@
 // Synthetic audio for the mix report test: a WAV for every track on a drive (read from
-// `locallibrary --json tracks` on stdin), and a "recorded set" that plays some of them in turn
-// with crossfades, so `locallibrary mix` has something real to identify.
+// `locallibrary --json tracks` on stdin), and, given a path for it, a "recorded set" that plays
+// some of them in turn with crossfades, so `locallibrary mix` has something real to identify.
 //
-//   locallibrary --json tracks DRIVE | node make-mix.mjs DRIVE MIX.wav
+//   locallibrary --json tracks DRIVE | node make-mix.mjs DRIVE [MIX.wav]
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -14,8 +14,8 @@ const SEGMENT_SECS = 40;
 const FADE_SECS = 8;
 
 const [drive, mixPath] = process.argv.slice(2);
-if (!drive || !mixPath) {
-  console.error("usage: locallibrary --json tracks DRIVE | node make-mix.mjs DRIVE MIX.wav");
+if (!drive) {
+  console.error("usage: locallibrary --json tracks DRIVE | node make-mix.mjs DRIVE [MIX.wav]");
   process.exit(2);
 }
 const { tracks } = JSON.parse(readFileSync(0, "utf8"));
@@ -72,6 +72,10 @@ const audio = tracks.map((t, i) => {
   writeFileSync(path, wav(samples));
   return samples;
 });
+if (!mixPath) {
+  console.error(`wrote ${tracks.length} tracks`);
+  process.exit(0);
+}
 
 // The set: a stretch from the middle of each played track, crossfaded into the next.
 const seg = SEGMENT_SECS * RATE;

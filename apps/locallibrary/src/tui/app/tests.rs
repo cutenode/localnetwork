@@ -998,7 +998,9 @@ fn errors_stay_until_esc_and_every_message_is_kept() {
     app.tick();
     assert!(app.toast.is_none() && app.held.is_some());
     app.toast("worse", Level::Error);
-    app.toast.as_mut().unwrap().2 -= Duration::from_secs(600);
+    // As old as the info message that went, no older: an `Instant` can't go back past the
+    // machine's boot, which a CI runner may have done minutes ago.
+    app.toast.as_mut().unwrap().2 -= Duration::from_secs(10);
     app.tick();
     assert!(app.toast.is_some());
     // The first esc puts errors away (and does nothing else).
