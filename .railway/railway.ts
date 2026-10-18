@@ -33,6 +33,8 @@ export default defineRailway(() => {
 				'apps/*/docs/*.md'
 			]
 		},
+		// The website, and locallibrary's host for its OAuth client document (apps/web/src/lib/server/tools/site.ts).
+		domains: ['localnetwork.computer', 'locallibrary.localnetwork.computer'],
 		healthcheck: '/healthz',
 		replicas: { 'us-east4-eqdc4a': 1 },
 		volumeMounts: { '/data': localnetworkData },
