@@ -205,7 +205,7 @@ fn post(args: &BugArgs, root: &Path, report: &mut Report, out: Output, ctx: &Ctx
     use locallibrary::atmosphere::{self, bug_report, lexicon};
 
     let Some(space) = bug_report::space()? else { return Ok(None) };
-    let Some(mut account) = atmosphere::status(root)? else { return Ok(None) };
+    let Some(mut me) = atmosphere::status(root)? else { return Ok(None) };
     if report.title.is_none() && !out.json && std::io::stdin().is_terminal() {
         let mut input = std::io::stdin().lock();
         report.title = ask("Title (a line saying what went wrong): ", &mut input)?;
@@ -217,25 +217,25 @@ fn post(args: &BugArgs, root: &Path, report: &mut Report, out: Output, ctx: &Ctx
     let body = report.body();
     bug_report::check(&title, &body)?;
     if !out.json {
-        heading(&format!("Bug report from {}, to Local Network's board on userinput.app", account.name()));
+        heading(&format!("Bug report from {}, to Local Network's board on userinput.app", me.name()));
         say!("  {}", console::style(&title).bold());
         for line in body.lines() {
             say!("  {line}");
         }
         say!("{}", dim("Anyone can read what you post, and copies stay on the network even after it's deleted."));
     }
-    if !atmosphere::may_create(&account, lexicon::DISCUSSION) {
-        let Some(again) = allow(root, &account, args, out, ctx) else { return Ok(None) };
-        account = again;
+    if !atmosphere::may_create(&me, lexicon::DISCUSSION) {
+        let Some(again) = allow(root, &me, args, out, ctx) else { return Ok(None) };
+        me = again;
     }
-    let plan = json!({ "account": account.did, "space": space.uri(), "title": title, "body": body });
-    if let Some(o) = out.decide(false, &format!("Post it as {}? Anyone can read it", account.name())) {
+    let plan = json!({ "account": me.did, "space": space.uri(), "title": title, "body": body });
+    if let Some(o) = out.decide(false, &format!("Post it as {}? Anyone can read it", me.name())) {
         if !out.json {
             hint(format!("Or report it on GitHub: {}", report.github_url()));
         }
         return Ok(Some(out.not_applied(&plan, o)));
     }
-    match bug_report::post(root, &account, &space, &title, &body) {
+    match bug_report::post(root, &me, &space, &title, &body) {
         Ok(posted) => Ok(Some(out.applied(&plan, &posted, Outcome::Applied, || {
             ok("posted your bug report");
             say!("  {}", posted.url);
@@ -247,12 +247,12 @@ fn post(args: &BugArgs, root: &Path, report: &mut Report, out: Output, ctx: &Ctx
     }
 }
 
-/// Sign in again allowing bug reports, which the session doesn't: the account then signed in, or
+/// Sign in again allowing bug reports, which the session doesn't: the me then signed in, or
 /// `None` (declined, it failed, or the browser didn't allow it) to report on GitHub instead.
 #[cfg(feature = "account")]
 fn allow(
     root: &Path,
-    account: &locallibrary::api::AccountInfo,
+    me: &locallibrary::api::AccountInfo,
     args: &BugArgs,
     out: Output,
     ctx: &Ctx<'_>,
@@ -274,7 +274,7 @@ fn allow(
         return None;
     }
     let more = [REPORT_SCOPE.to_string()];
-    match crate::account_cmd::sign_in_again(root, account, &more, "bug reports", args.browser, out, ctx) {
+    match crate::account_cmd::sign_in_again(root, me, &more, "bug reports", args.browser, out, ctx) {
         Ok(info) if atmosphere::may_create(&info, lexicon::DISCUSSION) => Some(info),
         Ok(info) => {
             warn(format!("{} didn't allow bug reports", info.name()));
