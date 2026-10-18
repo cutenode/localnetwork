@@ -42,27 +42,38 @@ them into its binary (`apps/locallibrary/src/plugins.rs`). Their tests sit besid
 driving the plugin over in-memory pipes with a fake host; the CLI's tests run them through the
 real one.
 
-**Toolchain:** `rust-toolchain.toml` pins the Rust that CI and
-release builds use (1.96.1, with clippy and rustfmt), and rustup installs it the first time
-cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
+**Toolchain:** `rust-toolchain.toml` pins the Rust that CI and release builds use (1.96.1, with
+clippy, rustfmt and llvm-tools), and rustup installs it the first time cargo runs in the checkout. A Rust that doesn't come from rustup (Homebrew's, say) ignores the
 file, and its clippy may disagree with CI's. The oldest Rust locallibrary supports (its MSRV) is
 `rust-version` in Cargo.toml, 1.91; check it with `cargo +1.91 check --workspace --locked`.
 Change either on purpose: bump the pin in a commit of its own, fixing what the newer clippy
 finds, and raise `rust-version` together with the msrv job in `locallibrary-ci.yml`.
 
 **CI** (`.github/workflows/locallibrary-ci.yml`) runs the quick checks on pull requests and
-pushes to `main` that change the workspace (not when only Markdown changed):
+pushes to `main` that change the workspace (not when only Markdown changed). macOS, Linux and
+Windows each run the same jobs:
 
-- format, clippy and the tests on macOS, Linux and Windows. Tests run under
-  [cargo-nextest](https://nexte.st) (`cargo nextest run --workspace` locally), doctests with
-  `cargo test --doc`. On Linux they run under coverage (see below), and a comment on the pull
-  request shows the totals. On macOS and Linux the tests have the `sqlcipher` CLI, and must find it
-  (see the fixtures below);
-- the plugin tests in a job of their own on macOS and Windows (`cargo nextest run --profile
-  plugins`; the test job runs the rest with `--profile core`). Windows runners run as an
-  administrator, and locallibrary starts no plugin from an elevated process: in debug builds,
-  `LOCALLIBRARY_TEST_NOT_ELEVATED` says it isn't, so the tests' plugins start;
-- clippy on the CLI without its default features, on Linux without the ALSA headers;
+| Job | What it runs |
+| --- | --- |
+| `lint` | `cargo fmt --check`, clippy, and the doctests (`cargo test --doc`; nextest doesn't run them) |
+| `build` | `cargo llvm-cov nextest-archive`: every test, built once with coverage, packed for the shards |
+| `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
+| `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); Linux's totals go to the run summary and a comment on the pull request |
+
+Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. The test
+jobs set up what some tests need, the same way on each OS:
+
+- the `sqlcipher` CLI, which the tests must find (`LOCALLIBRARY_REQUIRE_SQLCIPHER=1`, see the
+  fixtures below): apt on Linux, Homebrew on macOS, the runner's MSYS2 on Windows;
+- temporary files on a Dev Drive on Windows, where Defender slows every file the tests write on C:;
+- `LOCALLIBRARY_TEST_NOT_ELEVATED` on Windows: the runners run as an administrator, and
+  locallibrary starts no plugin from an elevated process, so debug builds take this to mean it
+  isn't, and the tests' plugins start;
+- ALSA's headers on Linux, which the TUI's audio output builds against.
+
+The rest don't depend on the OS, so they run once, on Linux:
+
+- clippy on the CLI without its default features, without the ALSA headers;
 - the MSRV check, and the docs build with warnings denied;
 - [cargo-deny](https://embarkstudios.github.io/cargo-deny/) with `deny.toml`: RustSec advisories
   (each ignored one says why), banned crates (OpenSSL: TLS goes through rustls) and crate
@@ -159,13 +170,13 @@ tools/hegel-coverage.sh     # the property tests alone, against the same thresho
 
 `cargo coverage` is an alias in `.cargo/config.toml` for
 [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) over nextest. It fails when line,
-function or region coverage drops below the thresholds there, set just under what CI measures on
-Linux; raise them when coverage goes up. It measures only the code that ships: unit tests live in
-a module's own `tests.rs` (`foo.rs` declares `#[cfg(test)] mod tests;`, and the tests are in
-`foo/tests.rs`), which the alias leaves out with the TUI's other test-only files (`props.rs`,
-`screens.rs`, `testing.rs`) and `test_util.rs`. Keep new unit tests in those files, not inline. It
-needs `cargo-llvm-cov`, `cargo-nextest` and rustup's `llvm-tools-preview` component, found
-through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
+function or region coverage drops below the thresholds there, one set for every OS, just under the
+lowest of what CI measures on macOS, Linux and Windows; raise them when coverage goes up. It
+measures only the code that ships: unit tests live in a module's own `tests.rs` (`foo.rs` declares
+`#[cfg(test)] mod tests;`, and the tests are in `foo/tests.rs`), which the alias leaves out with the
+TUI's other test-only files (`props.rs`, `screens.rs`, `testing.rs`) and `test_util.rs`. Keep new
+unit tests in those files, not inline. It needs `cargo-llvm-cov` and `cargo-nextest`, and the
+`llvm-tools` that `rust-toolchain.toml` installs, found through rustup's `cargo`. Homebrew's Rust has no `llvm-profdata`, so with it installed put rustup's
 proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rustup).
 
 `tools/hegel-coverage.sh` runs `cargo coverage` over only the `#[hegel::test]` tests (picked by

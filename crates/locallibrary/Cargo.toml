@@ -6,6 +6,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# Not published yet: it's to be renamed `locallibrary-core` first (TODO.md), and until then it
+# carries the test plugin below.
+publish = false
+
+# The plugin the plugin host's tests start (`tests/it/plugins.rs`). As a binary, cargo builds it
+# with them and hands them its path (`CARGO_BIN_EXE_test-plugin`), and nextest's archives carry it.
+[[bin]]
+name = "test-plugin"
+path = "src/bin/test-plugin/main.rs"
+test = false
+doc = false
 
 [features]
 default = ["account", "peers"]
