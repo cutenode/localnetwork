@@ -25,11 +25,6 @@ pre-commit:
       root: apps/localtoolbox/
       glob: '*.{ts,mts,js,svelte}'
       run: pnpm exec oxlint {staged_files}
-    # typos isn't an npm package, so it runs only where it's installed (see CONTRIBUTING.md);
-    # workflow-lint.yml runs it on every pull request either way. --force-exclude keeps typos.toml's
-    # exclusions for files named on the command line.
-    - name: typos
-      run: if command -v typos >/dev/null 2>&1; then typos --force-exclude {staged_files}; fi
 
 pre-push:
   parallel: true
