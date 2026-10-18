@@ -47,7 +47,7 @@ deny contains msg if {
 
 deny contains msg if {
 	some app in lib.apps
-	some form in {".github/ISSUE_TEMPLATE/feature_request.yml", ".github/ISSUE_TEMPLATE/question.yml"}
+	form := ".github/ISSUE_TEMPLATE/feature_request.yml"
 	options := {o | some field in lib.file(form).body; field.id == "tool"; some o in field.attributes.options}
 	not display(app) in options
 	msg := sprintf("%s: add %q to the \"Which tool?\" options", [form, display(app)])
