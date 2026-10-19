@@ -2,7 +2,8 @@
 //!
 //! The strongest signal is *lineage*: every drive locallibrary touches records the fingerprints
 //! of the library states it has held (see [`crate::device`]). If drive A's history contains drive
-//! B's current state, B is simply behind A. If both moved on from a shared state, they diverged.
+//! B's current state, held after every other state their histories share, B is simply behind A.
+//! If both moved on from a shared state, they diverged.
 //!
 //! For drives that have never been seen before, the decision falls back to evidence from the
 //! exports themselves, each reported so a user (or UI) can judge:
@@ -124,9 +125,9 @@ impl Side {
         self.fingerprint.into_iter().chain(self.aliases.iter().copied())
     }
 
-    /// Whether this side's lineage holds `other`'s current state.
+    /// Whether this side's lineage holds `other`'s current state (see [`crate::device::has_held`]).
     fn knows(&self, other: &Side) -> bool {
-        other.fingerprints().any(|fp| self.lineage.iter().any(|e| e.fingerprint == fp))
+        crate::device::has_held(&self.lineage, &other.fingerprints().collect::<Vec<_>>(), &other.lineage)
     }
 
     /// Whether both hold the same state.

@@ -64,6 +64,11 @@ fn lineage_decides() {
     // Both re-exported independently.
     let b2 = side("B", 3, &[1], l.clone());
     assert_eq!(compare(&a, &b2).relation, Relation::Diverged);
+    // A edited back to fp 1 after B was synced at fp 2: B's history has fp 1 from before, but
+    // only A moved on since. Once B is re-exported too, both did.
+    let back = side("A", 1, &[1, 2, 1], l.clone());
+    assert_eq!(compare(&back, &side("B", 2, &[1, 2], l.clone())).relation, Relation::LeftNewer);
+    assert_eq!(compare(&back, &side("B", 3, &[1, 2], l.clone())).relation, Relation::Diverged);
     assert_eq!(compare(&a, &side("A2", 2, &[], l)).relation, Relation::Identical);
 }
 

@@ -1208,6 +1208,43 @@ fn syncs_pulls_and_pushes_go_the_way_the_states_say(tc: TestCase) {
     hegel::stateful::machine(SyncMachine::new()).steps(8).run(tc);
 }
 
+/// The example hegel found for `syncs_pulls_and_pushes_go_the_way_the_states_say`: a track rated
+/// on Main, synced onto Backup, then rated back. Main is back to a state Backup's lineage holds
+/// from before the sync, but only Main moved on since, so it's the newer. Once rekordbox exports
+/// to Backup too, both moved on: they diverged, and Backup isn't pulled on top of Main's.
+#[test]
+fn a_drive_edited_back_to_an_earlier_state_moved_on_from_the_other() {
+    let m = SyncMachine::new();
+    let (main, backup) = (&m.roots[0], &m.roots[1]);
+    let track = library(main).tracks[0].clone();
+    let rate = |rating: u8| {
+        let tracks = TrackSelector { ids: vec![track.id], ..Default::default() };
+        let edits =
+            vec![Edit::EditTracks { tracks, fields: TrackFields { rating: Some(rating), ..Default::default() } }];
+        let req = api::EditRequest { drive: path(main), edits, options: EditOptions::default() };
+        api::edit_plan(&req, &Ctx::silent()).unwrap().apply(Some(&m.store), &Ctx::silent()).unwrap();
+    };
+    let relation = || api::compare(&api::ComparePair { left: path(main), right: path(backup) }, &Ctx::silent());
+    rate(track.rating % 5 + 1);
+    api::sync_apply(Some(&m.store), &common::sync_pair(main, backup), &Ctx::silent()).unwrap();
+    rate(track.rating);
+    assert_eq!(fingerprint(main), m.fingerprints[0], "Main holds what it did before the sync");
+    assert_eq!(relation().unwrap().relation, Relation::LeftNewer);
+    let all = common::sync_many(&m.roots.iter().map(PathBuf::as_path).collect::<Vec<_>>());
+    assert_eq!(api::sync_many_plan(&all, &Ctx::silent()).unwrap().source, *main);
+
+    common::export_new_track(backup, "Exported", "Track 1");
+    assert_eq!(relation().unwrap().relation, Relation::Diverged);
+    let pull = |drive: &Path, new_library| {
+        let req =
+            api::PullRequest { drive: path(drive), library: Some("Home".into()), new_library, ..Default::default() };
+        api::pull(&m.store, &req, &Ctx::silent())
+    };
+    pull(main, true).unwrap();
+    let e = pull(backup, false).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::DivergedFromStore), "{e}");
+}
+
 // ---------------------------------------------------------------------------------------------
 // Finding drives
 // ---------------------------------------------------------------------------------------------

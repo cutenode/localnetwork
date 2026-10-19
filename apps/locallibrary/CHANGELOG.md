@@ -533,6 +533,10 @@ their old names.
 - The cover art plugin's fetch, given a playlist, works on it rather than on the tracks selected.
 - Matching two tracks by their sound hears the last few seconds of a copy a few milliseconds
   late too, so a copy of a short track isn't missed as the same recording.
+- A drive edited back to a state it held before (a rating set, then put back) is newer than a
+  drive synced from it in between, where `compare` and `sync` called them diverged. If that drive
+  changed since, the two have diverged, where `sync` would have copied it over the edit and `pull`
+  saved it on top.
 
 ### Security
 

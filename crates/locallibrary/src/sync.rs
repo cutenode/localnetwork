@@ -1176,7 +1176,7 @@ fn pull_into(
                 reused_files: 0,
             });
         }
-        let descends = device.state().is_some_and(|s| s.knows(&head.fingerprint));
+        let descends = device.state().is_some_and(|s| s.knows(&head.fingerprint, &head.lineage));
         if !descends && !opts.force {
             let mut older = None;
             for fp in std::iter::once(fp).chain(legacy) {
