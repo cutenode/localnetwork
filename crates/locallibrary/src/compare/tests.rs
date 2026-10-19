@@ -69,6 +69,9 @@ fn lineage_decides() {
     let back = side("A", 1, &[1, 2, 1], l.clone());
     assert_eq!(compare(&back, &side("B", 2, &[1, 2], l.clone())).relation, Relation::LeftNewer);
     assert_eq!(compare(&back, &side("B", 3, &[1, 2], l.clone())).relation, Relation::Diverged);
+    // C changed from fp 1 before A went through fp 2 and back: C's history has A's current state,
+    // but from before A moved on.
+    assert_eq!(compare(&side("C", 3, &[1, 3], l.clone()), &back).relation, Relation::Diverged);
     assert_eq!(compare(&a, &side("A2", 2, &[], l)).relation, Relation::Identical);
 }
 

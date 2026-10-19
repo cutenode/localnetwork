@@ -219,12 +219,16 @@ impl DeviceState {
 
 /// Whether a library with lineage `ours` has been through another's current state (`current`,
 /// the fingerprints it goes by; `theirs`, its lineage): `ours` held it after every state the two
-/// lineages share. A library edited back to what it once was goes by a fingerprint other
-/// lineages hold from before, and that earlier visit doesn't put it behind them.
+/// lineages share, and after every state `theirs` went through since first holding it. A library
+/// edited back to what it once was goes by a fingerprint other lineages hold from before, and
+/// that earlier visit doesn't put it behind them, nor them behind it. States `theirs` had before
+/// that `ours` lacks don't count: a lineage keeps only its latest entries, and older ones may go
+/// by an earlier fingerprint (see [`Scanned::legacy_fingerprints`]).
 pub(crate) fn has_held(ours: &[LineageEntry], current: &[Hash], theirs: &[LineageEntry]) -> bool {
     let Some(at) = ours.iter().rposition(|e| current.contains(&e.fingerprint)) else { return false };
     let first = |fp: &Hash| ours.iter().position(|e| e.fingerprint == *fp);
-    theirs.iter().filter_map(|e| first(&e.fingerprint)).all(|i| i <= at)
+    let since = theirs.iter().position(|e| current.contains(&e.fingerprint)).unwrap_or(theirs.len());
+    theirs.iter().enumerate().all(|(n, e)| first(&e.fingerprint).map_or(n < since, |i| i <= at))
 }
 
 /// Quick, hash-free description of a drive, for listings and UIs.

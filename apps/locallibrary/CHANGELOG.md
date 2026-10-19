@@ -534,9 +534,9 @@ their old names.
 - Matching two tracks by their sound hears the last few seconds of a copy a few milliseconds
   late too, so a copy of a short track isn't missed as the same recording.
 - A drive edited back to a state it held before (a rating set, then put back) is newer than a
-  drive synced from it in between, where `compare` and `sync` called them diverged. If that drive
-  changed since, the two have diverged, where `sync` would have copied it over the edit and `pull`
-  saved it on top.
+  drive synced from it in between, where `compare` and `sync` called them diverged. A drive that
+  changed on its own from either state has diverged from it, where `sync` would have copied that
+  drive over the edit and `pull` saved it on top.
 
 ### Security
 
