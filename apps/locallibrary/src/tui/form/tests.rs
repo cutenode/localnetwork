@@ -221,8 +221,9 @@ fn what_is_typed_reads_as_the_command_line_would(tc: hegel::TestCase) {
         &[
             ("", None),
             ("~/sets/list.m3u", Some(home.join("sets").join("list.m3u"))),
-            ("/tmp/a set.txt", Some("/tmp/a set.txt".into())),
-            ("'/tmp/quoted name'", Some("/tmp/quoted name".into())),
+            // Rooted, so on Windows on the current drive, as the command line has it.
+            ("/tmp/a set.txt", Some(std::path::absolute("/tmp/a set.txt").unwrap())),
+            ("'/tmp/quoted name'", Some(std::path::absolute("/tmp/quoted name").unwrap())),
             ("lists/here.m3u", Some(here.join("lists").join("here.m3u"))),
         ][..],
     ));
