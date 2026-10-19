@@ -22,3 +22,6 @@ serde_json.workspace = true
 [dev-dependencies]
 hegeltest.workspace = true
 loclib-model = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

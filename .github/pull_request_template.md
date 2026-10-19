@@ -12,6 +12,15 @@
 
 <!-- For UI changes: before and after, at phone and wide widths, in light and dark if it matters. Delete this section otherwise. -->
 
+## New app or plugin
+
+<!-- Only for a pull request that adds an app in apps/ or a locallibrary plugin in plugins/. Delete this section otherwise. -->
+
+- [ ] I went through [Adding an app or plugin](https://github.com/cutenode/localnetwork/blob/main/.github/NEW_PROJECT.md) and did every step for this kind of project, and Repo checks passes
+- [ ] The steps no check sees are done too: `CODEOWNERS` if someone else reviews it, a changelog line, and READMEs that say what it does
+- [ ] Apps: its "… passed" check is in `.github/rulesets/protect-main.json`, and an admin runs `tools/ruleset.sh apply` once this merges
+- [ ] Apps that run as a service: it has a service in `.railway/railway.ts`, applied with `railway config apply`, that deploys from `main` once checks pass
+
 ## Checklist
 
 - [ ] Tests cover the change

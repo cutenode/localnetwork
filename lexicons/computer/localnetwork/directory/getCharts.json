@@ -1,0 +1,69 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.getCharts",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "The tracks and artists the directory's DJs supported most in sets played in a time and place, counted the way 1001Tracklists counts its Top 101 Producers: a DJ (a project, however many accounts manage it) supports a track once however often they play it, a track charts once 3 DJs support it, and an artist gets at most 5 supports from one DJ, counting only tracks that chart. Also lists every city there are sets from.",
+			"parameters": {
+				"type": "params",
+				"properties": {
+					"since": {
+						"type": "string",
+						"minLength": 10,
+						"maxLength": 10,
+						"description": "The first day counted, as YYYY-MM-DD. Without it, every set before `before`."
+					},
+					"before": {
+						"type": "string",
+						"minLength": 10,
+						"maxLength": 10,
+						"description": "The day after the last one counted, as YYYY-MM-DD. Without it, every set from `since` on."
+					},
+					"city": {
+						"type": "string",
+						"maxLength": 200,
+						"description": "Only sets played in this city (the set's location.locality, any case). Needs country."
+					},
+					"country": {
+						"type": "string",
+						"minLength": 2,
+						"maxLength": 2,
+						"description": "The city's country, as an ISO 3166-1 alpha-2 code."
+					},
+					"limit": {
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 100,
+						"default": 50,
+						"description": "The most tracks, and the most artists."
+					}
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["tracks", "artists", "places"],
+					"properties": {
+						"tracks": {
+							"type": "array",
+							"description": "Most supported first, then most recently played.",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#supportedTrack" }
+						},
+						"artists": {
+							"type": "array",
+							"description": "Most supported first.",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#supportedArtist" }
+						},
+						"places": {
+							"type": "array",
+							"description": "Cities with sets, by how many, whatever the other params say.",
+							"items": { "type": "ref", "ref": "computer.localnetwork.directory.defs#place" }
+						}
+					}
+				}
+			}
+		}
+	}
+}

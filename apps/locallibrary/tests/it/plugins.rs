@@ -28,6 +28,41 @@ cli = "say""#;
 /// The plugins locallibrary ships, as it lists them (before the tests' own).
 const SHIPPED: [&str; 4] = ["coverart", "interop", "sound", "tracklist"];
 
+/// Every crate in the repository's `plugins/` ships: one left out of `plugins::FIRST_PARTY` (and
+/// so of `SHIPPED`) fails here instead of going unnoticed (`.github/NEW_PROJECT.md`).
+#[test]
+fn every_plugin_crate_ships() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+    let mut ids: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_dir())
+        .map(|path| path.file_name().unwrap().to_str().unwrap().to_owned())
+        .collect();
+    ids.sort();
+    assert_eq!(ids, SHIPPED);
+}
+
+/// Every plugin that ships is in the docs: plugins.md's list, and how-it-works.md's layout and the
+/// plugins it says plugins.rs links in. A new plugin left out of them fails here.
+#[test]
+fn every_shipped_plugin_is_documented() {
+    let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs");
+    let plugins = std::fs::read_to_string(docs.join("plugins.md")).unwrap();
+    let how = std::fs::read_to_string(docs.join("how-it-works.md")).unwrap();
+    // The sentence wraps over lines of the layout block, so it's matched word by word.
+    let (linked, _) = how
+        .split_once("(plugins.rs: the ")
+        .and_then(|(_, rest)| rest.split_once(" plugins linked in"))
+        .expect("docs/how-it-works.md names the plugins plugins.rs links in");
+    let linked: Vec<&str> = linked.split(|c: char| !c.is_alphanumeric()).collect();
+    for id in SHIPPED {
+        assert!(plugins.contains(&format!("\n- **{id}**:")), "docs/plugins.md doesn't list {id}");
+        assert!(how.contains(&format!("\nplugins/{id}/ ")), "docs/how-it-works.md's layout doesn't have plugins/{id}/");
+        assert!(linked.contains(&id), "docs/how-it-works.md doesn't say plugins.rs links {id} in");
+    }
+}
+
 /// An [`Env`] with the echo plugin, and the demo drive USB (two tracks, with audio).
 fn env() -> Env {
     let mut env = Env::new();

@@ -98,6 +98,52 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test('the charts rank tracks several DJs played, and an artist page lists who played them', async ({ page }) => {
+		const tracks = page.getByRole('region', { name: 'Tracks' });
+
+		// The demo sets reach the directory in a backfill after the app first syncs it, so this waits for them.
+		await expect(async () => {
+			await page.goto('/charts');
+			await expect(tracks.getByRole('listitem').first()).toBeVisible({ timeout: 2_000 });
+		}).toPass({ timeout: 60_000 });
+
+		await expect(tracks).toContainText('Signal Path');
+		// Played by two DJs, one short of charting.
+		await expect(tracks).not.toContainText('Static Bloom');
+		await expectAccessible(page);
+
+		await page.getByLabel('Where').selectOption('London, GB');
+		await page.getByRole('button', { name: 'Show charts' }).click();
+		await expect(page).toHaveURL(/place=London/);
+		await expect(page.getByText('Nothing charted yet')).toBeVisible();
+		await expectAccessible(page);
+
+		await page.goto('/charts');
+		await page.getByRole('region', { name: 'Artists' }).getByRole('link', { name: 'Mira Okonkwo' }).click();
+		await expect(page).toHaveURL(/\/artists\/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'Mira Okonkwo' })).toBeVisible();
+		const plays = page.getByRole('list', { name: 'Plays of Signal Path' });
+		await expect(plays.getByRole('listitem').first()).toContainText('Neon Tide');
+		await expect(plays.getByRole('link', { name: 'Pirate Signal' }).first()).toHaveAttribute(
+			'href',
+			'/projects/pirate-signal'
+		);
+		await expectAccessible(page);
+
+		await page.goto('/artists?q=okon');
+		await expect(page.getByRole('link', { name: 'Mira Okonkwo', exact: true })).toBeVisible();
+		await expectAccessible(page);
+	});
+
+	test("a profile's sets link their artists to who played them", async ({ page }) => {
+		await page.goto('/projects/neon-tide');
+		await page.locator('summary', { hasText: 'Tracklist' }).first().click();
+		await page.getByRole('link', { name: 'Kestrel Unit' }).first().click();
+		await expect(page).toHaveURL(/\/artists\/name\/Kestrel%20Unit$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'Kestrel Unit' })).toBeVisible();
+		await expectAccessible(page);
+	});
+
 	test('staff pages require sign-in', async ({ page }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
@@ -106,7 +152,10 @@ test.describe('public pages', () => {
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
 		const metadata = await request.get('/oauth-client-metadata.json');
-		expect((await metadata.json()).scope).toContain('include:computer.localnetwork.permissions');
+		const { scope } = await metadata.json();
+		expect(scope).toContain('include:computer.localnetwork.permissions');
+		// Asked for only when someone first sends a bug report, but the PDS refuses any scope not listed here.
+		expect(scope).toContain('repo:app.userinput.discussion?action=create');
 		const did = await (await request.get('/.well-known/did.json')).json();
 		expect(did.service[0]).toMatchObject({ id: '#localnetwork_syncer', serviceEndpoint: 'http://127.0.0.1:5199' });
 	});
@@ -193,6 +242,57 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Send' }).click();
 		await expect(page.getByText('Budget is flexible.')).toBeVisible();
 		await expectAccessible(page);
+	});
+});
+
+test.describe('bug reports', () => {
+	test("signed out, Report a bug opens GitHub's form with the page and browser filled in", async ({
+		page,
+		request
+	}) => {
+		await page.goto('/match');
+		const link = page.getByRole('contentinfo').getByRole('link', { name: 'Report a bug' });
+		await expect(link).toHaveAttribute('href', '/report?from=%2Fmatch');
+		// Followed by hand, so the test never loads GitHub.
+		const response = await request.get('/report?from=%2Fmatch', { maxRedirects: 0 });
+		const github = new URL(response.headers().location);
+		expect(github.origin + github.pathname).toBe('https://github.com/cutenode/localnetwork/issues/new');
+		expect(github.searchParams.get('template')).toBe('web-bug.yml');
+		expect(github.searchParams.get('steps')).toContain('/match');
+	});
+
+	test('signed in, someone approves posting once and reports a bug from their own account', async ({ page }) => {
+		// A fresh sign-in asks only for what the site needs, so posting has to be approved first.
+		await signIn(page, 'pat.test', 'pat-pass', '/match');
+		await page.getByRole('contentinfo').getByRole('link', { name: 'Report a bug' }).click();
+		await expect(page.getByRole('heading', { name: 'Approve posting first' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Approve' }).click();
+		// The PDS may ask for the password again before it shows what's being approved.
+		const password = page.locator('input[type="password"]');
+		const authorize = page.getByRole('button', { name: 'Authorize' });
+		await expect(password.or(authorize).first()).toBeVisible();
+
+		if (await password.isVisible()) {
+			await password.fill('pat-pass');
+			await page.getByRole('button', { name: 'Sign in' }).click();
+		}
+
+		await authorize.click();
+		await page.waitForURL((url) => url.port === '5199' && url.pathname === '/report');
+		await page.waitForLoadState('networkidle');
+		await expect(page.getByText('Also sent: /match')).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('textbox', { name: 'Title' }).fill("The map doesn't load on a show");
+		await page.getByRole('textbox', { name: 'What happened?' }).fill('I added a venue and the map stayed grey.');
+		await page.getByRole('button', { name: 'Post report' }).click();
+		await expect(page.getByRole('heading', { name: "Thanks, it's posted" })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'View your report' })).toHaveAttribute(
+			'href',
+			/^https:\/\/userinput\.app\/d\/did:plc:[a-z0-9]+\/[a-z0-9]+$/
+		);
+		await expectAccessible(page);
+		await signOut(page);
 	});
 });
 

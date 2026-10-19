@@ -20,3 +20,6 @@ serde_json.workspace = true
 hegeltest.workspace = true
 loclib-model = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
+
+[lints]
+workspace = true

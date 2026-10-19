@@ -363,36 +363,6 @@ fn closing_the_input_cancels_running_hooks() {
     s.served.join().unwrap();
 }
 
-/// The example plugin, as its own process over real stdio.
-#[test]
-fn the_example_plugin_runs_as_a_child_process() {
-    let deps = std::env::current_exe().unwrap();
-    let exe =
-        deps.parent().unwrap().parent().unwrap().join("examples").join(format!("echo{}", std::env::consts::EXE_SUFFIX));
-    assert!(exe.exists(), "cargo builds the examples with the tests: {}", exe.display());
-    let mut child = std::process::Command::new(exe)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    let (host, incoming) = Peer::new(child.stdout.take().unwrap(), child.stdin.take().unwrap());
-    let reply: HelloReply = host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.plugin.id, "echo");
-    let described: Manifest = host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, echo::manifest());
-    let answer: Value = host.request(method::RUN_COMMAND, &run("echo", json!({ "n": 1 }), None)).unwrap();
-    assert_eq!(answer, json!({ "n": 1 }));
-    // Closing its stdin while a hook runs: the hook is cancelled and answers before it exits.
-    let waiting = host.send_request(method::RUN_COMMAND, &run("wait", json!({}), None)).unwrap();
-    assert!(
-        matches!(incoming.recv_timeout(Duration::from_secs(10)), Ok(Incoming::Notification { .. })),
-        "it has started"
-    );
-    host.close();
-    assert_eq!(waiting.wait::<Value>().unwrap_err(), RpcError::cancelled());
-    assert!(child.wait().unwrap().success());
-}
-
 // Properties.
 
 /// The hooks a request names, and what each declares its contributions by.

@@ -80,7 +80,10 @@ fn hosted_metadata_is_a_native_public_client() {
     assert_eq!(m["token_endpoint_auth_method"], "none");
     assert_eq!(m["redirect_uris"][0], "http://127.0.0.1/callback");
     assert_eq!(m["client_uri"], "https://locallibrary.example");
-    assert_eq!(m["scope"], "atproto include:computer.localnetwork.locallibraryPublishing");
+    assert_eq!(
+        m["scope"],
+        "atproto include:computer.localnetwork.locallibraryPublishing repo:app.userinput.discussion?action=create"
+    );
     assert!(client_metadata("http://locallibrary.example/c.json", &[]).is_err());
 }
 
@@ -609,8 +612,8 @@ fn sessions_last_until_they_have_to_be_renewed() {
     assert!(missing_scope(&signed_in_with(&["atproto", "transition:generic"]), "not an nsid").is_none());
     assert_eq!(missing_scope(&info, "not an nsid").as_deref(), Some("repo:not an nsid?action=create&action=update"));
     // Scopes the document lists anyway aren't listed twice.
-    let doc = client_metadata(CLIENT_ID, &publish_scopes()).unwrap();
-    assert_eq!(doc["scope"].as_str().unwrap().split(' ').count(), publish_scopes().len());
+    let doc = client_metadata(CLIENT_ID, &[publish_scopes(), vec![REPORT_SCOPE.into()]].concat()).unwrap();
+    assert_eq!(doc["scope"], client_metadata(CLIENT_ID, &[]).unwrap()["scope"]);
     let doc = client_metadata(CLIENT_ID, &["repo:app.example.thing".into()]).unwrap();
     assert!(doc["scope"].as_str().unwrap().split(' ').any(|s| s == "repo:app.example.thing"));
 }
@@ -1100,4 +1103,21 @@ fn a_saved_account_whose_did_or_redirect_isnt_one_cant_be_used(tc: TestCase) {
     let out = logout(root).unwrap();
     assert!(out.account.is_some() && !out.revoked, "{out:?}");
     assert_eq!(status(root).unwrap(), None);
+}
+
+#[test]
+fn signing_in_again_keeps_what_the_session_may_do() {
+    let report = || REPORT_SCOPE.to_string();
+    assert_eq!(kept_scopes(&signed_in_with(&["atproto"])), ["atproto"]);
+    let publishing = mock_pds::granted(&publish_scopes());
+    let publishing: Vec<&str> = publishing.iter().map(String::as_str).collect();
+    assert_eq!(kept_scopes(&signed_in_with(&publishing)), publish_scopes());
+    assert_eq!(kept_scopes(&signed_in_with(&["atproto", REPORT_SCOPE])), ["atproto".to_string(), report()]);
+    let both = [&publishing[..], &[REPORT_SCOPE]].concat();
+    assert_eq!(kept_scopes(&signed_in_with(&both)), [publish_scopes(), vec![report()]].concat());
+    // locallibrary's document allows a sign-in that keeps them all.
+    let doc = client_metadata(CLIENT_ID, &[]).unwrap();
+    assert_eq!(check_document(&doc, CLIENT_ID, &kept_scopes(&signed_in_with(&both))), Ok(()));
+    // Only a bug report asks for its scope: signing in and publishing don't.
+    assert!(!publish_scopes().contains(&report()) && !DEFAULT_SCOPES.contains(&REPORT_SCOPE));
 }

@@ -24,3 +24,6 @@ tempfile.workspace = true
 hegeltest.workspace = true
 loclib-model = { workspace = true, features = ["test-util"] }
 rusqlite.workspace = true
+
+[lints]
+workspace = true

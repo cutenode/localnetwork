@@ -7,6 +7,6 @@
 	"grant_types": ["authorization_code", "refresh_token"],
 	"redirect_uris": ["http://127.0.0.1/callback"],
 	"response_types": ["code"],
-	"scope": "atproto include:computer.localnetwork.locallibraryPublishing",
+	"scope": "atproto include:computer.localnetwork.locallibraryPublishing repo:app.userinput.discussion?action=create",
 	"token_endpoint_auth_method": "none"
 }

@@ -4,7 +4,6 @@
 //! the listing printed, and a question asked in a terminal is answered by what's typed.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 use std::process::Command;
 
 use hegel::generators as gs;
@@ -203,7 +202,8 @@ fn completion_scripts_run_the_binary_found(tc: TestCase) {
         (v["script"].as_str(), v["shell"].as_str(), v["static"].as_bool()),
         (Some(script.as_str()), Some(shell), Some(fixed))
     );
-    let exe = PathBuf::from(env!("CARGO_BIN_EXE_locallibrary"));
+    // Looked up when the test runs, as in completion_candidates.
+    let exe = assert_cmd::cargo::cargo_bin("locallibrary");
     if fixed {
         assert!(!script.contains("COMPLETE"), "a static script doesn't ask the binary");
         return;

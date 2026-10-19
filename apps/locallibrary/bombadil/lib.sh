@@ -1,4 +1,15 @@
-# Shared by tui.sh and report.sh.
+# Shared by tui.sh and report.sh, and the AT Store screenshots (packages/atstore).
+
+# A drive at $1 copied from the fixtures: 12 tracks and a playlist (bigger-export.pdb), with the
+# demo export's analysis and settings files.
+fixture_drive() {
+  local repo
+  repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+  mkdir -p "$1"
+  cp -R "$repo/crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks/PIONEER" "$1/"
+  cp "$repo/vendor/rekordbox-pdb/tests/data/bigger-export.pdb" "$1/PIONEER/rekordbox/export.pdb"
+  rm -f "$1/PIONEER/rekordbox/exportExt.pdb"
+}
 
 # Seconds in a Bombadil time limit: 90s, 2m, 1h, 1d.
 limit_secs() {

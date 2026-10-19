@@ -25,12 +25,15 @@ which shops the Manager's search badges point at (see
 rows carry the same badges), and whether an opened row's words are
 put into Title Case (see [Title Case](#title-case)). Those are typed or ticked once and never
 thought about again, which is what makes them settings rather than one panel's
-options; a failed row that wants one opens this sheet. Its last section is not a setting at all: everything the
+options; a failed row that wants one opens this sheet. One section is not a setting at all: everything the
 extension has saved — the marks, the looked-up details, the Manager's list,
 the session queue and every panel option — goes out to one JSON file there and
 reads back in, adding to what is here unless a switch is turned on to replace
-it (see [Saving and restoring it all](#saving-and-restoring-it-all)). Only one
-sheet is up at a time.
+it (see [Saving and restoring it all](#saving-and-restoring-it-all)). The last,
+**about**, says which version this is (and the commit it was built from), and
+its **report a bug** link opens GitHub's bug form in a tab with the version,
+the browser and the tool you were in already filled in. Only one sheet is up
+at a time.
 
 Current tools:
 
@@ -144,11 +147,13 @@ src/
     search-sites.svelte.ts  which of those badges are switched on, set in the
                        settings sheet and read by the Manager panel
     settings-sheet.ts  fetches the settings sheet's chunk
+    bug-report.ts      the settings sheet's report a bug link: GitHub's bug
+                       form, with the version, browser and open tool filled in
     source.ts          which of the two a panel is reading: the page, or the queue
     components/        PanelShell, PanelGhost, TrackRow, FilterBar, SourcePicker,
                        QueueButton and SettingsButton (in every header),
                        QueueSheet and SettingsSheet (over every view), …
-    components/StateTransfer.svelte  the settings sheet's last section: the
+    components/StateTransfer.svelte  the settings sheet's backup section: the
                        whole saved state out to a JSON file and back
     details.svelte.ts  how many tracks have been looked up, for the count that
                        section shows beside the marks and the list
@@ -537,7 +542,8 @@ test/
   queue-sheet.test.ts    the session queue's sheet and the button that opens it:
                          marking, taking out, clearing, handing a batch on
   settings-sheet.test.ts the settings sheet: what the page obeys, what the
-                         Downloader asks for, the search badges, title case
+                         Downloader asks for, the search badges, title case,
+                         the report a bug link
   saved-state.test.ts    the settings sheet's backup section: what it exports,
                          what it says about a file before importing it, and the
                          difference adding and replacing make
@@ -1417,7 +1423,7 @@ worth a line in a format every install has to keep reading.
 Everything above lives in the extension's own storage, which goes away when
 the extension does. Reinstalling it, or moving to another browser profile,
 otherwise means losing every mark and paying for every lookup again. **your
-data**, the last section of the Settings sheet, takes the lot out to a JSON
+data**, a section of the Settings sheet, takes the lot out to a JSON
 file and reads one back (`src/lib/components/StateTransfer.svelte`).
 
 It was the Manager panel's own footer, which was the wrong place for it twice

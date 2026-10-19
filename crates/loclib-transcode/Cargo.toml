@@ -30,3 +30,6 @@ tempfile.workspace = true
 [features]
 # `JsonSchema` for the types.
 schemars = ["dep:schemars"]
+
+[lints]
+workspace = true

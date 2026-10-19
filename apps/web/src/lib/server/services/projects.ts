@@ -18,7 +18,8 @@ import { type JsonRecord, type RecordRef, xrpcErrorName } from '../atproto/repo-
 import { parsePublicRecordUri } from '../atproto/spaces';
 import { type Core, UserError } from '../core';
 import { nowIso, parseJson } from '../db';
-import type { DirectoryProject, DirectoryStats, HappyViewClient } from '../happyview/client';
+import { type DirectoryProject, type DirectoryStats, type HappyViewClient, QUERY_BYTES } from '../happyview/client';
+import { truncateUtf8 } from '../utf8';
 import { diff } from './diff';
 import { SetService } from './sets';
 
@@ -82,23 +83,6 @@ const INDEX_POLL_MS = 100;
 
 /** The most URIs one getProjects call takes (its lexicon's maxLength). */
 const URIS_PER_LOOKUP = 25;
-
-/** The longest search text the directory takes, in UTF-8 bytes (its lexicon's maxLength). */
-const QUERY_BYTES = 100;
-
-const utf8 = new TextEncoder();
-
-/** `text` cut to whole characters that fit in `bytes` UTF-8 bytes. */
-function truncateUtf8(text: string, bytes: number): string {
-	let out = '';
-
-	for (const char of text) {
-		if (utf8.encode(out + char).length > bytes) break;
-		out += char;
-	}
-
-	return out;
-}
 
 /** What slugify produces, so a route param that can't be a slug skips the lookup. */
 const SLUG = /^[a-z0-9-]{1,64}$/;
@@ -185,11 +169,23 @@ export class ProjectService {
 	}
 
 	/** Every project the account manages, in any status, by name. */
-	async managedBy(did: string): Promise<ProjectView[]> {
+	managedBy(did: string): Promise<ProjectView[]> {
+		return this.everyPage({ manager: did, includeInactive: true, sort: 'name' });
+	}
+
+	/** Every account that manages a project, in any status. */
+	async managers(): Promise<string[]> {
+		const projects = await this.everyPage({ includeInactive: true, sort: 'name' });
+
+		return [...new Set(projects.flatMap((project) => project.managers))];
+	}
+
+	/** Every project a search finds, page by page. */
+	private async everyPage(params: Omit<ProjectSearch, 'page' | 'pageSize'>): Promise<ProjectView[]> {
 		const items: ProjectView[] = [];
 
 		for (let page = 1; ; page++) {
-			const result = await this.search({ manager: did, includeInactive: true, sort: 'name', page, pageSize: 60 });
+			const result = await this.search({ ...params, page, pageSize: 60 });
 			items.push(...result.items);
 
 			if (page * result.pageSize >= result.total) return items;
@@ -355,26 +351,32 @@ export class ProjectService {
 			);
 		}
 
-		await this.awaitIndexed(ref);
+		const indexed = await this.awaitIndexed(ref);
+
+		// HappyView keeps a new manager's sets from now on; their older ones are read in the background, once it serves
+		// the project that lets them in. Until then a re-read would be turned away, so the set picker reads them later.
+		if (indexed) void this.sets.refresh(managers.filter((did) => !existing?.managers.includes(did)));
 
 		return { project: projectView(this.core.rootDid, { ...ref, rkey }, record), changes };
 	}
 
 	/**
-	 * Polls the directory until it serves `ref`, so the next page load reads this write. Gives up
-	 * after a few seconds rather than failing: the write happened, and the directory catches up on its own.
+	 * Polls the directory until it serves `ref`, so the next page load reads this write, and says whether it did. Gives
+	 * up after a few seconds rather than failing: the write happened, and the directory catches up on its own.
 	 */
-	private async awaitIndexed(ref: RecordRef): Promise<void> {
+	private async awaitIndexed(ref: RecordRef): Promise<boolean> {
 		const deadline = Date.now() + this.indexWaitMs;
 
 		while (Date.now() < deadline) {
 			const served = await this.directory.query('getProject', { uri: ref.uri }).catch(() => null);
 
-			if (served?.project?.cid === ref.cid) return;
+			if (served?.project?.cid === ref.cid) return true;
 			await sleep(INDEX_POLL_MS);
 		}
 
 		this.core.logger.warn({ uri: ref.uri, cid: ref.cid }, 'the directory has not caught up with a project write yet');
+
+		return false;
 	}
 
 	/** The rkey of one of the root account's project records, or null for any other URI. */

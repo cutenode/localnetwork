@@ -1,0 +1,8 @@
+# zizmor's configuration (see workflow-lint.yml). Other exceptions are comments on the lines they
+# cover; this one covers every local action and reusable workflow.
+rules:
+  # zizmor asks for GitHub's `$/` self-repository syntax over `./`, but actionlint can't read it
+  # yet (rhysd/actionlint#711), and with it would stop checking the inputs these calls pass. Each
+  # job that uses a local action checks out the commit it runs, without credentials, first.
+  self-repository:
+    disable: true

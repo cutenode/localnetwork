@@ -212,3 +212,13 @@ fn every_row_is_what_its_constructor_makes(tc: hegel::TestCase) {
     assert!(t.keys.is_empty() && t.act == Act::None && t.name.is_empty() && t.help.is_empty());
     assert_eq!(t.hint, Some((label, prio)));
 }
+
+/// Every view's help says how to report a bug.
+#[test]
+fn every_views_help_says_how_to_report_a_bug() {
+    for view in [View::Library, View::Drives, View::Snapshots, View::Profile, View::Mixes] {
+        let (_, global) = help(view);
+        let mut lines = global.iter().flat_map(|(_, lines)| lines);
+        assert!(lines.any(|(_, help)| help.contains("locallibrary bug")), "{view:?}");
+    }
+}

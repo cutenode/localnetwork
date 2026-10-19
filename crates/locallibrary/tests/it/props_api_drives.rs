@@ -883,6 +883,9 @@ const NEW_ROLES: &[Option<&str>] = &[None, Some("backup"), Some("Archive")];
 /// role and holding Main's library, whatever library it held before.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn setting_up_a_drive_runs_the_steps_asked_for(tc: TestCase) {
+    // The plan's warnings are checked exactly, so the platform's own (ejecting is untested on
+    // Linux and Windows) would fail the cases that eject there: answer as macOS on every platform.
+    locallibrary::testing::os_on_this_thread(Some("macos"));
     let dir = tempfile::tempdir().unwrap();
     let (store, main) = saved_copy(dir.path());
     let target = dunce_canonicalize(&common::blank(main.parent().unwrap(), "New"));

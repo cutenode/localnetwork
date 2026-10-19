@@ -14,7 +14,7 @@ fn a_session_without_permission_to_publish_is_stopped_before_the_server() {
     let dir = tempfile::tempdir().unwrap();
     let record = crate::publish::settings_record(&[("quantize".into(), "off".into())].into(), chrono::Utc::now());
     let err = put_record(dir.path(), "did:plc:abc", lexicon::SETTINGS, "self", &record, None).unwrap_err();
-    assert!(err.to_string().contains("not signed in"), "{err}");
+    assert!(err.to_string().contains("not signed in"));
     assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none(), "nothing written");
 
     // Signed in to know who you are, nothing more. Its server refuses connections: nothing
@@ -22,8 +22,8 @@ fn a_session_without_permission_to_publish_is_stopped_before_the_server() {
     crate::atmosphere::tests::save_session(dir.path(), "did:plc:abc", "https://127.0.0.1:9", "atproto");
     let err = put_record(dir.path(), "did:plc:abc", lexicon::SETTINGS, "self", &record, None).unwrap_err();
     assert_eq!(err.code(), "account");
-    assert!(err.to_string().contains("doesn't allow locallibrary to publish My Settings"), "{err}");
-    assert!(err.to_string().contains("sign in again, allowing publishing"), "{err}");
+    assert!(err.to_string().contains("doesn't allow locallibrary to publish My Settings"));
+    assert!(err.to_string().contains("sign in again, allowing publishing"));
     assert_eq!(err.reason(), Some(Reason::MissingScope));
 
     // A record that doesn't fit its Lexicon isn't sent either.
@@ -35,13 +35,13 @@ fn a_session_without_permission_to_publish_is_stopped_before_the_server() {
 
     // Planned for another account than the one signed in now: not written to this one.
     let err = put_record(dir.path(), "did:plc:other", lexicon::SETTINGS, "self", &record, None).unwrap_err();
-    assert_eq!((err.code(), err.reason()), ("conflict", Some(Reason::Changed)), "{err}");
+    assert_eq!((err.code(), err.reason()), ("conflict", Some(Reason::Changed)));
 }
 
 #[test]
 fn reading_from_a_server_that_isnt_there_says_so() {
     let err = get_record("http://127.0.0.1:9", "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("couldn't reach 127.0.0.1:9"), "{err}");
+    assert!(err.to_string().contains("couldn't reach 127.0.0.1:9"));
     assert!(resolve("not a handle").unwrap_err().to_string().contains("not a handle"));
 }
 
@@ -80,16 +80,16 @@ fn someone_elses_server_is_read_with_care() {
     let (elsewhere, reached) = server(vec![answer("200 OK", b"{}")]);
     let (pds, _) = server(vec![answer(&format!("302 Found\r\nlocation: {elsewhere}/x"), b"")]);
     let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("isn't an https address"), "{err}");
+    assert!(err.to_string().contains("isn't an https address"));
     let (pds, _) = server(vec![answer("302 Found\r\nlocation: https://127.0.0.1:9/x", b"")]);
     let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("on this computer or its local network"), "{err}");
+    assert!(err.to_string().contains("on this computer or its local network"));
     assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 0);
 
     // An answer that doesn't stop isn't read whole.
     let (pds, _) = server(vec![answer("200 OK", &vec![b' '; net::MAX_BODY + 1])]);
     let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err();
-    assert!(err.to_string().contains("the answer is over 1 MB"), "{err}");
+    assert!(err.to_string().contains("the answer is over 1 MB"));
 
     // What it says goes to a terminal: no escape sequences.
     let record = json!({
@@ -116,9 +116,9 @@ fn a_refusal_to_read_says_its_error_or_status() {
         answer("502 Bad Gateway", b"<html>"),
     ]);
     let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
-    assert!(err.ends_with("(RepoDeactivated)"), "{err}");
+    assert!(err.ends_with("(RepoDeactivated)"));
     let err = get_record(&pds, "did:plc:abc", lexicon::SETTINGS, "self").unwrap_err().to_string();
-    assert!(err.ends_with("(502 Bad Gateway)"), "{err}");
+    assert!(err.ends_with("(502 Bad Gateway)"));
 }
 
 /// However the account's server refuses a write, the error says what to do about it: sign
@@ -143,22 +143,22 @@ fn a_refused_write_says_how_to_go_on() {
     for err in
         [write(403, "", json!({})), write(401, "www-authenticate: DPoP error=\"insufficient_scope\"\r\n", json!({}))]
     {
-        assert_eq!(err.reason(), Some(Reason::MissingScope), "{err}");
+        assert_eq!(err.reason(), Some(Reason::MissingScope));
     }
     for err in [write(400, "", json!({ "error": "ExpiredToken" })), write(401, "", json!({ "error": "Unauthorized" }))]
     {
-        assert_eq!(err.reason(), Some(Reason::SessionEnded), "{err}");
+        assert_eq!(err.reason(), Some(Reason::SessionEnded));
     }
     let err = write(500, "", json!({ "error": "InternalServerError", "message": "boom" }));
-    assert!(err.to_string().ends_with("refused to publish My Settings (InternalServerError: boom)"), "{err}");
+    assert!(err.to_string().ends_with("refused to publish My Settings (InternalServerError: boom)"));
     let err = write(200, "", json!({ "nothing": "useful" }));
-    assert!(err.to_string().contains("answered in a way locallibrary can't read"), "{err}");
+    assert!(err.to_string().contains("answered in a way locallibrary can't read"));
 
     let gone = tempfile::tempdir().unwrap();
     crate::store::Store::open_or_init(gone.path()).unwrap();
     crate::atmosphere::tests::save_session(gone.path(), "did:plc:abc", "http://127.0.0.1:9", &scopes);
     let err = put_record(gone.path(), "did:plc:abc", lexicon::SETTINGS, "self", &record, None).unwrap_err();
-    assert!(err.to_string().starts_with("couldn't reach 127.0.0.1:9"), "{err}");
+    assert!(err.to_string().starts_with("couldn't reach 127.0.0.1:9"));
 }
 
 #[test]
@@ -373,27 +373,26 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     let may_write = scopes.contains("transition:generic") || scopes.contains(&format!("repo:{collection}?"));
     let sent = got.load(Ordering::SeqCst) > before;
     match signed_in {
-        _ if !fits => assert_eq!(err.code(), "invalid", "{err}"),
-        None => assert!(err.to_string().contains("not signed in"), "{err}"),
+        _ if !fits => assert_eq!(err.code(), "invalid"),
+        None => assert!(err.to_string().contains("not signed in")),
         Some("did:plc:other") => {
-            assert_eq!((err.code(), err.reason()), ("conflict", Some(Reason::Changed)), "{err}")
+            assert_eq!((err.code(), err.reason()), ("conflict", Some(Reason::Changed)))
         }
-        Some(_) if !may_write => assert_eq!(err.reason(), Some(Reason::MissingScope), "{err}"),
+        Some(_) if !may_write => assert_eq!(err.reason(), Some(Reason::MissingScope)),
         Some(_) if rkey != "self" => {
-            assert_eq!(err.code(), "invalid", "{err}");
-            assert!(err.to_string().starts_with(&format!("the {} record: ", lexicon::short_name(collection))), "{err}");
+            assert_eq!(err.code(), "invalid");
+            assert!(err.to_string().starts_with(&format!("the {} record: ", lexicon::short_name(collection))));
         }
-        Some(_) if unreachable => assert!(err.to_string().starts_with("couldn't reach 127.0.0.1:9"), "{err}"),
+        Some(_) if unreachable => assert!(err.to_string().starts_with("couldn't reach 127.0.0.1:9")),
         Some(_) => {
-            assert!(sent, "{err}");
+            assert!(sent);
             assert!(
-                err.to_string().ends_with(&format!("refused to publish {} (InternalServerError)", what(collection))),
-                "{err}"
+                err.to_string().ends_with(&format!("refused to publish {} (InternalServerError)", what(collection)))
             );
             return;
         }
     }
-    assert!(!sent, "{err}");
+    assert!(!sent);
     if signed_in.is_none() {
         assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none(), "nothing written");
     }
@@ -510,7 +509,7 @@ fn what_isnt_a_handle_or_did_isnt_looked_up(tc: hegel::TestCase) {
     let pad = tc.draw(gs::sampled_from(vec!["", " ", "\t", "  "]));
     let at = if tc.draw(gs::booleans()) { "@" } else { "" };
     let err = resolve(&format!("{pad}{at}{asked}{pad}")).unwrap_err();
-    assert_eq!(err.code(), "not_found", "{err}");
+    assert_eq!(err.code(), "not_found");
     let text = err.to_string();
     assert!(text.contains(&one_line(&format!("the Atmosphere account {asked:?} ("))), "{text}");
     assert!(!text.chars().any(char::is_control), "{text:?}");

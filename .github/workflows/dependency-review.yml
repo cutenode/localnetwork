@@ -1,0 +1,63 @@
+name: Dependency review
+
+# The dependencies a pull request adds or updates, in pnpm-lock.yaml, Cargo.lock and the workflows,
+# from GitHub's dependency graph. cargo-deny (deny.toml) already checks the Rust crates' licences
+# and advisories, and npm-advisories.yml the npm packages' advisories. What's left is mostly the
+# licences of npm packages and of the actions the workflows use, and advisories for those actions.
+#
+# Its own workflow, since it covers all three ecosystems and only means anything on a pull request.
+# The job runs on every pull request: the API says whether any dependency changed, and it's done in
+# seconds when none did, so it reports without a changes filter or a passed job.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # The summary comment, posted only when the review fails. Pull requests from forks get a
+      # read-only token, and the action logs a warning in place of the comment.
+      pull-requests: write
+    steps:
+      # Reads the base and head commits through the API: nothing to check out.
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          # Like `pnpm audit --prod` in npm-advisories.yml: an advisory of any severity fails, in
+          # what ships (the runtime scope) and not the dev tooling.
+          fail-on-severity: low
+          fail-on-scopes: runtime
+          # The same list as [licenses] allow in deny.toml, so both ecosystems follow one policy.
+          # Keep the two in step. OFL-1.1 is added for the website's fonts (@fontsource-variable),
+          # which no Rust crate ships, and MITNFA for bowser, which the bug reports read the
+          # browser with: MIT, plus a clause that a changed copy can't claim its authors made it.
+          allow-licenses: >-
+            0BSD,
+            Apache-2.0,
+            Apache-2.0 WITH LLVM-exception,
+            BSD-2-Clause,
+            BSD-3-Clause,
+            BSL-1.0,
+            CC0-1.0,
+            CDLA-Permissive-2.0,
+            ISC,
+            MIT,
+            MIT-0,
+            MPL-2.0,
+            Unicode-3.0,
+            Unlicense,
+            Zlib,
+            OFL-1.1,
+            MITNFA
+          # rust-cache is LGPL-3.0. It runs in CI and nothing it contains ships with the tools.
+          allow-dependencies-licenses: pkg:githubactions/Swatinem/rust-cache
+          comment-summary-in-pr: on-failure
