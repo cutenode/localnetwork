@@ -10,7 +10,7 @@ use clap::builder::PossibleValuesParser;
 use clap::{Arg, ArgAction, ArgMatches};
 use locallibrary::plugin::{Cli, CommandOutput, Plugins};
 use locallibrary::progress::Ctx;
-use loclib_plugin::{Context, Manifest};
+use loclib_plugin::{Context, Manifest, Selection};
 use serde_json::{Map, Value};
 
 use super::view;
@@ -31,7 +31,9 @@ const DRY_RUN_ID: &str = "dry_run";
 
 /// The command line's command for a plugin's command or operation, called `name`: the drive,
 /// then the positional param if there's one, and a flag for each other param it can take as
-/// text, in the schema's order; required ones unless `--params` gives them.
+/// text, in the schema's order; required ones unless `--params` gives them, or they're the drive
+/// (`x-from = "selection.drive"`), which the drive given stands for. The command line has no
+/// other selection.
 fn contributed(name: &str, title: &str, params: Option<&Value>, operation: bool) -> clap::Command {
     let drive = match operation {
         true => {
@@ -49,13 +51,18 @@ rekordbox drive, or the one library plugged in]"
     for (param, schema) in properties(params) {
         let Some(kind) = takes(schema) else { continue };
         let about = schema["description"].as_str().or(schema["title"].as_str()).unwrap_or_default();
-        let mut arg = Arg::new(param_id(param)).help(about.to_string());
+        let the_drive = Selection::of(schema) == Ok(Some(Selection::Drive));
+        let about = match the_drive {
+            true => format!("{about} [default: the drive]").trim_start().to_string(),
+            false => about.to_string(),
+        };
+        let mut arg = Arg::new(param_id(param)).help(about.clone());
         arg = match params::positional(schema) {
             true => arg.index(2),
             false => arg.long(params::flag(param, schema)),
         };
         // Usage doesn't show a flag `--params` can stand in for as required: its help says so.
-        if kind != Takes::Switch && required.contains(&param.as_str()) {
+        if kind != Takes::Switch && required.contains(&param.as_str()) && !the_drive {
             let help = format!("{about} (required)").trim_start().to_string();
             arg = arg.required_unless_present(PARAMS).help(help);
         }

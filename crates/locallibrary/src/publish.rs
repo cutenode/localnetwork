@@ -331,7 +331,7 @@ fn transition(t: &Transition, unidentified: bool) -> Value {
 fn is_play(e: &SetEntry, p: &Play) -> bool {
     e.origin == EntryOrigin::Recording
         && e.start_seconds == Some(p.start_second())
-        && e.file_key() == Some(crate::plays::file_key(&p.track.file_path))
+        && e.file_key() == Some(crate::paths::file_key(&p.track.file_path))
 }
 
 /// The transition `report` heard from `before` into `e`, when they're plays it heard one after

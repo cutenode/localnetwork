@@ -664,7 +664,7 @@ fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
         .iter()
         .map(|t| {
             let mine: Vec<String> = paths.iter().filter(|_| tc.draw(gs::booleans())).map(|p| p.to_string()).collect();
-            (locallibrary::paths::key(&t.file_path).to_lowercase(), mine)
+            (locallibrary::paths::file_key(&t.file_path), mine)
         })
         .collect();
     let want = tc.draw(gs::sampled_from(vec!["deep", "Genre/Deep", "peak  time", "GENRE/PEAK TIME", "mood"]));
@@ -674,7 +674,7 @@ fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
     f.check(&ctx).unwrap();
     let fold = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     for t in &lib.tracks {
-        let mine = &tags[&locallibrary::paths::key(&t.file_path).to_lowercase()];
+        let mine = &tags[&locallibrary::paths::file_key(&t.file_path)];
         let hit = mine.iter().any(|p| fold(p) == fold(want) || fold(p.rsplit('/').next().unwrap()) == fold(want));
         assert_eq!(f.matches(t, &ctx), hit, "tag:{want} on {mine:?}");
     }

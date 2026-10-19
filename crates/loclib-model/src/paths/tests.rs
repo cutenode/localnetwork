@@ -7,6 +7,13 @@ fn device_paths_and_windows_paths_make_the_same_key() {
     assert_eq!(key("Contents\\Caf\u{e9}\\x.mp3"), "Contents/Caf\u{e9}/x.mp3");
 }
 
+/// A track's file is the same file in any letter case, however its path is written.
+#[test]
+fn a_file_key_ignores_letter_case() {
+    assert_eq!(file_key("/Contents/CAFE\u{301}/X.mp3"), "contents/caf\u{e9}/x.mp3");
+    assert_eq!(file_key("Contents\\Caf\u{e9}\\x.MP3"), file_key("/contents/CAF\u{c9}/x.mp3"));
+}
+
 #[test]
 fn keys_stay_below_their_root() {
     let root = Path::new("/r");

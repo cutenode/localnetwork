@@ -1,7 +1,7 @@
 id = "echo"
 name = "Echo"
 version = "0.1.0"
-protocol = "^0.1"
+protocol = "^0.2"
 capabilities = ["library:read", "library:plan"]
 
 [[contributes.commands]]
@@ -28,11 +28,13 @@ mode = "headless"
 [[contributes.operations]]
 name = "playlist"
 title = "Make a playlist"
+where = ["track", "playlist", "drive"]
 params = { type = "object", properties = { name = { type = "string" } }, required = ["name"] }
 
 [[contributes.analyzers]]
 name = "size"
 title = "File size"
+version = "1"
 fields = { bytes = "integer" }
 
 [[contributes.exporters]]

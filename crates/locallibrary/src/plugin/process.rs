@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use loclib_plugin::framing::{Line, read_line};
 use loclib_plugin::{
-    Cancel, Context, Hello, HelloReply, HostInfo, Manifest, PROTOCOL_VERSION, Peer, ProgressReport, Progressed,
-    RpcError, check_protocol, code, method,
+    Cancel, Context, FEATURES, Hello, HelloReply, HostInfo, Manifest, PROTOCOL_VERSION, Peer, ProgressReport,
+    Progressed, RpcError, check_protocol, code, method,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -20,6 +20,7 @@ use serde_json::json;
 
 use super::{Launch, Options, Reads, callbacks};
 use crate::device::Device;
+use crate::error::IoContext;
 use crate::progress::{Ctx, Event};
 use crate::store::Store;
 use crate::{Error, Result, api, lock};
@@ -70,6 +71,8 @@ pub(crate) struct Process {
     /// It closed its output (it exited or crashed), or was killed.
     dead: Arc<AtomicBool>,
     grace: Duration,
+    /// The folder it runs in when there's no store, removed once it has stopped.
+    _scratch: Option<tempfile::TempDir>,
 }
 
 impl Process {
@@ -238,8 +241,9 @@ impl Slot {
         self.running().is_some()
     }
 
-    /// The process, started (and shaken hands with) if it isn't running.
-    pub(crate) fn start(self: &Arc<Self>) -> Result<Arc<Process>> {
+    /// The process, started (and shaken hands with) if it isn't running: in its folder in
+    /// `store` (see [`Slot::spawn`]).
+    pub(crate) fn start(self: &Arc<Self>, store: Option<&Store>) -> Result<Arc<Process>> {
         if let Some(p) = self.running() {
             return Ok(p);
         }
@@ -248,7 +252,7 @@ impl Slot {
         if let Some(p) = self.running() {
             return Ok(p);
         }
-        let p = Arc::new(self.spawn()?);
+        let p = Arc::new(self.spawn(store)?);
         self.handshake(&p)?;
         let (slot, process, idle) = (Arc::downgrade(self), Arc::downgrade(&p), self.host.options.idle);
         std::thread::spawn(move || reap(&slot, &process, idle));
@@ -266,14 +270,33 @@ impl Slot {
         drop(stopped);
     }
 
-    fn spawn(&self) -> Result<Process> {
+    /// Starts the process in a folder of its own, `<store>/plugins/<id>/` (made if it isn't
+    /// there), or without a store a new one in the temporary folder, removed once it stops: the
+    /// plugin's own files go there, and its relative paths are never another program's.
+    fn spawn(&self, store: Option<&Store>) -> Result<Process> {
         if elevated() {
             return Err(Error::invalid(format!(
                 "{} isn't started from a process running as an administrator (or root): run locallibrary as yourself",
                 self.label()
             )));
         }
+        let (dir, scratch) = match store {
+            Some(store) => {
+                let dir = store.root().join("plugins").join(&self.manifest.id);
+                std::fs::create_dir_all(&dir).at(&dir)?;
+                (dir, None)
+            }
+            None => {
+                let temp = std::env::temp_dir();
+                let scratch = tempfile::Builder::new()
+                    .prefix(&format!("locallibrary-plugin-{}-", self.manifest.id))
+                    .tempdir_in(&temp)
+                    .at(&temp)?;
+                (scratch.path().to_path_buf(), Some(scratch))
+            }
+        };
         let mut command = Command::new(&self.launch.program);
+        command.current_dir(&dir);
         for var in &self.launch.env_remove {
             command.env_remove(var);
         }
@@ -306,16 +329,18 @@ impl Slot {
         });
         let grace = self.host.options.grace;
         let last_used = Mutex::new(Instant::now());
-        Ok(Process { child: Mutex::new(child), peer, busy: AtomicUsize::new(0), last_used, dead, grace })
+        let busy = AtomicUsize::new(0);
+        Ok(Process { child: Mutex::new(child), peer, busy, last_used, dead, grace, _scratch: scratch })
     }
 
-    /// `hello`, then `describe`: it must speak the protocol, and be the plugin its manifest says.
+    /// `hello`, then `describe`: it must speak the protocol, be the plugin its manifest says, and
+    /// have every feature what it contributes needs.
     fn handshake(&self, p: &Process) -> Result<()> {
         let m = &self.manifest;
         let hello = Hello {
             protocol: PROTOCOL_VERSION.into(),
             host: HostInfo { name: "locallibrary".into(), version: env!("CARGO_PKG_VERSION").into() },
-            features: Vec::new(),
+            features: FEATURES.iter().map(|f| f.name.into()).collect(),
         };
         let reply: HelloReply = self.answered(p, method::HELLO, &hello)?;
         check_protocol(&reply.protocol).map_err(|e| self.misbehaved(e.message))?;
@@ -329,7 +354,16 @@ impl Slot {
         if described != *m {
             return Err(self.misbehaved("it describes itself otherwise than the manifest locallibrary has for it"));
         }
-        Ok(())
+        // Of those both sides have: a feature only the plugin names is one this host never calls.
+        let lacks =
+            FEATURES.iter().find(|f| (f.contributed)(&m.contributes) && !reply.features.iter().any(|n| n == f.name));
+        match lacks {
+            Some(f) => {
+                Err(self
+                    .misbehaved(format!("it says it doesn't have the {} feature, which its manifest needs", f.name)))
+            }
+            None => Ok(()),
+        }
     }
 
     /// A handshake request's answer, within [`Options::handshake`].
@@ -341,17 +375,18 @@ impl Slot {
         }
     }
 
-    /// Calls the hook `method` with `params`, starting the plugin if it isn't running. Its
-    /// progress goes to `ctx`; cancelling `ctx` asks it to stop, and kills it if it hasn't
+    /// Calls the hook `method` with `params`, starting the plugin (in `store`) if it isn't running.
+    /// Its progress goes to `ctx`; cancelling `ctx` asks it to stop, and kills it if it hasn't
     /// answered within its grace.
     pub(crate) fn call<R: DeserializeOwned>(
         self: &Arc<Self>,
         method: &str,
         params: &impl Serialize,
+        store: Option<&Store>,
         ctx: &Ctx<'_>,
     ) -> Result<R> {
         ctx.check()?;
-        let p = self.start()?;
+        let p = self.start(store)?;
         let _busy = Busy::new(&p);
         let pending = p.peer.send_request_reporting(method, params).map_err(|e| self.error(&p, e))?;
         let mut cancelled: Option<Instant> = None;

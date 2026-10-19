@@ -12,13 +12,14 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use loclib_interop::{Error, Export, Software, Source, engine, serato, traktor};
-use loclib_model::analysis::{Beat, Cue, TrackAnalysis};
+use loclib_model::analysis::TrackAnalysis;
 use loclib_model::paths::{self, PathStyle};
 use loclib_model::{Library, Track};
-use loclib_plugin::{Exported, ExportedFile, Host, Manifest, Plugin, RpcError, WriteExport, code, params};
+use loclib_plugin::{DriveReads, Exported, ExportedFile, Hooks, Host, RpcError, WriteExport, code, params};
+use loclib_progress::Ctx;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 mod write;
 
@@ -28,11 +29,8 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    let manifest = Manifest::parse(MANIFEST).expect("the manifest parses");
-    loclib_plugin::serve(&manifest, Interop, input, output);
+    loclib_plugin::serve(MANIFEST, Hooks::new().on(write_export), input, output);
 }
-
-struct Interop;
 
 /// An exporter's options (`export --option`, `plugins.export.plan`'s `options`): each exporter
 /// takes those its schema lists.
@@ -52,163 +50,101 @@ struct Options {
     paths: PathStyle,
 }
 
-/// `drive.info`'s answer, as far as this plugin reads it.
-#[derive(Deserialize)]
-struct DriveInfo {
-    root: PathBuf,
-}
-
-/// `drive.library`'s answer, as far as this plugin reads it.
-#[derive(Deserialize)]
-struct LibraryPage {
-    library: Library,
-    page: Option<Page>,
-}
-
-#[derive(Deserialize)]
-struct Page {
-    total: usize,
-}
-
-/// `tracks.analysis`'s answer, as far as this plugin reads it.
-#[derive(Deserialize)]
-struct Analyses {
-    tracks: Vec<Analysed>,
-}
-
-#[derive(Deserialize)]
-struct Analysed {
-    track: u32,
-    analysis: Grid,
-}
-
-#[derive(Deserialize)]
-struct Grid {
-    beats: Vec<Beat>,
-    cues: Vec<Cue>,
-}
-
-/// The most tracks `tracks.analysis` takes at once.
-const ANALYSES_AT_ONCE: usize = 100;
-
-impl Plugin for Interop {
-    /// Works out the export in memory, as loclib-interop does, and with `dry_run` answers the
-    /// files it would write; otherwise writes them, below `output`.
-    fn write_export(&self, req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
-        let software: Software = params(Value::from(req.exporter))?;
-        let options: Options = params::<Option<Options>>(req.options)?.unwrap_or_default();
-        if !req.source.history.is_empty() {
-            return Err(invalid(format!("{} doesn't take history lists", software.name())));
-        }
-        if let Some(root) = options.location_root.as_deref().filter(|r| !r.is_absolute()) {
-            return Err(invalid(format!("the location root must be an absolute path, not {}", root.display())));
-        }
-        if options.write_tags && options.location_root.is_some() {
-            return Err(invalid("a location root doesn't go with writing tags: the crates list the tagged copies"));
-        }
-        let drive = req.source.drive.as_str();
-        let drive_root = host.call::<_, DriveInfo>("drive.info", &json!({ "drive": drive }))?.root;
-        let mut library = library(host, drive)?;
-        let renumbered = library.number_for_files();
-        let library =
-            library.subset(&req.source.playlists).map_err(|query| invalid(format!("not found: playlist {query:?}")))?;
-        // Engine keeps no analysis, and Serato's crates alone none either.
-        let carried = match software {
-            Software::Traktor => true,
-            Software::Serato => options.write_tags,
-            _ => false,
-        };
-        let analyses = match carried && !options.skip_analysis {
-            true => analyses(host, drive, &library, &renumbered)?,
-            false => FxHashMap::default(),
-        };
-        let load = |t: &Track| analyses.get(&t.id).cloned().unwrap_or_default();
-        let analysis: &dyn Fn(&Track) -> TrackAnalysis = &load;
-        let root = options.location_root.as_deref().unwrap_or(&drive_root);
-        let source =
-            Source { library: &library, root: resolved(root), analysis: (!options.skip_analysis).then_some(analysis) };
-        // The writers find tracks from where the files go with symlinks resolved (macOS's `/tmp`
-        // is `/private/tmp`); the files are answered below `output` as it was given.
-        let output = resolved(&req.output);
-        let ctx = host.ctx();
-        let export = match software {
-            Software::Traktor => traktor::build(&source, &req.output, &ctx),
-            Software::Serato => {
-                let drive_dir = resolved(&drive_root);
-                let audio = |t: &Track| {
-                    let from = paths::to_fs(&drive_root, &paths::key(&t.file_path));
-                    match dunce::canonicalize(&from) {
-                        Ok(real) if !real.starts_with(&drive_dir) => {
-                            Err(Error::Invalid(format!("refusing {:?}: it resolves outside the drive", t.file_path)))
-                        }
-                        _ => Ok(from),
+/// Works out the export in memory, as loclib-interop does, and with `dry_run` answers the
+/// files it would write; otherwise writes them, below `output`.
+fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
+    let software: Software = params(Value::from(req.exporter))?;
+    let options: Options = params::<Option<Options>>(req.options)?.unwrap_or_default();
+    if !req.source.history.is_empty() {
+        return Err(invalid(format!("{} doesn't take history lists", software.name())));
+    }
+    if let Some(root) = options.location_root.as_deref().filter(|r| !r.is_absolute()) {
+        return Err(invalid(format!("the location root must be an absolute path, not {}", root.display())));
+    }
+    if options.write_tags && options.location_root.is_some() {
+        return Err(invalid("a location root doesn't go with writing tags: the crates list the tagged copies"));
+    }
+    // The library exports are made from, with what only OneLibrary has.
+    let drive = host.drive(&req.source.drive).combined();
+    let drive_root = drive.info()?.root;
+    let mut library = drive.library()?;
+    let renumbered = library.number_for_files();
+    let library =
+        library.subset(&req.source.playlists).map_err(|query| invalid(format!("not found: playlist {query:?}")))?;
+    // Engine keeps no analysis, and Serato's crates alone none either.
+    let carried = match software {
+        Software::Traktor => true,
+        Software::Serato => options.write_tags,
+        _ => false,
+    };
+    let analyses = match carried && !options.skip_analysis {
+        true => analyses(&drive, &library, &renumbered)?,
+        false => FxHashMap::default(),
+    };
+    let load = |t: &Track| analyses.get(&t.id).cloned().unwrap_or_default();
+    let analysis: &dyn Fn(&Track) -> TrackAnalysis = &load;
+    let root = options.location_root.as_deref().unwrap_or(&drive_root);
+    let source =
+        Source { library: &library, root: resolved(root), analysis: (!options.skip_analysis).then_some(analysis) };
+    // The writers find tracks from where the files go with symlinks resolved (macOS's `/tmp`
+    // is `/private/tmp`); the files are answered below `output` as it was given.
+    let output = resolved(&req.output);
+    let ctx = host.ctx();
+    let export = match software {
+        Software::Traktor => traktor::build(&source, &req.output, &ctx),
+        Software::Serato => {
+            let drive_dir = resolved(&drive_root);
+            let audio = |t: &Track| {
+                let from = paths::to_fs(&drive_root, &paths::key(&t.file_path));
+                match dunce::canonicalize(&from) {
+                    Ok(real) if !real.starts_with(&drive_dir) => {
+                        Err(Error::Invalid(format!("refusing {:?}: it resolves outside the drive", t.file_path)))
                     }
-                };
-                // With tags, the crates list copies of the audio below the output folder.
-                let copies = serato::Copies { root: output.clone(), audio: &audio };
-                serato::build(&source, &req.output, options.write_tags.then_some(&copies), &ctx)
-            }
-            _ => engine::build(&source, &output, options.paths, &ctx),
+                    _ => Ok(from),
+                }
+            };
+            // With tags, the crates list copies of the audio below the output folder.
+            let copies = serato::Copies { root: output.clone(), audio: &audio };
+            serato::build(&source, &req.output, options.write_tags.then_some(&copies), &ctx)
         }
-        .map_err(failure)?;
-        if !req.dry_run {
-            write::write(&export, &output, &ctx)?;
-        }
-        let files = export.files.iter().map(|f| ExportedFile {
-            path: f.path.strip_prefix(&output).map_or_else(|_| f.path.clone(), |rest| req.output.join(rest)),
-            what: f.what.clone(),
-            bytes: f.bytes,
-        });
-        // Copied audio is in the files, with its size.
-        let counts = [
-            ("tracks", export.tracks),
-            ("playlists", export.playlists),
-            ("folders", export.folders),
-            ("beat grids", export.beat_grids),
-            ("cues", export.cues),
-        ];
-        Ok(Exported {
-            files: files.collect(),
-            counts: counts.into_iter().map(|(label, n)| (label.to_string(), n as u64)).collect(),
-            notes: notes(&export),
-            warnings: export.warnings.iter().cloned().chain(missing_audio(&source)).collect(),
-        })
+        _ => engine::build(&source, &output, options.paths, &ctx),
     }
+    .map_err(|e| failure(e, &ctx))?;
+    if !req.dry_run {
+        write::write(&export, &output, &ctx)?;
+    }
+    let files = export.files.iter().map(|f| ExportedFile {
+        path: f.path.strip_prefix(&output).map_or_else(|_| f.path.clone(), |rest| req.output.join(rest)),
+        what: f.what.clone(),
+        bytes: f.bytes,
+    });
+    // Copied audio is in the files, with its size.
+    let counts = [
+        ("tracks", export.tracks),
+        ("playlists", export.playlists),
+        ("folders", export.folders),
+        ("beat grids", export.beat_grids),
+        ("cues", export.cues),
+    ];
+    Ok(Exported {
+        files: files.collect(),
+        counts: counts.into_iter().map(|(label, n)| (label.to_string(), n as u64)).collect(),
+        notes: notes(&export),
+        warnings: export.warnings.iter().cloned().chain(missing_audio(&source)).collect(),
+    })
 }
 
-/// The drive's library as exports read it (with what only OneLibrary has), a page of tracks at a
-/// time (the host sizes them).
-fn library(host: &Host, drive: &str) -> Result<Library, RpcError> {
-    let mut tracks = Vec::new();
-    loop {
-        let read = json!({ "drive": drive, "combined": true, "offset": tracks.len() });
-        let LibraryPage { mut library, page } = host.call("drive.library", &read)?;
-        tracks.append(&mut library.tracks);
-        if page.is_none_or(|p| tracks.len() >= p.total) {
-            return Ok(Library { tracks, ..library });
-        }
-    }
-}
-
-/// The beat grid and cues of each of `library`'s tracks, by its id, asked for by the id the host
-/// knows it by (`renumbered` has those that differ).
+/// The analysis of each of `library`'s tracks, by its id, asked for by the id the host knows it
+/// by (`renumbered` has those that differ).
 fn analyses(
-    host: &Host,
-    drive: &str,
+    drive: &DriveReads<'_>,
     library: &Library,
     renumbered: &FxHashMap<u32, u32>,
 ) -> Result<FxHashMap<u32, TrackAnalysis>, RpcError> {
     let host_ids: Vec<u32> = library.tracks.iter().map(|t| renumbered.get(&t.id).copied().unwrap_or(t.id)).collect();
     let ids: FxHashMap<u32, u32> = host_ids.iter().zip(&library.tracks).map(|(host_id, t)| (*host_id, t.id)).collect();
-    let mut out = FxHashMap::default();
-    for asked in host_ids.chunks(ANALYSES_AT_ONCE) {
-        let read = json!({ "drive": drive, "combined": true, "ids": asked, "waveform": "none" });
-        let Analyses { tracks } = host.call("tracks.analysis", &read)?;
-        out.extend(tracks.into_iter().filter_map(|Analysed { track, analysis: Grid { beats, cues } }| {
-            Some((*ids.get(&track)?, TrackAnalysis { beats, cues, ..Default::default() }))
-        }));
-    }
-    Ok(out)
+    let read = drive.analyses(&host_ids)?.tracks.into_iter();
+    Ok(read.filter_map(|a| Some((*ids.get(&a.track)?, a.analysis))).collect())
 }
 
 /// What the format leaves out and what to do with the files: the formats' notes, naming the
@@ -242,14 +178,13 @@ fn invalid(message: impl Into<String>) -> RpcError {
     RpcError::new(code::INVALID_PARAMS, "invalid", message)
 }
 
-/// loclib-interop's error as the host takes it.
-fn failure(e: Error) -> RpcError {
+/// loclib-interop's error, from work done with `ctx`, as the host takes it: tags it can't read or
+/// write are a kind of their own, and what can't be done as asked (`Invalid`, and a variant a
+/// newer loclib-interop adds) is `invalid`.
+fn failure(e: Error, ctx: &Ctx<'_>) -> RpcError {
     match e {
-        Error::Cancelled(_) => RpcError::cancelled(),
-        Error::Io { .. } => RpcError::failed("io", e.to_string()),
         Error::Tags(_) => RpcError::failed("tags", e.to_string()),
-        // `Invalid`, and a variant a newer loclib-interop adds, with its message.
-        other => invalid(other.to_string()),
+        other => RpcError::failure(&other, "invalid", ctx),
     }
 }
 

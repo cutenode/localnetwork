@@ -359,6 +359,23 @@ fn plugins_fields_are_refused_when_they_cant_be_answered() {
     assert!(said.contains("a sound.bpm: term needs what analyzers worked out"), "{said}");
 }
 
+/// A value worked out with nothing to show (null) matches no comparison, so negated every one,
+/// and sorts with the tracks without a value: last.
+#[test]
+fn a_null_value_matches_nothing_and_sorts_last() {
+    let lib = lib();
+    let mut values = values();
+    values.tracks.get_mut(&3).unwrap().insert("sound.bpm".into(), FieldValue::Null);
+    let ctx = QueryContext { fields: Some(&values), ..QueryContext::new(&lib) };
+    let ids = |f: &str| Filter::parse(f).unwrap().select(&ctx).iter().map(|t| t.id).collect::<Vec<_>>();
+    assert_eq!(ids("sound.bpm:>0"), [1, 2]);
+    assert_eq!(ids("-sound.bpm:>0"), [3]);
+    let keys = parse_sort_with("sound.bpm", Some(&values.declared)).unwrap();
+    let mut sorted: Vec<&Track> = lib.tracks.iter().rev().collect();
+    sort_tracks_with(&mut sorted, &keys, Some(&values));
+    assert_eq!(sorted.iter().map(|t| t.id).collect::<Vec<_>>(), [1, 2, 3]);
+}
+
 /// A sort names a plugin's field where its values are given, and its declared fields: by value,
 /// either way, tracks without one last; elsewhere it's refused.
 #[test]

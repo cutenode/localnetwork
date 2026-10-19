@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+use loclib_model::audio::Format;
 use serde::{Deserialize, Serialize};
 
 /// A file system found on a volume.
@@ -49,16 +50,16 @@ impl Codec {
         !matches!(self, Codec::Mp3 | Codec::Aac)
     }
 
-    /// The format a file's extension names (`.m4a` and `.mp4` hold AAC or Apple Lossless).
+    /// The format a file's extension names, of the extensions players list (`.m4a` and `.mp4`
+    /// hold AAC or Apple Lossless).
     pub fn from_path(path: &str) -> FromPath {
-        let ext = path.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
-        match ext.as_deref() {
-            Some("mp3") => FromPath::Codec(Codec::Mp3),
-            Some("aac") => FromPath::Codec(Codec::Aac),
-            Some("m4a" | "mp4") => FromPath::AacOrAlac,
-            Some("wav") => FromPath::Codec(Codec::Wav),
-            Some("aif" | "aiff") => FromPath::Codec(Codec::Aiff),
-            Some("flac" | "fla") => FromPath::Codec(Codec::Flac),
+        match Format::for_players(path) {
+            Some(Format::Mp3) => FromPath::Codec(Codec::Mp3),
+            Some(Format::Aac) => FromPath::Codec(Codec::Aac),
+            Some(Format::Mpeg4) => FromPath::AacOrAlac,
+            Some(Format::Wav) => FromPath::Codec(Codec::Wav),
+            Some(Format::Aiff) => FromPath::Codec(Codec::Aiff),
+            Some(Format::Flac) => FromPath::Codec(Codec::Flac),
             _ => FromPath::Unknown,
         }
     }

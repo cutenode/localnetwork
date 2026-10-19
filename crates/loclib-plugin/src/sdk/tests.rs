@@ -22,14 +22,15 @@ struct Session {
     served: JoinHandle<()>,
 }
 
-fn start(plugin: impl Plugin) -> Session {
-    start_with(echo::manifest(), plugin)
+fn start(hooks: Hooks) -> Session {
+    start_with(echo::MANIFEST.into(), hooks)
 }
 
-fn start_with(manifest: Manifest, plugin: impl Plugin) -> Session {
+/// Serving `manifest` (TOML).
+fn start_with(manifest: String, hooks: Hooks) -> Session {
     let (plugin_in, to_plugin) = pipe().unwrap();
     let (from_plugin, plugin_out) = pipe().unwrap();
-    let served = std::thread::spawn(move || serve(&manifest, plugin, plugin_in, plugin_out));
+    let served = std::thread::spawn(move || serve(&manifest, hooks, plugin_in, plugin_out));
     let (host, incoming) = Peer::new(from_plugin, to_plugin);
     Session { host, incoming, served }
 }
@@ -39,8 +40,8 @@ fn hello(protocol: &str, features: &[&str]) -> Value {
 }
 
 /// Started and past `hello`.
-fn greeted(plugin: impl Plugin) -> Session {
-    let s = start(plugin);
+fn greeted(hooks: Hooks) -> Session {
+    let s = start(hooks);
     s.host.request::<_, HelloReply>(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
     s
 }
@@ -60,8 +61,7 @@ impl Session {
         let Incoming::Request(req) = self.next() else { panic!("not a callback") };
         assert_eq!(req.method, "tracks.query");
         let drive = req.params["drive"].as_str().unwrap().to_string();
-        let track = json!({ "title": format!("{drive} track"), "file_path": format!("/Contents/{drive}.mp3") });
-        self.host.respond(&req.id, Ok(json!({ "total": 1, "total_duration_secs": 0, "tracks": [track] })));
+        self.host.respond(&req.id, Ok(page(&drive, &format!("/Contents/{drive}.mp3"))));
     }
 
     /// Closes the plugin's input: it stops.
@@ -71,16 +71,29 @@ impl Session {
     }
 }
 
+/// `tracks.query`'s answer: one track, titled after `drive`.
+fn page(drive: &str, file_path: &str) -> Value {
+    let track =
+        loclib_model::Track { title: format!("{drive} track"), file_path: file_path.into(), ..Default::default() };
+    json!({ "total": 1, "total_duration_secs": 0, "tracks": [track] })
+}
+
 fn run(command: &str, params: Value, drive: Option<&str>) -> Value {
     json!({ "command": command, "params": params, "context": { "drive": drive } })
 }
 
+fn echo_manifest() -> Manifest {
+    Manifest::parse(echo::MANIFEST).unwrap()
+}
+
+/// `hello` says who the plugin is and the features of the hooks it has, whatever the host's.
 #[test]
 fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
-    let s = start(echo::Echo);
-    let reply: HelloReply = s.host.request(method::HELLO, &hello("0.1.7", &["telepathy"])).unwrap();
+    let s = start(echo::hooks());
+    let reply: HelloReply = s.host.request(method::HELLO, &hello("0.2.7", &["telepathy"])).unwrap();
     let plugin = PluginInfo { id: "echo".into(), version: "0.1.0".into() };
-    assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features: vec![] });
+    let features = ["commands", "operations", "analyzers", "exporters"].map(String::from).to_vec();
+    assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features });
     let again = s.call(method::HELLO, hello(PROTOCOL_VERSION, &[])).unwrap_err();
     assert_eq!((again.code, again.message.as_str()), (code::INVALID_REQUEST, "hello was sent already"));
     s.stop();
@@ -88,23 +101,23 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
 
 #[test]
 fn an_incompatible_protocol_is_refused() {
-    let s = start(echo::Echo);
-    for theirs in ["0.2.0", "1.1.0", "one"] {
+    let s = start(echo::hooks());
+    for theirs in ["0.1.0", "1.2.0", "one"] {
         let e = s.call(method::HELLO, hello(theirs, &[])).unwrap_err();
         assert_eq!((e.code, e.kind()), (code::FAILED, Some("incompatible")), "{theirs}");
-        assert_eq!(e.message, format!("protocol {theirs:?} isn't compatible with 0.1.0"));
+        assert_eq!(e.message, format!("protocol {theirs:?} isn't compatible with 0.2.0"));
     }
     // Refused, it's still waiting for a hello.
     assert_eq!(s.call(method::DESCRIBE, json!({})).unwrap_err().message, "hello first");
-    let e = s.call(method::HELLO, json!({ "protocol": "0.1.0" })).unwrap_err();
+    let e = s.call(method::HELLO, json!({ "protocol": "0.2.0" })).unwrap_err();
     assert_eq!((e.kind(), e.message.as_str()), (Some("invalid_params"), "invalid params: missing field `host`"));
-    s.call(method::HELLO, hello("0.1.0", &[])).unwrap();
+    s.call(method::HELLO, hello("0.2.0", &[])).unwrap();
     s.stop();
 }
 
 #[test]
 fn nothing_before_hello_is_answered_but_with_a_refusal() {
-    let s = start(echo::Echo);
+    let s = start(echo::hooks());
     s.host.notify("progress", &json!({}));
     for (method, params) in [
         (method::DESCRIBE, json!({})),
@@ -119,9 +132,9 @@ fn nothing_before_hello_is_answered_but_with_a_refusal() {
 
 #[test]
 fn describe_answers_the_manifest() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
-    assert_eq!(described, echo::manifest());
+    assert_eq!(described, echo_manifest());
     let e = s.call("shutdown", json!({})).unwrap_err();
     assert_eq!((e.code, e.message.as_str()), (code::METHOD_NOT_FOUND, "unknown method \"shutdown\""));
     s.stop();
@@ -129,7 +142,7 @@ fn describe_answers_the_manifest() {
 
 #[test]
 fn a_headless_command_answers_any_json() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let params = json!({ "anything": [1, "two"] });
     assert_eq!(s.call(method::RUN_COMMAND, run("echo", params.clone(), None)).unwrap(), params);
     s.stop();
@@ -138,7 +151,7 @@ fn a_headless_command_answers_any_json() {
 /// A view command calls back for the drive's tracks while the host waits for its answer.
 #[test]
 fn a_view_command_calls_back_to_the_host() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let pending = s.host.send_request(method::RUN_COMMAND, &run("titles", json!({}), Some("USB"))).unwrap();
     s.answer_tracks_query();
     let view: View = pending.wait().unwrap();
@@ -152,7 +165,7 @@ fn an_analyzer_answers_its_fields() {
     let dir = tempfile::tempdir().unwrap();
     let audio = dir.path().join("a.mp3");
     std::fs::write(&audio, b"12345").unwrap();
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let track = json!({ "id": 3, "file_path": "/Contents/a.mp3", "audio_path": audio });
     let analysis: Analysis =
         s.host.request(method::ANALYZE_TRACK, &json!({ "analyzer": "size", "track": track })).unwrap();
@@ -171,7 +184,7 @@ fn an_analyzer_answers_its_fields() {
 fn an_exporter_writes_its_files() {
     let dir = tempfile::tempdir().unwrap();
     let output = dir.path().join("USB.m3u");
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let req = json!({ "exporter": "m3u", "source": { "drive": "USB" }, "output": output, "options": {} });
     let pending = s.host.send_request(method::WRITE_EXPORT, &req).unwrap();
     s.answer_tracks_query();
@@ -190,7 +203,7 @@ fn an_exporter_writes_its_files() {
 fn an_exporters_dry_run_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let output = dir.path().join("USB.m3u");
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let source = json!({ "drive": "USB", "playlists": ["Sets/Friday"], "history": ["HISTORY 001"] });
     let req = json!({ "exporter": "m3u", "source": source, "output": output, "dry_run": true });
     let pending = s.host.send_request(method::WRITE_EXPORT, &req).unwrap();
@@ -204,7 +217,7 @@ fn an_exporters_dry_run_writes_nothing() {
 
 #[test]
 fn an_operation_plans_core_edits() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let req = json!({ "operation": "playlist", "params": { "name": "Warm up" }, "context": { "drive": "USB" } });
     let plan: OpPlan = s.host.request(method::PLAN_OP, &req).unwrap();
     assert_eq!(plan.summary, "make the playlist Warm up");
@@ -216,7 +229,7 @@ fn an_operation_plans_core_edits() {
 
 #[test]
 fn hooks_run_only_for_what_the_manifest_declares() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params, said) in [
         (method::RUN_COMMAND, run("nope", json!({}), None), "command \"nope\""),
@@ -235,38 +248,42 @@ fn hooks_run_only_for_what_the_manifest_declares() {
     s.stop();
 }
 
-/// A plugin that implements no hooks.
-struct Bare;
-
-impl Plugin for Bare {}
-
+/// A plugin has the features of the hooks it implements, and a hook it doesn't implement isn't
+/// found.
 #[test]
 fn a_hook_the_plugin_doesnt_implement_isnt_found() {
-    let s = greeted(Bare);
+    let s = start(Hooks::new().on(echo::analyze_track));
+    let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
+    assert_eq!(reply.features, ["analyzers"]);
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params) in [
         (method::RUN_COMMAND, run("echo", json!({}), None)),
-        (method::ANALYZE_TRACK, json!({ "analyzer": "size", "track": track })),
         (method::WRITE_EXPORT, json!({ "exporter": "m3u", "source": { "drive": "A" }, "output": "/x" })),
         (method::PLAN_OP, json!({ "operation": "playlist" })),
     ] {
         let e = s.call(method, params).unwrap_err();
         assert_eq!((e.code, e.message), (code::METHOD_NOT_FOUND, format!("unknown method {method:?}")));
     }
+    let e = s.call(method::ANALYZE_TRACK, json!({ "analyzer": "size", "track": track })).unwrap_err();
+    assert_eq!(e.kind(), Some("io"), "the one it has runs");
+    let none = start(Hooks::new());
+    let reply: HelloReply = none.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
+    assert!(reply.features.is_empty());
+    none.stop();
     s.stop();
 }
 
-struct Panics;
-
-impl Plugin for Panics {
-    fn run_command(&self, _: RunCommand, _: &Host) -> Result<Value, RpcError> {
-        panic!("a bug");
-    }
+/// A hook reads the manifest `serve` was given.
+#[test]
+fn a_hook_reads_the_manifest() {
+    let s = greeted(Hooks::new().on(|_: RunCommand, host: &Host| Ok(Value::from(host.manifest().name.clone()))));
+    assert_eq!(s.call(method::RUN_COMMAND, run("echo", json!({}), None)).unwrap(), "Echo");
+    s.stop();
 }
 
 #[test]
 fn a_hook_that_panics_still_answers() {
-    let s = greeted(Panics);
+    let s = greeted(Hooks::new().on(|_: RunCommand, _: &Host| -> Result<Value, RpcError> { panic!("a bug") }));
     let e = s.call(method::RUN_COMMAND, run("echo", json!({}), None)).unwrap_err();
     assert_eq!((e.code, e.message.as_str()), (code::INTERNAL, "internal error while handling \"command/run\""));
     // The plugin carries on.
@@ -283,7 +300,7 @@ fn notification(s: &Session) -> Value {
 
 #[test]
 fn a_hook_sends_progress_and_stops_when_cancelled() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let pending = s.host.send_request(method::RUN_COMMAND, &run("wait", json!({}), None)).unwrap();
     let event = json!({ "event": "phase_start", "phase": "scan", "items": 0, "bytes": 0 });
     assert_eq!(notification(&s), json!({ "id": pending.id(), "event": event }));
@@ -297,7 +314,7 @@ fn a_hook_sends_progress_and_stops_when_cancelled() {
 /// Progress carries its step and drive, and items are coalesced, as the sidecar sends them.
 #[test]
 fn progress_carries_its_scope_and_items_are_coalesced() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let pending = s.host.send_request(method::RUN_COMMAND, &run("steps", json!({}), None)).unwrap();
     let step = json!({ "index": 1, "total": 1, "id": "scan" });
     assert_eq!(notification(&s)["event"], json!({ "event": "step", "step": step }));
@@ -310,7 +327,7 @@ fn progress_carries_its_scope_and_items_are_coalesced() {
 /// Cancelling a hook cancels the callback it's waiting for, which then fails at once.
 #[test]
 fn cancelling_a_hook_cancels_its_callback() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let pending = s.host.send_request(method::RUN_COMMAND, &run("titles", json!({}), Some("USB"))).unwrap();
     let Incoming::Request(callback) = s.next() else { panic!("not a callback") };
     pending.cancel();
@@ -325,7 +342,7 @@ fn cancelling_a_hook_cancels_its_callback() {
 /// Hooks run at once, each calling back to the host, which answers them out of order.
 #[test]
 fn concurrent_hooks_each_get_their_own_callbacks() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let drives = ["A", "B", "C", "D", "E", "F"];
     let pending: Vec<_> = drives
         .iter()
@@ -341,8 +358,7 @@ fn concurrent_hooks_each_get_their_own_callbacks() {
     callbacks.reverse();
     for req in callbacks {
         let drive = req.params["drive"].as_str().unwrap().to_string();
-        let tracks = json!({ "tracks": [{ "title": format!("{drive} track"), "file_path": "/x" }] });
-        s.host.respond(&req.id, Ok(tracks));
+        s.host.respond(&req.id, Ok(page(&drive, "/x")));
     }
     for (drive, p) in drives.iter().zip(pending) {
         let View::Table { rows, .. } = p.wait().unwrap() else { panic!("not a table") };
@@ -354,13 +370,43 @@ fn concurrent_hooks_each_get_their_own_callbacks() {
 /// Closing the plugin's input cancels what's running, which answers before `serve` returns.
 #[test]
 fn closing_the_input_cancels_running_hooks() {
-    let s = greeted(echo::Echo);
+    let s = greeted(echo::hooks());
     let pending = s.host.send_request(method::RUN_COMMAND, &run("wait", json!({}), None)).unwrap();
     // Running: it has sent progress.
     s.next();
     s.host.close();
     assert_eq!(pending.wait::<Value>().unwrap_err(), RpcError::cancelled());
     s.served.join().unwrap();
+}
+
+/// The example plugin, as its own process over real stdio.
+#[test]
+fn the_example_plugin_runs_as_a_child_process() {
+    let deps = std::env::current_exe().unwrap();
+    let exe =
+        deps.parent().unwrap().parent().unwrap().join("examples").join(format!("echo{}", std::env::consts::EXE_SUFFIX));
+    assert!(exe.exists(), "cargo builds the examples with the tests: {}", exe.display());
+    let mut child = std::process::Command::new(exe)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let (host, incoming) = Peer::new(child.stdout.take().unwrap(), child.stdin.take().unwrap());
+    let reply: HelloReply = host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
+    assert_eq!(reply.plugin.id, "echo");
+    let described: Manifest = host.request(method::DESCRIBE, &json!({})).unwrap();
+    assert_eq!(described, echo_manifest());
+    let answer: Value = host.request(method::RUN_COMMAND, &run("echo", json!({ "n": 1 }), None)).unwrap();
+    assert_eq!(answer, json!({ "n": 1 }));
+    // Closing its stdin while a hook runs: the hook is cancelled and answers before it exits.
+    let waiting = host.send_request(method::RUN_COMMAND, &run("wait", json!({}), None)).unwrap();
+    assert!(
+        matches!(incoming.recv_timeout(Duration::from_secs(10)), Ok(Incoming::Notification { .. })),
+        "it has started"
+    );
+    host.close();
+    assert_eq!(waiting.wait::<Value>().unwrap_err(), RpcError::cancelled());
+    assert!(child.wait().unwrap().success());
 }
 
 // Properties.
@@ -377,7 +423,7 @@ const HOOKS: [(&str, &str); 4] = [
 #[hegel::test_helper]
 fn protocol(tc: &TestCase) -> String {
     match tc.draw(gs::integers::<u8>().max_value(5)) {
-        0 => tc.draw(gs::sampled_from(vec!["", "one", "0.1", "0.1.0.0", "^0.1.0", "v0.1.0"])).to_string(),
+        0 => tc.draw(gs::sampled_from(vec!["", "one", "0.2", "0.2.0.0", "^0.2.0", "v0.2.0"])).to_string(),
         _ => {
             let [major, minor] = tc.draw(gs::arrays(gs::integers::<u8>().max_value(2)));
             format!("{major}.{minor}.{}", tc.draw(gs::integers::<u16>()))
@@ -391,15 +437,22 @@ fn protocol(tc: &TestCase) -> String {
 /// the manifest it serves, and doesn't know any other method.
 #[hegel::test(test_cases = 25)]
 fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
-    let mut manifest = echo::manifest();
+    let mut manifest = echo_manifest();
     manifest.id = tc.draw(gs::from_regex("[a-z][a-z0-9_-]{0,11}"));
     manifest.name = tc.draw(gs::text().min_size(1).max_size(12));
     manifest.version = format!("{}.{}.{}", tc.draw(gs::integers::<u8>()), tc.draw(gs::integers::<u8>()), 0);
-    let s = start_with(manifest.clone(), echo::Echo);
+    // JSON's strings are TOML's, but for DEL, which TOML has escaped.
+    let quoted = |s: &str| json!(s).to_string().replace('\u{7f}', "\\u007f");
+    let toml = echo::MANIFEST
+        .replacen("id = \"echo\"", &format!("id = {}", quoted(&manifest.id)), 1)
+        .replacen("name = \"Echo\"", &format!("name = {}", quoted(&manifest.name)), 1)
+        .replacen("version = \"0.1.0\"", &format!("version = {}", quoted(&manifest.version)), 1);
+    let s = start_with(toml, echo::hooks());
     let others =
         vec!["describe", "command/run", "track/analyze", "export/write", "op/plan", "tracks.query", "shutdown"];
     let plugin = PluginInfo { id: manifest.id.clone(), version: manifest.version.clone() };
-    let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features: Vec::new() };
+    let features = ["commands", "operations", "analyzers", "exporters"].map(String::from).to_vec();
+    let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features };
     let mut greeted = false;
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
         match tc.draw(gs::integers::<u8>().max_value(3)) {
@@ -417,7 +470,7 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
                 let theirs = protocol(&tc);
                 let features: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[a-z]{1,8}")).max_size(2));
                 let features: Vec<&str> = features.iter().map(String::as_str).collect();
-                let speaks = semver::Version::parse(&theirs).is_ok_and(|v| (v.major, v.minor) == (0, 1));
+                let speaks = semver::Version::parse(&theirs).is_ok_and(|v| (v.major, v.minor) == (0, 2));
                 match s.host.request::<_, HelloReply>(method::HELLO, &hello(&theirs, &features)) {
                     Ok(reply) => {
                         assert!(speaks, "{theirs:?}");
@@ -435,7 +488,7 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
         }
     }
     if !greeted {
-        let ours = format!("0.1.{}", tc.draw(gs::integers::<u16>()));
+        let ours = format!("0.2.{}", tc.draw(gs::integers::<u16>()));
         assert_eq!(s.host.request::<_, HelloReply>(method::HELLO, &hello(&ours, &[])), Ok(greeting));
     }
     let again = s.call(method::HELLO, hello(PROTOCOL_VERSION, &[])).unwrap_err();
@@ -452,84 +505,65 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
     s.stop();
 }
 
-/// Answers each hook from its request alone, and with a script for the `steps` command reports
-/// progress: `warn:<message>`, `start`, `end`, `item:<path>` (all in the scan phase) or
+/// Hooks that answer each from its request alone, and with a script for the `steps` command
+/// report progress: `warn:<message>`, `start`, `end`, `item:<path>` (all in the scan phase) or
 /// `step:<one, two or three>`.
-struct Answers;
-
-impl Plugin for Answers {
-    fn run_command(&self, req: RunCommand, host: &Host) -> Result<Value, RpcError> {
-        match req.command.as_str() {
-            "steps" => {
-                let ctx = host.ctx();
-                let steps = Steps::new(&ctx, vec!["one", "two", "three"]);
-                let ctx = steps.ctx();
-                let script: Vec<String> = params(req.params)?;
-                for entry in &script {
-                    match entry.split_once(':').unwrap_or((entry, "")) {
-                        ("warn", message) => ctx.warn(message),
-                        ("start", _) => ctx.phase_start(Phase::Scan, 0, 0),
-                        ("end", _) => ctx.phase_end(Phase::Scan),
-                        ("item", path) => ctx.emit(Event::Item { phase: Phase::Scan, path: path.into(), bytes: 0 }),
-                        (_, step) => steps.begin(["one", "two", "three"].into_iter().find(|s| *s == step).unwrap()),
-                    }
+fn answers() -> Hooks {
+    let run_command = |req: RunCommand, host: &Host| match req.command.as_str() {
+        "steps" => {
+            let ctx = host.ctx();
+            let steps = Steps::new(&ctx, vec!["one", "two", "three"]);
+            let ctx = steps.ctx();
+            let script: Vec<String> = params(req.params)?;
+            for entry in &script {
+                match entry.split_once(':').unwrap_or((entry, "")) {
+                    ("warn", message) => ctx.warn(message),
+                    ("start", _) => ctx.phase_start(Phase::Scan, 0, 0),
+                    ("end", _) => ctx.phase_end(Phase::Scan),
+                    ("item", path) => ctx.emit(Event::Item { phase: Phase::Scan, path: path.into(), bytes: 0 }),
+                    (_, step) => steps.begin(["one", "two", "three"].into_iter().find(|s| *s == step).unwrap()),
                 }
-                Ok(Value::Null)
             }
-            // Calls back for the drive named, and answers what the host does.
-            "titles" => host.call("tracks.query", &json!({ "drive": req.context.drive })),
-            _ => Ok(json!({ "command": req.command, "params": req.params })),
+            Ok(Value::Null)
         }
-    }
-
-    fn analyze_track(&self, req: AnalyzeTrack, _: &Host) -> Result<Analysis, RpcError> {
+        // Calls back for the drive named, and answers what the host does.
+        "titles" => host.call("tracks.query", &json!({ "drive": req.context.drive })),
+        _ => Ok(json!({ "command": req.command, "params": req.params })),
+    };
+    let analyze_track = |req: AnalyzeTrack, _: &Host| {
         Ok(Analysis { fields: [("bytes".to_string(), FieldValue::Integer(req.track.id.into()))].into_iter().collect() })
-    }
-
-    fn write_export(&self, req: WriteExport, _: &Host) -> Result<Exported, RpcError> {
+    };
+    let write_export = |req: WriteExport, _: &Host| {
         let file = ExportedFile { path: req.output, what: req.exporter, bytes: 0 };
         Ok(Exported { files: vec![file], ..Exported::default() })
-    }
-
-    fn plan_op(&self, req: PlanOp, _: &Host) -> Result<OpPlan, RpcError> {
+    };
+    let plan_op = |req: PlanOp, _: &Host| {
         Ok(OpPlan { summary: req.operation, warnings: Vec::new(), edits: vec![req.params], inputs: Vec::new() })
-    }
+    };
+    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op)
 }
 
-/// Panics in every hook.
-struct PanicsEverywhere;
-
-impl Plugin for PanicsEverywhere {
-    fn run_command(&self, _: RunCommand, _: &Host) -> Result<Value, RpcError> {
+/// Hooks that panic, every one.
+fn panics_everywhere() -> Hooks {
+    fn bug<H, A>(_: H, _: &Host) -> Result<A, RpcError> {
         panic!("a bug");
     }
-
-    fn analyze_track(&self, _: AnalyzeTrack, _: &Host) -> Result<Analysis, RpcError> {
-        panic!("a bug");
-    }
-
-    fn write_export(&self, _: WriteExport, _: &Host) -> Result<Exported, RpcError> {
-        panic!("a bug");
-    }
-
-    fn plan_op(&self, _: PlanOp, _: &Host) -> Result<OpPlan, RpcError> {
-        panic!("a bug");
-    }
+    Hooks::new().on(bug::<RunCommand, _>).on(bug::<AnalyzeTrack, _>).on(bug::<WriteExport, _>).on(bug::<PlanOp, _>)
 }
 
-/// Any hooks, run at once, each answer only for a contribution the manifest declares, with params
-/// that read: params that don't are refused saying where, an undeclared name saying what isn't
-/// declared, a hook the plugin doesn't implement isn't found, and one that panics still answers.
-/// The rest answer what the plugin does.
+/// Any hooks, run at once: one the plugin doesn't implement isn't found, whatever its params. The
+/// others answer only for a contribution the manifest declares, with params that read: params
+/// that don't are refused saying where, an undeclared name saying what isn't declared, and one
+/// that panics still answers. The rest answer what the plugin does.
 #[hegel::test(test_cases = 25)]
 fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
     let plugin = tc.draw(gs::sampled_from(vec!["answers", "bare", "panics"]));
     let s = match plugin {
-        "answers" => greeted(Answers),
-        "bare" => greeted(Bare),
-        _ => greeted(PanicsEverywhere),
+        "answers" => greeted(answers()),
+        "bare" => greeted(Hooks::new()),
+        _ => greeted(panics_everywhere()),
     };
-    let manifest = echo::manifest();
+    let manifest = echo_manifest();
     let c = &manifest.contributes;
     let declared: [Vec<String>; 4] = [
         c.commands.iter().filter(|x| !["steps", "titles"].contains(&x.name.as_str())).map(|x| x.name.clone()).collect(),
@@ -583,6 +617,9 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
         let got = pending.wait::<Value>();
         let malformed = path.is_some() || params.get("output").is_none() && method == method::WRITE_EXPORT;
         match got {
+            Err(e) if plugin == "bare" => {
+                assert_eq!((e.code, e.message), (code::METHOD_NOT_FOUND, format!("unknown method {method:?}")))
+            }
             Err(e) if malformed => {
                 assert_eq!(e.kind(), Some("invalid_params"), "{e}");
                 let at = e.data.unwrap().fields.get("path").and_then(Value::as_str).map(str::to_string);
@@ -593,9 +630,6 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                     (e.code, e.message),
                     (code::INVALID_PARAMS, format!("invalid params: the manifest declares no {what} {name:?}"))
                 );
-            }
-            Err(e) if plugin == "bare" => {
-                assert_eq!((e.code, e.message), (code::METHOD_NOT_FOUND, format!("unknown method {method:?}")))
             }
             Err(e) if plugin == "panics" => {
                 assert_eq!((e.code, e.message), (code::INTERNAL, format!("internal error while handling {method:?}")));
@@ -617,7 +651,7 @@ fn step(id: &str) -> Value {
 /// of them comes as one or more reports that add up to it and end with its last.
 #[hegel::test(test_cases = 25)]
 fn a_hooks_progress_reaches_the_host_in_order_before_its_answer(tc: TestCase) {
-    let s = greeted(Answers);
+    let s = greeted(answers());
     let entry = gs::one_of(vec![
         gs::from_regex("warn:[a-z ]{0,6}").boxed(),
         gs::sampled_from(vec!["start".to_string(), "end".to_string()]).boxed(),
@@ -680,7 +714,7 @@ fn merged(reports: Vec<Value>) -> Vec<Value> {
 /// the plugin stops once they have answered.
 #[hegel::test(test_cases = 25)]
 fn cancelling_a_hook_reaches_it_and_its_callback(tc: TestCase) {
-    let s = greeted(Answers);
+    let s = greeted(answers());
     let hooks = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let closing = tc.draw(gs::integers::<usize>().max_value(2));
     let start =

@@ -1,7 +1,7 @@
 id = "coverart"
 name = "Cover art"
 version = "0.1.0"
-protocol = "^0.1"
+protocol = "^0.2"
 # It reads the drive's tracks and plans artwork edits. The Cover Art Archive's images are served
 # by archive.org, which redirects them to its own servers (`*.us.archive.org`, `*.ca.archive.org`):
 # `net:archive.org` stands for those too.
@@ -17,6 +17,7 @@ capabilities = [
 name = "fetch"
 title = "Fetch cover art"
 long_running = true
+where = ["track", "playlist", "drive"]
 
 [contributes.operations.params]
 type = "object"
@@ -25,11 +26,13 @@ additionalProperties = false
 [contributes.operations.params.properties.tracks]
 type = "array"
 items = { type = "integer", minimum = 0 }
+x-from = "selection.tracks"
 description = "Only these tracks, by id (the ones selected otherwise)"
 
 [contributes.operations.params.properties.playlist]
 type = "string"
 minLength = 1
+x-from = "selection.playlist"
 description = "Only this playlist's tracks, by path or unique name (the one open otherwise)"
 
 [contributes.operations.params.properties.replace]

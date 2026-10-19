@@ -24,6 +24,14 @@ pub fn recording(seed: u32, secs: f64, rate: u32, bits: u16, delay_ms: usize) ->
     wav_of(rate, bits, pcm.iter().map(|s| (s * scale) as i32))
 }
 
+/// loclib-plugin's echo plugin, which the plugin host's test plugin is, with its export format
+/// renamed: `m3u` is one of locallibrary's.
+#[cfg(debug_assertions)]
+pub fn echo_plugin() -> String {
+    const ECHO: &str = include_str!("../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
+    ECHO.replace("format = \"m3u\"", "format = \"echo-m3u\"")
+}
+
 /// The library's test fixtures: real rekordbox exports (see the README there).
 pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures")

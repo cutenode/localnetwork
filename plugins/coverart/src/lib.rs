@@ -15,7 +15,7 @@ use std::sync::Arc;
 use base64::prelude::*;
 use indexmap::IndexMap;
 use loclib_model::model::{Track, normalize};
-use loclib_plugin::{Capability, Host, Manifest, OpPlan, PlanOp, Plugin, RpcError, params};
+use loclib_plugin::{Capability, Hooks, Host, OpPlan, PlanOp, RpcError, TracksById, TracksQuery, params};
 use loclib_progress::{Ctx, Event, Phase};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -29,39 +29,35 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    let manifest = Manifest::parse(MANIFEST).expect("the manifest parses");
-    let plugin = Coverart::new(&manifest, Services::default(), Arc::new(SystemClock));
-    loclib_plugin::serve(&manifest, plugin, input, output);
+    loclib_plugin::serve(MANIFEST, Coverart::new(Services::default(), Arc::new(SystemClock)).hooks(), input, output);
 }
 
 struct Coverart {
     services: Services,
-    /// The hosts it talks to, by the manifest and the services' URLs: the only ones (with their
-    /// subdomains) a redirect may lead to.
-    hosts: Vec<String>,
     /// MusicBrainz's turns, shared by every operation under way.
     limiter: Limiter,
-    /// The `contact` setting's default, for a host that doesn't send the settings.
-    contact: String,
 }
 
 impl Coverart {
-    fn new(manifest: &Manifest, services: Services, clock: Arc<dyn Clock>) -> Coverart {
-        let declared = manifest.capabilities.iter().filter_map(|c| match c {
+    fn new(services: Services, clock: Arc<dyn Clock>) -> Coverart {
+        Coverart { services, limiter: Limiter::new(clock) }
+    }
+
+    fn hooks(self) -> Hooks {
+        Hooks::new().on(move |req: PlanOp, host: &Host| self.plan_op(req, host))
+    }
+
+    /// The hosts it talks to, by the manifest and the services' URLs: the only ones (with their
+    /// subdomains) a redirect may lead to.
+    fn hosts(&self, host: &Host) -> Vec<String> {
+        let declared = host.manifest().capabilities.iter().filter_map(|c| match c {
             Capability::Net(host) => Some(host.clone()),
             _ => None,
         });
-        let theirs = [&services.musicbrainz, &services.coverartarchive]
+        let theirs = [&self.services.musicbrainz, &self.services.coverartarchive]
             .into_iter()
             .filter_map(|url| Some(reqwest::Url::parse(url).ok()?.host_str()?.to_string()));
-        let contact = manifest.contributes.settings.iter().find(|s| s.key == "contact");
-        let contact = contact.and_then(|s| s.default.as_ref()?.as_str()).expect("the manifest has a contact");
-        Coverart {
-            hosts: declared.chain(theirs).collect(),
-            services,
-            limiter: Limiter::new(clock),
-            contact: contact.into(),
-        }
+        declared.chain(theirs).collect()
     }
 }
 
@@ -75,23 +71,6 @@ struct Fetch {
     #[serde(default)]
     replace: bool,
 }
-
-/// `tracks.query`'s answer, as far as this plugin reads it.
-#[derive(Deserialize)]
-struct TracksPage {
-    total: usize,
-    tracks: Vec<Track>,
-}
-
-/// `tracks.get`'s.
-#[derive(Deserialize)]
-struct TracksById {
-    missing: Vec<u32>,
-    tracks: Vec<Track>,
-}
-
-/// The most tracks the host gives by id at once.
-const IDS_AT_ONCE: usize = 1000;
 
 /// How much base64 a plan's images may add up to before the albums still to look up are left for
 /// another run: three quarters of the longest message, leaving room for one more image and the
@@ -119,7 +98,7 @@ impl fmt::Display for Album {
     }
 }
 
-impl Plugin for Coverart {
+impl Coverart {
     /// `fetch`: a `set_artwork` edit for each album whose cover was found, giving it to the
     /// album's tracks that lack artwork (all of them, with `replace`). Which tracks: `tracks`,
     /// else `playlist`, else the ones selected, else the playlist open, else the whole drive.
@@ -139,9 +118,12 @@ impl Plugin for Coverart {
         // whose image file is gone from the drive, which a plugin can't see.
         let albums = albums(chosen.into_iter().filter(|t| replace || t.artwork_path.is_none()), &mut warnings);
 
+        // Its default, for a host that doesn't send the settings.
+        let default = host.manifest().contributes.settings.iter().find(|s| s.key == "contact");
+        let default = default.and_then(|s| s.default.as_ref()?.as_str()).expect("the manifest has a contact");
         let contact = context.settings.get("contact").and_then(Value::as_str).map(str::trim);
-        let contact = contact.filter(|c| !c.is_empty()).unwrap_or(&self.contact);
-        let web = Web::new(contact, self.hosts.clone()).map_err(RpcError::internal)?;
+        let contact = contact.filter(|c| !c.is_empty()).unwrap_or(default);
+        let web = Web::new(contact, self.hosts(host)).map_err(RpcError::internal)?;
         let ctx = host.ctx();
         ctx.phase_start(Phase::Scan, albums.len() as u64, 0);
         let covers = self.covers(&web, &albums, &ctx, &mut warnings)?;
@@ -158,9 +140,7 @@ impl Plugin for Coverart {
         );
         Ok(OpPlan { summary, warnings, edits: edits.collect(), inputs: Vec::new() })
     }
-}
 
-impl Coverart {
     /// The covers of `albums` found, each in base64 with the tracks it goes on: one for each
     /// release group, downloaded once. Why an album has none is a warning.
     fn covers(
@@ -224,28 +204,13 @@ fn chosen(
     playlist: Option<&str>,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<Track>, RpcError> {
-    let mut tracks = Vec::new();
-    if !ids.is_empty() {
-        for ids in ids.chunks(IDS_AT_ONCE) {
-            let mut found: TracksById = host.call("tracks.get", &json!({ "drive": drive, "ids": ids }))?;
-            warnings.extend(found.missing.iter().map(|id| format!("track #{id} isn't on the drive")));
-            tracks.append(&mut found.tracks);
-        }
-        return Ok(tracks);
+    let drive = host.drive(drive);
+    if ids.is_empty() {
+        return drive.query(&TracksQuery { playlist: playlist.map(String::from), ..TracksQuery::default() });
     }
-    // A page at a time, of the size the host chooses.
-    loop {
-        let mut query = json!({ "drive": drive, "offset": tracks.len() });
-        if let Some(playlist) = playlist {
-            query["playlist"] = playlist.into();
-        }
-        let mut page: TracksPage = host.call("tracks.query", &query)?;
-        let last = page.tracks.is_empty();
-        tracks.append(&mut page.tracks);
-        if last || tracks.len() >= page.total {
-            return Ok(tracks);
-        }
-    }
+    let TracksById { tracks, missing } = drive.tracks(ids)?;
+    warnings.extend(missing.iter().map(|id| format!("track #{id} isn't on the drive")));
+    Ok(tracks)
 }
 
 /// `tracks` by album (by artist and name, ignoring letter case and spacing), in the order they

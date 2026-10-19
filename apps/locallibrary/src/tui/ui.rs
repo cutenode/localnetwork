@@ -681,9 +681,11 @@ impl Col {
 }
 
 /// A plugin's field's value as its column shows it: numbers to two places at most, a list
-/// joined.
+/// joined, and one worked out with nothing to show as a faint dash (a track not analysed has
+/// nothing there at all).
 fn field_cell(v: &FieldValue) -> Line<'static> {
     match v {
+        FieldValue::Null => Line::styled("-", faint()).right_aligned(),
         FieldValue::Number(n) => {
             let s = format!("{n:.2}");
             Line::styled(s.trim_end_matches('0').trim_end_matches('.').to_string(), fg(theme::AMBER)).right_aligned()
@@ -904,7 +906,7 @@ fn draw_tracks(f: &mut Frame, app: &mut App, area: Rect) {
                     Col::Album => Cell::from(Span::styled(tr.album.clone(), dim())),
                     Col::Genre => Cell::from(Span::styled(tr.genre.clone(), dim())),
                     Col::Tags => {
-                        let key = locallibrary::paths::key(&tr.file_path).to_lowercase();
+                        let key = locallibrary::paths::file_key(&tr.file_path);
                         let tags = my_tags.as_ref().and_then(|t| t.get(&key));
                         let names: Vec<&str> =
                             tags.into_iter().flatten().map(|t| t.rsplit('/').next().unwrap_or(t)).collect();
@@ -2496,6 +2498,11 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
             ),
         ];
         let room = inner_w.saturating_sub(label_w + 3);
+        // A secret as dots, one for each character typed.
+        let shown = |typed: &str| match field.is_secret() {
+            true => "•".repeat(typed.chars().count()),
+            false => typed.to_string(),
+        };
         match field.text.as_str() {
             "true" if field.is_switch() => spans.push(Span::styled("● yes", fg(theme::PINK))),
             _ if field.is_switch() => spans.push(Span::styled("○ no", faint())),
@@ -2505,10 +2512,11 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
                 spans.push(Span::styled(" ›", faint()));
             }
             typed if on => {
-                spans.push(Span::styled(typed_tail(typed, room.saturating_sub(1)).to_string(), bold(theme::FG)));
+                spans
+                    .push(Span::styled(typed_tail(&shown(typed), room.saturating_sub(1)).to_string(), bold(theme::FG)));
                 spans.push(Span::styled("▏", fg(theme::PINK)));
             }
-            typed => spans.push(Span::styled(clip(typed, room), text())),
+            typed => spans.push(Span::styled(clip(&shown(typed), room), text())),
         }
         if field.required && field.text.is_empty() {
             spans.push(Span::styled(if on { " required" } else { "required" }, faint()));

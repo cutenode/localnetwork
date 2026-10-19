@@ -3,33 +3,18 @@
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Exported, ExportedFile, FieldValue, Host, Manifest, OpPlan, PlanOp, Plugin, RpcError,
-    RunCommand, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Exported, ExportedFile, FieldValue, Hooks, Host, OpPlan, PlanOp, RpcError, RunCommand,
+    TracksQuery, View, WriteExport, params,
 };
 use loclib_progress::{Event, Phase, Steps};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-pub fn manifest() -> Manifest {
-    Manifest::parse(include_str!("locallibrary-plugin.toml")).expect("the manifest parses")
-}
+pub const MANIFEST: &str = include_str!("locallibrary-plugin.toml");
 
-pub struct Echo;
-
-/// `tracks.query`'s result, as far as this plugin reads it.
-#[derive(Deserialize)]
-struct TracksPage {
-    tracks: Vec<TrackRow>,
-}
-
-#[derive(Deserialize)]
-struct TrackRow {
-    title: String,
-    file_path: String,
-}
-
-fn tracks(host: &Host, drive: &str) -> Result<Vec<TrackRow>, RpcError> {
-    Ok(host.call::<_, TracksPage>("tracks.query", &json!({ "drive": drive }))?.tracks)
+/// Its hooks: one of each kind.
+pub fn hooks() -> Hooks {
+    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op)
 }
 
 #[derive(Deserialize)]
@@ -37,63 +22,67 @@ struct PlaylistParams {
     name: String,
 }
 
-impl Plugin for Echo {
-    fn run_command(&self, req: RunCommand, host: &Host) -> Result<Value, RpcError> {
-        match req.command.as_str() {
-            "echo" => Ok(req.params),
-            "titles" => {
-                let drive = req.context.drive.unwrap_or_default();
-                let rows = tracks(host, &drive)?.into_iter().map(|t| vec![Value::from(t.title)]).collect();
-                let view = View::Table { title: Some(drive), columns: vec!["Title".into()], rows };
-                Ok(serde_json::to_value(view).expect("a view is JSON"))
+/// `command/run`.
+pub fn run_command(req: RunCommand, host: &Host) -> Result<Value, RpcError> {
+    match req.command.as_str() {
+        "echo" => Ok(req.params),
+        "titles" => {
+            let drive = req.context.drive.unwrap_or_default();
+            let tracks = host.drive(&drive).query(&TracksQuery::default())?;
+            let rows = tracks.into_iter().map(|t| vec![Value::from(t.title)]).collect();
+            let view = View::Table { title: Some(drive), columns: vec!["Title".into()], rows };
+            Ok(serde_json::to_value(view).expect("a view is JSON"))
+        }
+        "steps" => {
+            let ctx = host.ctx();
+            let steps = Steps::new(&ctx, vec!["scan"]);
+            steps.begin("scan");
+            for track in ["a.mp3", "b.mp3", "c.mp3"] {
+                let item = Event::Item { phase: Phase::Scan, path: track.into(), bytes: 0 };
+                steps.ctx().for_target("USB", |ctx| ctx.emit(item));
             }
-            "steps" => {
-                let ctx = host.ctx();
-                let steps = Steps::new(&ctx, vec!["scan"]);
-                steps.begin("scan");
-                for track in ["a.mp3", "b.mp3", "c.mp3"] {
-                    let item = Event::Item { phase: Phase::Scan, path: track.into(), bytes: 0 };
-                    steps.ctx().for_target("USB", |ctx| ctx.emit(item));
-                }
-                Ok(Value::Null)
-            }
-            _ => {
-                let ctx = host.ctx();
-                ctx.phase_start(Phase::Scan, 0, 0);
-                // Held back, then sent once it has waited, though no event follows.
-                ctx.emit(Event::Item { phase: Phase::Scan, path: "a.mp3".into(), bytes: 0 });
-                loop {
-                    ctx.check()?;
-                    std::thread::sleep(Duration::from_millis(5));
-                }
+            Ok(Value::Null)
+        }
+        _ => {
+            let ctx = host.ctx();
+            ctx.phase_start(Phase::Scan, 0, 0);
+            // Held back, then sent once it has waited, though no event follows.
+            ctx.emit(Event::Item { phase: Phase::Scan, path: "a.mp3".into(), bytes: 0 });
+            loop {
+                ctx.check()?;
+                std::thread::sleep(Duration::from_millis(5));
             }
         }
     }
+}
 
-    fn analyze_track(&self, req: AnalyzeTrack, _: &Host) -> Result<Analysis, RpcError> {
-        let bytes = std::fs::metadata(&req.track.audio_path).map_err(|e| RpcError::failed("io", e.to_string()))?.len();
-        let bytes = FieldValue::Integer(bytes.try_into().unwrap_or(i64::MAX));
-        Ok(Analysis { fields: [("bytes".into(), bytes)].into_iter().collect() })
-    }
+/// `track/analyze`.
+pub fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
+    let bytes = std::fs::metadata(&req.track.audio_path).map_err(|e| RpcError::failure(&e, "io", &host.ctx()))?.len();
+    let bytes = FieldValue::Integer(bytes.try_into().unwrap_or(i64::MAX));
+    Ok(Analysis { fields: [("bytes".into(), bytes)].into_iter().collect() })
+}
 
-    fn write_export(&self, req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
-        let lines: Vec<String> = tracks(host, &req.source.drive)?.into_iter().map(|t| t.file_path).collect();
-        let text = format!("#EXTM3U\n{}\n", lines.join("\n"));
-        if !req.dry_run {
-            std::fs::write(&req.output, &text).map_err(|e| RpcError::failed("io", e.to_string()))?;
-        }
-        let file = ExportedFile { path: req.output, what: "playlist".into(), bytes: text.len() as u64 };
-        let counts = [("tracks".to_string(), lines.len() as u64)].into_iter().collect();
-        Ok(Exported { files: vec![file], counts, ..Exported::default() })
+/// `export/write`.
+pub fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
+    let tracks = host.drive(&req.source.drive).query(&TracksQuery::default())?;
+    let lines: Vec<String> = tracks.into_iter().map(|t| t.file_path).collect();
+    let text = format!("#EXTM3U\n{}\n", lines.join("\n"));
+    if !req.dry_run {
+        std::fs::write(&req.output, &text).map_err(|e| RpcError::failure(&e, "io", &host.ctx()))?;
     }
+    let file = ExportedFile { path: req.output, what: "playlist".into(), bytes: text.len() as u64 };
+    let counts = [("tracks".to_string(), lines.len() as u64)].into_iter().collect();
+    Ok(Exported { files: vec![file], counts, ..Exported::default() })
+}
 
-    fn plan_op(&self, req: PlanOp, _: &Host) -> Result<OpPlan, RpcError> {
-        let PlaylistParams { name } = params(req.params)?;
-        Ok(OpPlan {
-            summary: format!("make the playlist {name}"),
-            warnings: Vec::new(),
-            edits: vec![json!({ "op": "create_playlist", "path": name })],
-            inputs: Vec::new(),
-        })
-    }
+/// `op/plan`.
+pub fn plan_op(req: PlanOp, _: &Host) -> Result<OpPlan, RpcError> {
+    let PlaylistParams { name } = params(req.params)?;
+    Ok(OpPlan {
+        summary: format!("make the playlist {name}"),
+        warnings: Vec::new(),
+        edits: vec![json!({ "op": "create_playlist", "path": name })],
+        inputs: Vec::new(),
+    })
 }

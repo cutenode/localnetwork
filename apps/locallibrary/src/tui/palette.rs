@@ -185,7 +185,9 @@ impl App {
     /// `:`: every action by name, then plugins' commands, operations and analyzers, in the
     /// library the columns of their fields, and their settings.
     pub(super) fn open_palette(&mut self) {
-        let acts = commands(self.view).into_iter().chain(self.plugin_items(self.action_drive().as_deref()));
+        let acts = commands(self.view)
+            .into_iter()
+            .chain(self.plugin_items(self.action_drive().as_deref(), &super::plugins::EVERYWHERE));
         let fields = (self.view == View::Library).then(|| self.field_items()).into_iter().flatten();
         let (acts, items): (Vec<Act>, Vec<Item>) = acts.chain(fields).chain(self.settings_items()).unzip();
         let mut p = Picker::new("Commands", items, Then::Act(acts));

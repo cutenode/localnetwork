@@ -10,10 +10,12 @@ use std::thread::JoinHandle;
 use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_interop::{Content, File};
+use loclib_model::analysis::{Beat, Cue};
 use loclib_model::model::{ONELIBRARY_ONLY, Playlist};
 use loclib_model::test_util::track;
-use loclib_plugin::{Capability, Incoming, PROTOCOL_VERSION, Peer, check_params, method};
+use loclib_plugin::{Capability, Incoming, Manifest, PROTOCOL_VERSION, Peer, check_params, method};
 use loclib_progress::Ctx;
+use serde_json::json;
 use tempfile::TempDir;
 
 use super::*;
@@ -192,9 +194,10 @@ fn read(
         return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
     }
     match method {
-        "drive.info" => {
-            Ok(json!({ "root": root, "volume_name": "USB", "name": "USB", "id": null, "has_export": true }))
-        }
+        "drive.info" => Ok(json!({
+            "root": root, "volume_name": "USB", "name": "USB", "id": null,
+            "has_export": true, "has_device_library": true, "has_library_plus": true
+        })),
         "drive.library" => {
             let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
             let limit = params.get("limit").and_then(Value::as_u64).map_or(PAGE, |n| (n as usize).min(PAGE));
@@ -204,7 +207,7 @@ fn read(
         }
         _ => {
             let ids: Vec<u32> = serde_json::from_value(params["ids"].clone()).unwrap();
-            if ids.len() > ANALYSES_AT_ONCE {
+            if ids.len() > loclib_plugin::MAX_ANALYSES {
                 return Err(RpcError::failed("invalid", format!("at most 100 tracks at a time, not {}", ids.len())));
             }
             let (found, missing): (Vec<u32>, Vec<u32>) = ids.into_iter().partition(|id| lib.track(*id).is_some());
@@ -652,22 +655,23 @@ fn audio_outside_the_drive_isnt_copied() {
 #[test]
 fn loclib_interops_errors_keep_their_kinds() {
     let io = Error::Io { path: "/out/a".into(), source: std::io::Error::other("full") };
-    let kinds = [
-        failure(Error::Cancelled(loclib_progress::Cancelled)),
-        failure(io),
-        failure(Error::Tags("no".into())),
-        failure(Error::Invalid("no".into())),
-    ]
-    .map(|e| (e.code, e.kind().map(String::from)));
+    let ctx = Ctx::silent();
+    let kinds =
+        [failure(io, &ctx), failure(Error::Tags("no".into()), &ctx), failure(Error::Invalid("no".into()), &ctx)]
+            .map(|e| (e.code, e.kind().map(String::from), e.message));
     assert_eq!(
         kinds,
         [
-            (code::FAILED, Some("cancelled".into())),
-            (code::FAILED, Some("io".into())),
-            (code::FAILED, Some("tags".into())),
-            (code::INVALID_PARAMS, Some("invalid".into())),
+            (code::FAILED, Some("io".into()), "/out/a: full".into()),
+            (code::FAILED, Some("tags".into()), "tags: no".into()),
+            (code::FAILED, Some("invalid".into()), "no".into()),
         ]
     );
+    let cancel = loclib_progress::CancelToken::new();
+    cancel.cancel();
+    let cancelled =
+        failure(Error::Cancelled(loclib_progress::Cancelled), &Ctx::new(&loclib_progress::NoProgress, cancel));
+    assert_eq!(cancelled, RpcError::cancelled());
 }
 
 /// For any of the three formats, any choice of playlists, any options its schema takes, the audio
@@ -768,7 +772,9 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
         (options["skip_analysis"] == true, options["write_tags"] == true, options["paths"] == "drive");
     let software: Software = serde_json::from_value(json!(format)).unwrap();
     // What stops the export, in the order it finds it: what it can't take, then (once it has
-    // read the library) a playlist the drive hasn't, the cancel, and audio out of the drive.
+    // read the library) a playlist the drive hasn't, the cancel, and audio out of the drive. Each
+    // is `invalid`, refused as invalid params but audio out of the drive, which loclib-interop
+    // finds: an export that failed.
     let want = (!lists.contains(&"Sunday")).then(|| expected(&drive, &lists));
     let carried = match software {
         Software::Traktor => true,
@@ -777,17 +783,18 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
     };
     let analysed = carried && !skip && want.as_ref().is_some_and(|w| !w.library.tracks.is_empty());
     let has_linked = want.as_ref().is_some_and(|w| w.library.tracks.iter().any(|t| t.file_path == linked_track));
+    let refused = |why: String| Some(Some((code::INVALID_PARAMS, why)));
     let stopped = |cancel: Option<&str>| match () {
-        _ if history => Some(Some(format!("{} doesn't take history lists", software.name()))),
-        _ if relative => Some(Some("the location root must be an absolute path, not Music".to_string())),
+        _ if history => refused(format!("{} doesn't take history lists", software.name())),
+        _ if relative => refused("the location root must be an absolute path, not Music".to_string()),
         _ if tags && root.is_some() => {
-            Some(Some("a location root doesn't go with writing tags: the crates list the tagged copies".into()))
+            refused("a location root doesn't go with writing tags: the crates list the tagged copies".into())
         }
         _ if cancel == Some("drive.library") => Some(None),
-        _ if want.is_none() => Some(Some("not found: playlist \"Sunday\"".into())),
+        _ if want.is_none() => refused("not found: playlist \"Sunday\"".into()),
         _ if cancel == Some("tracks.analysis") && analysed => Some(None),
         _ if linked && tags && has_linked => {
-            Some(Some(format!("refusing {linked_track:?}: it resolves outside the drive")))
+            Some(Some((code::FAILED, format!("refusing {linked_track:?}: it resolves outside the drive"))))
         }
         _ => None,
     };
@@ -800,9 +807,9 @@ fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
         }
         _ => planned,
     };
-    if let Some(Some(why)) = stopped(None) {
+    if let Some(Some((said, why))) = stopped(None) {
         let e = planned.unwrap_err();
-        assert_eq!((e.code, e.kind(), e.message.as_str()), (code::INVALID_PARAMS, Some("invalid"), why.as_str()));
+        assert_eq!((e.code, e.kind(), e.message.as_str()), (said, Some("invalid"), why.as_str()));
         let e = session.export_of(format, source, &output, options, false).unwrap_err();
         assert_eq!(e.message, why);
         assert_eq!(files(&output), before, "nothing is written");

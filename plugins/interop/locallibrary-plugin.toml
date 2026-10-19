@@ -1,7 +1,7 @@
 id = "interop"
 name = "Other DJ software"
 version = "0.1.0"
-protocol = "^0.1"
+protocol = "^0.2"
 # library:read for the library exports read (`combined`), analysis:read for beat grids and cues,
 # drive:info for where the drive is mounted: the files name the audio by its full path.
 capabilities = ["library:read", "analysis:read", "drive:info"]

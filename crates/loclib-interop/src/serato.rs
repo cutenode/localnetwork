@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 
 use base64::prelude::*;
 use loclib_model::analysis::Cue;
+use loclib_model::audio::Format;
 use loclib_model::{Library, Playlist, Track, TrackColor, paths};
 use loclib_progress::{Ctx, Event, Phase};
 
@@ -324,10 +325,10 @@ impl Markers {
 /// the audio get Serato's tag only in these formats.
 fn tag_kind(name: &str) -> Option<lofty::file::FileType> {
     use lofty::file::FileType;
-    match name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref() {
-        Some("mp3") => Some(FileType::Mpeg),
-        Some("aif" | "aiff") => Some(FileType::Aiff),
-        Some("wav") => Some(FileType::Wav),
+    match Format::from_name(name)? {
+        Format::Mp3 => Some(FileType::Mpeg),
+        Format::Aiff => Some(FileType::Aiff),
+        Format::Wav => Some(FileType::Wav),
         _ => None,
     }
 }

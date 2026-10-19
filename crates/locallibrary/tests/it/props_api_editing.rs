@@ -471,7 +471,7 @@ fn tag_edits_follow_a_model(tc: TestCase) {
             let mut have: Vec<String> =
                 model.iter().filter(|(_, on)| on.contains(&t.id)).map(|(n, _)| n.clone()).collect();
             have.sort();
-            let mut got = by_track.get(&paths::key(&t.file_path).to_lowercase()).cloned().unwrap_or_default();
+            let mut got = by_track.get(&paths::file_key(&t.file_path)).cloned().unwrap_or_default();
             got.sort();
             assert_eq!(got, have, "#{}'s tags", t.id);
         }
@@ -483,7 +483,7 @@ fn tag_edits_follow_a_model(tc: TestCase) {
         let renamed = format!("{}/Renamed", tag.split_once('/').unwrap().0);
         let by_track = api::tags_by_track(&DriveRef { drive: path(&root) }).unwrap();
         for id in on {
-            let key = paths::key(&lib.track(id).unwrap().file_path).to_lowercase();
+            let key = paths::file_key(&lib.track(id).unwrap().file_path);
             assert!(by_track[&key].contains(&renamed), "#{id} lost its tag: {:?}", by_track[&key]);
         }
     }

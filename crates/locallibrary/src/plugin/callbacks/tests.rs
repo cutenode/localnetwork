@@ -17,7 +17,7 @@ use crate::plugin::Options;
 /// A plugin granted `capabilities`.
 fn granted(capabilities: &[&str]) -> Manifest {
     let list: Vec<String> = capabilities.iter().map(|c| format!("{c:?}")).collect();
-    let head = "id = \"p\"\nname = \"P\"\nversion = \"0.1.0\"\nprotocol = \"^0.1\"";
+    let head = "id = \"p\"\nname = \"P\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"";
     Manifest::parse(&format!("{head}\ncapabilities = [{}]\n", list.join(", "))).unwrap()
 }
 

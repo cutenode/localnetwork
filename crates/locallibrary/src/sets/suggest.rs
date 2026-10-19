@@ -11,7 +11,7 @@ use crate::device::Device;
 use crate::fleet::Role;
 use crate::mix::report;
 use crate::model::normalize;
-use crate::plays;
+use crate::paths;
 use crate::sets::{Session, Window};
 use crate::store::Store;
 
@@ -91,7 +91,7 @@ pub(crate) fn suggest(store: Option<&Store>, sessions: &[Session], drives: &[Dev
         Some(store) => report::list(store.root())?
             .into_iter()
             .filter_map(|r| report::load(store.root(), &r.id).ok())
-            .map(|r| (r.mix.title, r.plays.iter().map(|p| plays::file_key(&p.track.file_path)).collect()))
+            .map(|r| (r.mix.title, r.plays.iter().map(|p| paths::file_key(&p.track.file_path)).collect()))
             .collect(),
         None => Vec::new(),
     };

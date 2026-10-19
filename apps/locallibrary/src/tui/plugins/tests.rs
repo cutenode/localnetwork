@@ -743,6 +743,77 @@ fn an_export_takes_the_marked_playlists() {
     assert!(c.export().unwrap().plan.notes.is_empty(), "none marked: the whole drive");
 }
 
+/// Plugins' commands and operations are in the menus their manifests say: the actions menu has
+/// those for tracks or a playlist, each needing what it works on selected, and a drive's menu
+/// those for a drive.
+#[test]
+fn menus_offer_what_plugins_say_where() {
+    use super::super::edits::{Action, Target, menu_items};
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    // Its operation for a playlist alone, and its view command for tracks and a drive.
+    let file = dir.path().join("echo.toml");
+    let manifest = std::fs::read_to_string(&file)
+        .unwrap()
+        .replace(r#"where = ["track", "playlist", "drive"]"#, r#"where = ["playlist"]"#)
+        .replacen("mode = \"view\"\n", "mode = \"view\"\nwhere = [\"track\", \"drive\"]\n", 1);
+    std::fs::write(&file, manifest).unwrap();
+    let offered = |tracks: &[&str], node: Option<(&str, bool)>| {
+        let t = Target {
+            root: root.clone(),
+            tracks: tracks.iter().map(|t| t.to_string()).collect(),
+            node: node.map(|(path, folder)| (path.to_string(), folder)),
+            ..Target::default()
+        };
+        let plugins = menu_items(&t).into_iter().filter(|i| matches!(i.action, Action::Plugin(..)));
+        plugins.map(|i| (i.label, i.unavailable)).collect::<Vec<_>>()
+    };
+    let said = |label: &str, why: Option<&str>| (label.to_string(), why.map(String::from));
+    let track = Some("no track selected");
+    let playlist = Some("select a playlist");
+    assert_eq!(
+        offered(&["/Contents/a.mp3"], None),
+        [
+            said("fetch cover art…", None),
+            said(
+                "make a playlist from a tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or \"Artist - Title\" lines…",
+                playlist
+            ),
+            said("list the drive's tracks", None),
+            said("make a playlist…", playlist),
+        ]
+    );
+    let on_a_list: Vec<_> = offered(&[], Some(("Sets/Friday", false))).into_iter().map(|(_, why)| why).collect();
+    assert_eq!(on_a_list, [None, None, track.map(String::from), None]);
+    let on_a_folder: Vec<_> = offered(&[], Some(("Sets", true))).into_iter().map(|(_, why)| why).collect();
+    assert_eq!(on_a_folder, [track, playlist, track, playlist].map(|w| w.map(String::from)));
+
+    let app = app_on(&root);
+    let drive: Vec<String> = app.plugin_items(Some(&root), &[Where::Drive]).into_iter().map(|(_, i)| i.label).collect();
+    assert!(drive.iter().any(|l| l == "list the drive's tracks") && drive.iter().any(|l| l == "answer the params…"));
+    assert!(!drive.iter().any(|l| l == "make a playlist…"), "for a playlist alone: {drive:?}");
+    let everything = app.plugin_items(Some(&root), &EVERYWHERE);
+    assert!(everything.iter().any(|(_, i)| i.label == "make a playlist…"), "the palette has it");
+}
+
+/// A secret setting is typed as a password is: the form shows a dot for each character.
+#[test]
+fn a_secret_is_typed_unseen() {
+    let secret = Setting {
+        key: "token".into(),
+        title: "Token".into(),
+        kind: SettingType::Secret,
+        default: None,
+        choices: Vec::new(),
+    };
+    let mut form = Form::with("Keys".into(), Some(settings_schema(&[secret])), &Map::new(), For::Settings("echo"));
+    form.fields[0].text = "hunter2".into();
+    let (mut app, _store) = blank(Screen::Library);
+    app.modal = Some(Modal::Form(form));
+    let s = screen(&mut app, 80, 24);
+    assert!(s.contains("•••••••") && !s.contains("hunter2"), "{s}");
+}
+
 // -------------------------------------------------------------------------------------------------
 // Properties: the plugins' entries driven with keys, drawn values, at drawn sizes.
 // -------------------------------------------------------------------------------------------------
@@ -756,7 +827,7 @@ use super::super::palette::Then;
 /// Where a case runs plugins: with no drive open, on one plugged in, or on a folder opened by
 /// path (which a plugin can't name).
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Where {
+enum Opened {
     Nowhere,
     Plugged,
     Folder,
@@ -765,18 +836,18 @@ enum Where {
 /// The library shown with a drive as `at` says, its store in a folder of its own, and the drive
 /// (taken out when it's dropped).
 #[hegel::test_helper]
-fn somewhere(tc: &TestCase) -> (Where, App, Option<Plugged>, tempfile::TempDir) {
+fn somewhere(tc: &TestCase) -> (Opened, App, Option<Plugged>, tempfile::TempDir) {
     plugins_once();
-    let at = tc.draw(gs::sampled_from(&[Where::Nowhere, Where::Plugged, Where::Plugged, Where::Folder][..]));
+    let at = tc.draw(gs::sampled_from(&[Opened::Nowhere, Opened::Plugged, Opened::Plugged, Opened::Folder][..]));
     let (mut app, store) = blank(Screen::Library);
-    if at == Where::Nowhere {
+    if at == Opened::Nowhere {
         return (at, app, None, store);
     }
     let drive = plugged();
     let store_root = app.store_root.clone();
     app = app_on(&drive.0);
     app.store_root = store_root;
-    if at == Where::Folder {
+    if at == Opened::Folder {
         app.extra_roots.push(drive.0.clone());
     }
     (at, app, Some(drive), store)
@@ -838,9 +909,9 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     // Every plugin here reads the drive: its hooks need one plugged in, its settings and columns
     // don't.
     let why = match at {
-        Where::Nowhere => Some("open a drive first"),
-        Where::Folder => Some("only on a plugged-in drive"),
-        Where::Plugged => None,
+        Opened::Nowhere => Some("open a drive first"),
+        Opened::Folder => Some("only on a plugged-in drive"),
+        Opened::Plugged => None,
     };
     let in_menu = drive.is_some() && tc.draw(gs::booleans());
     if let Some(d) = drive.as_ref().filter(|_| in_menu) {

@@ -22,7 +22,7 @@ use rekordbox_pdb::{NewTrack, PdbEditor};
 
 /// Track files, and playlists by path with their entries' files, comparable across databases.
 fn shape(lib: &Library) -> (BTreeSet<String>, Vec<(String, Vec<String>)>) {
-    let key = |p: &str| paths::key(p).to_lowercase();
+    let key = paths::file_key;
     let files = lib.tracks.iter().map(|t| key(&t.file_path)).collect();
     let mut lists: Vec<(String, Vec<String>)> = lib
         .playlists

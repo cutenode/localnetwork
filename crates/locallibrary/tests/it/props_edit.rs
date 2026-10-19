@@ -48,11 +48,6 @@ fn plus_db() -> &'static [u8] {
     })
 }
 
-/// A track across databases: its audio file's key, lower-cased (as edits match them).
-fn tkey(device_path: &str) -> String {
-    paths::key(device_path).to_lowercase()
-}
-
 /// The track details an edit can change.
 #[derive(Clone, Debug, PartialEq)]
 struct Details {
@@ -120,7 +115,7 @@ struct Shape {
 }
 
 fn shape(lib: &Library) -> Shape {
-    let keys: FxHashMap<u32, String> = lib.tracks.iter().map(|t| (t.id, tkey(&t.file_path))).collect();
+    let keys: FxHashMap<u32, String> = lib.tracks.iter().map(|t| (t.id, paths::file_key(&t.file_path))).collect();
     let entries = |ids: &[u32]| -> Vec<String> {
         ids.iter().map(|id| keys.get(id).cloned().unwrap_or_else(|| format!("<no track #{id}>"))).collect()
     };
@@ -141,7 +136,7 @@ fn shape(lib: &Library) -> Shape {
     history.sort_by_key(|h| (h.sort_order, h.id));
     let s = Shape {
         top,
-        tracks: lib.tracks.iter().map(|t| (tkey(&t.file_path), Details::from(t))).collect(),
+        tracks: lib.tracks.iter().map(|t| (paths::file_key(&t.file_path), Details::from(t))).collect(),
         history: history.iter().map(|h| (h.name.clone(), entries(&h.track_ids))).collect(),
     };
     assert_eq!(s.walk().len(), lib.playlists.len(), "every playlist hangs off the tree");
@@ -404,7 +399,7 @@ fn track_rows(root: &Path) -> IndexMap<String, usize> {
                 .filter(|(_, name)| !edited.contains(name))
                 .map(|(s, name)| if name == "isrc" { common::isrc_len(s) } else { encoded_len(s) }.next_multiple_of(4))
                 .sum();
-            (tkey(t.file_path()), 136 + others + 4)
+            (paths::file_key(t.file_path()), 136 + others + 4)
         })
         .collect()
 }
@@ -446,7 +441,7 @@ impl Model {
         }
         let mut out = Vec::new();
         for p in &sel.paths {
-            let k = tkey(p);
+            let k = paths::file_key(p);
             if !self.shape.tracks.contains_key(&k) {
                 return Err(format!("no track at {p}"));
             }
@@ -864,7 +859,7 @@ impl Drive {
         assert_eq!(set(&plan.playlists_deleted), old.difference(&new).cloned().collect(), "playlists deleted");
         let removed: BTreeSet<String> =
             self.model.shape.tracks.keys().filter(|k| !after.shape.tracks.contains_key(*k)).cloned().collect();
-        let planned: BTreeSet<String> = plan.tracks_removed.iter().map(|t| tkey(&t.file_path)).collect();
+        let planned: BTreeSet<String> = plan.tracks_removed.iter().map(|t| paths::file_key(&t.file_path)).collect();
         assert_eq!(planned, removed, "tracks removed");
     }
 
@@ -880,7 +875,7 @@ impl Drive {
         assert_rekordcrate_agrees(&self.root, &lib);
         for p in &self.pool {
             let present = paths::to_fs(&self.root, &paths::key(p)).is_file();
-            assert_eq!(present, !self.model.audio_gone.contains(&tkey(p)), "audio of {p} on the drive");
+            assert_eq!(present, !self.model.audio_gone.contains(&paths::file_key(p)), "audio of {p} on the drive");
         }
     }
 
@@ -1373,7 +1368,7 @@ fn names_and_details_are_planned_exactly_when_export_pdb_holds_them(tc: TestCase
                 (fields(f), None)
             }
             _ => {
-                let others = track_rows(&root)[&tkey(&track.file_path)];
+                let others = track_rows(&root)[&paths::file_key(&track.file_path)];
                 // One, two or all three of the strings sharing the track's row, together near the limit.
                 let mut f = TrackFields::default();
                 let budget = 4050 - others;
@@ -1458,7 +1453,7 @@ fn a_replay_on_an_export_missing_what_the_edits_used_skips_it(tc: TestCase) {
     let ids: Vec<u32> = db.tracks.iter().map(|t| t.id).collect();
     let gone: Vec<u32> = crate::drawn::some(&tc, &ids).into_iter().take(3).collect();
     let gone_files: BTreeSet<String> =
-        db.tracks.iter().filter(|t| gone.contains(&t.id)).map(|t| tkey(t.file_path())).collect();
+        db.tracks.iter().filter(|t| gone.contains(&t.id)).map(|t| paths::file_key(t.file_path())).collect();
     let lists: Vec<u32> = db.playlist_tree.iter().map(|n| n.id).collect();
     let history: Vec<u32> = db.history_playlists.iter().map(|h| h.id).collect();
     ed.remove_tracks(&gone).unwrap();
@@ -1473,9 +1468,9 @@ fn a_replay_on_an_export_missing_what_the_edits_used_skips_it(tc: TestCase) {
     tc.note(&format!("journal: {edits:?}\nwarnings: {:?}", plan.warnings));
     edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
     let after = d.library().unwrap();
-    let files: BTreeSet<String> = after.tracks.iter().map(|t| tkey(&t.file_path)).collect();
+    let files: BTreeSet<String> = after.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     assert!(files.is_disjoint(&gone_files), "a missing track came back");
-    let before: BTreeSet<String> = exported.tracks.iter().map(|t| tkey(&t.file_path)).collect();
+    let before: BTreeSet<String> = exported.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     assert!(files.is_subset(&before), "a replay adds no tracks");
     // Each playlist that's left is one the export or the edits made.
     let made: BTreeSet<String> = drive.model.shape.walk().into_iter().map(|(_, path)| path).collect();
@@ -1598,7 +1593,7 @@ fn plan_refuses_names_and_details_one_character_too_long_for_export_pdb() {
         let dir = tempfile::tempdir().unwrap();
         let root = fresh_pdb_drive(dir.path());
         let track = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks[0].clone();
-        let others = track_rows(&root)[&tkey(&track.file_path)];
+        let others = track_rows(&root)[&paths::file_key(&track.file_path)];
         let title_fits = |n: usize| details_fit(others, &Details { title: c.repeat(n), ..Details::from(&track) });
         let title_max = (0..).take_while(|n| title_fits(*n)).last().unwrap();
         let fields = |title: Option<usize>, genre: Option<usize>| Edit::EditTracks {
@@ -1715,7 +1710,7 @@ fn replacing_a_track_only_history_lists_hold_repoints_them() {
     apply(&root, &[Edit::DeletePlaylist { playlist: "aab".into(), with_tracks: false }]);
     let files = replace_keeping(&root, 0, 1);
     let d = Device::open_export(&root).unwrap();
-    let (two, three) = (tkey(&files[1]), tkey(&files[2]));
+    let (two, three) = (paths::file_key(&files[1]), paths::file_key(&files[2]));
     let expected = vec![
         ("HISTORY 001".to_string(), vec![two.clone(), two.clone()]),
         ("History 002".to_string(), vec![three, two]),

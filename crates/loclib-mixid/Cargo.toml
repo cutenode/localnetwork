@@ -11,6 +11,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+loclib-model.workspace = true
 loclib-progress.workspace = true
 rustc-hash.workspace = true
 rustfft.workspace = true

@@ -8,6 +8,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use loclib_model::audio::Format;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -52,12 +53,11 @@ fn location(root: &Path, file_path: &str) -> String {
 }
 
 fn kind(path: &str) -> &'static str {
-    match path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str() {
-        "mp3" => "MP3 File",
-        "m4a" | "mp4" | "aac" => "M4A File",
-        "wav" => "WAV File",
-        "aif" | "aiff" => "AIFF File",
-        "flac" => "FLAC File",
+    match Format::from_name(path) {
+        Some(Format::Aac | Format::Mpeg4) => "M4A File",
+        Some(Format::Wav) => "WAV File",
+        Some(Format::Aiff) => "AIFF File",
+        Some(Format::Flac) => "FLAC File",
         _ => "MP3 File",
     }
 }

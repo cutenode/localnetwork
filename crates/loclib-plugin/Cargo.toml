@@ -13,11 +13,13 @@ repository.workspace = true
 [dependencies]
 indexmap.workspace = true
 jsonschema.workspace = true
+loclib-model.workspace = true
 loclib-progress = { workspace = true, features = ["schemars"] }
 rustc-hash.workspace = true
 schemars = { version = "1.2", default-features = false, features = ["derive", "std", "indexmap2"] }
 semver = "1.0.28"
 serde.workspace = true
+serde_ignored = "0.1.14"
 serde_json.workspace = true
 serde_path_to_error.workspace = true
 thiserror.workspace = true

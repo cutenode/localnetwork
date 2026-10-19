@@ -63,6 +63,11 @@ impl TidyKind {
             TidyKind::TempFiles => "files a cut-off write left (.locallibrary-tmp-*)",
         }
     }
+
+    /// Whether it's a folder, removed with all it holds, rather than a file.
+    fn is_dir(self) -> bool {
+        matches!(self, TidyKind::TemporaryItems | TidyKind::Spotlight | TidyKind::FsEvents | TidyKind::Trash)
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -120,27 +125,16 @@ fn is_apple_double(path: &Path) -> bool {
 }
 
 fn dir_kind(name: &str) -> Option<TidyKind> {
-    match name {
-        ".Spotlight-V100" => Some(TidyKind::Spotlight),
-        ".fseventsd" => Some(TidyKind::FsEvents),
-        ".TemporaryItems" => Some(TidyKind::TemporaryItems),
-        ".Trashes" => Some(TidyKind::Trash),
-        n if n.eq_ignore_ascii_case("$RECYCLE.BIN") => Some(TidyKind::Trash),
-        _ => None,
-    }
+    paths::clutter_kind(name).filter(|k| k.is_dir())
 }
 
 fn file_kind(path: &Path, name: &str) -> Option<TidyKind> {
     if name.starts_with("._") && is_apple_double(path) {
         Some(TidyKind::AppleDouble)
-    } else if name == ".DS_Store" {
-        Some(TidyKind::DsStore)
-    } else if name.eq_ignore_ascii_case("Thumbs.db") {
-        Some(TidyKind::Thumbnails)
     } else if name.starts_with(paths::TEMP_PREFIX) {
         Some(TidyKind::TempFiles)
     } else {
-        None
+        paths::clutter_kind(name).filter(|k| !k.is_dir())
     }
 }
 
@@ -157,7 +151,7 @@ pub fn plan(device: &Device, opts: &TidyOptions, ctx: &Ctx<'_>) -> Result<TidyPl
         let name = entry.file_name().to_string_lossy().to_string();
         let rel = entry.path().strip_prefix(root).expect("below root").to_string_lossy().replace('\\', "/");
         if entry.file_type().is_dir() {
-            if entry.depth() == 1 && (name == paths::STATE_DIR || name == "System Volume Information") {
+            if entry.depth() == 1 && (name == paths::STATE_DIR || name == paths::SYSTEM_VOLUME_INFORMATION) {
                 walker.skip_current_dir();
                 continue;
             }

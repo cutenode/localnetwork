@@ -330,7 +330,8 @@ fn a_plugin_must_speak_the_protocol_and_be_what_its_manifest_says() {
             stranger.manifest.id = "stranger".into();
             let mut missing = spec(dir, ECHO, &[]);
             (missing.manifest.id, missing.launch.program) = ("missing".into(), dir.join("no-such-program"));
-            vec![described_otherwise, another, stranger, missing]
+            let lacking = spec(dir, &ECHO.replace("id = \"echo\"", "id = \"lacking\""), &["--without", "analyzers"]);
+            vec![described_otherwise, another, stranger, missing, lacking]
         },
         Options::default(),
     );
@@ -338,14 +339,58 @@ fn a_plugin_must_speak_the_protocol_and_be_what_its_manifest_says() {
         let e = f.plugins.run_command(id, "echo", json!({}), Context::default(), None, &Ctx::silent()).unwrap_err();
         failure(e)
     };
-    assert_eq!(run("old"), "the Echo plugin failed: protocol \"9.0.0\" isn't compatible with 0.1.0");
+    assert_eq!(run("old"), "the Echo plugin failed: protocol \"9.0.0\" isn't compatible with 0.2.0");
     assert_eq!(run("stranger"), "the Echo plugin failed: it says it's echo 0.1.0, not stranger 0.1.0");
     assert_eq!(
         run("otherwise"),
         "the Echo plugin failed: it describes itself otherwise than the manifest locallibrary has for it"
     );
     assert!(run("missing").starts_with("the Echo plugin failed: it couldn't be started: "));
+    // Its manifest adds an analyzer, which it says it can't run.
+    let lacks = run("lacking");
+    assert!(lacks.ends_with("it says it doesn't have the analyzers feature, which its manifest needs"), "{lacks}");
     assert!(!f.plugins.is_running("otherwise"), "a plugin refused isn't kept running");
+}
+
+/// A plugin runs in its folder in the store (made for it), or without a store in a new one in
+/// the temporary folder, removed once it stops.
+#[test]
+fn a_plugin_runs_in_a_folder_of_its_own() {
+    let f = Fixture::echo();
+    let folder = |store: Option<&Store>| {
+        let answer = f.plugins.run_command("echo", "echo", json!({ "cwd": true }), f.context(), store, &Ctx::silent());
+        let CommandOutput::Headless(Value::String(dir)) = answer.unwrap() else { panic!("a folder") };
+        PathBuf::from(dir).canonicalize().unwrap()
+    };
+    let scratch = folder(None);
+    assert_eq!(scratch.parent(), Some(std::env::temp_dir().canonicalize().unwrap().as_path()));
+    assert!(scratch.file_name().unwrap().to_string_lossy().starts_with("locallibrary-plugin-echo-"), "{scratch:?}");
+    f.plugins.shutdown();
+    assert!(!scratch.exists(), "{scratch:?} is left");
+    let own = f.store.root().join("plugins").join("echo");
+    assert_eq!(folder(Some(&f.store)), own.canonicalize().unwrap());
+}
+
+/// A param from the selection (`x-from`) that isn't given is what the user has selected: the
+/// tracks, the playlist, the drive (as the plugin names it). One given is as it's given.
+#[test]
+fn a_param_from_the_selection_is_filled_in() {
+    let from = r#"params = { type = "object", properties = { ids = { type = "array", items = { type = "integer" }, x-from = "selection.tracks" }, list = { type = "string", x-from = "selection.playlist" }, on = { type = "string", x-from = "selection.drive" } } }"#;
+    let manifest = ECHO.replacen("params = { type = \"object\" }", from, 1);
+    let f = Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default());
+    let context = Context { playlist: Some("Sets".into()), tracks: vec![2, 1], ..f.context() };
+    let id = locallibrary::Device::open(&f.drive).unwrap().id().unwrap().to_string();
+    let run = |params: Value, context: Context| match f
+        .plugins
+        .run_command("echo", "echo", params, context, None, &Ctx::silent())
+        .unwrap()
+    {
+        CommandOutput::Headless(v) => v,
+        view => panic!("{view:?}"),
+    };
+    assert_eq!(run(Value::Null, context.clone()), json!({ "ids": [2, 1], "list": "Sets", "on": id }));
+    assert_eq!(run(json!({ "list": "Other" }), context)["list"], "Other");
+    assert_eq!(run(Value::Null, Context::default()), json!({}), "nothing selected");
 }
 
 #[test]

@@ -212,11 +212,14 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   each file, what goes in and what the format can't hold, and asking before overwriting a file;
   `plugin` lists them and what each may do, and `plugin settings` keeps their settings. The
   sidecar has all of it as `plugins.*` methods, their plans kept apart from locallibrary's own,
-  and `track.fields` reads the installed plugins' versions. A plugin whose id or commands clash
-  with locallibrary's or another plugin's is left out, with a warning saying why, and the others
-  work; a plugin's errors keep their kinds (`not_found`, `io`...). In the player, plugins'
-  commands, operations and export formats are in the palette and a drive's menu (operations in
-  the actions menu too), asking for their params or options in a form drawn from their schemas;
+  and `track.fields` reads the installed analyzers' versions (each analyzer has its own, apart
+  from its plugin's; a value can be null, worked out with nothing to show). A plugin whose id or
+  commands clash with locallibrary's or another plugin's is left out, with a warning saying why,
+  and the others work; a plugin's errors keep their kinds (`not_found`, `io`...). Each plugin runs in a folder
+  of its own in the store. In the player, plugins' commands, operations and export formats are in
+  the palette, and commands and operations in the menus their manifests name (`where`: the actions
+  menu for the tracks selected or a playlist, a drive's menu), asking for their params or options
+  in a form drawn from their schemas, a param from the selection (`x-from`) filled in with it;
   a command answers in a panel, an operation's plan is confirmed, written and undone like any
   edit, an export shows what it would write and asks before overwriting, analyzers run from the
   palette and their fields are columns to sort and search by, plugins' settings are a form in the
@@ -324,15 +327,22 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
     caller passes.
-  - `loclib-plugin`: the plugin protocol (versioned on its own, at 0.1.0), the
-    `locallibrary-plugin.toml` manifest and its checks, a JSON-RPC peer over a pair of pipes and
-    an SDK for writing plugins in Rust. The RPC sidecar reads lines and reports errors with it.
+  - `loclib-plugin`: the plugin protocol (versioned on its own, at 0.2.0; each family of hooks
+    an optional feature named in its handshake), the `locallibrary-plugin.toml` manifest (read
+    tolerantly, keys a newer locallibrary adds left out) and its checks, a JSON-RPC peer over a
+    pair of pipes and an SDK for writing plugins in Rust, a hook per request type, with typed
+    reads of a drive. The RPC sidecar reads lines and reports errors with it.
 
 ### Changed
 
 For anyone who used a development build. Commands and flags that were renamed still work under
 their old names.
 
+- Audio files are told by one list of the extensions players play (the players' manuals': `.fla`
+  is FLAC, and `.ogg` or `.alac` isn't counted as loose audio or an orphan under `Contents/`, or
+  offered by `relocate` and `upgrade`, any more), kept in loclib-model, and files operating
+  systems leave behind (`$Recycle.Bin`, `Thumbs.db`, `desktop.ini`...) are told in any letter
+  case.
 - Reading a track's analysis from a drive is `anlz::load` and `anlz::load_grid` in the library
   (they were `TrackAnalysis::load` and `TrackAnalysis::load_grid`), now that `TrackAnalysis` is
   loclib-model's.

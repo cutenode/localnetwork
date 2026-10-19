@@ -194,9 +194,9 @@ impl CueChange {
 /// The analysis files (keys) that hold the cues of the tracks of `library` at `files` (device
 /// paths): what editing them may rewrite, for a backup.
 pub(crate) fn analysis_files(device: &Device, library: &Library, files: &[String]) -> Vec<String> {
-    let wanted: rustc_hash::FxHashSet<String> = files.iter().map(|f| paths::key(f).to_lowercase()).collect();
+    let wanted: rustc_hash::FxHashSet<String> = files.iter().map(|f| paths::file_key(f)).collect();
     let mut out = Vec::new();
-    for t in library.tracks.iter().filter(|t| wanted.contains(&paths::key(&t.file_path).to_lowercase())) {
+    for t in library.tracks.iter().filter(|t| wanted.contains(&paths::file_key(&t.file_path))) {
         let dat = paths::key(&t.analyze_path);
         if t.analyze_path.is_empty() || !paths::is_safe_key(&dat) || paths::classify(&dat) != Some(FileClass::Analysis)
         {
@@ -474,7 +474,7 @@ fn load(device: &Device, t: &Track) -> Result<Loaded> {
 
 /// OneLibrary's track ids by audio file.
 fn plus_ids(lib: &crate::model::Library) -> FxHashMap<String, u32> {
-    lib.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect()
+    lib.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect()
 }
 
 /// List tracks' cues (ids from [`Device::library`]).
@@ -499,7 +499,7 @@ pub fn list_in(device: &Device, library: &Library, track_ids: &[u32]) -> Result<
             }
         };
         let onelibrary_cues = match (&plus, &by_path) {
-            (Some((_, one)), Some(ids)) => match ids.get(&paths::key(&t.file_path).to_lowercase()) {
+            (Some((_, one)), Some(ids)) => match ids.get(&paths::file_key(&t.file_path)) {
                 Some(cid) => Some(one.cue_rows(*cid)?.len()),
                 None => None,
             },
@@ -847,7 +847,7 @@ pub fn plan(device: &Device, track_ids: &[u32], edit: &CueEdit, ctx: &Ctx<'_>) -
     let mut warnings = Vec::new();
     let plus = crate::clean::open_plus(device, device.has_device_library(), &mut warnings)?;
     let by_path = plus.as_ref().map(|(lib, _)| plus_ids(lib));
-    let plus_id = |t: &Track| by_path.as_ref().and_then(|m| m.get(&paths::key(&t.file_path).to_lowercase()).copied());
+    let plus_id = |t: &Track| by_path.as_ref().and_then(|m| m.get(&paths::file_key(&t.file_path)).copied());
 
     let source = match edit {
         CueEdit::Copy { from } | CueEdit::Carry { from, .. } => {
@@ -1024,9 +1024,8 @@ pub(crate) fn replay(
     let mut out = Replayed::default();
     let described = change.describe(files.len());
     let library = device.library()?;
-    let by_key: FxHashMap<String, u32> =
-        library.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect();
-    let id = |f: &str| by_key.get(&paths::key(f).to_lowercase()).copied();
+    let by_key: FxHashMap<String, u32> = library.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect();
+    let id = |f: &str| by_key.get(&paths::file_key(f)).copied();
     let ids: Vec<u32> = files.iter().filter_map(|f| id(f)).collect();
     if let Some(example) = files.iter().find(|f| id(f).is_none()) {
         out.tracks_gone(strict, files.len() - ids.len(), example, &described)?;

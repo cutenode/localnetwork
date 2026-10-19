@@ -11,8 +11,9 @@ use serde_json::Value;
 
 use crate::{FieldValue, RpcError};
 
-/// The protocol's version, versioned apart from locallibrary's.
-pub const PROTOCOL_VERSION: &str = "0.1.0";
+/// The protocol's version, versioned apart from locallibrary's. A new kind of hook doesn't change
+/// it: it's an optional feature (see [`crate::FEATURES`]).
+pub const PROTOCOL_VERSION: &str = "0.2.0";
 
 /// The methods' names.
 pub mod method {
@@ -52,7 +53,8 @@ pub struct Hello {
     /// The protocol version the host speaks.
     pub protocol: String,
     pub host: HostInfo,
-    /// Optional features the host has. Names a side doesn't know are ignored.
+    /// The optional features the host has (see [`crate::FEATURES`]). Names a side doesn't know
+    /// are ignored.
     #[serde(default)]
     pub features: Vec<String>,
 }
@@ -69,6 +71,7 @@ pub struct HostInfo {
 pub struct HelloReply {
     pub protocol: String,
     pub plugin: PluginInfo,
+    /// The optional features the plugin implements: the host calls only those it has too.
     #[serde(default)]
     pub features: Vec<String>,
 }

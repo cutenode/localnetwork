@@ -1,7 +1,7 @@
 id = "tracklist"
 name = "Tracklist import"
 version = "0.1.0"
-protocol = "^0.1"
+protocol = "^0.2"
 # library:delete: replacing a playlist's entries with a shorter list leaves it with fewer.
 capabilities = ["library:read", "library:plan", "library:delete"]
 
@@ -36,11 +36,13 @@ additionalProperties = { type = "integer", minimum = 0 }
 x-cli = { flag = "choose", one_based = true }
 description = "Decisions for ambiguous entries: entry -> track id (entries count from 0, or from 1 on the command line)"
 
-# `locallibrary playlist import`, with the other playlist commands.
+# `locallibrary playlist import`, with the other playlist commands. Offered on a playlist too, to
+# fill it.
 [[contributes.operations]]
 name = "import"
 title = "Make a playlist from a tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or \"Artist - Title\" lines"
 cli = "playlist import"
+where = ["playlist", "drive"]
 
 [contributes.operations.params]
 type = "object"
@@ -57,6 +59,7 @@ description = "The tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), re
 [contributes.operations.params.properties.into]
 type = "string"
 minLength = 1
+x-from = "selection.playlist"
 description = "The playlist's path, letter case included (made there if missing)"
 
 [contributes.operations.params.properties.playlist]

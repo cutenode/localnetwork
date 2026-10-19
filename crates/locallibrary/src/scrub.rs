@@ -430,9 +430,9 @@ pub fn affected<'k>(lib: &Library, keys: impl Iterator<Item = &'k str>) -> (Vec<
     let mut ids = BTreeSet::new();
     let mut tracks = Vec::new();
     for t in &lib.tracks {
-        let audio = paths::key(&t.file_path).to_lowercase();
-        let anlz = paths::key(&t.analyze_path).to_lowercase();
-        let art = t.artwork_path.as_deref().map(|p| paths::key(p).to_lowercase());
+        let audio = paths::file_key(&t.file_path);
+        let anlz = paths::file_key(&t.analyze_path);
+        let art = t.artwork_path.as_deref().map(paths::file_key);
         let hit = keys.contains(&audio)
             || (!t.analyze_path.is_empty() && analysis_dirs.contains(&dir(&anlz)))
             || art.is_some_and(|a| keys.contains(&a));

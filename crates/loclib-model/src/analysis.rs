@@ -43,7 +43,7 @@ crate::labelled_tuple! {
 }
 
 /// One drawn layer of a waveform column.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct WaveLayer {
     /// 0.0-1.0 of the waveform's full height.
@@ -52,14 +52,14 @@ pub struct WaveLayer {
 }
 
 /// One column of a waveform: a back layer and a (shorter, brighter) front layer drawn over it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct WaveColumn {
     pub back: WaveLayer,
     pub front: WaveLayer,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum WaveformStyle {
@@ -69,7 +69,7 @@ pub enum WaveformStyle {
     Rgb,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Waveform {
     pub style: WaveformStyle,
@@ -80,7 +80,7 @@ pub struct Waveform {
 }
 
 /// rekordbox's overall classification of a track, which decides how phrases are named.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum Mood {
@@ -89,7 +89,7 @@ pub enum Mood {
     Low,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum PhraseKind {
@@ -120,7 +120,7 @@ impl PhraseKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Phrase {
     pub kind: PhraseKind,
@@ -132,7 +132,7 @@ pub struct Phrase {
 }
 
 /// rekordbox's phrase analysis (`PSSI`, in `.EXT`).
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SongStructure {
     pub mood: Mood,
@@ -140,7 +140,7 @@ pub struct SongStructure {
 }
 
 /// Everything a player shows about a track, from its analysis files.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TrackAnalysis {
     pub beats: Vec<Beat>,

@@ -22,7 +22,8 @@ pub enum CommandOutput {
 
 impl Plugins {
     /// Runs one of a plugin's commands with `params` (checked against its schema; `null` is no
-    /// params), where the user is (`context`, its drive by id, name or path as the CLI takes it).
+    /// params; one from the selection, `x-from`, that isn't given is filled in from `context`),
+    /// where the user is (`context`, its drive by id, name or path as the CLI takes it).
     pub fn run_command(
         &self,
         plugin: &str,
@@ -34,10 +35,10 @@ impl Plugins {
     ) -> Result<CommandOutput> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared("command", command, &slot.manifest.contributes.commands, |c| &c.name)?;
-        let params = super::fitting(declared.params.as_ref(), params)?;
         let (context, _) = slot.context(context, store)?;
+        let params = super::fitting(declared.params.as_ref(), params, &context)?;
         let run = RunCommand { command: command.into(), params, context };
-        let answer: Value = slot.call(method::RUN_COMMAND, &run, ctx)?;
+        let answer: Value = slot.call(method::RUN_COMMAND, &run, store, ctx)?;
         match declared.mode {
             Mode::Headless => Ok(CommandOutput::Headless(answer)),
             Mode::View => serde_json::from_value(answer)

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Receiver;
 
-use loclib_plugin::{Capability, ErrorData, Incoming, Manifest, Peer, RpcError, code};
+use loclib_plugin::{Capability, ErrorData, Incoming, MAX_IDS, MAX_IMAGES, Manifest, Peer, RpcError, code};
 use serde_json::Value;
 
 use super::process::Host;
@@ -35,12 +35,8 @@ pub trait Reads: Send + Sync {
 /// The most tracks (or snapshots, or matches, or most played) a page holds: a plugin asks for
 /// the next.
 const MAX_PAGE: u64 = 500;
-/// The most tracks asked for by id at once.
-const MAX_IDS: usize = 1000;
 /// The most tracks asked for at once by reads that answer each in full (details, cues).
 const MAX_TRACKS: usize = 100;
-/// The most tracks' artwork asked for at once (base64 JPEGs).
-const MAX_IMAGES: usize = 50;
 
 /// A param a plugin may give a read.
 #[derive(Debug, Clone, Copy)]

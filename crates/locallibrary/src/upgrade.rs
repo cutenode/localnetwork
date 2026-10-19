@@ -208,7 +208,7 @@ pub fn plan(device: &Device, opts: &UpgradeOptions, ctx: &Ctx<'_>) -> Result<Upg
     }
     let players: Vec<&Model> = equipment::canonical(&opts.players)?.iter().filter_map(|n| equipment::find(n)).collect();
     let library = device.library()?;
-    let key = |t: &Track| paths::key(&t.file_path).to_lowercase();
+    let key = |t: &Track| paths::file_key(&t.file_path);
     let mut rows: rustc_hash::FxHashMap<String, usize> = Default::default();
     for t in &library.tracks {
         *rows.entry(key(t)).or_default() += 1;

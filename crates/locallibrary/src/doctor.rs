@@ -28,7 +28,7 @@ use crate::fsutil;
 use crate::hash::Hash;
 use crate::mix::index::{Cache, fingerprint_library};
 use crate::model::{Library, Track, TrackRef, normalize};
-use crate::paths::{self, FileClass};
+use crate::paths::{self, FileClass, fold};
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
 use crate::store::{Snapshot, Store};
@@ -36,14 +36,11 @@ use crate::timeline;
 use crate::tree::FileTree;
 use crate::{Error, Result};
 use loclib_mixid::matcher;
+use loclib_model::audio::Format;
 
 /// FAT32 stores file sizes in 32 bits: a file of 4 GiB or more can't be stored on it (or copied
 /// to it).
 pub const FAT32_MAX_FILE: u64 = 1 << 32;
-
-/// Extensions of the audio files rekordbox exports. Anything else under `Contents/` (a
-/// `cover.jpg`, notes) is never reported as orphaned.
-pub(crate) const AUDIO_EXTENSIONS: &[&str] = &["mp3", "m4a", "mp4", "aac", "wav", "aif", "aiff", "flac", "ogg", "alac"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[schemars(rename = "DoctorSection")]
@@ -396,10 +393,6 @@ fn image_paths(one: &crate::onelibrary::OneLibrary) -> Result<Vec<String>> {
     Ok(out)
 }
 
-pub(crate) fn fold(s: &str) -> String {
-    s.to_lowercase()
-}
-
 // ---------------------------------------------------------------------------------------------
 // The report
 // ---------------------------------------------------------------------------------------------
@@ -480,8 +473,7 @@ pub fn unfiled(library: &Library) -> Vec<TrackRef> {
 
 /// Library files of 4 GiB or more, which FAT32 can't hold.
 pub fn large_files(library: &Library, tree: &FileTree) -> Vec<LargeFile> {
-    let by_key: FxHashMap<String, &Track> =
-        library.tracks.iter().map(|t| (fold(&paths::key(&t.file_path)), t)).collect();
+    let by_key: FxHashMap<String, &Track> = library.tracks.iter().map(|t| (paths::file_key(&t.file_path), t)).collect();
     tree.library_entries()
         .filter(|e| e.size >= FAT32_MAX_FILE)
         .map(|e| LargeFile {
@@ -575,7 +567,7 @@ pub(crate) fn orphans(dbs: &Databases, tree: &FileTree) -> Vec<OrphanFile> {
     let mut analysis_stems: FxHashSet<String> = FxHashSet::default();
     for (_, library) in dbs.all() {
         for t in &library.tracks {
-            in_use.insert(fold(&paths::key(&t.file_path)));
+            in_use.insert(paths::file_key(&t.file_path));
             let dat = paths::key(&t.analyze_path);
             if let Some((stem, _)) = dat.rsplit_once('.') {
                 analysis_stems.insert(fold(stem));
@@ -592,10 +584,11 @@ pub(crate) fn orphans(dbs: &Databases, tree: &FileTree) -> Vec<OrphanFile> {
         .values()
         .filter(|e| paths::classify(&e.path) == Some(e.class))
         .filter(|e| match e.class {
+            // Only audio players list: anything else under `Contents/` (a `cover.jpg`, notes) is
+            // never reported as orphaned.
             FileClass::Audio => {
-                let ext = e.path.rsplit_once('.').map(|(_, x)| x.to_ascii_lowercase()).unwrap_or_default();
                 e.path.starts_with("Contents/")
-                    && AUDIO_EXTENSIONS.contains(&ext.as_str())
+                    && Format::for_players(&e.path).is_some()
                     && !in_use.contains(&fold(&e.path))
             }
             FileClass::Analysis => {
@@ -695,7 +688,7 @@ fn same_recordings(
     let index: FxHashMap<u32, usize> = library.tracks.iter().enumerate().map(|(i, t)| (t.id, i)).collect();
     // Rows for one file are duplicates by file already. (Two files can share a cache key: one
     // file in two folders, with its name and time.)
-    let file = |id: u32| fold(&paths::key(&library.tracks[index[&id]].file_path));
+    let file = |id: u32| paths::file_key(&library.tracks[index[&id]].file_path);
     let mut pairs = Vec::new();
     for (i, a) in prints.iter().enumerate() {
         for b in
@@ -798,7 +791,7 @@ fn duplicates(
     ctx: &Ctx<'_>,
 ) -> Result<Vec<DuplicateGroup>> {
     let tracks = &library.tracks;
-    let keys: Vec<String> = tracks.iter().map(|t| fold(&paths::key(&t.file_path))).collect();
+    let keys: Vec<String> = tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     // Each track's audio file on the drive (its tree key), if present.
     let files: Vec<Option<String>> =
         tracks.iter().map(|t| tree.resolve(&paths::key(&t.file_path)).map(|e| e.path.clone())).collect();

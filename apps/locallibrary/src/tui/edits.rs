@@ -1,5 +1,6 @@
 //! Changing the drive from the player, always opt-in: an actions menu (`e`, or right-click) for
-//! the marked or selected tracks, the playlist in view and the crate (plugins' operations last);
+//! the marked or selected tracks, the playlist in view and the crate (plugins' commands and
+//! operations for tracks or a playlist last);
 //! the prompts and playlist picking some actions need; and the job every write goes through: plan
 //! it in the background, show the plan and wait for a yes, apply exactly that plan (the library
 //! backs the drive up first, and refuses if the drive changed since), then read the drive again,
@@ -20,6 +21,7 @@ use locallibrary::plugin::PluginExport;
 use locallibrary::progress::{Event, Phase, Progress};
 use locallibrary::query::{SortField, SortKey, TrackSelector};
 use locallibrary::{CancelToken, Ctx, Error};
+use loclib_plugin::Where;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::widgets::ListState;
 
@@ -120,7 +122,7 @@ pub enum Action {
     Restore,
     /// Give the tracks a My Tag, or take one off.
     Tag,
-    /// A plugin's operation, by the plugin's id and its name.
+    /// A plugin's command or operation, by the plugin's id and its name.
     Plugin(&'static str, &'static str),
 }
 
@@ -274,11 +276,17 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
         item("y", keymap::name(Act::Replay).into(), Action::Replay, stale.clone()),
     ]
     .into_iter()
-    .chain(
-        super::plugins::offered(Some(!t.folder_drive), false)
-            .into_iter()
-            .map(|o| item("", o.label, Action::Plugin(o.plugin, o.name), stale.clone().or(o.unavailable))),
-    )
+    .chain(super::plugins::offered(Some(!t.folder_drive), &[Where::Track, Where::Playlist]).into_iter().map(|o| {
+        // What it works on here: the tracks, or the playlist (not a folder).
+        let on_tracks = o.offered.contains(&Where::Track) && !t.tracks.is_empty();
+        let on_list = o.offered.contains(&Where::Playlist) && t.node.as_ref().is_some_and(|(_, folder)| !folder);
+        let nothing = match o.offered.contains(&Where::Track) {
+            true => "no track selected",
+            false => "select a playlist",
+        };
+        let unavailable = stale.clone().or(o.unavailable).or(because(!on_tracks && !on_list, nothing));
+        item("", o.label, Action::Plugin(o.plugin, o.name), unavailable)
+    }))
     .collect()
 }
 

@@ -21,7 +21,7 @@ use crate::device::Device;
 use crate::doctor::Databases;
 use crate::hash::Hash;
 use crate::model::{Library, Playlist, Track, TrackRef};
-use crate::paths;
+use crate::paths::{self, file_key};
 use crate::progress::{Ctx, Event, Phase};
 use crate::store::{Snapshot, SnapshotInfo, SnapshotSource, Store};
 
@@ -66,12 +66,6 @@ impl HistoryList {
         }
         h.finalize().to_hex()[..32].to_string()
     }
-}
-
-/// A track's file as sessions and sets key it, to match tracks across libraries by: its path in
-/// the library, lower case, without the leading slash.
-pub fn file_key(file_path: &str) -> String {
-    paths::key(file_path).to_lowercase()
 }
 
 /// History lists of a library in display order, with their folder paths. The library is a

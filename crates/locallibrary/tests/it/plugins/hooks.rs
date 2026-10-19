@@ -254,7 +254,7 @@ fn ordered() -> Fixture {
     let manifest = ECHO.replace(
         "fields = { bytes = \"integer\" }\n",
         "fields = { bytes = \"integer\" }\n\n[[contributes.analyzers]]\nname = \"order\"\ntitle = \"Order\"\n\
-         fields = { b = \"integer\", a = \"integer\" }\n",
+         version = \"7\"\nfields = { b = \"integer\", a = \"integer\" }\n",
     );
     Fixture::new(|dir| vec![spec(dir, &manifest, &[])], Options::default())
 }
@@ -273,6 +273,31 @@ fn an_analyzers_fields_keep_its_order() {
         let names: Vec<&str> = t.plugins["echo"]["order"].keys().map(String::as_str).collect();
         assert_eq!(names, ["b", "a"], "track {}", t.track);
     }
+}
+
+/// A field worked out with nothing to show is kept as null, beside the others, and read back as
+/// that: not as one never worked out.
+#[test]
+fn a_field_with_nothing_to_show_is_kept_as_null() {
+    let f = ordered();
+    let tracks = common::library(&f.drive).tracks;
+    std::fs::write(paths::to_fs(&f.drive, &paths::key(&tracks[0].file_path)), "x").unwrap();
+    let analyzed = f.plugins.analyze("echo", "order", "USB", None, &f.store, &Ctx::silent()).unwrap();
+    assert_eq!((analyzed.analyzed, analyzed.failed), (tracks.len(), 0));
+    let req = PluginFieldsRequest { library: LibraryRef::from(common::path(&f.drive)), tracks: None, plugin: None };
+    let read = api::track_fields_of(LibraryCache::none(), Some(&f.store), &req, &f.plugins.analyzers()).unwrap();
+    let order =
+        |id: u32| serde_json::to_value(&read.tracks.iter().find(|t| t.track == id).unwrap().plugins["echo"]["order"]);
+    assert_eq!(order(tracks[0].id).unwrap(), json!({ "b": 1, "a": null }));
+    assert_eq!(order(tracks[1].id).unwrap(), json!({ "b": 1, "a": 2 }));
+}
+
+/// Values are kept by each analyzer's own version, not its plugin's.
+#[test]
+fn analyzers_are_kept_by_their_own_version() {
+    let f = ordered();
+    let versions: Vec<(String, String)> = f.plugins.analyzers().into_iter().map(|a| (a.analyzer, a.version)).collect();
+    assert_eq!(versions, [("size".to_string(), "1".to_string()), ("order".into(), "7".into())]);
 }
 
 /// A track the plugin fails on is named once, by its path on the drive, though the plugin named

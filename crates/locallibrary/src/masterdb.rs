@@ -767,7 +767,7 @@ impl Collection {
     /// My Tags as `Category/Tag` by lower-cased file key, the shape track filters (`tag:`) take.
     pub fn tags_by_file(&self) -> FxHashMap<String, Vec<String>> {
         let files: FxHashMap<u32, String> =
-            self.library.tracks.iter().map(|t| (t.id, paths::key(&t.file_path).to_lowercase())).collect();
+            self.library.tracks.iter().map(|t| (t.id, paths::file_key(&t.file_path))).collect();
         let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
         for c in &self.tags {
             for tag in &c.tags {

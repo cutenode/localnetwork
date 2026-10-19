@@ -141,13 +141,14 @@ impl TagChange {
     /// The edit for `library`'s tracks ([`Device::library`]), and the recorded files it has no
     /// track for.
     fn edit(&self, library: &Library) -> (Edit, Vec<String>) {
-        let by_key: FxHashMap<String, u32> = library.tracks.iter().map(|t| (track_key(&t.file_path), t.id)).collect();
+        let by_key: FxHashMap<String, u32> =
+            library.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect();
         let mut gone = Vec::new();
         let mut ids = |files: &[String]| -> Vec<u32> {
             files
                 .iter()
                 .filter_map(|f| {
-                    let id = by_key.get(&track_key(f)).copied();
+                    let id = by_key.get(&paths::file_key(f)).copied();
                     if id.is_none() {
                         gone.push(f.clone());
                     }
@@ -253,11 +254,6 @@ struct TagNode {
     strays: usize,
 }
 
-/// How tracks are matched across the two databases (and their ids differ).
-fn track_key(file_path: &str) -> String {
-    paths::key(file_path).to_lowercase()
-}
-
 /// `name` matched exactly, else ignoring case if only one matches.
 fn find_named<'a, T>(items: &'a [T], name: impl Fn(&T) -> &str, wanted: &str) -> Option<&'a T> {
     items.iter().find(|i| name(i) == wanted).or_else(|| {
@@ -336,7 +332,7 @@ impl Tree {
 
 /// `track id -> key` for a library.
 fn keys_by_id(library: &Library) -> FxHashMap<u32, String> {
-    library.tracks.iter().map(|t| (t.id, track_key(&t.file_path))).collect()
+    library.tracks.iter().map(|t| (t.id, paths::file_key(&t.file_path))).collect()
 }
 
 fn ext_tree(db: &ExtDatabase, library: &Library) -> Tree {
@@ -637,7 +633,7 @@ fn track_refs(opened: &Opened) -> FxHashMap<String, TrackRef> {
     let mut refs = FxHashMap::default();
     for lib in std::iter::once(&opened.primary).chain(opened.dbs.iter().map(|d| &d.library)) {
         for t in &lib.tracks {
-            refs.entry(track_key(&t.file_path)).or_insert_with(|| TrackRef::from(t));
+            refs.entry(paths::file_key(&t.file_path)).or_insert_with(|| TrackRef::from(t));
         }
     }
     refs
@@ -678,8 +674,8 @@ pub fn read(device: &Device) -> Result<MyTags> {
     })
 }
 
-/// Every tagged track's tags, as `Category/Tag` in display order, keyed by the track's file key
-/// in lower case (`paths::key(&track.file_path).to_lowercase()`). Tags from both databases.
+/// Every tagged track's tags, as `Category/Tag` in display order, keyed by the track's file
+/// ([`paths::file_key`]). Tags from both databases.
 pub fn by_track(device: &Device) -> Result<FxHashMap<String, Vec<String>>> {
     let opened = open(device)?;
     let mut out: FxHashMap<String, Vec<String>> = FxHashMap::default();
@@ -1262,7 +1258,7 @@ pub(crate) struct DbTags {
 
 impl DbTags {
     fn new(tree: Tree, library: &Library) -> DbTags {
-        DbTags { tree, tracks: library.tracks.iter().map(|t| track_key(&t.file_path)).collect() }
+        DbTags { tree, tracks: library.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect() }
     }
 
     /// `exportExt.pdb`'s, whose track ids are `library`'s (the drive's export.pdb).
@@ -1534,7 +1530,7 @@ pub(crate) fn remap_ext(bytes: Vec<u8>, old: Option<&Library>, new: &Library) ->
         let old_keys = old.map(keys_by_id).unwrap_or_default();
         let mut new_ids: FxHashMap<String, Vec<u32>> = FxHashMap::default();
         for t in &new.tracks {
-            new_ids.entry(track_key(&t.file_path)).or_default().push(t.id);
+            new_ids.entry(paths::file_key(&t.file_path)).or_default().push(t.id);
         }
         let mut editor = ext_editor(bytes)?;
         let mut tracks: Vec<u32> = db.tag_tracks.iter().map(|l| l.track_id).collect();

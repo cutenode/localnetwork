@@ -33,6 +33,17 @@ pub fn key(s: &str) -> String {
     s.trim_start_matches('/').to_string()
 }
 
+/// A key (or a name) as drives compare it: FAT32, exFAT and HFS+ ignore letter case.
+pub fn fold(key: &str) -> String {
+    key.to_lowercase()
+}
+
+/// A track's file (or a database's path or name) as drives compare it: its [`key`], folded. How a
+/// track is matched across databases, libraries and sessions.
+pub fn file_key(path: &str) -> String {
+    fold(&key(path))
+}
+
 /// Resolve a key below a drive root. Components that could climb out of the root (`..`,
 /// `.`, drive prefixes like `C:`) are dropped, so the result is always lexically inside `root`.
 /// Check keys from untrusted databases first: each component should be

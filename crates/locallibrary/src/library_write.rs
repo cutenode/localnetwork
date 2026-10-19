@@ -20,7 +20,7 @@ use crate::anlz;
 use crate::commit::Swap;
 use crate::device::Device;
 use crate::error::IoContext;
-use crate::paths::{self, FileClass};
+use crate::paths::{self, FileClass, fold};
 use crate::progress::{Ctx, Event, Phase};
 use crate::tree::FileTree;
 use crate::{Error, Result, backup, fsutil};
@@ -327,10 +327,6 @@ pub(crate) fn delete(target: &Device, planned: &Planned, ctx: &Ctx<'_>) -> Resul
     }
     ctx.phase_end(Phase::Delete);
     Ok((n, bytes))
-}
-
-fn fold(s: &str) -> String {
-    s.to_lowercase()
 }
 
 #[cfg(test)]

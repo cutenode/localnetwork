@@ -90,8 +90,8 @@ crates/locallibrary/src/    the library, built on the crates above
   profile/     what sets, tags, analysis and My Settings say about a DJ; the public document and its preferences
   audio_cache.rs  what's worked out from each audio file (fingerprints, analyses), cached in the store
                by file name, size and modification time, and worked out in parallel when it isn't
-  fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, version
-               and analyzer
+  fields.rs    analyzer plugins' fields for each audio file, kept the same way, by plugin, analyzer
+               and the analyzer's version
   plugin/      the plugin host: starting the plugins locallibrary ships and checking who they are,
                the reads they may call back for (callbacks.rs), and their commands, operations
                (planned as edit plans), exports, analyzers and settings

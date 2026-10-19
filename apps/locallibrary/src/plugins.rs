@@ -55,12 +55,12 @@ pub const PARAMS: &str = "params";
 pub const DRY_RUN: &str = "dry-run";
 
 /// How `plugin serve` serves a plugin.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Serves {
     Linked(Serve),
-    /// The test plugin, serving the plugin's manifest.
+    /// The test plugin, serving this manifest.
     #[cfg(debug_assertions)]
-    Test,
+    Test(String),
 }
 
 struct Loaded {
@@ -101,7 +101,7 @@ fn load() -> Result<Loaded> {
     for file in std::env::var_os(TEST_PLUGINS).iter().flat_map(std::env::split_paths) {
         let manifest = std::fs::read_to_string(&file)
             .map_err(|e| Error::Invalid(format!("the test plugin {}: {e}", file.display())))?;
-        found.push((manifest, Serves::Test));
+        found.push((manifest.clone(), Serves::Test(manifest)));
     }
     let (mut specs, mut serves, mut left_out) = (Vec::new(), FxHashMap::default(), Vec::new());
     let program = exe().map_err(|e| Error::Invalid(format!("where locallibrary is: {e}")))?;
@@ -287,10 +287,9 @@ pub fn serve(id: &str) -> Result<()> {
     match serves {
         Serves::Linked(serve) => serve(std::io::stdin(), std::io::stdout()),
         #[cfg(debug_assertions)]
-        Serves::Test => {
-            let manifest = loaded.plugins.manifest(id)?;
-            let plugin = test_plugin::Test { wrong_fields: false };
-            loclib_plugin::serve(manifest, plugin, std::io::stdin(), std::io::stdout());
+        Serves::Test(manifest) => {
+            let hooks = test_plugin::Test { wrong_fields: false }.hooks(&[]);
+            loclib_plugin::serve(manifest, hooks, std::io::stdin(), std::io::stdout());
         }
     }
     Ok(())

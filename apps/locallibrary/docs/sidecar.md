@@ -259,7 +259,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
 - `track.fields {drive, tracks?, plugin?}` answers what analyzer plugins worked out and the store
   keeps: `{tracks: [{track, plugins: {<plugin>: {<analyzer>: {<field>: value}}}}], missing}`,
   for tracks whose audio file hasn't changed since (`missing` lists ids asked for that the
-  library lacks), from the plugins locallibrary has, at the versions it has. Without a store
+  library lacks), from the plugins locallibrary has, at their analyzers' versions; a value is
+  `null` when it was worked out with nothing to show. Without a store
   there are none, and none is made.
 - Plugins (see [Plugins](plugins.md)): `plugins.list` answers each plugin's `{id, name, version,
   capabilities: [{capability, means}], commands, operations, analyzers, exporters, settings,
@@ -268,8 +269,11 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `null`); `plugins.describe
   {plugin}` answers `{manifest, capabilities, settings, running}`, the manifest with the JSON
   Schemas of each command's and operation's `params` and each exporter's `options`, to draw forms
-  from. `plugins.settings {plugin}` and `plugins.settings.set {plugin, key, value}` (`value`
-  `null` or left out: back to its default) answer `{plugin, settings: {key: value}}`.
+  from, and where to offer each command and operation (`where`: `track`, `playlist`, `drive`). A
+  param's `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from
+  the request's `context` when it isn't given. `plugins.settings {plugin}` and
+  `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its default)
+  answer `{plugin, settings: {key: value}}`.
   `plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
   command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw.
   A tracklist is imported as the tracklist plugin's `import` operation (`{file, into, playlist?,

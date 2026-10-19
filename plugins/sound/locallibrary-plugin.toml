@@ -1,16 +1,17 @@
-# The host keeps an analyzer's fields by the plugin's version: bump it with loclib-analysis's
-# VERSION, so tracks measured the old way are measured again.
 id = "sound"
 name = "Sound analysis"
 version = "0.1.0"
-protocol = "^0.1"
+protocol = "^0.2"
 
 [[contributes.analyzers]]
 name = "tempo-key-loudness"
 title = "Tempo, key and loudness"
+# The host keeps the fields by the analyzer's version: loclib-analysis's VERSION, so tracks
+# measured the old way are measured again once it changes.
+version = "3"
 
-# As doctor's `--analyze` reports them. A field with nothing to show is left out: no tempo or key
-# for silence, no tempo for a blip too short for one, no loudness or true peak for silence.
+# As doctor's `--analyze` reports them. A field with nothing to show is null: no tempo or key for
+# silence, no tempo for a blip too short for one, no loudness or true peak for silence.
 [contributes.analyzers.fields]
 bpm = "number"
 bpm_confidence = "number"

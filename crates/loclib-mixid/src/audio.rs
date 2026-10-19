@@ -26,6 +26,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
+use loclib_model::audio::Format;
 use loclib_progress::{Cancelled, Ctx};
 
 use crate::{Error, Result};
@@ -352,10 +353,13 @@ fn gcd(a: u32, b: u32) -> u32 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
-/// Audio formats [`decode`] reads, by extension.
+/// Audio formats [`decode`] reads (symphonia's, as this crate builds it), by extension.
 pub fn is_decodable(path: &Path) -> bool {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    matches!(ext.as_str(), "mp3" | "m4a" | "mp4" | "aac" | "flac" | "wav" | "wave" | "aif" | "aiff" | "alac")
+    let format = path.extension().and_then(|e| e.to_str()).and_then(Format::from_extension);
+    matches!(
+        format,
+        Some(Format::Mp3 | Format::Aac | Format::Mpeg4 | Format::Alac | Format::Wav | Format::Aiff | Format::Flac)
+    )
 }
 
 #[cfg(test)]

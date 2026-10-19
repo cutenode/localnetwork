@@ -15,7 +15,7 @@ fn form(params: &str) -> Form {
 /// [`form`], where `context` says what's selected.
 fn form_in(params: &str, context: Context) -> Form {
     let manifest = format!(
-        "id = \"t\"\nname = \"T\"\nversion = \"0.1.0\"\nprotocol = \"^0.1\"\n\
+        "id = \"t\"\nname = \"T\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n\
          [[contributes.commands]]\nname = \"c\"\ntitle = \"Do it\"\nmode = \"headless\"\n{params}"
     );
     let manifest = Manifest::parse(&manifest).unwrap();
@@ -51,23 +51,31 @@ fn fields_start_at_their_defaults() {
     assert!(f.fields[0].choices().is_empty());
 }
 
-/// A list of track ids called `tracks` starts as the tracks selected, which it then takes; one
-/// called otherwise, of another kind, with a default or with none selected starts empty.
+/// A param from the selection (`x-from`) starts as what's selected, which it then takes: the
+/// tracks, the playlist, the drive. One with nothing selected, or not from the selection (called
+/// `tracks` or not), starts empty or at its default.
 #[test]
-fn tracks_start_as_the_ones_selected() {
-    let selected = Context { tracks: vec![3, 812], ..Context::default() };
+fn params_from_the_selection_start_as_it() {
+    let selected = Context {
+        tracks: vec![3, 812],
+        playlist: Some("Sets/Friday".into()),
+        drive: Some("USB".into()),
+        ..Context::default()
+    };
     let ids = r#"type = "array", items = { type = "integer" }"#;
     let schema = format!(
-        r#"params = {{ type = "object", properties = {{ tracks = {{ {ids} }}, others = {{ {ids} }}, also = {{ {ids}, default = [1] }} }} }}"#
+        r#"params = {{ type = "object", properties = {{ picked = {{ {ids}, x-from = "selection.tracks" }}, tracks = {{ {ids} }}, also = {{ {ids}, default = [1] }}, list = {{ type = "string", x-from = "selection.playlist" }}, on = {{ type = "string", x-from = "selection.drive" }} }} }}"#
     );
-    let f = form_in(&schema, selected.clone());
+    let f = form_in(&schema, selected);
     let texts: Vec<&str> = f.fields.iter().map(|x| x.text.as_str()).collect();
-    assert_eq!(texts, ["3, 812", "", "1"]);
-    assert_eq!(f.params().unwrap()["tracks"], json!([3, 812]));
-    assert_eq!(form_in(&schema, Context::default()).fields[0].text, "");
-    let names =
-        r#"params = { type = "object", properties = { tracks = { type = "array", items = { type = "string" } } } }"#;
-    assert_eq!(form_in(names, selected).fields[0].text, "");
+    assert_eq!(texts, ["3, 812", "", "1", "Sets/Friday", "USB"]);
+    let params = f.params().unwrap();
+    assert_eq!(
+        (&params["picked"], &params["list"], &params["on"]),
+        (&json!([3, 812]), &json!("Sets/Friday"), &json!("USB"))
+    );
+    let texts: Vec<String> = form_in(&schema, Context::default()).fields.iter().map(|x| x.text.clone()).collect();
+    assert_eq!(texts, ["", "", "1", "", ""]);
 }
 
 /// What's typed is read as the command line reads it: numbers, lists with commas between them,

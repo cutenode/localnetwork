@@ -14,6 +14,7 @@ use locallibrary::export::{self, Format, Locator, PathStyle};
 use locallibrary::local_time;
 use locallibrary::pack::PackOptions;
 use locallibrary::{Ctx, DeviceInfo, Error, Store, Track, fsutil};
+use loclib_plugin::Where;
 use uuid::Uuid;
 
 use super::app::{App, Focus, Level, View};
@@ -358,7 +359,8 @@ impl App {
             item(Act::Undo, undo_key, &None),
             item(Act::Eject, "", &None),
         ];
-        let (acts, items): (Vec<Act>, Vec<Item>) = items.into_iter().chain(self.plugin_items(Some(&root))).unzip();
+        let (acts, items): (Vec<Act>, Vec<Item>) =
+            items.into_iter().chain(self.plugin_items(Some(&root), &[Where::Drive])).unzip();
         let drive = self.drive_at(root);
         self.modal =
             Some(Modal::Pick(Picker::new(format!("Drive · {name}"), items, Then::Drive { drive, name, acts })));

@@ -767,8 +767,8 @@ impl DriveAudio {
             library
                 .tracks
                 .iter()
-                .filter(|t| files.insert(paths::key(&t.file_path).to_lowercase()))
-                .map(|t| track_audio(t, probed.get(&paths::key(&t.file_path).to_lowercase())))
+                .filter(|t| files.insert(paths::file_key(&t.file_path)))
+                .map(|t| track_audio(t, probed.get(&paths::file_key(&t.file_path))))
                 .collect()
         };
         Ok(DriveAudio { pdb: pdb.map(audio), plus: plus.map(audio) })
