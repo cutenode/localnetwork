@@ -185,7 +185,7 @@ impl DeviceState {
     }
 
     /// Whether this drive has been through `fingerprint`, the current state of a drive or
-    /// snapshot whose lineage is `theirs` (see [`has_held`]).
+    /// snapshot whose lineage is `theirs` (see `has_held`).
     pub fn knows(&self, fingerprint: &Hash, theirs: &[LineageEntry]) -> bool {
         has_held(&self.lineage, std::slice::from_ref(fingerprint), theirs)
     }
