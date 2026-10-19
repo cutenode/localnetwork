@@ -663,7 +663,9 @@ fn tab_of(view: ProfileView) -> ProfileTab {
 /// Each section says what its numbers show, whatever they are: the arc's opening and closing
 /// tempo, how it runs (summed up in a word in the list) and its curve; the moods and theirs; the
 /// era's decades; the cues; how much of the collection was played and its copies; and, without
-/// the data, what it needs. The header says what the numbers come from and how they're rounded.
+/// the data, what it needs; how the sets are mixed: in key, by tempo steps, across genres, each
+/// share said as unknown when it is. The header says what the numbers come from and how they're
+/// rounded.
 #[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
     use hegel::generators::{self as gs, Generator};
@@ -697,6 +699,20 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
     });
     r.collection.played_share = tc.draw(gs::optional(gs::sampled_from(shares)));
     r.collection.duplicate_files = tc.draw(gs::integers::<usize>().max_value(3));
+    let m = &mut r.mixing;
+    m.transitions = tc.draw(gs::sampled_from(&[0usize, 40][..]));
+    (m.keyed, m.timed, m.genred, m.half_double) = (
+        tc.draw(gs::sampled_from(&[0usize, 30][..])),
+        tc.draw(gs::sampled_from(&[0usize, 30][..])),
+        tc.draw(gs::sampled_from(&[0usize, 20][..])),
+        tc.draw(gs::integers::<usize>().max_value(2)),
+    );
+    m.harmonic_share = tc.draw(gs::optional(gs::sampled_from(shares)));
+    (m.within_3pct, m.within_6pct, m.genre_change_share) = (
+        tc.draw(gs::optional(gs::sampled_from(shares))),
+        tc.draw(gs::optional(gs::sampled_from(shares))),
+        tc.draw(gs::optional(gs::sampled_from(shares))),
+    );
     v.prefs.precision = if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded };
     // However the sets run, the list sums it up in a word.
     let mut arc = v.report.clone();
@@ -778,6 +794,34 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
                     want.push(format!("{}{each}", pct(p.hot_cue_share)));
                 }
             },
+            Section::Mixing if r.mixing.transitions == 0 => want.push(format!("Needs {unit}s.")),
+            Section::Mixing => {
+                let m = &r.mixing;
+                // A share unknown is a dash.
+                let share = |x: Option<f64>| x.map_or_else(|| "–".to_string(), pct);
+                if m.keyed > 0 {
+                    want.push(format!(
+                        "{} of {} transitions between keyed tracks are harmonic",
+                        share(m.harmonic_share),
+                        m.keyed
+                    ));
+                }
+                if m.timed > 0 {
+                    let half = if m.half_double > 0 {
+                        format!(" · {} at half or double time", m.half_double)
+                    } else {
+                        String::new()
+                    };
+                    want.push(format!(
+                        "Tempo steps: median 1.2% · {} within 3% · {} within 6%{half}",
+                        share(m.within_3pct),
+                        share(m.within_6pct)
+                    ));
+                }
+                if m.genred > 0 {
+                    want.push(format!("{} of transitions change genre", share(m.genre_change_share)));
+                }
+            }
             Section::Collection => {
                 if let Some(p) = r.collection.played_share {
                     want.push(format!("Played in a {unit}"));

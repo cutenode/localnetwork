@@ -1102,8 +1102,10 @@ fn the_set_plays_through_its_tracks(tc: hegel::TestCase) {
 }
 
 /// Saving a set's data or its report needs a set open, and the drive it was matched against at
-/// its root: without that drive it says why; with it, the data is written into the store.
-#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+/// its root: without that drive it says why; with it, the data is written into the store, unless
+/// the store can't be opened, its profile choices can't be read or the file can't be written,
+/// which it says instead.
+#[hegel::test(test_cases = 60, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let (mut app, dir) = blank(View::Mixes);
@@ -1135,7 +1137,20 @@ fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
         }
     }
     let matched = drive.is_dir() && matches!(&app.mix.opened, Some(Ok(o)) if o.report.drive_id.is_none());
-    if report && matched {
+    // What can be in the store's way: nothing, a file where the store goes, profile choices that
+    // aren't JSON, a file where the reports folder goes.
+    let store = dir.path().join("store");
+    let in_way = tc.draw(gs::integers::<u8>().max_value(3));
+    match in_way {
+        0 => {}
+        1 => std::fs::write(&store, "not a store").unwrap(),
+        _ => {
+            Store::open_or_init(&store).unwrap();
+            let (file, what) = if in_way == 2 { ("profile.json", "{ not json") } else { ("reports", "not a folder") };
+            std::fs::write(store.join(file), what).unwrap();
+        }
+    }
+    if report && matched && in_way == 0 {
         // (Written, it would open in the browser.)
         return;
     }
@@ -1145,6 +1160,15 @@ fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
     wait(&mut app, |a| !last_message(a).starts_with(start));
     let said = last_message(&app);
     match (matched, drive.is_dir()) {
+        (true, _) if in_way > 0 => {
+            assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{said}");
+            let blamed = match in_way {
+                1 => store.display().to_string(),
+                2 => "profile.json".into(),
+                _ => "reports".into(),
+            };
+            assert!(said.contains(&blamed), "{said}");
+        }
         (true, _) => {
             assert!(said.starts_with("wrote ") && said.ends_with("(attach it to the mix on Local Network)"), "{said}")
         }

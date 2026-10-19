@@ -336,3 +336,123 @@ fn only_times_dont_count_as_changes(tc: hegel::TestCase) {
     assert!(!same_content(&a, &b) && !same_content(&b, &a), "{a} {b}");
     assert!(same_content(&json!([1]), &json!([1])) && !same_content(&json!(1), &json!("1")));
 }
+
+/// The `transitionIn` a model of the record expects for the transition `t`: a blend from 8
+/// seconds heard together, a duration only when there was an overlap of at most ten minutes,
+/// and with both tracks named, the Lexicon's name for the harmony and the tempo change in
+/// permille.
+fn expected_transition(t: &Transition, unidentified: bool) -> Value {
+    let mut want = json!({ "technique": if t.overlap >= 8.0 { "blend" } else { "unknown" } });
+    let ms = (t.overlap * 1000.0).round();
+    if ms > 0.0 && ms <= 600_000.0 {
+        want["durationMs"] = json!(ms as i64);
+    }
+    if unidentified {
+        return want;
+    }
+    let named = match t.harmony.as_deref() {
+        Some("same key") => Some("sameKey"),
+        Some("±1") => Some("adjacent"),
+        Some("relative") => Some("relative"),
+        Some("energy boost") => Some("energyBoost"),
+        Some("clash") => Some("clash"),
+        _ => None,
+    };
+    if let Some(h) = named {
+        want["harmony"] = json!(h);
+    }
+    if let Some(c) = t.tempo_change {
+        want["tempoChangePermille"] = json!((c * 10.0).round() as i64);
+    }
+    want
+}
+
+/// Whatever a recording heard, a set built from it says how each track came in exactly where
+/// the track and the one before it are plays the recording heard in that order (the first
+/// transition it heard between them), and nowhere else: not after a track typed in between, a
+/// play dropped, or one the recording heard into another. Unidentified tracks on either side
+/// say only when. The record fits the set Lexicon.
+#[hegel::test(test_cases = 200)]
+fn a_set_says_how_its_tracks_came_in_only_where_the_recording_heard_it(tc: hegel::TestCase) {
+    use hegel::Generator;
+    use hegel::generators as gs;
+    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
+    let plays: Vec<(u32, f64, f64)> = (1..=n)
+        .map(|i| (i, f64::from(i - 1) * 300.0 + tc.draw(gs::floats::<f64>().min_value(0.0).max_value(250.0)), 0.9))
+        .collect();
+    let mut report = crate::sets::build::tests::report(&plays);
+    let harmonies = vec!["same key", "±1", "relative", "energy boost", "clash", "", "a fifth"];
+    let k = report.plays.len();
+    // Most transitions are between plays heard one after the other; the edges of a blend and of
+    // the longest duration the Lexicon takes come up often.
+    let overlap = || {
+        hegel::one_of!(
+            gs::sampled_from(vec![-1.0, 0.0, 0.0004, 7.999, 8.0, 8.5, 600.0, 600.0006]),
+            gs::floats::<f64>().min_value(-30.0).max_value(700.0)
+        )
+    };
+    let pair = || {
+        hegel::one_of!(
+            gs::integers::<usize>().max_value(k.saturating_sub(2)).map(|i| (i, i + 1)),
+            gs::tuples!(gs::integers::<usize>().max_value(k), gs::integers::<usize>().max_value(k))
+        )
+    };
+    let transitions = tc.draw(
+        gs::vecs(gs::tuples!(
+            pair(),
+            overlap(),
+            gs::optional(gs::sampled_from(harmonies)),
+            gs::optional(gs::floats::<f64>().min_value(-80.0).max_value(80.0))
+        ))
+        .max_size(8),
+    );
+    report.transitions = transitions
+        .into_iter()
+        .map(|((from, to), overlap, harmony, tempo_change)| Transition {
+            from,
+            to,
+            at: 0.0,
+            overlap,
+            harmony: harmony.map(String::from),
+            tempo_change,
+        })
+        .collect();
+    // The set: the recording's tracks (by play), some dropped, some typed in between, some
+    // marked unnamed.
+    let heard = crate::sets::build::from_recording(&report).tracks;
+    let mut tracks: Vec<(Option<usize>, SetEntry)> = Vec::new();
+    for (i, mut e) in heard.into_iter().enumerate() {
+        if tc.draw(gs::weighted_booleans(0.15)) {
+            tracks.push((None, SetEntry { start_seconds: e.start_seconds, ..SetEntry::added("Typed - In") }));
+        }
+        if tc.draw(gs::weighted_booleans(0.15)) {
+            continue;
+        }
+        e.unnamed = tc.draw(gs::weighted_booleans(0.2));
+        tracks.push((Some(i), e));
+    }
+    let hidden: BTreeSet<usize> = tc
+        .draw(gs::vecs(gs::integers::<usize>().min_value(1).max_value(tracks.len().max(1))).max_size(2))
+        .into_iter()
+        .collect();
+    let set = Set {
+        id: "3m2abcdefgh22".into(),
+        date: NaiveDate::from_ymd_opt(2026, 10, 3).unwrap(),
+        tracks: tracks.iter().map(|(_, e)| e.clone()).collect(),
+        ..Default::default()
+    };
+    let record = set_record(&set, &hidden, Some(&report), now());
+    lexicon::validate(lexicon::SET, &record).unwrap();
+    let unidentified = |i: usize| tracks[i].1.unnamed || hidden.contains(&(i + 1));
+    for (i, t) in record["tracks"].as_array().unwrap().iter().enumerate() {
+        let want = match (i.checked_sub(1).and_then(|b| tracks[b].0), tracks[i].0) {
+            (Some(from), Some(to)) => report
+                .transitions
+                .iter()
+                .find(|t| t.from == from && t.to == to)
+                .map(|t| expected_transition(t, unidentified(i) || unidentified(i - 1))),
+            _ => None,
+        };
+        assert_eq!(t.get("transitionIn"), want.as_ref(), "track {}: {t}", i + 1);
+    }
+}

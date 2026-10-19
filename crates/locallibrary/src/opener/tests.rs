@@ -71,3 +71,47 @@ fn only_addresses_and_files_that_can_be_opened_are_handed_over(tc: hegel::TestCa
         _ => assert_eq!(err.code(), "not_found", "{target:?}: {err}"),
     }
 }
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools;
+
+/// The system's opener gets exactly what was asked as its one argument (an address as it is, a
+/// file by its absolute path, whatever its name), and nothing for a file that isn't there; when
+/// the opener fails, the error names it and how it ended.
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+fn the_opener_gets_exactly_what_was_asked(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let name: String = tc.draw(gs::text().alphabet("ab -'\"$é").min_size(1).max_size(10));
+    let kind = tc.draw(gs::sampled_from(vec!["address", "file", "missing file"]));
+    let target = match kind {
+        "address" => format!("https://bsky.app/{}", name.replace([' ', '"'], "_")),
+        _ => fake.dir().join(&name).display().to_string(),
+    };
+    if kind == "file" {
+        std::fs::write(&target, "").unwrap();
+    }
+    let opens = tc.draw(gs::booleans());
+    if opens {
+        fake.answer(program, &[&target], "");
+    } else {
+        fake.refuse(program, &[&target], "no application knows how to open it");
+    }
+
+    let opened = if kind == "address" { open_url(&target) } else { open_file(Path::new(&target)) };
+    let ran = fake.calls();
+    if kind == "missing file" {
+        assert!(matches!(opened, Err(Error::NotFound(_))) && ran.is_empty(), "{opened:?}");
+        return;
+    }
+    assert_eq!(ran, [crate::format::Cmd::new(program, &[&target])]);
+    match opened {
+        Ok(()) => assert!(opens),
+        Err(Error::External { command, message }) => {
+            assert!(!opens && command == program && message.contains("exit status: 1"))
+        }
+        Err(e) => panic!("{e}"),
+    }
+}

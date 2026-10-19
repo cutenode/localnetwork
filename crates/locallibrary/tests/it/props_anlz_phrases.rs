@@ -123,3 +123,87 @@ fn phrases_and_the_detail_waveform_read_back_as_written(tc: TestCase) {
     let heights: Vec<f32> = w.columns.iter().map(|c| c.back.height).collect();
     assert_eq!(heights, columns.iter().map(|b| f32::from(b & 0x1f) / 31.0).collect::<Vec<_>>());
 }
+
+fn be16(b: &[u8], o: usize) -> Option<u16> {
+    b.get(o..o + 2).map(|s| u16::from_be_bytes([s[0], s[1]]))
+}
+
+fn be32(b: &[u8], o: usize) -> Option<u32> {
+    b.get(o..o + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
+}
+
+/// The path, beat grid and phrase readers take each field from where the section's layout puts
+/// it, and refuse a section whose fields lie past the end of the file (or, for the phrases' body,
+/// past the section's own end) as truncated: a short section is never read out of bytes that
+/// aren't there, whatever follows it.
+#[hegel::test(test_cases = 400)]
+fn sections_cut_short_are_refused_as_truncated(tc: TestCase) {
+    let tag = tc.draw(gs::sampled_from(vec![*b"PPTH", *b"PQTZ", *b"PSSI"]));
+    let total = tc.draw(gs::integers::<usize>().min_value(12).max_value(48));
+    let header = tc.draw(gs::integers::<usize>().min_value(12).max_value(total));
+    let mut section = tag.to_vec();
+    section.extend((header as u32).to_be_bytes());
+    section.extend((total as u32).to_be_bytes());
+    // Small numbers, so lengths and counts sometimes fit and sometimes don't.
+    section.extend(tc.draw(gs::vecs(gs::integers::<u8>().max_value(40)).min_size(total - 12).max_size(total - 12)));
+    // A phrase body's mood stays unmasked (rekordbox masks bodies whose mood reads above 20).
+    if tag == *b"PSSI" && total >= 20 {
+        section[18..20].copy_from_slice(&tc.draw(gs::integers::<u16>().max_value(4)).to_be_bytes());
+    }
+    let mut sections = vec![section];
+    if tc.draw(gs::booleans()) {
+        let len = tc.draw(gs::integers::<usize>().min_value(12).max_value(24));
+        let mut other = b"PVBR".to_vec();
+        other.extend(12u32.to_be_bytes());
+        other.extend((len as u32).to_be_bytes());
+        other.extend(vec![7u8; len - 12]);
+        sections.push(other);
+    }
+    let bytes = file(&sections);
+    // The section and everything after it, as the readers see it.
+    let f = &bytes[28..];
+    let truncated = |e: locallibrary::Error| {
+        let name = String::from_utf8_lossy(&tag).into_owned();
+        assert!(e.to_string().contains(&format!("truncated {name}")), "{e}");
+    };
+    match &tag {
+        b"PPTH" => {
+            let want = be32(f, 12).and_then(|len| f.get(header..header + len as usize)).map(|path| {
+                let units: Vec<u16> =
+                    path.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).take_while(|&u| u != 0).collect();
+                String::from_utf16_lossy(&units)
+            });
+            match (anlz::read_path(&bytes), want) {
+                (Ok(got), Some(want)) => assert_eq!(got, Some(want)),
+                (Err(e), None) => truncated(e),
+                (got, want) => panic!("read {got:?}, expected {want:?}"),
+            }
+        }
+        b"PQTZ" => match (anlz::beat_grid(&bytes), be32(f, 20)) {
+            (Ok(beats), Some(count)) => {
+                // Only the whole beats inside the section, however many the count says.
+                let fit = (total - header) / 8;
+                assert_eq!(beats.len(), (count as usize).min(fit));
+                let numbers: Vec<u16> = (0..beats.len()).map(|i| be16(f, header + i * 8).unwrap()).collect();
+                assert_eq!(beats.iter().map(|b| b.beat_number).collect::<Vec<_>>(), numbers);
+            }
+            (Err(e), None) => truncated(e),
+            (got, count) => panic!("read {got:?}, count {count:?}"),
+        },
+        _ => {
+            let fields = be32(f, 12).zip(be16(f, 16)).and_then(|_| f.get(18..total));
+            let mood = fields.and_then(|body| be16(body, 0)).filter(|m| (1..=3).contains(m));
+            let refused = fields.is_none() || (mood.is_some() && fields.is_some_and(|body| be16(body, 8).is_none()));
+            match anlz::song_structure(&bytes) {
+                Err(e) => {
+                    assert!(refused, "refused a whole section: {e}");
+                    truncated(e);
+                }
+                Ok(s) => {
+                    assert!(!refused, "read a section cut short: {s:?}");
+                    assert_eq!(s.is_some(), mood.is_some(), "{s:?}");
+                }
+            }
+        }
+    }
+}

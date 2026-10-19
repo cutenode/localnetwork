@@ -52,6 +52,8 @@ fn tab_offers_what_the_listings_list(tc: TestCase) {
     if tc.draw(gs::booleans()) {
         fx.ok(&["--yes", "sets", "new", "--title", "Friday", "--date", "2026-10-03"]);
     }
+    // A library named unlike any drive.
+    fx.ok(&["pull", "Club", "--library", "Clubland", "--new-library"]);
 
     // Naming the drive narrows playlists, tags and lists to its own.
     let drive = tc.draw(gs::sampled_from(&["A", "Club"][..]));
@@ -83,6 +85,11 @@ fn tab_offers_what_the_listings_list(tc: TestCase) {
             }
         }
     }
+    // Naming none offers every mounted library's.
+    let everywhere = values(&offered(&fx, &["tracks", "--playlist"]));
+    let each: BTreeSet<String> =
+        ["A", "Club"].iter().flat_map(|d| values(&offered(&fx, &["playlist", "add", d]))).collect();
+    assert_eq!(everywhere, each);
     let tab = offered(&fx, &["plays", "export", drive]);
     let history = fx.json(&["plays", "lists", drive]);
     let listed: BTreeSet<String> =
@@ -127,18 +134,23 @@ fn tab_offers_what_the_listings_list(tc: TestCase) {
     let tab = offered(&fx, &["sync"]);
     let a = tab.iter().find(|(v, _)| v == "A").unwrap_or_else(|| panic!("{tab:?}"));
     assert_eq!(a.1 == "not mounted" || a.1 == "library", gone, "{tab:?}");
+    assert!(tab.contains(&("Clubland".into(), "library".into())), "{tab:?}");
 }
 
 /// The man pages: the top-level page printed is the one `--json` holds, and written to a folder,
-/// there's a page for every command, the top-level one among them.
+/// there's a page for every command, the top-level one among them; a folder they can't be written
+/// to is an error that names it.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(nested = false, json = true, file_in_the_way = true)]
+#[hegel::explicit_test_case(nested = true, json = false, file_in_the_way = false)]
 fn man_pages_are_written_or_printed(tc: TestCase) {
     let fx = Env::from_template();
     let printed = fx.ok(&["man"]);
     let v = fx.json(&["man"]);
     assert_eq!(v["page"].as_str(), Some(printed.as_str()));
     assert!(printed.starts_with(".ie"), "{}", &printed[..80.min(printed.len())]);
-    let dir = fx.home(if tc.draw(gs::booleans()) { "man" } else { "share/man/man1" });
+    let nested = tc.draw(gs::booleans());
+    let dir = fx.home(if nested { "share/man/man1" } else { "man" });
     let json = tc.draw(gs::booleans());
     let r = fx.run(&[if json { "--json" } else { "--quiet" }, "man", "-o", path(&dir)]);
     assert_eq!(r.code, 0, "{}", r.err);
@@ -150,6 +162,28 @@ fn man_pages_are_written_or_printed(tc: TestCase) {
         true => assert_eq!(serde_json::from_str::<Value>(&r.out).unwrap()["report"]["written"], path(&dir)),
         false => assert!(r.out.contains(&format!("wrote the man pages to {}", dir.display())), "{}", r.out),
     }
+
+    // A folder that can't be made (a file is where it would go), or a page that can't be written
+    // (a folder is where it would go), is an error naming the folder, whatever else was written.
+    let file_in_the_way = tc.draw(gs::booleans());
+    let blocked = match file_in_the_way {
+        true => {
+            std::fs::write(fx.home("in the way"), "a file").unwrap();
+            fx.home("in the way/man")
+        }
+        false => {
+            std::fs::create_dir_all(fx.home("taken/locallibrary.1")).unwrap();
+            fx.home("taken")
+        }
+    };
+    let r = fx.run(&[if json { "--json" } else { "--quiet" }, "man", "-o", path(&blocked)]);
+    assert_eq!(r.code, 1, "{}\n{}", r.out, r.err);
+    let said = match json {
+        true => serde_json::from_str::<Value>(&r.out).unwrap()["error"]["message"].as_str().unwrap().to_string(),
+        false => r.err,
+    };
+    let what = if file_in_the_way { "making" } else { "writing to" };
+    assert!(said.contains(&format!("{what} {}", blocked.display())), "{said}");
 }
 
 /// For any shell, the script printed is the one `--json` holds; the dynamic one has the shell run
@@ -257,6 +291,52 @@ fn a_paged_listing_is_the_listing(tc: TestCase) {
     } else {
         assert!(!paged.exists());
         assert_eq!(screen, piped, "{listing:?}");
+    }
+}
+
+/// The top-level help in a terminal of any width lists the commands it lists piped, word for
+/// word, each description wrapped to the terminal (at most 100 columns), but never narrower than
+/// 30 columns.
+#[cfg(unix)]
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(columns = 40u16)]
+#[hegel::explicit_test_case(columns = 160u16)]
+fn help_fits_the_terminal_it_is_shown_in(tc: TestCase) {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::process::Stdio;
+
+    use crate::support::terminal;
+    let fx = Env::from_template();
+    let columns = tc.draw(gs::integers::<u16>().min_value(20).max_value(200));
+    let (mut screen_end, stdout) = terminal();
+    let size = libc::winsize { ws_row: 40, ws_col: columns, ws_xpixel: 0, ws_ypixel: 0 };
+    // SAFETY: TIOCSWINSZ only reads the size given, for a terminal this test opened.
+    assert_eq!(unsafe { libc::ioctl(stdout.as_raw_fd(), libc::TIOCSWINSZ, &size) }, 0);
+    let mut c = fx.command();
+    let mut child = c.arg("--help").stdout(Stdio::from(stdout)).stderr(Stdio::null()).spawn().unwrap();
+    drop(c);
+    let mut screen = Vec::new();
+    let _ = screen_end.read_to_end(&mut screen);
+    assert!(child.wait().unwrap().success());
+    // The command list: from the usage line to the options.
+    let commands = |help: &str| -> Vec<String> {
+        help.lines()
+            .skip_while(|l| !l.starts_with("Usage:"))
+            .skip(1)
+            .take_while(|l| *l != "Options:")
+            .map(String::from)
+            .collect()
+    };
+    let (shown, piped) = (commands(&plain(&String::from_utf8_lossy(&screen))), commands(&fx.ok(&["--help"])));
+    let words =
+        |lines: &[String]| lines.iter().flat_map(|l| l.split_whitespace().map(String::from)).collect::<Vec<_>>();
+    assert_eq!(words(&shown), words(&piped), "{shown:#?}");
+    // Where the descriptions start: a wrapped one's next line is indented that far.
+    let indent = piped.iter().filter(|l| l.starts_with("   ")).map(|l| l.len() - l.trim_start().len()).min().unwrap();
+    let fits = usize::from(columns).min(100).max(indent + 30);
+    for line in &shown {
+        assert!(line.chars().count() <= fits, "{line:?} is wider than {fits} ({columns} columns)");
     }
 }
 

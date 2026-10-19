@@ -737,3 +737,70 @@ fn a_mix_with_nothing_to_hear_is_identified_as_nothing(tc: TestCase) {
     assert_eq!(r.mix.duration_secs, 0.0);
     assert_eq!(r.coverage, 0.0);
 }
+
+/// A mix's cover reads back as the picture embedded in the recording, or as the bytes of the
+/// image beside it; with that gone, reading it says so (not found in the recording, or the
+/// file named), and only an embedded cover is one to share.
+#[hegel::test(test_cases = 20)]
+fn a_cover_reads_back_while_it_is_there(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let set = dir.path().join("set.wav");
+    recording(&set);
+    let side = tc.draw(gs::integers::<u32>().min_value(16).max_value(64));
+    let png = dir.path().join("set.png");
+    image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 7])).save(&png).unwrap();
+    let embedded = tc.draw(gs::booleans());
+    let there = tc.draw(gs::booleans());
+    let cover = if embedded {
+        if there {
+            crate::artwork::embed_in_file(&set, &crate::artwork::Artwork::from_path(&png).unwrap()).unwrap();
+        }
+        CoverSource::Embedded(set.clone())
+    } else {
+        if !there {
+            std::fs::remove_file(&png).unwrap();
+        }
+        CoverSource::File(png.clone())
+    };
+    let info = MixInfo { cover: Some(cover.clone()), ..listen(&set, &Ctx::silent()).unwrap().0 };
+    match (cover.read(), embedded, there) {
+        (Ok(bytes), true, true) => {
+            assert_eq!(image::load_from_memory(&bytes).unwrap().width(), side.max(crate::artwork::THUMB_SIZE));
+            assert_eq!(info.shared_cover(), Some(bytes));
+        }
+        (Ok(bytes), false, true) => {
+            assert_eq!(bytes, std::fs::read(&png).unwrap());
+            assert_eq!(info.shared_cover(), None);
+        }
+        (Err(Error::NotFound(m)), true, false) => {
+            assert!(m.contains(&set.display().to_string()), "{m}");
+            assert_eq!(info.shared_cover(), None);
+        }
+        (Err(Error::Io { path, .. }), false, false) => assert_eq!(path, png),
+        (other, ..) => panic!("embedded {embedded}, there {there}: {other:?}"),
+    }
+}
+
+/// A mix of only silence, with nothing in the library to hear in it, is unidentified from its
+/// start to its end once that's half a minute or more, and has no gap marked when it's shorter.
+#[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_mix_nothing_is_heard_in_is_unidentified_throughout(tc: TestCase) {
+    use super::aup::tests::{Xml, project};
+    let secs = tc.draw(gs::sampled_from(vec![5i64, 29, 31, 40]));
+    let rate = 8_000i64;
+    let dir = tempfile::tempdir().unwrap();
+    let mut x = Xml::new(1);
+    // A negative block id is that many samples of silence.
+    x.start("project").double("rate", rate as f64).start("wavetrack");
+    x.clip(0.0, secs * rate, &[(0, -secs * rate)]).end("waveclip").end("wavetrack").end("project");
+    let path = project(dir.path(), "project", Some(&x), &[]);
+    let device = Device::open(dir.path()).unwrap();
+    let cache = Cache::new(dir.path().join("cache"));
+    let id = Identifier::with_library(&device, Arc::new(Library::default()), &cache, &Ctx::silent()).unwrap();
+    let r = id.identify(&path, &Options::default(), &Ctx::silent()).unwrap();
+    assert!(r.plays.is_empty(), "{:?}", r.plays);
+    assert_eq!(r.mix.duration_secs, secs as f64);
+    let gaps: Vec<(f64, f64)> = r.unidentified.iter().map(|s| (s.start, s.end)).collect();
+    let want = if secs >= 30 { vec![(0.0, secs as f64)] } else { Vec::new() };
+    assert_eq!(gaps, want);
+}

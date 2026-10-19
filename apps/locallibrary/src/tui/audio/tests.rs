@@ -677,3 +677,62 @@ fn a_track_that_cant_seek_or_breaks_plays_on_or_ends(tc: hegel::TestCase) {
     head.dropped.store(true, Ordering::Relaxed);
     assert!(l.next().is_none() && head.ended.load(Ordering::Acquire) && head.started.load(Ordering::Acquire));
 }
+
+/// A track whose spans change rate (as a chained stream's can) plays through the looper and the
+/// tap sample for sample, its frames counted across the changes: the playhead ends at the frames
+/// played, timed in the last span's rate, the tap holds a mono sample a frame at that rate, and
+/// both say the track's length as it does. A playhead nothing has played yet is at the start.
+#[hegel::test(test_cases = 200)]
+fn a_track_plays_through_whatever_its_spans_rate(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    assert_eq!(Playhead::default().position(), Duration::ZERO);
+    let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
+    let spans: Vec<(u32, usize)> = tc.draw(
+        gs::vecs(gs::tuples!(
+            gs::sampled_from(&[8_000u32, 22_050, 44_100, 48_000][..]),
+            gs::integers::<usize>().min_value(1).max_value(40)
+        ))
+        .min_size(1)
+        .max_size(4),
+    );
+    let mut want = Vec::new();
+    let buffers: Vec<SamplesBuffer> = spans
+        .iter()
+        .map(|&(rate, frames)| {
+            let data: Vec<f32> = (0..frames * channels as usize).map(|i| (want.len() + i) as f32).collect();
+            want.extend(data.iter().copied());
+            SamplesBuffer::new(ChannelCount::new(channels).unwrap(), SampleRate::new(rate).unwrap(), data)
+        })
+        .collect();
+    // One span plays as it is, its length known; more are chained, which rodio can't say.
+    let length = (buffers.len() == 1).then(|| buffers[0].total_duration()).flatten();
+    let source: Box<dyn Source + Send> = match length {
+        Some(_) => Box::new(buffers.into_iter().next().unwrap()),
+        None => Box::new(rodio::source::from_iter(buffers)),
+    };
+    let head = Arc::new(Playhead::default());
+    let tap = Arc::new(Tap::default());
+    let mut tapped = Tapped::new(Looper::new(source, head.clone()), tap.clone());
+    assert_eq!(tapped.total_duration(), length);
+    let played: Vec<f32> = (&mut tapped).collect();
+    assert_eq!(played, want);
+    let frames: usize = spans.iter().map(|(_, f)| f).sum();
+    let last_rate = spans.last().unwrap().0;
+    assert_eq!(head.frame.load(Ordering::Relaxed), frames as u64);
+    assert_eq!(head.position(), Duration::from_nanos((frames as u128 * 1_000_000_000 / last_rate as u128) as u64));
+    assert_eq!((tap.written(), tap.sample_rate()), (frames, last_rate));
+}
+
+/// Text saved under any audio file's name (no audio in it) fails to open, saying which file it
+/// can't decode, rather than playing noise or panicking.
+#[hegel::test(test_cases = 50)]
+fn a_file_without_audio_fails_to_open_saying_so(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let ext = tc.draw(gs::sampled_from(&["mp3", "MP3", "wav", "flac", "m4a", "aiff", "ogg"][..]));
+    let text = tc.draw(gs::text().alphabet("abcdefghij klmnop\n").max_size(2_000));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join(format!("not audio.{ext}"));
+    std::fs::write(&path, &text).unwrap();
+    let err = open_file(&path).err().unwrap_or_else(|| panic!("{ext} of {} bytes opened", text.len()));
+    assert!(format!("{err:#}").starts_with(&format!("can't decode {}", path.display())), "{err:#}");
+}

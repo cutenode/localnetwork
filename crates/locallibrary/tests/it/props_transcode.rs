@@ -165,6 +165,18 @@ fn copies_are_made_of_exactly_what_the_players_cant_play(tc: TestCase) {
     let p = plan(&src, &club, &options("Set", &chosen, container, decode));
     let warned = p.warnings.iter().any(|w| w.contains("transcodes.json"));
     assert_eq!(warned, unreadable && !p.transcodes.is_empty(), "{:?}", p.warnings);
+    if !unreadable {
+        // The same pack to a drive whose record can't be read plans the same copies, warning.
+        fs::create_dir(dir.path().join("Spare")).unwrap();
+        let spare = Device::open(dir.path().join("Spare")).unwrap();
+        fs::create_dir_all(spare.state_dir()).unwrap();
+        fs::write(spare.state_dir().join("transcodes.json"), b"{not json").unwrap();
+        let s = plan(&src, &spare, &options("Set", &chosen, container, decode));
+        let warned = s.warnings.iter().any(|w| w.contains("transcodes.json") && w.contains("made again"));
+        assert_eq!(warned, !p.transcodes.is_empty(), "{:?}", s.warnings);
+        let to = |p: &PackPlan| p.transcodes.iter().map(|t| (t.to.clone(), t.recipe.clone())).collect::<Vec<_>>();
+        assert_eq!(to(&s), to(&p));
+    }
 
     let mut lossy = 0;
     for (i, &(ext, rate, depth)) in MASTERS.iter().enumerate() {

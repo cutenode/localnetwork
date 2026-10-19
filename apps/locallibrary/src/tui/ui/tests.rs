@@ -1857,3 +1857,41 @@ fn plugins_values_show_shortly() {
     assert_eq!(text(FieldValue::Boolean(true)), "yes");
     assert_eq!(text(FieldValue::Strings(vec!["deep".into(), "warm".into()])), "deep, warm");
 }
+
+/// With the My Tags column shown and the drive's tags read, each track's row lists its tags by
+/// their own names (not the categories they're under), in the order the drive has them; a track
+/// without any shows none.
+#[hegel::test(test_cases = 50)]
+fn the_my_tags_column_lists_each_tracks_tags(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use std::sync::Arc;
+    let (mut app, _dir) = app_with(library());
+    app.show_tags_column = true;
+    let names = ["Genre/Deep", "Vibe/Moody", "Peak", "Situation/Warm Up"];
+    let l = app.loaded.as_mut().unwrap();
+    let tracks = l.library.tracks.clone();
+    let mut tags = rustc_hash::FxHashMap::default();
+    let mut want = Vec::new();
+    for t in &tracks {
+        let mine: Vec<String> = names.iter().filter(|_| tc.draw(gs::booleans())).map(|n| n.to_string()).collect();
+        want.push(mine.iter().map(|n| n.rsplit('/').next().unwrap().to_string()).collect::<Vec<_>>());
+        tags.insert(locallibrary::paths::key(&t.file_path).to_lowercase(), mine);
+    }
+    l.my_tags = super::super::app::MyTags::Read(Arc::new(tags));
+    let s = screen(&mut app, 200, 30);
+    // The rows under the column headers, in the order the list shows the tracks.
+    let rows: Vec<&str> = s.lines().skip_while(|l| !l.contains("My Tags")).skip(1).take(app.visible.len()).collect();
+    assert_eq!(rows.len(), app.visible.len(), "{s}");
+    for (&i, row) in app.visible.iter().zip(rows) {
+        let (title, leaves) = (&tracks[i].title, &want[i]);
+        assert!(row.contains(title.as_str()), "{title} isn't on {row}\n{s}");
+        if leaves.is_empty() {
+            for n in names {
+                assert!(!row.contains(n.rsplit('/').next().unwrap()), "{title} has no tags: {row}");
+            }
+        } else {
+            assert!(row.contains(&leaves.join(", ")), "{title} has {leaves:?}: {row}");
+        }
+        assert!(!row.contains("Genre/") && !row.contains("Vibe/"), "{row}");
+    }
+}

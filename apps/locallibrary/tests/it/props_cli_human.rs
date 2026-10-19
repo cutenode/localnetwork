@@ -48,9 +48,9 @@ pub struct State {
     pub profile: bool,
     /// A drive whose export.pdb doesn't read.
     pub broken: bool,
-    /// Copies of the store, one of them gone since.
+    /// Copies of the store, one of them gone since and one never finished.
     pub store_copy: bool,
-    /// Track 1 on A rated, tagged, with cues and artwork.
+    /// Track 1 on A rated, tagged, with an ISRC, cues and artwork.
     pub track_edits: bool,
     /// A player recorded a new history list on A since its pull: back from a set.
     pub played: bool,
@@ -162,7 +162,7 @@ pub fn build(s: State) -> Env {
     }
     if s.track_edits {
         image::RgbImage::from_pixel(300, 300, image::Rgb([200, 40, 90])).save(fx.home("art.png")).unwrap();
-        yes(&["track", "set", "A", "--track", "1", "--rating", "4"]);
+        yes(&["track", "set", "A", "--track", "1", "--rating", "4", "--isrc", "GBDUW0000059"]);
         yes(&["tags", "add", "A", "Genre/Deep", "--track", "1"]);
         yes(&["cues", "set", "A", "--track", "1", "--hot", "B", "--at", "1.5"]);
         yes(&["cues", "set", "A", "--track", "1", "--memory", "--beat", "2", "--loop", "4"]);
@@ -325,6 +325,12 @@ pub fn build(s: State) -> Env {
         yes(&["store", "copy", path(&fx.home("store-copy"))]);
         yes(&["store", "copy", path(&fx.home("gone"))]);
         std::fs::remove_dir_all(fx.home("gone")).unwrap();
+        // One cut off before it was ever whole: its record of itself has no complete copy.
+        yes(&["store", "copy", path(&fx.home("half-copy"))]);
+        let marker = fx.home("half-copy/copy.json");
+        let mut record: Value = serde_json::from_str(&std::fs::read_to_string(&marker).unwrap()).unwrap();
+        record["last_complete"] = Value::Null;
+        std::fs::write(&marker, record.to_string()).unwrap();
     }
     fx
 }
@@ -816,6 +822,7 @@ const STORE_READS: &[(&[&str], &[&str])] = &[
     (&["settings", "show"], &["drive", "drift.[].key"]),
     (&["settings", "Club"], &["drive", "drift.[].key"]),
     (&["--store", "@h/store-copy", "store", "info"], &["root", "copy_of.from", "libraries.[].name"]),
+    (&["--store", "@h/half-copy", "store", "info"], &["root", "copy_of.from"]),
     (&["@empty", "library", "ls"], &[]),
     (&["@empty", "library", "log"], &[]),
     (&["@empty", "players"], &[]),
@@ -870,6 +877,7 @@ const TRACK_READS: &[(&[&str], &[&str])] = &[
             "{[].analysis.beats} beats",
             "{[].analysis.hot_cues} hot",
             "{[].analysis.memory_cues} memory",
+            "ISRC {[].track.isrc}",
         ],
     ),
     (&["track", "show", "A", "--track", "2"], &["[].track.title", "[].track.file_path"]),
@@ -1023,6 +1031,11 @@ const DISPATCH: &[(&[&str], &[&str])] = &[
     (&["analysis", "bench", "A", "--keys", "@h/none"], &[]),
     (&["sync", "Clubland", "--library", "A"], &[]),
     (&["pull", "Clubland", "--library", "A"], &[]),
+    (&["refresh", "--skip", "everything"], &[]),
+    (&["--yes", "setup", "A", "--library", "A", "--player-name", "Club=B"], &[]),
+    (&["--yes", "--store", "@h/cover.png", "settings", "set", "quantize=off"], &[]),
+    (&["rpc", "--emit-schema", "@h/cover.png/schema"], &[]),
+    (&["cues"], &[]),
 ];
 
 /// Every way through the command dispatch says the same with and without `--json`: the same exit

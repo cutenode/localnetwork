@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(unix)]
+#[path = "test_util.rs"]
+pub(crate) mod fake_tools;
+
 pub(crate) fn sample_disk() -> Disk {
     Disk {
         id: "disk4".into(),

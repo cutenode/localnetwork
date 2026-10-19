@@ -248,7 +248,7 @@ fn clock_of(secs: u32) -> String {
 /// Every format lists every track in set order: text numbered, Mixcloud and 1001Tracklists
 /// with the times they have, CSV naming every track (read back as written); YouTube and CUE
 /// need every track's start (CUE the recording too), refuse naming the first track without
-/// one, and warn about tracks that don't start after the one before.
+/// one, and warn about tracks that don't start after the one before. An M3U8 needs a drive.
 #[hegel::test(test_cases = 300)]
 fn every_format_lists_every_track_in_order(tc: TestCase) {
     let s = some_set(&tc, tc.draw(gs::booleans()));
@@ -270,6 +270,10 @@ fn every_format_lists_every_track_in_order(tc: TestCase) {
     let want: Vec<String> =
         s.tracks.iter().map(|e| timed(e, &|t| format!("[{}] {}", clock_of(t), published(e)))).collect();
     assert_eq!(lines(SetFormat::Tracklists), want);
+
+    // An M3U8 lists files on a drive, so with none named it's refused for that.
+    let e = render(&s, SetFormat::M3u8, None).unwrap_err();
+    assert_eq!(e.to_string(), "an M3U8 lists files on a drive: name the drive");
 
     let csv = render(&s, SetFormat::Csv, None).unwrap().text;
     let rows: Vec<Vec<String>> = crate::import::read_table(&csv, ',', true)

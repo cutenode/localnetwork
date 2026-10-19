@@ -273,6 +273,7 @@ fn an_explained_refusal_says_how_to_go_on(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(status = 500u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = Some("RepoDeactivated".to_string()), message = None::<String>)]
 #[hegel::explicit_test_case(status = 400u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = Some("RepoDeactivated".to_string()), message = Some("gone".to_string()))]
 #[hegel::explicit_test_case(status = 502u16, uri = None::<String>, cid = None::<String>, value = None::<Value>, error = None::<String>, message = None::<String>)]
+#[hegel::explicit_test_case(status = 200u16, uri = None::<String>, cid = Some("bafy".to_string()), value = Some(json!({ "n": 1 })), error = None::<String>, message = None::<String>)]
 fn a_read_gives_what_the_server_answered(tc: hegel::TestCase) {
     static SERVER: OnceLock<Shared> = OnceLock::new();
     let (pds, next, _) = shared(&SERVER);
@@ -319,12 +320,13 @@ fn a_read_gives_what_the_server_answered(tc: hegel::TestCase) {
 
 /// A write that can't go anywhere stops here, with nothing sent: a record that doesn't fit its
 /// Lexicon, nobody signed in, another account signed in than the one the write was for, or a
-/// session that may not write that kind of record, checked in that order. Any other write goes
-/// to the server.
+/// session that may not write that kind of record, or a record key no repository takes, checked
+/// in that order. Any other write goes to the server.
 #[hegel::test(test_cases = 8)]
-#[hegel::explicit_test_case(collection = lexicon::SETTINGS, fits = true, scopes = "atproto".to_string(), signed_in = Some("did:plc:abc"), unreachable = false)]
-#[hegel::explicit_test_case(collection = lexicon::PROFILE, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:other"), unreachable = false)]
-#[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true)]
+#[hegel::explicit_test_case(collection = lexicon::SETTINGS, fits = true, scopes = "atproto".to_string(), signed_in = Some("did:plc:abc"), unreachable = false, rkey = "self")]
+#[hegel::explicit_test_case(collection = lexicon::PROFILE, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:other"), unreachable = false, rkey = "self")]
+#[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true, rkey = "self")]
+#[hegel::explicit_test_case(collection = lexicon::SET, fits = true, scopes = "atproto transition:generic".to_string(), signed_in = Some("did:plc:abc"), unreachable = true, rkey = "a b")]
 fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     static SERVER: OnceLock<Shared> = OnceLock::new();
     let (pds, next, got) = shared(&SERVER);
@@ -357,6 +359,8 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     let signed_in = tc.draw(gs::optional(gs::sampled_from(vec!["did:plc:abc", "did:plc:other"])));
     // Now and then the account's server is one that refuses connections.
     let unreachable: bool = tc.draw(gs::weighted_booleans(0.2));
+    // Now and then a record key no repository takes.
+    let rkey = tc.draw(gs::sampled_from(vec!["self", "self", "a b", ".."]));
     let dir = tempfile::tempdir().unwrap();
     if let Some(did) = signed_in {
         crate::store::Store::open_or_init(dir.path()).unwrap();
@@ -365,7 +369,7 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
     }
 
     let before = got.load(Ordering::SeqCst);
-    let err = put_record(dir.path(), "did:plc:abc", collection, "self", &record, None).unwrap_err();
+    let err = put_record(dir.path(), "did:plc:abc", collection, rkey, &record, None).unwrap_err();
     let may_write = scopes.contains("transition:generic") || scopes.contains(&format!("repo:{collection}?"));
     let sent = got.load(Ordering::SeqCst) > before;
     match signed_in {
@@ -375,6 +379,10 @@ fn a_write_that_cant_go_stops_before_the_server(tc: hegel::TestCase) {
             assert_eq!((err.code(), err.reason()), ("conflict", Some(Reason::Changed)), "{err}")
         }
         Some(_) if !may_write => assert_eq!(err.reason(), Some(Reason::MissingScope), "{err}"),
+        Some(_) if rkey != "self" => {
+            assert_eq!(err.code(), "invalid", "{err}");
+            assert!(err.to_string().starts_with(&format!("the {} record: ", lexicon::short_name(collection))), "{err}");
+        }
         Some(_) if unreachable => assert!(err.to_string().starts_with("couldn't reach 127.0.0.1:9"), "{err}"),
         Some(_) => {
             assert!(sent, "{err}");
@@ -506,4 +514,22 @@ fn what_isnt_a_handle_or_did_isnt_looked_up(tc: hegel::TestCase) {
     let text = err.to_string();
     assert!(text.contains(&one_line(&format!("the Atmosphere account {asked:?} ("))), "{text}");
     assert!(!text.chars().any(char::is_control), "{text:?}");
+}
+
+/// A read from a server nobody answers at fails saying which server couldn't be reached, on
+/// one line, whatever was asked for and however the address ends.
+#[hegel::test(test_cases = 20)]
+fn a_read_from_a_server_nobody_answers_at_says_so(tc: hegel::TestCase) {
+    // A port that was just free: nothing listens there now.
+    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let slashes = "/".repeat(tc.draw(gs::integers::<usize>().max_value(2)));
+    let pds = format!("http://127.0.0.1:{port}{slashes}");
+    let repo = tc.draw(word(vec!["did:plc:abc", "dj.example.com"]));
+    let collection = tc.draw(gs::sampled_from(lexicon::COLLECTIONS.to_vec()));
+    let rkey = tc.draw(word(vec!["self", "3m2abcdefgh22"]));
+    let err = get_record(&pds, &repo, collection, &rkey).unwrap_err();
+    assert_eq!(err.code(), "account");
+    let text = err.to_string();
+    assert!(text.starts_with(&format!("couldn't reach 127.0.0.1:{port} (")), "{text}");
+    assert!(!text.contains('\n'), "{text}");
 }

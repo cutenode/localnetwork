@@ -428,3 +428,78 @@ fn a_check_that_cant_run_asks_nothing_of_the_system(tc: hegel::TestCase) {
         other => panic!("{other:?}"),
     }
 }
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools;
+
+/// A check finds the volume at the drive's root through the platform's disk tools and runs that
+/// platform's steps for it, in order, whatever the check finds: the report says the steps it
+/// ran, is consistent exactly when the check tool succeeded, keeps the tool's last 15 lines and
+/// adds what mounting again said (on Linux), or that it couldn't and to plug the drive in again.
+#[cfg(unix)]
+#[hegel::test(test_cases = 20)]
+// More lines than the report keeps.
+#[hegel::explicit_test_case(
+    fs = "vfat",
+    repair = false,
+    lines = (1..=20).map(|n| format!("phase {n}")).collect::<Vec<String>>(),
+    consistent = false,
+    mounts_again = false
+)]
+fn a_check_runs_its_steps_and_reports_what_the_tool_found(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    std::fs::create_dir(fake.dir().join("DNA")).unwrap();
+    let d = Device::open(fake.dir().join("DNA")).unwrap();
+    let fs = tc.draw(gs::sampled_from(vec!["vfat", "exfat"]));
+    let (volume, fs_name) = fake.volume_at(d.root(), fs, true);
+    let repair = tc.draw(gs::booleans());
+    let planned = steps(d.root(), Some(&volume), Some(&fs_name), repair).unwrap();
+    let lines: Vec<String> = tc.draw(gs::vecs(gs::text().alphabet("abc 019:*").max_size(12)).max_size(25));
+    let consistent = tc.draw(gs::booleans());
+    fn words(c: &Cmd) -> Vec<&str> {
+        c.args.iter().map(String::as_str).collect()
+    }
+    let check_words = words(&planned.check);
+    if consistent {
+        fake.answer(&planned.check.program, &check_words, &lines.join("\n"));
+    } else {
+        fake.refuse(&planned.check.program, &check_words, &lines.join("\n"));
+    }
+    if let Some(u) = &planned.unmount {
+        fake.answer(&u.program, &words(u), "");
+    }
+    let mounts_again = tc.draw(gs::booleans());
+    if let Some(m) = &planned.mount {
+        if mounts_again {
+            fake.answer(&m.program, &words(m), "Mounted /dev/sdb1 at /media/dj/DNA");
+        } else {
+            fake.refuse(&m.program, &words(m), "Error mounting: not authorized");
+        }
+    }
+
+    let report = check(&d, repair).unwrap();
+    let ran: Vec<Cmd> = fake
+        .calls()
+        .into_iter()
+        .filter(|c| {
+            !["diskutil", "plutil", "ioreg", "lsblk"].contains(&c.program.as_str())
+                || c.args.first().is_some_and(|a| a.ends_with("Volume"))
+        })
+        .collect();
+    let want: Vec<Cmd> =
+        [planned.unmount.clone(), Some(planned.check.clone()), planned.mount.clone()].into_iter().flatten().collect();
+    assert_eq!(ran, want);
+    assert_eq!((report.command, report.ok, report.repaired), (planned.display(), consistent, repair));
+    assert_eq!((report.volume, report.filesystem), (Some(volume), Some(fs_name)));
+    let mut output: Vec<String> = lines.iter().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+    output.drain(..output.len().saturating_sub(15));
+    match &planned.mount {
+        Some(_) if mounts_again => output.push("Mounted /dev/sdb1 at /media/dj/DNA".into()),
+        Some(_) => output.push(
+            "couldn't mount it again (Error mounting: not authorized): unplug the drive and plug it back in".into(),
+        ),
+        None => {}
+    }
+    assert_eq!(report.output, output);
+}

@@ -191,3 +191,33 @@ fn tracks_are_offset_only_when_they_sound_like_one_recording(tc: hegel::TestCase
     std::fs::write(d.path("Contents/1.wav"), b"RIFF not a wave").unwrap();
     assert!(offset_between(&d, &a, &other, &silent).unwrap().is_err());
 }
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools;
+
+/// A drive's doctor report names the file system of the volume it is, and how players get on
+/// with the disk it's on, as the system describes them; a drive that is only a folder has
+/// neither.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6)]
+fn the_doctor_judges_a_drive_by_the_disk_it_is_on(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let root = fake.demo_drive("DNA");
+    let d = Device::open(&root).unwrap();
+    let on_a_disk = tc.draw(gs::weighted_booleans(0.8));
+    let (fs, mbr) = (tc.draw(gs::sampled_from(vec!["vfat", "exfat"])), tc.draw(gs::booleans()));
+    let named = on_a_disk.then(|| fake.volume_at(d.root(), fs, mbr).1);
+
+    let opts = DoctorOptions { only: vec![Section::Compatibility], ..DoctorOptions::default() };
+    let report = run(&d, &opts, &Ctx::silent()).unwrap();
+    assert_eq!(report.file_system, named);
+    let verdict = report.compatibility.map(|c| c.verdict);
+    let want = match (on_a_disk, mbr, fs) {
+        (false, ..) => None,
+        (true, false, _) => Some(crate::format::Verdict::NoPlayers),
+        (true, true, "vfat") => Some(crate::format::Verdict::AllPlayers),
+        _ => Some(crate::format::Verdict::SomePlayers),
+    };
+    assert_eq!(verdict, want);
+}

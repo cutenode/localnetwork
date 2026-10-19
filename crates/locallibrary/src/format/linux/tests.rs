@@ -407,3 +407,185 @@ fn format_commands_follow_the_target(tc: TestCase) {
     assert!(size_arg.is_none_or(|s| mkfs.args.contains(&s)), "{mkfs:?}");
     assert!(by_id(&disk.device.replace("/dev/", "dev/")).unwrap().is_none());
 }
+
+// -----------------------------------------------------------------------------------------
+// Through lsblk and the formatting tools: fake ones that answer only what they were told
+// -----------------------------------------------------------------------------------------
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools::FakeTools;
+
+/// What lsblk is asked: every column, with FSVER where `fsver` (util-linux 2.35 on), of every
+/// block device or of `device`.
+#[cfg(unix)]
+fn lsblk_args(device: Option<&str>, fsver: bool) -> Vec<String> {
+    let columns = if fsver { format!("{COLUMNS},FSVER") } else { COLUMNS.to_string() };
+    let mut args = vec!["--json".into(), "--bytes".into(), "--output".into(), columns];
+    args.extend(device.map(String::from));
+    args
+}
+
+#[cfg(unix)]
+fn strs(words: &[String]) -> Vec<&str> {
+    words.iter().map(String::as_str).collect()
+}
+
+/// Every question about disks is one look at lsblk's listing of all block devices (asking again
+/// without FSVER when an older lsblk refuses the column): the listing is its disks, a device path
+/// or a mount point finds the disk holding that device, and anything else is found nowhere. When
+/// lsblk fails, prints something that isn't the listing, or isn't installed, every question fails
+/// saying so, with the package to install.
+#[cfg(unix)]
+#[hegel::test(test_cases = 40)]
+fn disks_are_what_lsblk_lists(tc: TestCase) {
+    let names = gs::sampled_from(vec!["sdb", "sdc", "mmcblk0", "nvme0n1", "loop3", "dm-1"]);
+    let names: Vec<&str> = tc.draw(gs::vecs(names).unique(true).max_size(3));
+    let devices: Vec<(Value, Option<Disk>, Vec<String>)> = names.iter().map(|n| block_device(&tc, n)).collect();
+    let all = json!({ "blockdevices": devices.iter().map(|d| d.0.clone()).collect::<Vec<_>>() });
+    let mut fake = FakeTools::new();
+    let how = tc.draw(gs::sampled_from(vec!["new", "old", "fails", "garbles", "missing"]));
+    let (new, old) = (lsblk_args(None, true), lsblk_args(None, false));
+    match how {
+        "new" => fake.answer("lsblk", &strs(&new), &all.to_string()),
+        "old" => {
+            fake.refuse("lsblk", &strs(&new), "lsblk: unknown column: FSVER");
+            fake.answer("lsblk", &strs(&old), &all.to_string());
+        }
+        "fails" => {
+            fake.refuse("lsblk", &strs(&new), "lsblk: failed to access sysfs directory");
+            fake.refuse("lsblk", &strs(&old), "lsblk: failed to access sysfs directory");
+        }
+        "garbles" => fake.answer("lsblk", &strs(&new), "lsblk: {"),
+        _ => {}
+    }
+    let want: Vec<&Disk> = devices.iter().filter_map(|d| d.1.as_ref()).collect();
+    let mut paths: Vec<String> =
+        want.iter().flat_map(|d| d.volumes.iter().map(|v| v.id.clone()).chain([d.id.clone()])).collect();
+    paths.retain(|p| !p.is_empty());
+    paths.push("/dev/sdz9".into());
+    let mut mounts: Vec<String> = devices.iter().flat_map(|d| d.2.clone()).collect();
+    mounts.push("/media/dj/elsewhere".into());
+    let (path, mount) = (tc.draw(gs::sampled_from(paths)), tc.draw(gs::sampled_from(mounts)));
+
+    let (listed, by_path, by_mounted) = (list(), by_id(&path), by_mount(Path::new(&mount)));
+    let asked = fake.calls().len();
+    match how {
+        "new" | "old" => {
+            assert_eq!(asked, if how == "new" { 3 } else { 6 }, "one listing per question");
+            assert_eq!(serde_json::to_value(listed.unwrap()).unwrap(), serde_json::to_value(&want).unwrap());
+            let holding = |key: &str, want: &str| {
+                disk_holding(&all, &|n| json::str(n, key).as_deref() == Some(want)).map(|d| d.id)
+            };
+            assert_eq!(by_path.unwrap().map(|d| d.id), holding("path", &path));
+            match (by_mounted, holding("mountpoint", &mount)) {
+                (Ok(d), Some(id)) => assert_eq!(d.id, id),
+                (Err(Error::Invalid(m)), None) => assert!(m.contains("is not the root of a mounted volume"), "{m}"),
+                (got, want) => panic!("{mount}: {:?}, not {want:?}", got.map(|d| d.id)),
+            }
+        }
+        "fails" => {
+            for e in [listed.map(drop), by_path.map(drop), by_mounted.map(drop)] {
+                assert!(matches!(&e, Err(Error::External { message, .. }) if message.contains("sysfs")), "{e:?}");
+            }
+        }
+        "garbles" => {
+            for e in [listed.map(drop), by_path.map(drop), by_mounted.map(drop)] {
+                assert!(matches!(&e, Err(Error::Parse { .. })), "{e:?}");
+            }
+        }
+        _ => {
+            for e in [listed.map(drop), by_path.map(drop), by_mounted.map(drop)] {
+                assert!(
+                    matches!(&e, Err(Error::External { message, .. }) if message == "not found (install util-linux)"),
+                    "{e:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Formatting any file system needs write access to the disk, asks lsblk what is mounted on it,
+/// and then runs exactly the planned steps in order: the unmounts, sfdisk with its script, and once the kernel
+/// has settled, mkfs, then a sync. The first step that fails stops it, in the tool's words; udev
+/// and sync failing don't.
+#[cfg(unix)]
+#[hegel::test(test_cases = 40)]
+fn formatting_runs_the_planned_steps_in_order(tc: TestCase) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut fake = FakeTools::new();
+    let name = tc.draw(gs::sampled_from(vec!["sdb", "mmcblk0", "nvme0n1"]));
+    let (d, _, _) = block_device(&tc, name);
+    // The device files are in a folder of the test's own, whatever lsblk calls them.
+    let dev = fake.dir().join("dev");
+    std::fs::create_dir(&dev).unwrap();
+    let text = d.to_string().replace("\"/dev/", &format!("\"{}/", dev.display()));
+    let mut d: Value = serde_json::from_str(&text).unwrap();
+    d["type"] = json!("disk");
+    d["path"] = json!(dev.join(name));
+    let disk = parse_disk(&d).unwrap();
+    std::fs::write(&disk.device, "").unwrap();
+    std::fs::write(first_partition(&disk.device), "").unwrap();
+    let writable = tc.draw(gs::weighted_booleans(0.85));
+    if !writable {
+        std::fs::set_permissions(&disk.device, std::fs::Permissions::from_mode(0o444)).unwrap();
+    }
+    let filesystem =
+        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    let cluster_size = disk.sector_size << tc.draw(gs::integers::<u32>().max_value(6));
+    let label = filesystem.label(&tc.draw(gs::text().alphabet("ab 'é$").max_size(12)));
+    let t = Target { filesystem, label, cluster_size, default_cluster: tc.draw(gs::booleans()) };
+    let mut mounted = Vec::new();
+    mounts(&d, &mut mounted);
+    let planned = commands(&disk, &t, &mounted);
+    fake.answer("lsblk", &strs(&lsblk_args(Some(&disk.device), true)), &json!({ "blockdevices": [d] }).to_string());
+    let fails_at =
+        tc.draw(gs::weighted_booleans(0.3)).then(|| tc.draw(gs::integers::<usize>().max_value(planned.len() - 1)));
+    // A fake tool answers a command line the same way each time, so of two partitions mounted at
+    // one place, the first unmount is the one that fails.
+    let fails_at = fails_at.map(|i| planned.iter().position(|c| *c == planned[i]).unwrap());
+    for (i, c) in planned.iter().enumerate() {
+        if fails_at == Some(i) {
+            fake.refuse(&c.program, &strs(&c.args), "target is busy");
+        } else {
+            fake.answer(&c.program, &strs(&c.args), "");
+        }
+    }
+    if tc.draw(gs::booleans()) {
+        fake.answer("udevadm", &["settle"], "");
+    } else {
+        fake.refuse("udevadm", &["settle"], "Failed to connect to udev");
+    }
+    if tc.draw(gs::booleans()) {
+        fake.answer("sync", &[], "");
+    } else {
+        fake.refuse("sync", &[], "sync: Input/output error");
+    }
+    // Linux makes every file system there is a choice of.
+    assert!(supports(filesystem).is_ok());
+    assert_eq!(steps(&disk, &t).unwrap(), planned.iter().map(Cmd::display).collect::<Vec<_>>());
+
+    let before = fake.calls().len();
+    let formatted = format(&disk, &t, &Ctx::silent());
+    let ran: Vec<Cmd> = fake.calls().split_off(before);
+    if !writable {
+        assert!(matches!(&formatted, Err(Error::Permission(m)) if m.contains(&disk.device)), "{formatted:?}");
+        assert!(ran.is_empty(), "{ran:?}");
+        return;
+    }
+    let names: Vec<&str> = ran.iter().map(|c| c.program.as_str()).collect();
+    let steps: Vec<Cmd> =
+        ran.iter().filter(|c| !["lsblk", "udevadm", "sync"].contains(&c.program.as_str())).cloned().collect();
+    assert_eq!(steps, planned[..fails_at.map_or(planned.len(), |i| i + 1)], "{names:?}");
+    let mkfs = names.iter().position(|n| n.starts_with("mkfs"));
+    assert_eq!(mkfs.map(|i| names[i - 1]), mkfs.map(|_| "udevadm"), "{names:?}");
+    match fails_at {
+        Some(_) => {
+            assert!(matches!(formatted, Err(Error::External { message, .. }) if message == "target is busy"));
+            assert!(!names.contains(&"sync"));
+        }
+        None => {
+            assert_eq!(formatted.unwrap(), None);
+            assert_eq!(names.last(), Some(&"sync"));
+        }
+    }
+}
