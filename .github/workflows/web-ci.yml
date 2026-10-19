@@ -305,12 +305,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Into apps/web/coverage and apps/web/sizes. An artifact whose job failed before uploading it
-      # is missing, and the steps that need it skip.
+      # Into apps/web/coverage and apps/web/sizes, each by name: a pattern that matches only one
+      # (the other's job failed before uploading it) unpacks it into apps/web itself. A missing one
+      # leaves only the steps that need it skipped.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
         with:
-          pattern: "{coverage,sizes}"
-          path: apps/web
+          name: coverage
+          path: apps/web/coverage
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: sizes
+          path: apps/web/sizes
       - id: main-coverage
         uses: ./.github/actions/main-artifact
         with:
