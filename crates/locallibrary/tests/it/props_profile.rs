@@ -797,3 +797,117 @@ fn blank_and_unknown_preference_changes_are_refused(tc: TestCase) {
     }
     assert_eq!(prefs, before, "nothing changed");
 }
+
+/// The DJ's own spellings win: a genre whose text means one of their aliases (ignoring case and
+/// spacing, as genres are compared) reads as the first such alias's genre, wherever it is in
+/// the text; every other genre reads as it does without aliases, words that aren't genres stay
+/// out, and no genre is named twice.
+#[hegel::test(test_cases = 300)]
+fn the_djs_own_genre_spellings_win(tc: TestCase) {
+    let parts: Vec<&str> = tc.draw(
+        gs::vecs(gs::sampled_from(vec![
+            "deep house",
+            "Tech-House",
+            "DnB",
+            "minimal",
+            " MINIMAL ",
+            " Deep  House ",
+            "Unknown",
+            "",
+            "techno",
+        ]))
+        .min_size(1)
+        .max_size(5),
+    );
+    let mut raw = parts[0].to_string();
+    for p in &parts[1..] {
+        raw.push(tc.draw(gs::sampled_from(vec!['/', ',', ';', '|'])));
+        raw.push_str(p);
+    }
+    let aliases: IndexMap<String, String> = tc
+        .draw(
+            gs::vecs(gs::tuples!(
+                gs::sampled_from(vec!["minimal", "Deep House", "DEEP HOUSE", "dnb", "techno", "unknown"]),
+                gs::sampled_from(vec!["Minimal / Deep Tech", "House", "Jungle", "Techno (Peak)"])
+            ))
+            .max_size(4),
+        )
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let none = IndexMap::new();
+    let mut want: Vec<String> = Vec::new();
+    for p in &parts {
+        // A part that names no genre without aliases (`Unknown`, nothing) names none with them.
+        let Some(plain) = profile::genres(p, &none).into_iter().next() else { continue };
+        let name = aliases.iter().find(|(k, _)| normalize(k) == normalize(p)).map_or(plain, |(_, v)| v.clone());
+        if !want.iter().any(|g| normalize(g) == normalize(&name)) {
+            want.push(name);
+        }
+    }
+    assert_eq!(profile::genres(&raw, &aliases), want, "{raw:?} {aliases:?}");
+}
+
+/// The collection's cue statistics count each track's cues as its analysis files hold them,
+/// whatever cues the DJ set in hot cue slots A to C or as memory cues: the share of tracks with
+/// a hot cue, a memory cue and a loop, and hot cues per track among those with any.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn cue_statistics_count_the_cues_the_analysis_files_hold(tc: TestCase) {
+    cue_statistics_after_cue_edits(&tc, 2);
+}
+
+/// The same for hot cues in slots D to H, which a `.EXT` file holds alone.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+#[ignore = "bug: profile::Builder::read_analysis reads a collection track's cues from its .DAT, which holds hot cues A-C only"]
+fn cue_statistics_count_hot_cues_past_c(tc: TestCase) {
+    cue_statistics_after_cue_edits(&tc, 7);
+}
+
+/// Set cues (hot cues up to slot `last`, memory cues, loops) on the demo drive's tracks, and
+/// check the profile's cue statistics against the cues the drive lists for each track.
+#[hegel::test_helper]
+fn cue_statistics_after_cue_edits(tc: &TestCase, last: u8) {
+    use locallibrary::cue_edit::{self, CueEdit, CuePosition, HotCue, SetCue};
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let lib = Device::open_export(&root).unwrap().library().unwrap();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
+        let t = &lib.tracks[tc.draw(gs::integers::<usize>().max_value(lib.tracks.len() - 1))];
+        let edit = CueEdit::Set(SetCue {
+            hot_cue: tc.draw(gs::optional(gs::integers::<u8>().max_value(last))).map(HotCue),
+            at: CuePosition::Ms(tc.draw(gs::integers::<u32>().max_value(t.duration_secs * 1000 / 2))),
+            snap: false,
+            loop_beats: tc.draw(gs::optional(gs::sampled_from(vec![4.0, 0.5]))),
+            name: None,
+            color: None,
+        });
+        let mut d = Device::open_export(&root).unwrap();
+        if let Ok(plan) = cue_edit::plan(&d, &[t.id], &edit, &Ctx::silent()) {
+            cue_edit::apply(&plan, &mut d, &Ctx::silent()).unwrap();
+        }
+    }
+    let d = Device::open_export(&root).unwrap();
+    let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    let counts: Vec<(usize, usize, usize)> = cue_edit::list(&d, &ids)
+        .unwrap()
+        .iter()
+        .map(|t| {
+            let hot = t.cues.iter().filter(|c| c.hot_cue.is_some()).count();
+            let loops = t.cues.iter().filter(|c| c.end_ms.is_some()).count();
+            let memory = t.cues.iter().filter(|c| c.hot_cue.is_none() && c.end_ms.is_none()).count();
+            (hot, memory, loops)
+        })
+        .collect();
+    let req = ProfileRequest { drives: vec![common::path(&root)], ..Default::default() };
+    let r = api::profile(None, &req, &Ctx::silent()).unwrap().report;
+    let prep = r.prep.expect("the demo drive's tracks are analysed");
+    let n = counts.len();
+    let share = |f: &dyn Fn(&(usize, usize, usize)) -> bool| counts.iter().filter(|c| f(c)).count() as f64 / n as f64;
+    assert_eq!(prep.tracks, n);
+    assert_eq!(prep.hot_cue_share, share(&|c| c.0 > 0), "{counts:?}");
+    assert_eq!(prep.memory_cue_share, share(&|c| c.1 > 0), "{counts:?}");
+    assert_eq!(prep.loop_share, share(&|c| c.2 > 0), "{counts:?}");
+    let with_hot: Vec<usize> = counts.iter().map(|c| c.0).filter(|h| *h > 0).collect();
+    let per = (!with_hot.is_empty()).then(|| with_hot.iter().sum::<usize>() as f64 / with_hot.len() as f64);
+    assert_eq!(prep.hot_cues_per_track, per);
+}

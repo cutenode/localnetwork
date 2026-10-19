@@ -111,8 +111,9 @@ fn an_edit(tc: &TestCase, lib: &Library) -> Edit {
 
 /// Batches of edits planned and applied through the service layer leave a drive as the same
 /// edits made with `edit` on a copy of it; a refused batch is refused alike and changes nothing.
-/// Undo takes the last batch back, a replay after rekordbox exports over the drive makes the
-/// batches still recorded again, and clearing the journal forgets them.
+/// Undo takes the last batch back (its preview reads a drive database that can't be read as an
+/// empty library), a replay after rekordbox exports over the drive makes the batches still
+/// recorded again, and clearing the journal forgets them.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn edits_agree_with_edit_and_undo_and_replay(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -168,6 +169,16 @@ fn edits_agree_with_edit_and_undo_and_replay(tc: TestCase) {
         let now = library(&a);
         let expected = diff::between(&now, &libraries[libraries.len() - 2], (&preview.diff.left, &label), None);
         assert_eq!(serde_json::to_value(&preview.diff).unwrap(), serde_json::to_value(&expected).unwrap());
+        // A database on the drive that can't be read counts as an empty library.
+        let pdb = a.join(paths::EXPORT_PDB);
+        let now_pdb = fs::read(&pdb).unwrap();
+        fs::write(&pdb, b"not a database").unwrap();
+        let unreadable =
+            api::restore_preview(&RestoreBackup { drive: spec.clone(), backup: None, force: false }).unwrap();
+        let empty = locallibrary::Library::default();
+        let expected = diff::between(&empty, &libraries[libraries.len() - 2], (&preview.diff.left, &label), None);
+        assert_eq!(serde_json::to_value(&unreadable.diff).unwrap(), serde_json::to_value(&expected).unwrap());
+        fs::write(&pdb, now_pdb).unwrap();
         let unknown = RestoreBackup { drive: spec.clone(), backup: Some("nothing".into()), force: false };
         assert_eq!(api::restore_preview(&unknown).unwrap_err().code(), "not_found");
         let undo = UndoRequest { drive: Some(spec.clone()), ..Default::default() };

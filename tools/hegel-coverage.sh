@@ -10,18 +10,19 @@ cd "$(dirname "$0")/.."
 # tests elsewhere can share the name (`cues::x` beside `props_anlz::x`), so each filter also
 # names the test's file: its module (`app` for src/tui/app.rs, `x` for x/mod.rs, `app::tests` for
 # src/tui/app/tests.rs), or for an integration test's own file, its package and binary (several
-# crates have a tests/props.rs).
+# crates have a tests/props.rs). A crate root's src/tests.rs is only `tests`, which every plugin
+# crate has, so it names the package too.
+package_of() { sed -n 's/^name = "\(.*\)"$/\1/p' "$1/Cargo.toml" | head -n 1; }
 filter=""
 while IFS=: read -r path name; do
   stem=$(basename "$path" .rs)
   [[ $stem == mod ]] && stem=$(basename "$(dirname "$path")")
   if [[ $path == */tests/$stem.rs ]]; then
-    package=$(sed -n 's/^name = "\(.*\)"$/\1/p' "${path%/tests/*}/Cargo.toml" | head -n 1)
-    test="binary_id(=$package::$stem) & test(/^(\w+::)*$name\$/)"
+    test="binary_id(=$(package_of "${path%/tests/*}")::$stem) & test(/^(\w+::)*$name\$/)"
   elif [[ $stem == tests ]]; then
     parent=$(basename "$(dirname "$path")")
     if [[ $parent == src ]]; then
-      test="test(/^tests::(\w+::)*$name\$/)"
+      test="package(=$(package_of "${path%/src/*}")) & test(/^tests::(\w+::)*$name\$/)"
     else
       test="test(/(^|::)$parent::tests::(\w+::)*$name\$/)"
     fi

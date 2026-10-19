@@ -130,7 +130,8 @@ fn art_set_on_tracks_shows_on_exactly_those(tc: TestCase) {
 }
 
 /// `art auto` finds the art of tracks that have none, in their audio file or a cover image in
-/// its folder; tracks whose source is the same picture share one row.
+/// its folder; tracks whose source is the same picture share one row. With a OneLibrary that
+/// can't be read, the art goes into export.pdb only, and that's said.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 fn art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
@@ -171,8 +172,18 @@ fn art_found_beside_the_audio_goes_on_exactly_the_tracks_without(tc: TestCase) {
     assert_eq!(found, want);
     assert_eq!(plan.found.len() + plan.not_found.len() + had.len(), ids.len());
 
-    let r = artwork::apply_auto(&mut d, &plan, &Ctx::silent()).unwrap();
+    // A OneLibrary that can't be read is left alone, and the art goes into export.pdb, saying so.
+    let broken_plus = tc.draw(gs::booleans());
+    if broken_plus {
+        common::add_onelibrary(&root);
+        std::fs::write(root.join(paths::LIBRARY_PLUS_DB), b"not a database").unwrap();
+        d = Device::open_export(&root).unwrap();
+    }
+    let warnings = common::Warnings::default();
+    let r = artwork::apply_auto(&mut d, &plan, &warnings.ctx()).unwrap();
     assert_eq!(r.tracks_updated, want.len());
+    let only_pdb = warnings.said().iter().any(|w| w.contains("Only export.pdb will be changed"));
+    assert_eq!(only_pdb, broken_plus && !want.is_empty(), "{:?}", warnings.said());
     let after = d.library().unwrap();
     let missing: Vec<u32> = artwork::missing(&d, &after).iter().map(|t| t.id).collect();
     assert_eq!(missing, plan.not_found.iter().map(|t| t.id).collect::<Vec<_>>());

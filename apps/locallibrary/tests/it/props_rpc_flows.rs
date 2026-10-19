@@ -616,8 +616,9 @@ fn every_method_answers_as_its_contract_says(tc: TestCase) {
 /// The account and publishing over the sidecar, signed in to a pretend data server (or not):
 /// the account's status, a check with its server, and its client document answer in their
 /// contract's shapes; each record planned is applied by its plan's id (or straight from the
-/// request) and is then on the server as planned, once; signing in to no account is refused,
-/// and a sign-in that was never begun is nothing to finish or cancel; signed out, it's gone.
+/// request) and is then on the server as planned, once, and the settings published import back
+/// either way too; signing in to no account is refused, and a sign-in that was never begun is
+/// nothing to finish or cancel; signed out, it's gone.
 #[cfg(feature = "account")]
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
@@ -699,8 +700,12 @@ fn the_account_and_publishing_answer_over_the_sidecar(tc: TestCase) {
     let import = s.call("settings.import_published.plan", json!({ "pds": pds.url, "from": DID }));
     shaped("settings.import_published.plan", &import);
     if signed_in {
-        let id = &import["result"]["plan_id"];
-        let applied = s.call("settings.import_published.apply", json!({ "plan_id": id }));
+        let request = match tc.draw(gs::booleans()) {
+            true => json!({ "plan_id": import["result"]["plan_id"] }),
+            false => json!({ "pds": pds.url, "from": DID }),
+        };
+        let applied = s.call("settings.import_published.apply", request);
+        shaped("settings.import_published.apply", &applied);
         assert!(applied["error"].is_null(), "{applied}");
     }
     let out = s.call("account.logout", json!({}));

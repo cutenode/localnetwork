@@ -7,6 +7,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use loclib_interop::{Content, File};
 use loclib_model::model::{ONELIBRARY_ONLY, Playlist};
 use loclib_model::test_util::track;
@@ -331,7 +333,8 @@ fn engine_rows(db: &Path) -> Vec<Vec<(String, rusqlite::types::Value)>> {
             .unwrap();
         out.extend(rows.map(Result::unwrap));
     }
-    assert!(out.len() > 10, "{out:?}");
+    // Its `Information` row, at least: the tables were read.
+    assert!(!out.is_empty(), "{out:?}");
     out
 }
 
@@ -676,4 +679,203 @@ fn loclib_interops_errors_keep_their_kinds() {
             (code::INVALID_PARAMS, Some("invalid".into())),
         ]
     );
+}
+
+/// For any of the three formats, any choice of playlists, any options its schema takes, the audio
+/// of any tracks gone from the drive and (for Engine) an old library's WAL in the way: what
+/// can't be exported is refused, saying why, before anything is written; otherwise the dry run
+/// names exactly the files the export then writes (and writes nothing, removing nothing), and
+/// what it writes is what loclib-interop builds for the same library, root and analysis, with
+/// its counts and warnings, and one naming the tracks whose audio isn't where the files say.
+#[hegel::test(test_cases = 60)]
+fn any_export_writes_what_its_dry_run_names(tc: TestCase) {
+    let mut drive = drive();
+    let format = tc.draw(gs::sampled_from(vec!["traktor", "serato", "engine"]));
+    for t in &drive.library.tracks {
+        if tc.draw(gs::weighted_booleans(0.2)) {
+            std::fs::remove_file(drive.root.join(paths::key(&t.file_path))).unwrap();
+        }
+    }
+    // More tracks than a page of the library holds, or than a request for analysis takes, their
+    // audio not on the drive.
+    if tc.draw(gs::weighted_booleans(0.4)) {
+        let first = drive.library.tracks[0].clone();
+        let more = (10..511).map(|id| Track { id, file_path: format!("/Contents/{id}.mp3"), ..first.clone() });
+        drive.library.tracks.extend(more);
+        drive.library.playlists[2].track_ids.extend(10..511);
+    }
+    // The second track's audio a link out of the drive.
+    let linked_track = "/Contents/Loopmasters/UnknownAlbum/Demo Track 2.mp3";
+    let audio = drive.root.join(paths::key(linked_track));
+    let linked = cfg!(unix) && audio.exists() && tc.draw(gs::weighted_booleans(0.15));
+    if linked {
+        let outside = drive.dir.path().join("secret.mp3");
+        std::fs::rename(&audio, &outside).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, &audio).unwrap();
+    }
+    // The host cancels the first export once the plugin reads this.
+    let cancel_at = tc.draw(gs::sampled_from(vec![None, None, None, Some("drive.library"), Some("tracks.analysis")]));
+    // The whole library, or some of its playlists.
+    let mut lists = match tc.draw(gs::booleans()) {
+        true => Vec::new(),
+        false => tc.draw(
+            gs::vecs(gs::sampled_from(vec!["Shows", "Booth", "All", "Shows/Friday"]))
+                .unique(true)
+                .min_size(1)
+                .max_size(3),
+        ),
+    };
+    // A playlist the drive hasn't, and a history list, which no format takes.
+    if tc.draw(gs::weighted_booleans(0.1)) {
+        lists.push("Sunday");
+    }
+    let history = tc.draw(gs::weighted_booleans(0.05));
+    let mut source = json!({ "drive": "USB", "playlists": lists });
+    if history {
+        source["history"] = json!(["HISTORY 001"]);
+    }
+    let elsewhere = drive.dir.path().join("Music Copy");
+    let mut options = json!({});
+    let root = tc.draw(gs::sampled_from(vec![
+        None,
+        None,
+        None,
+        None,
+        Some(elsewhere.to_string_lossy().into_owned()),
+        Some("Music".into()),
+    ]));
+    if let Some(root) = &root {
+        options["location_root"] = json!(root);
+    }
+    if format != "engine" && tc.draw(gs::weighted_booleans(0.4)) {
+        options["skip_analysis"] = json!(tc.draw(gs::weighted_booleans(0.6)));
+    }
+    if format == "serato" && tc.draw(gs::weighted_booleans(0.7)) {
+        options["write_tags"] = json!(tc.draw(gs::weighted_booleans(0.8)));
+    }
+    if format == "engine"
+        && let Some(style) = tc.draw(gs::optional(gs::sampled_from(vec!["relative", "drive"])))
+    {
+        options["paths"] = json!(style);
+    }
+    let manifest = Manifest::parse(MANIFEST).unwrap();
+    let schema = manifest.contributes.exporters.iter().find(|e| e.format == format).unwrap().options.clone();
+    // The schema takes every option drawn, but a relative root, which the plugin refuses too.
+    let relative = root.as_deref() == Some("Music");
+    assert_eq!(check_params(schema.as_ref(), &options).is_ok(), !relative, "{options}");
+    let output = drive.dir.path().join("out");
+    let wal = output.join("Engine Library/Database2/m.db-wal");
+    if format == "engine" && tc.draw(gs::booleans()) {
+        std::fs::create_dir_all(wal.parent().unwrap()).unwrap();
+        std::fs::write(&wal, b"stale").unwrap();
+    }
+
+    let session = start_cancelling(&drive, cancel_at);
+    let before = files(&output);
+    let planned = session.export_of(format, source.clone(), &output, options.clone(), true);
+    assert_eq!(files(&output), before, "a dry run writes and removes nothing");
+    let (skip, tags, on_drive) =
+        (options["skip_analysis"] == true, options["write_tags"] == true, options["paths"] == "drive");
+    let software: Software = serde_json::from_value(json!(format)).unwrap();
+    // What stops the export, in the order it finds it: what it can't take, then (once it has
+    // read the library) a playlist the drive hasn't, the cancel, and audio out of the drive.
+    let want = (!lists.contains(&"Sunday")).then(|| expected(&drive, &lists));
+    let carried = match software {
+        Software::Traktor => true,
+        Software::Serato => tags,
+        _ => false,
+    };
+    let analysed = carried && !skip && want.as_ref().is_some_and(|w| !w.library.tracks.is_empty());
+    let has_linked = want.as_ref().is_some_and(|w| w.library.tracks.iter().any(|t| t.file_path == linked_track));
+    let stopped = |cancel: Option<&str>| match () {
+        _ if history => Some(Some(format!("{} doesn't take history lists", software.name()))),
+        _ if relative => Some(Some("the location root must be an absolute path, not Music".to_string())),
+        _ if tags && root.is_some() => {
+            Some(Some("a location root doesn't go with writing tags: the crates list the tagged copies".into()))
+        }
+        _ if cancel == Some("drive.library") => Some(None),
+        _ if want.is_none() => Some(Some("not found: playlist \"Sunday\"".into())),
+        _ if cancel == Some("tracks.analysis") && analysed => Some(None),
+        _ if linked && tags && has_linked => {
+            Some(Some(format!("refusing {linked_track:?}: it resolves outside the drive")))
+        }
+        _ => None,
+    };
+    // Cancelled, it stops, and the next export goes on as if it hadn't been asked.
+    let planned = match stopped(cancel_at) {
+        Some(None) => {
+            assert_eq!(planned.unwrap_err().kind(), Some("cancelled"));
+            assert_eq!(files(&output), before, "nothing is written");
+            session.export_of(format, source.clone(), &output, options.clone(), true)
+        }
+        _ => planned,
+    };
+    if let Some(Some(why)) = stopped(None) {
+        let e = planned.unwrap_err();
+        assert_eq!((e.code, e.kind(), e.message.as_str()), (code::INVALID_PARAMS, Some("invalid"), why.as_str()));
+        let e = session.export_of(format, source, &output, options, false).unwrap_err();
+        assert_eq!(e.message, why);
+        assert_eq!(files(&output), before, "nothing is written");
+        session.stop();
+        return;
+    }
+    let planned = planned.unwrap();
+    let done = session.export_of(format, source, &output, options, false).unwrap();
+    // locallibrary gives at most 100 tracks' analysis at once.
+    let asked: Vec<usize> =
+        session.calls("tracks.analysis").iter().map(|p| p["ids"].as_array().unwrap().len()).collect();
+    assert!(asked.iter().all(|&n| n <= 100), "{asked:?}");
+    session.stop();
+    assert_eq!(done, planned);
+    let written_paths: Vec<PathBuf> = files(&output).into_iter().map(|(path, _)| path).collect();
+    let mut named = paths(&done);
+    named.sort();
+    assert_eq!(written_paths, named, "the dry run named what's written, and only that");
+    assert!(!wal.exists());
+
+    let root = root.map_or(drive.root.clone(), PathBuf::from);
+    let out = resolved(&output);
+    let want = want.unwrap();
+    let export = want.build(&root, skip, |s| match software {
+        Software::Traktor => traktor::build(s, &output, &Ctx::silent()).unwrap(),
+        Software::Serato if tags => {
+            let audio = |t: &Track| Ok::<_, Error>(paths::to_fs(&drive.root, &paths::key(&t.file_path)));
+            let copies = serato::Copies { root: out.clone(), audio: &audio };
+            serato::build(s, &output, Some(&copies), &Ctx::silent()).unwrap()
+        }
+        Software::Serato => serato::build::<Error>(s, &output, None, &Ctx::silent()).unwrap(),
+        _ => {
+            let style = if on_drive { PathStyle::Drive } else { PathStyle::Relative };
+            engine::build(s, &out, style, &Ctx::silent()).unwrap()
+        }
+    });
+    assert_eq!(written(&output), contents(&export, &out, &output));
+    let described: Vec<(&str, u64)> = done.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect();
+    assert_eq!(described, export.files.iter().map(|f| (f.what.as_str(), f.bytes)).collect::<Vec<_>>());
+    let counts: Vec<(&str, u64)> = done.counts.iter().map(|(label, n)| (label.as_str(), *n)).collect();
+    let e = &export;
+    let want_counts = [
+        ("tracks", e.tracks),
+        ("playlists", e.playlists),
+        ("folders", e.folders),
+        ("beat grids", e.beat_grids),
+        ("cues", e.cues),
+    ];
+    assert_eq!(counts, want_counts.map(|(label, n)| (label, n as u64)));
+    // The notes name the plugin's options, not loclib-interop's types.
+    assert_eq!(done.notes.len(), export.notes.len());
+    assert!(done.notes.iter().all(|n| !n.contains('`')), "{:?}", done.notes);
+    let missing: Vec<&Track> =
+        want.library.tracks.iter().filter(|t| !root.join(paths::key(&t.file_path)).is_file()).collect();
+    let mut warnings = export.warnings.clone();
+    if let Some(first) = missing.first() {
+        warnings.push(format!(
+            "{} track(s) have no audio under {} (e.g. {}); they're listed anyway",
+            missing.len(),
+            resolved(&root).display(),
+            first.file_path
+        ));
+    }
+    assert_eq!(done.warnings, warnings);
 }

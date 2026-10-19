@@ -9,6 +9,8 @@ use serde_json::{Value, json};
 
 use crate::support::{Env, Rpc, path, recording};
 
+mod props;
+
 /// loclib-plugin's echo plugin, which the test plugin is.
 const ECHO: &str = include_str!("../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
 

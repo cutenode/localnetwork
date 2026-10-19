@@ -1,7 +1,7 @@
 //! Tracks told apart by their sound: drawn lossy tracks (WAVs named `.mp3`, as in
-//! `upgrade.rs`) and a folder of lossless files, some of the same recordings and some of others
-//! as long. Exactly the tracks whose recording is in the folder are upgraded, and the doctor
-//! puts tracks of one recording in one group.
+//! `upgrade.rs`) and a folder of lossless files, some of the same recordings (one or two copies)
+//! and some of others as long. Exactly the tracks whose recording is in the folder are upgraded,
+//! and the doctor puts tracks of one recording in one group.
 
 use crate::common;
 use crate::upgrade::recording;
@@ -17,6 +17,7 @@ use locallibrary::check;
 use locallibrary::device::Device;
 use locallibrary::doctor::{self, DoctorOptions, DuplicateReason, Section};
 use locallibrary::progress::Ctx;
+use locallibrary::sound;
 use locallibrary::store::Store;
 use locallibrary::upgrade::UpgradeOptions;
 use locallibrary::{paths, pdb, testing};
@@ -43,6 +44,7 @@ fn only_the_same_recording_is_found(tc: TestCase) {
                 duration: SECS as u16,
                 bitrate: 320,
                 sample_rate: 44_100,
+                key: tc.draw(gs::optional(gs::sampled_from(vec!["8A", "9A", "8B", "3A", "C"]))).map(String::from),
                 ..NewTrack::new(format!("Song {n}"), path.clone())
             };
             tracks.insert(common::add_track(&root, track, &recording(*seed, SECS, 44_100, 16, 0)), *seed);
@@ -57,6 +59,10 @@ fn only_the_same_recording_is_found(tc: TestCase) {
         if tc.draw(gs::booleans()) {
             let rate = tc.draw(gs::sampled_from(vec![44_100u32, 48_000]));
             fs::write(lossless.join(format!("Lossless {i}.wav")), recording(*seed, SECS, rate, 24, 0)).unwrap();
+            // At times a second copy of it: either may be taken, but one of them is.
+            if tc.draw(gs::booleans()) {
+                fs::write(lossless.join(format!("Again {i}.wav")), recording(*seed, SECS, 44_100, 16, 0)).unwrap();
+            }
             found.insert(*seed);
         }
     }
@@ -85,6 +91,17 @@ fn only_the_same_recording_is_found(tc: TestCase) {
     assert_eq!(first.decoded, first.analyzed);
     let again = doctor::run(&d, &analyse, &Ctx::silent()).unwrap().analysis.unwrap();
     assert_eq!((again.analyzed, again.decoded), (first.analyzed, 0), "from the cache");
+    // How sure each stored key is, from those cached analyses alone: a track is doubted exactly
+    // when it has a key and an analysis whose estimate disagrees with it, by how far.
+    let lib = d.library().unwrap();
+    let cached = sound::Cache::in_store(&store).cached(&d, lib.tracks.iter());
+    let doubted = sound::key_confidences(&d, lib.tracks.iter());
+    for t in &lib.tracks {
+        let estimate = cached.get(&t.id).and_then(|a| a.estimate.as_ref());
+        let want = estimate.and_then(|e| sound::key_confidence(&t.key, e));
+        assert_eq!(doubted.get(&t.id).copied(), want, "{} {:?}", t.key, estimate.map(|e| e.key));
+        assert!(estimate.is_some() || !doubted.contains_key(&t.id));
+    }
     let checked =
         check::check(&[Device::open_export(&root).unwrap()], Some(&store), &Default::default(), &Ctx::silent())
             .unwrap();

@@ -404,6 +404,11 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
     for name in &names {
         one.create_playlist(name, 0, false).unwrap();
     }
+    let lists: Vec<String> =
+        (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|n| format!("HISTORY 9{n}")).collect();
+    for list in &lists {
+        one.create_history(list, 0, false).unwrap();
+    }
     let banks = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
     for n in 0..banks {
         one.create_hot_cue_bank_list(&format!("Drops {n}"), 0, false).unwrap();
@@ -418,6 +423,7 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
     }
     assert_eq!(dropped.contains(&format!(", +{} more", names.len().saturating_sub(5))), names.len() > 5, "{dropped}");
     assert!(dropped.ends_with(&format!("; entries only it has in {both}")), "{both}: {dropped}");
+    assert_eq!(dropped.contains(&format!("the history list(s) {}", lists.join(", "))), !lists.is_empty(), "{dropped}");
     assert!(
         plan.warnings.contains(&format!("its {banks} hot cue bank list(s) go too (export.pdb has none)")),
         "{:?}",

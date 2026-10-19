@@ -1,5 +1,5 @@
 //! A write to one clone of a library and the library's other mounted clones: which are copied
-//! onto, and why the rest are left alone.
+//! onto, and why the rest are left alone; and the drives a library named beside them means.
 
 use crate::common::{self, path};
 use crate::props_api_drives::saved_copy;
@@ -103,4 +103,54 @@ fn a_write_reaches_the_clones_that_are_no_newer(tc: TestCase) {
     if let Some(s) = &spare {
         assert!(!s.join(paths::EXPORT_PDB).exists(), "nothing written to Spare");
     }
+}
+
+/// A library (House: Main and its clone Copy, mounted) and its drives named by path, in any
+/// order and any number of times: the drives meant are each of the library's clones once for
+/// the library, where neither was named by path before it; and each drive named by path as
+/// often as it's named, unless the library named before it brought it in already. Nothing is
+/// left out (neither is an archive or retired drive).
+#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(specs = vec![0usize, 2, 1])]
+fn a_library_and_its_drives_named_together_mean_each_drive_once(tc: TestCase) {
+    let specs: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(2)).min_size(1).max_size(5));
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let copy = clone_of(&store, &main, &main.with_file_name("Copy"));
+    api::library_rename(&store, &api::RenameLibrary { library: "Main".into(), name: "House".into() }).unwrap();
+    let group = api::library_clones("House").unwrap().expect("a library").drives;
+    let mut clones = group.clone();
+    clones.sort();
+    let mut both = vec![main.clone(), copy.clone()];
+    both.sort();
+    assert_eq!(clones, both, "the library's mounted clones");
+
+    // The model: what each spec brings in, by root.
+    let (mut named, mut cloned, mut want): (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) = Default::default();
+    let mut asked = Vec::new();
+    for s in &specs {
+        match s {
+            0 => {
+                asked.push("House".to_string());
+                for root in &group {
+                    if !named.contains(root) && !cloned.contains(root) {
+                        want.push(root.clone());
+                        cloned.push(root.clone());
+                    }
+                }
+            }
+            _ => {
+                let root = if *s == 1 { &main } else { &copy };
+                asked.push(path(root));
+                if !cloned.contains(root) {
+                    named.push(root.clone());
+                    want.push(root.clone());
+                }
+            }
+        }
+    }
+    let (drives, left_out) = api::expand_libraries(&asked).unwrap();
+    let got: Vec<PathBuf> = drives.iter().map(|d| dunce_canonicalize(Path::new(d))).collect();
+    assert_eq!(got, want, "{asked:?}");
+    assert!(left_out.is_empty());
 }

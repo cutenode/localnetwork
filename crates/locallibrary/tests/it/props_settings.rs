@@ -316,6 +316,20 @@ fn no_drift_after_applying_a_profile(tc: TestCase) {
         let target = tc.draw(gs::integers::<usize>().max_value(2));
         let drive = drives.get(target).copied();
         let key = spelled(&tc, def.key, false);
+        // A key no setting answers to is refused by both, leaving the profile as it was.
+        if tc.draw(gs::weighted_booleans(0.1)) {
+            let before = serde_json::to_string(&profile).unwrap();
+            let unknown = format!("{key} turbo");
+            let refused = [
+                profile.unset(drive, &unknown).map(|_| ()).unwrap_err(),
+                profile.set(drive.map(|d| (d, "drive")), &unknown, def.choices[c].id).unwrap_err(),
+            ];
+            for e in refused {
+                assert_eq!(e.code(), "invalid", "{e}");
+                assert!(e.to_string().to_lowercase().contains("unknown setting"), "{e}");
+            }
+            assert_eq!(serde_json::to_string(&profile).unwrap(), before);
+        }
         let unset = tc.draw(gs::weighted_booleans(0.2));
         if unset {
             profile.unset(drive, &key).unwrap();

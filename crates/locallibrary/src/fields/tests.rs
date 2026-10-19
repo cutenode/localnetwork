@@ -4,6 +4,8 @@ use super::*;
 use crate::device::Device;
 
 use filetime::FileTime;
+use hegel::TestCase;
+use hegel::generators::{self as gs, Generator};
 
 fn fields(pairs: &[(&str, FieldValue)]) -> Fields {
     pairs.iter().map(|(k, v)| ((*k).to_string(), v.clone())).collect()
@@ -164,4 +166,101 @@ fn values_kept_at_once_all_land() {
         }
     });
     assert!(tracks.iter().all(|t| !store.get(t, std::slice::from_ref(&a)).is_empty()));
+}
+
+/// The plugins, versions and analyzers (each with a field of its own) values are kept for, the
+/// last of each a name no folder can have.
+const PLUGINS: [&str; 3] = ["sound", "other", "../up"];
+const VERSIONS: [&str; 3] = ["0.1.0", "1.0.0-beta+2", ".hidden"];
+const ANALYZERS: [(&str, &str); 3] = [("tempo", "bpm"), ("key", "key"), ("a/b", "x")];
+
+/// A value an analyzer might answer: of each type, and numbers JSON can't hold.
+#[hegel::test_helper]
+fn field_value(tc: &TestCase) -> FieldValue {
+    match tc.draw(gs::integers::<u8>().max_value(6)) {
+        0 => FieldValue::Integer(tc.draw(gs::integers::<i64>())),
+        1 => FieldValue::Number(tc.draw(gs::floats::<f64>().allow_nan(false).allow_infinity(false))),
+        2 => FieldValue::Number(tc.draw(gs::sampled_from(vec![f64::NAN, f64::INFINITY, f64::NEG_INFINITY]))),
+        3 => FieldValue::Boolean(tc.draw(gs::booleans())),
+        4 => FieldValue::Strings(tc.draw(gs::vecs(gs::text().max_size(4)).max_size(3))),
+        _ => FieldValue::String(tc.draw(gs::text().max_size(8))),
+    }
+}
+
+/// For any sequence of values kept for a drive's audio files, by any plugin, version and
+/// analyzer, and of files changing: a value is kept only when its names can be folders and its
+/// numbers are finite, and reads back (as the store has it, and named `plugin.field` for a
+/// library's tracks) from the analyzers asked for, until its file changes.
+#[hegel::test(test_cases = 50, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn kept_fields_read_back_until_their_file_changes(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let st = Store::open_or_init(dir.path().join("store")).unwrap();
+    let store = FieldStore::in_store(&st);
+    let drive = dir.path().join("USB");
+    let files: Vec<PathBuf> = (0..3).map(|i| audio(&drive.join("Contents"), &format!("{i}.mp3"), b"audio")).collect();
+    let track = |id: u32, file: &str| loclib_model::test_util::track(id, "A", "T", file);
+    let mut tracks: Vec<_> = (0..3).map(|i| track(i + 1, &format!("/Contents/{i}.mp3"))).collect();
+    tracks.push(track(4, "/Contents/gone.mp3"));
+    let library = Library { tracks, ..Default::default() };
+    // What's kept, by file and analyzer, as a model has it.
+    let mut kept: Vec<(usize, Analyzer, Fields)> = Vec::new();
+    let mut changes = 0;
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(10)) {
+        let file = tc.draw(gs::integers::<usize>().max_value(2));
+        if tc.draw(gs::integers::<u8>().max_value(4)) == 0 {
+            // Longer each time: its size, and so what keys its values, changes.
+            changes += 1;
+            let longer = format!("audio{}", "!".repeat(changes));
+            audio(&drive.join("Contents"), &format!("{file}.mp3"), longer.as_bytes());
+            kept.retain(|(f, ..)| *f != file);
+            continue;
+        }
+        let (plugin, version) =
+            (tc.draw(gs::sampled_from(PLUGINS.to_vec())), tc.draw(gs::sampled_from(VERSIONS.to_vec())));
+        let (name, field) = tc.draw(gs::sampled_from(ANALYZERS.to_vec()));
+        let a = analyzer(plugin, version, name);
+        let values = fields(&[(field, field_value(&tc))]);
+        let named = PLUGINS[..2].contains(&plugin) && VERSIONS[..2].contains(&version) && name != ANALYZERS[2].0;
+        let finite = values.values().all(|v| !matches!(v, FieldValue::Number(n) if !n.is_finite()));
+        match (store.put(&files[file], &a, &values), named, finite) {
+            (Ok(()), true, true) => {
+                kept.retain(|(f, k, _)| (*f, k) != (file, &a));
+                kept.push((file, a, values));
+            }
+            (Err(Error::Invalid(m)), false, _) => assert!(m.contains("isn't a plugin id, version or analyzer"), "{m}"),
+            (Err(Error::Invalid(m)), true, false) => {
+                assert!(m.contains(&format!("{field:?} isn't a finite number")), "{m}")
+            }
+            (other, ..) => panic!("{a:?} {values:?}: {other:?}"),
+        }
+    }
+    let valid: Vec<Analyzer> = PLUGINS[..2]
+        .iter()
+        .flat_map(|p| {
+            VERSIONS[..2].iter().flat_map(move |v| ANALYZERS[..2].iter().map(move |(a, _)| analyzer(p, v, a)))
+        })
+        .collect();
+    let asked: Vec<Analyzer> = tc.draw(gs::subsequences(valid.clone()).print_as_debug());
+    for (i, file) in files.iter().enumerate() {
+        // Every version's values are its own: asked for them all, but one version at a time.
+        for version in &VERSIONS[..2] {
+            let of_version: Vec<Analyzer> = valid.iter().filter(|a| a.version == *version).cloned().collect();
+            let mut want = PluginsFields::new();
+            for (_, a, values) in kept.iter().filter(|(f, a, _)| *f == i && a.version == *version) {
+                want.entry(a.plugin.clone()).or_default().insert(a.analyzer.clone(), values.clone());
+            }
+            assert_eq!(store.get(file, &of_version), want, "file {i}, version {version}");
+        }
+    }
+    let declared = Declared::new();
+    let source = Source { store: Some(&st), analyzers: &asked, declared: &declared };
+    let values = TrackValues::read(source, &Device::open(&drive).unwrap(), &library);
+    let mut want: FxHashMap<u32, Fields> = FxHashMap::default();
+    for a in &asked {
+        for (f, _, values) in kept.iter().filter(|(_, k, _)| k == a) {
+            let named = values.iter().map(|(k, v)| (format!("{}.{k}", a.plugin), v.clone()));
+            want.entry(*f as u32 + 1).or_default().extend(named);
+        }
+    }
+    assert_eq!(values.tracks, want);
 }

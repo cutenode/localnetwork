@@ -2024,3 +2024,52 @@ fn replaying_a_fill_leaves_out_tracks_the_new_export_lacks() {
     let got: Vec<&str> = three.track_ids.iter().map(|id| lib.track(*id).unwrap().file_path.as_str()).collect();
     assert_eq!(got, [files[0].as_str(), files[2].as_str()]);
 }
+
+/// A tempo and an album artist set on a drive read back the same from every database it has:
+/// the tempo to hundredths, the album artist with the album (given, or the track's own), and
+/// refused, changing nothing, when the track would be left without an album to keep it with.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+fn tempos_and_album_artists_read_back_from_every_database(tc: TestCase) {
+    use hegel::Generator;
+    let dir = tempfile::tempdir().unwrap();
+    let root = fresh_pdb_drive(dir.path());
+    let plus = tc.draw(gs::booleans());
+    if plus {
+        fs::write(root.join(paths::LIBRARY_PLUS_DB), plus_db()).unwrap();
+    }
+    let tracks = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks;
+    let was = tracks[tc.draw(gs::integers::<usize>().max_value(tracks.len() - 1))].clone();
+    let bpm = tc.draw(gs::optional(gs::floats::<f64>().min_value(1.0).max_value(999.99)));
+    let album = tc.draw(gs::optional(gs::sampled_from(vec!["", "Isles"]).map(String::from)));
+    let album_artist = tc.draw(gs::optional(gs::sampled_from(vec![" ", "Bicep", "Four Tet"]).map(String::from)));
+    tc.assume(bpm.is_some() || album.is_some() || album_artist.is_some());
+    let fields = TrackFields { bpm, album: album.clone(), album_artist: album_artist.clone(), ..Default::default() };
+    let edits = [Edit::EditTracks { tracks: TrackSelector::paths([was.file_path.clone()]), fields }];
+    let mut d = Device::open_export(&root).unwrap();
+    let before = drive_files(&root);
+    let albumless = album.as_deref().unwrap_or(&was.album).trim().is_empty();
+    let planned = edit::plan(&d, &edits, &EditOptions::default(), &Ctx::silent());
+    if album_artist.as_deref().is_some_and(|a| !a.trim().is_empty()) && albumless {
+        let err = planned.unwrap_err().to_string();
+        assert!(err.contains("has no album to keep an album artist with"), "{err}");
+        assert_eq!(drive_files(&root), before);
+        return;
+    }
+    edit::apply(&planned.unwrap(), &mut d, &Ctx::silent()).unwrap();
+    let mut libraries = vec![d.library().unwrap()];
+    if plus {
+        libraries.push(common::plus_library(&root));
+    }
+    let want_album = album.clone().unwrap_or_else(|| was.album.clone());
+    let want_artist = match &album_artist {
+        _ if want_album.is_empty() => String::new(),
+        Some(a) if a.trim().is_empty() => String::new(),
+        Some(a) => a.clone(),
+        None => was.album_artist.clone(),
+    };
+    for lib in libraries {
+        let t = lib.tracks.iter().find(|t| t.file_path == was.file_path).unwrap();
+        assert_eq!(t.bpm, bpm.map_or(was.bpm, |b| (b * 100.0).round() / 100.0));
+        assert_eq!((t.album.as_str(), t.album_artist.as_str()), (want_album.as_str(), want_artist.as_str()));
+    }
+}

@@ -842,12 +842,13 @@ fn a_drawn_collection_reads_back_as_written(tc: hegel::TestCase) {
 }
 
 /// A file that isn't a rekordbox collection is refused saying why: too short, not whole pages,
-/// SQLite without rekordbox's tables, or encrypted with another key (then with the way on).
+/// SQLite without rekordbox's tables or that SQLite can't read, or encrypted with another key or
+/// to something that isn't rekordbox's layout (then with the way on: give the right key).
 #[hegel::test(test_cases = 15)]
 fn files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let dir = tempfile::tempdir().unwrap();
-    let kind = tc.draw(gs::integers::<u8>().max_value(3));
+    let kind = tc.draw(gs::integers::<u8>().max_value(5));
     let (bytes, why): (Vec<u8>, &str) = match kind {
         0 => (vec![0; tc.draw(gs::integers::<usize>().max_value(PAGE_SIZE - 1))], "too short for a SQLite database"),
         1 => {
@@ -863,13 +864,29 @@ fn files_that_arent_a_collection_say_why(tc: hegel::TestCase) {
             (std::fs::read(&other).unwrap(), "no djmdContent table")
         }
         // Few keys: deriving one takes a while, and each is derived once.
-        _ => (sample().encrypted(tc.draw(gs::sampled_from(vec!["another key", "rekordbox 8"]))), KEY_ENV),
+        3 => (sample().encrypted(tc.draw(gs::sampled_from(vec!["another key", "rekordbox 8"]))), KEY_ENV),
+        // SQLite's header and nothing SQLite can read after it.
+        4 => {
+            let mut bytes = vec![0; tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) * PAGE_SIZE];
+            bytes[..16].copy_from_slice(SQLITE_MAGIC);
+            (bytes, "not a database")
+        }
+        // Encrypted with the key given, but what that decrypts to isn't laid out as rekordbox's
+        // databases are (its pages reserve other than the bytes the cipher needs).
+        _ => {
+            let mut plain = sample().plain();
+            let reserve = tc.draw(gs::integers::<u8>().max_value(254));
+            plain[20] = if usize::from(reserve) >= RESERVE { reserve + 1 } else { reserve };
+            let codec = codec(DEFAULT_KEY);
+            let pages = plain.chunks(PAGE_SIZE).enumerate();
+            (pages.flat_map(|(i, p)| codec.encrypt_page(i as u32 + 1, p).unwrap()).collect(), KEY_ENV)
+        }
     };
     let path = write(dir.path(), &bytes);
     let err = open(&path, DEFAULT_KEY).unwrap_err();
     assert!(err.to_string().contains(why), "{err}");
     match kind {
-        3 => {
+        3 | 5 => {
             assert_eq!((err.code(), err.reason()), ("invalid", Some(Reason::WrongKey)));
             assert_eq!(err.detail().fields["env"], KEY_ENV);
         }

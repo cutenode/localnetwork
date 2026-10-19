@@ -144,3 +144,30 @@ fn split_folders_give_each_playlist_a_file_of_its_own(tc: hegel::TestCase) {
         }
     }
 }
+
+/// A path made relative to an absolute folder leads back to the file from that folder (each `..`
+/// climbing one folder, only as far as the two paths part); from a relative folder, which shares
+/// no root with the file, there's none.
+#[hegel::test(test_cases = 300)]
+fn a_relative_path_leads_from_the_folder_to_the_file(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let parts = || gs::vecs(gs::sampled_from(vec!["Volumes", "USB", "Lists", "Contents", "a b", "é"])).max_size(4);
+    let (from, to): (Vec<&str>, Vec<&str>) = (tc.draw(parts()), tc.draw(parts().min_size(1)));
+    let rooted = tc.draw(gs::booleans());
+    let from_path = PathBuf::from(format!("{}{}", if rooted { "/" } else { "" }, from.join("/")));
+    let to_path = PathBuf::from(format!("/{}", to.join("/")));
+    let Some(r) = relative(&from_path, &to_path) else {
+        return assert!(!rooted, "{from_path:?} to {to_path:?}");
+    };
+    assert!(rooted, "{from_path:?} is relative, yet {r:?}");
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut at: Vec<&str> = from.clone();
+    for step in r.split('/').filter(|s| !s.is_empty()) {
+        match step {
+            ".." => assert!(at.pop().is_some(), "{r:?} climbs past the root"),
+            s => at.push(s),
+        }
+    }
+    assert_eq!(at, to, "{from_path:?} + {r:?}");
+    assert_eq!(r.split('/').filter(|s| *s == "..").count(), from.len() - common, "{r:?}");
+}

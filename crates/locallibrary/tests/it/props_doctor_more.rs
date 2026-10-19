@@ -73,6 +73,41 @@ fn the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do_with
     if let Some(a) = &r.audio {
         assert!(a.checked > 0, "{a:?}");
     }
+    // The drive has problems exactly when a section that counts found one (tracks in no
+    // playlist are only listed).
+    let found = [
+        r.duplicates.as_ref().map(Vec::len),
+        r.missing.as_ref().map(Vec::len),
+        r.orphans.as_ref().map(Vec::len),
+        r.drift.as_ref().map(|d| usize::from(!d.is_empty())),
+        r.large_files.as_ref().map(Vec::len),
+        r.audio.as_ref().map(|a| a.problems.len()),
+    ];
+    assert_eq!(r.has_problems(), found.iter().any(|n| n.is_some_and(|n| n > 0)), "{found:?}");
+    // ...and so with each section alone, the others not run.
+    for (keep, n) in found.iter().enumerate() {
+        let mut alone = r.clone();
+        let skip = |i: usize| i != keep;
+        if skip(0) {
+            alone.duplicates = None;
+        }
+        if skip(1) {
+            alone.missing = None;
+        }
+        if skip(2) {
+            alone.orphans = None;
+        }
+        if skip(3) {
+            alone.drift = None;
+        }
+        if skip(4) {
+            alone.large_files = None;
+        }
+        if skip(5) {
+            alone.audio = None;
+        }
+        assert_eq!(alone.has_problems(), n.is_some_and(|n| n > 0), "section {keep}: {n:?}");
+    }
 
     // Removing orphans: refused while something's interrupted, or without OneLibrary to say what's
     // used; otherwise it takes the stray image only, and not while it's gone to the databases.
@@ -102,5 +137,28 @@ fn the_doctor_says_what_it_couldnt_check_and_holds_back_what_it_shouldnt_do_with
             assert_eq!(done.files_deleted, 1);
             assert!(!paths::to_fs(&root, stray).exists());
         }
+    }
+}
+
+/// The volume of a folder is the one mounted exactly there, on the disk the OS says holds it
+/// (asking `diskutil`, `lsblk` or PowerShell), and a folder that isn't a volume's root has none.
+/// On macOS, `/` is a volume's root.
+#[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
+fn the_volume_of_a_folder_is_the_one_mounted_there(tc: TestCase) {
+    use std::path::Path;
+    let dir = tempfile::tempdir().unwrap();
+    let below = tc.draw(gs::sampled_from(vec!["", "Contents", "PIONEER/USBANLZ", "日本"]));
+    let folder = dir.path().join(below);
+    fs::create_dir_all(&folder).unwrap();
+    assert!(doctor::volume_of(&folder).is_none(), "{folder:?}");
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    match doctor::volume_of(Path::new("/")) {
+        Some((disk, v)) => {
+            assert_eq!(v.mount.as_deref().map(canonical), Some(canonical(Path::new("/"))), "{v:?}");
+            assert!(disk.volumes.iter().any(|w| w.id == v.id), "{disk:?}");
+        }
+        None if cfg!(target_os = "macos") => panic!("/ is a volume's root"),
+        // A container's root can be an overlay no disk holds.
+        None => {}
     }
 }
