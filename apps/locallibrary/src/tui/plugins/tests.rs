@@ -944,7 +944,7 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             wait(app, |a| a.job.is_none());
             // The demo drive's two tracks: analysed now, or by an entry chosen before.
             let fresh = ["file size: 2 tracks analyzed, 0 already", "file size: 0 tracks analyzed, 2 already"];
-            assert!(fresh.contains(&last_message(app)), "{}", last_message(app));
+            assert!(fresh.contains(&last_message(app)));
         }
         Act::Export(p, f) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
