@@ -1,14 +1,18 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { Bookmark, BookmarkCheck, CalendarPlus, Clock, ExternalLink, FileText, Flag, Lock, MapPin, Pencil, Users } from '@lucide/svelte';
+	import { Bookmark, BookmarkCheck, CalendarPlus, Clock, ExternalLink, FileText, Flag, Lock, MapPin, Megaphone, Pencil, Users } from '@lucide/svelte';
+	import { page } from '$app/state';
 	import Avatar from '#lib/components/Avatar.svelte';
 	import BookingDetails from '#lib/components/BookingDetails.svelte';
 	import DjSets from '#lib/components/DjSets.svelte';
 	import DjStats from '#lib/components/DjStats.svelte';
+	import FollowButton from '#lib/components/FollowButton.svelte';
 	import FormMessage from '#lib/components/FormMessage.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import MixList from '#lib/components/MixList.svelte';
 	import ProjectFacts from '#lib/components/ProjectFacts.svelte';
+	import ShowList from '#lib/components/ShowList.svelte';
+	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import StatusPill from '#lib/components/StatusPill.svelte';
 	import { formatDate, kindLabel, placeLabel } from '#lib/format.ts';
 	import { LINK_KINDS, labelFor } from '#lib/taxonomy/options.ts';
@@ -26,6 +30,10 @@
 	const claimed = $derived(project.managers.length > 0);
 
 	const loginHref = $derived(`/login?next=/projects/${project.slug}`);
+
+	const followLogin = $derived(viewer ? undefined : loginHref);
+
+	const editable = $derived(viewer && data.isManager ? (show: { did: string; rkey: string }) => (show.did === viewer.did ? `/projects/${project.slug}/shows/${show.rkey}` : null) : undefined);
 </script>
 
 <svelte:head>
@@ -63,6 +71,9 @@
 			{:else if claimed && !data.isManager}
 				<a href="/bookings/new?project={project.slug}" class="btn-primary"><CalendarPlus class="size-4" />Send inquiry</a>
 			{/if}
+			{#if data.follow}
+				{#await data.follow}<FollowButton follow={undefined} loginHref={followLogin} />{:then follow}<FollowButton {follow} loginHref={followLogin} />{/await}
+			{/if}
 			{#if viewer && data.saved !== null}
 				<form method="POST" action={data.saved ? '?/unsave' : '?/save'} use:enhance>
 					<button class="btn-secondary">{#if data.saved}<BookmarkCheck class="size-4" />Saved{:else}<Bookmark class="size-4" />Save{/if}</button>
@@ -81,7 +92,7 @@
 
 {#if form || data.pendingClaim || data.pendingUpdate}
 	<div class="container-page mt-6 flex flex-col gap-3">
-		<FormMessage {form} />
+		{#if form?.reauth && form.error && viewer}<SignInAgain did={viewer.did} next={page.url.pathname} error={form.error} />{:else}<FormMessage {form} />{/if}
 		{#if data.pendingClaim}<p class="notice m-0">Your claim is waiting for a moderator. <a class="link" href="/me/requests/{data.pendingClaim.rkey}">View request</a></p>{/if}
 		{#if data.pendingUpdate}<p class="notice m-0">Your proposed changes are waiting for review. <a class="link" href="/me/requests/{data.pendingUpdate.rkey}">View request</a></p>{/if}
 	</div>
@@ -101,6 +112,18 @@
 				{/if}
 			</section>
 		{/if}
+
+		<section id="shows" aria-labelledby="shows-title" class="flex scroll-mt-20 flex-col gap-4">
+			<div class="flex flex-wrap items-center justify-between gap-2">
+				<h2 id="shows-title" class="m-0 text-heading font-semibold">Upcoming shows</h2>
+				{#if data.isManager && project.status === 'active'}<a href="/projects/{project.slug}/shows/new" class="btn-secondary btn-sm"><Megaphone class="size-4" />Announce a show</a>{/if}
+			</div>
+			{#await Promise.all([data.shows, data.edited])}
+				<ShowList shows={undefined} project={project.uri} empty={{ title: '' }} />
+			{:then [shows, edited]}
+				<ShowList {shows} project={project.uri} {editable} {edited} retryHref={page.url.pathname} empty={data.isManager ? { title: 'No upcoming shows', body: 'Announce one and it shows here and to your followers.' } : { title: 'No upcoming shows', body: `Follow ${profile.name} to see new ones under Shows.` }} />
+			{/await}
+		</section>
 
 		{#if profile.mixes?.length}
 			<section aria-labelledby="mixes" class="flex flex-col gap-4">

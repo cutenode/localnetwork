@@ -10,7 +10,7 @@ use crate::settings::{Category, SCHEMA};
 
 /// Every definition reachable from `v`, checked for what [`check`] understands.
 fn walk(nsid: &str, v: &Value, at: &str, problems: &mut Vec<String>) {
-    let known = ["record", "object", "ref", "union", "string", "integer", "boolean", "array", "unknown"];
+    let known = ["record", "object", "ref", "union", "string", "integer", "boolean", "array", "blob", "unknown"];
     let ty = v["type"].as_str().unwrap_or_default();
     if !known.contains(&ty) {
         problems.push(format!("{nsid} {at}: type {ty:?}"));
@@ -36,6 +36,11 @@ fn walk(nsid: &str, v: &Value, at: &str, problems: &mut Vec<String>) {
                 .chain(v["refs"].as_array().into_iter().flatten().map(|r| r.as_str().unwrap_or_default()));
             for r in refs {
                 let (doc, name) = target(nsid, r);
+                // Others' documents are fetched as they publish them: that they're listed is all
+                // that can be checked here.
+                if REFERENCED.contains(&doc) {
+                    continue;
+                }
                 if def(doc, name).is_none() {
                     problems.push(format!("{nsid} {at}: ref {r} doesn't resolve"));
                 }
@@ -192,6 +197,7 @@ fn a_set_lists_objects_it_can_grow() {
 /// another document's `main` (`nsid`), and that definition's own refs resolve in its document.
 #[test]
 fn refs_to_other_documents_are_checked_there() {
+    crate::testing::address_lexicon_stand_in();
     // The set's location is an open union: an address is checked against the address
     // document, and a kind of location the set's document doesn't list passes as it is.
     let at = |location: Value| json!({ "$type": SET, "date": "2026-10-03", "tracks": [], "createdAt": "2026-10-04T09:30:00.000Z", "location": location });
@@ -273,6 +279,7 @@ fn string_formats_are_checked() {
 /// a document that does.
 #[test]
 fn nullable_fields_closed_enums_and_unknowns_are_checked() {
+    crate::testing::address_lexicon_stand_in();
     let object = json!({
         "type": "object",
         "nullable": ["note"],
@@ -287,7 +294,7 @@ fn nullable_fields_closed_enums_and_unknowns_are_checked() {
     checked(json!({ "note": null, "mood": "dark", "extra": { "any": 1 } })).unwrap();
     assert_eq!(checked(json!({ "mood": "grey" })).unwrap_err(), "mood can't be \"grey\"");
     assert_eq!(checked(json!({ "extra": 1 })).unwrap_err(), "extra should be an object");
-    assert!(checked(json!({ "blob": {} })).unwrap_err().contains("doesn't know the Lexicon type \"blob\""));
+    assert_eq!(checked(json!({ "blob": {} })).unwrap_err(), "blob isn't a blob");
     // Only the fields named nullable may be null.
     assert_eq!(checked(json!({ "mood": null })).unwrap_err(), "mood should be text");
 
@@ -459,6 +466,7 @@ fn objects_need_what_is_required_and_hold_nothing_else(tc: hegel::TestCase) {
 /// and one it doesn't list passes when the union is open and is refused when it's closed.
 #[hegel::test(test_cases = 200)]
 fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) {
+    crate::testing::address_lexicon_stand_in();
     let link = format!("{SET}#link");
     let closed = tc.draw(gs::booleans());
     let schema = json!({ "type": "union", "refs": ["#link", ADDRESS], "closed": closed });
@@ -559,10 +567,64 @@ fn booleans_unknowns_and_what_the_check_doesnt_know(tc: hegel::TestCase) {
     assert_eq!(boolean, if v.is_boolean() { Ok(()) } else { Err("b should be true or false".into()) });
     let unknown = check(SET, &json!({ "type": "unknown" }), &v, "u");
     assert_eq!(unknown, if v.is_object() { Ok(()) } else { Err("u should be an object".into()) });
-    let ty = tc.draw(gs::sampled_from(vec!["blob", "bytes", "cid-link", "token", "float"]));
+    let ty = tc.draw(gs::sampled_from(vec!["bytes", "cid-link", "token", "float"]));
     let err = check(SET, &json!({ "type": ty }), &v, "x").unwrap_err();
     assert_eq!(err, format!("x: the check doesn't know the Lexicon type {ty:?}"));
-    let format = tc.draw(gs::sampled_from(vec!["handle", "nsid", "tid", "language", "cid"]));
+    let format = tc.draw(gs::sampled_from(vec!["handle", "nsid", "tid", "language", "record-key"]));
     let err = check(SET, &json!({ "type": "string", "format": format }), &json!("dj.example.com"), "s").unwrap_err();
     assert_eq!(err, format!("s: the check doesn't know the format {format:?}"));
+}
+
+/// A CID as the AT Protocol writes one (a dag-cbor record's).
+const CID: &str = "bafyreidfayvfuwqa7qlnopdjiqrxzs6blmoeu4rujcjtnci5beludirz2a";
+
+/// A CID is checked as one, and a blob (a file a record links to) for its shape, its media type
+/// and its size.
+#[test]
+fn cids_and_blobs_are_checked() {
+    let cid = json!({ "type": "string", "format": "cid" });
+    check(SET, &cid, &json!(CID), "c").unwrap();
+    assert_eq!(check(SET, &cid, &json!("bafy-not-one"), "c").unwrap_err(), "c isn't a CID: \"bafy-not-one\"");
+
+    let schema = json!({ "type": "blob", "accept": ["image/*", "application/json"], "maxSize": 1000 });
+    let blob =
+        |mime: &str, size: i64| json!({ "$type": "blob", "ref": { "$link": CID }, "mimeType": mime, "size": size });
+    check(SET, &schema, &blob("image/png", 1000), "b").unwrap();
+    check(SET, &schema, &blob("application/json", 1), "b").unwrap();
+    check(SET, &json!({ "type": "blob" }), &blob("video/mp4", 1 << 30), "b").unwrap();
+    assert_eq!(
+        check(SET, &schema, &blob("video/mp4", 10), "b").unwrap_err(),
+        "b is video/mp4, which the Lexicon doesn't take"
+    );
+    assert_eq!(
+        check(SET, &schema, &blob("image/png", 1001), "b").unwrap_err(),
+        "b is 1001 bytes, more than the Lexicon takes"
+    );
+    for broken in ["$type", "ref", "mimeType", "size"] {
+        let mut b = blob("image/png", 10);
+        b.as_object_mut().unwrap().remove(broken);
+        assert_eq!(check(SET, &schema, &b, "b").unwrap_err(), "b isn't a blob", "{broken}");
+    }
+    let mut b = blob("image/png", 10);
+    b["ref"]["$link"] = "bafy-not-one".into();
+    assert_eq!(check(SET, &schema, &b, "b").unwrap_err(), "b isn't a blob");
+}
+
+/// A fetched document whose refs go round in a circle stops at [`MAX_REFS`], rather than
+/// recursing until the stack runs out.
+#[test]
+fn refs_that_go_round_in_a_circle_stop() {
+    keep(ADDRESS, json!({ "lexicon": 1, "id": ADDRESS, "defs": { "main": { "type": "ref", "ref": "#main" } } }));
+    let err = check(SET, &json!({ "type": "ref", "ref": ADDRESS }), &json!({}), "place").unwrap_err();
+    assert_eq!(err, format!("place: refs nest more than {MAX_REFS} deep"));
+}
+
+/// What's fetched is kept only if it's the document asked for.
+#[test]
+fn a_fetched_document_has_to_be_the_one_asked_for() {
+    assert!(as_document(ADDRESS, json!({ "id": ADDRESS, "defs": {} })).is_ok());
+    for doc in [json!({ "id": "community.lexicon.other", "defs": {} }), json!({ "id": ADDRESS }), json!("text")] {
+        let err = as_document(ADDRESS, doc).unwrap_err().to_string();
+        assert!(err.contains("isn't that document"), "{err}");
+    }
 }

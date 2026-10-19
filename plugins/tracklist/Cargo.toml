@@ -19,3 +19,6 @@ serde_json.workspace = true
 [dev-dependencies]
 loclib-model = { workspace = true, features = ["test-util"] }
 tempfile.workspace = true
+
+[lints]
+workspace = true

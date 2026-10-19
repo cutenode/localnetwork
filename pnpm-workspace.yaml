@@ -1,6 +1,7 @@
+# Every app and package with a package.json (pnpm skips folders without one).
 packages:
-  - apps/web
-  - apps/localtoolbox
+  - apps/*
+  - packages/*
 linkWorkspacePackages: false
 engineStrict: true
 allowBuilds:

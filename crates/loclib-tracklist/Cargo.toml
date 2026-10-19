@@ -26,3 +26,6 @@ schemars = ["dep:schemars"]
 loclib-model = { workspace = true, features = ["test-util"] }
 hegeltest.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

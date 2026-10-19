@@ -43,6 +43,7 @@ jobs:
               - 'apps/locallibrary/src/mix_cmd.rs'
               - 'apps/web/src/lib/mix/**'
               - 'apps/web/scripts/mix-fixture.ts'
+              - 'packages/tokens/**'
               - '.github/workflows/mix-report.yml'
 
   fixture:

@@ -38,12 +38,16 @@ export type AuditAction =
 	| 'epk.grant'
 	| 'epk.decline'
 	| 'epk.revoke'
+	| 'show.save'
+	| 'show.delete'
+	| 'follow.create'
+	| 'follow.delete'
 	| 'system.bootstrap'
 	| 'system.space';
 
 export type ActorRole = 'admin' | 'moderator' | 'member' | 'system';
 
-export type SubjectKind = 'account' | 'project' | 'request' | 'role' | 'booking' | 'planner' | 'space' | 'epk';
+export type SubjectKind = 'account' | 'project' | 'request' | 'role' | 'booking' | 'planner' | 'space' | 'epk' | 'show';
 
 export type AuditChange = { field: string; before?: string; after?: string };
 

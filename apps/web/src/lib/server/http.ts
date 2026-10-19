@@ -1,7 +1,7 @@
 import { error, fail, isHttpError, isRedirect, redirect } from '@sveltejs/kit';
 import type { Viewer } from '#lib/types.ts';
 import { RecordValidationError } from './atproto/lexicons';
-import { UserError } from './core';
+import { ReauthError, UserError } from './core';
 
 type LocalsLike = { viewer: Viewer | null };
 
@@ -27,9 +27,17 @@ export function requireAdmin(locals: LocalsLike, url: URL): Viewer {
 	return viewer;
 }
 
-/** Only allow same-site relative redirects after sign-in. */
+/**
+ * Only allow same-site relative redirects after sign-in. Browsers drop tabs and newlines from a
+ * URL and read a backslash as a slash, so those are refused outright, and what's left has to
+ * resolve to this site the way a browser would resolve it.
+ */
 export function safeNext(value: string | null | undefined, fallback = '/me'): string {
-	if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return fallback;
+	if (!value || !value.startsWith('/') || /[\s\\\p{Cc}]/u.test(value)) return fallback;
+
+	const base = 'http://same.site';
+
+	if (new URL(value, base).origin !== base) return fallback;
 
 	return value;
 }
@@ -45,12 +53,18 @@ export async function act<T, V extends object = never>(run: () => Promise<T>, va
 		if (isRedirect(cause) || isHttpError(cause)) throw cause;
 
 		if (cause instanceof UserError)
-			return fail(cause.status === 401 ? 401 : cause.status, { error: cause.message, values });
+			return fail(cause.status, { error: cause.message, values, reauth: cause instanceof ReauthError });
 
+		// The same shape as above: TypeScript would drop `reauth` from the action's result type otherwise.
 		if (cause instanceof RecordValidationError)
-			return fail(400, { error: `That doesn't fit the record format: ${cause.message}`, values });
+			return fail(400, { error: `That doesn't fit the record format: ${cause.message}`, values, reauth: false });
 		throw cause;
 	}
+}
+
+/** Whether `value` is a full http(s) address, the only kind of link pages make clickable. */
+export function isWebUrl(value: string): boolean {
+	return URL.canParse(value) && ['http:', 'https:'].includes(new URL(value).protocol);
 }
 
 export function text(form: FormData, name: string, max = 10_000): string {
@@ -121,4 +135,19 @@ export function clientIp(event: { getClientAddress(): string }): string {
 	} catch {
 		return 'unknown';
 	}
+}
+
+/**
+ * Lets a page that shows the same thing to everyone be cached for `seconds`: by anyone when the request has no
+ * session cookie, by the browser alone when it has one. A signed-in page carries the account, and one whose session
+ * ended asks to sign in again or clears the cookie, so neither may reach a shared cache. It varies on the cookie, so
+ * signing in or out isn't answered from a copy made before.
+ */
+export function cacheBriefly(
+	event: { locals: LocalsLike & { sessionToken?: string }; setHeaders(headers: Record<string, string>): void },
+	seconds = 60
+): void {
+	const isAnonymous = !event.locals.viewer && !event.locals.sessionToken;
+
+	event.setHeaders({ 'cache-control': `${isAnonymous ? 'public' : 'private'}, max-age=${seconds}`, vary: 'Cookie' });
 }

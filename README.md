@@ -14,10 +14,11 @@ Tools for DJs and the people who book them, built on the AT Protocol. Each tool 
 apps/web/             Local Network, the website (its README covers setup and deployment)
 apps/locallibrary/    locallibrary's command line tool, player and sidecar, with its docs
 apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its spec, checked by its tests)
-lexicons/             Every tool's lexicons (computer.localnetwork.*), plus copies of others' they use
+lexicons/             Every tool's lexicons (computer.localnetwork.*); others' they use are fetched as published
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 plugins/              locallibrary's own plugins, each a crate on its plugin SDK
 packages/tokens/      Shared colours for DJ data
+packages/atstore/     Makes each tool's AT Store listing pictures (pnpm atstore)
 vendor/               Vendored Rust crates
 tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
 ```
@@ -34,6 +35,7 @@ The TypeScript apps need the Node.js version in `.node-version` (24) and [pnpm](
 pnpm install                 # every TypeScript app's dependencies and the git hooks
 pnpm dev                     # the website on a local network with demo accounts (http://127.0.0.1:5173), and the extension's watch build
 pnpm verify                  # each app's format, lint, type check, tests and build, and the lexicons' format
+pnpm atstore                 # each tool's AT Store icon, hero and screenshots (packages/atstore)
 
 cargo build                  # locallibrary
 cargo test --workspace --locked
@@ -45,11 +47,9 @@ The TypeScript apps share one lint config (`.oxlintrc.json`, which each app's ow
 
 Read [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) before opening a pull request.
 
-## Adding a tool
+## Adding a tool or plugin
 
-A new tool goes in `apps/<tool>`, with shared code in `crates/` (Rust) or `packages/` (TypeScript). Records only it writes live under its own lexicon group, `computer.localnetwork.<tool>.*`; records other tools read too go in a shared group named for what they are, like `computer.localnetwork.dj.*` for DJ sets and profiles. Binaries and crates follow the same names as the rest: `local<thing>` for a tool, `loclib-*` for a Rust library.
-
-Its page on the website, `localnetwork.computer/tools/<tool>`, is one file in `apps/web/src/lib/tools/`, listed in that folder's `index.ts`. The page shows the tool's `README.md` and `docs/*.md` as its guides, and the website's Docker build picks them up from `apps/<tool>/` as they are.
+[Adding an app or plugin](.github/NEW_PROJECT.md) covers the whole stack (development, tests, CI, production and releases) and every place a new app or locallibrary plugin is registered.
 
 ## License
 

@@ -98,6 +98,68 @@ test.describe('public pages', () => {
 		await expectAccessible(page);
 	});
 
+	test('lists upcoming shows everywhere or near a city, and remembers the city', async ({ page }) => {
+		await page.goto('/shows');
+		await expect(page.getByText('Tidal Hours', { exact: true })).toBeVisible();
+		await expect(page.getByText('Neon Tide all night long')).toBeVisible();
+		await expectAccessible(page);
+
+		await page.goto('/shows?place=Berlin&lat=52.52&lng=13.405&radius=25');
+		await expect(page.getByText('Tidal Hours', { exact: true })).toBeVisible();
+		await expect(page.getByText('Neon Tide all night long')).toHaveCount(0);
+		await page.goto('/shows');
+		await expect(page.getByRole('heading', { name: 'Within 25 km of Berlin' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'Forget this city' }).click();
+		await expect(page.getByRole('heading', { name: 'Everywhere' })).toBeVisible();
+	});
+
+	test('the charts rank tracks several DJs played, and an artist page lists who played them', async ({ page }) => {
+		const tracks = page.getByRole('region', { name: 'Tracks' });
+
+		// The demo sets reach the directory in a backfill after the app first syncs it, so this waits for them.
+		await expect(async () => {
+			await page.goto('/charts');
+			await expect(tracks.getByRole('listitem').first()).toBeVisible({ timeout: 2_000 });
+		}).toPass({ timeout: 60_000 });
+
+		await expect(tracks).toContainText('Signal Path');
+		// Played by two DJs, one short of charting.
+		await expect(tracks).not.toContainText('Static Bloom');
+		await expectAccessible(page);
+
+		await page.getByLabel('Where').selectOption('London, GB');
+		await page.getByRole('button', { name: 'Show charts' }).click();
+		await expect(page).toHaveURL(/place=London/);
+		await expect(page.getByText('Nothing charted yet')).toBeVisible();
+		await expectAccessible(page);
+
+		await page.goto('/charts');
+		await page.getByRole('region', { name: 'Artists' }).getByRole('link', { name: 'Mira Okonkwo' }).click();
+		await expect(page).toHaveURL(/\/artists\/7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'Mira Okonkwo' })).toBeVisible();
+		const plays = page.getByRole('list', { name: 'Plays of Signal Path' });
+		await expect(plays.getByRole('listitem').first()).toContainText('Neon Tide');
+		await expect(plays.getByRole('link', { name: 'Pirate Signal' }).first()).toHaveAttribute(
+			'href',
+			'/projects/pirate-signal'
+		);
+		await expectAccessible(page);
+
+		await page.goto('/artists?q=okon');
+		await expect(page.getByRole('link', { name: 'Mira Okonkwo', exact: true })).toBeVisible();
+		await expectAccessible(page);
+	});
+
+	test("a profile's sets link their artists to who played them", async ({ page }) => {
+		await page.goto('/projects/neon-tide');
+		await page.locator('summary', { hasText: 'Tracklist' }).first().click();
+		await page.getByRole('link', { name: 'Kestrel Unit' }).first().click();
+		await expect(page).toHaveURL(/\/artists\/name\/Kestrel%20Unit$/);
+		await expect(page.getByRole('heading', { level: 1, name: 'Kestrel Unit' })).toBeVisible();
+		await expectAccessible(page);
+	});
+
 	test('staff pages require sign-in', async ({ page }) => {
 		await page.goto('/admin');
 		await expect(page).toHaveURL(/\/login\?next=%2Fadmin/);
@@ -106,7 +168,10 @@ test.describe('public pages', () => {
 
 	test('serves OAuth client metadata and the syncer DID document', async ({ request }) => {
 		const metadata = await request.get('/oauth-client-metadata.json');
-		expect((await metadata.json()).scope).toContain('include:computer.localnetwork.permissions');
+		const { scope } = await metadata.json();
+		expect(scope).toContain('include:computer.localnetwork.permissions');
+		// Asked for only when someone first sends a bug report, but the PDS refuses any scope not listed here.
+		expect(scope).toContain('repo:app.userinput.discussion?action=create');
 		const did = await (await request.get('/.well-known/did.json')).json();
 		expect(did.service[0]).toMatchObject({ id: '#localnetwork_syncer', serviceEndpoint: 'http://127.0.0.1:5199' });
 	});
@@ -180,6 +245,58 @@ test.describe('signed in', () => {
 		await expect(page.getByText('Access removed.')).toBeVisible();
 	});
 
+	test('a fan follows a DJ and sees their shows under Following', async ({ page }) => {
+		// milo.test follows Neon Tide from the seed data.
+		await signIn(page, 'milo.test', 'milo-pass', '/projects/saffron-social');
+		await page.getByRole('button', { name: /^Follow \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Following \d/ })).toHaveAttribute('aria-pressed', 'true');
+		await expectAccessible(page);
+
+		await page.goto('/shows?view=following');
+		await expect(page.getByText('Saffron Social on the roof')).toBeVisible();
+		await expect(page.getByText('Tidal Hours', { exact: true })).toBeVisible();
+		await expectAccessible(page);
+
+		// Each browser runs against the same network, so the fan unfollows again.
+		await page.goto('/projects/saffron-social');
+		await page.getByRole('button', { name: /^Following \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+	});
+
+	test('a DJ announces a show, cancels it, and deletes it', async ({ page }, testInfo) => {
+		const name = `Basement rave (${testInfo.project.name})`;
+		const date = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+		await signIn(page, 'neon.test', 'neon-pass', '/projects/neon-tide/shows/new');
+		await expectAccessible(page);
+		await page.locator('#name').fill(name);
+		await page.locator('#date').fill(date);
+		await page.locator('#start').fill('23:00');
+		await page.locator('#end').fill('05:00');
+		await page.locator('#city').fill('Berlin');
+		await page.locator('#country').fill('DE');
+		await page.getByRole('button', { name: 'Announce show' }).click();
+		await expect(page.getByRole('alert')).toContainText("Pick the venue's city from the search");
+		// The failed save is a full page load, and hydrating the form resets its coordinates, so wait for that first.
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		// The e2e network has no geocoder, so this stands in for picking Berlin from the city search.
+		await page.locator('input[name="latE6"]').evaluate((input: HTMLInputElement) => (input.value = '52520000'));
+		await page.locator('input[name="lngE6"]').evaluate((input: HTMLInputElement) => (input.value = '13405000'));
+		await page.getByRole('button', { name: 'Announce show' }).click();
+		const listed = page.getByRole('listitem').filter({ hasText: name });
+		await expect(listed).toContainText('23:00 to 05:00');
+		await expectAccessible(page);
+
+		await listed.getByRole('link', { name: `Edit ${name}` }).click();
+		await page.getByLabel('This show is cancelled').check();
+		await page.getByRole('button', { name: 'Save changes' }).click();
+		await expect(listed).toContainText('Cancelled');
+
+		await listed.getByRole('link', { name: `Edit ${name}` }).click();
+		await page.getByRole('button', { name: 'Delete show' }).click();
+		await expect(page.getByRole('heading', { name: 'Upcoming shows' })).toBeVisible();
+		await expect(listed).toHaveCount(0);
+	});
+
 	test('a promoter sends a booking inquiry', async ({ page }) => {
 		await signIn(page, 'pat.test', 'pat-pass', '/bookings/new?project=neon-tide');
 		await expect(page.getByRole('heading', { name: 'Neon Tide' })).toBeVisible();
@@ -193,6 +310,69 @@ test.describe('signed in', () => {
 		await page.getByRole('button', { name: 'Send' }).click();
 		await expect(page.getByText('Budget is flexible.')).toBeVisible();
 		await expectAccessible(page);
+		const thread = new URL(page.url()).pathname;
+		await signOut(page);
+
+		// Once it's confirmed, the DJ can announce it, starting from the inquiry's details.
+		await signIn(page, 'neon.test', 'neon-pass', thread);
+		await expect(page.getByRole('link', { name: 'Announce this show' })).toHaveCount(0);
+		await page.getByLabel('Status').selectOption('confirmed');
+		await page.getByRole('button', { name: 'Update status' }).click();
+		await page.getByRole('link', { name: 'Announce this show' }).click();
+		await expect(page.locator('#name')).toHaveValue('Basement Sessions');
+		await expect(page.locator('#date')).toHaveValue('2026-12-12');
+		await expectAccessible(page);
+	});
+});
+
+test.describe('bug reports', () => {
+	test("signed out, Report a bug opens GitHub's form with the page and browser filled in", async ({
+		page,
+		request
+	}) => {
+		await page.goto('/match');
+		const link = page.getByRole('contentinfo').getByRole('link', { name: 'Report a bug' });
+		await expect(link).toHaveAttribute('href', '/report?from=%2Fmatch');
+		// Followed by hand, so the test never loads GitHub.
+		const response = await request.get('/report?from=%2Fmatch', { maxRedirects: 0 });
+		const github = new URL(response.headers().location);
+		expect(github.origin + github.pathname).toBe('https://github.com/cutenode/localnetwork/issues/new');
+		expect(github.searchParams.get('template')).toBe('web-bug.yml');
+		expect(github.searchParams.get('steps')).toContain('/match');
+	});
+
+	test('signed in, someone approves posting once and reports a bug from their own account', async ({ page }) => {
+		// A fresh sign-in asks only for what the site needs, so posting has to be approved first.
+		await signIn(page, 'pat.test', 'pat-pass', '/match');
+		await page.getByRole('contentinfo').getByRole('link', { name: 'Report a bug' }).click();
+		await expect(page.getByRole('heading', { name: 'Approve posting first' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('button', { name: 'Approve' }).click();
+		// The PDS may ask for the password again before it shows what's being approved.
+		const password = page.locator('input[type="password"]');
+		const authorize = page.getByRole('button', { name: 'Authorize' });
+		await expect(password.or(authorize).first()).toBeVisible();
+
+		if (await password.isVisible()) {
+			await password.fill('pat-pass');
+			await page.getByRole('button', { name: 'Sign in' }).click();
+		}
+
+		await authorize.click();
+		await page.waitForURL((url) => url.port === '5199' && url.pathname === '/report');
+		await page.waitForLoadState('networkidle');
+		await expect(page.getByText('Also sent: /match')).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('textbox', { name: 'Title' }).fill("The map doesn't load on a show");
+		await page.getByRole('textbox', { name: 'What happened?' }).fill('I added a venue and the map stayed grey.');
+		await page.getByRole('button', { name: 'Post report' }).click();
+		await expect(page.getByRole('heading', { name: "Thanks, it's posted" })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'View your report' })).toHaveAttribute(
+			'href',
+			/^https:\/\/userinput\.app\/d\/did:plc:[a-z0-9]+\/[a-z0-9]+$/
+		);
+		await expectAccessible(page);
+		await signOut(page);
 	});
 });
 

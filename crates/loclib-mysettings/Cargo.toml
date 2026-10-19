@@ -24,3 +24,5 @@ schemars = ["dep:schemars"]
 hegeltest.workspace = true
 rustc-hash.workspace = true
 
+[lints]
+workspace = true

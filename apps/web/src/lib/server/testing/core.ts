@@ -9,11 +9,14 @@ import { AccountService } from '../services/accounts';
 import { PublicRepo } from '../atproto/public-repo';
 import { BookingService } from '../services/bookings';
 import { EpkService } from '../services/epk';
+import { FollowService } from '../services/follows';
 import { PlannerService } from '../services/planner';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
+import { ShowService } from '../services/shows';
 import { StaffService } from '../services/staff';
+import { SupportService } from '../services/supports';
 import { TracklistService } from '../services/tracklists';
 import type { Viewer } from '#lib/types.ts';
 import { FakeNetwork } from './fakes';
@@ -89,6 +92,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	const planner = new PlannerService(core);
 	const projectAdmin = new ProjectAdmin(core, projects);
 	const tracklists = new TracklistService(core);
+	const supports = new SupportService(directory, accounts, silentLogger);
 
 	const publicRepo = new PublicRepo(
 		{ resolve: async () => ({ pds: 'https://pds.test' }) },
@@ -100,6 +104,10 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		if (identifier.startsWith('did:')) return identifier;
 		throw new Error(`no such handle ${identifier}`);
 	});
+
+	// Writes are indexed in-process here, so a write that isn't served at once never will be.
+	const shows = new ShowService(core, projects, directory, publicRepo, 0);
+	const follows = new FollowService(core, directory, 0);
 
 	await ensureRootSpaces(core);
 	await audit.idle();
@@ -120,6 +128,7 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 	return {
 		db,
 		net,
+		happyView,
 		directory,
 		core,
 		audit,
@@ -131,7 +140,11 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		planner,
 		projectAdmin,
 		tracklists,
+		supports,
 		epks,
+		shows,
+		follows,
+		publicRepo,
 		viewer,
 		capable,
 		spaces

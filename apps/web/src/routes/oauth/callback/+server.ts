@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { Agent } from '@atproto/api';
 import { z } from 'zod';
-import { grantsAll } from '#lib/server/atproto/oauth.ts';
+import { grantsPublicRecords, grantsSpaces } from '#lib/server/atproto/oauth.ts';
 import { AgentRepoClient } from '#lib/server/atproto/repo-client.ts';
 import { SESSION_COOKIE } from '#lib/server/auth/session.ts';
 import { safeNext } from '#lib/server/http.ts';
@@ -30,16 +30,17 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 			next = '/me';
 		}
 
-		// Only a grant of everything the app asks for lets it write as the user. Anything less (no spaces
-		// support, or scopes the user declined) falls back to the root account writing on their behalf.
-		const spacesCapable = grantsAll(scope, app.oauth.scopes.full, did);
+		// Only a grant of every space write the app asks for lets it write there as the user. Anything less (no
+		// spaces support, or scopes the user declined) falls back to the root account writing on their behalf.
+		const spacesCapable = grantsSpaces(scope, did);
 		const identity = await app.identity.resolve(did).catch(() => null);
 		await app.accounts.recordLogin({
 			did,
 			handle: identity?.handle ?? null,
 			pdsUrl: identity?.pds ?? null,
 			grantedScope: scope,
-			spacesCapable
+			spacesCapable,
+			publicWrites: grantsPublicRecords(scope, did)
 		});
 		const previous = cookies.get(SESSION_COOKIE);
 

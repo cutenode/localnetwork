@@ -21,10 +21,16 @@ export const COLLECTION = {
 	epk: `${NS}.epk`,
 	epkContent: `${NS}.epk.content`,
 	epkRequest: `${NS}.epk.request`,
-	epkGrant: `${NS}.epk.grant`
+	epkGrant: `${NS}.epk.grant`,
+	/** A show a manager announced, in their own repo beside its calendar event. */
+	show: `${NS}.show`,
+	follow: `${NS}.follow`
 } as const;
 
-/** Queries served by the directory, the HappyView AppView that indexes published projects and their managers' sets. */
+/** The lexicon-community calendar event a show is, so other calendar apps can read it. */
+export const CALENDAR_EVENT = 'community.lexicon.calendar.event' as const;
+
+/** Queries served by the directory, the HappyView AppView that indexes published projects, their managers' sets and shows, and follows. */
 export const DIRECTORY = {
 	searchProjects: `${NS}.directory.searchProjects`,
 	matchProjects: `${NS}.directory.matchProjects`,
@@ -32,7 +38,13 @@ export const DIRECTORY = {
 	getProjects: `${NS}.directory.getProjects`,
 	getStats: `${NS}.directory.getStats`,
 	getSets: `${NS}.directory.getSets`,
-	listSets: `${NS}.directory.listSets`
+	listSets: `${NS}.directory.listSets`,
+	listShows: `${NS}.directory.listShows`,
+	getShows: `${NS}.directory.getShows`,
+	getFollowStatus: `${NS}.directory.getFollowStatus`,
+	getCharts: `${NS}.directory.getCharts`,
+	getArtist: `${NS}.directory.getArtist`,
+	searchArtists: `${NS}.directory.searchArtists`
 } as const;
 
 export const SPACE_TYPE = {

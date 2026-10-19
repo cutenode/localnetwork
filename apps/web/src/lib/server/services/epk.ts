@@ -24,7 +24,7 @@ import { RecordValidationError, validateRecord } from '../atproto/lexicons';
 import type { PublicRepo } from '../atproto/public-repo';
 import { createSpaceIfMissing, type RepoClient } from '../atproto/repo-client';
 import { epkSpace, parseSpaceUri } from '../atproto/spaces';
-import { type Core, ForbiddenError, NotFoundError, UserError } from '../core';
+import { type Core, ForbiddenError, NotFoundError, ReauthError, UserError } from '../core';
 import { nowIso } from '../db';
 import type { ProjectService } from './projects';
 import { actorRole } from './requests';
@@ -638,7 +638,7 @@ export class EpkService {
 			throw new UserError("Your PDS doesn't support atproto spaces yet, so you can't publish press kits from it");
 		const client = await this.core.userClient(actor.did);
 
-		if (!client) throw new UserError('Sign in again to manage your press kits', 401);
+		if (!client) throw new ReauthError('Sign in again to manage your press kits');
 
 		return client;
 	}

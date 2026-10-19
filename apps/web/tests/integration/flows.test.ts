@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sampleReport } from '../../src/lib/mix/sample.ts';
-import { COLLECTION, SPACE_TYPE } from '../../src/lib/nsid.ts';
+import { USERINPUT } from '../../src/lib/bug-report.ts';
+import { CALENDAR_EVENT, COLLECTION, SPACE_TYPE } from '../../src/lib/nsid.ts';
 import { ROOT_SPACE_POLICIES } from '../../src/lib/server/bootstrap.ts';
-import { ForbiddenError, UserError } from '../../src/lib/server/core.ts';
+import { ForbiddenError, ReauthError, UserError } from '../../src/lib/server/core.ts';
 import { plannerSpace } from '../../src/lib/server/atproto/spaces.ts';
 import { parseProfile } from '../../src/lib/server/forms/project.ts';
 import { silentLogger } from '../../src/lib/server/logger.ts';
@@ -24,9 +25,9 @@ describe('Local Network on a real atproto spaces network', () => {
 	let net: TestNetwork;
 
 	beforeAll(async () => {
-		net = await TestNetwork.create(['ada', 'milo', 'neon', 'pat', 'lee', 'remy', 'kai', 'sol'], {
+		net = await TestNetwork.create(['ada', 'milo', 'neon', 'pat', 'lee', 'remy', 'kai', 'sol', 'fan'], {
 			admins: ['ada'],
-			oauth: ['remy']
+			oauth: ['remy', 'fan']
 		});
 	});
 	afterAll(async () => {
@@ -377,6 +378,79 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect((await net.app.projects.bySlug(project.slug))?.profile.mixes?.[0]?.set).toEqual({ uri, cid });
 	});
 
+	it('lets anyone follow a project and its managers announce shows, listed through HappyView', async () => {
+		const project = (await net.app.projects.byUri(projectUri))!;
+		const neon = await net.viewer('neon');
+		const pat = await net.viewer('pat');
+		const year = new Date().getUTCFullYear() + 1;
+		const tresor = { city: 'Berlin', country: 'DE', latE6: 52_510_000, lngE6: 13_420_000 };
+		const input = { name: 'Night Owls', date: `${year}-11-07`, start: '23:00', end: '06:00', location: tresor };
+
+		await net.app.follows.follow(pat, project);
+		expect(await net.app.follows.state(project, pat.did)).toEqual({ followers: 1, following: true });
+
+		// Writes reach HappyView over Jetstream, and each waits until HappyView serves it.
+		const ref = await net.app.shows.save(neon, project, { ...input, venue: 'Tresor', cancelled: false });
+		const listed = await net.app.shows.forProject(project);
+		expect(listed.map((show) => [show.uri, show.record.startsAt])).toEqual([[ref.uri, `${year}-11-07T23:00:00+01:00`]]);
+
+		const hamburg = { lat: 53.55, lng: 9.99 };
+		const following = await net.app.shows.upcoming({ follower: pat.did, near: hamburg, sort: 'distance' });
+		expect(following.items.map((show) => show.uri)).toEqual([ref.uri]);
+		expect(following.items[0].distanceKm).toBeGreaterThan(250);
+		expect((await net.app.shows.upcoming({ near: hamburg, radiusKm: 50 })).items).toEqual([]);
+
+		// The show pins the event's CID, worked out by the app the way the PDS does.
+		expect(await net.app.shows.edited(neon.did, listed)).toEqual([]);
+
+		// Another calendar app changes the event in Neon's repo, and the project page can tell Neon.
+		const rkey = ref.uri.split('/').at(-1)!;
+		const event = await net.user('neon').client.getRecord({ collection: CALENDAR_EVENT, rkey });
+		await net.user('neon').client.putRecord({
+			collection: CALENDAR_EVENT,
+			rkey,
+			record: { ...event!.value, description: 'Doors at 22:00' }
+		});
+		expect(await net.app.shows.edited(neon.did, listed)).toEqual([ref.uri]);
+
+		await net.app.shows.remove(neon, project, rkey);
+		await net.app.follows.unfollow(pat, project);
+		expect(await net.app.shows.forProject(project)).toEqual([]);
+		expect(await net.app.follows.state(project, pat.did)).toEqual({ followers: 0, following: false });
+	});
+
+	it('asks an account whose grant predates follows to sign in again, then follows with or without spaces', async () => {
+		const project = (await net.app.projects.byUri(projectUri))!;
+
+		// The grant sessions without spaces support got before the app wrote follows, from a sign-in back then.
+		await net.signInWithOAuth('fan', 'atproto');
+		await net.app.db
+			.updateTable('account')
+			.set({ publicWrites: null })
+			.where('did', '=', net.user('fan').did)
+			.execute();
+		await expect(net.app.follows.follow(await net.viewer('fan'), project)).rejects.toThrow(ReauthError);
+
+		// A sign-in since then that still didn't get it can't be fixed by signing in again.
+		await net.signInWithOAuth('fan', 'atproto');
+		await expect(net.app.follows.follow(await net.viewer('fan'), project)).rejects.toThrow(
+			"Your account's server doesn't allow this yet"
+		);
+
+		// What a PDS without spaces grants when the app falls back to the base scopes.
+		await net.signInWithOAuth('fan', undefined, { requested: net.app.oauth.scopes.base });
+		const fan = await net.viewer('fan');
+		expect(fan.spacesCapable).toBe(false);
+		await net.app.follows.follow(fan, project);
+		expect(await net.app.follows.state(project, fan.did)).toEqual({ followers: 1, following: true });
+
+		// The permission set covers follows for everyone else.
+		await net.signInWithOAuth('fan');
+		expect((await net.viewer('fan')).spacesCapable).toBe(true);
+		await net.app.follows.unfollow(await net.viewer('fan'), project);
+		expect(await net.app.follows.state(project, fan.did)).toEqual({ followers: 0, following: false });
+	});
+
 	it('asks someone to sign in again when the app requests scopes their OAuth grant predates', async () => {
 		const kai = net.user('kai');
 
@@ -393,7 +467,8 @@ describe('Local Network on a real atproto spaces network', () => {
 			handle: kai.handle,
 			pdsUrl: net.pds.url,
 			grantedScope: granted,
-			spacesCapable: true
+			spacesCapable: true,
+			publicWrites: true
 		});
 		const stale = { did: kai.did, handle: kai.handle, roles: [], isAdmin: false, isStaff: false, spacesCapable: true };
 		await expect(
@@ -520,6 +595,30 @@ describe('Local Network on a real atproto spaces network', () => {
 		expect(entries.filter((entry) => entry.actorStatus !== 'verified')).toEqual([]);
 	});
 
+	it('posts a bug report to userinput.app from the account that approved it, and only once they have', async () => {
+		const sol = net.user('sol');
+		const report = { title: 'The map is blank', body: 'On /match it never loads.' };
+		await net.signInWithOAuth('sol');
+		expect(await net.app.bugReports.canPost(sol.did)).toBe(false);
+		await expect(net.app.bugReports.post(sol.did, report)).rejects.toThrow('Missing required scope');
+		// Approving it later keeps everything else they'd approved.
+		await net.signInWithOAuth('sol', undefined, { extra: net.app.oauth.scopes.bugReport });
+		expect(await net.app.bugReports.canPost(sol.did)).toBe(true);
+		expect((await net.viewer('sol')).spacesCapable).toBe(true);
+
+		const url = await net.app.bugReports.post(sol.did, report);
+
+		const [, rkey] = url.split(`https://userinput.app/d/${sol.did}/`);
+
+		const read = (repo: string, collection: string, key: string) =>
+			sol.agent.com.atproto.repo.getRecord({ repo, collection, rkey: key });
+
+		const { data } = await read(sol.did, USERINPUT.discussion, rkey);
+		const { data: space } = await read(net.rootDid, USERINPUT.space, net.app.config.userinputSpace!.split('/').at(-1)!);
+
+		expect(data.value).toMatchObject({ ...report, tags: ['bug', 'web'], space: { uri: space.uri, cid: space.cid } });
+	});
+
 	it('files on behalf of accounts whose PDS lacks spaces support, and says so in the audit log', async () => {
 		const legacy = { ...(await net.viewer('lee')), spacesCapable: false };
 		await net.app.accounts.recordLogin({
@@ -527,7 +626,8 @@ describe('Local Network on a real atproto spaces network', () => {
 			handle: 'lee.test',
 			pdsUrl: null,
 			grantedScope: 'atproto',
-			spacesCapable: false
+			spacesCapable: false,
+			publicWrites: false
 		});
 		const request = await net.app.requests.submit({ actor: legacy, kind: 'create', profile: profile('Proxy Party') });
 		expect(request.repoDid).toBe(net.rootDid);
@@ -542,7 +642,8 @@ describe('Local Network on a real atproto spaces network', () => {
 			handle: 'lee.test',
 			pdsUrl: null,
 			grantedScope: net.app.oauth.scopes.full,
-			spacesCapable: true
+			spacesCapable: true,
+			publicWrites: true
 		});
 	});
 

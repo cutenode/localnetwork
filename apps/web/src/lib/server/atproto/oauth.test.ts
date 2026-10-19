@@ -1,9 +1,17 @@
 import { IncludeScope, ScopePermissions, ScopePermissionsTransition, SpacePermission } from '@atproto/oauth-scopes';
 import { describe, expect, it } from 'vitest';
-import { COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
+import { CALENDAR_EVENT, COLLECTION, PERMISSIONS, SPACE_TYPE } from '#lib/nsid.ts';
 import { loadConfig } from '../config';
 import { PERMISSION_SET } from './lexicons';
-import { clientMetadata, grantsAll, isLoopback, SCOPES } from './oauth';
+import {
+	clientMetadata,
+	DECLARED_SCOPES,
+	grantsAll,
+	grantsPublicRecords,
+	grantsSpaces,
+	isLoopback,
+	SCOPES
+} from './oauth';
 
 const config = (publicUrl: string) =>
 	loadConfig({
@@ -94,11 +102,49 @@ describe('OAuth scopes', () => {
 		expect(permissions.allowsBlob({ mime: 'text/html' })).toBe(false);
 	});
 
-	it('has a base scope without spaces for fallback', () => {
-		expect(base).toBe('atproto');
+	it('has a base scope without spaces for fallback, which a full grant covers', () => {
+		expect(base.split(' ').some((scope) => scope.startsWith('include:') || scope.startsWith('space'))).toBe(false);
 		expect(grantsAll(base, full, user)).toBe(false);
+		expect(grantsAll(granted.join(' '), base, user)).toBe(true);
 		expect(grantsAll(full, full, user)).toBe(true);
 		expect(grantsAll(null, full, user)).toBe(false);
+		expect(SCOPES.minimal).toBe('atproto');
+	});
+
+	it('lets any account follow, and announce shows as calendar events, with or without spaces', () => {
+		for (const scopes of [granted, base.split(' ')]) {
+			const permissions = new ScopePermissions(scopes);
+
+			for (const action of ['create', 'delete'] as const)
+				expect(permissions.allowsRepo({ collection: COLLECTION.follow, action })).toBe(true);
+			expect(permissions.allowsRepo({ collection: COLLECTION.follow, action: 'update' })).toBe(false);
+
+			for (const collection of [COLLECTION.show, CALENDAR_EVENT])
+				for (const action of ['create', 'update', 'delete'] as const)
+					expect(permissions.allowsRepo({ collection, action })).toBe(true);
+			expect(permissions.allowsRepo({ collection: COLLECTION.epk, action: 'create' })).toBe(scopes === granted);
+		}
+	});
+
+	it('counts a grant from before shows and follows as one with spaces, which lacks only those writes', () => {
+		// What the PDS grants from the permission set as it was, or from one it hasn't fetched again yet.
+		const publicRecords = (scope: string) => /localnetwork\.(show|follow)|calendar\.event/.test(scope);
+		const before = granted.filter((scope) => !publicRecords(scope)).join(' ');
+
+		expect(grantsSpaces(before, user)).toBe(true);
+		expect(grantsPublicRecords(before, user)).toBe(false);
+		expect(grantsSpaces(granted.join(' '), user)).toBe(true);
+		expect(grantsPublicRecords(granted.join(' '), user)).toBe(true);
+		expect(grantsSpaces(base, user)).toBe(false);
+		expect(grantsPublicRecords(base, user)).toBe(true);
+		expect(grantsSpaces(granted.filter((scope) => !scope.startsWith('blob')).join(' '), user)).toBe(false);
+	});
+
+	it('declares every scope it may ask for in its client metadata', () => {
+		const declared = DECLARED_SCOPES.split(' ');
+
+		for (const scope of Object.values(SCOPES).flatMap((scopes) => scopes.split(' '))) expect(declared).toContain(scope);
+		expect(new Set(declared).size).toBe(declared.length);
 	});
 
 	it('compares grants the way the PDS writes them, and spots any scope missing', () => {
@@ -107,6 +153,19 @@ describe('OAuth scopes', () => {
 
 		for (const dropped of granted)
 			expect(grantsAll(granted.filter((scope) => scope !== dropped).join(' '), full, user)).toBe(false);
+	});
+
+	it('asks separately to post bug reports to userinput.app, and for nothing more there', () => {
+		const permissions = new ScopePermissions(SCOPES.bugReport.split(' '));
+		const discussion = 'app.userinput.discussion';
+
+		expect(permissions.allowsRepo({ collection: discussion, action: 'create' })).toBe(true);
+		expect(permissions.allowsRepo({ collection: discussion, action: 'update' })).toBe(false);
+		expect(permissions.allowsRepo({ collection: 'app.userinput.upvote', action: 'create' })).toBe(false);
+		// Asking for it at sign-in would send every older session back to approve it.
+		expect(grantsAll(SCOPES.bugReport, full, user)).toBe(false);
+		expect(grantsAll(granted.join(' '), SCOPES.bugReport, user)).toBe(false);
+		expect(grantsAll(`${granted.join(' ')} ${SCOPES.bugReport}`, full, user)).toBe(true);
 	});
 
 	it('builds loopback metadata for local development and web metadata otherwise', () => {

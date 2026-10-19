@@ -13,13 +13,15 @@
 		"lexicons:format": "oxfmt lexicons/computer",
 		"test": "pnpm -r test",
 		"knip": "pnpm -r knip",
-		"verify": "pnpm lexicons:format --check && pnpm -r verify"
+		"verify": "pnpm lexicons:format --check && pnpm -r verify",
+		"atstore": "pnpm -C packages/atstore assets"
 	},
 	"devDependencies": {
 		"@oxlint/plugins": "1.86.0",
 		"lefthook": "^2.1.16",
 		"oxfmt": "^0.71.0",
-		"oxlint": "1.86.0"
+		"oxlint": "1.86.0",
+		"railway": "^3.16.0"
 	},
 	"engines": {
 		"node": ">=24.12"

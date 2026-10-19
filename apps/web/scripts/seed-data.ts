@@ -200,38 +200,198 @@ export const DEMO_DJ_PROFILE = {
 	collection: { tracks: { atLeast: 3000 }, playlists: { count: 48 } }
 };
 
-const demoTracks = [
-	{ title: 'Night Bus', artist: 'Ferrule', bpmCentis: 12400, key: '8A', startSeconds: 0 },
-	{ title: 'Signal Path', artist: 'Mira Okonkwo', bpmCentis: 12500, key: '8A', startSeconds: 300 },
-	{ title: 'Halogen', artist: 'Two Rooms', bpmCentis: 12600, key: '9A', startSeconds: 610 },
-	{ title: 'Low Tide (Dub)', artist: 'Ferrule, Ava Lind', bpmCentis: 12400, key: '10A', startSeconds: 1020 },
-	{ title: 'Static Bloom', artist: 'Kestrel Unit', bpmCentis: 12800, key: '3B', startSeconds: 1360 }
-];
+/** YYYY-MM-DD `days` before today, so the demo sets stay in the charts' default last 30 days. */
+const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+
+const address = (name: string, locality: string, country: string) => ({
+	$type: 'community.lexicon.location.address',
+	name,
+	locality,
+	country
+});
+
+/**
+ * Made-up artists with made-up MusicBrainz IDs and ISRCs, shaped as locallibrary writes them, so the artist pages
+ * and charts have something to count: most tracks carry IDs, one only an ISRC, one nothing but its credit.
+ */
+const ARTIST = {
+	ferrule: { artistName: 'Ferrule', artistMbId: 'mbid:2a8e4f60-1c3b-4d7e-9a05-6b1f0c2d3e41' },
+	mira: { artistName: 'Mira Okonkwo', artistMbId: 'mbid:7d0b9c12-5e64-4f3a-8b21-c4e9a6f05d72' },
+	twoRooms: { artistName: 'Two Rooms' },
+	avaLind: { artistName: 'Ava Lind', artistMbId: 'mbid:c13f5a88-0d2e-4b9c-a6f4-81e07b3d9c55' },
+	kestrel: { artistName: 'Kestrel Unit' }
+};
+
+const TRACK = {
+	nightBus: {
+		title: 'Night Bus',
+		artist: 'Ferrule',
+		artists: [ARTIST.ferrule],
+		isrc: 'DEA622600101',
+		recordingMbId: 'mbid:6f1c2d84-3b9e-4c1a-9d57-0e2b8a4f7c31',
+		bpmCentis: 12400,
+		key: '8A'
+	},
+	signalPath: {
+		title: 'Signal Path',
+		artist: 'Mira Okonkwo',
+		artists: [ARTIST.mira],
+		isrc: 'GBKQU2600214',
+		recordingMbId: 'mbid:b48e0a3f-92c1-4d65-8f0e-5a7c13d2e9b6',
+		bpmCentis: 12500,
+		key: '8A'
+	},
+	halogen: {
+		title: 'Halogen',
+		artist: 'Two Rooms',
+		artists: [ARTIST.twoRooms],
+		isrc: 'NLA112600087',
+		bpmCentis: 12600,
+		key: '9A'
+	},
+	lowTide: {
+		title: 'Low Tide (Dub)',
+		artist: 'Ferrule, Ava Lind',
+		artists: [ARTIST.ferrule, ARTIST.avaLind],
+		isrc: 'DEA622600102',
+		recordingMbId: 'mbid:0e7a4c19-6d3f-4b82-a1c5-93f2b8e60d17',
+		bpmCentis: 12400,
+		key: '10A'
+	},
+	staticBloom: { title: 'Static Bloom', artist: 'Kestrel Unit', bpmCentis: 12800, key: '3B' },
+	copperWire: {
+		title: 'Copper Wire',
+		artist: 'Ava Lind',
+		artists: [ARTIST.avaLind],
+		isrc: 'SEZ8B2600031',
+		recordingMbId: 'mbid:5c92e1d7-4a08-4f3b-b6e9-2d7f01a8c364',
+		bpmCentis: 13000,
+		key: '7A'
+	},
+	fieldNotes: {
+		title: 'Field Notes',
+		artist: 'Mira Okonkwo & Ferrule',
+		artists: [ARTIST.mira, ARTIST.ferrule],
+		isrc: 'GBKQU2600215',
+		recordingMbId: 'mbid:e2d6b7a0-8c4f-4e19-9b3d-6f05a1c7d8e2',
+		bpmCentis: 12700,
+		key: '9A'
+	}
+};
+
+/** `tracks` in play order, starting `every` seconds apart when the set was recorded. */
+const played = (tracks: object[], every?: number) =>
+	tracks.map((track, i) => (every ? { ...track, startSeconds: i * every } : track));
+
+const demoTracks = played([TRACK.nightBus, TRACK.signalPath, TRACK.halogen, TRACK.lowTide, TRACK.staticBloom], 300);
 
 export const DEMO_DJ_SETS = [
 	{
 		title: 'Tidal Hours',
-		date: '2026-09-26',
+		date: daysAgo(3),
 		kind: 'club',
 		venue: 'Halle Nord',
-		location: { $type: 'community.lexicon.location.address', name: 'Halle Nord', locality: 'Berlin', country: 'DE' },
+		location: address('Halle Nord', 'Berlin', 'DE'),
 		playedWith: [{ name: 'Halflight' }],
 		tracks: demoTracks
 	},
 	{
 		title: 'Late show',
-		date: '2026-09-12',
+		date: daysAgo(17),
 		kind: 'radio',
 		venue: 'Studio Nord',
-		location: { $type: 'community.lexicon.location.address', name: 'Studio Nord', locality: 'Berlin', country: 'DE' },
+		location: address('Studio Nord', 'Berlin', 'DE'),
 		tracks: demoTracks.slice(0, 3)
 	},
 	{
 		title: 'Tidal Hours 004',
-		date: '2026-08-30',
+		date: daysAgo(45),
 		kind: 'mix',
 		links: [{ uri: 'https://soundcloud.com/example-neon-tide', name: 'SoundCloud' }],
 		tracks: demoTracks
+	}
+];
+
+/**
+ * DJs besides neon.test, each managing one demo project (by its index in DEMO_PROJECTS) and with sets of their own,
+ * so the charts rank tracks several DJs played.
+ */
+export const DEMO_DJS = [
+	{
+		handle: 'harbour.test',
+		password: 'harbour-pass',
+		project: 8,
+		sets: [
+			{
+				title: 'Sunday session',
+				date: daysAgo(6),
+				kind: 'club',
+				venue: 'Waschhaus',
+				location: address('Waschhaus', 'Potsdam', 'DE'),
+				tracks: [
+					TRACK.copperWire,
+					TRACK.nightBus,
+					TRACK.signalPath,
+					{ unidentified: true },
+					TRACK.fieldNotes,
+					TRACK.halogen
+				]
+			},
+			{
+				title: 'Halle Nord warm-up',
+				date: daysAgo(3),
+				kind: 'club',
+				venue: 'Halle Nord',
+				location: address('Halle Nord', 'Berlin', 'DE'),
+				tracks: [TRACK.staticBloom, TRACK.nightBus, TRACK.copperWire]
+			}
+		]
+	},
+	{
+		handle: 'pirate.test',
+		password: 'pirate-pass',
+		project: 3,
+		sets: [
+			{
+				title: 'Rooftop',
+				date: daysAgo(9),
+				kind: 'club',
+				venue: 'Corsica Studios',
+				location: address('Corsica Studios', 'London', 'GB'),
+				tracks: played([TRACK.signalPath, TRACK.halogen, TRACK.nightBus, TRACK.copperWire, TRACK.lowTide], 420)
+			},
+			{
+				title: 'Pirate Signal radio',
+				date: daysAgo(52),
+				kind: 'radio',
+				venue: 'Balamii',
+				location: address('Balamii', 'London', 'GB'),
+				tracks: played([TRACK.fieldNotes, TRACK.signalPath, TRACK.staticBloom], 360)
+			}
+		]
+	},
+	{
+		handle: 'glasshouse.test',
+		password: 'glasshouse-pass',
+		project: 10,
+		sets: [
+			{
+				title: 'Glasshouse at Pirate Signal',
+				date: daysAgo(12),
+				kind: 'festival',
+				venue: 'Corsica Studios',
+				location: address('Corsica Studios', 'London', 'GB'),
+				tracks: [TRACK.halogen, TRACK.signalPath, TRACK.copperWire, TRACK.fieldNotes]
+			},
+			{
+				title: 'Long night',
+				date: daysAgo(48),
+				kind: 'club',
+				venue: 'Bambi',
+				location: address('Bambi', 'Toronto', 'CA'),
+				tracks: [TRACK.fieldNotes, TRACK.nightBus, TRACK.staticBloom, TRACK.signalPath]
+			}
+		]
 	}
 ];
 
@@ -264,4 +424,64 @@ export const DEMO_EPKS = [
 		publicMixes: [0],
 		content: { contact: { email: 'festivals@neon-tide.test' } }
 	}
+];
+
+/**
+ * Shows neon.test announces for its two projects (`project` indexes DEMO_PROJECTS), `days` after the network starts.
+ * Times are on the venue's clock.
+ */
+export const DEMO_SHOWS = [
+	{
+		project: 0,
+		days: 3,
+		show: {
+			name: 'Tidal Hours',
+			start: '23:00',
+			end: '06:00',
+			venue: 'Halle Nord',
+			location: { city: 'Berlin', region: 'Berlin', country: 'DE', ...at(52.536, 13.37) },
+			tickets: 'https://tickets.example/tidal-hours'
+		}
+	},
+	{
+		project: 1,
+		days: 9,
+		show: {
+			name: 'Saffron Social on the roof',
+			start: '15:00',
+			end: '22:00',
+			venue: 'Klunkerkranich',
+			location: { city: 'Berlin', region: 'Berlin', country: 'DE', ...at(52.4813, 13.4322) }
+		}
+	},
+	{
+		project: 0,
+		days: 16,
+		show: {
+			name: 'Neon Tide all night long',
+			start: '22:00',
+			venue: 'Uebel & Gefährlich',
+			location: { city: 'Hamburg', region: 'Hamburg', country: 'DE', ...at(53.5562, 9.9684) },
+			tickets: 'https://tickets.example/all-night-long'
+		}
+	},
+	{
+		project: 0,
+		days: 23,
+		show: {
+			name: 'Closing party',
+			start: '23:00',
+			end: '08:00',
+			venue: 'Halle Nord',
+			location: { city: 'Berlin', region: 'Berlin', country: 'DE', ...at(52.536, 13.37) },
+			cancelled: true
+		}
+	}
+];
+
+/** Who follows which demo projects (indexes into DEMO_PROJECTS). */
+export const DEMO_FOLLOWS = [
+	{ handle: 'pat.test', project: 0 },
+	{ handle: 'pat.test', project: 1 },
+	{ handle: 'milo.test', project: 0 }
 ];

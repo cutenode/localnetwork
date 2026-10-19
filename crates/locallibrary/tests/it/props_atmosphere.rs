@@ -18,7 +18,8 @@ use locallibrary::api::{self, AccountLoginRequest};
 use locallibrary::atmosphere::lexicon::{PROFILE, SET, SETTINGS};
 use locallibrary::atmosphere::store::{self, AccountFile, StoredAccount};
 use locallibrary::atmosphere::{
-    self, AccountInfo, CallbackQuery, Client, PUBLISH_SCOPES, PUBLISH_SET, SESSION_LIMIT_DAYS, Storage, publish_scopes,
+    self, AccountInfo, CallbackQuery, Client, PUBLISH_SCOPES, PUBLISH_SET, REPORT_SCOPE, SESSION_LIMIT_DAYS, Storage,
+    publish_scopes,
 };
 use locallibrary::error::Reason;
 use locallibrary::progress::Ctx;
@@ -304,6 +305,7 @@ fn the_client_document_allows_what_it_should(tc: TestCase) {
     let doc = direct.unwrap();
     let allowed: Vec<&str> = doc["scope"].as_str().unwrap().split(' ').collect();
     let mut expected: Vec<String> = publish_scopes();
+    expected.push(REPORT_SCOPE.into());
     expected.extend(extra.iter().cloned());
     expected.sort();
     expected.dedup();

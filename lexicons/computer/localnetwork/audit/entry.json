@@ -36,6 +36,16 @@
 							"planner.save",
 							"planner.unsave",
 							"planner.show",
+							"epk.save",
+							"epk.delete",
+							"epk.request",
+							"epk.grant",
+							"epk.decline",
+							"epk.revoke",
+							"show.save",
+							"show.delete",
+							"follow.create",
+							"follow.delete",
 							"system.bootstrap",
 							"system.space"
 						]
@@ -44,7 +54,7 @@
 					"subjectKind": {
 						"type": "string",
 						"maxLength": 32,
-						"knownValues": ["account", "project", "request", "role", "booking", "planner", "space"]
+						"knownValues": ["account", "project", "request", "role", "booking", "planner", "space", "epk", "show"]
 					},
 					"summary": { "type": "string", "maxLength": 3000, "maxGraphemes": 300 },
 					"changes": { "type": "array", "maxLength": 100, "items": { "type": "ref", "ref": "#change" } },

@@ -6,7 +6,13 @@ This covers the whole repository. Each tool has more in its own docs:
 - Local Network, the website: [apps/web/README.md](../apps/web/README.md)
 - localtoolbox: [apps/localtoolbox/README.md](../apps/localtoolbox/README.md)
 
+Adding an app or a locallibrary plugin? Follow [NEW_PROJECT.md](NEW_PROJECT.md).
+
 Found a security problem? See [SECURITY.md](SECURITY.md) instead of opening an issue.
+
+Have a question about how something works? Ask in [Discussions](https://github.com/cutenode/localnetwork/discussions).
+
+Found a bug? "Report a bug" in the website's footer, localtoolbox's settings, or `locallibrary bug` fills in your version and setup for you.
 
 ## Setup
 
@@ -36,9 +42,17 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
+The repository's own conventions (see [NEW_PROJECT.md](NEW_PROJECT.md)), with Docker running:
+
+```bash
+tools/policy.sh
+```
+
 CI runs a tool's checks only when its files (or the shared ones) change. Each workflow ends with a "… passed" check that reports either way, and those are the checks `main` requires before a merge. The slow suites run weekly in the `*-scheduled.yml` workflows, and you can start them on any branch from the Actions tab. A weekly run that fails opens an issue labelled `scheduled-failure`, and the next weekly run that passes closes it.
 
 On a pull request, each tool's workflow keeps one comment up to date with its coverage: the Rust workspace's, with the Hegel property tests' alone beside it, and the website's and the extension's against `main`, with each changed file's. The website's and the extension's comments also show how the change moves what they ship against `main`: the website's client JavaScript and CSS, and the extension's zip. A pull request from a fork can't be commented on, so it finds the same in the run's summary. The website's Lighthouse scores are in the run's summary too, when the change touches what its pages are built from.
+
+Pull requests also get a dependency review (`dependency-review.yml`). It fails when a dependency the pull request adds or updates (dev tooling aside) has a known advisory or a licence `deny.toml` doesn't allow (fonts may also be OFL-1.1), and then comments on the pull request with what it found.
 
 ## Pull requests
 

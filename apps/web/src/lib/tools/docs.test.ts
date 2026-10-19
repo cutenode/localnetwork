@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { loadDocs } from './docs';
 import { findTool, tools } from './index';
@@ -47,5 +48,35 @@ describe('the registry', () => {
 		expect(new Set(tools.map((tool) => tool.id)).size).toBe(tools.length);
 
 		for (const tool of tools) expect(tool.docs.length).toBeGreaterThan(0);
+	});
+
+	it('has a tool for every app but the site, and an app for every tool', () => {
+		const apps = readdirSync(new URL('../../../../', import.meta.url), { withFileTypes: true })
+			.filter((entry) => entry.isDirectory() && entry.name !== 'web')
+			.map((entry) => entry.name);
+
+		expect(tools.map((tool) => tool.id).sort()).toEqual(apps.sort());
+	});
+
+	it('lists every tool where the docs name the tools', () => {
+		const read = (path: string) => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
+		const readme = read('README.md');
+		const contributing = read('.github/CONTRIBUTING.md');
+
+		const supported =
+			read('.github/SECURITY.md')
+				.split(/\n(?=## )/)
+				.find((section) => section.startsWith("## What's supported")) ?? '';
+
+		const webTools = read('apps/web/README.md').match(/^- `\/tools` lists .*$/m)?.[0] ?? '';
+		const toolsLabel = read('.github/labels.yml').match(/name: "web: tools"\n.*\n\s*description: (.*)/)?.[1] ?? '';
+
+		for (const { id } of tools) {
+			expect(readme, `README.md links apps/${id}`).toContain(`](apps/${id})`);
+			expect(contributing, `.github/CONTRIBUTING.md links ../apps/${id}/`).toContain(`](../apps/${id}/`);
+			expect(supported, `.github/SECURITY.md supports ${id}`).toMatch(new RegExp(`^- ${id}:`, 'm'));
+			expect(webTools, `apps/web/README.md's Tools paragraph links ${id}`).toContain(`[${id}](../${id})`);
+			expect(toolsLabel.split(/\W+/), `.github/labels.yml's "web: tools" label names ${id}`).toContain(id);
+		}
 	});
 });

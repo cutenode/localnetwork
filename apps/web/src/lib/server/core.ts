@@ -50,6 +50,17 @@ export class ForbiddenError extends UserError {
 	}
 }
 
+/**
+ * A write that needs a fresh sign-in: there's no usable OAuth session, or the PDS turned it down for a scope the
+ * session wasn't granted, since it was granted before the app asked for that scope. Pages offer signing in again.
+ */
+export class ReauthError extends UserError {
+	constructor(message: string) {
+		super(message, 401);
+		this.name = 'ReauthError';
+	}
+}
+
 export class NotFoundError extends UserError {
 	constructor(message = 'Not found') {
 		super(message, 404);

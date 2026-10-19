@@ -4,11 +4,11 @@ import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
 import { COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
-import type { DjSetView, ProjectRecord, StrongRef } from '#lib/types.ts';
+import type { DjSetView, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
 import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
-import type { DirectoryMatch, DirectoryOutputs, DirectoryProject } from './client';
+import type { DirectoryMatch, DirectoryOutputs, DirectoryProject, DirectoryShow } from './client';
 
 const ROOT = 'did:plc:root';
 
@@ -219,7 +219,7 @@ async function publishSet(hv: FakeHappyView, did: string, fields: JsonObject = {
 }
 
 describe('set record script', () => {
-	it("keeps sets by the root's projects' managers only, without their tracks", async () => {
+	it("keeps sets by the root's projects' managers only, and serves them without their tracks", async () => {
 		const hv = new FakeHappyView(ROOT);
 		// A project in someone else's repo doesn't make its managers count.
 		await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
@@ -289,6 +289,323 @@ describe('getSets and listSets', () => {
 		expect(await titles({ actors: ['did:plc:a', 'did:plc:b'] })).toEqual(['B2', 'A2', 'B1', 'A1']);
 		expect(await titles({ actors: 'did:plc:c' })).toEqual(['C1']);
 		expect(await titles({ actors: ['did:plc:a', 'did:plc:b'], limit: 1 })).toEqual(['B2']);
+	});
+});
+
+type Charts = DirectoryOutputs['getCharts'];
+
+type Artist = DirectoryOutputs['getArtist'];
+
+const address = (locality: string) => ({ $type: 'community.lexicon.location.address', country: 'DE', locality });
+
+/** An active project for each of `djs` (did:plc:<dj>), so each counts as a DJ of their own. */
+async function acts(hv: FakeHappyView, ...djs: string[]) {
+	for (const dj of djs) await publish(hv, {}, { managers: [`did:plc:${dj}`] });
+}
+
+/** A MusicBrainz ID that's easy to tell apart in a test. */
+const mbid = (n: number) => `bead0000-cafe-4000-8000-${String(n).padStart(12, '0')}`;
+
+describe('getCharts', () => {
+	it('counts a DJ once per track, charts tracks three DJs support, and counts only those for artists', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+		const hit = { title: 'Hit', artist: 'Ferrule' };
+		const pair = { title: 'Pair', artist: 'Ferrule' };
+		await publishSet(hv, 'did:plc:a', { tracks: [hit, pair, hit] });
+		await publishSet(hv, 'did:plc:a', { tracks: [hit] });
+		await publishSet(hv, 'did:plc:b', { tracks: [hit, pair] });
+		await publishSet(hv, 'did:plc:c', { tracks: [hit] });
+
+		const charts = await query<Charts>(hv, 'getCharts');
+
+		expect(charts.tracks).toEqual([
+			{ id: 'name:ferrule\nhit', title: 'Hit', artist: 'Ferrule', artists: [{ name: 'Ferrule' }], supports: 3 }
+		]);
+		expect(charts.artists).toEqual([{ name: 'Ferrule', supports: 3, djCount: 3 }]);
+	});
+
+	it('gives an artist at most five supports from one DJ', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+		const tracks = Array.from({ length: 7 }, (_, i) => ({ title: `Cut ${i}`, artist: 'Kestrel Unit' }));
+
+		for (const dj of ['a', 'b', 'c']) await publishSet(hv, `did:plc:${dj}`, { tracks });
+
+		const charts = await query<Charts>(hv, 'getCharts', { limit: 2 });
+		expect(charts.artists).toEqual([{ name: 'Kestrel Unit', supports: 15, djCount: 3 }]);
+		expect(charts.tracks.map((track) => track.supports)).toEqual([3, 3]);
+	});
+
+	it('narrows to a city and a time, and lists the cities', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+
+		for (const dj of ['a', 'b', 'c']) {
+			const did = `did:plc:${dj}`;
+			const location = address('Berlin');
+			await publishSet(hv, did, { date: '2026-09-10', location, tracks: [{ title: 'September', artist: 'X' }] });
+			await publishSet(hv, did, { date: '2026-08-31', location, tracks: [{ title: 'August', artist: 'X' }] });
+
+			await publishSet(hv, did, {
+				date: '2026-09-11',
+				location: address('Hamburg'),
+				tracks: [{ title: 'Harbour', artist: 'Y' }]
+			});
+		}
+
+		const titles = async (params: Params) =>
+			(await query<Charts>(hv, 'getCharts', params)).tracks.map((track) => track.title).sort();
+
+		expect(await titles({})).toEqual(['August', 'Harbour', 'September']);
+		expect(await titles({ city: 'berlin', country: 'de' })).toEqual(['August', 'September']);
+		expect(await titles({ since: '2026-09-01', before: '2026-10-01' })).toEqual(['Harbour', 'September']);
+		expect(await titles({ since: '2026-09-01', city: 'Hamburg', country: 'DE' })).toEqual(['Harbour']);
+		expect(await titles({ before: '2026-09-01' })).toEqual(['August']);
+
+		expect((await query<Charts>(hv, 'getCharts', { city: 'Hamburg', country: 'DE' })).places).toEqual([
+			{ city: 'Berlin', country: 'DE', count: 6 },
+			{ city: 'Hamburg', country: 'DE', count: 3 }
+		]);
+	});
+
+	it('counts a track as one whether a set names it by MBID (either form), ISRC, or title', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c', 'd');
+
+		const plays = {
+			a: {
+				title: 'Glow',
+				artist: 'Two Rooms',
+				artists: [{ artistName: 'Two Rooms', artistMbId: `mbid:${mbid(9)}` }],
+				recordingMbId: `mbid:${mbid(1).toUpperCase()}`,
+				isrc: 'deaa12600001'
+			},
+			b: {
+				title: 'Glow',
+				artist: 'Two Rooms',
+				artists: [{ artistName: 'Two Rooms', artistMbId: mbid(9) }],
+				recordingMbId: mbid(1)
+			},
+			// Without a recording MBID, its ISRC finds the recording, and its artist's name finds theirs.
+			c: { title: 'Glow (Edit)', artist: 'Two Rooms', isrc: 'DEAA12600001' },
+			// With neither, its credit and title find it, in any case and spacing.
+			d: { title: 'glow ', artist: 'two  ROOMS' }
+		};
+
+		for (const [dj, track] of Object.entries(plays)) await publishSet(hv, `did:plc:${dj}`, { tracks: [track] });
+
+		const charts = await query<Charts>(hv, 'getCharts');
+		expect(charts.tracks).toHaveLength(1);
+		expect(charts.tracks[0]).toMatchObject({ id: `mbid:${mbid(1)}`, recordingMbId: mbid(1), supports: 4 });
+		expect(charts.artists).toEqual([{ name: 'Two Rooms', mbid: mbid(9), supports: 4, djCount: 4 }]);
+	});
+});
+
+describe('who counts', () => {
+	const hit = { title: 'Hit', artist: 'Ferrule' };
+
+	const supports = async (hv: FakeHappyView) =>
+		(await query<Charts>(hv, 'getCharts')).tracks.map((track) => track.supports);
+
+	it('counts a crew whose managers each publish the gig as one DJ', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, {}, { managers: ['did:plc:a', 'did:plc:b'] });
+		await acts(hv, 'c', 'd');
+
+		for (const dj of ['a', 'b', 'c']) await publishSet(hv, `did:plc:${dj}`, { tracks: [hit] });
+
+		expect(await supports(hv)).toEqual([]);
+		await publishSet(hv, 'did:plc:d', { tracks: [hit] });
+		expect(await supports(hv)).toEqual([3]);
+		expect((await query<Artist>(hv, 'getArtist', { name: 'Ferrule' })).artist).toEqual({
+			name: 'Ferrule',
+			supports: 3,
+			djCount: 3
+		});
+	});
+
+	it("stops counting a DJ's sets once they don't manage an active project, and doesn't show them", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b');
+		await publish(hv, {}, { managers: ['did:plc:c'] }, { rkey: 'crew' });
+		await publish(hv, {}, { managers: ['did:plc:d'] }, { rkey: 'later' });
+
+		for (const dj of ['a', 'b', 'c', 'd']) {
+			await publishSet(hv, `did:plc:${dj}`, { location: address('Berlin'), tracks: [hit] });
+		}
+
+		const plays = async () =>
+			(await query<Artist>(hv, 'getArtist', { name: 'Ferrule' })).tracks.flatMap((track) =>
+				track.plays.map((play) => play.did)
+			);
+
+		expect(await supports(hv)).toEqual([4]);
+		await publish(hv, {}, { managers: ['did:plc:c'], status: 'hidden' }, { rkey: 'crew' });
+		await publish(hv, {}, { managers: [] }, { rkey: 'later' });
+
+		expect(await supports(hv)).toEqual([]);
+		expect((await plays()).sort()).toEqual(['did:plc:a', 'did:plc:b']);
+		expect((await query<Artist>(hv, 'getArtist', { name: 'Ferrule' })).djs.map((dj) => dj.did).sort()).toEqual([
+			'did:plc:a',
+			'did:plc:b'
+		]);
+		expect((await query<Charts>(hv, 'getCharts')).places).toEqual([{ city: 'Berlin', country: 'DE', count: 2 }]);
+	});
+});
+
+describe('what counts', () => {
+	it("keeps only sets played on a real day, and doesn't credit placeholders", async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a');
+		const loose = await publishSet(hv, 'did:plc:a', { date: '2026-9-1' });
+
+		await publishSet(hv, 'did:plc:a', {
+			tracks: [
+				{ title: 'ID', artist: 'Ferrule' },
+				{ title: 'Night Bus', artist: 'ID - ID' },
+				{ title: 'Signal', artist: 'Unknown Artist' },
+				{
+					title: 'Compiled',
+					artist: 'Various Artists',
+					artists: [
+						{ artistName: 'Various Artists', artistMbId: '89ad4ac3-39f7-470e-963a-56509c546377' },
+						{ artistName: 'Someone', artistMbId: '125ec42a-7229-4250-afc5-e057484327fe' },
+						{ artistName: 'Two Rooms' }
+					]
+				}
+			]
+		});
+
+		expect(hv.logs).toEqual([`skipped ${loose.uri}: bad date or tracks`]);
+		const { artists } = await query<{ artists: { name: string }[] }>(hv, 'searchArtists');
+		expect(artists.map((artist) => artist.name)).toEqual(['Two Rooms']);
+	});
+
+	it('tells same-titled tracks apart by their artists when sets give no credit line', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+
+		for (const dj of ['a', 'b', 'c']) {
+			await publishSet(hv, `did:plc:${dj}`, {
+				tracks: [
+					{ title: 'Intro', artists: [{ artistName: 'Ferrule' }] },
+					{ title: 'Intro', artists: [{ artistName: 'Two Rooms' }] }
+				]
+			});
+		}
+
+		const charts = await query<Charts>(hv, 'getCharts');
+		expect(charts.tracks.map((track) => [track.title, track.artists, track.supports])).toEqual([
+			['Intro', [{ name: 'Ferrule' }], 3],
+			['Intro', [{ name: 'Two Rooms' }], 3]
+		]);
+	});
+
+	it('gives a play with only an ISRC the recording MBID its title has, when that ISRC is the title’s only one', async () => {
+		const hv = new FakeHappyView(ROOT);
+		await acts(hv, 'a', 'b', 'c');
+		await publishSet(hv, 'did:plc:a', { tracks: [{ title: 'Glow', artist: 'Two Rooms', recordingMbId: mbid(1) }] });
+		await publishSet(hv, 'did:plc:b', { tracks: [{ title: 'Glow', artist: 'Two Rooms', isrc: 'NLA112600087' }] });
+		await publishSet(hv, 'did:plc:c', { tracks: [{ title: 'Glow', artist: 'Two Rooms' }] });
+
+		expect((await query<Charts>(hv, 'getCharts')).tracks).toMatchObject([{ id: `mbid:${mbid(1)}`, supports: 3 }]);
+	});
+});
+
+describe('getArtist and searchArtists', () => {
+	const signal = (startSeconds?: number) => ({
+		title: 'Signal Path',
+		artist: 'Mira Okonkwo',
+		artists: [{ artistName: 'Mira Okonkwo', artistMbId: mbid(7) }],
+		startSeconds
+	});
+
+	const nightBus = {
+		title: 'Night Bus',
+		artist: 'Ferrule & Mira Okonkwo',
+		artists: [{ artistName: 'Ferrule' }, { artistName: 'mira okonkwo' }]
+	};
+
+	async function network() {
+		const hv = new FakeHappyView(ROOT);
+		await publish(hv, { name: 'Neon Tide' }, { slug: 'neon-tide', managers: ['did:plc:a'] });
+		await publish(hv, { name: 'Hidden' }, { slug: 'hidden', managers: ['did:plc:a'], status: 'hidden' });
+		await publish(hv, { name: 'Halflight' }, { slug: 'halflight', managers: ['did:plc:b'] });
+
+		const late = await publishSet(hv, 'did:plc:a', {
+			date: '2026-09-26',
+			kind: 'club',
+			venue: 'Halle Nord',
+			location: address('Berlin'),
+			tracks: [nightBus, signal(300)]
+		});
+
+		const early = await publishSet(hv, 'did:plc:b', { date: '2026-09-12', tracks: [signal()] });
+		const first = await publishSet(hv, 'did:plc:a', { date: '2026-09-01', tracks: [signal(), nightBus] });
+
+		return { hv, late, early, first };
+	}
+
+	it("lists an artist's tracks by supports, with every play and the projects of the DJs who played them", async () => {
+		const { hv, late, early, first } = await network();
+		const result = await query<Artist>(hv, 'getArtist', { mbid: mbid(7) });
+
+		expect(result.artist).toEqual({ name: 'Mira Okonkwo', mbid: mbid(7), supports: 3, djCount: 2 });
+		expect(result.tracks.map(({ track, plays }) => [track.title, track.supports, plays])).toEqual([
+			[
+				'Signal Path',
+				2,
+				[
+					{
+						did: 'did:plc:a',
+						startSeconds: 300,
+						set: {
+							...late,
+							date: '2026-09-26',
+							kind: 'club',
+							venue: 'Halle Nord',
+							location: { country: 'DE', locality: 'Berlin' },
+							trackCount: 2
+						}
+					},
+					{ did: 'did:plc:b', set: { ...early, date: '2026-09-12', trackCount: 1 } },
+					{ did: 'did:plc:a', set: { ...first, date: '2026-09-01', trackCount: 2 } }
+				]
+			],
+			['Night Bus', 1, [expect.objectContaining({ did: 'did:plc:a' }), expect.objectContaining({ did: 'did:plc:a' })]]
+		]);
+		expect(result.tracks[1].track.artists).toEqual([{ name: 'Ferrule' }, { name: 'mira okonkwo' }]);
+		expect(result.djs).toEqual([
+			{ did: 'did:plc:a', projects: [{ slug: 'neon-tide', name: 'Neon Tide' }] },
+			{ did: 'did:plc:b', projects: [{ slug: 'halflight', name: 'Halflight' }] }
+		]);
+	});
+
+	it('finds an artist by either form of their MBID, or by a name sets give that MBID, and keeps the two apart', async () => {
+		const { hv } = await network();
+		const byMbid = await query<Artist>(hv, 'getArtist', { mbid: mbid(7) });
+
+		expect(await query<Artist>(hv, 'getArtist', { mbid: `mbid:${mbid(7).toUpperCase()}` })).toEqual(byMbid);
+		expect(await query<Artist>(hv, 'getArtist', { name: ' MIRA  okonkwo' })).toEqual(byMbid);
+		const none = { tracks: [], djs: [] };
+		expect(await query<Artist>(hv, 'getArtist', { name: 'Nobody' })).toEqual(none);
+		expect(await query<Artist>(hv, 'getArtist', { mbid: mbid(8) })).toEqual(none);
+		// A name that looks like an MBID is still a name, and a name isn't an MBID.
+		expect(await query<Artist>(hv, 'getArtist', { name: mbid(7) })).toEqual(none);
+		expect(await query<Artist>(hv, 'getArtist', { mbid: 'Mira Okonkwo' })).toEqual(none);
+	});
+
+	it('finds artists by part of their name in any case, most supported first', async () => {
+		const { hv } = await network();
+		const search = async (params: Params) => (await query<{ artists: unknown[] }>(hv, 'searchArtists', params)).artists;
+
+		expect(await search({ q: 'RULE' })).toEqual([{ name: 'Ferrule', supports: 1, djCount: 1 }]);
+		expect(await search({})).toEqual([
+			{ name: 'Mira Okonkwo', mbid: mbid(7), supports: 3, djCount: 2 },
+			{ name: 'Ferrule', supports: 1, djCount: 1 }
+		]);
+		expect(await search({ q: 'nobody' })).toEqual([]);
 	});
 });
 
@@ -560,6 +877,284 @@ describe('matchProjects', () => {
 	});
 });
 
+type ShowPage = {
+	shows: (Omit<DirectoryShow, 'record' | 'project'> & { record: ShowRecord; project: View })[];
+	cursor?: string;
+};
+
+const HOUR = 3_600_000;
+
+/** A time `hours` from now, the way a show carries it. */
+const fromNow = (hours: number) => new Date(Date.now() + hours * HOUR).toISOString();
+
+let announced = 0;
+
+/**
+ * Delivers a show record like Jetstream would, for `project` by `did`, with `fields` over valid defaults, each a day
+ * later than the last. Returns its URI and CID.
+ */
+async function publishShow(
+	hv: FakeHappyView,
+	did: string,
+	project: string,
+	fields: JsonObject = {}
+): Promise<StrongRef> {
+	announced += 1;
+	const rkey = `3w${String(announced).padStart(11, '0')}`;
+
+	const value = {
+		$type: COLLECTION.show,
+		project,
+		event: { uri: `at://${did}/community.lexicon.calendar.event/${rkey}`, cid: 'bafyreievent' },
+		name: `Show ${announced}`,
+		startsAt: fromNow(24 * announced),
+		location: { city: 'Berlin', country: 'DE', ...BERLIN },
+		createdAt: '2026-10-01T00:00:00.000Z',
+		...fields
+	};
+
+	const cid = (await cidForLex(jsonToLex(value))).toString();
+	await hv.ingest({ did, collection: COLLECTION.show, rkey, cid, record: value });
+
+	return { uri: `at://${did}/${COLLECTION.show}/${rkey}`, cid };
+}
+
+let followed = 0;
+
+/** Delivers a follow record like Jetstream would. Returns its URI. */
+async function publishFollow(hv: FakeHappyView, did: string, subject: string, fields: JsonObject = {}) {
+	followed += 1;
+	const rkey = `3f${String(followed).padStart(11, '0')}`;
+	const value = { $type: COLLECTION.follow, subject, createdAt: '2026-10-01T00:00:00.000Z', ...fields };
+	await hv.ingest({
+		did,
+		collection: COLLECTION.follow,
+		rkey,
+		cid: (await cidForLex(jsonToLex(value))).toString(),
+		record: value
+	});
+
+	return `at://${did}/${COLLECTION.follow}/${rkey}`;
+}
+
+const showNames = (page: ShowPage) => page.shows.map((show) => show.record.name);
+
+describe('show record script', () => {
+	it('keeps shows by managers of the project they name, with only what listings read', async () => {
+		// The queries check managers again, so a probe shows what got stored at all.
+		const bundle = happyViewBundle(ROOT);
+
+		const hv = new FakeHappyView(ROOT, {
+			lexicons: [
+				...bundle.lexicons,
+				parseLexiconDoc({ lexicon: 1, id: 'test.fake.stored', defs: { main: { type: 'query' } } })
+			],
+			scripts: [
+				...bundle.scripts,
+				{
+					id: 'xrpc.query:test.fake.stored',
+					body: `function handle() return db.raw("SELECT uri FROM happyview_records WHERE collection = '${COLLECTION.show}'") end`
+				}
+			]
+		});
+
+		const project = await publish(hv, { name: 'Neon Tide' }, { managers: ['did:plc:dj'] });
+		// A project in someone else's repo doesn't make its managers count.
+		const fake = await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
+		const startsAt = fromNow(48);
+
+		const kept = await publishShow(hv, 'did:plc:dj', project, {
+			name: 'Tidal Hours',
+			startsAt,
+			venue: 'Halle Nord',
+			location: { city: 'Berlin', country: 'DE', ...BERLIN, street: 'Nordufer 1' },
+			status: 'community.lexicon.calendar.event#scheduled',
+			tickets: 'https://tickets.example/tidal',
+			description: 'Not copied'
+		});
+
+		await publishShow(hv, 'did:plc:faker', fake);
+		await publishShow(hv, 'did:plc:dj', fake);
+		await publishShow(hv, 'did:plc:nobody', project);
+		const broken = await publishShow(hv, 'did:plc:dj', project, { event: 'at://did:plc:dj/x/y' });
+		const placeless = await publishShow(hv, 'did:plc:dj', project, { location: { city: 'Berlin' } });
+		const unmapped = await publishShow(hv, 'did:plc:dj', project, { location: { city: 'Berlin', country: 'DE' } });
+		const scripted = await publishShow(hv, 'did:plc:dj', project, { tickets: 'JavaScript:alert(1)' });
+
+		const { shows } = await query<ShowPage>(hv, 'listShows', { limit: 1 });
+
+		expect(shows).toEqual([
+			{
+				...kept,
+				record: {
+					project,
+					event: { uri: expect.stringMatching(/^at:\/\/did:plc:dj\//), cid: 'bafyreievent' },
+					name: 'Tidal Hours',
+					startsAt,
+					venue: 'Halle Nord',
+					location: { city: 'Berlin', country: 'DE', ...BERLIN },
+					status: 'community.lexicon.calendar.event#scheduled',
+					tickets: 'https://tickets.example/tidal',
+					createdAt: '2026-10-01T00:00:00.000Z'
+				},
+				project: expect.objectContaining({ uri: project })
+			}
+		]);
+		expect(hv.logs).toEqual([
+			`skipped ${broken.uri}: bad event`,
+			`skipped ${placeless.uri}: bad place`,
+			`skipped ${unmapped.uri}: bad place`
+		]);
+		expect(await (await hv.fetch('http://happyview.test/xrpc/test.fake.stored')).json()).toEqual([
+			{ uri: kept.uri },
+			{ uri: scripted.uri }
+		]);
+		// Only web links stay: listings make the ticket link clickable.
+		const [unsafe] = (await query<ShowPage>(hv, 'getShows', { uris: scripted.uri })).shows;
+		expect(unsafe.record).not.toHaveProperty('tickets');
+	});
+
+	it('removes a deleted show', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:dj'] });
+		const show = await publishShow(hv, 'did:plc:dj', project);
+		const rkey = show.uri.split('/').at(-1)!;
+
+		expect((await query<ShowPage>(hv, 'getShows', { uris: [show.uri] })).shows).toHaveLength(1);
+		await hv.ingest({ did: 'did:plc:dj', collection: COLLECTION.show, rkey, cid: '', record: null });
+		expect((await query<ShowPage>(hv, 'getShows', { uris: [show.uri] })).shows).toEqual([]);
+	});
+});
+
+describe('follow record script and getFollowStatus', () => {
+	it("counts each account following one of the root's projects once, and finds an account's follows", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv);
+		const other = await publish(hv);
+		const fake = await publish(hv, {}, {}, { did: 'did:plc:stranger' });
+
+		const a = await publishFollow(hv, 'did:plc:a', project);
+		const first = await publishFollow(hv, 'did:plc:b', project);
+		const second = await publishFollow(hv, 'did:plc:b', project);
+		await publishFollow(hv, 'did:plc:c', other);
+		await publishFollow(hv, 'did:plc:c', fake);
+		await publishFollow(hv, 'did:plc:d', project, { createdAt: 20261001 });
+
+		expect(await query(hv, 'getFollowStatus', { project })).toEqual({ followers: 2, follows: [] });
+		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:b' })).toEqual({
+			followers: 2,
+			follows: [first, second]
+		});
+		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:c' })).toEqual({ followers: 2, follows: [] });
+		expect(await query(hv, 'getFollowStatus', { project: fake, actor: 'did:plc:c' })).toEqual({
+			followers: 0,
+			follows: []
+		});
+
+		for (const [did, uri] of [
+			['did:plc:a', a],
+			['did:plc:b', first]
+		])
+			await hv.ingest({ did, collection: COLLECTION.follow, rkey: uri.split('/').at(-1)!, cid: '', record: null });
+		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:b' })).toEqual({
+			followers: 1,
+			follows: [second]
+		});
+	});
+});
+
+describe('listShows and getShows', () => {
+	it('lists upcoming shows soonest first, only while their announcer manages the active project', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:dj', 'did:plc:co'] }, { rkey: 'tide' });
+		const hidden = await publish(hv, {}, { managers: ['did:plc:dj'], status: 'hidden' });
+		const other = await publish(hv, {}, { managers: ['did:plc:dj'] });
+
+		const past = await publishShow(hv, 'did:plc:dj', project, { name: 'Past', startsAt: fromNow(-20) });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Tonight', startsAt: fromNow(-6) });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Weekender', startsAt: fromNow(-48), endsAt: fromNow(1) });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Over', startsAt: fromNow(-48), endsAt: fromNow(-1) });
+		await publishShow(hv, 'did:plc:co', project, { name: 'Later', startsAt: fromNow(72) });
+		// Offsets sort by the instants they mean, not by their text: Sydney's 05:00 is Paris's 20:00 the day before.
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Paris', startsAt: '2099-01-01T00:00:00+01:00' });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Sydney', startsAt: '2099-01-01T05:00:00+10:00' });
+		await publishShow(hv, 'did:plc:dj', hidden, { name: 'Hidden' });
+		await publishShow(hv, 'did:plc:dj', other, { name: 'Elsewhere', startsAt: fromNow(24) });
+
+		const list = async (params: Params = {}) => showNames(await query<ShowPage>(hv, 'listShows', params));
+
+		expect(await list()).toEqual(['Weekender', 'Tonight', 'Elsewhere', 'Later', 'Sydney', 'Paris']);
+		expect(await list({ project })).toEqual(['Weekender', 'Tonight', 'Later', 'Sydney', 'Paris']);
+		expect(await list({ limit: 2 })).toEqual(['Weekender', 'Tonight']);
+		expect((await query<ShowPage>(hv, 'listShows', { limit: 2 })).cursor).toBe('2');
+		expect((await query<ShowPage>(hv, 'listShows', { limit: 2, cursor: '4' })).cursor).toBeUndefined();
+		expect(await list({ limit: 2, cursor: '2' })).toEqual(['Elsewhere', 'Later']);
+		// getShows finds past shows too.
+		expect(showNames(await query<ShowPage>(hv, 'getShows', { uris: past.uri }))).toEqual(['Past']);
+
+		await publish(hv, {}, { managers: ['did:plc:dj'] }, { rkey: 'tide' });
+		expect(await list({ project })).toEqual(['Weekender', 'Tonight', 'Sydney', 'Paris']);
+	});
+
+	it('finds shows near a place, and nearest first among the projects someone follows', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const tide = await publish(hv, {}, { managers: ['did:plc:dj'] });
+		const other = await publish(hv, {}, { managers: ['did:plc:dj'] });
+
+		const at = (city: string, point: { latE6: number; lngE6: number }) => ({
+			location: { city, country: 'DE', ...point }
+		});
+
+		await publishShow(hv, 'did:plc:dj', tide, { name: 'Berlin', ...at('Berlin', BERLIN) });
+		await publishShow(hv, 'did:plc:dj', tide, { name: 'Hamburg', ...at('Hamburg', HAMBURG) });
+		await publishShow(hv, 'did:plc:dj', other, { name: 'Potsdam', ...at('Potsdam', POTSDAM) });
+		await publishShow(hv, 'did:plc:dj', tide, { name: 'Munich', ...at('Munich', MUNICH) });
+		// Inside the box SQL narrows by first, but 56 km from Berlin.
+		await publishShow(hv, 'did:plc:dj', other, {
+			name: 'Corner',
+			...at('Corner', { latE6: 52_870_000, lngE6: 14_000_000 })
+		});
+		await publishFollow(hv, 'did:plc:fan', tide);
+
+		const near = await query<ShowPage>(hv, 'listShows', { ...BERLIN, radiusKm: 50 });
+		expect(showNames(near)).toEqual(['Berlin', 'Potsdam']);
+		expect(near.shows[1].distanceM).toBeGreaterThan(20_000);
+		expect(near.shows[1].distanceM).toBeLessThan(30_000);
+
+		const following = { follower: 'did:plc:fan', ...HAMBURG, sort: 'distance' };
+		expect(showNames(await query<ShowPage>(hv, 'listShows', following))).toEqual(['Hamburg', 'Berlin', 'Munich']);
+		expect(showNames(await query<ShowPage>(hv, 'listShows', { follower: 'did:plc:fan' }))).toEqual([
+			'Berlin',
+			'Hamburg',
+			'Munich'
+		]);
+		expect(await query(hv, 'listShows', { follower: 'did:plc:nobody' })).toEqual({ shows: [] });
+	});
+
+	it('finds shows and projects across the antimeridian', async () => {
+		const hv = new FakeHappyView(ROOT);
+		// Taveuni, Fiji, straddles 180°: Waiyevo is east of it, Vuna west, 20 km apart.
+		const waiyevo = { latE6: -16_790_000, lngE6: 179_980_000 };
+		const vuna = { latE6: -16_950_000, lngE6: -179_900_000 };
+		const location = { city: 'Vuna', country: 'FJ', ...vuna };
+		const project = await publish(hv, { name: 'Island Time', location }, { managers: ['did:plc:dj'] });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Beach', location });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Harbour', location: { ...location, ...waiyevo } });
+
+		// From either side of 180°, the box reaches round to the other.
+		for (const from of [waiyevo, vuna])
+			expect(showNames(await query<ShowPage>(hv, 'listShows', { ...from, radiusKm: 50 }))).toEqual([
+				'Beach',
+				'Harbour'
+			]);
+		expect(names(await query<Page>(hv, 'searchProjects', { ...waiyevo, radiusKm: 50 }))).toEqual(['Island Time']);
+		expect(names(await query<Page>(hv, 'searchProjects', { ...vuna, radiusKm: 5 }))).toEqual(['Island Time']);
+		expect(
+			names(await query<Page>(hv, 'searchProjects', { latE6: -16_950_000, lngE6: 179_000_000, radiusKm: 50 }))
+		).toEqual([]);
+	});
+});
+
 describe('instruction budget', () => {
 	it('searches and matches 1,000 projects well under the limit', { tags: ['budget'] }, async () => {
 		const hv = new FakeHappyView(ROOT);
@@ -613,4 +1208,182 @@ describe('instruction budget', () => {
 
 		expect(Object.entries(used).filter(([, instructions]) => instructions >= 750_000)).toEqual([]);
 	});
+
+	it('lists from 1,000 upcoming shows well under the limit', { tags: ['budget'] }, async () => {
+		const hv = new FakeHappyView(ROOT);
+
+		const projects = Array.from({ length: 50 }, (_unused, i) =>
+			projectRecord({ bio: 'A collective that plays warehouse parties. '.repeat(10) }, { managers: [`did:plc:dj${i}`] })
+		);
+
+		const shows = Array.from({ length: 1000 }, (_unused, i) => {
+			const project = projects[i % 50];
+
+			return {
+				did: `did:plc:dj${i % 50}`,
+				collection: COLLECTION.show,
+				rkey: `3w${String(i).padStart(11, '0')}`,
+				record: {
+					project: `at://${ROOT}/${COLLECTION.project}/${project.rkey}`,
+					event: { uri: `at://did:plc:dj${i % 50}/community.lexicon.calendar.event/${i}`, cid: 'bafyreievent' },
+					name: `Show ${i}`,
+					startsAt: fromNow(1 + i),
+					location: {
+						city: `City ${i % 50}`,
+						country: 'DE',
+						latE6: 47_000_000 + ((i * 7919) % 8_000_000),
+						lngE6: 6_000_000 + ((i * 104_729) % 9_000_000)
+					},
+					createdAt: '2026-10-01T00:00:00.000Z'
+				}
+			};
+		});
+
+		const follows = projects.slice(0, 25).map(({ rkey }, i) => ({
+			did: 'did:plc:fan',
+			collection: COLLECTION.follow,
+			rkey: `3f${String(i).padStart(11, '0')}`,
+			record: { subject: `at://${ROOT}/${COLLECTION.project}/${rkey}`, createdAt: '2026-10-01T00:00:00.000Z' }
+		}));
+
+		const cid = (await cidForLex(jsonToLex(projects[0].value))).toString();
+		hv.seed([
+			...projects.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value })),
+			...[...shows, ...follows].map((record) => ({ ...record, cid }))
+		]);
+
+		const queries: Params[] = [
+			{ limit: 100 },
+			{ ...BERLIN, radiusKm: 2000, limit: 100 },
+			{ ...BERLIN, radiusKm: 2000, limit: 100, cursor: '900' },
+			{ follower: 'did:plc:fan', ...BERLIN, sort: 'distance', limit: 100 }
+		];
+
+		const used: Record<string, number> = {};
+
+		for (const params of queries) {
+			expect((await query<ShowPage>(hv, 'listShows', params)).shows.length).toBeGreaterThan(0);
+			used[JSON.stringify(params)] = hv.instructions;
+		}
+
+		expect(Object.entries(used).filter(([, instructions]) => instructions >= 750_000)).toEqual([]);
+	});
+
+	it(
+		'keeps a 500-track set and counts supports over 2,000 sets and 500-track ones well under the limit',
+		{ tags: ['budget'], timeout: 120_000 },
+		async () => {
+			const hv = new FakeHappyView(ROOT);
+			const djs = Array.from({ length: 50 }, (_, i) => `did:plc:dj${i}`);
+			await publish(hv, { name: 'Crew' }, { slug: 'crew', managers: [djs[0]] });
+
+			await publishSet(hv, djs[0], {
+				tracks: Array.from({ length: 500 }, (_, i) => ({
+					title: `Track ${i}`,
+					artist: `Artist ${i} & Guest`,
+					artists: [{ artistName: `Artist ${i}`, artistMbId: mbid(i) }, { artistName: 'Guest' }],
+					recordingMbId: mbid(i),
+					isrc: `DEAA126${String(i).padStart(5, '0')}`,
+					startSeconds: i * 300
+				}))
+			});
+			const used: Record<string, number> = {};
+			used['record script, 500 tracks'] = hv.instructions;
+
+			// Stored as the record script leaves them, without running it 2,000 times: 50 DJs, each with a project of their
+			// own, with 40 sets of 25 tracks, from 3,000 tracks by 600 artists, some played far more than others, and a
+			// third of them without IDs. One of them also has 20 sets of 500 tracks, all crediting one artist.
+			let seed = 1;
+
+			const random = () => {
+				seed = (seed * 48_271) % 2_147_483_647;
+
+				return seed / 2_147_483_647;
+			};
+
+			const stored = (n: number) => {
+				const artist = `Artist ${n % 600}`;
+				const ids = n % 3 ? { recordingMbId: mbid(n), isrc: `DEAA126${String(n).padStart(5, '0')}` } : {};
+
+				const artists = [
+					{ artistName: artist, key: artist.toLowerCase(), ...(n % 3 && { artistMbId: mbid(100_000 + (n % 600)) }) }
+				];
+
+				return { title: `Track ${n}`, artist, artists, ...ids, key: `${artist.toLowerCase()}\ntrack ${n}` };
+			};
+
+			const cid = (await cidForLex(jsonToLex({ seeded: true }))).toString();
+			const cities = ['Berlin', 'Hamburg', 'Leipzig', 'Cologne', 'Munich'];
+
+			const projects = djs.slice(1).map((did) => projectRecord({}, { managers: [did] }));
+
+			hv.seed(
+				projects.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value }))
+			);
+
+			const long = Array.from({ length: 20 }, (_set, s) => ({
+				did: djs[1],
+				collection: COLLECTION.djSet,
+				rkey: `3u${String(s).padStart(11, '0')}`,
+				cid,
+				record: {
+					date: `2026-08-${String(s + 1).padStart(2, '0')}`,
+					kind: 'mix',
+					trackCount: 500,
+					tracks: Array.from({ length: 500 }, (_track, t) => ({
+						title: `Long ${t}`,
+						artist: 'Marathon',
+						artists: [{ artistName: 'Marathon', key: 'marathon' }],
+						key: `marathon\nlong ${t}`,
+						startSeconds: t * 60
+					}))
+				}
+			}));
+
+			hv.seed(long);
+
+			hv.seed(
+				djs.flatMap((did, d) =>
+					Array.from({ length: 40 }, (_set, s) => {
+						const tracks = Array.from({ length: 25 }, (_track, t) => ({
+							...stored(Math.floor(3000 * random() ** 3)),
+							startSeconds: t * 240
+						}));
+
+						return {
+							did,
+							collection: COLLECTION.djSet,
+							rkey: `3t${String(d * 40 + s).padStart(11, '0')}`,
+							cid,
+							record: {
+								date: new Date(Date.UTC(2026, 0, 1 + ((d * 7 + s * 11) % 280))).toISOString().slice(0, 10),
+								kind: 'club',
+								location: { country: 'DE', locality: cities[(d + s) % cities.length] },
+								trackCount: tracks.length,
+								tracks
+							}
+						};
+					})
+				)
+			);
+
+			const queries: [keyof typeof DIRECTORY, Params][] = [
+				['getCharts', {}],
+				['getCharts', { since: '2026-09-01', before: '2026-10-01', city: 'Berlin', country: 'DE', limit: 100 }],
+				['getArtist', { name: 'Artist 0' }],
+				['getArtist', { mbid: mbid(100_001) }],
+				['getArtist', { name: 'Marathon' }],
+				['listSets', { actors: djs[1], limit: 100 }],
+				['searchArtists', { q: 'artist 1', limit: 50 }],
+				['searchArtists', {}]
+			];
+
+			for (const [name, params] of queries) {
+				await query(hv, name, params);
+				used[`${name} ${JSON.stringify(params)}`] = hv.instructions;
+			}
+
+			expect(Object.entries(used).filter(([, instructions]) => instructions >= 750_000)).toEqual([]);
+		}
+	);
 });

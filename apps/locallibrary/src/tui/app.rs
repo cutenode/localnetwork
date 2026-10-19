@@ -1080,7 +1080,7 @@ impl App {
         let saved = state::load(&store_root);
         let mut app = App::blank(store_root, None);
         app.offline = false;
-        app.outputs = Outputs::DEVICES;
+        app.outputs = Outputs::from_env();
         app.apply_saved(&saved, drive.is_none());
         // The output picked last time, else (unplugged, say) the default.
         app.open_output();

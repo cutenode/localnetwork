@@ -1,9 +1,10 @@
 //! Reading and writing records in an account's repository.
 //!
-//! Writes go through the signed-in session ([`put_record`]): jacquard sends them to the account's
-//! data server (PDS) with the DPoP-bound access token, refreshing it when it has run out. Before
-//! a write, the record is checked against its Lexicon and the session's scopes against what it
-//! needs, so a session signed in without permission to publish fails here, not at the server.
+//! Writes go through the signed-in session ([`put_record`], [`create_record`]): jacquard sends
+//! them to the account's data server (PDS) with the DPoP-bound access token, refreshing it when it
+//! has run out. Before a write, the record is checked against its Lexicon and the session's
+//! scopes against what it needs, so a session signed in without permission to publish fails here,
+//! not at the server.
 //! Reads ([`get_record`]) need no session: anyone can read a repository, so they go straight to
 //! the PDS, found from a handle or DID with [`resolve`]. What another account's servers answer is
 //! read up to a limit, and shown on one line without control characters.
@@ -11,6 +12,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use jacquard_api::com_atproto::repo::create_record::{CreateRecord, CreateRecordError};
 use jacquard_api::com_atproto::repo::put_record::{PutRecord, PutRecordError};
 use jacquard_common::error::{AuthError, ClientError, ClientErrorKind, HttpError};
 use jacquard_common::types::did::Did;
@@ -24,7 +26,10 @@ use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{AccountInfo, block_on, lexicon, missing_scope, net, not_signed_in, resolver, restore, status, store};
+use super::{
+    AccountInfo, REPORT_SCOPE, block_on, kept_scopes, lexicon, may_create, missing_scope, net, not_signed_in, resolver,
+    restore, status, store,
+};
 use crate::error::{Action, Reason};
 use crate::export::one_line;
 use crate::{Error, Result};
@@ -44,34 +49,49 @@ fn what(collection: &str) -> &'static str {
         lexicon::SETTINGS => "My Settings",
         lexicon::PROFILE => "the profile",
         lexicon::SET => "sets",
+        lexicon::DISCUSSION => "bug reports",
         _ => "records",
     }
 }
 
-/// Signing in again, allowing publishing.
-fn sign_in_to_publish() -> Action {
-    Action::call("account.login.begin", serde_json::json!({ "publish": true }), "Sign in again, allowing publishing")
+/// Signing `info`'s account in again, allowing what writing `collection` needs: filing bug
+/// reports (keeping what the session may do now), or publishing.
+fn sign_in_again(info: &AccountInfo, collection: &str) -> Action {
+    match collection {
+        lexicon::DISCUSSION => {
+            let mut scopes = kept_scopes(info);
+            if !scopes.iter().any(|s| s == REPORT_SCOPE) {
+                scopes.push(REPORT_SCOPE.into());
+            }
+            Action::call("account.login.begin", json!({ "scopes": scopes }), "Sign in again, allowing bug reports")
+        }
+        _ => Action::call("account.login.begin", json!({ "publish": true }), "Sign in again, allowing publishing"),
+    }
 }
 
 /// The error for a session that may not write `collection`.
 pub fn scope_error(info: &AccountInfo, collection: &str) -> Error {
+    let again = sign_in_again(info, collection);
     Error::Account(format!(
-        "{}'s session doesn't allow locallibrary to publish {}; sign in again, allowing publishing",
+        "{}'s session doesn't allow locallibrary to publish {}; {}",
         info.name(),
-        what(collection)
+        what(collection),
+        again.label.to_lowercase()
     ))
     .because(Reason::MissingScope)
-    .action(sign_in_to_publish())
+    .action(again)
 }
 
-fn session_refused(info: &AccountInfo) -> Error {
+fn session_refused(info: &AccountInfo, collection: &str) -> Error {
+    let again = sign_in_again(info, collection);
     Error::Account(format!(
-        "{} didn't accept the session for {} (it has ended or was revoked); sign in again, allowing publishing",
+        "{} didn't accept the session for {} (it has ended or was revoked); {}",
         host(&info.pds),
-        info.name()
+        info.name(),
+        again.label.to_lowercase()
     ))
     .because(Reason::SessionEnded)
-    .action(sign_in_to_publish())
+    .action(again)
 }
 
 /// A record written: where, and its content hash.
@@ -92,20 +112,7 @@ pub fn put_record(
     record: &Value,
     swap: Option<&str>,
 ) -> Result<Written> {
-    lexicon::validate(collection, record)?;
-    // Nothing to write with: don't create the folder for a lock.
-    status(root)?.ok_or_else(not_signed_in)?;
-    let _lock = store::lock(root)?;
-    let info = status(root)?.ok_or_else(not_signed_in)?;
-    if info.did != did {
-        return Err(Error::conflict(
-            Reason::Changed,
-            format!("{} is signed in now, not the account this was planned for; run it again", info.name()),
-        ));
-    }
-    if missing_scope(&info, collection).is_some() {
-        return Err(scope_error(&info, collection));
-    }
+    let (_lock, info) = writer(root, did, collection, record, |info| missing_scope(info, collection).is_none())?;
     let session = restore(root)?;
     let body =
         json!({ "repo": info.did, "collection": collection, "rkey": rkey, "record": record, "swapRecord": swap });
@@ -131,14 +138,62 @@ pub fn put_record(
         Err(XrpcError::Xrpc(PutRecordError::Other { error, message })) => {
             Err(refusal(&info, collection, status.as_u16(), &error, message.as_deref().unwrap_or_default()))
         }
-        Err(XrpcError::Generic(g)) => {
-            Err(refusal(&info, collection, status.as_u16(), &g.error, g.message.as_deref().unwrap_or_default()))
+        Err(e) => Err(answer_error(&info, collection, status.as_u16(), e)),
+    }
+}
+
+/// Create `record` (with its `$type`) in `collection` of the repository of `did`, which has to be
+/// the signed-in account, under a key the server picks (a TID). The session only needs to be
+/// allowed to create such records, not to replace them.
+pub fn create_record(root: &Path, did: &str, collection: &str, record: &Value) -> Result<Written> {
+    let (_lock, info) = writer(root, did, collection, record, |info| may_create(info, collection))?;
+    let session = restore(root)?;
+    let request =
+        from_json_value::<CreateRecord>(json!({ "repo": info.did, "collection": collection, "record": record }))
+            .map_err(|e| Error::invalid(format!("the {} record: {e}", lexicon::short_name(collection))))?;
+    let response = block_on(session.send(request)).map_err(|e| client_error(&info, collection, e))?;
+    let status = response.status();
+    match response.into_output() {
+        Ok(out) => Ok(Written { uri: out.uri.to_string(), cid: out.cid.to_string() }),
+        Err(XrpcError::Xrpc(CreateRecordError::Other { error, message })) => {
+            Err(refusal(&info, collection, status.as_u16(), &error, message.as_deref().unwrap_or_default()))
         }
-        Err(XrpcError::Auth(_)) => Err(session_refused(&info)),
-        Err(e) => Err(Error::Account(one_line(&format!(
-            "{} answered in a way locallibrary can't read ({e})",
-            host(&info.pds)
-        )))),
+        Err(e) => Err(answer_error(&info, collection, status.as_u16(), e)),
+    }
+}
+
+/// Before a write: `record` fits its Lexicon, the account signed in is `did` and its session
+/// `may` write it. Holds the lock on the session until the write is done.
+fn writer(
+    root: &Path,
+    did: &str,
+    collection: &str,
+    record: &Value,
+    may: impl Fn(&AccountInfo) -> bool,
+) -> Result<(store::AccountLock, AccountInfo)> {
+    lexicon::validate(collection, record)?;
+    // Nothing to write with: don't create the folder for a lock.
+    status(root)?.ok_or_else(not_signed_in)?;
+    let lock = store::lock(root)?;
+    let info = status(root)?.ok_or_else(not_signed_in)?;
+    if info.did != did {
+        return Err(Error::conflict(
+            Reason::Changed,
+            format!("{} is signed in now, not the account this was planned for; run it again", info.name()),
+        ));
+    }
+    if !may(&info) {
+        return Err(scope_error(&info, collection));
+    }
+    Ok((lock, info))
+}
+
+/// A write's answer that isn't the record written, nor an error of the method's own.
+fn answer_error<E: std::error::Error>(info: &AccountInfo, collection: &str, status: u16, e: XrpcError<E>) -> Error {
+    match e {
+        XrpcError::Generic(g) => refusal(info, collection, status, &g.error, g.message.as_deref().unwrap_or_default()),
+        XrpcError::Auth(_) => session_refused(info, collection),
+        e => Error::Account(one_line(&format!("{} answered in a way locallibrary can't read ({e})", host(&info.pds)))),
     }
 }
 
@@ -148,7 +203,7 @@ fn refusal(info: &AccountInfo, collection: &str, status: u16, error: &str, messa
         return scope_error(info, collection);
     }
     if status == 401 || matches!(error, "AuthRequired" | "InvalidToken" | "ExpiredToken") {
-        return session_refused(info);
+        return session_refused(info, collection);
     }
     let why = if message.is_empty() { error.to_string() } else { format!("{error}: {message}") };
     Error::Account(format!("{} refused to publish {} ({})", host(&info.pds), what(collection), one_line(&why)))
@@ -162,7 +217,7 @@ fn client_error(info: &AccountInfo, collection: &str, e: ClientError) -> Error {
         {
             scope_error(info, collection)
         }
-        ClientErrorKind::Auth(_) => session_refused(info),
+        ClientErrorKind::Auth(_) => session_refused(info, collection),
         ClientErrorKind::Http { status } => {
             let body: Value = e
                 .source_err()

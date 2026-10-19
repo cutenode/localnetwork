@@ -383,9 +383,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       also fail under Node 25, since the workspace is engine-strict on 24.
 - [ ] Dependabot doesn't update `apps/locallibrary/bombadil/package-lock.json` (its npm entry only
       watches `/`).
-- [ ] CI path filters miss `packages/tokens/**` in `locallibrary-ci.yml` and `mix-report.yml`,
-      though `crates/loclib-model/tests/tokens.rs` reads `colors.json`.
-- [ ] The issue and PR templates don't offer localtoolbox (no bug template, not in "Which tool?").
 - [ ] A deeper Hegel run in the scheduled workflow, with `.hegel/` cached;
       `tools/hegel-coverage.sh` never runs in CI.
 - [ ] A fuzz target for `PdbEditor`'s edits (the `pdb` target only parses).

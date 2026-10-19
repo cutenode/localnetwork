@@ -9,6 +9,7 @@
 #   APPLE_* secrets exist (dist's own setup would fail without them);
 # * a Homebrew job that skips itself until HOMEBREW_TAP_TOKEN exists;
 # * pull requests run only when they change what `dist plan` reads;
+# * a step in `plan` that fails when the plan releases anything but locallibrary-cli;
 # * the workflow's name says it's locallibrary's, beside the repo's other workflows;
 # * timeouts on every job, a read-only token everywhere but `host` (the one job that writes: it
 #   creates the GitHub Release), the pinned Rust toolchain installed explicitly, and the tag
@@ -91,6 +92,14 @@ jobs:
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
+      # dist releases every package with a binary that doesn't opt out, so a new one would
+      # otherwise join locallibrary's releases (and its tag namespace) unnoticed.
+      - name: Check only locallibrary-cli is released
+        run: |
+          if ! jq -e '[.releases[]?.app_name] == ["locallibrary-cli"]' plan-dist-manifest.json > /dev/null; then
+            echo "::error::dist would release $(jq -c '[.releases[]?.app_name]' plan-dist-manifest.json), not only locallibrary-cli. Set dist = false under [package.metadata.dist] in the new package's Cargo.toml."
+            exit 1
+          fi
       - name: "Upload dist-manifest.json"
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

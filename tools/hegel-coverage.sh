@@ -33,6 +33,6 @@ while IFS=: read -r path name; do
   fi
   filter+="${filter:+ | }($test)"
 done < <(rg --multiline --with-filename --no-heading --only-matching --replace '$1' \
-  '(?s)#\[hegel::test[(\]].*?\bfn (\w+)' --glob '*.rs' apps crates vendor)
+  '(?s)#\[hegel::test[(\]].*?\bfn (\w+)' --glob '*.rs' apps crates plugins vendor)
 
 exec cargo coverage -E "$filter" "$@"

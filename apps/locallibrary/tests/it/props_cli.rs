@@ -704,10 +704,11 @@ fn every_command_has_help_and_usage_errors(tc: TestCase) {
     assert!([1, 2].contains(&r.code), "{args:?}\n{said}");
     let mut words: BTreeSet<String> = top_commands.iter().cloned().collect();
     words.extend(sub.iter().cloned());
-    // And the aliases the help shows: `[alias: ls]`, `[aliases: a, b]`.
+    // And the aliases the help shows: `[alias: ls]`, `[aliases: a, b]`, wrapped onto the next line
+    // after a long description.
     for part in r_help.split("[alias").skip(1) {
-        let names = part.split_once(": ").map_or("", |(_, n)| n).split(']').next().unwrap_or("");
-        words.extend(names.split(", ").map(str::to_string));
+        let names = part.split_once(':').map_or("", |(_, n)| n).split(']').next().unwrap_or("");
+        words.extend(names.split(',').map(|name| name.trim().to_string()));
     }
     // Suggestions are quoted 'like this' (clap) or `locallibrary like this`.
     let quoted: Vec<&str> = said.split(['\'', '`']).skip(1).step_by(2).collect();

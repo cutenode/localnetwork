@@ -66,6 +66,21 @@ describe('loadConfig', () => {
 			happyView: { apiKey: 'hv_key' }
 		});
 	});
+
+	it('takes a userinput.app space URI, treating an empty one as unset', () => {
+		const space = 'at://did:plc:d42l64gsczg6qh2vo243xv5l/app.userinput.space/3mabc2xyz';
+
+		expect(loadConfig({ ...base, USERINPUT_SPACE: space }).userinputSpace).toBe(space);
+		expect(loadConfig({ ...base, USERINPUT_SPACE: '' }).userinputSpace).toBeUndefined();
+		expect(loadConfig(base).userinputSpace).toBeUndefined();
+
+		for (const wrong of [
+			'https://userinput.app/s/did:plc:x/3mabc',
+			'at://did:plc:x/app.userinput.discussion/3mabc',
+			'at://alice.test/app.userinput.space/3mabc'
+		])
+			expect(() => loadConfig({ ...base, USERINPUT_SPACE: wrong })).toThrow(/USERINPUT_SPACE/);
+	});
 });
 
 describe('serviceDidFor', () => {
