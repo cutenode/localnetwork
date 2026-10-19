@@ -59,6 +59,7 @@ Windows each run the same jobs:
 | `build` | `cargo llvm-cov nextest-archive`: every test, built once with coverage, packed for the shards |
 | `test` | 3 shards, each running a third of the tests from that archive under [cargo-nextest](https://nexte.st) |
 | `coverage` | merges the shards' profiles and fails below the thresholds `cargo coverage` uses (see Coverage); Linux's totals go to the run summary and a comment on the pull request |
+| `hegel` | on Linux, the Hegel property tests alone from the same archive, against the same thresholds (`tools/hegel-coverage.sh`); its totals sit beside the whole suite's |
 
 Locally, `cargo nextest run` runs the same tests and `cargo coverage` the same check. The test
 jobs set up what some tests need, the same way on each OS:
@@ -181,7 +182,7 @@ proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rust
 
 `tools/hegel-coverage.sh` runs `cargo coverage` over only the `#[hegel::test]` tests (picked by
 function name, so not the fixed examples beside them in the `props_*` modules), and so fails below
-the same thresholds: the properties alone have to reach what the whole suite does. It also needs
+the same thresholds: the properties alone have to reach what the whole suite does. CI's `hegel` job runs it on Linux, from the test archive. It also needs
 `rg`. Code it reports as missed is code no property reaches: a place where a new or wider
 generator would test more.
 
