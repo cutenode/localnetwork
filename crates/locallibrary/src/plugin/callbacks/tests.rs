@@ -624,6 +624,8 @@ fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     let held = tc.draw(gs::integers::<usize>().max_value(7));
     let name = tc.draw(gs::sampled_from(vec!["export.pdb", "a b.txt", "x"]));
     let file = std::env::temp_dir().join("PIONEER").join(name);
+    // As the plugin is told it, from wherever the temporary folder is (a drive root on Windows CI).
+    let said = super::scrub(&file.display().to_string(), &super::known_roots());
     let ((entered_tx, entered), (release, release_rx)) = (mpsc::channel(), mpsc::channel());
     let reads = Held { entered: Mutex::new(entered_tx), release: Mutex::new(release_rx), file };
     let host = Arc::new(Host { reads: Arc::new(reads), options: Options { callbacks: quota, ..Options::default() } });
@@ -662,7 +664,7 @@ fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     if held >= quota {
         busy(failed);
     } else {
-        let path = format!("<temp>{}PIONEER{}{name}", std::path::MAIN_SEPARATOR, std::path::MAIN_SEPARATOR);
+        let path = said.clone();
         assert_eq!(failed.message, format!("{path}: gone"));
         let data = serde_json::to_value(failed.data.unwrap()).unwrap();
         assert_eq!(data, json!({ "kind": "io", "fields": { "path": path } }), "and no actions");

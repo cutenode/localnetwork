@@ -220,10 +220,10 @@ fn what_is_typed_reads_as_the_command_line_would(tc: hegel::TestCase) {
     let (file, file_is) = tc.draw(gs::sampled_from(
         &[
             ("", None),
-            ("~/sets/list.m3u", Some(home.join("sets/list.m3u"))),
+            ("~/sets/list.m3u", Some(home.join("sets").join("list.m3u"))),
             ("/tmp/a set.txt", Some("/tmp/a set.txt".into())),
             ("'/tmp/quoted name'", Some("/tmp/quoted name".into())),
-            ("lists/here.m3u", Some(here.join("lists/here.m3u"))),
+            ("lists/here.m3u", Some(here.join("lists").join("here.m3u"))),
         ][..],
     ));
     let n = tc.draw(gs::optional(gs::integers::<i64>().min_value(-3).max_value(5)));

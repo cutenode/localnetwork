@@ -496,9 +496,11 @@ fn a_check_runs_its_steps_and_reports_what_the_tool_found(tc: hegel::TestCase) {
     output.drain(..output.len().saturating_sub(15));
     match &planned.mount {
         Some(_) if mounts_again => output.push("Mounted /dev/sdb1 at /media/dj/DNA".into()),
-        Some(_) => output.push(
-            "couldn't mount it again (Error mounting: not authorized): unplug the drive and plug it back in".into(),
-        ),
+        // A tool that fails says which command it was (Error::External).
+        Some(m) => output.push(format!(
+            "couldn't mount it again ({} failed: Error mounting: not authorized): unplug the drive and plug it back in",
+            m.display()
+        )),
         None => {}
     }
     assert_eq!(report.output, output);

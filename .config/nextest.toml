@@ -15,3 +15,9 @@ slow-timeout = { period = "30s", terminate-after = 2 }
 [[profile.default.overrides]]
 filter = 'test(/(^|::)plugins?(::|_|$)/)'
 slow-timeout = { period = "60s", terminate-after = 2 }
+
+# These hold work to a wall-clock budget: run beside the rest, they share the CPU with every other
+# test (Hegel's above all) and can miss it on a slow runner, so each runs alone.
+[[profile.default.overrides]]
+filter = 'test(/::(a_big_library_stays_quick|ordering_a_long_set_stays_quick|large_libraries_stay_fast|shifting_moves_grid_cues_and_waveforms|long_playlists_are_selected_in_one_pass)$/)'
+threads-required = "num-cpus"
