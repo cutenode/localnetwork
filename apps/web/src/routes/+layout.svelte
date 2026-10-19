@@ -1,5 +1,6 @@
 <script lang="ts">
 	import './layout.css';
+	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import favicon from '#lib/assets/favicon.svg';
@@ -10,6 +11,9 @@
 
 	let { children, data }: LayoutProps = $props();
 
+	// Says the page is interactive, so the end-to-end tests can wait for it instead of guessing.
+	onMount(() => document.documentElement.setAttribute('data-hydrated', ''));
+
 	/** A key for aria-keyshortcuts, only while keyboard shortcuts are on. */
 	const shortcut = (key: string) => (hotkeys.enabled ? key : undefined);
 
@@ -17,6 +21,7 @@
 
 	const items = $derived<MenuItem[]>([
 		{ key: 'F', href: '/projects', label: 'Find DJs' },
+		{ key: 'W', href: '/shows', label: 'Shows' },
 		{ key: 'M', href: '/match', label: 'Match a show' },
 		{ key: 'R', href: '/charts', label: 'Charts' },
 		{ key: 'D', href: '/for-djs', label: 'For DJs' },

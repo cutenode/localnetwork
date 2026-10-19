@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { ArrowLeft } from '@lucide/svelte';
 	import { enhance } from '$app/forms';
 	import FormMessage from '#lib/components/FormMessage.svelte';
+	import SignInAgain from '#lib/components/SignInAgain.svelte';
 	import Handle from '#lib/components/Handle.svelte';
 	import { AUDIENCE_LABELS, AUDIENCES, presetFor, ROLE_LABELS, RULE_LABELS } from '#lib/epk.ts';
 	import { formatDate } from '#lib/format.ts';
@@ -39,7 +41,7 @@
 		{/if}
 	</div>
 
-	<FormMessage {form} />
+	{#if form?.reauth && form.error && data.viewer}<SignInAgain did={data.viewer.did} next={page.url.pathname + page.url.search} error={form.error} />{:else}<FormMessage {form} />{/if}
 
 	<section aria-labelledby="waiting" class="flex flex-col gap-3">
 		<h2 id="waiting" class="m-0 text-heading font-semibold">Waiting for you</h2>

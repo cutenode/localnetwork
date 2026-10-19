@@ -87,6 +87,8 @@ describe('loadReferencedLexicons', () => {
 			'offline'
 		);
 		expect(() => loader.referencedLexicons()).toThrow('not loaded yet');
-		await expect(loader.loadReferencedLexicons(standInLexicons)).resolves.toHaveLength(2);
+		await expect(loader.loadReferencedLexicons(standInLexicons)).resolves.toHaveLength(
+			loader.REFERENCED_NSIDS.length + 1
+		);
 	});
 });

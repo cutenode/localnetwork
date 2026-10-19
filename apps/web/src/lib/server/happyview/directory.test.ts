@@ -4,11 +4,11 @@ import { parseLexiconDoc } from '@atproto/lexicon';
 import { describe, expect, it } from 'vitest';
 import { COLLECTION, DIRECTORY } from '#lib/nsid.ts';
 import { KNOWN_GENRES } from '#lib/taxonomy/genres.ts';
-import type { DjSetView, ProjectRecord, StrongRef } from '#lib/types.ts';
+import type { DjSetView, ProjectRecord, ShowRecord, StrongRef } from '#lib/types.ts';
 import { lexicons } from '../atproto/lexicons';
 import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
-import type { DirectoryMatch, DirectoryOutputs, DirectoryProject } from './client';
+import type { DirectoryMatch, DirectoryOutputs, DirectoryProject, DirectoryShow } from './client';
 
 const ROOT = 'did:plc:root';
 
@@ -877,6 +877,284 @@ describe('matchProjects', () => {
 	});
 });
 
+type ShowPage = {
+	shows: (Omit<DirectoryShow, 'record' | 'project'> & { record: ShowRecord; project: View })[];
+	cursor?: string;
+};
+
+const HOUR = 3_600_000;
+
+/** A time `hours` from now, the way a show carries it. */
+const fromNow = (hours: number) => new Date(Date.now() + hours * HOUR).toISOString();
+
+let announced = 0;
+
+/**
+ * Delivers a show record like Jetstream would, for `project` by `did`, with `fields` over valid defaults, each a day
+ * later than the last. Returns its URI and CID.
+ */
+async function publishShow(
+	hv: FakeHappyView,
+	did: string,
+	project: string,
+	fields: JsonObject = {}
+): Promise<StrongRef> {
+	announced += 1;
+	const rkey = `3w${String(announced).padStart(11, '0')}`;
+
+	const value = {
+		$type: COLLECTION.show,
+		project,
+		event: { uri: `at://${did}/community.lexicon.calendar.event/${rkey}`, cid: 'bafyreievent' },
+		name: `Show ${announced}`,
+		startsAt: fromNow(24 * announced),
+		location: { city: 'Berlin', country: 'DE', ...BERLIN },
+		createdAt: '2026-10-01T00:00:00.000Z',
+		...fields
+	};
+
+	const cid = (await cidForLex(jsonToLex(value))).toString();
+	await hv.ingest({ did, collection: COLLECTION.show, rkey, cid, record: value });
+
+	return { uri: `at://${did}/${COLLECTION.show}/${rkey}`, cid };
+}
+
+let followed = 0;
+
+/** Delivers a follow record like Jetstream would. Returns its URI. */
+async function publishFollow(hv: FakeHappyView, did: string, subject: string, fields: JsonObject = {}) {
+	followed += 1;
+	const rkey = `3f${String(followed).padStart(11, '0')}`;
+	const value = { $type: COLLECTION.follow, subject, createdAt: '2026-10-01T00:00:00.000Z', ...fields };
+	await hv.ingest({
+		did,
+		collection: COLLECTION.follow,
+		rkey,
+		cid: (await cidForLex(jsonToLex(value))).toString(),
+		record: value
+	});
+
+	return `at://${did}/${COLLECTION.follow}/${rkey}`;
+}
+
+const showNames = (page: ShowPage) => page.shows.map((show) => show.record.name);
+
+describe('show record script', () => {
+	it('keeps shows by managers of the project they name, with only what listings read', async () => {
+		// The queries check managers again, so a probe shows what got stored at all.
+		const bundle = happyViewBundle(ROOT);
+
+		const hv = new FakeHappyView(ROOT, {
+			lexicons: [
+				...bundle.lexicons,
+				parseLexiconDoc({ lexicon: 1, id: 'test.fake.stored', defs: { main: { type: 'query' } } })
+			],
+			scripts: [
+				...bundle.scripts,
+				{
+					id: 'xrpc.query:test.fake.stored',
+					body: `function handle() return db.raw("SELECT uri FROM happyview_records WHERE collection = '${COLLECTION.show}'") end`
+				}
+			]
+		});
+
+		const project = await publish(hv, { name: 'Neon Tide' }, { managers: ['did:plc:dj'] });
+		// A project in someone else's repo doesn't make its managers count.
+		const fake = await publish(hv, {}, { managers: ['did:plc:faker'] }, { did: 'did:plc:stranger' });
+		const startsAt = fromNow(48);
+
+		const kept = await publishShow(hv, 'did:plc:dj', project, {
+			name: 'Tidal Hours',
+			startsAt,
+			venue: 'Halle Nord',
+			location: { city: 'Berlin', country: 'DE', ...BERLIN, street: 'Nordufer 1' },
+			status: 'community.lexicon.calendar.event#scheduled',
+			tickets: 'https://tickets.example/tidal',
+			description: 'Not copied'
+		});
+
+		await publishShow(hv, 'did:plc:faker', fake);
+		await publishShow(hv, 'did:plc:dj', fake);
+		await publishShow(hv, 'did:plc:nobody', project);
+		const broken = await publishShow(hv, 'did:plc:dj', project, { event: 'at://did:plc:dj/x/y' });
+		const placeless = await publishShow(hv, 'did:plc:dj', project, { location: { city: 'Berlin' } });
+		const unmapped = await publishShow(hv, 'did:plc:dj', project, { location: { city: 'Berlin', country: 'DE' } });
+		const scripted = await publishShow(hv, 'did:plc:dj', project, { tickets: 'JavaScript:alert(1)' });
+
+		const { shows } = await query<ShowPage>(hv, 'listShows', { limit: 1 });
+
+		expect(shows).toEqual([
+			{
+				...kept,
+				record: {
+					project,
+					event: { uri: expect.stringMatching(/^at:\/\/did:plc:dj\//), cid: 'bafyreievent' },
+					name: 'Tidal Hours',
+					startsAt,
+					venue: 'Halle Nord',
+					location: { city: 'Berlin', country: 'DE', ...BERLIN },
+					status: 'community.lexicon.calendar.event#scheduled',
+					tickets: 'https://tickets.example/tidal',
+					createdAt: '2026-10-01T00:00:00.000Z'
+				},
+				project: expect.objectContaining({ uri: project })
+			}
+		]);
+		expect(hv.logs).toEqual([
+			`skipped ${broken.uri}: bad event`,
+			`skipped ${placeless.uri}: bad place`,
+			`skipped ${unmapped.uri}: bad place`
+		]);
+		expect(await (await hv.fetch('http://happyview.test/xrpc/test.fake.stored')).json()).toEqual([
+			{ uri: kept.uri },
+			{ uri: scripted.uri }
+		]);
+		// Only web links stay: listings make the ticket link clickable.
+		const [unsafe] = (await query<ShowPage>(hv, 'getShows', { uris: scripted.uri })).shows;
+		expect(unsafe.record).not.toHaveProperty('tickets');
+	});
+
+	it('removes a deleted show', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:dj'] });
+		const show = await publishShow(hv, 'did:plc:dj', project);
+		const rkey = show.uri.split('/').at(-1)!;
+
+		expect((await query<ShowPage>(hv, 'getShows', { uris: [show.uri] })).shows).toHaveLength(1);
+		await hv.ingest({ did: 'did:plc:dj', collection: COLLECTION.show, rkey, cid: '', record: null });
+		expect((await query<ShowPage>(hv, 'getShows', { uris: [show.uri] })).shows).toEqual([]);
+	});
+});
+
+describe('follow record script and getFollowStatus', () => {
+	it("counts each account following one of the root's projects once, and finds an account's follows", async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv);
+		const other = await publish(hv);
+		const fake = await publish(hv, {}, {}, { did: 'did:plc:stranger' });
+
+		const a = await publishFollow(hv, 'did:plc:a', project);
+		const first = await publishFollow(hv, 'did:plc:b', project);
+		const second = await publishFollow(hv, 'did:plc:b', project);
+		await publishFollow(hv, 'did:plc:c', other);
+		await publishFollow(hv, 'did:plc:c', fake);
+		await publishFollow(hv, 'did:plc:d', project, { createdAt: 20261001 });
+
+		expect(await query(hv, 'getFollowStatus', { project })).toEqual({ followers: 2, follows: [] });
+		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:b' })).toEqual({
+			followers: 2,
+			follows: [first, second]
+		});
+		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:c' })).toEqual({ followers: 2, follows: [] });
+		expect(await query(hv, 'getFollowStatus', { project: fake, actor: 'did:plc:c' })).toEqual({
+			followers: 0,
+			follows: []
+		});
+
+		for (const [did, uri] of [
+			['did:plc:a', a],
+			['did:plc:b', first]
+		])
+			await hv.ingest({ did, collection: COLLECTION.follow, rkey: uri.split('/').at(-1)!, cid: '', record: null });
+		expect(await query(hv, 'getFollowStatus', { project, actor: 'did:plc:b' })).toEqual({
+			followers: 1,
+			follows: [second]
+		});
+	});
+});
+
+describe('listShows and getShows', () => {
+	it('lists upcoming shows soonest first, only while their announcer manages the active project', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const project = await publish(hv, {}, { managers: ['did:plc:dj', 'did:plc:co'] }, { rkey: 'tide' });
+		const hidden = await publish(hv, {}, { managers: ['did:plc:dj'], status: 'hidden' });
+		const other = await publish(hv, {}, { managers: ['did:plc:dj'] });
+
+		const past = await publishShow(hv, 'did:plc:dj', project, { name: 'Past', startsAt: fromNow(-20) });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Tonight', startsAt: fromNow(-6) });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Weekender', startsAt: fromNow(-48), endsAt: fromNow(1) });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Over', startsAt: fromNow(-48), endsAt: fromNow(-1) });
+		await publishShow(hv, 'did:plc:co', project, { name: 'Later', startsAt: fromNow(72) });
+		// Offsets sort by the instants they mean, not by their text: Sydney's 05:00 is Paris's 20:00 the day before.
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Paris', startsAt: '2099-01-01T00:00:00+01:00' });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Sydney', startsAt: '2099-01-01T05:00:00+10:00' });
+		await publishShow(hv, 'did:plc:dj', hidden, { name: 'Hidden' });
+		await publishShow(hv, 'did:plc:dj', other, { name: 'Elsewhere', startsAt: fromNow(24) });
+
+		const list = async (params: Params = {}) => showNames(await query<ShowPage>(hv, 'listShows', params));
+
+		expect(await list()).toEqual(['Weekender', 'Tonight', 'Elsewhere', 'Later', 'Sydney', 'Paris']);
+		expect(await list({ project })).toEqual(['Weekender', 'Tonight', 'Later', 'Sydney', 'Paris']);
+		expect(await list({ limit: 2 })).toEqual(['Weekender', 'Tonight']);
+		expect((await query<ShowPage>(hv, 'listShows', { limit: 2 })).cursor).toBe('2');
+		expect((await query<ShowPage>(hv, 'listShows', { limit: 2, cursor: '4' })).cursor).toBeUndefined();
+		expect(await list({ limit: 2, cursor: '2' })).toEqual(['Elsewhere', 'Later']);
+		// getShows finds past shows too.
+		expect(showNames(await query<ShowPage>(hv, 'getShows', { uris: past.uri }))).toEqual(['Past']);
+
+		await publish(hv, {}, { managers: ['did:plc:dj'] }, { rkey: 'tide' });
+		expect(await list({ project })).toEqual(['Weekender', 'Tonight', 'Sydney', 'Paris']);
+	});
+
+	it('finds shows near a place, and nearest first among the projects someone follows', async () => {
+		const hv = new FakeHappyView(ROOT);
+		const tide = await publish(hv, {}, { managers: ['did:plc:dj'] });
+		const other = await publish(hv, {}, { managers: ['did:plc:dj'] });
+
+		const at = (city: string, point: { latE6: number; lngE6: number }) => ({
+			location: { city, country: 'DE', ...point }
+		});
+
+		await publishShow(hv, 'did:plc:dj', tide, { name: 'Berlin', ...at('Berlin', BERLIN) });
+		await publishShow(hv, 'did:plc:dj', tide, { name: 'Hamburg', ...at('Hamburg', HAMBURG) });
+		await publishShow(hv, 'did:plc:dj', other, { name: 'Potsdam', ...at('Potsdam', POTSDAM) });
+		await publishShow(hv, 'did:plc:dj', tide, { name: 'Munich', ...at('Munich', MUNICH) });
+		// Inside the box SQL narrows by first, but 56 km from Berlin.
+		await publishShow(hv, 'did:plc:dj', other, {
+			name: 'Corner',
+			...at('Corner', { latE6: 52_870_000, lngE6: 14_000_000 })
+		});
+		await publishFollow(hv, 'did:plc:fan', tide);
+
+		const near = await query<ShowPage>(hv, 'listShows', { ...BERLIN, radiusKm: 50 });
+		expect(showNames(near)).toEqual(['Berlin', 'Potsdam']);
+		expect(near.shows[1].distanceM).toBeGreaterThan(20_000);
+		expect(near.shows[1].distanceM).toBeLessThan(30_000);
+
+		const following = { follower: 'did:plc:fan', ...HAMBURG, sort: 'distance' };
+		expect(showNames(await query<ShowPage>(hv, 'listShows', following))).toEqual(['Hamburg', 'Berlin', 'Munich']);
+		expect(showNames(await query<ShowPage>(hv, 'listShows', { follower: 'did:plc:fan' }))).toEqual([
+			'Berlin',
+			'Hamburg',
+			'Munich'
+		]);
+		expect(await query(hv, 'listShows', { follower: 'did:plc:nobody' })).toEqual({ shows: [] });
+	});
+
+	it('finds shows and projects across the antimeridian', async () => {
+		const hv = new FakeHappyView(ROOT);
+		// Taveuni, Fiji, straddles 180°: Waiyevo is east of it, Vuna west, 20 km apart.
+		const waiyevo = { latE6: -16_790_000, lngE6: 179_980_000 };
+		const vuna = { latE6: -16_950_000, lngE6: -179_900_000 };
+		const location = { city: 'Vuna', country: 'FJ', ...vuna };
+		const project = await publish(hv, { name: 'Island Time', location }, { managers: ['did:plc:dj'] });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Beach', location });
+		await publishShow(hv, 'did:plc:dj', project, { name: 'Harbour', location: { ...location, ...waiyevo } });
+
+		// From either side of 180°, the box reaches round to the other.
+		for (const from of [waiyevo, vuna])
+			expect(showNames(await query<ShowPage>(hv, 'listShows', { ...from, radiusKm: 50 }))).toEqual([
+				'Beach',
+				'Harbour'
+			]);
+		expect(names(await query<Page>(hv, 'searchProjects', { ...waiyevo, radiusKm: 50 }))).toEqual(['Island Time']);
+		expect(names(await query<Page>(hv, 'searchProjects', { ...vuna, radiusKm: 5 }))).toEqual(['Island Time']);
+		expect(
+			names(await query<Page>(hv, 'searchProjects', { latE6: -16_950_000, lngE6: 179_000_000, radiusKm: 50 }))
+		).toEqual([]);
+	});
+});
+
 describe('instruction budget', () => {
 	it('searches and matches 1,000 projects well under the limit', { tags: ['budget'] }, async () => {
 		const hv = new FakeHappyView(ROOT);
@@ -926,6 +1204,66 @@ describe('instruction budget', () => {
 		for (const [name, params] of queries) {
 			await query(hv, name, params);
 			used[`${name} ${JSON.stringify(params)}`] = hv.instructions;
+		}
+
+		expect(Object.entries(used).filter(([, instructions]) => instructions >= 750_000)).toEqual([]);
+	});
+
+	it('lists from 1,000 upcoming shows well under the limit', { tags: ['budget'] }, async () => {
+		const hv = new FakeHappyView(ROOT);
+
+		const projects = Array.from({ length: 50 }, (_unused, i) =>
+			projectRecord({ bio: 'A collective that plays warehouse parties. '.repeat(10) }, { managers: [`did:plc:dj${i}`] })
+		);
+
+		const shows = Array.from({ length: 1000 }, (_unused, i) => {
+			const project = projects[i % 50];
+
+			return {
+				did: `did:plc:dj${i % 50}`,
+				collection: COLLECTION.show,
+				rkey: `3w${String(i).padStart(11, '0')}`,
+				record: {
+					project: `at://${ROOT}/${COLLECTION.project}/${project.rkey}`,
+					event: { uri: `at://did:plc:dj${i % 50}/community.lexicon.calendar.event/${i}`, cid: 'bafyreievent' },
+					name: `Show ${i}`,
+					startsAt: fromNow(1 + i),
+					location: {
+						city: `City ${i % 50}`,
+						country: 'DE',
+						latE6: 47_000_000 + ((i * 7919) % 8_000_000),
+						lngE6: 6_000_000 + ((i * 104_729) % 9_000_000)
+					},
+					createdAt: '2026-10-01T00:00:00.000Z'
+				}
+			};
+		});
+
+		const follows = projects.slice(0, 25).map(({ rkey }, i) => ({
+			did: 'did:plc:fan',
+			collection: COLLECTION.follow,
+			rkey: `3f${String(i).padStart(11, '0')}`,
+			record: { subject: `at://${ROOT}/${COLLECTION.project}/${rkey}`, createdAt: '2026-10-01T00:00:00.000Z' }
+		}));
+
+		const cid = (await cidForLex(jsonToLex(projects[0].value))).toString();
+		hv.seed([
+			...projects.map(({ did, rkey, value }) => ({ did, collection: COLLECTION.project, rkey, cid, record: value })),
+			...[...shows, ...follows].map((record) => ({ ...record, cid }))
+		]);
+
+		const queries: Params[] = [
+			{ limit: 100 },
+			{ ...BERLIN, radiusKm: 2000, limit: 100 },
+			{ ...BERLIN, radiusKm: 2000, limit: 100, cursor: '900' },
+			{ follower: 'did:plc:fan', ...BERLIN, sort: 'distance', limit: 100 }
+		];
+
+		const used: Record<string, number> = {};
+
+		for (const params of queries) {
+			expect((await query<ShowPage>(hv, 'listShows', params)).shows.length).toBeGreaterThan(0);
+			used[JSON.stringify(params)] = hv.instructions;
 		}
 
 		expect(Object.entries(used).filter(([, instructions]) => instructions >= 750_000)).toEqual([]);

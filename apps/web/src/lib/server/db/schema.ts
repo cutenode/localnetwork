@@ -42,6 +42,8 @@ export interface AccountTable {
 	pdsUrl: string | null;
 	spacesCapable: number;
 	grantedScope: string | null;
+	/** 1 when the last sign-in's grant covers shows and follows, 0 when not, null before the app asked for them. */
+	publicWrites: number | null;
 	createdAt: string;
 	updatedAt: string;
 	lastLoginAt: string | null;

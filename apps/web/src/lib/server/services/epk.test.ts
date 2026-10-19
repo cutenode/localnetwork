@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ACCESS_PRESETS, type EpkAccess } from '#lib/epk.ts';
 import { COLLECTION, EPK_CONTENT_KEY } from '#lib/nsid.ts';
 import type { ProjectView } from '#lib/types.ts';
-import { ForbiddenError, UserError } from '../core';
+import { ForbiddenError, ReauthError, UserError } from '../core';
 import { createTestServices, ROOT } from '../testing/core';
 import type { EpkInput } from './epk';
 
@@ -80,6 +80,15 @@ describe('EpkService', () => {
 		const content = t.net.spaceRecords.get(`${clubs.space}|${DJ}|${COLLECTION.epkContent}|${EPK_CONTENT_KEY}`)!.value;
 		expect(content).toMatchObject({ bio: 'The long bio', contact: { email: 'book@dj.test' } });
 		expect(t.net.spaces.get(clubs.space)?.members.get(ROOT)).toEqual({ read: true, write: true });
+	});
+
+	it('asks an owner whose session lapsed to sign in again', async () => {
+		// Spaces-capable when they signed in, with no OAuth session left to write with.
+		const lapsed = { ...(await t.viewer(DJ)), did: 'did:plc:lapsed' };
+		await t.projectAdmin.setManagers({ actor: await t.viewer(ADMIN), project, managers: [DJ, CODJ, lapsed.did] });
+		const managed = (await t.projects.byUri(project.uri))!;
+
+		await expect(t.epks.save(lapsed, managed, input())).rejects.toBeInstanceOf(ReauthError);
 	});
 
 	it('only counts press kits the project still lists the owner as managing', async () => {

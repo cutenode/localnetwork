@@ -16,6 +16,15 @@ export type DirectoryProject = { uri: string; cid: string; record: JsonObject; d
 
 type Facet = { value: string; count: number };
 
+/** A show as the directory serves it (`computer.localnetwork.directory.defs#showView`). */
+export type DirectoryShow = {
+	uri: string;
+	cid: string;
+	record: JsonObject;
+	project: DirectoryProject;
+	distanceM?: number;
+};
+
 export type DirectoryMatch = {
 	project: DirectoryProject;
 	score: number;
@@ -41,6 +50,9 @@ export type DirectoryOutputs = {
 	};
 	getSets: { sets: DjSetView[] };
 	listSets: { sets: DjSetView[] };
+	listShows: { shows: DirectoryShow[]; cursor?: string };
+	getShows: { shows: DirectoryShow[] };
+	getFollowStatus: { followers: number; follows: string[] };
 	getCharts: Charts;
 	getArtist: { artist?: SupportedArtist; tracks: TrackPlays[]; djs: DirectoryDj[] };
 	searchArtists: { artists: SupportedArtist[] };
@@ -84,7 +96,7 @@ export class HappyViewError extends Error {
 }
 
 /**
- * Talks to the HappyView instance that indexes published projects and their managers' sets: directory
+ * Talks to the HappyView instance that indexes published projects, their managers' sets and shows, and follows: directory
  * queries over XRPC, plus the admin calls that keep its lexicons and scripts in step with this app.
  */
 export class HappyViewClient {

@@ -48,7 +48,14 @@ describe('BugReportService', () => {
 		});
 
 	const signIn = (grantedScope: string) =>
-		accounts.recordLogin({ did: USER, handle: 'reporter.test', pdsUrl: null, grantedScope, spacesCapable: false });
+		accounts.recordLogin({
+			did: USER,
+			handle: 'reporter.test',
+			pdsUrl: null,
+			grantedScope,
+			spacesCapable: false,
+			publicWrites: false
+		});
 
 	beforeEach(async () => {
 		db = await openDatabase(':memory:');

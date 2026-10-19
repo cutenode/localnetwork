@@ -16,15 +16,22 @@ const LUA = import.meta.glob<string>('/lua/**/*.lua', { query: '?raw', import: '
 const LIBRARY = '/lua/lib/';
 
 /**
- * Our lexicons HappyView needs: the records it indexes (projects and DJ sets), the defs they use, and the directory
- * queries, in an order where each document's refs come before it. The bundle puts the other authorities' lexicons
- * they refer to ahead of them.
+ * Our lexicons HappyView needs: the records it indexes (projects, DJ sets, shows, and follows), the defs they use, and
+ * the directory queries, in an order where each document's refs come before it. The bundle puts the other authorities'
+ * lexicons they refer to ahead of them.
  */
 const LEXICONS = LEXICON_DOCS.filter(
 	(doc) =>
-		[`${NS}.defs`, COLLECTION.project, `${NS}.dj.defs`, COLLECTION.djSet].includes(doc.id) ||
-		doc.id.startsWith(`${NS}.directory.`)
+		[`${NS}.defs`, COLLECTION.project, `${NS}.dj.defs`, COLLECTION.djSet, COLLECTION.show, COLLECTION.follow].includes(
+			doc.id
+		) || doc.id.startsWith(`${NS}.directory.`)
 );
+
+/**
+ * The other authorities' lexicons ours refer to. Calendar events, and the locations only they use, stay out: as a record
+ * lexicon HappyView would take in every account's events, which is what a show's copy of its event avoids.
+ */
+const REFERENCED = new Set(['com.atproto.repo.strongRef', 'community.lexicon.location.address']);
 
 /** `text` as a Lua long string, with enough `=` in its brackets that nothing inside can close it early. */
 function longString(text: string): string {
@@ -49,10 +56,11 @@ function trigger(path: string): string {
 }
 
 /**
- * The lexicons and Lua scripts that make HappyView the directory for `rootDid`'s projects and their managers' sets. Each script is one chunk
- * that starts by defining the root DID. Queries then get the genre and fee taxonomies (from the TypeScript, so they
- * can't drift) and every `lua/lib` file before their own code. Record scripts stand alone: HappyView stores a
- * record when its script errors, so a gate shouldn't depend on anything else loading.
+ * The lexicons and Lua scripts that make HappyView the directory for `rootDid`'s projects, their managers' sets and
+ * shows, and follows of them. Each script is one chunk that starts by defining the root DID. Queries then get the
+ * genre and fee taxonomies (from the TypeScript, so they can't drift) and every `lua/lib` file before their own code.
+ * Record scripts stand alone: HappyView stores a record when its script errors, so a gate shouldn't depend on
+ * anything else loading.
  */
 export function happyViewBundle(rootDid: string): HappyViewBundle {
 	const taxonomy = { families: GENRE_FAMILIES, aliases: Object.fromEntries(GENRE_ALIASES), feeTiers: FEE_TIER_ORDER };
@@ -62,7 +70,7 @@ export function happyViewBundle(rootDid: string): HappyViewBundle {
 	const queryPrelude = [root, `local TAXONOMY = json.decode(${longString(JSON.stringify(taxonomy))})`, ...library];
 
 	return {
-		lexicons: [...referencedLexicons(), ...LEXICONS],
+		lexicons: [...referencedLexicons().filter((doc) => REFERENCED.has(doc.id)), ...LEXICONS],
 		scripts: files
 			.filter(([path]) => !path.startsWith(LIBRARY))
 			.map(([path, body]) => {

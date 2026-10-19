@@ -1,0 +1,33 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.directory.getFollowStatus",
+	"defs": {
+		"main": {
+			"type": "query",
+			"description": "How many accounts follow a project, and whether one of them does.",
+			"parameters": {
+				"type": "params",
+				"required": ["project"],
+				"properties": {
+					"project": { "type": "string", "format": "at-uri" },
+					"actor": { "type": "string", "format": "did", "description": "The account to look up a follow for." }
+				}
+			},
+			"output": {
+				"encoding": "application/json",
+				"schema": {
+					"type": "object",
+					"required": ["followers", "follows"],
+					"properties": {
+						"followers": { "type": "integer", "minimum": 0 },
+						"follows": {
+							"type": "array",
+							"description": "The actor's computer.localnetwork.follow records of the project, oldest first. Usually one, but nothing stops an account writing two.",
+							"items": { "type": "string", "format": "at-uri" }
+						}
+					}
+				}
+			}
+		}
+	}
+}
