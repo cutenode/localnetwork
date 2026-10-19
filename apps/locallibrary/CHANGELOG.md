@@ -531,6 +531,8 @@ their old names.
   neither is refused as "not empty", and both get the same store id.
 - `profile`'s cue statistics count hot cues D to H on tracks that weren't played in a set too.
 - The cover art plugin's fetch, given a playlist, works on it rather than on the tracks selected.
+- Matching two tracks by their sound hears the last few seconds of a copy a few milliseconds
+  late too, so a copy of a short track isn't missed as the same recording.
 
 ### Security
 

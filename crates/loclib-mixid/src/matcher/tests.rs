@@ -414,8 +414,12 @@ fn a_chain_along_any_line_is_one_play(tc: TestCase) {
 /// A copy of a track delayed by any amount and at any level lines up with it at that delay,
 /// heard throughout, and the other way round at minus that delay.
 #[hegel::test(test_cases = 3, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+// Late by half a frame, so few landmark pairs match: the last 2 s, a slice cut short where the
+// track ends, kept too few to count as heard by a whole slice's measure.
+#[hegel::explicit_test_case(seed = 6678u32, delay = 134usize, gain = 1.0f32, other = 1u32)]
 fn copies_line_up_at_any_delay(tc: TestCase) {
-    let x = synth(30.0, tc.draw(gs::integers::<u32>().min_value(1)));
+    let seed = tc.draw(gs::integers::<u32>().min_value(1));
+    let x = synth(30.0, seed);
     let delay = tc.draw(gs::integers::<usize>().max_value(2 * RATE as usize));
     let gain = tc.draw(gs::floats::<f32>().min_value(0.2).max_value(1.0));
     let copy: Vec<f32> = std::iter::repeat_n(0.0, delay).chain(x.iter().map(|s| s * gain)).collect();
@@ -428,7 +432,8 @@ fn copies_line_up_at_any_delay(tc: TestCase) {
     assert!((ba.offset + truth).abs() < 0.005, "{truth}: {ba:?}");
     // With enough shifts the offset counts as measured; another track shares next to nothing.
     assert!(ab.shifts < ALIGN_SHIFTS || ab.is_precise(), "{ab:?}");
-    let other = print(&synth(30.0, tc.draw(gs::integers::<u32>().min_value(1)) ^ 0x5555));
+    let other = tc.draw(gs::integers::<u32>().min_value(1));
+    let other = print(&synth(30.0, other ^ 0x5555));
     assert!(align(&a, &other).is_none_or(|o| o.coverage.0 < 0.1 && !o.is_precise()));
 }
 
