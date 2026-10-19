@@ -276,6 +276,8 @@ test.describe('signed in', () => {
 		await page.locator('#country').fill('DE');
 		await page.getByRole('button', { name: 'Announce show' }).click();
 		await expect(page.getByRole('alert')).toContainText("Pick the venue's city from the search");
+		// The failed save is a full page load, and hydrating the form resets its coordinates, so wait for that first.
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
 		// The e2e network has no geocoder, so this stands in for picking Berlin from the city search.
 		await page.locator('input[name="latE6"]').evaluate((input: HTMLInputElement) => (input.value = '52520000'));
 		await page.locator('input[name="lngE6"]').evaluate((input: HTMLInputElement) => (input.value = '13405000'));
