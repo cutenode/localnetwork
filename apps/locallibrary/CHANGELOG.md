@@ -523,6 +523,10 @@ their old names.
   decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
   real startup disk name.
 
+### Fixed
+
+- A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.
+
 ### Security
 
 - Sign-in acts only on the browser redirect that carries its own `state`: other requests to its
