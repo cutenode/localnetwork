@@ -220,10 +220,11 @@ fn what_is_typed_reads_as_the_command_line_would(tc: hegel::TestCase) {
     let (file, file_is) = tc.draw(gs::sampled_from(
         &[
             ("", None),
-            ("~/sets/list.m3u", Some(home.join("sets/list.m3u"))),
-            ("/tmp/a set.txt", Some("/tmp/a set.txt".into())),
-            ("'/tmp/quoted name'", Some("/tmp/quoted name".into())),
-            ("lists/here.m3u", Some(here.join("lists/here.m3u"))),
+            ("~/sets/list.m3u", Some(home.join("sets").join("list.m3u"))),
+            // Rooted, so on Windows on the current drive, as the command line has it.
+            ("/tmp/a set.txt", Some(std::path::absolute("/tmp/a set.txt").unwrap())),
+            ("'/tmp/quoted name'", Some(std::path::absolute("/tmp/quoted name").unwrap())),
+            ("lists/here.m3u", Some(here.join("lists").join("here.m3u"))),
         ][..],
     ));
     let n = tc.draw(gs::optional(gs::integers::<i64>().min_value(-3).max_value(5)));

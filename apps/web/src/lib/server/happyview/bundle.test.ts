@@ -4,9 +4,9 @@ import { FakeHappyView } from '../testing/happyview';
 import { happyViewBundle } from './bundle';
 
 describe('happyViewBundle', () => {
-	it('ships the project and set records, the defs they use, and the directory queries, with a script for each', () => {
+	it('ships the project, set, show, and follow records, the defs they use, and the directory queries, with a script for each', () => {
 		const { lexicons, scripts } = happyViewBundle('did:plc:root');
-		const records = [COLLECTION.project, COLLECTION.djSet];
+		const records = [COLLECTION.project, COLLECTION.djSet, COLLECTION.show, COLLECTION.follow];
 
 		expect(lexicons.map((doc) => doc.id).sort()).toEqual(
 			[

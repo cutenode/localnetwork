@@ -1,0 +1,58 @@
+{
+	"lexicon": 1,
+	"id": "computer.localnetwork.show",
+	"defs": {
+		"main": {
+			"type": "record",
+			"key": "tid",
+			"description": "A show a project is playing, announced by one of its managers in their own repo. The show itself is the community.lexicon.calendar.event that `event` points to, written to the same repo with the same record key so calendar apps can read it. This record ties it to the project and copies what listings need from it, so the directory can index shows without indexing every calendar event on the network. When the event changes after this was written, its CID no longer matches `event`.",
+			"record": {
+				"type": "object",
+				"required": ["project", "event", "name", "startsAt", "location", "createdAt"],
+				"properties": {
+					"project": {
+						"type": "string",
+						"format": "at-uri",
+						"description": "The computer.localnetwork.project record the show is for."
+					},
+					"event": {
+						"type": "ref",
+						"ref": "com.atproto.repo.strongRef",
+						"description": "The community.lexicon.calendar.event this copies, at the version it copied."
+					},
+					"name": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 1200,
+						"maxGraphemes": 120,
+						"description": "The event's name."
+					},
+					"startsAt": {
+						"type": "string",
+						"format": "datetime",
+						"description": "The event's start, with the venue's UTC offset when the venue's coordinates are known."
+					},
+					"endsAt": { "type": "string", "format": "datetime", "description": "The event's end, like startsAt." },
+					"venue": { "type": "string", "maxLength": 1200, "maxGraphemes": 120 },
+					"location": {
+						"type": "ref",
+						"ref": "computer.localnetwork.defs#location",
+						"description": "The venue's city, with its coordinates when known."
+					},
+					"status": {
+						"type": "string",
+						"maxLength": 128,
+						"description": "The event's status, like community.lexicon.calendar.event#cancelled."
+					},
+					"tickets": {
+						"type": "string",
+						"format": "uri",
+						"maxLength": 2000,
+						"description": "The event's ticket link."
+					},
+					"createdAt": { "type": "string", "format": "datetime" }
+				}
+			}
+		}
+	}
+}

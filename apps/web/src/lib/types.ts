@@ -177,6 +177,37 @@ export type ProjectView = {
 
 export type AccountView = { did: string; handle: string | null };
 
+/**
+ * A show (`computer.localnetwork.show`): a copy of the calendar event a manager announced, tied to the project. Its
+ * times carry the venue's UTC offset, so their first 16 characters read as the venue's clock.
+ */
+export type ShowRecord = {
+	project: string;
+	event: StrongRef;
+	name: string;
+	startsAt: string;
+	endsAt?: string;
+	venue?: string;
+	location: Location;
+	status?: string;
+	tickets?: string;
+	createdAt: string;
+};
+
+/** A show as pages list it, with its project. `did` and `rkey` are the announcing manager's repo and its key. */
+export type ShowView = {
+	uri: string;
+	cid: string;
+	did: string;
+	rkey: string;
+	record: ShowRecord;
+	project: ProjectView;
+	distanceKm?: number;
+};
+
+/** A project's follower count, and whether the viewer is one of them. */
+export type FollowState = { followers: number; following: boolean };
+
 export type RequestKind = 'create' | 'claim' | 'update';
 
 export type RequestStatus = 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'withdrawn';

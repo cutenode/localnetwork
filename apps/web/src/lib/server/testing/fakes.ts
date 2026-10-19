@@ -1,18 +1,16 @@
 import { XRPCError } from '@atproto/api';
 import { TID } from '@atproto/common-web';
-import { cidForLex } from '@atproto/lex-cbor';
-import { type JsonValue, jsonToLex } from '@atproto/lex-json';
-import type {
-	BlobJson,
-	JsonRecord,
-	RecordRef,
-	RootRepoClient,
-	SimpleSpaceConfig,
-	StoredRecord
+import {
+	type BlobJson,
+	type JsonRecord,
+	type RecordRef,
+	recordCid,
+	type RepoWrite,
+	type RootRepoClient,
+	type SimpleSpaceConfig,
+	type StoredRecord
 } from '../atproto/repo-client';
 import type { RecordEvent } from './happyview';
-
-const cidOf = async (value: JsonValue): Promise<string> => (await cidForLex(jsonToLex(value))).toString();
 
 /**
  * An in-memory stand-in for a network of PDSes, shared by every fake client
@@ -30,7 +28,7 @@ export class FakeNetwork {
 	readonly blobs = new Map<string, Uint8Array>();
 	/** Which repos hold each blob, by CID: a PDS refuses a record whose blobs the writer never uploaded. */
 	readonly blobHolders = new Map<string, Set<string>>();
-	failures = new Map<string, number>();
+	failures = new Map<string, { count: number; error: XRPCError }>();
 	/** Called after every public-repo write, the way HappyView's Jetstream consumer hears of it. */
 	onRecord: (event: RecordEvent) => Promise<void> = async () => {};
 
@@ -38,9 +36,9 @@ export class FakeNetwork {
 		return new FakeRootClient(did, this);
 	}
 
-	/** Make the next `count` writes by `did` fail. */
-	failWrites(did: string, count = 1): void {
-		this.failures.set(did, count);
+	/** Make the next `count` writes by `did` fail, with `error` (a PDS that's down, by default). */
+	failWrites(did: string, count = 1, error = new XRPCError(502, 'UpstreamFailure')): void {
+		this.failures.set(did, { count, error });
 	}
 
 	spaceRecordsIn(space: string, repo?: string): StoredRecord[] {
@@ -96,11 +94,11 @@ export class FakeNetwork {
 	}
 
 	maybeFail(did: string): void {
-		const remaining = this.failures.get(did) ?? 0;
+		const failure = this.failures.get(did);
 
-		if (remaining > 0) {
-			this.failures.set(did, remaining - 1);
-			throw new XRPCError(502, 'UpstreamFailure');
+		if (failure && failure.count > 0) {
+			failure.count -= 1;
+			throw failure.error;
 		}
 	}
 }
@@ -148,7 +146,7 @@ export class FakeRootClient implements RootRepoClient {
 		this.net.assertBlobsHeld(this.did, record);
 		this.net.assertCanWrite(this.did, space);
 		const uri = `${space}/${this.did}/${collection}/${rkey}`;
-		const cid = await cidOf(record);
+		const cid = await recordCid(record);
 		this.net.spaceRecords.set(key, { uri, cid, value: structuredClone(record) });
 
 		return { uri, cid };
@@ -182,7 +180,7 @@ export class FakeRootClient implements RootRepoClient {
 	}
 
 	async uploadBlob(bytes: Uint8Array, mimeType: string): Promise<BlobJson> {
-		const cid = await cidOf({ bytes: Buffer.from(bytes).toString('base64') });
+		const cid = await recordCid({ bytes: Buffer.from(bytes).toString('base64') });
 		this.net.blobs.set(cid, bytes);
 		this.net.blobHolders.set(cid, (this.net.blobHolders.get(cid) ?? new Set()).add(this.did));
 
@@ -273,10 +271,6 @@ export class FakeRootClient implements RootRepoClient {
 		return [...spaces];
 	}
 
-	async createRecord(input: { collection: string; record: JsonRecord }): Promise<RecordRef> {
-		return this.putRecord({ ...input, rkey: TID.nextStr(), swapRecord: null });
-	}
-
 	async putRecord(input: {
 		collection: string;
 		rkey: string;
@@ -293,7 +287,7 @@ export class FakeRootClient implements RootRepoClient {
 		}
 
 		const uri = `at://${this.did}/${input.collection}/${input.rkey}`;
-		const cid = await cidOf(input.record);
+		const cid = await recordCid(input.record);
 		this.net.records.set(key, { uri, cid, value: structuredClone(input.record) });
 		await this.net.onRecord({
 			did: this.did,
@@ -306,11 +300,34 @@ export class FakeRootClient implements RootRepoClient {
 		return { uri, cid };
 	}
 
+	createRecord(input: { collection: string; record: JsonRecord }): Promise<RecordRef> {
+		return this.putRecord({ ...input, rkey: TID.nextStr(), swapRecord: null });
+	}
+
 	async getRecord(input: { collection: string; rkey: string }) {
 		return this.net.records.get(`${this.did}|${input.collection}|${input.rkey}`) ?? null;
 	}
 
+	/** Fails as a whole before writing anything, as the PDS does. */
+	async applyWrites(writes: RepoWrite[]): Promise<void> {
+		this.net.maybeFail(this.did);
+
+		for (const write of writes) {
+			const key = `${this.did}|${write.collection}|${write.rkey}`;
+
+			if (write.action !== 'delete' && this.net.records.has(key) !== (write.action === 'update'))
+				throw new XRPCError(400, 'InvalidRequest', `${write.action} of ${key}`);
+		}
+
+		for (const write of writes) {
+			if (write.action === 'delete') await this.deleteRecord(write);
+			else await this.putRecord(write);
+		}
+	}
+
 	async deleteRecord(input: { collection: string; rkey: string }): Promise<void> {
+		this.net.maybeFail(this.did);
 		this.net.records.delete(`${this.did}|${input.collection}|${input.rkey}`);
+		await this.net.onRecord({ did: this.did, collection: input.collection, rkey: input.rkey, cid: '', record: null });
 	}
 }

@@ -80,7 +80,8 @@ describe('SupportService', () => {
 			handle: 'neon.test',
 			pdsUrl: null,
 			grantedScope: 'atproto',
-			spacesCapable: false
+			spacesCapable: false,
+			publicWrites: false
 		});
 		const set = await play(DJS[0], '2026-09-12', 'Berlin', [{ ...nightBus, startSeconds: 300 }]);
 

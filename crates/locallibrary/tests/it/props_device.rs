@@ -109,7 +109,8 @@ fn rekordbox_sync_files_read_back(tc: TestCase) {
 #[hegel::test(test_cases = 50)]
 fn a_volumes_name_is_its_folders(tc: TestCase) {
     let name = tc.draw(gs::text().alphabet("abcXYZ 09-_.é♪").min_size(1).max_size(12));
-    tc.assume(!name.trim_matches('.').is_empty() && name.trim() == name);
+    // Windows drops a folder name's trailing dots, so `0.` makes the folder `0`.
+    tc.assume(!name.trim_matches('.').is_empty() && name.trim() == name && !name.ends_with('.'));
     let dir = tempfile::tempdir().unwrap();
     let mut at = dir.path().to_path_buf();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(2)) {

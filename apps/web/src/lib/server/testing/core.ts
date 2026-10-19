@@ -9,10 +9,12 @@ import { AccountService } from '../services/accounts';
 import { PublicRepo } from '../atproto/public-repo';
 import { BookingService } from '../services/bookings';
 import { EpkService } from '../services/epk';
+import { FollowService } from '../services/follows';
 import { PlannerService } from '../services/planner';
 import { ProjectAdmin } from '../services/project-admin';
 import { ProjectService } from '../services/projects';
 import { RequestService } from '../services/requests';
+import { ShowService } from '../services/shows';
 import { StaffService } from '../services/staff';
 import { SupportService } from '../services/supports';
 import { TracklistService } from '../services/tracklists';
@@ -103,6 +105,10 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		throw new Error(`no such handle ${identifier}`);
 	});
 
+	// Writes are indexed in-process here, so a write that isn't served at once never will be.
+	const shows = new ShowService(core, projects, directory, publicRepo, 0);
+	const follows = new FollowService(core, directory, 0);
+
 	await ensureRootSpaces(core);
 	await audit.idle();
 
@@ -136,6 +142,9 @@ export async function createTestServices(options: { admins?: string[]; capable?:
 		tracklists,
 		supports,
 		epks,
+		shows,
+		follows,
+		publicRepo,
 		viewer,
 		capable,
 		spaces

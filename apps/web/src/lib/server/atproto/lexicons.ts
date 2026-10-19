@@ -15,13 +15,17 @@ import epkContent from '../../../../../../lexicons/computer/localnetwork/epk/con
 import epkDefs from '../../../../../../lexicons/computer/localnetwork/epk/defs.json' with { type: 'json' };
 import epkGrant from '../../../../../../lexicons/computer/localnetwork/epk/grant.json' with { type: 'json' };
 import epkRequest from '../../../../../../lexicons/computer/localnetwork/epk/request.json' with { type: 'json' };
+import follow from '../../../../../../lexicons/computer/localnetwork/follow.json' with { type: 'json' };
 import getArtist from '../../../../../../lexicons/computer/localnetwork/directory/getArtist.json' with { type: 'json' };
 import getCharts from '../../../../../../lexicons/computer/localnetwork/directory/getCharts.json' with { type: 'json' };
+import getFollowStatus from '../../../../../../lexicons/computer/localnetwork/directory/getFollowStatus.json' with { type: 'json' };
 import getProject from '../../../../../../lexicons/computer/localnetwork/directory/getProject.json' with { type: 'json' };
 import getProjects from '../../../../../../lexicons/computer/localnetwork/directory/getProjects.json' with { type: 'json' };
 import getSets from '../../../../../../lexicons/computer/localnetwork/directory/getSets.json' with { type: 'json' };
+import getShows from '../../../../../../lexicons/computer/localnetwork/directory/getShows.json' with { type: 'json' };
 import getStats from '../../../../../../lexicons/computer/localnetwork/directory/getStats.json' with { type: 'json' };
 import listSets from '../../../../../../lexicons/computer/localnetwork/directory/listSets.json' with { type: 'json' };
+import listShows from '../../../../../../lexicons/computer/localnetwork/directory/listShows.json' with { type: 'json' };
 import djDefs from '../../../../../../lexicons/computer/localnetwork/dj/defs.json' with { type: 'json' };
 import djSet from '../../../../../../lexicons/computer/localnetwork/dj/set.json' with { type: 'json' };
 import matchProjects from '../../../../../../lexicons/computer/localnetwork/directory/matchProjects.json' with { type: 'json' };
@@ -29,6 +33,7 @@ import searchArtists from '../../../../../../lexicons/computer/localnetwork/dire
 import searchProjects from '../../../../../../lexicons/computer/localnetwork/directory/searchProjects.json' with { type: 'json' };
 import decision from '../../../../../../lexicons/computer/localnetwork/moderation/decision.json' with { type: 'json' };
 import request from '../../../../../../lexicons/computer/localnetwork/moderation/request.json' with { type: 'json' };
+import show from '../../../../../../lexicons/computer/localnetwork/show.json' with { type: 'json' };
 import permissions from '../../../../../../lexicons/computer/localnetwork/permissions.json' with { type: 'json' };
 import plannerSave from '../../../../../../lexicons/computer/localnetwork/planner/save.json' with { type: 'json' };
 import plannerShow from '../../../../../../lexicons/computer/localnetwork/planner/show.json' with { type: 'json' };
@@ -78,18 +83,32 @@ export const LEXICON_DOCS = [
 	getStats,
 	getSets,
 	listSets,
+	listShows,
+	getShows,
+	getFollowStatus,
 	getCharts,
 	getArtist,
 	searchArtists,
 	djDefs,
-	djSet
+	djSet,
+	show,
+	follow
 ].map((doc) => parseLexiconDoc(doc));
 
 /** The permission set as PDSes read it to expand `include:computer.localnetwork.permissions` at sign-in. */
 export const PERMISSION_SET = lexPermissionSet.parse(permissions.defs.main);
 
-/** Other authorities' lexicons that ours reference, which they publish: fetched as published (see loadReferencedLexicons). */
-export const REFERENCED_NSIDS = ['community.lexicon.location.address'];
+/**
+ * Other authorities' lexicons that ours reference or this app writes (calendar events, and the locations they can
+ * hold), which they publish: fetched as published (see loadReferencedLexicons).
+ */
+export const REFERENCED_NSIDS = [
+	'community.lexicon.location.address',
+	'community.lexicon.location.geo',
+	'community.lexicon.location.fsq',
+	'community.lexicon.location.hthree',
+	'community.lexicon.calendar.event'
+];
 
 /** strongRef, as the AT Protocol's own client library ships it. */
 const STRONG_REF = schemas.filter((doc) => doc.id === 'com.atproto.repo.strongRef').map((doc) => parseLexiconDoc(doc));

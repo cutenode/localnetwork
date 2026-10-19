@@ -57,6 +57,15 @@ test.describe('public pages', () => {
 		await expect(page.getByRole('heading', { level: 1 })).toContainText('The home for local DJs');
 		await expect(page.getByRole('heading', { name: 'New on the directory' })).toBeVisible();
 		await expectAccessible(page);
+		// Narrower than the desktop layout, the header's links fold into a menu, so open it the way a
+		// person on a phone would. Its button only responds once the page has hydrated.
+		const menu = page.getByRole('button', { name: 'Menu' });
+
+		if (await menu.isVisible()) {
+			await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+			await menu.click();
+		}
+
 		await page.getByRole('link', { name: 'Find DJs' }).first().click();
 		await expect(page).toHaveURL(/\/projects$/);
 		await expect(page.getByRole('heading', { name: 'Find DJs' })).toBeVisible();
@@ -96,6 +105,22 @@ test.describe('public pages', () => {
 		await expect(first).toContainText('Neon Tide');
 		await expect(first).toContainText('Plays techno');
 		await expectAccessible(page);
+	});
+
+	test('lists upcoming shows everywhere or near a city, and remembers the city', async ({ page }) => {
+		await page.goto('/shows');
+		await expect(page.getByText('Tidal Hours', { exact: true })).toBeVisible();
+		await expect(page.getByText('Neon Tide all night long')).toBeVisible();
+		await expectAccessible(page);
+
+		await page.goto('/shows?place=Berlin&lat=52.52&lng=13.405&radius=25');
+		await expect(page.getByText('Tidal Hours', { exact: true })).toBeVisible();
+		await expect(page.getByText('Neon Tide all night long')).toHaveCount(0);
+		await page.goto('/shows');
+		await expect(page.getByRole('heading', { name: 'Within 25 km of Berlin' })).toBeVisible();
+		await expectAccessible(page);
+		await page.getByRole('link', { name: 'Forget this city' }).click();
+		await expect(page.getByRole('heading', { name: 'Everywhere' })).toBeVisible();
 	});
 
 	test('the charts rank tracks several DJs played, and an artist page lists who played them', async ({ page }) => {
@@ -229,6 +254,58 @@ test.describe('signed in', () => {
 		await expect(page.getByText('Access removed.')).toBeVisible();
 	});
 
+	test('a fan follows a DJ and sees their shows under Following', async ({ page }) => {
+		// milo.test follows Neon Tide from the seed data.
+		await signIn(page, 'milo.test', 'milo-pass', '/projects/saffron-social');
+		await page.getByRole('button', { name: /^Follow \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Following \d/ })).toHaveAttribute('aria-pressed', 'true');
+		await expectAccessible(page);
+
+		await page.goto('/shows?view=following');
+		await expect(page.getByText('Saffron Social on the roof')).toBeVisible();
+		await expect(page.getByText('Tidal Hours', { exact: true })).toBeVisible();
+		await expectAccessible(page);
+
+		// Each browser runs against the same network, so the fan unfollows again.
+		await page.goto('/projects/saffron-social');
+		await page.getByRole('button', { name: /^Following \d/ }).click();
+		await expect(page.getByRole('button', { name: /^Follow \d/ })).toHaveAttribute('aria-pressed', 'false');
+	});
+
+	test('a DJ announces a show, cancels it, and deletes it', async ({ page }, testInfo) => {
+		const name = `Basement rave (${testInfo.project.name})`;
+		const date = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+		await signIn(page, 'neon.test', 'neon-pass', '/projects/neon-tide/shows/new');
+		await expectAccessible(page);
+		await page.locator('#name').fill(name);
+		await page.locator('#date').fill(date);
+		await page.locator('#start').fill('23:00');
+		await page.locator('#end').fill('05:00');
+		await page.locator('#city').fill('Berlin');
+		await page.locator('#country').fill('DE');
+		await page.getByRole('button', { name: 'Announce show' }).click();
+		await expect(page.getByRole('alert')).toContainText("Pick the venue's city from the search");
+		// The failed save is a full page load, and hydrating the form resets its coordinates, so wait for that first.
+		await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+		// The e2e network has no geocoder, so this stands in for picking Berlin from the city search.
+		await page.locator('input[name="latE6"]').evaluate((input: HTMLInputElement) => (input.value = '52520000'));
+		await page.locator('input[name="lngE6"]').evaluate((input: HTMLInputElement) => (input.value = '13405000'));
+		await page.getByRole('button', { name: 'Announce show' }).click();
+		const listed = page.getByRole('listitem').filter({ hasText: name });
+		await expect(listed).toContainText('23:00 to 05:00');
+		await expectAccessible(page);
+
+		await listed.getByRole('link', { name: `Edit ${name}` }).click();
+		await page.getByLabel('This show is cancelled').check();
+		await page.getByRole('button', { name: 'Save changes' }).click();
+		await expect(listed).toContainText('Cancelled');
+
+		await listed.getByRole('link', { name: `Edit ${name}` }).click();
+		await page.getByRole('button', { name: 'Delete show' }).click();
+		await expect(page.getByRole('heading', { name: 'Upcoming shows' })).toBeVisible();
+		await expect(listed).toHaveCount(0);
+	});
+
 	test('a promoter sends a booking inquiry', async ({ page }) => {
 		await signIn(page, 'pat.test', 'pat-pass', '/bookings/new?project=neon-tide');
 		await expect(page.getByRole('heading', { name: 'Neon Tide' })).toBeVisible();
@@ -241,6 +318,18 @@ test.describe('signed in', () => {
 		await page.locator('#text').fill('Budget is flexible.');
 		await page.getByRole('button', { name: 'Send' }).click();
 		await expect(page.getByText('Budget is flexible.')).toBeVisible();
+		await expectAccessible(page);
+		const thread = new URL(page.url()).pathname;
+		await signOut(page);
+
+		// Once it's confirmed, the DJ can announce it, starting from the inquiry's details.
+		await signIn(page, 'neon.test', 'neon-pass', thread);
+		await expect(page.getByRole('link', { name: 'Announce this show' })).toHaveCount(0);
+		await page.getByLabel('Status').selectOption('confirmed');
+		await page.getByRole('button', { name: 'Update status' }).click();
+		await page.getByRole('link', { name: 'Announce this show' }).click();
+		await expect(page.locator('#name')).toHaveValue('Basement Sessions');
+		await expect(page.locator('#date')).toHaveValue('2026-12-12');
 		await expectAccessible(page);
 	});
 });

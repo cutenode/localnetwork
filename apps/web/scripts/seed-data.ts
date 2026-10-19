@@ -425,3 +425,63 @@ export const DEMO_EPKS = [
 		content: { contact: { email: 'festivals@neon-tide.test' } }
 	}
 ];
+
+/**
+ * Shows neon.test announces for its two projects (`project` indexes DEMO_PROJECTS), `days` after the network starts.
+ * Times are on the venue's clock.
+ */
+export const DEMO_SHOWS = [
+	{
+		project: 0,
+		days: 3,
+		show: {
+			name: 'Tidal Hours',
+			start: '23:00',
+			end: '06:00',
+			venue: 'Halle Nord',
+			location: { city: 'Berlin', region: 'Berlin', country: 'DE', ...at(52.536, 13.37) },
+			tickets: 'https://tickets.example/tidal-hours'
+		}
+	},
+	{
+		project: 1,
+		days: 9,
+		show: {
+			name: 'Saffron Social on the roof',
+			start: '15:00',
+			end: '22:00',
+			venue: 'Klunkerkranich',
+			location: { city: 'Berlin', region: 'Berlin', country: 'DE', ...at(52.4813, 13.4322) }
+		}
+	},
+	{
+		project: 0,
+		days: 16,
+		show: {
+			name: 'Neon Tide all night long',
+			start: '22:00',
+			venue: 'Uebel & Gefährlich',
+			location: { city: 'Hamburg', region: 'Hamburg', country: 'DE', ...at(53.5562, 9.9684) },
+			tickets: 'https://tickets.example/all-night-long'
+		}
+	},
+	{
+		project: 0,
+		days: 23,
+		show: {
+			name: 'Closing party',
+			start: '23:00',
+			end: '08:00',
+			venue: 'Halle Nord',
+			location: { city: 'Berlin', region: 'Berlin', country: 'DE', ...at(52.536, 13.37) },
+			cancelled: true
+		}
+	}
+];
+
+/** Who follows which demo projects (indexes into DEMO_PROJECTS). */
+export const DEMO_FOLLOWS = [
+	{ handle: 'pat.test', project: 0 },
+	{ handle: 'pat.test', project: 1 },
+	{ handle: 'milo.test', project: 0 }
+];

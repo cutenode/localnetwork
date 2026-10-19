@@ -369,6 +369,9 @@ importers:
       '@lucide/svelte':
         specifier: ^1.51.0
         version: 1.53.0(svelte@5.57.2)
+      '@photostructure/tz-lookup':
+        specifier: ^11.7.0
+        version: 11.7.0
       bowser:
         specifier: ^2.14.1
         version: 2.14.1
@@ -3030,6 +3033,9 @@ packages:
 
   '@paulirish/trace_engine@0.0.53':
     resolution: {integrity: sha512-PUl/vlfo08Oj804VI5nDPeSk9vyslnBlVzDDwFt8SUVxY8+KdGMkra/vrXjEEHe8gb7+RqVTfOIlGw0nyrEelA==}
+
+  '@photostructure/tz-lookup@11.7.0':
+    resolution: {integrity: sha512-QbKHXvleluMIlAHf2JiQTJNU5rLQBeQhLobyRqgXZ6NNGKqNikaRkjYviJ4nMU7Y75QE7bBYM8xjiFGjAukyhw==}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -9807,6 +9813,8 @@ snapshots:
     dependencies:
       legacy-javascript: 0.0.3
       third-party-web: 0.30.0
+
+  '@photostructure/tz-lookup@11.7.0': {}
 
   '@pinojs/redact@0.4.0': {}
 

@@ -16,7 +16,7 @@ import {
 } from '#lib/epk.ts';
 import type { ProjectMix } from '#lib/types.ts';
 import { UserError } from '../core';
-import { text } from '../http';
+import { isWebUrl, text } from '../http';
 import { sniffImage } from './project';
 
 /** Big enough for a 3,000 px JPEG, the size press asks for, and under the 5 MiB some PDSes allow. */
@@ -39,14 +39,6 @@ const visibility = (value: string): Visibility => (value === 'private' || value 
 /** Every value of a repeated field; a file in its place reads as empty. */
 const all = (form: FormData, name: string) =>
 	form.getAll(name).map((value) => (value instanceof File ? '' : value.trim()));
-
-const isWebUrl = (value: string) => {
-	try {
-		return ['http:', 'https:'].includes(new URL(value).protocol);
-	} catch {
-		return false;
-	}
-};
 
 /** The form's starting values: a new press kit shows every project mix publicly. */
 export function epkFormValues(
