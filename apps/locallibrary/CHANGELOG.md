@@ -540,6 +540,8 @@ their old names.
 - A store that can't be written (a read-only disk, or folders this user can't write to) is what
   the error names. `pull` named a folder inside it, which depended on the file it was saving. An
   error making a temp file names its folder, without the random name it tried.
+- When two mounted drives go by one name (a drive and a copy of it), `setup`'s questions say
+  which folder each is about.
 
 ### Security
 

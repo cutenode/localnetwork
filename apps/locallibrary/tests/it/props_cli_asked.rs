@@ -133,6 +133,11 @@ fn setup_does_what_it_was_told(tc: TestCase) {
     // the library; the primary's place among them; the roles; whether the library was started.
     let (mut taken, mut library, mut primary) = (Vec::<String>::new(), None::<String>, 0usize);
     let (mut asked, mut taken_at) = (0usize, Vec::<usize>::new());
+    // Each "Is ... a copy" question, and the drive name it's about.
+    let mut questions = Vec::<(String, String)>::new();
+    // A drive that shares its name with another is asked about with its folder, which is left
+    // out of the name here.
+    let in_volumes = format!(" ({}", fx.volumes.display());
     let (mut roles, mut saved, mut players, mut contact) = (Vec::<(String, String)>::new(), None, None, None);
     let mut contact_given = None::<String>;
     let mut models_given = None::<String>;
@@ -141,7 +146,9 @@ fn setup_does_what_it_was_told(tc: TestCase) {
         let q = q.trim_start_matches("? ").trim_end();
         let yes = |n: usize| if n == 0 { "y" } else { "n" };
         let a: String = if let Some(rest) = q.strip_prefix("Is ") {
-            let drive = rest.split(" a copy of your library?").next().unwrap().to_string();
+            let drive = rest.split(" a copy of your library?").next().unwrap();
+            let drive = drive.split(&in_volumes).next().unwrap().to_string();
+            questions.push((drive.clone(), q.to_string()));
             let a = ["y", "n", ""][pick(3)];
             let took = a == "y" || (a.is_empty() && default_of(q) == Some("Y/n"));
             if took {
@@ -167,7 +174,8 @@ fn setup_does_what_it_was_told(tc: TestCase) {
                 }
             }
         } else if let Some(rest) = q.strip_prefix("Role for ") {
-            let drive = rest.split(" (backup").next().unwrap().to_string();
+            let drive = rest.split(" (backup").next().unwrap();
+            let drive = drive.split(&in_volumes).next().unwrap().to_string();
             let a = ["", "backup", "set", "archive", "bogus"][pick(5)];
             if a != "bogus" {
                 let role = if a.is_empty() { default_of(q).unwrap().to_string() } else { a.to_string() };
@@ -245,6 +253,13 @@ fn setup_does_what_it_was_told(tc: TestCase) {
         .filter_map(|l| l.split("  ").filter(|p| !p.is_empty()).nth(1))
         .filter_map(|root| Some(std::path::Path::new(root).file_name()?.to_string_lossy().into_owned()))
         .collect();
+    // Where two drives share a name, each question says which folder it's about.
+    for (at, (name, q)) in questions.iter().enumerate() {
+        if questions.iter().filter(|(n, _)| n == name).count() > 1 {
+            let folder = fx.volumes.join(&listed[at]);
+            assert!(q.contains(&format!("({})", folder.display())), "{q}\n{said}");
+        }
+    }
     if let (Some(c), Some(yes)) = (&contact_given, contact) {
         for (d, at) in taken.iter().zip(&taken_at) {
             let kept = record(d).is_some_and(|r| r["role"] == "archive" || !r["log"]["retired"].is_null());
