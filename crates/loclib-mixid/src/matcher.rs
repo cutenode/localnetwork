@@ -847,9 +847,8 @@ pub fn find(
 }
 
 /// Peaks a slice needs before [`align`] counts it towards a track's coverage: a quarter of what
-/// [`crate::fingerprint::LIBRARY`] keeps per slice (the last slice, cut short where the track
-/// ends, its share of that). Fewer is near silence (a fade, a gap before a hidden track), which
-/// neither encoding has anything to be heard in.
+/// [`crate::fingerprint::LIBRARY`] keeps per slice. Fewer is near silence (a fade, a gap before a
+/// hidden track), which neither encoding has anything to be heard in.
 const ALIGN_SLICE_PEAKS: usize =
     (SLICE as f64 / FRAMES_PER_SEC * crate::fingerprint::LIBRARY.per_sec as f64 / 4.0) as usize;
 /// Shifts an [`Alignment`]'s offset needs to be the mean of before it counts as measured. Each
@@ -961,17 +960,14 @@ pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
             }
             n
         };
-        // The last slice is cut short where the track ends: it needs its share of a whole one's
-        // peaks and votes. Held to a whole one's, a copy late by half a frame (which keeps under
-        // half its pairs) wasn't heard in its last couple of seconds.
+        // The last slice is cut short where the track ends: one with a whole slice's peaks needs
+        // only its share of the votes. Held to a whole one's, a copy late by half a frame (which
+        // keeps under half its pairs) wasn't heard in its last couple of seconds. Its peaks aren't
+        // scaled: a tail of a few frames would count, and a copy that starts later has none of it.
         let frames = (f64::from(track.duration_secs) * FRAMES_PER_SEC) as u32;
         let share = |s: u32| f64::from(frames.saturating_sub(s * SLICE).clamp(1, SLICE)) / f64::from(SLICE);
         let (present, heard) = (slices(&mut track.peaks.iter().map(|p| p.t)), slices(heard));
-        let full: Vec<u32> = present
-            .iter()
-            .filter(|(s, n)| **n as f64 >= ALIGN_SLICE_PEAKS as f64 * share(**s))
-            .map(|(s, _)| *s)
-            .collect();
+        let full: Vec<u32> = present.iter().filter(|(_, n)| **n >= ALIGN_SLICE_PEAKS).map(|(s, _)| *s).collect();
         let heard = full
             .iter()
             .filter(|s| heard.get(s).is_some_and(|n| *n as f64 >= f64::from(SLICE_VOTES) * share(**s)))
