@@ -648,3 +648,47 @@ fn gc_removes_nothing_when_a_reachable_manifest_is_garbled() {
     assert_eq!(store.snapshot_ids().unwrap().len(), 5, "every snapshot is kept");
     assert!(store.has_object(&h));
 }
+
+/// Any number making the store at once (threads let go together), in a folder that's missing,
+/// empty or holding only what locallibrary keeps beside a store, all open the same one: one
+/// made it and the rest found it. A folder holding anything else is refused by each of them and
+/// left as it was.
+#[hegel::test(test_cases = 50)]
+fn making_the_store_at_once_makes_one(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("store");
+    match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => {}
+        1 => fs::create_dir(&root).unwrap(),
+        2 => {
+            fs::create_dir_all(root.join("cache")).unwrap();
+            fs::write(root.join("tui.json"), "{}").unwrap();
+        }
+        _ => {
+            fs::create_dir(&root).unwrap();
+            fs::write(root.join("notes.txt"), "mine").unwrap();
+        }
+    }
+    let before: BTreeSet<_> = fs::read_dir(&root).into_iter().flatten().map(|e| e.unwrap().file_name()).collect();
+    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(8));
+    let start = std::sync::Barrier::new(n);
+    let made: Vec<Result<Uuid, Error>> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..n)
+            .map(|_| {
+                s.spawn(|| {
+                    start.wait();
+                    Store::open_or_init(&root).and_then(|store| store.id())
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    if before.contains(std::ffi::OsStr::new("notes.txt")) {
+        assert!(made.iter().all(|m| matches!(m, Err(Error::Invalid(_)))), "{made:?}");
+        let after: BTreeSet<_> = fs::read_dir(&root).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(after, before);
+        return;
+    }
+    let ids: BTreeSet<Uuid> = made.into_iter().map(|m| m.unwrap()).collect();
+    assert_eq!(ids, BTreeSet::from([Store::open(&root).unwrap().id().unwrap()]));
+}

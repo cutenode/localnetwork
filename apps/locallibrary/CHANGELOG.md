@@ -523,6 +523,26 @@ their old names.
   decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
   real startup disk name.
 
+### Fixed
+
+- A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.
+- A plugin's log keeps a backslash that follows a window title ended by BEL.
+- Two making the store at once (the sidecar's workers, or a CLI beside them) make one store:
+  neither is refused as "not empty", and both get the same store id.
+- `profile`'s cue statistics count hot cues D to H on tracks that weren't played in a set too.
+- The cover art plugin's fetch, given a playlist, works on it rather than on the tracks selected.
+- Matching two tracks by their sound hears the last few seconds of a copy a few milliseconds
+  late too, so a copy of a short track isn't missed as the same recording.
+- A drive edited back to a state it held before (a rating set, then put back) is newer than a
+  drive synced from it in between, where `compare` and `sync` called them diverged. A drive that
+  changed on its own from either state has diverged from it, where `sync` would have copied that
+  drive over the edit and `pull` saved it on top.
+- A store that can't be written (a read-only disk, or folders this user can't write to) is what
+  the error names. `pull` named a folder inside it, which depended on the file it was saving. An
+  error making a temp file names its folder, without the random name it tried.
+- When two mounted drives go by one name (a drive and a copy of it), `setup`'s questions say
+  which folder each is about.
+
 ### Security
 
 - Sign-in acts only on the browser redirect that carries its own `state`: other requests to its

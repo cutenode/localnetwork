@@ -1564,7 +1564,8 @@ fn settings_are_kept_as_the_form_has_them(tc: TestCase) {
         return;
     }
     press(&mut app, "\n");
-    let number = speed.parse::<f64>().ok();
+    // A whole number is kept whole (2, not 2.0).
+    let number = speed.parse::<i64>().map(|n| json!(n)).or_else(|_| speed.parse::<f64>().map(|f| json!(f))).ok();
     if !speed.is_empty() && number.is_none() {
         let f = the_form(&app);
         let why = format!("speed takes a number, not {speed:?}");
@@ -1581,7 +1582,7 @@ fn settings_are_kept_as_the_form_has_them(tc: TestCase) {
         given.insert("greeting".into(), json!(greeting));
     }
     if let Some(n) = number {
-        given.insert("speed".into(), json!(n));
+        given.insert("speed".into(), n);
     }
     given.insert("loud".into(), json!(loud));
     if mood > 0 {

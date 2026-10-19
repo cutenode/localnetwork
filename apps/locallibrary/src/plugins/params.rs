@@ -53,10 +53,14 @@ fn a(kind: &str) -> &'static str {
 }
 
 /// `raw` as a JSON value of the type `kind` (`string`, `number`, `integer`), if it is one. A
-/// whole number may be written as a track id is shown, `#812`.
+/// whole number may be written as a track id is shown, `#812`. A number written without a
+/// point stays whole, so `3` reads back as `3`, not `3.0`.
 fn typed(kind: &str, raw: &str) -> Option<Value> {
     match kind {
-        "number" => raw.parse::<f64>().ok().and_then(serde_json::Number::from_f64).map(Value::Number),
+        "number" => match raw.parse::<i64>() {
+            Ok(n) => Some(Value::from(n)),
+            Err(_) => raw.parse::<f64>().ok().and_then(serde_json::Number::from_f64).map(Value::Number),
+        },
         "integer" => raw.strip_prefix('#').unwrap_or(raw).parse::<i64>().ok().map(Value::from),
         _ => Some(Value::from(raw)),
     }

@@ -50,6 +50,19 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// A temp file `builder` makes in `dir`, an error said of `dir`: tempfile adds the random name it
+/// tried (`... at path "<dir>/.locallibrary-tmp-x1Yz"`), which differs each time and means nothing
+/// to a person.
+pub fn temp_in(builder: &tempfile::Builder, dir: &Path) -> Result<tempfile::NamedTempFile> {
+    builder.tempfile_in(dir).map_err(|e| {
+        let source = match e.to_string().split_once(" at path ") {
+            Some((cause, _)) => std::io::Error::new(e.kind(), cause),
+            None => e,
+        };
+        Error::Io { path: dir.to_path_buf(), source }
+    })
+}
+
 /// A temp file in `dir` (named to end in `suffix`) to write `path` through and rename over it:
 /// made as a new file is (0666 less the umask), with `path`'s permissions when it's there.
 /// tempfile's own 0600 would leave an export, or a file it replaces, readable by its owner only.
@@ -58,7 +71,7 @@ pub fn temp_for(dir: &Path, path: &Path, suffix: &str) -> Result<tempfile::Named
     builder.prefix(paths::TEMP_PREFIX).suffix(suffix);
     #[cfg(unix)]
     builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
-    let tmp = builder.tempfile_in(dir).at(dir)?;
+    let tmp = temp_in(&builder, dir)?;
     // Best effort: FAT keeps none (Linux refuses to set them there). Not on Windows, where a
     // read-only temp file couldn't be cleaned up.
     #[cfg(unix)]
@@ -190,7 +203,7 @@ fn stage(path: &Path, bytes: &[u8], private: bool) -> Result<tempfile::NamedTemp
     let dir = path.parent().ok_or_else(|| Error::invalid(format!("{} has no parent", path.display())))?;
     fs::create_dir_all(dir).at(dir)?;
     let mut tmp = match private {
-        true => tempfile::Builder::new().prefix(paths::TEMP_PREFIX).tempfile_in(dir).at(dir)?,
+        true => temp_in(tempfile::Builder::new().prefix(paths::TEMP_PREFIX), dir)?,
         false => temp_for(dir, path, "")?,
     };
     tmp.write_all(bytes).at(tmp.path())?;

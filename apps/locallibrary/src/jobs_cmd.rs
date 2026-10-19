@@ -524,6 +524,16 @@ fn label(d: &DeviceInfo) -> String {
     d.name.clone().unwrap_or_else(|| d.volume_name.clone())
 }
 
+/// `d`'s label, with its folder when another of `among` goes by the same one (a drive and a copy
+/// of it are both Club), so a question says which drive it means.
+fn label_among(d: &DeviceInfo, among: &[DeviceInfo]) -> String {
+    let name = label(d);
+    match among.iter().any(|o| o.root != d.root && label(o) == name) {
+        true => format!("{name} ({})", d.root.display()),
+        false => name,
+    }
+}
+
 /// A role as `drive role` takes it.
 fn role_arg(s: &str) -> Result<String> {
     match Role::parse(s) {
@@ -564,23 +574,24 @@ fn choose_drives(
     };
     let several = mounted.len() > 1;
     let mut out = Vec::new();
-    for d in mounted {
+    for d in &mounted {
+        let label = |d| label_among(d, &mounted);
         let other = d.library_id.filter(|id| target.as_ref().is_none_or(|t| t.id != *id));
         let other = other.and_then(|id| libraries.iter().find(|l| l.id == id));
         let take = match other {
             None if !several => true,
-            None => s.ask_yes(&format!("Is {} a copy of your library?", label(&d)), true)?,
+            None => s.ask_yes(&format!("Is {} a copy of your library?", label(d)), true)?,
             Some(l) => s.ask_yes(
-                &format!("Is {} a copy of your library? It's a drive of library {:?}", label(&d), l.name),
+                &format!("Is {} a copy of your library? It's a drive of library {:?}", label(d), l.name),
                 false,
             )?,
         };
         match (take, other) {
-            (true, _) => out.push(d),
+            (true, _) => out.push(d.clone()),
             (false, Some(l)) => {
-                s.note(format!("left out {}, a drive of library {:?} (name it to set it up)", label(&d), l.name))
+                s.note(format!("left out {}, a drive of library {:?} (name it to set it up)", label(d), l.name))
             }
-            (false, None) => s.note(format!("left out {}", label(&d))),
+            (false, None) => s.note(format!("left out {}", label(d))),
         }
     }
     if out.is_empty() {
@@ -738,7 +749,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         None if drives.len() == 1 || !asking => &drives[0],
         None => {
             for (i, d) in drives.iter().enumerate() {
-                say!("  {}. {}", i + 1, label(d));
+                say!("  {}. {}", i + 1, label_among(d, &drives));
             }
             let mut pick = None;
             while pick.is_none() {
@@ -755,7 +766,7 @@ pub fn setup(args: SetupArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         let had = d.id.and_then(|id| registry.get(&id)).and_then(|r| r.role).filter(|r| *r != Role::Primary);
         let default = roles.get(&d.root).cloned().unwrap_or_else(|| had.map_or("backup", Role::name).to_string());
         let role = loop {
-            let a = s.ask(&format!("Role for {} (backup, set or archive)", label(d)), &default)?;
+            let a = s.ask(&format!("Role for {} (backup, set or archive)", label_among(d, &drives)), &default)?;
             match role_arg(&a) {
                 Ok(r) => break r,
                 Err(e) if s.asking => output::warn(e),

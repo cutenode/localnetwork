@@ -456,7 +456,7 @@ pub(super) fn pull_next(store: &Store, lib: &LibraryRecord, d: &Device, ctx: &Ct
         None => Relation::RightNewer,
     };
     // Newer by the evidence but not by its lineage: a plain pull would refuse it.
-    let descends = head.as_ref().is_none_or(|h| d.state().is_some_and(|s| s.knows(&h.fingerprint)));
+    let descends = head.as_ref().is_none_or(|h| d.state().is_some_and(|s| s.knows(&h.fingerprint, &h.lineage)));
     let relation = if relation == Relation::RightNewer && !descends { Relation::Undetermined } else { relation };
     let saved_already = |d: &Device| {
         (d.state().and_then(|s| s.head()))

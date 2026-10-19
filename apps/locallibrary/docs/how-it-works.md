@@ -163,8 +163,10 @@ apps/locallibrary/docs/rpc/ the sidecar's contract: schema.json and locallibrary
   counters SQLite bumps on every write. Lineage and snapshots recorded before that are still
   matched through the earlier hash, so nothing shows as changed.
 - **Lineage.** Each drive's `.locallibrary/state.json` keeps the fingerprints it has held.
-  Syncing A to B hands B A's history. "B's current state appears in A's history" means B is
-  behind, and "both moved on from a shared state" means they diverged.
+  Syncing A to B hands B A's history. "B's current state appears in A's history, after every
+  other state the two share" means B is behind, and "both moved on from a shared state" means
+  they diverged. (A drive edited back to what it was holds a state other drives' histories have
+  from before; that doesn't put it behind them.)
 - **Libraries and clones.** The drives holding one library are its clones (the library a drive
   holds is in its `.locallibrary/state.json` and the store's registry). A command given a
   library's name works on its lead clone: the newest of its clones plugged in, as `sync` finds it

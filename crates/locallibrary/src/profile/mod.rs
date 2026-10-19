@@ -709,16 +709,15 @@ impl<'a> Builder<'a> {
             let origin = rec.origin.expect("filtered");
             ctx.emit(Event::Item { phase: Phase::Scan, path: rec.track.display_name(), bytes: 0 });
             let dat = paths::key(&rec.track.analyze_path);
-            // Phrases live in .EXT; only played tracks need them. Cues are in both.
-            let ext = if played.contains(&i) {
-                dat.strip_suffix(".DAT").and_then(|s| self.files.read(origin, &format!("{s}.EXT")))
-            } else {
-                None
-            };
+            // Every track's .EXT is read: it holds all of a track's hot cues, where the .DAT
+            // holds A to C only (see `anlz::write`). Its phrases only played tracks need.
+            let ext = dat.strip_suffix(".DAT").and_then(|s| self.files.read(origin, &format!("{s}.EXT")));
             let mut mood = None;
             let mut cue_list = None;
             if let Some(bytes) = &ext {
-                mood = anlz::song_structure(bytes).ok().flatten().map(|s| s.mood);
+                if played.contains(&i) {
+                    mood = anlz::song_structure(bytes).ok().flatten().map(|s| s.mood);
+                }
                 cue_list = anlz::cues(bytes).ok().filter(|c| !c.is_empty());
             }
             if cue_list.is_none() {

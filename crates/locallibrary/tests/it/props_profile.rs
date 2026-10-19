@@ -858,7 +858,6 @@ fn cue_statistics_count_the_cues_the_analysis_files_hold(tc: TestCase) {
 
 /// The same for hot cues in slots D to H, which a `.EXT` file holds alone.
 #[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
-#[ignore = "bug: profile::Builder::read_analysis reads a collection track's cues from its .DAT, which holds hot cues A-C only"]
 fn cue_statistics_count_hot_cues_past_c(tc: TestCase) {
     cue_statistics_after_cue_edits(&tc, 7);
 }

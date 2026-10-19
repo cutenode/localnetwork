@@ -952,7 +952,7 @@ pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
         half.iter().map(|p| (p.1 as f64 - m).powi(2)).sum::<f64>() / half.len().max(1).pow(2) as f64
     };
     let (first, second) = shifts.split_at(shifts.len() / 2);
-    let coverage = |peaks: &[Peak], heard: &mut dyn Iterator<Item = u32>| {
+    let coverage = |track: &TrackPrint, heard: &mut dyn Iterator<Item = u32>| {
         let slices = |frames: &mut dyn Iterator<Item = u32>| {
             let mut n: FxHashMap<u32, usize> = FxHashMap::default();
             for t in frames {
@@ -960,9 +960,18 @@ pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
             }
             n
         };
-        let (present, heard) = (slices(&mut peaks.iter().map(|p| p.t)), slices(heard));
+        // The last slice is cut short where the track ends: one with a whole slice's peaks needs
+        // only its share of the votes. Held to a whole one's, a copy late by half a frame (which
+        // keeps under half its pairs) wasn't heard in its last couple of seconds. Its peaks aren't
+        // scaled: a tail of a few frames would count, and a copy that starts later has none of it.
+        let frames = (f64::from(track.duration_secs) * FRAMES_PER_SEC) as u32;
+        let share = |s: u32| f64::from(frames.saturating_sub(s * SLICE).clamp(1, SLICE)) / f64::from(SLICE);
+        let (present, heard) = (slices(&mut track.peaks.iter().map(|p| p.t)), slices(heard));
         let full: Vec<u32> = present.iter().filter(|(_, n)| **n >= ALIGN_SLICE_PEAKS).map(|(s, _)| *s).collect();
-        let heard = full.iter().filter(|s| heard.get(s).is_some_and(|n| *n >= SLICE_VOTES as usize)).count();
+        let heard = full
+            .iter()
+            .filter(|s| heard.get(s).is_some_and(|n| *n as f64 >= f64::from(SLICE_VOTES) * share(**s)))
+            .count();
         heard as f64 / full.len().max(1) as f64
     };
     Some(Alignment {
@@ -972,8 +981,8 @@ pub fn align(a: &TrackPrint, b: &TrackPrint) -> Option<Alignment> {
         pairs: kept.len(),
         shifts: shifts.len(),
         coverage: (
-            coverage(&a.peaks, &mut kept.iter().map(|p| p.0)),
-            coverage(&b.peaks, &mut kept.iter().map(|p| (i64::from(p.0) + p.1).max(0) as u32)),
+            coverage(a, &mut kept.iter().map(|p| p.0)),
+            coverage(b, &mut kept.iter().map(|p| (i64::from(p.0) + p.1).max(0) as u32)),
         ),
     })
 }

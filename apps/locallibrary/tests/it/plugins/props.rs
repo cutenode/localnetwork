@@ -409,10 +409,18 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
 #[hegel::test_helper]
 fn typed_value(tc: &TestCase, s: &Value) -> (String, Value) {
     match s["type"].as_str().unwrap() {
-        "number" => {
-            let f = tc.draw(gs::floats::<f64>().min_value(-1e5).max_value(1e5).allow_nan(false));
-            (format!(" {f}"), json!(f))
-        }
+        // A whole number reads back as one, and one with a point as written (`{f:?}` writes
+        // 3.0 with its point).
+        "number" => match tc.draw(gs::booleans()) {
+            true => {
+                let n = tc.draw(gs::integers::<i64>().min_value(-100_000).max_value(100_000));
+                (format!(" {n}"), json!(n))
+            }
+            false => {
+                let f = tc.draw(gs::floats::<f64>().min_value(-1e5).max_value(1e5).allow_nan(false));
+                (format!(" {f:?}"), json!(f))
+            }
+        },
         "boolean" => {
             let (raw, b) = tc.draw(gs::sampled_from(
                 &[("yes", true), ("On", true), ("true", true), ("no", false), ("OFF", false), ("false", false)][..],
@@ -653,7 +661,8 @@ fn a_commands_flags_give_it_the_params_typed(tc: TestCase) {
         }
         if tc.draw(gs::booleans()) {
             let f = tc.draw(gs::floats::<f64>().min_value(-1e3).max_value(1e3).allow_nan(false));
-            args.extend(flagged(if renamed { "by" } else { "ratio" }, &f.to_string()));
+            // With its point (`{f:?}`): a whole number reads back as one, not as this float.
+            args.extend(flagged(if renamed { "by" } else { "ratio" }, &format!("{f:?}")));
             expected.insert("ratio".into(), json!(f));
         }
         if tc.draw(gs::booleans()) {

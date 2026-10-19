@@ -660,7 +660,6 @@ fn input_that_cannot_be_read_ends_the_sidecar_with_an_error(tc: TestCase) {
 /// Requests that each need the store, sent at once to a sidecar that has none yet, all find it:
 /// whichever makes it, the others open the same one.
 #[hegel::test(test_cases = 10)]
-#[ignore = "bug: `Store::open_or_init` (crates/locallibrary/src/store.rs:324) races another request making the store and refuses it as \"not empty and is not an locallibrary store\""]
 fn requests_making_the_store_at_once_all_find_it(tc: TestCase) {
     let fx = Env::new();
     let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));

@@ -1208,6 +1208,71 @@ fn syncs_pulls_and_pushes_go_the_way_the_states_say(tc: TestCase) {
     hegel::stateful::machine(SyncMachine::new()).steps(8).run(tc);
 }
 
+/// The examples hegel found for `syncs_pulls_and_pushes_go_the_way_the_states_say` make their
+/// edits by hand: drive `i` takes `edit`.
+fn edit_drive(m: &SyncMachine, i: usize, edit: Edit) {
+    let req = api::EditRequest { drive: path(&m.roots[i]), edits: vec![edit], options: EditOptions::default() };
+    api::edit_plan(&req, &Ctx::silent()).unwrap().apply(Some(&m.store), &Ctx::silent()).unwrap();
+}
+
+/// Drive `i`'s first track rated `rating`.
+fn rate(m: &SyncMachine, i: usize, rating: u8) {
+    let tracks = TrackSelector { ids: vec![library(&m.roots[i]).tracks[0].id], ..Default::default() };
+    edit_drive(m, i, Edit::EditTracks { tracks, fields: TrackFields { rating: Some(rating), ..Default::default() } });
+}
+
+/// Drive `i` pulled into the library "Home" (made by it when `new_library`).
+fn pull_home(m: &SyncMachine, i: usize, new_library: bool) -> locallibrary::Result<locallibrary::sync::PullReport> {
+    let req =
+        api::PullRequest { drive: path(&m.roots[i]), library: Some("Home".into()), new_library, ..Default::default() };
+    api::pull(&m.store, &req, &Ctx::silent())
+}
+
+/// The first example hegel found for `syncs_pulls_and_pushes_go_the_way_the_states_say`: a track
+/// rated on Main, synced onto Backup, then rated back. Main is back to a state Backup's lineage
+/// holds from before the sync, but only Main moved on since, so it's the newer. Once rekordbox
+/// exports to Backup too, both moved on: they diverged, and Backup isn't pulled on top of Main's.
+#[test]
+fn a_drive_edited_back_to_an_earlier_state_moved_on_from_the_other() {
+    let m = SyncMachine::new();
+    let (main, backup) = (&m.roots[0], &m.roots[1]);
+    let relation = || api::compare(&api::ComparePair { left: path(main), right: path(backup) }, &Ctx::silent());
+    let was = library(main).tracks[0].rating;
+    rate(&m, 0, was % 5 + 1);
+    api::sync_apply(Some(&m.store), &common::sync_pair(main, backup), &Ctx::silent()).unwrap();
+    rate(&m, 0, was);
+    assert_eq!(fingerprint(main), m.fingerprints[0], "Main holds what it did before the sync");
+    assert_eq!(relation().unwrap().relation, Relation::LeftNewer);
+    let all = common::sync_many(&m.roots.iter().map(PathBuf::as_path).collect::<Vec<_>>());
+    assert_eq!(api::sync_many_plan(&all, &Ctx::silent()).unwrap().source, *main);
+
+    common::export_new_track(backup, "Exported", "Track 1");
+    assert_eq!(relation().unwrap().relation, Relation::Diverged);
+    pull_home(&m, 0, true).unwrap();
+    let e = pull_home(&m, 1, false).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::DivergedFromStore), "{e}");
+}
+
+/// The second: Spare, synced from Backup, gets a playlist; meanwhile Backup's track is rated,
+/// synced onto Main and rated back there. Main's state, pulled, is the one Spare's lineage starts
+/// with, but Spare changed it before Main went through the rating: Spare isn't pulled on top.
+#[test]
+fn a_drive_changed_before_another_went_and_came_back_isnt_pulled_on_top_of_it() {
+    let m = SyncMachine::new();
+    let (main, backup, spare) = (&m.roots[0], &m.roots[1], &m.roots[2]);
+    api::sync_apply(Some(&m.store), &common::sync_pair(backup, spare), &Ctx::silent()).unwrap();
+    let was = library(main).tracks[0].rating;
+    rate(&m, 1, was % 5 + 1);
+    api::sync_apply(Some(&m.store), &common::sync_pair(main, backup), &Ctx::silent()).unwrap();
+    rate(&m, 0, was);
+    edit_drive(&m, 2, Edit::CreatePlaylist { path: "Friday".into(), folder: false });
+    pull_home(&m, 0, true).unwrap();
+    let e = pull_home(&m, 2, false).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::DivergedFromStore), "{e}");
+    let pair = api::ComparePair { left: path(main), right: path(spare) };
+    assert_eq!(api::compare(&pair, &Ctx::silent()).unwrap().relation, Relation::Diverged);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Finding drives
 // ---------------------------------------------------------------------------------------------

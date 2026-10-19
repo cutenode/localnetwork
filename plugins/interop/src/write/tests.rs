@@ -100,7 +100,7 @@ fn audio_that_cant_be_copied_or_tagged_fails_naming_it() {
     assert!(e.message.starts_with(&at("album.mp3").display().to_string()), "{}", e.message);
 }
 
-/// A folder that can't be written to fails naming it.
+/// A folder that can't be written to fails naming it, without the temp file it tried.
 #[cfg(unix)]
 #[test]
 fn a_folder_that_cant_be_written_to_fails_naming_it() {
@@ -114,6 +114,7 @@ fn a_folder_that_cant_be_written_to_fails_naming_it() {
     let e = write(&export, dir.path(), &Ctx::silent()).unwrap_err();
     assert_eq!(e.kind(), Some("io"));
     assert!(e.message.starts_with(&locked.display().to_string()), "{}", e.message);
+    assert!(!e.message.contains(" at path "), "{}", e.message);
 }
 
 /// What a drawn file is made from: bytes, or a copy of audio that's there, isn't, is a folder, or

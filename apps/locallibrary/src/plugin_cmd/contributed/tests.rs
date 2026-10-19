@@ -283,7 +283,8 @@ fn param(tc: &hegel::TestCase, i: usize, positional: &mut bool) -> Param {
         },
         1 => {
             let f = tc.draw(gs::floats::<f64>().min_value(-1e6).max_value(1e6).allow_nan(false));
-            (vec![f.to_string()], Some(json!(f)))
+            // With its point (`{f:?}`): a whole number reads back as one, not as this float.
+            (vec![format!("{f:?}")], Some(json!(f)))
         }
         2 => match &choices {
             Some(c) => {
@@ -477,7 +478,8 @@ fn options_drawn_from_a_schema_are_typed_or_refused(tc: hegel::TestCase) {
             }
             "number" => {
                 let f = tc.draw(gs::floats::<f64>().min_value(-1e3).max_value(1e3).allow_nan(false));
-                (f.to_string(), json!(f))
+                // With its point, as above.
+                (format!("{f:?}"), json!(f))
             }
             "boolean" => {
                 let (raw, b) =
