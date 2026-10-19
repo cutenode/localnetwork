@@ -439,19 +439,21 @@ impl Store {
         {
             return Ok((h, false));
         }
-        let tmp_dir = self.root.join("objects").join("tmp");
-        fs::create_dir_all(&tmp_dir).at(&tmp_dir)?;
-        let mut tmp = tempfile::Builder::new().prefix("import-").tempfile_in(&tmp_dir).at(&tmp_dir)?;
-        let tmp_path = tmp.path().to_path_buf();
-        let (h, size) = hash::copy_hashing(src, tmp.as_file_mut(), &tmp_path, ctx, Phase::Copy)?;
-        let dst = self.object_path(&h);
-        if self.holds(&h, size) {
-            return Ok((h, false));
-        }
-        let parent = dst.parent().expect("object path has parent");
-        fs::create_dir_all(parent).at(parent)?;
-        tmp.persist(&dst).map_err(|e| Error::Io { path: dst.clone(), source: e.error })?;
-        Ok((h, true))
+        self.writing(|| {
+            let tmp_dir = self.root.join("objects").join("tmp");
+            fs::create_dir_all(&tmp_dir).at(&tmp_dir)?;
+            let mut tmp = fsutil::temp_in(tempfile::Builder::new().prefix("import-"), &tmp_dir)?;
+            let tmp_path = tmp.path().to_path_buf();
+            let (h, size) = hash::copy_hashing(src, tmp.as_file_mut(), &tmp_path, ctx, Phase::Copy)?;
+            let dst = self.object_path(&h);
+            if self.holds(&h, size) {
+                return Ok((h, false));
+            }
+            let parent = dst.parent().expect("object path has parent");
+            fs::create_dir_all(parent).at(parent)?;
+            tmp.persist(&dst).map_err(|e| Error::Io { path: dst.clone(), source: e.error })?;
+            Ok((h, true))
+        })
     }
 
     /// Make imported objects durable.
@@ -462,9 +464,30 @@ impl Store {
     pub fn import_bytes(&self, bytes: &[u8]) -> Result<Hash> {
         let h = Hash::of(bytes);
         if !self.holds(&h, bytes.len() as u64) {
-            fsutil::write_atomic(&self.object_path(&h), bytes)?;
+            self.writing(|| fsutil::write_atomic(&self.object_path(&h), bytes))?;
         }
         Ok(h)
+    }
+
+    /// `write`, with a write the store refuses (a read-only folder, or one this user can't write)
+    /// said of the store, not of the file or folder in it: which one fails first follows the new
+    /// objects' hashes (a fan-out folder in `objects`, or `snapshots` when that one's there), and
+    /// a drive's encrypted `exportLibrary.db` hashes differently each time it's written.
+    fn writing<T>(&self, write: impl FnOnce() -> Result<T>) -> Result<T> {
+        write().map_err(|e| self.refusing(e))
+    }
+
+    /// `e`, said of the store if it's a write the store refused (see [`Store::writing`]).
+    pub(crate) fn refusing(&self, e: Error) -> Error {
+        use std::io::ErrorKind::{PermissionDenied, ReadOnlyFilesystem};
+        match e {
+            Error::Io { path, source }
+                if path.starts_with(&self.root) && matches!(source.kind(), PermissionDenied | ReadOnlyFilesystem) =>
+            {
+                Error::Io { path: self.root.clone(), source }
+            }
+            e => e,
+        }
     }
 
     // -- libraries --------------------------------------------------------------------------
@@ -575,7 +598,7 @@ impl Store {
             }
         }
         snap.id = snap.compute_id();
-        fsutil::write_json_atomic(&self.snapshot_path(&snap.id), &snap)?;
+        self.writing(|| fsutil::write_json_atomic(&self.snapshot_path(&snap.id), &snap))?;
         Ok(snap)
     }
 

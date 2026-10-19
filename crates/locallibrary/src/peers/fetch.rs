@@ -11,6 +11,7 @@ use uuid::Uuid;
 use super::protocol::{self, ALPN, Catalog, JSON_LIMIT, OK, Request, ask};
 use super::{FetchOptions, FetchReport, FetchedLibrary, LibraryOutcome, ShareCode, endpoint, runtime, short};
 use crate::error::IoContext;
+use crate::fsutil;
 use crate::hash::Hash;
 use crate::progress::{Ctx, Event, Phase};
 use crate::store::{LibraryRecord, Snapshot, Store};
@@ -128,7 +129,9 @@ async fn fetch_from(
             && let Some((hash, size)) = queue.next()
         {
             let (conn, store) = (conn.clone(), store.clone());
-            fetching.spawn(async move { get_object(&conn, &store, hash, size).await.map(|_| (hash, size)) });
+            fetching.spawn(async move {
+                get_object(&conn, &store, hash, size).await.map(|_| (hash, size)).map_err(|e| store.refusing(e))
+            });
         }
         let Some(done) = fetching.join_next().await else { break };
         // What was copied before a failure is flushed, so the next fetch can trust it.
@@ -194,7 +197,7 @@ async fn get_object(conn: &Connection, store: &Store, hash: Hash, size: u64) -> 
     }
     let dir = store.root().join("objects").join("tmp");
     std::fs::create_dir_all(&dir).at(&dir)?;
-    let mut tmp = tempfile::Builder::new().prefix("fetch-").tempfile_in(&dir).at(&dir)?;
+    let mut tmp = fsutil::temp_in(tempfile::Builder::new().prefix("fetch-"), &dir)?;
     let mut hasher = blake3::Hasher::new();
     let (mut n, mut buf) = (0u64, vec![0u8; 1 << 16]);
     while let Some(read) = recv.read(&mut buf).await.map_err(protocol::net)? {

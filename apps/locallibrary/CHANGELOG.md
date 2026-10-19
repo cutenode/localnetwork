@@ -537,6 +537,9 @@ their old names.
   drive synced from it in between, where `compare` and `sync` called them diverged. A drive that
   changed on its own from either state has diverged from it, where `sync` would have copied that
   drive over the edit and `pull` saved it on top.
+- A store that can't be written (a read-only disk, or folders this user can't write to) is what
+  the error names. `pull` named a folder inside it, which depended on the file it was saving. An
+  error making a temp file names its folder, without the random name it tried.
 
 ### Security
 

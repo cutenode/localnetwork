@@ -10,7 +10,9 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use serde_json::Value;
 
-use crate::props_cli_human::{FLAGS, State, TRACK_1, agree_runs, as_in, build, side_by_side, twin, universe, write};
+use crate::props_cli_human::{
+    FLAGS, State, TRACK_1, agree_runs, as_in, build, picked, side_by_side, twin, universe, write,
+};
 use crate::support::{Env, Run, path, recording};
 
 /// A tenth of a second of silence, as a WAV file.
@@ -709,6 +711,10 @@ fn store_changes_say_what_their_json_says(tc: TestCase) {
 #[hegel::explicit_test_case(flags = vec![false; FLAGS], order = (0..JOBS_CHANGES.len()).rev().collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 0).collect::<Vec<bool>>(), order = (0..JOBS_CHANGES.len()).collect::<Vec<usize>>())]
 #[hegel::explicit_test_case(flags = (0..FLAGS).map(|i| i % 2 == 1).collect::<Vec<bool>>(), order = (0..JOBS_CHANGES.len()).rev().collect::<Vec<usize>>())]
+// The example hegel found: `refresh A` with the store read-only, after an edit whose new
+// `exportLibrary.db` (encrypted afresh each time it's written) went in a fan-out folder of its own
+// in each copy.
+#[hegel::explicit_test_case(flags = picked(&[1, 2, 3, 5, 7, 8, 9, 10, 11, 12, 18, 20, 21, 24, 25]), order = vec![15usize, 7, 2, 12, 28, 5, 8, 4, 3, 0, 25, 14, 16, 17, 19, 29, 32, 6, 1, 22, 11, 26, 13, 31, 20, 30, 10, 21, 18, 27, 34, 24, 9, 33, 23])]
 fn jobs_say_what_their_json_says(tc: TestCase) {
     let flags = tc.draw(gs::vecs(gs::booleans()).min_size(FLAGS).max_size(FLAGS));
     let order = tc.draw(gs::permutations((0..JOBS_CHANGES.len()).collect::<Vec<usize>>()));
