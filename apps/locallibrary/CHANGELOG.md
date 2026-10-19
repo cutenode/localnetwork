@@ -530,6 +530,7 @@ their old names.
 - Two making the store at once (the sidecar's workers, or a CLI beside them) make one store:
   neither is refused as "not empty", and both get the same store id.
 - `profile`'s cue statistics count hot cues D to H on tracks that weren't played in a set too.
+- The cover art plugin's fetch, given a playlist, works on it rather than on the tracks selected.
 
 ### Security
 

@@ -127,10 +127,14 @@ impl Plugin for Coverart {
         let Fetch { tracks, playlist, replace } = params::<Option<Fetch>>(req.params)?.unwrap_or_default();
         let context = req.context;
         let drive = context.drive.as_deref().ok_or_else(|| RpcError::invalid_params("say which drive"))?;
-        let ids = if tracks.is_empty() { &context.tracks } else { &tracks };
-        let playlist = playlist.or(context.playlist.clone());
+        // What the params name wins over what's selected: a form fills `tracks` in with the
+        // selection, so a playlist typed in with `tracks` emptied is what's wanted.
+        let (ids, playlist) = match tracks.is_empty() && playlist.is_none() {
+            true => (context.tracks.clone(), context.playlist.clone()),
+            false => (tracks, playlist),
+        };
         let mut warnings = Vec::new();
-        let chosen = chosen(host, drive, ids, playlist.as_deref(), &mut warnings)?;
+        let chosen = chosen(host, drive, &ids, playlist.as_deref(), &mut warnings)?;
         // Tracks without artwork, as locallibrary's `art auto` picks them. It also takes tracks
         // whose image file is gone from the drive, which a plugin can't see.
         let albums = albums(chosen.into_iter().filter(|t| replace || t.artwork_path.is_none()), &mut warnings);

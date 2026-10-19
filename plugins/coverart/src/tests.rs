@@ -467,12 +467,13 @@ fn it_takes_the_tracks_or_playlist_chosen() {
     assert_eq!(albums(session.plan(json!({ "playlist": "Warmup" })).unwrap()), named(&[2, 3, 4]));
     let context = json!({ "drive": "USB", "playlist": "Peak", "tracks": [3] });
     assert_eq!(albums(session.plan_with(json!({}), context.clone()).unwrap()), named(&[3]));
-    assert_eq!(albums(session.plan_with(json!({ "playlist": "Warmup" }), context.clone()).unwrap()), named(&[3]));
+    // A playlist named in the params wins over the selection (a form fills `tracks` in with it).
+    assert_eq!(albums(session.plan_with(json!({ "playlist": "Warmup" }), context.clone()).unwrap()), named(&[2, 3, 4]));
     let context = json!({ "drive": "USB", "playlist": "Peak" });
     assert_eq!(albums(session.plan_with(json!({}), context).unwrap()), named(&[5]));
     let plan = session.plan(json!({ "playlist": "Nowhere" })).unwrap_err();
     assert_eq!(kind(&plan), ("not_found", "not found: playlist \"Nowhere\""));
-    assert_eq!(server.searches().len(), 1 + 3 + 1 + 1 + 1);
+    assert_eq!(server.searches().len(), 1 + 3 + 1 + 3 + 1);
 
     let calls = session.stop();
     assert_eq!(calls[0], ("tracks.get".to_string(), json!({ "drive": "USB", "ids": [1, 9] })));
@@ -1347,10 +1348,10 @@ fn choice<'d>(drawn: &'d [Drawn], asked: &Asked) -> (Result<Vec<&'d Drawn>, Refu
         return (Err(("invalid_params", "invalid params: say which drive".into())), Vec::new(), Vec::new());
     };
     let not_on_drive = || Err(("not_found", format!("not found: drive {drive:?}")));
-    let (mut ids, selected) = (ids_in(&params["tracks"]), ids_in(&context["tracks"]));
-    if ids.is_empty() {
-        ids = selected;
-    }
+    // The tracks or playlist the params name, else the selection or the playlist open.
+    let named = !ids_in(&params["tracks"]).is_empty() || params["playlist"].is_string();
+    let chosen = if named { params } else { context };
+    let ids = ids_in(&chosen["tracks"]);
     if !ids.is_empty() {
         let read = vec![("tracks.get".to_string(), json!({ "drive": drive, "ids": ids }))];
         if drive != "USB" {
@@ -1360,7 +1361,7 @@ fn choice<'d>(drawn: &'d [Drawn], asked: &Asked) -> (Result<Vec<&'d Drawn>, Refu
         let warned = missing.map(|id| Warned::Exactly(format!("track #{id} isn't on the drive"))).collect();
         return (Ok(ids.iter().filter_map(by_id).collect()), warned, read);
     }
-    let playlist = params["playlist"].as_str().or(context["playlist"].as_str());
+    let playlist = chosen["playlist"].as_str();
     let page = |offset: usize| {
         let mut query = json!({ "drive": drive, "offset": offset });
         if let Some(name) = playlist {
