@@ -3965,6 +3965,7 @@ name = "locallibrary-plugin-coverart"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "hegeltest",
  "image",
  "indexmap",
  "loclib-model",
@@ -3981,6 +3982,7 @@ version = "0.1.0"
 dependencies = [
  "dunce",
  "fs4",
+ "hegeltest",
  "loclib-interop",
  "loclib-model",
  "loclib-plugin",
@@ -4009,6 +4011,7 @@ dependencies = [
 name = "locallibrary-plugin-tracklist"
 version = "0.1.0"
 dependencies = [
+ "hegeltest",
  "indexmap",
  "loclib-model",
  "loclib-plugin",
@@ -4123,6 +4126,7 @@ dependencies = [
 name = "loclib-plugin"
 version = "0.1.0"
 dependencies = [
+ "hegeltest",
  "indexmap",
  "jsonschema",
  "loclib-progress",

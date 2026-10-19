@@ -146,3 +146,409 @@ fn options_take_their_schemas_types() {
     );
     assert_eq!(given(&["level"]).unwrap_err().to_string(), "--option takes KEY=VALUE, not \"level\"");
 }
+
+/// A param a drawn schema has: its name and JSON Schema, what's typed for it (after the drive,
+/// for the positional one) and the value the command then gets, if it gets one.
+struct Param {
+    name: String,
+    schema: Value,
+    /// Given with this flag (`None`: positionally).
+    flag: Option<String>,
+    required: bool,
+    args: Vec<String>,
+    expected: Option<Value>,
+    /// Typed text its type can't hold, and what refusing it says.
+    wrong: Option<(String, String)>,
+}
+
+/// Text a person types for a param, with blanks around it now and then (which are dropped).
+#[hegel::test_helper]
+fn typed(tc: &hegel::TestCase, path: bool) -> String {
+    use hegel::generators as gs;
+    let text = match path {
+        true => tc.draw(gs::text().alphabet("abz._/").min_size(1).max_size(8)),
+        false => tc.draw(gs::text().alphabet("abcXYZ 09._é日").max_size(8)),
+    };
+    match tc.draw(gs::weighted_booleans(0.2)) {
+        true => format!(" {text} "),
+        false => text,
+    }
+}
+
+/// A flag and the value typed for it: `--flag=-5` for one that starts as a flag would, which
+/// the command line would otherwise read as one.
+fn flagged(flag: &str, raw: &str) -> Vec<String> {
+    match raw.starts_with('-') {
+        true => vec![format!("--{flag}={raw}")],
+        false => vec![format!("--{flag}"), raw.to_string()],
+    }
+}
+
+/// `raw` as the command gets a string param: trimmed, and made absolute when it's a file.
+fn string_of(raw: &str, path: bool) -> Value {
+    match path {
+        true => json!(std::path::absolute(raw.trim()).unwrap().display().to_string()),
+        false => json!(raw.trim()),
+    }
+}
+
+/// The `i`th param of a drawn schema, of a kind the command line takes as text (or one it
+/// doesn't, given only with `--params`), given or not. `positional` once one is.
+#[hegel::test_helper]
+fn param(tc: &hegel::TestCase, i: usize, positional: &mut bool) -> Param {
+    use hegel::generators as gs;
+    // Unique by their numbers: no two flags alike, and none the command has anyway.
+    let base = tc.draw(gs::from_regex("[a-z]{1,5}"));
+    let name = format!("{base}_{i}");
+    let kind = tc.draw(gs::integers::<u8>().max_value(9));
+    let given = tc.draw(gs::weighted_booleans(0.7));
+    let mut schema = match kind {
+        0 | 9 => json!({ "type": "string" }),
+        1 => json!({ "type": "number" }),
+        2 => json!({ "type": "integer" }),
+        3 => json!({ "type": "boolean" }),
+        4 => json!({ "type": "array", "items": { "type": "string" } }),
+        5 => json!({ "type": "array", "items": { "type": "integer" } }),
+        6 => json!({ "type": "object", "additionalProperties": { "type": "integer" } }),
+        7 => json!({ "type": "object", "additionalProperties": { "type": "string" } }),
+        _ => json!({ "type": "object", "additionalProperties": { "type": "object" } }),
+    };
+    let positional = match kind == 9 && !*positional {
+        true => {
+            *positional = true;
+            schema["x-cli"] = json!({ "positional": true });
+            true
+        }
+        false => false,
+    };
+    let flag = match !positional && tc.draw(gs::weighted_booleans(0.3)) {
+        true => {
+            let flag = format!("{base}-x{i}");
+            schema["x-cli"] = json!({ "flag": flag });
+            flag
+        }
+        false => name.replace('_', "-"),
+    };
+    let one_based = kind == 6 && tc.draw(gs::booleans());
+    if one_based {
+        schema["x-cli"]["one_based"] = json!(true);
+    }
+    let path = matches!(kind, 0 | 4) && tc.draw(gs::weighted_booleans(0.3));
+    if path {
+        schema["x-path"] = json!(true);
+    }
+    let choices: Option<Vec<String>> = match kind {
+        0 if !path && tc.draw(gs::weighted_booleans(0.3)) => {
+            Some(tc.draw(gs::vecs(gs::from_regex("[a-z]{1,4}")).min_size(1).max_size(3).unique(true)))
+        }
+        2 if tc.draw(gs::weighted_booleans(0.3)) => {
+            let n = tc.draw(gs::vecs(gs::integers::<i64>().min_value(-9).max_value(99)).min_size(1).max_size(3));
+            let mut n: Vec<i64> = n.into_iter().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+            n.sort();
+            schema["enum"] = json!(n);
+            Some(n.iter().map(i64::to_string).collect())
+        }
+        _ => None,
+    };
+    if kind == 0
+        && let Some(c) = &choices
+    {
+        schema["enum"] = json!(c);
+    }
+    let what = match positional {
+        true => name.to_uppercase(),
+        false => format!("--{flag}"),
+    };
+    let integer = |tc: &hegel::TestCase| {
+        let n = tc.draw(gs::integers::<i64>().min_value(-1000).max_value(1000));
+        let raw = match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => n.to_string(),
+            1 => format!("#{n}"),
+            _ => format!(" {n} "),
+        };
+        (raw, json!(n))
+    };
+    let (raws, expected): (Vec<String>, Option<Value>) = match kind {
+        _ if !given => (Vec::new(), None),
+        0 | 9 => match &choices {
+            Some(c) => {
+                let pick = tc.draw(gs::sampled_from(c.clone()));
+                (vec![pick.clone()], Some(json!(pick)))
+            }
+            None => {
+                let raw = typed(tc, path);
+                let value = string_of(&raw, path);
+                (vec![raw], Some(value))
+            }
+        },
+        1 => {
+            let f = tc.draw(gs::floats::<f64>().min_value(-1e6).max_value(1e6).allow_nan(false));
+            (vec![f.to_string()], Some(json!(f)))
+        }
+        2 => match &choices {
+            Some(c) => {
+                let pick = tc.draw(gs::sampled_from(c.clone()));
+                let n: i64 = pick.parse().unwrap();
+                (vec![pick], Some(json!(n)))
+            }
+            None => {
+                let (raw, n) = integer(tc);
+                (vec![raw], Some(n))
+            }
+        },
+        3 => (Vec::new(), Some(json!(true))),
+        4 => {
+            let raws: Vec<String> =
+                (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3))).map(|_| typed(tc, path)).collect();
+            let values = raws.iter().map(|r| string_of(r, path)).collect();
+            (raws, Some(Value::Array(values)))
+        }
+        5 => {
+            let drawn: Vec<(String, Value)> =
+                (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3))).map(|_| integer(tc)).collect();
+            let values = drawn.iter().map(|(_, v)| v.clone()).collect();
+            (drawn.into_iter().map(|(r, _)| r).collect(), Some(Value::Array(values)))
+        }
+        6 | 7 => {
+            let mut pairs = Map::new();
+            let mut raws = Vec::new();
+            for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+                let (key, typed_key) = match one_based {
+                    true => {
+                        let k = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
+                        ((k - 1).to_string(), format!(" {k}"))
+                    }
+                    false => {
+                        let k = tc.draw(gs::from_regex("[a-z]{1,3}"));
+                        (k.clone(), k)
+                    }
+                };
+                let (raw, value) = match kind {
+                    6 => integer(tc),
+                    _ => {
+                        let raw = typed(tc, false);
+                        let value = string_of(&raw, false);
+                        (raw, value)
+                    }
+                };
+                raws.push(format!("{typed_key}={raw}"));
+                pairs.insert(key, value);
+            }
+            (raws, Some(Value::Object(pairs)))
+        }
+        _ => (Vec::new(), None),
+    };
+    let args = match (positional, kind) {
+        (true, _) => raws,
+        (false, 3) if given => vec![format!("--{flag}")],
+        (false, _) => raws.iter().flat_map(|r| flagged(&flag, r)).collect(),
+    };
+    let wrong = match kind {
+        1 if tc.draw(gs::weighted_booleans(0.2)) => {
+            Some((format!("x{i}"), format!("{what} takes a number, not \"x{i}\"")))
+        }
+        2 | 5 if choices.is_none() && tc.draw(gs::weighted_booleans(0.2)) => {
+            Some((format!("{i}.5"), format!("{what} takes a whole number, not \"{i}.5\"")))
+        }
+        6 if tc.draw(gs::weighted_booleans(0.2)) => Some(match one_based {
+            true => ("0=1".into(), format!("{what}'s keys count from 1: \"0\" isn't one")),
+            false => (i.to_string(), format!("{what} takes KEY=VALUE, not \"{i}\"")),
+        }),
+        _ => None,
+    };
+    let required = kind != 3 && kind != 8 && tc.draw(gs::weighted_booleans(0.3));
+    Param { name, schema, flag: (!positional).then_some(flag), required, args, expected, wrong }
+}
+
+/// A command's flags, made from any schema of params the command line takes, give its params of
+/// their types: the last of a value given again, each of a list, each `KEY=VALUE` (keys counted
+/// from 1 when the schema says), files made absolute, over what `--params` gives. A required one
+/// left out, or a value its type can't hold, is refused naming its flag.
+#[hegel::test(test_cases = 200)]
+fn flags_drawn_from_a_schema_give_the_params_typed(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut positional = false;
+    let count = tc.draw(gs::integers::<usize>().max_value(6));
+    let params: Vec<Param> = (0..count).map(|i| param(&tc, i, &mut positional)).collect();
+    let properties: Map<String, Value> = params.iter().map(|p| (p.name.clone(), p.schema.clone())).collect();
+    let required: Vec<&str> = params.iter().filter(|p| p.required).map(|p| p.name.as_str()).collect();
+    let schema = json!({ "type": "object", "properties": properties, "required": required });
+    let operation = tc.draw(gs::booleans());
+    let cmd = contributed("go", "Go", Some(&schema), operation);
+
+    // What `--params` gives first: a value for some params, given with flags too or not.
+    let base: Option<Map<String, Value>> = tc.draw(gs::weighted_booleans(0.3)).then(|| {
+        let some = params.iter().filter(|_| tc.draw(gs::booleans()));
+        some.map(|p| (p.name.clone(), json!({ "from": "json" }))).collect()
+    });
+    let mut args = vec!["go".to_string(), "USB".into()];
+    let (named, positional): (Vec<&Param>, Vec<&Param>) = params.iter().partition(|p| p.flag.is_some());
+    args.extend(positional.iter().flat_map(|p| p.args.clone()));
+    let wrong = tc.draw(gs::booleans()).then(|| named.iter().find_map(|p| Some((p, p.wrong.clone()?)))).flatten();
+    let wrong_one = wrong.as_ref().map(|(p, _)| p.name.as_str());
+    for p in &named {
+        // A flag taking one value is given once (the command line refuses it twice): the wrong
+        // value stands in for the right one.
+        let once = p.schema["type"] != "array" && p.schema["type"] != "object";
+        if !(once && wrong_one == Some(p.name.as_str())) {
+            args.extend(p.args.clone());
+        }
+    }
+    if let Some(base) = &base {
+        args.extend(["--params".to_string(), Value::Object(base.clone()).to_string()]);
+    }
+    let dry_run = operation && tc.draw(gs::booleans());
+    if dry_run {
+        args.push("--dry-run".into());
+    }
+    if let Some((p, (raw, _))) = &wrong {
+        args.extend(flagged(p.flag.as_ref().unwrap(), raw));
+    }
+    tc.note(&format!("schema: {schema}\nargs: {args:?}"));
+
+    let matches = cmd.try_get_matches_from(&args);
+    let missing: Vec<&&Param> =
+        named.iter().filter(|p| p.required && p.expected.is_none() && wrong_one != Some(p.name.as_str())).collect();
+    let missing_positional = positional.iter().any(|p| p.required && p.expected.is_none());
+    if base.is_none() && (!missing.is_empty() || missing_positional) {
+        let e = matches.expect_err("a required param left out is refused").to_string();
+        assert!(e.contains("the following required arguments were not provided"), "{e}");
+        for p in missing {
+            assert!(e.contains(&format!("--{}", p.flag.as_ref().unwrap())), "{e}");
+        }
+        return;
+    }
+    let m = matches.unwrap_or_else(|e| panic!("{e}"));
+    if operation {
+        assert_eq!(m.get_flag(DRY_RUN_ID), dry_run);
+    }
+    assert_eq!(m.get_one::<String>(DRIVE).map(String::as_str), Some("USB"));
+    let got = params_of(Some(&schema), &m);
+    if let Some((_, (_, message))) = &wrong {
+        // Flags are read in the schema's order: the first param with a wrong value is the one
+        // refused, and only one has one here.
+        assert_eq!(got.unwrap_err().to_string(), *message);
+        return;
+    }
+    let mut expected = base.unwrap_or_default();
+    for p in &params {
+        if let Some(v) = &p.expected {
+            expected.insert(p.name.clone(), v.clone());
+        }
+    }
+    assert_eq!(got.unwrap(), Value::Object(expected));
+}
+
+/// An exporter's options, as `--option KEY=VALUE`s for any schema, are of their types (a key
+/// given again adds to a list, or the last wins), and a key the format has no option for, or a
+/// pair without `=`, is refused saying what it takes.
+#[hegel::test(test_cases = 200)]
+fn options_drawn_from_a_schema_are_typed_or_refused(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    const KINDS: [&str; 6] = ["integer", "number", "boolean", "string", "list", "json"];
+    let keys: Vec<String> = tc.draw(gs::vecs(gs::from_regex("[a-z]{1,4}")).max_size(4).unique(true));
+    let kinds: Vec<&str> = keys.iter().map(|_| tc.draw(gs::sampled_from(&KINDS[..]))).collect();
+    let properties: Map<String, Value> = keys
+        .iter()
+        .zip(&kinds)
+        .map(|(k, kind)| {
+            let schema = match *kind {
+                "list" => json!({ "type": "array", "items": { "type": "string" } }),
+                // Of a type no text stands for: given as JSON.
+                "json" => json!({ "type": "object", "additionalProperties": { "type": "object" } }),
+                kind => json!({ "type": kind }),
+            };
+            (k.clone(), schema)
+        })
+        .collect();
+    let schema = json!({ "type": "object", "properties": properties });
+    // Each pair given: a key, and the text typed for it.
+    let mut given: Vec<(String, String)> = Vec::new();
+    let mut expected = Map::new();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(5)) {
+        if keys.is_empty() {
+            break;
+        }
+        let i = tc.draw(gs::integers::<usize>().max_value(keys.len() - 1));
+        let (raw, value) = match kinds[i] {
+            "integer" => {
+                let n = tc.draw(gs::integers::<i64>().min_value(-99).max_value(99));
+                (format!("#{n}"), json!(n))
+            }
+            "number" => {
+                let f = tc.draw(gs::floats::<f64>().min_value(-1e3).max_value(1e3).allow_nan(false));
+                (f.to_string(), json!(f))
+            }
+            "boolean" => {
+                let (raw, b) =
+                    tc.draw(gs::sampled_from(
+                        &[
+                            ("yes", true),
+                            (" ON ", true),
+                            ("true", true),
+                            ("no", false),
+                            ("Off", false),
+                            ("false", false),
+                        ][..],
+                    ));
+                (raw.to_string(), json!(b))
+            }
+            "json" => {
+                let key: String = tc.draw(gs::from_regex("[a-z]{1,3}"));
+                let v = Value::Object(Map::from_iter([(key, json!({}))]));
+                (format!(" {v} "), v)
+            }
+            _ => {
+                let raw = tc.draw(gs::from_regex("[a-z =]{0,6}"));
+                (raw.clone(), json!(raw.trim()))
+            }
+        };
+        let value = match kinds[i] {
+            "list" => {
+                let mut list = expected.get(&keys[i]).and_then(Value::as_array).cloned().unwrap_or_default();
+                list.push(value);
+                Value::Array(list)
+            }
+            _ => value,
+        };
+        expected.insert(keys[i].clone(), value);
+        given.push((format!(" {} ", keys[i]), raw));
+    }
+    let mut typed: Vec<String> = given.iter().map(|(k, raw)| format!("{k}={raw}")).collect();
+    let bad = tc.draw(gs::integers::<u8>().max_value(3));
+    let refused = match bad {
+        0 => {
+            let unknown = format!("{}x", keys.concat());
+            typed.push(format!("{unknown}=1"));
+            Some(match keys.is_empty() {
+                true => format!("this format has no options, not even {unknown:?}"),
+                false => format!("this format has no option {unknown:?}: its options are {}", keys.join(", ")),
+            })
+        }
+        1 => {
+            typed.push("level".into());
+            Some("--option takes KEY=VALUE, not \"level\"".to_string())
+        }
+        2 if !given.is_empty() => {
+            // The last value of an option that isn't a list is the one read: a wrong one is refused.
+            let i = keys.iter().position(|k| *k == given.last().unwrap().0.trim()).unwrap();
+            let says = match kinds[i] {
+                "integer" => Some("takes a whole number, not \"x\""),
+                "number" => Some("takes a number, not \"x\""),
+                "boolean" => Some("takes true or false, not \"x\""),
+                "json" => Some("takes JSON, not \"x\""),
+                _ => None,
+            };
+            says.map(|says| {
+                typed.push(format!("{}=x", keys[i]));
+                format!("the {} option {says}", keys[i])
+            })
+        }
+        _ => None,
+    };
+    let got = options(Some(&schema), &typed);
+    match refused {
+        Some(message) => assert_eq!(got.unwrap_err().to_string(), message),
+        None => assert_eq!(got.unwrap(), Value::Object(expected), "{typed:?}"),
+    }
+}

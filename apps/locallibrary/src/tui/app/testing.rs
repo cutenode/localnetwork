@@ -120,10 +120,16 @@ pub fn set(id: &str, date: &str, title: Option<&str>, venue: Option<&str>, track
 /// The demo export from the library's fixtures, with placeholder audio, as the drive `DEMO` in a
 /// temporary folder.
 pub fn demo_drive() -> (TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = demo_drive_in(dir.path(), "DEMO");
+    (dir, root)
+}
+
+/// [`demo_drive`], as the drive `name` in `dir`.
+pub fn demo_drive_in(dir: &Path, name: &str) -> PathBuf {
     let fixture =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures/rekordcrate/demo_tracks");
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("DEMO");
+    let root = dir.join(name);
     copy_dir(&fixture, &root);
     let device = Device::open_export(&root).unwrap();
     for t in device.library().unwrap().tracks {
@@ -131,8 +137,7 @@ pub fn demo_drive() -> (TempDir, PathBuf) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, "audio".repeat(100)).unwrap();
     }
-    let root = device.root().to_path_buf();
-    (dir, root)
+    device.root().to_path_buf()
 }
 
 /// A hot cue (`hot`: 0 is A), or a memory cue, at `start_ms`; a loop when it has an end.
@@ -533,4 +538,34 @@ default = "calm"
 pub fn mounted(dir: &Path) {
     // SAFETY: as in `echo_plugin`.
     unsafe { std::env::set_var("LOCALLIBRARY_VOLUMES", dir) };
+}
+
+/// The folder a property test's drives are mounted in, with the echo plugin's manifest beside
+/// them: set up as the first case starts, for every case after it (the host reads its plugins
+/// once a process, and the environment is best set before any thread runs).
+pub fn plugins_once() -> &'static Path {
+    static DIR: std::sync::OnceLock<TempDir> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = tempfile::tempdir().unwrap();
+        echo_plugin(dir.path());
+        mounted(dir.path());
+        dir
+    })
+    .path()
+}
+
+/// A demo drive plugged in (see [`plugins_once`]) for one case, named for it alone, and taken out
+/// again when it's dropped.
+pub struct Plugged(pub PathBuf);
+
+pub fn plugged() -> Plugged {
+    static CASES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = CASES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    Plugged(demo_drive_in(plugins_once(), &format!("DEMO{n}")))
+}
+
+impl Drop for Plugged {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }

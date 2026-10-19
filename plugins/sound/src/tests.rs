@@ -200,3 +200,88 @@ fn cancelling_stops_the_decode() {
     assert_eq!(pending.wait::<Analysis>().unwrap_err(), RpcError::cancelled());
     s.stop();
 }
+
+/// Audio drawn that can't be analysed: gone, text, a WAV at a rate the loudness meter refuses, or
+/// (on Unix) a FIFO the decode reads for ever, until it's cancelled.
+#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+enum Unreadable {
+    Gone,
+    Text,
+    Slow,
+    Endless,
+}
+
+/// Any run of tracks whose audio can't be analysed fails each track alone, as the sidecar's `io`
+/// (not there) and `parse` (no decoder plays it, or the meter can't measure it) errors, or
+/// `cancelled` for a decode the host cancels, naming the file; the plugin answers the next one
+/// all the same.
+#[hegel::test(test_cases = 8)]
+fn audio_that_cant_be_analysed_fails_its_track_alone(tc: TestCase) {
+    let kinds = tc.draw(
+        gs::vecs(gs::sampled_from(vec![Unreadable::Gone, Unreadable::Text, Unreadable::Slow, Unreadable::Endless]))
+            .min_size(1)
+            .max_size(3),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let s = start();
+    for (i, kind) in kinds.into_iter().enumerate() {
+        let audio = dir.path().join(format!("{i}.wav"));
+        let e = match kind {
+            Unreadable::Gone => s.analyze(&audio).wait::<Analysis>().unwrap_err(),
+            Unreadable::Text => {
+                let words = tc.draw(gs::text().alphabet("abc \n").min_size(1).max_size(200));
+                std::fs::write(&audio, format!("not audio {words}")).unwrap();
+                s.analyze(&audio).wait::<Analysis>().unwrap_err()
+            }
+            Unreadable::Slow => {
+                let rate = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
+                // At least a sample: with none there is nothing for the meter to refuse, and an empty
+                // recording is silence.
+                let samples = tc.draw(
+                    gs::vecs(gs::integers::<i32>().min_value(-32_768).max_value(32_767)).min_size(1).max_size(64),
+                );
+                std::fs::write(&audio, wav_of(rate, 16, samples.into_iter())).unwrap();
+                s.analyze(&audio).wait::<Analysis>().unwrap_err()
+            }
+            Unreadable::Endless => endless(&s, &audio),
+        };
+        let failed = match kind {
+            Unreadable::Gone => "io",
+            Unreadable::Endless if cfg!(unix) => "cancelled",
+            Unreadable::Endless => "io",
+            _ => "parse",
+        };
+        assert_eq!((e.code, e.kind()), (code::FAILED, Some(failed)), "{kind:?}: {e:?}");
+        if failed != "cancelled" {
+            assert!(e.message.contains(&audio.display().to_string()), "{kind:?}: {e:?}");
+        }
+    }
+    s.stop();
+}
+
+/// A track whose audio is a FIFO fed for as long as the plugin reads it, analysed and cancelled
+/// once its decode has begun: the error it fails with. (Without FIFOs, the file isn't there.)
+fn endless(s: &Session, fifo: &Path) -> RpcError {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+
+        assert!(std::process::Command::new("mkfifo").arg(fifo).status().unwrap().success());
+        let pending = s.analyze(fifo);
+        // Opening blocks until the plugin opens it to read: its decode has begun.
+        let mut audio = std::fs::OpenOptions::new().write(true).open(fifo).unwrap();
+        pending.cancel();
+        let mut header = wav_of(44_100, 16, std::iter::empty());
+        let data_len: u32 = 0xFFFF_FF00;
+        header[4..8].copy_from_slice(&(data_len + 36).to_le_bytes());
+        header[40..44].copy_from_slice(&data_len.to_le_bytes());
+        let second = wav_of(44_100, 16, (0..44_100).map(|i| ((i as f64 * 0.05).sin() * 8_000.0) as i32));
+        let mut written = audio.write_all(&header);
+        while written.is_ok() {
+            written = audio.write_all(&second[44..]);
+        }
+        pending.wait::<Analysis>().unwrap_err()
+    }
+    #[cfg(not(unix))]
+    s.analyze(fifo).wait::<Analysis>().unwrap_err()
+}
