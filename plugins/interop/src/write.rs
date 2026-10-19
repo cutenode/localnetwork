@@ -34,7 +34,11 @@ pub(crate) fn write(export: &Export, output: &Path, ctx: &Ctx<'_>) -> Result<(),
         // Made as any other file is (the umask decides), not readable by its owner alone.
         #[cfg(unix)]
         builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
-        let mut tmp = builder.tempfile_in(dir).map_err(|e| io(dir, e))?;
+        // Said of `dir`: tempfile adds the random name it tried (`... at path "<dir>/.tmpx1Yz"`).
+        let mut tmp = builder.tempfile_in(dir).map_err(|e| {
+            let cause = e.to_string().split(" at path ").next().unwrap_or_default().to_owned();
+            io(dir, std::io::Error::new(e.kind(), cause))
+        })?;
         match &f.content {
             Content::Bytes(bytes) => tmp.write_all(bytes).map_err(|e| io(tmp.path(), e))?,
             Content::TaggedCopy { from, markers } => {
