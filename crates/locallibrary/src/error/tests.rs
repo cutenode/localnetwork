@@ -165,6 +165,31 @@ fn detail_never_changes_what_the_error_is(tc: hegel::TestCase) {
     // Round trips through JSON, as the sidecar sends it.
     let back: Detail = serde_json::from_value(serde_json::to_value(&d).unwrap()).unwrap();
     assert_eq!(back, d);
+
+    // Without its retries an error keeps only the actions that call a method (a permission error
+    // still offers to run elevated), and everything else it said.
+    let mut calls: Vec<Action> = d.actions.iter().filter(|a| a.method.is_some()).cloned().collect();
+    if permission {
+        calls.push(Action::elevate("Run it as an administrator"));
+    }
+    let text = e.to_string();
+    let bare = e.without_retries();
+    assert_eq!((bare.code(), bare.to_string()), (code, text));
+    let b = bare.detail();
+    assert_eq!((b.reason, &b.fields, &b.actions), (d.reason, &d.fields, &calls));
+}
+
+/// A track id the library doesn't have is `not_found` naming it, and says it's one only
+/// OneLibrary has exactly when the id carries OneLibrary's own-track flag.
+#[hegel::test(test_cases = 200)]
+fn a_missing_track_says_whether_only_onelibrary_has_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let id = tc.draw(gs::integers::<u32>());
+    let e = Error::no_track(id);
+    assert_eq!(e.code(), "not_found");
+    let text = e.to_string();
+    assert!(text.contains(&format!("track #{id}")), "{text}");
+    assert_eq!(text.contains("only OneLibrary has"), id & crate::convert::ONELIBRARY_ONLY != 0, "{text}");
 }
 
 /// An I/O error given a path says which, and keeps its cause.

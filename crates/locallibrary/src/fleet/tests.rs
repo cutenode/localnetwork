@@ -155,3 +155,84 @@ fn under_the_test_switch_only_a_drives_name_changes(tc: hegel::TestCase) {
         Err(e) => assert!(empty && no_name(&Err(e)), "{name:?}"),
     }
 }
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools;
+
+/// A drive's hardware is what the system says of the disk under it: the disk's model, serial
+/// number and size, and the UUID of the volume mounted at the drive's root. A folder the system
+/// knows no disk for has none.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6)]
+fn a_drives_hardware_is_the_disk_the_system_finds_under_it(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    for dir in ["USB", "folder"] {
+        std::fs::create_dir(fake.dir().join(dir)).unwrap();
+    }
+    let usb = crate::device::dunce_canonicalize(&fake.dir().join("USB"));
+    fake.volume_at(&usb, tc.draw(gs::sampled_from(vec!["vfat", "exfat"])), tc.draw(gs::booleans()));
+    let hw = Hardware::of(&usb).unwrap();
+    assert_eq!((hw.model.as_str(), hw.serial.as_deref()), ("Ultra Fit", Some("4C530001")));
+    assert_eq!((hw.volume_uuid.as_deref(), hw.size), (Some("1234-ABCD"), 64_000_000_000));
+    assert!(Hardware::of(&fake.dir().join("folder")).is_none());
+}
+
+/// A drive notes the disk it's on, once. Found later on another disk (another serial number) or
+/// volume (another UUID) than it noted, it is a copy that carried the identity file along; where
+/// it noted, or where the system can't tell, it isn't.
+#[cfg(unix)]
+#[hegel::test(test_cases = 8)]
+fn a_drive_found_off_the_disk_it_noted_is_a_copy(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    std::fs::create_dir(fake.dir().join("USB")).unwrap();
+    let mut d = Device::open(fake.dir().join("USB")).unwrap();
+    d.adopt(Some("USB")).unwrap();
+    fake.volume_at(d.root(), "vfat", true);
+    note_hardware(&mut d).unwrap();
+    let here = Hardware::of(d.root()).unwrap();
+    let noted = || Device::open(fake.dir().join("USB")).unwrap().state().unwrap().hardware.clone();
+    assert_eq!(serde_json::to_value(noted()).unwrap(), serde_json::to_value(Some(&here)).unwrap());
+
+    // What was noted when the identity was given, somewhere: this disk, or another.
+    let then = tc.draw(gs::sampled_from(vec!["here", "other disk", "other volume", "unknown serial"]));
+    let mut was = here.clone();
+    match then {
+        "other disk" => was.serial = Some("57442D575833".into()),
+        "other volume" => was.volume_uuid = Some("ABCD-1234".into()),
+        "unknown serial" => was.serial = None,
+        _ => {}
+    }
+    d.state_mut().unwrap().hardware = Some(was.clone());
+    d.save_state().unwrap();
+    // Noted already: noting again keeps it.
+    note_hardware(&mut d).unwrap();
+    assert_eq!(serde_json::to_value(noted()).unwrap(), serde_json::to_value(Some(&was)).unwrap());
+    assert_eq!(is_copy(&d, &[]), matches!(then, "other disk" | "other volume"), "{then}");
+}
+
+/// Relabelling a drive's volume asks the system to rename it to the label FAT takes, and says
+/// what the system said when it can't.
+#[cfg(target_os = "macos")]
+#[hegel::test(test_cases = 10)]
+fn relabelling_renames_the_volume_to_what_fat_takes(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let root = fake.dir().join("USB");
+    let name: String = tc.draw(gs::text().alphabet("ab Zé:*.").max_size(16));
+    let label = volume_label(&name);
+    let renames = tc.draw(gs::booleans());
+    let args = ["rename", &*root.to_string_lossy(), &label];
+    if renames {
+        fake.answer("diskutil", &args, "Volume on disk4s1 renamed to DNA");
+    } else {
+        fake.refuse("diskutil", &args, "Unable to find disk");
+    }
+    match set_volume_label(&root, &name) {
+        Ok(l) => assert!(renames && l == label),
+        Err(Error::External { message, .. }) => assert!(!renames && message == "Unable to find disk"),
+        Err(e) => panic!("{e}"),
+    }
+    assert_eq!(fake.calls().len(), 1);
+}

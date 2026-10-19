@@ -478,8 +478,9 @@ fn acts_on_what_is_selected(app: &mut App, row: DriveRow, act: Act, known: bool,
 
 /// Exporting the list shown (every track, a playlist, a session, or a set: its tracks on the
 /// drive) asks where, starting from a file named for it in ~/Music; no name, or a place on the
-/// drive itself, is refused saying why; a file that's there is replaced only once that's agreed
-/// to; and what's written holds the tracks the list shows. A list of lists (Browse) isn't
+/// drive itself, is refused saying why, as is a place whose folder can't be made; a file that's
+/// there is replaced only once that's agreed to; and what's written holds the tracks the list
+/// shows. A list of lists (Browse) isn't
 /// exported.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_export_writes_the_list_shown_where_asked(tc: hegel::TestCase) {
@@ -569,15 +570,26 @@ fn exports_the_list_shown(
         std::fs::create_dir_all(out.parent().unwrap()).unwrap();
         std::fs::write(&out, "mine").unwrap();
     }
-    p.text = match tc.draw(gs::integers::<u8>().max_value(3)) {
+    // A file where its folder would go.
+    let blocked = dir.join(format!("blocked{k}"));
+    p.text = match tc.draw(gs::integers::<u8>().max_value(4)) {
         0 => " ".into(),
         1 => root.join("list.m3u8").display().to_string(),
+        4 => {
+            std::fs::write(&blocked, "a file").unwrap();
+            blocked.join("list.m3u8").display().to_string()
+        }
         _ => out.display().to_string(),
     };
     let typed = p.text.clone();
     press(app, "\n");
     if typed.trim().is_empty() {
         return assert_eq!(last_message(app), "say where: a file name");
+    }
+    if blocked.is_file() {
+        wait(app, |a| a.job.is_none());
+        assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{}", last_message(app));
+        return assert!(last_message(app).contains(&blocked.display().to_string()));
     }
     if typed.starts_with(&root.display().to_string()) {
         assert_eq!(last_message(app), "not onto the drive: somewhere on this computer");
@@ -779,4 +791,42 @@ fn a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
         );
         assert!(r.lines.iter().any(|(t, l)| *t == Tone::Heading && l == "DEMO"), "the drive's own part");
     }
+}
+
+/// Packing from a drive with marked playlists offers them first (and not the playlist shown),
+/// with what went on last time; onto the drive it's from, or none, it asks which drive (none
+/// plugged in here), and onto another it plans packing there, saying why it can't when that
+/// drive isn't one.
+#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn packing_the_marked_playlists_goes_onto_another_drive(tc: hegel::TestCase) {
+    use super::super::app::testing::key;
+    use hegel::generators as gs;
+    let (mut app, dir) = app_with(library());
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    let source = app.loaded.as_ref().unwrap().root().to_path_buf();
+    let marks: Vec<String> =
+        lib.playlists.iter().map(|p| lib.playlist_path(p.id)).filter(|_| tc.draw(gs::booleans())).collect();
+    app.list_marks = marks.clone();
+    let other = dir.path().join("OTHER");
+    let onto = tc.draw(gs::sampled_from(&[None, Some(source.clone()), Some(other.clone())][..]));
+    app.pack(onto.clone());
+    let Some(Modal::Pick(p)) = &app.modal else { panic!("no picker: {}", last_message(&app)) };
+    let labels: Vec<String> = p.items.iter().map(|i| i.label.clone()).collect();
+    if marks.is_empty() {
+        assert!(!labels.iter().any(|l| l.starts_with("the marked")), "{labels:?}");
+    } else {
+        assert_eq!(
+            labels,
+            [format!("the marked playlists: {}", marks.join(", ")), "what the drive was packed with last time".into()]
+        );
+    }
+    assert_eq!(labels.last().map(String::as_str), Some("what the drive was packed with last time"));
+    key(&mut app, ratatui::crossterm::event::KeyCode::Enter);
+    if onto.as_ref() != Some(&other) {
+        return assert_eq!(last_message(&app), "plug in the drive to pack onto");
+    }
+    assert_eq!(app.job.as_ref().map(|j| j.label.as_str()), Some("Planning"));
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(app.toast.as_ref().map(|t| t.1), Some(Level::Error), "{}", last_message(&app));
+    assert!(last_message(&app).contains("OTHER"));
 }

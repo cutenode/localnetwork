@@ -434,3 +434,26 @@ fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
         assert_eq!(p.track.artwork.as_deref().map(thumbnail_side), shared.then_some(ARTWORK_PX), "{art:?} {hidden}");
     }
 }
+
+/// An export names the mix and each track it may name by their text without the space around
+/// it, and what is only space as untitled; a track the profile hides is "ID" whatever it's called.
+#[hegel::test(test_cases = 100)]
+fn exports_name_what_has_a_name_and_call_the_rest_untitled(tc: TestCase) {
+    let text = || gs::sampled_from(vec!["", " ", "\t\n", "Friday", "  Demo Track 1 ", "日本"]);
+    let mut r = report();
+    r.mix.title = tc.draw(text()).to_string();
+    r.plays[0].track.title = tc.draw(text()).to_string();
+    let hidden = tc.draw(gs::booleans());
+    let mut prefs = ProfilePrefs::default();
+    if hidden {
+        prefs.hidden_artists.push(r.plays[0].track.artist.clone());
+    }
+    let e = build(&r, None, &prefs);
+    let named = |s: &str, untitled: &str| match s.trim() {
+        "" => untitled.to_string(),
+        t => t.to_string(),
+    };
+    assert_eq!(e.mix.title, named(&r.mix.title, "Untitled mix"));
+    let track = if hidden { UNNAMED.to_string() } else { named(&r.plays[0].track.title, "Untitled") };
+    assert_eq!(e.plays[0].track.title, track);
+}

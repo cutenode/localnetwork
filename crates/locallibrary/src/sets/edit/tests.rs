@@ -182,3 +182,57 @@ fn inserts_are_the_library_track_or_as_typed(tc: TestCase) {
     let (e, note) = lookup(text, None).unwrap();
     assert_eq!((e, note), (SetEntry::added(text), format!("{text:?} went in as typed: no drive to look it up on")));
 }
+
+/// Any edit of a tracklist of any length goes through exactly when every position it names is
+/// a track (an insert may also go one past the last), no track is moved twice, and no track is
+/// both dropped and moved or both named and unnamed; otherwise the first of those it breaks is
+/// what the refusal says, and nothing is looked up. An edit that goes through leaves as many
+/// tracks as were there, less those dropped, plus those inserted.
+#[hegel::test(test_cases = 300)]
+fn edits_go_through_when_every_position_is_a_track(tc: TestCase) {
+    let len = tc.draw(gs::integers::<usize>().max_value(5));
+    let at = || gs::integers::<usize>().max_value(len + 2);
+    let c = Changes {
+        drop: tc.draw(gs::vecs(at()).max_size(2)),
+        moves: tc.draw(gs::vecs(gs::tuples!(at(), at())).max_size(2)),
+        insert: tc.draw(gs::vecs(at()).max_size(2)).into_iter().map(|p| (p, format!("X - {p}"))).collect(),
+        unnamed: tc.draw(gs::vecs(at()).max_size(2)),
+        named: tc.draw(gs::vecs(at()).max_size(2)),
+    };
+    let moved: Vec<usize> = c.moves.iter().map(|m| m.0).collect();
+    let named_positions = c.drop.iter().chain(&moved).chain(&c.unnamed).chain(&c.named);
+    let first_twice = moved.iter().enumerate().find(|(i, p)| moved[..*i].contains(p)).map(|(_, p)| *p);
+    let expected = if let Some(p) = named_positions.chain(c.moves.iter().map(|m| &m.1)).find(|&&p| p == 0 || p > len) {
+        Some(match len {
+            0 => format!("there's no track {p}: the set has no tracks"),
+            _ => format!("there's no track {p}: the set has {len}"),
+        })
+    } else if let Some((p, _)) = c.insert.iter().find(|(p, _)| *p == 0 || *p > len + 1) {
+        Some(format!("can't insert at {p}: positions go from 1 to {} (one past the last track appends)", len + 1))
+    } else if let Some(p) = first_twice {
+        Some(format!("track {p} is moved twice"))
+    } else if let Some(p) = c.drop.iter().find(|p| moved.contains(p)) {
+        Some(format!("track {p} can't be dropped and moved"))
+    } else {
+        c.unnamed.iter().find(|p| c.named.contains(p)).map(|p| format!("track {p} can't be named and unnamed"))
+    };
+    let mut asked = 0;
+    let out = c.apply(&tracks(len as u32), |t| {
+        asked += 1;
+        typed(t)
+    });
+    match (out, expected) {
+        (Ok(out), None) => {
+            let mut dropped = c.drop.clone();
+            dropped.sort_unstable();
+            dropped.dedup();
+            assert_eq!(out.len(), len - dropped.len() + c.insert.len(), "{c:?}");
+            assert_eq!(asked, c.insert.len());
+        }
+        (Err(e), Some(why)) => {
+            assert_eq!(e.to_string(), why, "{c:?}");
+            assert_eq!(asked, 0, "nothing is looked up for a refused edit");
+        }
+        (out, why) => panic!("{c:?} on {len} tracks: {out:?}, expected {why:?}"),
+    }
+}

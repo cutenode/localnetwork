@@ -534,3 +534,57 @@ fn a_word_picks_the_one_played_track_it_names(tc: TestCase) {
         }
     }
 }
+
+/// Sessions of the club drive's tracks a player recorded, of any length, maybe archived by a pull
+/// and maybe declared as sets: `profile --sets` prints a row for each set (or session) its JSON
+/// lists, and nothing else, each saying the day it was played or archived ("on a drive" while
+/// it's only there), how many tracks, its opening and closing tempo when both are known, how much
+/// of it was mixed in key when that's known, and the start of its id.
+#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+fn profile_sets_lists_the_sets_its_json_has(tc: TestCase) {
+    let fx = Env::from_template();
+    let club = fx.volumes.join("Club");
+    let ids: Vec<u32> = (1..=12).collect();
+    for i in 1..=tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
+        let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(12));
+        let tracks: Vec<u32> = tc.draw(gs::permutations(ids.clone())).into_iter().take(n).collect();
+        play(&club, &format!("HISTORY {i:03}"), &tracks);
+    }
+    if tc.draw(gs::booleans()) {
+        fx.ok(&["pull", path(&club), "--library", "Club", "--new-library"]);
+        if tc.draw(gs::booleans()) {
+            let sessions = fx.json(&["plays", "lists", "Club"]);
+            let id = sessions["sessions"][0]["id"].as_str().unwrap()[..8].to_string();
+            let mut args = vec!["--yes", "sets", "new", "--from", &id, "--venue", "Warehouse"];
+            if tc.draw(gs::booleans()) {
+                args.extend(["--title", "Friday", "--date", "2026-10-03"]);
+            }
+            fx.ok(&args);
+        }
+    }
+    let min = tc.draw(gs::integers::<u32>().min_value(1).max_value(6)).to_string();
+    let args = ["profile", path(&club), "-s", "sets", "--sets", "--min-tracks", &min, "--no-analysis"];
+    let v = fx.json(&args);
+    let out = fx.ok(&args);
+    let said = format!("{args:?}\n{out}\n{v}");
+    let list = v["report"]["sets"]["list"].as_array().unwrap();
+    let rows: Vec<&str> = out.lines().filter(|l| l.starts_with("    ") && !l.trim().is_empty()).collect();
+    assert_eq!(rows.len(), list.len(), "{said}");
+    for s in list {
+        let id = s["id"].as_str().unwrap();
+        let id = &id[..8.min(id.len())];
+        let row = rows.iter().find(|r| r.contains(id)).unwrap_or_else(|| panic!("no row for {id}: {said}"));
+        let when = s["date"].as_str().unwrap_or("on a drive");
+        assert!(row.starts_with(&format!("    {when:<12} ")), "{row:?}: {said}");
+        let n = s["tracks"].as_u64().unwrap();
+        let unit = if n == 1 { "track" } else { "tracks" };
+        assert!(row.contains(&format!("{n:>3} {unit:<6}")), "{row:?}: {said}");
+        if let (Some(a), Some(b)) = (s["opening_bpm"].as_f64(), s["closing_bpm"].as_f64()) {
+            assert!(row.contains(&format!("{a:.0}→{b:.0} BPM")), "{row:?}: {said}");
+        }
+        match s["harmonic_share"].as_f64() {
+            Some(h) => assert!(row.contains(&format!("{:.0}% in key", h * 100.0)), "{row:?}: {said}"),
+            None => assert!(!row.contains("in key"), "{row:?}: {said}"),
+        }
+    }
+}

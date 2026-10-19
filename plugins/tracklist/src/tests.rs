@@ -3,6 +3,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
+use hegel::TestCase;
+use hegel::generators as gs;
 use loclib_model::model::Track;
 use loclib_model::test_util::track;
 use loclib_plugin::{Capability, Incoming, PROTOCOL_VERSION, Peer, method};
@@ -334,4 +336,279 @@ fn what_cant_be_read_is_refused() {
     let e = s.plan(json!({ "into": "Imported" })).unwrap_err();
     assert_eq!(e.kind(), Some("invalid_params"));
     s.stop();
+}
+
+// Properties: drawn tracklists of each format against drawn libraries.
+
+/// The ways a drawn tracklist is written.
+#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+enum Shape {
+    Lines,
+    M3u,
+    Spotify,
+    RekordboxText,
+    RekordboxXml,
+}
+
+/// A tracklist of `shape` naming `picks` (`None` for a track no drive has): its file name and
+/// text.
+fn tracklist(shape: Shape, picks: &[Option<&Track>]) -> (&'static str, String) {
+    let nobody = track(0, "Nobody", "Nothing", "/Contents/Nobody/Nothing.mp3");
+    let picked = picks.iter().map(|p| p.unwrap_or(&nobody));
+    match shape {
+        Shape::Lines => ("list.txt", picked.map(|t| format!("{} - {}\n", t.artist, t.title)).collect()),
+        Shape::M3u => {
+            let lines = picked.map(|t| format!("#EXTINF:300,{}\n/Users/me/Music{}\n", t.display_name(), t.file_path));
+            ("set.m3u8", format!("#EXTM3U\n{}", lines.collect::<String>()))
+        }
+        Shape::Spotify => {
+            let rows = picked.map(|t| format!("\"{}\",\"{}\",300000\n", t.title, t.artist));
+            (
+                "spotify.csv",
+                format!("\"Track Name\",\"Artist Name(s)\",\"Duration (ms)\"\n{}", rows.collect::<String>()),
+            )
+        }
+        Shape::RekordboxText => {
+            let rows = picked.enumerate().map(|(i, t)| format!("{}\t{}\t{}\n", i + 1, t.title, t.artist));
+            ("rekordbox.txt", format!("#\tTrack Title\tArtist\n{}", rows.collect::<String>()))
+        }
+        Shape::RekordboxXml => {
+            let tracks: String = picked
+                .enumerate()
+                .map(|(i, t)| {
+                    let at = t.file_path.replace(' ', "%20");
+                    let (title, artist) = (&t.title, &t.artist);
+                    format!(
+                        "<TRACK TrackID=\"{}\" Name=\"{title}\" Artist=\"{artist}\" Location=\"file://localhost/Volumes/USB{at}\"/>\n",
+                        i + 1
+                    )
+                })
+                .collect();
+            let keys: String = (1..=picks.len()).map(|key| format!("<TRACK Key=\"{key}\"/>")).collect();
+            let first = if picks.is_empty() { String::new() } else { "<TRACK Key=\"1\"/>".into() };
+            let xml = format!(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<DJ_PLAYLISTS Version=\"1.0.0\">\n<COLLECTION Entries=\"{}\">\n\
+                 {tracks}</COLLECTION>\n<PLAYLISTS><NODE Type=\"0\" Name=\"ROOT\" Count=\"2\">\n\
+                 <NODE Name=\"Set\" Type=\"1\" KeyType=\"0\" Entries=\"{}\">{keys}</NODE>\n\
+                 <NODE Name=\"Other\" Type=\"1\" KeyType=\"0\" Entries=\"1\">{first}</NODE>\n\
+                 </NODE></PLAYLISTS>\n</DJ_PLAYLISTS>\n",
+                picks.len(),
+                picks.len()
+            );
+            ("rekordbox.xml", xml)
+        }
+    }
+}
+
+/// What loclib-tracklist makes of the list in `bytes` (named `name`, at `file`) against `lib`,
+/// with `choices` made, as `playlist import` matched it; or why it can't be read (its error's kind
+/// and message).
+fn imported(
+    lib: &Library,
+    bytes: &[u8],
+    name: &str,
+    file: &str,
+    playlist: Option<&str>,
+    choices: &[(usize, u32)],
+) -> Result<Report, (&'static str, String)> {
+    let unreadable = |e: tracklist::Error| ("invalid", e.to_string());
+    let (format, entries) = match playlist {
+        Some(p) => {
+            let lists = tracklist::xml_playlists(bytes).map_err(unreadable)?;
+            let entries = model::pick(lists, p.trim().trim_matches('/'))
+                .ok_or_else(|| ("not_found", format!("not found: playlist {p:?} in {file}")))?;
+            (Format::RekordboxXml, entries)
+        }
+        None => (tracklist::detect(bytes, Some(name)), tracklist::parse(bytes, Some(name)).map_err(unreadable)?),
+    };
+    let mut entries = tracklist::match_entries(lib, &entries);
+    for &(i, id) in choices {
+        let Some(m) = entries.get_mut(i) else { return Err(("invalid", format!("no entry {i} in the list"))) };
+        if lib.track(id).is_none() {
+            return Err(("not_found", format!("not found: track #{id}")));
+        }
+        m.status = Status::Found { track_id: id, how: MatchKind::Chosen };
+    }
+    Ok(Report::new(format, entries))
+}
+
+/// For any library (namesakes included) and any tracklist of each format naming some of its
+/// tracks and some it hasn't, the `match` command answers what loclib-tracklist matches, with the
+/// choices made, and the import plans the playlist at exactly `into` filled with the tracks found,
+/// in the list's order (after its entries, with `append`), warning of each entry left out and
+/// planning nothing when none is found; a list that can't be read, a playlist it hasn't, a bad
+/// choice and a missing drive are refused, saying why.
+#[hegel::test(test_cases = 100)]
+fn any_tracklist_imports_what_loclib_tracklist_matches(tc: TestCase) {
+    let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
+    let artists = || gs::sampled_from(vec!["Bicep", "Kettama", "Overmono"]);
+    let titles = || gs::sampled_from(vec!["Glue", "In Charge", "Apricots"]);
+    let tracks: Vec<Track> = (1..=n)
+        .map(|id| {
+            let (artist, title) = (tc.draw(artists()), tc.draw(titles()));
+            track(id, artist, title, &format!("/Contents/{artist}/{title} {id}.mp3"))
+        })
+        .collect();
+    let some = || gs::vecs(gs::integers::<u32>().min_value(1).max_value(n)).min_size(1).max_size(4);
+    let mut playlists = Vec::new();
+    if tc.draw(gs::weighted_booleans(0.7)) {
+        playlists.push(playlist(1, None, "Imported", false, &tc.draw(some())));
+    }
+    if tc.draw(gs::weighted_booleans(0.7)) {
+        let ids = tc.draw(some());
+        playlists.extend([playlist(2, None, "Shows", true, &[]), playlist(3, Some(2), "Imported", false, &ids)]);
+    }
+    let lib = Library { tracks, playlists, ..Default::default() };
+
+    let shape = tc.draw(gs::sampled_from(vec![
+        Shape::Lines,
+        Shape::M3u,
+        Shape::Spotify,
+        Shape::RekordboxText,
+        Shape::RekordboxXml,
+    ]));
+    let picks: Vec<Option<u32>> =
+        tc.draw(gs::vecs(gs::optional(gs::integers::<u32>().min_value(1).max_value(n))).max_size(6));
+    let picked: Vec<Option<&Track>> = picks.iter().map(|p| p.and_then(|id| lib.track(id))).collect();
+    let (name, text) = tracklist(shape, &picked);
+    let dir = tempfile::tempdir().unwrap();
+    let gone = tc.draw(gs::weighted_booleans(0.03));
+    let file = match gone {
+        true => dir.path().join(name).to_string_lossy().into_owned(),
+        false => write(dir.path(), name, &text),
+    };
+    let from = match shape {
+        Shape::RekordboxXml => {
+            tc.draw(gs::sampled_from(vec![None, Some("Set"), Some(" /Set/ "), Some("set"), Some("Nowhere")]))
+        }
+        _ => tc.draw(gs::weighted_booleans(0.05)).then_some("Set"),
+    };
+    // Choices for some entries, and now and then one that's bad (a refusal names the first it
+    // finds, so there's only ever one).
+    let mut choices: Vec<(usize, u32)> = Vec::new();
+    if !picks.is_empty() && tc.draw(gs::weighted_booleans(0.3)) {
+        let choice = gs::tuples!(
+            gs::integers::<usize>().max_value(picks.len() - 1),
+            gs::integers::<u32>().min_value(1).max_value(n)
+        );
+        for (i, id) in tc.draw(gs::vecs(choice).min_size(1).max_size(2)) {
+            if !choices.iter().any(|c| c.0 == i) {
+                choices.push((i, id));
+            }
+        }
+    }
+    if tc.draw(gs::weighted_booleans(0.1)) {
+        let bad = match tc.draw(gs::booleans()) && !picks.is_empty() {
+            true => (0, n + 1),
+            false => (picks.len(), 1),
+        };
+        choices.retain(|c| c.0 != bad.0);
+        choices.push(bad);
+    }
+    let into = tc.draw(gs::sampled_from(vec!["Imported", "Imported", " Imported/", "Shows/Imported", "Elsewhere"]));
+    let append = tc.draw(gs::booleans());
+    let on_drive = tc.draw(gs::weighted_booleans(0.95));
+
+    let mut params = json!({ "file": file, "into": into, "append": append });
+    if let Some(from) = from {
+        params["playlist"] = json!(from);
+    }
+    if !choices.is_empty() {
+        let chosen: serde_json::Map<String, Value> = choices.iter().map(|(i, id)| (i.to_string(), json!(id))).collect();
+        params["choices"] = Value::Object(chosen);
+    }
+    let s = start(lib.clone());
+    let planned = s.plan_on(on_drive.then_some("USB"), params.clone());
+    let report = on_drive.then(|| {
+        let mut asked = params.clone();
+        let asked_obj = asked.as_object_mut().unwrap();
+        asked_obj.remove("into");
+        asked_obj.remove("append");
+        s.report(asked)
+    });
+    s.stop();
+
+    let foreseen = match (on_drive, gone) {
+        (false, _) => Err(("invalid_params", "invalid params: say which drive".to_string())),
+        (true, true) => Err(("io", format!("{file}: "))),
+        (true, false) => imported(&lib, text.as_bytes(), name, &file, from, &choices),
+    };
+    let (planned, foreseen) = match (planned, foreseen) {
+        // The command refuses as the import does.
+        (Err(e), Err((kind, message))) => {
+            for e in std::iter::once(e).chain(report.map(Result::unwrap_err)) {
+                assert_eq!(e.kind(), Some(kind), "{e:?}");
+                assert!(e.message.starts_with(&message), "{e:?}, not {message}");
+            }
+            return;
+        }
+        (Ok(plan), Ok(foreseen)) => (plan, foreseen),
+        (planned, foreseen) => panic!("planned {planned:?}, not {foreseen:?}"),
+    };
+    assert_eq!(report.map(|r| r.unwrap()), Some(foreseen.clone()));
+
+    // Each track picked that the drive has is found, unless it has a namesake (a list naming it
+    // by path finds it all the same), or the user chose for it.
+    for ((i, pick), m) in picks.iter().enumerate().zip(&foreseen.entries) {
+        let namesakes = |id: u32| {
+            let t = lib.track(id).unwrap();
+            lib.tracks.iter().filter(|o| o.artist == t.artist && o.title == t.title).count()
+        };
+        let by_path = matches!(shape, Shape::M3u | Shape::RekordboxXml);
+        match pick {
+            _ if choices.iter().any(|c| c.0 == i) => {}
+            Some(id) if by_path || namesakes(*id) == 1 => assert_eq!(m.status.track_id(), Some(*id), "{m:?}"),
+            Some(_) => assert!(matches!(m.status, Status::Ambiguous { .. }), "{m:?}"),
+            None => assert_eq!(m.status, Status::Missing, "{m:?}"),
+        }
+    }
+
+    let s = &foreseen.summary;
+    let summary = format!(
+        "{file}: {} entr(ies) as {:?}: {} found, {} ambiguous, {} missing",
+        s.entries, foreseen.format, s.found, s.ambiguous, s.missing
+    );
+    assert_eq!(planned.summary, summary);
+    let mut warnings: Vec<String> = Vec::new();
+    for (n, m) in (1..).zip(&foreseen.entries) {
+        let raw = m.entry.raw.trim();
+        match &m.status {
+            Status::Found { .. } => {}
+            Status::Missing => warnings.push(format!("{n}. {raw} isn't on the drive")),
+            Status::Ambiguous { candidates } => {
+                let named: Vec<String> = candidates
+                    .iter()
+                    .take(5)
+                    .map(|&id| format!("#{id} {}", lib.track(id).unwrap().display_name()))
+                    .collect();
+                warnings.push(format!("{n}. {raw} could be {}: left out unless one is chosen", named.join(", ")));
+            }
+        }
+    }
+    let paths = |ids: &[u32]| ids.iter().map(|&id| lib.track(id).unwrap().file_path.clone()).collect::<Vec<_>>();
+    let found = paths(&foreseen.track_ids());
+    if found.is_empty() {
+        warnings.push("none of the list's tracks are on the drive".into());
+    }
+    assert_eq!(planned.warnings, warnings);
+    // The playlist at exactly that path, never its namesake elsewhere.
+    let there = match into.trim_matches([' ', '/']) {
+        "Imported" => lib.playlists.iter().find(|p| p.id == 1),
+        "Shows/Imported" => lib.playlists.iter().find(|p| p.id == 3),
+        _ => None,
+    };
+    let kept = match (append, there) {
+        (true, Some(p)) => paths(&p.track_ids),
+        _ => Vec::new(),
+    };
+    let edits = match found.is_empty() {
+        true => Vec::new(),
+        false => {
+            vec![
+                json!({ "op": "set_entries", "playlist": into, "paths": ([kept, found.clone()].concat()), "create": true }),
+            ]
+        }
+    };
+    assert_eq!(planned.edits, edits);
+    assert_eq!(planned.inputs, [PathBuf::from(&file)]);
 }

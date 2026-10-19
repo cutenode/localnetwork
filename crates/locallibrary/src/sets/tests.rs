@@ -234,3 +234,51 @@ fn musicbrainz_ids_are_read_from_the_tags() {
     std::fs::write(&path, b"not audio").unwrap();
     assert!(MusicBrainzIds::read(&path).is_empty());
 }
+
+/// A MusicBrainz ID as a tag may hold it: a UUID, one with space around it, or not one at all.
+#[hegel::test_helper]
+fn mb_value(tc: &TestCase) -> String {
+    match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => tc.draw(gs::sampled_from(vec!["not a uuid", "", "1234"])).to_string(),
+        1 => format!(" {} ", Uuid::from_u128(tc.draw(gs::integers::<u128>()))),
+        _ => Uuid::from_u128(tc.draw(gs::integers::<u128>())).to_string(),
+    }
+}
+
+/// Whatever MusicBrainz IDs a file's tags hold, a frame each or joined by `/`, reading them
+/// gives back the UUIDs among them in order (the first recording and release, every artist)
+/// and leaves out the rest; a file that isn't audio has none.
+#[hegel::test(test_cases = 40)]
+fn musicbrainz_ids_read_back_as_tagged(tc: TestCase) {
+    use lofty::config::WriteOptions;
+    use lofty::tag::{ItemValue, Tag, TagItem, TagType};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("glue.wav");
+    std::fs::write(&path, crate::probe::tests::wav(8_000, 16, 0.25)).unwrap();
+    let mut tag = Tag::new(TagType::Id3v2);
+    let mut want = MusicBrainzIds::default();
+    for key in [ItemKey::MusicBrainzRecordingId, ItemKey::MusicBrainzReleaseId, ItemKey::MusicBrainzArtistId] {
+        // Frames of values, each frame's values joined by `/`. ID3 keeps one recording and one
+        // release frame; artists may come in several.
+        let most = if key == ItemKey::MusicBrainzArtistId { 3 } else { 1 };
+        let frames: Vec<Vec<String>> = (0..tc.draw(gs::integers::<u8>().max_value(most)))
+            .map(|_| (0..tc.draw(gs::integers::<u8>().min_value(1).max_value(3))).map(|_| mb_value(&tc)).collect())
+            .collect();
+        let valid: Vec<Uuid> = frames.iter().flatten().filter_map(|v| Uuid::parse_str(v.trim()).ok()).collect();
+        match key {
+            ItemKey::MusicBrainzRecordingId => want.recording = valid.first().copied(),
+            ItemKey::MusicBrainzReleaseId => want.release = valid.first().copied(),
+            _ => want.artists = valid,
+        }
+        for frame in frames {
+            tag.push(TagItem::new(key, ItemValue::Text(frame.join("/"))));
+        }
+    }
+    let tagged = !tag.is_empty();
+    if tagged {
+        tag.save_to_path(&path, WriteOptions::default()).unwrap();
+    }
+    assert_eq!(MusicBrainzIds::read(&path), want, "tagged: {tagged}");
+    std::fs::write(&path, tc.draw(gs::binary().max_size(64))).unwrap();
+    assert!(MusicBrainzIds::read(&path).is_empty());
+}

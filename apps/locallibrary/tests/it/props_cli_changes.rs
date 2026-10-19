@@ -130,6 +130,14 @@ fn by_hand(fx: &Env, step: &str) {
             image::RgbImage::from_pixel(300, 300, image::Rgb([200, 30, 30])).save(&cover).unwrap();
             filetime::set_file_mtime(&cover, filetime::FileTime::from_unix_time(1_790_000_000, 0)).unwrap();
         }
+        // The store's folders made read-only, as on a disk that went read-only, and writable
+        // again (on Unix; elsewhere they stay as they are).
+        "!lock-store" | "!unlock-store" => {
+            #[cfg(unix)]
+            for f in ["objects", "snapshots"].map(|f| fx.store.join(f)).iter().filter(|f| f.exists()) {
+                crate::support::set_mode(f, if step == "!lock-store" { 0o555 } else { 0o755 });
+            }
+        }
         other => panic!("no step {other}"),
     }
 }
@@ -231,6 +239,12 @@ const DRIVE_CHANGES: Changes = &[
     (&["drive", "rename", "A", "Main", ";", "drive", "rename", "Main", "A", "--label", "A"], &["report.name"]),
     (&["!erase-a", ";", "drive", "adopt", "@v/A", "--as", "A"], &["plan.summary.[]", "report.name"]),
     (&["track", "rm", "A", "--track", "1", ";", "drive", "backups", "A"], &["[].id", "[].reason"]),
+    (&["!damage", ";", "!lose-store-objects", ";", "drive", "verify", "A", "--repair"], &["plan.drive"]),
+    (
+        &["drive", "firmware", "A", "@h/firmware.UPD", "--force", ";", "firmware", "A", "--remove", "--dry-run"],
+        &["plan.summary.[]"],
+    ),
+    (&["drive", "retire", "Club", ";", "!unplug-club", ";", "status", "--all", "--retired"], &["libraries.[].name"]),
 ];
 
 /// Changes that move libraries between drives and the store: merge, convert, clean, pull, push
@@ -323,6 +337,7 @@ const SYNC_CHANGES: Changes = &[
     (&["!export-a", ";", "sync", "A", "Blank", "--eject"], &[]),
     (&["sync", "A", "Blank", ";", "!export-a", ";", "sync", "--eject"], &[]),
     (&["sync", "A", "Blank", ";", "!play-blank", ";", "!export-a", ";", "sync", "A", "Blank"], &[]),
+    (&["provision", "Blank", "--library", "A", "--player-name", "SPARE"], &[]),
 ];
 
 /// Changes to the store and what it keeps: snapshots, labels, copies, libraries, players, the
@@ -494,6 +509,26 @@ const JOBS_CHANGES: Changes = &[
             "--sync-group",
             "--settle",
             "0",
+        ],
+        &[],
+    ),
+    // A job cut short when the store can't be written: where it stopped, and what stays done.
+    (&["playlist", "new", "A", "Locked Out", ";", "!lock-store", ";", "refresh", "A", ";", "!unlock-store"], &[]),
+    (
+        &[
+            "setup",
+            "A",
+            "Blank",
+            "--library",
+            "A",
+            "--role",
+            "Blank=archive",
+            ";",
+            "setup",
+            "A",
+            "Blank",
+            "--library",
+            "A",
         ],
         &[],
     ),

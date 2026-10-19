@@ -21,7 +21,8 @@ fn a_time_past_what_a_cue_holds_is_refused() {
 
 /// Any time a cue can hold, written as seconds, minutes:seconds or hours:minutes:seconds (with
 /// up to three decimals, and spaces around), reads back as its milliseconds; seconds past 59 after
-/// a colon, an empty part, more than three parts or a time past what a cue holds don't read.
+/// a colon, an empty part, more than three parts, a part that isn't a number or a time past what a
+/// cue holds don't read, and the error quotes what was given.
 #[hegel::test(test_cases = 300)]
 fn times_read_back_however_they_are_written(tc: hegel::TestCase) {
     use hegel::generators as gs;
@@ -34,13 +35,17 @@ fn times_read_back_however_they_are_written(tc: hegel::TestCase) {
     };
     let padded = if tc.draw(gs::booleans()) { format!(" {written} ") } else { written.clone() };
     assert_eq!(parse_time(&padded), Ok(ms), "{padded:?}");
-    let bad = match tc.draw(gs::integers::<u8>().max_value(3)) {
+    let bad = match tc.draw(gs::integers::<u8>().max_value(5)) {
         0 => format!("{}:{}", ms / 60_000, 60 + s),
         1 => format!("{written}:"),
         2 => format!("1:{written}:00:00"),
-        _ => format!("{}.5", u64::from(u32::MAX) / 1000 + 1),
+        3 => format!("{}.5", u64::from(u32::MAX) / 1000 + 1),
+        // Seconds, or minutes, that aren't a number.
+        4 => format!("{written}s"),
+        _ => format!("{}m:{s:02}", ms / 60_000),
     };
-    assert!(parse_time(&bad).is_err(), "{bad:?}");
+    let refused = parse_time(&bad).expect_err(&bad);
+    assert!(refused.starts_with("not a time: ") && refused.contains(&format!("{bad:?}")), "{refused}");
 }
 
 /// A cue's line shows its slot (or a memory cue's mark) and time, then each thing it has and

@@ -483,7 +483,9 @@ fn loops_made_on_the_grid_span_the_beats_asked(tc: hegel::TestCase) {
 /// The deck's keys on any track, its analysis read or still being read: a beat jump moves by the
 /// grid, or the track's tempo without one, or says there's neither (or that the grid is being
 /// read); a phrase jump goes to the next or previous phrase, or says there's none (more); l makes
-/// a loop from the grid or tempo and l again leaves it; ( and ) halve and double it within its
+/// a loop (the one left that the playhead is in, else the shortest saved loop it's in, measured
+/// as rekordbox saved it, else from the grid or tempo) and l again leaves it; ( and ) halve and
+/// double it within its
 /// bounds, or say there's no loop; and the outputs listed take the arrows and enter, playing on
 /// through the one picked.
 #[hegel::test(test_cases = 200)]
@@ -491,7 +493,13 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
     use super::super::keymap::Act;
     use hegel::generators as gs;
     let beats = if tc.draw(gs::booleans()) { grid(0, 120.0, 400) } else { Vec::new() };
-    let (mut app, _dir) = playing(TrackAnalysis { beats, ..Default::default() });
+    // Loops saved on the track (from, to, and their length in beats as rekordbox measured it).
+    let saved: Vec<_> = [(0, 2_000, Some((4, 1))), (0, 6_000, None), (500, 1_500, Some((1, 2)))]
+        .into_iter()
+        .filter(|_| tc.draw(gs::booleans()))
+        .collect();
+    let cues = saved.iter().map(|&(from, to, beats)| Cue { loop_beats: beats, ..cue(None, from, Some(to)) }).collect();
+    let (mut app, _dir) = playing(TrackAnalysis { beats, cues, ..Default::default() });
     app.outputs = super::super::audio::tests::OUTPUTS;
     let now = app.now.as_mut().unwrap();
     now.track.bpm = tc.draw(gs::sampled_from(&[0.0, 120.0][..]));
@@ -542,7 +550,31 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
             }
             2 => {
                 let was = app.deck.looped.filter(|l| l.on);
+                let left_here = app.deck.looped.filter(|l| !l.on && l.contains(at));
+                // (The track opened afresh through another output has its analysis read again.)
+                let saved_now: Vec<_> = (app.now.as_ref().unwrap().analysis.cues.iter())
+                    .filter_map(|c| Some((c.start_ms, c.end_ms?, c.loop_beats)))
+                    .collect();
+                let saved_here = (saved_now.iter())
+                    .filter(|(from, to, _)| (*from as f64..*to as f64).contains(&at))
+                    .min_by_key(|(from, to, _)| to - from);
                 app.perform(Act::Loop, None);
+                match (was, left_here, saved_here) {
+                    (None, Some(l), _) => {
+                        assert_eq!(app.deck.looped, Some(Loop { on: true, ..l }), "back into the loop left");
+                        continue;
+                    }
+                    (None, None, Some(&(from, to, beats))) => {
+                        let l =
+                            app.deck.looped.unwrap_or_else(|| panic!("no saved loop at {at}: {}", last_message(&app)));
+                        assert_eq!((l.start, l.end, l.on), (from as f64, to as f64, true), "at {at}");
+                        if let Some((n, d)) = beats {
+                            assert_eq!(app.loop_playing().unwrap().1, Some(n as f64 / d as f64));
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
                 match (was, gridded || tempo) {
                     (Some(l), _) => assert_eq!(app.deck.looped, Some(Loop { on: false, ..l }), "l leaves the loop"),
                     (None, true) => {
@@ -574,7 +606,17 @@ fn the_decks_keys_do_what_they_say_or_say_why_not(tc: hegel::TestCase) {
             4 => {
                 // Listed with the one playing through selected (the default first).
                 let playing = app.audio.as_ref().and_then(|a| a.device()).map(str::to_string);
+                let open = app.audio.is_some();
                 app.perform(Act::Outputs, None);
+                // Drawn with the one playing through marked.
+                let s = super::super::ui::screen(&mut app, 120, 40);
+                let listed = s.lines().skip_while(|l| !l.contains("Output ─")).take_while(|l| !l.contains("esc close"));
+                let marked: Vec<&str> = listed.filter(|l| l.contains("● ")).collect();
+                match (open, &playing) {
+                    (false, _) => assert!(marked.is_empty(), "{s}"),
+                    (true, None) => assert!(marked.len() == 1 && marked[0].contains("the system's default"), "{s}"),
+                    (true, Some(p)) => assert!(marked.len() == 1 && marked[0].contains(p.as_str()), "{s}"),
+                }
                 let o = app.deck.outputs.as_ref().expect("listed");
                 let n = o.names.len();
                 let from = playing.and_then(|p| o.names.iter().position(|x| *x == p)).map_or(0, |i| i + 1);

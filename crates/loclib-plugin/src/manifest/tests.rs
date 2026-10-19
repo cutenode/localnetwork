@@ -1,6 +1,9 @@
-use serde_json::json;
+use hegel::TestCase;
+use hegel::generators::{self as gs, Generator};
+use serde_json::{Map, json};
 
 use super::*;
+use crate::code;
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.1\"\n";
 
@@ -454,5 +457,1014 @@ fn a_setting_accepts_values_of_its_type() {
     ];
     for (kind, value, accepted) in cases {
         assert_eq!(setting(kind).accepts(&value), accepted, "{kind} {value}");
+    }
+}
+
+// Properties: manifests drawn whole, then broken in one place each.
+
+/// What `validate` says about `m` (`""`: nothing).
+fn problem_with(m: &Manifest, first_party: bool) -> String {
+    m.validate(first_party).err().map(|e| e.to_string()).unwrap_or_default()
+}
+
+/// A name as drawn: at most 12 bytes, so the ones [`add`] makes (longer) never clash with it.
+const DRAWN_NAME: &str = "[a-z][a-z0-9_-]{0,11}";
+
+#[hegel::test_helper]
+fn drawn_names(tc: &TestCase, max: usize) -> Vec<String> {
+    tc.draw(gs::vecs(gs::from_regex(DRAWN_NAME)).max_size(max).unique(true))
+}
+
+#[hegel::test_helper]
+fn title(tc: &TestCase) -> String {
+    tc.draw(gs::text().min_size(1).max_size(12).filter(|s: &String| !s.trim().is_empty()))
+}
+
+/// Anything but a name: empty, a bad first character, a bad character later, or too long.
+#[hegel::test_helper]
+fn bad_name(tc: &TestCase) -> String {
+    match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => String::new(),
+        1 => tc.draw(gs::from_regex("[A-Z0-9_-][a-z0-9_-]{0,8}")),
+        2 => tc.draw(gs::from_regex("[a-z][a-z0-9_-]{0,4}[A-Z.:/é][a-z0-9_-]{0,4}")),
+        // A byte too long as often as longer still.
+        _ => match tc.draw(gs::booleans()) {
+            true => "a".repeat(65),
+            false => "a".repeat(tc.draw(gs::integers::<usize>().min_value(66).max_value(80))),
+        },
+    }
+}
+
+/// A param's type in a drawn schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    String,
+    Strings,
+    Integer,
+    Number,
+    Boolean,
+    Object,
+}
+
+hegel::pretty_print_as_debug!(Kind);
+
+const KINDS: [Kind; 6] = [Kind::String, Kind::Strings, Kind::Integer, Kind::Number, Kind::Boolean, Kind::Object];
+
+impl Kind {
+    fn schema(self) -> Value {
+        let name = match self {
+            Kind::Strings => return json!({ "type": "array", "items": { "type": "string" } }),
+            Kind::String => "string",
+            Kind::Integer => "integer",
+            Kind::Number => "number",
+            Kind::Boolean => "boolean",
+            Kind::Object => "object",
+        };
+        json!({ "type": name })
+    }
+
+    /// A string or a list of them: what `x-path` may mark.
+    fn stringy(self) -> bool {
+        matches!(self, Kind::String | Kind::Strings)
+    }
+}
+
+/// A param of a drawn schema, as far as checking params against it goes.
+#[derive(Debug, Clone)]
+struct Param {
+    name: String,
+    kind: Kind,
+    required: bool,
+    /// Its `x-path`, when it says.
+    x_path: Option<bool>,
+    hints: CliHints,
+}
+
+impl Param {
+    fn is_path(&self) -> bool {
+        self.x_path == Some(true)
+    }
+}
+
+/// A params or options schema's params: any types, hints that fit them, one positional at most.
+#[hegel::test_helper]
+fn params(tc: &TestCase) -> Vec<Param> {
+    let names = tc.draw(gs::vecs(gs::from_regex("[a-z][a-z0-9_]{0,11}")).max_size(5).unique(true));
+    let mut positional = false;
+    let mut params = Vec::new();
+    for name in names {
+        let kind = tc.draw(gs::sampled_from(KINDS.to_vec()));
+        let x_path = if kind.stringy() { tc.draw(gs::optional(gs::booleans())) } else { None };
+        let here = kind == Kind::String && !positional && tc.draw(gs::booleans());
+        positional |= here;
+        let hints = CliHints {
+            flag: tc.draw(gs::optional(gs::from_regex(DRAWN_NAME))),
+            one_based: kind == Kind::Object && tc.draw(gs::booleans()),
+            positional: here,
+        };
+        params.push(Param { name, kind, required: tc.draw(gs::booleans()), x_path, hints });
+    }
+    params
+}
+
+/// The JSON Schema for an object with `params`.
+fn schema(params: &[Param]) -> Value {
+    let mut properties = Map::new();
+    for p in params {
+        let mut property = p.kind.schema();
+        if let Some(path) = p.x_path {
+            property["x-path"] = path.into();
+        }
+        let mut hints = Map::new();
+        if let Some(flag) = &p.hints.flag {
+            hints.insert("flag".into(), flag.as_str().into());
+        }
+        for (hint, set) in [("one_based", p.hints.one_based), ("positional", p.hints.positional)] {
+            if set {
+                hints.insert(hint.into(), true.into());
+            }
+        }
+        if !hints.is_empty() {
+            property["x-cli"] = hints.into();
+        }
+        properties.insert(p.name.clone(), property);
+    }
+    let required: Vec<&str> = params.iter().filter(|p| p.required).map(|p| p.name.as_str()).collect();
+    match (properties.is_empty(), required.is_empty()) {
+        (true, _) => json!({ "type": "object" }),
+        (false, true) => json!({ "type": "object", "properties": properties }),
+        (false, false) => json!({ "type": "object", "properties": properties, "required": required }),
+    }
+}
+
+#[hegel::test_helper]
+fn maybe_schema(tc: &TestCase) -> Option<Value> {
+    tc.draw(gs::booleans()).then(|| schema(&params(tc)))
+}
+
+const SETTING_TYPES: [SettingType; 7] = [
+    SettingType::String,
+    SettingType::Number,
+    SettingType::Boolean,
+    SettingType::Enum,
+    SettingType::File,
+    SettingType::Directory,
+    SettingType::Secret,
+];
+
+/// A finite number, as JSON has: an integer or not.
+#[hegel::test_helper]
+fn number(tc: &TestCase) -> Value {
+    match tc.draw(gs::booleans()) {
+        true => tc.draw(gs::integers::<i64>()).into(),
+        false => tc.draw(gs::floats::<f64>().allow_nan(false).allow_infinity(false)).into(),
+    }
+}
+
+/// A setting of any type, with choices when it's an enum and, but for a secret, maybe a default
+/// that fits.
+#[hegel::test_helper]
+fn setting(tc: &TestCase, key: String) -> Setting {
+    let kind = tc.draw(gs::sampled_from(SETTING_TYPES.to_vec()).print_as_debug());
+    let choices = match kind {
+        SettingType::Enum => tc.draw(gs::vecs(gs::text().max_size(8)).min_size(1).max_size(4).unique(true)),
+        _ => Vec::new(),
+    };
+    let default = match kind {
+        SettingType::Secret => None,
+        _ if !tc.draw(gs::booleans()) => None,
+        SettingType::String | SettingType::File | SettingType::Directory => Some(tc.draw(gs::text()).into()),
+        SettingType::Number => Some(number(tc)),
+        SettingType::Boolean => Some(tc.draw(gs::booleans()).into()),
+        SettingType::Enum => Some(tc.draw(gs::sampled_from(choices.clone())).into()),
+    };
+    Setting { key, title: title(tc), kind, default, choices }
+}
+
+/// A manifest that keeps every rule: commands and operations with places on the command line
+/// only for a first-party plugin.
+#[hegel::test_helper]
+fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
+    let mut places = FxHashSet::default();
+    let mut place = |tc: &TestCase| {
+        if !first_party || !tc.draw(gs::booleans()) {
+            return None;
+        }
+        let cli = tc.draw(gs::from_regex("[a-z][a-z0-9_-]{0,7}( [a-z][a-z0-9_-]{0,7})?"));
+        places.insert(cli.clone()).then_some(cli)
+    };
+    let modes = vec![Mode::Headless, Mode::View];
+    let commands = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| Command {
+            name,
+            title: title(tc),
+            mode: tc.draw(gs::sampled_from(modes.clone()).print_as_debug()),
+            params: maybe_schema(tc),
+            cli: place(tc),
+        })
+        .collect();
+    let operations = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| Operation {
+            name,
+            title: title(tc),
+            long_running: tc.draw(gs::booleans()),
+            params: maybe_schema(tc),
+            cli: place(tc),
+        })
+        .collect();
+    // Each analyzer a field of its own at least, and the rest shared out.
+    let names = drawn_names(tc, 3);
+    let n = names.len();
+    let field_types =
+        vec![FieldType::Number, FieldType::Integer, FieldType::String, FieldType::Boolean, FieldType::Strings];
+    let fields = tc.draw(gs::vecs(gs::from_regex(DRAWN_NAME)).min_size(n).max_size(n * 3).unique(true));
+    let mut fields = fields.into_iter();
+    let mut analyzers: Vec<Analyzer> = names
+        .into_iter()
+        .zip(fields.by_ref())
+        .map(|(name, field)| Analyzer {
+            name,
+            title: title(tc),
+            fields: IndexMap::from_iter([(field, tc.draw(gs::sampled_from(field_types.clone()).print_as_debug()))]),
+        })
+        .collect();
+    for field in fields {
+        let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
+        analyzers[i].fields.insert(field, tc.draw(gs::sampled_from(field_types.clone()).print_as_debug()));
+    }
+    let exporters = drawn_names(tc, 3)
+        .into_iter()
+        .map(|format| {
+            let extension = tc.draw(gs::optional(gs::from_regex("[a-z0-9]{1,16}")));
+            Exporter { format, title: title(tc), folder: extension.is_none(), extension, options: maybe_schema(tc) }
+        })
+        .collect();
+    let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
+    let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()).print_as_debug());
+    let hosts = tc.draw(gs::vecs(gs::from_regex("[A-Za-z0-9.-]{1,16}")).max_size(2).unique(true));
+    capabilities.extend(hosts.into_iter().map(Capability::Net));
+    let pre = tc.draw(gs::optional(gs::from_regex("[a-z][a-z0-9]{0,4}"))).map(|p| format!("-{p}")).unwrap_or_default();
+    let [major, minor, patch] = tc.draw(gs::arrays(gs::integers::<u16>()));
+    let protocols = vec!["^0.1", "0.1", "~0.1", "^0.1.0", "=0.1.0", "*", ">=0.1.0, <0.2.0", ">=0.0.1"];
+    Manifest {
+        id: tc.draw(gs::from_regex(DRAWN_NAME)),
+        name: title(tc),
+        version: format!("{major}.{minor}.{patch}{pre}"),
+        protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
+        capabilities: tc.draw(gs::permutations(capabilities).print_as_debug()),
+        contributes: Contributions { commands, operations, analyzers, exporters, settings },
+    }
+}
+
+/// `manifest` (as JSON) as TOML a plugin's author could write, a line for each key and inline
+/// tables below it.
+fn toml_of(manifest: &Value) -> String {
+    let lines = manifest
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(key, value)| format!("{} = {}\n", inline(&key.as_str().into()), inline(value)));
+    lines.collect()
+}
+
+/// `value` as a TOML value on one line. A JSON string is a TOML basic string, but for DEL, which
+/// TOML wants escaped.
+fn inline(value: &Value) -> String {
+    let joined = |items: Vec<String>| items.join(", ");
+    match value {
+        Value::Object(table) => {
+            let pairs =
+                table.iter().map(|(key, value)| format!("{} = {}", inline(&key.as_str().into()), inline(value)));
+            format!("{{ {} }}", joined(pairs.collect()))
+        }
+        Value::Array(list) => format!("[{}]", joined(list.iter().map(inline).collect())),
+        Value::String(_) => value.to_string().replace('\u{7f}', "\\u007f"),
+        Value::Null => unreachable!("a manifest has no nulls: TOML has none"),
+        _ => value.to_string(),
+    }
+}
+
+/// Where the first place on the command line is, in the order they're checked.
+fn first_cli(m: &Manifest) -> Option<String> {
+    let c = &m.contributes;
+    let commands = c.commands.iter().map(|x| x.cli.is_some()).enumerate().map(|(i, has)| ("commands", i, has));
+    let operations = c.operations.iter().map(|x| x.cli.is_some()).enumerate().map(|(i, has)| ("operations", i, has));
+    commands.chain(operations).find(|(_, _, has)| *has).map(|(kind, i, _)| format!("contributes.{kind}[{i}].cli"))
+}
+
+/// Any manifest that keeps the rules validates, reads back as it was written from TOML and from
+/// JSON (what `describe` sends), and fits the manifest's JSON Schema. One that gives commands or
+/// operations places on the command line is valid only for a first-party plugin.
+#[hegel::test(test_cases = 60)]
+fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
+    let first_party = tc.draw(gs::booleans());
+    let m = manifest(&tc, first_party);
+    assert_eq!(problem_with(&m, first_party), "");
+    let toml = toml_of(&serde_json::to_value(&m).unwrap());
+    assert_eq!(Manifest::parse(&toml).unwrap(), m, "{toml}");
+    let json = serde_json::to_value(&m).unwrap();
+    assert_eq!(serde_json::from_value::<Manifest>(json.clone()).unwrap(), m);
+    let schema = serde_json::to_value(schemars::schema_for!(Manifest)).unwrap();
+    assert!(jsonschema::validator_for(&schema).unwrap().is_valid(&json), "{json}");
+    match first_cli(&m) {
+        None => assert_eq!(problem_with(&m, false), ""),
+        Some(at) => {
+            assert_eq!(problem_with(&m, false), format!("{at}: only plugins locallibrary ships add CLI commands"));
+        }
+    }
+}
+
+const CONTRIBUTIONS: [&str; 5] = ["commands", "operations", "analyzers", "exporters", "settings"];
+
+/// What names a contribution of `kind`.
+fn name_key(kind: &str) -> &'static str {
+    match kind {
+        "exporters" => "format",
+        "settings" => "key",
+        _ => "name",
+    }
+}
+
+fn len(c: &Contributions, kind: &str) -> usize {
+    match kind {
+        "commands" => c.commands.len(),
+        "operations" => c.operations.len(),
+        "analyzers" => c.analyzers.len(),
+        "exporters" => c.exporters.len(),
+        _ => c.settings.len(),
+    }
+}
+
+/// Adds valid contributions of `kind` until there are `n`, named longer than any drawn name.
+fn add(c: &mut Contributions, kind: &str, n: usize) {
+    while len(c, kind) < n {
+        let name = format!("added-{kind}-{}", len(c, kind));
+        let title = "Added".to_string();
+        match kind {
+            "commands" => c.commands.push(Command { name, title, mode: Mode::Headless, params: None, cli: None }),
+            "operations" => {
+                c.operations.push(Operation { name, title, long_running: false, params: None, cli: None });
+            }
+            "analyzers" => {
+                let fields = IndexMap::from_iter([(format!("{name}-field"), FieldType::Number)]);
+                c.analyzers.push(Analyzer { name, title, fields });
+            }
+            "exporters" => {
+                c.exporters.push(Exporter { format: name, title, extension: None, folder: true, options: None });
+            }
+            _ => c.settings.push(Setting {
+                key: name,
+                title,
+                kind: SettingType::String,
+                default: None,
+                choices: Vec::new(),
+            }),
+        }
+    }
+}
+
+/// The name (or format, or key) and title of each contribution of `kind`.
+fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut String, &'a mut String)> {
+    match kind {
+        "commands" => c.commands.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "operations" => c.operations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "analyzers" => c.analyzers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "exporters" => c.exporters.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
+        _ => c.settings.iter_mut().map(|x| (&mut x.key, &mut x.title)).collect(),
+    }
+}
+
+/// Another of contribution `i` of `kind`, named the same, at the end.
+fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
+    match kind {
+        "commands" => c.commands.push(Command { cli: None, ..c.commands[i].clone() }),
+        "operations" => c.operations.push(Operation { cli: None, ..c.operations[i].clone() }),
+        "analyzers" => c.analyzers.push(c.analyzers[i].clone()),
+        "exporters" => c.exporters.push(c.exporters[i].clone()),
+        _ => c.settings.push(c.settings[i].clone()),
+    }
+}
+
+/// The params or options schema of contribution `i` of `kind`, and where it is.
+fn schema_of<'a>(c: &'a mut Contributions, kind: &str, i: usize) -> (&'a mut Option<Value>, String) {
+    match kind {
+        "commands" => (&mut c.commands[i].params, format!("contributes.commands[{i}].params")),
+        "operations" => (&mut c.operations[i].params, format!("contributes.operations[{i}].params")),
+        _ => (&mut c.exporters[i].options, format!("contributes.exporters[{i}].options")),
+    }
+}
+
+#[hegel::test_helper]
+fn index(tc: &TestCase, len: usize) -> usize {
+    tc.draw(gs::integers::<usize>().max_value(len - 1))
+}
+
+/// Any one thing wrong with a manifest that's otherwise right is refused, saying where it is and
+/// what's wrong with it: the first thing `validate` finds is that.
+#[hegel::test(test_cases = 150)]
+fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
+    let mut first_party = tc.draw(gs::booleans());
+    let mut m = manifest(&tc, first_party);
+    let mistakes = vec![
+        "id",
+        "name",
+        "version",
+        "protocol",
+        "protocol range",
+        "capability twice",
+        "cli",
+        "cli place",
+        "cli twice",
+        "contribution name",
+        "contribution twice",
+        "title",
+        "not an object",
+        "bad schema",
+        "param name",
+        "x-cli",
+        "positional twice",
+        "x-path",
+        "no fields",
+        "field name",
+        "field twice",
+        "file or folder",
+        "extension",
+        "choices",
+        "choice twice",
+        "default",
+    ];
+    let mistake = tc.draw(gs::sampled_from(mistakes));
+    let c = &mut m.contributes;
+    // What `validate` says, and only `prefix` of it, when the rest is another crate's words.
+    let (said, prefix) = match mistake {
+        "id" => {
+            m.id = bad_name(&tc);
+            (format!("id: {:?} isn't a name: {NAME_RULE}", m.id), false)
+        }
+        "name" => {
+            m.name = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+            ("name: is empty".into(), false)
+        }
+        "version" => {
+            let versions = vec!["", "1", "1.2", "v1.0.0", "1.0.0.0", "01.0.0", "one", "1.0.0-"];
+            m.version = tc.draw(gs::sampled_from(versions)).into();
+            ("version: ".into(), true)
+        }
+        "protocol" => {
+            m.protocol = tc.draw(gs::sampled_from(vec!["^^", "one", "0.1.x.y", ">= ^1", "^0.1 ||"])).into();
+            ("protocol: ".into(), true)
+        }
+        "protocol range" => {
+            let range = tc.draw(gs::tuples!(gs::integers::<u8>(), gs::integers::<u8>()).filter(|v| *v != (0, 1)));
+            m.protocol = format!("^{}.{}", range.0, range.1);
+            (format!("protocol: {:?} doesn't include 0.1.0", m.protocol), false)
+        }
+        "capability twice" => {
+            if m.capabilities.is_empty() {
+                m.capabilities.push(Capability::LibraryRead);
+            }
+            let again = m.capabilities[index(&tc, m.capabilities.len())].clone();
+            m.capabilities.push(again.clone());
+            (format!("capabilities[{}]: {again} is there twice", m.capabilities.len() - 1), false)
+        }
+        "cli" | "cli place" | "cli twice" => {
+            let at_least = if mistake == "cli twice" { 2 } else { 1 };
+            if c.commands.len() + c.operations.len() < at_least {
+                add(c, "commands", at_least);
+            }
+            let mut places: Vec<(String, &mut Option<String>)> = c
+                .commands
+                .iter_mut()
+                .enumerate()
+                .map(|(i, x)| (format!("contributes.commands[{i}].cli"), &mut x.cli))
+                .collect();
+            places.extend(
+                c.operations
+                    .iter_mut()
+                    .enumerate()
+                    .map(|(i, x)| (format!("contributes.operations[{i}].cli"), &mut x.cli)),
+            );
+            let i = index(&tc, places.len());
+            // Only a first-party plugin's places are checked further.
+            first_party = true;
+            match mistake {
+                "cli" => {
+                    places[i].1.get_or_insert_with(|| "added-place".into());
+                    let at = first_cli(&m).unwrap();
+                    return assert_eq!(
+                        problem_with(&m, false),
+                        format!("{at}: only plugins locallibrary ships add CLI commands")
+                    );
+                }
+                "cli place" => {
+                    let word = tc.draw(gs::from_regex("[a-z]{1,3}"));
+                    let wrong = match tc.draw(gs::integers::<u8>().max_value(5)) {
+                        0 => format!("{word} {word} {word}"),
+                        1 => format!("{word}  {word}"),
+                        2 => format!(" {word}"),
+                        3 => format!("{word} "),
+                        4 => word.to_uppercase(),
+                        _ => String::new(),
+                    };
+                    *places[i].1 = Some(wrong.clone());
+                    let at = places[i].0.clone();
+                    (format!("{at}: {wrong:?} isn't one or two names ({NAME_RULE}), like \"playlist import\""), false)
+                }
+                _ => {
+                    // Twice: at `i` and at a later one.
+                    let i = i.min(places.len() - 2);
+                    let j = i + 1 + index(&tc, places.len() - i - 1);
+                    let place = places[i].1.get_or_insert_with(|| "added-place".into()).clone();
+                    *places[j].1 = Some(place.clone());
+                    (format!("{}: {place:?} is used twice", places[j].0), false)
+                }
+            }
+        }
+        "contribution name" | "contribution twice" | "title" => {
+            let kind = tc.draw(gs::sampled_from(CONTRIBUTIONS.to_vec()));
+            add(c, kind, 1);
+            let i = index(&tc, len(c, kind));
+            let key = name_key(kind);
+            match mistake {
+                "contribution name" => {
+                    let wrong = bad_name(&tc);
+                    *names_and_titles(c, kind)[i].0 = wrong.clone();
+                    (format!("contributes.{kind}[{i}].{key}: {wrong:?} isn't a name: {NAME_RULE}"), false)
+                }
+                "contribution twice" => {
+                    duplicate(c, kind, i);
+                    let name = names_and_titles(c, kind)[i].0.clone();
+                    (format!("contributes.{kind}[{}].{key}: {name:?} is used twice", len(c, kind) - 1), false)
+                }
+                _ => {
+                    *names_and_titles(c, kind)[i].1 = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+                    (format!("contributes.{kind}[{i}].title: is empty"), false)
+                }
+            }
+        }
+        "not an object" | "bad schema" | "param name" | "x-cli" | "positional twice" | "x-path" => {
+            let kind = tc.draw(gs::sampled_from(vec!["commands", "operations", "exporters"]));
+            add(c, kind, 1);
+            let i = index(&tc, len(c, kind));
+            let (slot, at) = schema_of(c, kind, i);
+            let mut drawn = params(&tc);
+            let (property, said) = match mistake {
+                "not an object" => {
+                    let wrong = vec![
+                        json!({}),
+                        json!({ "type": "string" }),
+                        json!({ "type": ["object"] }),
+                        json!({ "properties": {} }),
+                    ];
+                    *slot = Some(tc.draw(gs::sampled_from(wrong).print_as_debug()));
+                    return assert_eq!(
+                        problem_with(&m, first_party),
+                        format!("{at}: must be a JSON Schema for an object (type = \"object\")")
+                    );
+                }
+                "bad schema" => {
+                    let wrong = vec![
+                        json!({ "type": "object", "properties": 5 }),
+                        json!({ "type": "object", "required": "name" }),
+                        json!({ "type": "object", "minProperties": -1 }),
+                    ];
+                    *slot = Some(tc.draw(gs::sampled_from(wrong).print_as_debug()));
+                    return assert!(
+                        problem_with(&m, first_party).starts_with(&format!("{at}: isn't a valid JSON Schema: "))
+                    );
+                }
+                "param name" => {
+                    let name = match tc.draw(gs::booleans()) {
+                        true => bad_name(&tc),
+                        false => tc.draw(gs::from_regex("[a-z][a-z0-9]{0,4}-[a-z0-9]{0,4}")),
+                    };
+                    let said = format!("{name:?} isn't a param's name: {PARAM_RULE}");
+                    ((name, json!({ "type": "string" })), (String::new(), said))
+                }
+                "x-cli" => {
+                    let (property, said) = match tc.draw(gs::integers::<u8>().max_value(4)) {
+                        0 => {
+                            let flag = bad_name(&tc);
+                            (
+                                json!({ "type": "string", "x-cli": { "flag": flag } }),
+                                format!("its flag {flag:?} isn't a name: {NAME_RULE}"),
+                            )
+                        }
+                        1 => {
+                            let kind = tc.draw(gs::sampled_from(vec![
+                                Kind::Strings,
+                                Kind::Integer,
+                                Kind::Number,
+                                Kind::Boolean,
+                                Kind::Object,
+                            ]));
+                            let mut property = kind.schema();
+                            property["x-cli"] = json!({ "positional": true });
+                            (property, "only a string is positional".into())
+                        }
+                        2 => {
+                            let kind = tc.draw(gs::sampled_from(vec![
+                                Kind::String,
+                                Kind::Strings,
+                                Kind::Integer,
+                                Kind::Number,
+                                Kind::Boolean,
+                            ]));
+                            let mut property = kind.schema();
+                            property["x-cli"] = json!({ "one_based": true });
+                            (property, "only an object's keys are one_based".into())
+                        }
+                        3 => (json!({ "type": "string", "x-cli": { "short": "s" } }), "unknown field `short`".into()),
+                        _ => (json!({ "type": "string", "x-cli": 5 }), "invalid type: integer `5`".into()),
+                    };
+                    (("added_param".into(), property), (".x-cli".into(), said))
+                }
+                "positional twice" => {
+                    for p in &mut drawn {
+                        p.hints.positional = false;
+                    }
+                    let positional = json!({ "type": "string", "x-cli": { "positional": true } });
+                    let mut s = schema(&drawn);
+                    s["properties"]["added_param_one"] = positional.clone();
+                    s["properties"]["added_param_two"] = positional;
+                    *slot = Some(s);
+                    return assert_eq!(
+                        problem_with(&m, first_party),
+                        format!("{at}.properties.added_param_two.x-cli: \"added_param_one\" is positional already")
+                    );
+                }
+                _ => {
+                    let property = match tc.draw(gs::booleans()) {
+                        true => {
+                            let kind = tc.draw(gs::sampled_from(vec![
+                                Kind::Integer,
+                                Kind::Number,
+                                Kind::Boolean,
+                                Kind::Object,
+                            ]));
+                            let mut property = kind.schema();
+                            property["x-path"] = true.into();
+                            property
+                        }
+                        false => {
+                            let mut property = tc.draw(gs::sampled_from(vec![Kind::String, Kind::Strings])).schema();
+                            property["x-path"] =
+                                tc.draw(gs::sampled_from(vec![json!("yes"), json!(1), json!(null)]).print_as_debug());
+                            property
+                        }
+                    };
+                    (
+                        ("added_param".into(), property),
+                        (".x-path".into(), "is true or false, on a string or a list of them".into()),
+                    )
+                }
+            };
+            let ((name, property), (under, said)) = (property, said);
+            let mut s = schema(&drawn);
+            s["properties"][&name] = property;
+            *slot = Some(s);
+            (format!("{at}.properties.{name}{under}: {said}"), mistake == "x-cli")
+        }
+        "no fields" | "field name" | "field twice" => {
+            add(c, "analyzers", if mistake == "field twice" { 2 } else { 1 });
+            let i = index(&tc, c.analyzers.len());
+            match mistake {
+                "no fields" => {
+                    c.analyzers[i].fields.clear();
+                    (format!("contributes.analyzers[{i}].fields: an analyzer needs a field"), false)
+                }
+                "field name" => {
+                    let name = bad_name(&tc);
+                    c.analyzers[i].fields.insert(name.clone(), FieldType::String);
+                    (format!("contributes.analyzers[{i}].fields.{name}: isn't a name: {NAME_RULE}"), false)
+                }
+                _ => {
+                    let (i, j) = (i.max(1), index(&tc, i.max(1)));
+                    let field = c.analyzers[j].fields.keys().next().unwrap().clone();
+                    c.analyzers[i].fields.insert(field.clone(), FieldType::Boolean);
+                    (format!("contributes.analyzers[{i}].fields.{field}: another analyzer has this field"), false)
+                }
+            }
+        }
+        "file or folder" | "extension" => {
+            add(c, "exporters", 1);
+            let i = index(&tc, c.exporters.len());
+            let x = &mut c.exporters[i];
+            if mistake == "file or folder" {
+                x.folder = tc.draw(gs::booleans());
+                x.extension = x.folder.then(|| "x".into());
+                (format!("contributes.exporters[{i}]: an exporter has either an extension or folder = true"), false)
+            } else {
+                let ext = match tc.draw(gs::integers::<u8>().max_value(2)) {
+                    0 => String::new(),
+                    1 => tc.draw(gs::from_regex("[a-z0-9]{0,3}[A-Z._/ -][a-z0-9]{0,3}")),
+                    _ => "a".repeat(tc.draw(gs::integers::<usize>().min_value(17).max_value(24))),
+                };
+                (x.folder, x.extension) = (false, Some(ext.clone()));
+                let said = format!("{ext:?} isn't an extension: lowercase letters and digits, without the dot");
+                (format!("contributes.exporters[{i}].extension: {said}"), false)
+            }
+        }
+        _ => {
+            add(c, "settings", 1);
+            let i = index(&tc, c.settings.len());
+            let x = &mut c.settings[i];
+            let at = format!("contributes.settings[{i}]");
+            match mistake {
+                "choices" => {
+                    match x.kind {
+                        SettingType::Enum => (x.choices, x.default) = (Vec::new(), None),
+                        _ => x.choices = tc.draw(gs::vecs(gs::text()).min_size(1).max_size(3)),
+                    }
+                    (format!("{at}.choices: an enum setting has choices, and only an enum"), false)
+                }
+                "choice twice" => {
+                    if x.kind != SettingType::Enum {
+                        (x.kind, x.default) = (SettingType::Enum, None);
+                        x.choices.push(tc.draw(gs::text()));
+                    }
+                    let again = x.choices[index(&tc, x.choices.len())].clone();
+                    x.choices.push(again.clone());
+                    (format!("{at}.choices: {again:?} is there twice"), false)
+                }
+                _ => {
+                    let choices = x.choices.clone();
+                    x.default = Some(match x.kind {
+                        SettingType::String | SettingType::File | SettingType::Directory => number(&tc),
+                        SettingType::Number => tc.draw(gs::text()).into(),
+                        SettingType::Boolean => number(&tc),
+                        SettingType::Enum => tc.draw(gs::text().filter(move |s: &String| !choices.contains(s))).into(),
+                        SettingType::Secret => tc.draw(gs::text()).into(),
+                    });
+                    (format!("{at}.default: doesn't fit the setting's type (and a secret has none)"), false)
+                }
+            }
+        }
+    };
+    let problem = problem_with(&m, first_party);
+    match prefix {
+        true => assert!(problem.starts_with(&said), "{problem:?} doesn't start with {said:?}"),
+        false => assert_eq!(problem, said),
+    }
+}
+
+/// An absolute path on this computer, ending in `name`.
+fn absolute(name: &str) -> String {
+    if cfg!(windows) { format!("C:\\{name}") } else { format!("/{name}") }
+}
+
+#[hegel::test_helper]
+fn file_name(tc: &TestCase) -> String {
+    tc.draw(gs::from_regex("[a-z0-9 ._-]{1,8}(/[a-z0-9]{1,4})?"))
+}
+
+/// A value that fits `p`: files and folders absolute.
+#[hegel::test_helper]
+fn fitting(tc: &TestCase, p: &Param) -> Value {
+    let string = |tc: &TestCase| match p.is_path() {
+        true => absolute(&file_name(tc)),
+        false => tc.draw(gs::text().max_size(8)),
+    };
+    match p.kind {
+        Kind::String => string(tc).into(),
+        Kind::Strings => (0..tc.draw(gs::integers::<usize>().max_value(3))).map(|_| string(tc)).collect(),
+        Kind::Integer => tc.draw(gs::integers::<i64>()).into(),
+        Kind::Number => number(tc),
+        Kind::Boolean => tc.draw(gs::booleans()).into(),
+        Kind::Object => {
+            let keys = tc.draw(gs::vecs(gs::text().max_size(4)).max_size(3));
+            Value::Object(keys.into_iter().map(|k| (k, number(tc))).collect())
+        }
+    }
+}
+
+/// A value of another type than `p`'s, and where in it the first thing wrong is (from `p`).
+#[hegel::test_helper]
+fn misfit(tc: &TestCase, p: &Param) -> (Value, String) {
+    let at = format!("/{}", p.name);
+    let text = || Value::from(tc.draw(gs::text().max_size(4)));
+    match p.kind {
+        Kind::String | Kind::Boolean => (number(tc), at),
+        Kind::Integer => match tc.draw(gs::booleans()) {
+            true => ((tc.draw(gs::integers::<i32>()) as f64 + 0.5).into(), at),
+            false => (text(), at),
+        },
+        Kind::Number | Kind::Object => (text(), at),
+        Kind::Strings => {
+            let mut list: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|_| text()).collect();
+            let i = tc.draw(gs::integers::<usize>().max_value(list.len()));
+            list.insert(i, number(tc));
+            (list.into(), format!("{at}/{i}"))
+        }
+    }
+}
+
+/// Params that fit a drawn schema pass `check_params`. Broken in one place, they're refused as
+/// invalid params saying where: a value of the wrong type or a relative path at its JSON pointer,
+/// a missing param or params that aren't an object as a whole. Each param's hints and `x-path`
+/// read back as the schema gives them.
+#[hegel::test(test_cases = 80)]
+fn params_fit_their_schema_or_are_refused_saying_where(tc: TestCase) {
+    let mistake = tc.draw(gs::sampled_from(vec!["none", "wrong type", "missing", "relative path", "not an object"]));
+    let mut drawn = params(&tc);
+    // A param the mistake can be made with.
+    let kind = match mistake {
+        "relative path" => tc.draw(gs::sampled_from(vec![Kind::String, Kind::Strings])),
+        _ => tc.draw(gs::sampled_from(KINDS.to_vec())),
+    };
+    let hints = CliHints::default();
+    let path = Some(mistake == "relative path");
+    drawn.push(Param { name: "added_param".into(), kind, required: mistake == "missing", x_path: path, hints });
+    let schema = schema(&drawn);
+    for p in &drawn {
+        let property = &schema["properties"][&p.name];
+        assert_eq!(CliHints::of(property), Ok(p.hints.clone()), "{property}");
+        assert_eq!(is_path(property), p.is_path(), "{property}");
+    }
+    let mut params = Map::new();
+    for p in &drawn {
+        if p.required || tc.draw(gs::booleans()) {
+            params.insert(p.name.clone(), fitting(&tc, p));
+        }
+    }
+    let added = drawn.last().unwrap();
+    let (params, at, said) = match mistake {
+        "none" => {
+            assert_eq!(check_params(Some(&schema), &params.into()), Ok(()));
+            return;
+        }
+        "wrong type" => {
+            let (value, at) = misfit(&tc, added);
+            params.insert(added.name.clone(), value);
+            (params.into(), Some(at), String::new())
+        }
+        "missing" => {
+            params.shift_remove(&added.name);
+            (params.into(), None, "\"added_param\" is a required property".into())
+        }
+        "relative path" => {
+            let relative = tc.draw(gs::from_regex("[a-z0-9_-]{1,8}(/[a-z0-9]{1,4})?"));
+            let value = match added.kind {
+                Kind::String => relative.clone().into(),
+                _ => {
+                    let mut list: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+                        .map(|_| absolute(&file_name(&tc)).into())
+                        .collect();
+                    list.insert(tc.draw(gs::integers::<usize>().max_value(list.len())), relative.clone().into());
+                    list.into()
+                }
+            };
+            params.insert(added.name.clone(), value);
+            (params.into(), Some("/added_param".into()), format!("{relative:?} isn't an absolute path"))
+        }
+        _ => {
+            let other = vec![json!(null), json!([]), json!("params"), json!(1), json!(true), json!([{}])];
+            (tc.draw(gs::sampled_from(other).print_as_debug()), None, String::new())
+        }
+    };
+    let e = check_params(Some(&schema), &params).unwrap_err();
+    assert_eq!((e.code, e.kind()), (code::INVALID_PARAMS, Some("invalid_params")), "{e}");
+    let fields = &e.data.as_ref().unwrap().fields;
+    assert_eq!(fields.get("path").and_then(Value::as_str), at.as_deref(), "{e}");
+    let start = match &at {
+        Some(at) => format!("invalid params: {at}: "),
+        None => "invalid params: ".into(),
+    };
+    assert!(e.message.starts_with(&start) && e.message.contains(&said), "{e}");
+    // Without a schema, any object is fine and nothing else.
+    assert_eq!(check_params(None, &params).is_ok(), params.is_object());
+}
+
+/// No schema takes any object, and nothing else; a schema that doesn't compile is the host's bug.
+#[hegel::test(test_cases = 20)]
+fn without_a_schema_params_are_any_object(tc: TestCase) {
+    let p = Param {
+        name: "x".into(),
+        kind: tc.draw(gs::sampled_from(KINDS.to_vec())),
+        required: false,
+        x_path: None,
+        hints: CliHints::default(),
+    };
+    let value = fitting(&tc, &p);
+    assert_eq!(check_params(None, &json!({ "x": value })), Ok(()));
+    let e = check_params(None, &value).map_err(|e| e.message);
+    assert_eq!(e, if value.is_object() { Ok(()) } else { Err("invalid params: expected an object".into()) });
+    let e = check_params(Some(&json!({ "type": 5 })), &json!({ "x": value })).unwrap_err();
+    assert_eq!((e.code, e.kind()), (code::INTERNAL, Some("internal")));
+}
+
+/// One of each kind of field value.
+#[hegel::test_helper]
+fn field_value(tc: &TestCase) -> FieldValue {
+    match tc.draw(gs::integers::<u8>().max_value(4)) {
+        0 => FieldValue::Integer(tc.draw(gs::integers())),
+        1 => FieldValue::Number(tc.draw(gs::floats::<f64>().allow_nan(false).allow_infinity(false))),
+        2 => FieldValue::Boolean(tc.draw(gs::booleans())),
+        3 => FieldValue::String(tc.draw(gs::text())),
+        _ => FieldValue::Strings(tc.draw(gs::vecs(gs::text()).max_size(3))),
+    }
+}
+
+/// A field's value is accepted by its own type alone (an integer by a number's too), and reads
+/// back from JSON as the same kind of value.
+#[hegel::test(test_cases = 100)]
+fn a_value_fits_its_field_type_alone(tc: TestCase) {
+    let value = field_value(&tc);
+    let json = serde_json::to_string(&value).unwrap();
+    assert_eq!(serde_json::from_str::<FieldValue>(&json).unwrap(), value, "{json}");
+    let own = match value {
+        FieldValue::Integer(_) => FieldType::Integer,
+        FieldValue::Number(_) => FieldType::Number,
+        FieldValue::Boolean(_) => FieldType::Boolean,
+        FieldValue::String(_) => FieldType::String,
+        FieldValue::Strings(_) => FieldType::Strings,
+    };
+    for kind in [FieldType::Number, FieldType::Integer, FieldType::String, FieldType::Boolean, FieldType::Strings] {
+        let fits = kind == own || (kind, own) == (FieldType::Number, FieldType::Integer);
+        assert_eq!(kind.accepts(&value), fits, "{kind:?} {value:?}");
+    }
+}
+
+/// A setting takes a value of its type (an enum, one of its choices) and nothing else; a secret
+/// takes none.
+#[hegel::test(test_cases = 100)]
+fn a_setting_takes_values_of_its_type_alone(tc: TestCase) {
+    let s = setting(&tc, "s".into());
+    let value: Value = match tc.draw(gs::integers::<u8>().max_value(6)) {
+        0 => Value::Null,
+        1 => tc.draw(gs::booleans()).into(),
+        2 => number(&tc),
+        3 if !s.choices.is_empty() => tc.draw(gs::sampled_from(s.choices.clone())).into(),
+        3 | 4 => tc.draw(gs::text().max_size(6)).into(),
+        5 => json!([tc.draw(gs::text().max_size(6))]),
+        _ => json!({ "value": tc.draw(gs::booleans()) }),
+    };
+    let fits = match s.kind {
+        SettingType::String | SettingType::File | SettingType::Directory => value.is_string(),
+        SettingType::Number => value.is_number(),
+        SettingType::Boolean => value.is_boolean(),
+        SettingType::Enum => s.choices.iter().any(|c| value == c.as_str()),
+        SettingType::Secret => false,
+    };
+    assert_eq!(s.accepts(&value), fits, "{s:?} {value}");
+}
+
+/// A capability's name reads back as the capability, and any other string is refused saying
+/// what it may be. In a manifest, the same.
+#[hegel::test(test_cases = 100)]
+fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
+    let named = [
+        "library:read",
+        "analysis:read",
+        "artwork:read",
+        "drive:info",
+        "health:read",
+        "store:read",
+        "settings:read",
+        "plays:read",
+        "sets:read",
+        "account:status",
+        "collection:read",
+        "library:plan",
+        "library:delete",
+        "tags:plan",
+        "cues:plan",
+        "artwork:plan",
+    ];
+    let s = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => tc.draw(gs::sampled_from(named.to_vec())).to_string(),
+        1 => format!("net:{}", tc.draw(gs::from_regex("[A-Za-z0-9.-]{0,12}"))),
+        2 => format!("net:{}", tc.draw(gs::text().max_size(12))),
+        _ => tc.draw(gs::text().max_size(16)),
+    };
+    let parsed = s.parse::<Capability>();
+    let host = s.strip_prefix("net:");
+    match parsed {
+        Ok(Capability::Net(ref h)) => {
+            assert_eq!(Some(h.as_str()), host);
+            assert!(!h.is_empty() && h.chars().all(|c| c.is_ascii_alphanumeric() || ".-".contains(c)), "{s:?}");
+        }
+        Ok(ref c) => assert!(named.contains(&s.as_str()) && c.to_string() == s, "{s:?}"),
+        Err(ref e) if host.is_some() => {
+            assert_eq!(*e, format!("{s:?} names no host: net:<host>, like net:musicbrainz.org"));
+            let host = host.unwrap();
+            assert!(host.is_empty() || !host.chars().all(|c| c.is_ascii_alphanumeric() || ".-".contains(c)), "{s:?}");
+        }
+        Err(ref e) => {
+            assert!(!named.contains(&s.as_str()), "{s:?}");
+            let known = named.join(", ");
+            assert_eq!(*e, format!("unknown capability {s:?}: one of {known} or net:<host>"));
+        }
+    }
+    if let Ok(c) = &parsed {
+        assert_eq!(c.to_string(), s);
+    }
+    let toml = format!("{HEAD}capabilities = [{}]\n", inline(&s.as_str().into()));
+    match (Manifest::parse(&toml), parsed) {
+        (Ok(m), Ok(c)) => assert_eq!(m.capabilities, [c]),
+        (Err(e), Err(said)) => assert!(e.to_string().contains(&said), "{e}"),
+        (m, c) => panic!("{m:?} {c:?}"),
     }
 }

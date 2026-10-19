@@ -751,3 +751,38 @@ fn each_model_is_told_the_database_it_lacks(tc: hegel::TestCase) {
         }
     }
 }
+
+#[cfg(unix)]
+use crate::format::tests::fake_tools;
+
+/// An export on a drive that is a volume of its own has its file system judged by the disk it is
+/// on, as players get on with it: FAT32 on MBR by every player, exFAT by some, nothing on a GUID
+/// partition table. A drive that is only a folder is warned it wasn't judged.
+#[cfg(unix)]
+#[hegel::test(test_cases = 8)]
+fn a_drives_file_system_is_judged_by_its_disk(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut fake = fake_tools::FakeTools::new();
+    let d = Device::open(fake.demo_drive("DNA")).unwrap();
+    let on_a_disk = tc.draw(gs::weighted_booleans(0.8));
+    let (fs, mbr) = (tc.draw(gs::sampled_from(vec!["vfat", "exfat"])), tc.draw(gs::booleans()));
+    if on_a_disk {
+        fake.volume_at(d.root(), fs, mbr);
+    }
+
+    let report = check(&[d], None, &CheckOptions::default(), &Ctx::silent()).unwrap();
+    let judged: Vec<(Level, &str)> =
+        report.items.iter().filter(|i| i.check == "file_system").map(|i| (i.level, i.message.as_str())).collect();
+    let [(level, message)] = judged[..] else { panic!("{judged:?}") };
+    match (on_a_disk, mbr, fs) {
+        (false, ..) => assert_eq!(
+            (level, message),
+            (Level::Warning, "not the root of a mounted volume, so its file system wasn't checked")
+        ),
+        (true, false, _) => {
+            assert!(level == Level::Problem && message.starts_with("GUID partition table"), "{message}")
+        }
+        (true, true, "vfat") => assert_eq!((level, message), (Level::Ok, "every player")),
+        _ => assert!(level == Level::Warning && message.starts_with("exFAT: only"), "{message}"),
+    }
+}

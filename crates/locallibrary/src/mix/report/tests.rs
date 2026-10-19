@@ -416,7 +416,8 @@ fn a_project_plays_the_export_sharing_most_of_its_name(tc: TestCase) {
 }
 
 /// Any report kept in the store is listed with what it found and reads back as it was,
-/// by an id made only of what ids are made of; nothing else is an id.
+/// by an id made only of what ids are made of; nothing else is an id. Without a readable
+/// reports folder, listing fails.
 #[hegel::test(test_cases = 20)]
 fn kept_reports_read_back_and_list_what_they_found(tc: TestCase) {
     use loclib_model::test_util::track;
@@ -449,6 +450,11 @@ fn kept_reports_read_back_and_list_what_they_found(tc: TestCase) {
         Error::Invalid(_) => assert!(!well_formed, "{other:?}"),
         e => panic!("{other:?}: {e}"),
     }
+    // A reports folder that can't be read is an error, never an empty list.
+    let reports = reports_dir(dir.path());
+    std::fs::remove_dir_all(&reports).unwrap();
+    std::fs::write(&reports, b"a file where the folder goes").unwrap();
+    assert!(matches!(list(dir.path()).unwrap_err().inner(), Error::Io { path, .. } if *path == reports));
 }
 
 /// The page reads back any title, holds one entry for each play (and with the drive, what
@@ -639,4 +645,38 @@ fn the_reports_folder_lists_each_report_once(tc: TestCase) {
     assert_eq!(got, want);
     assert_eq!(listed.len(), want.len(), "each once");
     assert!(listed.windows(2).all(|w| w[0].modified >= w[1].modified), "newest first");
+}
+
+/// A page shows the cover embedded in the recording as a JPEG at most 640 pixels across, and
+/// none for an image beside the recording (a guess) or a recording without one.
+#[hegel::test(test_cases = 12)]
+fn a_page_shows_only_the_cover_the_recording_embeds(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let set = dir.path().join("set.wav");
+    std::fs::write(&set, crate::probe::tests::wav(8_000, 16, 0.2)).unwrap();
+    let side = tc.draw(gs::integers::<u32>().min_value(16).max_value(48));
+    let png = dir.path().join("set.png");
+    image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 40])).save(&png).unwrap();
+    let source = tc.draw(gs::integers::<u8>().max_value(2));
+    let mut r = report("set");
+    r.mix.cover = match source {
+        0 => {
+            Artwork::from_path(&png).map(|a| crate::artwork::embed_in_file(&set, &a)).unwrap().unwrap();
+            Some(super::super::CoverSource::Embedded(set.clone()))
+        }
+        1 => Some(super::super::CoverSource::Embedded(set.clone())),
+        _ => Some(super::super::CoverSource::File(png.clone())),
+    };
+    let html = page(&r, None, None, &dir.path().join("set.html"), &ProfilePrefs::default(), true);
+    let data = html.split_once(r#"<script id="data" type="application/json">"#).unwrap().1;
+    let v: serde_json::Value = serde_json::from_str(data.split_once("</script>").unwrap().0).unwrap();
+    match v["cover"].as_str() {
+        Some(url) => {
+            assert_eq!(source, 0, "{url:.40}");
+            let jpeg = BASE64_STANDARD.decode(url.strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+            assert_eq!(image::guess_format(&jpeg).unwrap(), image::ImageFormat::Jpeg);
+            assert!(image::load_from_memory(&jpeg).unwrap().width() <= 640);
+        }
+        None => assert_ne!(source, 0, "{}", v["cover"]),
+    }
 }

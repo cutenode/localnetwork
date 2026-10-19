@@ -57,6 +57,15 @@ test.describe('public pages', () => {
 		await expect(page.getByRole('heading', { level: 1 })).toContainText('The home for local DJs');
 		await expect(page.getByRole('heading', { name: 'New on the directory' })).toBeVisible();
 		await expectAccessible(page);
+		// Narrower than the desktop layout, the header's links fold into a menu, so open it the way a
+		// person on a phone would. Its button only responds once the page has hydrated.
+		const menu = page.getByRole('button', { name: 'Menu' });
+
+		if (await menu.isVisible()) {
+			await expect(page.locator('html')).toHaveAttribute('data-hydrated', '');
+			await menu.click();
+		}
+
 		await page.getByRole('link', { name: 'Find DJs' }).first().click();
 		await expect(page).toHaveURL(/\/projects$/);
 		await expect(page.getByRole('heading', { name: 'Find DJs' })).toBeVisible();

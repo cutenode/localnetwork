@@ -77,9 +77,9 @@ fn labels(e: &Error) -> Vec<String> {
 /// order: a guess unless it's taken, drives that both changed unless one only came back from a
 /// set (then it's overwritten, after its players' changes are saved in the store, which it
 /// needs), and what compare can't tell, saying why. Pinned to a direction, keeping the players'
-/// changes is only for a drive back from a set. Synced as several, the newest goes onto every
-/// other, a drive back from a set is sent to be synced as a pair first, and a target that went or
-/// changed since the plan fails alone.
+/// changes is only for a drive back from a set. Synced as several (refused for blank drives alone,
+/// none of them the newest), the newest goes onto every other, a drive back from a set is sent to
+/// be synced as a pair first, and a target that went or changed since the plan fails alone.
 ///
 /// The explicit cases are the situations each branch needs: a guess, drives back from a set
 /// synced with the store and without, pinned and among several, what compare can't tell, and a
@@ -150,6 +150,8 @@ fn syncs_go_the_way_compare_and_the_changes_say(tc: TestCase) {
         let empty = common::blank(&volumes, "Empty");
         let e = api::sync_plan(&common::sync_pair(s, &empty), &ctx).unwrap_err();
         assert!(e.to_string().contains("neither drive holds a rekordbox export"), "{e}");
+        let e = api::sync_many_plan(&common::sync_many(&[s, &empty]), &ctx).map(|p| p.noop).unwrap_err();
+        assert!(matches!(&e, Error::Invalid(m) if m == "none of the drives holds a rekordbox export"), "{e}");
         std::fs::remove_dir(empty).unwrap();
         // Another library altogether: copying either way, or merging either way.
         let other = common::bigger_drive(&volumes, "Other");

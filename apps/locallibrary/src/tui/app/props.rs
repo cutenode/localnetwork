@@ -2097,3 +2097,242 @@ fn tab_goes_round_the_panes_there_are(tc: TestCase) {
         assert_eq!((app.view, (app.focus, app.drive_state.selected(), app.history_state.selected())), (view, was));
     }
 }
+
+/// What the echo plugin's analyzer works out of each track (`echo.bytes`, its file's size), as the
+/// app has read it.
+fn bytes_of(app: &App, i: usize) -> Option<i64> {
+    let l = app.loaded.as_ref().unwrap();
+    let v = l.values()?.get(l.library.tracks[i].id, "echo.bytes")?;
+    match v {
+        locallibrary::fields::FieldValue::Integer(n) => Some(*n),
+        other => panic!("{other:?} isn't a size"),
+    }
+}
+
+/// A plugin's analyzer run from the palette on a drive whose tracks' files are of drawn sizes
+/// (some gone): it says how many it analysed and how many failed. Its field's column, asked for
+/// from the palette before or after, shows after the player's own columns and before tempo, key
+/// and time, with each track's value. Sorted by it either way, the tracks go by their values,
+/// those without one last; a filter naming it keeps exactly the tracks whose value matches. The
+/// column is kept in what's saved for the next run, which shows it again, and once hidden it
+/// isn't.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn an_analyzers_column_shows_sorts_filters_and_is_kept(tc: TestCase) {
+    plugins_once();
+    let drive = plugged();
+    let mut app = app_on(&drive.0);
+    let store = tempfile::tempdir().unwrap();
+    app.store_root = store.path().join("store");
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    let sizes: Vec<Option<usize>> = lib
+        .tracks
+        .iter()
+        .map(|_| tc.draw(gs::sampled_from(&[Some(0), Some(1), Some(500), Some(4000), None][..])))
+        .collect();
+    for (t, size) in lib.tracks.iter().zip(&sizes) {
+        let file = drive.0.join(t.file_path.trim_start_matches('/'));
+        match size {
+            Some(n) => std::fs::write(file, "x".repeat(*n)).unwrap(),
+            None => std::fs::remove_file(file).unwrap(),
+        }
+    }
+    let column_first = tc.draw(gs::booleans());
+    if column_first {
+        press(&mut app, ":show the echo.bytes column\n");
+    }
+    press(&mut app, ":analyze the tracks: file\n");
+    wait(&mut app, |a| a.job.is_none());
+    let analyzed = sizes.iter().flatten().count();
+    let failed = sizes.len() - analyzed;
+    let mut said = format!("file size: {analyzed} track{} analyzed, 0 already", if analyzed == 1 { "" } else { "s" });
+    if failed > 0 {
+        said.push_str(&format!(", {failed} failed (! says why)"));
+    }
+    assert_eq!(last_message(&app), said);
+    if !column_first {
+        // Filtered by it before what's worked out is read: nothing matches until it's in, then
+        // what does.
+        press(&mut app, "/echo.bytes:>0");
+        assert_eq!(app.filter_note.as_deref(), Some("reading what analyzers worked out…"));
+        assert!(app.visible.is_empty());
+        wait(&mut app, |a| matches!(a.loaded.as_ref().unwrap().fields, Fields::Read(_)));
+        let mut shown = app.visible.clone();
+        shown.sort();
+        let over: Vec<usize> = (0..sizes.len()).filter(|&i| sizes[i].is_some_and(|n| n > 0)).collect();
+        assert_eq!(shown, over);
+        press(&mut app, "\u{1b}");
+        press(&mut app, ":show the echo.bytes column\n");
+    }
+    let name = FieldName::new("echo.bytes");
+    assert_eq!(app.field_columns, [name]);
+    wait(&mut app, |a| matches!(a.loaded.as_ref().unwrap().fields, Fields::Read(_)));
+    let want: Vec<Option<i64>> = sizes.iter().map(|s| s.map(|n| n as i64)).collect();
+    assert_eq!((0..lib.tracks.len()).map(|i| bytes_of(&app, i)).collect::<Vec<_>>(), want);
+
+    let s = super::super::ui::screen(&mut app, 120, 30);
+    let header = s.lines().find(|l| l.contains("echo.bytes")).unwrap_or_else(|| panic!("no column:\n{s}"));
+    let at = |what: &str| header.find(what).unwrap_or_else(|| panic!("no {what} in {header}"));
+    assert!(at("Artist") < at("echo.bytes") && at("echo.bytes") < at("BPM") && at("BPM") < at("Time"), "{header}");
+    for (t, n) in lib.tracks.iter().zip(&want) {
+        let row = s.lines().find(|l| l.contains(t.title.as_str())).unwrap_or_else(|| panic!("no {:?}:\n{s}", t.title));
+        if let Some(n) = n.filter(|n| *n >= 100) {
+            assert!(row.contains(&n.to_string()), "{row}");
+        }
+    }
+
+    // Sorted by a click on its heading, then again the other way.
+    let heading = spot(&mut app, "echo.bytes");
+    for descending in [false, true] {
+        mouse(&mut app, LEFT, heading);
+        assert_eq!(app.sort.map(|k| (k.field, k.descending)), Some((SortField::Field(name), descending)));
+        let order: Vec<Option<i64>> = app.visible.iter().map(|&i| bytes_of(&app, i)).collect();
+        let valued = order.iter().take_while(|v| v.is_some()).count();
+        assert!(order[valued..].iter().all(Option::is_none), "without a value last: {order:?}");
+        let mut sorted = order[..valued].to_vec();
+        sorted.sort_by(|a, b| if descending { b.cmp(a) } else { a.cmp(b) });
+        assert_eq!(order[..valued], sorted[..], "descending {descending}");
+    }
+    let over = tc.draw(gs::sampled_from(&[0i64, 1, 499, 1000][..]));
+    press(&mut app, &format!("/echo.bytes:>{over}"));
+    let mut shown = app.visible.clone();
+    shown.sort();
+    let matching: Vec<usize> = (0..lib.tracks.len()).filter(|&i| want[i].is_some_and(|n| n > over)).collect();
+    assert_eq!((shown, app.filter_error.clone()), (matching, None), "echo.bytes:>{over}");
+    press(&mut app, "\u{1b}");
+
+    // The next run.
+    app.save_state();
+    let saved = state::load(&app.store_root);
+    assert_eq!(saved.field_columns, ["echo.bytes"]);
+    let mut next = App::blank(app.store_root.clone(), None);
+    next.apply_saved(&saved, false);
+    assert_eq!(next.field_columns, [name]);
+    // The drive opened again: its values read for the column at once.
+    let device = Device::open(&drive.0).unwrap();
+    let root = device.root().to_path_buf();
+    next.install(root, Loaded::prepare(device, (*lib).clone()));
+    wait(&mut next, |a| matches!(a.loaded.as_ref().unwrap().fields, Fields::Read(_)));
+    assert_eq!((0..lib.tracks.len()).map(|i| bytes_of(&next, i)).collect::<Vec<_>>(), want);
+    press(&mut app, ":hide the echo.bytes column\n");
+    app.save_state();
+    assert!(app.field_columns.is_empty() && state::load(&app.store_root).field_columns.is_empty());
+}
+
+/// Plugins' fields of each kind, as an analyzer declares them.
+const FIELD_KINDS: [(&str, loclib_plugin::FieldType); 5] = {
+    use loclib_plugin::FieldType::*;
+    [("p.count", Integer), ("p.level", Number), ("p.loud", Boolean), ("p.mood", String), ("p.tags", Strings)]
+};
+
+/// A value of the field of the kind `FIELD_KINDS[kind]`, as drawn for a track: often none, some
+/// the same as others'.
+#[hegel::test_helper]
+fn any_field_value(tc: &TestCase, kind: usize) -> Option<locallibrary::fields::FieldValue> {
+    use locallibrary::fields::FieldValue::*;
+    if tc.draw(gs::integers::<u8>().max_value(3)) == 0 {
+        return None;
+    }
+    let words = &["Deep", "deep", "日本", ""][..];
+    Some(match kind {
+        0 => Integer(tc.draw(gs::sampled_from(&[-3i64, 0, 7, 120][..]))),
+        1 => Number(tc.draw(gs::sampled_from(&[0.5f64, 1.0, 121.456, -2.25][..]))),
+        2 => Boolean(tc.draw(gs::booleans())),
+        3 => String(tc.draw(gs::sampled_from(words)).into()),
+        _ => Strings(tc.draw(gs::vecs(gs::sampled_from(words)).max_size(2)).into_iter().map(Into::into).collect()),
+    })
+}
+
+/// A field's value as its column should show it: a number to two places at most (no zeros
+/// after the point), a switch as yes or no, a list joined.
+fn field_text(v: &locallibrary::fields::FieldValue) -> std::string::String {
+    use locallibrary::fields::FieldValue::*;
+    match v {
+        Integer(n) => n.to_string(),
+        Number(n) => format!("{n:.2}").trim_end_matches('0').trim_end_matches('.').to_string(),
+        Boolean(b) => if *b { "yes" } else { "no" }.to_string(),
+        String(s) => s.clone(),
+        Strings(all) => all.join(", "),
+    }
+}
+
+/// Plugins' fields of every kind, read for made-up tracks (some without a value), shown as
+/// columns in the order asked for: drawn at any size without a panic, and at full width after the
+/// player's own columns and before tempo, key and time, each row showing its track's value as it
+/// should read (cut at the column's edge). Sorted by one either way with clicks on its heading,
+/// the tracks go by its values as the library orders them, those without one last.
+#[hegel::test(test_cases = 60)]
+fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
+    let mut lib = library();
+    lib.tracks = any_tracks(&tc, 8);
+    let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).collect();
+    let (mut app, _dir) = app_with(lib);
+    let mut tracks = FxHashMap::default();
+    for id in ids {
+        let fields: locallibrary::fields::Fields = (0..FIELD_KINDS.len())
+            .filter_map(|k| any_field_value(&tc, k).map(|v| (FIELD_KINDS[k].0.to_string(), v)))
+            .collect();
+        if !fields.is_empty() {
+            tracks.insert(id, fields);
+        }
+    }
+    let declared = FIELD_KINDS.iter().map(|(n, t)| (n.to_string(), *t)).collect();
+    app.loaded.as_mut().unwrap().fields = Fields::Read(Arc::new(TrackValues { declared, tracks }));
+    let order: Vec<FieldName> =
+        (0..FIELD_KINDS.len()).filter(|_| tc.draw(gs::booleans())).map(|k| FieldName::new(FIELD_KINDS[k].0)).collect();
+    let mut order = order;
+    let n = order.len();
+    order.rotate_left(tc.draw(gs::integers::<usize>().max_value(n)).min(n));
+    for &name in &order {
+        app.toggle_field_column(name);
+    }
+    assert_eq!(app.field_columns, order);
+    let (w, h) = (
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(220)),
+        tc.draw(gs::integers::<u16>().min_value(1).max_value(60)),
+    );
+    assert_eq!(super::super::ui::screen(&mut app, w, h).lines().count(), h as usize);
+
+    let s = super::super::ui::screen(&mut app, 220, 40);
+    let rows: Vec<Vec<char>> = s.lines().map(|l| l.chars().collect()).collect();
+    let text = |r: Rect, y: u16| -> std::string::String {
+        rows[y as usize][r.x as usize..(r.x + r.width) as usize].iter().filter(|c| !c.is_whitespace()).collect()
+    };
+    let at = |field: SortField, app: &App| app.areas.columns.iter().find(|(f, _)| *f == field).map(|(_, r)| *r);
+    let heading_x: Vec<u16> = order.iter().map(|&n| at(SortField::Field(n), &app).expect("a column").x).collect();
+    assert!(heading_x.is_sorted(), "in the order asked for");
+    let artist = at(SortField::Artist, &app).unwrap().x;
+    let bpm = at(SortField::Bpm, &app).unwrap().x;
+    assert!(heading_x.iter().all(|&x| artist < x && x < bpm), "between the player's own and tempo");
+    let l = app.loaded.as_ref().unwrap();
+    let values = l.values().unwrap().clone();
+    for &name in &order {
+        let r = at(SortField::Field(name), &app).unwrap();
+        assert_eq!(text(r, r.y), name.as_str().chars().filter(|c| !c.is_whitespace()).collect::<std::string::String>());
+        for (k, &i) in app.visible.iter().enumerate().take(30) {
+            let want = values.get(l.library.tracks[i].id, name.as_str()).map(field_text).unwrap_or_default();
+            let want: std::string::String = want.chars().filter(|c| !c.is_whitespace()).collect();
+            let shown = text(r, r.y + 1 + k as u16);
+            assert!(
+                want.starts_with(&shown) && shown.is_empty() == want.is_empty(),
+                "{name:?}: {shown:?} for {want:?}"
+            );
+        }
+    }
+
+    let Some(&name) = order.first() else { return };
+    let r = at(SortField::Field(name), &app).unwrap();
+    for descending in [false, true] {
+        mouse(&mut app, LEFT, (r.x, r.y));
+        assert_eq!(app.sort.map(|k| (k.field, k.descending)), Some((SortField::Field(name), descending)));
+        let l = app.loaded.as_ref().unwrap();
+        let got: Vec<Option<&locallibrary::fields::FieldValue>> =
+            app.visible.iter().map(|&i| values.get(l.library.tracks[i].id, name.as_str())).collect();
+        let valued = got.iter().take_while(|v| v.is_some()).count();
+        assert!(got[valued..].iter().all(Option::is_none), "without a value last");
+        for pair in got[..valued].windows(2) {
+            let ord = locallibrary::query::compare_values(pair[0].unwrap(), pair[1].unwrap());
+            let wrong = if descending { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
+            assert_ne!(ord, wrong, "{pair:?}, descending {descending}");
+        }
+    }
+}

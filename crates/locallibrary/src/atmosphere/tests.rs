@@ -1056,6 +1056,55 @@ fn only_a_sign_ins_own_redirect_counts(tc: hegel::TestCase) {
     assert!(!cancel_login(&id), "finished either way");
 }
 
+/// A saved account whose DID or redirect address isn't one any more (the file was edited, or
+/// damaged) can't be used, whatever it says instead: checking it says which is no good (the
+/// address first), before anything is sent; signing out still removes it, revoking nothing.
+#[hegel::test(test_cases = 30)]
+fn a_saved_account_whose_did_or_redirect_isnt_one_cant_be_used(tc: TestCase) {
+    // Anything not starting `did:` isn't a DID, nor is `did:` with no method or identifier.
+    let did: Option<String> = tc.draw(gs::optional(hegel::one_of!(
+        gs::sampled_from(vec!["", "did:", "did:plc:", "did:plc", "plc:abc", " did:plc:abc"]).map(String::from),
+        gs::text().max_size(16).filter(|s: &String| !s.starts_with("did:"))
+    )));
+    let redirect: Option<&str> = tc.draw(gs::optional(gs::sampled_from(vec!["", "not a url", "http://[::1", "%%"])));
+    tc.assume(did.is_some() || redirect.is_some());
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let server = format!("http://{}", listener.local_addr().unwrap());
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    crate::store::Store::open_or_init(root).unwrap();
+    save_session(root, "did:plc:abc", &server, "atproto transition:generic");
+    let mut file = AccountFile::load(root).unwrap();
+    let account = file.account.as_mut().unwrap();
+    if let Some(d) = &did {
+        account.info.did = d.clone();
+    }
+    if let Some(r) = redirect {
+        account.redirect_uri = r.to_string();
+    }
+    file.save(root).unwrap();
+
+    let err = check(root, &Ctx::silent()).unwrap_err();
+    let text = err.to_string();
+    match redirect {
+        Some(r) => {
+            assert_eq!(err.code(), "invalid", "{text}");
+            assert!(text.starts_with(&format!("{r:?} isn't a URL")), "{text}");
+        }
+        None => {
+            assert_eq!(err.code(), "account", "{text}");
+            assert!(text.starts_with("stored DID: "), "{did:?}: {text}");
+        }
+    }
+    assert!(listener.accept().is_err(), "nothing was sent");
+    let kept = did.clone().unwrap_or_else(|| "did:plc:abc".into());
+    assert_eq!(status(root).unwrap().map(|i| i.did), Some(kept), "kept until signing out");
+    let out = logout(root).unwrap();
+    assert!(out.account.is_some() && !out.revoked);
+    assert_eq!(status(root).unwrap(), None);
+}
+
 #[test]
 fn signing_in_again_keeps_what_the_session_may_do() {
     let report = || REPORT_SCOPE.to_string();

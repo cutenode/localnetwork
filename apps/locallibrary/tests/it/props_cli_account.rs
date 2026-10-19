@@ -522,3 +522,181 @@ fn signing_in_without_an_account_to_sign_in_to_fails(tc: TestCase) {
     assert_ne!(r.code, 0, "{}\n{}", r.out, r.err);
     assert!(fx.json(&["account", "status"])["account"].is_null());
 }
+
+/// Each section a profile record can have, with its title in a printed plan and a value for it
+/// as one published before (by an older version, or another computer) might hold.
+fn published_sections() -> Vec<(&'static str, &'static str, Value)> {
+    vec![
+        ("headline", "Headline", json!("Old headline")),
+        ("tags", "Traits", json!([{ "name": "Warm-up" }])),
+        ("sets", "Sets", json!({ "total": { "atLeast": 20 }, "since": 2019, "medianTracks": 14 })),
+        ("tempo", "Tempo", json!({ "low": 120, "high": 128, "median": 124 })),
+        ("arc", "Set shape", json!({ "shape": "builds", "builds": 50, "steady": 30, "windsDown": 20 })),
+        ("mixing", "Mixing", json!({ "harmonic": 40, "smoothTempo": 70 })),
+        ("keys", "Keys", json!({ "top": [{ "key": "8A" }], "minor": 60 })),
+        ("energy", "Energy", json!({ "high": 30, "mid": 50, "low": 20 })),
+        ("genres", "Genres", json!([{ "name": "Techno", "share": 50 }])),
+        ("labels", "Labels", json!([{ "name": "Old Label", "share": 10 }])),
+        ("artists", "Artists", json!([{ "name": "Old Artist", "share": 5 }])),
+        ("era", "Era", json!({ "medianYear": 2015, "recent": 20 })),
+        (
+            "signature",
+            "Signature tracks",
+            json!([{ "artist": "Old Artist", "title": "Anthem" }, { "title": "Untitled" }]),
+        ),
+        ("prep", "Prep", json!({ "hotCues": 80, "memoryCues": 50, "loops": 10 })),
+        ("collection", "Collection", json!({ "tracks": { "count": 100 }, "playlists": { "atLeast": 10 } })),
+        ("style", "Player style", json!({ "jogMode": "vinyl" })),
+    ]
+}
+
+/// Whatever sections a profile published before holds, and whichever the DJ publishes now, the
+/// printed plan marks each section it publishes as new or changed against it, and lists each
+/// section published before that it no longer publishes; its JSON plan holds that record as what
+/// it replaces.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_profile_plan_says_what_it_no_longer_publishes(tc: TestCase) {
+    let pds = MockPds::start();
+    let fx = Env::from_template();
+    sign_in(&fx.store, &pds.url, &PUBLISHING, json!({}));
+    let all = published_sections();
+    let names: Vec<&str> = all.iter().map(|(f, _, _)| *f).collect();
+    let before: Vec<&str> = tc.draw(gs::subsequences(names.clone()));
+    let mut current = json!({ "$type": "computer.localnetwork.dj.profile", "precision": "exact" });
+    for (field, _, value) in all.iter().filter(|(f, _, _)| before.contains(f)) {
+        current[*field] = value.clone();
+    }
+    pds.put(DID, "computer.localnetwork.dj.profile", "self", current.clone());
+    // Sections turned on and off now, from the report's own names (`sets` and `summary` stand
+    // for the record's `sets`, and `headline` and `tags`).
+    let report_sections =
+        ["summary", "sets", "tempo", "arc", "mixing", "keys", "energy", "genres", "labels", "artists", "era"];
+    let on: Vec<&str> = tc.draw(gs::subsequences(report_sections.to_vec()));
+    if !on.is_empty() {
+        fx.ok(&["--yes", "profile", "include", &on.join(",")]);
+    }
+    let off: Vec<&str> = tc.draw(gs::subsequences(report_sections.to_vec()));
+    if !off.is_empty() {
+        fx.ok(&["--yes", "profile", "exclude", &off.join(",")]);
+    }
+
+    let words = ["profile", "publish", "A", "--no-analysis", "--dry-run"];
+    let v = fx.json(&words);
+    let out = fx.ok(&words);
+    let said = format!("before: {before:?}\n{out}\n{v}");
+    let p = &v["plan"];
+    assert_eq!(p["current"]["value"], current, "{said}");
+    let record = &p["record"];
+    let gone: Vec<&str> = out.lines().filter_map(|l| l.strip_suffix("no longer published")).map(|l| l.trim()).collect();
+    for (field, title, _) in &all {
+        let line = out.lines().find(|l| l.starts_with(&format!("  {title:<17} ")) && !l.ends_with("published"));
+        match (before.contains(field), record[*field].is_null(), line) {
+            // Published before and not now: said so.
+            (true, true, _) => assert!(gone.contains(title), "{field}: {said}"),
+            (false, false, Some(l)) => assert!(l.ends_with(" (new)"), "{field}: {l:?}: {said}"),
+            (true, false, Some(l)) => {
+                assert_eq!(l.ends_with(" (changed)"), current[*field] != record[*field], "{field}: {l:?}: {said}")
+            }
+            _ => {}
+        }
+        if !before.contains(field) {
+            assert!(!gone.contains(title), "{field}: {said}");
+        }
+    }
+}
+
+/// `args` run in `fx` with a terminal for stdin, on which `typed` was typed ahead (stdout and
+/// stderr piped, so it isn't a terminal for output).
+#[cfg(unix)]
+fn typed_ahead(fx: &Env, args: &[&str], typed: &str) -> crate::support::Run {
+    use std::io::Write;
+    let (mut keyboard, stdin) = crate::support::terminal();
+    keyboard.write_all(typed.as_bytes()).unwrap();
+    let out = fx.command().args(args).stdin(std::process::Stdio::from(stdin)).output().unwrap();
+    crate::support::Run {
+        out: String::from_utf8(out.stdout).unwrap(),
+        err: String::from_utf8(out.stderr).unwrap(),
+        code: out.status.code().unwrap(),
+    }
+}
+
+/// A client document on this computer, which sign-in refuses before fetching anything.
+#[cfg(unix)]
+const LOCAL_CLIENT: &str = "https://localhost/c.json";
+
+/// Asked in a terminal which account to sign in to, `account login` offers the handle last
+/// signed in with and tries what's typed, or (typed nothing) the handle offered: an account it
+/// can't sign in to fails saying why (an address that isn't a handle, a client document on this
+/// computer, no account at all), and nobody is signed in. What's typed is never a handle that
+/// would be looked up on the network, and the handle offered is only tried when there's none.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn login_asks_for_the_account_and_tries_the_one_typed(tc: TestCase) {
+    let fx = Env::from_template();
+    std::fs::create_dir_all(&fx.store).unwrap();
+    let remembered = tc.draw(gs::booleans());
+    if remembered {
+        std::fs::write(fx.store.join("atmosphere.json"), r#"{ "last_handle": "dj.example.com" }"#).unwrap();
+    }
+    let typed = match remembered {
+        true => tc.draw(gs::sampled_from(&["http://127.0.0.1:9", "@not a handle", "  spaced out  "][..])),
+        false => tc.draw(gs::sampled_from(&["", "http://127.0.0.1:9", "@not a handle"][..])),
+    };
+    let hosted = tc.draw(gs::booleans());
+    let client: &[&str] = if hosted { &["--client-id", LOCAL_CLIENT] } else { &["--dev-client"] };
+    let args = [&["account", "login", "--session-file", "--no-browser"], client].concat();
+    let r = typed_ahead(&fx, &args, &format!("{typed}\n"));
+    let said = format!("{args:?} typed {typed:?} exited {}\n{}\n{}", r.code, r.out, r.err);
+    let offered = if remembered { " [dj.example.com]" } else { "" };
+    assert!(r.err.contains(&format!("Your Atmosphere handle, or your account's server{offered}: ")), "{said}");
+    assert_eq!(r.code, 1, "{said}");
+    let why = if typed.is_empty() {
+        "which Atmosphere account?".to_string()
+    } else if hosted {
+        format!("the client document at {LOCAL_CLIENT} can't be used")
+    } else {
+        format!("{:?}", typed.trim().trim_start_matches('@'))
+    };
+    assert!(r.err.contains(&why), "{why:?}: {said}");
+    let status = fx.json(&["account", "status"]);
+    assert!(status["account"].is_null(), "{status}");
+    assert_eq!(status["last_handle"], if remembered { json!("dj.example.com") } else { Value::Null }, "{status}");
+}
+
+/// Publishing in a terminal from a session that may not publish asks to sign in again: said no,
+/// it stops there as declined; said yes, it signs in again for the same account (by handle, or
+/// its DID when it has none) with the same client, which here is one on this computer that
+/// sign-in refuses, so it fails saying so. Either way nothing is published and the session
+/// stays as it was.
+#[cfg(unix)]
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn publishing_from_a_session_that_may_not_asks_to_sign_in_again(tc: TestCase) {
+    let pds = MockPds::start();
+    let fx = Env::from_template();
+    let handle = tc.draw(gs::booleans());
+    let mut info = json!({ "client": { "kind": "hosted", "client_id": LOCAL_CLIENT } });
+    if !handle {
+        info["handle"] = Value::Null;
+    }
+    sign_in(&fx.store, &pds.url, &["atproto"], info);
+    // Something to publish of My Settings.
+    fx.ok(&["--yes", "settings", "set", "quantize=on"]);
+    let before = fx.json(&["account", "status"]);
+    let words: &[&str] = tc
+        .draw(gs::sampled_from(&[&["settings", "publish"][..], &["profile", "publish", "A", "--no-analysis"][..]][..]));
+    let yes = tc.draw(gs::booleans());
+    let r = typed_ahead(&fx, words, if yes { "y\n" } else { "n\n" });
+    let said = format!("{words:?} answered {yes} exited {}\n{}\n{}", r.code, r.out, r.err);
+    assert!(r.err.contains("Publishing needs your permission"), "{said}");
+    assert!(r.err.contains("? Sign in again to allow publishing? [y/N] "), "{said}");
+    assert!(r.out.contains("this session can't publish yet"), "{said}");
+    match yes {
+        true => {
+            assert_eq!(r.code, 1, "{said}");
+            assert!(r.err.contains(&format!("the client document at {LOCAL_CLIENT} can't be used")), "{said}");
+        }
+        false => assert_eq!(r.code, 3, "{said}"),
+    }
+    assert!(pds.calls("com.atproto.repo.putRecord").is_empty(), "{said}");
+    assert_eq!(fx.json(&["account", "status"]), before, "{said}");
+}

@@ -24,8 +24,8 @@ enum Since {
 /// Art embedded in some WAV files, each of them then left alone, rewritten or removed, in any
 /// mix: the plan to take it back out puts back exactly the untouched ones, skips the rest with
 /// the reason for each ("changed since the art went in", "gone"), has nothing to do when none is
-/// untouched, and applied, gives the untouched files their bytes from before the art and leaves
-/// the others as they were left.
+/// untouched, and applied (refused without the store, which holds the copies), gives the untouched
+/// files their bytes from before the art and leaves the others as they were left.
 #[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(since = vec![Since::Untouched, Since::Rewritten, Since::Removed])]
 fn embedded_art_comes_out_of_the_files_left_alone(tc: TestCase) {
@@ -75,6 +75,12 @@ fn embedded_art_comes_out_of_the_files_left_alone(tc: TestCase) {
 
     if untouched.is_empty() {
         return;
+    }
+    // The copies are the store's: without it, nothing comes back.
+    let without = plan.apply(None, &Ctx::silent()).map(|r| r.restored.len());
+    assert!(matches!(&without, Err(locallibrary::Error::Invalid(m)) if m == "the files' copies are in the store"));
+    for (f, art) in files.iter().zip(&with_art).filter(|(f, _)| untouched.contains(f)) {
+        assert_eq!(&fs::read(f).unwrap(), art, "{} kept its art", f.display());
     }
     let r = locallibrary::api::UnembedPlan::apply(&plan, Some(&store), &Ctx::silent()).unwrap();
     assert_eq!(r.restored.len(), untouched.len());

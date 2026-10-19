@@ -144,6 +144,16 @@ fn temp_files(dir: &Path) -> Vec<String> {
 #[hegel::explicit_test_case(writer = 6u8, obstacle = 1u8, durable = false, mtime = Some(1_600_000_000i64))]
 #[hegel::explicit_test_case(writer = 7u8, obstacle = 2u8, durable = false, mtime = None::<i64>)]
 #[hegel::explicit_test_case(writer = 1u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+// Each writer once where its folder is missing, or a folder stands where it would persist.
+#[hegel::explicit_test_case(writer = 2u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 4u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 5u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 6u8, obstacle = 3u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 0u8, obstacle = 1u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 1u8, obstacle = 1u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 2u8, obstacle = 1u8, durable = false, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 5u8, obstacle = 1u8, durable = true, mtime = None::<i64>)]
+#[hegel::explicit_test_case(writer = 6u8, obstacle = 5u8, durable = false, mtime = None::<i64>)]
 fn a_write_lands_whole_or_not_at_all(tc: hegel::TestCase) {
     use hegel::generators as gs;
     // write_atomic, write_private, write_deferred, write_output, stage_bytes, copy_file,

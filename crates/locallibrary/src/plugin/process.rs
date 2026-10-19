@@ -445,3 +445,6 @@ fn reap(slot: &Weak<Slot>, process: &Weak<Process>, idle: Duration) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

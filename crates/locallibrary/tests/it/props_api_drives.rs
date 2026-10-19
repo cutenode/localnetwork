@@ -11,6 +11,7 @@ use crate::props_fleet::{self, NAMES};
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
@@ -18,7 +19,7 @@ use locallibrary::api::{self, DriveRef};
 use locallibrary::device::dunce_canonicalize;
 use locallibrary::error::Reason;
 use locallibrary::fleet::Role;
-use locallibrary::progress::Ctx;
+use locallibrary::progress::{CancelToken, Ctx, Event, Progress, Scope};
 use locallibrary::store::{DriveRecord, Store};
 use locallibrary::{Error, Result};
 use uuid::Uuid;
@@ -1009,4 +1010,152 @@ fn setting_up_a_drive_runs_the_steps_asked_for(tc: TestCase) {
             .collect()
     };
     assert_eq!(titles(&target), titles(&main));
+}
+
+/// What goes wrong part way through setting up a drive.
+#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+enum Mishap {
+    /// The new drive is pulled out (moved out of the volumes folder).
+    Unplugged,
+    /// The user cancels.
+    Cancelled,
+}
+
+/// Makes `mishap` happen as the step `step` begins, once.
+struct MishapAt<'a> {
+    step: &'static str,
+    mishap: Mishap,
+    root: &'a Path,
+    away: &'a Path,
+    cancel: CancelToken,
+    happened: AtomicBool,
+}
+
+impl Progress for MishapAt<'_> {
+    fn on_event(&self, _: &Event) {}
+    fn on_step(&self, scope: &Scope) {
+        if scope.step.is_none_or(|s| s.id != self.step) || self.happened.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        match self.mishap {
+            Mishap::Unplugged => std::fs::rename(self.root, self.away).unwrap(),
+            Mishap::Cancelled => self.cancel.cancel(),
+        }
+    }
+}
+
+/// Setting up a drive (its library pushed from the store or copied from Main, with My Settings,
+/// a role, a check and an eject each asked for or not) that loses the drive as one of its steps
+/// begins stops at that step, saying which, with the steps before it done and reported and none
+/// after: naming it, writing or copying the library, the settings, the role, the check, the eject.
+/// Cancelled as a step begins, it ends cancelled when that step or one after it copies or checks
+/// files, and finishes otherwise (stopping at the eject, as a folder can't be ejected). Pushed
+/// from a library the store hasn't got, or one with nothing saved, it's refused before it starts.
+#[hegel::test(test_cases = 8, suppress_health_check = [HealthCheck::TooSlow])]
+#[hegel::explicit_test_case(like = false, settings = true, role = true, verify = true, eject = true, at = 5usize, mishap = Mishap::Unplugged)]
+#[hegel::explicit_test_case(like = true, settings = true, role = true, verify = true, eject = false, at = 1usize, mishap = Mishap::Unplugged)]
+fn setting_up_stops_at_the_step_the_drive_went_away_in(tc: TestCase) {
+    let like = tc.draw(gs::booleans());
+    let settings = tc.draw(gs::booleans());
+    let role = tc.draw(gs::booleans());
+    let verify = tc.draw(gs::booleans());
+    let eject = tc.draw(gs::booleans());
+    let running: Vec<&'static str> = [
+        ("name", true),
+        ("library", true),
+        ("settings", settings),
+        ("role", role),
+        ("verify", verify),
+        ("eject", eject),
+    ]
+    .into_iter()
+    .filter_map(|(id, runs)| runs.then_some(id))
+    .collect();
+    let at = tc.draw(gs::integers::<usize>().max_value(running.len() - 1));
+    let mishap = tc.draw(gs::sampled_from(vec![Mishap::Unplugged, Mishap::Cancelled]));
+    let step = running[at];
+
+    let dir = tempfile::tempdir().unwrap();
+    let (store, main) = saved_copy(dir.path());
+    let target = dunce_canonicalize(&common::blank(main.parent().unwrap(), "New"));
+    if settings {
+        let values = IndexMap::from([("quantize".to_string(), "off".to_string())]);
+        api::settings_set(&store, &api::SetSettings { values, drive: None }).unwrap();
+    }
+    let req = api::ProvisionRequest {
+        target: path(&target),
+        like: like.then(|| path(&main)),
+        // Named: the store holds another library, Empty, too.
+        library: Some("Main".into()),
+        name: Some("Spare".into()),
+        format: false,
+        format_options: Default::default(),
+        role: role.then(|| "backup".into()),
+        player_name: None,
+        player_colour: None,
+        settings,
+        verify,
+        eject,
+    };
+    // Pushed from a library the store hasn't got, or one with nothing saved yet, it's refused
+    // before it starts.
+    store.create_library("Empty").unwrap();
+    for (library, why) in [("Radio", "library \"Radio\""), ("Empty", "library \"Empty\" has no snapshots")] {
+        let other = api::ProvisionRequest { like: None, library: Some(library.into()), ..req.clone() };
+        let refused = api::provision_plan(&store, &other, &Ctx::silent()).map(|p| p.noop);
+        assert!(matches!(&refused, Err(Error::NotFound(m)) if m == why), "{refused:?}");
+    }
+    let away = dir.path().join("away");
+    let progress = MishapAt {
+        step,
+        mishap,
+        root: &target,
+        away: &away,
+        cancel: CancelToken::new(),
+        happened: AtomicBool::new(false),
+    };
+    let ctx = Ctx::new(&progress, progress.cancel.clone());
+    let result = api::provision_apply(&store, &req, None, &ctx);
+    assert!(progress.happened.load(Ordering::SeqCst), "{step} began");
+    let past = |s: &str| running.iter().position(|r| *r == s).is_some_and(|i| i < at);
+
+    if mishap == Mishap::Cancelled {
+        // Copying the library and checking it look at the cancel token between files.
+        let checked = running[at..].iter().any(|s| ["library", "verify"].contains(s));
+        match checked {
+            true => assert!(matches!(result, Err(Error::Cancelled)), "{step}: {result:?}"),
+            // A folder can't be ejected, cancelled or not.
+            false => {
+                let stopped = result.unwrap().stopped.map(|s| s.step);
+                assert_eq!(stopped.as_deref(), eject.then_some("eject it"), "{step}")
+            }
+        }
+        return;
+    }
+    let report = result.unwrap();
+    let stopped = report.stopped.as_ref().expect("stopped");
+    let want = match step {
+        "name" => "name it",
+        "library" if like => "copy the library",
+        "library" => "write the library",
+        "settings" => "write settings",
+        "role" => "set the role",
+        "verify" => "check it",
+        _ => "eject it",
+    };
+    assert_eq!(stopped.step, want, "{stopped:?}");
+    assert_ne!(stopped.kind, "cancelled");
+    assert_eq!(report.copy.is_some(), past("library"), "{step}");
+    assert_eq!(report.settings.is_some(), past("settings"), "{step}");
+    assert_eq!(report.verify.as_ref().map(|v| v.is_clean()), past("verify").then_some(true), "{step}");
+    assert_eq!(report.drive.is_some(), step == "eject", "handed over only once checked");
+    assert!(report.eject.is_none());
+    // What was done before stays done: named and registered once the name step is past.
+    let registered: Vec<Option<Role>> =
+        store.drives().unwrap().values().filter(|r| r.name == "Spare").map(|r| r.role).collect();
+    let want_role = (role && past("role")).then_some(Role::Backup);
+    match past("name") {
+        true => assert_eq!(registered, [want_role]),
+        false => assert!(registered.is_empty(), "{registered:?}"),
+    }
 }

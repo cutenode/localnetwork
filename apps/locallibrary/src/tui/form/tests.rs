@@ -3,7 +3,8 @@ use loclib_plugin::{Command, Context, Manifest};
 use serde_json::json;
 
 use super::super::app::View;
-use super::super::app::testing::{LEFT, blank, mouse, press, spot};
+use super::super::app::testing::{LEFT, blank, key, mouse, press, spot};
+use super::super::ui::screen;
 use super::*;
 
 /// A form for a command whose params are `params` (a JSON Schema, as TOML).
@@ -183,4 +184,128 @@ fn keys_keep_the_form_whole(tc: hegel::TestCase) {
         assert!(["", "x", "y"].contains(&f.fields[2].text.as_str()), "{:?}", f.fields[2].text);
         assert_eq!([f.fields[0].text.as_str(), f.fields[3].text.as_str()], [typed[0].as_str(), typed[1].as_str()]);
     }
+}
+
+/// Whatever's typed into a form of lists, pairs, a path and a bounded number becomes the params
+/// the command line would read from it: ids split on commas (`#` and spaces allowed), pairs as
+/// `KEY=VALUE` (the last of a key winning), the path made absolute (`~` for home, quotes taken
+/// off); a pair without `=` is said on its field, and a number the schema refuses on its own.
+#[hegel::test(test_cases = 200)]
+fn what_is_typed_reads_as_the_command_line_would(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let mut f = form(
+        r#"params = { type = "object", properties = { ids = { type = "array", items = { type = "integer" } }, pick = { type = "object", additionalProperties = { type = "integer" } }, file = { type = "string", x-path = true }, n = { type = "integer", minimum = 1 } } }"#,
+    );
+    let pad = |tc: &hegel::TestCase| tc.draw(gs::sampled_from(&["", " ", "  "][..]));
+
+    let ids = tc.draw(gs::vecs(gs::integers::<u16>()).max_size(4));
+    let mut typed_ids: Vec<String> = ids
+        .iter()
+        .map(|id| format!("{}{}{id}{}", pad(&tc), if tc.draw(gs::booleans()) { "#" } else { "" }, pad(&tc)))
+        .collect();
+    if !ids.is_empty() && tc.draw(gs::booleans()) {
+        typed_ids.push(String::new()); // a trailing comma
+    }
+
+    let pairs =
+        tc.draw(gs::vecs(gs::tuples!(gs::sampled_from(&["a", "b", "7"][..]), gs::integers::<i32>())).max_size(4));
+    let mut typed_pairs: Vec<String> = pairs.iter().map(|(k, v)| format!("{}{k}={v}{}", pad(&tc), pad(&tc))).collect();
+    let bad_pair = !pairs.is_empty() && tc.draw(gs::booleans());
+    if bad_pair {
+        typed_pairs.push("nokey".into());
+    }
+
+    let home = std::env::home_dir().unwrap();
+    let here = std::env::current_dir().unwrap();
+    let (file, file_is) = tc.draw(gs::sampled_from(
+        &[
+            ("", None),
+            ("~/sets/list.m3u", Some(home.join("sets").join("list.m3u"))),
+            // Rooted, so on Windows on the current drive, as the command line has it.
+            ("/tmp/a set.txt", Some(std::path::absolute("/tmp/a set.txt").unwrap())),
+            ("'/tmp/quoted name'", Some(std::path::absolute("/tmp/quoted name").unwrap())),
+            ("lists/here.m3u", Some(here.join("lists").join("here.m3u"))),
+        ][..],
+    ));
+    let n = tc.draw(gs::optional(gs::integers::<i64>().min_value(-3).max_value(5)));
+
+    let texts =
+        [typed_ids.join(","), typed_pairs.join(","), file.to_string(), n.map_or(String::new(), |n| n.to_string())];
+    let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let read = filled(&mut f, &refs);
+    if bad_pair {
+        return assert_eq!(read, Err((1, "pick takes KEY=VALUE, not \"nokey\"".into())), "{texts:?}");
+    }
+    if let Some(n) = n.filter(|n| *n < 1) {
+        return assert_eq!(read, Err((3, format!("n: {n} is less than the minimum of 1"))), "{texts:?}");
+    }
+    let read = read.unwrap_or_else(|e| panic!("{texts:?}: {e:?}"));
+    let mut want = Map::new();
+    if !ids.is_empty() {
+        want.insert("ids".into(), json!(ids));
+    }
+    if !pairs.is_empty() {
+        let mut picked = Map::new();
+        for (k, v) in &pairs {
+            picked.insert(k.to_string(), json!(v));
+        }
+        want.insert("pick".into(), Value::Object(picked));
+    }
+    if let Some(p) = file_is {
+        want.insert("file".into(), json!(p.display().to_string()));
+    }
+    if let Some(n) = n {
+        want.insert("n".into(), json!(n));
+    }
+    assert_eq!(read, Value::Object(want), "{texts:?}");
+}
+
+/// Any click on a form: a left click on a field's row selects it, one elsewhere in the form
+/// keeps the field selected, one outside closes it; the wheel and other buttons change nothing.
+/// Enter with a field that's needed left empty selects it and says so under the fields.
+#[hegel::test(test_cases = 100)]
+fn a_click_selects_the_field_under_it_or_closes_the_form(tc: hegel::TestCase) {
+    use hegel::generators::{self as gs, Generator};
+    use ratatui::crossterm::event::{MouseButton, MouseEventKind};
+    let (mut app, _dir) = blank(View::Library);
+    let names = ["alpha", "bravo", "charlie"];
+    let f = form(
+        r#"params = { type = "object", required = ["alpha"], properties = { alpha = { type = "string" }, bravo = { type = "boolean" }, charlie = { type = "string", enum = ["x", "y"] } } }"#,
+    );
+    app.modal = Some(Modal::Form(f));
+    let mut selected = 0;
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
+        let kind = tc.draw(
+            gs::sampled_from(
+                &[
+                    LEFT,
+                    LEFT,
+                    MouseEventKind::ScrollDown,
+                    MouseEventKind::Down(MouseButton::Right),
+                    MouseEventKind::Up(MouseButton::Left),
+                ][..],
+            )
+            .print_as_debug(),
+        );
+        // A field's row, the form's title (on its border) or the top corner, outside it.
+        let target = tc.draw(gs::integers::<usize>().max_value(names.len() + 1));
+        let at = match target {
+            i if i < names.len() => spot(&mut app, names[i]),
+            i if i == names.len() => spot(&mut app, "Do it"),
+            _ => (0, 0),
+        };
+        mouse(&mut app, kind, at);
+        match (kind == LEFT, target) {
+            (true, i) if i > names.len() => return assert!(app.modal.is_none(), "closed by a click outside"),
+            (true, i) if i < names.len() => selected = i,
+            _ => {}
+        }
+        let Some(Modal::Form(f)) = &app.modal else { panic!("closed by {kind:?} on {target}") };
+        assert_eq!(f.selected, selected, "{kind:?} on {target}");
+    }
+    key(&mut app, KeyCode::Enter);
+    let Some(Modal::Form(f)) = &app.modal else { panic!("closed by enter") };
+    assert_eq!((f.selected, f.error.as_deref()), (0, Some("alpha is needed")));
+    let s = screen(&mut app, 120, 30);
+    assert!(s.contains("⚠ alpha is needed"), "{s}");
 }

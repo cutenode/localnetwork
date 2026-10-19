@@ -641,3 +641,37 @@ fn requests_in_flight_agree_with_a_model(tc: TestCase) {
         }
     }
 }
+
+/// Input that can't be read at all (a folder where the pipe should be) ends the sidecar with an
+/// error saying so, however many workers it has, and nothing is answered.
+#[cfg(unix)]
+#[hegel::test(test_cases = 3)]
+fn input_that_cannot_be_read_ends_the_sidecar_with_an_error(tc: TestCase) {
+    let fx = Env::from_template();
+    let workers = tc.draw(gs::integers::<u32>().min_value(1).max_value(4)).to_string();
+    let folder = std::fs::File::open(&fx.volumes).unwrap();
+    let out = fx.command().args(["rpc", "--workers", &workers]).stdin(folder).output().unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(out.stdout.is_empty(), "{}", String::from_utf8_lossy(&out.stdout));
+    assert!(err.contains("reading requests"), "{err}");
+}
+
+/// Requests that each need the store, sent at once to a sidecar that has none yet, all find it:
+/// whichever makes it, the others open the same one.
+#[hegel::test(test_cases = 10)]
+#[ignore = "bug: `Store::open_or_init` (crates/locallibrary/src/store.rs:324) races another request making the store and refuses it as \"not empty and is not an locallibrary store\""]
+fn requests_making_the_store_at_once_all_find_it(tc: TestCase) {
+    let fx = Env::new();
+    let n = tc.draw(gs::integers::<usize>().min_value(2).max_value(6));
+    let lines: Vec<Vec<u8>> = (0..n)
+        .map(|id| {
+            json!({ "jsonrpc": "2.0", "id": id, "method": "store.gc.plan", "params": {} }).to_string().into_bytes()
+        })
+        .collect();
+    let (out, clean) = run_batch(&fx, &lines);
+    assert!(clean, "the sidecar didn't exit cleanly");
+    for a in out.iter().filter(|a| a.get("id").is_some()) {
+        assert!(a["error"].is_null(), "{a}");
+    }
+}

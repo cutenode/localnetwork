@@ -43,7 +43,8 @@ fn wav_headers_read_back_their_format_and_length(tc: TestCase) {
     w.extend((rate * u32::from(channels) * u32::from(bits / 8)).to_le_bytes());
     w.extend((channels * bits / 8).to_le_bytes());
     w.extend(bits.to_le_bytes());
-    if tc.draw(gs::booleans()) {
+    let after = tc.draw(gs::booleans());
+    if after {
         junk(&mut w, tc.draw(gs::integers::<u32>().max_value(9)));
     }
     w.extend(b"data");
@@ -64,6 +65,43 @@ fn wav_headers_read_back_their_format_and_length(tc: TestCase) {
     // Cut anywhere in its header, it's no WAV file.
     let cut = tc.draw(gs::integers::<usize>().max_value(35));
     assert!(recordings::read_wav_header(Cursor::new(&w[..cut]), cut as u64).is_none());
+
+    // The reader gives up after 64 chunks: a header never has that many.
+    let chunks = tc.draw(gs::integers::<usize>().min_value(60).max_value(66));
+    let mut many = b"RIFF\0\0\0\0WAVE".to_vec();
+    for _ in 0..chunks {
+        junk(&mut many, 0);
+    }
+    many.extend_from_slice(&w[12..]);
+    let read = recordings::read_wav_header(Cursor::new(&many), many.len() as u64);
+    // Those, `w`'s own chunks, its format and its data.
+    let total = chunks + before.len() + usize::from(after) + 2;
+    assert_eq!(read.is_some(), total <= 64, "{total} chunks");
+}
+
+/// A recording whose header gives no channels or no rate is listed with its format, but no
+/// length, nor when it started.
+#[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
+fn recordings_of_no_sound_have_no_length(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::bigger_drive(dir.path(), "AZ");
+    let mut wav = media::wav_of(44_100, 16, 2, 0.05);
+    // The format chunk's channels (offset 22) and rate (offset 24), as the media writes it.
+    let (channels, rate): (u16, u32) = match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => (0, 44_100),
+        1 => (2, 0),
+        _ => (0, 0),
+    };
+    wav[22..24].copy_from_slice(&channels.to_le_bytes());
+    wav[24..28].copy_from_slice(&rate.to_le_bytes());
+    let key = format!("PIONEER REC/REC{:03}.WAV", tc.draw(gs::integers::<u16>().max_value(999)));
+    fs::create_dir_all(root.join("PIONEER REC")).unwrap();
+    fs::write(root.join(&key), &wav).unwrap();
+    let listed = recordings::list(&Device::open_export(&root).unwrap()).unwrap();
+    let [r] = listed.as_slice() else { panic!("{listed:?}") };
+    assert_eq!((r.path.as_str(), r.size), (key.as_str(), wav.len() as u64));
+    assert_eq!(r.format, Some(WavFormat { channels, sample_rate: rate, bits: 16 }));
+    assert_eq!((r.duration_secs, r.started), (None, None));
 }
 
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
@@ -108,6 +146,15 @@ fn recordings_are_collected_byte_for_byte(tc: TestCase) {
     let originals: Vec<(String, Vec<u8>)> = want.iter().map(|k| (k.clone(), fs::read(root.join(k)).unwrap())).collect();
     let out = dir.path().join("Sets");
     let opts = CollectOptions { to: out.clone(), only: only.clone(), tracklist: tracklist.clone(), delete };
+    // A recording or a history list the drive doesn't have is refused, naming it, before
+    // anything is copied.
+    let gone = CollectOptions { only: vec!["PIONEER REC/REC999.WAV".into()], ..opts.clone() };
+    let e = recordings::collect(&mut d, &gone, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.to_string(), locallibrary::Error::NotFound("recording \"PIONEER REC/REC999.WAV\"".into()).to_string());
+    let unheard = CollectOptions { tracklist: Tracklist::Named("HISTORY 999".into()), ..opts.clone() };
+    let e = recordings::collect(&mut d, &unheard, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.to_string(), locallibrary::Error::NotFound("history list \"HISTORY 999\"".into()).to_string());
+    assert!(!out.exists());
     let r = recordings::collect(&mut d, &opts, &Ctx::silent()).unwrap();
     assert!(r.failed.is_empty(), "{:?}", r.failed);
     let chosen: Vec<&String> = if only.is_empty() { want.iter().collect() } else { only.iter().collect() };

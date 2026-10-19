@@ -1,6 +1,9 @@
 use std::io::{BufRead, PipeReader, PipeWriter, pipe};
 use std::time::Duration;
 
+use hegel::TestCase;
+use hegel::generators::{self as gs, Generator};
+
 use super::*;
 use crate::code;
 
@@ -407,4 +410,672 @@ fn what_the_other_end_gets_wrong_is_logged() {
         .unwrap();
     assert!(matches!(next(&incoming), Incoming::Notification { .. }), "read on");
     assert_eq!(*logged.lock().unwrap(), ["a response to 5, which no request is waiting for"]);
+}
+
+// Properties.
+
+/// The log a peer writes to, as lines.
+type Log = Arc<Mutex<Vec<String>>>;
+
+/// [`connect`], with the peer's input wrapped in `wrap` and what it logs kept.
+fn connect_logged<R: Read + Send + 'static>(
+    wrap: impl FnOnce(PipeReader) -> R,
+) -> (Peer, Receiver<Incoming>, Raw, Log) {
+    let (peer_in, to_peer) = pipe().unwrap();
+    let (from_peer, peer_out) = pipe().unwrap();
+    let logged = Log::default();
+    let log = logged.clone();
+    let (peer, incoming) =
+        Peer::with_log(wrap(peer_in), peer_out, move |line| log.lock().unwrap().push(line.to_string()));
+    (peer, incoming, Raw { to_peer: Some(to_peer), from_peer: BufReader::new(from_peer) }, logged)
+}
+
+impl Raw {
+    /// The peer's lines up to the notification `method`, which `peer` sends now: whatever the
+    /// peer's reader answered before it.
+    fn until(&mut self, peer: &Peer, method: &str) -> Vec<Value> {
+        peer.notify(method, &json!({}));
+        std::iter::from_fn(|| Some(self.recv())).take_while(|line| line["method"] != method).collect()
+    }
+}
+
+/// The owner's messages up to the notification `method`, which `raw` sends now: whatever the
+/// peer read before it.
+fn owners_until(raw: &mut Raw, incoming: &Receiver<Incoming>, method: &str) -> Vec<Incoming> {
+    raw.send(&json!({ "jsonrpc": "2.0", "method": method }).to_string());
+    std::iter::from_fn(|| Some(next(incoming)))
+        .take_while(|m| !matches!(m, Incoming::Notification { method: m, .. } if m == method))
+        .collect()
+}
+
+/// Any JSON: strings with quotes, backslashes, braces and `"id":` in them, and objects with
+/// `id` and `method` keys of their own.
+#[hegel::test_helper]
+fn json_value(tc: &TestCase, depth: u8) -> Value {
+    let kinds = if depth == 0 { 4 } else { 6 };
+    match tc.draw(gs::integers::<u8>().max_value(kinds)) {
+        0 => Value::Null,
+        1 => tc.draw(gs::booleans()).into(),
+        2 => tc.draw(gs::integers::<i64>()).into(),
+        3 => tc.draw(gs::floats::<f64>().allow_nan(false).allow_infinity(false)).into(),
+        4 => match tc.draw(gs::booleans()) {
+            true => tc.draw(gs::sampled_from(vec!["\"id\":4,", "\\", "{\"id\":", "}]", "\n", "method"])).into(),
+            false => tc.draw(gs::text().max_size(6)).into(),
+        },
+        5 => (0..tc.draw(gs::integers::<usize>().max_value(3))).map(|_| json_value(tc, depth - 1)).collect(),
+        _ => {
+            let keys =
+                tc.draw(gs::vecs(gs::sampled_from(vec!["id", "method", "result", "a"])).max_size(3).unique(true));
+            Value::Object(keys.into_iter().map(|k| (k.to_string(), json_value(tc, depth - 1))).collect())
+        }
+    }
+}
+
+/// An id the other end might give a request: a few numbers and strings, so they repeat.
+#[hegel::test_helper]
+fn request_id(tc: &TestCase) -> Value {
+    match tc.draw(gs::booleans()) {
+        true => tc.draw(gs::integers::<u8>().max_value(3)).into(),
+        false => tc.draw(gs::sampled_from(vec!["a", "b", ""])).into(),
+    }
+}
+
+/// Params as the other end might send them: none, `null` (both `{}` for the owner) or any JSON.
+#[hegel::test_helper]
+fn sent_params(tc: &TestCase) -> (Option<Value>, Value) {
+    match tc.draw(gs::integers::<u8>().max_value(2)) {
+        0 => (None, json!({})),
+        1 => (Some(Value::Null), json!({})),
+        _ => {
+            let v = json_value(tc, 2);
+            let read = if v.is_null() { json!({}) } else { v.clone() };
+            (Some(v), read)
+        }
+    }
+}
+
+/// What the owner should get.
+#[derive(Debug, PartialEq)]
+enum Owned {
+    Request { id: Value, method: String, params: Value },
+    Notification { method: String, params: Value },
+}
+
+/// Any lines the other end sends, good or bad, each get what JSON-RPC says they should: a request
+/// or notification reaches the owner (once per running id), `$/cancel` cancels what it names, a
+/// response nobody waits for is dropped and logged, a blank line is skipped, and the rest are
+/// answered with a parse error or an invalid request, with a null id but for a request whose id
+/// is in use. Nothing else is answered.
+#[hegel::test(test_cases = 80)]
+fn any_lines_get_what_json_rpc_says_they_should(tc: TestCase) {
+    let (peer, incoming, mut raw, logged) = connect_logged(|r| r);
+    let (mut owned, mut answers, mut logs) = (Vec::new(), Vec::new(), 0);
+    let mut running: Vec<Value> = Vec::new();
+    let mut cancelled: Vec<Value> = Vec::new();
+    let kinds = vec![
+        "blank",
+        "not json",
+        "cut short",
+        "not an object",
+        "bad id",
+        "request",
+        "notification",
+        "cancel",
+        "response",
+    ];
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
+        let kind = tc.draw(gs::sampled_from(kinds.clone()));
+        let mut message = Map::from_iter([("jsonrpc".to_string(), json!("2.0"))]);
+        let line = match kind {
+            "blank" => tc.draw(gs::text().alphabet(" \t\r").max_size(3)),
+            "not json" => format!("}}{}", tc.draw(gs::text().max_size(8).filter(|s: &String| !s.contains('\n')))),
+            "cut short" => {
+                let whole =
+                    json!({ "jsonrpc": "2.0", "id": tc.draw(gs::integers::<u32>()), "result": json_value(&tc, 2) })
+                        .to_string();
+                let cut = tc.draw(gs::integers::<usize>().min_value(1).max_value(whole.len() - 1));
+                // On a character boundary.
+                let cut = (0..=cut).rev().find(|i| whole.is_char_boundary(*i)).unwrap().max(1);
+                whole[..cut].to_string()
+            }
+            "not an object" => {
+                let v = tc.draw(
+                    gs::sampled_from(vec![json!(null), json!([1, 2]), json!("m"), json!(3), json!(true)])
+                        .print_as_debug(),
+                );
+                v.to_string()
+            }
+            "bad id" => {
+                let id = tc.draw(gs::sampled_from(vec![json!(true), json!([]), json!({ "n": 1 })]).print_as_debug());
+                json!({ "jsonrpc": "2.0", "id": id, "method": "m" }).to_string()
+            }
+            "request" | "notification" => {
+                let method =
+                    tc.draw(gs::sampled_from(vec!["command/run".to_string(), "progress".into(), "ping".into()]));
+                let (sent, read) = sent_params(&tc);
+                if kind == "request" {
+                    message.insert("id".into(), request_id(&tc));
+                }
+                message.insert("method".into(), method.clone().into());
+                if let Some(sent) = sent {
+                    message.insert("params".into(), sent);
+                }
+                match message.get("id").cloned() {
+                    None => owned.push(Owned::Notification { method, params: read }),
+                    Some(id) if running.contains(&id) => answers.push(json!({
+                        "id": id,
+                        "code": code::INVALID_REQUEST,
+                        "message": format!("request id {id} is already in use by a running request"),
+                    })),
+                    Some(id) => {
+                        running.push(id.clone());
+                        owned.push(Owned::Request { id, method, params: read });
+                    }
+                }
+                Value::Object(message).to_string()
+            }
+            "cancel" => {
+                let params = match tc.draw(gs::booleans()) {
+                    true => {
+                        let id = request_id(&tc);
+                        if running.contains(&id) && !cancelled.contains(&id) {
+                            cancelled.push(id.clone());
+                        }
+                        json!({ "id": id })
+                    }
+                    false => json!({ "nothing": "named" }),
+                };
+                json!({ "jsonrpc": "2.0", "method": method::CANCEL, "params": params }).to_string()
+            }
+            _ => {
+                // Nothing was sent: no response has anyone waiting for it.
+                let id = match tc.draw(gs::integers::<u8>().max_value(2)) {
+                    0 => Value::Null,
+                    1 => tc.draw(gs::integers::<u32>()).into(),
+                    _ => json!("x"),
+                };
+                message.insert("id".into(), id);
+                let (result, error) = tc.draw(gs::tuples!(gs::booleans(), gs::booleans()));
+                if result {
+                    message.insert("result".into(), json_value(&tc, 1));
+                }
+                if error {
+                    message.insert("error".into(), json!({ "code": -32000, "message": "no" }));
+                }
+                // Neither or both is logged too.
+                logs += if result == error { 2 } else { 1 };
+                Value::Object(message).to_string()
+            }
+        };
+        match kind {
+            "not json" | "cut short" => answers.push(json!({ "id": null, "code": code::PARSE_ERROR })),
+            "not an object" => answers
+                .push(json!({ "id": null, "code": code::INVALID_REQUEST, "message": "a message is a JSON object" })),
+            "bad id" => answers.push(
+                json!({ "id": null, "code": code::INVALID_REQUEST, "message": "id must be a string or a number" }),
+            ),
+            _ => {}
+        }
+        raw.send(&line);
+    }
+    let got: Vec<Owned> = owners_until(&mut raw, &incoming, "sentinel")
+        .into_iter()
+        .map(|m| match m {
+            Incoming::Request(r) => {
+                assert_eq!(r.cancel.is_cancelled(), cancelled.contains(&r.id), "{:?}", r.id);
+                Owned::Request { id: r.id, method: r.method, params: r.params }
+            }
+            Incoming::Notification { method, params } => Owned::Notification { method, params },
+        })
+        .collect();
+    assert_eq!(got, owned);
+    let lines = raw.until(&peer, "last");
+    assert_eq!(lines.len(), answers.len(), "{lines:?}");
+    for (line, expected) in lines.iter().zip(&answers) {
+        let mut said = json!({ "id": line["id"], "code": line["error"]["code"] });
+        // A parse error's message is serde_json's.
+        if expected.get("message").is_some() {
+            said["message"] = line["error"]["message"].clone();
+        }
+        assert_eq!(&said, expected);
+    }
+    assert_eq!(logged.lock().unwrap().len(), logs, "{:?}", logged.lock().unwrap());
+}
+
+/// How the other end answers a request.
+#[derive(Debug, Clone)]
+enum Answer {
+    Result(u32),
+    Error(RpcError),
+    /// Neither a result nor an error, or both.
+    Muddled(bool),
+    /// An `error` that isn't a JSON-RPC error object.
+    NotAnError,
+    /// A result of another shape than the one asked for.
+    Misshapen,
+    /// A line that isn't JSON, cut short after the id.
+    CutShort,
+}
+
+hegel::pretty_print_as_debug!(Answer);
+
+#[hegel::test_helper]
+fn answer(tc: &TestCase) -> Answer {
+    match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => Answer::Result(tc.draw(gs::integers())),
+        1 => {
+            let message = tc.draw(gs::text().max_size(6));
+            Answer::Error(match tc.draw(gs::booleans()) {
+                true => RpcError::failed(&tc.draw(gs::from_regex("[a-z_]{1,8}")), message),
+                // A plain JSON-RPC error, without data.
+                false => RpcError { code: tc.draw(gs::integers::<i64>()), message, data: None },
+            })
+        }
+        2 => Answer::Muddled(tc.draw(gs::booleans())),
+        3 => Answer::NotAnError,
+        4 => Answer::Misshapen,
+        _ => Answer::CutShort,
+    }
+}
+
+impl Answer {
+    /// The line answering request `id` this way.
+    fn line(&self, id: u64) -> String {
+        let response = |key: &str, value: Value| json!({ "jsonrpc": "2.0", "id": id, key: value }).to_string();
+        match self {
+            Answer::Result(n) => response("result", json!(n)),
+            Answer::Error(e) => response("error", json!(e)),
+            Answer::Muddled(false) => json!({ "jsonrpc": "2.0", "id": id }).to_string(),
+            Answer::Muddled(true) => json!({ "jsonrpc": "2.0", "id": id, "result": 1, "error": {} }).to_string(),
+            Answer::NotAnError => response("error", json!("oops")),
+            Answer::Misshapen => response("result", json!({ "n": 1 })),
+            Answer::CutShort => format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{{"name":"a\"}}"#),
+        }
+    }
+
+    /// Whether `got` is what waiting for an answer this way gives.
+    fn check(&self, got: &Result<u32, RpcError>) {
+        let error = |code: i64, start: &str| match got {
+            Err(e) => assert!(e.code == code && e.message.starts_with(start), "{self:?}: {e:?}"),
+            Ok(n) => panic!("{self:?}: {n}"),
+        };
+        match self {
+            Answer::Result(n) => assert_eq!(got, &Ok(*n)),
+            Answer::Error(e) => assert_eq!(got, &Err(e.clone())),
+            Answer::Muddled(_) => error(code::INTERNAL, "a response with both a result and an error, or neither"),
+            Answer::NotAnError => error(code::INTERNAL, "an error response that isn't one: "),
+            Answer::Misshapen => error(code::INTERNAL, "unexpected result: "),
+            Answer::CutShort => error(code::PARSE_ERROR, "parse error: "),
+        }
+    }
+}
+
+/// Requests sent from several threads at once each get their own response, however the other
+/// end orders and words them, and never one meant for another: each has an id of its own, no
+/// response is there before it's sent, and once one has come, waiting again finds it gone.
+/// Responses to ids never sent are dropped on the way.
+#[hegel::test(test_cases = 40)]
+fn each_request_gets_its_own_response_under_any_interleaving(tc: TestCase) {
+    let (peer, _incoming, mut raw) = connect();
+    let sizes = tc.draw(gs::vecs(gs::integers::<usize>().min_value(1).max_value(3)).min_size(1).max_size(4));
+    let answers: Vec<Vec<Answer>> = sizes.iter().map(|&k| (0..k).map(|_| answer(&tc)).collect()).collect();
+    let total: usize = sizes.iter().sum();
+    let order = tc.draw(gs::permutations((0..total).collect::<Vec<_>>()));
+    let strays = tc.draw(gs::vecs(gs::integers::<u64>().min_value(1000)).max_size(3));
+    let (sent, all_sent) = mpsc::channel();
+    let threads: Vec<_> = answers
+        .iter()
+        .enumerate()
+        .map(|(t, answers)| {
+            let (peer, sent, k) = (peer.clone(), sent.clone(), answers.len());
+            std::thread::spawn(move || {
+                let pending: Vec<Pending> =
+                    (0..k).map(|n| peer.send_request("m", &json!({ "t": t, "n": n })).unwrap()).collect();
+                for p in &pending {
+                    assert!(p.wait_timeout::<u32>(Duration::ZERO).is_none(), "nothing has answered it yet");
+                }
+                sent.send(()).unwrap();
+                // Half waited for with a timeout: once that's had the response, there's none left.
+                pending
+                    .into_iter()
+                    .map(|p| {
+                        let id = p.id();
+                        let got = match id % 2 == 0 {
+                            true => p.wait::<u32>(),
+                            false => {
+                                let got = p.wait_timeout(Duration::from_secs(60)).expect("answered");
+                                let again = p.wait_timeout::<u32>(Duration::ZERO).unwrap().unwrap_err();
+                                assert_eq!(again, RpcError::closed());
+                                got
+                            }
+                        };
+                        (id, got)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
+    for _ in 0..answers.len() {
+        all_sent.recv().unwrap();
+    }
+    let requests: Vec<Value> = (0..total).map(|_| raw.recv()).collect();
+    for (i, stray) in order.into_iter().zip(strays.into_iter().map(Some).chain(std::iter::repeat(None))) {
+        let r = &requests[i];
+        let (t, n) = (r["params"]["t"].as_u64().unwrap() as usize, r["params"]["n"].as_u64().unwrap() as usize);
+        raw.send(&answers[t][n].line(r["id"].as_u64().unwrap()));
+        if let Some(stray) = stray {
+            raw.send(&json!({ "jsonrpc": "2.0", "id": stray, "result": 0 }).to_string());
+        }
+    }
+    let mut ids = Vec::new();
+    for (t, thread) in threads.into_iter().enumerate() {
+        for (n, (id, got)) in thread.join().unwrap().into_iter().enumerate() {
+            answers[t][n].check(&got);
+            ids.push(id);
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), total, "every request has an id of its own");
+}
+
+/// Progress the other end sends about a request sent for its progress comes to that request, all
+/// of it and in order, by the time its response has; progress about anything else (another
+/// request, one never sent, or that isn't progress the peer can read) goes to the owner, in order.
+#[hegel::test(test_cases = 40)]
+fn progress_reaches_its_request_in_order_before_the_answer(tc: TestCase) {
+    let (peer, incoming, mut raw) = connect();
+    let reporting: Vec<Pending> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
+        .map(|_| peer.send_request_reporting("command/run", &json!({})).unwrap())
+        .collect();
+    let plain = peer.send_request("command/run", &json!({})).unwrap();
+    let ids: Vec<u64> = (0..=reporting.len()).map(|_| raw.recv()["id"].as_u64().unwrap()).collect();
+    let mut to_each = vec![Vec::new(); reporting.len()];
+    let mut to_owner = Vec::new();
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(10)) {
+        let phase = tc.draw(gs::sampled_from(vec!["scan", "copy", "teleport"]));
+        let event = match tc.draw(gs::integers::<u8>().max_value(4)) {
+            0 => json!({ "event": "warning", "message": tc.draw(gs::text().max_size(6)) }),
+            1 => json!({ "event": "phase_start", "phase": phase, "items": tc.draw(gs::integers::<u32>()), "bytes": 0 }),
+            2 => json!({ "event": "item", "phase": phase, "path": "a.mp3", "bytes": 1, "target": "USB", "items": 3 }),
+            3 => json!({ "event": "step", "step": { "index": 1, "total": 2, "id": "scan" } }),
+            _ => json!({ "event": "rewind", "seconds": tc.draw(gs::integers::<u8>()) }),
+        };
+        // One of the requests sent for progress, the plain one, one never sent, or none.
+        let to = tc.draw(gs::integers::<usize>().max_value(ids.len() + 1));
+        let params = match to {
+            _ if to < reporting.len() => json!({ "id": ids[to], "event": event }),
+            _ if to == reporting.len() => json!({ "id": ids[to], "event": event }),
+            _ if to == ids.len() => json!({ "id": 9999, "event": event }),
+            _ => json!({ "event": event }),
+        };
+        match to < reporting.len() {
+            true => to_each[to].push(event),
+            false => to_owner.push(params.clone()),
+        }
+        raw.send(&json!({ "jsonrpc": "2.0", "method": method::PROGRESS, "params": params }).to_string());
+    }
+    for id in &ids {
+        raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": 1 }).to_string());
+    }
+    for (pending, sent) in reporting.into_iter().zip(to_each) {
+        assert_eq!(pending.wait_timeout::<u32>(Duration::from_secs(60)).unwrap(), Ok(1));
+        let got: Vec<Value> = pending.progress().map(|r| serde_json::to_value(r).unwrap()).collect();
+        assert_eq!(got, sent);
+    }
+    assert_eq!(plain.progress().count(), 0);
+    let owned: Vec<Value> = owners_until(&mut raw, &incoming, "sentinel")
+        .into_iter()
+        .map(|m| match m {
+            Incoming::Notification { method, params } if method == method::PROGRESS => params,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(owned, to_owner);
+}
+
+/// An input that fails once its pipe has closed, as a broken one would.
+struct Broken(PipeReader);
+
+impl Read for Broken {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self.0.read(buf)? {
+            0 => Err(std::io::Error::other("unplugged")),
+            n => Ok(n),
+        }
+    }
+}
+
+/// However the connection ends (the input closing, breaking, or the peer closing its output),
+/// what's in flight ends with it: once the input has gone, requests waiting fail with `closed`,
+/// the other end's requests still running are cancelled (not those answered), the owner's
+/// receiver closes and nothing more can be sent; once the output has, nothing more can be sent
+/// either, but responses still come in.
+#[hegel::test(test_cases = 40)]
+fn however_the_connection_ends_what_is_in_flight_ends_with_it(tc: TestCase) {
+    let how = tc.draw(gs::sampled_from(vec!["input closes", "input breaks", "output closes"]));
+    let (peer, incoming, mut raw, logged) = match how {
+        "input breaks" => connect_logged(Broken),
+        _ => connect_logged(|r| r),
+    };
+    let running: Vec<(Request, bool)> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
+        .map(|n| {
+            raw.send(&json!({ "jsonrpc": "2.0", "id": n, "method": "command/run" }).to_string());
+            (request(&incoming), tc.draw(gs::booleans()))
+        })
+        .collect();
+    for (r, answered) in &running {
+        if *answered {
+            peer.respond(&r.id, Ok(Value::Null));
+            assert_eq!(raw.recv()["id"], r.id);
+        }
+    }
+    let pending: Vec<Pending> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
+        .map(|_| peer.send_request("m", &json!({})).unwrap())
+        .collect();
+    let ids: Vec<Value> = pending.iter().map(|_| raw.recv()["id"].clone()).collect();
+    if how == "output closes" {
+        peer.close();
+        assert_eq!(peer.send_request("m", &json!({})).err(), Some(RpcError::closed()));
+        // Neither of these can go out: dropped.
+        peer.notify("progress", &json!({}));
+        for (r, _) in &running {
+            peer.respond(&r.id, Ok(Value::Null));
+        }
+        let mut rest = String::new();
+        assert_eq!(raw.from_peer.read_line(&mut rest).unwrap(), 0, "the other end reads the end: {rest:?}");
+        for (p, id) in pending.into_iter().zip(ids) {
+            raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": 7 }).to_string());
+            assert_eq!(p.wait::<u32>(), Ok(7));
+        }
+        return;
+    }
+    raw.close();
+    for p in pending {
+        assert_eq!(p.wait::<Value>().unwrap_err(), RpcError::closed());
+    }
+    assert!(incoming.recv().is_err(), "the owner's receiver closes");
+    for (r, answered) in &running {
+        assert_eq!(r.cancel.is_cancelled(), !answered, "{:?}", r.id);
+    }
+    assert_eq!(peer.send_request("m", &json!({})).err(), Some(RpcError::closed()));
+    let broke = logged.lock().unwrap().iter().any(|l| l == "reading messages: unplugged");
+    assert_eq!(broke, how == "input breaks");
+}
+
+/// A message is sent whole on one line exactly when it fits in [`MAX_LINE`] bytes, and refused
+/// otherwise with nothing written; a response too long goes out as an error instead. A line too
+/// long coming in is skipped and answered with a parse error, and the peer reads on.
+#[hegel::test(test_cases = 6)]
+fn a_message_goes_out_whole_when_it_fits_in_a_line_and_one_too_long_is_skipped(tc: TestCase) {
+    let (peer, incoming, mut raw, logged) = connect_logged(|r| r);
+    // The first request's id is 1: with it, the line is `{"jsonrpc":"2.0","id":1,"method":"m","params":"..."}`.
+    let overhead = json!({ "jsonrpc": "2.0", "id": 1, "method": "m", "params": "" }).to_string().len();
+    let over = tc.draw(gs::integers::<i64>().min_value(-2).max_value(2));
+    let text = "a".repeat((MAX_LINE as i64 + over) as usize - overhead);
+    // Sent from a thread of its own, so this one can read what's sent meanwhile.
+    let (p, params) = (peer.clone(), text.clone());
+    let sending = std::thread::spawn(move || {
+        let sent = p.send_request("m", &params).map(|p| p.id());
+        p.notify("sent", &json!({}));
+        sent
+    });
+    let lines: Vec<Value> = std::iter::from_fn(|| Some(raw.recv())).take_while(|l| l["method"] != "sent").collect();
+    match sending.join().unwrap() {
+        Ok(id) => {
+            assert!(over <= 0, "{over}");
+            let [line] = &lines[..] else { panic!("{} lines", lines.len()) };
+            assert_eq!((line["id"].as_u64(), line["params"].as_str().map(str::len)), (Some(id), Some(text.len())));
+        }
+        Err(e) => {
+            assert!(over > 0, "{over}");
+            assert_eq!((e.code, e.message.as_str()), (code::INTERNAL, "a message is longer than 16 MiB"));
+            assert!(lines.is_empty(), "nothing went out");
+        }
+    }
+    raw.send(r#"{"jsonrpc":"2.0","id":"r","method":"command/run"}"#);
+    let r = request(&incoming);
+    // The same for a response: `{"jsonrpc":"2.0","id":"r","result":"..."}`.
+    let overhead = json!({ "jsonrpc": "2.0", "id": "r", "result": "" }).to_string().len();
+    let over = tc.draw(gs::integers::<i64>().min_value(-2).max_value(2));
+    let text = "a".repeat((MAX_LINE as i64 + over) as usize - overhead);
+    let (p, len) = (peer.clone(), text.len());
+    let responding = std::thread::spawn(move || p.respond(&r.id, Ok(json!(text))));
+    let response = raw.recv();
+    responding.join().unwrap();
+    assert_eq!(response["id"], "r");
+    match response.get("result") {
+        Some(result) => {
+            assert_eq!((over <= 0, result.as_str().map(str::len)), (true, Some(len)))
+        }
+        None => assert_eq!((over > 0, &response["error"]["code"]), (true, &json!(code::INTERNAL))),
+    }
+    let long = (MAX_LINE as i64 + 1 + tc.draw(gs::integers::<i64>().max_value(1 << 16).min_value(0))) as usize;
+    let mut to = raw.to_peer.take().unwrap();
+    let writer = std::thread::spawn(move || {
+        to.write_all(&vec![b'x'; long]).unwrap();
+        to.write_all(b"\n{\"jsonrpc\":\"2.0\",\"method\":\"after\"}\n").unwrap();
+        to
+    });
+    let e = raw.recv();
+    assert_eq!((e["id"].clone(), e["error"]["code"].clone()), (Value::Null, json!(code::PARSE_ERROR)));
+    assert_eq!(e["error"]["message"], "parse error: a line is longer than 16 MiB");
+    assert!(matches!(next(&incoming), Incoming::Notification { method, .. } if method == "after"), "read on");
+    drop(writer.join().unwrap());
+    assert_eq!(*logged.lock().unwrap(), ["skipped a line longer than 16 MiB"]);
+}
+
+/// Requests sent while answering the other end's requests are cancelled with them: when the other
+/// end cancels a request, each one sent within it fails with `cancelled` at once and `$/cancel`
+/// goes out for it, while those within other requests get their responses. Once a request is
+/// cancelled or answered, nothing more is sent within it.
+#[hegel::test(test_cases = 40)]
+fn requests_sent_within_a_cancelled_one_are_cancelled_with_it(tc: TestCase) {
+    let (peer, incoming, mut raw) = connect();
+    let hooks: Vec<Request> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+        .map(|n| {
+            raw.send(&json!({ "jsonrpc": "2.0", "id": format!("h{n}"), "method": "command/run" }).to_string());
+            request(&incoming)
+        })
+        .collect();
+    let mut within: Vec<(usize, Pending, u64)> = Vec::new();
+    for (h, hook) in hooks.iter().enumerate() {
+        for _ in 0..tc.draw(gs::integers::<usize>().max_value(2)) {
+            let p = peer.send_request_within(&hook.id, "tracks.query", &json!({ "hook": h })).unwrap();
+            let id = raw.recv()["id"].as_u64().unwrap();
+            assert_eq!(id, p.id());
+            within.push((h, p, id));
+        }
+    }
+    let cancelled =
+        tc.draw(gs::vecs(gs::integers::<usize>().max_value(hooks.len() - 1)).unique(true).max_size(hooks.len()));
+    for &h in &cancelled {
+        raw.send(&json!({ "jsonrpc": "2.0", "method": method::CANCEL, "params": { "id": hooks[h].id } }).to_string());
+    }
+    assert!(owners_until(&mut raw, &incoming, "sentinel").is_empty());
+    let mut expected: Vec<u64> = within.iter().filter(|(h, ..)| cancelled.contains(h)).map(|(.., id)| *id).collect();
+    // A pending request can be cancelled from this end too (its response still comes).
+    if let Some((_, p, id)) = within.iter().find(|(h, ..)| !cancelled.contains(h)) {
+        p.cancel();
+        expected.push(*id);
+    }
+    let mut cancels: Vec<u64> = raw
+        .until(&peer, "last")
+        .iter()
+        .map(|l| {
+            assert_eq!(l["method"], method::CANCEL);
+            l["params"]["id"].as_u64().unwrap()
+        })
+        .collect();
+    cancels.sort();
+    expected.sort();
+    assert_eq!(cancels, expected);
+    for (h, p, id) in within {
+        if cancelled.contains(&h) {
+            assert_eq!(p.wait::<u32>(), Err(RpcError::cancelled()));
+        } else {
+            raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": h }).to_string());
+            assert_eq!(p.wait::<usize>(), Ok(h));
+        }
+    }
+    for (h, hook) in hooks.iter().enumerate() {
+        assert_eq!(hook.cancel.is_cancelled(), cancelled.contains(&h));
+        if !cancelled.contains(&h) && tc.draw(gs::booleans()) {
+            peer.respond(&hook.id, Ok(Value::Null));
+            assert_eq!(raw.recv()["id"], hook.id);
+        } else if !cancelled.contains(&h) {
+            continue;
+        }
+        // Cancelled or answered: nothing more goes out within it.
+        assert_eq!(peer.send_request_within(&hook.id, "tracks.query", &json!({})).err(), Some(RpcError::cancelled()));
+    }
+    assert_eq!(raw.until(&peer, "end"), Vec::<Value>::new());
+}
+
+/// In a line that isn't JSON, the id of what looks like a response is found wherever it is among
+/// the top-level keys, past strings with quotes and braces in them and ids nested deeper, unless
+/// there's a `method` before the line ends (a request's) or the id isn't a number.
+#[hegel::test(test_cases = 200)]
+fn a_response_id_is_found_in_any_line_cut_short(tc: TestCase) {
+    let id = tc.draw(gs::integers::<u64>());
+    let string_id = tc.draw(gs::weighted_booleans(0.1));
+    let mut keys = vec!["jsonrpc", "id", "result"];
+    if tc.draw(gs::weighted_booleans(0.2)) {
+        keys.push("method");
+    }
+    let order = tc.draw(gs::permutations(keys));
+    let mut line = String::from("{");
+    let mut after_id = 0;
+    let mut method_at = None;
+    for (i, key) in order.iter().enumerate() {
+        if i > 0 {
+            line.push(',');
+        }
+        // Whitespace JSON allows around the colon.
+        let colon = tc.draw(gs::sampled_from(vec![":", " : ", ":\t"]));
+        let value = match *key {
+            "jsonrpc" => json!("2.0"),
+            "id" if string_id => json!(id.to_string()),
+            "id" => json!(id),
+            "method" => json!("m"),
+            _ => json_value(&tc, 2),
+        };
+        if *key == "method" {
+            method_at = Some(line.len());
+        }
+        line.push_str(&format!("\"{key}\"{colon}{value}"));
+        if *key == "id" {
+            after_id = line.len();
+        }
+    }
+    let cut = tc.draw(gs::integers::<usize>().min_value(after_id).max_value(line.len()));
+    let cut = (cut..=line.len()).find(|i| line.is_char_boundary(*i)).unwrap();
+    let line = &line[..cut];
+    // A `method` key counts once its colon is in.
+    let method = method_at.is_some_and(|at| {
+        let rest = line.get(at..).and_then(|rest| rest.strip_prefix("\"method\""));
+        rest.is_some_and(|rest| rest.trim_start().starts_with(':'))
+    });
+    let expected = (!string_id && !method).then_some(id);
+    assert_eq!(response_id(line.as_bytes()), expected, "{line}");
 }
