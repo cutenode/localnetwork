@@ -168,10 +168,11 @@ fn printable(line: &str) -> String {
                 Some('[') => {
                     let _ = chars.by_ref().find(|c| ('@'..='~').contains(c));
                 }
-                // A string (an OSC title, a hyperlink...), up to BEL or ESC \.
+                // A string (an OSC title, a hyperlink...), up to BEL or ESC \. The backslash is
+                // part of the end only after ESC: after BEL it's text.
                 Some(']' | 'P' | 'X' | '^' | '_') => {
-                    let _ = chars.by_ref().find(|c| matches!(c, '\u{7}' | '\u{1b}'));
-                    if chars.as_str().starts_with('\\') {
+                    let end = chars.by_ref().find(|c| matches!(c, '\u{7}' | '\u{1b}'));
+                    if end == Some('\u{1b}') && chars.as_str().starts_with('\\') {
                         chars.next();
                     }
                 }

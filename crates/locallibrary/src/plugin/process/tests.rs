@@ -21,12 +21,7 @@ fn stderr_line(tc: &TestCase) -> (String, String) {
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
         match tc.draw(gs::integers::<u8>().max_value(4)) {
             0 => {
-                let mut text = plain(tc);
-                // Not a backslash right after a string ended by BEL: `printable` drops it (see
-                // `a_backslash_after_a_string_ended_by_bel_prints`).
-                if line.ends_with('\u{7}') {
-                    text = text.trim_start_matches('\\').to_string();
-                }
+                let text = plain(tc);
                 line.push_str(&text);
                 printable.push_str(&text);
             }
@@ -126,7 +121,6 @@ fn a_plugins_progress_reaches_the_caller_as_it_says(tc: TestCase) {
 /// A string (a window title) ended by BEL is left out, and what follows it prints, a backslash
 /// too: only ESC ends a string with one after it.
 #[test]
-#[ignore = "bug: printable drops a backslash after a string ended by BEL (process.rs, `printable`)"]
 fn a_backslash_after_a_string_ended_by_bel_prints() {
     assert_eq!(printable("\u{1b}]0;title\u{7}\\Music"), "\\Music");
 }

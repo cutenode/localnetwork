@@ -526,6 +526,7 @@ their old names.
 ### Fixed
 
 - A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.
+- A plugin's log keeps a backslash that follows a window title ended by BEL.
 
 ### Security
 
