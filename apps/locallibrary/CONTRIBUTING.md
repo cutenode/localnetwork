@@ -182,9 +182,9 @@ proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rust
 
 `tools/hegel-coverage.sh` runs `cargo coverage` over only the `#[hegel::test]` tests (picked by
 function name, so not the fixed examples beside them in the `props_*` modules), and so fails below
-the same thresholds: the properties alone have to reach what the whole suite does. CI's `hegel` job runs it on Linux, from the test archive. It also needs
-`rg`. Code it reports as missed is code no property reaches: a place where a new or wider
-generator would test more.
+the same thresholds: the properties alone have to reach what the whole suite does. CI's `hegel` job
+runs it on Linux, from the test archive. It also needs `rg`. Code it reports as missed is code no
+property reaches: a place where a new or wider generator would test more.
 
 ## Property-based tests
 
