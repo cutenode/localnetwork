@@ -527,6 +527,8 @@ their old names.
 
 - A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.
 - A plugin's log keeps a backslash that follows a window title ended by BEL.
+- Two making the store at once (the sidecar's workers, or a CLI beside them) make one store:
+  neither is refused as "not empty", and both get the same store id.
 
 ### Security
 

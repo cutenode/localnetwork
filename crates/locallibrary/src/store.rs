@@ -17,7 +17,8 @@
 //!   settings.json         the settings profile (see crate::settings)
 //!   players.json          the player models `check` uses when none are given (see
 //!                         crate::equipment::Remembered)
-//!   lock                  advisory lock so a CLI and a GUI can't write concurrently
+//!   lock                  advisory lock so a CLI and a GUI can't write concurrently, and
+//!                         two can't make the store at once (see Store::open_or_init)
 //! ```
 //!
 //! Snapshots form a DAG through `parents`, so "is X newer than Y" can be answered from
@@ -315,21 +316,22 @@ impl Store {
 
     /// Open a store, creating it if the directory is empty or missing, or holds only what
     /// locallibrary itself keeps beside a store (an older version wrote some of it before the
-    /// store was made: fingerprints, mix reports, the profile document).
+    /// store was made: fingerprints, mix reports, the profile document). Two making it at once
+    /// (the sidecar's workers, a CLI beside them) make one store: one makes it under its lock
+    /// while the others wait, then open it.
     pub fn open_or_init(root: impl AsRef<Path>) -> Result<Store> {
-        const OURS: [&str; 4] =
-            [crate::audio_cache::CACHE_DIR, crate::mix::report::REPORTS_DIR, "profile-document.json", "tui.json"];
         let root = root.as_ref().to_path_buf();
         let meta_path = root.join("store.json");
+        if meta_path.exists() {
+            return Store::open(root);
+        }
+        // Before the lock file is written into it, so a folder that's someone else's is left
+        // as it was; what another process making the store has made so far doesn't count.
+        Store::holds_only_ours(&root, true)?;
+        fs::create_dir_all(&root).at(&root)?;
+        let _lock = fsutil::FileLock::wait(&root.join("lock"))?;
         if !meta_path.exists() {
-            for e in fs::read_dir(&root).into_iter().flatten() {
-                if !OURS.iter().any(|o| e.as_ref().is_ok_and(|e| e.file_name() == *o)) {
-                    return Err(Error::invalid(format!(
-                        "{} is not empty and is not an locallibrary store",
-                        root.display()
-                    )));
-                }
-            }
+            Store::holds_only_ours(&root, false)?;
             for d in ["objects", "snapshots"] {
                 fs::create_dir_all(root.join(d)).at(root.join(d))?;
             }
@@ -339,6 +341,34 @@ impl Store {
             )?;
         }
         Store::open(root)
+    }
+
+    /// Refuses `root` unless it holds only what locallibrary keeps beside a store and the lock
+    /// for making one, and with `making`, what making the store writes before `store.json`.
+    fn holds_only_ours(root: &Path, making: bool) -> Result<()> {
+        const OURS: [&str; 5] = [
+            crate::audio_cache::CACHE_DIR,
+            crate::mix::report::REPORTS_DIR,
+            "profile-document.json",
+            "tui.json",
+            "lock",
+        ];
+        const MAKING: [&str; 3] = ["objects", "snapshots", "store.json"];
+        for e in fs::read_dir(root).into_iter().flatten() {
+            let ours = e.as_ref().is_ok_and(|e| {
+                let name = e.file_name();
+                let name = name.to_string_lossy();
+                OURS.contains(&&*name)
+                    || (making && (MAKING.contains(&&*name) || name.starts_with(crate::paths::TEMP_PREFIX)))
+            });
+            if !ours {
+                return Err(Error::invalid(format!(
+                    "{} is not empty and is not an locallibrary store",
+                    root.display()
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// The store at `root` if there is one (never made here); one that's there but can't be read
