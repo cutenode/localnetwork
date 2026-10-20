@@ -13,9 +13,9 @@ use serde_json::Value;
 
 use crate::error::{ok, params};
 use crate::protocol::{
-    Analysis, AnalyzeTrack, Exported, Fetch, Fetched, Hello, HelloReply, OpPlan, Partial, PlanOp, PluginInfo,
-    ProgressEvent, ProgressParams, ProgressReport, Progressed, RunCommand, StepInfo, StepStarted, WriteExport,
-    check_protocol, method,
+    Analysis, AnalyzeTrack, Candidates, Exported, Fetch, Fetched, Hello, HelloReply, OpAnswer, Partial, PlanOp,
+    PluginInfo, ProgressEvent, ProgressParams, ProgressReport, Progressed, ProvideCandidates, RunCommand, StepInfo,
+    StepStarted, WriteExport, check_protocol, method,
 };
 use crate::{Contributions, FEATURES, Incoming, ListItem, Manifest, PROTOCOL_VERSION, Peer, Request, RpcError};
 
@@ -37,7 +37,8 @@ fn declared<'a>(what: &str, name: &str, mut names: impl Iterator<Item = &'a Stri
     }
 }
 
-/// Any JSON for a headless command, a [`crate::View`] for a view command.
+/// Any JSON for a headless command, a [`crate::View`] for a view command (or a question first,
+/// [`crate::View::Choose`]).
 impl Hook for RunCommand {
     const METHOD: &'static str = method::RUN_COMMAND;
     type Answer = Value;
@@ -67,10 +68,24 @@ impl Hook for WriteExport {
 
 impl Hook for PlanOp {
     const METHOD: &'static str = method::PLAN_OP;
-    type Answer = OpPlan;
+    type Answer = OpAnswer;
 
     fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
         declared("operation", &self.operation, c.operations.iter().map(|x| &x.name))
+    }
+}
+
+/// For a provider of the kind asked for.
+impl Hook for ProvideCandidates {
+    const METHOD: &'static str = method::PROVIDE;
+    type Answer = Candidates;
+
+    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
+        declared("provider", &self.provider, c.providers.iter().map(|x| &x.name))?;
+        match c.providers.iter().any(|x| x.name == self.provider && x.kind == self.kind) {
+            true => Ok(()),
+            false => Err(RpcError::invalid_params(format!("{} provides no {}", self.provider, self.kind.name()))),
+        }
     }
 }
 
@@ -88,22 +103,23 @@ impl Hooks {
     }
 
     /// Answers `H`'s requests with `hook`, each on a thread of its own, and only for a
-    /// contribution the manifest declares.
-    pub fn on<H: Hook>(
+    /// contribution the manifest declares. A hook answers its answer, or what makes one (an
+    /// operation's [`crate::OpPlan`]).
+    pub fn on<H: Hook, A: Into<H::Answer>>(
         mut self,
-        hook: impl Fn(H, &Host) -> Result<H::Answer, RpcError> + Send + Sync + 'static,
+        hook: impl Fn(H, &Host) -> Result<A, RpcError> + Send + Sync + 'static,
     ) -> Hooks {
         let run = move |args: Value, contributes: &Contributions, host: &Host| {
             let req: H = params(args)?;
             req.declared(contributes)?;
-            ok(hook(req, host)?)
+            ok(hook(req, host)?.into())
         };
         self.0.insert(H::METHOD, Box::new(run));
         self
     }
 
-    /// The features with a method among these hooks', and the SDK's own (`blobs`, `net`: what
-    /// a hook may send the host, see [`Host`]).
+    /// The features with a method among these hooks', and the SDK's own (`blobs`, `net`, what a
+    /// hook may send the host, see [`Host`]; `choose`, a question it may answer).
     fn features(&self) -> Vec<String> {
         let had = FEATURES.iter().filter(|f| f.methods.is_empty() || f.methods.iter().any(|m| self.0.contains_key(m)));
         had.map(|f| f.name.into()).collect()

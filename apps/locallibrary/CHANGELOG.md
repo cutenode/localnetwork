@@ -226,31 +226,38 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   what it reads never says where things are on the computer, and images come back as files
   locallibrary reads itself, in a folder for each request that `store gc` removes if a crash
   left it. A view command's
-  rows show as they come. An analyzer's fields may have roles (a track's key, tempo,
-  loudness...), which doctor, `check` and `playlist order` read from the analyzer `plugin roles`
-  chooses (the sound plugin's unless another has them), and `analyze --apply key,bpm` writes to
-  the tracks; the sidecar has `plugins.roles`, `plugins.roles.set` and
-  `plugins.apply_fields.plan/apply`. In the player, plugins' commands, operations and export
-  formats are in the palette, and commands and operations in the menus their manifests name
-  (`where`: the actions menu for the tracks selected or a playlist, a drive's menu), asking for
-  their params or options in a form drawn from their schemas, a param from the selection
-  (`x-from`) filled in with it (cleared, it stays so); a command answers in a panel, an
-  operation's plan is confirmed, written and undone like any edit, an export shows what it would
-  write and asks before overwriting, analyzers run from the palette and their fields are columns
-  to sort and search by (and an analyzer's keys and BPMs are written to the tracks from there),
-  plugins' settings are a form in the palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks --sort`
-  and the sidecar's `tracks.query` take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`). See
-  docs/plugins.md. The ones it ships:
+  rows show as they come. A command or an operation may ask you something first (which track a
+  tracklist's entry is): picked from a list in a terminal and in the player, or answered with
+  `--choose PARAM=VALUE`; over RPC the question is the answer, to call again with. Providers find
+  cover art (`art fetch`) or track details (`track fetch`) for a library's tracks: every provider of
+  the kind is asked, what they find is offered best first, one alone scoring `plugin providers
+  --auto-pick` (0.9) or more chosen for you, and locallibrary plans the edits itself, confirmed as
+  any are (the player's actions menu has both, and its palette the auto-pick; the sidecar
+  `plugins.provide`, `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  An analyzer's fields may have roles (a track's key, tempo, loudness...), which doctor, `check` and
+  `playlist order` read from the analyzer `plugin roles` chooses (the sound plugin's unless another
+  has them), and `analyze --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`,
+  `plugins.roles.set` and `plugins.apply_fields.plan/apply`. In the player, plugins' commands,
+  operations and export formats are in the palette, and commands and operations in the menus their
+  manifests name (`where`: the actions menu for the tracks selected or a playlist, a drive's menu),
+  asking for their params or options in a form drawn from their schemas, a param from the selection
+  (`x-from`) filled in with it (cleared, it stays so); a command answers in a panel, an operation's
+  plan is confirmed, written and undone like any edit, an export shows what it would write and asks
+  before overwriting, analyzers run from the palette and their fields are columns to sort and search
+  by (and an analyzer's keys and BPMs are written to the tracks from there), plugins' settings are a
+  form in the palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks
+  --sort` and the sidecar's `tracks.query` take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`).
+  See docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
-    streaming playlists, rekordbox text or XML, "Artist - Title" lines), and `tracklist match`
-    shows what it finds in one, entry by entry, changing nothing.
+    streaming playlists, rekordbox text or XML, "Artist - Title" lines), asking which track an
+    entry is when it could be several.
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
     tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
-  - `coverart`: `coverart fetch` finds front covers on MusicBrainz and the Cover Art Archive for
-    tracks without artwork (or all, with `--replace`), planned as artwork edits you confirm, as
-    many albums as asked in one plan. It's the only one that goes online, and only when it's run.
+  - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
+    album that could be several release groups offered as each of them. It's the only one that
+    goes online, and only when it's run.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -347,7 +354,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     tolerantly, keys a newer locallibrary adds left out) and its checks, a JSON-RPC peer over a
     pair of pipes and an SDK for writing plugins in Rust, a hook per request type, with typed
     reads of a drive, `net/fetch` through the host, files in a request's scratch folder for big
-    answers and a view's rows sent in parts. The RPC sidecar reads lines and reports errors with it.
+    answers, a view's rows sent in parts, questions for the user (`Choice`) and providers
+    (`provide/candidates`). The RPC sidecar reads lines and reports errors with it.
 
 ### Changed
 
@@ -455,13 +463,13 @@ their old names.
 - `track dedupe` without `--metadata` never replaces a track that only shares artist, title and
   length with another, and with nothing to replace it reports nothing to do. `playlist import`
   offers a title-only entry whose length is far off instead of matching it, keeps a track the set
-  played twice, and reports picks made with `--choose` as `chosen`.
-- `playlist import` is the tracklist plugin's now, with the same flags (`--choose 0=...` is
-  refused as a usage error, exit status 2). `--json` gives the plan alone: `tracklist match LIBRARY
-  FILE` answers what it finds in the list, entry by entry. Over RPC, `import.plan` and
-  `import.apply` are gone: plan with `plugins.op.plan {plugin: "tracklist", operation: "import",
-  params: {file, into, ...}, context: {drive}}`, apply with `plugins.op.apply`, and read the
-  entries with `plugins.run {plugin: "tracklist", command: "match", ...}`.
+  played twice.
+- `playlist import` is the tracklist plugin's now. An entry that could be several tracks is asked
+  about (in a terminal; otherwise it stops, exit status 2, saying how to answer): `--choose 3=812`
+  answers for entry 3, numbered from 1 as the warnings number them, and `--choose 3=null` leaves
+  it out. `--json` gives the plan alone. Over RPC, `import.plan` and `import.apply` are gone: plan
+  with `plugins.op.plan {plugin: "tracklist", operation: "import", params: {file, into, ...},
+  context: {drive}}`, which may answer `{"choose": ...}` first, and apply with `plugins.op.apply`.
 - `export --format traktor|serato|engine` is the interop plugin's now. Its options are
   `--option`s: `--location-root DIR` is `--option location_root=DIR`, `--no-analysis` is `--option
   skip_analysis=true`, `--write-tags` is `--option write_tags=true` and Engine's `--paths drive`
@@ -557,7 +565,6 @@ their old names.
 - Two making the store at once (the sidecar's workers, or a CLI beside them) make one store:
   neither is refused as "not empty", and both get the same store id.
 - `profile`'s cue statistics count hot cues D to H on tracks that weren't played in a set too.
-- The cover art plugin's fetch, given a playlist, works on it rather than on the tracks selected.
 - Matching two tracks by their sound hears the last few seconds of a copy a few milliseconds
   late too, so a copy of a short track isn't missed as the same recording.
 - A drive edited back to a state it held before (a rating set, then put back) is newer than a

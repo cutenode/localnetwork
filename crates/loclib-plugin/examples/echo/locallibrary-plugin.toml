@@ -42,6 +42,11 @@ format = "m3u"
 title = "M3U playlist"
 extension = "m3u"
 
+[[contributes.providers]]
+name = "tags"
+title = "The tags as they are"
+kind = "metadata"
+
 [[contributes.settings]]
 key = "greeting"
 title = "Greeting"

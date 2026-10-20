@@ -1,7 +1,8 @@
 //! Plugins' settings, kept in the store (`<store>/plugins/<id>/settings.json`) and handed to
-//! each hook in its context; secret ones are kept apart (see [`super::secrets`]).
+//! each hook in its context; secret ones are kept apart (see [`super::secrets`]). And the host's
+//! own settings for plugins, beside their folders.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use loclib_plugin::SettingType;
@@ -15,6 +16,35 @@ use crate::{Error, Result, fsutil};
 
 fn file(store: &Store, plugin: &str) -> PathBuf {
     store.root().join("plugins").join(plugin).join("settings.json")
+}
+
+/// The host's own settings for plugins (which analyzer each field role is read from, when a
+/// provider's candidate is picked for the user): `<store>/plugins/settings.json`.
+fn host_file(store: &Store) -> PathBuf {
+    store.root().join("plugins").join("settings.json")
+}
+
+/// The host's settings for plugins as they're kept: none when they can't be read.
+pub(crate) fn host_settings(store: Option<&Store>) -> IndexMap<String, Value> {
+    store.and_then(|s| fsutil::read_json_opt(&host_file(s)).ok().flatten()).unwrap_or_default()
+}
+
+/// Keeps one of the host's settings for plugins as `value`, or with `None` forgets it. Settings
+/// that can't be read are written anew.
+pub(crate) fn set_host_setting(store: &Store, key: &str, value: Option<Value>) -> Result<()> {
+    let mut kept = host_settings(Some(store));
+    match value {
+        Some(v) => kept.insert(key.into(), v),
+        None => kept.shift_remove(key),
+    };
+    write(&host_file(store), &kept)
+}
+
+/// Writes settings to `path`, its folder made first.
+fn write(path: &Path, settings: &IndexMap<String, Value>) -> Result<()> {
+    let dir = path.parent().expect("in a folder");
+    std::fs::create_dir_all(dir).at(dir)?;
+    fsutil::write_json_atomic(path, settings)
 }
 
 impl Slot {
@@ -87,10 +117,7 @@ impl Plugins {
             Some(v) => saved.insert(key.into(), v),
             None => saved.shift_remove(key),
         };
-        let path = file(store, &manifest.id);
-        let dir = path.parent().expect("in a folder");
-        std::fs::create_dir_all(dir).at(dir)?;
-        fsutil::write_json_atomic(&path, &saved)?;
+        write(&file(store, &manifest.id), &saved)?;
         Ok(slot.settings(Some(store)))
     }
 }

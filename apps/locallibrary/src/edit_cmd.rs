@@ -363,6 +363,12 @@ locallibrary track upgrade Home --from ~/Music/Lossless --remove-old")]
         #[command(flatten)]
         select: SelectArgs,
     },
+    /// Find tracks' details (title, artist, album, year, genre, label, ISRC) with the plugins'
+    /// providers (online), choose, and fill them in
+    #[command(after_help = "Without --replace, only tracks missing one of those are looked up, and only what \
+they're missing is filled in. A candidate alone scoring `locallibrary plugin providers`' auto-pick or more is \
+chosen for you; the others are asked about (or given with --choose).")]
+    Fetch(crate::plugin_cmd::FetchArgs),
     /// Tracks that mix into a track: compatible key, close tempo
     Matches {
         #[arg(help = LIBRARY_HELP)]
@@ -829,6 +835,9 @@ pub fn track(args: TrackArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                 }
             });
             return Ok(ExitCode::SUCCESS);
+        }
+        TrackCommand::Fetch(f) => {
+            return crate::plugin_cmd::fetch(loclib_plugin::ProviderKind::Metadata, f, store_path, out, ctx);
         }
         TrackCommand::Matches { drive, track, limit } => {
             let list =

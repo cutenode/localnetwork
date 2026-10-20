@@ -16,16 +16,17 @@ max_filterset_bytes=$((96 * 1024))
 # Each test's name is the first `fn` after its attribute, which can span several lines. Plain
 # tests elsewhere can share the name (`cues::x` beside `props_anlz::x`), so each filter also
 # names the test's file: its module (`app` for src/tui/app.rs, `x` for x/mod.rs, `app::tests` for
-# src/tui/app/tests.rs), or for an integration test's own file, its package and binary (several
-# crates have a tests/props.rs). A crate root's src/tests.rs is only `tests`, which every plugin
-# crate has, so it names the package too. The loop prints each test's filter up to its name, and
-# the name; the tests that share a filter become one, with their names as alternatives.
+# src/tui/app/tests.rs), or for an integration test's own file (in a package's tests/), its
+# package and binary (several crates have a tests/props.rs). A crate root's src/tests.rs is only
+# `tests`, which every plugin crate has, so it names the package too. The loop prints each test's
+# filter up to its name, and the name; the tests that share a filter become one, with their names
+# as alternatives.
 package_of() { sed -n 's/^name = "\(.*\)"$/\1/p' "$1/Cargo.toml" | head -n 1; }
 filtersets=$(
   while IFS=: read -r path name; do
     stem=$(basename "$path" .rs)
     [[ $stem == mod ]] && stem=$(basename "$(dirname "$path")")
-    if [[ $path == */tests/$stem.rs ]]; then
+    if [[ $path == */tests/$stem.rs && -f ${path%/tests/*}/Cargo.toml ]]; then
       head="binary_id(=$(package_of "${path%/tests/*}")::$stem) & test(/^(\w+::)*"
     elif [[ $stem == tests ]]; then
       parent=$(basename "$(dirname "$path")")

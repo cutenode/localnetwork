@@ -1,6 +1,6 @@
-//! A release group's front cover from the Cover Art Archive, made the image a `set_artwork` edit
-//! gives: what locallibrary stages for players (a square JPEG, centre-cropped) at the larger size
-//! they show, in the request's scratch folder for the host to read.
+//! A release group's front cover from the Cover Art Archive, made the image a candidate gives:
+//! what locallibrary stages for players (a square JPEG, centre-cropped) at the larger size they
+//! show, in the request's scratch folder for the host to read.
 
 use std::path::Path;
 
@@ -21,8 +21,7 @@ const QUALITY: u8 = 90;
 const SMALLEST: u32 = 16;
 
 /// Release group `id`'s front cover as a JPEG of [`SIZE`] in `scratch` (its name there), or what
-/// the plan's warning says instead. Fails when the operation is cancelled, or the JPEG can't be
-/// written.
+/// the warning says instead. Fails when the hook is cancelled, or the JPEG can't be written.
 pub(crate) fn front(host: &Host, scratch: &Path, id: &str) -> Result<Result<String, String>, RpcError> {
     let url = format!("{COVER_ART_ARCHIVE}/release-group/{id}/{THUMBNAIL}");
     let download = scratch.join(format!("{THUMBNAIL}-{id}"));

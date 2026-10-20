@@ -1,4 +1,4 @@
-//! `plugin list`, `plugin info`, `plugin settings` and `plugin roles`.
+//! `plugin list`, `plugin info`, `plugin settings`, `plugin roles` and `plugin providers`.
 
 use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
@@ -16,7 +16,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::jobs_cmd::usage;
 use crate::output::{self, Output, dim, heading, ok};
 use crate::plugins::params::{self, cell};
-use crate::plugins::{Described, Listed, Secrets, Settings};
+use crate::plugins::{Described, Listed, Providers, Secrets, Settings};
 
 /// `name`s of a kind (`command`), in a phrase: `commands echo, titles`.
 fn named(what: &str, names: &[String]) -> Option<String> {
@@ -41,6 +41,7 @@ pub(super) fn list(all: &[Listed]) {
             named("operation", &p.operations),
             named("analyzer", &p.analyzers),
             named("export format", &p.exporters),
+            named("provider", &p.providers),
             named("setting", &p.settings),
         ]
         .into_iter()
@@ -101,6 +102,14 @@ pub(super) fn info(d: &Described) {
         (e.format.clone(), format!("{}, {writes}", e.title))
     });
     section("Export formats (locallibrary export LIBRARY --format FORMAT -o ...):", exporters.collect());
+    let providers = c.providers.iter().map(|p| {
+        let verb = match p.kind {
+            loclib_plugin::ProviderKind::Artwork => "art fetch",
+            loclib_plugin::ProviderKind::Metadata => "track fetch",
+        };
+        (p.name.clone(), format!("{}: {}, for locallibrary {verb}", p.title, p.kind.found()))
+    });
+    section("Providers:", providers.collect());
     let settings =
         c.settings.iter().map(|s| (s.key.clone(), format!("{}: {}", s.title, shown(s, &d.settings, &d.secrets))));
     section(&format!("Settings (locallibrary plugin settings {}):", m.id), settings.collect());
@@ -295,4 +304,47 @@ fn show_roles(all: &[RoleChoice]) {
             None => say!("{}  {}", output::fit(c.role.name(), width), dim("no analyzer works it out")),
         }
     }
+}
+
+/// `plugin providers`: shows the providers and the score a candidate alone scoring it or more is
+/// chosen with, or sets that score, or puts it back to its default.
+pub(super) fn providers(
+    plugins: &Plugins,
+    auto_pick: Option<f64>,
+    reset: bool,
+    store_path: &Option<PathBuf>,
+    out: Output,
+) -> Result<ExitCode> {
+    if auto_pick.is_none() && !reset {
+        let store = crate::diff_cmd::existing_store(store_path)?;
+        out.emit(&Providers::of(plugins, store.as_ref()), show_providers);
+        return Ok(ExitCode::SUCCESS);
+    }
+    let change = match auto_pick {
+        Some(score) => format!("choose a candidate alone scoring {score} or more"),
+        None => format!("choose a candidate alone scoring {} or more, as by default", locallibrary::plugin::AUTO_PICK),
+    };
+    out.one_step(
+        &change,
+        "Change it?",
+        || {
+            let store = crate::open_store(store_path)?;
+            locallibrary::plugin::set_auto_pick(&store, auto_pick)?;
+            Ok(Providers::of(plugins, Some(&store)))
+        },
+        show_providers,
+    )
+}
+
+fn show_providers(p: &Providers) {
+    if p.providers.is_empty() {
+        say!("{}", dim("no plugin has a provider"));
+    }
+    let width = p.providers.iter().map(|x| x.plugin.width() + x.name.width() + 1).max().unwrap_or(0);
+    let kinds = p.providers.iter().map(|x| x.kind.name().len()).max().unwrap_or(0);
+    for x in &p.providers {
+        let name = format!("{}.{}", x.plugin, x.name);
+        say!("{}  {}  {}", output::fit(&name, width), output::fit(x.kind.name(), kinds), dim(&x.title));
+    }
+    say!("{}", dim(format!("a candidate alone scoring {} or more is chosen for you", p.auto_pick)));
 }

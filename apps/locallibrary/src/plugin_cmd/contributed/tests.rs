@@ -20,7 +20,7 @@ fn schema() -> Value {
             "ids": { "type": "array", "items": { "type": "integer" } },
             "file": { "type": "string", "x-path": true },
             "playlist": { "type": "string", "x-cli": { "flag": "from" } },
-            "choices": { "type": "object", "additionalProperties": { "type": "integer" }, "x-cli": { "flag": "choose", "one_based": true } },
+            "choices": { "type": "object", "additionalProperties": { "type": "integer" }, "x-cli": { "flag": "pick" } },
             "names": { "type": "object", "additionalProperties": { "type": "string" } },
             "deep": { "type": "object", "additionalProperties": { "type": "object" } },
         },
@@ -61,9 +61,9 @@ fn flags_give_params_of_their_types() {
             "4",
             "--from",
             "Sets",
-            "--choose",
+            "--pick",
             "1=42",
-            "--choose",
+            "--pick",
             " 3 = #7 ",
             "--names",
             "x=y",
@@ -73,13 +73,20 @@ fn flags_give_params_of_their_types() {
     .unwrap();
     let expected = json!({
         "name": "Fresh", "min_bpm": 120.5, "count": 3, "append": true, "mode": "slow", "level": 2, "tags": ["a", "b"],
-        "ids": [4], "playlist": "Sets", "choices": { "0": 42, "2": 7 }, "names": { "x": "y" },
+        "ids": [4], "playlist": "Sets", "choices": { "1": 42, "3": 7 }, "names": { "x": "y" },
     });
     assert_eq!(p, expected);
     // A required param is asked for by its flag, unless `--params` gives the params.
     let missing = given(&[], false).unwrap_err().to_string();
     assert!(missing.contains("the following required arguments were not provided:\n  --name <NAME>"), "{missing}");
     assert_eq!(given(&["--params", "{}"], false).unwrap(), json!({}));
+}
+
+/// `--choose` answers a question the command asked, over what's given otherwise: JSON, else text.
+#[test]
+fn choose_answers_a_question_over_the_flags() {
+    let p = given(&["--name", "x", "--choose", "name=Peak Time", "--choose", "7=42", "--choose", "8=null"], true);
+    assert_eq!(p.unwrap(), json!({ "name": "Peak Time", "7": 42, "8": null }));
 }
 
 #[test]
@@ -102,9 +109,9 @@ fn values_not_of_their_type_are_refused() {
     let wrong = |args: &[&str]| given(&[&["--name", "x"], args].concat(), false).unwrap_err().to_string();
     assert_eq!(wrong(&["--count", "3.5"]), "--count takes a whole number, not \"3.5\"");
     assert_eq!(wrong(&["--min-bpm", "fast"]), "--min-bpm takes a number, not \"fast\"");
-    assert_eq!(wrong(&["--choose", "1"]), "--choose takes KEY=VALUE, not \"1\"");
-    assert_eq!(wrong(&["--choose", "0=4"]), "--choose's keys count from 1: \"0\" isn't one");
-    assert_eq!(wrong(&["--choose", "1=x"]), "--choose takes a whole number, not \"x\"");
+    assert_eq!(wrong(&["--pick", "1"]), "--pick takes KEY=VALUE, not \"1\"");
+    assert_eq!(wrong(&["--pick", "1=x"]), "--pick takes a whole number, not \"x\"");
+    assert_eq!(wrong(&["--choose", "1"]), "--choose takes PARAM=VALUE, not \"1\"");
     assert!(wrong(&["--mode", "medium"]).contains("invalid value 'medium'"));
     assert!(wrong(&["--level", "3"]).contains("invalid value '3'"));
     assert!(wrong(&["--deep", "a=b"]).contains("unexpected argument '--deep'"));
@@ -229,10 +236,6 @@ fn param(tc: &hegel::TestCase, i: usize, positional: &mut bool) -> Param {
         }
         false => name.replace('_', "-"),
     };
-    let one_based = kind == 6 && tc.draw(gs::booleans());
-    if one_based {
-        schema["x-cli"]["one_based"] = json!(true);
-    }
     let path = matches!(kind, 0 | 4) && tc.draw(gs::weighted_booleans(0.3));
     if path {
         schema["x-path"] = json!(true);
@@ -314,16 +317,7 @@ fn param(tc: &hegel::TestCase, i: usize, positional: &mut bool) -> Param {
             let mut pairs = Map::new();
             let mut raws = Vec::new();
             for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
-                let (key, typed_key) = match one_based {
-                    true => {
-                        let k = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
-                        ((k - 1).to_string(), format!(" {k}"))
-                    }
-                    false => {
-                        let k = tc.draw(gs::from_regex("[a-z]{1,3}"));
-                        (k.clone(), k)
-                    }
-                };
+                let key = tc.draw(gs::from_regex("[a-z]{1,3}"));
                 let (raw, value) = match kind {
                     6 => integer(tc),
                     _ => {
@@ -332,7 +326,7 @@ fn param(tc: &hegel::TestCase, i: usize, positional: &mut bool) -> Param {
                         (raw, value)
                     }
                 };
-                raws.push(format!("{typed_key}={raw}"));
+                raws.push(format!("{key}={raw}"));
                 pairs.insert(key, value);
             }
             (raws, Some(Value::Object(pairs)))
@@ -351,10 +345,9 @@ fn param(tc: &hegel::TestCase, i: usize, positional: &mut bool) -> Param {
         2 | 5 if choices.is_none() && tc.draw(gs::weighted_booleans(0.2)) => {
             Some((format!("{i}.5"), format!("{what} takes a whole number, not \"{i}.5\"")))
         }
-        6 if tc.draw(gs::weighted_booleans(0.2)) => Some(match one_based {
-            true => ("0=1".into(), format!("{what}'s keys count from 1: \"0\" isn't one")),
-            false => (i.to_string(), format!("{what} takes KEY=VALUE, not \"{i}\"")),
-        }),
+        6 if tc.draw(gs::weighted_booleans(0.2)) => {
+            Some((i.to_string(), format!("{what} takes KEY=VALUE, not \"{i}\"")))
+        }
         _ => None,
     };
     let required = kind != 3 && kind != 8 && tc.draw(gs::weighted_booleans(0.3));
@@ -362,8 +355,8 @@ fn param(tc: &hegel::TestCase, i: usize, positional: &mut bool) -> Param {
 }
 
 /// A command's flags, made from any schema of params the command line takes, give its params of
-/// their types: the last of a value given again, each of a list, each `KEY=VALUE` (keys counted
-/// from 1 when the schema says), files made absolute, over what `--params` gives. A required one
+/// their types: the last of a value given again, each of a list, each `KEY=VALUE`, files made
+/// absolute, over what `--params` gives. A required one
 /// left out, or a value its type can't hold, is refused naming its flag.
 #[hegel::test(test_cases = 200)]
 fn flags_drawn_from_a_schema_give_the_params_typed(tc: hegel::TestCase) {

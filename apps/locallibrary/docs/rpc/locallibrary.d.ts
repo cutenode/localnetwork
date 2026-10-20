@@ -2262,6 +2262,85 @@ export type FieldRole =
   /** Equal values are the same recording: a string. */
   | "identity";
 
+/** What to find, and for which tracks. */
+export type Provide = {
+  kind: ProviderKind;
+  /** The library or drive whose tracks to find it for. */
+  drive: string;
+  /** Which tracks [default: every one]. */
+  tracks?: TrackSelector;
+  /** Only this plugin's providers, or this provider: `<plugin>` or `<plugin>.<provider>`. */
+  from?: string | null;
+  /**
+   * Also for tracks with what's found already, to replace it: otherwise only for tracks without
+   * cover art, or without one of the tags a provider finds.
+   */
+  replace?: boolean;
+};
+
+/** What a provider finds for a track. */
+export type ProviderKind =
+  /** Cover art: an image. */
+  | "artwork"
+  /** Tags: a title, an artist, an album... */
+  | "metadata";
+
+/** The edits to make of what was found. */
+export type PlanProvided = {
+  kind: ProviderKind;
+  /** The library or drive whose tracks they're for. */
+  drive: string;
+  /** The candidates chosen, each for its track, as they were found. */
+  picks: Pick[];
+  /**
+   * Also over what the tracks have: otherwise a track with cover art keeps it, and a tag it
+   * has is kept.
+   */
+  replace?: boolean;
+};
+
+/** A candidate chosen for a track. */
+export type Pick = {
+  track: number;
+  candidate: Found;
+};
+
+/** A candidate a provider found for a track. */
+export type Found = {
+  /** Its provider, `<plugin>.<provider>`. */
+  provider: string;
+  /** Where it's from, as the provider says. */
+  source: string;
+  /** What it is, in a line. */
+  label: string;
+  /** How sure the provider is that it's the track's, 0 to 1. */
+  score: number;
+  /** The image, in base64: an artwork provider's. */
+  artwork?: string | null;
+  /** The tags: a metadata provider's, each it has. */
+  metadata?: TrackMetadata | null;
+};
+
+/** The tags a metadata provider has for a track: each it doesn't have left out. */
+export type TrackMetadata = {
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  year?: number | null;
+  genre?: string | null;
+  /** The record label. */
+  label?: string | null;
+  isrc?: string | null;
+};
+
+export type SetAutoPick = {
+  /**
+   * A candidate alone scoring this or more (0 to 1; more than 1: never) is picked for the user;
+   * `null` (or left out) puts it back to its default.
+   */
+  auto_pick?: number | null;
+};
+
 export type ChooseRole = {
   role: FieldRole;
   /**
@@ -7362,13 +7441,14 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations and analyzers by name, its export formats and its
-   * settings' keys.
+   * What it adds: its commands, operations, analyzers and providers by name, its export formats
+   * and its settings' keys.
    */
   commands: string[];
   operations: string[];
   analyzers: string[];
   exporters: string[];
+  providers: string[];
   settings: string[];
   /** It's running now: plugins start when they're first used, and stop once they're idle. */
   running: boolean;
@@ -7431,6 +7511,7 @@ export type Contributions = {
   operations: Operation[];
   analyzers: Analyzer[];
   exporters: Exporter[];
+  providers: Provider[];
   settings: Setting[];
 };
 
@@ -7514,6 +7595,17 @@ export type Exporter = {
   options?: unknown;
 };
 
+/**
+ * Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the
+ * user every provider's, and makes the edits chosen itself. It's given the tracks' tags, which
+ * takes `library:read`, and needs no capability to plan an edit.
+ */
+export type Provider = {
+  name: string;
+  title: string;
+  kind: ProviderKind;
+};
+
 /** A setting the host stores and shows in its settings. */
 export type Setting = {
   key: string;
@@ -7589,7 +7681,14 @@ export type View =
     title?: string | null;
     text: string;
     kind: "text";
-  };
+  }
+  /**
+   * A question for the user (feature `choose`): the host asks it, then runs the command again
+   * with what was chosen (see [`Choice`]). It's never drawn.
+   */
+  | (PluginChoice & {
+    kind: "choose";
+  });
 
 export type ListItem = {
   label: string;
@@ -7600,6 +7699,31 @@ export type Pair = {
   label: string;
   value: unknown;
 };
+
+export type ChoiceItem = {
+  label: string;
+  detail?: string | null;
+  /** What the param is set to when it's chosen (with `multi`, what its list has). */
+  value: unknown;
+};
+
+export type PluginChoice = {
+  /** What's asked, in a line. */
+  title: string;
+  /** The param the value chosen goes in: one of the hook's. */
+  param: string;
+  /** Any of the items may be chosen, none too: the param is set to a list of their values. */
+  multi?: boolean;
+  items: ChoiceItem[];
+};
+
+/**
+ * What planning a plugin's operation comes to: its plan, or a question for the user first, after
+ * which it's planned again with the param set ([`Choice::answered`]).
+ */
+export type OpPlanned = {
+  choose: PluginChoice;
+} | (EditPlan & PlanFields);
 
 /** An export a plugin will write. */
 export type PluginExport = {
@@ -7668,6 +7792,55 @@ export type Analyzed = {
    * failed on them.
    */
   failed: number;
+};
+
+/** What the providers found. */
+export type Provided = {
+  kind: ProviderKind;
+  /** How many tracks they were asked about. */
+  asked: number;
+  /** Each track something was found for, in the library's order. */
+  offers: Offer[];
+  /**
+   * A provider that failed (what the others found is offered), and what each said it found
+   * nothing for.
+   */
+  warnings: string[];
+};
+
+/** What was found for a track. */
+export type Offer = {
+  track: number;
+  /** The track, as it's named (`Artist - Title`). */
+  name: string;
+  /** Best first. */
+  candidates: Found[];
+  /**
+   * The one picked for the user, by its place in `candidates`: the only one scoring the
+   * `providers.auto_pick` setting or more.
+   */
+  picked: number | null;
+};
+
+/**
+ * The providers the plugins have, and when one's candidate is picked for the user, as `plugin
+ * providers` and the sidecar's `plugins.providers` show them.
+ */
+export type Providers = {
+  /** In the order the plugins are. */
+  providers: ListedProvider[];
+  /**
+   * A candidate alone scoring this or more (0 to 1) is picked for the user: the
+   * `providers.auto_pick` setting.
+   */
+  auto_pick: number;
+};
+
+export type ListedProvider = {
+  plugin: string;
+  name: string;
+  title: string;
+  kind: ProviderKind;
 };
 
 /** A role, and the analyzers answering it. */
@@ -8582,7 +8755,7 @@ export interface Methods {
   /** read method; long running: sends `progress`, can be cancelled */
   "plugins.run": { params: RunPluginCommand; result: CommandOutput };
   /** plan method; paired with `plugins.op.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
-  "plugins.op.plan": { params: PlanPluginOp & WriteOptions; result: EditPlan & PlanFields };
+  "plugins.op.plan": { params: PlanPluginOp & WriteOptions; result: OpPlanned };
   /** apply method; paired with `plugins.op.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.op.apply": { params: ApplyPlan | (PlanPluginOp & WriteOptions); result: EditReport };
   /** plan method; paired with `plugins.export.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
@@ -8595,6 +8768,16 @@ export interface Methods {
   "plugins.apply_fields.plan": { params: ApplyFields & WriteOptions; result: EditPlan & PlanFields };
   /** apply method; paired with `plugins.apply_fields.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.apply_fields.apply": { params: ApplyPlan | (ApplyFields & WriteOptions); result: EditReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "plugins.provide": { params: Provide; result: Provided };
+  /** plan method; paired with `plugins.provide.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.provide.plan": { params: PlanProvided & WriteOptions; result: EditPlan & PlanFields };
+  /** apply method; paired with `plugins.provide.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.provide.apply": { params: ApplyPlan | (PlanProvided & WriteOptions); result: EditReport };
+  /** read method */
+  "plugins.providers": { params: NoParams; result: Providers };
+  /** immediate method */
+  "plugins.providers.set": { params: SetAutoPick & WriteOptions; result: Providers };
   /** read method */
   "plugins.roles": { params: NoParams; result: RoleChoice[] };
   /** immediate method */

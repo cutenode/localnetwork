@@ -1,20 +1,24 @@
-//! `plugins.*`: the plugins locallibrary has, their settings, running what they add, which
-//! analyzer each field role is read from, and writing an analyzer's key and BPM to the tracks.
-//! Their plans are kept apart from locallibrary's own (see [`super::super::Plans::plugins`]).
+//! `plugins.*`: the plugins locallibrary has, their settings, running what they add (a command
+//! or an operation may ask a question first), which analyzer each field role is read from,
+//! writing an analyzer's key and BPM to the tracks, and what providers find for tracks. Their
+//! plans are kept apart from locallibrary's own (see [`super::super::Plans::plugins`]).
 
 use std::path::PathBuf;
 
 use locallibrary::edit::EditPlan;
 use locallibrary::fields::{Role, roles};
 use locallibrary::op::Planned;
-use locallibrary::plugin::{Analyzed, ApplyFields, CommandOutput, PluginExport};
+use locallibrary::plugin::{
+    Analyzed, ApplyFields, CommandOutput, OpPlanned, PlanProvided, PluginExport, Provide, Provided, plan_provided,
+    set_auto_pick,
+};
 use loclib_plugin::{Context, ExportSource, Exported};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
 
 use super::{PlanStore, Registry};
-use crate::plugins::{Described, Listed, Secrets, Settings, host, left_out};
+use crate::plugins::{Described, Listed, Providers, Secrets, Settings, host, left_out};
 
 #[derive(Deserialize, JsonSchema)]
 struct PluginRef {
@@ -106,6 +110,14 @@ struct AnalyzeWithPlugin {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct SetAutoPick {
+    /// A candidate alone scoring this or more (0 to 1; more than 1: never) is picked for the user;
+    /// `null` (or left out) puts it back to its default.
+    #[serde(default)]
+    auto_pick: Option<f64>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct ChooseRole {
     role: Role,
     /// The analyzer to read it from, `<plugin>.<analyzer>` (one with the role); `null` (or left
@@ -146,9 +158,11 @@ pub(super) fn register(r: &mut Registry) {
     })
     .long();
     r.plan("plugins.op.plan", op_plan).long().destructive();
-    r.apply("plugins.op.apply", PlanStore::None, |c, req: PlanPluginOp| Ok(op_plan(c, req)?.apply(None, c.ctx)?))
-        .long()
-        .destructive();
+    r.apply("plugins.op.apply", PlanStore::None, |c, req: PlanPluginOp| {
+        Ok(op_plan(c, req)?.plan()?.apply(None, c.ctx)?)
+    })
+    .long()
+    .destructive();
     r.plan("plugins.export.plan", export_plan).long().destructive().writes_to("output");
     r.apply("plugins.export.apply", PlanStore::Existing, |c, req: PlanPluginExport| -> Result<Exported, _> {
         let plan = export_plan(c, req)?;
@@ -170,6 +184,25 @@ pub(super) fn register(r: &mut Registry) {
     })
     .long()
     .destructive();
+    r.read("plugins.provide", |c, req: Provide| -> Result<Provided, _> {
+        Ok(host()?.provide(&req, c.existing()?.as_ref(), c.ctx)?)
+    })
+    .long();
+    // Over what tracks have, with `replace`.
+    r.plan("plugins.provide.plan", provide_plan).long().destructive();
+    r.apply("plugins.provide.apply", PlanStore::None, |c, req: PlanProvided| {
+        Ok(provide_plan(c, req)?.apply(None, c.ctx)?)
+    })
+    .long()
+    .destructive();
+    r.read("plugins.providers", |c, _: locallibrary::api::NoParams| Ok(Providers::of(host()?, c.existing()?.as_ref())))
+        .quick();
+    r.immediate("plugins.providers.set", |c, req: SetAutoPick| {
+        let store = c.store()?;
+        set_auto_pick(&store, req.auto_pick)?;
+        Ok(Providers::of(host()?, Some(&store)))
+    })
+    .keeps_cache();
     r.read("plugins.roles", |c, _: locallibrary::api::NoParams| Ok(roles::choices(c.existing()?.as_ref()))).quick();
     r.immediate("plugins.roles.set", |c, req: ChooseRole| {
         Ok(roles::choose(&c.store()?, req.role, req.analyzer.as_deref())?)
@@ -181,9 +214,14 @@ fn apply_fields_plan(c: &super::Call<'_>, req: ApplyFields) -> Result<Planned<Ed
     Ok(host()?.plan_apply_fields(&req, &c.store()?, c.ctx)?)
 }
 
-fn op_plan(c: &super::Call<'_>, req: PlanPluginOp) -> Result<Planned<EditPlan>, super::RpcError> {
+/// The operation's plan, or the question it asks first.
+fn op_plan(c: &super::Call<'_>, req: PlanPluginOp) -> Result<OpPlanned, super::RpcError> {
     let store = c.existing()?;
     Ok(host()?.plan_op(&req.plugin, &req.operation, req.params, req.context.into(), store.as_ref(), c.ctx)?)
+}
+
+fn provide_plan(c: &super::Call<'_>, req: PlanProvided) -> Result<Planned<EditPlan>, super::RpcError> {
+    Ok(plan_provided(&req, c.ctx)?)
 }
 
 fn export_plan(c: &super::Call<'_>, req: PlanPluginExport) -> Result<Planned<PluginExport>, super::RpcError> {

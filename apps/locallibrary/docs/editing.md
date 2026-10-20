@@ -62,6 +62,7 @@ locallibrary playlist unfiled Home                   # tracks in no playlist, so
 locallibrary playlist import Home spotify.csv --into "From Spotify"
 locallibrary track set Home --filter "bpm:>=128 genre:techno" --rating 5 --colour red
 locallibrary track set Home --track 12 --bpm 126.5 --isrc GBDUW0000059 --release-date 2019-05-01
+locallibrary track fetch Home --playlist "Sets/2026/Friday"  # details missing, found online
 locallibrary track rm Home --filter "is:unfiled plays:0" --dry-run
 locallibrary track dedupe Home                       # replace Sync Manager copies (--hash-audio: identical audio too)
 locallibrary track dedupe Home --by-sound            # ...and a FLAC and an MP3 of one recording
@@ -133,11 +134,12 @@ stays on the drive), and neither is recorded for `edits replay`.
 Soundiiz, Beatport-style exports, Apple Music's text export, and any table with a title or file
 column), rekordbox's playlist text export, rekordbox XML (`--from` picks one of its playlists) and
 plain "Artist - Title" lists. Tracks are matched by file path, then ISRC, then artist, title and
-length (within 2 s), then artist and title alone, then fuzzily; entries that fit several
-tracks are listed instead of guessed (settle them with `--choose ENTRY=TRACK`). It works offline:
-export a streaming playlist to CSV first. The tracklist plugin does it (see [Plugins](plugins.md)):
-`locallibrary tracklist match Home spotify.csv` lists how each entry was found, and every candidate
-of an ambiguous one, without changing anything.
+length (within 2 s), then artist and title alone, then fuzzily; for an entry that fits several
+tracks you're asked which, one entry at a time (`--choose 3=812` answers for entry 3, numbered as
+the warnings number them, `--choose 3=null` leaves it out; without a terminal it stops at the
+first one not answered, saying so), never guessed. It works offline: export a streaming
+playlist to CSV first. The tracklist plugin does it (see [Plugins](plugins.md)): `--dry-run` shows
+how many entries were found, and which weren't, without changing anything.
 
 ### Upgrading to lossless
 
@@ -388,6 +390,7 @@ locallibrary art missing                                             # each libr
 locallibrary art set Home cover.jpg --album "Framed And Defamed"     # or --track 12, --playlist, --query
 locallibrary art set Home ~/Music/track.mp3 --track 12               # use a file's embedded art
 locallibrary art auto                                                # fill gaps from embedded tags / cover.jpg
+locallibrary art fetch Home                                          # ...or the Cover Art Archive
 locallibrary art embed cover.jpg ~/Music/Album/*.mp3                 # for your computer's collection
 locallibrary art unembed                                             # ...and to put those files back
 ```
@@ -406,7 +409,10 @@ up before it's written, and it's recorded with the picture kept on the drive
 (`.locallibrary/artwork/`, the 240×240 JPEG, named by its hash), so `edits replay` sets it again
 after rekordbox exports. `art auto` given
 no drive takes each library plugged in (and each rekordbox drive of none) but archive and retired
-drives: it shows each plan and asks once.
+drives: it shows each plan and asks once. `art fetch` asks the plugins' providers (the coverart
+plugin's: MusicBrainz and the Cover Art Archive) for tracks without artwork (`--replace`: any), and
+asks you which cover when an album could be several; it's an edit like `art set` (see
+[Providers](plugins.md#providers)).
 
 ## Clean
 

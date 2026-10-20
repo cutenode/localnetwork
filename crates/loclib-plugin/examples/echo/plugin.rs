@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Exported, ExportedFile, FieldValue, Hooks, Host, OpPlan, PlanOp, RpcError, RunCommand,
-    TracksQuery, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, Hooks, Host, OpPlan, PlanOp,
+    ProvideCandidates, RpcError, RunCommand, TrackMetadata, TracksQuery, View, WriteExport, params,
 };
 use loclib_progress::{Event, Phase, Steps};
 use serde::Deserialize;
@@ -14,7 +14,7 @@ pub const MANIFEST: &str = include_str!("locallibrary-plugin.toml");
 
 /// Its hooks: one of each kind.
 pub fn hooks() -> Hooks {
-    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op)
+    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide)
 }
 
 #[derive(Deserialize)]
@@ -85,4 +85,23 @@ pub fn plan_op(req: PlanOp, _: &Host) -> Result<OpPlan, RpcError> {
         edits: vec![json!({ "op": "create_playlist", "path": name })],
         inputs: Vec::new(),
     })
+}
+
+/// `provide/candidates`: each track's tags, as they are.
+pub fn provide(req: ProvideCandidates, _: &Host) -> Result<Candidates, RpcError> {
+    let tagged = |t: &str| (!t.is_empty()).then(|| t.to_string());
+    let candidates = req.tracks.into_iter().map(|t| Candidate {
+        track: t.id,
+        score: 1.0,
+        source: "Echo".into(),
+        label: format!("{} - {}", t.artist, t.title),
+        artwork: None,
+        metadata: Some(TrackMetadata {
+            title: tagged(&t.title),
+            artist: tagged(&t.artist),
+            album: tagged(&t.album),
+            ..TrackMetadata::default()
+        }),
+    });
+    Ok(Candidates { candidates: candidates.collect(), warnings: Vec::new() })
 }

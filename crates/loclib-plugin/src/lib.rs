@@ -4,6 +4,7 @@
 #[cfg(test)]
 extern crate self as loclib_plugin;
 
+mod choice;
 mod error;
 mod features;
 pub mod framing;
@@ -14,6 +15,7 @@ mod reads;
 mod sdk;
 mod view;
 
+pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
 /// The types [`DriveReads`] answers with (`Track`, `Library`, `TrackAnalysis`), for a plugin to
@@ -21,7 +23,8 @@ pub use features::{FEATURES, Feature};
 pub use loclib_model;
 pub use manifest::{
     Analyzer, Capability, CliHints, Command, Contributions, Exporter, FieldType, FieldValue, Manifest, ManifestError,
-    Mode, NetLimit, Operation, Role, Selection, Setting, SettingType, Where, check_params, is_path,
+    Mode, NetLimit, Operation, Provider, ProviderKind, Role, Selection, Setting, SettingType, Where, check_params,
+    is_path,
 };
 pub use peer::{Incoming, Peer, Pending, Request};
 pub use protocol::*;

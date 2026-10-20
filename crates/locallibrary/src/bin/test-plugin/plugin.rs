@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Context, Exported, ExportedFile, Fetch, FieldValue, Hooks, Host, ListItem, OpPlan, PlanOp,
-    RpcError, RunCommand, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, Exported, ExportedFile, Fetch, FieldValue, Hooks,
+    Host, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, RpcError, RunCommand, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -60,7 +60,11 @@ impl Test {
             hooks = hooks.on(move |req: WriteExport, host: &Host| test.write_export(req, host));
         }
         if has("operations") {
+            let test = test.clone();
             hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
+        }
+        if has("providers") {
+            hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));
         }
         hooks
     }
@@ -98,6 +102,13 @@ impl Test {
         }
         if p["cwd"] == true {
             return Ok(json!(std::env::current_dir().map_err(|e| RpcError::failed("io", e.to_string()))?));
+        }
+        if let Some(choice) = asked(p) {
+            return Ok(serde_json::to_value(View::Choose(choice)).expect("a view is JSON"));
+        }
+        if let Some(param) = p["ask"]["param"].as_str() {
+            let text = p[param].to_string();
+            return Ok(serde_json::to_value(View::Text { title: None, text }).expect("a view is JSON"));
         }
         if let Some(method) = p["call"].as_str() {
             return Ok(match host.call::<_, Value>(method, &p["params"]) {
@@ -186,16 +197,53 @@ impl Test {
         Ok(exported)
     }
 
-    fn plan_op(&self, req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
+    fn plan_op(&self, req: PlanOp, host: &Host) -> Result<OpAnswer, RpcError> {
+        if let Some(choice) = asked(&req.params) {
+            return Ok(choice.into());
+        }
         write_blobs(&req.context, &req.params)?;
         if let Some(edits) = req.params["edits"].as_array() {
             let inputs = req.params["inputs"].as_array().into_iter().flatten().filter_map(Value::as_str);
             let inputs = inputs.map(std::path::PathBuf::from).collect();
             let (summary, warnings) = ("as given".into(), vec!["given".into()]);
-            return Ok(OpPlan { summary, warnings, edits: edits.clone(), inputs });
+            return Ok(OpPlan { summary, warnings, edits: edits.clone(), inputs }.into());
         }
-        echo::plan_op(req, host)
+        echo::plan_op(req, host).map(OpAnswer::from)
     }
+
+    /// Echo's provider (`tags`), or any other answering as its `answer` setting says (JSON):
+    /// failing with the error `fail` is, else its `candidates`, with one for each track asked of
+    /// each of `each` (a candidate without its track), and `warnings`, once the files `blobs`
+    /// gives (by name, their bytes) are in the scratch folder.
+    fn provide(&self, req: ProvideCandidates, host: &Host) -> Result<Candidates, RpcError> {
+        if req.provider == "tags" {
+            return echo::provide(req, host);
+        }
+        let answer: Value = req.context.settings.get("answer").and_then(Value::as_str).map_or(Ok(json!({})), |a| {
+            serde_json::from_str(a).map_err(|e| RpcError::failed("invalid", e.to_string()))
+        })?;
+        if let Some(kind) = answer["fail"].as_str() {
+            return Err(RpcError::failed(kind, "it failed"));
+        }
+        write_blobs(&req.context, &answer)?;
+        let mut candidates: Vec<Candidate> = params(answer.get("candidates").cloned().unwrap_or(json!([])))?;
+        for each in answer["each"].as_array().into_iter().flatten() {
+            for t in &req.tracks {
+                let mut c = each.clone();
+                c["track"] = t.id.into();
+                candidates.push(params(c)?);
+            }
+        }
+        let warnings = params(answer.get("warnings").cloned().unwrap_or(json!([])))?;
+        Ok(Candidates { candidates, warnings })
+    }
+}
+
+/// The question `p["ask"]` asks, while `p` doesn't answer it (has no value of its param), or
+/// with `ask_again` whatever it has.
+fn asked(p: &Value) -> Option<Choice> {
+    let choice: Choice = serde_json::from_value(p.get("ask")?.clone()).ok()?;
+    (p.get(&choice.param).is_none() || p["ask_again"] == true).then_some(choice)
 }
 
 /// Writes the files `p["blobs"]` gives (by name, their bytes) into the request's scratch folder,

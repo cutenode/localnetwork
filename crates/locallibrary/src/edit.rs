@@ -422,7 +422,7 @@ impl TrackFields {
 }
 
 /// `GBDUW0000059`: a country code, a registrant code of letters or digits, a year and a number.
-fn is_isrc(s: &str) -> bool {
+pub(crate) fn is_isrc(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() == 12
         && b[..2].iter().all(u8::is_ascii_uppercase)

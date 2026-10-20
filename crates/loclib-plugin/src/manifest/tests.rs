@@ -109,7 +109,7 @@ fn a_propertys_cli_hints_are_checked() {
         ("{ flag = \"--from\" }", "its flag \"--from\" isn't a name: "),
         ("{ positional = \"yes\" }", "invalid type: string \"yes\", expected a boolean"),
         ("{ path = true }", "unknown field `path`"),
-        ("{ one_based = true }", "only an object's keys are one_based"),
+        ("{ one_based = true }", "unknown field `one_based`"),
         ("5", "invalid type: integer `5`"),
     ] {
         let e = hinted(hints);
@@ -181,9 +181,9 @@ fn paths_are_strings_and_absolute() {
 
 #[test]
 fn cli_hints_are_read_from_a_property() {
-    let property = json!({ "type": "object", "x-cli": { "flag": "choose", "one_based": true } });
+    let property = json!({ "type": "string", "x-cli": { "flag": "from", "positional": true } });
     let hints = CliHints::of(&property).unwrap();
-    assert_eq!(hints, CliHints { flag: Some("choose".into()), one_based: true, positional: false });
+    assert_eq!(hints, CliHints { flag: Some("from".into()), positional: true });
     assert!(is_path(&json!({ "type": "string", "x-path": true })));
     assert!(!is_path(&json!({ "type": "string" })));
     assert_eq!(CliHints::of(&json!({ "type": "string" })).unwrap(), CliHints::default());
@@ -325,6 +325,22 @@ fn field_types_accept_their_values() {
         let value_accepted = serde_json::from_value(value.clone()).is_ok_and(|v: FieldValue| kind.accepts(&v));
         assert_eq!(value_accepted, accepted, "{kind:?} {value}");
     }
+}
+
+/// A provider is given tracks' tags: it's granted reading them, whatever it finds.
+#[test]
+fn a_provider_is_granted_reading_tracks() {
+    let provider = |grants: &str, kind: &str| {
+        problem(&format!(
+            "capabilities = [{grants}]\n[[contributes.providers]]\nname = \"p\"\ntitle = \"P\"\nkind = \"{kind}\"\n"
+        ))
+    };
+    assert_eq!(provider("\"library:read\", \"net:a.org\"", "artwork"), "");
+    assert_eq!(provider("\"library:read\"", "metadata"), "");
+    let said = "contributes.providers[0]: is given tracks' tags, which needs the library:read capability";
+    assert_eq!(provider("\"artwork:read\"", "artwork"), said);
+    assert_eq!(provider("", "metadata"), said);
+    assert!(provider("", "lyrics").contains("unknown variant `lyrics`"));
 }
 
 #[test]
@@ -730,11 +746,7 @@ fn params(tc: &TestCase) -> Vec<Param> {
         let x_path = if kind.stringy() { tc.draw(gs::optional(gs::booleans())) } else { None };
         let here = kind == Kind::String && !positional && tc.draw(gs::booleans());
         positional |= here;
-        let hints = CliHints {
-            flag: tc.draw(gs::optional(gs::from_regex(DRAWN_NAME))),
-            one_based: kind == Kind::Object && tc.draw(gs::booleans()),
-            positional: here,
-        };
+        let hints = CliHints { flag: tc.draw(gs::optional(gs::from_regex(DRAWN_NAME))), positional: here };
         params.push(Param { name, kind, required: tc.draw(gs::booleans()), x_path, hints });
     }
     params
@@ -752,10 +764,8 @@ fn schema(params: &[Param]) -> Value {
         if let Some(flag) = &p.hints.flag {
             hints.insert("flag".into(), flag.as_str().into());
         }
-        for (hint, set) in [("one_based", p.hints.one_based), ("positional", p.hints.positional)] {
-            if set {
-                hints.insert(hint.into(), true.into());
-            }
+        if p.hints.positional {
+            hints.insert("positional".into(), true.into());
         }
         if !hints.is_empty() {
             property["x-cli"] = hints.into();
@@ -896,6 +906,15 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         .collect();
     let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
     let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
+    let kinds = vec![ProviderKind::Artwork, ProviderKind::Metadata];
+    let providers: Vec<Provider> = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| Provider { name, title: title(tc), kind: tc.draw(gs::sampled_from(kinds.clone())) })
+        .collect();
+    // Granted reading what they're given.
+    if !providers.is_empty() && !capabilities.contains(&Capability::LibraryRead) {
+        capabilities.push(Capability::LibraryRead);
+    }
     let hosts: Vec<String> =
         tc.draw(gs::vecs(gs::from_regex(r"(\*\.)?[A-Za-z0-9.-]{1,16}").fullmatch(true)).max_size(2).unique(true));
     let limited = tc.draw(gs::subsequences(hosts.clone()));
@@ -916,7 +935,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         version: format!("{major}.{minor}.{patch}{pre}"),
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
-        contributes: Contributions { commands, operations, analyzers, exporters, settings },
+        contributes: Contributions { commands, operations, analyzers, exporters, providers, settings },
         net,
         unknown: Vec::new(),
     }
@@ -980,7 +999,7 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 5] = ["commands", "operations", "analyzers", "exporters", "settings"];
+const CONTRIBUTIONS: [&str; 6] = ["commands", "operations", "analyzers", "exporters", "providers", "settings"];
 
 /// What names a contribution of `kind`.
 fn name_key(kind: &str) -> &'static str {
@@ -997,6 +1016,7 @@ fn len(c: &Contributions, kind: &str) -> usize {
         "operations" => c.operations.len(),
         "analyzers" => c.analyzers.len(),
         "exporters" => c.exporters.len(),
+        "providers" => c.providers.len(),
         _ => c.settings.len(),
     }
 }
@@ -1022,6 +1042,8 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
             "exporters" => {
                 c.exporters.push(Exporter { format: name, title, extension: None, folder: true, options: None });
             }
+            // Granted library:read by the caller.
+            "providers" => c.providers.push(Provider { name, title, kind: ProviderKind::Metadata }),
             _ => c.settings.push(Setting {
                 key: name,
                 title,
@@ -1040,6 +1062,7 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
         "operations" => c.operations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "analyzers" => c.analyzers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "exporters" => c.exporters.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
+        "providers" => c.providers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         _ => c.settings.iter_mut().map(|x| (&mut x.key, &mut x.title)).collect(),
     }
 }
@@ -1051,6 +1074,7 @@ fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
         "operations" => c.operations.push(Operation { cli: None, ..c.operations[i].clone() }),
         "analyzers" => c.analyzers.push(c.analyzers[i].clone()),
         "exporters" => c.exporters.push(c.exporters[i].clone()),
+        "providers" => c.providers.push(c.providers[i].clone()),
         _ => c.settings.push(c.settings[i].clone()),
     }
 }
@@ -1107,6 +1131,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "net host",
         "net twice",
         "net rate",
+        "provider grant",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let c = &mut m.contributes;
@@ -1198,6 +1223,9 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "contribution name" | "contribution twice" | "title" => {
             let kind = tc.draw(gs::sampled_from(CONTRIBUTIONS.to_vec()));
             add(c, kind, 1);
+            if kind == "providers" && !m.capabilities.contains(&Capability::LibraryRead) {
+                m.capabilities.push(Capability::LibraryRead);
+            }
             let i = index(&tc, len(c, kind));
             let key = name_key(kind);
             match mistake {
@@ -1277,18 +1305,11 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                             property["x-cli"] = json!({ "positional": true });
                             (property, "only a string is positional".into())
                         }
-                        2 => {
-                            let kind = tc.draw(gs::sampled_from(vec![
-                                Kind::String,
-                                Kind::Strings,
-                                Kind::Integer,
-                                Kind::Number,
-                                Kind::Boolean,
-                            ]));
-                            let mut property = kind.schema();
-                            property["x-cli"] = json!({ "one_based": true });
-                            (property, "only an object's keys are one_based".into())
-                        }
+                        // A hint the command line no longer takes.
+                        2 => (
+                            json!({ "type": "object", "x-cli": { "one_based": true } }),
+                            "unknown field `one_based`".into(),
+                        ),
                         3 => (json!({ "type": "string", "x-cli": { "short": "s" } }), "unknown field `short`".into()),
                         _ => (json!({ "type": "string", "x-cli": 5 }), "invalid type: integer `5`".into()),
                     };
@@ -1421,6 +1442,11 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     (format!("net[{i}].per_second: is how many requests a second, at least 1/3600"), false)
                 }
             }
+        }
+        "provider grant" => {
+            add(c, "providers", 1);
+            m.capabilities.retain(|g| *g != Capability::LibraryRead);
+            ("contributes.providers[0]: is given tracks' tags, which needs the library:read capability".into(), false)
         }
         _ => {
             add(c, "settings", 1);

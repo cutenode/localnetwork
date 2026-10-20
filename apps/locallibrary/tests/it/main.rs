@@ -59,6 +59,8 @@ mod props_rpc_flows;
 mod publish;
 mod reports;
 mod rpc;
+#[cfg(debug_assertions)]
+mod rpc_plugins;
 mod sets;
 mod support;
 mod tags;

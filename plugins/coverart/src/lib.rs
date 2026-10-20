@@ -1,10 +1,10 @@
-//! The coverart plugin: cover art found online for tracks on a drive that have none (or, asked to,
-//! for any). Each album is looked up once on MusicBrainz (see `musicbrainz`) and its front cover
-//! downloaded from the Cover Art Archive (see `covers`); the plan sets it on the album's tracks
-//! with `set_artwork` edits, which locallibrary plans, confirms, journals and applies. The host
-//! makes its requests (`net/fetch`), a second apart for MusicBrainz as the manifest asks, and the
-//! covers go to it as files in the request's scratch folder, which it removes once it has read
-//! them: nothing downloaded is kept, as it's cheap to fetch again.
+//! The coverart plugin: cover art found online for the tracks locallibrary asks about (an artwork
+//! provider). Each album is looked up once on MusicBrainz (see `musicbrainz`) and the front cover
+//! of each release group it could be downloaded from the Cover Art Archive (see `covers`), a
+//! candidate for each of the album's tracks, which locallibrary offers, sets once chosen, and
+//! journals. The host makes its requests (`net/fetch`), a second apart for MusicBrainz as the
+//! manifest asks, and the covers go to it as files in the request's scratch folder, which it
+//! removes once it has read them: nothing downloaded is kept, as it's cheap to fetch again.
 
 mod covers;
 mod musicbrainz;
@@ -14,14 +14,11 @@ use std::io::{Read, Write};
 use std::path::Path;
 
 use indexmap::IndexMap;
-use indexmap::map::Entry;
-use loclib_model::model::{Track, normalize};
-use loclib_plugin::{Hooks, Host, OpPlan, PlanOp, RpcError, TracksById, TracksQuery, params};
+use loclib_model::model::normalize;
+use loclib_plugin::{Blob, Candidate, Candidates, Hooks, Host, ProvideCandidates, RpcError, TrackTags};
 use loclib_progress::{Ctx, Event, Phase};
-use serde::Deserialize;
-use serde_json::json;
 
-use musicbrainz::Found;
+use musicbrainz::{Found, ReleaseGroup};
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
@@ -29,19 +26,21 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    loclib_plugin::serve(MANIFEST, Hooks::new().on(plan_op), input, output);
+    loclib_plugin::serve(MANIFEST, Hooks::new().on(provide), input, output);
 }
 
-/// The `fetch` operation's params.
-#[derive(Default, Deserialize)]
-struct Fetch {
-    #[serde(default)]
-    tracks: Vec<u32>,
-    #[serde(default)]
-    playlist: Option<String>,
-    #[serde(default)]
-    replace: bool,
-}
+/// Where the covers are from, as candidates say.
+const SOURCE: &str = "Cover Art Archive";
+
+/// A cover of the one release group an album's ISRC is on: an ISRC names the recording, so it's
+/// surer than a name, which another album can have too.
+const BY_ISRC: f64 = 0.95;
+/// A cover of the one release group named as the album is.
+const BY_NAME: f64 = 0.9;
+/// A cover of one of several release groups named as the album is: the user says which.
+const ONE_OF_SEVERAL: f64 = 0.5;
+/// The most release groups an album's covers are offered from: each is a download.
+const MAX_GROUPS: usize = 5;
 
 /// Tracks looked up together: an album's, or a track without one, by its title (a single).
 pub(crate) struct Album {
@@ -51,8 +50,8 @@ pub(crate) struct Album {
     pub(crate) name: String,
     /// The first of its tracks' ISRCs.
     pub(crate) isrc: Option<String>,
-    /// Its tracks' audio files.
-    paths: Vec<String>,
+    /// Its tracks' ids.
+    tracks: Vec<u32>,
 }
 
 impl fmt::Display for Album {
@@ -64,114 +63,90 @@ impl fmt::Display for Album {
     }
 }
 
-/// `fetch`: a `set_artwork` edit for each album whose cover was found, giving it to the album's
-/// tracks that lack artwork (all of them, with `replace`). Which tracks: `tracks`, else
-/// `playlist`, else the ones selected, else the playlist open, else the whole drive.
-fn plan_op(req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
-    let Fetch { tracks, playlist, replace } = params::<Option<Fetch>>(req.params)?.unwrap_or_default();
-    let context = req.context;
-    let drive = context.drive.as_deref().ok_or_else(|| RpcError::invalid_params("say which drive"))?;
-    let scratch = context.scratch.as_deref().ok_or_else(|| {
+/// `provide/candidates`: for each album of the tracks asked about, a candidate for each of its
+/// tracks of each release group's cover found (of at most [`MAX_GROUPS`]), and a warning for each
+/// album with none.
+fn provide(req: ProvideCandidates, host: &Host) -> Result<Candidates, RpcError> {
+    let scratch = req.context.scratch.as_deref().ok_or_else(|| {
         RpcError::invalid_params("the host gives the plugin no scratch folder for the covers (the blobs feature)")
     })?;
-    // What the params name wins over what's selected: a form fills `tracks` in with the
-    // selection, so a playlist typed in with `tracks` emptied is what's wanted.
-    let (ids, playlist) = match tracks.is_empty() && playlist.is_none() {
-        true => (context.tracks.clone(), context.playlist.clone()),
-        false => (tracks, playlist),
-    };
     let mut warnings = Vec::new();
-    let chosen = chosen(host, drive, &ids, playlist.as_deref(), &mut warnings)?;
-    // Tracks without artwork, as locallibrary's `art auto` picks them. It also takes tracks
-    // whose image file is gone from the drive, which a plugin can't see.
-    let albums = albums(chosen.into_iter().filter(|t| replace || t.artwork_path.is_none()), &mut warnings);
-
+    let albums = albums(&req.tracks, &mut warnings);
     let ctx = host.ctx();
     ctx.phase_start(Phase::Scan, albums.len() as u64, 0);
-    let covers = covers(host, scratch, &albums, &ctx, &mut warnings)?;
+    let candidates = candidates(host, scratch, &albums, &ctx, &mut warnings)?;
     ctx.phase_end(Phase::Scan);
-
-    let tracks: usize = covers.iter().map(|(_, paths)| paths.len()).sum();
-    let summary = match (covers.len(), albums.len()) {
-        (_, 0) => "no track chosen needs cover art".to_string(),
-        (0, n) => format!("found no cover art for the {n} album(s) looked up"),
-        (found, _) => format!("set cover art from the Cover Art Archive on {tracks} track(s) of {found} album(s)"),
-    };
-    let edits = covers
-        .into_iter()
-        .map(|(blob, paths)| json!({ "op": "set_artwork", "tracks": { "paths": paths }, "image": { "blob": blob } }));
-    Ok(OpPlan { summary, warnings, edits: edits.collect(), inputs: Vec::new() })
+    Ok(Candidates { candidates, warnings })
 }
 
-/// The covers of `albums` found, each a file in `scratch` (by its name there) with the tracks it
-/// goes on: one for each release group, downloaded once. Why an album has none is a warning.
-fn covers(
+/// The candidates for `albums`' tracks, each cover a file in `scratch` downloaded once for each
+/// release group. Why an album has none, or a release group's cover can't be had, is a warning.
+fn candidates(
     host: &Host,
     scratch: &Path,
     albums: &[Album],
     ctx: &Ctx<'_>,
     warnings: &mut Vec<String>,
-) -> Result<Vec<(String, Vec<String>)>, RpcError> {
-    let mut covers: IndexMap<String, Result<(String, Vec<String>), String>> = IndexMap::new();
-    // Each album's requests notice the operation being cancelled.
+) -> Result<Vec<Candidate>, RpcError> {
+    // Each release group's cover, by its id: its file, or why there's none.
+    let mut covers: IndexMap<String, Result<String, String>> = IndexMap::new();
+    let mut found = Vec::new();
+    // Each album's requests notice the hook being cancelled.
     for album in albums {
         ctx.emit(Event::Item { phase: Phase::Scan, path: album.to_string(), bytes: 0 });
-        let group = match musicbrainz::release_group(host, album)? {
-            Found::One(group) => group,
-            Found::None => {
+        let (groups, by_isrc) = match musicbrainz::release_group(host, album)? {
+            Found::Groups { groups, .. } if groups.is_empty() => {
                 warnings.push(format!("{album}: not on MusicBrainz"));
                 continue;
             }
-            Found::Several(groups) => {
-                let named = groups.iter().map(|g| {
-                    let kind = g.primary_type.as_deref().unwrap_or("release");
-                    format!("{} {kind} {}/release-group/{}", g.title, musicbrainz::MUSICBRAINZ, g.id)
-                });
-                let named = named.collect::<Vec<_>>().join(", ");
-                warnings.push(format!("{album}: left out, as MusicBrainz has several of that name: {named}"));
-                continue;
-            }
+            Found::Groups { groups, by_isrc } => (groups, by_isrc),
             Found::Refused(status) => {
                 warnings.push(format!("{album}: left out, as MusicBrainz answered {status}"));
                 continue;
             }
         };
-        let cover = match covers.entry(group.id) {
-            Entry::Occupied(had) => had.into_mut(),
-            Entry::Vacant(new) => {
-                let front = covers::front(host, scratch, new.key())?;
-                new.insert(front.map(|blob| (blob, Vec::new())))
-            }
+        let score = match (groups.len(), by_isrc) {
+            (1, true) => BY_ISRC,
+            (1, false) => BY_NAME,
+            _ => ONE_OF_SEVERAL,
         };
-        match cover {
-            Ok((_, paths)) => paths.extend(album.paths.iter().cloned()),
-            Err(why) => warnings.push(format!("{album}: {why}")),
+        let several = groups.len() > 1;
+        for group in groups.into_iter().take(MAX_GROUPS) {
+            let label = label(&group);
+            let cover = match covers.get(&group.id) {
+                Some(cover) => cover.clone(),
+                None => {
+                    let cover = covers::front(host, scratch, &group.id)?;
+                    covers.insert(group.id, cover.clone());
+                    cover
+                }
+            };
+            match cover {
+                Ok(blob) => found.extend(album.tracks.iter().map(|&track| Candidate {
+                    track,
+                    score,
+                    source: SOURCE.into(),
+                    label: label.clone(),
+                    artwork: Some(Blob { blob: blob.clone() }),
+                    metadata: None,
+                })),
+                Err(why) if several => warnings.push(format!("{album}, {label}: {why}")),
+                Err(why) => warnings.push(format!("{album}: {why}")),
+            }
         }
     }
-    Ok(covers.into_values().flatten().collect())
+    Ok(found)
 }
 
-/// The drive's tracks the user chose: `ids`, else `playlist`'s, else every one. Ids the drive
-/// doesn't have are warned about. Not `combined`: an edit can't name a track only OneLibrary has.
-fn chosen(
-    host: &Host,
-    drive: &str,
-    ids: &[u32],
-    playlist: Option<&str>,
-    warnings: &mut Vec<String>,
-) -> Result<Vec<Track>, RpcError> {
-    let drive = host.drive(drive);
-    if ids.is_empty() {
-        return drive.query(&TracksQuery { playlist: playlist.map(String::from), ..TracksQuery::default() });
-    }
-    let TracksById { tracks, missing } = drive.tracks(ids)?;
-    warnings.extend(missing.iter().map(|id| format!("track #{id} isn't on the drive")));
-    Ok(tracks)
+/// What a release group's cover is shown as: its title and its kind (`Discovery, album`).
+fn label(group: &ReleaseGroup) -> String {
+    let kind = group.primary_type.as_deref().unwrap_or("release").to_lowercase();
+    format!("{}, {kind}", group.title)
 }
 
 /// `tracks` by album (by artist and name, ignoring letter case and spacing), in the order they
 /// come. A track with neither album nor title is warned about.
-fn albums(tracks: impl Iterator<Item = Track>, warnings: &mut Vec<String>) -> Vec<Album> {
+fn albums(tracks: &[TrackTags], warnings: &mut Vec<String>) -> Vec<Album> {
     let mut albums: IndexMap<(String, String), Album> = IndexMap::new();
     for t in tracks {
         let (artist, name) = (first([&t.album_artist, &t.artist]), first([&t.album, &t.title]));
@@ -183,10 +158,10 @@ fn albums(tracks: impl Iterator<Item = Track>, warnings: &mut Vec<String>) -> Ve
             artist: artist.into(),
             name: name.into(),
             isrc: None,
-            paths: Vec::new(),
+            tracks: Vec::new(),
         });
         album.isrc = album.isrc.take().or_else(|| isrc(&t.isrc));
-        album.paths.push(t.file_path);
+        album.tracks.push(t.id);
     }
     albums.into_values().collect()
 }

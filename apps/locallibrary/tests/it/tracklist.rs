@@ -1,12 +1,11 @@
 //! The tracklist plugin locallibrary ships, on real drives: `playlist import` through the plugin
-//! host, and `tracklist match`. These were the library's tests of its own import, before the
-//! plugin took it over.
+//! host, asking about an entry that could be several tracks (`--choose N=ID` answering). These
+//! were the library's tests of its own import, before the plugin took it over.
 
 use std::path::Path;
 
 use locallibrary::Library;
 use locallibrary::onelibrary::OneLibrary;
-use serde_json::Value;
 
 use crate::support::{Env, PDB, path};
 
@@ -41,18 +40,20 @@ fn a_spotify_csv_makes_a_playlist_in_both_databases() {
     );
     let file = env.outside("spotify.csv");
     std::fs::write(&file, csv).unwrap();
-    let matched = env.json(&["tracklist", "match", d, path(&file)]);
-    assert_eq!((&matched["summary"]["found"], &matched["summary"]["missing"]), (&2.into(), &1.into()), "{matched}");
-    env.ok(&["--yes", "playlist", "import", d, path(&file), "--into", "From Spotify"]);
+    let import = ["playlist", "import", d, path(&file), "--into", "From Spotify"];
+    let planned = env.json(&[&import[..], &["--dry-run"]].concat());
+    let summary = planned["plan"]["summary"][0].as_str().unwrap();
+    assert!(summary.ends_with(": 3 entr(ies) as Csv: 2 found, 0 ambiguous, 1 missing"), "{planned}");
+    env.ok(&[&["--yes"], &import[..]].concat());
     let plus = OneLibrary::open_root(&root).unwrap().library().unwrap();
     for l in [pdb_library(&root), plus] {
         assert_eq!(files(&l, "From Spotify"), [a.file_path.clone(), b.file_path.clone()]);
     }
 }
 
-/// A list that played a track twice keeps both, an entry whose length is off waits for a choice
-/// (and is reported `chosen` once made), and `--into` fills exactly its path, never a playlist of
-/// that name in a folder.
+/// A list that played a track twice keeps both, an entry whose length is off is asked about (and
+/// counts as found once chosen, left out with `null`), and `--into` fills exactly its path, never
+/// a playlist of that name in a folder.
 #[test]
 fn an_import_keeps_repeats_and_fills_exactly_its_path() {
     let env = Env::new();
@@ -71,17 +72,16 @@ fn an_import_keeps_repeats_and_fills_exactly_its_path() {
     let file = env.outside("set.m3u8");
     std::fs::write(&file, m3u).unwrap();
     let choose = format!("4={}", b.id);
-    let entry = |choices: &[&str]| -> Value {
-        env.json(&[&["tracklist", "match", d, path(&file)], choices].concat())["entries"][3].clone()
-    };
-    let off = entry(&[]);
-    assert_eq!((&off["status"], &off["candidates"]), (&"ambiguous".into(), &serde_json::json!([b.id])), "{off}");
-    let chosen = entry(&["--choose", &choose]);
-    assert_eq!(
-        (&chosen["status"], &chosen["track_id"], &chosen["how"]),
-        (&"found".into(), &b.id.into(), &"chosen".into())
-    );
     let import = ["--yes", "playlist", "import", d, path(&file), "--into", "Friday"];
+    // Without a terminal, the question is how to answer it.
+    let asked = env.fails(2, &import);
+    assert!(asked.contains("answer with --choose 4=VALUE, VALUE one of:"), "{asked}");
+    let candidate = format!("  {:<4}  #{} {}", b.id, b.id, b.display_name());
+    for item in [candidate.as_str(), "  null  leave it out"] {
+        assert!(asked.contains(item), "{item}: {asked}");
+    }
+    let planned = env.json(&[&import[1..], &["--choose", &choose, "--dry-run"]].concat());
+    assert!(planned["plan"]["summary"][0].as_str().unwrap().ends_with("4 found, 0 ambiguous, 0 missing"), "{planned}");
     env.ok(&[&import[..], &["--choose", &choose]].concat());
     let (fa, fb) = (a.file_path.as_str(), b.file_path.as_str());
     let lib = pdb_library(&root);
@@ -89,7 +89,8 @@ fn an_import_keeps_repeats_and_fills_exactly_its_path() {
     let top = lib.children(None).into_iter().find(|p| p.name == "Friday").unwrap();
     assert_eq!(lib.playlist_path(top.id), "Friday");
     assert_eq!(files(&lib, "Friday"), [fa, fb, fa, fb]);
-    env.ok(&[&import[..], &["--append"]].concat());
+    let out = env.ok(&[&import[..], &["--append", "--choose", "4=null"]].concat());
+    assert!(out.contains(": left out"), "{out}");
     assert_eq!(files(&pdb_library(&root), "Friday"), [fa, fb, fa, fb, fa, fb, fa]);
 }
 
@@ -143,6 +144,6 @@ fn a_bad_choice_is_refused() {
     assert!(err.contains("not found: track #999"), "{err}");
     let first = pdb_library(&root).tracks[0].id;
     let err = env.fails(1, &[&import[..], &[format!("6={first}").as_str()]].concat());
-    assert!(err.contains("no entry 5 in the list"), "{err}");
+    assert!(err.contains("no entry 6 in the list"), "{err}");
     assert!(pdb_library(&root).find_playlist("Set").is_none(), "nothing was made");
 }

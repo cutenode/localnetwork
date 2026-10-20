@@ -1,7 +1,7 @@
-//! Properties of `playlist import` and `tracklist match`, the tracklist plugin's, on the
-//! twelve-track drive: what's found is what loclib-tracklist finds in the drive's library, the
-//! playlist then holds it, and choices that name nothing are refused. These were the library's
-//! properties of its own import, before the plugin took it over.
+//! Properties of `playlist import`, the tracklist plugin's, on the twelve-track drive: what's found
+//! is what loclib-tracklist finds in the drive's library, with what's chosen (`--choose N=ID`) for
+//! an entry that could be several, the playlist then holds it, and choices that name nothing are
+//! refused. These were the library's properties of its own import, before the plugin took it over.
 
 use std::path::Path;
 
@@ -9,7 +9,7 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::Library;
 use locallibrary::device::Device;
-use locallibrary::import;
+use locallibrary::import::{self, Status};
 use locallibrary::progress::Ctx;
 use locallibrary::xml::{self, XmlOptions};
 use serde_json::{Value, json};
@@ -20,12 +20,6 @@ fn library(root: &Path) -> Library {
     Device::open(root).unwrap().library().unwrap()
 }
 
-/// The track ids of the entries found, in the list's order.
-fn found(report: &Value) -> Vec<u32> {
-    let entries = report["entries"].as_array().unwrap();
-    entries.iter().filter_map(|e| e["track_id"].as_u64()).map(|id| id as u32).collect()
-}
-
 /// The error kind `--json` gives for `args`, which must fail.
 fn refused(env: &Env, args: &[&str]) -> Value {
     let r = env.run(&[&["--json"], args].concat());
@@ -33,10 +27,11 @@ fn refused(env: &Env, args: &[&str]) -> Value {
     serde_json::from_str::<Value>(&r.out).unwrap()["error"]["kind"].clone()
 }
 
-/// A list drawn from the drive's tracks and two it doesn't have: `tracklist match` finds what
-/// loclib-tracklist finds in the drive's library, and `playlist import` fills the playlist with
-/// the tracks found, in the list's order (after its entries, appending), or changes nothing when
-/// none is. A choice for an entry the list doesn't have, or of a track the drive lacks, is refused.
+/// A list drawn from the drive's tracks and two it doesn't have, each entry that could be several
+/// tracks answered with any of them or none (`--choose N=ID`, `N=null`): `playlist import` fills
+/// the playlist with the tracks loclib-tracklist finds in the drive's library and those chosen, in
+/// the list's order (after its entries, appending), or changes nothing when there are none. A
+/// choice for an entry the list doesn't have, or of a track the drive lacks, is refused.
 #[hegel::test(test_cases = 2, suppress_health_check = [HealthCheck::TooSlow])]
 fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
     let env = Env::new();
@@ -54,16 +49,31 @@ fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
     ]));
     let append = tc.draw(gs::booleans());
 
-    let report = env.json(&["tracklist", "match", d, path(&file)]);
     let entries = import::parse(lines.join("\n").as_bytes(), Some("set.txt")).unwrap();
-    assert_eq!(report["entries"], serde_json::to_value(import::match_entries(&lib, &entries)).unwrap());
-    let found = found(&report);
+    let matched = import::match_entries(&lib, &entries);
+    let (mut found, mut answers) = (Vec::new(), Vec::new());
+    for (i, m) in matched.iter().enumerate() {
+        match &m.status {
+            Status::Found { track_id, .. } => found.push(*track_id),
+            Status::Ambiguous { candidates } => {
+                let chosen = match candidates.is_empty() {
+                    true => None,
+                    false => tc.draw(gs::optional(gs::sampled_from(candidates.clone()))),
+                };
+                found.extend(chosen);
+                let value = chosen.map_or("null".to_string(), |id| id.to_string());
+                answers.extend(["--choose".to_string(), format!("{}={value}", i + 1)]);
+            }
+            Status::Missing => {}
+        }
+    }
     let existing: Vec<u32> =
         lib.find_playlist(&into).filter(|_| append).map(|p| p.track_ids.clone()).unwrap_or_default();
     let mut import = vec!["--yes", "playlist", "import", d, path(&file), "--into", &into];
     if append {
         import.push("--append");
     }
+    import.extend(answers.iter().map(String::as_str));
     let out = env.ok(&import);
     let after = library(&root);
     match found.is_empty() {
@@ -76,7 +86,7 @@ fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
         }
         false => assert_eq!(after.find_playlist(&into).unwrap().track_ids, [existing, found].concat()),
     }
-    let n = report["entries"].as_array().unwrap().len();
+    let n = matched.len();
     let choose = |entry: usize, track: u32| {
         let choice = format!("{entry}={track}");
         refused(&env, &["playlist", "import", d, path(&file), "--into", &into, "--choose", &choice])
@@ -87,8 +97,9 @@ fn imports_fill_the_playlist_with_what_is_found(tc: TestCase) {
 
 /// The twelve-track drive's playlist, and the rekordbox XML of its library: importing that
 /// playlist from the XML (into a new playlist, or onto the end of one, or replacing it) finds each
-/// of its tracks, in order, or the track chosen for an entry, and the playlist then holds those
-/// after what it kept; a playlist the XML lacks isn't found. A list of tracks the drive doesn't
+/// of its tracks, in order, or the track chosen for an entry (`--choose N=ID`, which wins over
+/// what was found), and the playlist then holds those after what it kept; a playlist the XML lacks
+/// isn't found. A list of tracks the drive doesn't
 /// have changes nothing, saying so.
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(onto_itself = true, append = true, choice = None::<usize>)]
@@ -119,17 +130,14 @@ fn an_xml_playlist_imports_as_the_tracks_it_names(tc: TestCase) {
     }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    let report = env.json(&[&["tracklist", "match", d], &args[..]].concat());
     let mut want: Vec<u32> = list.track_ids.clone();
     if let Some((i, t)) = chosen {
         want[i] = t;
-        let entry = &report["entries"][i];
-        assert_eq!(
-            (&entry["status"], &entry["track_id"], &entry["how"]),
-            (&json!("found"), &json!(t), &json!("chosen"))
-        );
     }
-    assert_eq!(found(&report), want, "each entry, as the XML names it");
+    let planned = env.json(&[&["playlist", "import", d], &args[..], &["--into", &into, "--dry-run"]].concat());
+    let n = list.track_ids.len();
+    let said = format!(": {n} entr(ies) as RekordboxXml: {n} found, 0 ambiguous, 0 missing");
+    assert!(planned["plan"]["summary"][0].as_str().unwrap().ends_with(&said), "{planned}");
     let kept: Vec<u32> = if append && onto_itself { list.track_ids.clone() } else { Vec::new() };
     let mut import = [&["--yes", "playlist", "import", d], &args[..], &["--into", &into]].concat();
     if append {

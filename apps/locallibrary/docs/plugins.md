@@ -1,7 +1,8 @@
 # Plugins
 
 A plugin adds to locallibrary: commands, operations that change a library, analyzers that work
-out values for each track, export formats and settings of its own. Each is a program of its own
+out values for each track, export formats, providers that find cover art or tags for tracks, and
+settings of its own. Each is a program of its own
 that locallibrary starts when it's first used and talks to over its stdin and stdout (the
 protocol is in [loclib-plugin](../../../crates/loclib-plugin)). A plugin never writes to a drive:
 it reads the library through locallibrary, within what its capabilities allow, and an operation
@@ -15,20 +16,20 @@ are:
   analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the
   check before a set and ordering a set read tempos, keys and levels from (see [Roles](#roles)).
 - **tracklist**: `locallibrary playlist import LIBRARY FILE --into PLAYLIST` makes a playlist
-  from a tracklist (see [Editing](editing.md)), and `locallibrary tracklist match LIBRARY FILE`
-  shows what it finds in the list without changing anything.
+  from a tracklist (see [Editing](editing.md)), asking which track an entry is when it could be
+  several.
 - **interop**: the library for Traktor, Serato and Engine DJ (`locallibrary export LIBRARY
   --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
-- **coverart**: finds front covers for tracks without artwork on MusicBrainz and the Cover Art
-  Archive (`locallibrary coverart fetch LIBRARY`, `--replace` for tracks with artwork too). It's
-  the only one that goes online, and only when you run it, through locallibrary (see
-  [Safety](#safety)), a request a second to MusicBrainz as it asks.
+- **coverart**: finds front covers on MusicBrainz and the Cover Art Archive for `locallibrary art
+  fetch` (see [Providers](#providers)). It's the only one that goes online, and only when you run
+  it, through locallibrary (see [Safety](#safety)), a request a second to MusicBrainz as it asks.
 
 ## What you have
 
 `locallibrary plugin` lists them, what each may do (its capabilities, in plain words) and what it
 adds. `locallibrary plugin info ID` has one in full: its commands, how to run them and which of
-the player's menus offer them, its analyzers' fields, its export formats and its settings.
+the player's menus offer them, its analyzers' fields, its export formats, its providers and its
+settings.
 
 A plugin whose id, commands or export formats clash with locallibrary's, or with another plugin's,
 is left out: every command warns which and why, and the other plugins work. Two plugins clashing
@@ -36,14 +37,18 @@ with each other are both left out.
 
 ## Where they show up
 
-- **Commands and operations** are `locallibrary ID NAME` (`locallibrary coverart fetch`), or
-  where the plugin puts them (`locallibrary playlist import`). Their params are flags (`--into
+- **Commands and operations** are `locallibrary ID NAME`, or where the plugin puts them
+  (`locallibrary playlist import`, the tracklist plugin's `import`). Their params are flags (`--into
   Sets`, `--append`; `KEY=VALUE` pairs for a map, repeated), or JSON with `--params`.
   `locallibrary ID NAME --help` lists them. A command shows what it answers as a list or a table
   (its rows as they come, when the plugin sends them so), or as text or JSON when it answers a
-  plain value (`--json`: as it is); an operation shows its
-  plan and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it
-  back.
+  plain value (`--json`: as it is); an operation shows its plan and asks first, like any edit
+  (`--dry-run`, `--yes`), and `locallibrary undo` takes it back. Either may ask you something
+  first (which track an entry is, say): in a terminal you pick from a numbered list; otherwise,
+  or with `--json`, it stops and says how to answer with `--choose PARAM=VALUE`.
+- **Providers** find something for tracks: `locallibrary art fetch [LIBRARY]` cover art, and
+  `locallibrary track fetch [LIBRARY]` track details (title, artist, album, year, genre, label,
+  ISRC), see [Providers](#providers).
 - **Analyzers** run with `locallibrary analyze [LIBRARY] [--plugin ID] [--analyzer NAME]`, which
   works out each track's values once (again only for a changed audio file, or a new version of
   the analyzer) and keeps them in the store. A value worked out with nothing to show (silence's
@@ -63,10 +68,12 @@ with each other are both left out.
 - **In the player** (`locallibrary tui`), commands, operations, analyzers and export formats are
   in the palette (`:`) and a drive's menu, and commands and operations a plugin offers for tracks
   or a playlist in the actions menu (`e`) too, with a form for their params or options, a param
-  the plugin fills from what's selected (the tracks, the playlist, the drive) starting as it; an
-  export shows what it would write and asks before writing it; analyzers' fields are columns to
-  show, sort and search by, "write keys and BPMs to the tracks: …" writes what one heard, and
-  each plugin's settings are a form in the palette too (see [the player](player.md)).
+  the plugin fills from what's selected (the tracks, the playlist, the drive) starting as it; a
+  question one asks is a list to pick from; an export shows what it would write and asks before
+  writing it; analyzers' fields are columns to show, sort and search by, "write keys and BPMs to
+  the tracks: …" writes what one heard, "fetch cover art…" and "fetch track details…" in the
+  actions menu ask the providers about the tracks selected, and each plugin's settings are a
+  form in the palette too (see [the player](player.md)).
 - **Settings**: `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets
   one and `plugin settings ID KEY --reset` puts it back to its default. They're kept in the store
   (`plugins/ID/settings.json`, beside the plugin's own folder). A secret one (a password, a key)
@@ -92,14 +99,30 @@ chooses another that has it, and `plugin roles key --reset` puts it back (kept i
 `plugins/settings.json` as `analysis.roles.key`). `doctor --analyze` runs those analyzers first
 on the tracks they haven't worked out; the check and ordering a set read what they kept.
 
+## Providers
+
+A provider finds cover art or details (tags) for tracks, online usually. `art fetch` and `track
+fetch` ask every provider of that kind about a library's tracks (`--track`, `--playlist`,
+`--filter`... for some), only those without artwork, or missing a tag, unless `--replace`; `--from
+PLUGIN` (or `PLUGIN.PROVIDER`) asks only that one. What they find for each track is listed best
+first, with how sure each provider is. One alone scoring `plugin providers`' auto-pick or more (0.9
+unless `plugin providers --auto-pick 0.8`, or "provider settings…" in the player's palette, says
+otherwise, kept in the store as `providers.auto_pick`) is chosen for you; you pick the others, in a
+terminal, or with `--choose TRACK=N` (`--choose 812=null` for none). Then locallibrary plans the
+changes itself, cover art set on the tracks or the tags they lack filled in (over what they have,
+with `--replace`), shown and asked about as any edit is, and `undo` takes them back. A provider
+never changes a library itself, and needs no capability to: it's given the tracks' tags
+(`library:read`) and answers what it found.
+
 ## Writing one
 
 A plugin in Rust uses [loclib-plugin](../../../crates/loclib-plugin)'s SDK: a function for each
 kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by id or by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
 it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
-ready. Each family of hooks is an optional feature of the protocol, so a newer locallibrary adds
-kinds of hooks without breaking older plugins.
+ready. A command or an operation may answer a question for you (`Choice`) instead, and is run
+again with your answer as one of its params. Each family of hooks is an optional feature of the
+protocol, so a newer locallibrary adds kinds of hooks without breaking older plugins.
 
 ## Safety
 

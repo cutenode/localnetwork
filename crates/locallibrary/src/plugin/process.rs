@@ -426,13 +426,14 @@ impl Slot {
         store: Option<&Store>,
         ctx: &Ctx<'_>,
     ) -> Result<R> {
-        self.call_with(method, params, store, ctx, &|_| {}, |answer, _| Ok(answer))
+        self.call_with(method, params, store, ctx, &|_| {}, |answer, _, _| Ok(answer))
     }
 
     /// [`Slot::call`], the hook's `params.context` given a scratch folder of its own (with the
     /// `blobs` feature), the view's rows it sends in parts shown with `shown` as they come, and
     /// its answer read by `read` with the files it left in that folder (see [`Scratch::blob`]),
-    /// which is removed after. A folder holding more than [`Options::max_blobs`] fails the call.
+    /// which is removed after, and what the process has (its features). A folder holding more
+    /// than [`Options::max_blobs`] fails the call.
     pub(crate) fn call_with<R: DeserializeOwned, T>(
         self: &Arc<Self>,
         method: &str,
@@ -440,7 +441,7 @@ impl Slot {
         store: Option<&Store>,
         ctx: &Ctx<'_>,
         shown: &dyn Fn(Partial),
-        read: impl FnOnce(R, &Scratch) -> Result<T>,
+        read: impl FnOnce(R, &Scratch, &Live) -> Result<T>,
     ) -> Result<T> {
         ctx.check()?;
         let p = self.start(store)?;
@@ -469,7 +470,7 @@ impl Slot {
                         crate::op::bytes(most)
                     )));
                 }
-                return read(answer, &scratch);
+                return read(answer, &scratch, &p.live);
             }
             if cancelled.is_none() && ctx.cancel.is_cancelled() {
                 // From now: a plugin that isn't reading holds up the `$/cancel`, on a thread

@@ -9,7 +9,9 @@ use serde_json::{Value, json};
 
 use crate::support::{Env, Rpc, echo_plugin, path, recording};
 
+mod choose;
 mod props;
+mod providers;
 
 /// The echo manifest as these tests register it ([`echo_plugin`]): its `echo` command at
 /// `locallibrary say` taking flags, and its operation at `locallibrary playlist fresh`.
@@ -413,20 +415,24 @@ fn the_sound_plugin_measures_tracks() {
     }
 }
 
-/// The coverart plugin locallibrary ships says which servers it talks to, and plans for tracks
-/// that need no cover without going online.
+/// The coverart plugin locallibrary ships says which servers it talks to and that it finds cover
+/// art for `art fetch`, planning none itself; tracks the drive doesn't have are refused before
+/// anything goes online.
 #[test]
-fn the_coverart_plugin_plans_without_going_online() {
+fn the_coverart_plugin_finds_nothing_without_going_online() {
     let env = Env::new();
     env.demo("USB");
     let info = env.ok(&["plugin", "info", "coverart"]);
-    for line in ["Cover art (coverart) 0.1.0", "talk to musicbrainz.org", "locallibrary coverart fetch"] {
+    for line in [
+        "Cover art (coverart) 0.1.0",
+        "talk to musicbrainz.org",
+        "covers  Cover Art Archive: cover art, for locallibrary art fetch",
+    ] {
         assert!(info.contains(line), "{line}: {info}");
     }
-    let planned = env.ok(&["coverart", "fetch", "USB", "--tracks", "99", "--dry-run"]);
-    for line in ["no track chosen needs cover art", "track #99 isn't on the drive", "nothing to change"] {
-        assert!(planned.contains(line), "{line}: {planned}");
-    }
+    assert!(!info.contains("plan cover art changes"), "{info}");
+    let missing = env.fails(1, &["art", "fetch", "USB", "--from", "coverart", "--track", "99", "--dry-run"]);
+    assert!(missing.contains("error: not found: track #99"), "{missing}");
     assert!(
         env.fails(2, &["analyze", "USB", "--plugin", "coverart"])
             .contains("error: the coverart plugin has no analyzer\n")

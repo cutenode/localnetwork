@@ -2,8 +2,8 @@
 
 The protocol [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary)
 plugins speak, the manifest they declare themselves in, and an SDK for writing one in Rust. A
-plugin adds commands, operations, track analyzers, exporters and settings; it never ships UI
-code, and it never writes to a drive.
+plugin adds commands, operations, track analyzers, exporters, providers and settings; it never
+ships UI code, and it never writes to a drive.
 
 ## The protocol
 
@@ -12,9 +12,10 @@ They talk JSON-RPC 2.0 over the plugin's stdin and stdout, one JSON message per 
 inside one, at most 16 MiB). Anything the plugin writes to stderr is its log. The protocol is
 versioned on its own, at `0.2.0` (`PROTOCOL_VERSION`); two versions are compatible by semver's
 caret rule, so before 1.0 the minor version must match. A new kind of hook doesn't change it: each
-family of hooks is an optional feature (`FEATURES`): `commands`, `operations`, `analyzers` and
-`exporters`, and the SDK's own, which every plugin written with it has: `blobs` (scratch folders
-and partial results) and `net` (fetching through the host).
+family of hooks is an optional feature (`FEATURES`): `commands`, `operations`, `analyzers`,
+`exporters` and `providers`, and the SDK's own, which every plugin written with it has: `blobs`
+(scratch folders and partial results), `net` (fetching through the host) and `choose` (asking the
+user first).
 
 1. The host's first message is `hello`
    (`{"protocol": "0.2.0", "host": {"name", "version"}, "features": [...]}`, the features it
@@ -37,6 +38,12 @@ and partial results) and `net` (fetching through the host).
      host draws its own way. While it works, a view command may send its rows (or items) in
      parts, `partial {id, rows | items}` notifications (`id`: the host's request), for a host to
      show as they come; the view it answers still has them all, first.
+   - With `choose`, a view command may answer a question for the user instead, `{"kind":
+     "choose", "title", "param", "multi", "items": [{"label", "detail", "value"}]}` (`Choice`),
+     and an operation `{"choose": {...}}`: the host asks it, and runs the hook again with
+     `params[param]` set to the value chosen (with `multi`, a list of any of them). The param is
+     one the hook takes but doesn't require (the host checks params first), and each item's
+     value one it takes: a question that isn't is refused.
    - `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
      `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`), or `null`
      for one worked out with nothing to show. A field left out wasn't worked out.
@@ -56,6 +63,14 @@ and partial results) and `net` (fetching through the host).
      the computer the plan was worked out from (absolute): it isn't applied once one changes. A
      `set_artwork` edit gives its image as a blob (`{"blob": "cover.jpg"}`), never by path or
      in base64.
+   - `provide/candidates {provider, kind, tracks: [{id, artist, title, album, album_artist,
+     isrc, duration}], context}` -> `{"candidates": [{track, score, source, label, artwork?,
+     metadata?}], "warnings"}`: what a provider found for the tracks, of its kind, any number
+     for each. `score` (0 to 1) is how sure it is; an artwork provider's `artwork` is a blob, a
+     metadata provider's `metadata` the tags it has (`title`, `artist`, `album`, `year`, `genre`,
+     `label`, `isrc`). `warnings` say what it found nothing for. The host asks every provider of a
+     kind, offers the user what they found, best first, picking one alone that scores high
+     enough, and plans the edits itself: a provider plans none.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
@@ -152,9 +167,9 @@ assert!(manifest.validate(false).is_err());
 - `cli` (first-party plugins only) is a command's or operation's own place on the command line:
   one name (`import`) or two, the first a group of the host's commands (`playlist import`).
   Otherwise it's `locallibrary <id> <name>`. A params property's `x-cli` says how the command
-  line gives it (`CliHints`): `flag` (`--from` rather than `--playlist`), `one_based = true` (an
-  object whose keys are positions, `--choose 1=42` for key `0`) and `positional = true` (a
-  string given without a flag, after the drive: `playlist import DRIVE FILE`; one param at most).
+  line gives it (`CliHints`): `flag` (`--from` rather than `--playlist`) and `positional = true`
+  (a string given without a flag, after the drive: `playlist import DRIVE FILE`; one param at
+  most).
 - A params or options property marked `x-path = true` (a string, or a list of them) is a file or
   folder on the computer: every host refuses a relative one, and the command line makes it
   absolute.
@@ -176,6 +191,9 @@ assert!(manifest.validate(false).is_err());
   leaves them out.
 - `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
   without the dot) or `folder = true`, `options`.
+- `[[contributes.providers]]`: `name`, `title` and `kind`, `artwork` or `metadata`: what it finds
+  for tracks (`provide/candidates`). It's given their tags, so it needs `library:read`, and
+  never a `:plan` capability for what it finds: the host plans that.
 - `[[contributes.settings]]`: `key`, `title`, `type` (`string`, `number`, `boolean`, `enum`,
   `file`, `directory` or `secret`), `default` and, for an enum, `choices`. A secret (text, and
   no default) is kept in the system's keychain and never given to the plugin: it's only filled
@@ -201,7 +219,9 @@ info, each whole however the host pages and batches it (`host.call` makes any ot
 loclib-model's types (`Track`, `Library`, `TrackAnalysis`), which `loclib_plugin::loclib_model`
 re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fetch`), and
 `host.partial_rows(rows)` (`partial_items`) sends a view's rows as they're ready; files the
-answer names go in `req.context.scratch`.
+answer names go in `req.context.scratch`. A hook answers its answer or what makes one: an
+operation an `OpPlan`, or an `OpAnswer` when it may ask first (`Choice`; `View::Choose` for a
+command).
 `RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
 hook is, `io` for a file that couldn't be read or written, else the kind it's given. A new kind of
 hook is a request type implementing `Hook` and a row in `FEATURES`.
@@ -246,7 +266,7 @@ let (host, incoming) = Peer::new(from_plugin, to_plugin);
 
 let hello = json!({ "protocol": "0.2.0", "host": { "name": "locallibrary", "version": "0.1.0" } });
 let reply: Value = host.request(method::HELLO, &hello)?;
-assert_eq!(reply["features"], json!(["commands", "blobs", "net"]));
+assert_eq!(reply["features"], json!(["commands", "blobs", "net", "choose"]));
 let run = json!({ "command": "count", "context": { "drive": "USB" } });
 let counting = host.send_request(method::RUN_COMMAND, &run)?;
 let Ok(Incoming::Request(callback)) = incoming.recv() else { panic!("a callback") };

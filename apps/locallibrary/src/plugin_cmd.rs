@@ -1,11 +1,14 @@
-//! `plugin`: the plugins locallibrary has, their settings and which analyzer each field role is
-//! read from; `analyze`, running their analyzers
-//! on a drive's tracks; and the commands and operations they add to the command line
-//! (`locallibrary <plugin> <name>`, or the place a manifest gives one, `playlist import`), whose
-//! flags come from their params' JSON Schemas.
+//! `plugin`: the plugins locallibrary has, their settings, which analyzer each field role is read
+//! from and when a provider's candidate is chosen for the user; `analyze`, running their
+//! analyzers on a drive's tracks; `art fetch` and `track fetch`, what their providers find; and
+//! the commands and operations they add to the command line (`locallibrary <plugin> <name>`, or
+//! the place a manifest gives one, `playlist import`), whose flags come from their params' JSON
+//! Schemas.
 
 mod analyze;
+mod choose;
 mod contributed;
+mod fetch;
 mod listing;
 pub(crate) mod view;
 
@@ -20,6 +23,7 @@ use crate::plugins::{self, Described, Listed};
 
 pub use analyze::{AnalyzeArgs, analyze, fields, show_fields};
 pub use contributed::{Contributed, add_to, options, run_contributed, take};
+pub use fetch::{FetchArgs, fetch};
 
 #[derive(Args)]
 pub struct PluginArgs {
@@ -69,6 +73,17 @@ enum PluginCommand {
         #[arg(long, requires = "role")]
         reset: bool,
     },
+    /// The providers (what `art fetch` and `track fetch` ask), and the score a candidate alone
+    /// scoring it or more is chosen for you with: show them, set it (--auto-pick SCORE), or put it
+    /// back to its default (--reset)
+    Providers {
+        /// 0 to 1 (more than 1: never choose for you)
+        #[arg(long, value_name = "SCORE", conflicts_with = "reset")]
+        auto_pick: Option<f64>,
+        /// Put it back to its default
+        #[arg(long)]
+        reset: bool,
+    },
     /// Run a plugin, speaking its protocol over stdin and stdout: how locallibrary starts one
     #[command(hide = true)]
     Serve {
@@ -101,6 +116,9 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Resul
         }
         PluginCommand::Roles { role, analyzer, reset } => {
             return listing::roles(role, analyzer, reset, store_path, out);
+        }
+        PluginCommand::Providers { auto_pick, reset } => {
+            return listing::providers(plugins, auto_pick, reset, store_path, out);
         }
         PluginCommand::Serve { plugin } => {
             // Ctrl-C in the terminal reaches it too: it stops when its host says.

@@ -2410,8 +2410,11 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
     let h = rows + 3;
     // Near the top, so the list grows down from where the eye is.
     let r = Rect { y: area.y + (area.height.saturating_sub(h) / 4), ..popup(area, w, h, None) };
-    let b = block(title(&p.title, true), true)
-        .title_bottom(Line::styled(" ↑↓ choose · enter · esc close ", faint()).right_aligned());
+    let hint = match p.marks {
+        Some(_) => " ↑↓ choose · space mark · enter takes the marked · esc close ",
+        None => " ↑↓ choose · enter · esc close ",
+    };
+    let b = block(title(&p.title, true), true).title_bottom(Line::styled(hint, faint()).right_aligned());
     let inner = b.inner(r);
     f.render_widget(Clear, r);
     f.render_widget(b, r);
@@ -2424,12 +2427,19 @@ fn draw_picker(f: &mut Frame, app: &mut App, area: Rect) {
         f.render_widget(Paragraph::new(Line::styled(format!("  {}", p.empty), dim())), list);
     } else {
         let w = list.width.saturating_sub(2);
-        let items: Vec<ListItem> = (p.shown.iter().map(|&i| &p.items[i]))
-            .map(|it| {
+        let items: Vec<ListItem> = (p.shown.iter().map(|&i| (i, &p.items[i])))
+            .map(|(i, it)| {
                 let style = if it.unavailable.is_some() { faint() } else { text() };
                 let right = vec![Span::styled(format!("{} ", it.detail), theme::key())];
                 let rw: usize = right.iter().map(Span::width).sum();
-                let left = vec![Span::styled(clip(&it.label, (w as usize).saturating_sub(rw + 1)), style)];
+                // Marked as the tracks are, in a list any of which may be chosen.
+                let mark = match p.marks.as_ref().map(|m| m[i]) {
+                    Some(true) => Some(Span::styled("✓ ", bold(theme::PINK))),
+                    Some(false) => Some(Span::raw("  ")),
+                    None => None,
+                };
+                let room = (w as usize).saturating_sub(rw + 1 + mark.as_ref().map_or(0, Span::width));
+                let left: Vec<Span> = mark.into_iter().chain([Span::styled(clip(&it.label, room), style)]).collect();
                 ListItem::new(spread(left, right, w))
             })
             .collect();
@@ -2537,8 +2547,11 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
     let r = popup(area, w, lines.len() as u16 + 2, None);
     let keys = if selected.choices().is_empty() { "" } else { "←→ change · " };
     let then = match form.then {
-        super::form::For::Run(_) | super::form::For::Export { .. } | super::form::For::ApplyFields { .. } => "run",
-        super::form::For::Settings(_) => "save",
+        super::form::For::Run(_)
+        | super::form::For::Export { .. }
+        | super::form::For::ApplyFields { .. }
+        | super::form::For::Fetch { .. } => "run",
+        super::form::For::Settings(_) | super::form::For::ProviderSettings => "save",
     };
     let b = block(title(&form.title, true), true)
         .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())

@@ -147,10 +147,10 @@ its drives.
 | --- | --- |
 | `locallibrary playlist [<library>]` | A library's playlist tree (`playlist ls`) |
 | `locallibrary playlist ...` | Create, rename, move, delete, fill, sort, order for mixing and import playlists, see [Editing playlists and tracks](editing.md#editing-playlists-and-tracks) |
-| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), swap MP3s for lossless files of their recording (`track upgrade`, see [Upgrading to lossless](editing.md#upgrading-to-lossless)), find harmonic matches |
+| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), swap MP3s for lossless files of their recording (`track upgrade`, see [Upgrading to lossless](editing.md#upgrading-to-lossless)), find harmonic matches, find their tags online (`track fetch`, see [Providers](plugins.md#providers)) |
 | `locallibrary tags ...` | My Tags: list, `add`/`untag` tracks, `rename`, `delete` a tag, see [My Tags](editing.md#my-tags) |
 | `locallibrary cues ...` | Hot cues, memory cues and loops: list, set, rename, recolour, delete, copy, see [Cues](editing.md#cues) |
-| `locallibrary art [<library>] ...` | Tracks without artwork (`art missing`), and setting it, see [Cover art](editing.md#cover-art) |
+| `locallibrary art [<library>] ...` | Tracks without artwork (`art missing`), and setting it, from a file or online (`art fetch`), see [Cover art](editing.md#cover-art) |
 | `locallibrary edits [list\|replay\|clear] [<library>]` | The edits made to a library; make them again after rekordbox exports over them |
 | `locallibrary smart ...` | Rule-based playlists kept in the store and written to drives, see [Rule-based playlists](editing.md#rule-based-playlists) |
 | `locallibrary merge <source> <target>` | Add the source's missing tracks and playlists to the target library (`--history`: and its history playlists) |
@@ -183,7 +183,7 @@ its drives.
 | | |
 | --- | --- |
 | `locallibrary account [login\|logout\|status]` | Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps; alpha), see [Atmosphere account](account.md) |
-| `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset \| --secret]]\|roles [ROLE [PLUGIN.ANALYZER \| --reset]]]` | The plugins locallibrary has, what each may do and adds, their settings (`--secret` reads a secret one from stdin, kept in the keychain), and which analyzer each role (a track's key, tempo, level) is read from; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them, see [Plugins](plugins.md#roles) |
+| `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset \| --secret]]\|roles [ROLE [PLUGIN.ANALYZER \| --reset]]\|providers [--auto-pick SCORE \| --reset]]` | The plugins locallibrary has, what each may do and adds, their settings (`--secret` reads a secret one from stdin, kept in the keychain), which analyzer each role (a track's key, tempo, level) is read from, and the providers `art fetch` and `track fetch` ask, with the score one's candidate is chosen for you at; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them (`--choose PARAM=VALUE` answers what one asks), see [Plugins](plugins.md#roles) |
 | `locallibrary bug [--title T] [-m TEXT] [--no-browser]` | Report a bug, with this version and system filled in: posted from your Atmosphere account to userinput.app, or on GitHub's bug report form, see [Reporting a bug](account.md#reporting-a-bug) |
 | `locallibrary completions SHELL [--static]` | Shell completion for bash, zsh, fish, elvish or PowerShell, see [Shell completion and man pages](install.md#shell-completion-and-man-pages) |
 | `locallibrary man [-o DIR]` | Man pages for every command (not in `--help`) |

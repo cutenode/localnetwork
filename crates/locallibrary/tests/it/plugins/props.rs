@@ -9,6 +9,7 @@ use locallibrary::api::{LibraryRef, PluginFieldsRequest};
 use locallibrary::fields::{FieldType, FieldValue};
 use locallibrary::op::AnyPlanned;
 use locallibrary::paths;
+use locallibrary::plugin::OpPlanned;
 use locallibrary::progress::NoProgress;
 use locallibrary::{CancelToken, Event};
 use loclib_plugin::ExportSource;
@@ -428,8 +429,11 @@ fn an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
         PluginEdit::Nonsense,
     ];
     let f = Fixture::new(|dir| vec![spec(dir, &granting(&grants), &[])], Options::default());
-    let plan =
-        |params: Value| f.plugins.plan_op("echo", "playlist", params, f.context(), Some(&f.store), &Ctx::silent());
+    let plan = |params: Value| {
+        f.plugins
+            .plan_op("echo", "playlist", params, f.context(), Some(&f.store), &Ctx::silent())
+            .and_then(OpPlanned::plan)
+    };
     let first = common::library(&f.drive).tracks[0].file_path.clone();
     for n in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
         let playlists = || common::library(&f.drive).playlists.into_iter().map(|p| p.name).collect::<Vec<_>>();

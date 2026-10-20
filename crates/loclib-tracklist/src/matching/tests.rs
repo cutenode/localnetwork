@@ -260,7 +260,8 @@ fn whole_file_round_trip() {
     let entries = parse(m3u.as_bytes(), Some("x.m3u")).unwrap();
     let report = Report::new(Format::M3u, match_entries(&l, &entries));
     assert_eq!(report.summary, Summary { entries: 3, found: 2, ambiguous: 0, missing: 1 });
-    assert_eq!(report.track_ids(), [1, 3]);
+    let ids: Vec<u32> = report.entries.iter().filter_map(|m| m.status.track_id()).collect();
+    assert_eq!(ids, [1, 3]);
     assert_eq!(report.entries[1].status, found(3, MatchKind::ArtistTitleDuration));
 
     let json = serde_json::to_value(&report).unwrap();

@@ -66,18 +66,30 @@ fn read(lib: &Library, method: &str, params: Value) -> Result<Value, RpcError> {
 }
 
 impl Session {
-    fn plan_on(&self, drive: Option<&str>, params: Value) -> Result<OpPlan, RpcError> {
+    /// What the import answers: a plan, or a question.
+    fn answer_on(&self, drive: Option<&str>, params: Value) -> Result<OpAnswer, RpcError> {
         let op = json!({ "operation": "import", "params": params, "context": { "drive": drive } });
         self.host.request(method::PLAN_OP, &op)
+    }
+
+    /// Its plan, which it must answer rather than a question.
+    fn plan_on(&self, drive: Option<&str>, params: Value) -> Result<OpPlan, RpcError> {
+        self.answer_on(drive, params).map(|answer| match answer {
+            OpAnswer::Plan(plan) => plan,
+            OpAnswer::Choose { choose } => panic!("a question, not a plan: {choose:?}"),
+        })
     }
 
     fn plan(&self, params: Value) -> Result<OpPlan, RpcError> {
         self.plan_on(Some("USB"), params)
     }
 
-    fn report(&self, params: Value) -> Result<Report, RpcError> {
-        let run = json!({ "command": "match", "params": params, "context": { "drive": "USB" } });
-        self.host.request(method::RUN_COMMAND, &run)
+    /// Its question, which it must ask rather than plan.
+    fn question(&self, params: Value) -> Choice {
+        match self.answer_on(Some("USB"), params).unwrap() {
+            OpAnswer::Choose { choose } => choose,
+            OpAnswer::Plan(plan) => panic!("a plan, not a question: {plan:?}"),
+        }
     }
 
     /// Closes the plugin's input: it stops. Answers the reads it called back for.
@@ -125,8 +137,8 @@ fn the_manifest_is_a_first_party_one_that_reads_and_plans() {
     assert!(manifest.validate(false).is_err(), "only a plugin locallibrary ships has a top-level CLI command");
     let capabilities = [Capability::LibraryRead, Capability::LibraryPlan, Capability::LibraryDelete];
     assert_eq!(manifest.capabilities, capabilities);
-    let (command, operation) = (&manifest.contributes.commands[0], &manifest.contributes.operations[0]);
-    assert_eq!((command.name.as_str(), command.cli.as_deref()), ("match", None));
+    assert!(manifest.contributes.commands.is_empty());
+    let operation = &manifest.contributes.operations[0];
     assert_eq!((operation.name.as_str(), operation.cli.as_deref()), ("import", Some("playlist import")));
     let s = start(Library::default());
     let described: Manifest = s.host.request(method::DESCRIBE, &Value::Null).unwrap();
@@ -134,35 +146,59 @@ fn the_manifest_is_a_first_party_one_that_reads_and_plans() {
     s.stop();
 }
 
-/// As `playlist import` showed it: the found track fills the playlist, and the ambiguous and
-/// missing entries are warned of, with up to five candidates. A choice settles one, and with
-/// `append` the playlist's entries stay first.
+/// An entry that could be several tracks is asked about first, its candidates best first with
+/// what tells them apart; answered, the found tracks fill the playlist, and the entries left out
+/// and missing are warned of. With `append` the playlist's entries stay first.
 #[test]
-fn a_list_fills_the_playlist_with_what_is_found_and_warns_of_the_rest() {
+fn a_list_asks_which_track_an_entry_is_then_fills_the_playlist_and_warns_of_the_rest() {
     let dir = tempfile::tempdir().unwrap();
     let list = write(dir.path(), "list.txt", "Bicep - Glue\nIn Charge\nNobody - Nothing\n");
     let mut lib = club();
+    lib.tracks[1].album = "Sixteen Oceans".into();
+    lib.tracks[1].duration_secs = 245;
     let s = start(lib.clone());
-    let plan = s.plan(json!({ "file": list, "into": "Imported" })).unwrap();
+    let params = json!({ "file": list, "into": "Imported" });
+    let asked = s.question(params.clone());
+    assert_eq!((asked.title.as_str(), asked.param.as_str(), asked.multi), ("2. In Charge", "2", false));
+    let items: Vec<(&str, Option<&str>, &Value)> =
+        asked.items.iter().map(|i| (i.label.as_str(), i.detail.as_deref(), &i.value)).collect();
+    let named = |id: u32| format!("#{id} {}", lib.track(id).unwrap().display_name());
+    let mut foreseen: Vec<(String, Option<&str>, Value)> =
+        (2..=7).map(|id| (named(id), Some("5:00"), json!(id))).collect();
+    foreseen[0].1 = Some("Sixteen Oceans, 4:05");
+    foreseen.push(("leave it out".into(), None, Value::Null));
+    let foreseen: Vec<(&str, Option<&str>, &Value)> = foreseen.iter().map(|(l, d, v)| (l.as_str(), *d, v)).collect();
+    assert_eq!(items, foreseen);
+    let schema = Manifest::parse(MANIFEST).unwrap().contributes.operations[0].params.clone();
+    assert_eq!(asked.check(schema.as_ref()), Ok(()), "the host can ask it");
+
+    let left_out = asked.answered(params.clone(), vec![Value::Null]);
+    let plan = s.plan(left_out).unwrap();
     assert_eq!(plan.summary, format!("{list}: 3 entr(ies) as Text: 1 found, 1 ambiguous, 1 missing"));
-    let candidates = "#2 Four Tet - In Charge, #3 Floating Points - In Charge, #4 Ross From Friends - In Charge, \
-                      #5 Kettama - In Charge, #6 Overmono - In Charge";
-    let warnings = [
-        format!("2. In Charge could be {candidates}: left out unless one is chosen"),
-        "3. Nobody - Nothing isn't on the drive".to_string(),
-    ];
-    assert_eq!(plan.warnings, warnings);
+    assert_eq!(plan.warnings, ["2. In Charge: left out", "3. Nobody - Nothing isn't on the drive"]);
     assert_eq!(plan.edits, [set_entries("Imported", &["/Contents/Bicep/Glue.mp3"])]);
     assert_eq!(plan.inputs, [PathBuf::from(&list)]);
     s.stop();
 
     lib.playlists = vec![playlist(1, None, "Imported", false, &[1])];
     let s = start(lib);
-    let plan = s.plan(json!({ "file": list, "into": "Imported", "choices": { "1": 7 }, "append": true })).unwrap();
+    let plan = s.plan(json!({ "file": list, "into": "Imported", "2": 7, "append": true })).unwrap();
     assert_eq!(plan.summary, format!("{list}: 3 entr(ies) as Text: 2 found, 0 ambiguous, 1 missing"));
     assert_eq!(plan.warnings, ["3. Nobody - Nothing isn't on the drive"]);
     let paths = ["/Contents/Bicep/Glue.mp3", "/Contents/Bicep/Glue.mp3", "/Contents/Joy O/In Charge.mp3"];
     assert_eq!(plan.edits, [set_entries("Imported", &paths)]);
+    s.stop();
+}
+
+/// An answer wins over what was found: an entry found may be another track, or left out.
+#[test]
+fn an_answer_wins_over_what_was_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let list = write(dir.path(), "list.txt", "Bicep - Glue\nKettama - In Charge\n");
+    let s = start(club());
+    let plan = s.plan(json!({ "file": list, "into": "Set", "1": 6, "2": null })).unwrap();
+    assert_eq!(plan.warnings, ["2. Kettama - In Charge: left out"]);
+    assert_eq!(plan.edits, [set_entries("Set", &["/Contents/Overmono/In Charge.mp3"])]);
     s.stop();
 }
 
@@ -208,20 +244,19 @@ fn a_list_keeps_its_repeats_and_fills_exactly_its_path() {
     );
     let list = write(dir.path(), "set.m3u8", &m3u);
     let s = start(Library { tracks: tracks.clone(), playlists: shows(), ..Default::default() });
-    let report = s.report(json!({ "file": list })).unwrap();
-    assert_eq!(report.entries[3].status, Status::Ambiguous { candidates: vec![2] }, "its length is off");
-    let report = s.report(json!({ "file": list, "choices": { "3": 2 } })).unwrap();
-    assert_eq!(report.entries[3].status, Status::Found { track_id: 2, how: MatchKind::Chosen });
-    let plan = s.plan(json!({ "file": list, "into": "Friday", "choices": { "3": 2 } })).unwrap();
+    let asked = s.question(json!({ "file": list, "into": "Friday" }));
+    let values: Vec<&Value> = asked.items.iter().map(|i| &i.value).collect();
+    assert_eq!((asked.param.as_str(), values), ("4", vec![&json!(2), &Value::Null]), "its length is off");
+    let plan = s.plan(json!({ "file": list, "into": "Friday", "4": 2 })).unwrap();
     assert_eq!(plan.edits, [set_entries("Friday", &[a, b, a, b])]);
-    let plan = s.plan(json!({ "file": list, "into": "Friday", "append": true })).unwrap();
+    let plan = s.plan(json!({ "file": list, "into": "Friday", "append": true, "4": null })).unwrap();
     assert_eq!(plan.edits, [set_entries("Friday", &[a, b, a])], "the nested namesake is left alone");
     s.stop();
 
     let mut playlists = shows();
     playlists.push(playlist(3, None, "Friday", false, &[1, 2, 1, 2]));
     let s = start(Library { tracks, playlists, ..Default::default() });
-    let plan = s.plan(json!({ "file": list, "into": " Friday/", "append": true })).unwrap();
+    let plan = s.plan(json!({ "file": list, "into": " Friday/", "append": true, "4": null })).unwrap();
     assert_eq!(plan.edits, [set_entries(" Friday/", &[a, b, a, b, a, b, a])]);
     s.stop();
 }
@@ -250,8 +285,9 @@ fn an_xml_playlist_is_the_one_of_exactly_its_path() {
     let plan = s.plan(json!({ "file": list, "into": "Imported", "playlist": " /SET/ " })).unwrap();
     assert_eq!(plan.summary, format!("{list}: 1 entr(ies) as RekordboxXml: 1 found, 0 ambiguous, 0 missing"));
     assert_eq!(plan.edits, [set_entries("Imported", &["/Contents/Kettama/In Charge.mp3"])]);
-    let all = s.report(json!({ "file": list })).unwrap();
-    assert_eq!((all.format, all.summary.found), (Format::RekordboxXml, 2), "the whole collection");
+    let all = s.plan(json!({ "file": list, "into": "Imported" })).unwrap();
+    let summary = format!("{list}: 2 entr(ies) as RekordboxXml: 2 found, 0 ambiguous, 0 missing");
+    assert_eq!(all.summary, summary, "the whole collection");
     for name in ["set", "Nowhere"] {
         let e = s.plan(json!({ "file": list, "into": "Imported", "playlist": name })).unwrap_err();
         assert_eq!(kind(&e), ("not_found", format!("not found: playlist {name:?} in {list}").as_str()));
@@ -260,7 +296,7 @@ fn an_xml_playlist_is_the_one_of_exactly_its_path() {
 }
 
 /// A list none of whose tracks are on the drive plans nothing, saying so, as `playlist import`
-/// did; a choice must name an entry the list has and a track the drive has.
+/// did; an answer must name an entry the list has and a track the drive has.
 #[test]
 fn a_list_of_nothing_the_drive_has_plans_nothing_and_a_bad_choice_is_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -275,26 +311,16 @@ fn a_list_of_nothing_the_drive_has_plans_nothing_and_a_bad_choice_is_refused() {
         );
         assert!(plan.edits.is_empty(), "{plan:?}");
     }
-    let e = s.plan(json!({ "file": list, "into": "Set", "choices": { "0": 999 } })).unwrap_err();
+    let e = s.plan(json!({ "file": list, "into": "Set", "1": 999 })).unwrap_err();
     assert_eq!(kind(&e), ("not_found", "not found: track #999"));
-    let e = s.plan(json!({ "file": list, "into": "Set", "choices": { "5": 1 } })).unwrap_err();
-    assert_eq!(kind(&e), ("invalid", "no entry 5 in the list"));
-    s.stop();
-}
-
-/// The `match` command answers what loclib-tracklist finds, as `playlist import --json`'s report
-/// did.
-#[test]
-fn the_command_answers_each_entry_as_loclib_tracklist_finds_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let text = "1. Bicep - Glue (5:00)\n2. In Charge\n3. Glue by Bicep\n4. Nobody - Nothing\n";
-    let list = write(dir.path(), "set.txt", text);
-    let lib = club();
-    let s = start(lib.clone());
-    let report = s.report(json!({ "file": list })).unwrap();
-    let entries = tracklist::parse(text.as_bytes(), Some("set.txt")).unwrap();
-    assert_eq!(report, Report::new(Format::Text, tracklist::match_entries(&lib, &entries)));
-    assert_eq!((report.summary.found, report.summary.ambiguous, report.summary.missing), (2, 1, 1));
+    for (n, answer) in [("6", json!(1)), ("2", Value::Null)] {
+        let e = s.plan(json!({ "file": list, "into": "Set", n: answer })).unwrap_err();
+        assert_eq!(kind(&e), ("invalid", format!("no entry {n} in the list").as_str()));
+    }
+    let e = s.plan(json!({ "file": list, "into": "Set", "1": "Glue" })).unwrap_err();
+    assert_eq!(kind(&e), ("invalid_params", "invalid params: entry 1 is a track's id, not \"Glue\""));
+    let e = s.plan(json!({ "file": list, "into": "Set", "0": 1 })).unwrap_err();
+    assert_eq!(kind(&e), ("invalid_params", "invalid params: entries count from 1"));
     s.stop();
 }
 
@@ -401,15 +427,15 @@ fn tracklist(shape: Shape, picks: &[Option<&Track>]) -> (&'static str, String) {
 }
 
 /// What loclib-tracklist makes of the list in `bytes` (named `name`, at `file`) against `lib`,
-/// with `choices` made, as `playlist import` matched it; or why it can't be read (its error's kind
-/// and message).
+/// with the tracks `answers` choose found (by index; `None` leaves one out, as it is), as
+/// `playlist import` matched it; or why it can't be read (its error's kind and message).
 fn imported(
     lib: &Library,
     bytes: &[u8],
     name: &str,
     file: &str,
     playlist: Option<&str>,
-    choices: &[(usize, u32)],
+    answers: &[(usize, Option<u32>)],
 ) -> Result<Report, (&'static str, String)> {
     let unreadable = |e: tracklist::Error| ("invalid", e.to_string());
     let (format, entries) = match playlist {
@@ -422,8 +448,9 @@ fn imported(
         None => (tracklist::detect(bytes, Some(name)), tracklist::parse(bytes, Some(name)).map_err(unreadable)?),
     };
     let mut entries = tracklist::match_entries(lib, &entries);
-    for &(i, id) in choices {
-        let Some(m) = entries.get_mut(i) else { return Err(("invalid", format!("no entry {i} in the list"))) };
+    for &(i, id) in answers {
+        let Some(m) = entries.get_mut(i) else { return Err(("invalid", format!("no entry {} in the list", i + 1))) };
+        let Some(id) = id else { continue };
         if lib.track(id).is_none() {
             return Err(("not_found", format!("not found: track #{id}")));
         }
@@ -433,13 +460,15 @@ fn imported(
 }
 
 /// For any library (namesakes included) and any tracklist of each format naming some of its
-/// tracks and some it hasn't, the `match` command answers what loclib-tracklist matches, with the
-/// choices made, and the import plans the playlist at exactly `into` filled with the tracks found,
-/// in the list's order (after its entries, with `append`), warning of each entry left out and
-/// planning nothing when none is found; a list that can't be read, a playlist it hasn't, a bad
-/// choice and a missing drive are refused, saying why.
+/// tracks and some it hasn't, with some answers given at first (now and then a bad one), the
+/// import asks about the first entry that could be several tracks and isn't answered, offering
+/// its candidates and leaving it out, a question the host can ask; answered each time with any of
+/// them, it ends planning the playlist at exactly `into` filled with the tracks found or chosen,
+/// in the list's order (after its entries, with `append`), warning of each entry left out or
+/// missing and planning nothing when none is found. A list that can't be read, a playlist it
+/// hasn't, a bad answer and a missing drive are refused, saying why.
 #[hegel::test(test_cases = 100)]
-fn any_tracklist_imports_what_loclib_tracklist_matches(tc: TestCase) {
+fn any_tracklist_imports_what_loclib_tracklist_matches_once_each_question_is_answered(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
     let artists = || gs::sampled_from(vec!["Bicep", "Kettama", "Overmono"]);
     let titles = || gs::sampled_from(vec!["Glue", "In Charge", "Apricots"]);
@@ -483,27 +512,27 @@ fn any_tracklist_imports_what_loclib_tracklist_matches(tc: TestCase) {
         }
         _ => tc.draw(gs::weighted_booleans(0.05)).then_some("Set"),
     };
-    // Choices for some entries, and now and then one that's bad (a refusal names the first it
-    // finds, so there's only ever one).
-    let mut choices: Vec<(usize, u32)> = Vec::new();
+    // Answers for some entries first, and now and then one that's bad (a refusal names the first
+    // it finds, so there's only ever one).
+    let mut answers: Vec<(usize, Option<u32>)> = Vec::new();
     if !picks.is_empty() && tc.draw(gs::weighted_booleans(0.3)) {
-        let choice = gs::tuples!(
+        let answer = gs::tuples!(
             gs::integers::<usize>().max_value(picks.len() - 1),
-            gs::integers::<u32>().min_value(1).max_value(n)
+            gs::optional(gs::integers::<u32>().min_value(1).max_value(n))
         );
-        for (i, id) in tc.draw(gs::vecs(choice).min_size(1).max_size(2)) {
-            if !choices.iter().any(|c| c.0 == i) {
-                choices.push((i, id));
+        for (i, id) in tc.draw(gs::vecs(answer).min_size(1).max_size(2)) {
+            if !answers.iter().any(|a| a.0 == i) {
+                answers.push((i, id));
             }
         }
     }
     if tc.draw(gs::weighted_booleans(0.1)) {
         let bad = match tc.draw(gs::booleans()) && !picks.is_empty() {
-            true => (0, n + 1),
-            false => (picks.len(), 1),
+            true => (0, Some(n + 1)),
+            false => (picks.len(), tc.draw(gs::optional(gs::just(1)))),
         };
-        choices.retain(|c| c.0 != bad.0);
-        choices.push(bad);
+        answers.retain(|a| a.0 != bad.0);
+        answers.push(bad);
     }
     let into = tc.draw(gs::sampled_from(vec!["Imported", "Imported", " Imported/", "Shows/Imported", "Elsewhere"]));
     let append = tc.draw(gs::booleans());
@@ -513,42 +542,52 @@ fn any_tracklist_imports_what_loclib_tracklist_matches(tc: TestCase) {
     if let Some(from) = from {
         params["playlist"] = json!(from);
     }
-    if !choices.is_empty() {
-        let chosen: serde_json::Map<String, Value> = choices.iter().map(|(i, id)| (i.to_string(), json!(id))).collect();
-        params["choices"] = Value::Object(chosen);
+    for (i, id) in &answers {
+        params[(i + 1).to_string()] = json!(id);
     }
+    let schema = Manifest::parse(MANIFEST).unwrap().contributes.operations[0].params.clone();
     let s = start(lib.clone());
-    let planned = s.plan_on(on_drive.then_some("USB"), params.clone());
-    let report = on_drive.then(|| {
-        let mut asked = params.clone();
-        let asked_obj = asked.as_object_mut().unwrap();
-        asked_obj.remove("into");
-        asked_obj.remove("append");
-        s.report(asked)
-    });
-    s.stop();
-
-    let foreseen = match (on_drive, gone) {
-        (false, _) => Err(("invalid_params", "invalid params: say which drive".to_string())),
-        (true, true) => Err(("io", format!("{file}: "))),
-        (true, false) => imported(&lib, text.as_bytes(), name, &file, from, &choices),
-    };
-    let (planned, foreseen) = match (planned, foreseen) {
-        // The command refuses as the import does.
-        (Err(e), Err((kind, message))) => {
-            for e in std::iter::once(e).chain(report.map(Result::unwrap_err)) {
+    // Answering each question in turn: one for each entry at most.
+    let (planned, foreseen) = loop {
+        let answered = s.answer_on(on_drive.then_some("USB"), params.clone());
+        let foreseen = match (on_drive, gone) {
+            (false, _) => Err(("invalid_params", "invalid params: say which drive".to_string())),
+            (true, true) => Err(("io", format!("{file}: "))),
+            (true, false) => imported(&lib, text.as_bytes(), name, &file, from, &answers),
+        };
+        let (answered, foreseen) = match (answered, foreseen) {
+            (Err(e), Err((kind, message))) => {
                 assert_eq!(e.kind(), Some(kind), "{e:?}");
                 assert!(e.message.starts_with(&message), "{e:?}, not {message}");
+                s.stop();
+                return;
             }
-            return;
+            (Ok(answered), Ok(foreseen)) => (answered, foreseen),
+            (answered, foreseen) => panic!("answered {answered:?}, not {foreseen:?}"),
+        };
+        let undecided = (foreseen.entries.iter().enumerate())
+            .find(|(i, m)| matches!(m.status, Status::Ambiguous { .. }) && !answers.iter().any(|a| a.0 == *i));
+        match (answered, undecided) {
+            (OpAnswer::Plan(plan), None) => break (plan, foreseen),
+            (OpAnswer::Choose { choose }, Some((i, m))) => {
+                let Status::Ambiguous { candidates } = &m.status else { unreachable!() };
+                assert_eq!(choose.param, (i + 1).to_string());
+                assert_eq!(choose.title, format!("{}. {}", i + 1, m.entry.raw.trim()));
+                let values: Vec<Value> = choose.items.iter().map(|i| i.value.clone()).collect();
+                let offered: Vec<Value> = candidates.iter().map(|&id| json!(id)).chain([Value::Null]).collect();
+                assert_eq!(values, offered);
+                assert_eq!(choose.check(schema.as_ref()), Ok(()));
+                let value = tc.draw(gs::sampled_from(values));
+                answers.push((i, value.as_u64().map(|id| id as u32)));
+                params = choose.answered(params, vec![value]);
+            }
+            (answered, undecided) => panic!("answered {answered:?} with {undecided:?} undecided"),
         }
-        (Ok(plan), Ok(foreseen)) => (plan, foreseen),
-        (planned, foreseen) => panic!("planned {planned:?}, not {foreseen:?}"),
     };
-    assert_eq!(report.map(|r| r.unwrap()), Some(foreseen.clone()));
+    s.stop();
 
     // Each track picked that the drive has is found, unless it has a namesake (a list naming it
-    // by path finds it all the same), or the user chose for it.
+    // by path finds it all the same), or the user answered for it.
     for ((i, pick), m) in picks.iter().enumerate().zip(&foreseen.entries) {
         let namesakes = |id: u32| {
             let t = lib.track(id).unwrap();
@@ -556,9 +595,9 @@ fn any_tracklist_imports_what_loclib_tracklist_matches(tc: TestCase) {
         };
         let by_path = matches!(shape, Shape::M3u | Shape::RekordboxXml);
         match pick {
-            _ if choices.iter().any(|c| c.0 == i) => {}
+            _ if answers.iter().any(|a| a.0 == i) => {}
             Some(id) if by_path || namesakes(*id) == 1 => assert_eq!(m.status.track_id(), Some(*id), "{m:?}"),
-            Some(_) => assert!(matches!(m.status, Status::Ambiguous { .. }), "{m:?}"),
+            Some(_) => panic!("{m:?} is undecided"),
             None => assert_eq!(m.status, Status::Missing, "{m:?}"),
         }
     }
@@ -569,24 +608,22 @@ fn any_tracklist_imports_what_loclib_tracklist_matches(tc: TestCase) {
         s.entries, foreseen.format, s.found, s.ambiguous, s.missing
     );
     assert_eq!(planned.summary, summary);
+    let left_out = |i: usize| answers.contains(&(i, None));
     let mut warnings: Vec<String> = Vec::new();
-    for (n, m) in (1..).zip(&foreseen.entries) {
+    for (i, m) in foreseen.entries.iter().enumerate() {
         let raw = m.entry.raw.trim();
         match &m.status {
-            Status::Found { .. } => {}
-            Status::Missing => warnings.push(format!("{n}. {raw} isn't on the drive")),
-            Status::Ambiguous { candidates } => {
-                let named: Vec<String> = candidates
-                    .iter()
-                    .take(5)
-                    .map(|&id| format!("#{id} {}", lib.track(id).unwrap().display_name()))
-                    .collect();
-                warnings.push(format!("{n}. {raw} could be {}: left out unless one is chosen", named.join(", ")));
-            }
+            _ if left_out(i) => warnings.push(format!("{}. {raw}: left out", i + 1)),
+            Status::Missing => warnings.push(format!("{}. {raw} isn't on the drive", i + 1)),
+            _ => {}
         }
     }
     let paths = |ids: &[u32]| ids.iter().map(|&id| lib.track(id).unwrap().file_path.clone()).collect::<Vec<_>>();
-    let found = paths(&foreseen.track_ids());
+    let kept: Vec<u32> = (foreseen.entries.iter().enumerate())
+        .filter(|(i, _)| !left_out(*i))
+        .filter_map(|(_, m)| m.status.track_id())
+        .collect();
+    let found = paths(&kept);
     if found.is_empty() {
         warnings.push("none of the list's tracks are on the drive".into());
     }

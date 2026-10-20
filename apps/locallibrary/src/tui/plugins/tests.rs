@@ -43,7 +43,7 @@ fn plugins_commands_are_in_the_palette() {
     press(&mut app, ":");
     let (item, why) = entry(&app, "answer the params…");
     assert_eq!((item.detail.as_str(), why), ("Echo", Some("open a drive first")));
-    assert_eq!(entry(&app, "find a tracklist's tracks…").0.detail, "Tracklist import");
+    assert_eq!(entry(&app, "fetch cover art…").0.detail, "Cover art");
     let p = picker(&app);
     let echo = p.items.iter().position(|i| i.label == "answer the params…").unwrap();
     assert!(p.items[..echo].iter().any(|i| i.label == "quit"), "the player's own first");
@@ -371,8 +371,13 @@ fn operations_are_offered_where_they_can_run() {
     // An echo plugin that reads nothing: its commands run without a drive.
     let file = dir.path().join("echo.toml");
     let manifest = std::fs::read_to_string(&file).unwrap();
-    let manifest =
-        manifest.replace(r#"capabilities = ["library:read", "library:plan"]"#, r#"capabilities = ["library:plan"]"#);
+    // Nor provides anything, which would read the tracks.
+    let provider =
+        "[[contributes.providers]]\nname = \"tags\"\ntitle = \"The tags as they are\"\nkind = \"metadata\"\n";
+    assert!(manifest.contains(provider));
+    let manifest = manifest
+        .replace(r#"capabilities = ["library:read", "library:plan"]"#, r#"capabilities = ["library:plan"]"#)
+        .replace(provider, "");
     std::fs::write(&file, manifest).unwrap();
     let (mut app, _store) = blank(Screen::Library);
     press(&mut app, ":");
@@ -476,6 +481,10 @@ fn plans_are_known_by_their_plugins() {
     assert_eq!(planned_by("echo.playlist", true), None, "not an export");
     assert_eq!(planned_by("echo.export.nope", true), None);
     assert_eq!(planned_by("echo.echo-m3u", true), None, "an export is `export.` and its format");
+    // Planned by the host from what plugins found or worked out.
+    assert_eq!(planned_by("plugins.provide", false), Some("Plugins"));
+    assert_eq!(planned_by("plugins.apply_fields", false), Some("Plugins"));
+    assert_eq!(planned_by("plugins.provide", true), None, "not an export");
     for not in ["echo.echo", "echo.nope", "echo", "edit", "edits.replay", "echoplaylist"] {
         assert_eq!(planned_by(not, false), None, "{not}");
     }
@@ -503,7 +512,11 @@ fn plugin_warnings_show_in_the_confirmation() {
     // The test plugin plans the edits it's given, saying "as given" and warning "given".
     let params = json!({ "name": "x", "edits": [{ "op": "create_playlist", "path": "Given" }] });
     let context = Context { drive: Some(root.display().to_string()), ..Context::default() };
-    let plan = plugins.plan_op("echo", "playlist", params, context, None, &locallibrary::Ctx::silent()).unwrap();
+    let plan = plugins
+        .plan_op("echo", "playlist", params, context, None, &locallibrary::Ctx::silent())
+        .unwrap()
+        .plan()
+        .unwrap();
     app.show(Modal::Confirm(super::super::edits::Confirm {
         drive: "DEMO".into(),
         root,
@@ -905,7 +918,6 @@ fn menus_offer_what_plugins_say_where() {
     assert_eq!(
         offered(&["/Contents/a.mp3"], None),
         [
-            said("fetch cover art…", None),
             said(
                 "make a playlist from a tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or \"Artist - Title\" lines…",
                 playlist
@@ -915,9 +927,9 @@ fn menus_offer_what_plugins_say_where() {
         ]
     );
     let on_a_list: Vec<_> = offered(&[], Some(("Sets/Friday", false))).into_iter().map(|(_, why)| why).collect();
-    assert_eq!(on_a_list, [None, None, track.map(String::from), None]);
+    assert_eq!(on_a_list, [None, track.map(String::from), None]);
     let on_a_folder: Vec<_> = offered(&[], Some(("Sets", true))).into_iter().map(|(_, why)| why).collect();
-    assert_eq!(on_a_folder, [track, playlist, track, playlist].map(|w| w.map(String::from)));
+    assert_eq!(on_a_folder, [playlist, track, playlist].map(|w| w.map(String::from)));
 
     let app = app_on(&root);
     let drive: Vec<String> = app.plugin_items(Some(&root), &[Where::Drive]).into_iter().map(|(_, i)| i.label).collect();
@@ -977,6 +989,9 @@ fn an_analyzers_key_and_bpm_are_written_from_the_palette() {
         confirming(&mut app),
         ("plugins.apply_fields".into(), "write key and bpm from Heard to 2 track(s)".into())
     );
+    // Said first in the confirmation, as a plugin's own operation's summary is.
+    let s = screen(&mut app, 120, 30);
+    assert!(s.contains("Plugins: write key and bpm from Heard to 2 track(s)"), "{s}");
     say_yes(&mut app);
     let after = locallibrary::Device::open_export(&root).unwrap().library().unwrap().tracks;
     for (b, a) in before.iter().zip(&after) {
@@ -1038,6 +1053,8 @@ fn plugins_own(act: &Act) -> bool {
             | Act::Export(..)
             | Act::FieldColumn(_)
             | Act::PluginSettings(_)
+            | Act::ProviderSettings
+            | Act::Fetch(_)
     )
 }
 
@@ -1082,10 +1099,11 @@ fn form_open(app: &App) -> (String, Vec<String>) {
 
 /// The plugin entries of the palette, and of the drive's menu (in the Drives view), come after the
 /// player's own commands and never take one's name, so typing a command's whole name still finds
-/// one of the player's first; the drive's menu has no settings or columns. Each entry that can't
-/// run where the player is says why when it's chosen and does nothing (nor does its analyzer or
-/// export asked for anyway); one that can does what it is (a form for its params or settings, a
-/// job, a panel, a column) and esc backs out of it to the view it started in.
+/// one of the player's first; the drive's menu has no settings, columns or fetching. Each entry
+/// that can't run where the player is says why when it's chosen and does nothing (nor does its
+/// analyzer or export asked for anyway); one that can does what it is (a form for its params, its
+/// settings or which provider to fetch from, a job, a panel, a column) and esc backs out of it to
+/// the view it started in.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     let (at, mut app, drive, _store) = somewhere(&tc);
@@ -1115,7 +1133,10 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
             assert!(!own.contains(&i.label), "{:?} takes a command's name", i.label);
         }
         for (i, act) in items.iter().zip(&acts).skip(first) {
-            let needs = matches!(act, Act::Plugin(..) | Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..));
+            let needs = matches!(
+                act,
+                Act::Plugin(..) | Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..) | Act::Fetch(_)
+            );
             assert_eq!(i.unavailable.as_deref(), why.filter(|_| needs), "{}", i.label);
             assert!(needs || !in_menu, "{:?} isn't a drive's", i.label);
         }
@@ -1219,6 +1240,22 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             assert_eq!(form_open(app), (format!("{} settings", m.name), keys));
             press(app, "\u{1b}");
         }
+        Act::ProviderSettings => {
+            assert_eq!(form_open(app), ("Provider settings".into(), vec!["auto_pick".into()]));
+            press(app, "\u{1b}");
+        }
+        // A form asking which provider and whether over what tracks have, for the track selected.
+        Act::Fetch(kind) => match &app.modal {
+            Some(Modal::Form(_)) => {
+                let title = match kind {
+                    loclib_plugin::ProviderKind::Artwork => "Fetch cover art",
+                    loclib_plugin::ProviderKind::Metadata => "Fetch track details",
+                };
+                assert_eq!(form_open(app), (title.to_string(), vec!["from".to_string(), "replace".into()]));
+                press(app, "\u{1b}");
+            }
+            _ => assert_eq!(last_message(app), "no track selected"),
+        },
         Act::FieldColumn(name) => {
             assert!(app.modal.is_none());
             assert_ne!(app.field_columns.contains(&name), columns.contains(&name), "{name:?} toggled");
@@ -1494,6 +1531,7 @@ fn cells(v: &View) -> Vec<String> {
         }
         View::Kv { pairs, .. } => pairs.iter().flat_map(|p| [p.label.clone(), cell(&p.value)]).collect(),
         View::Text { text, .. } => text.lines().map(String::from).collect(),
+        View::Choose(_) => unreachable!("never drawn"),
     }
 }
 
@@ -1513,13 +1551,7 @@ fn a_commands_answer_shows_whole_at_any_size(tc: TestCase) {
         _ => CommandOutput::View(any_view(&tc)),
     };
     let (title, view) = match &answer {
-        CommandOutput::View(v) => {
-            let (View::List { title, .. }
-            | View::Table { title, .. }
-            | View::Kv { title, .. }
-            | View::Text { title, .. }) = v;
-            (title.clone().unwrap_or("Tidy".into()), Some(v.clone()))
-        }
+        CommandOutput::View(v) => (v.title().unwrap_or("Tidy").to_string(), Some(v.clone())),
         _ => ("Tidy".to_string(), None),
     };
     let message = match &answer {
@@ -1900,3 +1932,5 @@ fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
     say_yes(&mut app);
     assert_eq!(on_drive(&drive.0), before, "taken back: {}", last_message(&app));
 }
+
+mod asking;

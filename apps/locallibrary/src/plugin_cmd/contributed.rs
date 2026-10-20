@@ -1,6 +1,6 @@
 //! The commands and operations plugins add to the command line: `locallibrary <plugin> <name>`,
 //! or the place a manifest gives one (`import`, `playlist import`), with a flag for each param
-//! (see [`params`]).
+//! (see [`params`]), and `--choose PARAM=VALUE` for a question one asks (see [`super::choose`]).
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -9,16 +9,16 @@ use std::process::ExitCode;
 use anyhow::{Context as _, Result};
 use clap::builder::PossibleValuesParser;
 use clap::{Arg, ArgAction, ArgMatches};
-use locallibrary::plugin::{Cli, CommandOutput, Plugins};
+use locallibrary::plugin::{Cli, CommandOutput, OpPlanned, Plugins};
 use locallibrary::progress::Ctx;
-use loclib_plugin::{Context, Manifest, Selection};
+use loclib_plugin::{Context, Manifest, Selection, View};
 use serde_json::{Map, Value};
 
-use super::view;
+use super::{choose, view};
 use crate::jobs_cmd::usage;
 use crate::output::{Output, heading};
 use crate::plugins::params::{self, Takes, properties, takes};
-use crate::plugins::{self, DRY_RUN, PARAMS};
+use crate::plugins::{self, CHOOSE, DRY_RUN, PARAMS};
 
 /// The id of the argument a contributed command's param `name` is given with: never one of the
 /// command's own (`drive`, `params`, `dry_run`).
@@ -26,15 +26,17 @@ fn param_id(name: &str) -> String {
     format!("param.{name}")
 }
 
-/// The positional argument naming the drive, and `--dry-run`'s id (what `--json`'s help reads).
+/// The positional argument naming the drive, and `--dry-run`'s and `--choose`'s ids (what
+/// `--json`'s help reads).
 const DRIVE: &str = "drive";
 const DRY_RUN_ID: &str = "dry_run";
+const CHOOSE_ID: &str = "choose";
 
 /// The command line's command for a plugin's command or operation, called `name`: the drive,
 /// then the positional param if there's one, and a flag for each other param it can take as
 /// text, in the schema's order; required ones unless `--params` gives them, or they're the drive
 /// (`x-from = "selection.drive"`), which the drive given stands for. The command line has no
-/// other selection.
+/// other selection. `--choose` answers a question it asks.
 fn contributed(name: &str, title: &str, params: Option<&Value>, operation: bool) -> clap::Command {
     let drive = match operation {
         true => {
@@ -48,7 +50,14 @@ rekordbox drive, or the one library plugged in]"
     let mut c = clap::Command::new(name.to_string())
         .about(title.to_string())
         .arg(Arg::new(DRIVE).value_name("DRIVE").help(drive))
-        .arg(Arg::new(PARAMS).long(PARAMS).value_name("JSON").help("Params as a JSON object (flags given win)"));
+        .arg(Arg::new(PARAMS).long(PARAMS).value_name("JSON").help("Params as a JSON object (flags given win)"))
+        .arg(
+            Arg::new(CHOOSE_ID)
+                .long(CHOOSE)
+                .value_name("PARAM=VALUE")
+                .action(ArgAction::Append)
+                .help("Answer a question it asks, VALUE as JSON or text (asked in a terminal otherwise)"),
+        );
     for (param, schema) in properties(params) {
         let Some(kind) = takes(schema) else { continue };
         let about = schema["description"].as_str().or(schema["title"].as_str()).unwrap_or_default();
@@ -156,7 +165,7 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
     let drive = m.get_one::<String>(DRIVE).cloned();
     match what {
         Cli::Command(command) => {
-            let params = params_of(command.params.as_ref(), m)?;
+            let mut params = params_of(command.params.as_ref(), m)?;
             let context = Context { drive, ..Context::default() };
             // The rows (and items) drawn as they came, which the view has first.
             let drawn = Cell::new((0, 0));
@@ -167,7 +176,26 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
                     drawn.set((rows + p.rows.len(), items + p.items.len()));
                 }
             };
-            match plugins.run_command(plugin, &command.name, params, context, store.as_ref(), ctx, &shown)? {
+            let answer = loop {
+                let run = plugins.run_command(
+                    plugin,
+                    &command.name,
+                    params.clone(),
+                    context.clone(),
+                    store.as_ref(),
+                    ctx,
+                    &shown,
+                );
+                match run? {
+                    CommandOutput::View(View::Choose(c)) => {
+                        // Run again, its rows come again.
+                        drawn.set((0, 0));
+                        params = c.answered(params, choose::ask(&c, out)?);
+                    }
+                    answer => break answer,
+                }
+            };
+            match answer {
                 CommandOutput::Headless(v) => out.emit(&v, view::headless),
                 CommandOutput::View(v) if drawn.get() == (0, 0) => out.emit_paged(&v, view::view),
                 CommandOutput::View(v) => out.emit(&v, |v| view::rest(v, drawn.get())),
@@ -176,9 +204,14 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
         }
         Cli::Operation(op) => {
             let drive = crate::jobs_cmd::drive_or_default(drive, store_path, &op.name)?;
-            let params = params_of(op.params.as_ref(), m)?;
+            let mut params = params_of(op.params.as_ref(), m)?;
             let context = Context { drive: Some(drive.clone()), ..Context::default() };
-            let planned = plugins.plan_op(plugin, &op.name, params, context, store.as_ref(), ctx)?;
+            let planned = loop {
+                match plugins.plan_op(plugin, &op.name, params.clone(), context.clone(), store.as_ref(), ctx)? {
+                    OpPlanned::Choose { choose: c } => params = c.answered(params, choose::ask(&c, out)?),
+                    OpPlanned::Plan(planned) => break planned,
+                }
+            };
             if !out.json {
                 heading(&planned.summary[0]);
             }
@@ -187,7 +220,8 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
     }
 }
 
-/// The params the command line gives: `--params`' object, with the flags given over it.
+/// The params the command line gives: `--params`' object, with the flags given over it, and
+/// `--choose`'s answers over those.
 fn params_of(schema: Option<&Value>, m: &ArgMatches) -> Result<Value> {
     let mut params = match m.get_one::<String>(PARAMS) {
         Some(json) => match serde_json::from_str(json) {
@@ -213,6 +247,8 @@ fn params_of(schema: Option<&Value>, m: &ArgMatches) -> Result<Value> {
         };
         params.insert(name.clone(), params::value(schema, &raws, &what).map_err(usage)?);
     }
+    let answers: Vec<String> = m.get_many::<String>(CHOOSE_ID).into_iter().flatten().cloned().collect();
+    params.extend(choose::given(&answers)?);
     Ok(Value::Object(params))
 }
 

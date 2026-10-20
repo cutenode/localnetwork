@@ -1,6 +1,6 @@
-//! The messages host and plugin exchange: the handshake, `describe`, the four hooks, progress,
-//! partial results, fetching from the web and cancelling. Params and results are these types as
-//! JSON objects.
+//! The messages host and plugin exchange: the handshake, `describe`, the hooks, progress, partial
+//! results, fetching from the web and cancelling. Params and results are these types as JSON
+//! objects.
 
 use std::path::PathBuf;
 
@@ -10,7 +10,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{FieldValue, RpcError};
+use crate::{Choice, FieldValue, ProviderKind, RpcError};
 
 /// The protocol's version, versioned apart from locallibrary's. A new kind of hook doesn't change
 /// it: it's an optional feature (see [`crate::FEATURES`]).
@@ -28,8 +28,10 @@ pub mod method {
     pub const ANALYZE_TRACK: &str = "track/analyze";
     /// Host to plugin: [`super::WriteExport`] -> [`super::Exported`].
     pub const WRITE_EXPORT: &str = "export/write";
-    /// Host to plugin: [`super::PlanOp`] -> [`super::OpPlan`].
+    /// Host to plugin: [`super::PlanOp`] -> [`super::OpAnswer`].
     pub const PLAN_OP: &str = "op/plan";
+    /// Host to plugin (feature `providers`): [`super::ProvideCandidates`] -> [`super::Candidates`].
+    pub const PROVIDE: &str = "provide/candidates";
     /// Notification, plugin to host: [`super::ProgressParams`].
     pub const PROGRESS: &str = "progress";
     /// Notification, plugin to host (feature `blobs`): [`super::Partial`].
@@ -242,7 +244,41 @@ pub struct PlanOp {
     pub context: Context,
 }
 
-/// What `op/plan` answers: edits for the host to plan as one `edit.plan` (one confirmation, one
+/// What `op/plan` answers: a plan, or first a question for the user (`{"choose": ...}`, feature
+/// `choose`), once answered planned again with the param set (see [`Choice`]).
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[serde(untagged)]
+pub enum OpAnswer {
+    Choose { choose: Choice },
+    Plan(OpPlan),
+}
+
+impl From<OpPlan> for OpAnswer {
+    fn from(plan: OpPlan) -> OpAnswer {
+        OpAnswer::Plan(plan)
+    }
+}
+
+impl From<Choice> for OpAnswer {
+    fn from(choose: Choice) -> OpAnswer {
+        OpAnswer::Choose { choose }
+    }
+}
+
+/// Read by its `choose` key rather than by trying each kind: what's wrong with a plan is said as
+/// a plan's error.
+impl<'de> Deserialize<'de> for OpAnswer {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<OpAnswer, D::Error> {
+        let answer = Value::deserialize(d)?;
+        let read = match answer.get("choose") {
+            Some(choose) => Choice::deserialize(choose).map(OpAnswer::from),
+            None => OpPlan::deserialize(answer).map(OpAnswer::Plan),
+        };
+        read.map_err(serde::de::Error::custom)
+    }
+}
+
+/// An operation's plan: edits for the host to plan as one `edit.plan` (one confirmation, one
 /// backup, applied together), confirm and apply itself. A plugin never writes to a drive.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct OpPlan {
@@ -258,6 +294,92 @@ pub struct OpPlan {
     /// it is refused once one of them changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inputs: Vec<PathBuf>,
+}
+
+/// `provide/candidates` (feature `providers`): what the provider has for these tracks, of its
+/// kind. The host asks every provider of a kind, offers the user what they answer, and makes the
+/// edits chosen itself: a provider never plans one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ProvideCandidates {
+    /// One of the manifest's providers.
+    pub provider: String,
+    /// Its kind, as the manifest declares it.
+    pub kind: ProviderKind,
+    pub tracks: Vec<TrackTags>,
+    #[serde(default)]
+    pub context: Context,
+}
+
+/// A track as a provider looks it up: by its tags, each left out when it has none.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TrackTags {
+    pub id: u32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub artist: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub album: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub album_artist: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub isrc: String,
+    /// In seconds.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub duration: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// What `provide/candidates` answers: what it found for the tracks, any number for each (or
+/// none), and why it found nothing for some, in a line each.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Candidates {
+    pub candidates: Vec<Candidate>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// What a provider found for a track: an image (an artwork provider's), or tags (a metadata
+/// provider's).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Candidate {
+    /// The track's id, as it was asked for.
+    pub track: u32,
+    /// How sure the provider is that it's the track's, 0 to 1: the host picks one alone at the
+    /// top for the user, when they let it.
+    pub score: f64,
+    /// Where it's from, in a few words (`Cover Art Archive`).
+    pub source: String,
+    /// What it is, in a line (`Discovery, album`).
+    pub label: String,
+    /// The image, a file in the request's scratch folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artwork: Option<Blob>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<TrackMetadata>,
+}
+
+/// The tags a metadata provider has for a track: each it doesn't have left out.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TrackMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub year: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+    /// The record label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub isrc: Option<String>,
 }
 
 /// A `progress` notification's params.
