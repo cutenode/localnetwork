@@ -101,6 +101,7 @@ branch from the Actions tab (locallibrary scheduled, Run workflow):
   command's fastest run is more than 25% (and 3 ms) slower;
 - dist's release build of every target, unsigned and without a tag (see Releasing);
 - the fuzz targets, five minutes each (see Fuzzing);
+- the Hegel property tests on fresh inputs, 40 minutes a shard (see Property-based tests);
 - cargo-deny's advisory check, for advisories published since the last push.
 
 A weekly run with a failed job opens an issue (or comments on the open one) naming the jobs, and
@@ -188,7 +189,7 @@ property reaches: a place where a new or wider generator would test more.
 
 ## Property-based tests
 
-The `props_*` modules in `crates/locallibrary/tests/it/` (and a few unit tests in the CLI) use
+The `props_*` modules in every crate's tests, and many of the unit tests beside the code, use
 [Hegel](https://github.com/hegeldev/hegel-rust): each test states something that must hold for
 every input, Hegel generates hundreds of inputs and, when one fails, shrinks it to the smallest
 example. They run with `cargo test` like any other test. The bigger ones are model tests: random
@@ -205,17 +206,22 @@ and stores; `props_cli_asked.rs` answers `setup`'s questions in a terminal and s
 `store serve` with Ctrl-C.
 
 ```bash
-cargo test -p locallibrary --test it props_pdb::            # one module
-HEGEL_SEED=7 cargo test ...                                 # repeat a run
+cargo test -p locallibrary --test it props_pdb::               # one module
+HEGEL_SEED=7 cargo test ...                                    # repeat a run
+cargo nextest run --stress-duration 10m -E 'test(props_pdb::)' # fresh inputs for ten minutes
 ```
 
-To search harder, raise `test_cases` in the test's `#[hegel::test(...)]` for the run. Most tests
-set one, and it wins over `HEGEL_TEST_CASES`, which only reaches the tests that don't.
+To search harder, run the tests over and over as above, or raise `test_cases` in the test's
+`#[hegel::test(...)]` for the run. Most tests set one, and it wins over `HEGEL_TEST_CASES`, which
+only reaches the tests that don't.
 
 A failure prints the shrunk example and a `#[hegel::reproduce_failure("…")]` line to replay it;
 locally, failing examples are also kept in `.hegel/` in the crate's folder (ignored by git), under
 the test's path (`it::props_pdb::...`), and tried first next time.
-On CI runs are derandomised.
+
+CI derandomises the runs, so every pull request tries the same inputs. The scheduled workflow's
+`hegel` job runs the Hegel tests over and over for 40 minutes a shard on fresh ones, and caches the
+failing examples it finds for the next week's run.
 
 ## Fuzzing
 
