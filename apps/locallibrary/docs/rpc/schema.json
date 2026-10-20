@@ -11459,6 +11459,14 @@
           },
           "description": "The candidates chosen, each for its track, as they were found."
         },
+        "images": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The images they're of, by id, as they were found: the answer's `images`, or those picked.",
+          "default": {}
+        },
         "replace": {
           "type": "boolean",
           "description": "Also over what the tracks have: otherwise a track with cover art keeps it, and a tag it\nhas is kept.",
@@ -11515,7 +11523,7 @@
             "string",
             "null"
           ],
-          "description": "The image, in base64: an artwork provider's."
+          "description": "The image, by its id in the answer's `images`: an artwork provider's."
         },
         "metadata": {
           "anyOf": [
@@ -30052,18 +30060,26 @@
           },
           "description": "Each track something was found for, in the library's order."
         },
+        "images": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The images the candidates are of, each once, by id (its content's hash): in base64."
+        },
         "warnings": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "A provider that failed (what the others found is offered), and what each said it found\nnothing for."
+          "description": "A provider that failed (what the others found is offered), one that answered more than is\nkept (the rest left out), and what each said it found nothing for."
         }
       },
       "required": [
         "kind",
         "asked",
         "offers",
+        "images",
         "warnings"
       ],
       "description": "What the providers found."

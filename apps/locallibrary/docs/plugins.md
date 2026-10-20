@@ -112,7 +112,8 @@ terminal, or with `--choose TRACK=N` (`--choose 812=null` for none). Then locall
 changes itself, cover art set on the tracks or the tags they lack filled in (over what they have,
 with `--replace`), shown and asked about as any edit is, and `undo` takes them back. A provider
 never changes a library itself, and needs no capability to: it's given the tracks' tags
-(`library:read`) and answers what it found.
+(`library:read`) and answers what it found. Of what one answers, locallibrary keeps 25 candidates a
+track and 50,000 in all, and images coming to 512 MiB; past that it leaves the rest out and says so.
 
 ## Writing one
 

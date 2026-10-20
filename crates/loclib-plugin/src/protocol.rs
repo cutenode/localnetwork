@@ -363,7 +363,7 @@ pub struct Candidate {
 }
 
 /// The tags a metadata provider has for a track: each it doesn't have left out.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct TrackMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,

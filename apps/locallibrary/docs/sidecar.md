@@ -298,12 +298,15 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   `<plugin>.<provider>`) asks the providers of that kind what they find for the tracks without it
   (cover art, or some tag; every one chosen, with `replace`), with progress and `$/cancel`, and
   answers `{kind, asked, offers: [{track, name, candidates: [{provider, source, label, score,
-  artwork?, metadata?}], picked}], warnings}`: each track's candidates best first (`artwork` an
-  image in base64, `metadata` `{title?, artist?, album?, year?, genre?, label?, isrc?}`),
-  `picked` the one picked for the user, when it alone scores the `auto_pick` setting or more,
-  and a provider that failed in `warnings`. Show the rest, then `plugins.provide.plan {kind,
-  drive, picks: [{track, candidate}], replace?}` (each candidate as it was offered) answers an
-  edit plan (`plugins.provide`) setting the images or writing the tags (only where a track has
+  artwork?, metadata?}], picked}], images, warnings}`: each track's candidates best first
+  (`artwork` the id of its image in `images`, `metadata` `{title?, artist?, album?, year?,
+  genre?, label?, isrc?}`), `picked` the one picked for the user, when it alone scores the
+  `auto_pick` setting or more, `images` each image once, however many tracks it's offered for,
+  by id (its content's hash) in base64, and in `warnings` a provider that failed, or answered
+  more than is kept (25 candidates a track, 50,000 in all, images coming to 512 MiB in base64:
+  the rest are left out). Show the rest, then `plugins.provide.plan {kind, drive, picks: [{track,
+  candidate}], images?, replace?}` (each candidate as it was offered, with the images picked, or
+  all of `images`) answers an edit plan (`plugins.provide`) setting the images or writing the tags (only where a track has
   none, unless `replace`), applied by `plugins.provide.apply {plan_id}`. `plugins.providers`
   answers `{providers: [{plugin, name, title, kind}], auto_pick}`, and `plugins.providers.set
   {auto_pick}` (0 to 1, more than 1: never; `null`: back to 0.9) sets it.

@@ -32,6 +32,14 @@ pub fn echo_plugin() -> String {
     ECHO.replace("format = \"m3u\"", "format = \"echo-m3u\"")
 }
 
+/// A JPEG, of `side` pixels square.
+pub fn jpeg(side: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 128]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut out, image::ImageFormat::Jpeg).unwrap();
+    out.into_inner()
+}
+
 /// The library's test fixtures: real rekordbox exports (see the README there).
 pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/locallibrary/tests/fixtures")

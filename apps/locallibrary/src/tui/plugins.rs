@@ -15,6 +15,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
+use indexmap::IndexMap;
 use locallibrary::Store;
 use locallibrary::fields::Role;
 use locallibrary::op::AnyPlanned;
@@ -83,14 +84,15 @@ impl Asking {
     }
 }
 
-/// Fetching from providers for the tracks of the drive at `root`: the picks so far, and the
-/// tracks left to ask about.
+/// Fetching from providers for the tracks of the drive at `root`: the picks so far, the tracks
+/// left to ask about, and the images found, by id.
 pub struct Fetching {
     kind: ProviderKind,
     root: PathBuf,
     replace: bool,
     picks: Vec<Pick>,
     left: VecDeque<Offer>,
+    images: IndexMap<String, String>,
 }
 
 /// What providers fetch for the tracks selected, as a menu offers it on a drive (see
@@ -792,7 +794,7 @@ impl App {
     /// What the providers found: their warnings said, then each track's candidates asked about in
     /// turn, but those picked already.
     pub(super) fn fetched(&mut self, root: PathBuf, replace: bool, provided: Provided) {
-        let Provided { kind, asked, offers, warnings } = provided;
+        let Provided { kind, asked, offers, images, warnings } = provided;
         for w in &warnings {
             self.toast(w.clone(), Level::Info);
         }
@@ -807,7 +809,7 @@ impl App {
         }
         let (picked, left): (Vec<Offer>, Vec<Offer>) = offers.into_iter().partition(|o| o.picked.is_some());
         let picks = picked.iter().filter_map(Offer::pick).collect();
-        self.next_offer(Fetching { kind, root, replace, picks, left: left.into() });
+        self.next_offer(Fetching { kind, root, replace, picks, left: left.into(), images });
     }
 
     /// The next track to ask about, or once there's none the plan of the picks, to confirm.
@@ -819,8 +821,8 @@ impl App {
         if f.picks.is_empty() {
             return self.toast(format!("no {} chosen", f.kind.found()), Level::Info);
         }
-        let req =
-            PlanProvided { kind: f.kind, drive: f.root.display().to_string(), picks: f.picks, replace: f.replace };
+        let (drive, images) = (f.root.display().to_string(), f.images);
+        let req = PlanProvided { kind: f.kind, drive, picks: f.picks, images, replace: f.replace };
         self.plan(f.root, move |ctx| Ok(Box::new(plan_provided(&req, ctx)?)));
     }
 

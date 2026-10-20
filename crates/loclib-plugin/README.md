@@ -70,7 +70,9 @@ user first).
      metadata provider's `metadata` the tags it has (`title`, `artist`, `album`, `year`, `genre`,
      `label`, `isrc`). `warnings` say what it found nothing for. The host asks every provider of a
      kind, offers the user what they found, best first, picking one alone that scores high
-     enough, and plans the edits itself: a provider plans none.
+     enough, and plans the edits itself: a provider plans none. It keeps 25 candidates a track
+     and 50,000 in all, and images coming to 512 MiB (in base64), leaving out the rest with a
+     warning.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one

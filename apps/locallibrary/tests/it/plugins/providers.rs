@@ -7,7 +7,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use serde_json::{Value, json};
 
-use crate::support::{Env, echo_plugin};
+use crate::support::{Env, echo_plugin, jpeg};
 
 /// The echo manifest with a metadata provider `found` (in place of its own) and an artwork
 /// provider `covers`, each answering as its `answer` setting says.
@@ -111,14 +111,6 @@ fn track_fetch_in_json_from_one_provider() {
     assert!(err.contains("nope provides no metadata: echo.found do"), "{err}");
     let err = env.fails(1, &["art", "fetch", "USB", "--from", "echo.found"]);
     assert!(err.contains("echo.found provides no artwork: coverart.covers, echo.covers do"), "{err}");
-}
-
-/// A JPEG, of `side` pixels square.
-fn jpeg(side: u32) -> Vec<u8> {
-    let image = image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 128]));
-    let mut out = std::io::Cursor::new(Vec::new());
-    image.write_to(&mut out, image::ImageFormat::Jpeg).unwrap();
-    out.into_inner()
 }
 
 /// The cover an artwork provider finds is set on the tracks it's for; once they have one, they're

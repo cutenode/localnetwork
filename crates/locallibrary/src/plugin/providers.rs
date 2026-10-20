@@ -5,7 +5,9 @@
 //! picks the others ([`Offer::choice`]), and the host makes the edits itself ([`plan_provided`]:
 //! `SetArtwork` for an image, `EditTracks` for tags) as one edit plan, confirmed and applied as any
 //! is. A provider plans no edit and needs no capability to: the host has them, the user running
-//! it.
+//! it. An image is held once however many tracks it's offered for, by its id, and what a call
+//! holds is bounded (see [`super::Options`]): past that a provider's other candidates are left
+//! out, with a warning.
 
 use std::io::Read;
 
@@ -65,8 +67,10 @@ pub struct Provided {
     pub asked: usize,
     /// Each track something was found for, in the library's order.
     pub offers: Vec<Offer>,
-    /// A provider that failed (what the others found is offered), and what each said it found
-    /// nothing for.
+    /// The images the candidates are of, each once, by id (its content's hash): in base64.
+    pub images: IndexMap<String, String>,
+    /// A provider that failed (what the others found is offered), one that answered more than is
+    /// kept (the rest left out), and what each said it found nothing for.
     pub warnings: Vec<String>,
 }
 
@@ -94,7 +98,7 @@ pub struct Found {
     pub label: String,
     /// How sure the provider is that it's the track's, 0 to 1.
     pub score: f64,
-    /// The image, in base64: an artwork provider's.
+    /// The image, by its id in the answer's `images`: an artwork provider's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artwork: Option<String>,
     /// The tags: a metadata provider's, each it has.
@@ -110,6 +114,9 @@ pub struct PlanProvided {
     pub drive: String,
     /// The candidates chosen, each for its track, as they were found.
     pub picks: Vec<Pick>,
+    /// The images they're of, by id, as they were found: the answer's `images`, or those picked.
+    #[serde(default)]
+    pub images: IndexMap<String, String>,
     /// Also over what the tracks have: otherwise a track with cover art keeps it, and a tag it
     /// has is kept.
     #[serde(default)]
@@ -222,7 +229,7 @@ impl Plugins {
             library.tracks.iter().filter(|t| ids.contains(&t.id) && (req.replace || lacks(req.kind, t))).collect();
         let tags: Vec<TrackTags> = wanted.iter().map(|t| tags_of(t)).collect();
         let asked: FxHashSet<u32> = tags.iter().map(|t| t.id).collect();
-        let (mut found, mut warnings): (FxHashMap<u32, Vec<Found>>, Vec<String>) = Default::default();
+        let (mut held, mut warnings) = (Held::default(), Vec::new());
         for (plugin, provider) in chosen.into_iter().filter(|_| !tags.is_empty()) {
             let slot = self.slot(plugin)?;
             let context = Context {
@@ -233,12 +240,14 @@ impl Plugins {
             let (context, _) = slot.context(context, store)?;
             let ask =
                 ProvideCandidates { provider: provider.name.clone(), kind: req.kind, tracks: tags.clone(), context };
-            let read = |answer, scratch: &Scratch, _: &_| slot.candidates(provider, req.kind, &asked, answer, scratch);
+            let read =
+                |answer, scratch: &Scratch, _: &_| slot.candidates(provider, req.kind, &asked, answer, scratch, &held);
             match slot.call_with(method::PROVIDE, &ask, store, ctx, &|_| {}, read) {
-                Ok((candidates, said)) => {
+                Ok((candidates, images, said)) => {
                     warnings.extend(said.into_iter().map(|w| format!("{}: {w}", provider.title)));
+                    held.images.extend(images);
                     for (track, c) in candidates {
-                        found.entry(track).or_default().push(c);
+                        held.found.entry(track).or_default().push(c);
                     }
                 }
                 Err(Error::Cancelled) => return Err(Error::Cancelled),
@@ -247,26 +256,30 @@ impl Plugins {
         }
         let threshold = auto_pick(store);
         let offers = wanted.iter().filter_map(|t| {
-            let mut candidates = found.remove(&t.id)?;
+            let mut candidates = held.found.remove(&t.id)?;
             // Best first, the providers' order kept between equals; the same found twice once.
             candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
-            let mut seen = Vec::new();
-            candidates.retain(|c| {
-                let what = (c.artwork.clone(), c.metadata.clone());
-                let new = !seen.contains(&what);
-                seen.push(what);
-                new
-            });
+            let mut seen = FxHashSet::default();
+            candidates.retain(|c| seen.insert((c.artwork.clone(), c.metadata.clone())));
             let sure = candidates.iter().filter(|c| c.score >= threshold).count();
             Some(Offer { track: t.id, name: t.display_name(), picked: (sure == 1).then_some(0), candidates })
         });
-        Ok(Provided { kind: req.kind, asked: tags.len(), offers: offers.collect(), warnings })
+        let offers = offers.collect();
+        Ok(Provided { kind: req.kind, asked: tags.len(), offers, images: held.images, warnings })
     }
 }
 
-/// What a provider answered, as the host takes it: each candidate with its track, and its
-/// warnings.
-type Answered = (Vec<(u32, Found)>, Vec<String>);
+/// What a [`Plugins::provide`] holds of what its providers found so far: each track's candidates,
+/// and the images they're of, by id, in base64.
+#[derive(Default)]
+struct Held {
+    found: FxHashMap<u32, Vec<Found>>,
+    images: IndexMap<String, String>,
+}
+
+/// What a provider answered, as the host takes it: each candidate with its track, the images new
+/// to what's [`Held`] they're of, and its warnings.
+type Answered = (Vec<(u32, Found)>, IndexMap<String, String>, Vec<String>);
 
 /// `t` as a provider looks it up.
 fn tags_of(t: &Track) -> TrackTags {
@@ -283,9 +296,12 @@ fn tags_of(t: &Track) -> TrackTags {
 
 impl Slot {
     /// What `provider` (of `kind`) answered about the tracks `asked`, each candidate with its
-    /// track, and what it said it found nothing for: candidates only for those tracks, scoring 0 to
-    /// 1, each an image (read from `scratch`, once for each file) or tags as its kind gives. Tags
-    /// are trimmed, blank ones and ISRCs that aren't one left out (and a candidate with none).
+    /// track, the images it's of that `held` hasn't, and what it said it found nothing for:
+    /// candidates only for those tracks, scoring 0 to 1, each an image (read from `scratch`, once
+    /// for each file) or tags as its kind gives. Tags are trimmed, blank ones and ISRCs that aren't
+    /// one left out (and a candidate with none). Past [`super::Options::track_candidates`] for a
+    /// track or [`super::Options::candidates`] in all, with what's `held`, or an image past
+    /// [`super::Options::max_blobs`] of them in base64, the rest are left out, saying so.
     fn candidates(
         &self,
         provider: &Provider,
@@ -293,10 +309,21 @@ impl Slot {
         asked: &FxHashSet<u32>,
         answer: Candidates,
         scratch: &Scratch,
+        held: &Held,
     ) -> Result<Answered> {
+        let options = &self.host.options;
         let name = format!("{}.{}", self.manifest.id, provider.name);
-        let mut images: FxHashMap<String, String> = FxHashMap::default();
-        let mut found = Vec::new();
+        let mut each: FxHashMap<u32, usize> = held.found.iter().map(|(t, c)| (*t, c.len())).collect();
+        let mut all: usize = each.values().sum();
+        let mut size: u64 = held.images.values().map(|i| i.len() as u64).sum();
+        // Each file's image, by name: its id, or none past the size.
+        let (mut ids, mut images): (FxHashMap<String, Option<String>>, IndexMap<String, String>) = Default::default();
+        let (mut found, mut warnings) = (Vec::new(), answer.warnings);
+        let mut past = |w: String| {
+            if !warnings.contains(&w) {
+                warnings.push(w);
+            }
+        };
         for (i, c) in answer.candidates.into_iter().enumerate() {
             if !asked.contains(&c.track) {
                 return Err(self.misbehaved(format!("its candidate {i} is for track #{}, not asked about", c.track)));
@@ -304,17 +331,39 @@ impl Slot {
             if !(0.0..=1.0).contains(&c.score) {
                 return Err(self.misbehaved(format!("its candidate {i} scores {}, not 0 to 1", c.score)));
             }
+            if all >= options.candidates {
+                past(format!("more than {} candidates, the rest left out", options.candidates));
+                continue;
+            }
+            if each.get(&c.track).is_some_and(|&n| n >= options.track_candidates) {
+                past(format!("more than {} candidates for a track, the rest left out", options.track_candidates));
+                continue;
+            }
             let (artwork, metadata) = match (kind, c.artwork, c.metadata) {
                 (ProviderKind::Artwork, Some(blob), None) => {
-                    let image = match images.get(&blob.blob) {
-                        Some(image) => image.clone(),
+                    let id = match ids.get(&blob.blob) {
+                        Some(id) => id.clone(),
                         None => {
-                            let image = self.image(i, &blob.blob, scratch)?;
-                            images.insert(blob.blob, image.clone());
-                            image
+                            let bytes = self.image(i, &blob.blob, scratch)?;
+                            let id = blake3::hash(&bytes).to_hex()[..32].to_string();
+                            let new = !held.images.contains_key(&id) && !images.contains_key(&id);
+                            let more = bytes.len().div_ceil(3) as u64 * 4;
+                            let fits = !new || size + more <= options.max_blobs;
+                            if new && fits {
+                                size += more;
+                                images.insert(id.clone(), BASE64_STANDARD.encode(&bytes));
+                            }
+                            let id = fits.then_some(id);
+                            ids.insert(blob.blob, id.clone());
+                            id
                         }
                     };
-                    (Some(image), None)
+                    let Some(id) = id else {
+                        let most = crate::op::bytes(options.max_blobs);
+                        past(format!("images coming to more than {most}, the rest left out"));
+                        continue;
+                    };
+                    (Some(id), None)
                 }
                 (ProviderKind::Metadata, None, Some(m)) => match tidy(m) {
                     m if m == TrackMetadata::default() => continue,
@@ -328,18 +377,20 @@ impl Slot {
                 }
             };
             let (source, label, score) = (c.source, c.label, c.score);
+            *each.entry(c.track).or_default() += 1;
+            all += 1;
             found.push((c.track, Found { provider: name.clone(), source, label, score, artwork, metadata }));
         }
-        Ok((found, answer.warnings))
+        Ok((found, images, warnings))
     }
 
-    /// The image of candidate `i`, the file `blob` in `scratch`, in base64, once it's one.
-    fn image(&self, i: usize, blob: &str, scratch: &Scratch) -> Result<String> {
+    /// The image of candidate `i`, the file `blob` in `scratch`, once it's one.
+    fn image(&self, i: usize, blob: &str, scratch: &Scratch) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         let read = scratch.blob(blob).and_then(|mut f| f.read_to_end(&mut bytes).map_err(|e| e.to_string()));
         read.map_err(|why| self.misbehaved(format!("its candidate {i}: {why}")))?;
         Artwork::from_bytes(&bytes).map_err(|e| self.misbehaved(format!("its candidate {i}'s image: {e}")))?;
-        Ok(BASE64_STANDARD.encode(bytes))
+        Ok(bytes)
     }
 }
 
@@ -360,13 +411,14 @@ fn tidy(m: TrackMetadata) -> TrackMetadata {
 }
 
 /// Plans the edits of the candidates `req` picks, on the tracks of `req.drive`
-/// (`plugins.provide`): an image set on the tracks it was picked for (a `SetArtwork` for each),
-/// or tags written to each track (an `EditTracks`). A track keeps its cover art and the tags it
-/// has unless `req.replace`; a pick that changes nothing is left out.
+/// (`plugins.provide`): an image (of `req.images`) set on the tracks it was picked for (a
+/// `SetArtwork` for each), or tags written to each track (an `EditTracks`). A track keeps its
+/// cover art and the tags it has unless `req.replace`; a pick that changes nothing is left out.
 pub fn plan_provided(req: &PlanProvided, ctx: &Ctx<'_>) -> Result<Planned<EditPlan>> {
     let device = api::resolve_drive(&req.drive)?;
     let library = device.library()?;
     let mut sources: Vec<&str> = Vec::new();
+    // Each image's tracks, by its id.
     let mut images: IndexMap<&str, Vec<u32>> = IndexMap::new();
     let mut edits = Vec::new();
     for p in &req.picks {
@@ -376,6 +428,9 @@ pub fn plan_provided(req: &PlanProvided, ctx: &Ctx<'_>) -> Result<Planned<EditPl
         match req.kind {
             ProviderKind::Artwork => {
                 let image = c.artwork.as_deref().ok_or_else(wrong)?;
+                if !req.images.contains_key(image) {
+                    return Err(Error::invalid(format!("the image {image} picked for #{} isn't given", t.id)));
+                }
                 if !req.replace && t.artwork_path.is_some() {
                     continue;
                 }
@@ -397,7 +452,7 @@ pub fn plan_provided(req: &PlanProvided, ctx: &Ctx<'_>) -> Result<Planned<EditPl
     let tracks: usize = images.values().map(Vec::len).sum::<usize>() + edits.len();
     edits.extend(images.into_iter().map(|(image, ids)| Edit::SetArtwork {
         tracks: TrackSelector { ids, ..TrackSelector::default() },
-        image: ImageSource::Base64(image.into()),
+        image: ImageSource::Base64(req.images[image].clone()),
     }));
     let plan = edit::plan(&device, &edits, &EditOptions { lenient: false, no_journal: false }, ctx)?;
     let mut planned = api::planned_edit("plugins.provide", plan, Touched::library(&device, true), ctx)?;

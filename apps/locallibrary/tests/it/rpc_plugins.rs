@@ -7,7 +7,7 @@ use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use serde_json::{Value, json};
 
-use crate::support::{Env, Rpc, echo_plugin, path};
+use crate::support::{Env, Rpc, echo_plugin, jpeg, path};
 
 /// The echo manifest as these tests register it: its playlist's name not required (a question is
 /// asked about a param its schema doesn't require: the host checks the params first), and in place
@@ -119,6 +119,46 @@ fn the_sidecar_offers_what_providers_find_and_applies_the_picks() {
     let none = s.call(12, "plugins.provide", json!({ "kind": "artwork", "drive": drive, "from": "echo" }));
     assert_eq!(none["error"]["data"]["kind"], "invalid", "{none}");
     assert!(none["error"]["message"].as_str().unwrap().starts_with("echo provides no artwork: "), "{none}");
+}
+
+/// A cover a provider finds for both tracks is sent once, in `images`, both candidates naming it
+/// by id; planned without it, the plan is refused, and with it, it's set on both.
+#[test]
+fn the_sidecar_sends_an_image_once_however_many_tracks_its_for() {
+    let mut env = Env::new();
+    let covers = "[[contributes.providers]]\nname = \"covers\"\ntitle = \"Covers\"\nkind = \"artwork\"\n\n\
+                  [[contributes.settings]]";
+    env.plugins(&[&asking().replacen("[[contributes.settings]]", covers, 1)]);
+    let drive = path(&env.demo("USB")).to_string();
+    let mut s = Rpc::start(env.command());
+    let cover = jpeg(64);
+    let front = json!({ "score": 1, "source": "Covers", "label": "front", "artwork": { "blob": "a.jpg" } });
+    let answer = json!({ "blobs": { "a.jpg": cover }, "each": [front] });
+    result(s.call(
+        1,
+        "plugins.settings.set",
+        json!({ "plugin": "echo", "key": "answer", "value": answer.to_string() }),
+    ));
+    let req = json!({ "kind": "artwork", "drive": drive, "from": "echo.covers", "replace": true });
+    let provided = result(s.call(2, "plugins.provide", req));
+    let images = provided["images"].as_object().unwrap();
+    assert_eq!(images.len(), 1, "{provided}");
+    let (id, image) = images.iter().next().unwrap();
+    assert_eq!(image.as_str().map(str::len), Some(cover.len().div_ceil(3) * 4), "the cover in base64");
+    let offers = provided["offers"].as_array().unwrap();
+    assert_eq!(offers.len(), 2, "{provided}");
+    assert!(offers.iter().all(|o| o["candidates"][0]["artwork"] == *id), "{provided}");
+    let picks: Vec<Value> =
+        offers.iter().map(|o| json!({ "track": o["track"], "candidate": o["candidates"][0] })).collect();
+    let without = json!({ "kind": "artwork", "drive": drive, "picks": picks, "replace": true });
+    let refused = s.call(3, "plugins.provide.plan", without);
+    assert_eq!(refused["error"]["data"]["kind"], "invalid", "{refused}");
+    let plan = json!({ "kind": "artwork", "drive": drive, "picks": picks, "images": images, "replace": true });
+    let planned = result(s.call(4, "plugins.provide.plan", plan));
+    assert_eq!(planned["summary"][0], "set cover art on 2 track(s) from Covers");
+    result(s.call(5, "plugins.provide.apply", json!({ "plan_id": planned["plan_id"] })));
+    let page = result(s.call(6, "tracks.query", json!({ "drive": drive })));
+    assert!(page["tracks"].as_array().unwrap().iter().all(|t| !t["artwork_path"].is_null()), "{page}");
 }
 
 /// Whatever the provider finds for the tracks and whatever the setting, the sidecar offers it best

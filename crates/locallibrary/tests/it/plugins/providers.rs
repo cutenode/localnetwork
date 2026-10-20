@@ -1,6 +1,6 @@
 //! Providers: what plugins find for a drive's tracks, cover art or tags, asked of every provider
 //! of a kind, merged best first for each track, one alone above the setting picked for the user,
-//! and made edits of by the host itself.
+//! and made edits of by the host itself; each image held once, and what a call holds bounded.
 
 use base64::prelude::*;
 use hegel::TestCase;
@@ -10,6 +10,7 @@ use locallibrary::plugin::{
 };
 use locallibrary::query::TrackSelector;
 use loclib_plugin::{ProviderKind, TrackMetadata};
+use rustc_hash::FxHashSet;
 
 use super::*;
 
@@ -28,8 +29,13 @@ fn providing(id: &str) -> String {
 impl Fixture {
     /// The plugins `ids`, each with [`providing`]'s providers.
     fn providers(ids: &[&str]) -> Fixture {
+        Fixture::bounded(ids, Options::default())
+    }
+
+    /// [`Fixture::providers`], the host run with `options`.
+    fn bounded(ids: &[&str], options: Options) -> Fixture {
         let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
-        Fixture::new(|dir| ids.iter().map(|id| spec(dir, &providing(id), &[])).collect(), Options::default())
+        Fixture::new(|dir| ids.iter().map(|id| spec(dir, &providing(id), &[])).collect(), options)
     }
 
     /// `plugin`'s providers answer `answer`.
@@ -156,7 +162,8 @@ fn a_provider_failing_is_a_warning_and_cancelling_cancels() {
 }
 
 /// An artwork provider's images are files in its scratch folder, each read once however many
-/// tracks it's for, and only once it's an image; picked, the host sets them.
+/// tracks it's for, and only once it's an image; held once (by id) for all of them, and picked,
+/// the host sets them.
 #[test]
 fn found_cover_art_is_set_by_the_host() {
     let f = Fixture::providers(&["echo"]);
@@ -165,9 +172,22 @@ fn found_cover_art_is_set_by_the_host() {
     f.answer("echo", json!({ "blobs": { "a.jpg": cover }, "each": [image] }));
     let p = f.provide(ProviderKind::Artwork, None, true).unwrap();
     assert!(p.offers.iter().all(|o| o.picked == Some(0)));
-    assert_eq!(p.offers[0].candidates[0].artwork.as_deref(), Some(BASE64_STANDARD.encode(&cover).as_str()));
-    let picks = p.offers.iter().map(|o| o.chosen(&json!(1)).unwrap()).collect();
-    let req = PlanProvided { kind: ProviderKind::Artwork, drive: "USB".into(), picks, replace: true };
+    let images: Vec<(&String, &String)> = p.images.iter().collect();
+    let [(id, held)] = images[..] else { panic!("{:?}", p.images.keys()) };
+    assert_eq!(*held, BASE64_STANDARD.encode(&cover));
+    assert_eq!(p.offers.len(), 2);
+    assert!(p.offers.iter().all(|o| o.candidates[0].artwork.as_ref() == Some(id)), "each track's is that one");
+    let picks: Vec<_> = p.offers.iter().map(|o| o.chosen(&json!(1)).unwrap()).collect();
+    let none = PlanProvided {
+        kind: ProviderKind::Artwork,
+        drive: "USB".into(),
+        picks: picks.clone(),
+        images: Default::default(),
+        replace: true,
+    };
+    let e = plan_provided(&none, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.to_string(), format!("the image {id} picked for #{} isn't given", picks[0].track));
+    let req = PlanProvided { images: p.images.clone(), ..none };
     let plan = plan_provided(&req, &Ctx::silent()).unwrap();
     assert_eq!(plan.summary[0], "set cover art on 2 track(s) from Covers");
     plan.apply(None, &Ctx::silent()).unwrap();
@@ -179,6 +199,12 @@ fn found_cover_art_is_set_by_the_host() {
     f.answer("echo", json!({ "blobs": { "not.jpg": [1, 2, 3] }, "each": [not] }));
     let p = f.provide(ProviderKind::Artwork, None, true).unwrap();
     assert!(p.warnings[0].starts_with("Covers: the Echo plugin failed: its candidate 0's image: "), "{:?}", p.warnings);
+    // The same image in two files is held once, and offered once.
+    let named = |blob: &str| json!({ "score": 1, "source": "Covers", "label": blob, "artwork": { "blob": blob } });
+    f.answer("echo", json!({ "blobs": { "a.jpg": cover, "b.jpg": cover }, "each": [named("a.jpg"), named("b.jpg")] }));
+    let p = f.provide(ProviderKind::Artwork, None, true).unwrap();
+    assert_eq!(p.images.len(), 1);
+    assert!(p.offers.iter().all(|o| o.candidates.len() == 1), "{:?}", titles(&p));
 }
 
 /// Picked tags fill in what tracks lack, or with `replace` go over what they have; a pick
@@ -200,7 +226,13 @@ fn found_tags_are_written_by_the_host() {
     let plan = |m: Value, replace: bool| {
         let picks = vec![locallibrary::plugin::Pick { track: t.id, candidate: found(m) }];
         plan_provided(
-            &PlanProvided { kind: ProviderKind::Metadata, drive: "USB".into(), picks, replace },
+            &PlanProvided {
+                kind: ProviderKind::Metadata,
+                drive: "USB".into(),
+                picks,
+                images: Default::default(),
+                replace,
+            },
             &Ctx::silent(),
         )
     };
@@ -219,6 +251,7 @@ fn found_tags_are_written_by_the_host() {
         kind: ProviderKind::Artwork,
         drive: "USB".into(),
         picks: vec![locallibrary::plugin::Pick { track: t.id, candidate: found(json!({})) }],
+        images: Default::default(),
         replace: true,
     };
     let e = plan_provided(&wrong, &Ctx::silent()).unwrap_err();
@@ -314,7 +347,13 @@ fn any_candidates_are_offered_best_first_and_planned_as_picked(tc: TestCase) {
     let picks: Vec<_> = (p.offers.iter())
         .filter_map(|o| o.chosen(&json!(tc.draw(gs::integers::<usize>().max_value(o.candidates.len())))))
         .collect();
-    let req = PlanProvided { kind: ProviderKind::Metadata, drive: "USB".into(), picks: picks.clone(), replace };
+    let req = PlanProvided {
+        kind: ProviderKind::Metadata,
+        drive: "USB".into(),
+        picks: picks.clone(),
+        images: Default::default(),
+        replace,
+    };
     let plan = plan_provided(&req, &Ctx::silent()).unwrap();
     if !plan.noop {
         plan.apply(None, &Ctx::silent()).unwrap();
@@ -332,9 +371,9 @@ fn any_candidates_are_offered_best_first_and_planned_as_picked(tc: TestCase) {
 
 /// Whatever covers a provider finds, in files of its scratch folder some tracks share and some
 /// that aren't images, asked of any provider by any name: a name that's none of the providers' is
-/// refused naming them; otherwise each track is offered each image once, a provider whose file
-/// isn't an image a warning, and the covers picked (by answering each track's question) are set
-/// on exactly those tracks.
+/// refused naming them; otherwise each track is offered each image once, each held once for all
+/// the tracks, a provider whose file isn't an image a warning, and the covers picked (by answering
+/// each track's question) are set on exactly those tracks, given their images.
 #[hegel::test(test_cases = 15)]
 fn any_covers_found_are_offered_once_and_set_as_picked(tc: TestCase) {
     let f = Fixture::providers(&["echo"]);
@@ -360,17 +399,32 @@ fn any_covers_found_are_offered_once_and_set_as_picked(tc: TestCase) {
     }
     let distinct: Vec<usize> =
         named.iter().enumerate().filter(|(i, k)| !named[..*i].contains(k)).map(|(_, k)| *k).collect();
+    let held: Vec<String> = distinct.iter().map(|&k| BASE64_STANDARD.encode(&files[k])).collect();
+    assert_eq!(p.images.values().cloned().collect::<Vec<_>>(), held, "each once");
     let mut picks = Vec::new();
     for o in &p.offers {
         let labels: Vec<String> = o.candidates.iter().map(|c| c.label.clone()).collect();
         assert_eq!(labels, distinct.iter().map(|k| format!("cover {k}")).collect::<Vec<_>>());
+        let ids: Vec<&String> = o.candidates.iter().filter_map(|c| c.artwork.as_ref()).collect();
+        assert_eq!(ids, p.images.keys().collect::<Vec<_>>());
         let c = o.choice();
         let item = tc.draw(gs::integers::<usize>().max_value(c.items.len() - 1));
         picks.extend(o.chosen(&c.items[item].value));
     }
     let before = common::library(&f.drive).tracks;
-    let req = PlanProvided { kind: ProviderKind::Artwork, drive: "USB".into(), picks: picks.clone(), replace: true };
-    let plan = plan_provided(&req, &Ctx::silent()).unwrap();
+    let images = match tc.draw(gs::booleans()) {
+        true => p.images.clone(),
+        false => Default::default(),
+    };
+    let given = !images.is_empty();
+    let req =
+        PlanProvided { kind: ProviderKind::Artwork, drive: "USB".into(), picks: picks.clone(), images, replace: true };
+    let plan = plan_provided(&req, &Ctx::silent());
+    if !given && !picks.is_empty() {
+        assert!(plan.unwrap_err().to_string().contains("isn't given"));
+        return;
+    }
+    let plan = plan.unwrap();
     assert_eq!(plan.noop, picks.is_empty());
     if !plan.noop {
         plan.apply(None, &Ctx::silent()).unwrap();
@@ -380,4 +434,108 @@ fn any_covers_found_are_offered_once_and_set_as_picked(tc: TestCase) {
         let picked = picks.iter().any(|p| p.track == t.id);
         assert_eq!(t.artwork_path.is_some(), picked || was.artwork_path.is_some(), "#{}", t.id);
     }
+}
+
+/// The candidates a provider answers for a track past the most a call keeps for one, past the
+/// most it keeps in all, and those of an image past the most their images may come to in base64,
+/// are left out, saying so once; what's held is within each.
+#[test]
+fn a_provider_past_what_a_call_holds_is_cut_off() {
+    let five = (0..5).map(|i| tags(0.5, &format!("t{i}"))).collect::<Vec<_>>();
+    let f = Fixture::bounded(&["echo"], Options { track_candidates: 2, ..Options::default() });
+    f.answer("echo", json!({ "each": five }));
+    let p = f.provide(ProviderKind::Metadata, Some("echo.found"), true).unwrap();
+    assert!(p.offers.iter().all(|o| o.candidates.len() == 2), "{:?}", titles(&p));
+    assert_eq!(p.warnings, ["Found: more than 2 candidates for a track, the rest left out"]);
+
+    let f = Fixture::bounded(&["echo"], Options { candidates: 3, ..Options::default() });
+    f.answer("echo", json!({ "each": five }));
+    let p = f.provide(ProviderKind::Metadata, Some("echo.found"), true).unwrap();
+    assert_eq!(p.offers.iter().map(|o| o.candidates.len()).sum::<usize>(), 3, "{:?}", titles(&p));
+    assert_eq!(p.warnings, ["Found: more than 3 candidates, the rest left out"]);
+
+    // The scratch folder holds both files, but not both images in base64: the first, shared by
+    // the tracks, is held once.
+    let (a, b) = (jpeg(64), jpeg(48));
+    let most = (a.len() + b.len()) as u64;
+    let f = Fixture::bounded(&["echo"], Options { max_blobs: most, ..Options::default() });
+    let cover = |k: &str| json!({ "score": 0.5, "source": "Covers", "label": k, "artwork": { "blob": k } });
+    f.answer("echo", json!({ "blobs": { "a.jpg": a, "b.jpg": b }, "each": [cover("a.jpg"), cover("b.jpg")] }));
+    let p = f.provide(ProviderKind::Artwork, None, true).unwrap();
+    assert_eq!(p.images.values().cloned().collect::<Vec<_>>(), [BASE64_STANDARD.encode(&a)]);
+    assert!(p.images.values().map(|i| i.len() as u64).sum::<u64>() <= most);
+    assert_eq!(titles(&p).iter().map(|(_, found, _)| found.clone()).collect::<Vec<_>>(), [["a.jpg"], ["a.jpg"]]);
+    let [w] = &p.warnings[..] else { panic!("{:?}", p.warnings) };
+    assert!(w.starts_with("Covers: images coming to more than ") && w.ends_with(", the rest left out"), "{w}");
+}
+
+/// Whatever covers a provider answers and however little a call may hold: what's kept is what the
+/// provider answered, in turn, until a track has as many candidates as a call keeps for one, or all
+/// of them as many as it keeps, or an image would take their images in base64 past what they may
+/// come to; each image held once, only the candidates', and each limit passed said once.
+#[hegel::test(test_cases = 15)]
+fn any_answer_is_held_within_what_a_call_holds(tc: TestCase) {
+    let files = [jpeg(32), jpeg(48)];
+    let raw = (files[0].len() + files[1].len()) as u64;
+    let options = Options {
+        track_candidates: tc.draw(gs::integers::<usize>().min_value(1).max_value(4)),
+        candidates: tc.draw(gs::integers::<usize>().min_value(1).max_value(8)),
+        // The scratch folder holds both files.
+        max_blobs: tc.draw(gs::integers::<u64>().min_value(raw).max_value(2 * raw)),
+        ..Options::default()
+    };
+    let f = Fixture::bounded(&["echo"], options.clone());
+    let n = tc.draw(gs::integers::<usize>().max_value(5));
+    let named: Vec<usize> = (0..n).map(|_| tc.draw(gs::integers::<usize>().max_value(1))).collect();
+    let each: Vec<Value> = (named.iter())
+        .map(|&k| json!({ "score": 0.5, "source": "Covers", "label": format!("cover {k}"), "artwork": { "blob": format!("{k}.jpg") } }))
+        .collect();
+    let blobs: serde_json::Map<String, Value> = (0..2).map(|k| (format!("{k}.jpg"), json!(files[k]))).collect();
+    f.answer("echo", json!({ "blobs": blobs, "each": each }));
+    let p = f.provide(ProviderKind::Artwork, None, true).unwrap();
+    // The test plugin answers each cover for each track in turn.
+    let tracks = common::library(&f.drive).tracks;
+    let (mut kept, mut held, mut past) = (vec![Vec::new(); tracks.len()], Vec::new(), Vec::new());
+    let (mut all, mut size) = (0, 0);
+    for &k in &named {
+        for t in &mut kept {
+            let more = BASE64_STANDARD.encode(&files[k]).len();
+            let why = match () {
+                _ if all >= options.candidates => format!("more than {} candidates", options.candidates),
+                _ if t.len() >= options.track_candidates => {
+                    format!("more than {} candidates for a track", options.track_candidates)
+                }
+                _ if !held.contains(&k) && (size + more) as u64 > options.max_blobs => {
+                    format!("images coming to more than {}", locallibrary::op::bytes(options.max_blobs))
+                }
+                _ => {
+                    if !held.contains(&k) {
+                        size += more;
+                        held.push(k);
+                    }
+                    t.push(k);
+                    all += 1;
+                    continue;
+                }
+            };
+            let why = format!("Covers: {why}, the rest left out");
+            if !past.contains(&why) {
+                past.push(why);
+            }
+        }
+    }
+    let images: Vec<String> = held.iter().map(|&k| BASE64_STANDARD.encode(&files[k])).collect();
+    assert_eq!(p.images.values().cloned().collect::<Vec<_>>(), images);
+    let offered: Vec<(u32, Vec<String>)> = (tracks.iter().zip(&kept))
+        .filter(|(_, k)| !k.is_empty())
+        .map(|(t, k)| {
+            let distinct = k.iter().enumerate().filter(|(i, c)| !k[..*i].contains(c));
+            (t.id, distinct.map(|(_, c)| format!("cover {c}")).collect())
+        })
+        .collect();
+    assert_eq!(titles(&p).into_iter().map(|(t, found, _)| (t, found)).collect::<Vec<_>>(), offered);
+    let ids: FxHashSet<&String> =
+        p.offers.iter().flat_map(|o| o.candidates.iter().filter_map(|c| c.artwork.as_ref())).collect();
+    assert_eq!(ids, p.images.keys().collect(), "only the candidates'");
+    assert_eq!(p.warnings, past);
 }

@@ -79,9 +79,11 @@ pub fn fetch(
     if !unanswered.is_empty() {
         return Err(usage(choose::unanswered(&unanswered.iter().collect::<Vec<_>>())));
     }
-    let plan = plan_provided(&PlanProvided { kind, drive: drive.clone(), picks, replace: f.replace }, ctx)?;
+    let found = provided.offers.len();
+    let (images, replace) = (provided.images, f.replace);
+    let plan = plan_provided(&PlanProvided { kind, drive: drive.clone(), picks, images, replace }, ctx)?;
     if !out.json {
-        say!("{} found for {} of {} track(s)", kind.found(), provided.offers.len(), provided.asked);
+        say!("{} found for {found} of {} track(s)", kind.found(), provided.asked);
         heading(&plan.summary[0]);
     }
     crate::edit_cmd::confirm_and_apply(&drive, plan, f.dry_run, out, ctx)

@@ -2292,6 +2292,8 @@ export type PlanProvided = {
   drive: string;
   /** The candidates chosen, each for its track, as they were found. */
   picks: Pick[];
+  /** The images they're of, by id, as they were found: the answer's `images`, or those picked. */
+  images?: { [key: string]: string };
   /**
    * Also over what the tracks have: otherwise a track with cover art keeps it, and a tag it
    * has is kept.
@@ -2315,7 +2317,7 @@ export type Found = {
   label: string;
   /** How sure the provider is that it's the track's, 0 to 1. */
   score: number;
-  /** The image, in base64: an artwork provider's. */
+  /** The image, by its id in the answer's `images`: an artwork provider's. */
   artwork?: string | null;
   /** The tags: a metadata provider's, each it has. */
   metadata?: TrackMetadata | null;
@@ -7801,9 +7803,11 @@ export type Provided = {
   asked: number;
   /** Each track something was found for, in the library's order. */
   offers: Offer[];
+  /** The images the candidates are of, each once, by id (its content's hash): in base64. */
+  images: { [key: string]: string };
   /**
-   * A provider that failed (what the others found is offered), and what each said it found
-   * nothing for.
+   * A provider that failed (what the others found is offered), one that answered more than is
+   * kept (the rest left out), and what each said it found nothing for.
    */
   warnings: string[];
 };

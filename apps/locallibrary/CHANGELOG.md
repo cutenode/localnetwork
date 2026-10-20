@@ -230,10 +230,11 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   tracklist's entry is): picked from a list in a terminal and in the player, or answered with
   `--choose PARAM=VALUE`; over RPC the question is the answer, to call again with. Providers find
   cover art (`art fetch`) or track details (`track fetch`) for a library's tracks: every provider of
-  the kind is asked, what they find is offered best first, one alone scoring `plugin providers
-  --auto-pick` (0.9) or more chosen for you, and locallibrary plans the edits itself, confirmed as
-  any are (the player's actions menu has both, and its palette the auto-pick; the sidecar
-  `plugins.provide`, `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  the kind is asked, what they find is offered best first (each image held and sent once, and
+  what's kept bounded), one alone scoring `plugin providers --auto-pick` (0.9) or more chosen for
+  you, and locallibrary plans the edits itself, confirmed as any are (the player's actions menu
+  has both, and its palette the auto-pick; the sidecar `plugins.provide`,
+  `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
   An analyzer's fields may have roles (a track's key, tempo, loudness...), which doctor, `check` and
   `playlist order` read from the analyzer `plugin roles` chooses (the sound plugin's unless another
   has them), and `analyze --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`,
