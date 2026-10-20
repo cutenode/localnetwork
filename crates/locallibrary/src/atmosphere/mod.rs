@@ -59,13 +59,15 @@ use jacquard_oauth::types::{AuthorizeOptions, CallbackParams};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub(crate) use crate::net::this_computer;
 pub use callback::{CALLBACK_PATH, CallbackQuery, span};
 use net::Http;
-pub(crate) use net::this_computer;
 use store::{AccountFile, LocalStore};
 
 use crate::error::{Action, Reason};
 use crate::export::one_line;
+/// Where the session's secrets are kept.
+pub use crate::keychain::Storage;
 use crate::progress::Ctx;
 use crate::{Error, Result};
 
@@ -151,28 +153,6 @@ pub const LONGEST_LOGIN_WAIT: Duration = Duration::from_secs(60 * 60);
 
 /// A sign-in nobody finishes is forgotten after this.
 const PENDING_LIMIT: Duration = Duration::from_secs(15 * 60);
-
-/// Where the session's secrets are kept.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Storage {
-    /// macOS Keychain, Windows Credential Manager, or the Secret Service on Linux.
-    #[default]
-    Keychain,
-    /// `atmosphere-session.json` in the store folder, readable only by you: for computers without
-    /// a keychain (a Linux server without a desktop session).
-    File,
-}
-
-impl Storage {
-    /// `LOCALLIBRARY_SESSION_STORE=file` chooses the file.
-    pub fn from_env() -> Storage {
-        match std::env::var("LOCALLIBRARY_SESSION_STORE").as_deref() {
-            Ok("file") => Storage::File,
-            _ => Storage::Keychain,
-        }
-    }
-}
 
 /// How locallibrary introduces itself to the account's server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

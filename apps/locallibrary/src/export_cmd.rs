@@ -163,6 +163,7 @@ fn run_plugin(
         drive: args.drive,
         playlists: args.playlist.into_iter().collect(),
         history: args.history.into_iter().collect(),
+        ..ExportSource::default()
     };
     let output = std::path::absolute(&args.output)?;
     let store = crate::diff_cmd::existing_store(store)?;

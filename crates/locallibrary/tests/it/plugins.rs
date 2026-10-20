@@ -1,8 +1,10 @@
 //! The plugin host, running the test plugin (`src/bin/test-plugin`: loclib-plugin's echo
 //! example, and what these tests need besides) as a child process, on a fixture drive.
 
+mod blobs;
 mod callbacks;
 mod hooks;
+mod net;
 mod props;
 mod roles;
 
@@ -61,8 +63,9 @@ fn granting(capabilities: &[&str]) -> String {
 }
 
 /// What the app reads for the plugins here: tracks from the drive, a failure for
-/// `track.matches`, a wait for `track.show` until the test says, a panic for `playlists.tree`, and
-/// for any other read what the host asked (the method, and the params as it passed them on).
+/// `track.matches`, a wait for `track.show` until the test says, a panic for `playlists.tree`,
+/// where the drive is for `drive.info`, and for any other read what the host asked (the method,
+/// and the params as it passed them on).
 struct TestReads {
     volumes: PathBuf,
     store: PathBuf,
@@ -100,6 +103,27 @@ impl Reads for TestReads {
                 }
             }
             "playlists.tree" => panic!("a read that panics"),
+            // Where the drive is, as `drive.info` and others say it.
+            "drive.info" => {
+                Ok(json!({ "root": params["drive"], "name": "USB", "drives": [{ "root": "/x", "id": 1 }] }))
+            }
+            // Where things are on this computer, as these reads say it.
+            "store.copies" => Ok(json!([{ "path": "/nas/copy", "from": "/store", "name": "nas", "bytes": 1 }])),
+            "store.info" => {
+                Ok(json!({ "copy_of": { "path": "/a", "from": "/b", "name": "n" }, "x": { "path": "kept" } }))
+            }
+            "sets.get" => Ok(
+                json!({ "recording": { "path": "/rec.wav", "report": "r" }, "entries": [{ "path": "/Contents/a" }] }),
+            ),
+            "collection.info" => Ok(json!({ "path": "/Pioneer/master.db", "bytes": 1 })),
+            "fleet.status" => {
+                let usb = self.volumes.join("USB");
+                Ok(json!({
+                    "offline": [{ "last_mount": "/Volumes/Old", "name": "Old" }],
+                    "duplicates": [{ "roots": [usb], "original": usb }],
+                    "warnings": [format!("{}: unreadable", usb.join("PIONEER").display())],
+                }))
+            }
             _ => Ok(json!({ "method": method, "params": params })),
         }
     }
@@ -155,7 +179,7 @@ impl Fixture {
 
     /// Runs the echo plugin's command `command`.
     fn command(&self, command: &str, params: Value, ctx: &Ctx<'_>) -> Result<CommandOutput> {
-        self.plugins.run_command("echo", command, params, self.context(), Some(&self.store), ctx)
+        self.plugins.run_command("echo", command, params, self.context(), Some(&self.store), ctx, &|_| {})
     }
 
     /// What the echo command answers with `params`.
@@ -165,6 +189,14 @@ impl Fixture {
             view => panic!("a headless command answers JSON: {view:?}"),
         }
     }
+}
+
+/// A JPEG, of `side` pixels square.
+fn jpeg(side: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(side, side, |x, y| image::Rgb([x as u8, y as u8, 128]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut out, image::ImageFormat::Jpeg).unwrap();
+    out.into_inner()
 }
 
 /// Waits (up to ten seconds) until `done`.
@@ -203,7 +235,7 @@ fn a_plugin_starts_when_first_used_and_answers() {
     assert_eq!(e.code(), "not_found");
     assert_eq!(
         f.plugins
-            .run_command("nope", "echo", Value::Null, Context::default(), None, &Ctx::silent())
+            .run_command("nope", "echo", Value::Null, Context::default(), None, &Ctx::silent(), &|_| {})
             .unwrap_err()
             .code(),
         "not_found"
@@ -235,12 +267,10 @@ fn only_plugins_locallibrary_ships_are_hosted() {
         hosted.cli("say").map(|(id, c)| (id, matches!(c, locallibrary::plugin::Cli::Command(c) if c.name == "echo")));
     assert_eq!(said, Some(("one", true)));
     assert!(hosted.cli("echo").is_none());
+    // A secret setting is kept in the keychain.
     let secret = ECHO.replace("type = \"string\"\ndefault = \"hello\"", "type = \"secret\"");
     let secret = PluginSpec { manifest: loclib_plugin::Manifest::parse(&secret).unwrap(), ..echo.clone() };
-    assert_eq!(
-        new(vec![secret]),
-        "the echo plugin's setting \"greeting\" is a secret, which locallibrary can't keep yet"
-    );
+    assert_eq!(new(vec![secret]), "");
     let mut invalid = echo;
     invalid.manifest.name = " ".into();
     assert_eq!(new(vec![invalid]), "the echo plugin's manifest: name: is empty");
@@ -337,7 +367,10 @@ fn a_plugin_must_speak_the_protocol_and_be_what_its_manifest_says() {
         Options::default(),
     );
     let run = |id: &str| {
-        let e = f.plugins.run_command(id, "echo", json!({}), Context::default(), None, &Ctx::silent()).unwrap_err();
+        let e = f
+            .plugins
+            .run_command(id, "echo", json!({}), Context::default(), None, &Ctx::silent(), &|_| {})
+            .unwrap_err();
         failure(e)
     };
     assert_eq!(run("old"), "the Echo plugin failed: protocol \"9.0.0\" isn't compatible with 0.2.0");
@@ -354,17 +387,22 @@ fn a_plugin_must_speak_the_protocol_and_be_what_its_manifest_says() {
 }
 
 /// A plugin runs in its folder in the store (made for it, beside the host's files about it), or
-/// without a store in a new one in the temporary folder, removed once it stops.
+/// without a store in one in a new folder in the temporary folder, removed once it stops.
 #[test]
 fn a_plugin_runs_in_a_folder_of_its_own() {
     let f = Fixture::echo();
     let folder = |store: Option<&Store>| {
-        let answer = f.plugins.run_command("echo", "echo", json!({ "cwd": true }), f.context(), store, &Ctx::silent());
+        let answer =
+            f.plugins.run_command("echo", "echo", json!({ "cwd": true }), f.context(), store, &Ctx::silent(), &|_| {});
         let CommandOutput::Headless(Value::String(dir)) = answer.unwrap() else { panic!("a folder") };
         PathBuf::from(dir).canonicalize().unwrap()
     };
-    let scratch = folder(None);
-    assert_eq!(scratch.parent(), Some(std::env::temp_dir().canonicalize().unwrap().as_path()));
+    let work = folder(None);
+    let scratch = work.parent().unwrap();
+    assert_eq!(
+        (work.file_name().unwrap(), scratch.parent()),
+        ("work".as_ref(), Some(std::env::temp_dir().canonicalize().unwrap().as_path()))
+    );
     assert!(scratch.file_name().unwrap().to_string_lossy().starts_with("locallibrary-plugin-echo-"), "{scratch:?}");
     f.plugins.shutdown();
     assert!(!scratch.exists(), "{scratch:?} is left");
@@ -387,7 +425,7 @@ fn a_param_from_the_selection_is_filled_in() {
     let id = locallibrary::Device::open(&f.drive).unwrap().id().unwrap().to_string();
     let run = |params: Value, context: Context| match f
         .plugins
-        .run_command("echo", "echo", params, context, None, &Ctx::silent())
+        .run_command("echo", "echo", params, context, None, &Ctx::silent(), &|_| {})
         .unwrap()
     {
         CommandOutput::Headless(v) => v,
@@ -502,6 +540,7 @@ fn a_plugin_that_doesnt_stop_when_asked_is_killed() {
         f.context(),
         None,
         &Ctx::new(&locallibrary::progress::NoProgress, cancel),
+        &|_| {},
     );
     asked.join().unwrap();
     assert!(matches!(e, Err(Error::Cancelled)), "{e:?}");
@@ -533,7 +572,7 @@ fn shutting_down_stops_every_plugin() {
         Options::default(),
     );
     for id in ["echo", "other"] {
-        f.plugins.run_command(id, "echo", json!({}), Context::default(), None, &Ctx::silent()).unwrap();
+        f.plugins.run_command(id, "echo", json!({}), Context::default(), None, &Ctx::silent(), &|_| {}).unwrap();
     }
     assert!(f.plugins.is_running("echo") && f.plugins.is_running("other"));
     f.plugins.shutdown();

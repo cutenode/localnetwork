@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use locallibrary::Store;
 use locallibrary::fields::Role;
 use locallibrary::plugin::{ApplyFields, Cli, CommandOutput};
-use loclib_plugin::{Capability, Context, ExportSource, Setting, SettingType, View, Where};
+use loclib_plugin::{Capability, Context, ExportSource, Partial, Setting, SettingType, View, Where};
 use serde_json::{Map, Value, json};
 
 use super::app::Fields;
@@ -142,8 +142,8 @@ const WRITE_TO: &str = "write_to";
 /// The roles an analyzer's values can be written to tracks as.
 const WRITTEN: [Role; 2] = [Role::Key, Role::Bpm];
 
-/// Settings as a form's JSON Schema: each as text, a number, a switch, one of its choices or a
-/// path, said with its title and its default.
+/// Settings as a form's JSON Schema: each as text, a number, a switch, one of its choices, a
+/// path or a password, said with its title and its default.
 fn settings_schema(settings: &[Setting]) -> Value {
     let properties: Map<String, Value> = settings
         .iter()
@@ -157,7 +157,12 @@ fn settings_schema(settings: &[Setting]) -> Value {
                 // Typed as a password is (see `super::form::Field::is_secret`).
                 SettingType::Secret => json!({ "type": "string", "writeOnly": true }),
             };
-            let default = s.default.as_ref().map(|d| format!(" (empty for {})", cell(d))).unwrap_or_default();
+            let default = match (s.kind, &s.default) {
+                // Never filled in: it's kept as it is unless something's typed.
+                (SettingType::Secret, _) => " (empty keeps it)".to_string(),
+                (_, Some(d)) => format!(" (empty for {})", cell(d)),
+                (_, None) => String::new(),
+            };
             p["description"] = Value::from(format!("{}{default}", s.title));
             (s.key.clone(), p)
         })
@@ -320,7 +325,7 @@ impl App {
         let output = options.as_object_mut().and_then(|o| o.remove(WRITE_TO));
         let output = PathBuf::from(output.as_ref().and_then(Value::as_str).unwrap_or_default());
         let store_root = self.store_root.clone();
-        let source = ExportSource { drive: root.display().to_string(), playlists, history: Vec::new() };
+        let source = ExportSource { drive: root.display().to_string(), playlists, ..ExportSource::default() };
         self.plan(root, move |ctx| {
             let store = Store::open(&store_root).ok();
             Ok(Box::new(plugins.export_plan(plugin, format, source, &output, options, store.as_ref(), ctx)?))
@@ -347,7 +352,8 @@ impl App {
     }
 
     /// Keep a plugin's settings as the form has them (`given`), in the background: those that
-    /// changed, each left empty put back to its default.
+    /// changed, each left empty put back to its default, and each secret typed in (one left
+    /// empty is kept).
     pub(super) fn save_settings(&mut self, plugin: &'static str, given: Value) {
         let Ok(plugins) = crate::plugins::host() else { return };
         let Ok(m) = plugins.manifest(plugin) else { return };
@@ -358,7 +364,11 @@ impl App {
             let mut changed = 0;
             for s in &m.contributes.settings {
                 let value = given.get(&s.key);
-                if value.or(s.default.as_ref()) != now.get(&s.key) {
+                let typed = value.and_then(Value::as_str).is_some_and(|v| !v.is_empty());
+                if s.kind == SettingType::Secret && !typed {
+                    continue;
+                }
+                if s.kind == SettingType::Secret || value.or(s.default.as_ref()) != now.get(&s.key) {
                     plugins.set_setting(plugin, &store, &s.key, value.cloned())?;
                     changed += 1;
                 }
@@ -551,9 +561,14 @@ impl App {
         match hook {
             Cli::Command(command) => {
                 let title = command.title.clone();
-                self.task(title.clone(), move |ctx| {
+                self.task_showing(title.clone(), move |ctx, show| {
                     let store = Store::open(&store_root).ok();
-                    let answer = plugins.run_command(plugin, &command.name, params, context, store.as_ref(), ctx)?;
+                    let partial = |p: Partial| {
+                        let title = title.clone();
+                        show(Box::new(move |app: &mut App| app.show_partial(title, p)));
+                    };
+                    let name = &command.name;
+                    let answer = plugins.run_command(plugin, name, params, context, store.as_ref(), ctx, &partial)?;
                     Ok(Box::new(move |app: &mut App| app.show_answer(title, answer)))
                 });
             }
@@ -565,6 +580,24 @@ impl App {
                 });
             }
         }
+    }
+
+    /// Rows (or items) a view command sent in parts, added to the panel it's in as they come
+    /// (opened for the first): until it answers, then its view replaces them.
+    pub(super) fn show_partial(&mut self, title: String, p: Partial) {
+        let mut report = match self.modal.take() {
+            Some(Modal::Report(r)) if r.title == title => r,
+            None => Report { title, lines: Vec::new(), scroll: 0 },
+            // Something else is open: the view shows once it answers.
+            other => return self.modal = other,
+        };
+        let rows = p.rows.iter().map(|r| (Tone::Row, r.iter().map(cell).collect::<Vec<_>>().join("  ")));
+        report.lines.extend(rows);
+        for i in p.items {
+            report.lines.push((Tone::Text, i.label));
+            report.lines.extend(i.detail.map(|d| (Tone::Faint, format!("  {d}"))));
+        }
+        self.modal = Some(Modal::Report(report));
     }
 
     /// What a command answered: nothing or a line of text as a message, a view in a panel

@@ -776,6 +776,11 @@ pub enum Msg {
         job: u64,
         result: Result<super::edits::Done, Error>,
     },
+    /// What a background task still running has to show (a view's rows as they come).
+    Shown {
+        job: u64,
+        update: super::edits::Done,
+    },
     Progress {
         job: u64,
         detail: String,
@@ -1866,6 +1871,11 @@ impl App {
             Msg::Planned { job, root, result } => self.on_planned(job, root, result),
             Msg::Applied { job, root, result } => self.on_applied(job, root, result),
             Msg::Done { job, result } => self.on_done(job, result),
+            Msg::Shown { job, update } => {
+                if self.job.as_ref().is_some_and(|j| j.id == job) {
+                    update(self);
+                }
+            }
             Msg::Replay(generation, edits) => {
                 let Some(l) = self.loaded.as_ref().filter(|l| l.generation == generation) else { return };
                 let root = l.root().to_path_buf();

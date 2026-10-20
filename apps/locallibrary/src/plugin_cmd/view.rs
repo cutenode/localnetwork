@@ -1,6 +1,6 @@
 //! What a plugin's command answers, drawn as the CLI draws its own results.
 
-use loclib_plugin::{Pair, View};
+use loclib_plugin::{ListItem, Pair, View};
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
@@ -42,6 +42,29 @@ pub(crate) fn pairs(pairs: &[Pair]) -> Vec<String> {
     pairs.iter().map(|p| format!("{}  {}", output::fit(&p.label, width), cell(&p.value))).collect()
 }
 
+/// Rows and items as a view command sends them in parts, drawn as they come: a row's cells two
+/// spaces apart (the table's widths aren't known yet), an item's detail beside it.
+pub(super) fn plain(rows: &[Vec<Value>], items: &[ListItem]) {
+    for row in rows {
+        say!("{}", row.iter().map(cell).collect::<Vec<_>>().join("  ").trim_end());
+    }
+    for i in items {
+        match &i.detail {
+            Some(detail) => say!("{}  {}", i.label, dim(detail)),
+            None => say!("{}", i.label),
+        }
+    }
+}
+
+/// What's left of a view once its first rows and items (`drawn`) were drawn as they came.
+pub(super) fn rest(v: &View, (rows, items): (usize, usize)) {
+    match v {
+        View::Table { rows: all, .. } => plain(all.get(rows..).unwrap_or_default(), &[]),
+        View::List { items: all, .. } => plain(&[], all.get(items..).unwrap_or_default()),
+        other => view(other),
+    }
+}
+
 /// A view a plugin's command answered, drawn as the CLI's lists and tables are.
 pub(super) fn view(v: &View) {
     let (View::List { title, .. } | View::Table { title, .. } | View::Kv { title, .. } | View::Text { title, .. }) = v;
@@ -49,14 +72,7 @@ pub(super) fn view(v: &View) {
         heading(title);
     }
     match v {
-        View::List { items, .. } => {
-            for i in items {
-                match &i.detail {
-                    Some(detail) => say!("{}  {}", i.label, dim(detail)),
-                    None => say!("{}", i.label),
-                }
-            }
-        }
+        View::List { items, .. } => plain(&[], items),
         View::Table { columns, rows, .. } => {
             let lines = table(columns, rows);
             say!("{}", dim(&lines[0]));

@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{PlanStore, Registry};
-use crate::plugins::{Described, Listed, Settings, host, left_out};
+use crate::plugins::{Described, Listed, Secrets, Settings, host, left_out};
 
 #[derive(Deserialize, JsonSchema)]
 struct PluginRef {
@@ -46,7 +46,8 @@ impl From<PluginContext> for Context {
 struct SetPluginSetting {
     plugin: String,
     key: String,
-    /// Of the setting's type; `null` (or left out) puts it back to its default.
+    /// Of the setting's type (a secret's, text: kept in the system's keychain and never
+    /// answered); `null` (or left out) puts it back to its default, or forgets a secret.
     #[serde(default)]
     value: Option<Value>,
 }
@@ -124,18 +125,24 @@ pub(super) fn register(r: &mut Registry) {
     r.read("plugins.describe", |c, req: PluginRef| Ok(Described::of(&req.plugin, host()?, c.existing()?.as_ref())?))
         .quick();
     r.read("plugins.settings", |c, req: PluginRef| {
-        let settings = host()?.settings(&req.plugin, c.existing()?.as_ref())?;
-        Ok(Settings { plugin: req.plugin, settings })
+        let store = c.existing()?;
+        let settings = host()?.settings(&req.plugin, store.as_ref())?;
+        let secrets = Secrets::of(host()?, &req.plugin, store.as_ref())?;
+        Ok(Settings { plugin: req.plugin, settings, secrets })
     })
     .quick();
     r.immediate("plugins.settings.set", |c, req: SetPluginSetting| {
-        let settings = host()?.set_setting(&req.plugin, &c.store()?, &req.key, req.value.filter(|v| !v.is_null()))?;
-        Ok(Settings { plugin: req.plugin, settings })
+        let store = c.store()?;
+        let settings = host()?.set_setting(&req.plugin, &store, &req.key, req.value.filter(|v| !v.is_null()))?;
+        let secrets = Secrets::of(host()?, &req.plugin, Some(&store))?;
+        Ok(Settings { plugin: req.plugin, settings, secrets })
     })
     .keeps_cache();
     r.read("plugins.run", |c, req: RunPluginCommand| -> Result<CommandOutput, _> {
         let store = c.existing()?;
-        Ok(host()?.run_command(&req.plugin, &req.command, req.params, req.context.into(), store.as_ref(), c.ctx)?)
+        let context = req.context.into();
+        // Its rows sent in parts are in the view it answers.
+        Ok(host()?.run_command(&req.plugin, &req.command, req.params, context, store.as_ref(), c.ctx, &|_| {})?)
     })
     .long();
     r.plan("plugins.op.plan", op_plan).long().destructive();
@@ -180,7 +187,8 @@ fn op_plan(c: &super::Call<'_>, req: PlanPluginOp) -> Result<Planned<EditPlan>, 
 }
 
 fn export_plan(c: &super::Call<'_>, req: PlanPluginExport) -> Result<Planned<PluginExport>, super::RpcError> {
-    let source = ExportSource { drive: req.drive, playlists: req.playlists, history: req.history };
+    let source =
+        ExportSource { drive: req.drive, playlists: req.playlists, history: req.history, ..ExportSource::default() };
     let store = c.existing()?;
     Ok(host()?.export_plan(&req.plugin, &req.exporter, source, &req.output, req.options, store.as_ref(), c.ctx)?)
 }

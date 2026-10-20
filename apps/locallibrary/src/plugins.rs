@@ -18,7 +18,7 @@ use locallibrary::api::RpcFailure;
 use locallibrary::plugin::{Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
-use loclib_plugin::{Capability, Manifest};
+use loclib_plugin::{Capability, Manifest, SettingType};
 use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -369,7 +369,12 @@ fn means(c: &Capability) -> String {
         Capability::TagsPlan => "plan My Tag changes, which you confirm",
         Capability::CuesPlan => "plan cue changes, which you confirm",
         Capability::ArtworkPlan => "plan cover art changes, which you confirm",
-        Capability::Net(host) => return format!("talk to {host}"),
+        Capability::Net(host) => {
+            return match host.strip_prefix("*.") {
+                Some(domain) => format!("talk to any server under {domain}"),
+                None => format!("talk to {host}"),
+            };
+        }
     }
     .into()
 }
@@ -422,6 +427,8 @@ pub struct Described {
     pub manifest: Manifest,
     pub capabilities: Vec<Granted>,
     pub settings: IndexMap<String, Value>,
+    #[serde(flatten)]
+    pub secrets: Secrets,
     pub running: bool,
 }
 
@@ -432,6 +439,7 @@ impl Described {
             manifest: manifest.clone(),
             capabilities: Granted::all(manifest),
             settings: plugins.settings(plugin, store)?,
+            secrets: Secrets::of(plugins, plugin, store)?,
             running: plugins.is_running(plugin),
         })
     }
@@ -441,7 +449,36 @@ impl Described {
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Settings {
     pub plugin: String,
+    /// Each one set, else its default; never a secret.
     pub settings: IndexMap<String, Value>,
+    #[serde(flatten)]
+    pub secrets: Secrets,
+}
+
+/// Whether each of a plugin's secret settings is set, never what it is.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Secrets {
+    /// Whether each secret setting is set, never what it is; `null` for each when the keychain
+    /// can't say (see `secrets_unknown`).
+    #[serde(rename = "secrets")]
+    pub set: IndexMap<String, Option<bool>>,
+    /// Why the keychain can't say, when it can't: the rest is answered all the same.
+    #[serde(rename = "secrets_unknown", skip_serializing_if = "Option::is_none")]
+    pub unknown: Option<String>,
+}
+
+impl Secrets {
+    /// A plugin's, with `store`'s (none set without one).
+    pub fn of(plugins: &Plugins, plugin: &str, store: Option<&locallibrary::Store>) -> Result<Secrets> {
+        let manifest = plugins.manifest(plugin)?;
+        Ok(match plugins.secrets(plugin, store) {
+            Ok(set) => Secrets { set: set.into_iter().map(|(key, set)| (key, Some(set))).collect(), unknown: None },
+            Err(e) => {
+                let keys = manifest.contributes.settings.iter().filter(|s| s.kind == SettingType::Secret);
+                Secrets { set: keys.map(|s| (s.key.clone(), None)).collect(), unknown: Some(e.to_string()) }
+            }
+        })
+    }
 }
 
 #[cfg(test)]

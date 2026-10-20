@@ -1,27 +1,27 @@
 //! The coverart plugin: cover art found online for tracks on a drive that have none (or, asked to,
 //! for any). Each album is looked up once on MusicBrainz (see `musicbrainz`) and its front cover
 //! downloaded from the Cover Art Archive (see `covers`); the plan sets it on the album's tracks
-//! with `set_artwork` edits, which locallibrary plans, confirms, journals and applies. Nothing
-//! downloaded is kept: it's cheap to fetch again.
+//! with `set_artwork` edits, which locallibrary plans, confirms, journals and applies. The host
+//! makes its requests (`net/fetch`), a second apart for MusicBrainz as the manifest asks, and the
+//! covers go to it as files in the request's scratch folder, which it removes once it has read
+//! them: nothing downloaded is kept, as it's cheap to fetch again.
 
 mod covers;
 mod musicbrainz;
-mod web;
 
 use std::fmt;
 use std::io::{Read, Write};
-use std::sync::Arc;
+use std::path::Path;
 
-use base64::prelude::*;
 use indexmap::IndexMap;
+use indexmap::map::Entry;
 use loclib_model::model::{Track, normalize};
-use loclib_plugin::{Capability, Hooks, Host, OpPlan, PlanOp, RpcError, TracksById, TracksQuery, params};
+use loclib_plugin::{Hooks, Host, OpPlan, PlanOp, RpcError, TracksById, TracksQuery, params};
 use loclib_progress::{Ctx, Event, Phase};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use musicbrainz::Found;
-use web::{Clock, Limiter, Services, SystemClock, Web};
 
 /// `locallibrary-plugin.toml`, which locallibrary compiles in and holds the plugin to.
 pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
@@ -29,36 +29,7 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    loclib_plugin::serve(MANIFEST, Coverart::new(Services::default(), Arc::new(SystemClock)).hooks(), input, output);
-}
-
-struct Coverart {
-    services: Services,
-    /// MusicBrainz's turns, shared by every operation under way.
-    limiter: Limiter,
-}
-
-impl Coverart {
-    fn new(services: Services, clock: Arc<dyn Clock>) -> Coverart {
-        Coverart { services, limiter: Limiter::new(clock) }
-    }
-
-    fn hooks(self) -> Hooks {
-        Hooks::new().on(move |req: PlanOp, host: &Host| self.plan_op(req, host))
-    }
-
-    /// The hosts it talks to, by the manifest and the services' URLs: the only ones (with their
-    /// subdomains) a redirect may lead to.
-    fn hosts(&self, host: &Host) -> Vec<String> {
-        let declared = host.manifest().capabilities.iter().filter_map(|c| match c {
-            Capability::Net(host) => Some(host.clone()),
-            _ => None,
-        });
-        let theirs = [&self.services.musicbrainz, &self.services.coverartarchive]
-            .into_iter()
-            .filter_map(|url| Some(reqwest::Url::parse(url).ok()?.host_str()?.to_string()));
-        declared.chain(theirs).collect()
-    }
+    loclib_plugin::serve(MANIFEST, Hooks::new().on(plan_op), input, output);
 }
 
 /// The `fetch` operation's params.
@@ -71,11 +42,6 @@ struct Fetch {
     #[serde(default)]
     replace: bool,
 }
-
-/// How much base64 a plan's images may add up to before the albums still to look up are left for
-/// another run: three quarters of the longest message, leaving room for one more image and the
-/// rest of the answer.
-const MAX_IMAGES: usize = loclib_plugin::framing::MAX_LINE / 4 * 3;
 
 /// Tracks looked up together: an album's, or a track without one, by its title (a single).
 pub(crate) struct Album {
@@ -98,101 +64,91 @@ impl fmt::Display for Album {
     }
 }
 
-impl Coverart {
-    /// `fetch`: a `set_artwork` edit for each album whose cover was found, giving it to the
-    /// album's tracks that lack artwork (all of them, with `replace`). Which tracks: `tracks`,
-    /// else `playlist`, else the ones selected, else the playlist open, else the whole drive.
-    fn plan_op(&self, req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
-        let Fetch { tracks, playlist, replace } = params::<Option<Fetch>>(req.params)?.unwrap_or_default();
-        let context = req.context;
-        let drive = context.drive.as_deref().ok_or_else(|| RpcError::invalid_params("say which drive"))?;
-        // What the params name wins over what's selected: a form fills `tracks` in with the
-        // selection, so a playlist typed in with `tracks` emptied is what's wanted.
-        let (ids, playlist) = match tracks.is_empty() && playlist.is_none() {
-            true => (context.tracks.clone(), context.playlist.clone()),
-            false => (tracks, playlist),
-        };
-        let mut warnings = Vec::new();
-        let chosen = chosen(host, drive, &ids, playlist.as_deref(), &mut warnings)?;
-        // Tracks without artwork, as locallibrary's `art auto` picks them. It also takes tracks
-        // whose image file is gone from the drive, which a plugin can't see.
-        let albums = albums(chosen.into_iter().filter(|t| replace || t.artwork_path.is_none()), &mut warnings);
+/// `fetch`: a `set_artwork` edit for each album whose cover was found, giving it to the album's
+/// tracks that lack artwork (all of them, with `replace`). Which tracks: `tracks`, else
+/// `playlist`, else the ones selected, else the playlist open, else the whole drive.
+fn plan_op(req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
+    let Fetch { tracks, playlist, replace } = params::<Option<Fetch>>(req.params)?.unwrap_or_default();
+    let context = req.context;
+    let drive = context.drive.as_deref().ok_or_else(|| RpcError::invalid_params("say which drive"))?;
+    let scratch = context.scratch.as_deref().ok_or_else(|| {
+        RpcError::invalid_params("the host gives the plugin no scratch folder for the covers (the blobs feature)")
+    })?;
+    // What the params name wins over what's selected: a form fills `tracks` in with the
+    // selection, so a playlist typed in with `tracks` emptied is what's wanted.
+    let (ids, playlist) = match tracks.is_empty() && playlist.is_none() {
+        true => (context.tracks.clone(), context.playlist.clone()),
+        false => (tracks, playlist),
+    };
+    let mut warnings = Vec::new();
+    let chosen = chosen(host, drive, &ids, playlist.as_deref(), &mut warnings)?;
+    // Tracks without artwork, as locallibrary's `art auto` picks them. It also takes tracks
+    // whose image file is gone from the drive, which a plugin can't see.
+    let albums = albums(chosen.into_iter().filter(|t| replace || t.artwork_path.is_none()), &mut warnings);
 
-        // Its default, for a host that doesn't send the settings.
-        let default = host.manifest().contributes.settings.iter().find(|s| s.key == "contact");
-        let default = default.and_then(|s| s.default.as_ref()?.as_str()).expect("the manifest has a contact");
-        let contact = context.settings.get("contact").and_then(Value::as_str).map(str::trim);
-        let contact = contact.filter(|c| !c.is_empty()).unwrap_or(default);
-        let web = Web::new(contact, self.hosts(host)).map_err(RpcError::internal)?;
-        let ctx = host.ctx();
-        ctx.phase_start(Phase::Scan, albums.len() as u64, 0);
-        let covers = self.covers(&web, &albums, &ctx, &mut warnings)?;
-        ctx.phase_end(Phase::Scan);
+    let ctx = host.ctx();
+    ctx.phase_start(Phase::Scan, albums.len() as u64, 0);
+    let covers = covers(host, scratch, &albums, &ctx, &mut warnings)?;
+    ctx.phase_end(Phase::Scan);
 
-        let tracks: usize = covers.iter().map(|(_, paths)| paths.len()).sum();
-        let summary = match (covers.len(), albums.len()) {
-            (_, 0) => "no track chosen needs cover art".to_string(),
-            (0, n) => format!("found no cover art for the {n} album(s) looked up"),
-            (found, _) => format!("set cover art from the Cover Art Archive on {tracks} track(s) of {found} album(s)"),
-        };
-        let edits = covers.into_iter().map(
-            |(image, paths)| json!({ "op": "set_artwork", "tracks": { "paths": paths }, "image": { "base64": image } }),
-        );
-        Ok(OpPlan { summary, warnings, edits: edits.collect(), inputs: Vec::new() })
-    }
+    let tracks: usize = covers.iter().map(|(_, paths)| paths.len()).sum();
+    let summary = match (covers.len(), albums.len()) {
+        (_, 0) => "no track chosen needs cover art".to_string(),
+        (0, n) => format!("found no cover art for the {n} album(s) looked up"),
+        (found, _) => format!("set cover art from the Cover Art Archive on {tracks} track(s) of {found} album(s)"),
+    };
+    let edits = covers
+        .into_iter()
+        .map(|(blob, paths)| json!({ "op": "set_artwork", "tracks": { "paths": paths }, "image": { "blob": blob } }));
+    Ok(OpPlan { summary, warnings, edits: edits.collect(), inputs: Vec::new() })
+}
 
-    /// The covers of `albums` found, each in base64 with the tracks it goes on: one for each
-    /// release group, downloaded once. Why an album has none is a warning.
-    fn covers(
-        &self,
-        web: &Web,
-        albums: &[Album],
-        ctx: &Ctx<'_>,
-        warnings: &mut Vec<String>,
-    ) -> Result<Vec<(String, Vec<String>)>, RpcError> {
-        let mb = &self.services.musicbrainz;
-        let mut covers: IndexMap<String, Result<(String, Vec<String>), String>> = IndexMap::new();
-        let mut size = 0;
-        // Each album's lookup notices the operation being cancelled.
-        for (i, album) in albums.iter().enumerate() {
-            if size > MAX_IMAGES {
-                warnings
-                    .push(format!("{} album(s) left for another run: a plan holds no more covers", albums.len() - i));
-                break;
+/// The covers of `albums` found, each a file in `scratch` (by its name there) with the tracks it
+/// goes on: one for each release group, downloaded once. Why an album has none is a warning.
+fn covers(
+    host: &Host,
+    scratch: &Path,
+    albums: &[Album],
+    ctx: &Ctx<'_>,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<(String, Vec<String>)>, RpcError> {
+    let mut covers: IndexMap<String, Result<(String, Vec<String>), String>> = IndexMap::new();
+    // Each album's requests notice the operation being cancelled.
+    for album in albums {
+        ctx.emit(Event::Item { phase: Phase::Scan, path: album.to_string(), bytes: 0 });
+        let group = match musicbrainz::release_group(host, album)? {
+            Found::One(group) => group,
+            Found::None => {
+                warnings.push(format!("{album}: not on MusicBrainz"));
+                continue;
             }
-            ctx.emit(Event::Item { phase: Phase::Scan, path: album.to_string(), bytes: 0 });
-            let group = match musicbrainz::release_group(web, mb, &self.limiter, album, ctx)? {
-                Found::One(group) => group,
-                Found::None => {
-                    warnings.push(format!("{album}: not on MusicBrainz"));
-                    continue;
-                }
-                Found::Several(groups) => {
-                    let named = groups.iter().map(|g| {
-                        let kind = g.primary_type.as_deref().unwrap_or("release");
-                        format!("{} {kind} {mb}/release-group/{}", g.title, g.id)
-                    });
-                    let named = named.collect::<Vec<_>>().join(", ");
-                    warnings.push(format!("{album}: left out, as MusicBrainz has several of that name: {named}"));
-                    continue;
-                }
-                Found::Refused(status) => {
-                    warnings.push(format!("{album}: left out, as MusicBrainz answered {status}"));
-                    continue;
-                }
-            };
-            let cover = covers.entry(group.id.clone()).or_insert_with(|| {
-                let image = BASE64_STANDARD.encode(covers::front(web, &self.services.coverartarchive, &group.id)?);
-                size += image.len();
-                Ok((image, Vec::new()))
-            });
-            match cover {
-                Ok((_, paths)) => paths.extend(album.paths.iter().cloned()),
-                Err(why) => warnings.push(format!("{album}: {why}")),
+            Found::Several(groups) => {
+                let named = groups.iter().map(|g| {
+                    let kind = g.primary_type.as_deref().unwrap_or("release");
+                    format!("{} {kind} {}/release-group/{}", g.title, musicbrainz::MUSICBRAINZ, g.id)
+                });
+                let named = named.collect::<Vec<_>>().join(", ");
+                warnings.push(format!("{album}: left out, as MusicBrainz has several of that name: {named}"));
+                continue;
             }
+            Found::Refused(status) => {
+                warnings.push(format!("{album}: left out, as MusicBrainz answered {status}"));
+                continue;
+            }
+        };
+        let cover = match covers.entry(group.id) {
+            Entry::Occupied(had) => had.into_mut(),
+            Entry::Vacant(new) => {
+                let front = covers::front(host, scratch, new.key())?;
+                new.insert(front.map(|blob| (blob, Vec::new())))
+            }
+        };
+        match cover {
+            Ok((_, paths)) => paths.extend(album.paths.iter().cloned()),
+            Err(why) => warnings.push(format!("{album}: {why}")),
         }
-        Ok(covers.into_values().flatten().collect())
     }
+    Ok(covers.into_values().flatten().collect())
 }
 
 /// The drive's tracks the user chose: `ids`, else `playlist`'s, else every one. Ids the drive

@@ -777,9 +777,10 @@ fn each_request_gets_its_own_response_under_any_interleaving(tc: TestCase) {
     assert_eq!(ids.len(), total, "every request has an id of its own");
 }
 
-/// Progress the other end sends about a request sent for its progress comes to that request, all
-/// of it and in order, by the time its response has; progress about anything else (another
-/// request, one never sent, or that isn't progress the peer can read) goes to the owner, in order.
+/// Progress and partial rows the other end sends about a request sent for its progress come to
+/// that request, all of them and each in order, by the time its response has; those about
+/// anything else (another request, one never sent, or that aren't what the peer can read) go to
+/// the owner, in order.
 #[hegel::test(test_cases = 40)]
 fn progress_reaches_its_request_in_order_before_the_answer(tc: TestCase) {
     let (peer, incoming, mut raw) = connect();
@@ -789,8 +790,27 @@ fn progress_reaches_its_request_in_order_before_the_answer(tc: TestCase) {
     let plain = peer.send_request("command/run", &json!({})).unwrap();
     let ids: Vec<u64> = (0..=reporting.len()).map(|_| raw.recv()["id"].as_u64().unwrap()).collect();
     let mut to_each = vec![Vec::new(); reporting.len()];
+    let mut parts_to_each = vec![Vec::new(); reporting.len()];
     let mut to_owner = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(10)) {
+        // Partial rows or items instead, or something that isn't them.
+        if tc.draw(gs::booleans()) {
+            let part = match tc.draw(gs::integers::<u8>().max_value(2)) {
+                0 => json!({ "rows": [[tc.draw(gs::integers::<u8>())]] }),
+                1 => json!({ "items": [{ "label": tc.draw(gs::text().max_size(6)) }] }),
+                _ => json!({ "rows": "not rows" }),
+            };
+            let readable = part["rows"] != "not rows";
+            let to = tc.draw(gs::integers::<usize>().max_value(ids.len()));
+            let mut params = part.clone();
+            params["id"] = ids.get(to).copied().unwrap_or(9999).into();
+            match to < reporting.len() && readable {
+                true => parts_to_each[to].push(part),
+                false => to_owner.push((method::PARTIAL, params.clone())),
+            }
+            raw.send(&json!({ "jsonrpc": "2.0", "method": method::PARTIAL, "params": params }).to_string());
+            continue;
+        }
         let phase = tc.draw(gs::sampled_from(vec!["scan", "copy", "teleport"]));
         let event = match tc.draw(gs::integers::<u8>().max_value(4)) {
             0 => json!({ "event": "warning", "message": tc.draw(gs::text().max_size(6)) }),
@@ -809,23 +829,33 @@ fn progress_reaches_its_request_in_order_before_the_answer(tc: TestCase) {
         };
         match to < reporting.len() {
             true => to_each[to].push(event),
-            false => to_owner.push(params.clone()),
+            false => to_owner.push((method::PROGRESS, params.clone())),
         }
         raw.send(&json!({ "jsonrpc": "2.0", "method": method::PROGRESS, "params": params }).to_string());
     }
     for id in &ids {
         raw.send(&json!({ "jsonrpc": "2.0", "id": id, "result": 1 }).to_string());
     }
-    for (pending, sent) in reporting.into_iter().zip(to_each) {
+    for ((pending, sent), parts) in reporting.into_iter().zip(to_each).zip(parts_to_each) {
         assert_eq!(pending.wait_timeout::<u32>(Duration::from_secs(60)).unwrap(), Ok(1));
         let got: Vec<Value> = pending.progress().map(|r| serde_json::to_value(r).unwrap()).collect();
         assert_eq!(got, sent);
+        let got: Vec<Value> = pending
+            .partials()
+            .map(|p| {
+                let mut p = serde_json::to_value(p).unwrap();
+                p.as_object_mut().unwrap().remove("id");
+                p
+            })
+            .collect();
+        assert_eq!(got, parts);
     }
-    assert_eq!(plain.progress().count(), 0);
-    let owned: Vec<Value> = owners_until(&mut raw, &incoming, "sentinel")
+    assert_eq!((plain.progress().count(), plain.partials().count()), (0, 0));
+    let owned: Vec<(&str, Value)> = owners_until(&mut raw, &incoming, "sentinel")
         .into_iter()
         .map(|m| match m {
-            Incoming::Notification { method, params } if method == method::PROGRESS => params,
+            Incoming::Notification { method, params } if method == method::PROGRESS => (method::PROGRESS, params),
+            Incoming::Notification { method, params } if method == method::PARTIAL => (method::PARTIAL, params),
             other => panic!("{other:?}"),
         })
         .collect();

@@ -38,8 +38,8 @@ enum PluginCommand {
         /// The plugin's id
         plugin: String,
     },
-    /// A plugin's settings: show them, set one (KEY VALUE), or put one back to its default (KEY
-    /// --reset)
+    /// A plugin's settings: show them, set one (KEY VALUE, or a secret: KEY --secret), or put
+    /// one back to its default (KEY --reset)
     Settings {
         /// The plugin's id
         plugin: String,
@@ -48,9 +48,13 @@ enum PluginCommand {
         /// Its new value
         #[arg(conflicts_with = "reset")]
         value: Option<String>,
-        /// Put it back to its default
+        /// Put it back to its default (a secret: forget it)
         #[arg(long, requires = "key")]
         reset: bool,
+        /// Set a secret (a password, a key), read from stdin without showing it: kept in the
+        /// system's keychain, and never shown
+        #[arg(long, requires = "key", conflicts_with_all = ["value", "reset"])]
+        secret: bool,
     },
     /// Which analyzer each role is read from (a track's key, tempo and level, for doctor, the
     /// check before a set, ordering a set and `analyze --apply`): show them, choose one (ROLE
@@ -91,8 +95,9 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Resul
             let store = crate::diff_cmd::existing_store(store_path)?;
             out.emit(&Described::of(&plugin, plugins, store.as_ref())?, listing::info);
         }
-        PluginCommand::Settings { plugin, key, value, reset } => {
-            return listing::settings(plugins, plugin, key, value, reset, store_path, out);
+        PluginCommand::Settings { plugin, key, value, reset, secret } => {
+            let change = listing::Change { value, reset, secret };
+            return listing::settings(plugins, plugin, key, change, store_path, out);
         }
         PluginCommand::Roles { role, analyzer, reset } => {
             return listing::roles(role, analyzer, reset, store_path, out);

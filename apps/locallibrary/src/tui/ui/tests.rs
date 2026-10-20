@@ -518,7 +518,7 @@ fn the_drives_view_lists_libraries_with_their_clones() {
         last_mount: dir.path().join("Spare"),
         last_seen: at_time,
         capacity: None,
-        standing: Standing::Behind { snapshots: 2, held: "1a2b3c".into() },
+        standing: Standing::Behind { snapshots: 2, held: Some("1a2b3c".into()) },
         log: DriveLog::default(),
     };
     app.fleet_libraries = vec![FleetLibrary {
@@ -1757,7 +1757,7 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
         last_seen: at,
         capacity: None,
         standing: match standing {
-            0 => Standing::Behind { snapshots: 2, held: "1a2b3c".into() },
+            0 => Standing::Behind { snapshots: 2, held: Some("1a2b3c".into()) },
             1 => Standing::UpToDate,
             2 => Standing::Unsaved,
             _ => Standing::Unknown,

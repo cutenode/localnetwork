@@ -49,8 +49,9 @@ fn an_operations_edits_need_their_capabilities() {
     let art = |image: Value| json!({ "op": "set_artwork", "tracks": { "ids": [1] }, "image": image });
     let e = given(art(json!({ "base64": "AAAA" }))).unwrap_err();
     assert_eq!(e, "the Echo plugin failed: its edit 0 needs the artwork:plan capability, which it doesn't have");
+    // However it gives the image (`blobs.rs` has what a plugin with it may give).
     let e = given(art(json!({ "path": "/tmp/cover.jpg" }))).unwrap_err();
-    assert_eq!(e, "the Echo plugin failed: its edit 0 names an image file: a plugin gives an image's bytes");
+    assert_eq!(e, "the Echo plugin failed: its edit 0 needs the artwork:plan capability, which it doesn't have");
     let e = given(json!({ "op": "explode" })).unwrap_err();
     assert!(e.starts_with("the Echo plugin failed: its edit 0 isn't one: "), "{e}");
     f.plan(json!({ "name": "Doomed" })).unwrap().apply(None, &Ctx::silent()).unwrap();
@@ -134,7 +135,7 @@ fn an_operations_plan_is_stale_once_a_file_it_read_changes() {
 fn an_export_is_confirmed_before_it_overwrites() {
     let f = Fixture::echo();
     let out = f.store.root().parent().unwrap().join("out.m3u");
-    let source = ExportSource { drive: "USB".into(), playlists: Vec::new(), history: Vec::new() };
+    let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };
     let plan = |options: Value| {
         f.plugins.export_plan("echo", "m3u", source.clone(), &out, options, Some(&f.store), &Ctx::silent())
     };
@@ -333,8 +334,10 @@ fn settings_are_checked_kept_and_handed_to_hooks() {
     assert_eq!(set("volume", Some(json!(5))).unwrap_err().code(), "not_found");
     let changed = set("greeting", Some(json!("hi"))).unwrap();
     assert_eq!(serde_json::to_value(changed).unwrap(), json!({ "greeting": "hi" }));
-    let context = f.echo_params(json!({ "context": true })).unwrap();
+    let mut context = f.echo_params(json!({ "context": true })).unwrap();
     let id = locallibrary::Device::open(&f.drive).unwrap().id().unwrap().to_string();
+    // And the request's scratch folder (`blobs.rs`).
+    assert!(context.as_object_mut().unwrap().shift_remove("scratch").is_some());
     assert_eq!(context, json!({ "drive": id, "settings": { "greeting": "hi" } }));
     // Kept as written: what no longer fits the setting (an older plugin's) is its default.
     let file = f.store.root().join("plugins/echo/settings.json");
@@ -368,7 +371,7 @@ fn settings_are_checked_kept_and_handed_to_hooks() {
 fn an_export_kept_doesnt_keep_its_plugin() {
     let Fixture { _dir, store, plugins, .. } = Fixture::echo();
     let out = store.root().parent().unwrap().join("out.m3u");
-    let source = ExportSource { drive: "USB".into(), playlists: Vec::new(), history: Vec::new() };
+    let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };
     let planned = plugins.export_plan("echo", "m3u", source, &out, Value::Null, Some(&store), &Ctx::silent()).unwrap();
     drop(plugins);
     let e = planned.apply(None, &Ctx::silent()).err().unwrap();

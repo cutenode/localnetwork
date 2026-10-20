@@ -4,9 +4,10 @@
 //!
 //! * its latest snapshot, and labelled ones;
 //! * the state each registered drive (retired ones aside) was last seen holding: `push` overwrites
-//!   a drive without `--force` only when its state is saved, `drive list` says how far behind a
-//!   drive is from it, and a drive back from a set is told apart from a new export by the last
-//!   state it shared with the other drive ([`crate::after_set`]);
+//!   a drive without `--force` only when its state is saved (or the snapshot pushed went through
+//!   it), `drive list` says how far behind a drive is from it, and a drive back from a set is told
+//!   apart from a new export by the last state it shared with the other drive
+//!   ([`crate::after_set`]);
 //! * the newest snapshot holding each history list (what players recorded at a set), so
 //!   `history --all` and the DJ profile keep every list the store has seen;
 //! * what the policy asks for: the newest N, and the newest of each of the last N days and weeks

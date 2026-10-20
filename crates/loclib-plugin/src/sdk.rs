@@ -13,10 +13,11 @@ use serde_json::Value;
 
 use crate::error::{ok, params};
 use crate::protocol::{
-    Analysis, AnalyzeTrack, Exported, Hello, HelloReply, OpPlan, PlanOp, PluginInfo, ProgressEvent, ProgressParams,
-    ProgressReport, Progressed, RunCommand, StepInfo, StepStarted, WriteExport, check_protocol, method,
+    Analysis, AnalyzeTrack, Exported, Fetch, Fetched, Hello, HelloReply, OpPlan, Partial, PlanOp, PluginInfo,
+    ProgressEvent, ProgressParams, ProgressReport, Progressed, RunCommand, StepInfo, StepStarted, WriteExport,
+    check_protocol, method,
 };
-use crate::{Contributions, FEATURES, Incoming, Manifest, PROTOCOL_VERSION, Peer, Request, RpcError};
+use crate::{Contributions, FEATURES, Incoming, ListItem, Manifest, PROTOCOL_VERSION, Peer, Request, RpcError};
 
 /// A request the host sends a hook: its method, what it answers, and the contribution it's for,
 /// which the manifest must declare.
@@ -101,9 +102,10 @@ impl Hooks {
         self
     }
 
-    /// The features with a method among these hooks'.
+    /// The features with a method among these hooks', and the SDK's own (`blobs`, `net`: what
+    /// a hook may send the host, see [`Host`]).
     fn features(&self) -> Vec<String> {
-        let had = FEATURES.iter().filter(|f| f.methods.iter().any(|m| self.0.contains_key(m)));
+        let had = FEATURES.iter().filter(|f| f.methods.is_empty() || f.methods.iter().any(|m| self.0.contains_key(m)));
         had.map(|f| f.name.into()).collect()
     }
 }
@@ -158,6 +160,23 @@ impl Host {
     /// fails with `cancelled` once the host cancels the hook.
     pub fn ctx(&self) -> Ctx<'_> {
         Ctx::new(&*self.progress, self.cancel.clone())
+    }
+
+    /// `net/fetch`: the host makes an HTTP request for the hook, to a server the manifest's
+    /// `net:` capabilities grant (see [`Fetch`]).
+    pub fn fetch(&self, req: &Fetch) -> Result<Fetched, RpcError> {
+        self.call(method::NET_FETCH, req)
+    }
+
+    /// Sends the host the next rows of the table a view command will answer (`partial`), to
+    /// show while it works out the rest. The view it answers still has them, first.
+    pub fn partial_rows(&self, rows: Vec<Vec<Value>>) {
+        self.peer.notify(method::PARTIAL, &Partial { id: self.id.clone(), rows, items: Vec::new() });
+    }
+
+    /// [`Host::partial_rows`] for a list's items.
+    pub fn partial_items(&self, items: Vec<ListItem>) {
+        self.peer.notify(method::PARTIAL, &Partial { id: self.id.clone(), rows: Vec::new(), items });
     }
 }
 

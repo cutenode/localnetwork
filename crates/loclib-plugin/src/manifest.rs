@@ -31,6 +31,9 @@ pub struct Manifest {
     pub capabilities: Vec<Capability>,
     #[serde(default)]
     pub contributes: Contributions,
+    /// How often the host may send `net/fetch` requests to some of the hosts it talks to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub net: Vec<NetLimit>,
     /// The keys [`Manifest::parse`] left out, where they were (`contributes.commands[0].colour`).
     #[serde(skip)]
     #[schemars(skip)]
@@ -378,22 +381,32 @@ pub enum SettingType {
     Enum,
     File,
     Directory,
-    /// It has no default. locallibrary can't keep one yet, and refuses a plugin with one.
+    /// A password or a key: kept in the system's keychain, never shown, and given to the plugin
+    /// only as the host fills it into its `net/fetch` requests. It has no default.
     Secret,
 }
 
 impl Setting {
-    /// Whether `value` can be this setting's: of its type (for an enum, one of its choices). A
-    /// secret takes none: locallibrary can't keep one yet.
+    /// Whether `value` can be this setting's: of its type (for an enum, one of its choices; for
+    /// a secret, a string that isn't empty).
     pub fn accepts(&self, value: &Value) -> bool {
         match self.kind {
             SettingType::String | SettingType::File | SettingType::Directory => value.is_string(),
             SettingType::Number => value.is_number(),
             SettingType::Boolean => value.is_boolean(),
             SettingType::Enum => value.as_str().is_some_and(|v| self.choices.iter().any(|c| c == v)),
-            SettingType::Secret => false,
+            SettingType::Secret => value.as_str().is_some_and(|v| !v.is_empty()),
         }
     }
+}
+
+/// `[[net]]`: at most `per_second` `net/fetch` requests a second to `host`, one of the plugin's
+/// `net:` capabilities as it's written (`musicbrainz.org`, `*.archive.org`), however many hooks
+/// are under way: the limit the server asks its clients to keep.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct NetLimit {
+    pub host: String,
+    pub per_second: f64,
 }
 
 /// What a plugin may call back for. A closed list: a manifest naming another is refused.
@@ -415,8 +428,9 @@ pub enum Capability {
     TagsPlan,
     CuesPlan,
     ArtworkPlan,
-    /// `net:<host>`: it talks to this server. Shown to the user; a native plugin can't be held
-    /// to it.
+    /// `net:<host>`: it talks to this server through the host (`net/fetch`), or with
+    /// `net:*.<domain>` to any server below that domain. Shown to the user; a native plugin can't
+    /// be held to it.
     Net(String),
 }
 
@@ -465,6 +479,19 @@ impl Capability {
     }
 }
 
+impl Capability {
+    /// Whether it's `net:` for `host` (as a URL has it, in lowercase): that host, or one below
+    /// the domain of a `net:*.<domain>`.
+    pub fn reaches(&self, host: &str) -> bool {
+        let Capability::Net(granted) = self else { return false };
+        let granted = granted.to_ascii_lowercase();
+        match granted.strip_prefix("*.") {
+            Some(domain) => host.strip_suffix(domain).is_some_and(|below| below.ends_with('.') && below.len() > 1),
+            None => host == granted,
+        }
+    }
+}
+
 impl fmt::Display for Capability {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -474,8 +501,9 @@ impl fmt::Display for Capability {
     }
 }
 
-/// A host name: no scheme, path, port or spaces.
+/// A host name, or `*.` and a domain: no scheme, path, port or spaces.
 fn is_host(host: &str) -> bool {
+    let host = host.strip_prefix("*.").unwrap_or(host);
     !host.is_empty() && host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
 }
 
@@ -486,7 +514,7 @@ impl FromStr for Capability {
         if let Some(host) = s.strip_prefix("net:") {
             return match is_host(host) {
                 true => Ok(Capability::Net(host.into())),
-                false => Err(format!("{s:?} names no host: net:<host>, like net:musicbrainz.org")),
+                false => Err(format!("{s:?} names no host: net:<host> or net:*.<domain>, like net:musicbrainz.org")),
             };
         }
         Capability::NAMED.into_iter().find(|c| c.name() == Some(s)).ok_or_else(|| {
@@ -517,7 +545,7 @@ impl JsonSchema for Capability {
         let named: Vec<_> = Capability::NAMED.iter().filter_map(Capability::name).collect();
         json_schema!({
             "type": "string",
-            "anyOf": [{ "enum": named }, { "pattern": "^net:[A-Za-z0-9.-]+$" }],
+            "anyOf": [{ "enum": named }, { "pattern": "^net:(\\*\\.)?[A-Za-z0-9.-]+$" }],
         })
     }
 }
@@ -826,11 +854,25 @@ impl Manifest {
             if let Some(choice) = x.choices.iter().find(|c| !choices.insert(*c)) {
                 return Err(invalid(format!("{at}[{i}].choices"), format!("{choice:?} is there twice")));
             }
-            if x.default.as_ref().is_some_and(|d| !x.accepts(d)) {
+            if x.default.as_ref().is_some_and(|d| x.kind == SettingType::Secret || !x.accepts(d)) {
                 return Err(invalid(
                     format!("{at}[{i}].default"),
                     "doesn't fit the setting's type (and a secret has none)",
                 ));
+            }
+        }
+        let mut limited = FxHashSet::default();
+        for (i, x) in self.net.iter().enumerate() {
+            let at = format!("net[{i}]");
+            if !self.capabilities.contains(&Capability::Net(x.host.clone())) {
+                return Err(invalid(format!("{at}.host"), format!("net:{} isn't one of its capabilities", x.host)));
+            }
+            if !limited.insert(&x.host) {
+                return Err(invalid(format!("{at}.host"), format!("{:?} is limited twice", x.host)));
+            }
+            // So the time between two requests is one the host can wait.
+            if !(x.per_second.is_finite() && x.per_second * 3600.0 >= 1.0) {
+                return Err(invalid(format!("{at}.per_second"), "is how many requests a second, at least 1/3600"));
             }
         }
         Ok(())
