@@ -945,7 +945,7 @@ impl Store {
     /// Delete what nothing uses: snapshots of no library the store has (unless labelled, a
     /// library's latest, or a parent of a snapshot that stays), then the stored files no
     /// remaining snapshot lists, what writes cut off by a crash left among them, and caches no
-    /// version of locallibrary reads any more (see [`crate::audio_cache::unread`]). Every
+    /// version of locallibrary reads any more (see `audio_cache::unread`). Every
     /// snapshot of a library stays, whether its latest reaches it or not (a drive back from a set
     /// is saved beside it, see [`crate::sync::pull_beside`]): which of them go is `store prune`'s
     /// choice ([`crate::retention`]). A manifest that can't be read hides which library it
