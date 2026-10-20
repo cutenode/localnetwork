@@ -11,7 +11,7 @@ use rustc_hash::FxHashSet;
 use std::fs;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{
     self, CheckRequest, ClearPlayers, DiffRequest, DoctorRequest, DriveRef, ExportPlaylist, HistoryArchiveRequest,
     PlayStatsRequest, PullRequest, SetPlayers,
@@ -397,8 +397,7 @@ fn outputs_write_what_they_say(tc: TestCase) {
             3 => (Some("Sets".into()), None, false, vec![late.track_ids.len()]),
             _ => (None, Some("history 001".into()), false, vec![3]),
         };
-        let format =
-            tc.draw(gs::optional(gs::sampled_from(vec![Format::M3u8, Format::Csv, Format::Txt]).print_as_debug()));
+        let format = tc.draw(gs::optional(gs::sampled_from(vec![Format::M3u8, Format::Csv, Format::Txt])));
         let ext = tc.draw(gs::sampled_from(vec!["m3u8", "csv", "txt", "list"]));
         let output = if split { out.join(format!("split {choice}")) } else { out.join(format!("set {choice}.{ext}")) };
         let req = ExportPlaylist {
@@ -408,9 +407,7 @@ fn outputs_write_what_they_say(tc: TestCase) {
             archived: false,
             format,
             output: output.clone(),
-            paths: tc.draw(
-                gs::sampled_from(vec![PathStyle::Relative, PathStyle::Drive, PathStyle::Absolute]).print_as_debug(),
-            ),
+            paths: tc.draw(gs::sampled_from(vec![PathStyle::Relative, PathStyle::Drive, PathStyle::Absolute])),
             split,
             replace: false,
         };

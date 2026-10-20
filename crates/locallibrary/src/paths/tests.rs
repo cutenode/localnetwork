@@ -79,7 +79,6 @@ fn unsafe_keys() {
 /// profile's, and anything under OS clutter or locallibrary's own folder isn't managed.
 #[hegel::test(test_cases = 300)]
 fn pioneer_keys_are_classed_by_where_they_are(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let shout = |s: &str, tc: &hegel::TestCase| -> String {
         s.chars()
@@ -102,7 +101,7 @@ fn pioneer_keys_are_classed_by_where_they_are(tc: hegel::TestCase) {
         ("other/x", Some(FileClass::Other)),
         ("README.TXT", Some(FileClass::Other)),
     ];
-    let (rest, want) = tc.draw(gs::sampled_from(rows.to_vec()).print_as_debug());
+    let (rest, want) = tc.draw(gs::sampled_from(rows.to_vec()));
     // The case-sensitive folders (rekordbox's own, USBANLZ...) are written as rekordbox writes them.
     let (dir, name) = rest.split_once('/').unwrap_or(("", rest));
     let fixed_dir = matches!(dir, "rekordbox" | "USBANLZ" | "Artwork" | "DeviceLibBackup" | "extracted" | "other");

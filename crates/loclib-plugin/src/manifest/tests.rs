@@ -506,8 +506,6 @@ enum Kind {
     Object,
 }
 
-hegel::pretty_print_as_debug!(Kind);
-
 const KINDS: [Kind; 6] = [Kind::String, Kind::Strings, Kind::Integer, Kind::Number, Kind::Boolean, Kind::Object];
 
 impl Kind {
@@ -625,7 +623,7 @@ fn number(tc: &TestCase) -> Value {
 /// that fits.
 #[hegel::test_helper]
 fn setting(tc: &TestCase, key: String) -> Setting {
-    let kind = tc.draw(gs::sampled_from(SETTING_TYPES.to_vec()).print_as_debug());
+    let kind = tc.draw(gs::sampled_from(SETTING_TYPES.to_vec()));
     let choices = match kind {
         SettingType::Enum => tc.draw(gs::vecs(gs::text().max_size(8)).min_size(1).max_size(4).unique(true)),
         _ => Vec::new(),
@@ -659,7 +657,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         .map(|name| Command {
             name,
             title: title(tc),
-            mode: tc.draw(gs::sampled_from(modes.clone()).print_as_debug()),
+            mode: tc.draw(gs::sampled_from(modes.clone())),
             params: maybe_schema(tc),
             cli: place(tc),
         })
@@ -687,12 +685,12 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         .map(|(name, field)| Analyzer {
             name,
             title: title(tc),
-            fields: IndexMap::from_iter([(field, tc.draw(gs::sampled_from(field_types.clone()).print_as_debug()))]),
+            fields: IndexMap::from_iter([(field, tc.draw(gs::sampled_from(field_types.clone())))]),
         })
         .collect();
     for field in fields {
         let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
-        analyzers[i].fields.insert(field, tc.draw(gs::sampled_from(field_types.clone()).print_as_debug()));
+        analyzers[i].fields.insert(field, tc.draw(gs::sampled_from(field_types.clone())));
     }
     let exporters = drawn_names(tc, 3)
         .into_iter()
@@ -702,7 +700,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         })
         .collect();
     let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
-    let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()).print_as_debug());
+    let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
     let hosts = tc.draw(gs::vecs(gs::from_regex("[A-Za-z0-9.-]{1,16}")).max_size(2).unique(true));
     capabilities.extend(hosts.into_iter().map(Capability::Net));
     let pre = tc.draw(gs::optional(gs::from_regex("[a-z][a-z0-9]{0,4}"))).map(|p| format!("-{p}")).unwrap_or_default();
@@ -713,7 +711,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         name: title(tc),
         version: format!("{major}.{minor}.{patch}{pre}"),
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
-        capabilities: tc.draw(gs::permutations(capabilities).print_as_debug()),
+        capabilities: tc.draw(gs::permutations(capabilities)),
         contributes: Contributions { commands, operations, analyzers, exporters, settings },
     }
 }
@@ -1018,7 +1016,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                         json!({ "type": ["object"] }),
                         json!({ "properties": {} }),
                     ];
-                    *slot = Some(tc.draw(gs::sampled_from(wrong).print_as_debug()));
+                    *slot = Some(tc.draw(gs::sampled_from(wrong)));
                     return assert_eq!(
                         problem_with(&m, first_party),
                         format!("{at}: must be a JSON Schema for an object (type = \"object\")")
@@ -1030,7 +1028,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                         json!({ "type": "object", "required": "name" }),
                         json!({ "type": "object", "minProperties": -1 }),
                     ];
-                    *slot = Some(tc.draw(gs::sampled_from(wrong).print_as_debug()));
+                    *slot = Some(tc.draw(gs::sampled_from(wrong)));
                     return assert!(
                         problem_with(&m, first_party).starts_with(&format!("{at}: isn't a valid JSON Schema: "))
                     );
@@ -1110,8 +1108,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                         }
                         false => {
                             let mut property = tc.draw(gs::sampled_from(vec![Kind::String, Kind::Strings])).schema();
-                            property["x-path"] =
-                                tc.draw(gs::sampled_from(vec![json!("yes"), json!(1), json!(null)]).print_as_debug());
+                            property["x-path"] = tc.draw(gs::sampled_from(vec![json!("yes"), json!(1), json!(null)]));
                             property
                         }
                     };
@@ -1321,7 +1318,7 @@ fn params_fit_their_schema_or_are_refused_saying_where(tc: TestCase) {
         }
         _ => {
             let other = vec![json!(null), json!([]), json!("params"), json!(1), json!(true), json!([{}])];
-            (tc.draw(gs::sampled_from(other).print_as_debug()), None, String::new())
+            (tc.draw(gs::sampled_from(other)), None, String::new())
         }
     };
     let e = check_params(Some(&schema), &params).unwrap_err();

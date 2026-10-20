@@ -6,7 +6,7 @@ use crate::common::{self, media, path};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::Error;
 use locallibrary::api::{
     self, AnalysisRequest, ArtworkRequest, LibraryCache, OneOrMany, SetArtwork, TracksGet, WaveformChoice,
@@ -101,7 +101,7 @@ fn a_tracks_artwork_file_is_the_size_players_show(tc: TestCase) {
     let refused = several(vec![ids[0]; over], WaveformChoice::None).map(|a| a.tracks.len());
     let most = format!("at most {} tracks at a time, not {over}", api::MAX_ANALYSES);
     assert!(matches!(&refused, Err(Error::Invalid(m)) if *m == most), "{refused:?}");
-    let scrolling = tc.draw(gs::sampled_from(vec![WaveformChoice::Detail, WaveformChoice::All]).print_as_debug());
+    let scrolling = tc.draw(gs::sampled_from(vec![WaveformChoice::Detail, WaveformChoice::All]));
     assert!(matches!(several(ids.clone(), scrolling), Err(Error::Invalid(_))));
     let analysis = api::track_analysis(&api::TrackRequest { drive: path(&root), track: unknown });
     assert!(matches!(&analysis, Err(Error::NotFound(m)) if *m == format!("track #{unknown}")), "{analysis:?}");

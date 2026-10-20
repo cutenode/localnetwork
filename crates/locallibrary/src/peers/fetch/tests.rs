@@ -2,8 +2,8 @@ use super::*;
 use crate::model::LibrarySummary;
 use crate::store::Snapshot;
 use chrono::{DateTime, Utc};
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 use protocol::CatalogSnapshot;
 
 /// Where a snapshot of the library is: this store, the other computer's, or both.
@@ -54,7 +54,7 @@ fn a_library_follows_the_other_store_only_forwards(tc: TestCase) {
             lineage: Vec::new(),
             files: Vec::new(),
         };
-        let where_ = tc.draw(gs::sampled_from(vec![Kept::Here, Kept::There, Kept::Both]).print_as_debug());
+        let where_ = tc.draw(gs::sampled_from(vec![Kept::Here, Kept::There, Kept::Both]));
         let id = match where_ {
             Kept::There => snap.compute_id(),
             _ => store.save_snapshot(snap.clone()).unwrap().id,

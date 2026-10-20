@@ -2,8 +2,8 @@
 
 use std::collections::BTreeSet;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 use locallibrary::diff::{self, PlaylistDiff};
 use locallibrary::model::LibraryDiff;
 use locallibrary::{Library, Playlist, Track, paths};
@@ -135,7 +135,7 @@ fn summary(d: &PlaylistDiff) -> (BTreeSet<String>, BTreeSet<String>, BTreeSet<St
 /// differences, and every playlist counts as unchanged.
 #[hegel::test(test_cases = 300)]
 fn a_library_equals_itself(tc: TestCase) {
-    let a = tc.draw(library().print_as_debug());
+    let a = tc.draw(library());
     let mut renumbered = a.clone();
     for t in &mut renumbered.tracks {
         t.id += 1000;
@@ -154,7 +154,7 @@ fn a_library_equals_itself(tc: TestCase) {
 /// Comparing the other way round swaps what was added and removed and finds the same changes.
 #[hegel::test(test_cases = 300)]
 fn swapping_sides_swaps_the_diff(tc: TestCase) {
-    let (a, b) = (tc.draw(library().print_as_debug()), tc.draw(library().print_as_debug()));
+    let (a, b) = (tc.draw(library()), tc.draw(library()));
     let (ab, ba) = (diff::between(&a, &b, ("a", "b"), None), diff::between(&b, &a, ("b", "a"), None));
     let (ab_added, ab_removed, ab_new, ab_changed, ab_same) = summary(&ab);
     let (ba_added, ba_removed, ba_new, ba_changed, ba_same) = summary(&ba);
@@ -219,7 +219,7 @@ fn lis(v: &[usize]) -> usize {
 /// count as moved.
 #[hegel::test(test_cases = 300)]
 fn entry_changes_account_for_every_entry(tc: TestCase) {
-    let (a, b) = (tc.draw(library().print_as_debug()), tc.draw(library().print_as_debug()));
+    let (a, b) = (tc.draw(library()), tc.draw(library()));
     let d = diff::between(&a, &b, ("a", "b"), None);
     for c in &d.changed_playlists {
         let (left, right) = (entries(&a, &c.path), entries(&b, &c.path));
@@ -265,7 +265,7 @@ fn entry_changes_account_for_every_entry(tc: TestCase) {
 /// no collection-level changes.
 #[hegel::test(test_cases = 300)]
 fn playlist_filter_narrows_the_diff(tc: TestCase) {
-    let (a, b) = (tc.draw(library().print_as_debug()), tc.draw(library().print_as_debug()));
+    let (a, b) = (tc.draw(library()), tc.draw(library()));
     let filter = tc.draw(gs::sampled_from(vec!["Shows", "shows/", "Shows/2026", "Set", "nope"]));
     let all = diff::between(&a, &b, ("a", "b"), None);
     let some = diff::between(&a, &b, ("a", "b"), Some(filter));

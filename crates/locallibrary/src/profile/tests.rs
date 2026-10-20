@@ -58,8 +58,8 @@ fn deciles_spread_a_set() {
 
 use crate::model::TrackColor;
 use crate::sets::EntryOrigin;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 
 const ARTISTS: [&str; 6] = ["Bicep", "Four Tet", "bicep", "Bicep feat. Clara La San", "Floorplan, Robert Hood", ""];
 // Mostly keys a wheel step apart, so sets mix in key as often as not.
@@ -118,7 +118,7 @@ struct Scenario {
 
 const STYLE_VALUES: [&str; 5] = ["on", "off", "16", "wide", "10"];
 
-fn scenario() -> impl hegel::Generator<Scenario> {
+fn scenario() -> impl hegel::PrintableGenerator<Scenario> {
     hegel::compose!(|tc| {
         let years = vec![0u16, 1987, 1999, 2012, 2024, Utc::now().year() as u16, 2099];
         let track = hegel::compose!(|tc| {
@@ -132,7 +132,7 @@ fn scenario() -> impl hegel::Generator<Scenario> {
                 rating: tc.draw(gs::integers::<u8>().max_value(5)),
                 coloured: tc.draw(gs::booleans()),
                 in_collection: tc.draw(gs::weighted_booleans(0.8)),
-                mood: tc.draw(gs::optional(gs::sampled_from(vec![Mood::High, Mood::Mid, Mood::Low]).print_as_debug())),
+                mood: tc.draw(gs::optional(gs::sampled_from(vec![Mood::High, Mood::Mid, Mood::Low]))),
                 cues: tc.draw(gs::optional(gs::tuples!(
                     gs::integers::<usize>().max_value(3),
                     gs::integers::<usize>().max_value(2),
@@ -140,7 +140,7 @@ fn scenario() -> impl hegel::Generator<Scenario> {
                 ))),
             }
         });
-        let tracks: Vec<GenTrack> = tc.draw(gs::vecs(track.print_as_debug()).min_size(1).max_size(24));
+        let tracks: Vec<GenTrack> = tc.draw(gs::vecs(track).min_size(1).max_size(24));
         let n = tracks.len();
         let set = hegel::compose!(|tc| {
             let tracks: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(n - 1)).max_size(14));
@@ -156,7 +156,7 @@ fn scenario() -> impl hegel::Generator<Scenario> {
         });
         let days = || gs::optional(gs::integers::<i64>().min_value(0).max_value(400));
         Scenario {
-            sets: tc.draw(gs::vecs(set.print_as_debug()).max_size(8)),
+            sets: tc.draw(gs::vecs(set).max_size(8)),
             declared: tc.draw(gs::booleans()),
             dupes: tc.draw(gs::vecs(gs::integers::<usize>().max_value(n - 1)).max_size(3)),
             playlists: tc.draw(gs::vecs(gs::tuples!(gs::booleans(), gs::sampled_from(PLAYLISTS.to_vec()))).max_size(5)),
@@ -364,7 +364,7 @@ fn check_ranked(what: &str, sec: &RankedSection, counts: &FxHashMap<String, usiz
 /// collection; every share is in [0, 1] and the headline counts what the basis counts.
 #[hegel::test(test_cases = 200)]
 fn the_report_agrees_with_a_count_of_its_inputs(tc: TestCase) {
-    let s = tc.draw(scenario().print_as_debug());
+    let s = tc.draw(scenario());
     let now = Utc::now();
     let (r, played) = report_of(&s, now);
     let g = &s.tracks;
@@ -638,7 +638,7 @@ fn prefs_for(tc: &TestCase, r: &ProfileReport) -> ProfilePrefs {
     pins.push("Nobody - Nothing".into());
     let artists: Vec<String> = ARTISTS.iter().flat_map(|a| artist_credits(a)).collect();
     ProfilePrefs {
-        sections: tc.draw(gs::optional(gs::btree_sets(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()))),
+        sections: tc.draw(gs::optional(gs::btree_sets(gs::sampled_from(Section::ALL.to_vec())))),
         precision: if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded },
         pinned: some(pins, 3),
         hidden: some(names, 2),
@@ -660,7 +660,7 @@ fn rounded_to(x: f64, units: f64) -> bool {
 /// and its headline and traits say nothing a left-out section would.
 #[hegel::test(test_cases = 200)]
 fn the_document_publishes_what_the_preferences_allow(tc: TestCase) {
-    let s = tc.draw(scenario().print_as_debug());
+    let s = tc.draw(scenario());
     let (r, _) = report_of(&s, Utc::now());
     let prefs = prefs_for(&tc, &r);
     let d = document(&r, &prefs);

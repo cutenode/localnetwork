@@ -315,24 +315,23 @@ fn said(f: impl FnOnce(&mut dyn FnMut(&'static str, Level, String))) -> Said {
 #[hegel::explicit_test_case(scheme = Some(Scheme::Mbr), fs = Some(FsKind::Hfsplus), name = "Mac OS Extended (Case-sensitive)", volumes = 2usize)]
 #[hegel::explicit_test_case(scheme = None::<Scheme>, fs = Some(FsKind::Exfat), name = "exFAT", volumes = 0usize)]
 fn a_drives_file_system_item_says_what_players_make_of_it(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
-    let scheme = tc.draw(
-        gs::sampled_from(vec![None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm), Some(Scheme::Other)])
-            .print_as_debug(),
-    );
-    let fs = tc.draw(
-        gs::sampled_from(vec![
-            None,
-            Some(FsKind::Fat16),
-            Some(FsKind::Fat32),
-            Some(FsKind::Exfat),
-            Some(FsKind::Hfsplus),
-            Some(FsKind::Apfs),
-            Some(FsKind::Ntfs),
-        ])
-        .print_as_debug(),
-    );
+    let scheme = tc.draw(gs::sampled_from(vec![
+        None,
+        Some(Scheme::Mbr),
+        Some(Scheme::Gpt),
+        Some(Scheme::Apm),
+        Some(Scheme::Other),
+    ]));
+    let fs = tc.draw(gs::sampled_from(vec![
+        None,
+        Some(FsKind::Fat16),
+        Some(FsKind::Fat32),
+        Some(FsKind::Exfat),
+        Some(FsKind::Hfsplus),
+        Some(FsKind::Apfs),
+        Some(FsKind::Ntfs),
+    ]));
     let name = tc.draw(gs::sampled_from(vec!["MS-DOS FAT32", "Mac OS Extended (Case-sensitive)", "exFAT", "NTFS"]));
     let volumes = tc.draw(gs::integers::<usize>().max_value(2));
     let mut disk = crate::format::tests::sample_disk();
@@ -478,7 +477,6 @@ fn audio_problems_are_grouped_by_kind(tc: hegel::TestCase) {
 #[hegel::explicit_test_case(path = "/Contents/a.m4a", bitrate = 401u32, rate = 44_100u32, depth = 16u16, probed = None::<Codec>)]
 #[hegel::explicit_test_case(path = "/Contents/Music/readme", bitrate = 0u32, rate = 0u32, depth = 0u16, probed = None::<Codec>)]
 fn a_tracks_audio_comes_from_its_row_then_its_file(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let path = tc.draw(gs::sampled_from(vec![
         "/Contents/a.m4a",
@@ -492,7 +490,7 @@ fn a_tracks_audio_comes_from_its_row_then_its_file(tc: hegel::TestCase) {
     let bitrate = tc.draw(gs::sampled_from(vec![0u32, 128, 320, 321, 400, 401, 900]));
     let rate = tc.draw(gs::sampled_from(vec![0u32, 44_100, 96_000]));
     let depth = tc.draw(gs::sampled_from(vec![0u16, 16, 24]));
-    let probed = tc.draw(gs::optional(gs::sampled_from(Codec::ALL.to_vec())).print_as_debug());
+    let probed = tc.draw(gs::optional(gs::sampled_from(Codec::ALL.to_vec())));
     let file = probe::Format { codec: probed, sample_rate: 48_000, bit_depth: 32, channels: 2, duration_secs: None };
     let t = row(path, bitrate, rate, depth);
     let by_rate = match bitrate {

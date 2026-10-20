@@ -4,8 +4,8 @@
 use std::fs;
 use std::sync::OnceLock;
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 use rekordbox_pdb::NewTrack;
 
 use locallibrary::device::Device;
@@ -148,7 +148,7 @@ fn copies_are_made_of_exactly_what_the_players_cant_play(tc: TestCase) {
         tc.draw(gs::vecs(gs::sampled_from(names)).min_size(1).max_size(3)).into_iter().map(String::from).collect();
     let players: Vec<&Model> =
         equipment::canonical(&chosen).unwrap().iter().map(|n| equipment::find(n).unwrap()).collect();
-    let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug());
+    let container = tc.draw(gs::sampled_from(Container::ALL.to_vec()));
     let decode = tc.draw(gs::weighted_booleans(0.3));
     let dir = tempfile::tempdir().unwrap();
     let mut src = Device::open_export(source().write(&dir.path().join("Main"))).unwrap();

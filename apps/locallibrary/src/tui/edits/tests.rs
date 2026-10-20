@@ -451,7 +451,7 @@ fn packing_the_crate_needs_a_playlist_name() {
 /// before then.
 #[hegel::test(test_cases = 300)]
 fn progress_is_told_and_a_cancel_stops_only_before_writing(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     const PHASES: [Phase; 9] = [
         Phase::Scan,
         Phase::Hash,
@@ -471,7 +471,7 @@ fn progress_is_told_and_a_cancel_stops_only_before_writing(tc: hegel::TestCase) 
         if tc.draw(gs::integers::<u8>().max_value(5)) == 0 {
             outer.cancel();
         }
-        let p = tc.draw(gs::sampled_from(&PHASES[..]).print_as_debug());
+        let p = tc.draw(gs::sampled_from(&PHASES[..]));
         let event = match tc.draw(gs::integers::<u8>().max_value(2)) {
             0 => Event::PhaseStart { phase: p, items: 0, bytes: 0 },
             1 => Event::Item {
@@ -649,7 +649,7 @@ fn said_as_what_it_came_to(tc: &hegel::TestCase, kind: u8) {
 /// top.
 #[hegel::test(test_cases = 200)]
 fn a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let planned = Plan { operation: "edit", summary: vec!["a line".into(); 40], ..Default::default() };
@@ -667,23 +667,20 @@ fn a_confirmation_waits_then_scrolls_or_answers(tc: hegel::TestCase) {
         if let Some(Modal::Confirm(c)) = &mut app.modal {
             c.shown = if settled { Instant::now() - Duration::from_secs(1) } else { Instant::now() };
         }
-        let code = tc.draw(
-            gs::sampled_from(
-                &[
-                    KeyCode::Up,
-                    KeyCode::Char('k'),
-                    KeyCode::Down,
-                    KeyCode::Char('j'),
-                    KeyCode::PageUp,
-                    KeyCode::PageDown,
-                    KeyCode::Char('x'),
-                    KeyCode::Char('n'),
-                    KeyCode::Char('q'),
-                    KeyCode::Esc,
-                ][..],
-            )
-            .print_as_debug(),
-        );
+        let code = tc.draw(gs::sampled_from(
+            &[
+                KeyCode::Up,
+                KeyCode::Char('k'),
+                KeyCode::Down,
+                KeyCode::Char('j'),
+                KeyCode::PageUp,
+                KeyCode::PageDown,
+                KeyCode::Char('x'),
+                KeyCode::Char('n'),
+                KeyCode::Char('q'),
+                KeyCode::Esc,
+            ][..],
+        ));
         app.on_key(KeyEvent::new(code, KeyModifiers::NONE));
         if !settled && code != KeyCode::Esc {
             assert!(matches!(app.modal, Some(Modal::Confirm(_))), "{code:?} taken before it could be read");
@@ -939,7 +936,7 @@ fn picking_a_playlist_takes_a_playlist(tc: hegel::TestCase) {
 fn the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
     use super::super::browse::SORT_FIELDS;
     use super::super::drives::Report;
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let (mut app, _dir) = app_with(library());
     let root = app.loaded.as_ref().unwrap().root().to_path_buf();
     let mut turns: Vec<u8> = (0..12).collect();
@@ -989,7 +986,7 @@ fn the_menu_and_the_background_go_where_they_should(tc: hegel::TestCase) {
                 l.node = NodeId::Playlist(2);
                 app.refresh_visible();
                 app.track_state.select(Some(0));
-                let field = tc.draw(gs::sampled_from(&SORT_FIELDS[..]).print_as_debug());
+                let field = tc.draw(gs::sampled_from(&SORT_FIELDS[..]));
                 let descending = tc.draw(gs::booleans());
                 app.sort = Some(SortKey { field, descending });
                 app.refresh_visible();

@@ -3,7 +3,7 @@
 //! registry. Spawning a process is slow, so each case reuses one host and draws few cases.
 
 use hegel::TestCase;
-use hegel::generators::{self as gs, Generator};
+use hegel::generators as gs;
 use locallibrary::api::{LibraryRef, PluginFieldsRequest};
 use locallibrary::fields::{FieldType, FieldValue};
 use locallibrary::op::AnyPlanned;
@@ -37,7 +37,7 @@ enum Life {
 fn a_plugin_runs_exactly_when_the_model_says(tc: TestCase) {
     let f = Fixture::echo();
     let all = vec![Life::Use, Life::UseLeavingWord, Life::Crash, Life::Shutdown, Life::Elevated];
-    let steps: Vec<Life> = tc.draw(gs::vecs(gs::sampled_from(all).print_as_debug()).min_size(1).max_size(7));
+    let steps: Vec<Life> = tc.draw(gs::vecs(gs::sampled_from(all)).min_size(1).max_size(7));
     // Whether it runs, the file it writes once it stops on its own, and files it must never
     // write (it crashed, or was told another).
     let (mut running, mut word, mut never) = (false, None::<PathBuf>, Vec::new());
@@ -107,9 +107,8 @@ fn a_plugin_that_wont_stop_is_killed_after_its_grace(tc: TestCase) {
     let f = Fixture::new(|dir| vec![spec(dir, ECHO, &[])], Options { grace, ..Options::default() });
     let killed = format!("killed: it didn't stop within {grace:?} of being asked to");
     let kills = || f.logs.lock().unwrap().iter().filter(|(id, line)| id == "echo" && *line == killed).count();
-    let steps: Vec<Stubborn> = tc.draw(
-        gs::vecs(gs::sampled_from(vec![Stubborn::Stuck, Stubborn::Lingering]).print_as_debug()).min_size(1).max_size(3),
-    );
+    let steps: Vec<Stubborn> =
+        tc.draw(gs::vecs(gs::sampled_from(vec![Stubborn::Stuck, Stubborn::Lingering])).min_size(1).max_size(3));
     let mut stuck = 0;
     for (i, step) in steps.into_iter().enumerate() {
         match step {
@@ -296,9 +295,7 @@ fn an_analyzers_answers_are_kept_only_as_it_declares(tc: TestCase) {
     .collect();
     let (mut warnings, mut kept) = (Vec::new(), Vec::new());
     for t in &tracks {
-        let state = tc.draw(
-            gs::sampled_from(vec![Audio::Intact, Audio::Intact, Audio::Removed, Audio::Emptied]).print_as_debug(),
-        );
+        let state = tc.draw(gs::sampled_from(vec![Audio::Intact, Audio::Intact, Audio::Removed, Audio::Emptied]));
         let audio = audio_of(t);
         match state {
             Audio::Intact => {}
@@ -435,8 +432,7 @@ fn an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
         }
         // Cues and artwork the drive can't take are left out once granted: what's under test is
         // the grant, not the edit.
-        let edits: Vec<PluginEdit> =
-            tc.draw(gs::vecs(gs::sampled_from(all.clone()).print_as_debug()).min_size(1).max_size(4));
+        let edits: Vec<PluginEdit> = tc.draw(gs::vecs(gs::sampled_from(all.clone())).min_size(1).max_size(4));
         let edits: Vec<PluginEdit> = edits
             .into_iter()
             .filter(|e| match e {
@@ -545,9 +541,8 @@ fn an_export_overwrites_only_as_planned(tc: TestCase) {
     let lines: Vec<String> = common::library(&f.drive).tracks.iter().map(|t| t.file_path.clone()).collect();
     let text = format!("#EXTM3U\n{}\n", lines.join("\n"));
     for i in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
-        let where_to = tc.draw(
-            gs::sampled_from(vec![Output::Here, Output::Here, Output::OnTheDrive, Output::InTheStore]).print_as_debug(),
-        );
+        let where_to =
+            tc.draw(gs::sampled_from(vec![Output::Here, Output::Here, Output::OnTheDrive, Output::InTheStore]));
         let root = match where_to {
             Output::Here => here.clone(),
             Output::OnTheDrive => f.drive.join("PIONEER"),
@@ -656,21 +651,18 @@ impl Declared {
 /// A value of some type: what a setting may or may not take.
 #[hegel::test_helper]
 fn setting_value(tc: &TestCase) -> Value {
-    tc.draw(
-        gs::sampled_from(vec![
-            json!("hi"),
-            json!("deep"),
-            json!(""),
-            json!(4),
-            json!(-0.5),
-            json!(true),
-            json!(false),
-            Value::Null,
-            json!(["hi"]),
-            json!({ "x": 1 }),
-        ])
-        .print_as_debug(),
-    )
+    tc.draw(gs::sampled_from(vec![
+        json!("hi"),
+        json!("deep"),
+        json!(""),
+        json!(4),
+        json!(-0.5),
+        json!(true),
+        json!(false),
+        Value::Null,
+        json!(["hi"]),
+        json!({ "x": 1 }),
+    ]))
 }
 
 /// What the store has for a plugin's settings, as the model keeps it.
@@ -917,7 +909,7 @@ fn a_view_commands_answer_is_a_view_or_the_plugin_failing(tc: TestCase) {
     let f = Fixture::new(|dir| vec![spec(dir, &toml, &[])], Options::default());
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
         // Params that don't fit the command's schema (an object) are refused before it's asked.
-        let unfit = tc.draw(gs::sampled_from(vec![json!([1]), json!("x"), json!(4), json!(true)]).print_as_debug());
+        let unfit = tc.draw(gs::sampled_from(vec![json!([1]), json!("x"), json!(4), json!(true)]));
         let e = f.command("echo", unfit.clone(), &Ctx::silent()).unwrap_err();
         assert_eq!(e.code(), "invalid", "{unfit}: {e}");
         let (answer, is_view) = maybe_a_view(&tc);
@@ -954,7 +946,7 @@ enum Started {
 fn only_a_plugin_that_is_what_its_manifest_says_runs(tc: TestCase) {
     use Started::*;
     let all = vec![AsItSays, AnotherId, AnotherVersion, DescribedOtherwise, AnotherProtocol, NotThere, Silent];
-    let order: Vec<Started> = tc.draw(gs::permutations(all).print_as_debug());
+    let order: Vec<Started> = tc.draw(gs::permutations(all));
     let options = Options { handshake: Duration::from_secs(2), ..Options::default() };
     let f = Fixture::new(
         |dir| {

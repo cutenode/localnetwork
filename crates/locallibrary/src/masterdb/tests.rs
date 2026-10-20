@@ -1236,7 +1236,6 @@ fn settings_name_the_cloud_folders_or_are_refused(tc: hegel::TestCase) {
 /// neither has is refused.
 #[hegel::test(test_cases = 15)]
 fn a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     #[derive(Debug, Clone, Copy, PartialEq)]
     enum On {
@@ -1258,7 +1257,7 @@ fn a_drive_differs_from_the_collection_in_what_it_lacks(tc: hegel::TestCase) {
         };
         let on = match i {
             0 | 1 => On::Moved,
-            _ => tc.draw(gs::sampled_from(vec![On::Same, On::Moved, On::Gone]).print_as_debug()),
+            _ => tc.draw(gs::sampled_from(vec![On::Same, On::Moved, On::Gone])),
         };
         let id = (i + 1).to_string();
         f.track(&id, &format!("/Users/dj/Music/{}/{}.mp3", ARTISTS[i], TITLES[i]), ARTISTS[i], TITLES[i]);

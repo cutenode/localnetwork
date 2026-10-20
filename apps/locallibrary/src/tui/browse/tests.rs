@@ -1,4 +1,3 @@
-use hegel::generators::Generator;
 use locallibrary::sets::{EntryOrigin, SetEntry};
 
 use super::super::app::testing::{library, set, track};
@@ -392,7 +391,7 @@ fn every_track_is_grouped_under_its_value(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
     let n = lib.tracks.len();
-    let c = tc.draw(gs::sampled_from(&Category::ALL[..8]).print_as_debug());
+    let c = tc.draw(gs::sampled_from(&Category::ALL[..8]));
     let gs = groups(&lib, c, &by_id(&lib), &Problems::default(), None, &[]);
     let mut seen: Vec<usize> = gs.iter().flat_map(|g| g.tracks.clone()).collect();
     seen.sort_unstable();
@@ -583,7 +582,7 @@ fn browse_lists_its_categories_and_their_values(tc: hegel::TestCase) {
 fn any_tracks_sort_as_the_library_does(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let lib = Library { tracks: super::super::app::testing::any_tracks(&tc, 10), ..Default::default() };
-    let field = tc.draw(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug());
+    let field = tc.draw(gs::sampled_from(&EVERY_FIELD[..]));
     let k = SortKey { field, descending: tc.draw(gs::booleans()) };
     let mut refs: Vec<&Track> = lib.tracks.iter().collect();
     locallibrary::query::sort_tracks(&mut refs, &[k]);

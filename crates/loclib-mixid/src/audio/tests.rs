@@ -282,7 +282,7 @@ fn a_sinks_error_stops_the_decode(tc: TestCase) {
     let path = dir.path().join("x.wav");
     std::fs::write(&path, crate::test_util::wav_of(rate(&tc), 16, (0..frames as i32).map(|i| i % 900))).unwrap();
     let fail = tc.draw(gs::integers::<usize>().min_value(1).max_value(packets(frames) + 1));
-    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]).print_as_debug());
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
     let mut calls = 0;
     let result = decode_native(&path, damaged, &Ctx::silent(), |_: &[i16], _, _| -> Result<_> {
         calls += 1;
@@ -348,7 +348,7 @@ fn cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
     let path = dir.path().join("long.wav");
     std::fs::write(&path, crate::test_util::wav_of(8_000, 16, (0..frames as i32).map(|i| i % 300))).unwrap();
     let at = tc.draw(gs::integers::<usize>().min_value(1).max_value(packets(frames)));
-    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]).print_as_debug());
+    let damaged = tc.draw(gs::sampled_from(vec![Damaged::Skip, Damaged::Fail]));
     let ctx = Ctx::silent();
     let mut heard = 0;
     let result = decode_native(&path, damaged, &ctx, |_: &[i16], _, _| -> Result<_> {

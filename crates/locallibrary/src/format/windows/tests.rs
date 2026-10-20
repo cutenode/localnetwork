@@ -189,16 +189,13 @@ fn get_disk(tc: &TestCase) -> (String, Vec<Disk>) {
         let number = tc.draw(gs::integers::<u32>().max_value(20));
         let bus = tc.draw(gs::sampled_from(vec!["USB", "SD", "MMC", "SATA", "NVMe", "File Backed Virtual", "Virtual"]));
         let (boot, system, ro) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
-        let style = tc.draw(
-            gs::sampled_from(vec![
-                (Some("MBR"), Some(Scheme::Mbr)),
-                (Some("GPT"), Some(Scheme::Gpt)),
-                (Some("RAW"), None),
-                (None, None),
-                (Some("Unknown"), Some(Scheme::Other)),
-            ])
-            .print_as_debug(),
-        );
+        let style = tc.draw(gs::sampled_from(vec![
+            (Some("MBR"), Some(Scheme::Mbr)),
+            (Some("GPT"), Some(Scheme::Gpt)),
+            (Some("RAW"), None),
+            (None, None),
+            (Some("Unknown"), Some(Scheme::Other)),
+        ]));
         let (size, sector) = (tc.draw(gs::integers::<u64>()), tc.draw(gs::sampled_from(vec![512u64, 4096])));
         let name = tc.draw(gs::sampled_from(vec!["SanDisk Ultra", "Msft Virtual Disk", ""]));
         let serial = tc.draw(gs::sampled_from(vec!["4C530001", "", " 000819 "]));
@@ -206,7 +203,7 @@ fn get_disk(tc: &TestCase) -> (String, Vec<Disk>) {
         let mut volumes = Vec::new();
         for _ in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
             let pn = tc.draw(gs::integers::<u32>().max_value(8));
-            let (fs, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+            let (fs, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
             let letter = tc.draw(gs::sampled_from(vec!["E", "g", "", "\u{0}"]));
             let cluster = tc.draw(gs::sampled_from(vec![None, Some(0u64), Some(4096), Some(131072)]));
             let psize = tc.draw(gs::integers::<u64>());
@@ -318,7 +315,7 @@ fn partition_scripts_follow_the_plan(tc: TestCase) {
         size: tc.draw(gs::integers::<u64>()),
         ..parse_disk(&json!({ "Number": number, "BusType": "USB" }))
     };
-    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]));
     let label = filesystem.label(&tc.draw(gs::text().alphabet("ab 'é").max_size(12)));
     let cluster_size = 1 << tc.draw(gs::integers::<u32>().min_value(9).max_value(15));
     let t = Target { filesystem, label: label.clone(), cluster_size, default_cluster: tc.draw(gs::booleans()) };
@@ -367,8 +364,7 @@ fn paths_and_file_systems_windows_cant_format_are_refused_first(tc: TestCase) {
         Err(Error::Invalid(m)) => assert!(m.starts_with(&Path::new(&path).display().to_string()), "{m}"),
         other => panic!("{path:?}: {:?}", other.map(|d| d.id)),
     }
-    let fs =
-        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    let fs = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
     assert_eq!(supports(fs).is_err(), fs == Filesystem::Hfsplus);
     if let Err(e) = supports(fs) {
         assert_eq!(e.code(), "invalid");
@@ -474,7 +470,7 @@ fn formatting_partitions_once_and_finds_the_drive_letter(tc: TestCase) {
         size: tc.draw(gs::integers::<u64>().min_value(1 << 30).max_value(1 << 40)),
         ..parse_disk(&json!({ "Number": 3, "BusType": "USB" }))
     };
-    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]));
     let label = filesystem.label(&tc.draw(gs::text().alphabet("ab 'é").max_size(12)));
     let cluster_size = filesystem.default_cluster_size(disk.partition_size());
     let t = Target { filesystem, label, cluster_size, default_cluster: true };

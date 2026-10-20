@@ -9,7 +9,7 @@ use crate::props_api_drives::{saved_copy, saved_demo};
 use std::path::{Path, PathBuf};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, StepKind};
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::edit::Edit;
@@ -186,7 +186,7 @@ fn the_drive_meant_agrees_with_a_model(tc: TestCase) {
         if kind != Kind::Loose {
             let id = Device::open(&root).unwrap().id().unwrap();
             let roles = [None, Some(Role::Primary), Some(Role::Backup), Some(Role::Archive)];
-            role = tc.draw(gs::sampled_from(&roles[..]).print_as_debug());
+            role = tc.draw(gs::sampled_from(&roles[..]));
             fleet::set_role(store, id, role).unwrap();
             if role == Some(Role::Primary) {
                 for d in drives.iter_mut().filter(|d| d.kind == kind && d.role == Some(Role::Primary)) {

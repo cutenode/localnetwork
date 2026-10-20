@@ -370,12 +370,12 @@ fn max_graphemes_counts_clusters_not_code_points() {
 #[hegel::test(test_cases = 400)]
 fn integers_are_whole_numbers_within_their_bounds(tc: hegel::TestCase) {
     let v: Value = tc.draw(hegel::one_of!(
-        gs::integers::<i64>().min_value(-60).max_value(60).map(Value::from).print_as_debug(),
-        gs::integers::<i64>().map(Value::from).print_as_debug(),
-        gs::integers::<u64>().min_value(i64::MAX as u64 + 1).map(Value::from).print_as_debug(),
-        gs::floats::<f64>().allow_nan(false).allow_infinity(false).map(Value::from).print_as_debug(),
-        gs::text().max_size(3).map(Value::from).print_as_debug(),
-        gs::booleans().map(Value::from).print_as_debug(),
+        gs::integers::<i64>().min_value(-60).max_value(60).map(Value::from),
+        gs::integers::<i64>().map(Value::from),
+        gs::integers::<u64>().min_value(i64::MAX as u64 + 1).map(Value::from),
+        gs::floats::<f64>().allow_nan(false).allow_infinity(false).map(Value::from),
+        gs::text().max_size(3).map(Value::from),
+        gs::booleans().map(Value::from),
     ));
     let bound = || gs::optional(gs::integers::<i64>().min_value(-50).max_value(50));
     let (min, max) = (tc.draw(bound()), tc.draw(bound()));
@@ -477,15 +477,12 @@ fn unions_check_listed_types_and_pass_others_unless_closed(tc: hegel::TestCase) 
         "#link".to_string(),
         format!("{SET}#source"),
     ])));
-    let fields = tc.draw(
-        gs::sampled_from(vec![
-            json!({}),
-            json!({ "uri": "https://station.example/" }),
-            json!({ "country": "GB" }),
-            json!({ "uri": "station dot example" }),
-        ])
-        .print_as_debug(),
-    );
+    let fields = tc.draw(gs::sampled_from(vec![
+        json!({}),
+        json!({ "uri": "https://station.example/" }),
+        json!({ "country": "GB" }),
+        json!({ "uri": "station dot example" }),
+    ]));
     let mut value = fields.clone();
     if let Some(ty) = &ty {
         value["$type"] = json!(ty);
@@ -550,19 +547,16 @@ fn uris_are_a_scheme_then_text_without_spaces(tc: hegel::TestCase) {
 /// type or string format the check doesn't know is an error, whatever the value.
 #[hegel::test(test_cases = 200)]
 fn booleans_unknowns_and_what_the_check_doesnt_know(tc: hegel::TestCase) {
-    let v: Value = tc.draw(
-        gs::sampled_from(vec![
-            json!(true),
-            json!(false),
-            json!(0),
-            json!("true"),
-            Value::Null,
-            json!([]),
-            json!({}),
-            json!({ "a": 1 }),
-        ])
-        .print_as_debug(),
-    );
+    let v: Value = tc.draw(gs::sampled_from(vec![
+        json!(true),
+        json!(false),
+        json!(0),
+        json!("true"),
+        Value::Null,
+        json!([]),
+        json!({}),
+        json!({ "a": 1 }),
+    ]));
     let boolean = check(SET, &json!({ "type": "boolean" }), &v, "b");
     assert_eq!(boolean, if v.is_boolean() { Ok(()) } else { Err("b should be true or false".into()) });
     let unknown = check(SET, &json!({ "type": "unknown" }), &v, "u");

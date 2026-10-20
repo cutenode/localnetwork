@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::api::{self, PlayStatsRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::{Edit, TrackFields};
@@ -106,9 +106,8 @@ fn exported_lists_hold_their_selection(tc: TestCase) {
         assert!(which.as_deref().is_some_and(|q| lib.find_playlist(q).is_none()));
         return;
     };
-    let format = tc.draw(gs::sampled_from(vec![Format::M3u8, Format::Csv, Format::Txt]).print_as_debug());
-    let style =
-        tc.draw(gs::sampled_from(vec![PathStyle::Drive, PathStyle::Relative, PathStyle::Absolute]).print_as_debug());
+    let format = tc.draw(gs::sampled_from(vec![Format::M3u8, Format::Csv, Format::Txt]));
+    let style = tc.draw(gs::sampled_from(vec![PathStyle::Drive, PathStyle::Relative, PathStyle::Absolute]));
     let d = Device::open_export(&root).unwrap();
     let locator = Locator::new(style, d.root(), &d.root().join("Lists"));
     let mut files = BTreeSet::new();

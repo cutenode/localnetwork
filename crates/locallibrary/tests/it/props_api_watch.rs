@@ -396,7 +396,7 @@ fn pull_plans_start_a_store_and_folders_are_not_ejected(tc: TestCase) {
 }
 
 /// How Main stands to the store it was saved in, when its pull is planned.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Standing {
     /// As saved.
     Unchanged,

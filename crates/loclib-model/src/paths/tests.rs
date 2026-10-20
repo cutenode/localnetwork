@@ -118,8 +118,7 @@ fn sanitised_names_are_safe_on_fat(tc: TestCase) {
 /// Path styles serialise in snake case and read back; relative is the default.
 #[hegel::test(test_cases = 20)]
 fn path_styles_round_trip_through_json(tc: TestCase) {
-    let style =
-        tc.draw(gs::sampled_from(vec![PathStyle::Relative, PathStyle::Drive, PathStyle::Absolute]).print_as_debug());
+    let style = tc.draw(gs::sampled_from(vec![PathStyle::Relative, PathStyle::Drive, PathStyle::Absolute]));
     let json = serde_json::to_value(style).unwrap();
     assert_eq!(json, format!("{style:?}").to_lowercase());
     assert_eq!(serde_json::from_value::<PathStyle>(json).unwrap(), style);

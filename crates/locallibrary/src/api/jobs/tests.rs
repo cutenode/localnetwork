@@ -106,13 +106,10 @@ impl AnyPlanned for Fake {
 /// steps that run (by title when they say nothing more) with every step's warnings.
 #[hegel::test(test_cases = 200)]
 fn a_job_runs_its_steps_until_one_fails(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
-    let goes = || {
-        gs::sampled_from(vec![Goes::Done, Goes::Stale, Goes::Later, Goes::Fails, Goes::Partly, Goes::Cancelled])
-            .print_as_debug()
-    };
-    let kinds = tc.draw(gs::vecs(gs::sampled_from(StepKind::ALL.to_vec()).print_as_debug()).max_size(4).unique(true));
+    let goes =
+        || gs::sampled_from(vec![Goes::Done, Goes::Stale, Goes::Later, Goes::Fails, Goes::Partly, Goes::Cancelled]);
+    let kinds = tc.draw(gs::vecs(gs::sampled_from(StepKind::ALL.to_vec())).max_size(4).unique(true));
     let mut steps = Vec::new();
     let mut model: Vec<(StepKind, Vec<Goes>, Vec<String>)> = Vec::new();
     for (s, kind) in kinds.iter().enumerate() {

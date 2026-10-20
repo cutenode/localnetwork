@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::convert::{self, ConvertOptions, Target};
 use locallibrary::device::{Device, LibraryDrift};
 use locallibrary::onelibrary::OneLibrary;
@@ -116,9 +116,7 @@ fn converting_keeps_both_sides_and_undoes_exactly(tc: TestCase) {
     let root = drifted_drive(&tc, dir.path());
     let (pdb_before, plus_before) = libraries(&root);
     let to = match (&pdb_before, &plus_before) {
-        (Some(_), Some(_)) => {
-            tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary]).print_as_debug())
-        }
+        (Some(_), Some(_)) => tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary])),
         (Some(_), None) => Target::OneLibrary,
         _ => Target::DeviceLibrary,
     };
@@ -422,7 +420,7 @@ fn converting_carries_my_tags_and_says_what_it_leaves_with(tc: &TestCase, varian
         let path = pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().tracks[0].artwork_path.clone().unwrap();
         fs::remove_file(paths::to_fs(&root, &paths::key(&path))).unwrap();
     }
-    let to = tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary]).print_as_debug());
+    let to = tc.draw(gs::sampled_from(vec![Target::OneLibrary, Target::DeviceLibrary]));
     let replace = variant & 2 != 0;
     let opts = ConvertOptions { to, replace };
     // At times the target can't be read.

@@ -153,7 +153,6 @@ fn markers() -> impl PrintableGenerator<Markers> {
         gs::arrays::<_, u8, 3>(gs::integers::<u8>()),
     )
     .map(|(cues, loops, colour)| Markers { cues, loops, colour, left_out: 0 })
-    .print_as_debug()
 }
 
 /// Every cue, loop and the track colour come back from the frame as they went in (names less
@@ -179,7 +178,7 @@ fn markers_decode_to_what_was_encoded(tc: TestCase) {
 /// missing silently.
 #[hegel::test(test_cases = 400)]
 fn rekordbox_cues_go_to_pads_and_slots(tc: TestCase) {
-    let colour = tc.draw(gs::optional(gs::sampled_from(common::COLOURS.to_vec()).print_as_debug()));
+    let colour = tc.draw(gs::optional(gs::sampled_from(common::COLOURS.to_vec())));
     let cues: Vec<Cue> = tc.draw(gs::vecs(common::cue()).max_size(20));
     let m = Markers::from_rekordbox(colour, &cues);
     assert_eq!(m.cues.len() + m.loops.len() + m.left_out, cues.len(), "{m:?}");
@@ -676,7 +675,7 @@ fn markers_written_into_copies_read_back(tc: TestCase) {
     use lofty::id3::v2::{Id3v2Tag, Id3v2Version};
     use lofty::tag::{Accessor, TagExt};
 
-    let kind = tc.draw(gs::sampled_from(vec![Kind::Mp3, Kind::Wav, Kind::Aiff]).print_as_debug());
+    let kind = tc.draw(gs::sampled_from(vec![Kind::Mp3, Kind::Wav, Kind::Aiff]));
     let ext = tc.draw(gs::sampled_from(match kind {
         Kind::Mp3 => vec!["mp3", "MP3"],
         Kind::Wav => vec!["wav", "WAV"],
@@ -795,7 +794,7 @@ fn copies_are_planned_as_written(tc: TestCase) {
     std::fs::create_dir_all(music.path().join("Music")).unwrap();
     let mut real = FxHashSet::default();
     for t in &mut lib.tracks {
-        let kind = tc.draw(gs::sampled_from(vec![Kind::Mp3, Kind::Wav, Kind::Aiff]).print_as_debug());
+        let kind = tc.draw(gs::sampled_from(vec![Kind::Mp3, Kind::Wav, Kind::Aiff]));
         let ext = match kind {
             Kind::Mp3 => "mp3",
             Kind::Wav => "wav",

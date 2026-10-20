@@ -325,7 +325,7 @@ fn the_bar_says_whos_signed_in_and_l_twice_signs_out(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 60)]
 fn a_handle_is_typed_as_its_keys_say(tc: hegel::TestCase) {
     use hegel::generators as gs;
-    use hegel::generators::Generator;
+
     let (mut app, _dir) = blank(View::Profile);
     app.profile.account.sign_in = Some(SignIn::Typing(String::new()));
     let mut model = String::new();
@@ -349,8 +349,7 @@ fn a_handle_is_typed_as_its_keys_say(tc: hegel::TestCase) {
             }
             // Keys a handle has no use for are taken all the same.
             3 => {
-                let code =
-                    tc.draw(gs::sampled_from(&[KeyCode::Tab, KeyCode::Left, KeyCode::Char('x')][..]).print_as_debug());
+                let code = tc.draw(gs::sampled_from(&[KeyCode::Tab, KeyCode::Left, KeyCode::Char('x')][..]));
                 let mods = if code == KeyCode::Char('x') { KeyModifiers::CONTROL } else { KeyModifiers::NONE };
                 assert!(input(&mut app, code, mods));
             }

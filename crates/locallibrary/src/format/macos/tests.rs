@@ -328,15 +328,12 @@ fn diskutil_listings_read_back(tc: TestCase) {
     let sector = tc.draw(gs::sampled_from(vec![512u64, 4096]));
     let (removable, internal, virt, writable) =
         (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
-    let scheme = tc.draw(
-        gs::sampled_from(vec![
-            ("FDisk_partition_scheme", Some(Scheme::Mbr)),
-            ("GUID_partition_scheme", Some(Scheme::Gpt)),
-            ("Apple_partition_scheme", Some(Scheme::Apm)),
-            ("Sun_partition_scheme", Some(Scheme::Other)),
-        ])
-        .print_as_debug(),
-    );
+    let scheme = tc.draw(gs::sampled_from(vec![
+        ("FDisk_partition_scheme", Some(Scheme::Mbr)),
+        ("GUID_partition_scheme", Some(Scheme::Gpt)),
+        ("Apple_partition_scheme", Some(Scheme::Apm)),
+        ("Sun_partition_scheme", Some(Scheme::Other)),
+    ]));
     let mut info = json!({
         "DeviceIdentifier": id, "Content": scheme.0, "Size": num(&tc, size), "DeviceBlockSize": num(&tc, sector),
         "Internal": flag(&tc, internal), "WritableMedia": flag(&tc, writable),
@@ -366,7 +363,7 @@ fn diskutil_listings_read_back(tc: TestCase) {
     for i in 1..=tc.draw(gs::integers::<usize>().max_value(3)) {
         let pid = format!("{id}s{i}");
         let psize = tc.draw(gs::integers::<u64>());
-        let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+        let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
         let formatted = tc.draw(gs::booleans());
         let label = if tc.draw(gs::booleans()) { Some(word(&tc)) } else { None };
         let mount = label.as_ref().filter(|_| tc.draw(gs::booleans())).map(|l| format!("/Volumes/{l}"));
@@ -463,7 +460,7 @@ fn diskutil_listings_read_back(tc: TestCase) {
 /// A file system written straight onto a disk without a partition table is its one volume.
 #[hegel::test(test_cases = 100)]
 fn a_disk_without_partitions_is_its_own_volume(tc: TestCase) {
-    let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+    let (fs_type, fs_name, kind) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
     let (size, label) = (tc.draw(gs::integers::<u64>()), word(&tc));
     let content = tc.draw(gs::sampled_from(vec!["DOS_FAT_32", "Apple_HFS"]));
     let info = json!({ "DeviceIdentifier": "disk7", "Content": content, "Size": size, "FilesystemType": fs_type,
@@ -589,8 +586,7 @@ fn partitions_name_their_disk(tc: TestCase) {
 fn erase_commands_follow_the_target(tc: TestCase) {
     let (info, listing, parts) = usb_drive();
     let disk = parse_disk(&info, &listing, &parts, &[]);
-    let filesystem =
-        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
     let label = filesystem.label(&tc.draw(gs::text().max_size(20)));
     let cluster_size = 1 << tc.draw(gs::integers::<u32>().min_value(9).max_value(17));
     let default_cluster = filesystem == Filesystem::Hfsplus || tc.draw(gs::booleans());
@@ -618,17 +614,14 @@ fn erase_commands_follow_the_target(tc: TestCase) {
 /// has a partition table to show for it.
 #[hegel::test(test_cases = 200)]
 fn partition_schemes_follow_the_disks_content(tc: TestCase) {
-    let content = tc.draw(
-        gs::sampled_from(vec![
-            (None, None),
-            (Some("FDisk_partition_scheme"), Some(Scheme::Mbr)),
-            (Some("GUID_partition_scheme"), Some(Scheme::Gpt)),
-            (Some("Apple_partition_scheme"), Some(Scheme::Apm)),
-            (Some("Sun_partition_scheme"), Some(Scheme::Other)),
-            (Some("DOS_FAT_32"), Some(Scheme::Other)),
-        ])
-        .print_as_debug(),
-    );
+    let content = tc.draw(gs::sampled_from(vec![
+        (None, None),
+        (Some("FDisk_partition_scheme"), Some(Scheme::Mbr)),
+        (Some("GUID_partition_scheme"), Some(Scheme::Gpt)),
+        (Some("Apple_partition_scheme"), Some(Scheme::Apm)),
+        (Some("Sun_partition_scheme"), Some(Scheme::Other)),
+        (Some("DOS_FAT_32"), Some(Scheme::Other)),
+    ]));
     let partitions = tc.draw(gs::integers::<usize>().max_value(3));
     let table = tc.draw(gs::booleans()) || partitions > 0;
     let mut info = json!({ "DeviceIdentifier": "disk4", "Size": tc.draw(gs::integers::<u64>()) });
@@ -692,7 +685,7 @@ fn described(tc: &TestCase, n: u32) -> Described {
     let (mut partitions, mut parts, mut containers) = (Vec::new(), Vec::new(), Vec::new());
     for i in 1..=tc.draw(gs::integers::<u32>().max_value(2)) {
         let pid = format!("{id}s{i}");
-        let (fs_type, fs_name, _) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+        let (fs_type, fs_name, _) = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
         let label = word(tc);
         let size = tc.draw(gs::integers::<u64>().max_value(1 << 40));
         let mut p = json!({ "DeviceIdentifier": pid, "Content": "Windows_FAT_32", "Size": size, "VolumeName": label,
@@ -929,8 +922,7 @@ fn every_name_of_a_disk_finds_that_disk(tc: TestCase) {
 fn formatting_erases_then_finds_the_new_volume(tc: TestCase) {
     let d = described(&tc, tc.draw(gs::integers::<u32>().min_value(2).max_value(40)));
     let disk = d.disk(&[], false);
-    let filesystem =
-        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
     let label = filesystem.label(&word(&tc));
     let cluster_size = filesystem.default_cluster_size(disk.partition_size());
     let t = Target { filesystem, label: label.clone(), cluster_size, default_cluster: true };
@@ -1009,7 +1001,7 @@ fn a_plan_formats_only_the_disk_it_was_made_for(tc: TestCase) {
     let parts = FxHashMap::from_iter([(pid.clone(), pinfo.clone())]);
     let disk = parse_disk(&serde_json::from_str(&info(size)).unwrap(), &listing("DNA", psize, &old), &parts, &[]);
     let opts = FormatOptions {
-        filesystem: Some(tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]).print_as_debug())),
+        filesystem: Some(tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]))),
         ..FormatOptions::default()
     };
     let planned = plan(disk.clone(), &opts, None, &[], &Ctx::silent()).unwrap();

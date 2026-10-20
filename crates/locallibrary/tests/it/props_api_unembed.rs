@@ -3,7 +3,6 @@
 
 use std::fs;
 
-use hegel::Generator;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use locallibrary::Store;
@@ -34,9 +33,7 @@ fn embedded_art_comes_out_of_the_files_left_alone(tc: TestCase) {
     let image = dir.path().join("cover.png");
     fs::write(&image, media::png(16, 16, 3)).unwrap();
     let since: Vec<Since> = tc.draw(
-        gs::vecs(gs::sampled_from(vec![Since::Untouched, Since::Rewritten, Since::Removed]).print_as_debug())
-            .min_size(1)
-            .max_size(4),
+        gs::vecs(gs::sampled_from(vec![Since::Untouched, Since::Rewritten, Since::Removed])).min_size(1).max_size(4),
     );
     let files: Vec<_> = (0..since.len()).map(|i| dir.path().join(format!("{i}.wav"))).collect();
     for f in &files {

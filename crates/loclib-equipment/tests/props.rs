@@ -32,7 +32,7 @@ fn model(tc: &TestCase) -> (usize, &'static Model) {
 
 #[hegel::test_helper]
 fn codec(tc: &TestCase) -> Codec {
-    tc.draw(gs::sampled_from(Codec::ALL.to_vec()).print_as_debug())
+    tc.draw(gs::sampled_from(Codec::ALL.to_vec()))
 }
 
 /// `name` as a person might type it: any case, `NXS` as `Nexus`, and spaces, dashes,
@@ -251,7 +251,7 @@ fn formats_follow_the_extension_in_any_case(tc: TestCase) {
 /// File systems and formats serialise as their names in lower case, and read back.
 #[hegel::test(test_cases = 50)]
 fn names_serialise_in_lower_case_and_read_back(tc: TestCase) {
-    let fs = tc.draw(gs::sampled_from(FS_KINDS.to_vec()).print_as_debug());
+    let fs = tc.draw(gs::sampled_from(FS_KINDS.to_vec()));
     let json = serde_json::to_value(fs).unwrap();
     assert_eq!(json, format!("{fs:?}").to_lowercase());
     assert_eq!(serde_json::from_value::<FsKind>(json).unwrap(), fs);

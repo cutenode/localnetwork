@@ -668,11 +668,11 @@ fn tab_of(view: ProfileView) -> ProfileTab {
 /// rounded.
 #[hegel::test(test_cases = 25, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use locallibrary::profile::{DecadeCount, EnergySection, PrepSection};
     let mut v = full_view();
     let r = &mut v.report;
-    r.basis = tc.draw(gs::sampled_from(&[Basis::Plays, Basis::Sessions, Basis::Collection][..]).print_as_debug());
+    r.basis = tc.draw(gs::sampled_from(&[Basis::Plays, Basis::Sessions, Basis::Collection][..]));
     let shares = &[0.0, 0.2, 0.3, 0.5, 0.6, 1.0][..];
     r.arc.sets = tc.draw(gs::integers::<usize>().max_value(3));
     (r.arc.opening_bpm, r.arc.closing_bpm) = (Some(122.0), Some(tc.draw(gs::sampled_from(&[118.25, 127.5][..]))));
@@ -848,7 +848,7 @@ fn every_section_says_what_any_numbers_show(tc: hegel::TestCase) {
 /// keys used where they mean nothing say where to go.
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use std::collections::BTreeSet;
     let (mut app, _dir) = profile_app(tab_of(full_view()));
     let at = |s: Section| Section::ALL.iter().position(|x| *x == s).unwrap();
@@ -863,8 +863,7 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
         [Act::ProfilePin, Act::ProfileHide, Act::ProfileHideArtist, Act::ProfileInclude, Act::ProfileRounding];
     // Every act on a row of every section first (as drawn, they'd seldom meet), then as drawn.
     for step in 0..15 + tc.draw(gs::integers::<usize>().max_value(10)) {
-        let section =
-            if step < 15 { SECTIONS[step / 5] } else { tc.draw(gs::sampled_from(&SECTIONS[..]).print_as_debug()) };
+        let section = if step < 15 { SECTIONS[step / 5] } else { tc.draw(gs::sampled_from(&SECTIONS[..])) };
         app.profile.select_section(at(section));
         let detail = (step < 15 || tc.draw(gs::booleans())) && app.profile.detail_len() > 0;
         app.profile.pane = if detail { Pane::Detail } else { Pane::Sections };
@@ -881,7 +880,7 @@ fn the_djs_choices_are_kept_as_made(tc: hegel::TestCase) {
             Section::Artists => row.and_then(|i| v.report.artists.top.get(i)).map(|a| a.name.clone()),
             _ => None,
         };
-        let act = if step < 15 { ACTS[step % 5] } else { tc.draw(gs::sampled_from(&ACTS[..]).print_as_debug()) };
+        let act = if step < 15 { ACTS[step % 5] } else { tc.draw(gs::sampled_from(&ACTS[..])) };
         // Once, or (as often, to take it back) twice.
         for _ in 0..1 + usize::from(tc.draw(gs::booleans())) {
             app.perform(act, None);

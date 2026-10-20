@@ -102,8 +102,8 @@ fn waits_are_said_in_seconds_then_whole_minutes() {
     );
 }
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 
 /// Someone else knocking on the listener while it waits.
 #[derive(Debug, Clone, Copy)]
@@ -136,11 +136,8 @@ fn only_the_sign_ins_own_redirect_ends_the_wait(tc: TestCase) {
     let alnum = || gs::text().alphabet("abcdefghijklmnopqrstuvwxyz0123456789").min_size(1).max_size(12);
     let state = tc.draw(alnum());
     let strangers = tc.draw(
-        gs::vecs(
-            gs::sampled_from(vec![Stranger::Favicon, Stranger::Post, Stranger::NoState, Stranger::OtherState])
-                .print_as_debug(),
-        )
-        .max_size(4),
+        gs::vecs(gs::sampled_from(vec![Stranger::Favicon, Stranger::Post, Stranger::NoState, Stranger::OtherState]))
+            .max_size(4),
     );
     let (code, iss) = (tc.draw(alnum()), tc.draw(gs::sampled_from(vec!["https://pds.example", "https://bsky.social"])));
     let query = format!("code={code}&state={state}&iss={}", iss.replace(':', "%3A").replace('/', "%2F"));

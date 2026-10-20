@@ -126,10 +126,8 @@ fn the_copy_takes_the_first_free_name(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 100)]
 #[hegel::explicit_test_case(given = vec![0usize], codec = Some(Codec::Wav), rate = 96_000u32, depth = 24u16)]
 fn a_lossless_file_a_player_cant_play_is_refused(tc: hegel::TestCase) {
-    use hegel::Generator;
     let given: Vec<usize> = tc.draw(gs::vecs(gs::integers::<usize>().max_value(MODELS.len() - 1)).max_size(3));
-    let codec = tc
-        .draw(gs::optional(gs::sampled_from(vec![Codec::Wav, Codec::Aiff, Codec::Flac, Codec::Alac])).print_as_debug());
+    let codec = tc.draw(gs::optional(gs::sampled_from(vec![Codec::Wav, Codec::Aiff, Codec::Flac, Codec::Alac])));
     let rate = tc.draw(gs::sampled_from(vec![44_100u32, 48_000, 96_000, 192_000]));
     let depth = tc.draw(gs::sampled_from(vec![16u16, 24, 32]));
     let models: Vec<&Model> = given.iter().map(|&i| &MODELS[i]).collect();

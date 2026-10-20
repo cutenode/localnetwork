@@ -394,7 +394,7 @@ const ADDED: &[&str] = &["2026-09-30", "2026-09-01", "2025-01-02", "", "2026", "
 /// groups: now and then the same recording twice.
 #[hegel::test_helper]
 pub fn any_tracks(tc: &hegel::TestCase, max: usize) -> Vec<Track> {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let n = tc.draw(gs::integers::<u32>().max_value(max as u32));
     (1..=n)
         .map(|id| {
@@ -406,9 +406,7 @@ pub fn any_tracks(tc: &hegel::TestCase, max: usize) -> Vec<Track> {
             t.bpm = tc.draw(gs::sampled_from(BPMS));
             t.date_added = tc.draw(gs::sampled_from(ADDED)).into();
             t.rating = tc.draw(gs::integers::<u8>().max_value(6));
-            t.color = tc
-                .draw(gs::booleans())
-                .then(|| tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..]).print_as_debug()));
+            t.color = tc.draw(gs::booleans()).then(|| tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..])));
             t.year = tc.draw(gs::sampled_from(&[0u16, 1997, 2014][..]));
             t.play_count = tc.draw(gs::integers::<u16>().max_value(3));
             t.bitrate = tc.draw(gs::sampled_from(&[0u32, 256, 320, 1411][..]));

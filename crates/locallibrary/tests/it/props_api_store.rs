@@ -14,7 +14,7 @@ use locallibrary::store::Store;
 use locallibrary::{Error, Result};
 
 /// A plan applied without the store.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Plan {
     Provision,
     Push,

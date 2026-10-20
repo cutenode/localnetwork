@@ -173,7 +173,6 @@ fn the_lineage_keeps_the_newest_states_once_in_a_row(tc: hegel::TestCase) {
 /// and copied nothing; anything else is refused, saying what was cut off and what finishes it.
 #[hegel::test(test_cases = 200)]
 fn an_operation_cut_off_is_finished_before_anything_else(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let ops = vec![
         LineageOp::Sync,
@@ -189,8 +188,8 @@ fn an_operation_cut_off_is_finished_before_anything_else(tc: hegel::TestCase) {
         LineageOp::Repair,
         LineageOp::Edit,
     ];
-    let first = tc.draw(gs::sampled_from(ops.clone()).print_as_debug());
-    let next = tc.draw(gs::sampled_from(ops).print_as_debug());
+    let first = tc.draw(gs::sampled_from(ops.clone()));
+    let next = tc.draw(gs::sampled_from(ops));
     let backup = tc.draw(gs::booleans()).then(|| "20261011T120000Z".to_string());
     let dir = tempfile::tempdir().unwrap();
     let mut d = Device::open(dir.path()).unwrap();

@@ -8,7 +8,7 @@ use crate::props_api_drives::{saved_copy, saved_demo};
 use crate::props_api_jobs::{bare_export, own_identity};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::error::Reason;
@@ -28,7 +28,7 @@ use locallibrary::sync;
 #[hegel::explicit_test_case(name = "Main 2".to_string(), role = Some(Role::Primary), label = true)]
 fn registry_requests_name_the_drives_they_mean(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(vec!["Main 2".to_string(), "Gig stick".to_string(), "  Home  ".to_string()]));
-    let role = tc.draw(gs::sampled_from(vec![None, Some(Role::Primary), Some(Role::Backup)]).print_as_debug());
+    let role = tc.draw(gs::sampled_from(vec![None, Some(Role::Primary), Some(Role::Backup)]));
     let label = tc.draw(gs::booleans());
 
     let dir = tempfile::tempdir().unwrap();

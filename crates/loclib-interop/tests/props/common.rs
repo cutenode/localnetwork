@@ -56,7 +56,7 @@ pub fn text() -> impl PrintableGenerator<String> {
 }
 
 /// A number that's often 0, which the formats take for "not set".
-fn unset_or<T: Default + Clone + Send + Sync + hegel::PrettyPrintable + 'static>(
+fn unset_or<T: Default + Clone + Send + Sync + std::fmt::Debug + 'static>(
     numbers: impl PrintableGenerator<T>,
 ) -> impl PrintableGenerator<T> {
     hegel::one_of!(gs::just(T::default()), numbers)
@@ -113,7 +113,7 @@ pub fn track(tc: &TestCase, id: u32) -> Track {
         year: tc.draw(unset_or(gs::integers::<u16>().max_value(2100))),
         track_number: tc.draw(unset_or(gs::integers::<u32>().max_value(30))),
         rating: tc.draw(gs::integers::<u8>().max_value(9)),
-        color: tc.draw(gs::optional(gs::sampled_from(COLOURS.to_vec()).print_as_debug())),
+        color: tc.draw(gs::optional(gs::sampled_from(COLOURS.to_vec()))),
         play_count: tc.draw(gs::integers::<u16>()),
         bitrate: tc.draw(unset_or(gs::integers::<u32>().max_value(3000))),
         file_size: tc.draw(unset_or(gs::integers::<u64>().max_value(1 << 34))),
@@ -197,7 +197,6 @@ pub fn cue() -> impl PrintableGenerator<Cue> {
         color_id: 0,
         loop_beats: None,
     })
-    .print_as_debug()
 }
 
 /// A beat grid: none, a steady tempo, or one that changes.

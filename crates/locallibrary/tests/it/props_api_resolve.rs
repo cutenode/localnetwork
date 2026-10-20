@@ -10,7 +10,7 @@ use crate::props_api_jobs::{bare_export, own_identity};
 use std::path::{Path, PathBuf};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::api;
 use locallibrary::device::{Device, dunce_canonicalize};
 use locallibrary::error::Reason;
@@ -247,7 +247,7 @@ fn a_command_given_no_drive_lists_the_drives_it_could_mean(tc: TestCase) {
     let roles = [None, Some(Role::Primary), Some(Role::Backup)];
     let mut all = loose.clone();
     for (root, name, lib) in [(&main, "Home", "Main"), (&club, "Club", "Club")] {
-        let role = tc.draw(gs::sampled_from(&roles[..]).print_as_debug());
+        let role = tc.draw(gs::sampled_from(&roles[..]));
         fleet::set_role(&store, Device::open(root).unwrap().id().unwrap(), role).unwrap();
         all.push((name.to_string(), dunce_canonicalize(root), role, Some(lib)));
     }

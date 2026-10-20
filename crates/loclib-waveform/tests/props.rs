@@ -358,17 +358,14 @@ fn the_record_is_round(tc: TestCase) {
 #[cfg(feature = "image")]
 #[hegel::test(test_cases = 60)]
 fn art_is_resampled_to_any_size(tc: TestCase) {
-    use hegel::Generator;
     use loclib_waveform::Art;
     let colour = rgb(&tc);
     let (w, h) = (
         tc.draw(gs::integers::<u32>().min_value(1).max_value(24)),
         tc.draw(gs::integers::<u32>().min_value(1).max_value(24)),
     );
-    let format = tc.draw(
-        gs::sampled_from(vec![image::ImageFormat::Png, image::ImageFormat::Bmp, image::ImageFormat::Jpeg])
-            .print_as_debug(),
-    );
+    let format =
+        tc.draw(gs::sampled_from(vec![image::ImageFormat::Png, image::ImageFormat::Bmp, image::ImageFormat::Jpeg]));
     let mut bytes = std::io::Cursor::new(Vec::new());
     image::RgbImage::from_pixel(w, h, image::Rgb(colour)).write_to(&mut bytes, format).unwrap();
     let mut art = Art::decode(bytes.get_ref()).unwrap();

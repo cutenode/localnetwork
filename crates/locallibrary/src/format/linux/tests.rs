@@ -187,8 +187,8 @@ fn other_names_are_not_disks() {
 // Properties
 // -----------------------------------------------------------------------------------------
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 
 /// A flag as lsblk writes it: a boolean, or "1"/"0" before util-linux 2.33.
 #[hegel::test_helper]
@@ -217,11 +217,7 @@ const MOUNTS: [&str; 7] = ["/media/dj/A", "/media/dj/B", "/mnt/usb", "/", "/boot
 fn node(tc: &TestCase, path: &str, part: bool, nested: bool) -> (Value, Option<Volume>, Vec<String>) {
     let mut v = json!({ "name": path.trim_start_matches("/dev/"), "path": path,
             "type": if part { "part" } else { "crypt" }, "size": tc.draw(gs::integers::<u64>()) });
-    let fs = if tc.draw(gs::booleans()) {
-        Some(tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug()))
-    } else {
-        None
-    };
+    let fs = if tc.draw(gs::booleans()) { Some(tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()))) } else { None };
     if let Some((t, ver, _)) = fs {
         v["fstype"] = json!(t);
         v["fsver"] = json!(ver);
@@ -262,16 +258,13 @@ fn block_device(tc: &TestCase, name: &str) -> (Value, Option<Disk>, Vec<String>)
     let kind = tc.draw(gs::sampled_from(vec!["disk", "disk", "disk", "loop", "rom"]));
     let (rm, hotplug, ro) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
     let tran = tc.draw(gs::sampled_from(vec![None, Some("usb"), Some("mmc"), Some("sata"), Some("nvme")]));
-    let pttype = tc.draw(
-        gs::sampled_from(vec![
-            (None, None),
-            (Some("dos"), Some(Scheme::Mbr)),
-            (Some("gpt"), Some(Scheme::Gpt)),
-            (Some("mac"), Some(Scheme::Apm)),
-            (Some("atari"), Some(Scheme::Other)),
-        ])
-        .print_as_debug(),
-    );
+    let pttype = tc.draw(gs::sampled_from(vec![
+        (None, None),
+        (Some("dos"), Some(Scheme::Mbr)),
+        (Some("gpt"), Some(Scheme::Gpt)),
+        (Some("mac"), Some(Scheme::Apm)),
+        (Some("atari"), Some(Scheme::Other)),
+    ]));
     let size = tc.draw(gs::integers::<u64>());
     let mut d = json!({ "name": name, "type": kind, "size": size, "rm": flag(tc, rm), "hotplug": flag(tc, hotplug),
             "ro": flag(tc, ro), "tran": tran, "pttype": pttype.0 });
@@ -382,8 +375,7 @@ fn format_commands_follow_the_target(tc: TestCase) {
     let (_, disk, mounted) = block_device(&tc, name);
     let Some(disk) = disk else { return };
     let mounted: Vec<(String, String)> = mounted.into_iter().map(|m| (String::new(), m)).collect();
-    let filesystem =
-        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
     let cluster_size = disk.sector_size << tc.draw(gs::integers::<u32>().max_value(6));
     let label = filesystem.label(&tc.draw(gs::text().max_size(16)));
     let t = Target { filesystem, label: label.clone(), cluster_size, default_cluster: tc.draw(gs::booleans()) };
@@ -529,8 +521,7 @@ fn formatting_runs_the_planned_steps_in_order(tc: TestCase) {
     if !writable {
         std::fs::set_permissions(&disk.device, std::fs::Permissions::from_mode(0o444)).unwrap();
     }
-    let filesystem =
-        tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat, Filesystem::Hfsplus]));
     let cluster_size = disk.sector_size << tc.draw(gs::integers::<u32>().max_value(6));
     let label = filesystem.label(&tc.draw(gs::text().alphabet("ab 'é$").max_size(12)));
     let t = Target { filesystem, label, cluster_size, default_cluster: tc.draw(gs::booleans()) };

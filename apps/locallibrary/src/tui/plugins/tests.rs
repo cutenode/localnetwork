@@ -748,7 +748,7 @@ fn an_export_takes_the_marked_playlists() {
 // -------------------------------------------------------------------------------------------------
 
 use hegel::TestCase;
-use hegel::generators::{self as gs, Generator};
+use hegel::generators as gs;
 
 use super::super::app::testing::{Plugged, plugged, plugins_once, settle};
 use super::super::palette::Then;
@@ -767,8 +767,7 @@ enum Where {
 #[hegel::test_helper]
 fn somewhere(tc: &TestCase) -> (Where, App, Option<Plugged>, tempfile::TempDir) {
     plugins_once();
-    let at = tc
-        .draw(gs::sampled_from(&[Where::Nowhere, Where::Plugged, Where::Plugged, Where::Folder][..]).print_as_debug());
+    let at = tc.draw(gs::sampled_from(&[Where::Nowhere, Where::Plugged, Where::Plugged, Where::Folder][..]));
     let (mut app, store) = blank(Screen::Library);
     if at == Where::Nowhere {
         return (at, app, None, store);
@@ -995,8 +994,8 @@ fn to_field(tc: &TestCase, app: &mut App, to: usize) {
     let f = the_form(app);
     let (n, at) = (f.fields.len(), f.selected);
     let (code, times) = match tc.draw(gs::integers::<u8>().max_value(2)) {
-        0 => (tc.draw(gs::sampled_from(&[KeyCode::Down, KeyCode::Tab][..]).print_as_debug()), (to + n - at) % n),
-        1 => (tc.draw(gs::sampled_from(&[KeyCode::Up, KeyCode::BackTab][..]).print_as_debug()), (at + n - to) % n),
+        0 => (tc.draw(gs::sampled_from(&[KeyCode::Down, KeyCode::Tab][..])), (to + n - at) % n),
+        1 => (tc.draw(gs::sampled_from(&[KeyCode::Up, KeyCode::BackTab][..])), (at + n - to) % n),
         _ => {
             screen(app, 120, 40);
             let r = app.areas.menu;
@@ -1111,9 +1110,7 @@ fn a_commands_form_sends_what_fits_its_schema(tc: TestCase) {
             }
             press(&mut app, &typed);
         }
-        let flip = |tc: &TestCase| {
-            tc.draw(gs::sampled_from(&[KeyCode::Char(' '), KeyCode::Right, KeyCode::Left][..]).print_as_debug())
-        };
+        let flip = |tc: &TestCase| tc.draw(gs::sampled_from(&[KeyCode::Char(' '), KeyCode::Right, KeyCode::Left][..]));
         match field {
             2 if t.loud => key(&mut app, flip(&tc)),
             7 if t.context => key(&mut app, flip(&tc)),
