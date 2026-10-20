@@ -5101,6 +5101,103 @@
       "result": {
         "$ref": "#/$defs/Analyzed"
       }
+    },
+    {
+      "name": "plugins.apply_fields.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.apply_fields.apply",
+      "operation": "plugins.apply_fields",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ApplyFields"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/EditPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.apply_fields.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.apply_fields.plan",
+      "operation": "plugins.apply_fields",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ApplyFields"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "name": "plugins.roles",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/RoleChoice"
+        }
+      }
+    },
+    {
+      "name": "plugins.roles.set",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ChooseRole"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/RoleChoice"
+        }
+      }
     }
   ],
   "notifications": {
@@ -6603,7 +6700,7 @@
             "op",
             "playlist"
           ],
-          "description": "Order a playlist for mixing (see [`harmony::order_set`], with how sure\neach key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in\nplace, or into a new playlist at `into`."
+          "description": "Order a playlist for mixing (see [`harmony::order_set`], with how sure each key is from\nthe keys an analyzer heard already, see [`crate::sound::key_confidences`]): in place, or\ninto a new playlist at `into`."
         },
         {
           "type": "object",
@@ -8580,7 +8677,7 @@
         {
           "type": "string",
           "const": "analysis",
-          "description": "Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,\nclipped or far from the library's level. Only when asked for (`analyze`, or `only` naming\nit): it decodes every track not analysed before."
+          "description": "Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,\nclipped or far from the library's level. Only when asked for (`analyze`, or `only` naming\nit): from what the analyzers chosen for tempo, key and loudness kept, which the app runs on\nthe tracks not analysed before, first."
         }
       ]
     },
@@ -11095,6 +11192,126 @@
         "plugin",
         "analyzer",
         "drive"
+      ]
+    },
+    "ApplyFields": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "analyzer": {
+          "type": "string"
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks to write to."
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldRole"
+          },
+          "description": "The roles to write, which the analyzer must have: `key`, `bpm` (what a track has of them)."
+        },
+        "tracks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one].",
+          "default": null
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Also over a key or BPM the track has: without it, only where it has none.",
+          "default": false
+        },
+        "min_confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "Leave out a value the analyzer is less sure of than this, 0 to 1 (its `key_confidence` or\n`bpm_confidence`), and one it doesn't say how sure it is of.",
+          "default": null
+        }
+      },
+      "required": [
+        "plugin",
+        "analyzer",
+        "drive",
+        "fields"
+      ],
+      "description": "What to write to a drive's tracks, from what one analyzer kept."
+    },
+    "FieldRole": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "key",
+          "description": "A Camelot code (`8A`): a string."
+        },
+        {
+          "type": "string",
+          "const": "bpm",
+          "description": "Beats per minute: a number."
+        },
+        {
+          "type": "string",
+          "const": "key_confidence",
+          "description": "How sure the analyzer is of its key, 0 to 1: a number."
+        },
+        {
+          "type": "string",
+          "const": "bpm_confidence",
+          "description": "How sure it is of its tempo, 0 to 1: a number."
+        },
+        {
+          "type": "string",
+          "const": "loudness",
+          "description": "Integrated loudness in LUFS: a number."
+        },
+        {
+          "type": "string",
+          "const": "true_peak",
+          "description": "True peak in dBTP: a number."
+        },
+        {
+          "type": "string",
+          "const": "clipped_runs",
+          "description": "Runs of samples at full scale: an integer."
+        },
+        {
+          "type": "string",
+          "const": "identity",
+          "description": "Equal values are the same recording: a string."
+        }
+      ],
+      "description": "What a field is to locallibrary, whichever plugin works it out: the host reads a role's value\n(doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and\nBPMs to tracks) from the analyzer chosen for it. A closed list, each with one type."
+    },
+    "ChooseRole": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/FieldRole"
+        },
+        "analyzer": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The analyzer to read it from, `<plugin>.<analyzer>` (one with the role); `null` (or left\nout) puts it back to its default.",
+          "default": null
+        }
+      },
+      "required": [
+        "role"
       ]
     },
     "Initialized": {
@@ -17375,7 +17592,7 @@
             "start",
             "into"
           ],
-          "description": "Order a playlist for mixing (see [`harmony::order_set`], with how sure\neach key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in\nplace, or into a new playlist at `into`."
+          "description": "Order a playlist for mixing (see [`harmony::order_set`], with how sure each key is from\nthe keys an analyzer heard already, see [`crate::sound::key_confidences`]): in place, or\ninto a new playlist at `into`."
         },
         {
           "type": "object",
@@ -19699,13 +19916,13 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Tracks with an analysis (cached or new)."
+          "description": "Tracks with an analysis (kept from before, or new)."
         },
         "decoded": {
           "type": "integer",
           "format": "uint",
           "minimum": 0,
-          "description": "Analysed just now (the rest came from the cache)."
+          "description": "Analysed just now (the rest were kept from before)."
         },
         "failed": {
           "type": "array",
@@ -19784,9 +20001,12 @@
           "description": "The analyzer's BPM."
         },
         "confidence": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "float",
-          "description": "0 to 1."
+          "description": "0 to 1 (none: the analyzer doesn't say)."
         },
         "relation": {
           "$ref": "#/$defs/TempoRelation",
@@ -19869,9 +20089,12 @@
           "description": "The analyzer's key, as a Camelot code (`8A`)."
         },
         "confidence": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "float",
-          "description": "0 to 1."
+          "description": "0 to 1 (none: the analyzer doesn't say)."
         },
         "relation": {
           "$ref": "#/$defs/KeyOutcome",
@@ -28860,6 +29083,13 @@
           "additionalProperties": {
             "$ref": "#/$defs/FieldType"
           }
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Which of its fields has each role it answers (`bpm = \"bpm\"`): what the host reads for\nthat role (see [`Role`])."
         }
       },
       "required": [
@@ -29305,6 +29535,39 @@
         "failed"
       ],
       "description": "What analysing a drive's tracks did."
+    },
+    "RoleChoice": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/FieldRole"
+        },
+        "chosen": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it)."
+        },
+        "set": {
+          "type": "boolean",
+          "description": "Chosen in the settings, rather than by default."
+        },
+        "offered": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Every analyzer with it, `<plugin>.<analyzer>`, in the order the app has its plugins."
+        }
+      },
+      "required": [
+        "role",
+        "chosen",
+        "set",
+        "offered"
+      ],
+      "description": "A role, and the analyzers answering it."
     },
     "ProgressParams": {
       "type": "object",

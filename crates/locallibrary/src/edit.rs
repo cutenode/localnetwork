@@ -146,9 +146,9 @@ pub enum Edit {
         #[serde(default)]
         recordings: bool,
     },
-    /// Order a playlist for mixing (see [`harmony::order_set`], with how sure
-    /// each key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in
-    /// place, or into a new playlist at `into`.
+    /// Order a playlist for mixing (see [`harmony::order_set`], with how sure each key is from
+    /// the keys an analyzer heard already, see [`crate::sound::key_confidences`]): in place, or
+    /// into a new playlist at `into`.
     PlanSet {
         playlist: String,
         #[serde(default)]
@@ -1774,7 +1774,7 @@ impl<'a> Resolver<'a> {
                     None => None,
                 };
                 let energy = self.energy(&tracks);
-                // How sure each key is, from analyses already cached (nothing is decoded here).
+                // How sure each key is, from the keys analyzers heard (none is analysed here).
                 let sure = crate::sound::key_confidences(self.device, tracks.iter().copied());
                 // Recorded as the order it gives: `start` may name a track by id, and the analysis
                 // behind the energy and keys can change on a later export.

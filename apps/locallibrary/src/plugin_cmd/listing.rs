@@ -1,10 +1,11 @@
-//! `plugin list`, `plugin info` and `plugin settings`.
+//! `plugin list`, `plugin info`, `plugin settings` and `plugin roles`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use console::style;
+use locallibrary::fields::{self, Role, roles::RoleChoice};
 use locallibrary::plugin::Plugins;
 use loclib_plugin::{Setting, Where};
 use unicode_width::UnicodeWidthStr;
@@ -83,8 +84,13 @@ pub(super) fn info(d: &Described) {
         c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Operations (planned, then confirmed):", operations.collect());
     let analyzers = c.analyzers.iter().map(|a| {
-        let fields: Vec<String> = a.fields.keys().cloned().collect();
-        (a.name.clone(), format!("{}: {}", a.title, fields.join(", ")))
+        let fields: Vec<&str> = a.fields.keys().map(String::as_str).collect();
+        // Each with its field, where that's named otherwise: `loudness (integrated_lufs)`.
+        let roles: Vec<String> = (a.roles.iter())
+            .map(|(r, f)| if r.name() == f { f.clone() } else { format!("{} ({f})", r.name()) })
+            .collect();
+        let roles = if roles.is_empty() { String::new() } else { format!("; roles {}", roles.join(", ")) };
+        (a.name.clone(), format!("{}: {}{roles}", a.title, fields.join(", ")))
     });
     section(&format!("Analyzers (locallibrary analyze --plugin {}):", m.id), analyzers.collect());
     let exporters = c.exporters.iter().map(|e| {
@@ -164,5 +170,57 @@ fn show_settings(shown: &[&Setting], s: &Settings) {
             value.map_or_else(|| "not set".into(), cell),
             dim(format!("{}{}", setting.title, if default { " (default)" } else { "" }))
         );
+    }
+}
+
+/// `plugin roles`: shows which analyzer each role (or one) is read from, or chooses one, or puts
+/// one back to its default.
+pub(super) fn roles(
+    role: Option<String>,
+    analyzer: Option<String>,
+    reset: bool,
+    store_path: &Option<PathBuf>,
+    out: Output,
+) -> Result<ExitCode> {
+    let role: Option<Role> = role.map(|r| r.parse().map_err(usage)).transpose()?;
+    let change = match (role, analyzer) {
+        (Some(r), Some(a)) => Some((r, Some(a))),
+        (Some(r), None) if reset => Some((r, None)),
+        _ => None,
+    };
+    let Some((role, analyzer)) = change else {
+        let store = crate::diff_cmd::existing_store(store_path)?;
+        let mut all = fields::roles::choices(store.as_ref());
+        all.retain(|c| role.is_none_or(|r| r == c.role));
+        out.emit(&all, |all| show_roles(all));
+        return Ok(ExitCode::SUCCESS);
+    };
+    let change = match &analyzer {
+        Some(a) => format!("read {} from {a}", role.name()),
+        None => format!("read {} from its default analyzer again", role.name()),
+    };
+    out.one_step(
+        &change,
+        "Change it?",
+        || Ok(fields::roles::choose(&crate::open_store(store_path)?, role, analyzer.as_deref())?),
+        |all| show_roles(&all.iter().filter(|c| c.role == role).cloned().collect::<Vec<_>>()),
+    )
+}
+
+fn show_roles(all: &[RoleChoice]) {
+    let width = all.iter().map(|c| c.role.name().width()).max().unwrap_or(0);
+    for c in all {
+        let others: Vec<&String> = c.offered.iter().filter(|o| Some(*o) != c.chosen.as_ref()).collect();
+        let how = match (c.set, others.is_empty()) {
+            (true, _) => "chosen".to_string(),
+            (false, true) => "default".to_string(),
+            (false, false) => {
+                format!("default; also {}", others.iter().map(|o| o.as_str()).collect::<Vec<_>>().join(", "))
+            }
+        };
+        match &c.chosen {
+            Some(a) => say!("{}  {a}  {}", output::fit(c.role.name(), width), dim(how)),
+            None => say!("{}  {}", output::fit(c.role.name(), width), dim("no analyzer works it out")),
+        }
     }
 }

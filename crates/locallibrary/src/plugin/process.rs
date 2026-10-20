@@ -270,9 +270,10 @@ impl Slot {
         drop(stopped);
     }
 
-    /// Starts the process in a folder of its own, `<store>/plugins/<id>/` (made if it isn't
+    /// Starts the process in a folder of its own, `<store>/plugins/<id>/work/` (made if it isn't
     /// there), or without a store a new one in the temporary folder, removed once it stops: the
-    /// plugin's own files go there, and its relative paths are never another program's.
+    /// plugin's own files go there, and its relative paths are never another program's (nor the
+    /// host's files about it, beside that folder).
     fn spawn(&self, store: Option<&Store>) -> Result<Process> {
         if elevated() {
             return Err(Error::invalid(format!(
@@ -282,7 +283,7 @@ impl Slot {
         }
         let (dir, scratch) = match store {
             Some(store) => {
-                let dir = store.root().join("plugins").join(&self.manifest.id);
+                let dir = store.root().join("plugins").join(&self.manifest.id).join("work");
                 std::fs::create_dir_all(&dir).at(&dir)?;
                 (dir, None)
             }

@@ -1,9 +1,10 @@
-//! A second opinion on tracks' tempo and key, and how loud each is, from their audio (through
-//! loclib-analysis), cached on the computer like fingerprints (see [`crate::audio_cache`]).
+//! A second opinion on tracks' tempo and key, and how loud each is, from what the analyzers
+//! chosen for those roles worked out (see [`crate::fields::roles`]). Nothing is analysed here:
+//! the app runs the analyzers first (as `doctor --analyze` does), and the values are read from the
+//! store.
 //!
-//! Doctor compares the library's stored values with the estimates ([`findings`]); the set planner
-//! and the check before a set use what's already cached ([`key_confidences`],
-//! [`Cache::cached`]) and never decode anything themselves.
+//! Doctor compares the library's stored values with the estimates ([`report`]); the set planner
+//! and the check before a set use what's kept already ([`key_confidences`], [`levels`]).
 
 pub mod bench;
 
@@ -13,75 +14,65 @@ use serde::Serialize;
 
 pub use loclib_analysis::benchmark::{KeyOutcome, Outcome, Report, TempoOutcome};
 pub use loclib_analysis::tempo::{Plausible, TempoPrior, TempoRelation};
-pub use loclib_analysis::{Analysis, Estimate, Loudness, VERSION};
 
-use crate::audio_cache::{self, Kind, TrackFailure};
+use crate::audio_cache::TrackFailure;
 use crate::device::Device;
+use crate::fields::roles::RoleValues;
+use crate::fields::{FieldValue, Role, by_role};
 use crate::harmony::Camelot;
 use crate::model::{Library, Track, TrackRef};
-use crate::progress::{Ctx, Phase};
-use crate::{Error, Result};
+use crate::store::Store;
 
-/// Analyses, in `<store>/cache/analysis`.
-#[derive(Debug, Clone, Copy)]
-pub struct Analyses;
+/// The roles doctor's analysis reads.
+pub const ROLES: [Role; 7] =
+    [Role::Bpm, Role::BpmConfidence, Role::Key, Role::KeyConfidence, Role::Loudness, Role::TruePeak, Role::ClippedRuns];
 
-impl Kind for Analyses {
-    const DIR: &'static str = "analysis";
-    const EXT: &'static str = "json";
-    const WHAT: &'static str = "an analysis";
-    const VERSION: u32 = loclib_analysis::VERSION;
-    type Value = Analysis;
+/// The roles a track's [`Level`] is made of.
+const LEVEL: [Role; 3] = [Role::Loudness, Role::TruePeak, Role::ClippedRuns];
 
-    fn encode(analysis: &Analysis) -> Vec<u8> {
-        serde_json::to_vec(analysis).expect("an analysis serialises")
-    }
-
-    fn decode(bytes: &[u8]) -> Option<Analysis> {
-        serde_json::from_slice(bytes).ok()
+/// A role's value as a number, if it's one.
+fn number(heard: &RoleValues, role: Role) -> Option<f64> {
+    match heard.get(&role)? {
+        FieldValue::Number(n) => Some(*n),
+        FieldValue::Integer(n) => Some(*n as f64),
+        _ => None,
     }
 }
 
-/// Analyses on disk, one small file per audio file.
-pub type Cache = audio_cache::Cache<Analyses>;
-
-/// Everything loclib-analysis measures, so one cached analysis serves every use.
-fn analyze_file(file: &std::path::Path, ctx: &Ctx<'_>) -> Result<Analysis> {
-    loclib_analysis::analyze(file, loclib_analysis::Want::ALL, ctx).map_err(Error::from)
+/// The key a track was heard in, if it was.
+fn heard_key(heard: &RoleValues) -> Option<Camelot> {
+    match heard.get(&Role::Key)? {
+        FieldValue::String(code) => Camelot::parse(code),
+        _ => None,
+    }
 }
 
-/// How sure a track's stored key is, given the cached estimate of it; `None` when they agree (or
-/// either is unknown), which counts as sure.
+/// How sure a track's stored key is, given the key it was heard in; `None` when they agree (or
+/// the stored one isn't a key), which counts as sure.
 ///
 /// When two analyzers disagree, at least one is wrong. Key detection's mistakes are mostly the
 /// fifth-related, relative or parallel key (see loclib-analysis's README for the figures), so such a
 /// disagreement most likely means the truth is one of the two: even odds, 0.5. Keys related in
 /// none of those ways suggest a track neither can place (a weak or changing key), so the stored one
 /// is trusted least, 0.25.
-pub fn key_confidence(stored: &str, estimate: &Estimate) -> Option<f64> {
+pub fn key_confidence(stored: &str, heard: Camelot) -> Option<f64> {
     let stored = Camelot::parse(stored)?;
-    match KeyOutcome::of(stored, Some(estimate.key)) {
+    match KeyOutcome::of(stored, Some(heard)) {
         KeyOutcome::Correct => None,
         KeyOutcome::Fifth | KeyOutcome::Relative | KeyOutcome::Parallel => Some(0.5),
         _ => Some(0.25),
     }
 }
 
-/// [`key_confidence`] for each of `tracks` with a cached analysis, by track id: nothing is decoded,
-/// and tracks without one are left out (sure), as are those whose keys agree.
+/// [`key_confidence`] for each of `tracks` heard in a key already (its `key` role, kept in the
+/// store), by track id: nothing is analysed, and tracks not heard are left out (sure), as are
+/// those whose keys agree.
 pub fn key_confidences<'t>(device: &Device, tracks: impl IntoIterator<Item = &'t Track>) -> FxHashMap<u32, f64> {
-    // Without a store there's nothing cached (and no temporary cache worth making).
+    // Without a store nothing was kept.
     let Some(store) = crate::api::registry() else { return FxHashMap::default() };
-    let cache = Cache::in_store(&store);
     let tracks: Vec<&Track> = tracks.into_iter().collect();
-    let cached = cache.cached(device, tracks.iter().copied());
-    tracks
-        .iter()
-        .filter_map(|t| {
-            let estimate = cached.get(&t.id)?.estimate.as_ref()?;
-            Some((t.id, key_confidence(&t.key, estimate)?))
-        })
-        .collect()
+    let heard = by_role(&store, &[Role::Key], device, &tracks);
+    tracks.iter().filter_map(|t| Some((t.id, key_confidence(&t.key, heard_key(heard.get(&t.id)?)?)?))).collect()
 }
 
 /// A track whose stored tempo the estimate doesn't agree with.
@@ -92,8 +83,8 @@ pub struct TempoFinding {
     pub stored: f64,
     /// The analyzer's BPM.
     pub estimate: f32,
-    /// 0 to 1.
-    pub confidence: f32,
+    /// 0 to 1 (none: the analyzer doesn't say).
+    pub confidence: Option<f32>,
     /// The stored tempo against the estimate: `half`, `double`, `two_thirds`, `three_halves` or
     /// `disagrees`.
     pub relation: TempoRelation,
@@ -109,8 +100,8 @@ pub struct KeyFinding {
     pub stored: String,
     /// The analyzer's key, as a Camelot code (`8A`).
     pub estimate: String,
-    /// 0 to 1.
-    pub confidence: f32,
+    /// 0 to 1 (none: the analyzer doesn't say).
+    pub confidence: Option<f32>,
     /// The estimate against the stored key: `fifth`, `relative`, `parallel` or `other`.
     pub relation: KeyOutcome,
 }
@@ -144,13 +135,41 @@ pub struct LoudnessFinding {
     pub clipped_runs: u64,
 }
 
+/// A track's level, as its loudness, true peak and clipped runs roles have it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Level {
+    /// LUFS (`None` for silence).
+    pub integrated_lufs: Option<f64>,
+    /// Minus infinity for silence, which has no peak.
+    pub true_peak_dbtp: f64,
+    pub clipped_runs: u64,
+}
+
+impl Level {
+    /// A track's, from its role values: `None` when none of the three was worked out.
+    fn of(heard: &RoleValues) -> Option<Level> {
+        LEVEL.iter().any(|r| heard.contains_key(r)).then(|| Level {
+            integrated_lufs: number(heard, Role::Loudness),
+            true_peak_dbtp: number(heard, Role::TruePeak).unwrap_or(f64::NEG_INFINITY),
+            clipped_runs: number(heard, Role::ClippedRuns).map_or(0, |n| n.max(0.0) as u64),
+        })
+    }
+}
+
+/// The levels kept for each of `tracks` (of `device`) in `store`, in their order: those with
+/// none are left out. Nothing is analysed.
+pub fn levels<'t>(store: &Store, device: &Device, tracks: &[&'t Track]) -> Vec<(&'t Track, Level)> {
+    let heard = by_role(store, &LEVEL, device, tracks);
+    tracks.iter().filter_map(|t| Some((*t, Level::of(heard.get(&t.id)?)?))).collect()
+}
+
 /// Tracks whose stored tempo or key the estimates question, and tracks whose level may be a
 /// problem.
 #[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct AnalysisReport {
-    /// Tracks with an analysis (cached or new).
+    /// Tracks with an analysis (kept from before, or new).
     pub analyzed: usize,
-    /// Analysed just now (the rest came from the cache).
+    /// Analysed just now (the rest were kept from before).
     pub decoded: usize,
     /// Tracks whose audio couldn't be analysed.
     pub failed: Vec<TrackFailure>,
@@ -161,39 +180,43 @@ pub struct AnalysisReport {
     pub median_lufs: Option<f64>,
 }
 
-/// What the analyses of `library`'s tracks (by id) say about its stored tempos and keys and its
-/// tracks' levels. Which of a disagreeing pair of tempos is likelier comes from every stored tempo
-/// in the library.
-pub fn findings(library: &Library, analyses: &FxHashMap<u32, Analysis>) -> AnalysisReport {
+/// What `heard` (each analysed track's [`ROLES`], by id) says about `library`'s stored tempos and
+/// keys and its tracks' levels. Which of a disagreeing pair of tempos is likelier comes from
+/// every stored tempo in the library. Reports nothing analysed just now, and no failures.
+pub fn findings(library: &Library, heard: &FxHashMap<u32, RoleValues>) -> AnalysisReport {
     let prior = TempoPrior::library(library.tracks.iter().map(|t| t.bpm));
-    let analysed: Vec<(&Track, &Analysis)> =
-        library.tracks.iter().filter_map(|t| analyses.get(&t.id).map(|a| (t, a))).collect();
+    let analysed: Vec<(&Track, &RoleValues)> =
+        library.tracks.iter().filter_map(|t| heard.get(&t.id).map(|h| (t, h))).collect();
+    let levels: Vec<(&Track, Level)> = analysed.iter().filter_map(|(t, h)| Some((*t, Level::of(h)?))).collect();
     let mut report = AnalysisReport {
         analyzed: analysed.len(),
-        loudness: loudness_findings(analysed.iter().map(|(t, a)| (*t, a.loudness.as_ref()))),
+        loudness: loudness_findings(&levels),
+        median_lufs: median_lufs(levels.iter().map(|(_, l)| l)),
         ..Default::default()
     };
-    report.median_lufs = median_lufs(analysed.iter().filter_map(|(_, a)| a.loudness.as_ref()));
-    for (t, a) in analysed {
-        let Some(e) = &a.estimate else { continue };
-        if let Some(relation) = TempoRelation::between(t.bpm, e.bpm.into()).filter(|r| *r != TempoRelation::Agrees) {
+    for (t, h) in analysed {
+        // As the analyzer worked them out: sound's are single precision.
+        let single = |role| number(h, role).map(|n| n as f32);
+        if let Some(bpm) = number(h, Role::Bpm)
+            && let Some(relation) = TempoRelation::between(t.bpm, bpm).filter(|r| *r != TempoRelation::Agrees)
+        {
             report.tempo.push(TempoFinding {
                 track: t.into(),
                 stored: t.bpm,
-                estimate: e.bpm,
-                confidence: e.bpm_confidence,
+                estimate: bpm as f32,
+                confidence: single(Role::BpmConfidence),
                 relation,
-                likelier: prior.more_plausible(t.bpm, e.bpm.into()),
+                likelier: prior.more_plausible(t.bpm, bpm),
             });
         }
-        if let Some(stored) = Camelot::parse(&t.key) {
-            let relation = KeyOutcome::of(stored, Some(e.key));
+        if let (Some(stored), Some(key)) = (Camelot::parse(&t.key), heard_key(h)) {
+            let relation = KeyOutcome::of(stored, Some(key));
             if relation != KeyOutcome::Correct {
                 report.key.push(KeyFinding {
                     track: t.into(),
                     stored: t.key.clone(),
-                    estimate: e.key.code(),
-                    confidence: e.key_confidence,
+                    estimate: key.code(),
+                    confidence: single(Role::KeyConfidence),
                     relation,
                 });
             }
@@ -202,7 +225,7 @@ pub fn findings(library: &Library, analyses: &FxHashMap<u32, Analysis>) -> Analy
     report
 }
 
-fn median_lufs<'a>(levels: impl Iterator<Item = &'a Loudness>) -> Option<f64> {
+fn median_lufs<'a>(levels: impl Iterator<Item = &'a Level>) -> Option<f64> {
     let mut lufs: Vec<f64> = levels.filter_map(|l| l.integrated_lufs).collect();
     lufs.sort_by(f64::total_cmp);
     let mid = lufs.len() / 2;
@@ -213,17 +236,15 @@ fn median_lufs<'a>(levels: impl Iterator<Item = &'a Loudness>) -> Option<f64> {
     }
 }
 
-/// Tracks over 0 dBTP, clipped, or far from the median loudness of `tracks`.
-pub fn loudness_findings<'a>(
-    tracks: impl Iterator<Item = (&'a Track, Option<&'a Loudness>)> + Clone,
-) -> Vec<LoudnessFinding> {
-    let median = median_lufs(tracks.clone().filter_map(|(_, l)| l));
-    tracks
+/// Tracks over 0 dBTP, clipped, or far from the median loudness of `levels`.
+pub fn loudness_findings(levels: &[(&Track, Level)]) -> Vec<LoudnessFinding> {
+    let median = median_lufs(levels.iter().map(|(_, l)| l));
+    levels
+        .iter()
         .filter_map(|(t, l)| {
-            let l = l?;
             let far = matches!((l.integrated_lufs, median), (Some(x), Some(m)) if (x - m).abs() > FAR_FROM_MEDIAN_LU);
             let problems: Vec<LoudnessProblem> = [
-                (l.true_peak_dbtp() > 0.0, LoudnessProblem::OverZero),
+                (l.true_peak_dbtp > 0.0, LoudnessProblem::OverZero),
                 (l.clipped_runs > 0, LoudnessProblem::Clipped),
                 (far, LoudnessProblem::FarFromMedian),
             ]
@@ -231,24 +252,22 @@ pub fn loudness_findings<'a>(
             .filter_map(|(found, p)| found.then_some(p))
             .collect();
             (!problems.is_empty()).then(|| LoudnessFinding {
-                track: t.into(),
+                track: (*t).into(),
                 problems,
                 integrated_lufs: l.integrated_lufs,
-                true_peak_dbtp: l.true_peak_dbtp(),
+                true_peak_dbtp: l.true_peak_dbtp,
                 clipped_runs: l.clipped_runs,
             })
         })
         .collect()
 }
 
-/// Analyse `library`'s tracks (decoding those not cached yet) and report what the analyses say,
-/// for doctor.
-pub(crate) fn analyze_library(device: &Device, library: &Library, ctx: &Ctx<'_>) -> Result<AnalysisReport> {
-    let (cache, _temp) = Cache::of_default_store()?;
+/// What the [`ROLES`] kept in `store` say about `library`'s tracks on `device`, for doctor:
+/// nothing is analysed (the app analyses them first, and says what it did in `decoded` and
+/// `failed`).
+pub fn report(store: &Store, device: &Device, library: &Library) -> AnalysisReport {
     let tracks: Vec<&Track> = library.tracks.iter().collect();
-    let run = audio_cache::for_tracks(device, &tracks, &cache, Phase::Analyze, analyze_file, ctx)?;
-    let analyses: FxHashMap<u32, Analysis> = run.done.into_iter().map(|d| (d.id, d.value)).collect();
-    Ok(AnalysisReport { decoded: run.computed, failed: run.failed, ..findings(library, &analyses) })
+    findings(library, &by_role(store, &ROLES, device, &tracks))
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@
 //! plugin works.
 
 pub mod params;
+pub mod roles;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
@@ -130,7 +131,10 @@ fn load() -> Result<Loaded> {
         None => stderr(id, line),
     });
     let options = Options { log, ..Options::default() };
-    Ok(Loaded { plugins: Plugins::new(specs, Arc::new(SidecarReads), options)?, serves, left_out })
+    let plugins = Plugins::new(specs, Arc::new(SidecarReads), options)?;
+    // What core reads tracks' keys, tempos and levels from.
+    locallibrary::fields::roles::set_offered(plugins.roles());
+    Ok(Loaded { plugins, serves, left_out })
 }
 
 /// Where plugins' logs go instead of stderr, while the player draws on the terminal.

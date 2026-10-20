@@ -575,9 +575,9 @@ export type Edit =
     op: "dedupe";
   }
   /**
-   * Order a playlist for mixing (see [`harmony::order_set`], with how sure
-   * each key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in
-   * place, or into a new playlist at `into`.
+   * Order a playlist for mixing (see [`harmony::order_set`], with how sure each key is from
+   * the keys an analyzer heard already, see [`crate::sound::key_confidences`]): in place, or
+   * into a new playlist at `into`.
    */
   | {
     playlist: string;
@@ -1286,7 +1286,8 @@ export type DoctorSection =
   /**
    * Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,
    * clipped or far from the library's level. Only when asked for (`analyze`, or `only` naming
-   * it): it decodes every track not analysed before.
+   * it): from what the analyzers chosen for tempo, key and loudness kept, which the app runs on
+   * the tracks not analysed before, first.
    */
   | "analysis";
 
@@ -2214,6 +2215,57 @@ export type AnalyzeWithPlugin = {
   drive: string;
   /** Only these tracks, by id [default: every one]. */
   tracks?: number[] | null;
+};
+
+/** What to write to a drive's tracks, from what one analyzer kept. */
+export type ApplyFields = {
+  plugin: string;
+  analyzer: string;
+  /** The library or drive whose tracks to write to. */
+  drive: string;
+  /** The roles to write, which the analyzer must have: `key`, `bpm` (what a track has of them). */
+  fields: FieldRole[];
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[] | null;
+  /** Also over a key or BPM the track has: without it, only where it has none. */
+  overwrite?: boolean;
+  /**
+   * Leave out a value the analyzer is less sure of than this, 0 to 1 (its `key_confidence` or
+   * `bpm_confidence`), and one it doesn't say how sure it is of.
+   */
+  min_confidence?: number | null;
+};
+
+/**
+ * What a field is to locallibrary, whichever plugin works it out: the host reads a role's value
+ * (doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and
+ * BPMs to tracks) from the analyzer chosen for it. A closed list, each with one type.
+ */
+export type FieldRole =
+  /** A Camelot code (`8A`): a string. */
+  | "key"
+  /** Beats per minute: a number. */
+  | "bpm"
+  /** How sure the analyzer is of its key, 0 to 1: a number. */
+  | "key_confidence"
+  /** How sure it is of its tempo, 0 to 1: a number. */
+  | "bpm_confidence"
+  /** Integrated loudness in LUFS: a number. */
+  | "loudness"
+  /** True peak in dBTP: a number. */
+  | "true_peak"
+  /** Runs of samples at full scale: an integer. */
+  | "clipped_runs"
+  /** Equal values are the same recording: a string. */
+  | "identity";
+
+export type ChooseRole = {
+  role: FieldRole;
+  /**
+   * The analyzer to read it from, `<plugin>.<analyzer>` (one with the role); `null` (or left
+   * out) puts it back to its default.
+   */
+  analyzer?: string | null;
 };
 
 /** What `initialize` answers. */
@@ -4029,9 +4081,9 @@ export type EditOutput =
     op: "dedupe";
   }
   /**
-   * Order a playlist for mixing (see [`harmony::order_set`], with how sure
-   * each key is from the analyses doctor has cached, see [`crate::sound::key_confidences`]): in
-   * place, or into a new playlist at `into`.
+   * Order a playlist for mixing (see [`harmony::order_set`], with how sure each key is from
+   * the keys an analyzer heard already, see [`crate::sound::key_confidences`]): in place, or
+   * into a new playlist at `into`.
    */
   | {
     playlist: string;
@@ -4709,9 +4761,9 @@ export type AudioProblem =
  * problem.
  */
 export type AnalysisReport = {
-  /** Tracks with an analysis (cached or new). */
+  /** Tracks with an analysis (kept from before, or new). */
   analyzed: number;
-  /** Analysed just now (the rest came from the cache). */
+  /** Analysed just now (the rest were kept from before). */
   decoded: number;
   /** Tracks whose audio couldn't be analysed. */
   failed: TrackFailure[];
@@ -4731,8 +4783,8 @@ export type TempoFinding = {
   stored: number;
   /** The analyzer's BPM. */
   estimate: number;
-  /** 0 to 1. */
-  confidence: number;
+  /** 0 to 1 (none: the analyzer doesn't say). */
+  confidence: number | null;
   /**
    * The stored tempo against the estimate: `half`, `double`, `two_thirds`, `three_halves` or
    * `disagrees`.
@@ -4764,8 +4816,8 @@ export type KeyFinding = {
   stored: string;
   /** The analyzer's key, as a Camelot code (`8A`). */
   estimate: string;
-  /** 0 to 1. */
-  confidence: number;
+  /** 0 to 1 (none: the analyzer doesn't say). */
+  confidence: number | null;
   /** The estimate against the stored key: `fifth`, `relative`, `parallel` or `other`. */
   relation: KeyOutcome;
 };
@@ -7419,6 +7471,11 @@ export type Analyzer = {
    */
   version: string;
   fields: { [key: string]: FieldType };
+  /**
+   * Which of its fields has each role it answers (`bpm = "bpm"`): what the host reads for
+   * that role (see [`Role`]).
+   */
+  roles?: { [key: string]: string };
 };
 
 export type FieldType = "number" | "integer" | "string" | "boolean" | "string[]";
@@ -7571,6 +7628,17 @@ export type Analyzed = {
    * failed on them.
    */
   failed: number;
+};
+
+/** A role, and the analyzers answering it. */
+export type RoleChoice = {
+  role: FieldRole;
+  /** The analyzer it's read from now, `<plugin>.<analyzer>` (none: no analyzer has it). */
+  chosen: string | null;
+  /** Chosen in the settings, rather than by default. */
+  set: boolean;
+  /** Every analyzer with it, `<plugin>.<analyzer>`, in the order the app has its plugins. */
+  offered: string[];
 };
 
 /** A `progress` notification's parameters. */
@@ -8482,6 +8550,14 @@ export interface Methods {
   "plugins.export.apply": { params: ApplyPlan | (PlanPluginExport & WriteOptions); result: Exported };
   /** immediate method; long running: sends `progress`, can be cancelled */
   "plugins.analyze": { params: AnalyzeWithPlugin & WriteOptions; result: Analyzed };
+  /** plan method; paired with `plugins.apply_fields.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.apply_fields.plan": { params: ApplyFields & WriteOptions; result: EditPlan & PlanFields };
+  /** apply method; paired with `plugins.apply_fields.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.apply_fields.apply": { params: ApplyPlan | (ApplyFields & WriteOptions); result: EditReport };
+  /** read method */
+  "plugins.roles": { params: NoParams; result: RoleChoice[] };
+  /** immediate method */
+  "plugins.roles.set": { params: ChooseRole & WriteOptions; result: RoleChoice[] };
 }
 
 export type MethodName = keyof Methods;

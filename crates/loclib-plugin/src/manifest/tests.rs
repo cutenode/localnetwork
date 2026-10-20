@@ -559,6 +559,39 @@ fn a_selection_is_what_the_context_has() {
     assert_eq!(Selection::of(&json!({ "type": "string" })), Ok(None));
 }
 
+/// An analyzer says which of its fields has each role it answers, each of the role's type; a role
+/// that isn't one, or names a field it hasn't, is refused.
+#[test]
+fn analyzers_give_fields_roles_of_their_type() {
+    let analyzer = |fields: &str, roles: &str| {
+        format!(
+            "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {{ {fields} }}\nroles = {{ {roles} }}\n"
+        )
+    };
+    let ok = analyzer(
+        "tempo = \"number\", camelot = \"string\", runs = \"integer\"",
+        "bpm = \"tempo\", key = \"camelot\", clipped_runs = \"runs\"",
+    );
+    let m = Manifest::parse(&format!("{HEAD}{ok}")).unwrap();
+    m.validate(true).unwrap();
+    let roles: Vec<(Role, &str)> = m.contributes.analyzers[0].roles.iter().map(|(r, f)| (*r, f.as_str())).collect();
+    assert_eq!(roles, [(Role::Bpm, "tempo"), (Role::Key, "camelot"), (Role::ClippedRuns, "runs")]);
+    let back: Manifest = serde_json::from_value(serde_json::to_value(&m).unwrap()).unwrap();
+    assert_eq!(back, m, "describe sends them as they are");
+
+    let e = problem(&analyzer("tempo = \"integer\"", "bpm = \"tempo\""));
+    assert_eq!(e, "contributes.analyzers[0].roles.bpm: tempo isn't a number, which the role is");
+    let e = problem(&analyzer("camelot = \"number\"", "key = \"camelot\""));
+    assert_eq!(e, "contributes.analyzers[0].roles.key: camelot isn't a string, which the role is");
+    let e = problem(&analyzer("tempo = \"number\"", "bpm = \"speed\""));
+    assert_eq!(e, "contributes.analyzers[0].roles.bpm: \"speed\" isn't its field");
+    let e = problem(&analyzer("tempo = \"number\"", "tempo = \"tempo\""));
+    assert!(e.contains("unknown variant `tempo`"), "{e}");
+    // Every role reads back from its name.
+    assert!(Role::ALL.iter().all(|r| r.name().parse() == Ok(*r)));
+    assert_eq!("tempo".parse::<Role>().unwrap_err().split(':').next(), Some("\"tempo\" isn't a role"));
+}
+
 // Properties: manifests drawn whole, then broken in one place each.
 
 /// What `validate` says about `m` (`""`: nothing).
@@ -794,11 +827,22 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             title: title(tc),
             version: tc.draw(gs::from_regex("[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,11}")),
             fields: IndexMap::from_iter([(field, tc.draw(gs::sampled_from(field_types.clone())))]),
+            roles: IndexMap::new(),
         })
         .collect();
     for field in fields {
         let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
         analyzers[i].fields.insert(field, tc.draw(gs::sampled_from(field_types.clone())));
+    }
+    // Some roles for each, each from one of its fields of the role's type.
+    for a in &mut analyzers {
+        for role in tc.draw(gs::subsequences(Role::ALL.to_vec())) {
+            let typed: Vec<String> =
+                a.fields.iter().filter(|(_, t)| **t == role.kind()).map(|(f, _)| f.clone()).collect();
+            if !typed.is_empty() {
+                a.roles.insert(role, tc.draw(gs::sampled_from(typed)));
+            }
+        }
     }
     let exporters = drawn_names(tc, 3)
         .into_iter()
@@ -920,7 +964,7 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
             }
             "analyzers" => {
                 let fields = IndexMap::from_iter([(format!("{name}-field"), FieldType::Number)]);
-                c.analyzers.push(Analyzer { name, title, version: "1".into(), fields });
+                c.analyzers.push(Analyzer { name, title, version: "1".into(), fields, roles: IndexMap::new() });
             }
             "exporters" => {
                 c.exporters.push(Exporter { format: name, title, extension: None, folder: true, options: None });
@@ -1000,6 +1044,8 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "no fields",
         "field name",
         "field twice",
+        "role field",
+        "role type",
         "file or folder",
         "extension",
         "choices",
@@ -1256,6 +1302,26 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     c.analyzers[i].fields.insert(field.clone(), FieldType::Boolean);
                     (format!("contributes.analyzers[{i}].fields.{field}: another analyzer has this field"), false)
                 }
+            }
+        }
+        "role field" | "role type" => {
+            add(c, "analyzers", 1);
+            let i = index(&tc, c.analyzers.len());
+            let a = &mut c.analyzers[i];
+            let role = tc.draw(gs::sampled_from(Role::ALL.to_vec()));
+            let at = format!("contributes.analyzers[{i}].roles.{}", role.name());
+            // Longer than any drawn name, so none of the analyzers' fields.
+            let field = "added-role-field".to_string();
+            if mistake == "role field" {
+                a.roles.insert(role, field.clone());
+                (format!("{at}: {field:?} isn't its field"), false)
+            } else {
+                let others = vec![FieldType::Number, FieldType::Integer, FieldType::String, FieldType::Boolean];
+                let others: Vec<FieldType> = others.into_iter().filter(|t| *t != role.kind()).collect();
+                a.fields.insert(field.clone(), tc.draw(gs::sampled_from(others)));
+                a.roles.insert(role, field.clone());
+                let kind = serde_json::to_value(role.kind()).unwrap();
+                (format!("{at}: {field} isn't a {}, which the role is", kind.as_str().unwrap()), false)
             }
         }
         "file or folder" | "extension" => {

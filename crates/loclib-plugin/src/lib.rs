@@ -21,7 +21,7 @@ pub use features::{FEATURES, Feature};
 pub use loclib_model;
 pub use manifest::{
     Analyzer, Capability, CliHints, Command, Contributions, Exporter, FieldType, FieldValue, Manifest, ManifestError,
-    Mode, Operation, Selection, Setting, SettingType, Where, check_params, is_path,
+    Mode, Operation, Role, Selection, Setting, SettingType, Where, check_params, is_path,
 };
 pub use peer::{Incoming, Peer, Pending, Request};
 pub use protocol::*;

@@ -2537,7 +2537,7 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
     let r = popup(area, w, lines.len() as u16 + 2, None);
     let keys = if selected.choices().is_empty() { "" } else { "←→ change · " };
     let then = match form.then {
-        super::form::For::Run(_) | super::form::For::Export { .. } => "run",
+        super::form::For::Run(_) | super::form::For::Export { .. } | super::form::For::ApplyFields { .. } => "run",
         super::form::For::Settings(_) => "save",
     };
     let b = block(title(&form.title, true), true)

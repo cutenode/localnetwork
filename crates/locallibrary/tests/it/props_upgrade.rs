@@ -16,6 +16,8 @@ use locallibrary::api::{self, UpgradeRequest};
 use locallibrary::check;
 use locallibrary::device::Device;
 use locallibrary::doctor::{self, DoctorOptions, DuplicateReason, Section};
+use locallibrary::fields::{FieldValue, Role};
+use locallibrary::harmony::Camelot;
 use locallibrary::progress::Ctx;
 use locallibrary::sound;
 use locallibrary::store::Store;
@@ -81,26 +83,29 @@ fn only_the_same_recording_is_found(tc: TestCase) {
     let twice = tracks.values().filter(|s| **s == SEEDS[0]).count() > 1;
     assert_eq!(groups.iter().any(|g| g.reasons.contains(&DuplicateReason::SameRecording)), twice);
 
-    // Analysed, every track is either measured or fails to decode (the placeholder audio); asked
-    // again, the cache answers. The check before a set then has their levels.
+    // With the drawn tracks' levels kept, and at times a key (as an analyzer would have, by their
+    // files), doctor's analysis has exactly them, analysing nothing itself, and the check before a
+    // set has their levels.
+    let lib = d.library().unwrap();
+    let mut keys: IndexMap<u32, Camelot> = IndexMap::new();
+    for t in lib.tracks.iter().filter(|t| tracks.contains_key(&t.id)) {
+        let key = tc.draw(gs::optional(gs::sampled_from(vec!["8A", "9A", "8B", "2B"])));
+        let mut heard = vec![(Role::Loudness, FieldValue::Number(-9.0))];
+        heard.extend(key.map(|k| (Role::Key, FieldValue::String(k.into()))));
+        common::heard(&store, &root, &t.file_path, &heard);
+        keys.extend(key.map(|k| (t.id, Camelot::parse(k).unwrap())));
+    }
     let analyse = DoctorOptions { only: vec![Section::Analysis], ..Default::default() };
     let first = doctor::run(&d, &analyse, &Ctx::silent()).unwrap().analysis.unwrap();
-    let all = d.library().unwrap().tracks.len();
-    assert_eq!(first.analyzed + first.failed.len(), all);
-    assert_eq!(first.analyzed, tracks.len(), "the synthetic recordings decode");
-    assert_eq!(first.decoded, first.analyzed);
-    let again = doctor::run(&d, &analyse, &Ctx::silent()).unwrap().analysis.unwrap();
-    assert_eq!((again.analyzed, again.decoded), (first.analyzed, 0), "from the cache");
-    // How sure each stored key is, from those cached analyses alone: a track is doubted exactly
-    // when it has a key and an analysis whose estimate disagrees with it, by how far.
-    let lib = d.library().unwrap();
-    let cached = sound::Cache::in_store(&store).cached(&d, lib.tracks.iter());
+    assert_eq!((first.analyzed, first.decoded, first.failed.len()), (tracks.len(), 0, 0));
+    // How sure each stored key is, from those kept keys alone: a track is doubted exactly when it
+    // has a key and was heard in another, by how far.
     let doubted = sound::key_confidences(&d, lib.tracks.iter());
     for t in &lib.tracks {
-        let estimate = cached.get(&t.id).and_then(|a| a.estimate.as_ref());
-        let want = estimate.and_then(|e| sound::key_confidence(&t.key, e));
-        assert_eq!(doubted.get(&t.id).copied(), want, "{} {:?}", t.key, estimate.map(|e| e.key));
-        assert!(estimate.is_some() || !doubted.contains_key(&t.id));
+        let heard = keys.get(&t.id).copied();
+        let want = heard.and_then(|h| sound::key_confidence(&t.key, h));
+        assert_eq!(doubted.get(&t.id).copied(), want, "{} {:?}", t.key, heard);
+        assert!(heard.is_some() || !doubted.contains_key(&t.id));
     }
     let checked =
         check::check(&[Device::open_export(&root).unwrap()], Some(&store), &Default::default(), &Ctx::silent())

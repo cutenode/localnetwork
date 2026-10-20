@@ -944,7 +944,8 @@ impl Store {
 
     /// Delete what nothing uses: snapshots of no library the store has (unless labelled, a
     /// library's latest, or a parent of a snapshot that stays), then the stored files no
-    /// remaining snapshot lists, and what writes cut off by a crash left among them. Every
+    /// remaining snapshot lists, what writes cut off by a crash left among them, and caches no
+    /// version of locallibrary reads any more (see [`crate::audio_cache::unread`]). Every
     /// snapshot of a library stays, whether its latest reaches it or not (a drive back from a set
     /// is saved beside it, see [`crate::sync::pull_beside`]): which of them go is `store prune`'s
     /// choice ([`crate::retention`]). A manifest that can't be read hides which library it
@@ -953,10 +954,15 @@ impl Store {
     pub fn gc(&self, dry_run: bool) -> Result<GcReport> {
         let g = self.garbage(&FxHashSet::default())?;
         let leftovers = self.leftovers()?;
+        // Their files count as files nothing uses.
+        let unread: Vec<(PathBuf, (usize, u64, usize))> =
+            crate::audio_cache::unread(self).into_iter().map(|d| (d.clone(), crate::space::dir_size(&d))).collect();
         let report = GcReport {
             removed_snapshots: g.snapshots.len(),
-            removed_objects: g.objects.len() + leftovers.len(),
-            freed_bytes: g.objects.iter().map(|(_, size)| size).chain(leftovers.iter().map(|(_, size)| size)).sum(),
+            removed_objects: g.objects.len() + leftovers.len() + unread.iter().map(|(_, (n, ..))| n).sum::<usize>(),
+            freed_bytes: (g.objects.iter().map(|(_, size)| size).chain(leftovers.iter().map(|(_, size)| size)))
+                .chain(unread.iter().map(|(_, (_, size, _))| size))
+                .sum(),
             dry_run,
         };
         if dry_run {
@@ -972,6 +978,9 @@ impl Store {
         }
         for (p, _) in &leftovers {
             fsutil::remove_if_exists(p)?;
+        }
+        for (d, _) in &unread {
+            fs::remove_dir_all(d).at(d)?;
         }
         if let Some(pruned) = g.pruned {
             fsutil::write_json_atomic(&self.root.join("pruned.json"), &pruned)?;

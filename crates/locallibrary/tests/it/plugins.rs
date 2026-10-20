@@ -4,6 +4,7 @@
 mod callbacks;
 mod hooks;
 mod props;
+mod roles;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -352,8 +353,8 @@ fn a_plugin_must_speak_the_protocol_and_be_what_its_manifest_says() {
     assert!(!f.plugins.is_running("otherwise"), "a plugin refused isn't kept running");
 }
 
-/// A plugin runs in its folder in the store (made for it), or without a store in a new one in
-/// the temporary folder, removed once it stops.
+/// A plugin runs in its folder in the store (made for it, beside the host's files about it), or
+/// without a store in a new one in the temporary folder, removed once it stops.
 #[test]
 fn a_plugin_runs_in_a_folder_of_its_own() {
     let f = Fixture::echo();
@@ -367,12 +368,16 @@ fn a_plugin_runs_in_a_folder_of_its_own() {
     assert!(scratch.file_name().unwrap().to_string_lossy().starts_with("locallibrary-plugin-echo-"), "{scratch:?}");
     f.plugins.shutdown();
     assert!(!scratch.exists(), "{scratch:?} is left");
-    let own = f.store.root().join("plugins").join("echo");
+    let own = f.store.root().join("plugins").join("echo").join("work");
     assert_eq!(folder(Some(&f.store)), own.canonicalize().unwrap());
+    f.plugins.set_setting("echo", &f.store, "greeting", Some(json!("hi"))).unwrap();
+    let beside = own.parent().unwrap().join("settings.json");
+    assert!(beside.is_file() && !own.join("settings.json").exists(), "its settings are the host's, beside it");
 }
 
 /// A param from the selection (`x-from`) that isn't given is what the user has selected: the
-/// tracks, the playlist, the drive (as the plugin names it). One given is as it's given.
+/// tracks, the playlist, the drive (as the plugin names it). One given is as it's given, and one
+/// given as null (cleared in a form) is left out.
 #[test]
 fn a_param_from_the_selection_is_filled_in() {
     let from = r#"params = { type = "object", properties = { ids = { type = "array", items = { type = "integer" }, x-from = "selection.tracks" }, list = { type = "string", x-from = "selection.playlist" }, on = { type = "string", x-from = "selection.drive" } } }"#;
@@ -389,7 +394,8 @@ fn a_param_from_the_selection_is_filled_in() {
         view => panic!("{view:?}"),
     };
     assert_eq!(run(Value::Null, context.clone()), json!({ "ids": [2, 1], "list": "Sets", "on": id }));
-    assert_eq!(run(json!({ "list": "Other" }), context)["list"], "Other");
+    assert_eq!(run(json!({ "list": "Other" }), context.clone())["list"], "Other");
+    assert_eq!(run(json!({ "list": null, "on": null }), context), json!({ "ids": [2, 1] }), "cleared");
     assert_eq!(run(Value::Null, Context::default()), json!({}), "nothing selected");
 }
 

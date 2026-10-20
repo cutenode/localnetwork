@@ -78,6 +78,17 @@ fn params_from_the_selection_start_as_it() {
     assert_eq!(texts, ["", "", "1", "", ""]);
 }
 
+/// One from the selection that's cleared stays cleared: it's sent as null, which the host takes
+/// for none rather than filling it in from the selection again. Any other left empty is left out.
+#[test]
+fn a_cleared_param_from_the_selection_is_none() {
+    let selected = Context { playlist: Some("Sets/Friday".into()), drive: Some("USB".into()), ..Context::default() };
+    let schema = r#"params = { type = "object", properties = { list = { type = "string", x-from = "selection.playlist" }, on = { type = "string", x-from = "selection.drive" }, note = { type = "string" } } }"#;
+    let mut f = form_in(schema, selected);
+    let params = filled(&mut f, &["", "USB", ""]).unwrap();
+    assert_eq!(params, json!({ "list": null, "on": "USB" }));
+}
+
 /// What's typed is read as the command line reads it: numbers, lists with commas between them,
 /// pairs, paths made absolute (`~` for home); what's left empty is left out.
 #[test]

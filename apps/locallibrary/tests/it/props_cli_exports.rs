@@ -385,51 +385,33 @@ fn the_collection_prints_what_its_json_says(tc: TestCase) {
     }
 }
 
-/// Drive A's tracks as the analysis heard them (put in the store's cache, as an earlier run would
-/// have) at the tempo and key rekordbox stored or another related one, and annotations of each,
-/// agreeing with rekordbox or not, plus one for a track the drive doesn't have: `analysis bench`
-/// printed gives each analyzer's scores and outcomes as its JSON does.
+/// Annotations of drive A's tracks, agreeing with what rekordbox stored or another related key
+/// or tempo, plus one for a track the drive doesn't have: `analysis bench` printed gives each
+/// analyzer's scores and outcomes as its JSON does (the analysis has none to give: the drive's
+/// placeholder audio doesn't decode).
 #[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
 fn the_benchmark_prints_its_scores(tc: TestCase) {
+    use locallibrary::Device;
     use locallibrary::harmony::Camelot;
-    use locallibrary::sound::{self, Analysis, Estimate, VERSION};
-    use locallibrary::{Device, Store, paths};
 
     let fx = Env::from_template();
     let root = fx.volumes.join("A");
-    let store = Store::open_or_init(&fx.store).unwrap();
-    let cache = sound::Cache::in_store(&store);
     let lib = Device::open(&root).unwrap().library().unwrap();
     let (keys, tempos) = (fx.home("keys"), fx.home("tempos"));
     std::fs::create_dir_all(&keys).unwrap();
     std::fs::create_dir_all(&tempos).unwrap();
     for t in &lib.tracks {
         let key = Camelot::parse(&t.key).unwrap();
-        let heard_key = match tc.draw(gs::integers::<u8>().max_value(3)) {
+        let id = t.file_path.rsplit('/').next().unwrap().split('.').next().unwrap().to_string();
+        let annotated_key = match tc.draw(gs::integers::<u8>().max_value(3)) {
             0 => key,
             1 => key.parallel(),
             2 => key.relative(),
             _ => Camelot::parse("1A").unwrap(),
         };
-        let factor = tc.draw(gs::sampled_from(&[1.0f32, 2.0, 0.5, 3.0, 1.37][..]));
-        let heard = Analysis {
-            version: VERSION,
-            duration_secs: 120.0,
-            estimate: Some(Estimate {
-                bpm: t.bpm as f32 * factor,
-                bpm_confidence: 0.9,
-                key: heard_key,
-                key_confidence: 0.8,
-            }),
-            loudness: None,
-        };
-        let file = paths::to_fs(&root, &paths::key(&t.file_path));
-        cache.put(&sound::Cache::key(&file).unwrap(), &heard).unwrap();
-        let id = t.file_path.rsplit('/').next().unwrap().split('.').next().unwrap().to_string();
-        let annotated_key = if tc.draw(gs::booleans()) { key } else { key.relative() };
         std::fs::write(keys.join(format!("{id}.key")), annotated_key.note()).unwrap();
-        let annotated_bpm = if tc.draw(gs::booleans()) { t.bpm } else { t.bpm * 2.0 };
-        std::fs::write(tempos.join(format!("{id}.bpm")), annotated_bpm.to_string()).unwrap();
+        let factor = tc.draw(gs::sampled_from(&[1.0, 2.0, 0.5, 3.0, 1.37][..]));
+        std::fs::write(tempos.join(format!("{id}.bpm")), (t.bpm * factor).to_string()).unwrap();
     }
     let extra = tc.draw(gs::booleans());
     if extra {
