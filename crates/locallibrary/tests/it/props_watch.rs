@@ -51,7 +51,7 @@ enum Step {
     Nothing,
 }
 
-fn step() -> impl Generator<Step> {
+fn step() -> impl hegel::PrintableGenerator<Step> {
     let name = || gs::integers::<usize>().max_value(NAMES.len() - 1);
     hegel::one_of!(
         gs::tuples!(name(), gs::booleans()).map(|(name, export)| Step::Plug { name, export }),
@@ -235,7 +235,7 @@ fn polls_report_what_changed_since_the_last(tc: TestCase) {
     assert_eq!(w.poll(), []);
 
     locallibrary::testing::volumes_on_this_thread(Some(vec![volumes.clone()]));
-    for step in tc.draw(gs::vecs(step().print_as_debug()).max_size(12)) {
+    for step in tc.draw(gs::vecs(step()).max_size(12)) {
         let want = desk.take(&step);
         let got = w.poll();
         assert_eq!(got, want, "after {step:?}");

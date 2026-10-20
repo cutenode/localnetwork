@@ -14,8 +14,7 @@ use hegel::generators as gs;
 /// byte after audio of an odd length included.
 #[hegel::test(test_cases = 100)]
 fn pcm_files_stop_at_4_gib(tc: hegel::TestCase) {
-    use hegel::Generator;
-    let container = tc.draw(gs::sampled_from(vec![Container::Aiff, Container::Wav]).print_as_debug());
+    let container = tc.draw(gs::sampled_from(vec![Container::Aiff, Container::Wav]));
     let (header, name) = if container == Container::Aiff { (54u64, "AIFF") } else { (44, "WAV") };
     let limit = u64::from(u32::MAX) - header;
     let data_len = tc.draw(hegel::one_of!(

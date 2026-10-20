@@ -74,8 +74,8 @@ fn disks_without_partitions_or_with_case_sensitive_hfs_are_doubted() {
 // Properties
 // -----------------------------------------------------------------------------------------
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 
 const SCHEMES: [Option<Scheme>; 5] =
     [None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm), Some(Scheme::Other)];
@@ -86,9 +86,9 @@ const SCHEMES: [Option<Scheme>; 5] =
 /// warns about size past 2 TiB.
 #[hegel::test(test_cases = 300)]
 fn every_layout_gets_its_verdict(tc: TestCase) {
-    let scheme = tc.draw(gs::sampled_from(SCHEMES.to_vec()).print_as_debug());
+    let scheme = tc.draw(gs::sampled_from(SCHEMES.to_vec()));
     let all = crate::format::tests::FS_KINDS.map(Some);
-    let fs = tc.draw(gs::sampled_from([&[None][..], &all[..]].concat()).print_as_debug());
+    let fs = tc.draw(gs::sampled_from([&[None][..], &all[..]].concat()));
     let size = tc.draw(hegel::one_of!(
         gs::integers::<u64>(),
         gs::integers::<u64>().min_value(MBR_MAX - 2).max_value(MBR_MAX + 2)

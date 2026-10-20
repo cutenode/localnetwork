@@ -341,7 +341,7 @@ fn what_cant_be_read_is_refused() {
 // Properties: drawn tracklists of each format against drawn libraries.
 
 /// The ways a drawn tracklist is written.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Shape {
     Lines,
     M3u,

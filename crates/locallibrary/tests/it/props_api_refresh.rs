@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use indexmap::IndexMap;
 use locallibrary::api::{self, JobPlan, StepKind};
 use locallibrary::device::Device;
@@ -69,18 +69,15 @@ fn a_refresh_puts_back_what_the_export_replaced(tc: TestCase) {
     let unreadable = tc.draw(gs::weighted_booleans(0.2));
     let sync = tc.draw(gs::booleans());
     let skip = tc.draw(
-        gs::vecs(
-            gs::sampled_from(vec![
-                StepKind::Clean,
-                StepKind::Replay,
-                StepKind::Smart,
-                StepKind::Player,
-                StepKind::Settings,
-                StepKind::Pull,
-                StepKind::Sync,
-            ])
-            .print_as_debug(),
-        )
+        gs::vecs(gs::sampled_from(vec![
+            StepKind::Clean,
+            StepKind::Replay,
+            StepKind::Smart,
+            StepKind::Player,
+            StepKind::Settings,
+            StepKind::Pull,
+            StepKind::Sync,
+        ]))
         .max_size(3)
         .unique(true),
     );

@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
 
 use hegel::TestCase;
-use hegel::generators::{self as gs, Generator};
+use hegel::generators as gs;
 use loclib_plugin::{Manifest, Pending};
 use serde_json::json;
 
@@ -315,19 +315,16 @@ fn takes(library: bool, others: &[(&'static str, Param)]) -> Vec<(&'static str, 
 #[hegel::test_helper]
 fn given(tc: &TestCase, param: Option<Param>) -> Value {
     let drive = || {
-        tc.draw(
-            gs::sampled_from(vec![
-                json!("USB"),
-                json!("SD"),
-                Value::Null,
-                json!("USB"),
-                json!("/Volumes/USB"),
-                json!("Elsewhere"),
-                Value::Null,
-                json!(4),
-            ])
-            .print_as_debug(),
-        )
+        tc.draw(gs::sampled_from(vec![
+            json!("USB"),
+            json!("SD"),
+            Value::Null,
+            json!("USB"),
+            json!("/Volumes/USB"),
+            json!("Elsewhere"),
+            Value::Null,
+            json!(4),
+        ]))
     };
     match param {
         Some(Param::Drive) => drive(),
@@ -345,15 +342,9 @@ fn given(tc: &TestCase, param: Option<Param>) -> Value {
         }
         Some(Param::Limit(most)) => {
             let n = tc.draw(gs::integers::<u64>().max_value(most * 2));
-            tc.draw(
-                gs::sampled_from(vec![json!(n), json!(most), json!(u64::MAX), json!("all"), json!(-1), json!(2.5)])
-                    .print_as_debug(),
-            )
+            tc.draw(gs::sampled_from(vec![json!(n), json!(most), json!(u64::MAX), json!("all"), json!(-1), json!(2.5)]))
         }
-        _ => tc.draw(
-            gs::sampled_from(vec![json!("x"), json!(1), json!(true), Value::Null, json!(["/Volumes/USB"])])
-                .print_as_debug(),
-        ),
+        _ => tc.draw(gs::sampled_from(vec![json!("x"), json!(1), json!(true), Value::Null, json!(["/Volumes/USB"])])),
     }
 }
 
@@ -540,7 +531,7 @@ fn a_reads_error_reaches_a_plugin_without_actions_or_roots(tc: TestCase) {
     let (text, said) = text_with_paths(&tc);
     let (detail, detail_said) = text_with_paths(&tc);
     let kind = tc.draw(gs::integers::<u8>().max_value(4));
-    let reason = tc.draw(gs::optional(gs::sampled_from(vec![Reason::Diverged, Reason::Uncertain]).print_as_debug()));
+    let reason = tc.draw(gs::optional(gs::sampled_from(vec![Reason::Diverged, Reason::Uncertain])));
     let fields: Vec<(&str, u8)> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
         .map(|_| {
             (tc.draw(gs::sampled_from(vec!["drives", "against", "x"])), tc.draw(gs::integers::<u8>().max_value(3)))

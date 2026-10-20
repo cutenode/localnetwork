@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use base64::prelude::*;
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::anlz::{WaveColumn, WaveLayer, Waveform, WaveformStyle};
 use locallibrary::api::{
     self, AnalysisRequest, ArtworkRequest, DriveRef, LibraryCache, LibraryRef, LibraryRequest, ListCues,
@@ -202,15 +202,12 @@ fn reads_agree_with_the_library(tc: TestCase) {
         );
 
         // Analysis as asked for: beats and cues always, each waveform when chosen.
-        let waveform = tc.draw(
-            gs::sampled_from(vec![
-                WaveformChoice::None,
-                WaveformChoice::Preview,
-                WaveformChoice::Detail,
-                WaveformChoice::All,
-            ])
-            .print_as_debug(),
-        );
+        let waveform = tc.draw(gs::sampled_from(vec![
+            WaveformChoice::None,
+            WaveformChoice::Preview,
+            WaveformChoice::Detail,
+            WaveformChoice::All,
+        ]));
         for encoding in [WaveformEncoding::Json, WaveformEncoding::Base64] {
             let view = api::track_analysis_cached(
                 &cache,
@@ -320,7 +317,7 @@ fn packed_waveforms_hold_every_column(tc: TestCase) {
     };
     let n = tc.draw(gs::integers::<usize>().max_value(40));
     let columns: Vec<WaveColumn> = (0..n).map(|_| WaveColumn { back: layer(&tc), front: layer(&tc) }).collect();
-    let style = tc.draw(gs::sampled_from(vec![WaveformStyle::Blue, WaveformStyle::Rgb]).print_as_debug());
+    let style = tc.draw(gs::sampled_from(vec![WaveformStyle::Blue, WaveformStyle::Rgb]));
     let w = Waveform { style, columns_per_sec: tc.draw(gs::optional(gs::just(150.0))), columns };
     let p = PackedWaveform::pack(&w);
     assert_eq!((p.encoding, p.style, p.columns_per_sec, p.columns), ("base64", w.style, w.columns_per_sec, n));

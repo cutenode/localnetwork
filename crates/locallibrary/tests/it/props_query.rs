@@ -156,7 +156,7 @@ fn track(tc: &TestCase, id: u32) -> Track {
 #[hegel::composite]
 fn library(tc: &TestCase) -> Library {
     let n = tc.draw(gs::integers::<u32>().max_value(8));
-    let tracks: Vec<Track> = (1..=n).map(|id| tc.draw(track(id).print_as_debug())).collect();
+    let tracks: Vec<Track> = (1..=n).map(|id| tc.draw(track(id))).collect();
     let ids = || gs::vecs(gs::integers::<u32>().min_value(1).max_value(n.max(1))).max_size(6);
     let list = |id: u32, parent: Option<u32>, name: &str, track_ids: Vec<u32>| Playlist {
         id,
@@ -201,7 +201,7 @@ fn ids(tracks: &[&Track]) -> Vec<u32> {
 #[hegel::explicit_test_case(s = "added:429497".to_string(), lib = Library::default())]
 fn filters_never_panic(tc: TestCase) {
     let s = tc.draw(hegel::one_of!(gs::text().max_size(30), gs::vecs(token()).max_size(4).map(|v| v.join(" "))));
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     if let Ok(f) = Filter::parse(&s) {
         let _ = matching(&f, &lib);
         let _ = f.select(&QueryContext::new(&lib));
@@ -212,7 +212,7 @@ fn filters_never_panic(tc: TestCase) {
 #[hegel::test(test_cases = 300)]
 fn terms_are_conjunctions(tc: TestCase) {
     let (a, b) = (tc.draw(token()), tc.draw(token()));
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let both = Filter::parse(&format!("{a} {b}"));
     match (Filter::parse(&a), Filter::parse(&b)) {
         (Ok(fa), Ok(fb)) => {
@@ -230,7 +230,7 @@ fn terms_are_conjunctions(tc: TestCase) {
 fn minus_negates(tc: TestCase) {
     let x = tc.draw(token());
     tc.assume(!x.starts_with('-') && !x.starts_with(|c: char| c.is_ascii_digit()));
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     match (Filter::parse(&x), Filter::parse(&format!("-{x}"))) {
         (Ok(f), Ok(not)) => {
             let negated: Vec<bool> = matching(&f, &lib).iter().map(|m| !m).collect();
@@ -263,7 +263,7 @@ fn bar_is_a_disjunction(tc: TestCase) {
     };
     let (a, b) = (tc.draw(value()), tc.draw(value()));
     let suffix = if field == "key:" && tc.draw(gs::booleans()) { "~" } else { "" };
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let either = Filter::parse(&format!("{field}{a}|{b}{suffix}"));
     match (Filter::parse(&format!("{field}{a}{suffix}")), Filter::parse(&format!("{field}{b}{suffix}"))) {
         (Ok(fa), Ok(fb)) => {
@@ -309,7 +309,7 @@ fn time_takes_only_finite_numbers(tc: TestCase) {
 #[hegel::test(test_cases = 200)]
 fn time_matches_the_duration(tc: TestCase) {
     let (m, s) = (tc.draw(gs::integers::<u32>().max_value(20)), tc.draw(gs::integers::<u32>().max_value(59)));
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let f = Filter::parse(&format!("time:{m}:{s:02}")).unwrap();
     let expected: Vec<bool> = lib.tracks.iter().map(|t| t.duration_secs == m * 60 + s).collect();
     assert_eq!(matching(&f, &lib), expected);
@@ -318,7 +318,7 @@ fn time_matches_the_duration(tc: TestCase) {
 /// `added:2026` and `added:2026-09` match the dates in that year or month.
 #[hegel::test(test_cases = 200)]
 fn added_matches_date_prefixes(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let (y, m) = (
         tc.draw(gs::integers::<u32>().min_value(2024).max_value(2026)),
         tc.draw(gs::integers::<u32>().min_value(1).max_value(12)),
@@ -360,7 +360,7 @@ fn sort_spec(keys: &[SortKey]) -> String {
         .join(",")
 }
 
-fn sort_keys() -> impl hegel::Generator<Vec<SortKey>> {
+fn sort_keys() -> impl hegel::PrintableGenerator<Vec<SortKey>> {
     gs::vecs(
         gs::tuples!(gs::sampled_from(SORT_NAMES.iter().map(|(_, f)| *f).collect::<Vec<_>>()), gs::booleans())
             .map(|(field, descending)| SortKey { field, descending }),
@@ -372,7 +372,7 @@ fn sort_keys() -> impl hegel::Generator<Vec<SortKey>> {
 /// A sort order reads back from its text form, and parsing any text never panics.
 #[hegel::test(test_cases = 300)]
 fn sort_orders_round_trip(tc: TestCase) {
-    let keys = tc.draw(sort_keys().print_as_debug());
+    let keys = tc.draw(sort_keys());
     assert_eq!(query::parse_sort(&sort_spec(&keys)).unwrap(), keys);
     let junk = tc.draw(gs::text().alphabet("-,abkeytl ").max_size(12));
     let _ = query::parse_sort(&junk);
@@ -382,12 +382,12 @@ fn sort_orders_round_trip(tc: TestCase) {
 /// `k1`.
 #[hegel::test(test_cases = 300)]
 fn sorting_is_stable_and_lexicographic(tc: TestCase) {
-    let mut lib = tc.draw(library().print_as_debug());
+    let mut lib = tc.draw(library());
     // Exact copies (but for the id) must keep their relative order.
     let copies: Vec<Track> =
         lib.tracks.iter().map(|t| Track { id: t.id + 100, ..t.clone() }).filter(|_| tc.draw(gs::booleans())).collect();
     lib.tracks.extend(copies);
-    let keys = tc.draw(sort_keys().print_as_debug());
+    let keys = tc.draw(sort_keys());
 
     let mut sorted: Vec<&Track> = lib.tracks.iter().collect();
     query::sort_tracks(&mut sorted, &keys);
@@ -446,8 +446,8 @@ fn dangling_playlist_entries_select_nothing() {
 /// repeats either), and both fail together.
 #[hegel::test(test_cases = 300)]
 fn select_and_select_ordered_agree(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
-    let sel = tc.draw(selector(lib.clone()).print_as_debug());
+    let lib = tc.draw(library());
+    let sel = tc.draw(selector(lib.clone()));
     let ctx = QueryContext::new(&lib);
     match (sel.select(&lib), sel.select_ordered(&ctx, false)) {
         (Ok(set), Ok(ordered)) => {
@@ -490,8 +490,8 @@ fn fields_of(sel: &TrackSelector) -> Vec<TrackSelector> {
 /// field does. Without `allow_empty` it also fails when no track fits every field.
 #[hegel::test(test_cases = 500)]
 fn selection_is_the_intersection_of_its_fields(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
-    let sel = tc.draw(selector(lib.clone()).print_as_debug());
+    let lib = tc.draw(library());
+    let sel = tc.draw(selector(lib.clone()));
     let ctx = QueryContext::new(&lib);
     let fields = fields_of(&sel);
     if fields.is_empty() {
@@ -530,8 +530,8 @@ fn selection_is_the_intersection_of_its_fields(tc: TestCase) {
 /// instead of taking every track (`track rm --filter ""` would delete the whole library).
 #[hegel::test(test_cases = 300)]
 fn blank_filters_and_queries_never_select_anything(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
-    let mut sel = tc.draw(selector(lib.clone()).print_as_debug());
+    let lib = tc.draw(library());
+    let mut sel = tc.draw(selector(lib.clone()));
     let blank = tc.draw(gs::text().alphabet(" \t\n\"").max_size(4));
     if tc.draw(gs::booleans()) {
         sel.filter = Some(blank);
@@ -555,7 +555,7 @@ type Holds<'a> = Box<dyn Fn(&Track) -> bool + 'a>;
 /// needs.
 #[hegel::test(test_cases = 300)]
 fn numeric_terms_compare_as_written(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let fields: Vec<(&str, NumberOf)> = vec![
         ("rating", |t| f64::from(t.rating)),
         ("plays", |t| f64::from(t.play_count)),
@@ -626,7 +626,7 @@ fn numeric_terms_compare_as_written(tc: TestCase) {
 /// comment, a key or analysis files; several values separated by `|` match any of them.
 #[hegel::test(test_cases = 300)]
 fn is_and_has_match_what_they_name(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let filed: BTreeSet<u32> = lib.playlists.iter().flat_map(|p| p.track_ids.iter().copied()).collect();
     let all: Vec<(&str, &str, Holds)> = vec![
         ("is", "played", Box::new(|t: &Track| t.play_count > 0)),
@@ -657,7 +657,7 @@ fn is_and_has_match_what_they_name(tc: TestCase) {
 #[hegel::test(test_cases = 300)]
 fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
     use rustc_hash::FxHashMap;
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let paths = ["Genre/Deep", "Genre/Peak Time", "Mood/Deep"];
     let tags: FxHashMap<String, Vec<String>> = lib
         .tracks
@@ -697,7 +697,7 @@ fn tag_and_playlist_terms_match_what_they_name(tc: TestCase) {
 #[hegel::test(test_cases = 200)]
 fn a_history_list_selects_its_tracks(tc: TestCase) {
     use locallibrary::plays::HistoryList;
-    let mut lib = tc.draw(library().print_as_debug());
+    let mut lib = tc.draw(library());
     let n = u32::try_from(lib.tracks.len()).unwrap();
     if n == 0 {
         return;
@@ -796,7 +796,7 @@ fn matching_with(f: &Filter, lib: &Library, values: &TrackValues) -> Vec<bool> {
 /// (every one, negated).
 #[hegel::test(test_cases = 300)]
 fn a_plugins_number_field_filters_as_the_tracks_own_does(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let values = plugin_values(&tc, &lib);
     let (own, name) = tc.draw(gs::sampled_from(vec![("plays", "sound.plays"), ("year", "Sound.Year")]));
     let value = tc.draw(hegel::one_of!(
@@ -842,7 +842,7 @@ const WORDS: &[&str] = &["a", "B", "ab", "1", "true", "false", "yes", "no", "a|b
 /// for a true-or-false field, is refused.
 #[hegel::test(test_cases = 300)]
 fn a_plugins_text_list_and_switch_fields_match_whole_words(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let values = plugin_values(&tc, &lib);
     let name = tc.draw(gs::sampled_from(vec!["sound.mood", "sound.tags", "sound.vocal"]));
     let value = tc.draw(gs::sampled_from(WORDS.to_vec()));
@@ -876,7 +876,7 @@ fn a_plugins_text_list_and_switch_fields_match_whole_words(tc: TestCase) {
 /// analyzer declares is refused, as one naming any is where the values can't be at hand.
 #[hegel::test(test_cases = 300)]
 fn sorting_by_a_plugins_field_puts_tracks_without_one_last(tc: TestCase) {
-    let lib = tc.draw(library().print_as_debug());
+    let lib = tc.draw(library());
     let values = plugin_values(&tc, &lib);
     let name = tc.draw(gs::sampled_from(vec!["sound.year", "sound.plays", "sound.mood", "sound.tags", "sound.vocal"]));
     let descending = tc.draw(gs::booleans());

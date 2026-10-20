@@ -289,7 +289,7 @@ fn plans_count_the_tracks_fat32_cant_hold(tc: TestCase) {
         let _ = std::fs::remove_file(root.join(key));
     }
     let too_big = lib.tracks.iter().filter(|t| t.file_size >= 1 << 32).count();
-    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]).print_as_debug());
+    let filesystem = tc.draw(gs::sampled_from(vec![Filesystem::Fat32, Filesystem::Exfat]));
     let opts = FormatOptions { filesystem: Some(filesystem), ..Default::default() };
     let p = format::plan(stick(&root), &opts, None, &[], &Ctx::silent()).unwrap();
     assert_eq!(p.erases[0].tracks, Some(lib.tracks.len()));

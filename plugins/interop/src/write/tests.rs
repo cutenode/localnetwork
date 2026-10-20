@@ -119,7 +119,7 @@ fn a_folder_that_cant_be_written_to_fails_naming_it() {
 
 /// What a drawn file is made from: bytes, or a copy of audio that's there, isn't, is a folder, or
 /// can't take the tag asked for.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Made {
     Bytes,
     Copy,
@@ -129,7 +129,7 @@ enum Made {
 }
 
 /// When a drawn write is cancelled: never, before it starts, or once a copy has begun.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Cancel {
     Never,
     AtOnce,
@@ -138,7 +138,7 @@ enum Cancel {
 
 /// What's in the way of the files: nothing, an old database's WAL, or a folder where the WAL
 /// would be.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Stale {
     None,
     File,

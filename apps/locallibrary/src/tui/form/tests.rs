@@ -153,7 +153,7 @@ fn a_whole_number_is_taken_when_it_reads_as_one(tc: hegel::TestCase) {
 /// a choice is one of its choices, and what's typed goes to the field selected alone.
 #[hegel::test(test_cases = 200)]
 fn keys_keep_the_form_whole(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let (mut app, _dir) = blank(View::Library);
     let f = form(
         r#"params = { type = "object", properties = { a = { type = "string" }, on = { type = "boolean" }, pick = { type = "string", enum = ["x", "y"] }, b = { type = "string" } } }"#,
@@ -174,7 +174,7 @@ fn keys_keep_the_form_whole(tc: hegel::TestCase) {
                 }
             }
             false => app.on_key(KeyEvent::new(
-                tc.draw(gs::sampled_from(&moves[..]).print_as_debug()),
+                tc.draw(gs::sampled_from(&moves[..])),
                 ratatui::crossterm::event::KeyModifiers::NONE,
             )),
         }
@@ -265,7 +265,7 @@ fn what_is_typed_reads_as_the_command_line_would(tc: hegel::TestCase) {
 /// Enter with a field that's needed left empty selects it and says so under the fields.
 #[hegel::test(test_cases = 100)]
 fn a_click_selects_the_field_under_it_or_closes_the_form(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use ratatui::crossterm::event::{MouseButton, MouseEventKind};
     let (mut app, _dir) = blank(View::Library);
     let names = ["alpha", "bravo", "charlie"];
@@ -275,18 +275,15 @@ fn a_click_selects_the_field_under_it_or_closes_the_form(tc: hegel::TestCase) {
     app.modal = Some(Modal::Form(f));
     let mut selected = 0;
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
-        let kind = tc.draw(
-            gs::sampled_from(
-                &[
-                    LEFT,
-                    LEFT,
-                    MouseEventKind::ScrollDown,
-                    MouseEventKind::Down(MouseButton::Right),
-                    MouseEventKind::Up(MouseButton::Left),
-                ][..],
-            )
-            .print_as_debug(),
-        );
+        let kind = tc.draw(gs::sampled_from(
+            &[
+                LEFT,
+                LEFT,
+                MouseEventKind::ScrollDown,
+                MouseEventKind::Down(MouseButton::Right),
+                MouseEventKind::Up(MouseButton::Left),
+            ][..],
+        ));
         // A field's row, the form's title (on its border) or the top corner, outside it.
         let target = tc.draw(gs::integers::<usize>().max_value(names.len() + 1));
         let at = match target {

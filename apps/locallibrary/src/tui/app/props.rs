@@ -4,7 +4,7 @@
 //! for the next run, and playing through the queue as outputs come and go.
 
 use hegel::TestCase;
-use hegel::generators::{self as gs, Generator};
+use hegel::generators as gs;
 use locallibrary::query::QueryContext;
 
 use super::testing::*;
@@ -72,7 +72,7 @@ fn the_tree_opens_reveals_and_remembers_any_node(tc: TestCase) {
     let l = app.loaded.as_mut().unwrap();
     let nodes = every_node(l);
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(12)) {
-        let id = tc.draw(gs::sampled_from(&nodes[..]).print_as_debug());
+        let id = tc.draw(gs::sampled_from(&nodes[..]));
         if tc.draw(gs::booleans()) {
             let before = names(l);
             l.toggle(&id);
@@ -602,7 +602,7 @@ fn background_results_land_where_they_belong(tc: TestCase) {
                 assert!(!app.drives_again && !app.drives_in_flight);
             }
             _ => {
-                let field = tc.draw(gs::sampled_from(&browse::SORT_FIELDS[..]).print_as_debug());
+                let field = tc.draw(gs::sampled_from(&browse::SORT_FIELDS[..]));
                 let had = app.loaded.as_ref().unwrap().ranks.iter().any(|(f, _)| *f == field);
                 let index = Index { ranks: vec![(field, vec![7; n])], groups: FxHashMap::default() };
                 app.handle_msg(Msg::Indexed(g, Box::new(index)));
@@ -675,7 +675,7 @@ fn the_next_run_carries_on_with_the_queue(tc: TestCase) {
         q.tracks.iter_mut().for_each(|t| *t = format!("{t}.gone"));
     }
     saved.tags_column = tags;
-    app.vis = tc.draw(gs::sampled_from(&[Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck][..]).print_as_debug());
+    app.vis = tc.draw(gs::sampled_from(&[Vis::Bars, Vis::Mirror, Vis::Scope, Vis::Deck][..]));
     app.save_state();
     assert_eq!(state::load(&app.store_root).vis.as_deref(), Some(app.vis.name()), "the visualiser kept");
     // Showing a set last time, or not.
@@ -813,7 +813,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                 // One track at a time or on through the queue, round again or not; the first with
                 // its artwork on the drive.
                 app.deck.single = tc.draw(gs::booleans());
-                app.repeat = tc.draw(gs::sampled_from(&[Repeat::Off, Repeat::All, Repeat::One][..]).print_as_debug());
+                app.repeat = tc.draw(gs::sampled_from(&[Repeat::Off, Repeat::All, Repeat::One][..]));
                 let mut lib = (*app.queue.library).clone();
                 let art = app.queue.root.join("PIONEER/Artwork/1.png");
                 std::fs::create_dir_all(art.parent().unwrap()).unwrap();
@@ -1344,10 +1344,7 @@ fn the_search_box_filters_as_the_library_does(tc: TestCase) {
     for c in query.chars() {
         press(&mut app, &c.to_string());
         if tc.draw(gs::integers::<u8>().max_value(5)) == 0 {
-            let code = tc.draw(
-                gs::sampled_from(&[KeyCode::Up, KeyCode::Down, KeyCode::PageUp, KeyCode::PageDown][..])
-                    .print_as_debug(),
-            );
+            let code = tc.draw(gs::sampled_from(&[KeyCode::Up, KeyCode::Down, KeyCode::PageUp, KeyCode::PageDown][..]));
             app.on_key(key_of(code, false));
             assert!(app.track_state.selected().is_none_or(|s| s < app.visible.len()));
         }
@@ -1457,7 +1454,7 @@ fn the_player_says_what_it_knows_of_the_track(tc: TestCase) {
             )
         })
         .collect();
-    let mood = tc.draw(gs::sampled_from(&[Mood::High, Mood::Mid, Mood::Low][..]).print_as_debug());
+    let mood = tc.draw(gs::sampled_from(&[Mood::High, Mood::Mid, Mood::Low][..]));
     let kinds = [PhraseKind::Intro, PhraseKind::Up, PhraseKind::Chorus, PhraseKind::Outro];
     let phrases: Vec<Phrase> = (0..tc.draw(gs::integers::<u16>().max_value(4)))
         .map(|i| Phrase { kind: kinds[i as usize], start_beat: 1 + 16 * i, end_beat: 17 + 16 * i, fill_beat: None })
@@ -1678,7 +1675,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                 // A view by name; leaving the library puts the search away.
                 app.searching = tc.draw(gs::booleans());
                 app.query = if app.searching { "daft".into() } else { String::new() };
-                let v = tc.draw(gs::sampled_from(&View::ALL[..]).print_as_debug());
+                let v = tc.draw(gs::sampled_from(&View::ALL[..]));
                 app.perform(Act::ShowView(v), None);
                 assert_eq!(app.view, v);
                 if v != View::Library {

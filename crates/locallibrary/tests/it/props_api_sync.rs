@@ -9,7 +9,7 @@ use crate::props_api_jobs::own_identity;
 use std::path::{Path, PathBuf};
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, PrintableGenerator, TestCase};
+use hegel::{HealthCheck, PrintableGenerator, TestCase};
 use locallibrary::api::{self, Direction, SyncRequest};
 use locallibrary::compare::{Confidence, Relation};
 use locallibrary::device::Device;
@@ -58,7 +58,7 @@ fn make(root: &Path, change: Change) {
 }
 
 fn changes() -> impl PrintableGenerator<Change> {
-    gs::sampled_from(vec![Change::None, Change::History, Change::Export, Change::Remove]).print_as_debug()
+    gs::sampled_from(vec![Change::None, Change::History, Change::Export, Change::Remove])
 }
 
 /// Two drives hold the same library, as compare tells libraries apart.
@@ -102,7 +102,7 @@ fn syncs_go_the_way_compare_and_the_changes_say(tc: TestCase) {
     // Applied as a pair, or left for a sync of several.
     let as_pair = tc.draw(gs::booleans());
     let pinned = tc.draw(gs::booleans());
-    let direction = tc.draw(gs::sampled_from(vec![Direction::LeftToRight, Direction::RightToLeft]).print_as_debug());
+    let direction = tc.draw(gs::sampled_from(vec![Direction::LeftToRight, Direction::RightToLeft]));
     // The blank drive goes (1), or gets a stray audio file the plan didn't see (2), before a sync
     // of several is applied.
     let meddle = tc.draw(gs::integers::<u8>().max_value(2));

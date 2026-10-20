@@ -243,8 +243,8 @@ fn unreadable_annotations_say_where_and_what(tc: hegel::TestCase) {
     let garbage = tc.draw(gs::sampled_from(vec!["", "H minor", "minor", "C sharp"]));
     assert!(matches!(parse_key(garbage), Err(Error::Annotation { line: 1, message }) if message.contains(garbage)));
     assert!(score::<KeyOutcome>(Vec::new()).is_empty());
-    let outcome = tc.draw(gs::sampled_from(KeyOutcome::ALL.to_vec()).print_as_debug());
+    let outcome = tc.draw(gs::sampled_from(KeyOutcome::ALL.to_vec()));
     assert_eq!(Report::<KeyOutcome>::new().percent(outcome), 0.0);
-    let tempo = tc.draw(gs::sampled_from(TempoOutcome::ALL.to_vec()).print_as_debug());
+    let tempo = tc.draw(gs::sampled_from(TempoOutcome::ALL.to_vec()));
     assert_eq!(Report::<TempoOutcome>::new().percent(tempo), 0.0);
 }

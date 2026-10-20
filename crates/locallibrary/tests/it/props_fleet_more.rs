@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Check, Role, Standing};
@@ -76,7 +76,7 @@ fn drives_stand_where_their_state_is_in_the_librarys_history(tc: TestCase) {
 
     // Checks are logged on the drive they were of.
     let ids: Vec<Uuid> = ["A", "B", "C"].iter().map(|n| known.iter().find(|k| k.name == *n).unwrap().id).collect();
-    let check = tc.draw(gs::sampled_from(vec![Check::Scrub, Check::FileSystem]).print_as_debug());
+    let check = tc.draw(gs::sampled_from(vec![Check::Scrub, Check::FileSystem]));
     let ok = tc.draw(gs::booleans());
     fleet::record_check(&store, ids[1], check, ok, "checked").unwrap();
     let log = fleet::known(&store, &[], false).unwrap().into_iter().find(|k| k.id == ids[1]).unwrap().log;
@@ -168,9 +168,7 @@ fn changes_to_a_drive_the_registry_lacks_change_nothing(tc: TestCase) {
     let registry = || serde_json::to_value(store.drives().unwrap()).unwrap();
     let before = registry();
     let id = Uuid::from_u128(tc.draw(gs::integers::<u128>()));
-    let role = tc.draw(
-        gs::sampled_from(vec![Some(Role::Primary), Some(Role::Backup), Some(Role::Archive), None]).print_as_debug(),
-    );
+    let role = tc.draw(gs::sampled_from(vec![Some(Role::Primary), Some(Role::Backup), Some(Role::Archive), None]));
     let not_found = |e: locallibrary::Error| {
         assert!(matches!(e, locallibrary::Error::NotFound(_)), "{e}");
         assert!(e.to_string().contains(&id.to_string()), "{e}");

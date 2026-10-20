@@ -186,11 +186,7 @@ fn reading_my_settings_keeps_what_it_knows_and_skips_the_rest(tc: TestCase) {
             let field = publish::camel(def.key);
             let (field, value, meant) = match tc.draw(gs::integers::<u8>().max_value(5)) {
                 0 => (field, json!("sideways"), None),
-                1 => (
-                    field,
-                    tc.draw(gs::sampled_from(vec![json!(1), json!(true), Value::Null, json!(["on"])]).print_as_debug()),
-                    None,
-                ),
+                1 => (field, tc.draw(gs::sampled_from(vec![json!(1), json!(true), Value::Null, json!(["on"])])), None),
                 2 => {
                     let odd = format!("new{}", tc.draw(gs::text().max_size(6)));
                     tc.assume(settings::find(&publish::snake(&odd)).is_none());
@@ -204,16 +200,14 @@ fn reading_my_settings_keeps_what_it_knows_and_skips_the_rest(tc: TestCase) {
         }
         record.insert(name.into(), Value::Object(fields));
     }
-    let updated =
-        tc.draw(gs::optional(gs::sampled_from(vec![json!("2026-10-05T12:00:00.000Z"), json!(7)]).print_as_debug()));
+    let updated = tc.draw(gs::optional(gs::sampled_from(vec![json!("2026-10-05T12:00:00.000Z"), json!(7)])));
     if let Some(u) = &updated {
         record.insert("updatedAt".into(), u.clone());
     }
     if tc.draw(gs::booleans()) {
         record.insert("version".into(), json!(2));
     }
-    let ty =
-        tc.draw(gs::sampled_from(vec![json!(SETTINGS), json!(SETTINGS), json!(PROFILE), Value::Null]).print_as_debug());
+    let ty = tc.draw(gs::sampled_from(vec![json!(SETTINGS), json!(SETTINGS), json!(PROFILE), Value::Null]));
     if !ty.is_null() {
         record.insert("$type".into(), ty.clone());
     }
@@ -302,7 +296,7 @@ fn document(tc: &TestCase) -> ProfileDocument {
         version: profile::DOCUMENT_VERSION,
         generated_at: time(tc),
         precision: if some() { Precision::Exact } else { Precision::Rounded },
-        basis: tc.draw(gs::sampled_from(vec![Basis::Plays, Basis::Sessions, Basis::Collection]).print_as_debug()),
+        basis: tc.draw(gs::sampled_from(vec![Basis::Plays, Basis::Sessions, Basis::Collection])),
         headline: tc.draw(gs::optional(gs::text().max_size(120))),
         tags: tc.draw(gs::vecs(gs::text().max_size(60)).max_size(20)),
         sets: some().then(|| DocSets {
@@ -312,10 +306,12 @@ fn document(tc: &TestCase) -> ProfileDocument {
         }),
         tempo: some().then(|| DocTempo { low: tempo(), high: tempo(), median: tempo() }),
         arc: some().then(|| DocArc {
-            shape: tc.draw(
-                gs::sampled_from(vec![ArcShape::Builds, ArcShape::Steady, ArcShape::WindsDown, ArcShape::Varies])
-                    .print_as_debug(),
-            ),
+            shape: tc.draw(gs::sampled_from(vec![
+                ArcShape::Builds,
+                ArcShape::Steady,
+                ArcShape::WindsDown,
+                ArcShape::Varies,
+            ])),
             builds: x(),
             steady: x(),
             winds_down: x(),
@@ -516,9 +512,7 @@ fn entry(tc: &TestCase, i: usize, may_break: bool) -> (SetEntry, Option<&'static
             artists: tc.draw(gs::vecs(gs::integers::<u128>()).max_size(3)).into_iter().map(Uuid::from_u128).collect(),
         },
         unnamed: tc.draw(gs::weighted_booleans(0.2)),
-        origin: tc.draw(
-            gs::sampled_from(vec![EntryOrigin::Session, EntryOrigin::Recording, EntryOrigin::Added]).print_as_debug(),
-        ),
+        origin: tc.draw(gs::sampled_from(vec![EntryOrigin::Session, EntryOrigin::Recording, EntryOrigin::Added])),
         session: Some(format!("{PRIVATE}SESSION")),
     };
     (e, isrc_out, key_out)
@@ -761,14 +755,12 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
             Some(format!("{f} isn't in the Lexicon"))
         }
         2 => {
-            r["$type"] = tc.draw(
-                gs::sampled_from(vec![json!(PROFILE), json!(SETTINGS), json!("app.example.set"), json!(1)])
-                    .print_as_debug(),
-            );
+            r["$type"] =
+                tc.draw(gs::sampled_from(vec![json!(PROFILE), json!(SETTINGS), json!("app.example.set"), json!(1)]));
             Some(format!("its $type isn't {SET}"))
         }
         3 => {
-            r = tc.draw(gs::sampled_from(vec![json!([]), json!("set"), Value::Null]).print_as_debug());
+            r = tc.draw(gs::sampled_from(vec![json!([]), json!("set"), Value::Null]));
             Some("it isn't an object".into())
         }
         4 => {
@@ -777,18 +769,15 @@ fn the_lexicon_check_refuses_each_break_and_takes_each_allowed_change(tc: TestCa
         }
         5 if n > 0 => {
             let i = track();
-            let (field, value, why) = tc.draw(
-                gs::sampled_from(vec![
-                    ("bpmCentis", json!(12500.5), "should be a whole number"),
-                    ("bpmCentis", json!(-1), "is -1, outside"),
-                    ("startSeconds", json!("0:00"), "should be a whole number"),
-                    ("unidentified", json!("yes"), "should be true or false"),
-                    ("key", json!("10AB"), "is 4 bytes long"),
-                    ("isrc", json!("GB"), "is 2 bytes long"),
-                    ("title", json!(["Glue"]), "should be text"),
-                ])
-                .print_as_debug(),
-            );
+            let (field, value, why) = tc.draw(gs::sampled_from(vec![
+                ("bpmCentis", json!(12500.5), "should be a whole number"),
+                ("bpmCentis", json!(-1), "is -1, outside"),
+                ("startSeconds", json!("0:00"), "should be a whole number"),
+                ("unidentified", json!("yes"), "should be true or false"),
+                ("key", json!("10AB"), "is 4 bytes long"),
+                ("isrc", json!("GB"), "is 2 bytes long"),
+                ("title", json!(["Glue"]), "should be text"),
+            ]));
             r["tracks"][i][field] = value;
             Some(format!("tracks[{i}].{field} {why}"))
         }
@@ -1029,9 +1018,11 @@ fn step(tc: &TestCase, kind: u8) -> Step {
         1 => Step::Publish,
         2 => Step::Elsewhere(elsewhere()),
         3 => Step::Overtaken(elsewhere()),
-        4 => Step::Refused(tc.draw(
-            gs::sampled_from(vec![Writes::RefuseScope, Writes::RefuseToken, Writes::RefuseRecord]).print_as_debug(),
-        )),
+        4 => Step::Refused(tc.draw(gs::sampled_from(vec![
+            Writes::RefuseScope,
+            Writes::RefuseToken,
+            Writes::RefuseRecord,
+        ]))),
         5 => Step::NewNonce,
         _ => Step::Unpermitted,
     }
@@ -1432,7 +1423,7 @@ fn the_published_profile_is_the_documents_record(tc: TestCase) {
         common::add_history(&drive, &format!("HISTORY 00{}", n + 1), &tracks.into_iter().collect::<Vec<_>>());
     }
     let store = Store::open(&root).unwrap();
-    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(15));
+    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(15));
     api::profile_prefs_update(&store, &PrefsUpdate { sections: Some(sections), ..Default::default() }).unwrap();
     let req = ProfileRequest { drives: vec![drive.display().to_string()], ..Default::default() };
     let plan = api::profile_publish_plan(&root, &req, &Ctx::silent()).unwrap();

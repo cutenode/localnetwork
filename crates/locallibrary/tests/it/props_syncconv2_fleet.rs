@@ -5,7 +5,7 @@
 use crate::common;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Hardware, Role};
@@ -152,10 +152,13 @@ fn archive_and_retired_drives_are_written_only_when_forced(tc: TestCase) {
     d.adopt(Some("Kept")).unwrap();
     sync::register_drive(&store, &d, None).unwrap();
     let id = d.id().unwrap();
-    let role = tc.draw(
-        gs::sampled_from(vec![None, Some(Role::Primary), Some(Role::Backup), Some(Role::Archive), Some(Role::Set)])
-            .print_as_debug(),
-    );
+    let role = tc.draw(gs::sampled_from(vec![
+        None,
+        Some(Role::Primary),
+        Some(Role::Backup),
+        Some(Role::Archive),
+        Some(Role::Set),
+    ]));
     fleet::set_role(&store, id, role).unwrap();
     let retired = tc.draw(gs::booleans());
     if retired {

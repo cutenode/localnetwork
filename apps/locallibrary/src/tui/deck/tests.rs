@@ -428,7 +428,6 @@ fn beat_jumps_move_by_the_beats_asked(tc: hegel::TestCase) {
 /// past the playhead; back, the last to land well before it, or the start.
 #[hegel::test(test_cases = 300)]
 fn cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let g = any_grid(&tc);
     let (ms, cue) = (any_ms(&tc, &g), any_ms(&tc, &g).max(0.0));
@@ -441,7 +440,7 @@ fn cue_and_mark_jumps_land_where_they_say(tc: hegel::TestCase) {
     let mut marks: Vec<f64> = (0..tc.draw(gs::integers::<usize>().max_value(6))).map(|_| any_ms(&tc, &g)).collect();
     marks.retain(|m| *m >= 0.0);
     marks.sort_by(f64::total_cmp);
-    let snap = tc.draw(gs::sampled_from(&[Snap::Off, Snap::Beat, Snap::Phase][..]).print_as_debug());
+    let snap = tc.draw(gs::sampled_from(&[Snap::Off, Snap::Beat, Snap::Phase][..]));
     let lands = |m: f64| cue_jump(&g, ms, m, snap);
     match mark_jump(&g, ms, &marks, true, snap) {
         Some((m, l)) => {

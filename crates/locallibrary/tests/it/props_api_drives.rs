@@ -1013,7 +1013,7 @@ fn setting_up_a_drive_runs_the_steps_asked_for(tc: TestCase) {
 }
 
 /// What goes wrong part way through setting up a drive.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Mishap {
     /// The new drive is pulled out (moved out of the volumes folder).
     Unplugged,

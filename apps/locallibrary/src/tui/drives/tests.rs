@@ -349,7 +349,7 @@ fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
 /// export reads it, on one without says so.
 #[hegel::test(test_cases = 200)]
 fn the_drives_views_actions_act_on_what_is_selected(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let (main, backup) = (Uuid::from_u128(1), Uuid::from_u128(2));
     let (mut app, dir) = blank(View::Drives);
     // (The jobs planned are dropped: nothing waits for them.)
@@ -365,7 +365,7 @@ fn the_drives_views_actions_act_on_what_is_selected(tc: hegel::TestCase) {
                 library_id: if i < 2 {
                     Some(main)
                 } else {
-                    tc.draw(gs::sampled_from(&[Some(main), Some(backup), None][..]).print_as_debug())
+                    tc.draw(gs::sampled_from(&[Some(main), Some(backup), None][..]))
                 },
                 ..locallibrary::Device::open(&root).unwrap().info()
             }
@@ -747,7 +747,7 @@ fn packing_and_the_drives_commands_offer_what_there_is(tc: hegel::TestCase) {
 /// it went.
 #[hegel::test(test_cases = 30)]
 fn a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     const FROM: [PlayersFrom; 4] = [PlayersFrom::Given, PlayersFrom::Library, PlayersFrom::Default, PlayersFrom::None];
     let mut r = report(0, 0);
     // Every source once, then as drawn.
@@ -758,7 +758,7 @@ fn a_check_says_which_players_it_was_for(tc: hegel::TestCase) {
                 .iter()
                 .map(|m| m.to_string())
                 .collect(),
-            from: if i < 4 { FROM[i] } else { tc.draw(gs::sampled_from(&FROM[..]).print_as_debug()) },
+            from: if i < 4 { FROM[i] } else { tc.draw(gs::sampled_from(&FROM[..])) },
             library: None,
         })
         .collect();

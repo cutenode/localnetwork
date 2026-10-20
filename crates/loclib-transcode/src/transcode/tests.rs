@@ -397,7 +397,6 @@ fn a_damaged_frame_fails_the_copy() {
 /// is the copy again. A source under a frame at the recipe's rate is refused.
 #[hegel::test(test_cases = 30)]
 fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
     let rates = vec![44_100, 48_000, 88_200, 96_000];
     // Masters come at twice and four times those too.
@@ -425,10 +424,10 @@ fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
     }
     let containers = Container::ALL.to_vec();
     let r = Recipe {
-        container: tc.draw(gs::sampled_from(containers.clone()).print_as_debug()),
+        container: tc.draw(gs::sampled_from(containers.clone())),
         sample_rate: tc.draw(gs::sampled_from(rates)),
         bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
-        dither: tc.draw(gs::sampled_from(vec![Dither::None, Dither::Tpdf]).print_as_debug()),
+        dither: tc.draw(gs::sampled_from(vec![Dither::None, Dither::Tpdf])),
     };
     assert!(r.to_string().starts_with(r.container.extension()) && r.to_string().ends_with("-v1"), "{r}");
     let copy = dir.path().join(format!("copy.{}", r.container.extension()));
@@ -473,7 +472,7 @@ fn copies_hold_the_source_at_the_recipe(tc: hegel::TestCase) {
         }
     }
     // Again, changing only the container: the copy's samples exactly.
-    let again = Recipe { container: tc.draw(gs::sampled_from(containers).print_as_debug()), dither: Dither::None, ..r };
+    let again = Recipe { container: tc.draw(gs::sampled_from(containers)), dither: Dither::None, ..r };
     let second = dir.path().join(format!("again.{}", again.container.extension()));
     transcode_quietly(&copy, &again, &second).unwrap();
     assert_eq!(decode(&second).samples, back.samples, "{r} then {again}");
@@ -593,7 +592,6 @@ fn copied(events: &[Event]) -> Vec<u64> {
 /// frame, and its size is its header and samples.
 #[hegel::test(test_cases = 4, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn long_copies_report_progress_as_they_go(tc: TestCase) {
-    use hegel::Generator;
     const MIB: u64 = 1 << 20;
     let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(8));
     let bits = tc.draw(gs::sampled_from(vec![24u16, 32]));
@@ -606,7 +604,7 @@ fn long_copies_report_progress_as_they_go(tc: TestCase) {
     std::fs::write(&source, wav_of_channels(rate, bits, channels, &noise(frames * usize::from(channels), bits)))
         .unwrap();
     let r = Recipe {
-        container: tc.draw(gs::sampled_from(vec![Container::Aiff, Container::Wav]).print_as_debug()),
+        container: tc.draw(gs::sampled_from(vec![Container::Aiff, Container::Wav])),
         sample_rate: rate,
         bit_depth: tc.draw(gs::sampled_from(vec![16u16, 24])),
         dither: Dither::None,
@@ -691,7 +689,6 @@ fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
 /// one it can is copied with them, and no warning.
 #[hegel::test(test_cases = 20)]
 fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
-    use hegel::Generator;
     let name = tc.draw(gs::sampled_from(vec!["master.wav", "master.bin", "master", "master.wav.part"]));
     let frames = tc.draw(gs::integers::<usize>().min_value(1).max_value(2000));
     let dir = tempfile::tempdir().unwrap();
@@ -702,7 +699,7 @@ fn sources_whose_tags_cant_be_read_are_copied_without_them(tc: TestCase) {
     tag.save_to_path(&wav, WriteOptions::default()).unwrap();
     let source = dir.path().join(name);
     std::fs::rename(&wav, &source).unwrap();
-    let r = recipe(tc.draw(gs::sampled_from(Container::ALL.to_vec()).print_as_debug()), 44_100, 16, Dither::None);
+    let r = recipe(tc.draw(gs::sampled_from(Container::ALL.to_vec())), 44_100, 16, Dither::None);
     let out = dir.path().join(format!("copy.{}", r.container.extension()));
     let recorder = Recorder::default();
     transcode(&source, &r, &out, &Ctx::new(&recorder, CancelToken::new())).unwrap();

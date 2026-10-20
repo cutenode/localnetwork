@@ -5,8 +5,8 @@
 use crate::common;
 
 use chrono::Utc;
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 use locallibrary::Hash;
 use locallibrary::device::{Device, DeviceState, LineageEntry, LineageOp, RekordboxSync};
 
@@ -31,7 +31,7 @@ const OPS: &[LineageOp] = &[
 fn a_cut_off_operation_says_what_finishes_it(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let root = common::blank(dir.path(), "USB");
-    let op = tc.draw(gs::sampled_from(OPS.to_vec()).print_as_debug());
+    let op = tc.draw(gs::sampled_from(OPS.to_vec()));
     let description = tc.draw(gs::sampled_from(vec!["", "sync from Main", "Ünï"]));
     let backup = tc.draw(gs::optional(gs::sampled_from(vec!["20261011T120000Z"]))).map(String::from);
     let mut d = Device::open(&root).unwrap();

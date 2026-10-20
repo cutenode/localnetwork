@@ -714,7 +714,7 @@ fn long_string_lengths_are_checked(tc: TestCase) {
         row + data[row + 0x1d] as usize
     } else {
         let db = Database::from_bytes(data.clone()).unwrap();
-        let table = tc.draw(gs::sampled_from(vec![T::Tracks, T::PlaylistTree, T::Keys]).print_as_debug());
+        let table = tc.draw(gs::sampled_from(vec![T::Tracks, T::PlaylistTree, T::Keys]));
         let locs = db.row_locations(table);
         let row = locs[tc.draw(gs::integers::<usize>().max_value(locs.len() - 1))];
         row + match table {

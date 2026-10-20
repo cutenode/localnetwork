@@ -79,7 +79,7 @@ fn track(tc: &TestCase, id: u32) -> Track {
 
 fn library(tc: &TestCase) -> Library {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(6));
-    Library { tracks: (1..=n).map(|id| tc.draw(track(id).print_as_debug())).collect(), ..Default::default() }
+    Library { tracks: (1..=n).map(|id| tc.draw(track(id))).collect(), ..Default::default() }
 }
 
 fn drive_locator() -> Locator {
@@ -131,8 +131,7 @@ fn m3u8_export_reads_back(tc: TestCase) {
 #[hegel::test(test_cases = 100)]
 fn exported_lists_match_their_tracks(tc: TestCase) {
     let lib = library(&tc);
-    let style =
-        tc.draw(gs::sampled_from(vec![PathStyle::Drive, PathStyle::Relative, PathStyle::Absolute]).print_as_debug());
+    let style = tc.draw(gs::sampled_from(vec![PathStyle::Drive, PathStyle::Relative, PathStyle::Absolute]));
     let csv = tc.draw(gs::booleans());
     let dir = tempfile::tempdir().unwrap();
     let locator = Locator::new(style, &dir.path().join("USB"), &dir.path().join("lists/set.m3u8"));

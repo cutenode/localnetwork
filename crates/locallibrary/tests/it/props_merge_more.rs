@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::merge::{self, MatchMode, MergeOptions, PlaylistMode};
@@ -78,12 +78,10 @@ fn merging_with_onelibrary_on_both_sides_keeps_the_targets_databases_alike(tc: T
         bank_list(&guest, in_folder);
     }
     let opts = MergeOptions {
-        playlists: tc.draw(
-            gs::sampled_from(vec![PlaylistMode::Folder, PlaylistMode::ByName, PlaylistMode::None]).print_as_debug(),
-        ),
+        playlists: tc.draw(gs::sampled_from(vec![PlaylistMode::Folder, PlaylistMode::ByName, PlaylistMode::None])),
         folder_name: None,
         only_playlists: Vec::new(),
-        match_mode: tc.draw(gs::sampled_from(vec![MatchMode::Metadata, MatchMode::Path]).print_as_debug()),
+        match_mode: tc.draw(gs::sampled_from(vec![MatchMode::Metadata, MatchMode::Path])),
         history: tc.draw(gs::booleans()),
     };
 
@@ -155,12 +153,7 @@ fn exactly_the_source_tracks_with_audio_inside_the_library_are_merged(tc: TestCa
     let defects: Vec<Defect> = lib
         .tracks
         .iter()
-        .map(|_| {
-            tc.draw(
-                gs::sampled_from(vec![Defect::None, Defect::None, Defect::NoAudio, Defect::NoAnalysis])
-                    .print_as_debug(),
-            )
-        })
+        .map(|_| tc.draw(gs::sampled_from(vec![Defect::None, Defect::None, Defect::NoAudio, Defect::NoAnalysis])))
         .collect();
     for (t, d) in lib.tracks.iter().zip(&defects) {
         match d {

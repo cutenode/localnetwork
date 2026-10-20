@@ -48,7 +48,7 @@ impl Progress for Recorder {
 
 #[hegel::test_helper]
 fn phase(tc: &TestCase) -> Phase {
-    tc.draw(gs::sampled_from(PHASES.to_vec()).print_as_debug())
+    tc.draw(gs::sampled_from(PHASES.to_vec()))
 }
 
 #[hegel::test_helper]

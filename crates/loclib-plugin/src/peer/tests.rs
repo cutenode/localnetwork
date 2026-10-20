@@ -539,14 +539,11 @@ fn any_lines_get_what_json_rpc_says_they_should(tc: TestCase) {
                 whole[..cut].to_string()
             }
             "not an object" => {
-                let v = tc.draw(
-                    gs::sampled_from(vec![json!(null), json!([1, 2]), json!("m"), json!(3), json!(true)])
-                        .print_as_debug(),
-                );
+                let v = tc.draw(gs::sampled_from(vec![json!(null), json!([1, 2]), json!("m"), json!(3), json!(true)]));
                 v.to_string()
             }
             "bad id" => {
-                let id = tc.draw(gs::sampled_from(vec![json!(true), json!([]), json!({ "n": 1 })]).print_as_debug());
+                let id = tc.draw(gs::sampled_from(vec![json!(true), json!([]), json!({ "n": 1 })]));
                 json!({ "jsonrpc": "2.0", "id": id, "method": "m" }).to_string()
             }
             "request" | "notification" => {
@@ -656,8 +653,6 @@ enum Answer {
     /// A line that isn't JSON, cut short after the id.
     CutShort,
 }
-
-hegel::pretty_print_as_debug!(Answer);
 
 #[hegel::test_helper]
 fn answer(tc: &TestCase) -> Answer {

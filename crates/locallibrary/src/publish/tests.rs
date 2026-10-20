@@ -313,9 +313,9 @@ fn only_times_dont_count_as_changes(tc: hegel::TestCase) {
     let field = || gs::sampled_from(vec!["title", "date", "tracks", "updatedAt", "generatedAt", "createdAt"]);
     let value = || {
         hegel::one_of!(
-            gs::integers::<i64>().max_value(3).map(Value::from).print_as_debug(),
-            gs::text().max_size(3).map(Value::from).print_as_debug(),
-            gs::just(Value::Null).print_as_debug(),
+            gs::integers::<i64>().max_value(3).map(Value::from),
+            gs::text().max_size(3).map(Value::from),
+            gs::just(Value::Null),
         )
     };
     let fields: Vec<(&str, Value)> = tc.draw(gs::vecs(gs::tuples!(field(), value())).max_size(6));

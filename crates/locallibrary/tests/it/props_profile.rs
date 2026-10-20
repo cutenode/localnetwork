@@ -171,7 +171,7 @@ fn sessions_are_never_counted_in_public(tc: TestCase) {
     r.basis = Basis::Sessions;
     r.sets = SetsSection { count: tc.draw(gs::integers::<usize>().max_value(5000)), ..Default::default() };
     r.summary.tags = vec![Tag { id: "rarely_repeats", label: "Rarely repeats tracks".into(), why: String::new() }];
-    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(15));
+    let sections = tc.draw(gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(15));
     let precision = if tc.draw(gs::booleans()) { Precision::Exact } else { Precision::Rounded };
     let prefs = ProfilePrefs { sections: Some(sections.into_iter().collect()), precision, ..Default::default() };
     let d = profile::document(&r, &prefs);
@@ -194,7 +194,7 @@ fn a_hidden_artist_is_not_named_through_a_semicolon_credit() {
     assert_eq!(d.signature, None);
 }
 
-fn update() -> impl hegel::Generator<PrefsUpdate> {
+fn update() -> impl hegel::PrintableGenerator<PrefsUpdate> {
     hegel::compose!(|tc| {
         let names = || {
             gs::vecs(gs::sampled_from(vec!["Bicep - Glue", "bicep -  glue", "Four Tet - Baby", " ", "X - Y"]))
@@ -204,7 +204,7 @@ fn update() -> impl hegel::Generator<PrefsUpdate> {
         // Undoing what isn't there fails the whole update, so undo rarely.
         let rarely = |v: Vec<String>| if tc.draw(gs::weighted_booleans(0.2)) { v } else { Vec::new() };
         let artists = || gs::vecs(gs::sampled_from(vec!["Bicep", "Four Tet"]).map(String::from)).max_size(1);
-        let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(3);
+        let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(3);
         PrefsUpdate {
             reset: tc.draw(gs::weighted_booleans(0.1)),
             sections: tc.draw(gs::optional(sections())),
@@ -228,7 +228,7 @@ fn update() -> impl hegel::Generator<PrefsUpdate> {
 /// However the preferences got there, a hidden track is never also pinned.
 #[hegel::test(test_cases = 500)]
 fn a_hidden_track_is_never_pinned(tc: TestCase) {
-    let updates = tc.draw(gs::vecs(update().print_as_debug()).max_size(5));
+    let updates = tc.draw(gs::vecs(update()).max_size(5));
     let mut prefs = ProfilePrefs::default();
     for u in &updates {
         let before = prefs.clone();
@@ -255,7 +255,7 @@ fn pinning_a_hidden_track_is_refused() {
 #[hegel::test(test_cases = 500)]
 fn changes_undo(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
-    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(3)) {
+    for u in tc.draw(gs::vecs(update()).max_size(3)) {
         let _ = prefs.apply(&u);
     }
     let name = tc.draw(gs::sampled_from(vec!["Bicep - Glue", "Floorplan - Never Grow Old", "Four Tet - Baby"]));
@@ -295,10 +295,10 @@ fn changes_undo(tc: TestCase) {
 #[hegel::test(test_cases = 300)]
 fn include_and_exclude_edit_the_published_sections(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
-    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(2)) {
+    for u in tc.draw(gs::vecs(update()).max_size(2)) {
         let _ = prefs.apply(&u);
     }
-    let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec()).print_as_debug()).max_size(4);
+    let sections = || gs::vecs(gs::sampled_from(Section::ALL.to_vec())).max_size(4);
     let (include, exclude) = (tc.draw(sections()), tc.draw(sections()));
     let mut want = prefs.published();
     want.extend(include.iter().copied());
@@ -312,7 +312,7 @@ fn include_and_exclude_edit_the_published_sections(tc: TestCase) {
 /// Every section reads back from its name, upper-cased or with dashes.
 #[hegel::test(test_cases = 100)]
 fn sections_read_back_from_their_names(tc: TestCase) {
-    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()).print_as_debug());
+    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()));
     assert_eq!(Section::parse(s.name()), Some(s));
     assert_eq!(Section::parse(&format!(" {} ", s.name().to_uppercase().replace('_', "-"))), Some(s));
     assert_eq!(Section::parse(&s.to_string()), Some(s));
@@ -653,10 +653,9 @@ fn saved_preferences_load_back(tc: TestCase) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let mut model = ProfilePrefs::default();
-    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(4)) {
+    for u in tc.draw(gs::vecs(update()).max_size(4)) {
         let mut u = u;
-        u.precision =
-            tc.draw(gs::optional(gs::sampled_from(vec![Precision::Exact, Precision::Rounded]).print_as_debug()));
+        u.precision = tc.draw(gs::optional(gs::sampled_from(vec![Precision::Exact, Precision::Rounded])));
         let aliases = gs::vecs(gs::sampled_from(vec![
             ("dnb", "Jungle"),
             ("DNB ", "Drum & Bass"),
@@ -688,7 +687,7 @@ fn saved_preferences_load_back(tc: TestCase) {
 /// tracks, artists or labels, or describing the collection.
 #[hegel::test(test_cases = 50)]
 fn every_section_says_what_it_reveals(tc: TestCase) {
-    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()).print_as_debug());
+    let s = tc.draw(gs::sampled_from(Section::ALL.to_vec()));
     assert!(!s.title().is_empty() && !s.reveals().is_empty());
     assert_eq!(s.title_in(Basis::Plays), s.title());
     assert_eq!(s.title_in(Basis::Collection), s.title());
@@ -757,7 +756,7 @@ fn the_drives_read_are_the_mounted_ones_the_registry_knows(tc: TestCase) {
 #[hegel::test(test_cases = 300)]
 fn blank_and_unknown_preference_changes_are_refused(tc: TestCase) {
     let mut prefs = ProfilePrefs::default();
-    for u in tc.draw(gs::vecs(update().print_as_debug()).max_size(3)) {
+    for u in tc.draw(gs::vecs(update()).max_size(3)) {
         let before = prefs.clone();
         if prefs.apply(&u).is_err() {
             prefs = before;

@@ -332,7 +332,7 @@ fn volume(tc: &TestCase, disk: &str, n: usize) -> Volume {
     Volume {
         id: format!("{disk}s{}", n + 1),
         size: tc.draw(gs::integers::<u64>().max_value(3 << 40)),
-        filesystem: if opt(tc) { Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()).print_as_debug())) } else { None },
+        filesystem: if opt(tc) { Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()))) } else { None },
         filesystem_name: match tc.draw(gs::integers::<u8>().max_value(3)) {
             0 => None,
             1 => Some(name(tc)),
@@ -373,9 +373,7 @@ pub(crate) fn any_disk(tc: &TestCase) -> Disk {
         system: rare(tc),
         virtual_disk: rare(tc),
         read_only: rare(tc),
-        scheme: tc.draw(
-            gs::sampled_from(vec![None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm)]).print_as_debug(),
-        ),
+        scheme: tc.draw(gs::sampled_from(vec![None, Some(Scheme::Mbr), Some(Scheme::Gpt), Some(Scheme::Apm)])),
         volumes,
         id,
     }
@@ -410,7 +408,7 @@ fn labels_suit_their_file_system(tc: TestCase) {
 /// the file system's limit, and the default one is always taken.
 #[hegel::test(test_cases = 500)]
 fn cluster_sizes_follow_each_file_systems_rules(tc: TestCase) {
-    let fs = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()).print_as_debug());
+    let fs = tc.draw(gs::sampled_from(FILESYSTEMS.to_vec()));
     let sector = tc.draw(gs::sampled_from(vec![512u32, 1024, 2048, 4096]));
     let size = tc.draw(hegel::one_of!(gs::integers::<u32>().max_value(31).map(|s| 1u32 << s), gs::integers::<u32>(),));
     let limit = match fs {
@@ -537,22 +535,19 @@ fn lenient_json_reads_every_spelling(tc: TestCase) {
     assert_eq!(json::str(&v, "s"), want);
     assert_eq!(json::str(&v, "missing"), None);
 
-    let flag = tc.draw(
-        gs::sampled_from(vec![
-            (json!(true), true),
-            (json!(false), false),
-            (json!("1"), true),
-            (json!(" true"), true),
-            (json!("True "), true),
-            (json!("yes"), false),
-            (json!("0"), false),
-            (json!(1), true),
-            (json!(2), false),
-            (json!(null), false),
-            (json!([true]), false),
-        ])
-        .print_as_debug(),
-    );
+    let flag = tc.draw(gs::sampled_from(vec![
+        (json!(true), true),
+        (json!(false), false),
+        (json!("1"), true),
+        (json!(" true"), true),
+        (json!("True "), true),
+        (json!("yes"), false),
+        (json!("0"), false),
+        (json!(1), true),
+        (json!(2), false),
+        (json!(null), false),
+        (json!([true]), false),
+    ]));
     assert_eq!(json::bool(&json!({ "f": flag.0 }), "f"), flag.1, "{}", flag.0);
 
     let items: Vec<u64> = tc.draw(gs::vecs(gs::integers::<u64>()).max_size(4));
@@ -620,7 +615,7 @@ fn identity_follows_what_is_on_the_disk(tc: TestCase) {
         (9, true) => {
             let was = other.volumes[i].filesystem;
             other.volumes[i].filesystem =
-                Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()).filter(move |k| Some(*k) != was).print_as_debug()));
+                Some(tc.draw(gs::sampled_from(FS_KINDS.to_vec()).filter(move |k| Some(*k) != was)));
             (false, true)
         }
         _ => {
@@ -694,10 +689,12 @@ fn disks_are_refused_for_exactly_their_problems(tc: TestCase) {
 fn plans_follow_the_disk_and_the_options(tc: TestCase) {
     let disk = any_disk(&tc);
     let opts = FormatOptions {
-        filesystem: tc.draw(
-            gs::sampled_from(vec![None, Some(Filesystem::Fat32), Some(Filesystem::Exfat), Some(Filesystem::Hfsplus)])
-                .print_as_debug(),
-        ),
+        filesystem: tc.draw(gs::sampled_from(vec![
+            None,
+            Some(Filesystem::Fat32),
+            Some(Filesystem::Exfat),
+            Some(Filesystem::Hfsplus),
+        ])),
         label: if tc.draw(gs::booleans()) { Some(name(&tc)) } else { None },
         cluster_size: tc.draw(gs::sampled_from(vec![
             None,

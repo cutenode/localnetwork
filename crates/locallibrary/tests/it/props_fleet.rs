@@ -8,7 +8,7 @@ use crate::common;
 use indexmap::IndexMap;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Check, Role};
@@ -99,7 +99,7 @@ fn the_registry_matches_the_model(tc: TestCase) {
                     Some(Role::Archive),
                     None,
                 ];
-                let role = tc.draw(gs::sampled_from(roles).print_as_debug());
+                let role = tc.draw(gs::sampled_from(roles));
                 let r = fleet::set_role(&store, id, role);
                 match model[&id].registered {
                     false => assert!(r.is_err()),

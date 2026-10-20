@@ -125,8 +125,7 @@ fn a_fetch_copies_what_the_other_store_has_and_this_one_lacks(tc: TestCase) {
     let home = libs.iter().find(|l| l.name == "Home").unwrap();
     let latest = home.head.unwrap();
     let first = *snaps[&home.id].iter().find(|h| **h != latest).unwrap();
-    let here =
-        tc.draw(gs::sampled_from(vec![Here::AsFetched, Here::Behind, Here::Ahead, Here::Diverged]).print_as_debug());
+    let here = tc.draw(gs::sampled_from(vec![Here::AsFetched, Here::Behind, Here::Ahead, Here::Diverged]));
     let mut earlier = pick(&tc);
     // Changed here since: fetched before, then.
     if here != Here::AsFetched && !earlier.iter().any(|l| l.id == home.id) {
@@ -252,7 +251,7 @@ fn what_isnt_right_is_refused_and_records_nothing(tc: TestCase) {
     }
     files.sort();
     files.dedup();
-    let (hash, size) = tc.draw(gs::sampled_from(files).print_as_debug());
+    let (hash, size) = tc.draw(gs::sampled_from(files));
     let object = broken.object_path(&hash);
     let missing = size == 0 || tc.draw(gs::booleans());
     match missing {

@@ -155,8 +155,8 @@ fn regions_cover_the_disk() {
 // Properties
 // -----------------------------------------------------------------------------------------
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 use std::sync::Mutex;
 
 /// How a simulated disk treats addresses past its real capacity.
@@ -258,7 +258,7 @@ fn probes_find_the_real_capacity(tc: TestCase) {
     let fake = tc.draw(gs::booleans());
     let real =
         if fake { tc.draw(gs::integers::<u64>().min_value(1).max_value(claimed / align)) * align } else { claimed };
-    let past = tc.draw(gs::sampled_from(vec![Past::Wrap, Past::Drop, Past::Fail]).print_as_debug());
+    let past = tc.draw(gs::sampled_from(vec![Past::Wrap, Past::Drop, Past::Fail]));
     let mut disk = Simulated { data: vec![0x5A; real as usize], past };
 
     let bytes = Mutex::new((0u64, 0u64));

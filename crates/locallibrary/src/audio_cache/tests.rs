@@ -40,8 +40,8 @@ fn unreadable_values_are_not_cached() {
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 
 use crate::progress::{CancelToken, Event};
 
@@ -107,7 +107,7 @@ fn work_out(path: &Path, calls: &AtomicUsize) -> Result<u64> {
 /// missing ones aren't written.
 #[hegel::test_helper]
 fn audio_files(tc: &TestCase, dir: &Path) -> Vec<(Audio, Outcome)> {
-    let outcomes = tc.draw(gs::vecs(gs::sampled_from(Outcome::ALL.to_vec()).print_as_debug()).max_size(6));
+    let outcomes = tc.draw(gs::vecs(gs::sampled_from(Outcome::ALL.to_vec())).max_size(6));
     outcomes
         .into_iter()
         .enumerate()

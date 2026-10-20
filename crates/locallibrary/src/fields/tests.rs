@@ -5,7 +5,7 @@ use crate::device::Device;
 
 use filetime::FileTime;
 use hegel::TestCase;
-use hegel::generators::{self as gs, Generator};
+use hegel::generators as gs;
 
 fn fields(pairs: &[(&str, FieldValue)]) -> Fields {
     pairs.iter().map(|(k, v)| ((*k).to_string(), v.clone())).collect()
@@ -240,7 +240,7 @@ fn kept_fields_read_back_until_their_file_changes(tc: TestCase) {
             VERSIONS[..2].iter().flat_map(move |v| ANALYZERS[..2].iter().map(move |(a, _)| analyzer(p, v, a)))
         })
         .collect();
-    let asked: Vec<Analyzer> = tc.draw(gs::subsequences(valid.clone()).print_as_debug());
+    let asked: Vec<Analyzer> = tc.draw(gs::subsequences(valid.clone()));
     for (i, file) in files.iter().enumerate() {
         // Every version's values are its own: asked for them all, but one version at a time.
         for version in &VERSIONS[..2] {

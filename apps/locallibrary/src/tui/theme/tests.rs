@@ -142,7 +142,7 @@ fn the_mode_is_what_the_environment_asks_for(tc: hegel::TestCase) {
 /// dot in it, or without colours as its number.
 #[hegel::test(test_cases = 100)]
 fn phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use locallibrary::anlz::PhraseKind;
     let kind = |tc: &hegel::TestCase| match tc.draw(gs::integers::<u8>().max_value(7)) {
         0 => PhraseKind::Intro,
@@ -164,8 +164,8 @@ fn phrases_are_coloured_by_role_and_tracks_by_their_colour(tc: hegel::TestCase) 
     };
     let (a, b) = (kind(&tc), kind(&tc));
     assert_eq!(phrase_color(a) == phrase_color(b), role(a) == role(b), "{a:?} and {b:?}");
-    let c = tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..]).print_as_debug());
-    let mode = tc.draw(gs::sampled_from(&[Mode::Dark, Mode::Light, Mode::Plain][..]).print_as_debug());
+    let c = tc.draw(gs::sampled_from(&super::super::browse::COLOURS[..]));
+    let mode = tc.draw(gs::sampled_from(&[Mode::Dark, Mode::Light, Mode::Plain][..]));
     set_test_mode(Some(mode));
     let dot = colour_dot(c);
     if mode == Mode::Plain {

@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::fs;
 
 use hegel::generators as gs;
-use hegel::{Generator, HealthCheck, TestCase};
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::Device;
 use locallibrary::doctor::{self, DoctorOptions, DuplicateReason, Problem};
 use locallibrary::paths;
@@ -33,14 +33,11 @@ fn the_doctor_finds_exactly_what_was_broken(tc: TestCase) {
     for (n, id) in originals.iter().enumerate() {
         let t = lib.track(*id).unwrap();
         let bytes = fs::read(paths::to_fs(&root, &paths::key(&t.file_path))).unwrap();
-        let reason = tc.draw(
-            gs::sampled_from(vec![
-                DuplicateReason::SameFile,
-                DuplicateReason::SyncManagerCopy,
-                DuplicateReason::SameMetadata,
-            ])
-            .print_as_debug(),
-        );
+        let reason = tc.draw(gs::sampled_from(vec![
+            DuplicateReason::SameFile,
+            DuplicateReason::SyncManagerCopy,
+            DuplicateReason::SameMetadata,
+        ]));
         let (title, file_path, artist) = match reason {
             DuplicateReason::SameFile => (format!("Copy {n}"), t.file_path.clone(), format!("Someone {n}")),
             DuplicateReason::SyncManagerCopy => {

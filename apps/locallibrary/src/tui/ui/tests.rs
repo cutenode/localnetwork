@@ -1132,9 +1132,9 @@ fn counts_said_short_read_back(tc: hegel::TestCase) {
 /// key and time last; each once, each named apart.
 #[hegel::test(test_cases = 300)]
 fn the_columns_are_the_ones_that_fit_and_the_sort(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     let width = tc.draw(gs::integers::<u16>().max_value(220));
-    let field = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug()));
+    let field = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..])));
     let sort = field.map(|field| SortKey { field, descending: tc.draw(gs::booleans()) });
     let (ratings, tags) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
     let cols = columns(width, sort, ratings, tags);
@@ -1358,7 +1358,7 @@ fn a_confirmation_lists(tc: &hegel::TestCase, kind: u8) {
 /// selected track's details, with why there are no matches.
 #[hegel::test(test_cases = 100)]
 fn the_library_says_what_is_going_on(tc: hegel::TestCase) {
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use locallibrary::sets::{EntryOrigin, SetEntry};
 
     use super::super::app::{Msg, ReplayOffer};
@@ -1404,7 +1404,7 @@ fn the_library_says_what_is_going_on(tc: hegel::TestCase) {
         let edits = if edits == 1 { "1 edit".to_string() } else { format!("{edits} edits") };
         want.push(format!("rekordbox exported over {edits} on DNA. Replay?"));
     }
-    if let Some(field) = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..]).print_as_debug())) {
+    if let Some(field) = tc.draw(gs::optional(gs::sampled_from(&EVERY_FIELD[..]))) {
         let descending = tc.draw(gs::booleans());
         app.sort = Some(SortKey { field, descending });
         app.refresh_visible();
@@ -1589,7 +1589,7 @@ fn put_over(app: &mut App, over: u8) -> Vec<String> {
 #[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     use chrono::TimeZone;
-    use hegel::generators::{self as gs, Generator};
+    use hegel::generators as gs;
     use locallibrary::fleet::{CheckEntry, DriveLog, KnownDrive, Problem};
     use locallibrary::hash::Hash;
     use locallibrary::store::SnapshotInfo;
@@ -1641,19 +1641,16 @@ fn the_drives_view_says_what_is_known(tc: hegel::TestCase) {
     }
     app.drives = vec![info.clone()];
     app.select_drive_row(DriveRow::Drive(0));
-    let relation = tc.draw(
-        gs::sampled_from(
-            &[
-                None,
-                Some(Relation::Identical),
-                Some(Relation::RightNewer),
-                Some(Relation::LeftNewer),
-                Some(Relation::Diverged),
-                Some(Relation::Unrelated),
-            ][..],
-        )
-        .print_as_debug(),
-    );
+    let relation = tc.draw(gs::sampled_from(
+        &[
+            None,
+            Some(Relation::Identical),
+            Some(Relation::RightNewer),
+            Some(Relation::LeftNewer),
+            Some(Relation::Diverged),
+            Some(Relation::Unrelated),
+        ][..],
+    ));
     let library = tc.draw(gs::booleans()).then_some("Home");
     let back = tc.draw(gs::sampled_from(&[None, Some(0usize), Some(1), Some(3)][..]));
     let error = tc.draw(gs::booleans()).then_some("bad export");

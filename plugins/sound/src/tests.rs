@@ -203,7 +203,7 @@ fn cancelling_stops_the_decode() {
 
 /// Audio drawn that can't be analysed: gone, text, a WAV at a rate the loudness meter refuses, or
 /// (on Unix) a FIFO the decode reads for ever, until it's cancelled.
-#[derive(Debug, Clone, Copy, PartialEq, hegel::PrettyPrintable)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Unreadable {
     Gone,
     Text,

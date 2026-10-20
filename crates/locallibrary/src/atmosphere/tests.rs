@@ -640,21 +640,16 @@ fn documents_are_refused_for_the_first_thing_wrong(tc: TestCase) {
     if other_id {
         doc["client_id"] = "https://other.example/oauth-client-metadata.json".into();
     }
-    let kind = tc.draw(
-        gs::sampled_from(vec![serde_json::json!("native"), serde_json::json!("web"), serde_json::Value::Null])
-            .print_as_debug(),
-    );
+    let kind =
+        tc.draw(gs::sampled_from(vec![serde_json::json!("native"), serde_json::json!("web"), serde_json::Value::Null]));
     doc["application_type"] = kind.clone();
-    let redirects = tc.draw(
-        gs::sampled_from(vec![
-            serde_json::json!(["http://127.0.0.1/callback"]),
-            serde_json::json!(["http://127.0.0.1:8080/callback", "http://127.0.0.1/callback"]),
-            serde_json::json!(["https://example.com/callback"]),
-            serde_json::json!([]),
-            serde_json::Value::Null,
-        ])
-        .print_as_debug(),
-    );
+    let redirects = tc.draw(gs::sampled_from(vec![
+        serde_json::json!(["http://127.0.0.1/callback"]),
+        serde_json::json!(["http://127.0.0.1:8080/callback", "http://127.0.0.1/callback"]),
+        serde_json::json!(["https://example.com/callback"]),
+        serde_json::json!([]),
+        serde_json::Value::Null,
+    ]));
     doc["redirect_uris"] = redirects.clone();
     let mut allowed: Vec<String> = doc["scope"].as_str().unwrap().split(' ').map(String::from).collect();
     if let Some(i) = tc.draw(gs::optional(gs::integers::<usize>().max_value(allowed.len() - 1))) {
@@ -924,21 +919,17 @@ enum Says {
 /// account named.
 #[hegel::test(test_cases = 40)]
 fn checking_and_signing_out_say_what_the_server_did(tc: hegel::TestCase) {
-    use hegel::Generator;
     use hegel::generators as gs;
-    let says = tc.draw(
-        gs::sampled_from(vec![
-            Says::Handle,
-            Says::NoHandle,
-            Says::Unauthorized,
-            Says::TokenRefused,
-            Says::Expired,
-            Says::Refused,
-            Says::Unreachable,
-            Says::Down,
-        ])
-        .print_as_debug(),
-    );
+    let says = tc.draw(gs::sampled_from(vec![
+        Says::Handle,
+        Says::NoHandle,
+        Says::Unauthorized,
+        Says::TokenRefused,
+        Says::Expired,
+        Says::Refused,
+        Says::Unreachable,
+        Says::Down,
+    ]));
     let revocation: Option<u16> = tc.draw(gs::optional(gs::sampled_from(vec![200u16, 204, 500])));
     let known = tc.draw(gs::optional(gs::sampled_from(vec!["before.example.com".to_string()])));
 

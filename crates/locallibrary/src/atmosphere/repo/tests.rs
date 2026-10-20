@@ -281,7 +281,7 @@ fn a_read_gives_what_the_server_answered(tc: hegel::TestCase) {
     let uri = tc.draw(gs::optional(word(vec!["at://did:plc:abc/x/self\u{1b}]0;owned\u{7}"])));
     let cid = tc.draw(gs::optional(word(vec!["bafy\u{1b}[2J"])));
     let values = vec![json!({ "$type": lexicon::SETTINGS, "n": 1 }), json!("x"), json!([]), Value::Null, json!(1)];
-    let value: Option<Value> = tc.draw(gs::optional(gs::sampled_from(values).print_as_debug()));
+    let value: Option<Value> = tc.draw(gs::optional(gs::sampled_from(values)));
     let said = || gs::optional(word(vec!["RecordNotFound", "RepoDeactivated", "Nope\u{1b}[2J"]));
     let error = tc.draw(said());
     let message = tc.draw(said());

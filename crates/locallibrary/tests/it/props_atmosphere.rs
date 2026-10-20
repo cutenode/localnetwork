@@ -11,8 +11,8 @@ use indexmap::IndexMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use hegel::TestCase;
 use hegel::generators as gs;
-use hegel::{Generator, TestCase};
 use jacquard_oauth::session::ClientSessionData;
 use locallibrary::api::{self, AccountLoginRequest};
 use locallibrary::atmosphere::lexicon::{PROFILE, SET, SETTINGS};
@@ -376,7 +376,7 @@ fn a_split_session_keeps_its_secrets_apart_and_joins_back(tc: TestCase) {
     assert_eq!(serde_json::to_value(&back).unwrap(), whole);
 
     // Halves that aren't a session's are said to be, without quoting them.
-    let not_an_object = tc.draw(gs::sampled_from(vec![Value::Null, json!([]), json!("x"), json!(1)]).print_as_debug());
+    let not_an_object = tc.draw(gs::sampled_from(vec![Value::Null, json!([]), json!("x"), json!(1)]));
     let err = store::join(&not_an_object, secrets).unwrap_err().to_string();
     assert_eq!(err, "the saved session isn't a JSON object; sign in again");
     let wrong = Map::from_iter([("dpop_key".to_string(), Value::from("secret-key"))]);
