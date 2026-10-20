@@ -2,18 +2,19 @@
 //! `main.rs`). The CLI's tests serve it from the locallibrary binary too
 //! (`LOCALLIBRARY_TEST_PLUGINS`, in builds with debug assertions).
 
-// The echo plugin's manifest is for `main.rs`: locallibrary serves the manifest a test gives.
+// The echo plugin's manifest and hooks are for `main.rs`: locallibrary serves the manifest a
+// test gives, and these hooks.
 #[allow(dead_code)]
 #[path = "../../../../loclib-plugin/examples/echo/plugin.rs"]
 pub mod echo;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Exported, ExportedFile, FieldValue, Host, OpPlan, PlanOp, Plugin, RpcError, RunCommand,
+    Analysis, AnalyzeTrack, Exported, ExportedFile, FieldValue, Hooks, Host, OpPlan, PlanOp, RpcError, RunCommand,
     WriteExport,
 };
 use serde_json::{Value, json};
@@ -39,7 +40,31 @@ impl Drop for Test {
     }
 }
 
-impl Plugin for Test {
+impl Test {
+    /// Its hooks, but those of the features `without` names (`commands`...): it doesn't say it
+    /// has them.
+    pub fn hooks(self, without: &[String]) -> Hooks {
+        let test = Arc::new(self);
+        let has = |feature: &str| !without.iter().any(|w| w == feature);
+        let mut hooks = Hooks::new();
+        if has("commands") {
+            let test = test.clone();
+            hooks = hooks.on(move |req: RunCommand, host: &Host| test.run_command(req, host));
+        }
+        if has("analyzers") {
+            let test = test.clone();
+            hooks = hooks.on(move |req: AnalyzeTrack, host: &Host| test.analyze_track(req, host));
+        }
+        if has("exporters") {
+            let test = test.clone();
+            hooks = hooks.on(move |req: WriteExport, host: &Host| test.write_export(req, host));
+        }
+        if has("operations") {
+            hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
+        }
+        hooks
+    }
+
     fn run_command(&self, req: RunCommand, host: &Host) -> Result<Value, RpcError> {
         let p = &req.params;
         if let Some(line) = p["log"].as_str() {
@@ -71,13 +96,16 @@ impl Plugin for Test {
         if p["context"] == true {
             return Ok(serde_json::to_value(&req.context).expect("a context is JSON"));
         }
+        if p["cwd"] == true {
+            return Ok(json!(std::env::current_dir().map_err(|e| RpcError::failed("io", e.to_string()))?));
+        }
         if let Some(method) = p["call"].as_str() {
             return Ok(match host.call::<_, Value>(method, &p["params"]) {
                 Ok(result) => json!({ "result": result }),
                 Err(error) => json!({ "error": error }),
             });
         }
-        echo::Echo.run_command(req, host)
+        echo::run_command(req, host)
     }
 
     fn analyze_track(&self, req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
@@ -88,13 +116,15 @@ impl Plugin for Test {
         }
         if req.analyzer == "order" {
             let audio = &req.track.audio_path;
-            if std::fs::metadata(audio).is_ok_and(|m| m.len() == 0) {
+            let size = std::fs::metadata(audio).ok().map(|m| m.len());
+            if size == Some(0) {
                 return Err(RpcError::failed("invalid", format!("{} is empty", audio.display())));
             }
-            let fields = [("a", 2), ("b", 1)].map(|(name, n)| (name.to_string(), FieldValue::Integer(n)));
+            let a = if size == Some(1) { FieldValue::Null } else { FieldValue::Integer(2) };
+            let fields = [("a", a), ("b", FieldValue::Integer(1))].map(|(name, v)| (name.to_string(), v));
             return Ok(Analysis { fields: fields.into_iter().collect() });
         }
-        echo::Echo.analyze_track(req, host)
+        echo::analyze_track(req, host)
     }
 
     fn write_export(&self, req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
@@ -104,7 +134,7 @@ impl Plugin for Test {
         }
         let extra = req.options["extra"].as_str().filter(|_| !req.dry_run).map(std::path::PathBuf::from);
         let playlists = req.source.playlists.clone();
-        let mut exported = echo::Echo.write_export(req, host)?;
+        let mut exported = echo::write_export(req, host)?;
         if !playlists.is_empty() {
             exported.notes.push(format!("playlists: {}", playlists.join(", ")));
         }
@@ -122,6 +152,6 @@ impl Plugin for Test {
             let (summary, warnings) = ("as given".into(), vec!["given".into()]);
             return Ok(OpPlan { summary, warnings, edits: edits.clone(), inputs });
         }
-        echo::Echo.plan_op(req, host)
+        echo::plan_op(req, host)
     }
 }

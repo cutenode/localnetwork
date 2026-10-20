@@ -174,7 +174,7 @@ pub(super) fn plan(
     let players = players.as_slice();
     let options = &Options { container: choice.container, decode_lossy: choice.decode_lossy };
     let mut out = Copies::default();
-    let taken: FxHashSet<String> = tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect();
+    let taken: FxHashSet<String> = tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let mut seen = FxHashSet::default();
     let mut wanted: Vec<Wanted<'_>> = Vec::new();
     let mut lossy = 0;
@@ -292,7 +292,7 @@ pub(super) fn plan(
             size: kept.map_or(w.estimate, |r| r.file.size),
             current: kept.is_some(),
             job: Job {
-                track_key: paths::key(&t.file_path).to_lowercase(),
+                track_key: paths::file_key(&t.file_path),
                 source: src_tree.fs_path(&entry.path),
                 source_size: w.source_size,
                 hash,

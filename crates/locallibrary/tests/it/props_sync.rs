@@ -915,14 +915,14 @@ fn packed_tracks(lib: &Library, selection: &[String], history: bool) -> BTreeSet
     if history {
         ids.extend(lib.history.iter().flat_map(|h| h.track_ids.iter().copied()));
     }
-    ids.into_iter().map(|id| paths::key(&lib.track(id).unwrap().file_path).to_lowercase()).collect()
+    ids.into_iter().map(|id| paths::file_key(&lib.track(id).unwrap().file_path)).collect()
 }
 
 /// A history list as players record it: name and tracks by file.
 type Recorded = (String, Vec<String>);
 
 fn recorded(list: &plays::HistoryList) -> Recorded {
-    (list.name.clone(), list.tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect())
+    (list.name.clone(), list.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect())
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1061,7 +1061,7 @@ fn run_packs(tc: TestCase, cfg: PackConfig) {
         let src_lib = src.library().unwrap();
         let d = Device::open_export(&club).unwrap();
         let lib = d.library().unwrap();
-        let tracks: BTreeSet<String> = lib.tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect();
+        let tracks: BTreeSet<String> = lib.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
         assert_eq!(tracks, packed_tracks(&src_lib, &chosen, history), "packed {chosen:?}");
         let main_files = fold(common::library_files(&main));
         let club_files = fold(common::library_files(&club));

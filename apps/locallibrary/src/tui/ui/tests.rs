@@ -1872,7 +1872,7 @@ fn the_my_tags_column_lists_each_tracks_tags(tc: hegel::TestCase) {
     for t in &tracks {
         let mine: Vec<String> = names.iter().filter(|_| tc.draw(gs::booleans())).map(|n| n.to_string()).collect();
         want.push(mine.iter().map(|n| n.rsplit('/').next().unwrap().to_string()).collect::<Vec<_>>());
-        tags.insert(locallibrary::paths::key(&t.file_path).to_lowercase(), mine);
+        tags.insert(locallibrary::paths::file_key(&t.file_path), mine);
     }
     l.my_tags = super::super::app::MyTags::Read(Arc::new(tags));
     let s = screen(&mut app, 200, 30);

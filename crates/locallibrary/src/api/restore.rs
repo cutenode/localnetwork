@@ -231,7 +231,7 @@ struct Restoration {
 /// playlist gets the source's entries whose track `current` has. Playlists `current` has in the
 /// folder that `source` lacks are left alone.
 fn restore_edits(source: &Library, node: &Playlist, current: &Library) -> Result<Restoration> {
-    let on_drive: FxHashSet<String> = current.tracks.iter().map(|t| paths::key(&t.file_path).to_lowercase()).collect();
+    let on_drive: FxHashSet<String> = current.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let names = source.playlist_names(node.id);
     if let Some(n) = names.iter().find(|n| n.contains('/')) {
         return Err(Error::invalid(format!("can't restore {n:?}: names with a / can't be given as a path")));
@@ -267,7 +267,7 @@ fn restore_edits(source: &Library, node: &Playlist, current: &Library) -> Result
         } else {
             let mut files = Vec::new();
             for (i, t) in source.tracks_by_id(&p.track_ids).into_iter().enumerate() {
-                if on_drive.contains(&paths::key(&t.file_path).to_lowercase()) {
+                if on_drive.contains(&paths::file_key(&t.file_path)) {
                     files.push(t.file_path.clone());
                 } else {
                     r.missing.push(MissingEntry {

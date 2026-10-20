@@ -1,10 +1,12 @@
-//! Writing a plugin in Rust: implement [`Plugin`] and hand it to [`serve`].
+//! Writing a plugin in Rust: a handler for each kind of hook it implements, in [`Hooks`], handed
+//! to [`serve`].
 
 use std::io::{Read, Write};
 use std::sync::Arc;
 use std::time::Duration;
 
 use loclib_progress::{CancelToken, Coalesced, Ctx, Flusher, Report, Scope};
+use rustc_hash::FxHashMap;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -14,34 +16,95 @@ use crate::protocol::{
     Analysis, AnalyzeTrack, Exported, Hello, HelloReply, OpPlan, PlanOp, PluginInfo, ProgressEvent, ProgressParams,
     ProgressReport, Progressed, RunCommand, StepInfo, StepStarted, WriteExport, check_protocol, method,
 };
-use crate::{Incoming, Manifest, PROTOCOL_VERSION, Peer, Request, RpcError};
+use crate::{Contributions, FEATURES, Incoming, Manifest, PROTOCOL_VERSION, Peer, Request, RpcError};
 
-/// A plugin's hooks, one for each kind of contribution. Each runs on a thread of its own, and
-/// only for a contribution the manifest declares; one the plugin doesn't implement answers
-/// `method_not_found`.
-pub trait Plugin: Send + Sync + 'static {
-    /// `command/run`: any JSON for a headless command, a [`crate::View`] for a view command.
-    fn run_command(&self, req: RunCommand, host: &Host) -> Result<Value, RpcError> {
-        let _ = (req, host);
-        Err(RpcError::method_not_found(method::RUN_COMMAND))
+/// A request the host sends a hook: its method, what it answers, and the contribution it's for,
+/// which the manifest must declare.
+pub trait Hook: DeserializeOwned + 'static {
+    /// Its method (`command/run`).
+    const METHOD: &'static str;
+    type Answer: Serialize;
+    /// Whether `contributes` declares the contribution it's for: `invalid_params` if not.
+    fn declared(&self, contributes: &Contributions) -> Result<(), RpcError>;
+}
+
+/// `name` is one of the manifest's contributions of this kind (`what`).
+fn declared<'a>(what: &str, name: &str, mut names: impl Iterator<Item = &'a String>) -> Result<(), RpcError> {
+    match names.any(|n| n == name) {
+        true => Ok(()),
+        false => Err(RpcError::invalid_params(format!("the manifest declares no {what} {name:?}"))),
+    }
+}
+
+/// Any JSON for a headless command, a [`crate::View`] for a view command.
+impl Hook for RunCommand {
+    const METHOD: &'static str = method::RUN_COMMAND;
+    type Answer = Value;
+
+    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
+        declared("command", &self.command, c.commands.iter().map(|x| &x.name))
+    }
+}
+
+impl Hook for AnalyzeTrack {
+    const METHOD: &'static str = method::ANALYZE_TRACK;
+    type Answer = Analysis;
+
+    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
+        declared("analyzer", &self.analyzer, c.analyzers.iter().map(|x| &x.name))
+    }
+}
+
+impl Hook for WriteExport {
+    const METHOD: &'static str = method::WRITE_EXPORT;
+    type Answer = Exported;
+
+    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
+        declared("exporter", &self.exporter, c.exporters.iter().map(|x| &x.format))
+    }
+}
+
+impl Hook for PlanOp {
+    const METHOD: &'static str = method::PLAN_OP;
+    type Answer = OpPlan;
+
+    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
+        declared("operation", &self.operation, c.operations.iter().map(|x| &x.name))
+    }
+}
+
+/// Runs a hook: its params, checked as its [`Hook`] says, to its answer.
+type Handler = Box<dyn Fn(Value, &Contributions, &Host) -> Result<Value, RpcError> + Send + Sync>;
+
+/// The hooks a plugin implements, by method. One it has none for answers `method_not_found`, and
+/// `hello` lists the features of those it has.
+#[derive(Default)]
+pub struct Hooks(FxHashMap<&'static str, Handler>);
+
+impl Hooks {
+    pub fn new() -> Hooks {
+        Hooks::default()
     }
 
-    /// `track/analyze`.
-    fn analyze_track(&self, req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
-        let _ = (req, host);
-        Err(RpcError::method_not_found(method::ANALYZE_TRACK))
+    /// Answers `H`'s requests with `hook`, each on a thread of its own, and only for a
+    /// contribution the manifest declares.
+    pub fn on<H: Hook>(
+        mut self,
+        hook: impl Fn(H, &Host) -> Result<H::Answer, RpcError> + Send + Sync + 'static,
+    ) -> Hooks {
+        let run = move |args: Value, contributes: &Contributions, host: &Host| {
+            let req: H = params(args)?;
+            req.declared(contributes)?;
+            ok(hook(req, host)?)
+        };
+        self.0.insert(H::METHOD, Box::new(run));
+        self
     }
 
-    /// `export/write`.
-    fn write_export(&self, req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
-        let _ = (req, host);
-        Err(RpcError::method_not_found(method::WRITE_EXPORT))
-    }
-
-    /// `op/plan`.
-    fn plan_op(&self, req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
-        let _ = (req, host);
-        Err(RpcError::method_not_found(method::PLAN_OP))
+    /// The features with a method among these hooks'.
+    fn features(&self) -> Vec<String> {
+        let had = FEATURES.iter().filter(|f| f.methods.iter().any(|m| self.0.contains_key(m)));
+        had.map(|f| f.name.into()).collect()
     }
 }
 
@@ -52,6 +115,7 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 /// noticing it was cancelled.
 pub struct Host {
     peer: Peer,
+    served: Arc<Served>,
     /// The host's request the hook is answering.
     id: Value,
     cancel: CancelToken,
@@ -59,7 +123,7 @@ pub struct Host {
 }
 
 impl Host {
-    fn new(peer: Peer, id: Value, cancel: CancelToken, flusher: &Flusher) -> Host {
+    fn new(peer: Peer, served: Arc<Served>, id: Value, cancel: CancelToken, flusher: &Flusher) -> Host {
         let (to, about) = (peer.clone(), id.clone());
         let send = move |scope: &Scope, report: Report| {
             let (event, items) = match report {
@@ -72,7 +136,12 @@ impl Host {
         };
         let progress = Arc::new(Coalesced::new(PROGRESS_EVERY, send));
         flusher.watch(&progress);
-        Host { peer, id, cancel, progress }
+        Host { peer, served, id, cancel, progress }
+    }
+
+    /// The plugin's manifest, as [`serve`] read it.
+    pub fn manifest(&self) -> &Manifest {
+        &self.served.manifest
     }
 
     /// Calls a core read method (`tracks.query`, `drive.info`...) with the params and result the
@@ -92,20 +161,24 @@ impl Host {
     }
 }
 
-/// Serves `plugin` over `input` and `output` (stdin and stdout, for a real plugin) until `input`
+/// What [`serve`] serves: the manifest and the hooks.
+struct Served {
+    manifest: Manifest,
+    hooks: Hooks,
+}
+
+/// Serves `hooks` over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes, then cancels the hooks still running and returns once they have answered. Until the
-/// host's `hello` every request is refused; `describe` answers `manifest`.
+/// host's `hello` every request is refused; `describe` answers `manifest` (the plugin's
+/// `locallibrary-plugin.toml`), which must parse.
 ///
 /// Cancelling is cooperative: a hook that never checks its `ctx()` runs to its end. A host should
 /// give a cancelled hook a while to answer and then kill the plugin.
-pub fn serve(
-    manifest: &Manifest,
-    plugin: impl Plugin,
-    input: impl Read + Send + 'static,
-    output: impl Write + Send + 'static,
-) {
+pub fn serve(manifest: &str, hooks: Hooks, input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
+    let manifest = Manifest::parse(manifest).expect("the plugin's manifest parses");
     let (peer, incoming) = Peer::new(input, output);
-    let shared = Arc::new((manifest.clone(), plugin));
+    let features = hooks.features();
+    let served = Arc::new(Served { manifest, hooks });
     let flusher = Arc::new(Flusher::new());
     let flushing = flusher.clone();
     let flushing = std::thread::spawn(move || flushing.run(PROGRESS_EVERY));
@@ -119,24 +192,28 @@ pub fn serve(
             method::HELLO => params(req.params).and_then(|hello: Hello| {
                 check_protocol(&hello.protocol)?;
                 greeted = true;
+                let m = &served.manifest;
                 ok(HelloReply {
                     protocol: PROTOCOL_VERSION.into(),
-                    plugin: PluginInfo { id: manifest.id.clone(), version: manifest.version.clone() },
-                    // None yet. The host's are ignored, as none of them changes what a plugin does.
-                    features: Vec::new(),
+                    plugin: PluginInfo { id: m.id.clone(), version: m.version.clone() },
+                    // The host's are ignored: what it lacks, it never calls.
+                    features: features.clone(),
                 })
             }),
             _ if !greeted => Err(RpcError::invalid_request("hello first")),
-            method::DESCRIBE => ok(manifest),
-            method::RUN_COMMAND | method::ANALYZE_TRACK | method::WRITE_EXPORT | method::PLAN_OP => {
-                let (peer, shared, flusher) = (peer.clone(), shared.clone(), flusher.clone());
+            method::DESCRIBE => ok(&served.manifest),
+            hook if served.hooks.0.contains_key(hook) => {
+                let (peer, served, flusher) = (peer.clone(), served.clone(), flusher.clone());
                 running.retain(|hook: &std::thread::JoinHandle<()>| !hook.is_finished());
                 running.push(std::thread::spawn(move || {
-                    let (manifest, plugin) = &*shared;
                     let Request { id, method, params, cancel } = req;
-                    let host = Host::new(peer.clone(), id.clone(), cancel, &flusher);
+                    let host = Host::new(peer.clone(), served.clone(), id.clone(), cancel, &flusher);
+                    let run = || {
+                        // Cancelled before it started.
+                        host.ctx().check()?;
+                        served.hooks.0[method.as_str()](params, &served.manifest.contributes, &host)
+                    };
                     // A bug in the plugin must not leave the host waiting forever for a response.
-                    let run = || hook(manifest, plugin, &method, params, &host);
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| {
                         Err(RpcError::internal(format!("internal error while handling {method:?}")))
                     });
@@ -154,43 +231,6 @@ pub fn serve(
     }
     flusher.stop();
     let _ = flushing.join();
-}
-
-/// `name` is one of the manifest's contributions of this kind (`what`).
-fn declared<'a>(what: &str, name: &str, mut names: impl Iterator<Item = &'a String>) -> Result<(), RpcError> {
-    match names.any(|n| n == name) {
-        true => Ok(()),
-        false => Err(RpcError::invalid_params(format!("the manifest declares no {what} {name:?}"))),
-    }
-}
-
-/// Runs the hook `method` asks for.
-fn hook(manifest: &Manifest, plugin: &impl Plugin, method: &str, args: Value, host: &Host) -> Result<Value, RpcError> {
-    // Cancelled before it started.
-    host.ctx().check()?;
-    let c = &manifest.contributes;
-    match method {
-        method::RUN_COMMAND => {
-            let req: RunCommand = params(args)?;
-            declared("command", &req.command, c.commands.iter().map(|x| &x.name))?;
-            plugin.run_command(req, host)
-        }
-        method::ANALYZE_TRACK => {
-            let req: AnalyzeTrack = params(args)?;
-            declared("analyzer", &req.analyzer, c.analyzers.iter().map(|x| &x.name))?;
-            ok(plugin.analyze_track(req, host)?)
-        }
-        method::WRITE_EXPORT => {
-            let req: WriteExport = params(args)?;
-            declared("exporter", &req.exporter, c.exporters.iter().map(|x| &x.format))?;
-            ok(plugin.write_export(req, host)?)
-        }
-        _ => {
-            let req: PlanOp = params(args)?;
-            declared("operation", &req.operation, c.operations.iter().map(|x| &x.name))?;
-            ok(plugin.plan_op(req, host)?)
-        }
-    }
 }
 
 #[cfg(test)]

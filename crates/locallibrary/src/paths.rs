@@ -10,9 +10,11 @@ use std::path::Path;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-pub use loclib_model::paths::{key, sanitize_component, to_fs};
+pub use loclib_model::paths::{file_key, fold, key, sanitize_component, to_fs};
 
 use loclib_model::paths::is_safe_component;
+
+use crate::tidy::TidyKind;
 
 pub const PIONEER_DIR: &str = "PIONEER";
 pub const CONTENTS_DIR: &str = "Contents";
@@ -35,6 +37,8 @@ pub const STATE_DIR: &str = ".locallibrary";
 /// What a file being written is called until it's renamed into place. One left behind is from a
 /// write that was cut off (see [`crate::tidy`]).
 pub const TEMP_PREFIX: &str = ".locallibrary-tmp-";
+/// Windows' own folder at a drive's root, which it makes again when it's removed.
+pub const SYSTEM_VOLUME_INFORMATION: &str = "System Volume Information";
 /// Folders under `PIONEER/` that players keep their own state in (logs, deleted items, per-model
 /// data).
 const PLAYER_DIRS: [&str; 4] = ["LOG", "CDJ", "MPJ", "TRASHBOX"];
@@ -117,22 +121,33 @@ impl FileClass {
     }
 }
 
-const IGNORED_NAMES: &[&str] = &[
-    ".DS_Store",
-    "Thumbs.db",
-    "desktop.ini",
-    ".Spotlight-V100",
-    ".Trashes",
-    ".fseventsd",
-    ".TemporaryItems",
-    "System Volume Information",
-    "$RECYCLE.BIN",
+/// What macOS and Windows leave on a drive, by name, with what `drive tidy` removes each as. It
+/// leaves `desktop.ini` (a folder's Explorer settings) and [`SYSTEM_VOLUME_INFORMATION`]. Names
+/// match in any letter case, as the drives' file systems do (Windows writes `$Recycle.Bin`).
+const OS_CLUTTER: [(&str, Option<TidyKind>); 9] = [
+    (".DS_Store", Some(TidyKind::DsStore)),
+    ("Thumbs.db", Some(TidyKind::Thumbnails)),
+    ("desktop.ini", None),
+    (".Spotlight-V100", Some(TidyKind::Spotlight)),
+    (".Trashes", Some(TidyKind::Trash)),
+    (".fseventsd", Some(TidyKind::FsEvents)),
+    (".TemporaryItems", Some(TidyKind::TemporaryItems)),
+    (SYSTEM_VOLUME_INFORMATION, None),
+    ("$RECYCLE.BIN", Some(TidyKind::Trash)),
 ];
 
 /// Whether a single path component is OS clutter (or an interrupted write's temp file) that must
 /// never be synced.
 pub fn is_ignored_name(name: &str) -> bool {
-    name.starts_with("._") || name.starts_with(TEMP_PREFIX) || IGNORED_NAMES.contains(&name)
+    name.starts_with("._")
+        || name.starts_with(TEMP_PREFIX)
+        || OS_CLUTTER.iter().any(|(n, _)| n.eq_ignore_ascii_case(name))
+}
+
+/// What `drive tidy` removes OS clutter named `name` as, by its name alone: AppleDouble and temp
+/// files are told by their prefixes (see [`crate::tidy`]).
+pub(crate) fn clutter_kind(name: &str) -> Option<TidyKind> {
+    OS_CLUTTER.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).and_then(|&(_, kind)| kind)
 }
 
 /// Classify a key. `None` means locallibrary does not manage the file at all (it lives outside

@@ -99,10 +99,19 @@ fn params(tc: &TestCase) -> Value {
     json!({ "type": "object", "properties": properties })
 }
 
+/// `x` (a command or an operation) offered in drawn menus, or where it is when it doesn't say.
+#[hegel::test_helper]
+fn offered(tc: &TestCase, x: &mut Value) {
+    if tc.draw(gs::booleans()) {
+        x["where"] = json!(tc.draw(gs::subsequences(&["track", "playlist", "drive"][..]).min_size(1)));
+    }
+}
+
 /// A plugin `id` with drawn capabilities and contributions: commands (`cmd0`...) and
-/// operations (`op0`...), each at a place of its own on the command line or not; analyzers of
-/// drawn fields, and the test plugin's `size` (`bytes`) and `order` (`a`, `b`) it can run; export
-/// formats writing a file or a folder; and settings of every kind.
+/// operations (`op0`...), each at a place of its own on the command line or not and in drawn
+/// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`) and
+/// `order` (`a`, `b`) it can run; export formats writing a file or a folder; and settings of
+/// every kind.
 #[hegel::test_helper]
 fn manifest(tc: &TestCase, id: &str) -> Value {
     let version = tc.draw(gs::sampled_from(&["0.1.0", "1.2.3-beta.1", "10.0.0"][..]));
@@ -131,6 +140,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         if let Some(p) = place(tc, &format!("cmd{j}")) {
             c["cli"] = json!(p);
         }
+        offered(tc, &mut c);
         commands.push(c);
     }
     let mut operations = Vec::new();
@@ -142,6 +152,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         if let Some(p) = place(tc, &format!("op{j}")) {
             o["cli"] = json!(p);
         }
+        offered(tc, &mut o);
         operations.push(o);
     }
     let mut analyzers = Vec::new();
@@ -150,13 +161,16 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         let fields: Map<String, Value> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
             .map(|k| (format!("f{j}-{k}"), json!(tc.draw(gs::sampled_from(&types[..])))))
             .collect();
-        analyzers.push(json!({ "name": format!("an{j}"), "title": title(tc), "fields": fields }));
+        let version = tc.draw(gs::sampled_from(&["1", "0.2.0", "2026-10_b+1"][..]));
+        analyzers.push(json!({ "name": format!("an{j}"), "title": title(tc), "version": version, "fields": fields }));
     }
     if tc.draw(gs::booleans()) {
-        analyzers.push(json!({ "name": "size", "title": "File size", "fields": { "bytes": "integer" } }));
+        let size = json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+        analyzers.push(size);
     }
     if tc.draw(gs::booleans()) {
-        analyzers.push(json!({ "name": "order", "title": "Order", "fields": { "a": "integer", "b": "integer" } }));
+        let fields = json!({ "a": "integer", "b": "integer" });
+        analyzers.push(json!({ "name": "order", "title": "Order", "version": "1", "fields": fields }));
     }
     let exporters: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
         .map(|j| {
@@ -174,7 +188,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         "id": id,
         "name": title(tc),
         "version": version,
-        "protocol": "^0.1",
+        "protocol": "^0.2",
         "capabilities": capabilities,
         "contributes": {
             "commands": commands,
@@ -283,8 +297,13 @@ fn described_text(d: &Value) -> String {
         Some(place) => format!("locallibrary {place}"),
         None => format!("locallibrary {id} {}", str_of(&x["name"])),
     };
-    section("Commands:".into(), list("commands").iter().map(|x| (invocation(x), str_of(&x["title"]))).collect());
-    let operations = list("operations").iter().map(|x| (invocation(x), str_of(&x["title"]))).collect();
+    // With the menus that offer each.
+    let offered = |x: &Value| {
+        let menus: Vec<String> = x["where"].as_array().unwrap().iter().map(str_of).collect();
+        format!("{} (menus: {})", str_of(&x["title"]), menus.join(", "))
+    };
+    section("Commands:".into(), list("commands").iter().map(|x| (invocation(x), offered(x))).collect());
+    let operations = list("operations").iter().map(|x| (invocation(x), offered(x))).collect();
     section("Operations (planned, then confirmed):".into(), operations);
     let analyzers = list("analyzers")
         .iter()
@@ -380,6 +399,9 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
                 x.as_object_mut().unwrap().retain(|_, v| !v.is_null());
                 if key == "operations" {
                     x["long_running"] = json!(false);
+                }
+                if ["commands", "operations"].contains(&key) && x.get("where").is_none() {
+                    x["where"] = json!(["drive"]);
                 }
                 if key == "exporters" && x.get("folder").is_none() {
                     x["folder"] = json!(false);
@@ -628,7 +650,7 @@ fn a_commands_flags_give_it_the_params_typed(tc: TestCase) {
         op["cli"] = json!(p);
     }
     let m = json!({
-        "id": id, "name": "Flags", "version": "0.1.0", "protocol": "^0.1",
+        "id": id, "name": "Flags", "version": "0.1.0", "protocol": "^0.2",
         "capabilities": ["library:read", "library:plan"],
         "contributes": { "commands": [command], "operations": [op] },
     });
@@ -867,7 +889,7 @@ fn view_text(v: &Value) -> String {
 fn views_read_in_text_as_in_json(tc: TestCase) {
     // The test plugin's `echo` answers its params: here, a view.
     let m = json!({
-        "id": "views", "name": "Views", "version": "0.1.0", "protocol": "^0.1",
+        "id": "views", "name": "Views", "version": "0.1.0", "protocol": "^0.2",
         "contributes": { "commands": [{ "name": "echo", "title": "Show", "mode": "view" }] },
     });
     let env = env_with(&[m]);
@@ -905,15 +927,16 @@ fn audio_of(n: usize) -> String {
 #[hegel::test(test_cases = 5, suppress_health_check = [HealthCheck::TooSlow])]
 fn analyzers_work_out_each_file_once(tc: TestCase) {
     let id = "meter";
-    let size = json!({ "name": "size", "title": "File size", "fields": { "bytes": "integer" } });
-    let order = json!({ "name": "order", "title": "Order", "fields": { "a": "integer", "b": "integer" } });
+    let size = json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+    let fields = json!({ "a": "integer", "b": "integer" });
+    let order = json!({ "name": "order", "title": "Order", "version": "1", "fields": fields });
     let analyzers = match tc.draw(gs::booleans()) {
         true => vec![size, order],
         false => vec![order, size],
     };
     let names: Vec<String> = analyzers.iter().map(|a| a["name"].as_str().unwrap().to_string()).collect();
     let m = json!({
-        "id": id, "name": "Meter", "version": "0.2.0", "protocol": "^0.1",
+        "id": id, "name": "Meter", "version": "0.2.0", "protocol": "^0.2",
         "contributes": { "analyzers": analyzers },
     });
     let env = env_with(&[m]);
@@ -1102,7 +1125,7 @@ fn analyzers_work_out_each_file_once(tc: TestCase) {
 /// sidecar listing it with why (as the contract says), while a plugin beside it works.
 #[hegel::test(test_cases = 4, suppress_health_check = [HealthCheck::TooSlow])]
 fn a_plugin_that_clashes_is_left_out_saying_why(tc: TestCase) {
-    let plain = |id: &str| json!({ "id": id, "name": "P", "version": "0.1.0", "protocol": "^0.1" });
+    let plain = |id: &str| json!({ "id": id, "name": "P", "version": "0.1.0", "protocol": "^0.2" });
     let (clashing, why) = match tc.draw(gs::integers::<u8>().max_value(3)) {
         0 => {
             let ns = tc.draw(gs::sampled_from(&["events", "tracks", "playlists", "drive"][..]));
@@ -1223,7 +1246,8 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
     push(&mut c["operations"], json!({ "name": "make", "title": "Make" }));
     push(&mut c["exporters"], json!({ "format": format!("{id}-out"), "title": "Out", "extension": "m3u" }));
     if !c["analyzers"].as_array().unwrap().iter().any(|a| a["name"] == "size") {
-        push(&mut c["analyzers"], json!({ "name": "size", "title": "File size", "fields": { "bytes": "integer" } }));
+        let size = json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+        push(&mut c["analyzers"], size);
     }
     if c["settings"].as_array().unwrap().is_empty() {
         push(&mut c["settings"], setting(&tc, "k0"));

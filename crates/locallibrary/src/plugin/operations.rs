@@ -18,7 +18,8 @@ use crate::{Error, Result};
 
 impl Plugins {
     /// Plans one of a plugin's operations with `params` (checked against its schema; `null` is
-    /// no params) on the drive the user is on (`context.drive`). The plan's operation is
+    /// no params; one from the selection, `x-from`, that isn't given is filled in from `context`)
+    /// on the drive the user is on (`context.drive`). The plan's operation is
     /// `<plugin>.<operation>`, never a built-in one; it reads as an edit plan, with the plugin's
     /// summary first, and it's destructive when its edits are (see [`EditPlan::destructive`]),
     /// which needs the `library:delete` capability. Planned strictly: every edit must apply, it's
@@ -34,11 +35,11 @@ impl Plugins {
     ) -> Result<Planned<EditPlan>> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared("operation", operation, &slot.manifest.contributes.operations, |o| &o.name)?;
-        let params = super::fitting(declared.params.as_ref(), params)?;
         let (context, device) = slot.context(context, store)?;
+        let params = super::fitting(declared.params.as_ref(), params, &context)?;
         let device = device.ok_or_else(|| Error::invalid(format!("{operation} edits a drive: say which")))?;
         let op = PlanOp { operation: operation.into(), params, context };
-        let OpPlan { summary, warnings, edits, inputs } = slot.call(method::PLAN_OP, &op, ctx)?;
+        let OpPlan { summary, warnings, edits, inputs } = slot.call(method::PLAN_OP, &op, store, ctx)?;
         let edits = edits.into_iter().enumerate().map(|(i, e)| slot.edit(i, e)).collect::<Result<Vec<_>>>()?;
         if let Some(input) = inputs.iter().find(|f| !f.is_absolute()) {
             return Err(slot.misbehaved(format!("it read {}, which isn't an absolute path", input.display())));

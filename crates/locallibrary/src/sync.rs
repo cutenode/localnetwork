@@ -50,7 +50,7 @@ use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::fsutil;
 use crate::hash::Hash;
-use crate::paths::{self, FileClass};
+use crate::paths::{self, FileClass, fold};
 use crate::progress::{Ctx, Event, Phase, Scope};
 use crate::store::{Snapshot, SnapshotSource, Store};
 use crate::tree::{FileEntry, FileTree};
@@ -239,10 +239,6 @@ impl SyncPlan {
         }
         needed + largest_replace
     }
-}
-
-fn fold(key: &str) -> String {
-    key.to_lowercase()
 }
 
 /// `exportLibrary.db` or its WAL.

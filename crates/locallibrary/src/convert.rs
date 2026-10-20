@@ -204,10 +204,11 @@ struct Additions {
 
 impl Additions {
     fn of(source: &Library, target: &Library) -> Additions {
-        let by_path: FxHashMap<String, u32> = target.tracks.iter().map(|t| (fold(&t.file_path), t.id)).collect();
+        let by_path: FxHashMap<String, u32> =
+            target.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect();
         let (mut matches, mut new_tracks) = (FxHashMap::default(), FxHashSet::default());
         for t in &source.tracks {
-            match by_path.get(&fold(&t.file_path)) {
+            match by_path.get(&paths::file_key(&t.file_path)) {
                 Some(id) => {
                     matches.insert(t.id, *id);
                 }
@@ -302,23 +303,24 @@ fn dropped(target: &Library, source: &Library, file: &str) -> Option<String> {
         if p.is_folder { format!("{path}/") } else { path }
     };
     let files = |lib: &Library, ids: &[u32]| -> FxHashSet<String> {
-        ids.iter().filter_map(|id| lib.track(*id)).map(|t| fold(&t.file_path)).collect()
+        ids.iter().filter_map(|id| lib.track(*id)).map(|t| paths::file_key(&t.file_path)).collect()
     };
-    let theirs: FxHashMap<String, &Playlist> = source.playlists.iter().map(|p| (fold(&label(source, p)), p)).collect();
+    let theirs: FxHashMap<String, &Playlist> =
+        source.playlists.iter().map(|p| (paths::file_key(&label(source, p)), p)).collect();
     let (mut playlists, mut entries) = (Vec::new(), Vec::new());
     for p in &target.playlists {
         let name = label(target, p);
-        match theirs.get(&fold(&name)) {
+        match theirs.get(&paths::file_key(&name)) {
             None => playlists.push(name),
             Some(s) if !files(target, &p.track_ids).is_subset(&files(source, &s.track_ids)) => entries.push(name),
             Some(_) => {}
         }
     }
-    let lists: FxHashSet<String> = source.history.iter().map(|h| fold(&h.name)).collect();
+    let lists: FxHashSet<String> = source.history.iter().map(|h| paths::file_key(&h.name)).collect();
     let history: Vec<String> = target
         .history
         .iter()
-        .filter(|h| !h.is_folder && !lists.contains(&fold(&h.name)))
+        .filter(|h| !h.is_folder && !lists.contains(&paths::file_key(&h.name)))
         .map(|h| h.name.clone())
         .collect();
     let named = |what: &str, names: &[String]| {
@@ -337,10 +339,6 @@ fn dropped(target: &Library, source: &Library, file: &str) -> Option<String> {
     (!parts.is_empty()).then(|| format!("rebuilding drops what only {file} has: {}", parts.join("; ")))
 }
 
-fn fold(s: &str) -> String {
-    paths::key(s).to_lowercase()
-}
-
 pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<ConvertPlan> {
     let source = source_library(device, opts.to)?;
     let has = has_target(device, opts.to);
@@ -354,8 +352,9 @@ pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<Co
     if replaces {
         match &existing {
             Some(existing) => {
-                let keep: FxHashSet<String> = source.tracks.iter().map(|t| fold(&t.file_path)).collect();
-                let dropped_tracks = existing.tracks.iter().filter(|t| !keep.contains(&fold(&t.file_path))).count();
+                let keep: FxHashSet<String> = source.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
+                let dropped_tracks =
+                    existing.tracks.iter().filter(|t| !keep.contains(&paths::file_key(&t.file_path))).count();
                 if dropped_tracks > 0 {
                     warnings.push(format!(
                         "{dropped_tracks} track(s) only {} lists will no longer be in it (their files stay on the drive)",
@@ -406,16 +405,16 @@ pub fn plan(device: &Device, opts: &ConvertOptions, _ctx: &Ctx<'_>) -> Result<Co
     let file_size = |k: &str| device.checked_path(k).ok().and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len());
     let made = |t: &&Track| additions.as_ref().is_none_or(|a| a.new_tracks.contains(&t.id));
     for a in source.tracks.iter().filter(made).filter_map(|t| t.artwork_path.as_ref()) {
-        if artwork.contains(&fold(a)) || missing.contains(&fold(a)) {
+        if artwork.contains(&paths::file_key(a)) || missing.contains(&paths::file_key(a)) {
             continue;
         }
         match file_size(&paths::key(a)) {
             Some(n) => {
-                artwork.insert(fold(a));
+                artwork.insert(paths::file_key(a));
                 artwork_bytes += n + file_size(&medium_variant(&paths::key(a))).unwrap_or(0);
             }
             None => {
-                missing.insert(fold(a));
+                missing.insert(paths::file_key(a));
             }
         }
     }
@@ -632,7 +631,7 @@ impl Builder<'_, '_> {
             }
         };
         let old_by_path: FxHashMap<String, &Track> =
-            self.target.iter().flat_map(|l| l.tracks.iter()).map(|t| (fold(&t.file_path), t)).collect();
+            self.target.iter().flat_map(|l| l.tracks.iter()).map(|t| (paths::file_key(&t.file_path), t)).collect();
         let defaults = match &rebuilt {
             Some(e) => e.content_defaults()?,
             None => one.content_defaults()?,
@@ -646,27 +645,27 @@ impl Builder<'_, '_> {
                 ids.insert(t.id, id);
                 continue;
             }
-            let kept = rebuilt.as_ref().and_then(|_| old_by_path.get(&fold(&t.file_path)).copied());
+            let kept = rebuilt.as_ref().and_then(|_| old_by_path.get(&paths::file_key(&t.file_path)).copied());
             // The image OneLibrary already had for the track, else export.pdb's under a `b` name.
             let image = match (kept.and_then(|k| k.artwork_path.as_ref()), &t.artwork_path) {
                 (Some(own), _) if self.device.checked_path(&paths::key(own)).is_ok_and(|p| p.is_file()) => {
-                    match images.get(&fold(own)) {
+                    match images.get(&paths::file_key(own)) {
                         Some(id) => *id,
                         None => {
                             let id = Some(one.add_image(own)?);
-                            images.insert(fold(own), id);
+                            images.insert(paths::file_key(own), id);
                             id
                         }
                     }
                 }
-                (_, Some(art)) => match images.get(&fold(art)) {
+                (_, Some(art)) => match images.get(&paths::file_key(art)) {
                     Some(id) => *id,
                     None => {
                         let id = match self.copy_image(art, 'b', one.next_image_id()?)? {
                             Some(key) => Some(one.add_image(&paths::device_path(&key))?),
                             None => None,
                         };
-                        images.insert(fold(art), id);
+                        images.insert(paths::file_key(art), id);
                         id
                     }
                 },
@@ -703,7 +702,7 @@ impl Builder<'_, '_> {
                     .tracks
                     .iter()
                     .filter_map(|t| {
-                        let key = fold(&t.file_path);
+                        let key = paths::file_key(&t.file_path);
                         Some((*ids.get(&t.id)?, key.clone(), ext.of(&key)?))
                     })
                     .collect();
@@ -749,7 +748,7 @@ impl Builder<'_, '_> {
                     continue;
                 }
                 let artwork_id = match &t.artwork_path {
-                    Some(art) => match artwork.get(&fold(art)) {
+                    Some(art) => match artwork.get(&paths::file_key(art)) {
                         Some(id) => *id,
                         None => {
                             let next = editor.database()?.artwork.iter().map(|a| a.id).max().unwrap_or(0) + 1;
@@ -757,7 +756,7 @@ impl Builder<'_, '_> {
                                 Some(key) => editor.add_artwork(&paths::device_path(&key))?,
                                 None => 0,
                             };
-                            artwork.insert(fold(art), id);
+                            artwork.insert(paths::file_key(art), id);
                             id
                         }
                     },
@@ -883,7 +882,7 @@ fn tags_gained(into: &DbTags, from: Option<&DbTags>, source: &Library) -> usize 
         .tracks
         .iter()
         .filter_map(|t| {
-            let key = fold(&t.file_path);
+            let key = paths::file_key(&t.file_path);
             Some((t.id, key.clone(), from.of(&key)?))
         })
         .collect();
@@ -975,7 +974,7 @@ fn device_library_tags(
         .tracks
         .iter()
         .filter_map(|t| {
-            let key = fold(&t.file_path);
+            let key = paths::file_key(&t.file_path);
             Some((t.id, key.clone(), plus.as_ref()?.of(&key)?))
         })
         .collect();

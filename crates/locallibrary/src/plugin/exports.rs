@@ -78,12 +78,12 @@ impl Plugins {
             )));
         }
         outside_drives(output, store)?;
-        let options = super::fitting(declared.options.as_ref(), options)?;
         let (context, _) = slot.context(Context { drive: Some(source.drive.clone()), ..Context::default() }, store)?;
+        let options = super::fitting(declared.options.as_ref(), options, &context)?;
         let source = ExportSource { drive: context.drive.clone().unwrap_or_default(), ..source };
         let mut write =
             WriteExport { exporter: exporter.into(), source, output: output.into(), options, dry_run: true, context };
-        let Exported { files, counts, notes, warnings } = slot.call(method::WRITE_EXPORT, &write, ctx)?;
+        let Exported { files, counts, notes, warnings } = slot.call(method::WRITE_EXPORT, &write, store, ctx)?;
         write.dry_run = false;
         // Checked again before it's written: the files in the folder the output is in (an output
         // that's a folder of its own may not be there yet).
@@ -174,7 +174,7 @@ impl Operation for PluginExport {
         let dir = e.output.parent().unwrap_or(&e.output);
         std::fs::create_dir_all(dir).at(dir)?;
         let slot = e.slot.upgrade().ok_or_else(|| Error::stale(format!("the {} plugin", e.plugin), "stopped"))?;
-        let written: Exported = slot.call(method::WRITE_EXPORT, &e.write, ctx)?;
+        let written: Exported = slot.call(method::WRITE_EXPORT, &e.write, store, ctx)?;
         // By path: a file's size is known exactly only once it's written.
         let said: Vec<&Path> = e.files.iter().map(|f| f.file.path.as_path()).collect();
         let wrote: Vec<&Path> = written.files.iter().map(|f| f.path.as_path()).collect();

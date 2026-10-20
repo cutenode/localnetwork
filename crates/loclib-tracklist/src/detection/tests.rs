@@ -33,7 +33,9 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 fn file_paths_read_back_from_every_spelling(tc: TestCase) {
     let segment = || gs::from_regex("[A-Za-z0-9é &'()_.-]{1,8}").fullmatch(true).filter(|s: &String| s.trim() == s);
     let dirs: Vec<String> = tc.draw(gs::vecs(segment()).max_size(3));
-    let ext = tc.draw(gs::sampled_from(AUDIO_EXTENSIONS.to_vec()));
+    let ext = tc.draw(gs::sampled_from(
+        audio::PLAYER_EXTENSIONS.into_iter().chain(audio::OTHER_EXTENSIONS).map(|(e, _)| e).collect::<Vec<_>>(),
+    ));
     let file = format!("{}.{ext}", tc.draw(segment()));
     let rel = dirs.iter().chain([&file]).cloned().collect::<Vec<_>>().join("/");
     let posix = format!("/{rel}");

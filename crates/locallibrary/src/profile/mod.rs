@@ -556,7 +556,7 @@ struct Builder<'a> {
     files: Files<'a>,
     recs: Vec<Rec>,
     by_key: FxHashMap<String, usize>,
-    /// Every file of every library read ([`plays::file_key`]), to find a set's entries by.
+    /// Every file of every library read ([`paths::file_key`]), to find a set's entries by.
     by_file: FxHashMap<String, usize>,
     lists: Vec<ListData>,
     sets: Vec<SetData>,
@@ -570,7 +570,7 @@ struct Builder<'a> {
 /// track has neither artist nor title.
 fn rec_key(t: &Track) -> String {
     if t.artist.trim().is_empty() && t.title.trim().is_empty() {
-        format!("file\u{1f}{}", plays::file_key(&t.file_path))
+        format!("file\u{1f}{}", paths::file_key(&t.file_path))
     } else {
         t.fingerprint_key()
     }
@@ -610,7 +610,7 @@ impl<'a> Builder<'a> {
             }
         };
         if !t.file_path.is_empty() {
-            self.by_file.entry(plays::file_key(&t.file_path)).or_insert(i);
+            self.by_file.entry(paths::file_key(&t.file_path)).or_insert(i);
         }
         i
     }

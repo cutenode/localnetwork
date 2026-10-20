@@ -276,7 +276,7 @@ fn an_analyzers_answers_are_kept_only_as_it_declares(tc: TestCase) {
     size.extend(tempo.map(|t| ("tempo", t)));
     let mut analyzers = toml_fields(&size);
     if let Some(order) = &order {
-        analyzers.push_str("\n[[contributes.analyzers]]\nname = \"order\"\ntitle = \"Order\"\n");
+        analyzers.push_str("\n[[contributes.analyzers]]\nname = \"order\"\ntitle = \"Order\"\nversion = \"1\"\n");
         analyzers.push_str(&toml_fields(order));
     }
     let manifest = ECHO.replace("fields = { bytes = \"integer\" }\n", &analyzers);
@@ -876,7 +876,7 @@ fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
     let analyzers: Vec<(String, String, String)> =
         hosted.analyzers().into_iter().map(|a| (a.plugin, a.version, a.analyzer)).collect();
     let expected: Vec<(String, String, String)> =
-        ids.iter().map(|id| (id.to_string(), "0.1.0".into(), "size".into())).collect();
+        ids.iter().map(|id| (id.to_string(), "1".into(), "size".into())).collect();
     assert_eq!(analyzers, expected);
     assert_eq!(hosted.manifest("nope").err().unwrap().code(), "not_found");
     assert!(!hosted.is_running("nope"));
@@ -986,7 +986,9 @@ fn only_a_plugin_that_is_what_its_manifest_says_runs(tc: TestCase) {
                 "the Other plugin failed: it describes itself otherwise than the manifest locallibrary has for it"
                     .into()
             }
-            AnotherProtocol => "the Echo plugin failed: protocol \"9.0.0\" isn't compatible with 0.1.0".into(),
+            AnotherProtocol => {
+                format!("the Echo plugin failed: protocol \"9.0.0\" isn't compatible with {PROTOCOL_VERSION}")
+            }
             NotThere => "the Echo plugin failed: it couldn't be started: ".into(),
             Silent => "the Echo plugin failed: it didn't answer hello in time".into(),
         };

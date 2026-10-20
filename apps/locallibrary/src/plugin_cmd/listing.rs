@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use anyhow::Result;
 use console::style;
 use locallibrary::plugin::Plugins;
-use loclib_plugin::Setting;
+use loclib_plugin::{Setting, Where};
 use unicode_width::UnicodeWidthStr;
 
 use crate::jobs_cmd::usage;
@@ -71,9 +71,16 @@ pub(super) fn info(d: &Described) {
         }
     };
     section("May:", d.capabilities.iter().map(|g| (g.means.clone(), String::new())).collect());
-    let commands = c.commands.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), x.title.clone()));
+    // With the menus that offer it.
+    let offered = |title: &str, places: &[Where]| {
+        let places: Vec<&str> = places.iter().map(|w| w.name()).collect();
+        format!("{title} (menus: {})", places.join(", "))
+    };
+    let commands =
+        c.commands.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Commands:", commands.collect());
-    let operations = c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), x.title.clone()));
+    let operations =
+        c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Operations (planned, then confirmed):", operations.collect());
     let analyzers = c.analyzers.iter().map(|a| {
         let fields: Vec<String> = a.fields.keys().cloned().collect();

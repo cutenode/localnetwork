@@ -35,12 +35,8 @@ fn browsing(tc: &TestCase) -> (App, tempfile::TempDir) {
     // The drive's My Tags read, or not yet.
     let l = app.loaded.as_mut().unwrap();
     if tc.draw(gs::booleans()) {
-        let tags = l
-            .library
-            .tracks
-            .iter()
-            .map(|t| (paths::key(&t.file_path).to_lowercase(), vec!["Genre/House".to_string()]))
-            .collect();
+        let tags =
+            l.library.tracks.iter().map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()])).collect();
         l.my_tags = MyTags::Read(Arc::new(tags));
     }
     (app, dir)
@@ -1333,7 +1329,7 @@ fn the_search_box_filters_as_the_library_does(tc: TestCase) {
     let l = app.loaded.as_mut().unwrap();
     let tags: FxHashMap<String, Vec<String>> = (l.library.tracks.iter())
         .filter(|_| tc.draw(gs::booleans()))
-        .map(|t| (paths::key(&t.file_path).to_lowercase(), vec!["Genre/House".to_string()]))
+        .map(|t| (paths::file_key(&t.file_path), vec!["Genre/House".to_string()]))
         .collect();
     l.my_tags = MyTags::Reading;
     // In a playlist, or all tracks.
@@ -2224,13 +2220,15 @@ const FIELD_KINDS: [(&str, loclib_plugin::FieldType); 5] = {
     [("p.count", Integer), ("p.level", Number), ("p.loud", Boolean), ("p.mood", String), ("p.tags", Strings)]
 };
 
-/// A value of the field of the kind `FIELD_KINDS[kind]`, as drawn for a track: often none, some
-/// the same as others'.
+/// A value of the field of the kind `FIELD_KINDS[kind]`, as drawn for a track: often none, now
+/// and then null (worked out, with nothing to show), some the same as others'.
 #[hegel::test_helper]
 fn any_field_value(tc: &TestCase, kind: usize) -> Option<locallibrary::fields::FieldValue> {
     use locallibrary::fields::FieldValue::*;
-    if tc.draw(gs::integers::<u8>().max_value(3)) == 0 {
-        return None;
+    match tc.draw(gs::integers::<u8>().max_value(7)) {
+        0 | 1 => return None,
+        2 => return Some(Null),
+        _ => {}
     }
     let words = &["Deep", "deep", "日本", ""][..];
     Some(match kind {
@@ -2243,10 +2241,11 @@ fn any_field_value(tc: &TestCase, kind: usize) -> Option<locallibrary::fields::F
 }
 
 /// A field's value as its column should show it: a number to two places at most (no zeros
-/// after the point), a switch as yes or no, a list joined.
+/// after the point), a switch as yes or no, a list joined, null as a dash.
 fn field_text(v: &locallibrary::fields::FieldValue) -> std::string::String {
     use locallibrary::fields::FieldValue::*;
     match v {
+        Null => "-".to_string(),
         Integer(n) => n.to_string(),
         Number(n) => format!("{n:.2}").trim_end_matches('0').trim_end_matches('.').to_string(),
         Boolean(b) => if *b { "yes" } else { "no" }.to_string(),
@@ -2259,7 +2258,8 @@ fn field_text(v: &locallibrary::fields::FieldValue) -> std::string::String {
 /// columns in the order asked for: drawn at any size without a panic, and at full width after the
 /// player's own columns and before tempo, key and time, each row showing its track's value as it
 /// should read (cut at the column's edge). Sorted by one either way with clicks on its heading,
-/// the tracks go by its values as the library orders them, those without one last.
+/// the tracks go by its values as the library orders them, those without one to show (none, or
+/// null) last.
 #[hegel::test(test_cases = 60)]
 fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
     let mut lib = library();
@@ -2326,9 +2326,9 @@ fn plugins_fields_of_every_kind_show_and_sort(tc: TestCase) {
         assert_eq!(app.sort.map(|k| (k.field, k.descending)), Some((SortField::Field(name), descending)));
         let l = app.loaded.as_ref().unwrap();
         let got: Vec<Option<&locallibrary::fields::FieldValue>> =
-            app.visible.iter().map(|&i| values.get(l.library.tracks[i].id, name.as_str())).collect();
+            app.visible.iter().map(|&i| values.shown(l.library.tracks[i].id, name.as_str())).collect();
         let valued = got.iter().take_while(|v| v.is_some()).count();
-        assert!(got[valued..].iter().all(Option::is_none), "without a value last");
+        assert!(got[valued..].iter().all(Option::is_none), "without a value to show last");
         for pair in got[..valued].windows(2) {
             let ord = locallibrary::query::compare_values(pair[0].unwrap(), pair[1].unwrap());
             let wrong = if descending { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };

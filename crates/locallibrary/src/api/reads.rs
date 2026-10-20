@@ -332,9 +332,8 @@ pub struct AnalysisRequest {
     pub encoding: WaveformEncoding,
 }
 
-/// The most tracks `tracks.analysis` takes at once: an analysis without its scrolling waveform
-/// runs to tens of kilobytes.
-pub const MAX_ANALYSES: usize = 100;
+/// The most tracks `tracks.analysis` takes at once, as plugins' read client batches them.
+pub use loclib_plugin::MAX_ANALYSES;
 
 /// [`AnalysisRequest`] for several tracks, without waveforms unless asked.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

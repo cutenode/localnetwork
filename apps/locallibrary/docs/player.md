@@ -28,20 +28,22 @@ listening to your library the way the players see it:
   own: pull, check, set prep, sync, pack, restore, replay, export, xml, smart, smart apply, smart
   new and eject.
 - **Plugins' commands and operations** are in the palette by title, with the plugin's name beside
-  them, and at the end of a drive's `e` menu in the Drives view; operations, which change the
-  drive, end the actions menu (`e`) too. One that takes params asks for them in a form first
-  (`↑↓` or `tab` between fields, `←→` or `space` to pick a choice, `enter` to run; lists take
-  commas), a list of tracks starting with the marked or selected ones. It runs on the drive open,
-  with the marked or selected tracks and the playlist selected, in the background (`esc` stops
-  it). What a command answers shows in a panel, or as a message when it's a line; an operation's
+  them, and where the plugin offers them: at the end of a drive's `e` menu in the Drives view, and
+  of the actions menu (`e`) for those that work on tracks or a playlist. One that takes params
+  asks for them in a form first (`↑↓` or `tab` between fields, `←→` or `space` to pick a choice,
+  `enter` to run; lists take commas, a secret shows as dots), a param the plugin fills from what's
+  selected starting as the marked or selected tracks, the playlist or the drive. It runs on the
+  drive open, with the marked or selected tracks and the playlist selected, in the background
+  (`esc` stops it). What a command answers shows in a panel, or as a message when it's a line; an operation's
   plan, with what the plugin says about it first, is confirmed and written like any edit, and `u`
   takes it back. An operation, or a command of a plugin that reads the drive, needs one plugged
   in, not a folder opened by path. What plugins log goes to the messages (`!`). See
   [Plugins](plugins.md).
 - **Analyzers**: "analyze the tracks: …" in the palette (or a drive's `e` menu) runs a plugin's
   analyzer over the drive's tracks in the background, those not analysed already. "show the
-  sound.bpm column" adds a column of what it worked out (remembered for the next run), sorted by
-  a click on its header like any column, and the search box filters by it: `sound.bpm:>120`.
+  sound.bpm column" adds a column of what it worked out (remembered for the next run; `-` where
+  it found nothing to show), sorted by a click on its header like any column, and the search box
+  filters by it: `sound.bpm:>120`.
 - **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
   the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
   to its default.

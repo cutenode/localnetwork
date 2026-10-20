@@ -5,7 +5,7 @@ use serde_json::{Map, json};
 use super::*;
 use crate::code;
 
-const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.1\"\n";
+const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
 
 const ECHO: &str = include_str!("../../examples/echo/locallibrary-plugin.toml");
 
@@ -193,7 +193,7 @@ fn cli_hints_are_read_from_a_property() {
 #[test]
 fn an_analyzers_fields_keep_the_manifests_order() {
     let m = Manifest::parse(&format!(
-        "{HEAD}[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\n\
+        "{HEAD}[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\n\
          fields = {{ zeta = \"integer\", alpha = \"number\", mid = \"string\" }}\n"
     ))
     .unwrap();
@@ -213,24 +213,35 @@ fn ids_and_versions_are_checked() {
 
     let m = Manifest::parse(&HEAD.replace("version = \"0.1.0\"", "version = \"one\"")).unwrap();
     assert!(m.validate(false).unwrap_err().to_string().starts_with("version: "));
-    let m = Manifest::parse(&HEAD.replace("^0.1", "^^")).unwrap();
+    let m = Manifest::parse(&HEAD.replace("^0.2", "^^")).unwrap();
     assert!(m.validate(false).unwrap_err().to_string().starts_with("protocol: "));
-    let m = Manifest::parse(&HEAD.replace("^0.1", "^0.2")).unwrap();
-    assert_eq!(m.validate(false).unwrap_err().to_string(), "protocol: \"^0.2\" doesn't include 0.1.0");
+    let m = Manifest::parse(&HEAD.replace("^0.2", "^0.1")).unwrap();
+    assert_eq!(m.validate(false).unwrap_err().to_string(), "protocol: \"^0.1\" doesn't include 0.2.0");
 }
 
 #[test]
-fn unknown_capabilities_and_keys_are_refused() {
+fn unknown_capabilities_are_refused() {
     let e = problem("capabilities = [\"library:write\"]");
     assert!(e.contains("unknown capability \"library:write\": one of library:read, "), "{e}");
     let e = problem("capabilities = [\"net:\"]");
     assert!(e.contains("\"net:\" names no host"), "{e}");
     assert!(problem("capabilities = [\"net:https://example.com\"]").contains("names no host"));
-    assert!(problem("homepage = \"https://example.com\"").contains("unknown field `homepage`"));
+}
+
+/// A key a manifest has that this side doesn't know is left out, saying where it was: a mistake
+/// in a plugin locallibrary ships, refused; another plugin's may be a newer locallibrary's.
+#[test]
+fn unknown_keys_are_left_out_and_refused_only_first_party() {
     // The host works out whether an operation is destructive from its edits.
-    let declared = "[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\ndestructive = true\n";
-    assert!(problem(declared).contains("unknown field `destructive`"));
-    assert!(problem("[[contributes.widgets]]\nname = \"w\"").contains("unknown field `widgets`"));
+    let toml = format!(
+        "{HEAD}homepage = \"https://example.com\"\n[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\n\
+         destructive = true\n[[contributes.widgets]]\nname = \"w\"\n"
+    );
+    let m = Manifest::parse(&toml).unwrap();
+    assert_eq!(m.unknown(), ["homepage", "contributes.operations[0].destructive", "contributes.widgets"]);
+    assert_eq!((m.contributes.operations[0].name.as_str(), m.validate(false).is_ok()), ("o", true));
+    assert_eq!(m.validate(true).unwrap_err().to_string(), "homepage: isn't a key locallibrary knows");
+    assert!(Manifest::parse(ECHO).unwrap().unknown().is_empty());
 }
 
 #[test]
@@ -257,8 +268,8 @@ fn contribution_names_are_names_and_unique() {
     let twice = "[[contributes.settings]]\nkey = \"k\"\ntitle = \"A\"\ntype = \"string\"\n\
                  [[contributes.settings]]\nkey = \"k\"\ntitle = \"B\"\ntype = \"string\"\n";
     assert_eq!(problem(twice), "contributes.settings[1].key: \"k\" is used twice");
-    let twice = "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nfields = { x = \"number\" }\n\
-                 [[contributes.analyzers]]\nname = \"a\"\ntitle = \"B\"\nfields = { x = \"number\" }\n";
+    let twice = "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = { x = \"number\" }\n\
+                 [[contributes.analyzers]]\nname = \"a\"\ntitle = \"B\"\nversion = \"1\"\nfields = { x = \"number\" }\n";
     assert_eq!(problem(twice), "contributes.analyzers[1].name: \"a\" is used twice");
 }
 
@@ -280,11 +291,15 @@ fn params_and_options_are_schemas_for_objects() {
 
 #[test]
 fn analyzers_declare_typed_fields() {
-    let e = problem("[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nfields = { bpm = \"float\" }\n");
+    let e = problem(
+        "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = { bpm = \"float\" }\n",
+    );
     assert!(e.contains("unknown variant `float`"), "{e}");
-    let e = problem("[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nfields = {}\n");
+    let e = problem("[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {}\n");
     assert_eq!(e, "contributes.analyzers[0].fields: an analyzer needs a field");
-    let e = problem("[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nfields = { BPM = \"number\" }\n");
+    let e = problem(
+        "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = { BPM = \"number\" }\n",
+    );
     assert!(e.starts_with("contributes.analyzers[0].fields.BPM: isn't a name"), "{e}");
 }
 
@@ -297,7 +312,9 @@ fn field_types_accept_their_values() {
         (FieldType::Integer, json!(3), true),
         (FieldType::Integer, json!(1.5), false),
         (FieldType::String, json!("Am"), true),
-        (FieldType::String, json!(null), false),
+        // Worked out, with nothing to show: any field may be.
+        (FieldType::String, json!(null), true),
+        (FieldType::Number, json!(null), true),
         (FieldType::Boolean, json!(true), true),
         (FieldType::Strings, json!(["a", "b"]), true),
         (FieldType::Strings, json!(["a", 1]), false),
@@ -369,7 +386,7 @@ fn names_and_titles_arent_empty() {
     for (kind, rest) in [
         ("commands", "name = \"c\"\nmode = \"view\""),
         ("operations", "name = \"o\""),
-        ("analyzers", "name = \"a\"\nfields = { x = \"number\" }"),
+        ("analyzers", "name = \"a\"\nversion = \"1\"\nfields = { x = \"number\" }"),
         ("exporters", "format = \"f\"\nfolder = true"),
         ("settings", "key = \"s\"\ntype = \"string\""),
     ] {
@@ -401,8 +418,8 @@ fn an_exporters_extension_is_plain() {
 /// Fields become columns, so two analyzers can't both fill one.
 #[test]
 fn field_names_are_unique_across_analyzers() {
-    let two = "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nfields = { bpm = \"number\" }\n\
-               [[contributes.analyzers]]\nname = \"b\"\ntitle = \"B\"\nfields = { key = \"string\", bpm = \"number\" }\n";
+    let two = "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = { bpm = \"number\" }\n\
+               [[contributes.analyzers]]\nname = \"b\"\ntitle = \"B\"\nversion = \"1\"\nfields = { key = \"string\", bpm = \"number\" }\n";
     assert_eq!(problem(two), "contributes.analyzers[1].fields.bpm: another analyzer has this field");
 }
 
@@ -458,6 +475,88 @@ fn a_setting_accepts_values_of_its_type() {
     for (kind, value, accepted) in cases {
         assert_eq!(setting(kind).accepts(&value), accepted, "{kind} {value}");
     }
+}
+
+#[test]
+fn an_analyzer_has_a_version_of_its_own() {
+    let analyzer = |version: &str| {
+        format!(
+            "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = {version:?}\nfields = {{ x = \"number\" }}\n"
+        )
+    };
+    for fine in ["3", "1.2.0", "2026-10_b+1"] {
+        assert_eq!(problem(&analyzer(fine)), "", "{fine}");
+    }
+    for wrong in ["", ".3", "a/b", "1 2"] {
+        let e = problem(&analyzer(wrong));
+        assert!(e.starts_with(&format!("contributes.analyzers[0].version: {wrong:?} isn't a version")), "{e}");
+    }
+    let e = problem("[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nfields = { x = \"number\" }\n");
+    assert!(e.contains("missing field `version`"), "{e}");
+}
+
+/// Commands and operations are offered in a drive's menu unless they say where.
+#[test]
+fn commands_and_operations_say_where_they_are_offered() {
+    let m = Manifest::parse(ECHO).unwrap();
+    assert_eq!(m.contributes.commands[0].offered, [Where::Drive]);
+    let operation =
+        |places: &str| problem(&format!("[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\nwhere = {places}\n"));
+    assert_eq!(operation("[\"track\", \"playlist\", \"drive\"]"), "");
+    assert_eq!(operation("[]"), "contributes.operations[0].where: names no place: track, playlist or drive");
+    assert_eq!(operation("[\"track\", \"track\"]"), "contributes.operations[0].where: track is there twice");
+    assert!(operation("[\"deck\"]").contains("unknown variant `deck`"));
+    let command = "[[contributes.commands]]\nname = \"c\"\ntitle = \"C\"\nmode = \"view\"\nwhere = []\n";
+    assert_eq!(problem(command), "contributes.commands[0].where: names no place: track, playlist or drive");
+}
+
+/// A param filled in from what's selected (`x-from`) is of a type that holds it.
+#[test]
+fn a_param_from_the_selection_holds_it() {
+    let param = |property: &str| {
+        problem(&format!(
+            "[[contributes.operations]]\nname = \"o\"\ntitle = \"O\"\n\
+             params = {{ type = \"object\", properties = {{ p = {property} }} }}\n"
+        ))
+    };
+    let tracks = "{ type = \"array\", items = { type = \"integer\" }, x-from = \"selection.tracks\" }";
+    assert_eq!(param(tracks), "");
+    assert_eq!(param("{ type = \"string\", x-from = \"selection.playlist\" }"), "");
+    assert_eq!(param("{ type = \"string\", x-from = \"selection.drive\" }"), "");
+    let at = "contributes.operations[0].params.properties.p.x-from: ";
+    for (property, said) in [
+        (
+            "{ type = \"string\", x-from = \"selection.deck\" }",
+            "is selection.tracks, selection.playlist or selection.drive",
+        ),
+        (
+            "{ type = \"string\", x-from = \"selection.tracks\" }",
+            "\"selection.tracks\" is integers, which the param isn't",
+        ),
+        (
+            "{ type = \"integer\", x-from = \"selection.drive\" }",
+            "\"selection.drive\" is a string, which the param isn't",
+        ),
+    ] {
+        assert_eq!(param(property), format!("{at}{said}"), "{property}");
+    }
+}
+
+#[test]
+fn a_selection_is_what_the_context_has() {
+    let context = Context {
+        drive: Some("USB".into()),
+        playlist: Some("Sets/Friday".into()),
+        tracks: vec![3, 1],
+        ..Context::default()
+    };
+    assert_eq!(Selection::Tracks.value(&context), Some(json!([3, 1])));
+    assert_eq!(Selection::Playlist.value(&context), Some(json!("Sets/Friday")));
+    assert_eq!(Selection::Drive.value(&context), Some(json!("USB")));
+    for nothing in [Selection::Tracks, Selection::Playlist, Selection::Drive] {
+        assert_eq!(nothing.value(&Context::default()), None, "{nothing:?}");
+    }
+    assert_eq!(Selection::of(&json!({ "type": "string" })), Ok(None));
 }
 
 // Properties: manifests drawn whole, then broken in one place each.
@@ -639,6 +738,12 @@ fn setting(tc: &TestCase, key: String) -> Setting {
     Setting { key, title: title(tc), kind, default, choices }
 }
 
+/// The menus a command or an operation is offered in: one or more, each once.
+#[hegel::test_helper]
+fn offered(tc: &TestCase) -> Vec<Where> {
+    tc.draw(gs::subsequences(vec![Where::Track, Where::Playlist, Where::Drive]).min_size(1))
+}
+
 /// A manifest that keeps every rule: commands and operations with places on the command line
 /// only for a first-party plugin.
 #[hegel::test_helper]
@@ -658,6 +763,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             name,
             title: title(tc),
             mode: tc.draw(gs::sampled_from(modes.clone())),
+            offered: offered(tc),
             params: maybe_schema(tc),
             cli: place(tc),
         })
@@ -667,6 +773,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         .map(|name| Operation {
             name,
             title: title(tc),
+            offered: offered(tc),
             long_running: tc.draw(gs::booleans()),
             params: maybe_schema(tc),
             cli: place(tc),
@@ -685,6 +792,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         .map(|(name, field)| Analyzer {
             name,
             title: title(tc),
+            version: tc.draw(gs::from_regex("[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,11}")),
             fields: IndexMap::from_iter([(field, tc.draw(gs::sampled_from(field_types.clone())))]),
         })
         .collect();
@@ -705,7 +813,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
     capabilities.extend(hosts.into_iter().map(Capability::Net));
     let pre = tc.draw(gs::optional(gs::from_regex("[a-z][a-z0-9]{0,4}"))).map(|p| format!("-{p}")).unwrap_or_default();
     let [major, minor, patch] = tc.draw(gs::arrays(gs::integers::<u16>()));
-    let protocols = vec!["^0.1", "0.1", "~0.1", "^0.1.0", "=0.1.0", "*", ">=0.1.0, <0.2.0", ">=0.0.1"];
+    let protocols = vec!["^0.2", "0.2", "~0.2", "^0.2.0", "=0.2.0", "*", ">=0.2.0, <0.3.0", ">=0.0.1"];
     Manifest {
         id: tc.draw(gs::from_regex(DRAWN_NAME)),
         name: title(tc),
@@ -713,6 +821,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
         contributes: Contributions { commands, operations, analyzers, exporters, settings },
+        unknown: Vec::new(),
     }
 }
 
@@ -801,13 +910,17 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
         let name = format!("added-{kind}-{}", len(c, kind));
         let title = "Added".to_string();
         match kind {
-            "commands" => c.commands.push(Command { name, title, mode: Mode::Headless, params: None, cli: None }),
+            "commands" => {
+                let offered = on_a_drive();
+                c.commands.push(Command { name, title, mode: Mode::Headless, offered, params: None, cli: None });
+            }
             "operations" => {
-                c.operations.push(Operation { name, title, long_running: false, params: None, cli: None });
+                let offered = on_a_drive();
+                c.operations.push(Operation { name, title, offered, long_running: false, params: None, cli: None });
             }
             "analyzers" => {
                 let fields = IndexMap::from_iter([(format!("{name}-field"), FieldType::Number)]);
-                c.analyzers.push(Analyzer { name, title, fields });
+                c.analyzers.push(Analyzer { name, title, version: "1".into(), fields });
             }
             "exporters" => {
                 c.exporters.push(Exporter { format: name, title, extension: None, folder: true, options: None });
@@ -911,13 +1024,13 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             ("version: ".into(), true)
         }
         "protocol" => {
-            m.protocol = tc.draw(gs::sampled_from(vec!["^^", "one", "0.1.x.y", ">= ^1", "^0.1 ||"])).into();
+            m.protocol = tc.draw(gs::sampled_from(vec!["^^", "one", "0.2.x.y", ">= ^1", "^0.2 ||"])).into();
             ("protocol: ".into(), true)
         }
         "protocol range" => {
-            let range = tc.draw(gs::tuples!(gs::integers::<u8>(), gs::integers::<u8>()).filter(|v| *v != (0, 1)));
+            let range = tc.draw(gs::tuples!(gs::integers::<u8>(), gs::integers::<u8>()).filter(|v| *v != (0, 2)));
             m.protocol = format!("^{}.{}", range.0, range.1);
-            (format!("protocol: {:?} doesn't include 0.1.0", m.protocol), false)
+            (format!("protocol: {:?} doesn't include {PROTOCOL_VERSION}", m.protocol), false)
         }
         "capability twice" => {
             if m.capabilities.is_empty() {
@@ -1355,31 +1468,33 @@ fn without_a_schema_params_are_any_object(tc: TestCase) {
 /// One of each kind of field value.
 #[hegel::test_helper]
 fn field_value(tc: &TestCase) -> FieldValue {
-    match tc.draw(gs::integers::<u8>().max_value(4)) {
+    match tc.draw(gs::integers::<u8>().max_value(5)) {
         0 => FieldValue::Integer(tc.draw(gs::integers())),
         1 => FieldValue::Number(tc.draw(gs::floats::<f64>().allow_nan(false).allow_infinity(false))),
         2 => FieldValue::Boolean(tc.draw(gs::booleans())),
         3 => FieldValue::String(tc.draw(gs::text())),
-        _ => FieldValue::Strings(tc.draw(gs::vecs(gs::text()).max_size(3))),
+        4 => FieldValue::Strings(tc.draw(gs::vecs(gs::text()).max_size(3))),
+        _ => FieldValue::Null,
     }
 }
 
-/// A field's value is accepted by its own type alone (an integer by a number's too), and reads
-/// back from JSON as the same kind of value.
+/// A field's value is accepted by its own type alone (an integer by a number's too, null by any),
+/// and reads back from JSON as the same kind of value.
 #[hegel::test(test_cases = 100)]
 fn a_value_fits_its_field_type_alone(tc: TestCase) {
     let value = field_value(&tc);
     let json = serde_json::to_string(&value).unwrap();
     assert_eq!(serde_json::from_str::<FieldValue>(&json).unwrap(), value, "{json}");
     let own = match value {
-        FieldValue::Integer(_) => FieldType::Integer,
-        FieldValue::Number(_) => FieldType::Number,
-        FieldValue::Boolean(_) => FieldType::Boolean,
-        FieldValue::String(_) => FieldType::String,
-        FieldValue::Strings(_) => FieldType::Strings,
+        FieldValue::Integer(_) => Some(FieldType::Integer),
+        FieldValue::Number(_) => Some(FieldType::Number),
+        FieldValue::Boolean(_) => Some(FieldType::Boolean),
+        FieldValue::String(_) => Some(FieldType::String),
+        FieldValue::Strings(_) => Some(FieldType::Strings),
+        FieldValue::Null => None,
     };
     for kind in [FieldType::Number, FieldType::Integer, FieldType::String, FieldType::Boolean, FieldType::Strings] {
-        let fits = kind == own || (kind, own) == (FieldType::Number, FieldType::Integer);
+        let fits = own.is_none_or(|own| kind == own || (kind, own) == (FieldType::Number, FieldType::Integer));
         assert_eq!(kind.accepts(&value), fits, "{kind:?} {value:?}");
     }
 }

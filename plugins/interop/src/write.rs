@@ -45,7 +45,7 @@ pub(crate) fn write(export: &Export, output: &Path, ctx: &Ctx<'_>) -> Result<(),
                 copy(from, tmp.as_file_mut(), &f.path, ctx)?;
                 if let Some(m) = markers {
                     // An error names the drive's file: the copy's is temporary, and removed.
-                    serato::write_markers(tmp.path(), from, m).map_err(crate::failure)?;
+                    serato::write_markers(tmp.path(), from, m).map_err(|e| crate::failure(e, ctx))?;
                 }
             }
         }

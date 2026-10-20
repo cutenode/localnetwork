@@ -10,7 +10,7 @@ use hegel::generators as gs;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ImageFormat, RgbImage};
 use loclib_model::test_util::track;
-use loclib_plugin::{Incoming, PROTOCOL_VERSION, Peer, method};
+use loclib_plugin::{Incoming, Manifest, PROTOCOL_VERSION, Peer, method};
 
 use super::*;
 
@@ -228,9 +228,8 @@ struct Session {
 }
 
 fn start(drive: Drive, services: Services, clock: Arc<dyn Clock>) -> Session {
-    let manifest = Manifest::parse(MANIFEST).unwrap();
-    let plugin = Coverart::new(&manifest, services, clock);
-    start_with(drive, move |input, output| loclib_plugin::serve(&manifest, plugin, input, output))
+    let hooks = Coverart::new(services, clock).hooks();
+    start_with(drive, move |input, output| loclib_plugin::serve(MANIFEST, hooks, input, output))
 }
 
 /// [`start`], the plugin served by `serving` (as [`serve`] serves it, say).

@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use loclib_mixid::test_util::{resample, synth, wav_of};
-use loclib_plugin::{Incoming, PROTOCOL_VERSION, Peer, Pending, code, method};
+use loclib_plugin::{Incoming, Manifest, PROTOCOL_VERSION, Peer, Pending, code, method};
 use loclib_progress::Ctx;
 use serde_json::{Value, json};
 
@@ -79,19 +79,19 @@ fn describes_one_analyzer_and_asks_for_nothing() {
     s.stop();
 }
 
-/// The host keeps fields by the plugin's version, and loclib-analysis's `VERSION` changes
-/// whenever its results would: a new one needs a new plugin version (and this test updated).
+/// The host keeps fields by the analyzer's version, and loclib-analysis's `VERSION` changes
+/// whenever its results would: the analyzer's is it.
 #[test]
-fn the_version_moves_with_loclib_analysis() {
-    let pair = (manifest().version, loclib_analysis::VERSION);
-    assert_eq!(pair, ("0.1.0".to_string(), 3), "bump the plugin's version with loclib-analysis's");
+fn the_analyzers_version_is_loclib_analysis_s() {
+    let version = manifest().contributes.analyzers.remove(0).version;
+    assert_eq!(version, loclib_analysis::VERSION.to_string(), "the analyzer's version is loclib-analysis's");
 }
 
 /// Any recording, quiet or clipped, silent or too short for a tempo, gets the values doctor's
 /// `--analyze` reports from loclib-analysis's own analysis of the same file (a tempo finding's
 /// `estimate` and `confidence`, a key finding's Camelot `estimate` and `confidence`, a loudness
 /// finding's `integrated_lufs`, `true_peak_dbtp` and `clipped_runs`), each of the type the
-/// manifest declares, leaving out those with nothing to show.
+/// manifest declares: every one, null when it has nothing to show.
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]
 #[hegel::explicit_test_case(seed = 7919u32, secs = 8.0f64, rate = 44_100u32, gain = 12_000.0f32)]
 #[hegel::explicit_test_case(seed = 31u32, secs = 5.0f64, rate = 11_025u32, gain = 200_000.0f32)]
@@ -109,13 +109,14 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
     s.stop();
 
     let declared = &manifest().contributes.analyzers[0].fields;
+    assert!(fields.keys().eq(declared.keys()), "{fields:?}");
     for (name, value) in &fields {
-        assert!(declared.get(name).is_some_and(|t| t.accepts(value)), "{name}: {value:?}");
+        assert!(declared[name].accepts(value), "{name}: {value:?}");
     }
-    let number = |name: &str| match fields.get(name) {
-        None => None,
-        Some(FieldValue::Number(n)) => Some(*n),
-        Some(other) => panic!("{name}: {other:?}"),
+    let number = |name: &str| match &fields[name] {
+        FieldValue::Null => None,
+        FieldValue::Number(n) => Some(*n),
+        other => panic!("{name}: {other:?}"),
     };
     let a = analyze(&path, Want::ALL, &Ctx::silent()).unwrap();
     let l = a.loudness.unwrap();
@@ -128,15 +129,16 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
     match a.estimate.as_ref() {
         // Keys that tie (confidence 0) are picked from in no fixed order, so either of two
         // analyses of one file may have any of them.
-        Some(e) if e.key_confidence == 0.0 => assert!(matches!(fields.get("key"), Some(FieldValue::String(_)))),
-        estimate => assert_eq!(fields.get("key"), estimate.map(key).as_ref()),
+        Some(e) if e.key_confidence == 0.0 => assert!(matches!(fields["key"], FieldValue::String(_))),
+        estimate => assert_eq!(fields["key"], estimate.map_or(FieldValue::Null, key)),
     }
     assert_eq!(number("integrated_lufs"), l.integrated_lufs);
     assert_eq!(number("true_peak_dbtp"), Some(l.true_peak_dbtp()).filter(|db| db.is_finite()));
-    assert_eq!(fields.get("clipped_runs"), Some(&FieldValue::Integer(l.clipped_runs as i64)));
+    assert_eq!(fields["clipped_runs"], FieldValue::Integer(l.clipped_runs as i64));
     if gain == 0.0 {
         // Silence: no tempo, key or level, and nothing clipped.
-        assert_eq!(fields.into_iter().collect::<Vec<_>>(), [("clipped_runs".to_string(), FieldValue::Integer(0))]);
+        let shown: Vec<(&String, &FieldValue)> = fields.iter().filter(|(_, v)| **v != FieldValue::Null).collect();
+        assert_eq!(shown, [(&"clipped_runs".to_string(), &FieldValue::Integer(0))]);
     } else if gain > 32_768.0 {
         // What doctor calls over 0 dBTP and clipped.
         assert!(number("true_peak_dbtp").unwrap() > 0.0 && l.clipped_runs > 0, "{fields:?}");

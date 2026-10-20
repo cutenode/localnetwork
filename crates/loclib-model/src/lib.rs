@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 pub mod analysis;
+pub mod audio;
 pub mod harmony;
 pub mod model;
 pub mod paths;

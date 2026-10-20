@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use base64::prelude::*;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat};
+use loclib_model::audio::Format;
 use lofty::config::WriteOptions;
 use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::prelude::*;
@@ -120,8 +121,7 @@ impl Artwork {
 }
 
 fn is_audio_path(path: &Path) -> bool {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    matches!(ext.as_str(), "mp3" | "m4a" | "mp4" | "aac" | "flac" | "wav" | "aif" | "aiff" | "ogg" | "opus" | "alac")
+    path.extension().and_then(|e| e.to_str()).and_then(Format::from_extension).is_some()
 }
 
 /// Embedded front cover (or first picture) of an audio file.
@@ -409,14 +409,12 @@ pub(crate) fn copy_staged(source: &Device, target: &Device, images: &FxHashSet<H
 /// The images, in each database, of the tracks of these audio files (device paths): what setting
 /// their artwork may replace in place, for the backup made first.
 pub(crate) fn image_files(device: &Device, files: &[String]) -> Result<Vec<String>> {
-    let wanted: FxHashSet<String> = files.iter().map(|f| paths::key(f).to_lowercase()).collect();
+    let wanted: FxHashSet<String> = files.iter().map(|f| paths::file_key(f)).collect();
     let mut libraries = vec![device.library()?];
     libraries.extend(crate::clean::open_plus(device, device.has_device_library(), &mut Vec::new())?.map(|(l, _)| l));
     let mut out = Vec::new();
     for t in libraries.iter().flat_map(|l| &l.tracks) {
-        let Some(image) =
-            t.artwork_path.as_deref().filter(|_| wanted.contains(&paths::key(&t.file_path).to_lowercase()))
-        else {
+        let Some(image) = t.artwork_path.as_deref().filter(|_| wanted.contains(&paths::file_key(&t.file_path))) else {
             continue;
         };
         let key = paths::key(image);
@@ -445,9 +443,8 @@ pub(crate) fn replay(
     let mut out = Replayed::default();
     let described = format!("set the artwork of {} track(s)", files.len());
     let library = device.library()?;
-    let by_key: FxHashMap<String, u32> =
-        library.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect();
-    let id = |f: &String| by_key.get(&paths::key(f).to_lowercase()).copied();
+    let by_key: FxHashMap<String, u32> = library.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect();
+    let id = |f: &String| by_key.get(&paths::file_key(f)).copied();
     let ids: Vec<u32> = files.iter().filter_map(id).collect();
     if let Some(example) = files.iter().find(|f| id(f).is_none()) {
         out.tracks_gone(strict, files.len() - ids.len(), example, &described)?;
@@ -554,7 +551,7 @@ fn apply_batches(
     if let Some((plus_lib, one)) = &plus {
         let batches_plus: Vec<Vec<u32>> = if has_pdb {
             let by_path: FxHashMap<String, u32> =
-                plus_lib.tracks.iter().map(|t| (paths::key(&t.file_path).to_lowercase(), t.id)).collect();
+                plus_lib.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect();
             let mut missing = 0;
             let mapped = sorted
                 .iter()
@@ -563,7 +560,7 @@ fn apply_batches(
                         .tracks_by_id(ids)
                         .into_iter()
                         .filter_map(|t| {
-                            let found = by_path.get(&paths::key(&t.file_path).to_lowercase()).copied();
+                            let found = by_path.get(&paths::file_key(&t.file_path)).copied();
                             missing += usize::from(found.is_none());
                             found
                         })

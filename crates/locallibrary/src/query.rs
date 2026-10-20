@@ -603,7 +603,8 @@ impl Term {
                     text.iter().any(|w| has_words(&s, w))
                 };
                 match ctx.fields.and_then(|f| f.get(t.id, name)) {
-                    None => false,
+                    // Worked out, with nothing to show: it matches no comparison.
+                    None | Some(FieldValue::Null) => false,
                     Some(FieldValue::Integer(v)) => num.is_some_and(|n| n.test(*v as f64)),
                     Some(FieldValue::Number(v)) => num.is_some_and(|n| n.test(*v)),
                     Some(FieldValue::Boolean(b)) => {
@@ -664,7 +665,7 @@ impl<'a> QueryContext<'a> {
 
     /// The track whose audio file is `file` (a device path).
     fn by_file(&self, file: &str) -> Option<u32> {
-        let key = |f: &str| crate::paths::key(f).to_lowercase();
+        let key = crate::paths::file_key;
         let map = self.files.get_or_init(|| self.library.tracks.iter().map(|t| (key(&t.file_path), t.id)).collect());
         map.get(&key(file)).copied()
     }
@@ -710,7 +711,7 @@ impl<'a> QueryContext<'a> {
     }
 
     fn tags_of(&self, t: &Track) -> &[String] {
-        self.tags.and_then(|m| m.get(&crate::paths::key(&t.file_path).to_lowercase())).map(Vec::as_slice).unwrap_or(&[])
+        self.tags.and_then(|m| m.get(&crate::paths::file_key(&t.file_path))).map(Vec::as_slice).unwrap_or(&[])
     }
 
     fn haystack(&self, t: &Track) -> &str {
@@ -913,7 +914,7 @@ pub fn sort_tracks(tracks: &mut [&Track], keys: &[SortKey]) {
 }
 
 /// [`sort_tracks`] with what analyzers worked out, for keys naming a plugin's field: tracks
-/// without a value for it go last, either way (all of them, without `values`).
+/// without a value for it to show go last, either way (all of them, without `values`).
 pub fn sort_tracks_with(tracks: &mut [&Track], keys: &[SortKey], values: Option<&TrackValues>) {
     tracks.sort_by(|a, b| {
         keys.iter()
@@ -922,7 +923,7 @@ pub fn sort_tracks_with(tracks: &mut [&Track], keys: &[SortKey], values: Option<
                 match k.field {
                     // Those without a value last, whichever way it's sorted.
                     SortField::Field(name) => {
-                        let value = |t: &Track| values.and_then(|v| v.get(t.id, name.as_str()));
+                        let value = |t: &Track| values.and_then(|v| v.shown(t.id, name.as_str()));
                         match (value(a), value(b)) {
                             (Some(x), Some(y)) => directed(compare_values(x, y)),
                             (x, y) => x.is_none().cmp(&y.is_none()),

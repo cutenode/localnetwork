@@ -48,7 +48,7 @@ fn a_write_cut_short_at_its_swap_can_be_taken_back(tc: TestCase) {
     );
     let by_track = tags::by_track(&Device::open_export(&root).unwrap()).unwrap();
     for t in &tracks {
-        let has = by_track.get(&paths::key(t).to_lowercase()).is_some_and(|tags| tags.contains(&tag));
+        let has = by_track.get(&paths::file_key(t)).is_some_and(|tags| tags.contains(&tag));
         assert!(has, "{t} lacks {tag}: {by_track:?}");
     }
     let backups = backup::list(&Device::open_export(&root).unwrap()).unwrap();

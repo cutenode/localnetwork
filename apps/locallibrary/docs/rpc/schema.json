@@ -13354,9 +13354,12 @@
           "items": {
             "type": "string"
           }
+        },
+        {
+          "type": "null"
         }
       ],
-      "description": "A field's value, as an analyzer answers it and the host keeps it: of the type the manifest\ndeclares (numbers are finite, as JSON's are)."
+      "description": "A field's value, as an analyzer answers it and the host keeps it: of the type the manifest\ndeclares (numbers are finite, as JSON's are), or null for one worked out with nothing to show\n(a track left out of an answer has no value: it wasn't worked out)."
     },
     "TrackDetails": {
       "type": "object",
@@ -28640,7 +28643,6 @@
     },
     "Manifest": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "id": {
           "type": "string",
@@ -28655,7 +28657,7 @@
         },
         "protocol": {
           "type": "string",
-          "description": "The protocol versions it speaks, as a semver requirement (`^0.1`)."
+          "description": "The protocol versions it speaks, as a semver requirement (`^0.2`)."
         },
         "capabilities": {
           "type": "array",
@@ -28683,11 +28685,11 @@
         "protocol",
         "capabilities",
         "contributes"
-      ]
+      ],
+      "description": "Read tolerantly: a key this side doesn't know is left out, and [`Manifest::validate`] refuses\nit only in a plugin locallibrary ships (see [`Manifest::unknown`])."
     },
     "Contributions": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "commands": {
           "type": "array",
@@ -28735,7 +28737,6 @@
     },
     "Command": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string"
@@ -28745,6 +28746,16 @@
         },
         "mode": {
           "$ref": "#/$defs/Mode"
+        },
+        "where": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Where"
+          },
+          "description": "Where hosts offer it (see [`Where`]).",
+          "default": [
+            "drive"
+          ]
         },
         "params": {
           "description": "A JSON Schema for its params (an object)."
@@ -28760,7 +28771,8 @@
       "required": [
         "name",
         "title",
-        "mode"
+        "mode",
+        "where"
       ],
       "description": "Run with `command/run`."
     },
@@ -28778,15 +28790,33 @@
         }
       ]
     },
+    "Where": {
+      "type": "string",
+      "enum": [
+        "track",
+        "playlist",
+        "drive"
+      ],
+      "description": "Where a host offers a command or an operation: in the menu of the tracks selected, of a\nplaylist, or of a drive. A host's palette has every one."
+    },
     "Operation": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string"
         },
         "title": {
           "type": "string"
+        },
+        "where": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Where"
+          },
+          "description": "Where hosts offer it (see [`Where`]).",
+          "default": [
+            "drive"
+          ]
         },
         "long_running": {
           "type": "boolean",
@@ -28807,19 +28837,23 @@
       "required": [
         "name",
         "title",
+        "where",
         "long_running"
       ],
       "description": "Planned with `op/plan`, applied by the host, which works out from the edits whether it's\ndestructive."
     },
     "Analyzer": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "name": {
           "type": "string"
         },
         "title": {
           "type": "string"
+        },
+        "version": {
+          "type": "string",
+          "description": "Its own version: the host keeps its values by it, so a new one works them out again. Bump\nit whenever the values would change."
         },
         "fields": {
           "type": "object",
@@ -28831,6 +28865,7 @@
       "required": [
         "name",
         "title",
+        "version",
         "fields"
       ],
       "description": "Run with `track/analyze`; its fields become columns."
@@ -28847,7 +28882,6 @@
     },
     "Exporter": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "format": {
           "type": "string"
@@ -28880,7 +28914,6 @@
     },
     "Setting": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "key": {
           "type": "string"
@@ -28927,7 +28960,7 @@
         {
           "type": "string",
           "const": "secret",
-          "description": "Kept in the keychain; it has no default."
+          "description": "It has no default. locallibrary can't keep one yet, and refuses a plugin with one."
         }
       ]
     },

@@ -65,7 +65,7 @@ fn an_op_plan_without_inputs_leaves_them_out() {
 #[test]
 fn protocol_versions_are_compatible_by_semvers_caret() {
     for (theirs, compatible) in
-        [("0.1.0", true), ("0.1.99", true), ("0.2.0", false), ("0.0.9", false), ("1.1.0", false)]
+        [("0.2.0", true), ("0.2.99", true), ("0.1.0", false), ("0.3.0", false), ("1.2.0", false)]
     {
         assert_eq!(check_protocol(theirs).is_ok(), compatible, "{theirs}");
     }

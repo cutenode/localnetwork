@@ -30,7 +30,9 @@ mod interop;
 mod jobs;
 #[cfg(feature = "peers")]
 mod peers;
-// A release has no test plugin to serve.
+// A release has no test plugin to serve, or to read through.
+#[cfg(debug_assertions)]
+mod plugin_reads;
 #[cfg(debug_assertions)]
 mod plugins;
 mod profile;

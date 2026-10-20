@@ -410,7 +410,7 @@ fn copies_hold_each_file_once(tc: TestCase) {
         analysis: if with_analysis { Some(&load) } else { None },
     };
     let music = tempfile::tempdir().unwrap();
-    let file_key = |t: &Track| paths::key(&t.file_path).to_lowercase();
+    let file_key = |t: &Track| paths::file_key(&t.file_path);
     let firsts = common::first_per_file(&lib, file_key);
     let mut sizes: FxHashMap<String, u64> = FxHashMap::default();
     for t in &firsts {

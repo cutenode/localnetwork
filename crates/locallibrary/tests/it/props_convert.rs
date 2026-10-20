@@ -20,10 +20,6 @@ use locallibrary::xml::{self, XmlOptions};
 use locallibrary::{Library, backup, paths, pdb};
 use rekordbox_pdb::PdbEditor;
 
-fn fold(s: &str) -> String {
-    paths::key(s).to_lowercase()
-}
-
 /// What a database holds, comparable across databases: track files, every playlist's entries
 /// (as files, by folded path; same-named playlists pooled) and history list names.
 #[derive(Debug, Default)]
@@ -34,8 +30,9 @@ struct Held {
 }
 
 fn held(lib: &Library) -> Held {
-    let file = |id: &u32| lib.track(*id).map(|t| fold(&t.file_path));
-    let mut h = Held { tracks: lib.tracks.iter().map(|t| fold(&t.file_path)).collect(), ..Default::default() };
+    let file = |id: &u32| lib.track(*id).map(|t| paths::file_key(&t.file_path));
+    let mut h =
+        Held { tracks: lib.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect(), ..Default::default() };
     for p in lib.playlists.iter().filter(|p| !p.is_folder) {
         h.playlists
             .entry(lib.playlist_path(p.id).to_lowercase())
@@ -156,7 +153,7 @@ fn converting_keeps_both_sides_and_undoes_exactly(tc: TestCase) {
     }
     // Artwork comes along, under the converted database's own image names.
     for t in source.tracks.iter().filter(|t| t.artwork_path.is_some()) {
-        let m = made.tracks.iter().find(|x| fold(&x.file_path) == fold(&t.file_path)).unwrap();
+        let m = made.tracks.iter().find(|x| paths::file_key(&x.file_path) == paths::file_key(&t.file_path)).unwrap();
         let art = m.artwork_path.as_deref().unwrap_or_else(|| panic!("{} lost its artwork", t.file_path));
         assert!(paths::to_fs(&root, &paths::key(art)).is_file(), "{art}");
     }
@@ -351,7 +348,7 @@ fn tagged(d: &Device, source: locallibrary::tags::Source) -> BTreeSet<(String, S
         .iter()
         .flat_map(|c| &c.tags)
         .filter(|t| t.sources.contains(&source))
-        .flat_map(|t| t.tracks.iter().map(move |r| (t.path.clone(), fold(&r.file_path))))
+        .flat_map(|t| t.tracks.iter().map(move |r| (t.path.clone(), paths::file_key(&r.file_path))))
         .collect()
 }
 

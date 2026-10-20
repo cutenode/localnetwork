@@ -10,7 +10,6 @@ repository.workspace = true
 
 [dependencies]
 loclib-analysis.workspace = true
-loclib-mixid.workspace = true
 loclib-plugin.workspace = true
 
 [dev-dependencies]

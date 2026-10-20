@@ -7,19 +7,23 @@ code, and it never writes to a drive.
 
 ## The protocol
 
-A plugin is a program locallibrary runs. They talk JSON-RPC 2.0 over the plugin's stdin and
-stdout, one JSON message per line (no newlines inside one, at most 16 MiB). Anything the plugin
-writes to stderr is its log. The protocol is versioned on its own, at `0.1.0`
-(`PROTOCOL_VERSION`); two versions are compatible by semver's caret rule, so before 1.0 the minor
-version must match.
+A plugin is a program locallibrary runs, in a folder of its own (`<store>/plugins/<id>/`). They
+talk JSON-RPC 2.0 over the plugin's stdin and stdout, one JSON message per line (no newlines
+inside one, at most 16 MiB). Anything the plugin writes to stderr is its log. The protocol is
+versioned on its own, at `0.2.0` (`PROTOCOL_VERSION`); two versions are compatible by semver's
+caret rule, so before 1.0 the minor version must match. A new kind of hook doesn't change it: each
+family of hooks is an optional feature (`FEATURES`): `commands`, `operations`, `analyzers` and
+`exporters` so far.
 
 1. The host's first message is `hello`
-   (`{"protocol": "0.1.0", "host": {"name", "version"}, "features": []}`). The plugin answers
-   `{"protocol", "plugin": {"id", "version"}, "features": []}`, or an error of kind
-   `incompatible`. Neither side sends anything else before it, and feature names a side doesn't
-   know are ignored.
+   (`{"protocol": "0.2.0", "host": {"name", "version"}, "features": [...]}`, the features it
+   has). The plugin answers `{"protocol", "plugin": {"id", "version"}, "features": [...]}`, those
+   it implements, or an error of kind `incompatible`. Neither side sends anything else before it,
+   and feature names a side doesn't know are ignored: the host calls only the hooks of features
+   both have.
 2. `describe` answers the plugin's manifest as JSON. locallibrary refuses a plugin whose answer
-   differs from the manifest it knows.
+   differs from the manifest it knows, or that contributes what a feature it doesn't have runs
+   (commands without `commands`).
 3. The host calls hooks, one for each kind of contribution, each with a `context`: the drive
    (by id or name), for a command or an operation the playlist and tracks the user is on, and
    the plugin's `settings`.
@@ -27,7 +31,8 @@ version must match.
      command a view, `{"kind": "list" | "table" | "kv" | "text", ...}` (`View`), which each
      host draws its own way.
    - `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
-     `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`).
+     `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`), or `null`
+     for one worked out with nothing to show. A field left out wasn't worked out.
    - `export/write {exporter, source: {drive, playlists, history}, output, options, dry_run,
      context}` -> `{"files": [{path, what, bytes}], "counts", "notes", "warnings"}`. The plugin
      writes the files; with `dry_run` it only says which it would (`what` each holds, its
@@ -67,7 +72,9 @@ A response is never answered, not even a bad one. Errors use the RPC sidecar's c
 
 `locallibrary-plugin.toml` says who the plugin is, what it may call back for and what it adds.
 `Manifest::parse` reads it and `Manifest::validate` checks it; `schemars::schema_for!(Manifest)`
-is its JSON Schema.
+is its JSON Schema. A key it doesn't know is left out (`Manifest::unknown` lists them), so an
+older locallibrary reads a newer plugin's manifest; in a plugin locallibrary ships it's a mistake,
+refused.
 
 ```rust
 use loclib_plugin::{Capability, Manifest};
@@ -76,19 +83,21 @@ let manifest = Manifest::parse(r#"
     id = "tracklist"
     name = "Tracklist import"
     version = "0.1.0"
-    protocol = "^0.1"
+    protocol = "^0.2"
     capabilities = ["library:read", "library:plan", "net:musicbrainz.org"]
 
     [[contributes.commands]]
     name = "import"
     title = "Import a tracklist"
     mode = "headless"
+    where = ["playlist", "drive"]
     params = { type = "object", properties = { file = { type = "string" } } }
     cli = "import"
 
     [[contributes.analyzers]]
     name = "tempo"
     title = "Tempo"
+    version = "1"
     fields = { bpm = "number", confident = "boolean" }
 "#)?;
 assert_eq!(manifest.capabilities[2], Capability::Net("musicbrainz.org".into()));
@@ -103,10 +112,12 @@ assert!(manifest.validate(false).is_err());
   `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
   `artwork:plan`, and `net:<host>` (shown to the user; a native plugin can't be held to it).
   Any other is refused, and each is granted once.
-- `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `params` (a JSON
-  Schema for an object) and `cli`.
-- `[[contributes.operations]]`: `name`, `title`, `long_running`, `params` and `cli`. Whether one
-  is destructive, the host works out from the edits it plans.
+- `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `where`, `params`
+  (a JSON Schema for an object) and `cli`.
+- `[[contributes.operations]]`: `name`, `title`, `long_running`, `where`, `params` and `cli`.
+  Whether one is destructive, the host works out from the edits it plans.
+- `where` is which menus offer a command or an operation: `track` (the tracks selected),
+  `playlist` and `drive`, `["drive"]` unless it says. A palette has every one.
 - `cli` (first-party plugins only) is a command's or operation's own place on the command line:
   one name (`import`) or two, the first a group of the host's commands (`playlist import`).
   Otherwise it's `locallibrary <id> <name>`. A params property's `x-cli` says how the command
@@ -116,12 +127,18 @@ assert!(manifest.validate(false).is_err());
 - A params or options property marked `x-path = true` (a string, or a list of them) is a file or
   folder on the computer: every host refuses a relative one, and the command line makes it
   absolute.
-- `[[contributes.analyzers]]`: `name`, `title`, `fields` (each `number`, `integer`, `string`,
+- A param's `x-from` (`Selection`) is what fills it in when it isn't given: `selection.tracks`
+  (a list of integers, the tracks' ids), `selection.playlist` (a string, its path) or
+  `selection.drive` (a string, its id or name), from where the user runs it. A form shows it
+  filled in.
+- `[[contributes.analyzers]]`: `name`, `title`, `version` (its own: locallibrary keeps its
+  values by it, so bump it when they'd change), `fields` (each `number`, `integer`, `string`,
   `boolean` or `string[]`). Fields become columns, so no two analyzers have one of a name.
 - `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
   without the dot) or `folder = true`, `options`.
 - `[[contributes.settings]]`: `key`, `title`, `type` (`string`, `number`, `boolean`, `enum`,
-  `file`, `directory` or `secret`), `default` and, for an enum, `choices`.
+  `file`, `directory` or `secret`), `default` and, for an enum, `choices`. locallibrary can't
+  keep a secret yet, and refuses a plugin with one.
 
 Names (`id`, contributions' `name`, `format` and `key`, fields) are lowercase letters, digits,
 `-` and `_`, starting with a letter, each used once; titles aren't empty; `params` and `options`
@@ -129,71 +146,72 @@ must be JSON Schemas for an object that compile.
 
 ## Writing a plugin in Rust
 
-Implement the `Plugin` hooks the manifest needs and `serve` it over stdin and stdout. `serve`
-answers `hello` and `describe`, refuses everything before `hello`, runs each hook on a thread of
-its own and returns when the host closes stdin, once the running hooks (cancelled) have
-answered. A hook's `Host` calls back to the host, and its `ctx()` is a loclib-progress context
-that sends progress (coalesced as the sidecar does) and notices the host cancelling; a callback
-under way when the host cancels fails with `cancelled` at once.
+Register a function for each kind of hook the manifest needs in `Hooks` (`.on(run_command)`, for
+a `fn(RunCommand, &Host) -> Result<Value, RpcError>`), and `serve` them, with the manifest, over
+stdin and stdout. `serve` answers `hello` (with the features of the hooks registered) and
+`describe`, refuses everything before `hello`, runs each hook on a thread of its own, only for a
+contribution the manifest declares, and returns when the host closes stdin, once the running
+hooks (cancelled) have answered. A hook's `Host` calls back to the host and has the manifest,
+and its `ctx()` is a loclib-progress context that sends progress (coalesced as the sidecar does)
+and notices the host cancelling; a callback under way when the host cancels fails with
+`cancelled` at once. `host.drive(drive)` reads a drive through it, typed (`DriveReads`): its
+library, tracks by id or by query, playlists, the tracks' analysis and artwork, and the drive's
+info, each whole however the host pages and batches it (`host.call` makes any other read), as
+loclib-model's types (`Track`, `Library`, `TrackAnalysis`), which `loclib_plugin::loclib_model`
+re-exports.
+`RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
+hook is, `io` for a file that couldn't be read or written, else the kind it's given. A new kind of
+hook is a request type implementing `Hook` and a row in `FEATURES`.
 
 `Peer` is the connection itself, for a host or a plugin: either end sends requests and
 notifications from any thread, and its reader thread hands the other end's to its owner (a
 host's hook sent with `send_request_reporting` gets its own `progress`, in order before its
-answer). What the other end gets wrong goes to stderr, or to a host's log (`Peer::with_log`). `check_params` checks a hook's params or options against the contribution's schema.
-Here it plays the host:
+answer). What the other end gets wrong goes to stderr, or to a host's log (`Peer::with_log`).
+`check_params` checks a hook's params or options against the contribution's schema. Here it plays
+the host:
 
 ```rust
-use loclib_plugin::{Host, Incoming, Manifest, Peer, Plugin, RpcError, RunCommand, View, method, serve};
-use serde::Deserialize;
+use loclib_plugin::{Hooks, Host, Incoming, Peer, RpcError, RunCommand, View, method, serve};
 use serde_json::{Value, json};
 
-/// `tracks.query`'s result, as far as this plugin reads it.
-#[derive(Deserialize)]
-struct TracksPage {
-    total: u64,
+fn count(req: RunCommand, host: &Host) -> Result<Value, RpcError> {
+    let drive = req.context.drive.unwrap_or_default();
+    let tree = host.drive(&drive).playlists()?;
+    host.ctx().check()?;
+    let view = View::Text { title: Some(drive), text: format!("{} playlists", tree.playlists.len()) };
+    Ok(serde_json::to_value(view).expect("a view is JSON"))
 }
 
-struct Count;
-
-impl Plugin for Count {
-    fn run_command(&self, req: RunCommand, host: &Host) -> Result<Value, RpcError> {
-        let drive = req.context.drive.unwrap_or_default();
-        let page: TracksPage = host.call("tracks.query", &json!({ "drive": drive, "limit": 0 }))?;
-        host.ctx().check()?;
-        let view = View::Text { title: Some(drive), text: format!("{} tracks", page.total) };
-        Ok(serde_json::to_value(view).expect("a view is JSON"))
-    }
-}
-
-let manifest = Manifest::parse(r#"
+const MANIFEST: &str = r#"
     id = "count"
     name = "Count"
     version = "0.1.0"
-    protocol = "^0.1"
+    protocol = "^0.2"
     capabilities = ["library:read"]
 
     [[contributes.commands]]
     name = "count"
-    title = "Count the tracks"
+    title = "Count the playlists"
     mode = "view"
-"#)?;
+"#;
 
-// A plugin's main: serve(&manifest, Count, std::io::stdin(), std::io::stdout()).
+// A plugin's main: serve(MANIFEST, Hooks::new().on(count), std::io::stdin(), std::io::stdout()).
 let (plugin_in, to_plugin) = std::io::pipe()?;
 let (from_plugin, plugin_out) = std::io::pipe()?;
-let served = std::thread::spawn(move || serve(&manifest, Count, plugin_in, plugin_out));
+let served = std::thread::spawn(move || serve(MANIFEST, Hooks::new().on(count), plugin_in, plugin_out));
 let (host, incoming) = Peer::new(from_plugin, to_plugin);
 
-let hello = json!({ "protocol": "0.1.0", "host": { "name": "locallibrary", "version": "0.1.0" } });
-host.request::<_, Value>(method::HELLO, &hello)?;
+let hello = json!({ "protocol": "0.2.0", "host": { "name": "locallibrary", "version": "0.1.0" } });
+let reply: Value = host.request(method::HELLO, &hello)?;
+assert_eq!(reply["features"], json!(["commands"]));
 let run = json!({ "command": "count", "context": { "drive": "USB" } });
 let counting = host.send_request(method::RUN_COMMAND, &run)?;
 let Ok(Incoming::Request(callback)) = incoming.recv() else { panic!("a callback") };
-assert_eq!(callback.method, "tracks.query");
-let page = json!({ "total": 412, "total_duration_secs": 0, "tracks": [] });
-host.respond(&callback.id, Ok(page));
+assert_eq!((callback.method.as_str(), callback.params), ("playlists.tree", json!({ "drive": "USB" })));
+let set = |id, name| json!({ "id": id, "name": name, "path": name, "folder": false, "tracks": 0, "duration_secs": 0 });
+host.respond(&callback.id, Ok(json!({ "playlists": [set(1, "Friday"), set(2, "Warm up")], "history": [] })));
 let view: View = counting.wait()?;
-assert_eq!(view, View::Text { title: Some("USB".into()), text: "412 tracks".into() });
+assert_eq!(view, View::Text { title: Some("USB".into()), text: "2 playlists".into() });
 
 host.close();
 served.join().expect("the plugin stops");

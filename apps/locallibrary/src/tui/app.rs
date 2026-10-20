@@ -2145,11 +2145,12 @@ impl App {
         }
         if let Some(s) = self.sort {
             browse::sort_list(&mut list, l.rank(s.field), s.descending);
-            // Tracks without a value for a plugin's field go last, either way.
+            // Tracks without a value to show for a plugin's field (none, or null) go last, either
+            // way.
             if let SortField::Field(name) = s.field {
                 let values = l.values();
                 let id = |i: usize| l.library.tracks[i].id;
-                list.sort_by_key(|&i| values.is_none_or(|v| v.get(id(i), name.as_str()).is_none()));
+                list.sort_by_key(|&i| values.is_none_or(|v| v.shown(id(i), name.as_str()).is_none()));
             }
         }
         self.visible = list;

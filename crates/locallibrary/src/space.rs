@@ -12,6 +12,7 @@ use rustc_hash::FxHashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use loclib_model::audio::Format;
 use schemars::JsonSchema;
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -22,12 +23,10 @@ use crate::fsutil;
 use crate::paths::{self, FileClass};
 use crate::progress::{Ctx, Phase};
 use crate::store::Store;
+use crate::tidy::TidyKind;
 
 /// Space players need for history lists and cues; plans warn before leaving less.
 pub const PLAYER_HEADROOM: u64 = 200 * 1000 * 1000;
-
-/// Audio file extensions players can list.
-pub const AUDIO_EXTENSIONS: [&str; 9] = ["mp3", "m4a", "aac", "mp4", "flac", "wav", "aif", "aiff", "alac"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -100,12 +99,11 @@ pub fn is_recordings_dir(name: &str) -> bool {
 }
 
 fn is_trash_dir(name: &str) -> bool {
-    name == ".Trashes" || name.eq_ignore_ascii_case("$RECYCLE.BIN")
+    paths::clutter_kind(name) == Some(TidyKind::Trash)
 }
 
 pub fn is_audio_name(name: &str) -> bool {
-    !name.starts_with("._")
-        && name.rsplit_once('.').is_some_and(|(_, ext)| AUDIO_EXTENSIONS.iter().any(|a| a.eq_ignore_ascii_case(ext)))
+    !name.starts_with("._") && Format::for_players(name).is_some()
 }
 
 /// Sort every file on the volume into a [`SpaceKind`].
@@ -113,7 +111,7 @@ pub fn breakdown(device: &Device, ctx: &Ctx<'_>) -> Result<SpaceReport> {
     let root = device.root();
     let library = device.library().ok();
     let referenced: FxHashSet<String> =
-        library.iter().flat_map(|l| l.tracks.iter()).map(|t| paths::key(&t.file_path).to_lowercase()).collect();
+        library.iter().flat_map(|l| l.tracks.iter()).map(|t| paths::file_key(&t.file_path)).collect();
     let mut by_kind: IndexMap<SpaceKind, (usize, u64)> = IndexMap::new();
     let mut loose = Vec::new();
     let mut unreadable = 0;
@@ -137,7 +135,7 @@ pub fn breakdown(device: &Device, ctx: &Ctx<'_>) -> Result<SpaceReport> {
                 Some(SpaceKind::Recordings)
             } else if is_trash_dir(&name) {
                 Some(SpaceKind::Trash)
-            } else if name == "System Volume Information" {
+            } else if name == paths::SYSTEM_VOLUME_INFORMATION {
                 Some(SpaceKind::Other)
             } else if paths::is_ignored_name(&name) && !name.starts_with("._") {
                 Some(SpaceKind::OsClutter)

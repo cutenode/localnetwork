@@ -3,7 +3,7 @@
 //! the schema before anything runs or is saved. A switch and a choice of a few values are picked
 //! rather than typed.
 
-use loclib_plugin::{check_params, is_path};
+use loclib_plugin::{Selection, check_params, is_path};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 use serde_json::{Map, Value};
@@ -52,6 +52,11 @@ impl Field {
         self.name.replace('_', " ")
     }
 
+    /// A secret, a password say (`writeOnly`): what's typed is never shown.
+    pub fn is_secret(&self) -> bool {
+        self.schema["writeOnly"] == true
+    }
+
     /// A boolean: on or off.
     pub fn is_switch(&self) -> bool {
         takes(&self.schema) == Some(Takes::Switch)
@@ -79,16 +84,13 @@ impl Field {
 }
 
 impl Form {
-    /// The form for `run`'s params, each field filled in with its default (none when it takes
-    /// none), or a list of track ids called `tracks` with the tracks selected.
+    /// The form for `run`'s params, each field filled in with what's selected when it's from the
+    /// selection (`x-from`) and something is, else with its default (none when it takes none).
     pub fn new(run: Run) -> Form {
         let schema = run.params().cloned();
-        let ids = &run.context.tracks;
-        let tracks = properties(schema.as_ref()).find(|(name, _)| *name == "tracks").map(|(_, s)| s);
-        let mut filled = Map::new();
-        if tracks.is_some_and(|s| takes(s) == Some(Takes::Many("integer"))) && !ids.is_empty() {
-            filled.insert("tracks".into(), Value::from(ids.clone()));
-        }
+        let selected = |s: &Value| Selection::of(s).ok().flatten()?.value(&run.context);
+        let filled: Map<String, Value> =
+            properties(schema.as_ref()).filter_map(|(name, s)| Some((name.clone(), selected(s)?))).collect();
         Form::with(run.title().to_string(), schema, &filled, For::Run(run))
     }
 

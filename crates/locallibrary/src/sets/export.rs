@@ -5,6 +5,7 @@
 //! as tracklists write a track nobody's named. CSV and M3U8 are for the DJ: they name every
 //! track, and CSV says which are unnamed in its last column. M3U8 only lists the files.
 
+use loclib_model::audio::Format;
 use rustc_hash::FxHashMap;
 use std::fmt::Write as _;
 
@@ -90,7 +91,7 @@ pub(crate) fn render(set: &Set, format: SetFormat, drive: Option<(&Library, &Loc
 /// The set's tracks found in `library` by file, and a warning for each that isn't there.
 pub(crate) fn on_drive<'a>(set: &Set, library: &'a Library) -> (Vec<&'a Track>, Vec<String>) {
     let by_file: FxHashMap<String, &Track> =
-        library.tracks.iter().map(|t| (crate::plays::file_key(&t.file_path), t)).collect();
+        library.tracks.iter().map(|t| (crate::paths::file_key(&t.file_path), t)).collect();
     let (mut found, mut missing) = (Vec::new(), Vec::new());
     for (i, e) in set.tracks.iter().enumerate() {
         match e.file_key().and_then(|k| by_file.get(&k)) {
@@ -158,9 +159,9 @@ fn cue(set: &Set) -> Result<(String, Vec<String>)> {
         .ok_or_else(|| Error::invalid("a CUE sheet indexes the recording: attach it to the set first"))?;
     let starts = starts(set, "a CUE sheet")?;
     let quoted = |s: &str| format!("\"{}\"", one_line(s).replace('"', "'"));
-    let kind = match file.rsplit_once('.').map(|(_, ext)| ext.to_ascii_lowercase()).as_deref() {
-        Some("mp3") => "MP3",
-        Some("aif" | "aiff") => "AIFF",
+    let kind = match Format::from_name(&file) {
+        Some(Format::Mp3) => "MP3",
+        Some(Format::Aiff) => "AIFF",
         _ => "WAVE",
     };
     let mut out = format!("TITLE {}\nFILE {} {kind}\n", quoted(&set.heading()), quoted(&file));

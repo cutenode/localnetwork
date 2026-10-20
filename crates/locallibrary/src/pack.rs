@@ -364,7 +364,7 @@ pub(crate) fn unsaved(
     }
     // History lists by name and tracks (as files), as `plays` tells them apart.
     let files = |tracks: &mut dyn Iterator<Item = &crate::model::Track>| -> Vec<String> {
-        tracks.map(|t| paths::key(&t.file_path).to_lowercase()).collect()
+        tracks.map(|t| paths::file_key(&t.file_path)).collect()
     };
     let mut written: FxHashSet<(String, Vec<String>)> = FxHashSet::default();
     for lib in kept {

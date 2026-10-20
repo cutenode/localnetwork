@@ -43,7 +43,7 @@ use crate::error::IoContext;
 use crate::fsutil;
 use crate::hash::Hash;
 use crate::model::{self, Library, Playlist, Track};
-use crate::paths;
+use crate::paths::{self, fold};
 use crate::pdb;
 use crate::progress::{Ctx, Phase, WarningLimiter};
 use crate::tags::{self, Carried, Created, DbTags, Source, TagNames, Wanted};
@@ -158,10 +158,6 @@ impl MergePlan {
     }
 }
 
-fn fold(s: &str) -> String {
-    s.to_lowercase()
-}
-
 /// Source playlists selected by `opts.only_playlists` (all when empty).
 fn selected_playlists(source: &Library, opts: &MergeOptions) -> Result<FxHashSet<u32>> {
     if opts.only_playlists.is_empty() {
@@ -222,20 +218,20 @@ pub fn plan(source: &Device, target: &Device, opts: &MergeOptions, ctx: &Ctx<'_>
 
     // Index the target.
     let dst_by_path: FxHashMap<String, &Track> =
-        dst_lib.tracks.iter().map(|t| (fold(&paths::key(&t.file_path)), t)).collect();
+        dst_lib.tracks.iter().map(|t| (paths::file_key(&t.file_path), t)).collect();
     let dst_by_meta: FxHashMap<String, &Track> = dst_lib.tracks.iter().map(|t| (t.fingerprint_key(), t)).collect();
     // Paths that are off limits: everything on the target, plus everything its database
     // references even if the file is missing (so two rows never end up sharing one file).
     let mut taken: FxHashSet<String> = dst_tree.entries.keys().map(|k| fold(k)).collect();
     for t in dst_lib.tracks.iter().chain(dst_plus.iter().flat_map(|(l, _)| l.tracks.iter())) {
-        taken.insert(fold(&paths::key(&t.file_path)));
+        taken.insert(paths::file_key(&t.file_path));
         if let Some((stem, _)) = paths::key(&t.analyze_path).rsplit_once('.') {
             for ext in ["DAT", "EXT", "2EX"] {
                 taken.insert(fold(&format!("{stem}.{ext}")));
             }
         }
         if let Some(a) = &t.artwork_path {
-            taken.insert(fold(&paths::key(a)));
+            taken.insert(paths::file_key(a));
             taken.insert(fold(&crate::artwork::medium_variant(&paths::key(a))));
         }
     }
@@ -527,7 +523,7 @@ fn plan_my_tags(
     let mut tagged = 0;
     for (i, t) in new_tracks.iter().enumerate() {
         let Some(st) = src_lib.track(t.source_id) else { continue };
-        let (ext, plus) = src.of(&fold(&paths::key(&st.file_path)));
+        let (ext, plus) = src.of(&paths::file_key(&st.file_path));
         tagged += usize::from(!ext.is_empty() || !plus.is_empty());
         for_ext.push((i as u32, fold(&t.audio), ext));
         for_plus.push((i as u32, fold(&t.audio), plus));
@@ -745,7 +741,7 @@ pub fn apply(
     let (mut ext_tags, mut plus_tags) = (FxHashMap::default(), FxHashMap::default());
     for t in &plan.new_tracks {
         let Some(st) = src_lib.track(t.source_id) else { continue };
-        let (ext, plus) = src_tags.of(&fold(&paths::key(&st.file_path)));
+        let (ext, plus) = src_tags.of(&paths::file_key(&st.file_path));
         ext_tags.insert(t.source_id, ext);
         plus_tags.insert(t.source_id, plus);
     }
@@ -977,7 +973,7 @@ impl PlusMerge<'_> {
         ctx: &Ctx<'_>,
     ) -> Result<(Vec<u8>, Carried)> {
         let by_path = |lib: &Library| -> FxHashMap<String, u32> {
-            lib.tracks.iter().map(|t| (fold(&paths::key(&t.file_path)), t.id)).collect()
+            lib.tracks.iter().map(|t| (paths::file_key(&t.file_path), t.id)).collect()
         };
         // Source tracks the target already has, in OneLibrary's ids.
         let mut id_map: FxHashMap<u32, u32> = if self.primary {
@@ -990,7 +986,7 @@ impl PlusMerge<'_> {
                 .iter()
                 .filter_map(|(src, dst)| {
                     let path = &self.target_lib.track(*dst)?.file_path;
-                    let found = plus_ids.get(&fold(&paths::key(path))).map(|id| (*src, *id));
+                    let found = plus_ids.get(&paths::file_key(path)).map(|id| (*src, *id));
                     missing += usize::from(found.is_none());
                     found
                 })
@@ -1036,7 +1032,7 @@ impl PlusMerge<'_> {
                 _ => None,
             };
             let own_row = match (self.src_plus, &src_plus_ids) {
-                (Some(src), Some(ids)) => match ids.get(&fold(&paths::key(&st.file_path))) {
+                (Some(src), Some(ids)) => match ids.get(&paths::file_key(&st.file_path)) {
                     // A row a source database made by something other than rekordbox can't give
                     // (it lacks a table) is built from export.pdb's, as planning expected.
                     Some(id) => src.export_track(*id).unwrap_or_else(|e| {

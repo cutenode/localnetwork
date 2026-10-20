@@ -3,9 +3,10 @@
 //!
 //! Kept like [`crate::audio_cache`]'s results, a small file per audio file keyed by the file's
 //! name, size and modification time, so the same file on another drive, or exported again, keeps
-//! its values, and a changed file's are never read. Each analyzer of each plugin version has a
-//! folder, `<store>/cache/fields/<plugin>/<version>/<analyzer>/`. Readers say which versions
-//! they read: the plugin host's, those installed.
+//! its values, and a changed file's are never read. Each version of each analyzer (its own, not
+//! its plugin's) has a folder, `<store>/cache/fields/<plugin>/<analyzer>/<version>/`. Readers say
+//! which versions they read: the plugin host's, those installed. A field may be null: worked out,
+//! with nothing to show (a field left out wasn't worked out).
 //!
 //! Filters and sorts name a field by its plugin's id and its own (`sound.bpm`): a plugin's
 //! analyzers never share a field name. [`TrackValues`] has a library's, for them.
@@ -27,14 +28,14 @@ pub use loclib_plugin::{FieldType, FieldValue};
 /// An analyzer's fields for one track, by name.
 pub type Fields = IndexMap<String, FieldValue>;
 
-/// The values one analyzer of one plugin version worked out for one audio file.
+/// The values one version of an analyzer worked out for one audio file.
 struct Values;
 
 impl Kind for Values {
     const DIR: &'static str = "fields";
     const EXT: &'static str = "json";
     const WHAT: &'static str = "a plugin's fields";
-    /// The files' own format; the plugin's version is in their folder.
+    /// The files' own format; the analyzer's version is in their folder.
     const VERSION: u32 = 1;
     type Value = Fields;
 
@@ -47,12 +48,12 @@ impl Kind for Values {
     }
 }
 
-/// One analyzer of a plugin, at a version.
+/// One analyzer of a plugin, at its version.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Analyzer {
     pub plugin: String,
-    pub version: String,
     pub analyzer: String,
+    pub version: String,
 }
 
 /// A track's fields by plugin, then analyzer.
@@ -63,8 +64,8 @@ pub struct FieldStore {
     root: PathBuf,
 }
 
-/// Whether `s` can name a folder: plugin ids, versions and analyzers are short names
-/// (`sound`, `0.1.0`, `tempo-key-loudness`).
+/// Whether `s` can name a folder: plugin ids, analyzers and their versions are short names
+/// (`sound`, `tempo-key-loudness`, `3`).
 fn is_name(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('.') && s.chars().all(|c| c.is_ascii_alphanumeric() || "._+-".contains(c))
 }
@@ -75,13 +76,13 @@ impl FieldStore {
     }
 
     fn values(&self, a: &Analyzer) -> Cache<Values> {
-        Cache::new(self.root.join(&a.plugin).join(&a.version).join(&a.analyzer))
+        Cache::new(self.root.join(&a.plugin).join(&a.analyzer).join(&a.version))
     }
 
     /// Keep what `a` worked out for the audio file at `audio`, beside the plugin's other
     /// analyzers' values.
     pub fn put(&self, audio: &Path, a: &Analyzer, fields: &Fields) -> Result<()> {
-        if let Some(bad) = [&a.plugin, &a.version, &a.analyzer].into_iter().find(|s| !is_name(s)) {
+        if let Some(bad) = [&a.plugin, &a.analyzer, &a.version].into_iter().find(|s| !is_name(s)) {
             return Err(Error::invalid(format!("{bad:?} isn't a plugin id, version or analyzer")));
         }
         if let Some((name, _)) = fields.iter().find(|(_, v)| matches!(v, FieldValue::Number(n) if !n.is_finite())) {
@@ -145,9 +146,16 @@ impl TrackValues {
         TrackValues { declared: source.declared.clone(), tracks }
     }
 
-    /// Track `id`'s value of the field `name`, if it has one.
+    /// Track `id`'s value of the field `name`, if it has one (null, when it was worked out with
+    /// nothing to show).
     pub fn get(&self, id: u32, name: &str) -> Option<&FieldValue> {
         self.tracks.get(&id)?.get(name)
+    }
+
+    /// Track `id`'s value of the field `name`, if it has one to show (not null): what sorts
+    /// compare, the rest going last.
+    pub fn shown(&self, id: u32, name: &str) -> Option<&FieldValue> {
+        self.get(id, name).filter(|v| **v != FieldValue::Null)
     }
 }
 

@@ -135,16 +135,16 @@ Then do the steps every app shares, below.
 
 [Plugins](../apps/locallibrary/docs/plugins.md) has what plugins do, and [loclib-plugin](../crates/loclib-plugin/README.md) has the protocol, the manifest's fields and the SDK. `crates/loclib-plugin/examples/echo/` is a complete plugin.
 
-1. Create `plugins/<id>/` with a `Cargo.toml` named `locallibrary-plugin-<id>`, `publish = false`, the workspace's package fields, `[lints] workspace = true`, and `loclib-plugin.workspace = true`. The name matters: nextest's `plugins` profile and CI's plugin job select packages by it.
-2. Write its manifest, `plugins/<id>/locallibrary-plugin.toml`: `id`, `name`, `version`, `protocol = "^0.1"`, `capabilities` (only what it needs) and what it `contributes`.
-3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve`.
+1. Create `plugins/<id>/` with a `Cargo.toml` named `locallibrary-plugin-<id>`, `publish = false`, the workspace's package fields, `[lints] workspace = true`, and `loclib-plugin.workspace = true`.
+2. Write its manifest, `plugins/<id>/locallibrary-plugin.toml`: `id`, `name`, `version`, `protocol = "^0.2"`, `capabilities` (only what it needs) and what it `contributes`.
+3. In `src/lib.rs`, export `pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");` and `pub fn serve(input, output)`, which calls `loclib_plugin::serve` with `MANIFEST` and its `Hooks`.
 4. Test it in `src/tests.rs` over in-memory pipes with a fake host, as `plugins/sound/src/tests.rs` does, including a test that the manifest passes `validate(true)` and that `describe` returns it.
 5. Add it as a dependency in `apps/locallibrary/Cargo.toml` (`{ version = "0.1.0", path = "../../plugins/<id>" }`), and as a line in `FIRST_PARTY` in `apps/locallibrary/src/plugins.rs`.
 6. Add its id to `SHIPPED` in `apps/locallibrary/tests/it/plugins.rs`. Keep `FIRST_PARTY` and `SHIPPED` in alphabetical order, since the tests compare them with `plugin list` and the folder names.
 7. List it in `apps/locallibrary/docs/plugins.md` and in `apps/locallibrary/docs/how-it-works.md` (the layout and the plugins linked in), and add a line under Unreleased in `apps/locallibrary/CHANGELOG.md`.
 8. If it fits an existing area label, add `plugins/<id>/**` to it in `.github/labeler.yml`. The `locallibrary` and `locallibrary: plugins` labels already cover `plugins/**`.
 
-A new capability is a change to loclib-plugin, and also needs a case in `means()` in `apps/locallibrary/src/plugins.rs`, which says it in plain words. A plugin that changes what an analyzer computes bumps its manifest `version`, since stored values are keyed by it.
+A new capability is a change to loclib-plugin, and also needs a case in `means()` in `apps/locallibrary/src/plugins.rs`, which says it in plain words. A plugin that changes what an analyzer computes bumps that analyzer's `version`, since stored values are keyed by it.
 
 ## Shared libraries
 

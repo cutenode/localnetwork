@@ -324,12 +324,7 @@ impl<'a> Matcher<'a> {
 }
 
 fn path_parts(p: &str) -> Vec<String> {
-    paths::key(p)
-        .to_lowercase()
-        .split('/')
-        .filter(|c| !c.is_empty() && *c != "." && *c != "..")
-        .map(String::from)
-        .collect()
+    paths::file_key(p).split('/').filter(|c| !c.is_empty() && *c != "." && *c != "..").map(String::from).collect()
 }
 
 fn isrc_key(s: &str) -> Option<String> {

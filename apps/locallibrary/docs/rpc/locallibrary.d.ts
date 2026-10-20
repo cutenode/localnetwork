@@ -2870,9 +2870,10 @@ export type TrackPluginFields = {
 
 /**
  * A field's value, as an analyzer answers it and the host keeps it: of the type the manifest
- * declares (numbers are finite, as JSON's are).
+ * declares (numbers are finite, as JSON's are), or null for one worked out with nothing to show
+ * (a track left out of an answer has no value: it wasn't worked out).
  */
-export type FieldValue = number | boolean | string | string[];
+export type FieldValue = number | boolean | string | string[] | null;
 
 /**
  * Everything known about one track on a drive: its details, where it's filed, problems with it
@@ -7337,13 +7338,17 @@ export type Described = {
   running: boolean;
 };
 
+/**
+ * Read tolerantly: a key this side doesn't know is left out, and [`Manifest::validate`] refuses
+ * it only in a plugin locallibrary ships (see [`Manifest::unknown`]).
+ */
 export type Manifest = {
   /** Lowercase letters, digits, `-` and `_`, starting with a letter. */
   id: string;
   name: string;
   /** The plugin's version (semver). */
   version: string;
-  /** The protocol versions it speaks, as a semver requirement (`^0.1`). */
+  /** The protocol versions it speaks, as a semver requirement (`^0.2`). */
   protocol: string;
   /** What it may call back for (see [`Capability`]). */
   capabilities: Capability[];
@@ -7363,6 +7368,8 @@ export type Command = {
   name: string;
   title: string;
   mode: Mode;
+  /** Where hosts offer it (see [`Where`]). */
+  where: Where[];
   /** A JSON Schema for its params (an object). */
   params?: unknown;
   /** Its own place on the command line (see [`Operation::cli`]). */
@@ -7376,12 +7383,20 @@ export type Mode =
   | "view";
 
 /**
+ * Where a host offers a command or an operation: in the menu of the tracks selected, of a
+ * playlist, or of a drive. A host's palette has every one.
+ */
+export type Where = "track" | "playlist" | "drive";
+
+/**
  * Planned with `op/plan`, applied by the host, which works out from the edits whether it's
  * destructive.
  */
 export type Operation = {
   name: string;
   title: string;
+  /** Where hosts offer it (see [`Where`]). */
+  where: Where[];
   /** Planning takes a while: the host shows progress. */
   long_running: boolean;
   /** A JSON Schema for its params (an object). */
@@ -7398,6 +7413,11 @@ export type Operation = {
 export type Analyzer = {
   name: string;
   title: string;
+  /**
+   * Its own version: the host keeps its values by it, so a new one works them out again. Bump
+   * it whenever the values would change.
+   */
+  version: string;
   fields: { [key: string]: FieldType };
 };
 
@@ -7432,7 +7452,7 @@ export type SettingType =
   | ("string" | "number" | "boolean" | "file" | "directory")
   /** One of `choices`. */
   | "enum"
-  /** Kept in the keychain; it has no default. */
+  /** It has no default. locallibrary can't keep one yet, and refuses a plugin with one. */
   | "secret";
 
 /** A plugin's settings now: each one set, else its default. */

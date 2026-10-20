@@ -27,7 +27,7 @@ use crate::fsutil;
 use crate::hash::Hash;
 use crate::model::{Library, Track, TrackRef, normalize};
 use crate::onelibrary::OneLibrary;
-use crate::paths::{self, FileClass};
+use crate::paths::{self, FileClass, fold};
 use crate::pdb;
 use crate::progress::{Ctx, Phase};
 use crate::tree::FileTree;
@@ -94,10 +94,6 @@ fn is_useless(artist: &str, title: &str) -> bool {
     USELESS_TRACKS.iter().any(|(a, t)| normalize(a) == artist && normalize(t) == title)
 }
 
-fn fold(s: &str) -> String {
-    s.to_lowercase()
-}
-
 pub fn plan(device: &Device, ctx: &Ctx<'_>) -> Result<CleanPlan> {
     if !device.has_export() {
         return Err(Error::NotAnExport(device.root().to_path_buf()));
@@ -136,11 +132,11 @@ pub fn plan(device: &Device, ctx: &Ctx<'_>) -> Result<CleanPlan> {
     // plus the tracks only OneLibrary has, matched by file as the two databases share audio.
     let primary = libraries[0];
     let primary_doomed: Vec<&Track> = primary.tracks.iter().filter(|t| useless(t)).collect();
-    let primary_files: FxHashSet<String> = primary_doomed.iter().map(|t| fold(&paths::key(&t.file_path))).collect();
+    let primary_files: FxHashSet<String> = primary_doomed.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let only_secondary = libraries[1..]
         .iter()
         .flat_map(|l| l.tracks.iter())
-        .filter(|t| useless(t) && !primary_files.contains(&fold(&paths::key(&t.file_path))));
+        .filter(|t| useless(t) && !primary_files.contains(&paths::file_key(&t.file_path)));
     let tracks: Vec<TrackRef> = primary_doomed.iter().copied().chain(only_secondary).map(TrackRef::from).collect();
     let primary_ids: FxHashSet<u32> = primary_doomed.iter().map(|t| t.id).collect();
     let playlists = primary
@@ -215,18 +211,18 @@ pub(crate) fn removable_files(
     let tree = device.scan(Some(&everything), ctx)?;
     let mut in_use: FxHashSet<String> = FxHashSet::default();
     for t in libraries.iter().flat_map(|l| l.tracks.iter()).filter(|t| !doomed(t)) {
-        in_use.insert(fold(&paths::key(&t.file_path)));
+        in_use.insert(paths::file_key(&t.file_path));
         for e in analysis_files(&t.analyze_path, &tree) {
             in_use.insert(fold(&e));
         }
         if let Some(a) = &t.artwork_path {
-            in_use.insert(fold(&paths::key(a)));
+            in_use.insert(paths::file_key(a));
             in_use.insert(fold(&crate::artwork::medium_variant(&paths::key(a))));
         }
     }
     if let Some(one) = plus {
         for (_, a) in one.images_used_outside_tracks()? {
-            in_use.insert(fold(&paths::key(&a)));
+            in_use.insert(paths::file_key(&a));
             in_use.insert(fold(&crate::artwork::medium_variant(&paths::key(&a))));
         }
     }

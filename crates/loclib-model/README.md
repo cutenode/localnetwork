@@ -13,6 +13,8 @@ reads and writes these from rekordbox USB exports, so the fields follow what rek
   parallel keys, which keys mix, mix costs (going easier on keys an analyzer isn't sure of),
   harmonic suggestions and set ordering (cancellable through a loclib-progress `Ctx`).
 - `analysis`: `TrackAnalysis` and its parts, and rekordbox's hot cue palette.
+- `audio`: the audio format a file's extension names (`audio::Format`), and which extensions DJ
+  players list.
 - `paths`: the normalised path keys tracks are matched by, finding them below a folder, names
   made safe for FAT32 and exFAT, and `PathStyle` (how an export writes paths).
 - `labelled_tuple!`: a struct that serialises as a JSON array but names its elements in its

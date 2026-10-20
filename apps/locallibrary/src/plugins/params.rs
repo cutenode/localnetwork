@@ -74,7 +74,8 @@ pub fn yes_or_no(raw: &str) -> Option<bool> {
     }
 }
 
-/// A path as given, made absolute: a plugin runs in a folder of its own.
+/// A path as given, made absolute: a plugin runs in a folder of its own (`<store>/plugins/<id>/`),
+/// where a relative one would name another file.
 pub fn absolute(raw: &str) -> Result<Value, String> {
     let path = std::path::absolute(raw).map_err(|e| format!("where {raw} is: {e}"))?;
     Ok(Value::from(path.display().to_string()))

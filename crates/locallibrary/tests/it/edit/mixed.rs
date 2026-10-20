@@ -18,7 +18,7 @@ fn state(root: &Path, file: &str) -> (Vec<String>, Vec<Option<String>>, Option<u
     let d = Device::open_export(root).unwrap();
     let lib = d.library().unwrap();
     let t = lib.tracks.iter().find(|t| t.file_path == file).unwrap();
-    let tags = tags::by_track(&d).unwrap().remove(&paths::key(file).to_lowercase()).unwrap_or_default();
+    let tags = tags::by_track(&d).unwrap().remove(&paths::file_key(file)).unwrap_or_default();
     let cues = cue_edit::list(&d, &[t.id]).unwrap().remove(0).cues.into_iter().map(|c| c.hot_cue).collect();
     (tags, cues, lib.find_playlist("Mixed").map(|p| p.track_ids.len()), t.rating)
 }

@@ -150,6 +150,26 @@ fn a_librarys_values_are_named_by_plugin_and_field() {
     }
 }
 
+/// A value worked out with nothing to show is kept as null and read back as that: a value, but
+/// none to show.
+#[test]
+fn a_null_value_is_kept_and_read_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = Store::open_or_init(dir.path().join("store")).unwrap();
+    let drive = dir.path().join("USB");
+    let a = audio(&drive.join("Contents"), "a.mp3", b"silence");
+    let tempo = analyzer("sound", "3", "tempo");
+    let kept = fields(&[("bpm", FieldValue::Null), ("peak", FieldValue::Number(-1.0))]);
+    FieldStore::in_store(&st).put(&a, &tempo, &kept).unwrap();
+    let library =
+        Library { tracks: vec![loclib_model::test_util::track(1, "A", "T", "/Contents/a.mp3")], ..Default::default() };
+    let analyzers = [tempo];
+    let source = Source { store: Some(&st), analyzers: &analyzers, declared: &Declared::default() };
+    let values = TrackValues::read(source, &Device::open(&drive).unwrap(), &library);
+    assert_eq!(values.get(1, "sound.bpm"), Some(&FieldValue::Null));
+    assert_eq!((values.shown(1, "sound.bpm"), values.shown(1, "sound.peak")), (None, Some(&FieldValue::Number(-1.0))));
+}
+
 /// An analyzer's workers keep values at once, and every value lands.
 #[test]
 fn values_kept_at_once_all_land() {

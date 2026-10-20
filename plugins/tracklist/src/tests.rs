@@ -7,7 +7,7 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use loclib_model::model::Track;
 use loclib_model::test_util::track;
-use loclib_plugin::{Capability, Incoming, PROTOCOL_VERSION, Peer, method};
+use loclib_plugin::{Capability, Incoming, Manifest, PROTOCOL_VERSION, Peer, method};
 
 use super::*;
 

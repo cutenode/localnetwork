@@ -285,7 +285,7 @@ pub fn groups(
             let Some(tags) = tags else { return Vec::new() };
             let mut by_tag: indexmap::IndexMap<&str, Vec<usize>> = Default::default();
             for (i, t) in lib.tracks.iter().enumerate() {
-                for tag in tags.get(&paths::key(&t.file_path).to_lowercase()).into_iter().flatten() {
+                for tag in tags.get(&paths::file_key(&t.file_path)).into_iter().flatten() {
                     by_tag.entry(tag).or_default().push(i);
                 }
             }
@@ -311,7 +311,7 @@ pub fn groups(
                 .iter()
                 .enumerate()
                 .rev()
-                .map(|(i, t)| (locallibrary::plays::file_key(&t.file_path), i))
+                .map(|(i, t)| (locallibrary::paths::file_key(&t.file_path), i))
                 .collect();
             let mut newest: Vec<&Set> = sets.iter().collect();
             newest.sort_by(|a, b| Set::newest_first(a, b));
@@ -570,9 +570,10 @@ pub fn ranks(lib: &Library, field: SortField) -> Vec<u32> {
 }
 
 /// Every track's rank under a plugin's field `name`, by its `values` as
-/// `locallibrary::query::sort_tracks_with` orders them (tracks without one share the last).
+/// `locallibrary::query::sort_tracks_with` orders them (tracks without one to show share the
+/// last).
 pub fn field_ranks(lib: &Library, values: &TrackValues, name: FieldName) -> Vec<u32> {
-    let value = |i: usize| values.get(lib.tracks[i].id, name.as_str());
+    let value = |i: usize| values.shown(lib.tracks[i].id, name.as_str());
     rank_by(lib.tracks.len(), |a, b| match (value(a), value(b)) {
         (Some(x), Some(y)) => compare_values(x, y),
         (x, y) => x.is_none().cmp(&y.is_none()),

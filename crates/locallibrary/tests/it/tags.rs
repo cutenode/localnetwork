@@ -207,7 +207,7 @@ fn edits_both_databases_and_can_be_undone() {
 
     apply(&mut d, add("Situation/Lounge", vec![demos[0]]));
     let by_track = tags::by_track(&d).unwrap();
-    let key = |q: &str| paths::key(&d.library().unwrap().search(q)[0].file_path).to_lowercase();
+    let key = |q: &str| paths::file_key(&d.library().unwrap().search(q)[0].file_path);
     assert_eq!(by_track[&key("Demo Track 1")], ["Genre/Techno", "Situation/Lounge"]);
     assert_eq!(by_track[&key("Demo Track 2")], ["Genre/Techno"]);
     assert_eq!(by_track[&key("NOISE")], ["Genre/Minimal"]);

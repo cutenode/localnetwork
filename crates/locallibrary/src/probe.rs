@@ -22,6 +22,7 @@ use symphonia::core::formats::{SeekMode, SeekTo};
 use symphonia::core::units::{Time, TimeBase};
 
 use loclib_mixid::audio::{CRASHED, open};
+use loclib_model::audio;
 
 use crate::device::Device;
 use crate::equipment::Codec;
@@ -65,15 +66,15 @@ pub fn guarded<T, E: From<Error>>(
 pub fn format(path: &Path) -> Result<Format> {
     let track = guarded(path, || open(path).map(|(_, track)| track).map_err(Error::from))?;
     let p = &track.codec_params;
-    let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+    let ext = path.extension().and_then(|e| e.to_str()).and_then(audio::Format::from_extension);
     let codec = match p.codec {
         CODEC_TYPE_MP3 => Some(Codec::Mp3),
         CODEC_TYPE_AAC => Some(Codec::Aac),
         CODEC_TYPE_ALAC => Some(Codec::Alac),
         CODEC_TYPE_FLAC => Some(Codec::Flac),
-        c if is_pcm(c) => match ext.as_deref() {
-            Some("wav") => Some(Codec::Wav),
-            Some("aif" | "aiff") => Some(Codec::Aiff),
+        c if is_pcm(c) => match ext {
+            Some(audio::Format::Wav) => Some(Codec::Wav),
+            Some(audio::Format::Aiff) => Some(Codec::Aiff),
             _ => None,
         },
         _ => None,

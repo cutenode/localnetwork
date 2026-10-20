@@ -283,9 +283,9 @@ impl SetEntry {
         }
     }
 
-    /// The file as [`crate::plays::file_key`] keys it, to match a library's tracks by.
+    /// The file as [`crate::paths::file_key`] keys it, to match a library's tracks by.
     pub fn file_key(&self) -> Option<String> {
-        self.file.as_deref().map(crate::plays::file_key)
+        self.file.as_deref().map(crate::paths::file_key)
     }
 }
 

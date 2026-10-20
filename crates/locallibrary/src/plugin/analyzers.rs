@@ -1,6 +1,6 @@
 //! Plugins' analyzers (`track/analyze`): each track's audio file is handed to the plugin (read
 //! only), a few at a time, and the fields it answers, once they're of the types the analyzer
-//! declares, are kept in the [`crate::fields`] store for the plugin's version.
+//! declares, are kept in the [`crate::fields`] store for the analyzer's version.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -53,7 +53,7 @@ impl Plugins {
             None => library.tracks.iter().collect::<Vec<_>>(),
         };
         let fields = FieldStore::in_store(store);
-        let key = Analyzer { plugin: plugin.into(), version: slot.manifest.version.clone(), analyzer: analyzer.into() };
+        let key = Analyzer { plugin: plugin.into(), analyzer: analyzer.into(), version: declared.version.clone() };
         let mut done = Analyzed::default();
         let mut todo = Vec::new();
         for t in selected {
@@ -73,7 +73,7 @@ impl Plugins {
         }
         if !todo.is_empty() {
             // One that can't start fails here, not on every track.
-            slot.start()?;
+            slot.start(Some(store))?;
         }
         ctx.phase_start(Phase::Analyze, todo.len() as u64, 0);
         let (next, analyzed, failed) = (AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0));
@@ -84,7 +84,7 @@ impl Plugins {
             while let Some(track) = todo.get(next.fetch_add(1, Ordering::SeqCst)) {
                 ctx.emit(Event::Item { phase: Phase::Analyze, path: track.file_path.clone(), bytes: 0 });
                 let req = AnalyzeTrack { analyzer: analyzer.into(), track: track.clone(), context: context.clone() };
-                let answer = slot.call::<Analysis>(method::ANALYZE_TRACK, &req, &quiet).and_then(|a| {
+                let answer = slot.call::<Analysis>(method::ANALYZE_TRACK, &req, Some(store), &quiet).and_then(|a| {
                     let wrong = a.fields.iter().find_map(|(name, v)| match declared.fields.get(name) {
                         None => Some(format!("its field {name} isn't one {analyzer} declares")),
                         Some(t) if !t.accepts(v) => {

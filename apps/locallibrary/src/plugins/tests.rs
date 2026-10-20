@@ -5,7 +5,7 @@ use super::*;
 /// A first-party manifest with the id `id` and `contributes` (TOML) added.
 fn manifest(id: &str, contributes: &str) -> Manifest {
     let m = Manifest::parse(&format!(
-        "id = \"{id}\"\nname = \"Test\"\nversion = \"0.1.0\"\nprotocol = \"^0.1\"\n{contributes}"
+        "id = \"{id}\"\nname = \"Test\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n{contributes}"
     ))
     .unwrap();
     m.validate(true).unwrap();
@@ -165,7 +165,7 @@ impl Planned {
     fn clean(tc: &hegel::TestCase, id: &str, i: usize) -> Planned {
         use hegel::generators as gs;
         let mut p = Planned {
-            manifest: json!({ "id": id, "name": "P", "version": "0.1.0", "protocol": "^0.1" }),
+            manifest: json!({ "id": id, "name": "P", "version": "0.1.0", "protocol": "^0.2" }),
             places: vec![(id.into(), format!("the {id} plugin"), format!("the {id} plugin's id"))],
             formats: Vec::new(),
             alone: None,

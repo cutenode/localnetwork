@@ -4,8 +4,9 @@
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
-//! `plugin serve <id>`). A plugin starts when it's first used, and must speak the protocol and
-//! describe itself exactly as its manifest does; it's stopped once it has been idle a while,
+//! `plugin serve <id>`). A plugin starts when it's first used, in its folder in the store, and
+//! must speak the protocol, describe itself exactly as its manifest does and have the features
+//! (kinds of hooks) what it contributes needs; it's stopped once it has been idle a while,
 //! started again after it crashed, and killed when it doesn't stop as asked. None starts from an
 //! elevated process.
 //!
@@ -28,7 +29,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::IndexMap;
-use loclib_plugin::{Command, Manifest, Operation, SettingType, check_params};
+use loclib_plugin::{Command, Context, Manifest, Operation, Selection, SettingType, check_params};
 use rustc_hash::FxHashSet;
 use serde_json::{Map, Value};
 
@@ -180,8 +181,8 @@ impl Plugins {
             .flat_map(|m| {
                 m.contributes.analyzers.iter().map(|a| Analyzer {
                     plugin: m.id.clone(),
-                    version: m.version.clone(),
                     analyzer: a.name.clone(),
+                    version: a.version.clone(),
                 })
             })
             .collect()
@@ -228,9 +229,19 @@ impl Slot {
 }
 
 /// `params` as a hook takes them, once they fit `schema` (a contribution's `params` or
-/// `options`): `null` is none. Where they don't is `fields.path`, as the sidecar says it.
-fn fitting(schema: Option<&Value>, params: Value) -> Result<Value> {
-    let params = if params.is_null() { Value::Object(Map::new()) } else { params };
+/// `options`): `null` is none, and one filled in from the selection (`x-from`) that isn't given is
+/// what `context` (as the plugin gets it) has selected, if anything. Where they don't fit is
+/// `fields.path`, as the sidecar says it.
+fn fitting(schema: Option<&Value>, params: Value, context: &Context) -> Result<Value> {
+    let mut params = if params.is_null() { Value::Object(Map::new()) } else { params };
+    if let Value::Object(given) = &mut params {
+        for (name, property) in schema.and_then(|s| s["properties"].as_object()).into_iter().flatten() {
+            let selected = Selection::of(property).ok().flatten().and_then(|s| s.value(context));
+            if let Some(value) = selected.filter(|_| !given.contains_key(name)) {
+                given.insert(name.clone(), value);
+            }
+        }
+    }
     check_params(schema, &params).map_err(|e| {
         let path = e.data.and_then(|d| d.fields.get("path").cloned());
         let invalid = Error::Invalid(e.message);

@@ -1,6 +1,7 @@
 //! JSON-RPC errors, with the codes and kinds of locallibrary's RPC sidecar: -32700 to -32603 for
 //! the protocol's own failures, and -32000 with `data.kind` for everything else.
 
+use loclib_progress::Ctx;
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -82,6 +83,18 @@ impl RpcError {
         RpcError::failed("closed", "the connection closed")
     }
 
+    /// Work done with `ctx` that failed with `e`, as the host takes it, with `e`'s message:
+    /// `cancelled` once `ctx` is (the work stopped for it), `io` when a file couldn't be read or
+    /// written (an [`std::io::Error`] among `e`'s sources), else of kind `kind`.
+    pub fn failure(e: &(dyn std::error::Error + 'static), kind: &str, ctx: &Ctx<'_>) -> RpcError {
+        // Libraries wrap `Cancelled` transparently, which hides it from `source()`.
+        if ctx.check().is_err() {
+            return RpcError::cancelled();
+        }
+        let io = std::iter::successors(Some(e), |e| e.source()).any(|e| e.is::<std::io::Error>());
+        RpcError::failed(if io { "io" } else { kind }, e.to_string())
+    }
+
     /// `data.kind`, when it has data.
     pub fn kind(&self) -> Option<&str> {
         self.data.as_ref().map(|d| d.kind.as_str())
@@ -118,3 +131,6 @@ pub(crate) fn ok<T: Serialize>(v: T) -> Result<Value, RpcError> {
 pub(crate) fn result<T: DeserializeOwned>(v: Value) -> Result<T, RpcError> {
     serde_json::from_value(v).map_err(|e| RpcError::internal(format!("unexpected result: {e}")))
 }
+
+#[cfg(test)]
+mod tests;

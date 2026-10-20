@@ -110,7 +110,7 @@ fn draw_op(tc: &TestCase, trees: [&Tree; 2], keys: &[String]) -> Op {
 #[hegel::test(test_cases = 30)]
 fn the_tree_model_is_what_both_databases_read_back(tc: TestCase) {
     let library = six_tracks();
-    let keys: Vec<String> = library.tracks.iter().map(|t| track_key(&t.file_path)).collect();
+    let keys: Vec<String> = library.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/../../vendor/rekordbox-pdb/tests/data/one-song-exportExt.pdb");
     let path = Path::new(paths::EXPORT_EXT_PDB);
     let mut ext = std::fs::read(fixture).unwrap();
@@ -277,7 +277,7 @@ fn tree_of(tc: &TestCase, categories: &[&str], first_tags: usize, keys: &[String
 #[hegel::test(test_cases = 30)]
 fn carried_tags_reach_their_tracks_within_rekordboxs_limits(tc: TestCase) {
     let library = six_tracks();
-    let keys: Vec<String> = library.tracks.iter().map(|t| track_key(&t.file_path)).collect();
+    let keys: Vec<String> = library.tracks.iter().map(|t| paths::file_key(&t.file_path)).collect();
     let pair = |c: &str, t: &str| (c.to_string(), t.to_string());
     let choices = [
         pair("Genre", "Tag 1"),

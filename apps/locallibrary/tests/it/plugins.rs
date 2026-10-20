@@ -7,20 +7,16 @@ use std::process::Stdio;
 use loclib_plugin::Manifest;
 use serde_json::{Value, json};
 
-use crate::support::{Env, Rpc, path, recording};
+use crate::support::{Env, Rpc, echo_plugin, path, recording};
 
 mod props;
 
-/// loclib-plugin's echo plugin, which the test plugin is.
-const ECHO: &str = include_str!("../../../../crates/loclib-plugin/examples/echo/locallibrary-plugin.toml");
-
-/// The echo manifest as these tests register it: its export format renamed (`m3u` is one of
-/// locallibrary's), its `echo` command at `locallibrary say` taking flags, and its operation at
-/// `locallibrary playlist fresh`.
+/// The echo manifest as these tests register it ([`echo_plugin`]): its `echo` command at
+/// `locallibrary say` taking flags, and its operation at `locallibrary playlist fresh`.
 fn echo() -> String {
     let params = r#"params = { type = "object", properties = { name = { type = "string" }, times = { type = "integer" }, loud = { type = "boolean" }, file = { type = "string", x-path = true } } }
 cli = "say""#;
-    ECHO.replace("format = \"m3u\"", "format = \"echo-m3u\"")
+    echo_plugin()
         .replacen("params = { type = \"object\" }", params, 1)
         .replace("title = \"Make a playlist\"", "title = \"Make a playlist\"\ncli = \"playlist fresh\"")
 }
@@ -84,7 +80,7 @@ fn a_plugin_serves_on_stdout_alone() {
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
-    let hello = json!({ "protocol": "0.1.0", "host": { "name": "test", "version": "0" } });
+    let hello = json!({ "protocol": loclib_plugin::PROTOCOL_VERSION, "host": { "name": "test", "version": "0" } });
     let mut stdin = child.stdin.take().unwrap();
     for (id, method, params) in [(1, "hello", hello), (2, "describe", json!({}))] {
         writeln!(stdin, "{}", json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).unwrap();
@@ -126,6 +122,10 @@ fn plugins_are_listed_and_their_settings_kept() {
     for line in ["Echo (echo) 0.1.0", "locallibrary say", "locallibrary echo titles", "locallibrary playlist fresh"] {
         assert!(info.contains(line), "{line}: {info}");
     }
+    // With the menus that offer each.
+    assert!(crate::support::line(&info, "locallibrary echo titles").ends_with("(menus: drive)"), "{info}");
+    let fresh = crate::support::line(&info, "locallibrary playlist fresh");
+    assert!(fresh.ends_with("Make a playlist (menus: track, playlist, drive)"), "{info}");
     let described = env.json(&["plugin", "info", "echo"]);
     assert_eq!(
         (&described["manifest"]["id"], &described["settings"]),

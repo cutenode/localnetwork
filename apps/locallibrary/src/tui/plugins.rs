@@ -1,6 +1,7 @@
-//! Plugins in the player: their commands and operations in the palette and the drive menu
-//! (operations in the actions menu, `e`, too), a form for their params (see [`super::form`]), and
-//! each run in the background as any task is (esc stops one). A command's answer shows in a panel;
+//! Plugins in the player: their commands and operations in the palette, and in the menus their
+//! manifests say (`where`: the actions menu, `e`, for the tracks selected or a playlist, and the
+//! drive menu), a form for their params (see [`super::form`]), and each run in the background as
+//! any task is (esc stops one). A command's answer shows in a panel;
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. Analyzers run
 //! from the palette too, exports are planned and confirmed (overwriting asked about) before the
 //! plugin writes them, and each plugin's settings are a form, kept in the store. Nothing here
@@ -11,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use locallibrary::Store;
 use locallibrary::plugin::{Cli, CommandOutput};
-use loclib_plugin::{Capability, Context, ExportSource, Setting, SettingType, View};
+use loclib_plugin::{Capability, Context, ExportSource, Setting, SettingType, View, Where};
 use serde_json::{Map, Value, json};
 
 use super::app::Fields;
@@ -52,10 +53,15 @@ impl Run {
     }
 }
 
+/// Every place a command or an operation may be offered: the palette offers them all.
+pub const EVERYWHERE: [Where; 3] = [Where::Track, Where::Playlist, Where::Drive];
+
 /// A plugin's command or operation, as a menu offers it.
 pub struct Offered {
     pub plugin: &'static str,
     pub name: &'static str,
+    /// Where its manifest offers it.
+    pub offered: &'static [Where],
     /// Its title as the player's own are named (see [`named`]), ending in … when it asks for
     /// params first.
     pub label: String,
@@ -65,10 +71,10 @@ pub struct Offered {
     pub unavailable: Option<String>,
 }
 
-/// Plugins' commands (with `commands`) and operations, as the menus offer them on a drive:
-/// `drive` is `None` without one, `Some(false)` for a folder opened by path, which a plugin can't
-/// name. An operation always needs a drive; a command, when its plugin reads one.
-pub fn offered(drive: Option<bool>, commands: bool) -> Vec<Offered> {
+/// Plugins' commands and operations offered in a menu of one of `places`, as it offers them on a
+/// drive: `drive` is `None` without one, `Some(false)` for a folder opened by path, which a plugin
+/// can't name. An operation always needs a drive; a command, when its plugin reads one.
+pub fn offered(drive: Option<bool>, places: &[Where]) -> Vec<Offered> {
     let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
     let why = match drive {
         None => Some("open a drive first"),
@@ -79,13 +85,17 @@ pub fn offered(drive: Option<bool>, commands: bool) -> Vec<Offered> {
     for m in plugins.manifests() {
         let c = &m.contributes;
         let reads = m.capabilities.iter().any(reads_drive);
-        let hooks = c.commands.iter().filter(|_| commands).map(|x| (&x.name, &x.title, x.params.as_ref(), reads));
-        let hooks = hooks.chain(c.operations.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), true)));
-        for (name, title, params, needs_drive) in hooks {
+        let hooks = c.commands.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), &x.offered, reads));
+        let hooks = hooks.chain(c.operations.iter().map(|x| (&x.name, &x.title, x.params.as_ref(), &x.offered, true)));
+        for (name, title, params, offered, needs_drive) in hooks {
+            if !offered.iter().any(|w| places.contains(w)) {
+                continue;
+            }
             let asks = if properties(params).next().is_some() { "…" } else { "" };
             all.push(Offered {
                 plugin: &m.id,
                 name,
+                offered,
                 label: format!("{}{asks}", named(title)),
                 by: &m.name,
                 unavailable: why.filter(|_| needs_drive).map(String::from),
@@ -138,7 +148,9 @@ fn settings_schema(settings: &[Setting]) -> Value {
                 SettingType::Boolean => json!({ "type": "boolean" }),
                 SettingType::Enum => json!({ "type": "string", "enum": s.choices }),
                 SettingType::File | SettingType::Directory => json!({ "type": "string", "x-path": true }),
-                SettingType::String | SettingType::Secret => json!({ "type": "string" }),
+                SettingType::String => json!({ "type": "string" }),
+                // Typed as a password is (see `super::form::Field::is_secret`).
+                SettingType::Secret => json!({ "type": "string", "writeOnly": true }),
             };
             let default = s.default.as_ref().map(|d| format!(" (empty for {})", cell(d))).unwrap_or_default();
             p["description"] = Value::from(format!("{}{default}", s.title));
@@ -200,11 +212,12 @@ impl App {
         root.map(|root| !self.extra_roots.iter().any(|r| r == root))
     }
 
-    /// Every plugin's commands, operations, analyzers and export formats, as the palette and the
-    /// drive menu list them for the drive at `root`: by title, with the plugin's name beside each.
-    pub(super) fn plugin_items(&self, root: Option<&Path>) -> Vec<(Act, Item)> {
+    /// Every plugin's commands and operations offered in a menu of one of `places`, analyzers and
+    /// export formats, as the palette and the drive menu list them for the drive at `root`: by
+    /// title, with the plugin's name beside each.
+    pub(super) fn plugin_items(&self, root: Option<&Path>, places: &[Where]) -> Vec<(Act, Item)> {
         let drive = self.pluggable(root);
-        let all = offered(drive, true).into_iter();
+        let all = offered(drive, places).into_iter();
         let mut items: Vec<(Act, Item)> = all
             .map(|o| (Act::Plugin(o.plugin, o.name), Item { unavailable: o.unavailable, ..Item::new(o.label, o.by) }))
             .collect();
@@ -423,8 +436,9 @@ impl App {
         self.plugin_act(plugin, name, self.action_drive(), target.as_ref());
     }
 
-    /// A plugin's command or operation, on the drive at `root` with what `target` selects: its
-    /// form first when it takes params.
+    /// A plugin's command or operation, on the drive at `root` (named as the drive list names
+    /// it, for a param from the selection) with what `target` selects: its form first when it
+    /// takes params.
     pub(super) fn plugin_act(
         &mut self,
         plugin: &'static str,
@@ -439,6 +453,7 @@ impl App {
             return;
         };
         let context = target.map(|t| self.context(t)).unwrap_or_default();
+        let context = Context { drive: root.as_deref().map(|r| self.drive_label(r)), ..context };
         let run = Run { plugin, hook, root, context };
         match properties(run.params()).next() {
             None => self.run_plugin(run, Value::Null),

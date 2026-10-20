@@ -113,7 +113,7 @@ fn playlist_count(lib: &Library) -> usize {
 /// File keys of a playlist's entries, by its path.
 fn entries(lib: &Library, path: &str) -> Vec<String> {
     let p = lib.playlists.iter().find(|p| !p.is_folder && lib.playlist_path(p.id) == path).unwrap();
-    p.track_ids.iter().filter_map(|id| lib.track(*id)).map(|t| paths::key(&t.file_path).to_lowercase()).collect()
+    p.track_ids.iter().filter_map(|id| lib.track(*id)).map(|t| paths::file_key(&t.file_path)).collect()
 }
 
 fn names(v: &[locallibrary::model::TrackRef]) -> BTreeSet<String> {
@@ -224,7 +224,7 @@ fn entry_changes_account_for_every_entry(tc: TestCase) {
     for c in &d.changed_playlists {
         let (left, right) = (entries(&a, &c.path), entries(&b, &c.path));
         assert_ne!(left, right);
-        let key = |e: &locallibrary::model::TrackRef| paths::key(&e.file_path).to_lowercase();
+        let key = |e: &locallibrary::model::TrackRef| paths::file_key(&e.file_path);
         for e in &c.removed {
             assert_eq!(left[e.position - 1], key(&e.track));
         }
