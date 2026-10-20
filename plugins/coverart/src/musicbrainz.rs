@@ -4,13 +4,14 @@
 //! release group: the album's, whose cover the Cover Art Archive has.
 
 use loclib_model::model::normalize;
-use loclib_plugin::RpcError;
-use loclib_progress::Ctx;
+use loclib_plugin::{Fetch, Host, RpcError};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::Album;
-use crate::web::{Limiter, Web};
+
+/// Where MusicBrainz is.
+pub(crate) const MUSICBRAINZ: &str = "https://musicbrainz.org";
 
 /// What a recording search answers, as far as this plugin reads it.
 #[derive(Deserialize)]
@@ -58,16 +59,10 @@ pub(crate) enum Found {
 }
 
 /// The release group `album` is. Fails when MusicBrainz can't be reached at all, or when the
-/// operation is cancelled before a search is sent.
-pub(crate) fn release_group(
-    web: &Web,
-    base: &str,
-    limiter: &Limiter,
-    album: &Album,
-    ctx: &Ctx<'_>,
-) -> Result<Found, RpcError> {
+/// operation is cancelled.
+pub(crate) fn release_group(host: &Host, album: &Album) -> Result<Found, RpcError> {
     if let Some(isrc) = &album.isrc {
-        let found = match search(web, base, limiter, ctx, "recording", &format!("isrc:{isrc}"))? {
+        let found = match search(host, "recording", &format!("isrc:{isrc}"))? {
             Ok(Recordings { recordings }) => one(recordings.into_iter().flat_map(|r| r.releases), &album.name),
             Err(status) => return Ok(Found::Refused(status)),
         };
@@ -80,38 +75,33 @@ pub(crate) fn release_group(
     if !album.artist.is_empty() {
         query = format!("{query} AND {}", phrase("artist", &album.artist));
     }
-    Ok(match search(web, base, limiter, ctx, "release", &query)? {
+    Ok(match search(host, "release", &query)? {
         Ok(Releases { releases }) => one(releases.into_iter(), &album.name),
         Err(status) => Found::Refused(status),
     })
 }
 
 /// How many times a search is sent while MusicBrainz answers 503, which it does when too many
-/// requests come at once (from everyone, at busy times), each on a turn of its own.
+/// requests come at once (from everyone, at busy times), each waiting its turn at the host.
 const TRIES: usize = 3;
 
-/// Searches MusicBrainz for `entity` (`release`, `recording`) with the Lucene `query`, once its
-/// turn comes: the answer, or the status it was refused with.
-fn search<T: DeserializeOwned>(
-    web: &Web,
-    base: &str,
-    limiter: &Limiter,
-    ctx: &Ctx<'_>,
-    entity: &str,
-    query: &str,
-) -> Result<Result<T, u16>, RpcError> {
-    let url = format!("{base}/ws/2/{entity}/");
+/// Searches MusicBrainz for `entity` (`release`, `recording`) with the Lucene `query`: the answer,
+/// or the status it was refused with.
+fn search<T: DeserializeOwned>(host: &Host, entity: &str, query: &str) -> Result<Result<T, u16>, RpcError> {
+    let params =
+        form_urlencoded::Serializer::new(String::new()).append_pair("query", query).append_pair("fmt", "json").finish();
+    let fetch = Fetch::get(format!("{MUSICBRAINZ}/ws/2/{entity}/?{params}"));
     let mut tries = 1;
     loop {
-        limiter.wait(ctx)?;
-        let (status, body) = web
-            .get(&url, &[("query", query), ("fmt", "json")])
-            .map_err(|e| RpcError::failed("external", format!("couldn't reach MusicBrainz: {e}")))?;
-        eprintln!("coverart: MusicBrainz {entity} search {query:?}: {status}");
-        match status {
+        let fetched = host.fetch(&fetch).map_err(|e| match e.kind() {
+            Some("cancelled") => e,
+            _ => RpcError { message: format!("couldn't reach MusicBrainz: {}", e.message), ..e },
+        })?;
+        eprintln!("coverart: MusicBrainz {entity} search {query:?}: {}", fetched.status);
+        match fetched.status {
             503 if tries < TRIES => tries += 1,
             200 => {
-                let answer = serde_json::from_slice(&body).map_err(|e| {
+                let answer = serde_json::from_str(fetched.body.as_deref().unwrap_or_default()).map_err(|e| {
                     RpcError::failed("external", format!("MusicBrainz answered what isn't a search result: {e}"))
                 });
                 return answer.map(Ok);

@@ -80,7 +80,7 @@ pub(crate) fn registry() -> Option<Store> {
 
 /// Mounted drives, plus registered drives still present at their last mount point (while
 /// [`device::volume_folders`] names folders, only those last seen inside one of them).
-fn known_drives(include_blank: bool) -> Vec<Device> {
+pub(crate) fn known_drives(include_blank: bool) -> Vec<Device> {
     let mut out = device::detect(include_blank);
     let folders: Option<Vec<PathBuf>> =
         device::volume_folders().map(|f| f.iter().map(|d| device::dunce_canonicalize(d)).collect());

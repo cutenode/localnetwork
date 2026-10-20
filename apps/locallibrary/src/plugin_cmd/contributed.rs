@@ -2,6 +2,7 @@
 //! or the place a manifest gives one (`import`, `playlist import`), with a flag for each param
 //! (see [`params`]).
 
+use std::cell::Cell;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -157,9 +158,19 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
         Cli::Command(command) => {
             let params = params_of(command.params.as_ref(), m)?;
             let context = Context { drive, ..Context::default() };
-            match plugins.run_command(plugin, &command.name, params, context, store.as_ref(), ctx)? {
+            // The rows (and items) drawn as they came, which the view has first.
+            let drawn = Cell::new((0, 0));
+            let shown = |p: loclib_plugin::Partial| {
+                if !out.json {
+                    view::plain(&p.rows, &p.items);
+                    let (rows, items) = drawn.get();
+                    drawn.set((rows + p.rows.len(), items + p.items.len()));
+                }
+            };
+            match plugins.run_command(plugin, &command.name, params, context, store.as_ref(), ctx, &shown)? {
                 CommandOutput::Headless(v) => out.emit(&v, view::headless),
-                CommandOutput::View(v) => out.emit_paged(&v, view::view),
+                CommandOutput::View(v) if drawn.get() == (0, 0) => out.emit_paged(&v, view::view),
+                CommandOutput::View(v) => out.emit(&v, |v| view::rest(v, drawn.get())),
             }
             Ok(ExitCode::SUCCESS)
         }

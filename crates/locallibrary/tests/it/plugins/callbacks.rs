@@ -10,7 +10,7 @@ use super::*;
 /// `{"error": ...}`. Run without a drive, so from any thread.
 fn call(f: &Fixture, method: &str, params: Value) -> Value {
     let params = json!({ "call": method, "params": params });
-    match f.plugins.run_command("echo", "echo", params, Context::default(), None, &Ctx::silent()).unwrap() {
+    match f.plugins.run_command("echo", "echo", params, Context::default(), None, &Ctx::silent(), &|_| {}).unwrap() {
         CommandOutput::Headless(v) => v,
         view => panic!("{view:?}"),
     }
@@ -19,11 +19,12 @@ fn call(f: &Fixture, method: &str, params: Value) -> Value {
 #[test]
 fn a_plugin_reads_what_its_capabilities_grant_in_pages() {
     let f = Fixture::echo();
-    // The drive is found by the host, and the app given its root.
-    let asked = call(&f, "drive.library", json!({ "drive": "USB" }))["result"].clone();
+    // The drive is found by the host, and the app given its root: which the plugin is told as
+    // the drive's name, as every path it reads is said, though it named the drive by its id.
+    let id = locallibrary::device::Device::open(&f.drive).unwrap().id().unwrap().to_string();
+    let asked = call(&f, "drive.library", json!({ "drive": id }))["result"].clone();
     assert_eq!((asked["method"].clone(), asked["params"]["limit"].clone()), (json!("drive.library"), json!(500)));
-    let root = Path::new(asked["params"]["drive"].as_str().unwrap()).canonicalize().unwrap();
-    assert_eq!(root, f.drive.canonicalize().unwrap());
+    assert_eq!(asked["params"]["drive"], "USB");
 
     let denied = call(&f, "store.info", json!({}));
     assert_eq!(denied["error"]["data"]["kind"], "denied");
@@ -33,6 +34,33 @@ fn a_plugin_reads_what_its_capabilities_grant_in_pages() {
     );
     let write = call(&f, "edit.plan", json!({ "drive": "USB", "edits": [] }));
     assert_eq!(write["error"]["code"], -32601);
+}
+
+/// What a plugin reads says nothing of where drives are mounted: no `root`, however deep.
+#[test]
+fn a_plugin_reads_no_roots() {
+    let f = Fixture::new(|dir| vec![spec(dir, &granting(&["drive:info"]), &[])], Options::default());
+    let info = call(&f, "drive.info", json!({ "drive": "USB" }));
+    assert_eq!(info, json!({ "result": { "name": "USB", "drives": [{ "id": 1 }] } }));
+}
+
+/// Nor where anything else is: a store's copies, a set's recording, rekordbox's collection or a
+/// drive last mounted are left out, and a mounted drive is said by its name, in a path or alone.
+#[test]
+fn a_plugin_reads_where_nothing_is() {
+    let granted = granting(&["drive:info", "store:read", "sets:read", "collection:read"]);
+    let f = Fixture::new(|dir| vec![spec(dir, &granted, &[])], Options::default());
+    let read = |method: &str| call(&f, method, json!({}))["result"].clone();
+    assert_eq!(read("store.copies"), json!([{ "name": "nas", "bytes": 1 }]));
+    assert_eq!(read("store.info"), json!({ "copy_of": { "name": "n" }, "x": { "path": "kept" } }));
+    assert_eq!(read("sets.get"), json!({ "recording": { "report": "r" }, "entries": [{ "path": "/Contents/a" }] }));
+    assert_eq!(read("collection.info"), json!({ "bytes": 1 }));
+    let said = json!({
+        "offline": [{ "name": "Old" }],
+        "duplicates": [{ "roots": ["USB"], "original": "USB" }],
+        "warnings": [format!("USB{}PIONEER: unreadable", std::path::MAIN_SEPARATOR)],
+    });
+    assert_eq!(read("fleet.status"), said);
 }
 
 /// A drive a plugin names is one known here, never a path or a folder.

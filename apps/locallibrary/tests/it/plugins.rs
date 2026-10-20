@@ -67,6 +67,78 @@ fn env() -> Env {
     env
 }
 
+/// A secret setting is read from stdin (`--secret`), never from the command line, kept apart (a
+/// file only you can read, here: `LOCALLIBRARY_SESSION_STORE=file`) and only ever shown as set or
+/// not, by the command line and the sidecar, which takes one too.
+#[test]
+fn a_secret_setting_is_read_from_stdin_and_never_shown() {
+    let mut env = Env::new();
+    let secret = "\n[[contributes.settings]]\nkey = \"token\"\ntitle = \"Token\"\ntype = \"secret\"\n";
+    env.plugins(&[&format!("{}{secret}", echo())]);
+    let run = |args: &[&str], stdin: &str| {
+        let mut child = env
+            .command()
+            .env("LOCALLIBRARY_SESSION_STORE", "file")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        let said = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
+        (out.status.code().unwrap(), said(out.stdout), said(out.stderr))
+    };
+    let (code, _, said) = run(&["plugin", "settings", "echo", "token", "hunter2"], "");
+    assert_eq!(code, 2, "{said}");
+    assert!(
+        said.contains("a secret isn't given on the command line, which keeps it in your shell's history"),
+        "{said}"
+    );
+    let (code, _, said) = run(&["plugin", "settings", "echo", "greeting", "--secret"], "x\n");
+    assert!(code == 2 && said.contains("greeting isn't a secret: give its value"), "{said}");
+    let (code, _, said) = run(&["-y", "plugin", "settings", "echo", "token", "--secret"], "\n");
+    assert!(code == 2 && said.contains("no token came on stdin"), "{said}");
+    let (code, out, err) = run(&["-y", "plugin", "settings", "echo", "token", "--secret"], "hunter2\n");
+    let said = out + &err;
+    assert_eq!((code, said.contains("token is set"), said.contains("hunter2")), (0, true, false), "{said}");
+    let (_, shown, _) = run(&["plugin", "settings", "echo"], "");
+    assert!(shown.contains("token     set  Token") && !shown.contains("hunter2"), "{shown}");
+    let (_, json, _) = run(&["--json", "plugin", "info", "echo"], "");
+    let json: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!((&json["secrets"], json["settings"].get("token")), (&json!({ "token": true }), None));
+    let file = env.store.join("secrets/plugins/echo.json");
+    let kept = std::fs::read_to_string(&file).unwrap();
+    assert!(kept.contains("hunter2") && !env.store.join("plugins/echo/settings.json").exists());
+
+    // When whether it's set can't be known, it's said so, and the rest is shown.
+    std::fs::write(&file, "not json").unwrap();
+    let (code, shown, _) = run(&["plugin", "info", "echo"], "");
+    assert_eq!(code, 0, "{shown}");
+    assert!(shown.contains("Token: unknown") && shown.contains("Greeting: "), "{shown}");
+    assert!(shown.contains("whether its secrets are set isn't known: "), "{shown}");
+    let (_, json, _) = run(&["--json", "plugin", "settings", "echo"], "");
+    let json: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(json["secrets"], json!({ "token": null }));
+    assert!(json["secrets_unknown"].is_string() && json["settings"]["greeting"].is_string(), "{json}");
+    std::fs::write(&file, kept).unwrap();
+
+    // The sidecar takes one, and answers whether it's set.
+    let mut s = Rpc::start({
+        let mut c = env.command();
+        c.env("LOCALLIBRARY_SESSION_STORE", "file");
+        c
+    });
+    let set = json!({ "plugin": "echo", "key": "token", "value": "letmein" });
+    let answer = s.call(1, "plugins.settings.set", set);
+    assert_eq!(answer["result"]["secrets"], json!({ "token": true }));
+    assert!(!answer.to_string().contains("letmein"));
+    let answer = s.call(2, "plugins.settings.set", json!({ "plugin": "echo", "key": "token", "value": null }));
+    assert_eq!(answer["result"]["secrets"], json!({ "token": false }));
+    assert!(!file.exists());
+}
+
 /// `plugin serve` speaks the protocol on stdout and writes nothing else there; an id that's no
 /// plugin's is refused.
 #[test]
@@ -139,7 +211,11 @@ fn plugins_are_listed_and_their_settings_kept() {
         Some("• set the echo plugin's greeting to hi")
     );
     let settings = |env: &Env| env.json(&["plugin", "settings", "echo", "greeting"]);
-    assert_eq!(settings(&env), json!({ "plugin": "echo", "settings": { "greeting": "hello" }, "schema": 1 }));
+    let none = json!({});
+    assert_eq!(
+        settings(&env),
+        json!({ "plugin": "echo", "settings": { "greeting": "hello" }, "secrets": none, "schema": 1 })
+    );
     assert!(env.ok(&["-y", "plugin", "settings", "echo", "greeting", "hi"]).contains("greeting is hi"));
     assert_eq!(settings(&env)["settings"]["greeting"], "hi");
     assert!(env.ok(&["-y", "plugin", "settings", "echo", "greeting", "--reset"]).contains("greeting is hello"));
@@ -395,7 +471,7 @@ fn the_sidecar_hosts_plugins() {
     let described = result(s.call(2, "plugins.describe", json!({ "plugin": "echo" })));
     assert_eq!(described["manifest"]["contributes"]["commands"][0]["cli"], "say");
     let set = result(s.call(3, "plugins.settings.set", json!({ "plugin": "echo", "key": "greeting", "value": "hi" })));
-    assert_eq!(set, json!({ "plugin": "echo", "settings": { "greeting": "hi" } }));
+    assert_eq!(set, json!({ "plugin": "echo", "settings": { "greeting": "hi" }, "secrets": {} }));
     let context = result(s.call(
         4,
         "plugins.run",

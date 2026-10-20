@@ -583,7 +583,7 @@ fn settings_read_back_as_last_set(tc: TestCase) {
                 if one {
                     expected.as_object_mut().unwrap().retain(|k, _| k == key);
                 }
-                assert_eq!(json, json!({ "plugin": id, "settings": expected }));
+                assert_eq!(json, json!({ "plugin": id, "settings": expected, "secrets": {} }));
                 assert_eq!(env.ok(&args), settings_text(id, &shown, &json["settings"]));
             }
             _ => {
@@ -1308,11 +1308,11 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
                     true => set.shift_remove(key),
                     false => set.insert(key.into(), value),
                 };
-                assert_eq!(got.unwrap(), json!({ "plugin": id, "settings": now(&set) }));
+                assert_eq!(got.unwrap(), json!({ "plugin": id, "settings": now(&set), "secrets": {} }));
             }
         }
     }
-    let settings_now = json!({ "plugin": id, "settings": now(&set) });
+    let settings_now = json!({ "plugin": id, "settings": now(&set), "secrets": {} });
     assert_eq!(answer(&mut s, call, "plugins.settings", json!({ "plugin": id })).unwrap(), settings_now);
     assert_eq!(unschema(env.json(&["plugin", "settings", &id])), settings_now);
 
@@ -1336,7 +1336,10 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
         given.insert("settings".into(), Value::Object(now(&set)));
     }
     let ran = json!({ "plugin": id, "command": "ask", "params": { "context": true }, "context": context });
-    assert_eq!(answer(&mut s, call, "plugins.run", ran).unwrap(), Value::Object(given));
+    let mut got = answer(&mut s, call, "plugins.run", ran).unwrap();
+    // And a scratch folder of its own.
+    assert!(got.as_object_mut().unwrap().shift_remove("scratch").is_some_and(|s| s.is_string()));
+    assert_eq!(got, Value::Object(given));
     let e = answer(&mut s, call, "plugins.run", json!({ "plugin": id, "command": "nope" })).unwrap_err();
     assert_eq!(e["kind"], "not_found");
 

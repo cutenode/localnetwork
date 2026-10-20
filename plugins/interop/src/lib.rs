@@ -2,7 +2,8 @@
 //! folder on this computer: Traktor's `collection.nml`, Serato's crates (with cue points in tags of
 //! copies of the audio on request) and a new Engine DJ library. It reads the library exports are
 //! made from (locallibrary's `combined` one) and the tracks' beat grids and cues through the host,
-//! and the audio, for Serato's copies, from the drive itself, which it never writes to.
+//! and the audio, for Serato's copies, from the drive itself (where the host says it's mounted,
+//! the export's `source.root`), which it never writes to.
 //!
 //! Tracks point at their audio where it will be when the other software reads the files: the
 //! drive's mount point, or another folder holding a copy of the drive's `Contents/`
@@ -66,7 +67,7 @@ fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
     }
     // The library exports are made from, with what only OneLibrary has.
     let drive = host.drive(&req.source.drive).combined();
-    let drive_root = drive.info()?.root;
+    let drive_root = req.source.root.clone();
     let mut library = drive.library()?;
     let renumbered = library.number_for_files();
     let library =

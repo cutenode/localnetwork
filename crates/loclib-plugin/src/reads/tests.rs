@@ -185,7 +185,6 @@ fn tracks_analyses_and_artwork_come_in_batches() {
 #[test]
 fn each_read_asks_for_what_it_reads() {
     let info = DriveInfo {
-        root: "/Volumes/USB".into(),
         volume_name: "USB".into(),
         id: None,
         name: Some("Friday".into()),

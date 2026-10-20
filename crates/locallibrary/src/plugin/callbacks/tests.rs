@@ -12,7 +12,8 @@ use serde_json::json;
 use super::*;
 use crate::Error;
 use crate::error::{Action, Reason};
-use crate::plugin::Options;
+use crate::plugin::process::Host;
+use crate::plugin::{Launch, Options};
 
 /// A plugin granted `capabilities`.
 fn granted(capabilities: &[&str]) -> Manifest {
@@ -184,7 +185,7 @@ fn errors_reach_plugins_without_paths_or_actions() {
 /// The roots here are said otherwise: the temporary folder and the home folder at least.
 #[test]
 fn the_roots_here_are_known() {
-    let roots = known_roots();
+    let roots = known_roots(None);
     let temp = std::env::temp_dir().to_string_lossy().trim_end_matches(['/', '\\']).to_string();
     assert!(roots.contains(&(temp, "<temp>".into())), "{roots:?}");
     let home = directories::BaseDirs::new().unwrap().home_dir().to_string_lossy().into_owned();
@@ -616,16 +617,18 @@ fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     let name = tc.draw(gs::sampled_from(vec!["export.pdb", "a b.txt", "x"]));
     let file = std::env::temp_dir().join("PIONEER").join(name);
     // As the plugin is told it, from wherever the temporary folder is (a drive root on Windows CI).
-    let said = super::scrub(&file.display().to_string(), &super::known_roots());
+    let said = super::scrub(&file.display().to_string(), &super::known_roots(None));
     let ((entered_tx, entered), (release, release_rx)) = (mpsc::channel(), mpsc::channel());
     let reads = Held { entered: Mutex::new(entered_tx), release: Mutex::new(release_rx), file };
     let host = Arc::new(Host { reads: Arc::new(reads), options: Options { callbacks: quota, ..Options::default() } });
+    let launch = Launch { program: "nothing".into(), args: Vec::new(), env_remove: Vec::new() };
     let (host_in, plugin_out) = pipe().unwrap();
     let (plugin_in, host_out) = pipe().unwrap();
     let (host_end, incoming) = Peer::new(host_in, host_out);
     let (plugin, _calls) = Peer::new(plugin_in, plugin_out);
     let m = granted(&["library:read", "drive:info"]);
-    let answering = std::thread::spawn(move || answer(&m, &host, &host_end, incoming));
+    let (slot, live) = (Arc::new(Slot::new(m, launch, host)), Arc::new(Live::new(None)));
+    let answering = std::thread::spawn(move || answer(&Arc::downgrade(&slot), &live, &host_end, incoming));
     let busy = |e: RpcError| {
         assert_eq!(e.data.unwrap().kind, "busy");
         assert_eq!(e.message, format!("a plugin has at most {quota} calls under way at once"));

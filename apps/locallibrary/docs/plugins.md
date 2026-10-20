@@ -21,7 +21,8 @@ are:
   --format traktor -o DIR`, see [Other DJ software](other-software.md#other-dj-software)).
 - **coverart**: finds front covers for tracks without artwork on MusicBrainz and the Cover Art
   Archive (`locallibrary coverart fetch LIBRARY`, `--replace` for tracks with artwork too). It's
-  the only one that goes online, and only when you run it.
+  the only one that goes online, and only when you run it, through locallibrary (see
+  [Safety](#safety)), a request a second to MusicBrainz as it asks.
 
 ## What you have
 
@@ -38,8 +39,9 @@ with each other are both left out.
 - **Commands and operations** are `locallibrary ID NAME` (`locallibrary coverart fetch`), or
   where the plugin puts them (`locallibrary playlist import`). Their params are flags (`--into
   Sets`, `--append`; `KEY=VALUE` pairs for a map, repeated), or JSON with `--params`.
-  `locallibrary ID NAME --help` lists them. A command shows what it answers as a list or a table,
-  or as text or JSON when it answers a plain value (`--json`: as it is); an operation shows its
+  `locallibrary ID NAME --help` lists them. A command shows what it answers as a list or a table
+  (its rows as they come, when the plugin sends them so), or as text or JSON when it answers a
+  plain value (`--json`: as it is); an operation shows its
   plan and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it
   back.
 - **Analyzers** run with `locallibrary analyze [LIBRARY] [--plugin ID] [--analyzer NAME]`, which
@@ -67,7 +69,12 @@ with each other are both left out.
   each plugin's settings are a form in the palette too (see [the player](player.md)).
 - **Settings**: `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets
   one and `plugin settings ID KEY --reset` puts it back to its default. They're kept in the store
-  (`plugins/ID/settings.json`, beside the plugin's own folder).
+  (`plugins/ID/settings.json`, beside the plugin's own folder). A secret one (a password, a key)
+  is set with `plugin settings ID KEY --secret`, which reads it from stdin without showing it, and
+  is kept in the system's keychain (or with `LOCALLIBRARY_SESSION_STORE=file` in
+  `secrets/plugins/ID.json`, which only you can read, apart from the plugin's folder): it's only
+  ever shown as set or not set (or unknown, with why, when the keychain can't say), and never
+  copied off the computer.
 
 The sidecar has all of this for desktop apps as `plugins.*` methods (see [Building a
 GUI](sidecar.md)). A plugin's command or operation may fill a param from what's selected: the
@@ -88,16 +95,34 @@ on the tracks they haven't worked out; the check and ordering a set read what th
 ## Writing one
 
 A plugin in Rust uses [loclib-plugin](../../../crates/loclib-plugin)'s SDK: a function for each
-kind of hook it has, and `host.drive(drive)` to read a drive (the library, tracks by id or by
+kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by id or by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
-it). Each family of hooks is an optional feature of the protocol, so a newer locallibrary adds
+it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
+ready. Each family of hooks is an optional feature of the protocol, so a newer locallibrary adds
 kinds of hooks without breaking older plugins.
 
 ## Safety
 
 A plugin is refused if it says it's something other than what locallibrary knows it as. It may
 call only the reads its capabilities grant, naming drives by name or id (never a path), in pages of
-bounded size, and the errors it gets back don't say where files are on this computer. None is
-started from a process running as an administrator or root, and each runs in a folder of its own
-in the store (`plugins/ID/work/`). One that stops answering is stopped, and started again the next
-time it's needed.
+bounded size, and what it gets back, errors too, doesn't say where things are on this computer:
+a drive is said by its name, where the store's copies, a set's recording and rekordbox's
+collection are is left out, and any other path is said from its drive, the store (`<store>`) or
+your home folder (`~`). An exporter alone is told where the drive it exports is, as the files it
+writes name the audio there. None is started from a process running as an administrator or
+root, and each runs in a folder of its own in the store (`plugins/ID/work/`). One that stops
+answering is stopped, and started again the next time it's needed.
+
+A plugin goes online through locallibrary, which fetches only from the servers its `net:`
+capabilities name (`plugin info` lists them), at public https addresses, following redirects only
+to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
+its manifest says each server allows. A secret setting goes only where such a request names it,
+filled in by locallibrary, never on to another server a redirect leads to, and is left out of the
+plugin's log and of the errors it's told (what a server answers is passed on as it is).
+Images and other large answers come back as files in a folder locallibrary makes for each request
+(`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with
+another name) or more than 512 MiB of them, and removes; `store gc` removes those a locallibrary
+that crashed left.
+
+A plugin runs as you and isn't sandboxed, so this is what locallibrary does, not a wall your
+system keeps: a plugin could still read any file you can.

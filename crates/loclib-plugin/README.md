@@ -13,23 +13,30 @@ inside one, at most 16 MiB). Anything the plugin writes to stderr is its log. Th
 versioned on its own, at `0.2.0` (`PROTOCOL_VERSION`); two versions are compatible by semver's
 caret rule, so before 1.0 the minor version must match. A new kind of hook doesn't change it: each
 family of hooks is an optional feature (`FEATURES`): `commands`, `operations`, `analyzers` and
-`exporters` so far.
+`exporters`, and the SDK's own, which every plugin written with it has: `blobs` (scratch folders
+and partial results) and `net` (fetching through the host).
 
 1. The host's first message is `hello`
    (`{"protocol": "0.2.0", "host": {"name", "version"}, "features": [...]}`, the features it
    has). The plugin answers `{"protocol", "plugin": {"id", "version"}, "features": [...]}`, those
    it implements, or an error of kind `incompatible`. Neither side sends anything else before it,
    and feature names a side doesn't know are ignored: the host calls only the hooks of features
-   both have.
+   both have, and answers only what a feature both have lets a plugin send.
 2. `describe` answers the plugin's manifest as JSON. locallibrary refuses a plugin whose answer
    differs from the manifest it knows, or that contributes what a feature it doesn't have runs
-   (commands without `commands`).
+   (commands without `commands`, `[[net]]` limits without `net`).
 3. The host calls hooks, one for each kind of contribution, each with a `context`: the drive
-   (by id or name), for a command or an operation the playlist and tracks the user is on, and
-   the plugin's `settings`.
+   (by id or name), for a command or an operation the playlist and tracks the user is on, the
+   plugin's `settings` (never a secret one) and, with `blobs`, `scratch`: an absolute, empty
+   folder for this request alone. A value too big for a message (an image) is a file the plugin
+   leaves there, given as `{"blob": "cover.jpg"}` (its name in the folder): the host reads it
+   itself, refuses a name that leads out of the folder (or is a link, or a file with another
+   name) and a folder holding more than it takes (512 MiB), and removes the folder once it has.
    - `command/run {command, params, context}`: any JSON for a headless command; for a view
      command a view, `{"kind": "list" | "table" | "kv" | "text", ...}` (`View`), which each
-     host draws its own way.
+     host draws its own way. While it works, a view command may send its rows (or items) in
+     parts, `partial {id, rows | items}` notifications (`id`: the host's request), for a host to
+     show as they come; the view it answers still has them all, first.
    - `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
      `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`), or `null`
      for one worked out with nothing to show. A field left out wasn't worked out.
@@ -46,14 +53,33 @@ family of hooks is an optional feature (`FEATURES`): `commands`, `operations`, `
      where each edit is an `Edit` as the sidecar's `edit.plan` takes it (`{"op":
      "create_playlist", ...}`). locallibrary plans them as one `edit.plan` (one confirmation, one
      backup, applied together) and applies them itself. `inputs` (optional) lists the files on
-     the computer the plan was worked out from (absolute): it isn't applied once one changes.
+     the computer the plan was worked out from (absolute): it isn't applied once one changes. A
+     `set_artwork` edit gives its image as a blob (`{"blob": "cover.jpg"}`), never by path or
+     in base64.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
    they don't grant fails with kind `denied`); writes never can be, nor reads of files on the
    computer. Each read takes only some of its params from a plugin: drives by id or name (never
-   a path), no files, servers or secrets, and pages of at most 500. A plugin has a few calls
-   under way at once (more fail with kind `busy`).
+   a path), no files, servers or secrets, and pages of at most 500, and what it answers says
+   nothing of where things are on the computer: no `root` (where a drive is mounted), nor where
+   the store's copies, a set's recording or rekordbox's collection are, and any other path said
+   from its drive, `<store>` or `~`, as errors are. A plugin has a few calls under way at once (more fail with
+   kind `busy`).
+   With `net`, a plugin goes online through the host: `net/fetch {url, method, headers, body?,
+   body_blob?, into_blob?}` -> `{status, headers, body? | blob?}`. The host sends it only to a
+   host the manifest's `net:` capabilities grant, at a public https address, following redirects
+   itself and each only there, at most five; as `locallibrary/<version> (+<contact>)`, the
+   plugin's `contact` setting when it has one; waiting its turn when the manifest limits that
+   host (`[[net]]`). `{secret:<key>}` in a header's value, a query value or `body` is the
+   plugin's secret setting `key`, filled in once the request is checked, left out of the
+   plugin's log and the errors it's told, and never sent on to another server a redirect leads
+   to: the headers it was filled into (and `Authorization`, `Cookie`) are dropped there, and a
+   body with it isn't sent on. An answer is given as text up to 8 MiB, or written to
+   `into_blob` (a new file in the request's scratch folder, absolute) as far as the folder has
+   room; `body_blob` sends such a file. Errors have kind `denied` (not a host it may reach),
+   `invalid`, `too_big`, `external` (it couldn't be reached) or `cancelled`. Nothing fetched is
+   kept.
 5. `progress {id, event}` notifications (from the plugin; `id` is the host's request) have the
    sidecar's `progress` shape: a loclib-progress event (or `{"event": "step"}`) with the
    `target` drive, the `step` and, for a coalesced `item`, how many `items` it stands for. A host
@@ -111,8 +137,12 @@ assert!(manifest.validate(false).is_err());
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
   `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
-  `artwork:plan`, and `net:<host>` (shown to the user; a native plugin can't be held to it).
-  Any other is refused, and each is granted once.
+  `artwork:plan`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
+  `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
+  other is refused, and each is granted once.
+- `[[net]]`: `host` (one of its `net:` capabilities, as written) and `per_second`, how many
+  `net/fetch` requests a second the host sends there, at least 1/3600: the limit the server asks
+  for. Each host is limited once.
 - `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `where`, `params`
   (a JSON Schema for an object) and `cli`.
 - `[[contributes.operations]]`: `name`, `title`, `long_running`, `where`, `params` and `cli`.
@@ -147,8 +177,9 @@ assert!(manifest.validate(false).is_err());
 - `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
   without the dot) or `folder = true`, `options`.
 - `[[contributes.settings]]`: `key`, `title`, `type` (`string`, `number`, `boolean`, `enum`,
-  `file`, `directory` or `secret`), `default` and, for an enum, `choices`. locallibrary can't
-  keep a secret yet, and refuses a plugin with one.
+  `file`, `directory` or `secret`), `default` and, for an enum, `choices`. A secret (text, and
+  no default) is kept in the system's keychain and never given to the plugin: it's only filled
+  into its `net/fetch` requests.
 
 Names (`id`, contributions' `name`, `format` and `key`, fields) are lowercase letters, digits,
 `-` and `_`, starting with a letter, each used once; titles aren't empty; `params` and `options`
@@ -168,7 +199,9 @@ and notices the host cancelling; a callback under way when the host cancels fail
 library, tracks by id or by query, playlists, the tracks' analysis and artwork, and the drive's
 info, each whole however the host pages and batches it (`host.call` makes any other read), as
 loclib-model's types (`Track`, `Library`, `TrackAnalysis`), which `loclib_plugin::loclib_model`
-re-exports.
+re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fetch`), and
+`host.partial_rows(rows)` (`partial_items`) sends a view's rows as they're ready; files the
+answer names go in `req.context.scratch`.
 `RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
 hook is, `io` for a file that couldn't be read or written, else the kind it's given. A new kind of
 hook is a request type implementing `Hook` and a row in `FEATURES`.
@@ -213,7 +246,7 @@ let (host, incoming) = Peer::new(from_plugin, to_plugin);
 
 let hello = json!({ "protocol": "0.2.0", "host": { "name": "locallibrary", "version": "0.1.0" } });
 let reply: Value = host.request(method::HELLO, &hello)?;
-assert_eq!(reply["features"], json!(["commands"]));
+assert_eq!(reply["features"], json!(["commands", "blobs", "net"]));
 let run = json!({ "command": "count", "context": { "drive": "USB" } });
 let counting = host.send_request(method::RUN_COMMAND, &run)?;
 let Ok(Incoming::Request(callback)) = incoming.recv() else { panic!("a callback") };

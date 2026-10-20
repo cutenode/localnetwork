@@ -18,7 +18,7 @@ use serde_json::{Map, Value, json};
 
 use crate::error::{RpcError, ok, result};
 use crate::framing::{Line, MAX_LINE, read_line};
-use crate::protocol::{Cancel, ProgressParams, ProgressReport, method};
+use crate::protocol::{Cancel, Partial, ProgressParams, ProgressReport, method};
 
 /// What the other end sent besides responses.
 #[derive(Debug)]
@@ -47,8 +47,9 @@ struct Waiter {
     response: Sender<Result<Value, RpcError>>,
     /// The other end's request it was sent while answering: cancelling that cancels this.
     within: Option<Value>,
-    /// Where its `progress` goes, when it was sent with [`Peer::send_request_reporting`].
-    progress: Option<Sender<ProgressReport>>,
+    /// Where its `progress` and `partial` go, when it was sent with
+    /// [`Peer::send_request_reporting`].
+    progress: Option<(Sender<ProgressReport>, Sender<Partial>)>,
 }
 
 type Waiting = FxHashMap<u64, Waiter>;
@@ -78,7 +79,7 @@ pub struct Pending {
     peer: Peer,
     id: u64,
     response: Receiver<Result<Value, RpcError>>,
-    progress: Option<Receiver<ProgressReport>>,
+    progress: Option<(Receiver<ProgressReport>, Receiver<Partial>)>,
     /// Its response came: the reader drops its sender only after handing it over, so the
     /// channel alone can't say so yet.
     answered: Cell<bool>,
@@ -119,7 +120,13 @@ impl Pending {
     /// sent with [`Peer::send_request_reporting`]: all it sent before its response, once that
     /// has come.
     pub fn progress(&self) -> impl Iterator<Item = ProgressReport> + '_ {
-        self.progress.iter().flat_map(Receiver::try_iter)
+        self.progress.iter().flat_map(|(progress, _)| progress.try_iter())
+    }
+
+    /// [`Pending::progress`] for the view's rows (or items) the other end has sent in parts
+    /// (`partial`).
+    pub fn partials(&self) -> impl Iterator<Item = Partial> + '_ {
+        self.progress.iter().flat_map(|(_, partials)| partials.try_iter())
     }
 }
 
@@ -175,8 +182,8 @@ impl Peer {
         self.send(method, params, None, false)
     }
 
-    /// [`Peer::send_request`] for a hook: the other end's `progress` about it comes to its
-    /// [`Pending::progress`], not the owner.
+    /// [`Peer::send_request`] for a hook: the other end's `progress` and `partial` about it come
+    /// to its [`Pending::progress`] and [`Pending::partials`], not the owner.
     pub fn send_request_reporting<P: Serialize>(&self, method: &str, params: &P) -> Result<Pending, RpcError> {
         self.send(method, params, None, true)
     }
@@ -204,7 +211,12 @@ impl Peer {
         let params = ok(params)?;
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
         let (tx, response) = mpsc::channel();
-        let (progress_tx, progress) = reporting.then(mpsc::channel).unzip();
+        let (progress_tx, progress) = reporting
+            .then(|| {
+                let ((progress_tx, progress), (partial_tx, partials)) = (mpsc::channel(), mpsc::channel());
+                ((progress_tx, partial_tx), (progress, partials))
+            })
+            .unzip();
         let waiter = Waiter { response: tx, within: within.cloned(), progress: progress_tx };
         lock(&self.0.waiting).as_mut().ok_or_else(RpcError::closed)?.insert(id, waiter);
         // Cancelled before it was waited for: `on_cancel` may have missed it.
@@ -322,6 +334,9 @@ impl Peer {
             if method == method::PROGRESS && self.on_progress(&params) {
                 return;
             }
+            if method == method::PARTIAL && self.on_partial(&params) {
+                return;
+            }
             let _ = incoming.send(Incoming::Notification { method, params });
             return;
         }
@@ -363,7 +378,15 @@ impl Peer {
         let Ok(ProgressParams { id, event }) = serde_json::from_value(params.clone()) else { return false };
         let waiting = lock(&self.0.waiting);
         let to = id.as_u64().and_then(|n| waiting.as_ref()?.get(&n)?.progress.as_ref());
-        to.is_some_and(|to| to.send(event).is_ok())
+        to.is_some_and(|(to, _)| to.send(event).is_ok())
+    }
+
+    /// [`Peer::on_progress`] for `partial`.
+    fn on_partial(&self, params: &Value) -> bool {
+        let Ok(partial) = serde_json::from_value::<Partial>(params.clone()) else { return false };
+        let waiting = lock(&self.0.waiting);
+        let to = partial.id.as_u64().and_then(|n| waiting.as_ref()?.get(&n)?.progress.as_ref());
+        to.is_some_and(|(_, to)| to.send(partial).is_ok())
     }
 
     /// Cancels the request `params.id` names, and the requests sent while answering it.

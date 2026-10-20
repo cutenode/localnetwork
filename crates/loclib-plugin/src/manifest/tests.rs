@@ -395,6 +395,47 @@ fn names_and_titles_arent_empty() {
     }
 }
 
+/// `net:*.<domain>` reaches any host below the domain, and not the domain itself; any other
+/// grant only its own host.
+#[test]
+fn a_net_grant_reaches_its_host_or_those_below_its_domain() {
+    let any = Capability::Net("*.archive.org".into());
+    for (host, reached) in [
+        ("ia800.us.archive.org", true),
+        ("www.archive.org", true),
+        ("archive.org", false),
+        ("notarchive.org", false),
+        ("archive.org.evil.example", false),
+    ] {
+        assert_eq!(any.reaches(host), reached, "{host}");
+    }
+    let one = Capability::Net("MusicBrainz.org".into());
+    assert!(one.reaches("musicbrainz.org") && !one.reaches("beta.musicbrainz.org"));
+    assert!(!Capability::LibraryRead.reaches("musicbrainz.org"));
+    assert_eq!(problem("capabilities = [\"net:*.archive.org\", \"net:archive.org\"]"), "");
+    assert!(problem("capabilities = [\"net:*.\"]").contains("names no host"));
+    assert!(problem("capabilities = [\"net:a.*.org\"]").contains("names no host"));
+}
+
+/// A `[[net]]` limit is for one of the plugin's `net:` hosts, as it's written, once, at a rate
+/// the host can keep.
+#[test]
+fn a_net_limit_is_for_a_host_the_plugin_talks_to() {
+    let limited =
+        |limits: &str| problem(&format!("capabilities = [\"net:musicbrainz.org\", \"net:*.archive.org\"]\n{limits}"));
+    let one = |host: &str, rate: &str| format!("[[net]]\nhost = \"{host}\"\nper_second = {rate}\n");
+    assert_eq!(limited(&one("musicbrainz.org", "1")), "");
+    assert_eq!(limited(&format!("{}{}", one("*.archive.org", "0.5"), one("musicbrainz.org", "1"))), "");
+    assert_eq!(limited(&one("archive.org", "1")), "net[0].host: net:archive.org isn't one of its capabilities");
+    let twice = format!("{}{}", one("musicbrainz.org", "1"), one("musicbrainz.org", "2"));
+    assert_eq!(limited(&twice), "net[1].host: \"musicbrainz.org\" is limited twice");
+    let rate = "net[0].per_second: is how many requests a second, at least 1/3600";
+    assert_eq!(limited(&one("musicbrainz.org", "0")), rate);
+    assert_eq!(limited(&one("musicbrainz.org", "0.0002")), rate);
+    let m = Manifest::parse(&format!("{HEAD}{}", one("musicbrainz.org", "1"))).unwrap();
+    assert_eq!(m.net, [NetLimit { host: "musicbrainz.org".into(), per_second: 1.0 }]);
+}
+
 #[test]
 fn a_capability_is_granted_once() {
     let e = problem("capabilities = [\"library:read\", \"net:a.org\", \"net:a.org\"]");
@@ -470,7 +511,9 @@ fn a_setting_accepts_values_of_its_type() {
         ("boolean", json!(false), true),
         ("enum", json!("b"), true),
         ("enum", json!("c"), false),
-        ("secret", json!("hunter2"), false),
+        ("secret", json!("hunter2"), true),
+        ("secret", json!(""), false),
+        ("secret", json!(2), false),
     ];
     for (kind, value, accepted) in cases {
         assert_eq!(setting(kind).accepts(&value), accepted, "{kind} {value}");
@@ -853,7 +896,16 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         .collect();
     let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
     let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
-    let hosts = tc.draw(gs::vecs(gs::from_regex("[A-Za-z0-9.-]{1,16}")).max_size(2).unique(true));
+    let hosts: Vec<String> =
+        tc.draw(gs::vecs(gs::from_regex(r"(\*\.)?[A-Za-z0-9.-]{1,16}").fullmatch(true)).max_size(2).unique(true));
+    let limited = tc.draw(gs::subsequences(hosts.clone()));
+    let net = limited
+        .into_iter()
+        .map(|host| NetLimit {
+            host,
+            per_second: tc.draw(gs::floats::<f64>().min_value(1.0 / 3600.0).max_value(100.0)),
+        })
+        .collect();
     capabilities.extend(hosts.into_iter().map(Capability::Net));
     let pre = tc.draw(gs::optional(gs::from_regex("[a-z][a-z0-9]{0,4}"))).map(|p| format!("-{p}")).unwrap_or_default();
     let [major, minor, patch] = tc.draw(gs::arrays(gs::integers::<u16>()));
@@ -865,6 +917,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
         contributes: Contributions { commands, operations, analyzers, exporters, settings },
+        net,
         unknown: Vec::new(),
     }
 }
@@ -1051,6 +1104,9 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "choices",
         "choice twice",
         "default",
+        "net host",
+        "net twice",
+        "net rate",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let c = &mut m.contributes;
@@ -1343,6 +1399,29 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                 (format!("contributes.exporters[{i}].extension: {said}"), false)
             }
         }
+        "net host" | "net twice" | "net rate" => {
+            // Longer than any host drawn.
+            let host = "added-host.example".to_string();
+            let limit = |per_second| NetLimit { host: host.clone(), per_second };
+            let i = m.net.len();
+            match mistake {
+                "net host" => {
+                    m.net.push(limit(1.0));
+                    (format!("net[{i}].host: net:{host} isn't one of its capabilities"), false)
+                }
+                "net twice" => {
+                    m.capabilities.push(Capability::Net(host.clone()));
+                    m.net.extend([limit(1.0), limit(2.0)]);
+                    (format!("net[{}].host: {host:?} is limited twice", i + 1), false)
+                }
+                _ => {
+                    m.capabilities.push(Capability::Net(host.clone()));
+                    let rate = tc.draw(gs::sampled_from(vec![0.0, -1.0, f64::NAN, f64::INFINITY, 1.0 / 7200.0]));
+                    m.net.push(limit(rate));
+                    (format!("net[{i}].per_second: is how many requests a second, at least 1/3600"), false)
+                }
+            }
+        }
         _ => {
             add(c, "settings", 1);
             let i = index(&tc, c.settings.len());
@@ -1565,8 +1644,8 @@ fn a_value_fits_its_field_type_alone(tc: TestCase) {
     }
 }
 
-/// A setting takes a value of its type (an enum, one of its choices) and nothing else; a secret
-/// takes none.
+/// A setting takes a value of its type (an enum, one of its choices; a secret, text that isn't
+/// empty) and nothing else.
 #[hegel::test(test_cases = 100)]
 fn a_setting_takes_values_of_its_type_alone(tc: TestCase) {
     let s = setting(&tc, "s".into());
@@ -1584,7 +1663,7 @@ fn a_setting_takes_values_of_its_type_alone(tc: TestCase) {
         SettingType::Number => value.is_number(),
         SettingType::Boolean => value.is_boolean(),
         SettingType::Enum => s.choices.iter().any(|c| value == c.as_str()),
-        SettingType::Secret => false,
+        SettingType::Secret => value.as_str().is_some_and(|v| !v.is_empty()),
     };
     assert_eq!(s.accepts(&value), fits, "{s:?} {value}");
 }
@@ -1613,22 +1692,26 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
     ];
     let s = match tc.draw(gs::integers::<u8>().max_value(3)) {
         0 => tc.draw(gs::sampled_from(named.to_vec())).to_string(),
-        1 => format!("net:{}", tc.draw(gs::from_regex("[A-Za-z0-9.-]{0,12}"))),
+        1 => format!("net:{}", tc.draw(gs::from_regex(r"(\*\.)?[A-Za-z0-9.-]{0,12}"))),
         2 => format!("net:{}", tc.draw(gs::text().max_size(12))),
         _ => tc.draw(gs::text().max_size(16)),
     };
     let parsed = s.parse::<Capability>();
     let host = s.strip_prefix("net:");
+    // A host's name, or `*.` and a domain's.
+    let named_host = |h: &str| {
+        let h = h.strip_prefix("*.").unwrap_or(h);
+        !h.is_empty() && h.chars().all(|c| c.is_ascii_alphanumeric() || ".-".contains(c))
+    };
     match parsed {
         Ok(Capability::Net(ref h)) => {
             assert_eq!(Some(h.as_str()), host);
-            assert!(!h.is_empty() && h.chars().all(|c| c.is_ascii_alphanumeric() || ".-".contains(c)), "{s:?}");
+            assert!(named_host(h), "{s:?}");
         }
         Ok(ref c) => assert!(named.contains(&s.as_str()) && c.to_string() == s, "{s:?}"),
         Err(ref e) if host.is_some() => {
-            assert_eq!(*e, format!("{s:?} names no host: net:<host>, like net:musicbrainz.org"));
-            let host = host.unwrap();
-            assert!(host.is_empty() || !host.chars().all(|c| c.is_ascii_alphanumeric() || ".-".contains(c)), "{s:?}");
+            assert_eq!(*e, format!("{s:?} names no host: net:<host> or net:*.<domain>, like net:musicbrainz.org"));
+            assert!(!named_host(host.unwrap()), "{s:?}");
         }
         Err(ref e) => {
             assert!(!named.contains(&s.as_str()), "{s:?}");
