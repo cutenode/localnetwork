@@ -314,6 +314,13 @@ pub fn mouse(app: &mut App, kind: MouseEventKind, (column, row): (u16, u16)) {
     app.on_mouse(MouseEvent { kind, column, row, modifiers: KeyModifiers::NONE });
 }
 
+/// The next click comes as soon after the last as a double click's does, however long the test
+/// took between them (a loaded machine, a draw over Hegel's pipe): a double click is two within
+/// 400 ms by the clock.
+pub fn quick_again(app: &mut App) {
+    app.last_click = app.last_click.take().map(|(_, row)| (Instant::now(), row));
+}
+
 /// Where `text` is drawn on a 120 by 30 screen, as the column and row to point at.
 pub fn spot(app: &mut App, text: &str) -> (u16, u16) {
     spot_in(app, text, |_| Rect::new(0, 0, 120, 30))

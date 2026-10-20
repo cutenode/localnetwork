@@ -1979,6 +1979,7 @@ fn clicks_select_play_sort_and_switch_views() {
     assert_eq!(selected_title(&app).as_deref(), Some("Tell You No Lie"));
     // Clicked again: played, with the list queued from there (there's no output here to
     // play it through, which it says).
+    quick_again(&mut app);
     mouse(&mut app, LEFT, row);
     assert_eq!((&app.queue.items, app.queue.pos), (&app.visible, 2));
     assert!(last_message(&app).starts_with("can't play"), "{}", last_message(&app));
@@ -2016,11 +2017,13 @@ fn a_second_click_is_on_the_same_row() {
     super::super::ui::screen(&mut app, 120, 30);
     let tree = |app: &App| app.loaded.as_ref().unwrap().tree.len();
     let rows = tree(&app);
+    quick_again(&mut app);
     mouse(&mut app, LEFT, sets);
     let l = app.loaded.as_ref().unwrap();
     let selected = app.playlist_state.selected().map(|i| l.tree[i].name.as_str());
     assert_eq!((app.focus, selected), (Focus::Playlists, Some("Sets")));
     assert_eq!(tree(&app), rows, "the folder left as it was");
+    quick_again(&mut app);
     mouse(&mut app, LEFT, sets);
     assert_ne!(tree(&app), rows, "the folder opened or closed");
     mouse(&mut app, LEFT, sets);
@@ -2142,9 +2145,11 @@ fn picking_a_playlist_with_the_mouse_stays_in_the_tree() {
     assert_eq!(last_message(&app), "pick a playlist (esc to cancel)");
     let sets = spot(&mut app, "Sets");
     mouse(&mut app, LEFT, sets);
+    quick_again(&mut app);
     mouse(&mut app, LEFT, sets);
     let friday = spot(&mut app, "Friday");
     mouse(&mut app, LEFT, friday);
+    quick_again(&mut app);
     mouse(&mut app, LEFT, friday);
     assert!(app.picking.is_none() && app.focus == Focus::Tracks);
     assert!(app.job.is_some(), "adding to Friday is planned");
@@ -2191,6 +2196,7 @@ fn drives_are_picked_with_the_mouse_and_opened() {
     mouse(&mut app, LEFT, (4, main + 1));
     assert_eq!(app.drive_state.selected(), Some(0), "the line under its name");
     mouse(&mut app, LEFT, blank);
+    quick_again(&mut app);
     mouse(&mut app, LEFT, blank);
     assert_eq!((last_message(&app), app.view), ("no rekordbox export on this drive", View::Drives));
 

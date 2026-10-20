@@ -31,7 +31,7 @@ use loclib_model::{Library, Playlist, Track, TrackColor};
 use loclib_progress::{Ctx, Event, Phase};
 
 use crate::encode::xml_escape as esc;
-use crate::{Export, Result, Source};
+use crate::{Error, Export, Result, Source};
 
 /// The startup disk's name when this computer doesn't say (it isn't a Mac): macOS's default.
 const STARTUP_VOLUME: &str = "Macintosh HD";
@@ -134,7 +134,18 @@ pub fn build(src: &Source<'_>, output: &Path, ctx: &Ctx<'_>) -> Result<Export> {
     let lib = &src.library;
     let mut tally = Tally::default();
     let mut keys: rustc_hash::FxHashMap<u32, String> = rustc_hash::FxHashMap::default();
-    let now = chrono::Local::now();
+    // Stamped as written now, or at `SOURCE_DATE_EPOCH` (seconds since 1970, as reproducible builds
+    // name it) when that's set: a stamp's length changes with the time of day, so then a dry run's
+    // size for the file is the size written. Any other value is refused, as their spec asks.
+    let now = match std::env::var("SOURCE_DATE_EPOCH") {
+        Err(std::env::VarError::NotPresent) => chrono::Local::now(),
+        epoch => epoch
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .and_then(|s| chrono::DateTime::from_timestamp(s, 0))
+            .ok_or_else(|| Error::Invalid("SOURCE_DATE_EPOCH isn't a number of seconds since 1970".into()))?
+            .with_timezone(&chrono::Local),
+    };
     let stamps = Stamps {
         modified: format!(
             "MODIFIED_DATE=\"{}/{}/{}\" MODIFIED_TIME=\"{}\"",

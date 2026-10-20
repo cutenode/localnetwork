@@ -1090,6 +1090,7 @@ fn the_queue_plays_on_through_what_goes_wrong(tc: TestCase) {
                         r.y + app.next_pick.selected().unwrap_or(0).saturating_sub(app.next_pick.offset()) as u16,
                     );
                     mouse(&mut app, LEFT, at);
+                    quick_again(&mut app);
                     mouse(&mut app, LEFT, at);
                 }
                 if queued {
@@ -1706,6 +1707,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                 mouse(&mut app, LEFT, at);
                 assert_eq!((app.focus, app.track_state.selected()), (Focus::Tracks, Some(offset + k)));
                 if tc.draw(gs::booleans()) {
+                    quick_again(&mut app);
                     mouse(&mut app, LEFT, at);
                     // Played (no output here, which is said).
                     assert!(last_message(&app).starts_with("can't play"), "{}", last_message(&app));
@@ -1723,6 +1725,7 @@ fn a_click_does_what_it_points_at(tc: TestCase) {
                         let l = app.loaded.as_ref().unwrap();
                         (l.tree[offset + k].folder, l.tree.len())
                     };
+                    quick_again(&mut app);
                     mouse(&mut app, LEFT, at);
                     let l = app.loaded.as_ref().unwrap();
                     if folder {
