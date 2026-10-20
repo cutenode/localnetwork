@@ -1,4 +1,6 @@
+#[cfg(unix)]
 use hegel::TestCase;
+#[cfg(unix)]
 use hegel::generators as gs;
 
 use super::*;
@@ -44,6 +46,7 @@ fn without_the_blobs_feature_there_is_no_folder() {
 }
 
 /// What a blob's name could lead to.
+#[cfg(unix)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Leads {
     /// A file in the folder.
