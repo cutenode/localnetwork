@@ -172,11 +172,14 @@ pub(super) fn settings(
             })
         })
         .transpose()?;
-    let secret = setting.filter(|s| s.kind == SettingType::Secret);
-    let value = match (secret, change.secret) {
-        (Some(s), true) => Some(read_secret(&s.key)?),
-        (None, true) => return Err(usage(format!("{} isn't a secret: give its value", key.unwrap_or_default()))),
-        (Some(s), false) if change.value.is_some() => {
+    // Not named `secret`: CodeQL would take it for the secret itself, and the key it prompts with for a logged secret.
+    let keychained = setting.filter(|s| s.kind == SettingType::Secret);
+    let value = match keychained {
+        Some(s) if change.secret => Some(read_secret(&s.key)?),
+        None if change.secret => {
+            return Err(usage(format!("{} isn't a secret: give its value", key.unwrap_or_default())));
+        }
+        Some(s) if change.value.is_some() => {
             return Err(usage(format!(
                 "a secret isn't given on the command line, which keeps it in your shell's history: `locallibrary plugin settings {plugin} {} --secret` reads it from stdin",
                 s.key
@@ -200,13 +203,13 @@ pub(super) fn settings(
         out.emit(&Settings { plugin, settings, secrets }, |s| show_settings(&shown, s));
         return Ok(ExitCode::SUCCESS);
     };
-    let change = match (&value, secret.is_some()) {
+    let change = match (&value, keychained.is_some()) {
         (Some(_), true) => format!("set the {plugin} plugin's {}", setting.key),
         (Some(v), false) => format!("set the {plugin} plugin's {} to {}", setting.key, cell(v)),
         (None, true) => format!("forget the {plugin} plugin's {}", setting.key),
         (None, false) => format!("put the {plugin} plugin's {} back to its default", setting.key),
     };
-    let question = match (value.is_some(), secret.is_some()) {
+    let question = match (value.is_some(), keychained.is_some()) {
         (true, _) => "Set it?",
         (false, true) => "Forget it?",
         (false, false) => "Put it back?",

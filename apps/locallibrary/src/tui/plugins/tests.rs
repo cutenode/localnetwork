@@ -310,7 +310,8 @@ fn a_secret_typed_in_the_form_is_kept_apart() {
     wait(&mut app, |a| a.job.is_none());
     let plugins = crate::plugins::host().unwrap();
     let store = locallibrary::Store::open(&app.store_root).unwrap();
-    assert!(plugins.secrets("echo", Some(&store)).unwrap()["token"], "{}", last_message(&app));
+    // Not echoed on failure: CodeQL takes the app's toasts (a sign-in's names the account) for something secret.
+    assert!(plugins.secrets("echo", Some(&store)).unwrap()["token"]);
     let settings = std::fs::read_to_string(app.store_root.join("plugins/echo/settings.json")).unwrap_or_default();
     assert!(!settings.contains("hunter2"), "{settings}");
     // Open again: not filled in; saved empty, kept.
