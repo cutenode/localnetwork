@@ -543,6 +543,8 @@ their old names.
   error making a temp file names its folder, without the random name it tried.
 - When two mounted drives go by one name (a drive and a copy of it), `setup`'s questions say
   which folder each is about.
+- A plugin's response that isn't JSON fails the request it answers even when it ends on a
+  backslash inside a string, where that request was left waiting.
 
 ### Security
 

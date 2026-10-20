@@ -390,12 +390,13 @@ fn response_id(line: &[u8]) -> Option<u64> {
     while i < line.len() {
         match line[i] {
             b'"' => {
-                // To the closing quote, past escaped characters.
+                // To the closing quote, past escaped characters, or the end of a line cut short
+                // in the string (where a backslash's skip would pass it).
                 let mut end = i + 1;
                 while end < line.len() && line[end] != b'"' {
                     end += if line[end] == b'\\' { 2 } else { 1 };
                 }
-                let key = line.get(i + 1..end)?;
+                let key = &line[i + 1..end.min(line.len())];
                 i = end + 1;
                 let Some(value) = line.get(i..).map(<[u8]>::trim_ascii_start).and_then(|r| r.strip_prefix(b":")) else {
                     continue;

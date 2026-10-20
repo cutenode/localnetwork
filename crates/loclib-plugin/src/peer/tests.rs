@@ -272,6 +272,9 @@ fn a_response_id_is_found_in_a_line_that_isnt_json() {
         (r#"{"result":[{"id":1}],"#, None),
         (r#"{"id":"#, None),
         (r#"{"x":"never ends"#, None),
+        // Cut short on a string's backslash (hegel's example for
+        // `a_response_id_is_found_in_any_line_cut_short`).
+        (r#"{"jsonrpc":"2.0","id":0,"result":"\"#, Some(0)),
         ("not json at all", None),
     ] {
         assert_eq!(response_id(line.as_bytes()), id, "{line}");
