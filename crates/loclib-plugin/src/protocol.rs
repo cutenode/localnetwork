@@ -1,5 +1,6 @@
-//! The messages host and plugin exchange: the handshake, `describe`, the four hooks, progress and
-//! cancelling. Params and results are these types as JSON objects.
+//! The messages host and plugin exchange: the handshake, `describe`, the four hooks, progress,
+//! partial results, fetching from the web and cancelling. Params and results are these types as
+//! JSON objects.
 
 use std::path::PathBuf;
 
@@ -31,6 +32,10 @@ pub mod method {
     pub const PLAN_OP: &str = "op/plan";
     /// Notification, plugin to host: [`super::ProgressParams`].
     pub const PROGRESS: &str = "progress";
+    /// Notification, plugin to host (feature `blobs`): [`super::Partial`].
+    pub const PARTIAL: &str = "partial";
+    /// Plugin to host (feature `net`): [`super::Fetch`] -> [`super::Fetched`].
+    pub const NET_FETCH: &str = "net/fetch";
     /// Notification, either way: [`super::Cancel`].
     pub const CANCEL: &str = "$/cancel";
 }
@@ -95,9 +100,22 @@ pub struct Context {
     /// The tracks selected, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<u32>,
-    /// The plugin's settings, by key: each one the user set, else its default.
+    /// The plugin's settings, by key: each one the user set, else its default. Never a secret:
+    /// those only go into `net/fetch` requests, filled in by the host.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub settings: IndexMap<String, Value>,
+    /// A folder for this request alone (feature `blobs`), absolute and empty: files the answer
+    /// refers to go here (see [`Blob`]). The host removes it once it has read them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scratch: Option<PathBuf>,
+}
+
+/// A file in the request's [`Context::scratch`] folder standing for a value too big for a
+/// message (an image, a file to import): `{"blob": "cover.jpg"}`, by its name there. The host
+/// reads it itself, and refuses one outside the folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Blob {
+    pub blob: String,
 }
 
 /// `command/run`.
@@ -163,10 +181,15 @@ pub struct WriteExport {
 /// What to export. An export always reads the drive's whole library as locallibrary combines it
 /// (`export.pdb` with `exportExt.pdb`, or OneLibrary); `playlists` and `history` only narrow which
 /// lists go in, and with neither, every list does.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExportSource {
     /// The drive's id or name.
     pub drive: String,
+    /// Where it's mounted, absolute, as the host sets it: its tracks' audio files are below it,
+    /// at their `file_path`, and the files an export writes may name them there. Read them; never
+    /// write to the drive.
+    #[serde(default)]
+    pub root: PathBuf,
     /// Playlists, by path (`Folder/Name`) or unique name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub playlists: Vec<String>,
@@ -295,6 +318,69 @@ pub struct StepInfo {
     pub index: u32,
     pub total: u32,
     pub id: String,
+}
+
+/// A `partial` notification's params: the next rows of a view command's table, or items of its
+/// list, for the host to show while the rest is worked out. The view answered at the end still
+/// has every row (or item), these first, in the order they were sent: a host that shows none
+/// loses nothing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Partial {
+    /// The host's request it's about.
+    pub id: Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub items: Vec<crate::ListItem>,
+}
+
+/// `net/fetch`: an HTTP request the host makes for the plugin, to a host its `net:<host>`
+/// capabilities grant (https only, redirects checked hop by hop), as `locallibrary/<version>`.
+/// `{secret:<key>}` in a header's value, a query value or `body` stands for the plugin's secret
+/// setting `key`, which the host fills in after the checks: the plugin never sees it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Fetch {
+    pub url: String,
+    /// `GET` unless it says.
+    #[serde(default = "get")]
+    pub method: String,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub headers: IndexMap<String, String>,
+    /// Text to send.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    /// A file in the request's scratch folder to send instead (absolute).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_blob: Option<PathBuf>,
+    /// Write what it answers to this file in the request's scratch folder (absolute) rather than
+    /// answering it: for an image, or more than the host answers in a message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub into_blob: Option<PathBuf>,
+}
+
+fn get() -> String {
+    "GET".into()
+}
+
+impl Fetch {
+    /// A `GET` of `url`.
+    pub fn get(url: impl Into<String>) -> Fetch {
+        Fetch { url: url.into(), method: get(), headers: IndexMap::new(), body: None, body_blob: None, into_blob: None }
+    }
+}
+
+/// What `net/fetch` answers: the status and headers (names in lowercase) of the last answer
+/// redirects led to, and its body, as text or in the file `into_blob` named.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Fetched {
+    pub status: u16,
+    #[serde(default)]
+    pub headers: IndexMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    /// The file it's in, with `into_blob`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob: Option<PathBuf>,
 }
 
 /// `$/cancel`: stop the request `id` at its next safe point. It then fails with kind `cancelled`.

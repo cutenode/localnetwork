@@ -2,8 +2,6 @@
 //! their results, the RPC sidecar's (see `apps/locallibrary/docs/rpc`), a page or a batch at a
 //! time as the host bounds them.
 
-use std::path::PathBuf;
-
 use loclib_model::analysis::TrackAnalysis;
 use loclib_model::model::LibrarySummary;
 use loclib_model::{Library, Track};
@@ -143,11 +141,10 @@ impl<'h> DriveReads<'h> {
 }
 
 /// `drive.info`'s answer, but for what only locallibrary uses (the database's header, work
-/// left pending, rekordbox's sync, how the databases differ).
+/// left pending, rekordbox's sync, how the databases differ) and where it's mounted, which the
+/// host doesn't tell plugins.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DriveInfo {
-    /// Where it's mounted.
-    pub root: PathBuf,
     pub volume_name: String,
     /// The id locallibrary gave it, once adopted.
     pub id: Option<String>,

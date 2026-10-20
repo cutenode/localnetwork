@@ -3,8 +3,8 @@
 
 use locallibrary::api::DriveRef;
 use locallibrary::edit::{Edit, TrackFields};
-use locallibrary::fields::Role;
 use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::{FieldValue, Role};
 use locallibrary::harmony::Camelot;
 use locallibrary::paths;
 use locallibrary::plugin::ApplyFields;
@@ -132,4 +132,151 @@ fn only_a_tracks_key_and_bpm_the_analyzer_has_are_written() {
     assert_eq!(f.plugins.plan_apply_fields(&req, &f.store, &Ctx::silent()).unwrap_err().code(), "not_found");
     let req = ApplyFields { analyzer: "nope".into(), ..req };
     assert_eq!(f.plugins.plan_apply_fields(&req, &f.store, &Ctx::silent()).unwrap_err().code(), "not_found");
+}
+
+/// What `heard` kept for one track, as a test draws it: a value for each of its fields, or none.
+#[derive(Debug, Clone)]
+struct Kept {
+    tone: Option<FieldValue>,
+    tempo: Option<FieldValue>,
+    sure: Option<f64>,
+    steady: Option<f64>,
+}
+
+/// What `heard` might have kept for `t`: its key as the track has it, the parallel one, any other
+/// Camelot code, Open Key, or not a key; a BPM as the track has it, twice it, of any size, a whole
+/// number, null; how sure it is of each, or not saying; or nothing at all (not analysed).
+#[hegel::test_helper]
+fn kept(tc: &hegel::TestCase, t: &locallibrary::Track) -> Option<Kept> {
+    use hegel::generators as gs;
+    if tc.draw(gs::integers::<u8>().max_value(5)) == 0 {
+        return None;
+    }
+    let own = Camelot::parse(&t.key);
+    let number = |n: u8| (n % 12) + 1;
+    let tone = match tc.draw(gs::integers::<u8>().max_value(6)) {
+        0 => own.map(|k| FieldValue::String(k.code())),
+        1 => own.map(|k| FieldValue::String(k.parallel().code())),
+        2 => {
+            let n = number(tc.draw(gs::integers::<u8>()));
+            Some(FieldValue::String(format!("{n}{}", if tc.draw(gs::booleans()) { "A" } else { "B" })))
+        }
+        3 => Some(FieldValue::String(format!("{}m", number(tc.draw(gs::integers::<u8>()))))),
+        4 => Some(FieldValue::String(tc.draw(gs::sampled_from(vec!["", "not a key", "13A"])).into())),
+        5 => Some(FieldValue::Null),
+        _ => None,
+    };
+    let tempo = match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => Some(FieldValue::Number(t.bpm)),
+        1 => Some(FieldValue::Number(t.bpm * 2.0 + tc.draw(gs::sampled_from(vec![0.0, 0.004, 0.006])))),
+        // To thousandths: rounded to hundredths, it's another number than to tenths or wholes.
+        2 => Some(FieldValue::Number(tc.draw(gs::integers::<u32>().max_value(1_200_000)) as f64 / 1000.0)),
+        3 => Some(FieldValue::Integer(tc.draw(gs::integers::<i64>().min_value(0).max_value(1100)))),
+        4 => Some(FieldValue::Null),
+        _ => None,
+    };
+    let sure = || tc.draw(gs::optional(gs::floats::<f64>().min_value(0.0).max_value(1.0)));
+    Some(Kept { tone, tempo, sure: sure(), steady: sure() })
+}
+
+/// For any values `heard` kept for the drive's tracks and any request (which roles, which
+/// tracks, over what they have or not, how sure it must be), the plan edits exactly the tracks
+/// that would change: a key in Camelot code becomes rekordbox's name for it, unless the track has
+/// it already (in any notation) or has one and isn't to be overwritten; a BPM is kept to
+/// hundredths, between 1 and 999.99, likewise; a value the analyzer is less sure of than asked
+/// (or doesn't say) is left out and counted; a track not analysed is counted.
+#[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn an_analyzers_values_are_planned_onto_the_tracks_as_the_rules_say(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::fields::{Analyzer, FieldStore};
+    let f = Fixture::new(|dir| vec![spec(dir, &heard("echo"), &[])], Options::default());
+    let library = common::library(&f.drive);
+    let analyzer = Analyzer { plugin: "echo".into(), analyzer: "heard".into(), version: "1".into() };
+    let store = FieldStore::in_store(&f.store);
+    let mut drawn = Vec::new();
+    for t in &library.tracks {
+        let kept = kept(&tc, t);
+        if let Some(k) = &kept {
+            let values = [("tone", k.tone.clone()), ("tempo", k.tempo.clone())]
+                .into_iter()
+                .chain([("sure", k.sure), ("steady", k.steady)].map(|(n, v)| (n, v.map(FieldValue::Number))))
+                .filter_map(|(name, v)| Some((name.to_string(), v?)))
+                .collect();
+            store.put(&paths::to_fs(&f.drive, &paths::key(&t.file_path)), &analyzer, &values).unwrap();
+        }
+        drawn.push((t, kept));
+    }
+    let fields: Vec<Role> = tc.draw(gs::subsequences(vec![Role::Key, Role::Bpm]).min_size(1));
+    let ids: Vec<u32> = library.tracks.iter().map(|t| t.id).collect();
+    let tracks = tc.draw(gs::optional(gs::subsequences(ids)));
+    let overwrite = tc.draw(gs::booleans());
+    let min_confidence = tc.draw(gs::optional(gs::floats::<f64>().min_value(0.0).max_value(1.0)));
+
+    // The model.
+    let (mut edits, mut unanalysed, mut unsure) = (Vec::new(), 0, 0);
+    for (t, kept) in drawn.iter().filter(|(t, _)| tracks.as_ref().is_none_or(|ids| ids.contains(&t.id))) {
+        let Some(k) = kept else {
+            unanalysed += 1;
+            continue;
+        };
+        let sure = |confidence: Option<f64>| min_confidence.is_none_or(|min| confidence.is_some_and(|c| c >= min));
+        let wanted = |role, has: bool, same: bool| fields.contains(&role) && !same && (overwrite || !has);
+        let (mut key, mut bpm) = (None, None);
+        if let Some(FieldValue::String(code)) = &k.tone
+            && let Some(c) = Camelot::parse(code)
+            && wanted(Role::Key, !t.key.trim().is_empty(), Camelot::parse(&t.key) == Some(c))
+        {
+            match sure(k.sure) {
+                true => key = Some(c.note()),
+                false => unsure += 1,
+            }
+        }
+        let tempo = match k.tempo {
+            Some(FieldValue::Number(n)) => Some(n),
+            Some(FieldValue::Integer(n)) => Some(n as f64),
+            _ => None,
+        };
+        if let Some(b) = tempo.map(|b| (b * 100.0).round() / 100.0)
+            && (1.0..=999.99).contains(&b)
+            && wanted(Role::Bpm, t.bpm > 0.0, b == t.bpm)
+        {
+            match sure(k.steady) {
+                true => bpm = Some(b),
+                false => unsure += 1,
+            }
+        }
+        if key.is_some() || bpm.is_some() {
+            edits.push((vec![t.file_path.clone()], key, bpm));
+        }
+    }
+
+    let req = ApplyFields {
+        plugin: "echo".into(),
+        analyzer: "heard".into(),
+        drive: "USB".into(),
+        fields: fields.clone(),
+        tracks,
+        overwrite,
+        min_confidence,
+    };
+    let planned = f.plugins.plan_apply_fields(&req, &f.store, &Ctx::silent()).unwrap();
+    let got: Vec<(Vec<String>, Option<String>, Option<f64>)> = planned
+        .recorded
+        .iter()
+        .map(|e| match e {
+            Edit::EditTracks { tracks, fields } => (tracks.paths.clone(), fields.key.clone(), fields.bpm),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(got, edits);
+    let what: Vec<&str> = fields.iter().map(|r| r.name()).collect();
+    assert_eq!(planned.summary[0], format!("write {} from Heard to {} track(s)", what.join(" and "), edits.len()));
+    let mut warnings = Vec::new();
+    if unanalysed > 0 {
+        warnings.push(format!("{unanalysed} track(s) aren't analysed by Heard yet"));
+    }
+    if let Some(min) = min_confidence.filter(|_| unsure > 0) {
+        warnings.push(format!("{unsure} value(s) left out: Heard is less sure of them than {min}"));
+    }
+    assert_eq!(planned.warnings, warnings);
 }

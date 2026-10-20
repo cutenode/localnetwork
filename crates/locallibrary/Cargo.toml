@@ -21,9 +21,9 @@ doc = false
 
 [features]
 default = ["account", "peers"]
-# The Atmosphere account (AT Protocol OAuth sign-in, the keychain) and publishing to it: the
-# `atmosphere` and `publish` modules and the `account_*` and `*_publish_*` API. Most of the
-# library's dependencies (an HTTP client, an async runtime, TLS, DNS) are for this alone.
+# The Atmosphere account (AT Protocol OAuth sign-in) and publishing to it: the `atmosphere` and
+# `publish` modules and the `account_*` and `*_publish_*` API. Its async runtime, AT Protocol
+# clients and DNS are for this alone (the HTTP client and the keychain are plugins' too).
 account = [
     "dep:hickory-resolver",
     "dep:http",
@@ -31,9 +31,6 @@ account = [
     "dep:jacquard-common",
     "dep:jacquard-identity",
     "dep:jacquard-oauth",
-    "dep:keyring",
-    "dep:keyring-core",
-    "dep:reqwest",
     "dep:tokio",
     "dep:unicode-segmentation",
 ]
@@ -59,11 +56,13 @@ jacquard-api = { workspace = true, optional = true }
 jacquard-common = { workspace = true, optional = true }
 jacquard-identity = { workspace = true, optional = true }
 jacquard-oauth = { workspace = true, optional = true }
-keyring = { workspace = true, optional = true }
+# The keychain, for the account's session and plugins' secrets.
+keyring.workspace = true
 # The keychain entries themselves, from whichever store is the default: the system's, which
 # `keyring` sets, or the tests' in-memory one.
-keyring-core = { version = "1", optional = true }
-reqwest = { workspace = true, optional = true }
+keyring-core = { version = "1" }
+# `blocking`: plugins' `net/fetch`, answered on the callback's own thread.
+reqwest = { workspace = true, features = ["blocking"] }
 lofty.workspace = true
 percent-encoding.workspace = true
 rusqlite.workspace = true
@@ -101,6 +100,8 @@ loclib-plugin.workspace = true
 # Escaping text for rekordbox XML (`xml`): other DJ software's exports are the interop plugin's.
 loclib-interop.workspace = true
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"], optional = true }
+# How a URL's query spells a plugin's secret, to leave that out of what the plugin is told too.
+form_urlencoded = "1.2.2"
 
 [dev-dependencies]
 hegeltest.workspace = true

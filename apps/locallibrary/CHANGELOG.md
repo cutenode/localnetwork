@@ -213,13 +213,20 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   shown and asked about like any edit. `analyze` runs their analyzers on a library's tracks and
   `track` shows what they worked out (`sound.bpm`); `export --format` takes their formats, showing
   each file, what goes in and what the format can't hold, and asking before overwriting a file;
-  `plugin` lists them and what each may do, and `plugin settings` keeps their settings. The
+  `plugin` lists them and what each may do, and `plugin settings` keeps their settings (a secret
+  one, read from stdin with `--secret`, in the system's keychain, only ever shown as set). The
   sidecar has all of it as `plugins.*` methods, their plans kept apart from locallibrary's own,
   and `track.fields` reads the installed analyzers' versions (each analyzer has its own, apart
   from its plugin's; a value can be null, worked out with nothing to show). A plugin whose id or
   commands clash with locallibrary's or another plugin's is left out, with a warning saying why,
   and the others work; a plugin's errors keep their kinds (`not_found`, `io`...). Each plugin runs
-  in a folder of its own in the store. An analyzer's fields may have roles (a track's key, tempo,
+  in a folder of its own in the store, and goes online only through locallibrary, to the servers
+  its manifest names, at public https addresses, as often as each allows, with its secrets filled
+  in where a request names them (never sent on to another server) and left out of what it logs;
+  what it reads never says where things are on the computer, and images come back as files
+  locallibrary reads itself, in a folder for each request that `store gc` removes if a crash
+  left it. A view command's
+  rows show as they come. An analyzer's fields may have roles (a track's key, tempo,
   loudness...), which doctor, `check` and `playlist order` read from the analyzer `plugin roles`
   chooses (the sound plugin's unless another has them), and `analyze --apply key,bpm` writes to
   the tracks; the sidecar has `plugins.roles`, `plugins.roles.set` and
@@ -242,8 +249,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
     `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: `coverart fetch` finds front covers on MusicBrainz and the Cover Art Archive for
-    tracks without artwork (or all, with `--replace`), planned as artwork edits you confirm. It's
-    the only one that goes online, and only when it's run.
+    tracks without artwork (or all, with `--replace`), planned as artwork edits you confirm, as
+    many albums as asked in one plan. It's the only one that goes online, and only when it's run.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -339,7 +346,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     an optional feature named in its handshake), the `locallibrary-plugin.toml` manifest (read
     tolerantly, keys a newer locallibrary adds left out) and its checks, a JSON-RPC peer over a
     pair of pipes and an SDK for writing plugins in Rust, a hook per request type, with typed
-    reads of a drive. The RPC sidecar reads lines and reports errors with it.
+    reads of a drive, `net/fetch` through the host, files in a request's scratch folder for big
+    answers and a view's rows sent in parts. The RPC sidecar reads lines and reports errors with it.
 
 ### Changed
 

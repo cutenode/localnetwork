@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Exported, ExportedFile, FieldValue, Hooks, Host, OpPlan, PlanOp, RpcError, RunCommand,
-    WriteExport,
+    Analysis, AnalyzeTrack, Context, Exported, ExportedFile, Fetch, FieldValue, Hooks, Host, ListItem, OpPlan, PlanOp,
+    RpcError, RunCommand, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -105,6 +105,40 @@ impl Test {
                 Err(error) => json!({ "error": error }),
             });
         }
+        write_blobs(&req.context, p)?;
+        if p["fetch"].is_object() {
+            let mut fetch: Fetch = params(p["fetch"].clone())?;
+            // A name, in this request's scratch folder.
+            let scratch = req.context.scratch.clone().unwrap_or_default();
+            for blob in [&mut fetch.body_blob, &mut fetch.into_blob].into_iter().flatten() {
+                *blob = scratch.join(&*blob);
+            }
+            return Ok(match host.fetch(&fetch) {
+                Ok(fetched) => {
+                    // What it was answered, in its log too.
+                    eprintln!("fetched {}", fetched.body.as_deref().unwrap_or_default());
+                    let read =
+                        fetched.blob.as_ref().map(|b| String::from_utf8_lossy(&std::fs::read(b).unwrap()).into_owned());
+                    json!({ "result": fetched, "read": read })
+                }
+                Err(error) => json!({ "error": error }),
+            });
+        }
+        if let Some(rows) = p["partial"].as_array() {
+            // Each row as a part of its own, then the table of them all.
+            let rows: Vec<Vec<Value>> = rows.iter().map(|r| vec![r.clone()]).collect();
+            for row in &rows {
+                host.partial_rows(vec![row.clone()]);
+            }
+            let view = View::Table { title: None, columns: vec!["Row".into()], rows };
+            return Ok(serde_json::to_value(view).expect("a view is JSON"));
+        }
+        if let Some(items) = p["partial_items"].as_array() {
+            let items: Vec<ListItem> =
+                items.iter().map(|i| ListItem { label: i.as_str().unwrap_or_default().into(), detail: None }).collect();
+            host.partial_items(items.clone());
+            return Ok(serde_json::to_value(View::List { title: None, items }).expect("a view is JSON"));
+        }
         echo::run_command(req, host)
     }
 
@@ -153,6 +187,7 @@ impl Test {
     }
 
     fn plan_op(&self, req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
+        write_blobs(&req.context, &req.params)?;
         if let Some(edits) = req.params["edits"].as_array() {
             let inputs = req.params["inputs"].as_array().into_iter().flatten().filter_map(Value::as_str);
             let inputs = inputs.map(std::path::PathBuf::from).collect();
@@ -161,4 +196,25 @@ impl Test {
         }
         echo::plan_op(req, host)
     }
+}
+
+/// Writes the files `p["blobs"]` gives (by name, their bytes) into the request's scratch folder,
+/// and makes the links `p["links"]` and hard links `p["hard_links"]` give there (by name, to a
+/// path), for the answer to name.
+fn write_blobs(context: &Context, p: &Value) -> Result<(), RpcError> {
+    let io = |e: std::io::Error| RpcError::failed("io", e.to_string());
+    let scratch = || context.scratch.clone().ok_or_else(|| RpcError::failed("invalid", "no scratch folder"));
+    for (name, bytes) in p["blobs"].as_object().into_iter().flatten() {
+        let bytes: Vec<u8> = params(bytes.clone())?;
+        std::fs::write(scratch()?.join(name), bytes).map_err(io)?;
+    }
+    for (name, to) in p["hard_links"].as_object().into_iter().flatten() {
+        std::fs::hard_link(to.as_str().unwrap_or_default(), scratch()?.join(name)).map_err(io)?;
+    }
+    // Windows lets only an administrator (or developer mode) make one.
+    #[cfg(unix)]
+    for (name, to) in p["links"].as_object().into_iter().flatten() {
+        std::os::unix::fs::symlink(to.as_str().unwrap_or_default(), scratch()?.join(name)).map_err(io)?;
+    }
+    Ok(())
 }

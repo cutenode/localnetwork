@@ -11029,7 +11029,7 @@
           "type": "string"
         },
         "value": {
-          "description": "Of the setting's type; `null` (or left out) puts it back to its default.",
+          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered); `null` (or left out) puts it back to its default, or forgets a secret.",
           "default": null
         }
       },
@@ -22004,10 +22004,10 @@
         {
           "type": "string",
           "const": "file",
-          "description": "`atmosphere-session.json` in the store folder, readable only by you: for computers without\na keychain (a Linux server without a desktop session)."
+          "description": "Files in the store folder, readable only by you (`atmosphere-session.json`,\n`secrets/plugins/<id>.json`): for computers without a keychain (a Linux server without a\ndesktop session)."
         }
       ],
-      "description": "Where the session's secrets are kept."
+      "description": "Where secrets are kept."
     },
     "LoginStart": {
       "type": "object",
@@ -28832,7 +28832,7 @@
           ]
         },
         {
-          "pattern": "^net:[A-Za-z0-9.-]+$"
+          "pattern": "^net:(\\*\\.)?[A-Za-z0-9.-]+$"
         }
       ]
     },
@@ -28852,6 +28852,23 @@
           "type": "object",
           "additionalProperties": true
         },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "description": "Whether each secret setting is set, never what it is; `null` for each when the keychain\ncan't say (see `secrets_unknown`)."
+        },
+        "secrets_unknown": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why the keychain can't say, when it can't: the rest is answered all the same."
+        },
         "running": {
           "type": "boolean"
         }
@@ -28860,6 +28877,7 @@
         "manifest",
         "capabilities",
         "settings",
+        "secrets",
         "running"
       ],
       "description": "A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest\n(with the JSON Schemas of its params and options, to draw forms from), what its capabilities\nlet it do, and its settings now."
@@ -28899,6 +28917,13 @@
             "exporters": [],
             "settings": []
           }
+        },
+        "net": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NetLimit"
+          },
+          "description": "How often the host may send `net/fetch` requests to some of the hosts it talks to."
         }
       },
       "required": [
@@ -29190,9 +29215,26 @@
         {
           "type": "string",
           "const": "secret",
-          "description": "It has no default. locallibrary can't keep one yet, and refuses a plugin with one."
+          "description": "A password or a key: kept in the system's keychain, never shown, and given to the plugin\nonly as the host fills it into its `net/fetch` requests. It has no default."
         }
       ]
+    },
+    "NetLimit": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "per_second": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "host",
+        "per_second"
+      ],
+      "description": "`[[net]]`: at most `per_second` `net/fetch` requests a second to `host`, one of the plugin's\n`net:` capabilities as it's written (`musicbrainz.org`, `*.archive.org`), however many hooks\nare under way: the limit the server asks its clients to keep."
     },
     "Settings": {
       "type": "object",
@@ -29202,12 +29244,31 @@
         },
         "settings": {
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": true,
+          "description": "Each one set, else its default; never a secret."
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "description": "Whether each secret setting is set, never what it is; `null` for each when the keychain\ncan't say (see `secrets_unknown`)."
+        },
+        "secrets_unknown": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Why the keychain can't say, when it can't: the rest is answered all the same."
         }
       },
       "required": [
         "plugin",
-        "settings"
+        "settings",
+        "secrets"
       ],
       "description": "A plugin's settings now: each one set, else its default."
     },

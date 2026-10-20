@@ -1,19 +1,20 @@
 //! What plugins read: requests named after the sidecar's read methods, answered by the app's
 //! (see [`Reads`]) once the host has checked them. A plugin may call only the reads its
 //! capabilities grant, with only the params listed for each, naming drives the host finds itself
-//! (never by path), in pages of a bounded size, a few calls at a time; the errors it gets back say
-//! nothing of where files are on this computer.
+//! (never by path), in pages of a bounded size, a few calls at a time; what it gets back, errors
+//! too, says nothing of where things are on this computer (see [`answer_for_plugin`]). A plugin
+//! with the `net` feature calls `net/fetch` here too (see [`super::net`]).
 
 use std::cmp::Reverse;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Weak};
 
-use loclib_plugin::{Capability, ErrorData, Incoming, MAX_IDS, MAX_IMAGES, Manifest, Peer, RpcError, code};
+use loclib_plugin::{Capability, ErrorData, Incoming, MAX_IDS, MAX_IMAGES, Manifest, Peer, RpcError, code, method};
 use serde_json::Value;
 
-use super::process::Host;
+use super::process::{Live, Slot};
 use crate::Result;
 use crate::api::{self, RpcFailure};
 use crate::progress::{Ctx, NoProgress};
@@ -137,15 +138,20 @@ impl Drop for Quota {
 }
 
 /// Answers the plugin's callbacks until its output closes, each on a thread of its own, a few
-/// at a time. Every one is answered, one whose read panics too.
-pub(crate) fn answer(manifest: &Manifest, host: &Arc<Host>, peer: &Peer, incoming: Receiver<Incoming>) {
+/// at a time. Every one is answered, one whose read panics too, and one that comes once the host
+/// has let go of the plugin (which stops it). Nothing here keeps the plugin hosted.
+pub(crate) fn answer(slot: &Weak<Slot>, live: &Arc<Live>, peer: &Peer, incoming: Receiver<Incoming>) {
     let busy = Arc::new(AtomicUsize::new(0));
     // Progress about a request nobody waits for any more is dropped.
     for req in incoming.into_iter().filter_map(|m| match m {
         Incoming::Request(req) => Some(req),
         Incoming::Notification { .. } => None,
     }) {
-        let most = host.options.callbacks;
+        let Some(slot) = slot.upgrade() else {
+            peer.respond(&req.id, Err(RpcError::closed()));
+            continue;
+        };
+        let most = slot.host.options.callbacks;
         let under_way = busy.fetch_add(1, Ordering::SeqCst);
         let quota = Quota(busy.clone());
         if under_way >= most {
@@ -154,20 +160,24 @@ pub(crate) fn answer(manifest: &Manifest, host: &Arc<Host>, peer: &Peer, incomin
             peer.respond(&req.id, Err(e));
             continue;
         }
-        let (manifest, host, peer) = (manifest.clone(), host.clone(), peer.clone());
+        let (live, peer) = (live.clone(), peer.clone());
         std::thread::spawn(move || {
-            let reads = &*host.reads;
-            let run = || {
-                let params = check(&manifest, reads, &req.method, req.params)?;
-                reads.read(&req.method, params, &Ctx::new(&NoProgress, req.cancel.clone()))
+            let reads = &*slot.host.reads;
+            let run = || match req.method.as_str() {
+                method::NET_FETCH if live.sends(method::NET_FETCH) => slot.fetch(&live, req.params, &req.cancel),
+                _ => {
+                    let params = check(&slot.manifest, reads, &req.method, req.params);
+                    let read =
+                        params.and_then(|p| reads.read(&req.method, p, &Ctx::new(&NoProgress, req.cancel.clone())));
+                    let roots = known_roots(live.store.as_ref());
+                    read.map(|answer| answer_for_plugin(&req.method, answer, &roots)).map_err(|e| for_plugin(e, &roots))
+                }
             };
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| {
-                let e = format!("internal error while handling {:?}", req.method);
-                Err(RpcFailure::new(code::INTERNAL, "internal", e))
-            });
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
+                .unwrap_or_else(|_| Err(RpcError::internal(format!("internal error while handling {:?}", req.method))));
             // Before the answer: a call the plugin makes once it has it finds room.
             drop(quota);
-            peer.respond(&req.id, result.map_err(|e| for_plugin(e, &known_roots())));
+            peer.respond(&req.id, result);
         });
     }
 }
@@ -213,6 +223,41 @@ pub(crate) fn check(manifest: &Manifest, reads: &dyn Reads, method: &str, params
     Ok(Value::Object(params))
 }
 
+/// Keys left out of every read's answer: a drive's mount point, and where one was last mounted.
+const MOUNTS: [&str; 2] = ["root", "last_mount"];
+
+/// A read's answer as a plugin gets it, saying nothing of where things are on this computer:
+/// without a drive's mount point ([`MOUNTS`]) or the place of a file outside any drive (a store
+/// copy's, a set's recording, rekordbox's collection), and with any other path under one of
+/// `roots` said from there (see [`known_roots`]), as errors' are.
+fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
+    // Each key, at any depth, in an object that's the value of the first key when one is given.
+    let places: &[(Option<&str>, &str)] = match method {
+        "store.copies" => &[(None, "path"), (None, "from")],
+        "store.info" => &[(Some("copy_of"), "path"), (Some("copy_of"), "from")],
+        "sets.list" | "sets.get" => &[(Some("recording"), "path")],
+        "collection.info" => &[(None, "path")],
+        _ => &[],
+    };
+    without(&mut answer, None, places);
+    scrub_value(&mut answer, roots);
+    answer
+}
+
+/// `v` without [`MOUNTS`] and `places` (see [`answer_for_plugin`]), in an object under `parent`.
+fn without(v: &mut Value, parent: Option<&str>, places: &[(Option<&str>, &str)]) {
+    match v {
+        Value::Array(list) => list.iter_mut().for_each(|v| without(v, parent, places)),
+        Value::Object(map) => {
+            let place =
+                |k: &str| places.iter().any(|(under, key)| *key == k && under.is_none_or(|u| Some(u) == parent));
+            map.retain(|k, _| !MOUNTS.contains(&k.as_str()) && !place(k));
+            map.iter_mut().for_each(|(k, v)| without(v, Some(k), places));
+        }
+        _ => {}
+    }
+}
+
 /// The root of the drive the param `name` names, as the app is given it.
 fn drive(reads: &dyn Reads, name: &str, v: &Value) -> Result<Value, RpcFailure> {
     match v {
@@ -223,10 +268,10 @@ fn drive(reads: &dyn Reads, name: &str, v: &Value) -> Result<Value, RpcFailure> 
 }
 
 /// What absolute paths here start with, longest first, each with what it's said as instead:
-/// the mounted drives' roots (their names), the store's (`<store>`), the temporary folder's
-/// (`<temp>`) and the home folder's (`~`), each as given and resolved (a drive in the temporary
-/// folder through either of its spellings too), with either separator.
-pub(crate) fn known_roots() -> Vec<(String, String)> {
+/// the mounted drives' roots (their names), the store's and `store`'s (`<store>`), the temporary
+/// folder's (`<temp>`) and the home folder's (`~`), each as given and resolved (a drive in the
+/// temporary folder through either of its spellings too), with either separator.
+pub(crate) fn known_roots(store: Option<&crate::Store>) -> Vec<(String, String)> {
     let (temp, home) = (std::env::temp_dir(), directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()));
     // Folders spelt otherwise once resolved (macOS's `/var` is `/private/var`).
     let aliases: Vec<(PathBuf, PathBuf)> = std::iter::once(temp.clone())
@@ -234,10 +279,10 @@ pub(crate) fn known_roots() -> Vec<(String, String)> {
         .filter_map(|p| Some((p.canonicalize().ok()?, p)))
         .filter(|(resolved, given)| resolved != given)
         .collect();
-    let drives = api::list_drives(&api::ListDrives { all: true });
     let mut roots: Vec<(PathBuf, String)> =
-        drives.into_iter().map(|d| (d.root, d.name.unwrap_or(d.volume_name))).collect();
-    roots.extend(api::registry().map(|s| (s.root().to_path_buf(), "<store>".into())));
+        api::known_drives(true).into_iter().map(|d| (d.root().to_path_buf(), d.name())).collect();
+    let stores = api::registry().map(|s| s.root().to_path_buf()).into_iter().chain(store.map(|s| s.root().into()));
+    roots.extend(stores.map(|root| (root, "<store>".into())));
     roots.push((temp, "<temp>".into()));
     roots.extend(home.map(|h| (h, "~".into())));
     let mut out = Vec::new();

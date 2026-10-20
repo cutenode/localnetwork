@@ -466,8 +466,7 @@ fn plugins_exports() {
     key(&mut app, KeyCode::Esc);
     let out = _dir.path().join("Friday.m3u");
     std::fs::write(&out, "mine").unwrap();
-    let source =
-        loclib_plugin::ExportSource { drive: root.display().to_string(), playlists: Vec::new(), history: Vec::new() };
+    let source = loclib_plugin::ExportSource { drive: root.display().to_string(), ..Default::default() };
     let plugins = crate::plugins::host().unwrap();
     let plan =
         plugins.export_plan("echo", "echo-m3u", source, &out, serde_json::Value::Null, None, &Ctx::silent()).unwrap();

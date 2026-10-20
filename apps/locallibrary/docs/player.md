@@ -34,7 +34,8 @@ listening to your library the way the players see it:
   `enter` to run; lists take commas, a secret shows as dots), a param the plugin fills from what's
   selected starting as the marked or selected tracks, the playlist or the drive. It runs on the
   drive open, with the marked or selected tracks and the playlist selected, in the background
-  (`esc` stops it). What a command answers shows in a panel, or as a message when it's a line; an operation's
+  (`esc` stops it). What a command answers shows in a panel (a list's rows as they come, when the
+  plugin sends them so), or as a message when it's a line; an operation's
   plan, with what the plugin says about it first, is confirmed and written like any edit, and `u`
   takes it back. An operation, or a command of a plugin that reads the drive, needs one plugged
   in, not a folder opened by path. What plugins log goes to the messages (`!`). See
@@ -48,7 +49,8 @@ listening to your library the way the players see it:
   like any edit.
 - **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
   the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
-  to its default.
+  to its default. A secret is never filled in: typed, it's kept in the system's keychain; left
+  empty, it stays as it was.
 - **Problems**: ✖ marks a track whose audio file isn't on the drive, ≈ one the drive holds another
   copy of. Browse › Problems lists them.
 - **Playback** of MP3, AAC/ALAC (`.m4a`), FLAC, WAV and AIFF, with a queue built from the list you

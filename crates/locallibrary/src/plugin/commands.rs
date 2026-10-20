@@ -1,7 +1,8 @@
 //! Plugins' commands (`command/run`): headless ones answer any JSON, view ones a [`View`] each
-//! host draws its own way.
+//! host draws its own way, its rows (or items) shown as they come when the plugin sends them in
+//! parts.
 
-use loclib_plugin::{Context, Mode, RunCommand, View, method};
+use loclib_plugin::{Context, Mode, Partial, RunCommand, View, method};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -23,7 +24,10 @@ pub enum CommandOutput {
 impl Plugins {
     /// Runs one of a plugin's commands with `params` (checked against its schema; `null` is no
     /// params; one from the selection, `x-from`, that isn't given is filled in from `context`),
-    /// where the user is (`context`, its drive by id, name or path as the CLI takes it).
+    /// where the user is (`context`, its drive by id, name or path as the CLI takes it). A view
+    /// command's rows (or items) sent in parts go to `shown` as they come; the view it answers
+    /// has them too, first.
+    #[allow(clippy::too_many_arguments)]
     pub fn run_command(
         &self,
         plugin: &str,
@@ -32,13 +36,19 @@ impl Plugins {
         context: Context,
         store: Option<&Store>,
         ctx: &Ctx<'_>,
+        shown: &dyn Fn(Partial),
     ) -> Result<CommandOutput> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared("command", command, &slot.manifest.contributes.commands, |c| &c.name)?;
         let (context, _) = slot.context(context, store)?;
         let params = super::fitting(declared.params.as_ref(), params, &context)?;
         let run = RunCommand { command: command.into(), params, context };
-        let answer: Value = slot.call(method::RUN_COMMAND, &run, store, ctx)?;
+        let shown = |partial| {
+            if declared.mode == Mode::View {
+                shown(partial);
+            }
+        };
+        let answer: Value = slot.call_with(method::RUN_COMMAND, &run, store, ctx, &shown, |answer, _| Ok(answer))?;
         match declared.mode {
             Mode::Headless => Ok(CommandOutput::Headless(answer)),
             Mode::View => serde_json::from_value(answer)

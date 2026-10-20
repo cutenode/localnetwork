@@ -6,19 +6,20 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use loclib_plugin::framing::{Line, read_line};
 use loclib_plugin::{
-    Cancel, Context, FEATURES, Hello, HelloReply, HostInfo, Manifest, PROTOCOL_VERSION, Peer, ProgressReport,
+    Cancel, Context, FEATURES, Hello, HelloReply, HostInfo, Manifest, PROTOCOL_VERSION, Partial, Peer, ProgressReport,
     Progressed, RpcError, check_protocol, code, method,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::json;
+use serde_json::{Value, json};
 
-use super::{Launch, Options, Reads, callbacks};
+use super::blobs::{Scratch, Scratches};
+use super::{Launch, Options, Reads, callbacks, net};
 use crate::device::Device;
 use crate::error::IoContext;
 use crate::progress::{Ctx, Event};
@@ -59,6 +60,36 @@ pub(crate) struct Slot {
     /// Held while a process starts (and shakes hands) or stops, so one does at a time: whoever
     /// stops it next waits for a stop under way, as a host exiting must.
     changing: Mutex<()>,
+    /// Its `net/fetch` requests' turns, client and secrets, whichever process makes them.
+    pub(crate) net: Arc<net::State>,
+}
+
+/// What a process's callbacks need besides its plugin.
+pub(crate) struct Live {
+    /// The features it and the host both have, once it has shaken hands.
+    features: OnceLock<Vec<String>>,
+    /// The store it was started in, for its settings and secrets.
+    pub(crate) store: Option<Store>,
+    /// Its requests' scratch folders.
+    pub(crate) scratches: Arc<Scratches>,
+}
+
+impl Live {
+    /// A process's, started in `store`, before it has shaken hands.
+    pub(crate) fn new(store: Option<Store>) -> Live {
+        Live { features: OnceLock::new(), store, scratches: Arc::default() }
+    }
+
+    /// Whether it has the feature `name` (and the host does).
+    pub(crate) fn has(&self, name: &str) -> bool {
+        self.features.get().is_some_and(|f| f.iter().any(|f| f == name))
+    }
+
+    /// Whether it may send the host `method`: a feature it has lets it
+    /// ([`loclib_plugin::Feature::sends`]).
+    pub(crate) fn sends(&self, method: &str) -> bool {
+        FEATURES.iter().any(|f| f.sends.contains(&method) && self.has(f.name))
+    }
 }
 
 /// A plugin's process, once it has shaken hands. Dropping the last of it stops it.
@@ -71,8 +102,11 @@ pub(crate) struct Process {
     /// It closed its output (it exited or crashed), or was killed.
     dead: Arc<AtomicBool>,
     grace: Duration,
-    /// The folder it runs in when there's no store, removed once it has stopped.
-    _scratch: Option<tempfile::TempDir>,
+    live: Arc<Live>,
+    /// Where its requests' scratch folders go.
+    scratch: PathBuf,
+    /// Its folder when there's no store, removed once it has stopped.
+    _temp: Option<tempfile::TempDir>,
 }
 
 impl Process {
@@ -192,7 +226,8 @@ fn printable(line: &str) -> String {
 
 impl Slot {
     pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
-        Slot { manifest, launch, host, process: Mutex::new(None), changing: Mutex::new(()) }
+        let net = Arc::default();
+        Slot { manifest, launch, host, process: Mutex::new(None), changing: Mutex::new(()), net }
     }
 
     /// How errors name it: "the Echo plugin".
@@ -210,10 +245,13 @@ impl Slot {
     /// handles locallibrary's own. `io` and `parse` are about the file `fields.path` names.
     /// Another kind (or one of those without a file) is the plugin failing, `permission` (a
     /// plugin never runs elevated, so running locallibrary so can't help) and `stale_plan` (only
-    /// the host's plans go stale) too. Its connection closing means it stopped.
-    fn error(&self, p: &Process, e: RpcError) -> Error {
+    /// the host's plans go stale) too. Its connection closing means it stopped. The secrets the
+    /// host filled in for it are left out.
+    fn error(&self, p: &Process, mut e: RpcError) -> Error {
+        e.message = self.net.scrub(&e.message);
         let said = format!("{} ({})", e.message, self.label());
-        let fields = e.data.as_ref().map(|d| d.fields.clone()).unwrap_or_default();
+        let mut fields = e.data.as_ref().map(|d| d.fields.clone()).unwrap_or_default();
+        fields.values_mut().for_each(|v| self.net.scrub_value(v));
         let file = fields.get("path").and_then(|p| p.as_str()).map(PathBuf::from);
         let error = match (e.kind(), file) {
             (Some("cancelled"), _) => return Error::Cancelled,
@@ -253,7 +291,8 @@ impl Slot {
             return Ok(p);
         }
         let p = Arc::new(self.spawn(store)?);
-        self.handshake(&p)?;
+        let features = self.handshake(&p)?;
+        let _ = p.live.features.set(features);
         let (slot, process, idle) = (Arc::downgrade(self), Arc::downgrade(&p), self.host.options.idle);
         std::thread::spawn(move || reap(&slot, &process, idle));
         // One that stopped is waited for as it's dropped, once the lock is let go.
@@ -270,32 +309,31 @@ impl Slot {
         drop(stopped);
     }
 
-    /// Starts the process in a folder of its own, `<store>/plugins/<id>/work/` (made if it isn't
-    /// there), or without a store a new one in the temporary folder, removed once it stops: the
-    /// plugin's own files go there, and its relative paths are never another program's (nor the
-    /// host's files about it, beside that folder).
-    fn spawn(&self, store: Option<&Store>) -> Result<Process> {
+    /// Starts the process in a folder of its own, `work/` in the plugin's folder (made if it isn't
+    /// there): `<store>/plugins/<id>/`, or without a store a new one in the temporary folder,
+    /// removed once it stops. The plugin's own files go there, and its relative paths are never
+    /// another program's, nor the host's files about it (beside that folder, as its requests'
+    /// scratch folders are, in `scratch/`).
+    fn spawn(self: &Arc<Self>, store: Option<&Store>) -> Result<Process> {
         if elevated() {
             return Err(Error::invalid(format!(
                 "{} isn't started from a process running as an administrator (or root): run locallibrary as yourself",
                 self.label()
             )));
         }
-        let (dir, scratch) = match store {
-            Some(store) => {
-                let dir = store.root().join("plugins").join(&self.manifest.id).join("work");
-                std::fs::create_dir_all(&dir).at(&dir)?;
-                (dir, None)
-            }
+        let (base, temp) = match store {
+            Some(store) => (store.root().join("plugins").join(&self.manifest.id), None),
             None => {
                 let temp = std::env::temp_dir();
-                let scratch = tempfile::Builder::new()
+                let made = tempfile::Builder::new()
                     .prefix(&format!("locallibrary-plugin-{}-", self.manifest.id))
                     .tempdir_in(&temp)
                     .at(&temp)?;
-                (scratch.path().to_path_buf(), Some(scratch))
+                (made.path().to_path_buf(), Some(made))
             }
         };
+        let dir = base.join("work");
+        std::fs::create_dir_all(&dir).at(&dir)?;
         let mut command = Command::new(&self.launch.program);
         command.current_dir(&dir);
         for var in &self.launch.env_remove {
@@ -312,31 +350,34 @@ impl Slot {
         else {
             unreachable!("the child's stdio are pipes");
         };
-        let (host, id) = (self.host.clone(), self.manifest.id.clone());
+        let (host, id, net) = (self.host.clone(), self.manifest.id.clone(), self.net.clone());
         std::thread::spawn(move || {
             let (mut stderr, mut buf) = (BufReader::new(stderr), Vec::new());
             while let Ok(Line::Read | Line::TooLong) = read_line(&mut stderr, &mut buf) {
-                host.log(&id, printable(&String::from_utf8_lossy(&buf)).trim_end());
+                host.log(&id, net.scrub(&printable(&String::from_utf8_lossy(&buf))).trim_end());
             }
         });
-        let (host, id) = (self.host.clone(), self.manifest.id.clone());
-        let (peer, incoming) = Peer::with_log(output, input, move |line| host.log(&id, line));
+        let (host, id, net) = (self.host.clone(), self.manifest.id.clone(), self.net.clone());
+        // What it sent that couldn't be read can quote it.
+        let (peer, incoming) = Peer::with_log(output, input, move |line| host.log(&id, &net.scrub(line)));
         let dead = Arc::new(AtomicBool::new(false));
-        let (answering, ended) = (peer.clone(), dead.clone());
-        let (manifest, host) = (self.manifest.clone(), self.host.clone());
+        let live = Arc::new(Live::new(store.cloned()));
+        let (answering, ended, slot, answered) = (peer.clone(), dead.clone(), Arc::downgrade(self), live.clone());
         std::thread::spawn(move || {
-            callbacks::answer(&manifest, &host, &answering, incoming);
+            callbacks::answer(&slot, &answered, &answering, incoming);
             ended.store(true, Ordering::SeqCst);
         });
         let grace = self.host.options.grace;
         let last_used = Mutex::new(Instant::now());
         let busy = AtomicUsize::new(0);
-        Ok(Process { child: Mutex::new(child), peer, busy, last_used, dead, grace, _scratch: scratch })
+        let child = Mutex::new(child);
+        let scratch = base.join("scratch");
+        Ok(Process { child, peer, busy, last_used, dead, grace, live, scratch, _temp: temp })
     }
 
     /// `hello`, then `describe`: it must speak the protocol, be the plugin its manifest says, and
-    /// have every feature what it contributes needs.
-    fn handshake(&self, p: &Process) -> Result<()> {
+    /// have every feature what it contributes needs. Answers the features both sides have.
+    fn handshake(&self, p: &Process) -> Result<Vec<String>> {
         let m = &self.manifest;
         let hello = Hello {
             protocol: PROTOCOL_VERSION.into(),
@@ -356,15 +397,14 @@ impl Slot {
             return Err(self.misbehaved("it describes itself otherwise than the manifest locallibrary has for it"));
         }
         // Of those both sides have: a feature only the plugin names is one this host never calls.
-        let lacks =
-            FEATURES.iter().find(|f| (f.contributed)(&m.contributes) && !reply.features.iter().any(|n| n == f.name));
-        match lacks {
-            Some(f) => {
-                Err(self
-                    .misbehaved(format!("it says it doesn't have the {} feature, which its manifest needs", f.name)))
-            }
-            None => Ok(()),
+        let lacks = FEATURES.iter().find(|f| (f.contributed)(m) && !reply.features.iter().any(|n| n == f.name));
+        if let Some(f) = lacks {
+            return Err(
+                self.misbehaved(format!("it says it doesn't have the {} feature, which its manifest needs", f.name))
+            );
         }
+        let both = FEATURES.iter().filter(|f| reply.features.iter().any(|n| n == f.name));
+        Ok(both.map(|f| f.name.to_string()).collect())
     }
 
     /// A handshake request's answer, within [`Options::handshake`].
@@ -386,16 +426,50 @@ impl Slot {
         store: Option<&Store>,
         ctx: &Ctx<'_>,
     ) -> Result<R> {
+        self.call_with(method, params, store, ctx, &|_| {}, |answer, _| Ok(answer))
+    }
+
+    /// [`Slot::call`], the hook's `params.context` given a scratch folder of its own (with the
+    /// `blobs` feature), the view's rows it sends in parts shown with `shown` as they come, and
+    /// its answer read by `read` with the files it left in that folder (see [`Scratch::blob`]),
+    /// which is removed after. A folder holding more than [`Options::max_blobs`] fails the call.
+    pub(crate) fn call_with<R: DeserializeOwned, T>(
+        self: &Arc<Self>,
+        method: &str,
+        params: &impl Serialize,
+        store: Option<&Store>,
+        ctx: &Ctx<'_>,
+        shown: &dyn Fn(Partial),
+        read: impl FnOnce(R, &Scratch) -> Result<T>,
+    ) -> Result<T> {
         ctx.check()?;
         let p = self.start(store)?;
         let _busy = Busy::new(&p);
-        let pending = p.peer.send_request_reporting(method, params).map_err(|e| self.error(&p, e))?;
+        let scratch = match p.live.has("blobs") {
+            true => p.live.scratches.make(&p.scratch)?,
+            false => p.live.scratches.none(),
+        };
+        let mut params = serde_json::to_value(params).map_err(|e| Error::invalid(e.to_string()))?;
+        if let Some(dir) = scratch.dir() {
+            params["context"]["scratch"] = Value::from(dir.to_string_lossy().into_owned());
+        }
+        let pending = p.peer.send_request_reporting(method, &params).map_err(|e| self.error(&p, e))?;
         let mut cancelled: Option<Instant> = None;
         loop {
             let answer = pending.wait_timeout(TICK);
             pending.progress().for_each(|report| pass_on(report, ctx));
+            pending.partials().filter(|_| p.live.sends(method::PARTIAL)).for_each(shown);
             if let Some(answer) = answer {
-                return answer.map_err(|e| self.error(&p, e));
+                let answer = answer.map_err(|e| self.error(&p, e))?;
+                let (size, most) = (scratch.size(), self.host.options.max_blobs);
+                if size > most {
+                    return Err(self.misbehaved(format!(
+                        "it left {} in its scratch folder, more than the {} a request may",
+                        crate::op::bytes(size),
+                        crate::op::bytes(most)
+                    )));
+                }
+                return read(answer, &scratch);
             }
             if cancelled.is_none() && ctx.cancel.is_cancelled() {
                 // From now: a plugin that isn't reading holds up the `$/cancel`, on a thread

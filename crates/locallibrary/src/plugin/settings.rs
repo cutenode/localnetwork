@@ -1,9 +1,10 @@
 //! Plugins' settings, kept in the store (`<store>/plugins/<id>/settings.json`) and handed to
-//! each hook in its context.
+//! each hook in its context; secret ones are kept apart (see [`super::secrets`]).
 
 use std::path::PathBuf;
 
 use indexmap::IndexMap;
+use loclib_plugin::SettingType;
 use serde_json::Value;
 
 use super::Plugins;
@@ -23,15 +24,16 @@ impl Slot {
     }
 
     /// The plugin's settings, by key: each one set (when what's kept still fits it), else its
-    /// default; one with neither is left out. What's kept that can't be read is logged, and the
-    /// defaults are used.
+    /// default; one with neither is left out, and so is every secret. What's kept that can't be
+    /// read is logged, and the defaults are used.
     pub(crate) fn settings(&self, store: Option<&Store>) -> IndexMap<String, Value> {
         let saved = store.map(|s| self.saved(s)).transpose().unwrap_or_else(|e| {
             self.host.log(&self.manifest.id, &format!("its settings are its defaults: {e}"));
             None
         });
         let saved = saved.unwrap_or_default();
-        let settings = self.manifest.contributes.settings.iter().filter_map(|s| {
+        let plain = self.manifest.contributes.settings.iter().filter(|s| s.kind != SettingType::Secret);
+        let settings = plain.filter_map(|s| {
             let value = saved.get(&s.key).filter(|v| s.accepts(v)).or(s.default.as_ref())?;
             Some((s.key.clone(), value.clone()))
         });
@@ -41,15 +43,15 @@ impl Slot {
 
 impl Plugins {
     /// A plugin's settings, as its hooks get them: each one set (when what's kept still fits
-    /// it), else its default. Without a store, or one whose file for them can't be read, the
-    /// defaults.
+    /// it), else its default, and never a secret (see [`Plugins::secrets`]). Without a store, or
+    /// one whose file for them can't be read, the defaults.
     pub fn settings(&self, plugin: &str, store: Option<&Store>) -> Result<IndexMap<String, Value>> {
         Ok(self.slot(plugin)?.settings(store))
     }
 
     /// Sets one of a plugin's settings to `value`, which must be of its type, or with `None`
-    /// puts it back to its default. Answers its settings then. A file for them that can't be
-    /// read is written anew.
+    /// puts it back to its default (a secret, forgets it). Answers its settings then. A file for
+    /// them that can't be read is written anew.
     pub fn set_setting(
         &self,
         plugin: &str,
@@ -62,8 +64,11 @@ impl Plugins {
         let setting = manifest.contributes.settings.iter().find(|s| s.key == key);
         let setting =
             setting.ok_or_else(|| Error::NotFound(format!("the {} plugin's setting {key:?}", manifest.id)))?;
-        let mut saved = slot.saved(store).unwrap_or_default();
         match value {
+            // Never said back, even when it's wrong.
+            Some(v) if !setting.accepts(&v) && setting.kind == SettingType::Secret => {
+                return Err(Error::invalid(format!("{key} is a secret: some text")));
+            }
             Some(v) if !setting.accepts(&v) => {
                 let kind = serde_json::to_value(setting.kind).unwrap_or_default();
                 return Err(Error::invalid(match setting.choices.is_empty() {
@@ -71,6 +76,14 @@ impl Plugins {
                     false => format!("{key} is one of {}, not {v}", setting.choices.join(", ")),
                 }));
             }
+            _ if setting.kind == SettingType::Secret => {
+                slot.set_secret(store, key, value.as_ref().and_then(Value::as_str))?;
+                return Ok(slot.settings(Some(store)));
+            }
+            _ => {}
+        }
+        let mut saved = slot.saved(store).unwrap_or_default();
+        match value {
             Some(v) => saved.insert(key.into(), v),
             None => saved.shift_remove(key),
         };

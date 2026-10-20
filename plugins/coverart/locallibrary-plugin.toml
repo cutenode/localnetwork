@@ -3,15 +3,21 @@ name = "Cover art"
 version = "0.1.0"
 protocol = "^0.2"
 # It reads the drive's tracks and plans artwork edits. The Cover Art Archive's images are served
-# by archive.org, which redirects them to its own servers (`*.us.archive.org`, `*.ca.archive.org`):
-# `net:archive.org` stands for those too.
+# by archive.org, which redirects them to its own servers (`ia800100.us.archive.org`...): the host
+# follows those redirects only to the servers named here.
 capabilities = [
     "library:read",
     "artwork:plan",
     "net:musicbrainz.org",
     "net:coverartarchive.org",
     "net:archive.org",
+    "net:*.archive.org",
 ]
+
+# MusicBrainz's limit: a request a second from each address, on average.
+[[net]]
+host = "musicbrainz.org"
+per_second = 1
 
 [[contributes.operations]]
 name = "fetch"
@@ -39,7 +45,8 @@ description = "Only this playlist's tracks, by path or unique name (the one open
 type = "boolean"
 description = "Replace artwork tracks have already (only tracks without any otherwise)"
 
-# MusicBrainz asks every program to say how to reach whoever runs it.
+# MusicBrainz asks every program to say how to reach whoever runs it: the host sends this in the
+# User-Agent of the plugin's requests.
 [[contributes.settings]]
 key = "contact"
 title = "Contact for MusicBrainz (a web page or email address)"

@@ -137,6 +137,8 @@ struct Session {
     served: JoinHandle<()>,
     answering: JoinHandle<()>,
     calls: Arc<Mutex<Vec<Call>>>,
+    /// Where the drive is mounted, as the host says in each export's source.
+    root: PathBuf,
 }
 
 fn start(drive: &Drive) -> Session {
@@ -151,7 +153,7 @@ fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
     let (host, incoming) = Peer::new(from_plugin, to_plugin);
     let calls: Arc<Mutex<Vec<Call>>> = Arc::default();
     let (to, log) = (host.clone(), calls.clone());
-    let (root, library, analysis) = (drive.root.clone(), drive.library.clone(), drive.analysis.clone());
+    let (library, analysis) = (drive.library.clone(), drive.analysis.clone());
     let answering = std::thread::spawn(move || {
         for msg in incoming {
             let Incoming::Request(req) = msg else { continue };
@@ -160,19 +162,18 @@ fn start_cancelling(drive: &Drive, cancel_at: Option<&'static str>) -> Session {
                 // The export: the host's second request, after `hello`.
                 to.notify(method::CANCEL, &json!({ "id": 2 }));
             }
-            to.respond(&req.id, read(&root, &library, &analysis, &req.method, req.params));
+            to.respond(&req.id, read(&library, &analysis, &req.method, req.params));
         }
     });
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
     host.request::<_, Value>(method::HELLO, &hello).unwrap();
-    Session { host, served, answering, calls }
+    Session { host, served, answering, calls, root: drive.root.clone() }
 }
 
 /// A read as the host answers a plugin: the reads the manifest's capabilities grant, only with
 /// the params a plugin may give each, of the drive `USB`, `drive.library`'s tracks a page at a
 /// time and at most 100 tracks' analysis at once.
 fn read(
-    root: &Path,
     lib: &Library,
     analysis: &FxHashMap<u32, TrackAnalysis>,
     method: &str,
@@ -180,7 +181,6 @@ fn read(
 ) -> Result<Value, RpcError> {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     let (capability, allowed): (Capability, &[&str]) = match method {
-        "drive.info" => (Capability::DriveInfo, &["drive"]),
         "drive.library" => (Capability::LibraryRead, &["drive", "combined", "offset", "limit"]),
         "tracks.analysis" => (Capability::AnalysisRead, &["drive", "combined", "ids", "waveform", "encoding"]),
         _ => return Err(RpcError::failed("denied", format!("{method:?} isn't a read a plugin can call"))),
@@ -194,10 +194,6 @@ fn read(
         return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
     }
     match method {
-        "drive.info" => Ok(json!({
-            "root": root, "volume_name": "USB", "name": "USB", "id": null,
-            "has_export": true, "has_device_library": true, "has_library_plus": true
-        })),
         "drive.library" => {
             let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
             let limit = params.get("limit").and_then(Value::as_u64).map_or(PAGE, |n| (n as usize).min(PAGE));
@@ -230,14 +226,16 @@ impl Session {
         self.export_of(format, json!({ "drive": "USB" }), output, options, dry_run)
     }
 
+    /// An export of `source`, which the host tells where the drive is mounted.
     fn export_of(
         &self,
         format: &str,
-        source: Value,
+        mut source: Value,
         output: &Path,
         options: Value,
         dry_run: bool,
     ) -> Result<Exported, RpcError> {
+        source["root"] = json!(self.root);
         let write = json!({
             "exporter": format,
             "source": source,
@@ -390,7 +388,8 @@ fn the_manifest_is_valid_and_asks_for_what_the_exports_read() {
     let formats: Vec<(&str, bool)> =
         manifest.contributes.exporters.iter().map(|e| (e.format.as_str(), e.folder)).collect();
     assert_eq!(formats, [("traktor", true), ("serato", true), ("engine", true)]);
-    let capabilities = [Capability::LibraryRead, Capability::AnalysisRead, Capability::DriveInfo];
+    // Where the drive is mounted comes with the export: no drive:info.
+    let capabilities = [Capability::LibraryRead, Capability::AnalysisRead];
     assert_eq!(manifest.capabilities, capabilities);
 }
 
