@@ -868,16 +868,28 @@ impl SyncMachine {
         }
     }
 
-    fn descends(&self, mut from: usize, of: usize) -> bool {
-        loop {
-            if from == of {
-                return true;
-            }
-            match self.parents[from] {
-                Some(p) => from = p,
-                None => return false,
-            }
+    /// The fingerprints of the states `s` came through, oldest first, as a drive holding it
+    /// records them.
+    fn history(&self, mut s: usize) -> Vec<Option<Hash>> {
+        let mut history = vec![self.fingerprints[s]];
+        while let Some(p) = self.parents[s] {
+            history.push(self.fingerprints[p]);
+            s = p;
         }
+        history.reverse();
+        history.dedup();
+        history
+    }
+
+    /// Whether state `from` has been through state `of`, by content: `from` held `of`'s
+    /// fingerprint after every state the two histories share, and after every state `of` came
+    /// through since first holding it. Those `of` came through before that and `from` never held
+    /// don't count (a drive's lineage keeps only its latest entries).
+    fn descends(&self, from: usize, of: usize) -> bool {
+        let (ours, theirs, current) = (self.history(from), self.history(of), self.fingerprints[of]);
+        let Some(at) = ours.iter().rposition(|f| *f == current) else { return false };
+        let since = theirs.iter().position(|f| *f == current).unwrap();
+        theirs.iter().enumerate().all(|(n, f)| ours.iter().position(|o| o == f).map_or(n < since, |i| i <= at))
     }
 
     /// How two states stand, as compare should say: the same, left newer, right newer, or
@@ -887,9 +899,9 @@ impl SyncMachine {
             return Some(Relation::Identical);
         }
         match (self.descends(l, r), self.descends(r, l)) {
-            (true, _) => Some(Relation::LeftNewer),
+            (true, false) => Some(Relation::LeftNewer),
             (false, true) => Some(Relation::RightNewer),
-            (false, false) => None,
+            _ => None,
         }
     }
 
@@ -1271,6 +1283,25 @@ fn a_drive_changed_before_another_went_and_came_back_isnt_pulled_on_top_of_it() 
     assert_eq!(e.reason(), Some(Reason::DivergedFromStore), "{e}");
     let pair = api::ComparePair { left: path(main), right: path(spare) };
     assert_eq!(api::compare(&pair, &Ctx::silent()).unwrap().relation, Relation::Diverged);
+}
+
+/// The third: Main and Backup each make the playlist Friday, and Main then rates a track. Backup
+/// holds what Main held after its playlist, and only Main moved on from there: it's the newer,
+/// and syncing all three copies it over the others.
+#[test]
+fn a_drive_that_made_the_change_another_made_is_behind_it_once_that_moved_on() {
+    let m = SyncMachine::new();
+    let (main, backup) = (&m.roots[0], &m.roots[1]);
+    let friday = || Edit::CreatePlaylist { path: "Friday".into(), folder: false };
+    edit_drive(&m, 0, friday());
+    let made = fingerprint(main);
+    rate(&m, 0, library(main).tracks[0].rating % 5 + 1);
+    edit_drive(&m, 1, friday());
+    assert_eq!(fingerprint(backup), made, "Backup holds what Main held after its playlist");
+    let pair = api::ComparePair { left: path(main), right: path(backup) };
+    assert_eq!(api::compare(&pair, &Ctx::silent()).unwrap().relation, Relation::LeftNewer);
+    let all = common::sync_many(&m.roots.iter().map(PathBuf::as_path).collect::<Vec<_>>());
+    assert_eq!(api::sync_many_plan(&all, &Ctx::silent()).unwrap().source, *main);
 }
 
 // ---------------------------------------------------------------------------------------------
