@@ -325,6 +325,7 @@ impl App {
             Act::Eject => self.eject(vec![root]),
             Act::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(root), None),
             Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, Some(root)),
+            Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, Some(root)),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, Some(root)),
             act => self.perform(act, None),
         }

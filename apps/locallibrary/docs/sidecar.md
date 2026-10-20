@@ -271,9 +271,9 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   Schemas of each command's and operation's `params` and each exporter's `options`, to draw forms
   from, and where to offer each command and operation (`where`: `track`, `playlist`, `drive`). A
   param's `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from
-  the request's `context` when it isn't given. `plugins.settings {plugin}` and
-  `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its default)
-  answer `{plugin, settings: {key: value}}`.
+  the request's `context` when it isn't given; given as `null`, it's left out.
+  `plugins.settings {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or
+  left out: back to its default) answer `{plugin, settings: {key: value}}`.
   `plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
   command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw.
   A tracklist is imported as the tracklist plugin's `import` operation (`{file, into, playlist?,
@@ -292,13 +292,20 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   planning and applying in one go. Plugins' plans are kept apart from the rest, so planning with
   plugins never pushes out a plan of locallibrary's own. `plugins.analyze {plugin, analyzer,
   drive, tracks?}` runs an analyzer on the drive's tracks (those it hasn't worked out already),
-  with progress (an `analyze` phase) and `$/cancel`, answering `{analyzed, kept, failed}`. A
+  with progress (an `analyze` phase) and `$/cancel`, answering `{analyzed, kept, failed}`.
+  `plugins.roles` answers which analyzer each role (`key`, `bpm`, `loudness`...) is read from,
+  `[{role, chosen, set, offered}]`, and `plugins.roles.set {role, analyzer}` (`<plugin>.<analyzer>`,
+  or `null`: back to its default) chooses one. `plugins.apply_fields.plan {plugin, analyzer,
+  drive, fields, tracks?, overwrite?, min_confidence?}` (`fields`: `key`, `bpm`) answers an edit
+  plan (`plugins.apply_fields`) writing what the analyzer kept to the tracks, applied by
+  `plugins.apply_fields.apply {plan_id}`. A
   plugin starts when it's first used and stops once it's idle a while, and when the sidecar
   exits. A plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the
   plugin named in the message.
 - Reading: `tracks.query` (filter, sort, paging), `track.analysis` (beat grid, cues, waveforms,
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
-  (harmonic matches), `doctor` (`analyze`: the analysis section), `doctor.orphans.plan/apply`,
+  (harmonic matches), `doctor` (`analyze`: the analysis section, after the analyzers for its
+  roles run), `doctor.orphans.plan/apply`,
   `analysis.bench` (scoring rekordbox and the analysis against GiantSteps annotations), `plays.history`, `plays.archive`,
   `plays.stats`, `profile.build` (the report, preferences and document), `profile.document`,
   `profile.prefs`, `profile.prefs.set`, `export`, `diff`, `check`, `players.models` (what each model

@@ -673,7 +673,11 @@ fn build() -> Registry {
         .keeps_cache()
         .writes_to("output");
     r.read("diff", |c, req| Ok(api::diff(c.existing()?.as_ref(), &req)?));
-    r.read("doctor", |c, req| Ok(api::doctor(&req, c.ctx)?)).long();
+    r.read("doctor", |c, req: api::DoctorRequest| {
+        let store = req.options.wants(locallibrary::doctor::Section::Analysis).then(|| c.store()).transpose()?;
+        Ok(crate::plugins::roles::doctor(&req, store.as_ref(), c.ctx)?)
+    })
+    .long();
     r.plan("doctor.orphans.plan", |c, req| Ok(api::doctor_orphans_plan(&req, c.ctx)?)).long().destructive();
     r.apply("doctor.orphans.apply", PlanStore::None, |c, req| Ok(api::doctor_orphans_apply(&req, c.ctx)?))
         .long()

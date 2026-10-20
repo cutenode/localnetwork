@@ -222,6 +222,40 @@ fn gc_removes_what_cut_off_imports_left() {
     assert_eq!(store.gc(true).unwrap().removed_objects, 0);
 }
 
+/// Caches no version reads any more go too, counted as files nothing uses: core's own analyses,
+/// and fields kept by their plugin's version. Fingerprints and fields kept by their analyzer's
+/// version stay.
+#[test]
+fn gc_removes_caches_nothing_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("s")).unwrap();
+    let cache = store.root().join("cache");
+    let file = |path: &str, bytes: &[u8]| {
+        let p = cache.join(path);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, bytes).unwrap();
+        p
+    };
+    let unread = [
+        file("analysis/ab/abcdef.json", b"{}"),
+        file("analysis/cd/cdef01.err", b"0.1\nno"),
+        file("fields/sound/0.1.0/tempo-key-loudness/ab/abcdef.json", b"{\"bpm\":1}"),
+    ];
+    let kept = [
+        file("fields/sound/tempo-key-loudness/3/ab/abcdef.json", b"{\"bpm\":1}"),
+        file("fields/echo/size/1/ab/abcdef.json", b"{}"),
+        file("fingerprints/ab/abcdef.fp", b"print"),
+    ];
+    let plan = store.gc(true).unwrap();
+    assert_eq!((plan.removed_objects, plan.freed_bytes), (3, 17));
+    assert!(unread.iter().all(|p| p.exists()), "a plan removes nothing");
+    let _lock = store.lock().unwrap();
+    assert_eq!(store.gc(false).unwrap().removed_objects, 3);
+    assert!(!cache.join("analysis").exists() && !cache.join("fields/sound/0.1.0").exists());
+    assert!(kept.iter().all(|p| p.exists()));
+    assert_eq!(store.gc(true).unwrap().removed_objects, 0);
+}
+
 /// A store whose folders went read-only says so of the store, whichever file or folder in it was
 /// being made (a new object's fan-out folder, a snapshot's temp file); a drive's file that can't
 /// be read is still said of that file.

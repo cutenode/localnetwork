@@ -148,6 +148,64 @@ fn a_command_runs_where_the_user_is() {
     assert!(context["drive"].as_str().is_some_and(|d| !d.is_empty() && !d.contains('/')), "{text}");
 }
 
+/// A param from the selection starts as the drive the host would name to the plugin (its id), as
+/// on the command line and in the sidecar, not as the drive list shows it.
+#[test]
+fn a_drive_from_the_selection_is_named_as_the_host_names_it() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let file = dir.path().join("echo.toml");
+    let on =
+        r#"properties = { name = { type = "string" }, on = { type = "string", x-from = "selection.drive" }, tracks"#;
+    let manifest =
+        std::fs::read_to_string(&file).unwrap().replacen(r#"properties = { name = { type = "string" }, tracks"#, on, 1);
+    std::fs::write(&file, manifest).unwrap();
+    let mut device = locallibrary::Device::open_export(&root).unwrap();
+    let id = device.adopt(Some("Named")).unwrap().id.to_string();
+    let mut app = app_on(&root);
+    app.drives = vec![
+        locallibrary::api::drive_info(&locallibrary::api::DriveRef { drive: root.display().to_string() }).unwrap(),
+    ];
+    assert_eq!(app.drive_label(&root), "Named");
+    assert_eq!(app.plugin_drive(&root).as_deref(), Some(id.as_str()));
+    press(&mut app, ":make a playlist…\n");
+    let Some(Modal::Form(f)) = &app.modal else { panic!("no form: {}", last_message(&app)) };
+    let on = f.fields.iter().find(|x| x.name == "on").map(|x| x.text.as_str());
+    assert_eq!((f.title.as_str(), on), ("Make a playlist", Some(id.as_str())));
+}
+
+/// A param from the selection emptied in the form reaches the plugin left out, though tracks are
+/// marked, and one typed in as given: what lets coverart's `fetch` take a playlist typed in over
+/// the tracks selected (its own tests show it does, given that).
+#[test]
+fn a_selection_emptied_in_the_form_stays_empty() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let file = dir.path().join("echo.toml");
+    let from = r#"context = { type = "boolean" }, tracks = { type = "array", items = { type = "integer" }, x-from = "selection.tracks" }, playlist = { type = "string", x-from = "selection.playlist" } } }"#;
+    let manifest = std::fs::read_to_string(&file).unwrap().replacen(r#"context = { type = "boolean" } } }"#, from, 1);
+    std::fs::write(&file, manifest).unwrap();
+    let mut app = app_on(&root);
+    press(&mut app, "mjm:answer the params\nAda");
+    let field = |app: &App, name: &str| match &app.modal {
+        Some(Modal::Form(f)) => f.fields.iter().position(|x| x.name == name).map(|i| (i, f.fields[i].text.clone())),
+        _ => panic!("no form: {}", last_message(app)),
+    };
+    let (at, marked) = field(&app, "tracks").unwrap();
+    assert!(!marked.is_empty(), "the marked tracks, to start with");
+    for _ in 0..at {
+        key(&mut app, KeyCode::Down);
+    }
+    while field(&app, "tracks").is_some_and(|(_, text)| !text.is_empty()) {
+        key(&mut app, KeyCode::Backspace);
+    }
+    key(&mut app, KeyCode::Down);
+    press(&mut app, "Sets/Friday\n");
+    wait(&mut app, |a| a.job.is_none());
+    let answered: Value = serde_json::from_str(&panel(&app)).unwrap();
+    assert_eq!((answered.get("tracks"), &answered["playlist"]), (None, &json!("Sets/Friday")), "{answered}");
+}
+
 /// A command without params runs at once, in the background, with esc to stop it; the plugin's
 /// log goes to the messages, never on the screen.
 #[test]
@@ -814,6 +872,50 @@ fn a_secret_is_typed_unseen() {
     assert!(s.contains("•••••••") && !s.contains("hunter2"), "{s}");
 }
 
+/// An analyzer with a key and a BPM writes them to the tracks from the palette: a form asks which
+/// (both, to start with) and whether over what the tracks have, then the plan comes back to
+/// confirm, as any edit's does, and is applied.
+#[test]
+fn an_analyzers_key_and_bpm_are_written_from_the_palette() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let file = dir.path().join("echo.toml");
+    let heard = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
+                 fields = { tone = \"string\", tempo = \"number\" }\nroles = { key = \"tone\", bpm = \"tempo\" }\n";
+    std::fs::write(&file, std::fs::read_to_string(&file).unwrap() + heard).unwrap();
+    let mut app = app_on(&root);
+    let before = app.loaded.as_ref().unwrap().library.tracks.clone();
+    // What the test plugin's `heard` answers: what's in the audio file.
+    for t in &before {
+        let key = locallibrary::harmony::Camelot::parse(&t.key).unwrap().parallel().code();
+        let answer = json!({ "tone": key, "tempo": t.bpm * 2.0 });
+        std::fs::write(root.join(t.file_path.trim_start_matches('/')), answer.to_string()).unwrap();
+    }
+    press(&mut app, ":analyze the tracks: heard\n");
+    wait(&mut app, |a| a.job.is_none());
+    press(&mut app, ":write keys and BPMs to the tracks: heard\n");
+    let s = screen(&mut app, 120, 30);
+    for needle in ["Write from heard", "fields", "key, bpm", "overwrite", "min confidence"] {
+        assert!(s.contains(needle), "{needle:?} isn't in\n{s}");
+    }
+    // Over what the tracks have.
+    press(&mut app, "\t \n");
+    assert_eq!(
+        confirming(&mut app),
+        ("plugins.apply_fields".into(), "write key and bpm from Heard to 2 track(s)".into())
+    );
+    say_yes(&mut app);
+    let after = locallibrary::Device::open_export(&root).unwrap().library().unwrap().tracks;
+    for (b, a) in before.iter().zip(&after) {
+        let key = locallibrary::harmony::Camelot::parse(&b.key).unwrap().parallel().note();
+        assert_eq!((&a.key, a.bpm), (&key, b.bpm * 2.0));
+    }
+    // Without a drive open, it says so.
+    let (mut app, _store) = blank(Screen::Library);
+    press(&mut app, ":");
+    assert_eq!(entry(&app, "write keys and BPMs to the tracks: heard…").1, Some("open a drive first"));
+}
+
 // -------------------------------------------------------------------------------------------------
 // Properties: the plugins' entries driven with keys, drawn values, at drawn sizes.
 // -------------------------------------------------------------------------------------------------
@@ -855,7 +957,15 @@ fn somewhere(tc: &TestCase) -> (Opened, App, Option<Plugged>, tempfile::TempDir)
 
 /// Whether the palette's entry for `act` is a plugin's.
 fn plugins_own(act: &Act) -> bool {
-    matches!(act, Act::Plugin(..) | Act::Analyze(..) | Act::Export(..) | Act::FieldColumn(_) | Act::PluginSettings(_))
+    matches!(
+        act,
+        Act::Plugin(..)
+            | Act::Analyze(..)
+            | Act::ApplyFields(..)
+            | Act::Export(..)
+            | Act::FieldColumn(_)
+            | Act::PluginSettings(_)
+    )
 }
 
 /// The palette or the drive's menu open now, as its items and what each does.
@@ -932,7 +1042,7 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
             assert!(!own.contains(&i.label), "{:?} takes a command's name", i.label);
         }
         for (i, act) in items.iter().zip(&acts).skip(first) {
-            let needs = matches!(act, Act::Plugin(..) | Act::Analyze(..) | Act::Export(..));
+            let needs = matches!(act, Act::Plugin(..) | Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..));
             assert_eq!(i.unavailable.as_deref(), why.filter(|_| needs), "{}", i.label);
             assert!(needs || !in_menu, "{:?} isn't a drive's", i.label);
         }
@@ -945,8 +1055,8 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
         press(&mut app, open);
 
         // Only what runs here and now: the echo plugin's hooks and analyzer; the others' hooks
-        // (each asks for params first, nothing run until they're given), exports, settings and
-        // columns.
+        // (each asks for params first, nothing run until they're given), writing an analyzer's
+        // values (a form first too), exports, settings and columns.
         let safe: Vec<usize> = (first..acts.len())
             .filter(|&i| match acts[i] {
                 Act::Plugin(p, n) => p == "echo" || !hook(p, n).1.is_empty(),
@@ -964,7 +1074,7 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
             press(&mut app, "\u{1b}");
             assert!(app.modal.is_none() && app.view == view);
             // Asked for anyway (a key, a stale list), an analyzer or an export says the same.
-            if !in_menu && matches!(acts[i], Act::Analyze(..) | Act::Export(..)) {
+            if !in_menu && matches!(acts[i], Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..)) {
                 app.toast = None;
                 app.perform(acts[i], None);
                 assert_eq!((last_message(&app), app.job.is_none(), app.modal.is_none()), (why.as_str(), true, true));
@@ -1015,6 +1125,13 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             // The demo drive's two tracks: analysed now, or by an entry chosen before.
             let fresh = ["file size: 2 tracks analyzed, 0 already", "file size: 0 tracks analyzed, 2 already"];
             assert!(fresh.contains(&last_message(app)));
+        }
+        Act::ApplyFields(p, a) => {
+            let m = crate::plugins::host().unwrap().manifest(p).unwrap();
+            let a = m.contributes.analyzers.iter().find(|x| x.name == a).unwrap();
+            let fields = ["fields", "overwrite", "min_confidence"].map(String::from).to_vec();
+            assert_eq!(form_open(app), (format!("Write from {}", named(&a.title)), fields));
+            press(app, "\u{1b}");
         }
         Act::Export(p, f) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();

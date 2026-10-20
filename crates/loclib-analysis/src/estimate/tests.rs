@@ -13,7 +13,7 @@ fn keys_map_by_tonic_and_mode() {
 fn silence_has_no_estimate() {
     assert_eq!(estimate(&[]), None);
     assert_eq!(estimate(&[0.0; 44_100]), None);
-    assert_eq!(estimate(&[0.0, 0.5, -0.5]).map(|e| e.bpm), Some(0.0));
+    assert_eq!(estimate(&[0.0, 0.5, -0.5]).map(|e| (e.bpm, e.key)), Some((0.0, None)));
 }
 
 /// Every key stratum-dsp names is the Camelot key on that tonic and in that mode, and a minor
@@ -25,4 +25,20 @@ fn every_key_lands_on_its_camelot_key(tc: hegel::TestCase) {
     assert_eq!((major.pitch(), major.major), (pitch, true));
     assert_eq!((minor.pitch(), minor.major), (pitch, false));
     assert_eq!(minor.relative(), camelot(Key::Major((pitch + 3) % 12)));
+}
+
+/// Under 12 seconds, stratum-dsp scores keys once over the whole track, and its best major and
+/// best minor key always tie there (each mode's scores are scaled to its best): it picks one in
+/// the order of a `HashMap`, which differs from process to process, A minor one run and A major
+/// the next. A tie is no key, so the estimate is the same every time.
+#[test]
+fn tied_keys_are_none() {
+    let a_minor: Vec<f32> = (0..RATE as usize * 6)
+        .map(|i| {
+            let t = i as f32 / RATE as f32;
+            [220.0f32, 261.63, 329.63].iter().map(|f| (std::f32::consts::TAU * f * t).sin()).sum::<f32>() / 10.0
+        })
+        .collect();
+    let e = estimate(&a_minor).unwrap();
+    assert_eq!((e.key, e.key_confidence), (None, 0.0), "{e:?}");
 }

@@ -58,7 +58,8 @@ pub enum Section {
     Audio,
     /// Stored tempos and keys an analysis of the audio disagrees with, and tracks too loud,
     /// clipped or far from the library's level. Only when asked for (`analyze`, or `only` naming
-    /// it): it decodes every track not analysed before.
+    /// it): from what the analyzers chosen for tempo, key and loudness kept, which the app runs on
+    /// the tracks not analysed before, first.
     Analysis,
 }
 
@@ -89,7 +90,8 @@ pub struct DoctorOptions {
 }
 
 impl DoctorOptions {
-    fn wants(&self, s: Section) -> bool {
+    /// Whether section `s` runs.
+    pub fn wants(&self, s: Section) -> bool {
         match s {
             Section::Audio => self.audio || self.only.contains(&s),
             Section::Analysis => self.analyze || self.only.contains(&s),
@@ -433,8 +435,10 @@ pub fn run(device: &Device, opts: &DoctorOptions, ctx: &Ctx<'_>) -> Result<Docto
         }
         false => None,
     };
-    let analysis =
-        opts.wants(Section::Analysis).then(|| crate::sound::analyze_library(device, library, ctx)).transpose()?;
+    // From what was kept: the app analyses the tracks first. Without a store nothing was.
+    let analysis = opts
+        .wants(Section::Analysis)
+        .then(|| crate::api::registry().map(|store| crate::sound::report(&store, device, library)).unwrap_or_default());
     let volume = opts.wants(Section::Compatibility).then(|| volume_of(device.root())).flatten();
     Ok(DoctorReport {
         drive: device.name(),

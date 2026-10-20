@@ -11,8 +11,9 @@ backed up and journaled.
 For now only plugins built into locallibrary run. There's no way to install another yet. Those
 are:
 
-- **sound**: works out each track's tempo, key and loudness from its audio, as `doctor
-  --analyze` does (`locallibrary analyze`, then `sound.bpm`, `sound.key`... on the track).
+- **sound**: works out each track's tempo, key and loudness from its audio (`locallibrary
+  analyze`, then `sound.bpm`, `sound.key`... on the track). It's what `doctor --analyze`, the
+  check before a set and ordering a set read tempos, keys and levels from (see [Roles](#roles)).
 - **tracklist**: `locallibrary playlist import LIBRARY FILE --into PLAYLIST` makes a playlist
   from a tracklist (see [Editing](editing.md)), and `locallibrary tracklist match LIBRARY FILE`
   shows what it finds in the list without changing anything.
@@ -48,6 +49,11 @@ with each other are both left out.
   shows them under the track's details, each as `ID.FIELD` (`sound.bpm`), and `locallibrary
   tracks` filters and sorts by them (`--filter "sound.bpm:>120" --sort -sound.bpm`), as the
   sidecar's `tracks.query` does.
+- **Roles**: what locallibrary itself reads from analyzers, see [Roles](#roles). `locallibrary
+  analyze LIBRARY --apply key,bpm` then writes what the analyzer heard to the tracks, as an edit
+  you're shown and asked about (only where a track has none unless `--overwrite`;
+  `--min-confidence 0.8` leaves out what it's less sure of; `--dry-run`), and `undo` takes it
+  back.
 - **Export formats** are `locallibrary export LIBRARY --format FORMAT -o PATH`, with the
   plugin's options as `--option KEY=VALUE`. `--dry-run` lists what it would write (each file,
   what goes in, what the format can't hold), and overwriting a file is asked about first unless
@@ -57,16 +63,27 @@ with each other are both left out.
   or a playlist in the actions menu (`e`) too, with a form for their params or options, a param
   the plugin fills from what's selected (the tracks, the playlist, the drive) starting as it; an
   export shows what it would write and asks before writing it; analyzers' fields are columns to
-  show, sort and search by, and each plugin's settings are a form in the palette too (see [the
-  player](player.md)).
+  show, sort and search by, "write keys and BPMs to the tracks: …" writes what one heard, and
+  each plugin's settings are a form in the palette too (see [the player](player.md)).
 - **Settings**: `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets
   one and `plugin settings ID KEY --reset` puts it back to its default. They're kept in the store
-  (`plugins/ID/settings.json`).
+  (`plugins/ID/settings.json`, beside the plugin's own folder).
 
 The sidecar has all of this for desktop apps as `plugins.*` methods (see [Building a
 GUI](sidecar.md)). A plugin's command or operation may fill a param from what's selected: the
 command line gives it the drive named, if that's what it takes, and the param's flag gives it
 otherwise.
+
+## Roles
+
+An analyzer's manifest may say what some of its fields are to locallibrary: a track's key, its
+tempo (BPM), how sure it is of each, its loudness, true peak and clipped runs, or what tells one
+recording from another. Doctor's analysis, the check before a set, ordering a set (`playlist
+order`) and `analyze --apply` read those from one analyzer each, the sound plugin's unless
+another does too: `locallibrary plugin roles` shows which, `plugin roles key PLUGIN.ANALYZER`
+chooses another that has it, and `plugin roles key --reset` puts it back (kept in the store's
+`plugins/settings.json` as `analysis.roles.key`). `doctor --analyze` runs those analyzers first
+on the tracks they haven't worked out; the check and ordering a set read what they kept.
 
 ## Writing one
 
@@ -82,5 +99,5 @@ A plugin is refused if it says it's something other than what locallibrary knows
 call only the reads its capabilities grant, naming drives by name or id (never a path), in pages of
 bounded size, and the errors it gets back don't say where files are on this computer. None is
 started from a process running as an administrator or root, and each runs in a folder of its own
-in the store (`plugins/ID/`). One that stops answering is stopped, and started again the next time
-it's needed.
+in the store (`plugins/ID/work/`). One that stops answering is stopped, and started again the next
+time it's needed.

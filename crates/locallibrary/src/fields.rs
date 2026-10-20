@@ -9,7 +9,11 @@
 //! with nothing to show (a field left out wasn't worked out).
 //!
 //! Filters and sorts name a field by its plugin's id and its own (`sound.bpm`): a plugin's
-//! analyzers never share a field name. [`TrackValues`] has a library's, for them.
+//! analyzers never share a field name. [`TrackValues`] has a library's, for them. What
+//! locallibrary itself reads (a track's key, its tempo, its level) it reads by role, whichever
+//! analyzer has it ([`by_role`]).
+
+pub mod roles;
 
 use std::path::{Path, PathBuf};
 
@@ -24,6 +28,7 @@ use crate::{Error, Result, paths};
 
 /// One field's value, and the types a plugin's manifest declares.
 pub use loclib_plugin::{FieldType, FieldValue};
+pub use roles::{Role, by_role};
 
 /// An analyzer's fields for one track, by name.
 pub type Fields = IndexMap<String, FieldValue>;
@@ -77,6 +82,23 @@ impl FieldStore {
 
     fn values(&self, a: &Analyzer) -> Cache<Values> {
         Cache::new(self.root.join(&a.plugin).join(&a.analyzer).join(&a.version))
+    }
+
+    /// Folders nothing reads any more, for `store gc`: values kept by their plugin's version
+    /// (`<plugin>/<plugin version>/<analyzer>/`) before each analyzer had a version of its own. A
+    /// plugin's version starts with a digit; what's in its place now, an analyzer's name, never
+    /// does.
+    pub(crate) fn unread(&self) -> Vec<PathBuf> {
+        let folders = |dir: &Path| {
+            let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
+            entries.filter(|e| e.file_type().is_ok_and(|t| t.is_dir())).map(|e| e.path())
+        };
+        let by_version =
+            |p: &PathBuf| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(|c: char| c.is_ascii_digit()));
+        let mut unread: Vec<PathBuf> =
+            folders(&self.root).flat_map(|plugin| folders(&plugin)).filter(by_version).collect();
+        unread.sort();
+        unread
     }
 
     /// Keep what `a` worked out for the audio file at `audio`, beside the plugin's other

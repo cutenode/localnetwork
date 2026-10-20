@@ -1,5 +1,5 @@
 //! What's worked out from tracks' audio, cached on the computer: fingerprints
-//! ([`crate::mix::index`]) and tempo, key and loudness estimates ([`crate::sound`]).
+//! ([`crate::mix::index`]), and what plugins' analyzers work out ([`crate::fields`]).
 //!
 //! Decoding a library's audio takes minutes for a few thousand tracks, so each result is kept in
 //! a small file per audio file, keyed by the file's name, size and modification time (the same
@@ -109,18 +109,16 @@ impl<K: Kind> Cache<K> {
     pub fn put_failure(&self, key: &str, error: &str) -> Result<()> {
         fsutil::write_deferred(&self.file(key, "err"), format!("{}\n{error}", env!("CARGO_PKG_VERSION")).as_bytes())
     }
+}
 
-    /// What's cached for each of `tracks` whose audio is on the drive, by track id. Nothing is
-    /// decoded.
-    pub fn cached<'t>(&self, device: &Device, tracks: impl IntoIterator<Item = &'t Track>) -> FxHashMap<u32, K::Value> {
-        tracks
-            .into_iter()
-            .filter_map(|t| {
-                let file = device.checked_path(&paths::key(&t.file_path)).ok()?;
-                Some((t.id, self.get(&Self::key(&file)?)?))
-            })
-            .collect()
-    }
+/// Caches in `store` nothing reads any more, for `store gc` to remove: the tempo, key and
+/// loudness analyses core kept itself (`analysis/`) before the sound plugin's fields replaced
+/// them, and fields kept in an earlier layout (see [`crate::fields::FieldStore::unread`]).
+pub(crate) fn unread(store: &Store) -> Vec<PathBuf> {
+    let mut unread = crate::fields::FieldStore::in_store(store).unread();
+    unread.push(store.root().join(CACHE_DIR).join("analysis"));
+    unread.retain(|d| d.is_dir());
+    unread
 }
 
 crate::schema::labelled_tuple! {

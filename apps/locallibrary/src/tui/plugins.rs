@@ -3,15 +3,17 @@
 //! drive menu), a form for their params (see [`super::form`]), and each run in the background as
 //! any task is (esc stops one). A command's answer shows in a panel;
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. Analyzers run
-//! from the palette too, exports are planned and confirmed (overwriting asked about) before the
-//! plugin writes them, and each plugin's settings are a form, kept in the store. Nothing here
+//! from the palette too, as does writing an analyzer's key and BPM to the tracks (planned, then
+//! confirmed); exports are planned and confirmed (overwriting asked about) before the plugin
+//! writes them, and each plugin's settings are a form, kept in the store. Nothing here
 //! tells one plugin from another: it's all drawn from their manifests, through the host the
 //! command line uses (see [`crate::plugins`]).
 
 use std::path::{Path, PathBuf};
 
 use locallibrary::Store;
-use locallibrary::plugin::{Cli, CommandOutput};
+use locallibrary::fields::Role;
+use locallibrary::plugin::{ApplyFields, Cli, CommandOutput};
 use loclib_plugin::{Capability, Context, ExportSource, Setting, SettingType, View, Where};
 use serde_json::{Map, Value, json};
 
@@ -137,6 +139,9 @@ pub fn planned_by(operation: &str, export: bool) -> Option<&'static str> {
 /// The form's own field an export's output is typed in, beside the format's options.
 const WRITE_TO: &str = "write_to";
 
+/// The roles an analyzer's values can be written to tracks as.
+const WRITTEN: [Role; 2] = [Role::Key, Role::Bpm];
+
 /// Settings as a form's JSON Schema: each as text, a number, a switch, one of its choices or a
 /// path, said with its title and its default.
 fn settings_schema(settings: &[Setting]) -> Value {
@@ -234,6 +239,14 @@ impl App {
                 let label = format!("analyze the tracks: {}", named(&a.title));
                 let item = Item { unavailable: why.map(String::from), ..Item::new(label, &m.name) };
                 items.push((Act::Analyze(&m.id, &a.name), item));
+                let written: Vec<&str> = (WRITTEN.iter().zip(["keys", "BPMs"]))
+                    .filter_map(|(r, what)| a.roles.contains_key(r).then_some(what))
+                    .collect();
+                if !written.is_empty() {
+                    let label = format!("write {} to the tracks: {}…", written.join(" and "), named(&a.title));
+                    let item = Item { unavailable: why.map(String::from), ..Item::new(label, &m.name) };
+                    items.push((Act::ApplyFields(&m.id, &a.name), item));
+                }
             }
             for e in &m.contributes.exporters {
                 let item = Item {
@@ -420,6 +433,74 @@ impl App {
         });
     }
 
+    /// The drive at `root` as the plugin host names it to a plugin (by id, else by name): what a
+    /// param from the selection is filled in with, here as on the command line and in the
+    /// sidecar.
+    pub(super) fn plugin_drive(&self, root: &Path) -> Option<String> {
+        let listed = self.drives.iter().find(|d| d.root == root);
+        let listed = listed.map(|d| (d.id, d.name.clone().unwrap_or_else(|| d.volume_name.clone())));
+        let open = || self.loaded.as_ref().filter(|l| l.root() == root).map(|l| (l.device.id(), l.device.name()));
+        let (id, name) = listed.or_else(open)?;
+        Some(id.map_or(name, |id| id.to_string()))
+    }
+
+    /// Write what a plugin's analyzer worked out to the tracks of the drive at `root`: a form asks
+    /// which of its key and BPM (both, to start with), whether over what tracks have, and how sure
+    /// it must be; then the plan comes back to confirm, as any edit's does.
+    pub(super) fn apply_fields(&mut self, plugin: &'static str, analyzer: &'static str, root: Option<PathBuf>) {
+        let Ok(plugins) = crate::plugins::host() else { return };
+        let Some(root) = self.plugged(root) else { return };
+        let declared =
+            plugins.manifest(plugin).ok().and_then(|m| m.contributes.analyzers.iter().find(|a| a.name == analyzer));
+        let Some(a) = declared else { return };
+        let has: Vec<&str> = WRITTEN.iter().filter(|r| a.roles.contains_key(*r)).map(|r| r.name()).collect();
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "fields": { "type": "array", "items": { "type": "string", "enum": has }, "description": "What to write" },
+                "overwrite": { "type": "boolean", "description": "Also over what a track has" },
+                "min_confidence": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Leave out what it's less sure of (0 to 1)"
+                }
+            },
+            "required": ["fields"]
+        });
+        let filled = Map::from_iter([("fields".to_string(), json!(has))]);
+        let title = format!("Write from {}", named(&a.title));
+        let form = Form::with(title, Some(schema), &filled, For::ApplyFields { plugin, analyzer, root });
+        self.modal = Some(Modal::Form(form));
+    }
+
+    /// Plan writing what the form has (`given`) from a plugin's analyzer to the tracks of the
+    /// drive at `root`, in the background: the plan comes back to confirm.
+    pub(super) fn plan_apply_fields(
+        &mut self,
+        plugin: &'static str,
+        analyzer: &'static str,
+        root: PathBuf,
+        given: Value,
+    ) {
+        let Ok(plugins) = crate::plugins::host() else { return };
+        let store_root = self.store_root.clone();
+        let drive = root.display().to_string();
+        self.plan(root, move |ctx| {
+            let fields: Vec<Role> = serde_json::from_value(given["fields"].clone()).unwrap_or_default();
+            let req = ApplyFields {
+                plugin: plugin.into(),
+                analyzer: analyzer.into(),
+                drive,
+                fields,
+                tracks: None,
+                overwrite: given["overwrite"] == true,
+                min_confidence: given["min_confidence"].as_f64(),
+            };
+            Ok(Box::new(plugins.plan_apply_fields(&req, &Store::open_or_init(&store_root)?, ctx)?))
+        });
+    }
+
     /// What's selected, as a plugin's hook takes it: the tracks (by id) and the playlist (not a
     /// folder) the actions menu works on.
     fn context(&self, t: &Target) -> Context {
@@ -436,9 +517,8 @@ impl App {
         self.plugin_act(plugin, name, self.action_drive(), target.as_ref());
     }
 
-    /// A plugin's command or operation, on the drive at `root` (named as the drive list names
-    /// it, for a param from the selection) with what `target` selects: its form first when it
-    /// takes params.
+    /// A plugin's command or operation, on the drive at `root` with what `target` selects: its
+    /// form first when it takes params.
     pub(super) fn plugin_act(
         &mut self,
         plugin: &'static str,
@@ -453,7 +533,7 @@ impl App {
             return;
         };
         let context = target.map(|t| self.context(t)).unwrap_or_default();
-        let context = Context { drive: root.as_deref().map(|r| self.drive_label(r)), ..context };
+        let context = Context { drive: root.as_deref().and_then(|r| self.plugin_drive(r)), ..context };
         let run = Run { plugin, hook, root, context };
         match properties(run.params()).next() {
             None => self.run_plugin(run, Value::Null),

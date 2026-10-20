@@ -160,7 +160,7 @@ impl CliHints {
 
 /// Whether `property` (a param's or option's JSON Schema) is a file or folder on the computer
 /// (`x-path = true`), which must be given as an absolute path: a plugin runs in a folder of its
-/// own (`<store>/plugins/<id>/`), and hosts in others.
+/// own (`<store>/plugins/<id>/work/`), and hosts in others.
 pub fn is_path(property: &Value) -> bool {
     property.get("x-path") == Some(&Value::Bool(true))
 }
@@ -216,6 +216,82 @@ pub struct Analyzer {
     /// it whenever the values would change.
     pub version: String,
     pub fields: IndexMap<String, FieldType>,
+    /// Which of its fields has each role it answers (`bpm = "bpm"`): what the host reads for
+    /// that role (see [`Role`]).
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub roles: IndexMap<Role, String>,
+}
+
+/// What a field is to locallibrary, whichever plugin works it out: the host reads a role's value
+/// (doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and
+/// BPMs to tracks) from the analyzer chosen for it. A closed list, each with one type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[schemars(rename = "FieldRole")]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    /// A Camelot code (`8A`): a string.
+    Key,
+    /// Beats per minute: a number.
+    Bpm,
+    /// How sure the analyzer is of its key, 0 to 1: a number.
+    KeyConfidence,
+    /// How sure it is of its tempo, 0 to 1: a number.
+    BpmConfidence,
+    /// Integrated loudness in LUFS: a number.
+    Loudness,
+    /// True peak in dBTP: a number.
+    TruePeak,
+    /// Runs of samples at full scale: an integer.
+    ClippedRuns,
+    /// Equal values are the same recording: a string.
+    Identity,
+}
+
+impl Role {
+    pub const ALL: [Role; 8] = [
+        Role::Key,
+        Role::Bpm,
+        Role::KeyConfidence,
+        Role::BpmConfidence,
+        Role::Loudness,
+        Role::TruePeak,
+        Role::ClippedRuns,
+        Role::Identity,
+    ];
+
+    /// The type of a field with it.
+    pub fn kind(self) -> FieldType {
+        match self {
+            Role::Key | Role::Identity => FieldType::String,
+            Role::ClippedRuns => FieldType::Integer,
+            _ => FieldType::Number,
+        }
+    }
+
+    /// As a manifest names it (`key_confidence`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Role::Key => "key",
+            Role::Bpm => "bpm",
+            Role::KeyConfidence => "key_confidence",
+            Role::BpmConfidence => "bpm_confidence",
+            Role::Loudness => "loudness",
+            Role::TruePeak => "true_peak",
+            Role::ClippedRuns => "clipped_runs",
+            Role::Identity => "identity",
+        }
+    }
+}
+
+impl FromStr for Role {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Role, String> {
+        Role::ALL.into_iter().find(|r| r.name() == s).ok_or_else(|| {
+            let all: Vec<&str> = Role::ALL.iter().map(|r| r.name()).collect();
+            format!("{s:?} isn't a role: one of {}", all.join(", "))
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -713,6 +789,15 @@ impl Manifest {
                 }
                 if !fields.insert(name) {
                     return Err(invalid(format!("{at}[{i}].fields.{name}"), "another analyzer has this field"));
+                }
+            }
+            for (role, field) in &x.roles {
+                let at = format!("{at}[{i}].roles.{}", role.name());
+                let kind = x.fields.get(field).ok_or_else(|| invalid(&at, format!("{field:?} isn't its field")))?;
+                if *kind != role.kind() {
+                    let kind = serde_json::to_value(role.kind()).unwrap_or_default();
+                    let message = format!("{field} isn't a {}, which the role is", kind.as_str().unwrap_or("?"));
+                    return Err(invalid(at, message));
                 }
             }
         }

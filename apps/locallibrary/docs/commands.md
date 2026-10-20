@@ -93,7 +93,7 @@ its drives.
 | `locallibrary sync [<library> \| <a> <b> ...] [--allow-guess]` | Copy the newest drive over the others, all at once (refuses if any diverged or hold different libraries, except a drive [back from a set](drives.md#back-from-a-set); `--allow-guess` goes with a low-confidence verdict on which is newer); with no drives, every library plugged in, each from its newest drive, with one question |
 | `locallibrary sync --from <source> <target>` | Copy one drive onto another, overwriting the target's library whichever is newer |
 | `locallibrary pull [<library> \| <drive>] [-l LIB] [-m MSG] [--label L]` | Snapshot a drive into the store (with a library, or no drive, every mounted drive of one library), see [The store](store.md) |
-| `locallibrary check [<library> \| <drive>...] [--players MODEL,...] [--audio] [--verbose]` | Check the drives you're taking to a set, down to tracks a player won't load (`--audio`: and audio files cut short; tracks too loud or clipped, once `doctor --analyze` has measured them); exit status 4 on problems, see [Before a set](sets.md#before-a-set) |
+| `locallibrary check [<library> \| <drive>...] [--players MODEL,...] [--audio] [--verbose]` | Check the drives you're taking to a set, down to tracks a player won't load (`--audio`: and audio files cut short; tracks too loud or clipped, once `analyze` or `doctor --analyze` has measured them); exit status 4 on problems, see [Before a set](sets.md#before-a-set) |
 | `locallibrary eject [<library> \| <drive>...]` | Unmount drives and power them off (experimental on Linux and Windows), see [Setting up and handing over](drives.md#setting-up-and-handing-over) |
 | `locallibrary undo [<library> \| <drive>] [--list]` | Take back the last change locallibrary made to a library or drive (run again, the one before), after a plan of the files, playlists (in both databases), history lists and recorded edits that change; refused if the drive changed since, unless `--force`; `--list` shows what can be undone on every mounted drive |
 | `locallibrary` / `locallibrary tui [<library>]` | Interactive player, see [Player](player.md) |
@@ -138,7 +138,7 @@ its drives.
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--option KEY=VALUE]... [--dry-run]` | The library for other DJ software (the interop plugin's), written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
 | `locallibrary export <library> [PLAYLIST] --format FORMAT -o PATH [--option KEY=VALUE]... [--dry-run] [--replace]` | A format a plugin adds; overwriting a file is asked about first unless `--replace`, see [Plugins](plugins.md) |
-| `locallibrary analyze [<library>] [--plugin ID] [--analyzer NAME] [--track ID]...` | Run plugins' analyzers on a library's tracks, once each; `track` shows what they worked out as `PLUGIN.FIELD` (`sound.bpm`), see [Plugins](plugins.md) |
+| `locallibrary analyze [<library>] [--plugin ID] [--analyzer NAME] [--track ID]... [--apply key,bpm [--overwrite] [--min-confidence N] [--dry-run]]` | Run plugins' analyzers on a library's tracks, once each; `track` shows what they worked out as `PLUGIN.FIELD` (`sound.bpm`); `--apply` then writes the analyzer's keys and BPMs to the tracks as an edit, see [Plugins](plugins.md) |
 | `locallibrary xml [<library>] -o rekordbox.xml [--only PLAYLIST]` | Export as rekordbox XML (`--only`: just those playlists or folders and their tracks) |
 
 **Editing**
@@ -183,7 +183,7 @@ its drives.
 | | |
 | --- | --- |
 | `locallibrary account [login\|logout\|status]` | Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps; alpha), see [Atmosphere account](account.md) |
-| `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset]]]` | The plugins locallibrary has, what each may do and adds, and their settings; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them, see [Plugins](plugins.md) |
+| `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset]]\|roles [ROLE [PLUGIN.ANALYZER \| --reset]]]` | The plugins locallibrary has, what each may do and adds, their settings, and which analyzer each role (a track's key, tempo, level) is read from; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them, see [Plugins](plugins.md#roles) |
 | `locallibrary bug [--title T] [-m TEXT] [--no-browser]` | Report a bug, with this version and system filled in: posted from your Atmosphere account to userinput.app, or on GitHub's bug report form, see [Reporting a bug](account.md#reporting-a-bug) |
 | `locallibrary completions SHELL [--static]` | Shell completion for bash, zsh, fish, elvish or PowerShell, see [Shell completion and man pages](install.md#shell-completion-and-man-pages) |
 | `locallibrary man [-o DIR]` | Man pages for every command (not in `--help`) |

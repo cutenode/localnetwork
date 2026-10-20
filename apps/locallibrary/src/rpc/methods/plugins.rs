@@ -1,11 +1,13 @@
-//! `plugins.*`: the plugins locallibrary has, their settings, and running what they add. Their
-//! plans are kept apart from locallibrary's own (see [`super::super::Plans::plugins`]).
+//! `plugins.*`: the plugins locallibrary has, their settings, running what they add, which
+//! analyzer each field role is read from, and writing an analyzer's key and BPM to the tracks.
+//! Their plans are kept apart from locallibrary's own (see [`super::super::Plans::plugins`]).
 
 use std::path::PathBuf;
 
 use locallibrary::edit::EditPlan;
+use locallibrary::fields::{Role, roles};
 use locallibrary::op::Planned;
-use locallibrary::plugin::{Analyzed, CommandOutput, PluginExport};
+use locallibrary::plugin::{Analyzed, ApplyFields, CommandOutput, PluginExport};
 use loclib_plugin::{Context, ExportSource, Exported};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -102,6 +104,15 @@ struct AnalyzeWithPlugin {
     tracks: Option<Vec<u32>>,
 }
 
+#[derive(Deserialize, JsonSchema)]
+struct ChooseRole {
+    role: Role,
+    /// The analyzer to read it from, `<plugin>.<analyzer>` (one with the role); `null` (or left
+    /// out) puts it back to its default.
+    #[serde(default)]
+    analyzer: Option<String>,
+}
+
 pub(super) fn register(r: &mut Registry) {
     r.read("plugins.list", |_, _: locallibrary::api::NoParams| {
         let plugins = host()?;
@@ -145,6 +156,22 @@ pub(super) fn register(r: &mut Registry) {
     })
     .long()
     .keeps_cache();
+    // Overwriting what tracks have, when asked to.
+    r.plan("plugins.apply_fields.plan", apply_fields_plan).long().destructive();
+    r.apply("plugins.apply_fields.apply", PlanStore::None, |c, req: ApplyFields| {
+        Ok(apply_fields_plan(c, req)?.apply(None, c.ctx)?)
+    })
+    .long()
+    .destructive();
+    r.read("plugins.roles", |c, _: locallibrary::api::NoParams| Ok(roles::choices(c.existing()?.as_ref()))).quick();
+    r.immediate("plugins.roles.set", |c, req: ChooseRole| {
+        Ok(roles::choose(&c.store()?, req.role, req.analyzer.as_deref())?)
+    })
+    .keeps_cache();
+}
+
+fn apply_fields_plan(c: &super::Call<'_>, req: ApplyFields) -> Result<Planned<EditPlan>, super::RpcError> {
+    Ok(host()?.plan_apply_fields(&req, &c.store()?, c.ctx)?)
 }
 
 fn op_plan(c: &super::Call<'_>, req: PlanPluginOp) -> Result<Planned<EditPlan>, super::RpcError> {

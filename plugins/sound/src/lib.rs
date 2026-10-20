@@ -1,7 +1,8 @@
 //! locallibrary's sound analysis plugin, `sound`: one analyzer, `tempo-key-loudness`, measuring a
-//! track's tempo, key and loudness from its audio with loclib-analysis, as doctor's `--analyze`
-//! does, for the host to keep and show as track-list columns (`sound.bpm`). It reads nothing but
-//! the audio file it's handed, so it asks for no capabilities.
+//! track's tempo, key and loudness from its audio with loclib-analysis, for the host to keep and
+//! show as track-list columns (`sound.bpm`) and to read by role (doctor's `--analyze`, the check
+//! before a set, ordering a set). It reads nothing but the audio file it's handed, so it asks for
+//! no capabilities.
 
 use std::io::{Read, Write};
 
@@ -27,7 +28,7 @@ fn analyze_track(req: AnalyzeTrack, host: &Host) -> Result<Analysis, RpcError> {
     let fields = [
         ("bpm", number(tempo.map(|e| e.bpm.into()))),
         ("bpm_confidence", number(tempo.map(|e| e.bpm_confidence.into()))),
-        ("key", estimate.map_or(FieldValue::Null, |e| FieldValue::String(e.key.code()))),
+        ("key", estimate.and_then(|e| e.key).map_or(FieldValue::Null, |k| FieldValue::String(k.code()))),
         ("key_confidence", number(estimate.map(|e| e.key_confidence.into()))),
         ("integrated_lufs", number(loudness.and_then(|l| l.integrated_lufs))),
         // Minus infinity for silence, which JSON has no number for.

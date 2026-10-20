@@ -259,8 +259,9 @@ each. A FLAC, an MP3 made from it and a 48 kHz copy all do; an extended mix and 
 most of their audio but not their length, so they never count as copies, and nor does an edit with
 a stretch cut out, which lines up only in part.
 
-`--analyze` (or `--only analysis`) decodes every track the first time (the store keeps the
-results, so later runs decode only new files) and estimates its tempo and key with
+`--analyze` (or `--only analysis`) runs the sound plugin (or the analyzer chosen for each role,
+see [Roles](plugins.md#roles)) on every track the first time (the store keeps the results, so
+later runs decode only new files and those that failed), which estimates its tempo and key with
 [stratum-dsp](https://github.com/HLLMR/stratum-dsp) and its loudness (EBU R 128), then lists:
 
 - stored tempos the estimate doesn't agree with (within 4%): half, double, 2/3 or 3/2 of it, or
@@ -273,9 +274,9 @@ results, so later runs decode only new files) and estimates its tempo and key wi
 
 The estimates are a second opinion, not a correction: on the GiantSteps datasets rekordbox gets
 about 72% of keys right and about 75% of tempos within 4%, and stratum-dsp's own figures are
-similar. Where they disagree, listen. Ordering a set (`playlist order`) uses what's cached: a key
-the analysis heard a fifth away, or as its relative or parallel, counts as less sure (and one it
-heard as unrelated, least sure), so a clash it causes weighs less.
+similar. Where they disagree, listen. Ordering a set (`playlist order`) uses what was analysed
+already: a key the analysis heard a fifth away, or as its relative or parallel, counts as less
+sure (and one it heard as unrelated, least sure), so a clash it causes weighs less.
 None of this counts as a problem for doctor's exit status.
 
 ### Checking the analysis
@@ -287,8 +288,8 @@ locallibrary analysis bench --keys giantsteps-mtg-key-dataset/annotations/annota
 ```
 
 `analysis bench` scores rekordbox's stored keys and tempos on a drive, and the analysis doctor runs
-on the same audio (or the files in `--audio`), against the annotations of the
-[GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset),
+on the same audio (or the files in `--audio`), analysed afresh every run, against the annotations
+of the [GiantSteps Key](https://github.com/GiantSteps/giantsteps-key-dataset),
 [GiantSteps MTG Key](https://github.com/GiantSteps/giantsteps-mtg-key-dataset) (its tracks with one
 key at confidence 2) and [GiantSteps Tempo](https://github.com/GiantSteps/giantsteps-tempo-dataset)
 datasets (`annotations_v2` holds the revised tempos). Clone them and run their download scripts

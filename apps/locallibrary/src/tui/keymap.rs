@@ -185,6 +185,9 @@ pub enum Act {
     Plugin(&'static str, &'static str),
     /// Run a plugin's analyzer (the plugin's id, the analyzer's name) on the drive's tracks.
     Analyze(&'static str, &'static str),
+    /// Write the key and BPM a plugin's analyzer (the plugin's id, the analyzer's name) worked
+    /// out to the drive's tracks.
+    ApplyFields(&'static str, &'static str),
     /// Show or hide the column of a plugin's field.
     FieldColumn(locallibrary::query::FieldName),
     /// A plugin's settings (the plugin's id).

@@ -654,7 +654,8 @@ pub struct SyncFlags {
 enum StoreCommand {
     /// Store location and size
     Info,
-    /// Delete snapshots of no library the store has, and the files no snapshot uses
+    /// Delete snapshots of no library the store has, the files no snapshot uses, and caches no
+    /// version of locallibrary reads any more
     Gc {
         /// Show what would be deleted without deleting anything
         #[arg(long)]

@@ -43,7 +43,9 @@ listening to your library the way the players see it:
   analyzer over the drive's tracks in the background, those not analysed already. "show the
   sound.bpm column" adds a column of what it worked out (remembered for the next run; `-` where
   it found nothing to show), sorted by a click on its header like any column, and the search box
-  filters by it: `sound.bpm:>120`.
+  filters by it: `sound.bpm:>120`. "write keys and BPMs to the tracks: …" writes what an
+  analyzer heard to the tracks (a form asks which, and whether over what they have), confirmed
+  like any edit.
 - **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
   the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
   to its default.

@@ -8,13 +8,14 @@ use anyhow::{Result, bail};
 use clap::Args;
 use indexmap::IndexMap;
 use locallibrary::api::{self, LibraryCache, PluginFieldsRequest};
-use locallibrary::fields::{FieldValue, PluginsFields};
-use locallibrary::plugin::Analyzed;
+use locallibrary::fields::roles;
+use locallibrary::fields::{FieldValue, PluginsFields, Role};
+use locallibrary::plugin::{Analyzed, ApplyFields};
 use locallibrary::progress::Ctx;
 use serde::Serialize;
 
 use crate::jobs_cmd::usage;
-use crate::output::{self, Outcome, Output, ok, warn};
+use crate::output::{self, Outcome, Output, heading, ok, warn};
 use crate::plugins::{self, params::cell};
 
 /// `analyze`.
@@ -31,6 +32,20 @@ pub struct AnalyzeArgs {
     /// Only these tracks, by id (repeatable)
     #[arg(long = "track", value_name = "ID")]
     tracks: Vec<u32>,
+    /// Then write what the analyzer worked out to the tracks (`key`, `bpm`, or both
+    /// comma-separated), planned and asked about as any edit is: only where a track has none,
+    /// unless --overwrite
+    #[arg(long, value_name = "FIELDS", value_delimiter = ',', value_parser = ["key", "bpm"])]
+    apply: Vec<String>,
+    /// With --apply: also over a key or BPM a track has
+    #[arg(long, requires = "apply")]
+    overwrite: bool,
+    /// With --apply: leave out values the analyzer is less sure of than this (0 to 1)
+    #[arg(long, requires = "apply", value_name = "CONFIDENCE")]
+    min_confidence: Option<f64>,
+    /// With --apply: show the plan without changing anything
+    #[arg(long, requires = "apply")]
+    dry_run: bool,
 }
 
 /// What `analyze` did.
@@ -50,20 +65,27 @@ struct Ran {
 
 /// `analyze`: each analyzer asked for on the drive's tracks (those it hasn't worked out already),
 /// keeping what they work out for `track show`. Some tracks failing is a partial outcome (exit
-/// status 5), every one failing an error.
+/// status 5), every one failing an error. With `--apply`, only the analyzer for those fields runs
+/// (the one chosen for them, when several could), and what it worked out is then planned onto the
+/// tracks.
 pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let plugins = plugins::host()?;
     if let Some(p) = &args.plugin {
         plugins.manifest(p)?;
     }
-    let selected: Vec<(&str, &str)> = plugins
+    let apply: Vec<Role> = args.apply.iter().map(|r| r.parse().map_err(usage)).collect::<Result<_>>()?;
+    let mut selected: Vec<(&str, &str)> = plugins
         .manifests()
         .filter(|m| args.plugin.as_ref().is_none_or(|p| *p == m.id))
-        .flat_map(|m| m.contributes.analyzers.iter().map(move |a| (m.id.as_str(), a.name.as_str())))
-        .filter(|(_, a)| args.analyzer.as_deref().is_none_or(|n| n == *a))
+        .flat_map(|m| m.contributes.analyzers.iter().map(move |a| (m, a)))
+        .filter(|(_, a)| args.analyzer.as_deref().is_none_or(|n| n == a.name))
+        .filter(|(_, a)| apply.iter().all(|r| a.roles.contains_key(r)))
+        .map(|(m, a)| (m.id.as_str(), a.name.as_str()))
         .collect();
+    let fields: Vec<&str> = apply.iter().map(|r| r.name()).collect();
     if selected.is_empty() {
         return Err(usage(match (&args.analyzer, &args.plugin) {
+            _ if !apply.is_empty() => format!("no plugin's analyzer here works out {}", fields.join(" and ")),
             (Some(a), _) => format!("no plugin has an analyzer {a:?} (`locallibrary plugin list` lists them)"),
             (None, Some(p)) => format!("the {p} plugin has no analyzer"),
             (None, None) => "no plugin locallibrary has analyses tracks".into(),
@@ -71,6 +93,19 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
     }
     let drive = crate::jobs_cmd::drive_or_default(args.drive, store_path, "analyze")?;
     let store = crate::open_store(store_path)?;
+    if let Some(&role) = apply.first().filter(|_| selected.len() > 1) {
+        let chosen = roles::chosen(Some(&store), role);
+        let named = |(p, a): &(&str, &str)| {
+            chosen.as_ref().is_some_and(|f| f.analyzer.plugin == *p && f.analyzer.analyzer == *a)
+        };
+        selected.retain(named);
+        if selected.is_empty() {
+            return Err(usage(format!(
+                "several analyzers work out {}: say which with --plugin and --analyzer",
+                fields.join(" and ")
+            )));
+        }
+    }
     let tracks = (!args.tracks.is_empty()).then_some(args.tracks.as_slice());
     let mut analyzers = Vec::new();
     for (plugin, analyzer) in selected {
@@ -82,23 +117,48 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
     if failed > 0 && count(|a| a.analyzed + a.kept) == 0 {
         bail!("every track failed ({failed}): the warnings above say why");
     }
-    let outcome = if failed > 0 { Outcome::Partial } else { Outcome::Applied };
-    Ok(out.done_with(&Analyzing { drive, analyzers }, outcome, |a| {
-        for r in &a.analyzers {
-            let n = &r.analyzed;
-            let line = format!(
-                "{} ({}): {} analyzed, {} already",
-                r.analyzer,
-                r.plugin,
-                output::plural(n.analyzed, "track"),
-                n.kept
-            );
-            match n.failed {
-                0 => ok(line),
-                failed => warn(format!("{line}, {failed} failed")),
-            }
+    let ran = Analyzing { drive, analyzers };
+    if apply.is_empty() {
+        let outcome = if failed > 0 { Outcome::Partial } else { Outcome::Applied };
+        return Ok(out.done_with(&ran, outcome, said));
+    }
+    if !out.json {
+        said(&ran);
+    }
+    // Narrowed to one above.
+    let Ran { plugin, analyzer, .. } = &ran.analyzers[0];
+    let req = ApplyFields {
+        plugin: plugin.clone(),
+        analyzer: analyzer.clone(),
+        drive: ran.drive.clone(),
+        fields: apply,
+        tracks: tracks.map(<[u32]>::to_vec),
+        overwrite: args.overwrite,
+        min_confidence: args.min_confidence,
+    };
+    let planned = plugins.plan_apply_fields(&req, &store, ctx)?;
+    if !out.json {
+        heading(&planned.summary[0]);
+    }
+    crate::edit_cmd::confirm_and_apply(&ran.drive, planned, args.dry_run, out, ctx)
+}
+
+/// What each analyzer did, a line each.
+fn said(a: &Analyzing) {
+    for r in &a.analyzers {
+        let n = &r.analyzed;
+        let line = format!(
+            "{} ({}): {} analyzed, {} already",
+            r.analyzer,
+            r.plugin,
+            output::plural(n.analyzed, "track"),
+            n.kept
+        );
+        match n.failed {
+            0 => ok(line),
+            failed => warn(format!("{line}, {failed} failed")),
         }
-    }))
+    }
 }
 
 /// What the installed analyzers worked out for these tracks of the drive, by track id.

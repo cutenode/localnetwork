@@ -75,13 +75,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   `space`, `tidy`, `recordings`, and the history lists players recorded, kept even after
   rekordbox removes them.
 - **A second opinion on tempo, key and level.** `doctor --analyze` estimates each track's tempo
-  and key from its audio (stratum-dsp, through the new loclib-analysis crate) and its loudness,
-  caches the results in the store, and lists stored tempos that look half, double or 3/2 of the
-  estimate (with which one the library's other tempos favour), stored keys heard as a fifth, the
-  relative or the parallel key, and tracks over 0 dBTP, clipped, or far from the library's level.
-  `check` warns about those levels from what's cached, and `playlist order` trusts keys the
-  analysis questions less. `analysis bench` scores rekordbox's keys and tempos, and the analysis,
-  against the GiantSteps datasets (MIREX's weighted key score, tempo Accuracy1 and Accuracy2).
+  and key from its audio (stratum-dsp, through the new loclib-analysis crate, in the sound
+  plugin) and its loudness, keeps the results in the store, and lists stored tempos that look
+  half, double or 3/2 of the estimate (with which one the library's other tempos favour), stored
+  keys heard as a fifth, the relative or the parallel key, and tracks over 0 dBTP, clipped, or
+  far from the library's level (a track whose best keys tie has no key estimate, rather than one
+  picked at random). `check` warns about those levels from what was measured, and
+  `playlist order` trusts keys the analysis questions less. `analyze --apply key,bpm` writes the
+  estimates to the tracks, as an edit asked about first. `analysis bench` scores rekordbox's keys
+  and tempos, and the analysis, against the GiantSteps datasets (MIREX's weighted key score,
+  tempo Accuracy1 and Accuracy2).
 - **Duplicates by sound.** `doctor --by-sound` and `track dedupe --by-sound` find the same
   recording in another file or encoding (a FLAC and an MP3 made from it) from the fingerprints
   `mix` keeps in the store, so a library is decoded once; tracks of different lengths, such as an
@@ -215,15 +218,20 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   and `track.fields` reads the installed analyzers' versions (each analyzer has its own, apart
   from its plugin's; a value can be null, worked out with nothing to show). A plugin whose id or
   commands clash with locallibrary's or another plugin's is left out, with a warning saying why,
-  and the others work; a plugin's errors keep their kinds (`not_found`, `io`...). Each plugin runs in a folder
-  of its own in the store. In the player, plugins' commands, operations and export formats are in
-  the palette, and commands and operations in the menus their manifests name (`where`: the actions
-  menu for the tracks selected or a playlist, a drive's menu), asking for their params or options
-  in a form drawn from their schemas, a param from the selection (`x-from`) filled in with it;
-  a command answers in a panel, an operation's plan is confirmed, written and undone like any
-  edit, an export shows what it would write and asks before overwriting, analyzers run from the
-  palette and their fields are columns to sort and search by, plugins' settings are a form in the
-  palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks --sort`
+  and the others work; a plugin's errors keep their kinds (`not_found`, `io`...). Each plugin runs
+  in a folder of its own in the store. An analyzer's fields may have roles (a track's key, tempo,
+  loudness...), which doctor, `check` and `playlist order` read from the analyzer `plugin roles`
+  chooses (the sound plugin's unless another has them), and `analyze --apply key,bpm` writes to
+  the tracks; the sidecar has `plugins.roles`, `plugins.roles.set` and
+  `plugins.apply_fields.plan/apply`. In the player, plugins' commands, operations and export
+  formats are in the palette, and commands and operations in the menus their manifests name
+  (`where`: the actions menu for the tracks selected or a playlist, a drive's menu), asking for
+  their params or options in a form drawn from their schemas, a param from the selection
+  (`x-from`) filled in with it (cleared, it stays so); a command answers in a panel, an
+  operation's plan is confirmed, written and undone like any edit, an export shows what it would
+  write and asks before overwriting, analyzers run from the palette and their fields are columns
+  to sort and search by (and an analyzer's keys and BPMs are written to the tracks from there),
+  plugins' settings are a form in the palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks --sort`
   and the sidecar's `tracks.query` take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`). See
   docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
@@ -231,8 +239,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     shows what it finds in one, entry by entry, changing nothing.
   - `interop`: the library for Traktor (`collection.nml`), Serato (crates, and cue points in
     tags of copies of the audio) and Engine DJ (a new Engine Library), with `export --format`.
-  - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, as `doctor
-    --analyze` does, kept as `sound.bpm`, `sound.key`, `sound.integrated_lufs`...
+  - `sound`: `analyze` measures each track's tempo, key and loudness from its audio, kept as
+    `sound.bpm`, `sound.key`, `sound.integrated_lufs`..., which is what `doctor --analyze` runs.
   - `coverart`: `coverart fetch` finds front covers on MusicBrainz and the Cover Art Archive for
     tracks without artwork (or all, with `--replace`), planned as artwork edits you confirm. It's
     the only one that goes online, and only when it's run.
@@ -456,8 +464,8 @@ their old names.
   playlists?, output, options}` and `plugins.export.apply`.
 - `store prune` applies the plan it showed, refusing if a pull, label or drive change came in
   between (RPC `store.prune.plan` and `store.prune.apply`; `store.prune` still works), and its dry
-  run reports exactly what it frees. `store gc` removes only snapshots of no library and files
-  nothing uses, and refuses when it can't read a snapshot. `store copy` refuses, without
+  run reports exactly what it frees. `store gc` removes only snapshots of no library, files
+  nothing uses and caches no version reads any more, and refuses when it can't read a snapshot. `store copy` refuses, without
   `--force`, a copy that was written to with `--store` since the last copy.
 - `format <name>` takes only an adopted drive's name (or a path or disk identifier), never a
   volume label or a folder in the working directory (give `./NAME`), and the typed confirmation is

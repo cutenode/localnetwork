@@ -4,8 +4,8 @@
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
-//! `plugin serve <id>`). A plugin starts when it's first used, in its folder in the store, and
-//! must speak the protocol, describe itself exactly as its manifest does and have the features
+//! `plugin serve <id>`). A plugin starts when it's first used, in a folder of its own in the store,
+//! and must speak the protocol, describe itself exactly as its manifest does and have the features
 //! (kinds of hooks) what it contributes needs; it's stopped once it has been idle a while,
 //! started again after it crashed, and killed when it doesn't stop as asked. None starts from an
 //! elevated process.
@@ -16,6 +16,7 @@
 //! confirmed first. Analyzers' values go to the [`crate::fields`] store.
 
 mod analyzers;
+mod apply;
 mod callbacks;
 mod commands;
 mod exports;
@@ -34,9 +35,11 @@ use rustc_hash::FxHashSet;
 use serde_json::{Map, Value};
 
 use crate::fields::Analyzer;
+use crate::fields::roles::{Offered, RoleField};
 use crate::{Error, Result};
 
 pub use analyzers::Analyzed;
+pub use apply::ApplyFields;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
 pub use exports::{ExportFile, PluginExport};
@@ -174,18 +177,33 @@ impl Plugins {
         })
     }
 
+    /// Every analyzer at the version installed, with what its manifest declares.
+    fn installed(&self) -> impl Iterator<Item = (Analyzer, &loclib_plugin::Analyzer)> {
+        self.manifests().flat_map(|m| {
+            m.contributes
+                .analyzers
+                .iter()
+                .map(|a| (Analyzer { plugin: m.id.clone(), analyzer: a.name.clone(), version: a.version.clone() }, a))
+        })
+    }
+
     /// Every analyzer, at the version installed: whose values [`crate::api::track_fields_of`]
     /// reads.
     pub fn analyzers(&self) -> Vec<Analyzer> {
-        self.manifests()
-            .flat_map(|m| {
-                m.contributes.analyzers.iter().map(|a| Analyzer {
-                    plugin: m.id.clone(),
-                    analyzer: a.name.clone(),
-                    version: a.version.clone(),
-                })
-            })
-            .collect()
+        self.installed().map(|(a, _)| a).collect()
+    }
+
+    /// The analyzers' fields with each role, in the order the app gave the plugins: what it tells
+    /// the readers ([`crate::fields::roles::set_offered`]).
+    pub fn roles(&self) -> Offered {
+        let mut offered = Offered::new();
+        for (analyzer, declared) in self.installed() {
+            for (role, field) in &declared.roles {
+                let field = RoleField { analyzer: analyzer.clone(), field: field.clone() };
+                offered.entry(*role).or_default().push(field);
+            }
+        }
+        offered
     }
 
     /// Every analyzer's fields, by name as filters and sorts name them (`sound.bpm`), with their
@@ -230,15 +248,20 @@ impl Slot {
 
 /// `params` as a hook takes them, once they fit `schema` (a contribution's `params` or
 /// `options`): `null` is none, and one filled in from the selection (`x-from`) that isn't given is
-/// what `context` (as the plugin gets it) has selected, if anything. Where they don't fit is
+/// what `context` (as the plugin gets it) has selected, if anything; given as `null`, it's none
+/// (cleared, rather than left to the selection) and left out. Where they don't fit is
 /// `fields.path`, as the sidecar says it.
 fn fitting(schema: Option<&Value>, params: Value, context: &Context) -> Result<Value> {
     let mut params = if params.is_null() { Value::Object(Map::new()) } else { params };
     if let Value::Object(given) = &mut params {
         for (name, property) in schema.and_then(|s| s["properties"].as_object()).into_iter().flatten() {
-            let selected = Selection::of(property).ok().flatten().and_then(|s| s.value(context));
-            if let Some(value) = selected.filter(|_| !given.contains_key(name)) {
-                given.insert(name.clone(), value);
+            let Some(from) = Selection::of(property).ok().flatten() else { continue };
+            match given.get(name) {
+                Some(Value::Null) => {
+                    given.remove(name);
+                }
+                Some(_) => {}
+                None => given.extend(from.value(context).map(|v| (name.clone(), v))),
             }
         }
     }
