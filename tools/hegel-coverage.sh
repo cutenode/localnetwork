@@ -2,7 +2,8 @@
 # Coverage from the Hegel property tests alone, to show the code they never reach. Runs every
 # `#[hegel::test]` in the workspace through `cargo coverage` (.cargo/config.toml), so it fails
 # below the same thresholds. Extra arguments go to cargo-llvm-cov: `--open` for the HTML report,
-# `--lcov --output-path x`.
+# `--lcov --output-path x`. `--print-filter` prints the nextest filter that picks those tests
+# instead, for other runs of them (`cargo nextest run -E "$(tools/hegel-coverage.sh --print-filter)"`).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -36,4 +37,8 @@ while IFS=: read -r path name; do
 done < <(rg --multiline --with-filename --no-heading --only-matching --replace '$1' \
   '(?s)#\[hegel::test[(\]].*?\bfn (\w+)' --glob '*.rs' apps crates plugins vendor)
 
+if [[ ${1:-} == --print-filter ]]; then
+  echo "$filter"
+  exit
+fi
 exec cargo coverage -E "$filter" "$@"

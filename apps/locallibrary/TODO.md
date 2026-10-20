@@ -383,8 +383,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       also fail under Node 25, since the workspace is engine-strict on 24.
 - [ ] Dependabot doesn't update `apps/locallibrary/bombadil/package-lock.json` (its npm entry only
       watches `/`).
-- [ ] A deeper Hegel run in the scheduled workflow, with `.hegel/` cached;
-      `tools/hegel-coverage.sh` never runs in CI.
 - [ ] A fuzz target for `PdbEditor`'s edits (the `pdb` target only parses).
 - [ ] `apps/web/.vscode` does nothing when the root is opened: move it to the root or delete it.
       `apps/web/static/robots.txt` is SvelteKit's stock file, and `**/*.rs.bk` in `.gitignore` is

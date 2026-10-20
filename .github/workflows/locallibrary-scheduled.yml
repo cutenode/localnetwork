@@ -2,8 +2,8 @@ name: locallibrary scheduled
 
 # The slow suites, weekly and on demand (Actions > locallibrary scheduled > Run workflow, on any
 # branch), so pull requests only wait for locallibrary-ci.yml's quick checks: every feature
-# combination, Bombadil, mutation testing, fuzzing, the CLI's timings against a week earlier and a
-# release build of every target. Also a weekly RustSec check, which catches advisories published against
+# combination, Bombadil, mutation testing, fuzzing, the Hegel property tests on fresh inputs, the
+# CLI's timings against a week earlier and a release build of every target. Also a weekly RustSec check, which catches advisories published against
 # Cargo.lock between pushes.
 on:
   schedule:
@@ -223,6 +223,51 @@ jobs:
           name: fuzz-artifacts
           path: fuzz/artifacts
 
+  # The Hegel property tests over and over for 40 minutes a shard, each pass on fresh inputs, where
+  # locallibrary-ci.yml replays the same derandomised ones every time. A run keeps going after a
+  # failure to find others, and the failing examples it finds are cached for the next run to try
+  # first; a failure fails the job and prints the line that replays it.
+  hegel:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      # Keep the number of shards in step with the matrix. Hashed, so a test stays in its shard
+      # and with its cached examples.
+      SHARD: hash:${{ matrix.shard }}/4
+      # Over the `ci` profile Hegel picks on CI, which derandomises and has no database.
+      HEGEL_DERANDOMIZE: "false"
+      HEGEL_DATABASE: ${{ github.workspace }}/.hegel
+      HEGEL_STOP_ON_FIRST_FAILURE: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # As locallibrary-ci.yml's Linux shards have them, and rg, which tools/hegel-coverage.sh
+      # picks the tests with.
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev sqlcipher ripgrep
+      - run: echo LOCALLIBRARY_REQUIRE_SQLCIPHER=1 >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-nextest
+      # As the fuzz corpus is: each run saves under its own key and the next restores the newest.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .hegel
+          key: hegel-${{ matrix.shard }}-${{ github.run_id }}
+          restore-keys: hegel-${{ matrix.shard }}-
+      - run: cargo nextest run --workspace --locked --no-fail-fast --partition "$SHARD" --stress-duration 40m -E "$(tools/hegel-coverage.sh --print-filter)"
+      - if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .hegel
+          key: hegel-${{ matrix.shard }}-${{ github.run_id }}
+
   # How long the release CLI takes to start and to read a real 3,886-track library
   # (tools/cli-timings.sh), against this branch a week earlier, both built and timed on this
   # runner. Fails when a command got much slower; hyperfine's tables are in the run's summary.
@@ -362,7 +407,7 @@ jobs:
   # that passes closes it (scheduled-issue.yml).
   report:
     needs:
-      [advisories, features, bombadil, mutants, fuzz, cli-timings, release-plan, release-build, release-global]
+      [advisories, features, bombadil, mutants, fuzz, hegel, cli-timings, release-plan, release-build, release-global]
     if: ${{ !cancelled() && github.event_name == 'schedule' }}
     permissions:
       actions: read
