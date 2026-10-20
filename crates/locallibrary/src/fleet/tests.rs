@@ -21,9 +21,28 @@ fn snap(fp: u8, id: &str) -> SnapshotInfo {
 #[test]
 fn standing_counts_newer_snapshots() {
     let history = vec![snap(3, "c"), snap(2, "b"), snap(1, "a")];
-    assert!(matches!(standing(&history, &Hash::of(&[3])), Standing::UpToDate));
-    assert!(matches!(standing(&history, &Hash::of(&[1])), Standing::Behind { snapshots: 2, .. }));
-    assert!(matches!(standing(&history, &Hash::of(&[9])), Standing::Unsaved));
+    assert!(matches!(standing(&history, &[], &Hash::of(&[3])), Standing::UpToDate));
+    assert!(matches!(standing(&history, &[], &Hash::of(&[1])), Standing::Behind { snapshots: 2, .. }));
+    assert!(matches!(standing(&history, &[], &Hash::of(&[9])), Standing::Unsaved));
+}
+
+#[test]
+fn a_state_the_latest_went_through_unsaved_is_behind_the_snapshots_since() {
+    let history = vec![snap(3, "c"), snap(2, "b"), snap(1, "a")];
+    let entry = |fp: u8| LineageEntry {
+        fingerprint: Hash::of(&[fp]),
+        at: Utc::now(),
+        op: LineageOp::Pull,
+        snapshot: None,
+        source: None,
+        tracks: 0,
+    };
+    // 7 was held between "a" and "b"; 8 after "c", before the latest went back to "c"'s state.
+    let lineage: Vec<LineageEntry> = [1, 7, 2, 3, 8, 3].map(entry).into();
+    let held = |fp: u8| standing(&history, &lineage, &Hash::of(&[fp]));
+    assert!(matches!(held(7), Standing::Behind { snapshots: 2, held: None }), "{:?}", held(7));
+    assert!(matches!(held(8), Standing::Behind { snapshots: 1, held: None }), "{:?}", held(8));
+    assert!(matches!(held(9), Standing::Unsaved), "{:?}", held(9));
 }
 
 #[test]

@@ -1288,7 +1288,8 @@ fn standing(s: &Standing) -> String {
     match s {
         Standing::UpToDate => style("up to date").green().to_string(),
         Standing::Behind { snapshots, held } => {
-            style(format!("{snapshots} snapshot(s) behind (held {held})")).yellow().to_string()
+            let held = held.as_ref().map(|h| format!(" (held {h})")).unwrap_or_default();
+            style(format!("{snapshots} snapshot(s) behind{held}")).yellow().to_string()
         }
         Standing::Unsaved => style("had changes not in the store").yellow().to_string(),
         Standing::Unknown => dim("not linked to a library").to_string(),
