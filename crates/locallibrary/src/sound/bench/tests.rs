@@ -109,8 +109,7 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
     };
     let device = Device::open(&root).unwrap();
     let library = Library { tracks, ..Default::default() };
-    let cache = Cache::new(dir.path().join("cache"));
-    let result = bench(&opts, Some((&device, &library)), &cache, &Ctx::silent());
+    let result = bench(&opts, Some((&device, &library)), &Ctx::silent());
     if keyed.is_empty() && timed.is_empty() {
         let err = result.unwrap_err();
         return assert!(err.to_string().contains("no key or tempo annotations"), "{err}");
@@ -134,7 +133,7 @@ fn scores_count_every_annotated_track_once(tc: TestCase) {
     assert!(r.tempos.get(REKORDBOX).is_none_or(|t| t.count(TempoOutcome::Correct) == t.tracks));
 
     let nowhere = BenchOptions { audio: None, ..opts.clone() };
-    assert!(bench(&nowhere, None, &cache, &Ctx::silent()).unwrap_err().to_string().contains("give a drive"));
+    assert!(bench(&nowhere, None, &Ctx::silent()).unwrap_err().to_string().contains("give a drive"));
 }
 
 /// Annotations that don't read are refused before anything is analysed, naming what couldn't
@@ -159,8 +158,7 @@ fn annotations_that_dont_read_are_refused_naming_the_file(tc: TestCase) {
         tempos: Some(tempos_dir.clone()),
         audio: None,
     };
-    let cache = Cache::new(dir.path().join("cache"));
-    let run = |opts: &BenchOptions| bench(opts, None, &cache, &Ctx::silent()).unwrap_err();
+    let run = |opts: &BenchOptions| bench(opts, None, &Ctx::silent()).unwrap_err();
     let fine = run(&opts);
     assert!(fine.to_string().contains("give a drive"), "{fine}");
 

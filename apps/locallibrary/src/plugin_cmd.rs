@@ -1,4 +1,5 @@
-//! `plugin`: the plugins locallibrary has and their settings; `analyze`, running their analyzers
+//! `plugin`: the plugins locallibrary has, their settings and which analyzer each field role is
+//! read from; `analyze`, running their analyzers
 //! on a drive's tracks; and the commands and operations they add to the command line
 //! (`locallibrary <plugin> <name>`, or the place a manifest gives one, `playlist import`), whose
 //! flags come from their params' JSON Schemas.
@@ -51,6 +52,19 @@ enum PluginCommand {
         #[arg(long, requires = "key")]
         reset: bool,
     },
+    /// Which analyzer each role is read from (a track's key, tempo and level, for doctor, the
+    /// check before a set, ordering a set and `analyze --apply`): show them, choose one (ROLE
+    /// PLUGIN.ANALYZER), or put one back to its default (ROLE --reset)
+    Roles {
+        /// The role (`key`, `bpm`, `loudness`...) [default: every one]
+        role: Option<String>,
+        /// The analyzer to read it from, as PLUGIN.ANALYZER (`sound.tempo-key-loudness`)
+        #[arg(conflicts_with = "reset")]
+        analyzer: Option<String>,
+        /// Put it back to its default: the only analyzer with it, else the first plugin's
+        #[arg(long, requires = "role")]
+        reset: bool,
+    },
     /// Run a plugin, speaking its protocol over stdin and stdout: how locallibrary starts one
     #[command(hide = true)]
     Serve {
@@ -79,6 +93,9 @@ pub fn run(args: PluginArgs, store_path: &Option<PathBuf>, out: Output) -> Resul
         }
         PluginCommand::Settings { plugin, key, value, reset } => {
             return listing::settings(plugins, plugin, key, value, reset, store_path, out);
+        }
+        PluginCommand::Roles { role, analyzer, reset } => {
+            return listing::roles(role, analyzer, reset, store_path, out);
         }
         PluginCommand::Serve { plugin } => {
             // Ctrl-C in the terminal reaches it too: it stops when its host says.

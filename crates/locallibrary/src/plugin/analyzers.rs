@@ -3,19 +3,21 @@
 //! declares, are kept in the [`crate::fields`] store for the analyzer's version.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 use loclib_plugin::{Analysis, AnalyzeTrack, Context, Track, method};
 use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::Plugins;
+use crate::audio_cache::TrackFailure;
 use crate::fields::{Analyzer, FieldStore};
 use crate::progress::{Ctx, Event, NoProgress, Phase};
 use crate::store::Store;
 use crate::{Error, Result, paths};
 
 /// What analysing a drive's tracks did.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, JsonSchema)]
 pub struct Analyzed {
     /// Tracks the analyzer worked out fields for, now kept.
     pub analyzed: usize,
@@ -24,6 +26,11 @@ pub struct Analyzed {
     /// Tracks left out, each with a warning: their audio file isn't on the drive, or the plugin
     /// failed on them.
     pub failed: usize,
+    /// The tracks the plugin failed on, and why (as their warnings say it): for a report of its
+    /// own, as doctor's analysis has.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub failures: Vec<TrackFailure>,
 }
 
 impl Plugins {
@@ -76,12 +83,15 @@ impl Plugins {
             slot.start(Some(store))?;
         }
         ctx.phase_start(Phase::Analyze, todo.len() as u64, 0);
-        let (next, analyzed, failed) = (AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0));
+        let (next, analyzed) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let failures = Mutex::new(Vec::new());
         // The plugin's own progress about a track is left out (each is an item here); cancelling
         // still reaches it.
         let quiet = Ctx::new(&NoProgress, ctx.cancel.clone());
         let work = || -> Result<()> {
-            while let Some(track) = todo.get(next.fetch_add(1, Ordering::SeqCst)) {
+            loop {
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                let Some(track) = todo.get(i) else { break };
                 ctx.emit(Event::Item { phase: Phase::Analyze, path: track.file_path.clone(), bytes: 0 });
                 let req = AnalyzeTrack { analyzer: analyzer.into(), track: track.clone(), context: context.clone() };
                 let answer = slot.call::<Analysis>(method::ANALYZE_TRACK, &req, Some(store), &quiet).and_then(|a| {
@@ -114,12 +124,13 @@ impl Plugins {
                     Err(e) => {
                         // The track by its path on the drive, once, whether or not the plugin
                         // named its audio file.
-                        let said = e.to_string().replace(&track.audio_path.display().to_string(), &track.file_path);
-                        ctx.warn(match said.contains(&track.file_path) {
-                            true => said,
-                            false => format!("{}: {said}", track.file_path),
+                        let error = e.to_string().replace(&track.audio_path.display().to_string(), &track.file_path);
+                        ctx.warn(match error.contains(&track.file_path) {
+                            true => error.clone(),
+                            false => format!("{}: {error}", track.file_path),
                         });
-                        failed.fetch_add(1, Ordering::SeqCst);
+                        let t = library.track(track.id).expect("one of the library's");
+                        crate::lock(&failures).push((i, TrackFailure { track: t.into(), error }));
                     }
                 }
             }
@@ -133,7 +144,11 @@ impl Plugins {
         ctx.phase_end(Phase::Analyze);
         results.into_iter().collect::<Result<()>>()?;
         done.analyzed += analyzed.into_inner();
-        done.failed += failed.into_inner();
+        // In the tracks' order, whichever worker finished first.
+        let mut failures = failures.into_inner().unwrap_or_else(PoisonError::into_inner);
+        failures.sort_by_key(|(i, _)| *i);
+        done.failures = failures.into_iter().map(|(_, f)| f).collect();
+        done.failed += done.failures.len();
         Ok(done)
     }
 }

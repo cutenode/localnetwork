@@ -20,11 +20,31 @@ use std::sync::Mutex;
 use locallibrary::api::{self, Direction, SyncManyRequest, SyncRequest};
 use locallibrary::device::Device;
 use locallibrary::edit::{Edit, EditOptions, EditPlan};
+use locallibrary::fields::roles::RoleField;
+use locallibrary::fields::{Analyzer, FieldStore, FieldValue, Fields, Role};
 use locallibrary::onelibrary::{ContentRecord, OneLibrary, cipher};
 use locallibrary::progress::{CancelToken, Ctx, Event, Progress};
 use locallibrary::store::Store;
-use locallibrary::{Library, backup, edit, paths, pdb};
+use locallibrary::{Library, backup, edit, paths, pdb, sound};
 use rekordbox_pdb::{NewTrack, PdbEditor};
+
+/// The analyzer the tests' role values are kept for: one answering every role doctor reads, each
+/// in a field named after it (`bpm`), as the sound plugin's analyzer does. Offered to this
+/// thread's readers.
+pub fn offer_roles() -> Analyzer {
+    let analyzer = Analyzer { plugin: "heard".into(), analyzer: "it".into(), version: "1".into() };
+    let field = |r: &Role| vec![RoleField { analyzer: analyzer.clone(), field: r.name().into() }];
+    locallibrary::testing::roles_on_this_thread(Some(sound::ROLES.iter().map(|r| (*r, field(r))).collect()));
+    analyzer
+}
+
+/// Keep `values` for the track at `device_path` on `root` in `store`, by role, as an earlier
+/// `locallibrary analyze` would have, offering the roles to this thread's readers.
+pub fn heard(store: &Store, root: &Path, device_path: &str, values: &[(Role, FieldValue)]) {
+    let fields: Fields = values.iter().map(|(r, v)| (r.name().to_string(), v.clone())).collect();
+    let audio = paths::to_fs(root, &paths::key(device_path));
+    FieldStore::in_store(store).put(&audio, &offer_roles(), &fields).unwrap();
+}
 
 pub fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")

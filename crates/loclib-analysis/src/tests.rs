@@ -2,10 +2,7 @@ use std::f64::consts::PI;
 
 use loclib_mixid::test_util::{wav, wav_of};
 
-use loclib_model::harmony::Camelot;
-
 use super::*;
-use crate::benchmark::{KeyOutcome, Outcome};
 use crate::tempo::TempoRelation;
 
 /// A 16-bit stereo WAV of `signal` (full scale ±1.0, clamped) in both channels.
@@ -41,8 +38,8 @@ fn kick_track(bpm: f64, secs: f64) -> Vec<f64> {
         .collect()
 }
 
-/// A kick track is heard at its tempo and in its key (or the relative one: the chord is the
-/// notes of both), and a cached result reads back the same.
+/// A kick track is heard at its tempo, and a cached result reads back the same. Its chord, the
+/// same all through, fits A minor and C major alike: keys that tie are no key.
 #[test]
 fn a_kick_track_is_estimated() {
     let dir = tempfile::tempdir().unwrap();
@@ -53,8 +50,7 @@ fn a_kick_track_is_estimated() {
     assert_eq!(analysis.loudness, None);
     let e = analysis.estimate.clone().unwrap();
     assert_eq!(TempoRelation::between(e.bpm.into(), 128.0), Some(TempoRelation::Agrees), "{e:?}");
-    let key = KeyOutcome::of(Camelot::parse("Am").unwrap(), Some(e.key));
-    assert!(matches!(key, KeyOutcome::Correct | KeyOutcome::Relative), "{e:?}");
+    assert_eq!((e.key, e.key_confidence), (None, 0.0), "{e:?}");
     let json = serde_json::to_string(&analysis).unwrap();
     assert_eq!(serde_json::from_str::<Analysis>(&json).unwrap(), analysis);
 }

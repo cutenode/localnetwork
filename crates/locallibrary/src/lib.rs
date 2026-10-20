@@ -147,6 +147,13 @@ pub mod testing {
         crate::device::THREAD_VOLUMES.with(|v| *v.borrow_mut() = folders);
     }
 
+    /// Readers on this thread find the analyzers' fields with roles in `offered` (`None`: what
+    /// [`crate::fields::roles::set_offered`] said), as `set_offered` would have them for the
+    /// whole process, which it can only do once.
+    pub fn roles_on_this_thread(offered: Option<crate::fields::roles::Offered>) {
+        crate::fields::roles::THREAD_OFFERED.with(|o| *o.borrow_mut() = offered);
+    }
+
     /// Plugins started from this thread are refused as from an elevated process (`Some(true)`),
     /// or not (`Some(false)`), whatever this process is (`None`: as it is).
     pub fn elevated_on_this_thread(elevated: Option<bool>) {

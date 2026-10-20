@@ -16,6 +16,7 @@ use locallibrary::sound::{AnalysisReport, KeyOutcome, LoudnessProblem, Plausible
 
 use crate::each_drive::{self, Reads};
 use crate::output::{self, Outcome, Output, bytes, cap, dim, heading, ok, warn};
+use crate::plugins;
 
 #[derive(Args)]
 #[command(after_long_help = "Examples:
@@ -38,9 +39,10 @@ pub struct DoctorArgs {
     /// copy (reads a little of every file: slow on a big drive)
     #[arg(long)]
     audio: bool,
-    /// Also analyse every track's audio for its tempo, key and loudness, and list stored tempos
-    /// and keys the analysis disagrees with and tracks too loud, clipped or far from the library's
-    /// level (decodes every track the first time; the store keeps the results)
+    /// Also analyse every track's audio for its tempo, key and loudness (with the sound plugin, or
+    /// the analyzer chosen for each), and list stored tempos and keys the analysis disagrees with
+    /// and tracks too loud, clipped or far from the library's level (decodes every track the first
+    /// time; the store keeps the results)
     #[arg(long)]
     analyze: bool,
     /// Only these sections (repeatable, or comma-separated)
@@ -111,8 +113,10 @@ pub fn run(args: DoctorArgs, store: &Option<std::path::PathBuf>, out: Output, ct
         analyze: args.analyze,
         ..Default::default()
     };
+    // Its analysis keeps what the analyzers work out in the store.
+    let store = options.wants(Section::Analysis).then(|| crate::open_store(store)).transpose()?;
     let reads = each_drive::read(args.drive, |drive| {
-        api::doctor(&api::DoctorRequest { drive, options: options.clone() }, ctx)
+        plugins::roles::doctor(&api::DoctorRequest { drive, options: options.clone() }, store.as_ref(), ctx)
     })?;
     out.page();
     let each = match &reads {

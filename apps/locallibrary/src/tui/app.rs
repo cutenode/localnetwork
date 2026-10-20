@@ -3310,6 +3310,7 @@ impl App {
             Act::ExportXml => self.export_xml(),
             Act::Plugin(plugin, name) => self.plugin_here(plugin, name),
             Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, self.action_drive()),
+            Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),

@@ -7,8 +7,8 @@ code, and it never writes to a drive.
 
 ## The protocol
 
-A plugin is a program locallibrary runs, in a folder of its own (`<store>/plugins/<id>/`). They
-talk JSON-RPC 2.0 over the plugin's stdin and stdout, one JSON message per line (no newlines
+A plugin is a program locallibrary runs, in a folder of its own (`<store>/plugins/<id>/work/`).
+They talk JSON-RPC 2.0 over the plugin's stdin and stdout, one JSON message per line (no newlines
 inside one, at most 16 MiB). Anything the plugin writes to stderr is its log. The protocol is
 versioned on its own, at `0.2.0` (`PROTOCOL_VERSION`); two versions are compatible by semver's
 caret rule, so before 1.0 the minor version must match. A new kind of hook doesn't change it: each
@@ -99,6 +99,7 @@ let manifest = Manifest::parse(r#"
     title = "Tempo"
     version = "1"
     fields = { bpm = "number", confident = "boolean" }
+    roles = { bpm = "bpm" }
 "#)?;
 assert_eq!(manifest.capabilities[2], Capability::Net("musicbrainz.org".into()));
 // Only plugins locallibrary ships may give commands places of their own on the command line.
@@ -130,10 +131,19 @@ assert!(manifest.validate(false).is_err());
 - A param's `x-from` (`Selection`) is what fills it in when it isn't given: `selection.tracks`
   (a list of integers, the tracks' ids), `selection.playlist` (a string, its path) or
   `selection.drive` (a string, its id or name), from where the user runs it. A form shows it
-  filled in.
+  filled in. Given as `null` (cleared in a form), it's left out instead.
 - `[[contributes.analyzers]]`: `name`, `title`, `version` (its own: locallibrary keeps its
   values by it, so bump it when they'd change), `fields` (each `number`, `integer`, `string`,
-  `boolean` or `string[]`). Fields become columns, so no two analyzers have one of a name.
+  `boolean` or `string[]`) and `roles`. Fields become columns, so no two analyzers have one of a
+  name.
+- `roles` says which of an analyzer's fields locallibrary reads as what (`Role`), a role to a
+  field: `key` (a Camelot code, `8A`: a string), `bpm`, `key_confidence` and `bpm_confidence`
+  (0 to 1), `loudness` (integrated LUFS), `true_peak` (dBTP), each a number, `clipped_runs` (an
+  integer) and `identity` (a string, equal for one recording). A field of another type than its
+  role's is refused. Doctor's tempos, keys and levels, the check before a set, ordering a set and
+  writing keys and BPMs to tracks read a role from the analyzer the user chose for it, else the
+  only one, else the first. Roles need no feature of their own: a host that doesn't know them
+  leaves them out.
 - `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
   without the dot) or `folder = true`, `options`.
 - `[[contributes.settings]]`: `key`, `title`, `type` (`string`, `number`, `boolean`, `enum`,

@@ -1,6 +1,5 @@
 use super::*;
 use crate::mix::index::Prints;
-use crate::sound::Analyses;
 
 /// Keys and paths stay what fingerprint caches were written with, so users' caches still read,
 /// and each kind keeps to its own folder and version.
@@ -16,20 +15,20 @@ fn caches_keep_their_layout() {
     assert_eq!(Cache::<Prints>::key(&dir.path().join("gone.mp3")), None);
 
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
-    let prints = Cache::<Prints>::in_store(&store);
+    let prints = Cache::<Prints>::in_store(&store).clone();
     assert_eq!(prints.root(), store.root().join("cache/fingerprints"));
     assert_eq!(prints.file("abcdef", "fp"), prints.root().join("ab/abcdef.fp"));
-    let analyses = Cache::<Analyses>::in_store(&store).clone();
-    assert_eq!(analyses.root(), store.root().join("cache/analysis"));
 }
 
 /// A cached value that can't be read back (cut short) counts as not cached.
 #[test]
 fn unreadable_values_are_not_cached() {
     let dir = tempfile::tempdir().unwrap();
-    let cache = Cache::<Analyses>::new(dir.path());
+    let cache = Cache::<Lengths>::new(dir.path());
     fs::create_dir_all(dir.path().join("ab")).unwrap();
-    fs::write(cache.file("abcdef", "json"), b"{\"version\":").unwrap();
+    fs::write(cache.file("abcdef", Lengths::EXT), b"12").unwrap();
+    assert_eq!(cache.get("abcdef"), Some(12));
+    fs::write(cache.file("abcdef", Lengths::EXT), b"1x").unwrap();
     assert!(cache.get("abcdef").is_none());
 }
 

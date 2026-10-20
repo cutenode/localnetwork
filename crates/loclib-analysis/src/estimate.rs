@@ -17,7 +17,8 @@ pub struct Estimate {
     pub bpm: f32,
     /// 0 to 1.
     pub bpm_confidence: f32,
-    pub key: Camelot,
+    /// `None` when the best keys tie (a confidence of 0): none is heard over the others.
+    pub key: Option<Camelot>,
     /// 0 to 1: how far the best key's template match beats the next best.
     pub key_confidence: f32,
 }
@@ -29,7 +30,9 @@ pub(crate) fn estimate(mono: &[f32]) -> Option<Estimate> {
     Some(Estimate {
         bpm: result.bpm,
         bpm_confidence: result.bpm_confidence,
-        key: camelot(result.key),
+        // stratum-dsp picks one of tied keys in the order of a `HashMap` (seeded afresh by every
+        // process), so a tie has no key here: the same audio always gives the same estimate.
+        key: (result.key_confidence > 0.0).then(|| camelot(result.key)),
         key_confidence: result.key_confidence,
     })
 }

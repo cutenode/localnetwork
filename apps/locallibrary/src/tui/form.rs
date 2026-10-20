@@ -34,6 +34,9 @@ pub enum For {
     /// Where to export the drive at `root` (its `playlists` only, when some are named) in a
     /// plugin's format, and the format's options.
     Export { plugin: &'static str, format: &'static str, root: std::path::PathBuf, playlists: Vec<String> },
+    /// What to write to the tracks of the drive at `root` from what a plugin's analyzer worked
+    /// out.
+    ApplyFields { plugin: &'static str, analyzer: &'static str, root: std::path::PathBuf },
 }
 
 pub struct Field {
@@ -116,14 +119,19 @@ impl Form {
 
     /// The params filled in, or which field won't do and why: one that's needed is empty, one
     /// isn't of its type, or doesn't fit the schema. Lists and pairs are typed with commas
-    /// between them, and paths may start with `~`.
+    /// between them, and paths may start with `~`. One from the selection (`x-from`) left empty
+    /// is null, none: the host would fill it in from the selection otherwise.
     pub fn params(&self) -> Result<Value, (usize, String)> {
         let mut given = Map::new();
+        let mut cleared = Vec::new();
         for (i, f) in self.fields.iter().enumerate() {
             let text = f.text.trim();
             if text.is_empty() {
                 if f.required {
                     return Err((i, format!("{} is needed", f.label())));
+                }
+                if matches!(Selection::of(&f.schema), Ok(Some(_))) {
+                    cleared.push(f.name.clone());
                 }
                 continue;
             }
@@ -140,8 +148,7 @@ impl Form {
             let raws: Vec<&str> = raws.iter().map(String::as_str).collect();
             given.insert(f.name.clone(), params::value(&f.schema, &raws, &f.label()).map_err(|e| (i, e))?);
         }
-        let given = Value::Object(given);
-        check_params(self.schema.as_ref(), &given).map_err(|e| {
+        check_params(self.schema.as_ref(), &Value::Object(given.clone())).map_err(|e| {
             // The field the schema's complaint is about (`/into`), named as it's shown.
             let path = e.data.and_then(|d| d.fields.get("path").and_then(Value::as_str).map(String::from));
             let at = path.as_deref().and_then(|p| p.trim_start_matches('/').split('/').next());
@@ -154,7 +161,8 @@ impl Form {
                 None => (self.selected, said.to_string()),
             }
         })?;
-        Ok(given)
+        given.extend(cleared.into_iter().map(|name| (name, Value::Null)));
+        Ok(Value::Object(given))
     }
 }
 
@@ -175,6 +183,9 @@ impl App {
                         For::Settings(plugin) => self.save_settings(plugin, params),
                         For::Export { plugin, format, root, playlists } => {
                             self.plan_export(plugin, format, root, playlists, params)
+                        }
+                        For::ApplyFields { plugin, analyzer, root } => {
+                            self.plan_apply_fields(plugin, analyzer, root, params)
                         }
                     };
                 }

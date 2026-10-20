@@ -6,7 +6,6 @@ use serde::Deserialize;
 use super::resolve_drive;
 use crate::Result;
 use crate::progress::Ctx;
-use crate::sound::Cache;
 use crate::sound::bench::{self, BenchOptions, BenchReport};
 
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
@@ -20,10 +19,9 @@ pub struct AnalysisBenchRequest {
 }
 
 /// Score rekordbox's stored keys and tempos (with a drive) and loclib-analysis's estimates
-/// against GiantSteps annotations. Analyses are cached in the store, like doctor's. Read-only.
+/// against GiantSteps annotations, analysing the audio every run (nothing is kept). Read-only.
 pub fn analysis_bench(req: &AnalysisBenchRequest, ctx: &Ctx<'_>) -> Result<BenchReport> {
     let device = req.drive.as_deref().map(resolve_drive).transpose()?;
     let library = device.as_ref().map(|d| d.library()).transpose()?;
-    let (cache, _temp) = Cache::of_default_store()?;
-    bench::bench(&req.options, device.as_ref().zip(library.as_ref()), &cache, ctx)
+    bench::bench(&req.options, device.as_ref().zip(library.as_ref()), ctx)
 }

@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use hegel::generators as gs;
 use hegel::{HealthCheck, TestCase};
 use loclib_mixid::test_util::{resample, synth, wav_of};
-use loclib_plugin::{Incoming, Manifest, PROTOCOL_VERSION, Peer, Pending, code, method};
+use loclib_plugin::{Incoming, Manifest, PROTOCOL_VERSION, Peer, Pending, Role, code, method};
 use loclib_progress::Ctx;
 use serde_json::{Value, json};
 
@@ -73,6 +73,9 @@ fn describes_one_analyzer_and_asks_for_nothing() {
     let expected =
         ["bpm", "bpm_confidence", "clipped_runs", "integrated_lufs", "key", "key_confidence", "true_peak_dbtp"];
     assert_eq!(columns, expected);
+    // Every role but identity: doctor reads them all.
+    let roles: Vec<Role> = analyzer.roles.keys().copied().collect();
+    assert!(Role::ALL.iter().all(|r| roles.contains(r) != (*r == Role::Identity)), "{roles:?}");
     let s = start();
     let described: Manifest = s.host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);
@@ -125,13 +128,9 @@ fn fields_are_what_doctor_reports(tc: TestCase) {
     assert_eq!(number("bpm"), tempo.map(|e| f64::from(e.bpm)), "{fields:?}");
     assert_eq!(number("bpm_confidence"), tempo.map(|e| f64::from(e.bpm_confidence)));
     assert_eq!(number("key_confidence"), a.estimate.as_ref().map(|e| f64::from(e.key_confidence)));
-    let key = |e: &loclib_analysis::Estimate| FieldValue::String(e.key.code());
-    match a.estimate.as_ref() {
-        // Keys that tie (confidence 0) are picked from in no fixed order, so either of two
-        // analyses of one file may have any of them.
-        Some(e) if e.key_confidence == 0.0 => assert!(matches!(fields["key"], FieldValue::String(_))),
-        estimate => assert_eq!(fields["key"], estimate.map_or(FieldValue::Null, key)),
-    }
+    // Keys that tie (confidence 0) are none: two analyses of one file hear the same.
+    let key = a.estimate.as_ref().and_then(|e| e.key);
+    assert_eq!(fields["key"], key.map_or(FieldValue::Null, |k| FieldValue::String(k.code())), "{:?}", a.estimate);
     assert_eq!(number("integrated_lufs"), l.integrated_lufs);
     assert_eq!(number("true_peak_dbtp"), Some(l.true_peak_dbtp()).filter(|db| db.is_finite()));
     assert_eq!(fields["clipped_runs"], FieldValue::Integer(l.clipped_runs as i64));

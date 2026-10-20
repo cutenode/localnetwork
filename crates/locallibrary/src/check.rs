@@ -21,10 +21,10 @@
 //! With [`CheckOptions::audio`], every audio file is opened and its last seconds decoded (see
 //! [`probe::check_tracks`]), not only the smaller ones, which also finds files that don't decode.
 //!
-//! Tracks over 0 dBTP, clipped, or far from the library's level are a warning, from analyses
-//! already in the store's cache (see [`crate::sound`]): the check decodes nothing for them, and
-//! says nothing about levels on a library never analysed. It's here rather than in the DJ's
-//! profile because this is the report read before a set, when a track that will clip the
+//! Tracks over 0 dBTP, clipped, or far from the library's level are a warning, from the levels
+//! analyzers kept in the store already (see [`crate::sound`]): the check analyses nothing for
+//! them, and says nothing about levels on a library never analysed. It's here rather than in the
+//! DJ's profile because this is the report read before a set, when a track that will clip the
 //! mixer or need the trim cranked can still be swapped.
 //!
 //! Nothing is written to the drives (beyond the hash cache every scan of an adopted drive keeps).
@@ -593,8 +593,8 @@ fn choose_players(
     Ok(players)
 }
 
-/// The `loudness` item, from the analyses cached in `store` (none without a store, or when none
-/// of the library's tracks were analysed). Returns the tracks it warns about.
+/// The `loudness` item, from the levels kept in `store` (none without a store, or when none of
+/// the library's tracks were analysed). Returns the tracks it warns about.
 fn loudness_item(
     device: &Device,
     library: &Library,
@@ -602,20 +602,19 @@ fn loudness_item(
     item: &mut impl FnMut(&'static str, Level, String),
 ) -> Vec<sound::LoudnessFinding> {
     let Some(store) = store else { return Vec::new() };
-    let cached = sound::Cache::in_store(store).cached(device, &library.tracks);
-    if cached.is_empty() {
+    let tracks: Vec<&Track> = library.tracks.iter().collect();
+    let levels = sound::levels(store, device, &tracks);
+    if levels.is_empty() {
         return Vec::new();
     }
-    let found = sound::loudness_findings(
-        library.tracks.iter().filter_map(|t| cached.get(&t.id).map(|a| (t, a.loudness.as_ref()))),
-    );
+    let found = sound::loudness_findings(&levels);
     match found.is_empty() {
         true => item(
             "loudness",
             Level::Ok,
             format!(
                 "none of the {} analysed track(s) is over 0 dBTP, clipped or far from the rest's level",
-                cached.len()
+                levels.len()
             ),
         ),
         false => {
