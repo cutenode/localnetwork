@@ -59,8 +59,14 @@ fn list(id: u32, parent_id: Option<u32>, name: &str, track_ids: Vec<u32>) -> Pla
 /// Tracks 1 and 2 (two demo tracks), a FLAC track 3 and track [`PLUS`] only OneLibrary has;
 /// `Shows/Friday` (2, 1), a top-level `All` (1, 2, 3), `Booth` (the OneLibrary track) and a
 /// history list. Track 1 has a memory cue, a memory loop, a named hot cue A and a looping hot cue
-/// E; track 2 a beat grid alone; the OneLibrary track a hot cue B.
+/// E; track 2 a beat grid alone; the OneLibrary track a hot cue B. Traktor collections are
+/// stamped at one time (`SOURCE_DATE_EPOCH`), so one planned, written and built here is the same
+/// to the byte however the clock moves between.
 fn drive() -> Drive {
+    static STAMPED: std::sync::Once = std::sync::Once::new();
+    // SAFETY: nextest runs each test in a process of its own, and this runs before its first
+    // plugin thread starts.
+    STAMPED.call_once(|| unsafe { std::env::set_var("SOURCE_DATE_EPOCH", "1790000000") });
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("USB");
     let paths = [
@@ -297,23 +303,6 @@ fn files(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     out
 }
 
-/// An NML file without the times it was written at.
-fn unstamped(nml: &[u8]) -> String {
-    let mut text = String::from_utf8(nml.to_vec()).unwrap();
-    for attr in ["MODIFIED_DATE=\"", "MODIFIED_TIME=\"", "LOCK_MODIFICATION_TIME=\""] {
-        let mut out = String::new();
-        let mut rest = text.as_str();
-        while let Some(at) = rest.find(attr) {
-            out.push_str(&rest[..at + attr.len()]);
-            rest = &rest[at + attr.len()..];
-            rest = &rest[rest.find('"').unwrap()..];
-        }
-        out.push_str(rest);
-        text = out;
-    }
-    text
-}
-
 /// Every row of an Engine Library's tables, but for what differs each time one is made: its
 /// UUID and random indicator, and when its rows were edited.
 fn engine_rows(db: &Path) -> Vec<Vec<(String, rusqlite::types::Value)>> {
@@ -366,11 +355,11 @@ fn contents(export: &Export, out: &Path, output: &Path) -> Vec<(PathBuf, String)
     files
 }
 
-/// A file's bytes as compared: NML without its times, an Engine Library as its rows, anything
-/// else as it is.
+/// A file's bytes as compared: NML as text, an Engine Library as its rows, anything else as it
+/// is.
 fn readable(path: &Path, bytes: &[u8]) -> String {
     match path.extension().and_then(|e| e.to_str()) {
-        Some("nml") => unstamped(bytes),
+        Some("nml") => String::from_utf8(bytes.to_vec()).unwrap(),
         Some("db") => {
             let dir = tempfile::tempdir().unwrap();
             let db = dir.path().join("m.db");

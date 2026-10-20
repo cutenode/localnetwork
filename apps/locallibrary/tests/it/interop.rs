@@ -69,6 +69,21 @@ fn a_traktor_collection_is_planned_written_and_overwritten_when_asked() {
     assert_eq!(v["outcome"], "applied", "{v}");
     let nml = std::fs::read_to_string(out.join("collection.nml")).unwrap();
     assert!(nml.contains("<NODE TYPE=\"PLAYLIST\" NAME=\"Set\">"), "{nml}");
+    // Stamped at `SOURCE_DATE_EPOCH`, in local time.
+    let stamped = chrono::DateTime::from_timestamp(crate::STAMPED, 0).unwrap().with_timezone(&chrono::Local);
+    let date = stamped.format("MODIFIED_DATE=\"%Y/%-m/%-d\" MODIFIED_TIME=\"").to_string();
+    let time = chrono::Timelike::num_seconds_from_midnight(&stamped);
+    assert!(nml.contains(&format!("{date}{time}\"")), "{nml}");
+    // Refused, planned or not, when it isn't seconds since 1970.
+    for dry_run in [true, false] {
+        let mut c = env.command();
+        c.env("SOURCE_DATE_EPOCH", "soon").args(["export", d, "--format", "traktor", "-o", o, "--replace"]);
+        let r = c.args(dry_run.then_some("--dry-run")).output().unwrap();
+        let err = String::from_utf8(r.stderr).unwrap();
+        assert_eq!(r.status.code(), Some(1), "{err}");
+        assert!(err.contains("SOURCE_DATE_EPOCH isn't a number of seconds since 1970"), "{err}");
+    }
+    assert_eq!(std::fs::read_to_string(out.join("collection.nml")).unwrap(), nml, "left as it was");
     // Not again without asking (JSON never prompts: exit status 3), and with --replace.
     let r = env.run(&["--json", "export", d, "--format", "traktor", "-o", o]);
     assert_eq!(r.code, 3, "{}", r.out);

@@ -98,7 +98,9 @@ for the marked playlists or the whole drive (see [the player](player.md)). RPC:
   tempo, so a track that changes tempo keeps its first; cue colours, history lists, My Tags and
   artwork don't come across. Audio outside `/Volumes` is placed on the Mac's startup disk, by
   its name ("Macintosh HD" when exporting from another system; Traktor's Relocate finds it if
-  the Mac's is called otherwise).
+  the Mac's is called otherwise). Entries are stamped with when they were written, or with
+  `SOURCE_DATE_EPOCH` (seconds since 1970) when it's set, so a library exports the same each time;
+  the export is refused when it's set to anything else.
 - **Serato** (`_Serato_/Subcrates/*.crate`): a crate per playlist, in the playlist's order;
   folders become crates holding their crates (`Sets%%Friday.crate`), a name past 200 bytes cut
   to fit a file name. Serato keeps crates in a

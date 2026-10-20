@@ -62,18 +62,23 @@ mod support;
 mod tags;
 mod tracklist;
 
+/// When exports say they were written (`SOURCE_DATE_EPOCH`): 2026-09-21, 14:13:20 UTC.
+const STAMPED: i64 = 1_790_000_000;
+
 /// `locallibrary`, the binary cargo built for the tests, with its store at `store` and nothing to
 /// read on stdin. It looks for drives only in the folders `volumes` (none: it sees no drive), never
 /// among the ones plugged into the machine (see `LOCALLIBRARY_VOLUMES`), and has only the plugins
 /// it ships. The account settings of whoever runs the tests don't reach it, nor do their
 /// terminal's: it prints as it does piped (no colour) in a UTF-8 locale. Others' Lexicon documents
-/// come from [`lexicons`], so nothing it checks is fetched.
+/// come from [`lexicons`], so nothing it checks is fetched. Traktor collections are stamped at one
+/// time ([`STAMPED`]), so a dry run's sizes are what's written however the clock moves between.
 fn locallibrary(store: &Path, volumes: &[&Path]) -> Command {
     let mut c = Command::cargo_bin("locallibrary").unwrap();
     #[cfg(feature = "account")]
     c.env("LOCALLIBRARY_LEXICONS", lexicons());
     c.env("LOCALLIBRARY_STORE", store)
         .env("LOCALLIBRARY_VOLUMES", std::env::join_paths(volumes).unwrap())
+        .env("SOURCE_DATE_EPOCH", STAMPED.to_string())
         .env_remove("LOCALLIBRARY_OAUTH_CLIENT_ID")
         .env_remove("LOCALLIBRARY_SESSION_STORE")
         .env_remove("LOCALLIBRARY_TEST_PLUGINS")

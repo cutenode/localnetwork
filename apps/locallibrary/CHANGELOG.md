@@ -521,7 +521,8 @@ their old names.
   files apart by volume serial and file index.
 - The player quits cleanly on SIGINT, SIGTERM and SIGHUP, and space while a track is opening
   decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
-  real startup disk name.
+  real startup disk name, and stamps its entries with `SOURCE_DATE_EPOCH` when it's set (refusing
+  a value that isn't seconds since 1970).
 
 ### Fixed
 
