@@ -1093,8 +1093,9 @@ impl SyncMachine {
     }
 
     /// Pulling a drive saves its state as the library's latest when it's newer than the
-    /// latest (once: pulling it again is up to date), labelled when asked; an older or other
-    /// state is refused, as is a label blank or already taken, or a library not there yet.
+    /// latest (once: pulling it again is up to date), labelled when asked; an older state is
+    /// refused offering a push that can be made (saved or not), and one that went its own way as
+    /// diverged; so is a label blank or already taken, or a library not there yet.
     #[rule(weight = 2)]
     fn pull(&mut self, tc: TestCase) {
         let Some(i) = self.with_export(&tc) else { return };
@@ -1153,9 +1154,19 @@ impl SyncMachine {
                 assert!(report.up_to_date, "{report:?}");
                 self.labels.extend(label);
             }
-            Some(_) => {
+            // `RightNewer`: the latest went through this state.
+            Some(Some(_)) => {
                 let e = res.unwrap_err();
-                assert!(matches!(e.inner(), Error::Conflict(_)), "{e}");
+                assert_eq!(e.reason(), Some(Reason::OlderThanStore), "{e}");
+                let push = e.detail().actions.into_iter().find(|a| a.method.as_deref() == Some("push.plan"));
+                let req: api::PushRequest =
+                    serde_json::from_value(Value::Object(push.expect("a push").params)).unwrap();
+                assert_described(&api::push_plan(&self.store, &req, &Ctx::silent()).unwrap());
+            }
+            // Neither went through the other's state.
+            Some(None) => {
+                let e = res.unwrap_err();
+                assert_eq!(e.reason(), Some(Reason::DivergedFromStore), "{e}");
             }
         }
         let lib = self.store.find_library("Home").unwrap();
@@ -1163,9 +1174,9 @@ impl SyncMachine {
         assert_eq!(history.first().map(|s| s.id), lib.and_then(|l| l.head));
     }
 
-    /// Pushing writes the library's latest onto a drive that's blank or holds a state the store
-    /// has, after which it holds exactly that state; a drive with changes the store doesn't have
-    /// is refused.
+    /// Pushing writes the library's latest onto a drive that's blank, holds a state the store
+    /// has or one the latest went through, after which it holds exactly that state; a drive with
+    /// changes the store doesn't have is refused.
     #[rule(weight = 2)]
     fn push(&mut self, tc: TestCase) {
         let Some(head) = self.head else { return };
@@ -1180,7 +1191,8 @@ impl SyncMachine {
             delete_first: false,
         };
         let planned = api::push_plan(&self.store, &req, &Ctx::silent());
-        let saved = self.held[j].is_none_or(|s| self.fingerprints[s].is_some_and(|f| self.saved.contains(&f)));
+        let saved = self.held[j]
+            .is_none_or(|s| self.fingerprints[s].is_some_and(|f| self.saved.contains(&f)) || self.descends(head, s));
         if !saved {
             let e = planned.unwrap_err();
             assert_eq!(e.reason(), Some(Reason::NotSaved), "{e}");
@@ -1302,6 +1314,28 @@ fn a_drive_that_made_the_change_another_made_is_behind_it_once_that_moved_on() {
     assert_eq!(api::compare(&pair, &Ctx::silent()).unwrap().relation, Relation::LeftNewer);
     let all = common::sync_many(&m.roots.iter().map(PathBuf::as_path).collect::<Vec<_>>());
     assert_eq!(api::sync_many_plan(&all, &Ctx::silent()).unwrap().source, *main);
+}
+
+/// The fourth: Main gets a playlist, is synced onto Backup, then rates a track and is pulled.
+/// Backup's state was never saved, but the library's latest went through it: Backup is behind,
+/// so its pull is refused as older, and the push it offers brings it up to date.
+#[test]
+fn a_drive_the_librarys_latest_went_through_is_behind_it_unsaved() {
+    let m = SyncMachine::new();
+    let (main, backup) = (&m.roots[0], &m.roots[1]);
+    edit_drive(&m, 0, Edit::CreatePlaylist { path: "Friday".into(), folder: false });
+    api::sync_apply(Some(&m.store), &common::sync_pair(main, backup), &Ctx::silent()).unwrap();
+    rate(&m, 0, library(main).tracks[0].rating % 5 + 1);
+    pull_home(&m, 0, true).unwrap();
+    let e = pull_home(&m, 1, false).unwrap_err();
+    assert_eq!(e.reason(), Some(Reason::OlderThanStore), "{e}");
+    assert!(!e.to_string().contains("snapshot"), "names no snapshot: {e}");
+    let detail = e.detail();
+    assert!(!detail.fields.contains_key("snapshot"), "{:?}", detail.fields);
+    let push = detail.actions.iter().find(|a| a.method.as_deref() == Some("push.plan")).expect("offers a push");
+    let req: api::PushRequest = serde_json::from_value(Value::Object(push.params.clone())).unwrap();
+    api::push_apply(&m.store, &req, &Ctx::silent()).unwrap();
+    assert_eq!(fingerprint(backup), fingerprint(main), "Backup holds the library's latest");
 }
 
 // ---------------------------------------------------------------------------------------------

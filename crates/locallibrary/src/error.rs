@@ -120,8 +120,9 @@ pub enum Reason {
     /// What would be overwritten (a library state, history lists) isn't saved in the store:
     /// pull the drive first, or force it.
     NotSaved,
-    /// The drive holds an older state of the library than the store: push to update it, or
-    /// force the pull to record it as the newest.
+    /// The drive holds an older state of the library than the store: one its latest went
+    /// through, or an earlier snapshot's (`fields.snapshot`, when a snapshot holds it). Push to
+    /// update it, or force the pull to record it as the newest.
     OlderThanStore,
     /// The drive's library has diverged from the store's: force the pull, pull into another
     /// library, or merge.

@@ -6618,13 +6618,19 @@ export type Standing =
   | {
     standing: "up_to_date";
   }
-  /** It held an older snapshot: `snapshots` newer ones have been saved since. */
+  /**
+   * It held an older state: `snapshots` newer ones have been saved since. `held` is the
+   * snapshot holding it, none when the library's latest went through it unsaved.
+   */
   | {
     snapshots: number;
-    held: string;
+    held: string | null;
     standing: "behind";
   }
-  /** It held a state the store never saved (a later export or edit that wasn't pulled). */
+  /**
+   * It held a state the store never saved, which the library's latest never went through (a
+   * later export or edit that wasn't pulled).
+   */
   | {
     standing: "unsaved";
   }
@@ -7855,8 +7861,9 @@ export type Reason =
    */
   | "not_saved"
   /**
-   * The drive holds an older state of the library than the store: push to update it, or
-   * force the pull to record it as the newest.
+   * The drive holds an older state of the library than the store: one its latest went
+   * through, or an earlier snapshot's (`fields.snapshot`, when a snapshot holds it). Push to
+   * update it, or force the pull to record it as the newest.
    */
   | "older_than_store"
   /**

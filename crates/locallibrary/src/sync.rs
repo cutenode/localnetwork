@@ -1124,6 +1124,7 @@ fn pull_into(
     let scanned = device.scan_fingerprinted(Some(&library), ctx)?;
     let fp = scanned.fingerprint.ok_or_else(|| Error::NotAnExport(device.root().into()))?;
     let legacy = scanned.legacy_fingerprints.clone();
+    let recorded: Vec<Hash> = scanned.fingerprints().collect();
     let mut tree = scanned.tree;
 
     // Resolve the target library.
@@ -1175,29 +1176,38 @@ fn pull_into(
         let descends = device.state().is_some_and(|s| s.knows(&head.fingerprint, &head.lineage));
         if !descends && !opts.force {
             let mut older = None;
-            for fp in std::iter::once(fp).chain(legacy) {
-                older = store.find_by_fingerprint(&lib, &fp)?;
+            for fp in &recorded {
+                older = store.find_by_fingerprint(&lib, fp)?;
                 if older.is_some() {
                     break;
                 }
             }
+            // Older when it's saved in the library, or the library's latest went through it
+            // after every state the two share (as compare tells), saved or not.
+            let lineage = device.state().map_or(&[][..], |s| &s.lineage[..]);
+            let behind = older.is_some() || crate::device::has_held(&head.lineage, &recorded, lineage);
             let drive = device.root().display().to_string();
-            return Err(match older {
-                Some(s) => Error::conflict(
+            let refused = if behind {
+                let named = older.as_ref().map(|s| format!(" (snapshot {})", s.short_id)).unwrap_or_default();
+                let older_than = Error::conflict(
                     Reason::OlderThanStore,
                     format!(
-                        "the drive holds an older state of {:?} (snapshot {}); push to update the drive, or force the pull to record it as the newest",
-                        lib.name, s.short_id
+                        "the drive holds an older state of {:?}{named}; push to update the drive, or force the pull to record it as the newest",
+                        lib.name
                     ),
-                )
-                .with("snapshot", &s.short_id)
+                );
+                match older {
+                    Some(s) => older_than.with("snapshot", &s.short_id),
+                    None => older_than,
+                }
                 .action(Action::call(
                     "push.plan",
                     serde_json::json!({ "drive": drive, "library": lib.name }),
                     format!("Update the drive from {:?}", lib.name),
                 ))
-                .action(Action::retry(serde_json::json!({ "force": true }), "Record it as the newest")),
-                None => Error::conflict(
+                .action(Action::retry(serde_json::json!({ "force": true }), "Record it as the newest"))
+            } else {
+                Error::conflict(
                     Reason::DivergedFromStore,
                     format!(
                         "the drive's library has diverged from {:?} (or was never synced with it); force the pull to make it the newest state, pull into a different library, or merge",
@@ -1205,10 +1215,9 @@ fn pull_into(
                     ),
                 )
                 .action(Action::retry(serde_json::json!({ "force": true }), "Make it the newest state"))
-                .action(Action::retry(serde_json::json!({ "library": null }), "Pull into another library")),
-            }
-            .with("drive", &drive)
-            .with("library", &lib.name));
+                .action(Action::retry(serde_json::json!({ "library": null }), "Pull into another library"))
+            };
+            return Err(refused.with("drive", &drive).with("library", &lib.name));
         }
     }
 
@@ -1400,12 +1409,14 @@ pub fn plan_push(
 ///
 /// The drive's own lineage isn't enough: merges, artwork edits and drive-to-drive syncs record
 /// new states there without snapshotting them. Only a state that exists as a snapshot is safe to
-/// overwrite.
+/// overwrite, or one the snapshot written went through (the drive is behind it, as compare tells):
+/// its changes are all in the snapshot already.
 fn guard_unsaved_changes(store: &Store, device: &Device, fps: &[Hash], snapshot: &Snapshot) -> Result<()> {
     if fps.is_empty() {
         return Ok(()); // empty drive
     }
-    if fps.contains(&snapshot.fingerprint) {
+    let lineage = device.state().map_or(&[][..], |s| &s.lineage[..]);
+    if fps.contains(&snapshot.fingerprint) || crate::device::has_held(&snapshot.lineage, fps, lineage) {
         return Ok(());
     }
     let head_snapshot = device

@@ -555,6 +555,13 @@ their old names.
   which folder each is about.
 - A plugin's response that isn't JSON fails the request it answers even when it ends on a
   backslash inside a string, where that request was left waiting.
+- A drive holding a state the library's latest snapshot went through, though no snapshot holds
+  it (synced from the main drive before its next change was pulled), is behind the library.
+  `pull` refused it as diverged and offered to force it, which would have rolled the library
+  back; it's now refused as older, offering `library push`, which takes it (the
+  `older_than_store` error leaves out `fields.snapshot` when no snapshot holds the state).
+  `status`, `drive ls --known` and the player say such a drive that isn't plugged in is
+  behind, where they said it had changes not in the store.
 
 ### Security
 

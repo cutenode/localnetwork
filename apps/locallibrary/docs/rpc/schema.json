@@ -26108,7 +26108,10 @@
               "minimum": 0
             },
             "held": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "standing": {
               "type": "string",
@@ -26120,7 +26123,7 @@
             "snapshots",
             "held"
           ],
-          "description": "It held an older snapshot: `snapshots` newer ones have been saved since."
+          "description": "It held an older state: `snapshots` newer ones have been saved since. `held` is the\nsnapshot holding it, none when the library's latest went through it unsaved."
         },
         {
           "type": "object",
@@ -26133,7 +26136,7 @@
           "required": [
             "standing"
           ],
-          "description": "It held a state the store never saved (a later export or edit that wasn't pulled)."
+          "description": "It held a state the store never saved, which the library's latest never went through (a\nlater export or edit that wasn't pulled)."
         },
         {
           "type": "object",
@@ -30167,7 +30170,7 @@
         {
           "type": "string",
           "const": "older_than_store",
-          "description": "The drive holds an older state of the library than the store: push to update it, or\nforce the pull to record it as the newest."
+          "description": "The drive holds an older state of the library than the store: one its latest went\nthrough, or an earlier snapshot's (`fields.snapshot`, when a snapshot holds it). Push to\nupdate it, or force the pull to record it as the newest."
         },
         {
           "type": "string",

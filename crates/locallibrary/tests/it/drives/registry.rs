@@ -5,12 +5,14 @@ use std::path::Path;
 
 use crate::common;
 
+use hegel::generators as gs;
+use hegel::{HealthCheck, TestCase};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::error::Reason;
 use locallibrary::fleet::{self, Check, Hardware, Role, Standing};
 use locallibrary::progress::Ctx;
 use locallibrary::store::Store;
-use locallibrary::sync::{self, PullOptions};
+use locallibrary::sync::{self, PullOptions, SyncOptions};
 
 fn store(dir: &Path) -> Store {
     Store::open_or_init(dir.join("store")).unwrap()
@@ -75,6 +77,53 @@ fn drives_not_linked_to_a_library_have_no_standing() {
     assert!(matches!(known[1].standing, Standing::Unknown), "{:?}", known[1].standing);
     let known = fleet::known(&store, &[], false).unwrap();
     assert_eq!(known.iter().map(|k| k.name.as_str()).collect::<Vec<_>>(), ["alpha", "Zed"]);
+}
+
+/// A drive last seen holding a state of its library (synced from the primary after an export,
+/// saved or not) stands as the library went on since: up to date while that's its latest, behind
+/// once the primary's next export is pulled on top (naming the snapshot when one holds its
+/// state), and holding changes the store lacks once it gets an export of its own.
+#[hegel::test(test_cases = 6, suppress_health_check = [HealthCheck::TooSlow])]
+fn a_drive_stands_as_its_library_went_on_since(tc: TestCase) {
+    let saved = tc.draw(gs::booleans());
+    let then = tc.draw(gs::sampled_from(vec!["nothing", "primary", "own"]));
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let mut main = drive(dir.path(), "Main");
+    pull(&store, &mut main, None);
+    common::export_new_track(main.root(), "Artist", "Synced");
+    let mut main = Device::open_export(main.root()).unwrap();
+    if saved {
+        pull(&store, &mut main, None);
+    }
+    let mut backup = Device::open(common::blank(dir.path(), "Backup")).unwrap();
+    sync::sync_drive_to_drive(&mut main, &mut backup, &SyncOptions::default(), &Ctx::silent()).unwrap();
+    sync::register_drive(&store, &backup, None).unwrap();
+    match then {
+        "primary" => {
+            common::export_new_track(main.root(), "Artist", "Pulled");
+            pull(&store, &mut Device::open_export(main.root()).unwrap(), None);
+        }
+        "own" => {
+            common::export_new_track(backup.root(), "Artist", "Own");
+            let own = Device::open_export(backup.root()).unwrap();
+            let fp = own.scan_fingerprinted(None, &Ctx::silent()).unwrap().fingerprint;
+            sync::register_drive(&store, &own, fp).unwrap();
+        }
+        _ => {}
+    }
+    let known = fleet::known(&store, &[], false).unwrap();
+    let standing = &known.iter().find(|k| k.name == "Backup").expect("Backup is registered").standing;
+    match (then, saved) {
+        ("nothing", true) => assert!(matches!(standing, Standing::UpToDate), "{standing:?}"),
+        ("primary", _) => {
+            assert!(
+                matches!(standing, Standing::Behind { snapshots: 1, held } if held.is_some() == saved),
+                "{standing:?}"
+            )
+        }
+        _ => assert!(matches!(standing, Standing::Unsaved), "{standing:?}"),
+    }
 }
 
 /// The name is trimmed, an empty one refused, and the registry follows.
