@@ -34,7 +34,7 @@ fn events_are_handled_in_order_after_hello() {
         |drive: &str| EventNotify { event: EventName::DriveMounted, drive: Some(drive.into()), payload: json!({}) };
     s.host.notify(method::EVENT_NOTIFY, &event("early"));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["events", "blobs", "net", "choose"]);
+    assert_eq!(reply.features, ["analysis", "events", "blobs", "net", "choose"]);
     for drive in ["A", "B"] {
         s.host.notify(method::EVENT_NOTIFY, &event(drive));
     }
@@ -83,7 +83,7 @@ fn a_service_runs_until_cancelled() {
     };
     let s = start_with(with_service(), Hooks::new().on(service));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["services", "blobs", "net", "choose"]);
+    assert_eq!(reply.features, ["analysis", "services", "blobs", "net", "choose"]);
     let e = s.call(method::SERVICE_START, json!({ "service": "other" })).unwrap_err();
     assert_eq!(e.message, "invalid params: the manifest declares no service \"other\"");
     let running = s.host.send_request(method::SERVICE_START, &json!({ "service": "beat" })).unwrap();
