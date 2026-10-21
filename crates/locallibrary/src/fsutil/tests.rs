@@ -7,8 +7,9 @@ fn paths_are_made_absolute_lexically() {
     assert!(absolute(Path::new("x")).is_absolute());
 }
 
-/// The part of a path that exists is resolved (symlinks too), the rest appended; `..` below a
-/// folder that isn't there yet is folded first. Regression: export's own copy of this left
+/// The part of a path that exists is resolved (symlinks too, a `..` after one stepping out of its
+/// target), the rest appended; `..` below a folder that isn't there yet takes it away.
+/// Regressions: `..` after a link went back to the link's folder; export's own copy of this left
 /// such a path unresolved, so `/tmp/new/../out` and `/private/tmp/out` didn't compare.
 #[test]
 fn the_part_that_exists_is_resolved() {
@@ -19,6 +20,10 @@ fn the_part_that_exists_is_resolved() {
     {
         std::os::unix::fs::symlink(&real, real.join("link")).unwrap();
         assert_eq!(resolved(&real.join("link/missing/../there")), real.join("there"));
+        // `..` out of a link is the folder its target is in, where the OS takes it.
+        fs::create_dir_all(real.join("deep/er")).unwrap();
+        std::os::unix::fs::symlink(real.join("deep/er"), real.join("up")).unwrap();
+        assert_eq!(resolved(&real.join("up/../x")), real.join("deep/x"));
     }
 }
 
@@ -283,6 +288,9 @@ fn json_reads_back_what_was_written(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 60)]
 #[hegel::explicit_test_case(parts = vec!["a", "..", ".", "b"], rooted = false, made = 1usize)]
 #[hegel::explicit_test_case(parts = Vec::<&str>::new(), rooted = false, made = 0usize)]
+// Regression: `..` was folded before symlinks were resolved, so this many up from a macOS temp
+// folder (`/var/folders/xx/yyy/T/.tmpX`, `/var` being `/private/var`) gave `/`, not `/private`.
+#[hegel::explicit_test_case(parts = vec![".."; 6], rooted = false, made = 0usize)]
 fn paths_are_folded_part_by_part(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "..", ".", "c d"])).max_size(6));
