@@ -3,6 +3,7 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{PoisonError, RwLock};
 
 use filetime::FileTime;
 
@@ -36,18 +37,32 @@ pub fn is_online_only(meta: &fs::Metadata) -> bool {
     }
 }
 
+/// Held exclusively while [`replace`] renames a file into place, and shared by [`unreplaced`].
+static REPLACING: RwLock<()> = RwLock::new(());
+
+/// Rename the temp file `tmp` over `dst`. On Windows a rename over a file that another handle
+/// has open fails ("Access is denied"), as do two renames onto one file at once, so this waits
+/// for the other renames this process makes and for the looks [`unreplaced`] takes.
+pub fn replace(tmp: tempfile::TempPath, dst: &Path) -> Result<()> {
+    let _held = REPLACING.write().unwrap_or_else(PoisonError::into_inner);
+    tmp.persist(dst).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })
+}
+
+/// Run `look` (a few `stat` calls, a small file read) while this process renames nothing into
+/// place (see [`replace`]): a watcher polling a drive that another thread is writing.
+pub fn unreplaced<T>(look: impl FnOnce() -> T) -> T {
+    let _held = REPLACING.read().unwrap_or_else(PoisonError::into_inner);
+    look()
+}
+
 /// Write `bytes` to `path` atomically (temp file in the same directory, fsync, rename).
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = stage_bytes(path, bytes)?;
-    tmp.persist(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e.error })?;
-    Ok(())
+    replace(stage_bytes(path, bytes)?.into_temp_path(), path)
 }
 
 /// [`write_atomic`] for secrets: the file is readable by its owner only, whatever `path` was.
 pub fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = stage(path, bytes, true)?;
-    tmp.persist(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e.error })?;
-    Ok(())
+    replace(stage(path, bytes, true)?.into_temp_path(), path)
 }
 
 /// A temp file `builder` makes in `dir`, an error said of `dir`: tempfile adds the random name it
@@ -162,7 +177,7 @@ pub fn copy_file(
     if let Some(secs) = mtime {
         filetime::set_file_handle_times(tmp.as_file(), None, Some(FileTime::from_unix_time(secs, 0))).at(tmp.path())?;
     }
-    tmp.persist(dst).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })?;
+    replace(tmp.into_temp_path(), dst)?;
     Ok(hash)
 }
 
@@ -268,8 +283,7 @@ pub fn write_deferred(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::create_dir_all(dir).at(dir)?;
     let mut tmp = temp_for(dir, path, "")?;
     tmp.write_all(bytes).at(tmp.path())?;
-    tmp.persist(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e.error })?;
-    Ok(())
+    replace(tmp.into_temp_path(), path)
 }
 
 /// Make previously written files durable (the barrier before a commit point).
