@@ -372,6 +372,9 @@ fn means(c: &Capability) -> String {
         Capability::TagsPlan => "plan My Tag changes, which you confirm",
         Capability::CuesPlan => "plan cue changes, which you confirm",
         Capability::ArtworkPlan => "plan cover art changes, which you confirm",
+        Capability::EventsDrives => "hear of drives plugged in, unplugged, changed and saved into the store",
+        Capability::EventsJobs => "hear of the sidecar's requests finishing",
+        Capability::EventsPlans => "hear of changes applied, and what they were",
         Capability::Net(host) => {
             return match host.strip_prefix("*.") {
                 Some(domain) => format!("talk to any server under {domain}"),

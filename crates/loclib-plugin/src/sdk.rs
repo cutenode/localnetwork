@@ -16,7 +16,10 @@ use crate::protocol::{
     Fetch, Fetched, Hello, HelloReply, Partial, PluginInfo, ProgressEvent, ProgressParams, ProgressReport, Progressed,
     StepInfo, StepStarted, check_protocol, method,
 };
-use crate::{Contributions, FEATURES, Incoming, ListItem, Manifest, PROTOCOL_VERSION, Peer, Request, RpcError};
+use crate::{
+    Contributions, EventNotify, FEATURES, HostNotify, Incoming, ListItem, Manifest, PROTOCOL_VERSION, Peer, Request,
+    RpcError,
+};
 
 /// A request the host sends a hook: its method, what it answers, and the contribution it's for,
 /// which the manifest must declare.
@@ -43,10 +46,17 @@ pub(crate) fn declared<'a>(
 /// Runs a hook: its params, checked as its [`Hook`] says, to its answer.
 type Handler = Box<dyn Fn(Value, &Contributions, &Host) -> Result<Value, RpcError> + Send + Sync>;
 
-/// The hooks a plugin implements, by method. One it has none for answers `method_not_found`, and
-/// `hello` lists the features of those it has.
+/// Handles a notification from the host: its params.
+type Notified = Box<dyn Fn(Value, &Host) -> Result<(), RpcError> + Send + Sync>;
+
+/// The hooks a plugin implements, by method, and the host's notifications it handles. A request
+/// it has none for answers `method_not_found` (a notification is dropped), and `hello` lists the
+/// features of those it has.
 #[derive(Default)]
-pub struct Hooks(FxHashMap<&'static str, Handler>);
+pub struct Hooks {
+    hooks: FxHashMap<&'static str, Handler>,
+    notified: FxHashMap<&'static str, Notified>,
+}
 
 impl Hooks {
     pub fn new() -> Hooks {
@@ -65,14 +75,28 @@ impl Hooks {
             req.declared(contributes)?;
             ok(hook(req, host)?.into())
         };
-        self.0.insert(H::METHOD, Box::new(run));
+        self.hooks.insert(H::METHOD, Box::new(run));
+        self
+    }
+
+    /// Handles the host's `event/notify` with `handle`, one event at a time in the order they
+    /// came, on a thread of their own. Its [`Host`] answers no request: it calls back and sends
+    /// `host/notify` as a hook's does, and nothing cancels it. What it fails with goes to the
+    /// plugin's log.
+    pub fn on_event(
+        mut self,
+        handle: impl Fn(EventNotify, &Host) -> Result<(), RpcError> + Send + Sync + 'static,
+    ) -> Hooks {
+        let run = move |args: Value, host: &Host| handle(params(args)?, host);
+        self.notified.insert(method::EVENT_NOTIFY, Box::new(run));
         self
     }
 
     /// The features with a method among these hooks', and the SDK's own (`blobs`, `net`, what a
     /// hook may send the host, see [`Host`]; `choose`, a question it may answer).
     fn features(&self) -> Vec<String> {
-        let had = FEATURES.iter().filter(|f| f.methods.is_empty() || f.methods.iter().any(|m| self.0.contains_key(m)));
+        let handled = |m: &&str| self.hooks.contains_key(m) || self.notified.contains_key(m);
+        let had = FEATURES.iter().filter(|f| f.methods.is_empty() || f.methods.iter().any(handled));
         had.map(|f| f.name.into()).collect()
     }
 }
@@ -118,7 +142,11 @@ impl Host {
     /// don't grant. Once the host cancels the hook, this fails with `cancelled` (a call under way
     /// is cancelled too).
     pub fn call<P: Serialize, R: DeserializeOwned>(&self, method: &str, params: &P) -> Result<R, RpcError> {
-        self.peer.send_request_within(&self.id, method, params)?.wait()
+        // An event's answers no request, which could be cancelled.
+        match self.id.is_null() {
+            true => self.peer.send_request(method, params)?.wait(),
+            false => self.peer.send_request_within(&self.id, method, params)?.wait(),
+        }
     }
 
     /// For the hook's work: its events go to the host as `progress` (byte counts and per-file
@@ -145,6 +173,12 @@ impl Host {
     pub fn partial_items(&self, items: Vec<ListItem>) {
         self.peer.notify(method::PARTIAL, &Partial { id: self.id.clone(), rows: Vec::new(), items });
     }
+
+    /// Tells the user something (`host/notify`), from an event or a service: a line, and maybe
+    /// an operation of the plugin's to review, which the host plans only if they choose to.
+    pub fn notify(&self, notice: &HostNotify) {
+        self.peer.notify(method::HOST_NOTIFY, notice);
+    }
 }
 
 /// What [`serve`] serves: the manifest and the hooks.
@@ -154,8 +188,9 @@ struct Served {
 }
 
 /// Serves `hooks` over `input` and `output` (stdin and stdout, for a real plugin) until `input`
-/// closes, then cancels the hooks still running and returns once they have answered. Until the
-/// host's `hello` every request is refused; `describe` answers `manifest` (the plugin's
+/// closes, then cancels the hooks still running and returns once they have answered and the
+/// events sent are handled. Until the host's `hello` every request is refused (and every
+/// notification dropped); `describe` answers `manifest` (the plugin's
 /// `locallibrary-plugin.toml`), which must parse.
 ///
 /// Cancelling is cooperative: a hook that never checks its `ctx()` runs to its end. A host should
@@ -170,9 +205,38 @@ pub fn serve(manifest: &str, hooks: Hooks, input: impl Read + Send + 'static, ou
     let flushing = std::thread::spawn(move || flushing.run(PROGRESS_EVERY));
     let mut greeted = false;
     let mut running = Vec::new();
+    // The host's notifications, handled in order on a thread of their own.
+    let (notify, notified) = std::sync::mpsc::channel::<(String, Value)>();
+    let handling = (!served.hooks.notified.is_empty()).then(|| {
+        let (peer, served, flusher) = (peer.clone(), served.clone(), flusher.clone());
+        std::thread::spawn(move || {
+            for (method, params) in notified {
+                let host = Host::new(peer.clone(), served.clone(), Value::Null, CancelToken::new(), &flusher);
+                let run = || served.hooks.notified[method.as_str()](params, &host);
+                let failed = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+                    Ok(Ok(())) => None,
+                    Ok(Err(e)) => Some(e.message),
+                    Err(_) => Some("internal error".into()),
+                };
+                host.progress.finish();
+                if let Some(why) = failed {
+                    eprintln!("loclib-plugin: handling {method}: {why}");
+                }
+            }
+        })
+    });
     for msg in incoming {
-        // The host sends no notifications but `$/cancel`, which the peer handles.
-        let Incoming::Request(req) = msg else { continue };
+        let req = match msg {
+            Incoming::Request(req) => req,
+            // Before `hello`, or one it has no handler for, it's dropped (`$/cancel` the peer
+            // handles).
+            Incoming::Notification { method, params } => {
+                if greeted && served.hooks.notified.contains_key(method.as_str()) {
+                    let _ = notify.send((method, params));
+                }
+                continue;
+            }
+        };
         let result = match req.method.as_str() {
             method::HELLO if greeted => Err(RpcError::invalid_request("hello was sent already")),
             method::HELLO => params(req.params).and_then(|hello: Hello| {
@@ -188,7 +252,7 @@ pub fn serve(manifest: &str, hooks: Hooks, input: impl Read + Send + 'static, ou
             }),
             _ if !greeted => Err(RpcError::invalid_request("hello first")),
             method::DESCRIBE => ok(&served.manifest),
-            hook if served.hooks.0.contains_key(hook) => {
+            hook if served.hooks.hooks.contains_key(hook) => {
                 let (peer, served, flusher) = (peer.clone(), served.clone(), flusher.clone());
                 running.retain(|hook: &std::thread::JoinHandle<()>| !hook.is_finished());
                 running.push(std::thread::spawn(move || {
@@ -197,7 +261,7 @@ pub fn serve(manifest: &str, hooks: Hooks, input: impl Read + Send + 'static, ou
                     let run = || {
                         // Cancelled before it started.
                         host.ctx().check()?;
-                        served.hooks.0[method.as_str()](params, &served.manifest.contributes, &host)
+                        served.hooks.hooks[method.as_str()](params, &served.manifest.contributes, &host)
                     };
                     // A bug in the plugin must not leave the host waiting forever for a response.
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or_else(|_| {
@@ -212,7 +276,8 @@ pub fn serve(manifest: &str, hooks: Hooks, input: impl Read + Send + 'static, ou
         };
         peer.respond(&req.id, result);
     }
-    for hook in running {
+    drop(notify);
+    for hook in running.into_iter().chain(handling) {
         let _ = hook.join();
     }
     flusher.stop();

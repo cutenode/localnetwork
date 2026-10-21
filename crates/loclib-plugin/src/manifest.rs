@@ -45,10 +45,12 @@ pub struct Manifest {
 #[serde(default)]
 pub struct Contributions {
     pub commands: Vec<hooks::commands::Command>,
+    pub events: Vec<hooks::events::Listener>,
     pub operations: Vec<hooks::operations::Operation>,
     pub analyzers: Vec<hooks::analyzers::Analyzer>,
     pub exporters: Vec<hooks::exporters::Exporter>,
     pub providers: Vec<hooks::providers::Provider>,
+    pub services: Vec<hooks::services::Service>,
     pub settings: Vec<Setting>,
 }
 
@@ -225,6 +227,13 @@ pub enum Capability {
     TagsPlan,
     CuesPlan,
     ArtworkPlan,
+    /// Told of drives plugged in, unplugged, changed and saved into the store, and sets coming
+    /// back (`event/notify`).
+    EventsDrives,
+    /// Told of the sidecar's requests finishing.
+    EventsJobs,
+    /// Told of plans applied.
+    EventsPlans,
     /// `net:<host>`: it talks to this server through the host (`net/fetch`), or with
     /// `net:*.<domain>` to any server below that domain. Shown to the user; a native plugin can't
     /// be held to it.
@@ -233,7 +242,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability but `net:<host>`.
-    pub const NAMED: [Capability; 16] = [
+    pub const NAMED: [Capability; 19] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
         Capability::ArtworkRead,
@@ -250,6 +259,9 @@ impl Capability {
         Capability::TagsPlan,
         Capability::CuesPlan,
         Capability::ArtworkPlan,
+        Capability::EventsDrives,
+        Capability::EventsJobs,
+        Capability::EventsPlans,
     ];
 
     /// Its name, unless it's `net:<host>`.
@@ -271,6 +283,9 @@ impl Capability {
             Capability::TagsPlan => "tags:plan",
             Capability::CuesPlan => "cues:plan",
             Capability::ArtworkPlan => "artwork:plan",
+            Capability::EventsDrives => "events:drives",
+            Capability::EventsJobs => "events:jobs",
+            Capability::EventsPlans => "events:plans",
             Capability::Net(_) => return None,
         })
     }
@@ -567,10 +582,12 @@ impl Manifest {
             }
         }
         hooks::commands::validate(self)?;
+        hooks::events::validate(self)?;
         hooks::operations::validate(self)?;
         hooks::analyzers::validate(self)?;
         hooks::exporters::validate(self)?;
         hooks::providers::validate(self)?;
+        hooks::services::validate(self)?;
         let at = "contributes.settings";
         unique_names(at, "key", c.settings.iter().map(|x| x.key.as_str()).enumerate())?;
         for (i, x) in c.settings.iter().enumerate() {

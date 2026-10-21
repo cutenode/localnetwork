@@ -14,8 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, Exported, ExportedFile, Fetch, FieldValue, Hooks,
-    Host, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, RpcError, RunCommand, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, EventNotify, Exported, ExportedFile, Fetch,
+    FieldValue, Hooks, Host, HostNotify, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, RpcError, RunCommand,
+    StartService, Suggested, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -65,6 +66,12 @@ impl Test {
         }
         if has("providers") {
             hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));
+        }
+        if has("events") {
+            hooks = hooks.on_event(heard);
+        }
+        if has("services") {
+            hooks = hooks.on(serve_service);
         }
         hooks
     }
@@ -236,6 +243,34 @@ impl Test {
         }
         let warnings = params(answer.get("warnings").cloned().unwrap_or(json!([])))?;
         Ok(Candidates { candidates, warnings })
+    }
+}
+
+/// An event: logged (`event <name> <drive> <payload>`), and told back to the user, suggesting
+/// echo's `playlist` named after it.
+fn heard(e: EventNotify, host: &Host) -> Result<(), RpcError> {
+    let name = e.event.name();
+    eprintln!("event {name} {} {}", e.drive.as_deref().unwrap_or("-"), e.payload);
+    let operation = Some(Suggested { name: "playlist".into(), params: json!({ "name": name }) });
+    host.notify(&HostNotify { message: format!("heard {name}"), operation });
+    Ok(())
+}
+
+/// A service, as its name says: `crash` exits as it starts, `quits` answers at once, and any
+/// other tells the user it started and runs until it's cancelled. Each logs `service <name>
+/// started` first.
+fn serve_service(req: StartService, host: &Host) -> Result<(), RpcError> {
+    eprintln!("service {} started", req.service);
+    match req.service.as_str() {
+        "crash" => std::process::exit(3),
+        "quits" => Ok(()),
+        name => {
+            host.notify(&HostNotify { message: format!("{name} is running"), operation: None });
+            loop {
+                host.ctx().check()?;
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
     }
 }
 

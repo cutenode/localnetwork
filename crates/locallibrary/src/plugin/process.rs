@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
+use indexmap::IndexMap;
 use loclib_plugin::framing::{Line, read_line};
 use loclib_plugin::{
     Cancel, Context, FEATURES, Hello, HelloReply, HostInfo, Manifest, PROTOCOL_VERSION, Partial, Peer, ProgressReport,
@@ -19,6 +20,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::blobs::{Scratch, Scratches};
+use super::events::Queue;
+use super::services::Running;
 use super::{Launch, Options, Reads, callbacks, net};
 use crate::device::Device;
 use crate::error::IoContext;
@@ -62,6 +65,10 @@ pub(crate) struct Slot {
     changing: Mutex<()>,
     /// Its `net/fetch` requests' turns, client and secrets, whichever process makes them.
     pub(crate) net: Arc<net::State>,
+    /// Its events waiting to be sent.
+    pub(crate) events: Arc<Queue>,
+    /// Its services running, by name.
+    pub(crate) services: Mutex<IndexMap<String, Running>>,
 }
 
 /// What a process's callbacks need besides its plugin.
@@ -195,7 +202,7 @@ fn process_elevated() -> bool {
 
 /// `line` without terminal escape sequences or other control characters (but tabs), which would
 /// draw on a terminal UI's screen.
-fn printable(line: &str) -> String {
+pub(crate) fn printable(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
     while let Some(c) = chars.next() {
@@ -226,8 +233,8 @@ fn printable(line: &str) -> String {
 
 impl Slot {
     pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
-        let net = Arc::default();
-        Slot { manifest, launch, host, process: Mutex::new(None), changing: Mutex::new(()), net }
+        let (net, events, services) = (Arc::default(), Arc::default(), Mutex::default());
+        Slot { manifest, launch, host, process: Mutex::new(None), changing: Mutex::new(()), net, events, services }
     }
 
     /// How errors name it: "the Echo plugin".
@@ -484,6 +491,23 @@ impl Slot {
                 return Err(Error::Cancelled);
             }
         }
+    }
+
+    /// Sends the plugin the notification `method`, if it has the feature `feature`, starting it
+    /// (in `store`) if it isn't running: it's been used then, for the idle reaper.
+    pub(crate) fn notify(
+        self: &Arc<Self>,
+        feature: &str,
+        method: &str,
+        params: &impl Serialize,
+        store: Option<&Store>,
+    ) -> Result<()> {
+        let p = self.start(store)?;
+        if p.live.has(feature) {
+            let _busy = Busy::new(&p);
+            p.peer.notify(method, params);
+        }
+        Ok(())
     }
 
     /// Kills the process: a request it was asked to cancel wasn't answered within its grace.
