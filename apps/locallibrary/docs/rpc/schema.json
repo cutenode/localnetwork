@@ -4985,14 +4985,7 @@
         ]
       },
       "result": {
-        "allOf": [
-          {
-            "$ref": "#/$defs/EditPlan"
-          },
-          {
-            "$ref": "#/$defs/PlanFields"
-          }
-        ]
+        "$ref": "#/$defs/OpPlanned"
       }
     },
     {
@@ -5158,6 +5151,110 @@
       },
       "result": {
         "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "name": "plugins.provide",
+      "aliases": [],
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/Provide"
+      },
+      "result": {
+        "$ref": "#/$defs/Provided"
+      }
+    },
+    {
+      "name": "plugins.provide.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.provide.apply",
+      "operation": "plugins.provide",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PlanProvided"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/EditPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.provide.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.provide.plan",
+      "operation": "plugins.provide",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/PlanProvided"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
+      "name": "plugins.providers",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Providers"
+      }
+    },
+    {
+      "name": "plugins.providers.set",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetAutoPick"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Providers"
       }
     },
     {
@@ -11294,6 +11391,225 @@
         }
       ],
       "description": "What a field is to locallibrary, whichever plugin works it out: the host reads a role's value\n(doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and\nBPMs to tracks) from the analyzer chosen for it. A closed list, each with one type."
+    },
+    "Provide": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProviderKind"
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks to find it for."
+        },
+        "tracks": {
+          "$ref": "#/$defs/TrackSelector",
+          "description": "Which tracks [default: every one].",
+          "default": {}
+        },
+        "from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Only this plugin's providers, or this provider: `<plugin>` or `<plugin>.<provider>`.",
+          "default": null
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Also for tracks with what's found already, to replace it: otherwise only for tracks without\ncover art, or without one of the tags a provider finds.",
+          "default": false
+        }
+      },
+      "required": [
+        "kind",
+        "drive"
+      ],
+      "description": "What to find, and for which tracks."
+    },
+    "ProviderKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "artwork",
+          "description": "Cover art: an image."
+        },
+        {
+          "type": "string",
+          "const": "metadata",
+          "description": "Tags: a title, an artist, an album..."
+        }
+      ],
+      "description": "What a provider finds for a track."
+    },
+    "PlanProvided": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProviderKind"
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks they're for."
+        },
+        "picks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Pick"
+          },
+          "description": "The candidates chosen, each for its track, as they were found."
+        },
+        "images": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The images they're of, by id, as they were found: the answer's `images`, or those picked.",
+          "default": {}
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Also over what the tracks have: otherwise a track with cover art keeps it, and a tag it\nhas is kept.",
+          "default": false
+        }
+      },
+      "required": [
+        "kind",
+        "drive",
+        "picks"
+      ],
+      "description": "The edits to make of what was found."
+    },
+    "Pick": {
+      "type": "object",
+      "properties": {
+        "track": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "candidate": {
+          "$ref": "#/$defs/Found"
+        }
+      },
+      "required": [
+        "track",
+        "candidate"
+      ],
+      "description": "A candidate chosen for a track."
+    },
+    "Found": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Its provider, `<plugin>.<provider>`."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where it's from, as the provider says."
+        },
+        "label": {
+          "type": "string",
+          "description": "What it is, in a line."
+        },
+        "score": {
+          "type": "number",
+          "format": "double",
+          "description": "How sure the provider is that it's the track's, 0 to 1."
+        },
+        "artwork": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The image, by its id in the answer's `images`: an artwork provider's."
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrackMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tags: a metadata provider's, each it has."
+        }
+      },
+      "required": [
+        "provider",
+        "source",
+        "label",
+        "score"
+      ],
+      "description": "A candidate a provider found for a track."
+    },
+    "TrackMetadata": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artist": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "album": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "year": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "genre": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The record label."
+        },
+        "isrc": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "description": "The tags a metadata provider has for a track: each it doesn't have left out."
+    },
+    "SetAutoPick": {
+      "type": "object",
+      "properties": {
+        "auto_pick": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "A candidate alone scoring this or more (0 to 1; more than 1: never) is picked for the user;\n`null` (or left out) puts it back to its default.",
+          "default": null
+        }
+      }
     },
     "ChooseRole": {
       "type": "object",
@@ -28741,7 +29057,7 @@
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its commands, operations and analyzers by name, its export formats and its\nsettings' keys."
+          "description": "What it adds: its commands, operations, analyzers and providers by name, its export formats\nand its settings' keys."
         },
         "operations": {
           "type": "array",
@@ -28756,6 +29072,12 @@
           }
         },
         "exporters": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "providers": {
           "type": "array",
           "items": {
             "type": "string"
@@ -28788,6 +29110,7 @@
         "operations",
         "analyzers",
         "exporters",
+        "providers",
         "settings",
         "running",
         "left_out"
@@ -28918,6 +29241,7 @@
             "operations": [],
             "analyzers": [],
             "exporters": [],
+            "providers": [],
             "settings": []
           }
         },
@@ -28970,6 +29294,13 @@
           },
           "default": []
         },
+        "providers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Provider"
+          },
+          "default": []
+        },
         "settings": {
           "type": "array",
           "items": {
@@ -28983,6 +29314,7 @@
         "operations",
         "analyzers",
         "exporters",
+        "providers",
         "settings"
       ]
     },
@@ -29169,6 +29501,26 @@
         "folder"
       ],
       "description": "Run with `export/write`."
+    },
+    "Provider": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "kind"
+      ],
+      "description": "Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the\nuser every provider's, and makes the edits chosen itself. It's given the tracks' tags, which\ntakes `library:read`, and needs no capability to plan an edit."
     },
     "Setting": {
       "type": "object",
@@ -29396,6 +29748,20 @@
             "text"
           ],
           "description": "Plain text."
+        },
+        {
+          "$ref": "#/$defs/PluginChoice",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "choose"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "description": "A question for the user (feature `choose`): the host asks it, then runs the command again\nwith what was chosen (see [`Choice`]). It's never drawn."
         }
       ]
     },
@@ -29428,6 +29794,81 @@
         "label",
         "value"
       ]
+    },
+    "ChoiceItem": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "description": "What the param is set to when it's chosen (with `multi`, what its list has)."
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ]
+    },
+    "PluginChoice": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "What's asked, in a line."
+        },
+        "param": {
+          "type": "string",
+          "description": "The param the value chosen goes in: one of the hook's."
+        },
+        "multi": {
+          "type": "boolean",
+          "description": "Any of the items may be chosen, none too: the param is set to a list of their values."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ChoiceItem"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "param",
+        "items"
+      ]
+    },
+    "OpPlanned": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "choose": {
+              "$ref": "#/$defs/PluginChoice"
+            }
+          },
+          "required": [
+            "choose"
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/EditPlan"
+            },
+            {
+              "$ref": "#/$defs/PlanFields"
+            }
+          ]
+        }
+      ],
+      "description": "What planning a plugin's operation comes to: its plan, or a question for the user first, after\nwhich it's planned again with the param set ([`Choice::answered`])."
     },
     "PluginExport": {
       "type": "object",
@@ -29599,6 +30040,131 @@
         "failed"
       ],
       "description": "What analysing a drive's tracks did."
+    },
+    "Provided": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProviderKind"
+        },
+        "asked": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "How many tracks they were asked about."
+        },
+        "offers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Offer"
+          },
+          "description": "Each track something was found for, in the library's order."
+        },
+        "images": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The images the candidates are of, each once, by id (its content's hash): in base64."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "A provider that failed (what the others found is offered), one that answered more than is\nkept (the rest left out), and what each said it found nothing for."
+        }
+      },
+      "required": [
+        "kind",
+        "asked",
+        "offers",
+        "images",
+        "warnings"
+      ],
+      "description": "What the providers found."
+    },
+    "Offer": {
+      "type": "object",
+      "properties": {
+        "track": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "description": "The track, as it's named (`Artist - Title`)."
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Found"
+          },
+          "description": "Best first."
+        },
+        "picked": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "description": "The one picked for the user, by its place in `candidates`: the only one scoring the\n`providers.auto_pick` setting or more."
+        }
+      },
+      "required": [
+        "track",
+        "name",
+        "candidates",
+        "picked"
+      ],
+      "description": "What was found for a track."
+    },
+    "Providers": {
+      "type": "object",
+      "properties": {
+        "providers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ListedProvider"
+          },
+          "description": "In the order the plugins are."
+        },
+        "auto_pick": {
+          "type": "number",
+          "format": "double",
+          "description": "A candidate alone scoring this or more (0 to 1) is picked for the user: the\n`providers.auto_pick` setting."
+        }
+      },
+      "required": [
+        "providers",
+        "auto_pick"
+      ],
+      "description": "The providers the plugins have, and when one's candidate is picked for the user, as `plugin\nproviders` and the sidecar's `plugins.providers` show them."
+    },
+    "ListedProvider": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "plugin",
+        "name",
+        "title",
+        "kind"
+      ]
     },
     "RoleChoice": {
       "type": "object",

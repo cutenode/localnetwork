@@ -19,7 +19,7 @@ impl Fixture {
         let blobs: serde_json::Map<String, Value> =
             blobs.iter().map(|(name, bytes)| (name.to_string(), json!(bytes))).collect();
         let params = json!({ "name": "x", "edits": edits, "blobs": blobs, "links": links });
-        self.plugins.plan_op("echo", "playlist", params, self.context(), Some(&self.store), &Ctx::silent())
+        self.plugins.plan_op("echo", "playlist", params, self.context(), Some(&self.store), &Ctx::silent())?.plan()
     }
 }
 

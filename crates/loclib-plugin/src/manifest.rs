@@ -51,6 +51,8 @@ pub struct Contributions {
     #[serde(default)]
     pub exporters: Vec<Exporter>,
     #[serde(default)]
+    pub providers: Vec<Provider>,
+    #[serde(default)]
     pub settings: Vec<Setting>,
 }
 
@@ -129,15 +131,12 @@ pub struct Operation {
 }
 
 /// What a param's (or option's) JSON Schema says about giving it on the command line, under its
-/// `x-cli` keyword: `{ flag = "from", one_based = true }`.
+/// `x-cli` keyword: `{ flag = "from" }`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CliHints {
     /// Its flag, rather than the one its name makes (`--min-bpm` for `min_bpm`): a name.
     pub flag: Option<String>,
-    /// An object whose keys are positions (`--choose 1=42`), counted from 1 on the command line
-    /// and from 0 in the params.
-    pub one_based: bool,
     /// Given without a flag, after the drive (`playlist import DRIVE FILE`): a string, and one
     /// param at most.
     pub positional: bool,
@@ -153,9 +152,6 @@ impl CliHints {
         }
         if hints.positional && property["type"] != "string" {
             return Err("only a string is positional".into());
-        }
-        if hints.one_based && property["type"] != "object" {
-            return Err("only an object's keys are one_based".into());
         }
         Ok(hints)
     }
@@ -355,6 +351,44 @@ pub struct Exporter {
     /// A JSON Schema for its options (an object).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<Value>,
+}
+
+/// Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the
+/// user every provider's, and makes the edits chosen itself. It's given the tracks' tags, which
+/// takes `library:read`, and needs no capability to plan an edit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Provider {
+    pub name: String,
+    pub title: String,
+    pub kind: ProviderKind,
+}
+
+/// What a provider finds for a track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKind {
+    /// Cover art: an image.
+    Artwork,
+    /// Tags: a title, an artist, an album...
+    Metadata,
+}
+
+impl ProviderKind {
+    /// As a manifest names it (`artwork`).
+    pub fn name(self) -> &'static str {
+        match self {
+            ProviderKind::Artwork => "artwork",
+            ProviderKind::Metadata => "metadata",
+        }
+    }
+
+    /// What it finds, as hosts say it to the user (`cover art`).
+    pub fn found(self) -> &'static str {
+        match self {
+            ProviderKind::Artwork => "cover art",
+            ProviderKind::Metadata => "track details",
+        }
+    }
 }
 
 /// A setting the host stores and shows in its settings.
@@ -841,6 +875,15 @@ impl Manifest {
                 return Err(invalid(format!("{at}[{i}].extension"), message));
             }
             object_schema(format!("{at}[{i}].options"), x.options.as_ref())?;
+        }
+        let at = "contributes.providers";
+        unique_names(at, "name", c.providers.iter().map(|x| x.name.as_str()).enumerate())?;
+        for (i, x) in c.providers.iter().enumerate() {
+            shown(format!("{at}[{i}].title"), &x.title)?;
+        }
+        if !c.providers.is_empty() && !self.capabilities.contains(&Capability::LibraryRead) {
+            let message = format!("is given tracks' tags, which needs the {} capability", Capability::LibraryRead);
+            return Err(invalid(format!("{at}[0]"), message));
         }
         let at = "contributes.settings";
         unique_names(at, "key", c.settings.iter().map(|x| x.key.as_str()).enumerate())?;

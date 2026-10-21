@@ -884,6 +884,13 @@ them back (the last 5 embeds are kept).")]
         #[arg(long)]
         dry_run: bool,
     },
+    /// Find cover art for tracks with the plugins' providers (online), choose, and set it
+    #[command(after_help = FILTER_HELP, after_long_help = concat!(
+        "Without --replace, only tracks without artwork are looked up. A candidate alone scoring `locallibrary plugin \
+providers`' auto-pick or more is chosen for you; the others are asked about (or given with --choose).\n\n",
+        filter_help!()
+    ))]
+    Fetch(plugin_cmd::FetchArgs),
     /// Save a track's artwork from a drive to a file
     Get {
         #[arg(help = LIBRARY_HELP)]
@@ -1908,6 +1915,9 @@ fn art(args: ArtArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) 
             }
             let r = plan.apply(None, ctx)?;
             return Ok(out.applied(&plan, &r, Outcome::Applied, || done(&r)));
+        }
+        ArtCommand::Fetch(f) => {
+            return plugin_cmd::fetch(loclib_plugin::ProviderKind::Artwork, f, store_path, out, ctx);
         }
         ArtCommand::Embed { image, files, dry_run } => {
             let plan = api::artwork_embed_plan(&api::EmbedArtwork { files, image })?;

@@ -10,9 +10,10 @@ use hegel::TestCase;
 use hegel::generators as gs;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ImageFormat, RgbImage};
-use loclib_model::test_util::track;
-use loclib_plugin::{Fetch, Fetched, HelloReply, Incoming, Manifest, NetLimit, PROTOCOL_VERSION, Peer, method};
-use serde_json::Value;
+use loclib_plugin::{
+    Fetch, Fetched, HelloReply, Incoming, Manifest, NetLimit, PROTOCOL_VERSION, Peer, Provider, ProviderKind, method,
+};
+use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use super::*;
@@ -31,10 +32,6 @@ const ISRC: &str = "GBCFB1700586";
 /// Where the plugin searches MusicBrainz, and asks the Cover Art Archive for covers.
 const SEARCH: &str = "https://musicbrainz.org/ws/2/";
 const COVERS: &str = "https://coverartarchive.org/release-group/";
-
-/// How many tracks the fake host gives in a page of `tracks.query` (locallibrary gives 500): a
-/// few, so paging shows.
-const PAGE: usize = 2;
 
 /// A fetch the plugin asked the fake host for.
 #[derive(Debug, Clone)]
@@ -127,16 +124,9 @@ fn services_as_they_are(req: &Req) -> Reply {
     }
 }
 
-/// A fake host's library: its tracks and playlists (by name, with their tracks' ids).
-#[derive(Clone, Default)]
-struct Drive {
-    tracks: Vec<Track>,
-    playlists: Vec<(String, Vec<u32>)>,
-}
-
 /// The plugin served on a thread over pipes, as [`serve`] serves it, past `hello`, with a host
-/// whose drive `USB` is `drive`, that answers its reads as locallibrary does and its fetches as
-/// `route` has MusicBrainz and the Cover Art Archive answer them.
+/// that answers its fetches as `route` has MusicBrainz and the Cover Art Archive answer them, and
+/// refuses any read it calls back for (a provider is given the tracks: it needs none).
 struct Session {
     host: Peer,
     served: JoinHandle<()>,
@@ -147,12 +137,12 @@ struct Session {
     got: Arc<Mutex<Vec<Req>>>,
     /// Told of each fetch once it's asked.
     heard: Receiver<()>,
-    /// The scratch folders the host made for the plans, the latest last: kept until the test has
-    /// read them, as the host keeps one until it has read the answer.
+    /// The scratch folders the host made for the requests, the latest last: kept until the test
+    /// has read them, as the host keeps one until it has read the answer.
     scratches: Mutex<Vec<TempDir>>,
 }
 
-fn start(drive: Drive, route: impl Fn(&Req) -> Reply + Send + 'static) -> Session {
+fn start(route: impl Fn(&Req) -> Reply + Send + 'static) -> Session {
     let (plugin_in, to_plugin) = pipe().unwrap();
     let (from_plugin, plugin_out) = pipe().unwrap();
     let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
@@ -166,7 +156,7 @@ fn start(drive: Drive, route: impl Fn(&Req) -> Reply + Send + 'static) -> Sessio
             let Incoming::Request(req) = msg else { continue };
             if req.method != method::NET_FETCH {
                 reads.lock().unwrap().push((req.method.clone(), req.params.clone()));
-                to.respond(&req.id, read(&drive, &req.method, req.params));
+                to.respond(&req.id, Err(RpcError::failed("denied", "no reads here")));
                 continue;
             }
             let fetch: Fetch = serde_json::from_value(req.params).unwrap();
@@ -183,67 +173,28 @@ fn start(drive: Drive, route: impl Fn(&Req) -> Reply + Send + 'static) -> Sessio
     Session { host, served, answering, calls, got, heard, scratches: Mutex::default() }
 }
 
-/// A read as the host answers a plugin with `library:read`: only the params it may give, on a
-/// drive it knows.
-fn read(drive: &Drive, method: &str, params: Value) -> Result<Value, RpcError> {
-    let allowed: &[&str] = match method {
-        "tracks.query" => &["drive", "combined", "filter", "playlist", "sort", "offset", "limit"],
-        "tracks.get" => &["drive", "combined", "ids"],
-        _ => return Err(RpcError::failed("denied", format!("{method} needs a capability the plugin doesn't have"))),
-    };
-    let Value::Object(params) = params else { return Err(RpcError::invalid_params("expected an object")) };
-    if let Some(name) = params.keys().find(|k| !allowed.contains(&k.as_str())) {
-        return Err(RpcError::invalid_params(format!("a plugin doesn't give {method} `{name}`")));
-    }
-    if params["drive"] != "USB" {
-        return Err(RpcError::failed("not_found", format!("not found: drive {}", params["drive"])));
-    }
-    let by_id = |id: u64| drive.tracks.iter().find(|t| u64::from(t.id) == id).cloned();
-    if method == "tracks.get" {
-        let ids: Vec<u64> = params["ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
-        let missing: Vec<u64> = ids.iter().copied().filter(|&id| by_id(id).is_none()).collect();
-        let tracks: Vec<Track> = ids.into_iter().filter_map(by_id).collect();
-        return Ok(json!({ "missing": missing, "tracks": tracks }));
-    }
-    let tracks: Vec<Track> = match params.get("playlist").and_then(Value::as_str) {
-        Some(name) => {
-            let (_, ids) = drive
-                .playlists
-                .iter()
-                .find(|(n, _)| n == name)
-                .ok_or_else(|| RpcError::failed("not_found", format!("not found: playlist {name:?}")))?;
-            ids.iter().filter_map(|&id| by_id(id.into())).collect()
-        }
-        None => drive.tracks.clone(),
-    };
-    let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
-    let page: Vec<&Track> = tracks.iter().skip(offset).take(PAGE).collect();
-    Ok(json!({ "total": tracks.len(), "total_duration_secs": 0, "tracks": page }))
-}
-
 impl Session {
-    /// Sends `fetch`, with a scratch folder of its own unless `context` gives one (or, `null`,
-    /// none).
-    fn send(&self, params: Value, mut context: Value) -> loclib_plugin::Pending {
+    /// Asks for covers for `tracks`, with a scratch folder of its own unless `context` gives one
+    /// (or, `null`, none).
+    fn send(&self, tracks: &[TrackTags], mut context: Value) -> loclib_plugin::Pending {
         if context.get("scratch").is_none() {
             let scratch = TempDir::new().unwrap();
             context["scratch"] = json!(scratch.path());
             self.scratches.lock().unwrap().push(scratch);
         }
-        let op = json!({ "operation": "fetch", "params": params, "context": context });
-        self.host.send_request(method::PLAN_OP, &op).unwrap()
+        let req = json!({ "provider": "covers", "kind": "artwork", "tracks": tracks, "context": context });
+        self.host.send_request(method::PROVIDE, &req).unwrap()
     }
 
-    fn plan_with(&self, params: Value, context: Value) -> Result<OpPlan, RpcError> {
-        self.send(params, context).wait()
+    fn provide_with(&self, tracks: &[TrackTags], context: Value) -> Result<Candidates, RpcError> {
+        self.send(tracks, context).wait()
     }
 
-    /// `fetch` with `params` on the drive the user is on.
-    fn plan(&self, params: Value) -> Result<OpPlan, RpcError> {
-        self.plan_with(params, json!({ "drive": "USB" }))
+    fn provide(&self, tracks: &[TrackTags]) -> Result<Candidates, RpcError> {
+        self.provide_with(tracks, json!({ "drive": "USB" }))
     }
 
-    /// The scratch folder of the latest plan.
+    /// The scratch folder of the latest request.
     fn scratch(&self) -> PathBuf {
         self.scratches.lock().unwrap().last().unwrap().path().into()
     }
@@ -275,112 +226,97 @@ impl Session {
     }
 }
 
-/// A track of `album` (by `artist`), at `/Contents/<artist>/<title>.mp3`.
-fn tagged(id: u32, artist: &str, album: &str, title: &str) -> Track {
-    Track { album: album.into(), ..track(id, artist, title, &format!("/Contents/{artist}/{title}.mp3")) }
+/// Track `id`'s tags, of `album` (by `artist`).
+fn tags(id: u32, artist: &str, album: &str, title: &str) -> TrackTags {
+    TrackTags { id, artist: artist.into(), album: album.into(), title: title.into(), ..TrackTags::default() }
 }
 
-fn with_art(t: Track) -> Track {
-    let art = format!("/PIONEER/Artwork/00001/a{}.jpg", t.id);
-    Track { artwork_id: Some(t.id), artwork_path: Some(art), ..t }
-}
+/// A candidate found: its track, score, label and file.
+type Seen = (u32, f64, String, String);
 
-fn drive(tracks: Vec<Track>) -> Drive {
-    Drive { tracks, playlists: Vec::new() }
-}
-
-/// Each edit's tracks and its image's size, checking it's a `set_artwork` edit as locallibrary's
-/// `edit.plan` takes one, giving the tracks by file and the image as a file in the plan's
-/// `scratch` folder, a JPEG. The folder holds those files and no others.
-fn set(plan: &OpPlan, scratch: &Path) -> Vec<(Vec<String>, (u32, u32))> {
-    let edit = |e: &Value| {
-        // In whichever order serde_json keeps them: insertion order once another crate in the
-        // build turns on its preserve_order, as locallibrary does.
-        let mut keys: Vec<&str> = e.as_object().unwrap().keys().map(String::as_str).collect();
-        keys.sort_unstable();
-        assert_eq!(keys, ["image", "op", "tracks"], "{e}");
-        assert_eq!(e["op"], "set_artwork");
-        assert_eq!(e["tracks"].as_object().unwrap().len(), 1, "only paths: {e}");
-        assert_eq!(e["image"].as_object().unwrap().len(), 1, "only a blob: {e}");
-        let paths = e["tracks"]["paths"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_string()).collect();
-        let blob = e["image"]["blob"].as_str().unwrap();
-        assert!(!blob.contains(['/', '\\']), "a name in the folder: {e}");
-        let bytes = std::fs::read(scratch.join(blob)).unwrap();
+/// Each candidate's track, score, label and file, checking it's a cover from the Cover Art
+/// Archive as locallibrary takes one: an image given as a file in the request's `scratch`
+/// folder, by its name, a JPEG of the size players show. The folder holds those files and no
+/// others.
+fn found(c: &Candidates, scratch: &Path) -> Vec<Seen> {
+    let mut files = Vec::new();
+    let seen = c.candidates.iter().map(|c| {
+        assert_eq!((c.source.as_str(), &c.metadata), (SOURCE, &None), "{c:?}");
+        let blob = c.artwork.as_ref().expect("an image").blob.clone();
+        assert!(!blob.contains(['/', '\\']), "a name in the folder: {blob}");
+        let bytes = std::fs::read(scratch.join(&blob)).unwrap();
         assert_eq!(image::guess_format(&bytes).unwrap(), ImageFormat::Jpeg);
         let image = image::load_from_memory(&bytes).unwrap();
-        (paths, (image.width(), image.height()))
-    };
-    let files = std::fs::read_dir(scratch).unwrap().filter(|f| f.as_ref().unwrap().path().is_file()).count();
-    assert_eq!(files, plan.edits.len(), "{:?}", std::fs::read_dir(scratch).unwrap().collect::<Vec<_>>());
-    plan.edits.iter().map(edit).collect()
+        assert_eq!((image.width(), image.height()), (covers::SIZE, covers::SIZE));
+        if !files.contains(&blob) {
+            files.push(blob.clone());
+        }
+        (c.track, c.score, c.label.clone(), blob)
+    });
+    let seen: Vec<Seen> = seen.collect();
+    let there = std::fs::read_dir(scratch).unwrap().filter(|f| f.as_ref().unwrap().path().is_file()).count();
+    assert_eq!(there, files.len(), "{:?}", std::fs::read_dir(scratch).unwrap().collect::<Vec<_>>());
+    seen
+}
+
+/// The file a release group's cover is in.
+fn cover(group: &str) -> String {
+    format!("cover-{group}.jpg")
 }
 
 fn kind(e: &RpcError) -> (&str, &str) {
     (e.kind().unwrap_or_default(), e.message.as_str())
 }
 
-/// It reads the drive's tracks and plans artwork, says which servers it talks to and asks the host
-/// to keep to MusicBrainz's limit.
+/// It reads the tracks it's given and provides artwork, says which servers it talks to and asks
+/// the host to keep to MusicBrainz's limit. It plans nothing: the host sets what's chosen.
 #[test]
-fn the_manifest_is_a_first_party_one_that_reads_and_plans_artwork() {
+fn the_manifest_is_a_first_party_artwork_provider() {
     let manifest = Manifest::parse(MANIFEST).unwrap();
     manifest.validate(true).unwrap();
     let capabilities: Vec<String> = manifest.capabilities.iter().map(ToString::to_string).collect();
     assert_eq!(
         capabilities,
-        [
-            "library:read",
-            "artwork:plan",
-            "net:musicbrainz.org",
-            "net:coverartarchive.org",
-            "net:archive.org",
-            "net:*.archive.org"
-        ]
+        ["library:read", "net:musicbrainz.org", "net:coverartarchive.org", "net:archive.org", "net:*.archive.org"]
     );
     assert_eq!(manifest.net, [NetLimit { host: "musicbrainz.org".into(), per_second: 1.0 }]);
-    let ops: Vec<&str> = manifest.contributes.operations.iter().map(|o| o.name.as_str()).collect();
-    assert_eq!(ops, ["fetch"]);
+    let provider = Provider { name: "covers".into(), title: SOURCE.into(), kind: ProviderKind::Artwork };
+    assert_eq!(manifest.contributes.providers, [provider]);
+    assert!(manifest.contributes.operations.is_empty() && manifest.contributes.commands.is_empty());
 
-    // Served as a real one is: it says it's this manifest, sending fetches and answering blobs.
+    // Served as a real one is: it says it's this manifest, providing, sending fetches and
+    // answering blobs.
     let (plugin_in, to_plugin) = pipe().unwrap();
     let (from_plugin, plugin_out) = pipe().unwrap();
     let served = std::thread::spawn(move || serve(plugin_in, plugin_out));
     let (host, _incoming) = Peer::new(from_plugin, to_plugin);
     let hello = json!({ "protocol": PROTOCOL_VERSION, "host": { "name": "locallibrary", "version": "0.1.0" } });
     let hello: HelloReply = host.request(method::HELLO, &hello).unwrap();
-    assert!(["blobs", "net"].iter().all(|f| hello.features.iter().any(|had| had == f)), "{:?}", hello.features);
+    let has = |f: &&str| hello.features.iter().any(|had| had == f);
+    assert!(["providers", "blobs", "net"].iter().all(has), "{:?}", hello.features);
     let described: Manifest = host.request(method::DESCRIBE, &json!({})).unwrap();
     assert_eq!(described, manifest);
     host.close();
     served.join().unwrap();
 }
 
-/// The albums whose tracks have no artwork are each looked up once (by an ISRC when a track has
-/// one), and their covers set on those tracks, at the size players show.
+/// Each album is looked up once (by an ISRC when a track has one), and its cover offered for its
+/// tracks at the size players show, downloaded once: surer found by an ISRC than by a name.
 #[test]
-fn albums_without_artwork_get_their_covers_one_search_each() {
-    let tracks = vec![
-        tagged(1, "Bicep", "Bicep", "Glue"),
-        with_art(tagged(2, "Bicep", "Bicep", "Aura")),
-        Track { isrc: "GB-CFB-17-00586".into(), ..tagged(3, "Young Fathers", "Cocoa Sugar", "In My View") },
-        tagged(4, "Young Fathers", "Cocoa Sugar", "Lord"),
+fn albums_get_their_covers_one_search_each() {
+    let tracks = [
+        tags(1, "Bicep", "Bicep", "Glue"),
+        TrackTags { isrc: "GB-CFB-17-00586".into(), ..tags(3, "Young Fathers", "Cocoa Sugar", "In My View") },
+        tags(4, "Young Fathers", "Cocoa Sugar", "Lord"),
         // Letter case and spacing don't make another album.
-        tagged(5, "BICEP", " bicep", "Opal"),
+        tags(5, "BICEP", " bicep", "Opal"),
     ];
-    let session = start(drive(tracks), services_as_they_are);
-    let plan = session.plan(Value::Null).unwrap();
-    assert_eq!(plan.summary, "set cover art from the Cover Art Archive on 4 track(s) of 2 album(s)");
-    assert_eq!(plan.warnings, Vec::<String>::new());
-    assert_eq!(
-        set(&plan, &session.scratch()),
-        [
-            (vec!["/Contents/Bicep/Glue.mp3".into(), "/Contents/BICEP/Opal.mp3".into()], (240, 240)),
-            (
-                vec!["/Contents/Young Fathers/In My View.mp3".into(), "/Contents/Young Fathers/Lord.mp3".into()],
-                (240, 240)
-            ),
-        ]
-    );
+    let session = start(services_as_they_are);
+    let candidates = session.provide(&tracks).unwrap();
+    assert_eq!(candidates.warnings, Vec::<String>::new());
+    let bicep = |t| (t, BY_NAME, "Bicep, album".to_string(), cover(BICEP));
+    let cocoa = |t| (t, BY_ISRC, "Cocoa Sugar, album".to_string(), cover(COCOA_SUGAR));
+    assert_eq!(found(&candidates, &session.scratch()), [bicep(1), bicep(5), cocoa(3), cocoa(4)]);
     assert_eq!(
         session.searches(),
         [
@@ -400,67 +336,21 @@ fn albums_without_artwork_get_their_covers_one_search_each() {
         "https://musicbrainz.org/ws/2/release/?query=release%3A%22Bicep%22+AND+artist%3A%22Bicep%22&fmt=json"
     );
     assert_eq!(urls[2], format!("https://musicbrainz.org/ws/2/recording/?query=isrc%3A{ISRC}&fmt=json"));
-    // The whole drive, a page at a time.
-    let calls = session.stop();
-    let reads: Vec<(&str, &Value)> = calls.iter().map(|(m, p)| (m.as_str(), &p["offset"])).collect();
-    assert_eq!(reads, [("tracks.query", &json!(0)), ("tracks.query", &json!(2)), ("tracks.query", &json!(4))]);
-}
-
-/// With `replace`, tracks that have artwork get the cover too.
-#[test]
-fn replace_gives_tracks_with_artwork_the_cover_too() {
-    let tracks = vec![with_art(tagged(1, "Bicep", "Bicep", "Glue")), with_art(tagged(2, "Bicep", "Bicep", "Aura"))];
-    let session = start(drive(tracks.clone()), services_as_they_are);
-    assert_eq!(session.plan(json!({})).unwrap().summary, "no track chosen needs cover art");
-    let plan = session.plan(json!({ "replace": true })).unwrap();
-    let paths = vec!["/Contents/Bicep/Glue.mp3".to_string(), "/Contents/Bicep/Aura.mp3".into()];
-    assert_eq!(set(&plan, &session.scratch()), [(paths, (240, 240))]);
-}
-
-/// Which tracks: the ones the params name, else the playlist they name, else the selection, else
-/// the playlist open. Ids the drive doesn't have are warned about.
-#[test]
-fn it_takes_the_tracks_or_playlist_chosen() {
-    let tracks: Vec<Track> = (1..=5).map(|id| tagged(id, "Nobody", &format!("Album {id}"), "Song")).collect();
-    let playlists = vec![("Warmup".to_string(), vec![2, 3, 4]), ("Peak".to_string(), vec![5])];
-    let session = start(Drive { tracks, playlists }, |_: &Req| no_releases());
-    let albums = |plan: OpPlan| plan.warnings;
-    let named =
-        |ids: &[u32]| ids.iter().map(|id| format!("Nobody - Album {id}: not on MusicBrainz")).collect::<Vec<_>>();
-
-    let plan = session.plan(json!({ "tracks": [1, 9] })).unwrap();
-    assert_eq!(albums(plan), [vec!["track #9 isn't on the drive".to_string()], named(&[1])].concat());
-    assert_eq!(albums(session.plan(json!({ "playlist": "Warmup" })).unwrap()), named(&[2, 3, 4]));
-    let context = json!({ "drive": "USB", "playlist": "Peak", "tracks": [3] });
-    assert_eq!(albums(session.plan_with(json!({}), context.clone()).unwrap()), named(&[3]));
-    // A playlist named in the params wins over the selection (a form fills `tracks` in with it).
-    assert_eq!(albums(session.plan_with(json!({ "playlist": "Warmup" }), context.clone()).unwrap()), named(&[2, 3, 4]));
-    let context = json!({ "drive": "USB", "playlist": "Peak" });
-    assert_eq!(albums(session.plan_with(json!({}), context).unwrap()), named(&[5]));
-    let plan = session.plan(json!({ "playlist": "Nowhere" })).unwrap_err();
-    assert_eq!(kind(&plan), ("not_found", "not found: playlist \"Nowhere\""));
-    assert_eq!(session.searches().len(), 1 + 3 + 1 + 3 + 1);
-
-    let calls = session.stop();
-    assert_eq!(calls[0], ("tracks.get".to_string(), json!({ "drive": "USB", "ids": [1, 9] })));
-    assert_eq!(calls[1], ("tracks.query".to_string(), json!({ "drive": "USB", "offset": 0, "playlist": "Warmup" })));
+    assert_eq!(session.stop(), Vec::new(), "it reads nothing");
 }
 
 /// A track without an album is looked up by its title, as its single; one without either can't
 /// be.
 #[test]
 fn a_track_without_an_album_gets_its_singles_cover() {
-    let tracks = vec![
-        Track { isrc: ISRC.into(), ..tagged(1, "Young Fathers", "", "In My View") },
-        tagged(2, "Young Fathers", "", ""),
+    let tracks = [
+        TrackTags { isrc: ISRC.into(), ..tags(1, "Young Fathers", "", "In My View") },
+        tags(2, "Young Fathers", "", ""),
     ];
-    let session = start(drive(tracks), services_as_they_are);
-    let plan = session.plan(Value::Null).unwrap();
-    assert_eq!(
-        set(&plan, &session.scratch()),
-        [(vec!["/Contents/Young Fathers/In My View.mp3".to_string()], (240, 240))]
-    );
-    assert_eq!(plan.warnings, ["track #2 has no album or title to look up"]);
+    let session = start(services_as_they_are);
+    let candidates = session.provide(&tracks).unwrap();
+    assert_eq!(found(&candidates, &session.scratch()), [(1, BY_ISRC, "In My View, single".into(), cover(IN_MY_VIEW))]);
+    assert_eq!(candidates.warnings, ["track #2 has no album or title to look up"]);
     assert_eq!(session.covers(), [format!("/release-group/{IN_MY_VIEW}/front-500")]);
 }
 
@@ -468,17 +358,17 @@ fn a_track_without_an_album_gets_its_singles_cover() {
 /// up by name instead.
 #[test]
 fn an_isrc_not_found_falls_back_to_the_albums_name() {
-    let tracks = vec![
-        Track { isrc: "USRC17607839".into(), ..tagged(1, "Bicep", "Bicep", "Glue") },
-        Track { isrc: ISRC.into(), ..tagged(2, "Young Fathers", "Bicep", "In My View") },
+    let tracks = [
+        TrackTags { isrc: "USRC17607839".into(), ..tags(1, "Bicep", "Bicep", "Glue") },
+        TrackTags { isrc: ISRC.into(), ..tags(2, "Young Fathers", "Bicep", "In My View") },
         // Not an ISRC: only searched by name.
-        Track { isrc: "none".into(), ..tagged(3, "Bicep", "Isles", "Apricots") },
+        TrackTags { isrc: "none".into(), ..tags(3, "Bicep", "Isles", "Apricots") },
     ];
-    let session = start(drive(tracks), services_as_they_are);
-    let plan = session.plan(Value::Null).unwrap();
-    let paths = vec!["/Contents/Bicep/Glue.mp3".to_string(), "/Contents/Young Fathers/In My View.mp3".into()];
-    assert_eq!(set(&plan, &session.scratch()), [(paths, (240, 240))]);
-    assert_eq!(plan.warnings, ["Bicep - Isles: not on MusicBrainz"]);
+    let session = start(services_as_they_are);
+    let candidates = session.provide(&tracks).unwrap();
+    let bicep = |t| (t, BY_NAME, "Bicep, album".to_string(), cover(BICEP));
+    assert_eq!(found(&candidates, &session.scratch()), [bicep(1), bicep(2)]);
+    assert_eq!(candidates.warnings, ["Bicep - Isles: not on MusicBrainz"]);
     let queries: Vec<String> = session.searches().into_iter().map(|(_, q)| q).collect();
     assert_eq!(
         queries,
@@ -494,38 +384,56 @@ fn an_isrc_not_found_falls_back_to_the_albums_name() {
     assert_eq!(session.covers().len(), 1);
 }
 
-/// An album MusicBrainz has no release of that name for, or several release groups of, is left
-/// out with a warning naming them.
+/// An album MusicBrainz has several release groups of that name for gets a cover of each, none
+/// sure, for the user to choose from; one it has none for is a warning.
 #[test]
-fn no_match_and_several_are_warnings() {
-    let route = |req: &Req| match req.query.as_str() {
+fn several_release_groups_are_each_offered_and_none_a_warning() {
+    let single = "f0000000-0000-4000-8000-000000000001";
+    let route = move |req: &Req| match req.query.as_str() {
         r#"release:"Bicep" AND artist:"Bicep""# => {
             let mut found: Value = serde_json::from_str(RELEASES).unwrap();
-            found["releases"][1]["release-group"] =
-                json!({ "id": "f0000000-0000-4000-8000-000000000001", "title": "Bicep", "primary-type": "Single" });
+            found["releases"][1]["release-group"] = json!({ "id": single, "title": "Bicep", "primary-type": "Single" });
             ok(found.to_string())
         }
-        _ => no_releases(),
+        q if q.starts_with("release:") => no_releases(),
+        _ => services_as_they_are(req),
     };
-    let tracks = vec![tagged(1, "Bicep", "Bicep", "Glue"), tagged(2, "", "Say \"Hi\" \\o/", "Hi")];
-    let session = start(drive(tracks), route);
-    let plan = session.plan(Value::Null).unwrap();
-    assert_eq!(plan.summary, "found no cover art for the 2 album(s) looked up");
-    assert_eq!(plan.edits, Vec::<Value>::new());
+    let tracks = [tags(1, "Bicep", "Bicep", "Glue"), tags(2, "", "Say \"Hi\" \\o/", "Hi")];
+    let session = start(route);
+    let candidates = session.provide(&tracks).unwrap();
     assert_eq!(
-        plan.warnings,
+        found(&candidates, &session.scratch()),
         [
-            format!(
-                "Bicep - Bicep: left out, as MusicBrainz has several of that name: Bicep Album \
-                 https://musicbrainz.org/release-group/{BICEP}, \
-                 Bicep Single https://musicbrainz.org/release-group/f0000000-0000-4000-8000-000000000001"
-            ),
-            "Say \"Hi\" \\o/: not on MusicBrainz".into(),
+            (1, ONE_OF_SEVERAL, "Bicep, album".into(), cover(BICEP)),
+            (1, ONE_OF_SEVERAL, "Bicep, single".into(), cover(single))
         ]
     );
+    assert_eq!(candidates.warnings, ["Say \"Hi\" \\o/: not on MusicBrainz"]);
     // Quotes and backslashes are escaped in the phrase; with no artist, only the name is asked.
     assert_eq!(session.searches()[1].1, r#"release:"Say \"Hi\" \\o/""#);
-    assert_eq!(session.covers(), Vec::<String>::new());
+    assert_eq!(session.covers().len(), 2);
+}
+
+/// Of however many release groups an album could be, the covers of the first few are offered: each
+/// is a download.
+#[test]
+fn at_most_a_few_release_groups_are_offered() {
+    let group = |n: usize| format!("f0000000-0000-4000-8000-{n:012}");
+    let route = move |req: &Req| match req.path.starts_with(SEARCH) {
+        true => {
+            let releases: Vec<Value> = (0..MAX_GROUPS + 2)
+                .map(|n| json!({ "title": "Many", "release-group": { "id": group(n), "title": format!("Many {n}") } }))
+                .collect();
+            ok(json!({ "releases": releases }).to_string())
+        }
+        false => ok(jpeg(300, 300, true)),
+    };
+    let session = start(route);
+    let candidates = session.provide(&[tags(1, "", "Many", "Song")]).unwrap();
+    let offered: Vec<Seen> =
+        (0..MAX_GROUPS).map(|n| (1, ONE_OF_SEVERAL, format!("Many {n}, release"), cover(&group(n)))).collect();
+    assert_eq!(found(&candidates, &session.scratch()), offered);
+    assert_eq!(session.covers().len(), MAX_GROUPS);
 }
 
 /// Titles match though MusicBrainz writes curly apostrophes and Unicode hyphens; release groups
@@ -544,26 +452,33 @@ fn titles_match_as_musicbrainz_spells_them() {
         _ => services_as_they_are(req),
     }
     };
-    let session = start(drive(vec![tagged(1, "Band", "don't stop - live", "Intro")]), route);
-    let plan = session.plan(Value::Null).unwrap();
-    assert_eq!(set(&plan, &session.scratch()), [(vec!["/Contents/Band/Intro.mp3".to_string()], (240, 240))]);
+    let session = start(route);
+    let candidates = session.provide(&[tags(1, "Band", "don't stop - live", "Intro")]).unwrap();
+    assert_eq!(
+        found(&candidates, &session.scratch()),
+        [(1, BY_NAME, "Don\u{2019}t Stop, release".into(), cover(BICEP))]
+    );
     assert_eq!(session.covers(), [format!("/release-group/{BICEP}/front-500")]);
 }
 
 /// A cover that's missing, doesn't download (the host gets no answer) or isn't an image, or is too
-/// small, is a warning.
+/// small, is a warning, naming the release group when the album could be several; each is asked
+/// for once.
 #[test]
 fn covers_that_cant_be_had_are_warnings() {
-    let route = |req: &Req| {
+    let group = |n: u32| format!("f0000000-0000-4000-8000-00000000000{n}");
+    let route = move |req: &Req| {
         let album = |n: u32| format!("release:\"Album {n}\"");
-        let group = |n: u32| format!("f0000000-0000-4000-8000-00000000000{n}");
-        let one = |n: u32| {
-            let release = json!({ "title": format!("Album {n}"), "release-group": { "id": group(n), "title": "x" } });
-            ok(json!({ "releases": [release] }).to_string())
+        // Album `n`'s releases, of these release groups.
+        let releases = |n: u32, groups: &[u32]| {
+            let named =
+                |&g: &u32| json!({ "title": format!("Album {n}"), "release-group": { "id": group(g), "title": "x" } });
+            ok(json!({ "releases": groups.iter().map(named).collect::<Vec<_>>() }).to_string())
         };
         match req.path.as_str() {
+            _ if req.query.starts_with(&album(7)) => releases(7, &[1, 7]),
             p if p.starts_with(SEARCH) => {
-                (1..=6).find(|&n| req.query.starts_with(&album(n))).map_or_else(no_releases, one)
+                (1..=6).find(|&n| req.query.starts_with(&album(n))).map_or_else(no_releases, |n| releases(n, &[n]))
             }
             p if p.contains(&group(1)) => status(404),
             p if p.contains(&group(2)) => status(500),
@@ -575,15 +490,15 @@ fn covers_that_cant_be_had_are_warnings() {
             }
             p if p.contains(&group(5)) => fails("external"),
             p if p.contains(&group(6)) => fails("too_big"),
-            _ => status(404),
+            _ => ok(jpeg(240, 240, false)),
         }
     };
-    let tracks = (1..=6).map(|n| tagged(n, "", &format!("Album {n}"), "Song")).collect();
-    let session = start(drive(tracks), route);
-    let plan = session.plan(Value::Null).unwrap();
-    assert_eq!(set(&plan, &session.scratch()), []);
+    let tracks: Vec<TrackTags> = (1..=7).map(|n| tags(n, "", &format!("Album {n}"), "Song")).collect();
+    let session = start(route);
+    let candidates = session.provide(&tracks).unwrap();
+    assert_eq!(found(&candidates, &session.scratch()), [(7, ONE_OF_SEVERAL, "x, release".into(), cover(&group(7)))]);
     assert_eq!(
-        plan.warnings,
+        candidates.warnings,
         [
             "Album 1: the Cover Art Archive has no front cover for it",
             "Album 2: its cover didn't download: the Cover Art Archive answered 500",
@@ -591,45 +506,47 @@ fn covers_that_cant_be_had_are_warnings() {
             "Album 4: its cover is too small (15 x 300 px)",
             "Album 5: its cover didn't download: no answer (external)",
             "Album 6: its cover didn't download: no answer (too_big)",
+            "Album 7, x, release: the Cover Art Archive has no front cover for it",
         ]
     );
+    assert_eq!(session.covers().len(), 7, "group 1's once");
 }
 
-/// Cancelled while a fetch is under way (a search, or a cover's download), the plan stops, asking
+/// Cancelled while a fetch is under way (a search, or a cover's download), the hook stops, asking
 /// for no more.
 #[test]
-fn cancelling_while_a_fetch_is_under_way_stops_the_plan() {
+fn cancelling_while_a_fetch_is_under_way_stops_it() {
     for held in [SEARCH, COVERS] {
         let route = move |req: &Req| match req.path.starts_with(held) {
             true => Reply::Held,
             false => services_as_they_are(req),
         };
-        let session = start(drive(vec![tagged(1, "Bicep", "Bicep", "Glue")]), route);
-        let pending = session.send(Value::Null, json!({ "drive": "USB" }));
+        let session = start(route);
+        let pending = session.send(&[tags(1, "Bicep", "Bicep", "Glue")], json!({}));
         let asked = if held == SEARCH { 1 } else { 2 };
         for _ in 0..asked {
             session.heard.recv().unwrap();
         }
         pending.cancel();
         let answer = pending.wait_timeout(Duration::from_secs(10)).expect("it stops");
-        assert_eq!(answer.map(|_: OpPlan| ()).unwrap_err(), RpcError::cancelled());
+        assert_eq!(answer.map(|_: Candidates| ()).unwrap_err(), RpcError::cancelled());
         assert_eq!(session.got().len(), asked);
     }
 }
 
-/// MusicBrainz out of reach fails the plan, as the host failed the search: no album can be looked
-/// up.
+/// MusicBrainz out of reach fails the hook, as the host failed the search: no album can be
+/// looked up.
 #[test]
-fn musicbrainz_out_of_reach_fails_the_plan() {
+fn musicbrainz_out_of_reach_fails_it() {
     for failure in FAILURES {
-        let session = start(drive(vec![tagged(1, "Bicep", "Bicep", "Glue")]), move |_: &Req| fails(failure));
-        let e = session.plan(Value::Null).unwrap_err();
+        let session = start(move |_: &Req| fails(failure));
+        let e = session.provide(&[tags(1, "Bicep", "Bicep", "Glue")]).unwrap_err();
         assert_eq!(kind(&e), (failure, format!("couldn't reach MusicBrainz: no answer ({failure})").as_str()));
     }
 }
 
 /// A search MusicBrainz refuses as busy is sent again, a few times, then its album is left out
-/// with a warning; an answer that isn't a search result fails the plan.
+/// with a warning; an answer that isn't a search result fails the hook.
 #[test]
 fn musicbrainz_refusing_is_tried_again_then_a_warning() {
     let refused = Arc::new(Mutex::new(0));
@@ -642,16 +559,16 @@ fn musicbrainz_refusing_is_tried_again_then_a_warning() {
         _ if req.path.starts_with(SEARCH) && std::mem::replace(&mut *refusing.lock().unwrap(), 1) == 0 => status(503),
         _ => services_as_they_are(req),
     };
-    let tracks = vec![
-        tagged(1, "Bicep", "Bicep", "Glue"),
-        Track { isrc: ISRC.into(), ..tagged(2, "Young Fathers", "Cocoa Sugar", "Lord") },
-        tagged(3, "Bicep", "Isles", "Apricots"),
+    let tracks = [
+        tags(1, "Bicep", "Bicep", "Glue"),
+        TrackTags { isrc: ISRC.into(), ..tags(2, "Young Fathers", "Cocoa Sugar", "Lord") },
+        tags(3, "Bicep", "Isles", "Apricots"),
     ];
-    let session = start(drive(tracks), route.clone());
-    let plan = session.plan(Value::Null).unwrap();
-    assert_eq!(set(&plan, &session.scratch()).len(), 1);
+    let session = start(route.clone());
+    let candidates = session.provide(&tracks).unwrap();
+    assert_eq!(found(&candidates, &session.scratch()).len(), 1);
     assert_eq!(
-        plan.warnings,
+        candidates.warnings,
         [
             "Bicep - Bicep: left out, as MusicBrainz answered 503",
             "Bicep - Isles: left out, as MusicBrainz answered 500"
@@ -664,22 +581,17 @@ fn musicbrainz_refusing_is_tried_again_then_a_warning() {
     assert_eq!(searches, [bicep.clone(), bicep.clone(), bicep, isrc.clone(), isrc, isles]);
     assert_eq!(*refused.lock().unwrap(), 1);
 
-    let session = start(drive(vec![tagged(1, "Bicep", "Junk", "Glue")]), route);
-    let e = session.plan(Value::Null).unwrap_err();
+    let session = start(route);
+    let e = session.provide(&[tags(1, "Bicep", "Junk", "Glue")]).unwrap_err();
     assert_eq!(e.kind(), Some("external"));
     assert!(e.message.starts_with("MusicBrainz answered what isn't a search result: "), "{e}");
 }
 
-/// It plans on the drive the user is on, with a folder for the covers: without either, there's
-/// nothing to plan.
+/// Its covers go in a folder the host gives it for them: without one, it looks nothing up.
 #[test]
-fn it_needs_a_drive_and_a_scratch_folder() {
-    let session = start(drive(Vec::new()), services_as_they_are);
-    let e = session.plan_with(json!({ "replace": true }), json!({})).unwrap_err();
-    assert_eq!(kind(&e), ("invalid_params", "invalid params: say which drive"));
-    let e = session.plan(json!({ "replace": "yes" })).unwrap_err();
-    assert_eq!(e.kind(), Some("invalid_params"));
-    let e = session.plan_with(Value::Null, json!({ "drive": "USB", "scratch": null })).unwrap_err();
+fn it_needs_a_scratch_folder() {
+    let session = start(services_as_they_are);
+    let e = session.provide_with(&[tags(1, "Bicep", "Bicep", "Glue")], json!({ "scratch": null })).unwrap_err();
     assert_eq!(
         kind(&e),
         (
@@ -691,40 +603,41 @@ fn it_needs_a_drive_and_a_scratch_folder() {
     assert_eq!(session.stop(), Vec::new());
 }
 
-/// A cover it can't write to the scratch folder fails the plan: its edit would have no image.
+/// A cover it can't write to the scratch folder fails the hook: its candidates would have no image.
 #[test]
-fn a_cover_it_cant_write_fails_the_plan() {
-    let session = start(drive(vec![tagged(1, "Bicep", "Bicep", "Glue")]), services_as_they_are);
+fn a_cover_it_cant_write_fails_it() {
+    let session = start(services_as_they_are);
     let scratch = TempDir::new().unwrap();
     // A folder in the way.
-    std::fs::create_dir(scratch.path().join(format!("cover-{BICEP}.jpg"))).unwrap();
-    let e = session.plan_with(Value::Null, json!({ "drive": "USB", "scratch": scratch.path() })).unwrap_err();
+    std::fs::create_dir(scratch.path().join(cover(BICEP))).unwrap();
+    let e =
+        session.provide_with(&[tags(1, "Bicep", "Bicep", "Glue")], json!({ "scratch": scratch.path() })).unwrap_err();
     assert_eq!(e.kind(), Some("io"));
-    assert!(e.message.starts_with(&format!("cover-{BICEP}.jpg: ")), "{e}");
+    assert!(e.message.starts_with(&format!("{}: ", cover(BICEP))), "{e}");
 }
 
-/// A plan sets covers on however many albums need them, none left for another run: they go to the
-/// host as files, so the plan's message doesn't grow with them.
+/// It finds covers for however many albums it's asked about: they go to the host as files, so the
+/// answer doesn't grow with them.
 #[test]
-fn a_plan_sets_covers_on_any_number_of_albums() {
-    const ALBUMS: u32 = 20;
-    let cover = jpeg(covers::SIZE, covers::SIZE, false);
+fn it_finds_covers_for_any_number_of_albums() {
+    const MANY: u32 = 20;
+    let image = jpeg(covers::SIZE, covers::SIZE, false);
     let route = move |req: &Req| match req.query.strip_prefix("release:\"Album ") {
         Some(n) => {
             let n: u32 = n.trim_end_matches('"').parse().unwrap();
             let group = json!({ "id": format!("f0000000-0000-4000-8000-{n:012}"), "title": "x" });
             ok(json!({ "releases": [{ "title": format!("Album {n}"), "release-group": group }] }).to_string())
         }
-        None => ok(cover.clone()),
+        None => ok(image.clone()),
     };
-    let tracks = (1..=ALBUMS).map(|n| tagged(n, "", &format!("Album {n}"), "Song")).collect();
-    let session = start(drive(tracks), route);
-    let plan = session.plan(Value::Null).unwrap();
-    assert_eq!(plan.warnings, Vec::<String>::new());
-    assert_eq!(set(&plan, &session.scratch()).len(), ALBUMS as usize);
+    let tracks: Vec<TrackTags> = (1..=MANY).map(|n| tags(n, "", &format!("Album {n}"), "Song")).collect();
+    let session = start(route);
+    let candidates = session.provide(&tracks).unwrap();
+    assert_eq!(candidates.warnings, Vec::<String>::new());
+    assert_eq!(found(&candidates, &session.scratch()).len(), MANY as usize);
     let images: u64 = std::fs::read_dir(session.scratch()).unwrap().map(|f| f.unwrap().metadata().unwrap().len()).sum();
-    let message = serde_json::to_string(&plan).unwrap().len() as u64;
-    assert!(message * 10 < images, "a plan of {message} bytes for {images} bytes of covers");
+    let message = serde_json::to_string(&candidates).unwrap().len() as u64;
+    assert!(message * 10 < images, "an answer of {message} bytes for {images} bytes of covers");
 }
 
 /// An ISRC search MusicBrainz keeps refusing leaves the album out with a warning, with no search
@@ -735,16 +648,16 @@ fn an_isrc_search_refused_leaves_the_album_out() {
         true => status(503),
         false => services_as_they_are(req),
     };
-    let tracks = vec![Track { isrc: ISRC.into(), ..tagged(1, "Young Fathers", "Cocoa Sugar", "Lord") }];
-    let session = start(drive(tracks), route);
-    let plan = session.plan(Value::Null).unwrap();
-    assert!(set(&plan, &session.scratch()).is_empty());
-    assert_eq!(plan.warnings, ["Young Fathers - Cocoa Sugar: left out, as MusicBrainz answered 503"]);
+    let session = start(route);
+    let candidates =
+        session.provide(&[TrackTags { isrc: ISRC.into(), ..tags(1, "Young Fathers", "Cocoa Sugar", "Lord") }]).unwrap();
+    assert!(found(&candidates, &session.scratch()).is_empty());
+    assert_eq!(candidates.warnings, ["Young Fathers - Cocoa Sugar: left out, as MusicBrainz answered 503"]);
     let queries: Vec<String> = session.searches().into_iter().map(|(_, q)| q).collect();
     assert_eq!(queries, [format!("isrc:{ISRC}"), format!("isrc:{ISRC}"), format!("isrc:{ISRC}")]);
 }
 
-// Properties: drawn drives against drawn services, the plan foreseen from what was drawn.
+// Properties: drawn tracks against drawn services, the candidates foreseen from what was drawn.
 
 /// The release groups drawn searches find, by index: shaped as MusicBrainz's ids are, so their
 /// covers are asked for.
@@ -766,7 +679,7 @@ fn isrc_of(k: usize) -> String {
 /// one), and whether its ISRC tag is one.
 #[derive(Debug, Clone)]
 struct Drawn {
-    track: Track,
+    tags: TrackTags,
     album: Option<usize>,
     artist: usize,
     isrc: bool,
@@ -803,16 +716,13 @@ fn drawn_track(tc: &TestCase, id: u32) -> Drawn {
         ("none".to_string(), false),
     ];
     let (isrc_tag, isrc) = tc.draw(gs::sampled_from(isrcs));
-    let mut track = Track {
+    let tags = TrackTags {
         album: album_tag,
         album_artist: if album_artist { "Various Artists".into() } else { String::new() },
         isrc: isrc_tag,
-        ..track(id, artist_tag, &title, &format!("/Contents/{id}.mp3"))
+        ..tags(id, artist_tag, "", &title)
     };
-    if tc.draw(gs::weighted_booleans(0.3)) {
-        track = with_art(track);
-    }
-    Drawn { track, album, artist, isrc }
+    Drawn { tags, album, artist, isrc }
 }
 
 /// How MusicBrainz answers a search: `503` (busy) `busy` times, then `answer`.
@@ -889,7 +799,7 @@ fn drawn_cover(tc: &TestCase) -> Cover {
                 }
             }
             let png = tc.draw(gs::booleans());
-            // Rarely: it fails the plan.
+            // Rarely: it fails the hook.
             let unwritable = tc.draw(gs::weighted_booleans(0.05));
             Cover::Image { width, height, png, unwritable }
         }
@@ -992,27 +902,31 @@ fn answering(answers: Answers) -> impl Fn(&Req) -> Reply + Send + 'static {
     }
 }
 
-/// A plan foreseen: its summary, warnings and edits (each one's tracks, and its image's size).
-type Foreseen = (String, Vec<String>, Vec<(Vec<String>, (u32, u32))>);
+/// The label of release group `g`'s cover, as drawn searches name it.
+fn label_of(g: usize) -> String {
+    let kind = if g.is_multiple_of(2) { "album" } else { "release" };
+    format!("Group {g}, {kind}")
+}
 
-/// An error a plan fails with: its kind, and how its message starts.
+/// An error the hook fails with: its kind, and how its message starts.
 type Refusal = (&'static str, String);
 
-/// What a plan should come to: the plan or the error it fails with (its kind, and how its
-/// message starts), with the fetches it asks for (each one's URL but its query, and its `query`
-/// param), in order.
+/// What asking about tracks should come to: the candidates (each one's track, score, label and
+/// file) and warnings, or the error it fails with, with the fetches it asks for (each one's URL
+/// but its query, and its `query` param), in order.
 struct Outcome {
-    plan: Result<Foreseen, Refusal>,
+    found: Result<(Vec<Seen>, Vec<String>), Refusal>,
     fetches: Vec<(String, String)>,
 }
 
-/// An album as the plan looks it up: shown as its first track tags it, searched by its first ISRC.
+/// An album as the plugin looks it up: shown as its first track tags it, searched by its first
+/// ISRC.
 struct Looked {
     k: usize,
     artist: String,
     name: String,
     isrc: bool,
-    paths: Vec<String>,
+    tracks: Vec<u32>,
 }
 
 impl Looked {
@@ -1024,12 +938,12 @@ impl Looked {
     }
 }
 
-/// What `chosen`'s tracks come to, the ones needing art (all, with `replace`) looked up on the
-/// services `answers` stands for, after the warnings `warned` already.
-fn foresee(answers: &Answers, chosen: &[&Drawn], replace: bool, mut warned: Vec<String>) -> Outcome {
+/// What asking about `drawn`'s tracks comes to, on the services `answers` stands for.
+fn foresee(answers: &Answers, drawn: &[Drawn]) -> Outcome {
+    let mut warned = Vec::new();
     let mut albums: Vec<((usize, usize), Looked)> = Vec::new();
-    for d in chosen.iter().filter(|d| replace || d.track.artwork_path.is_none()) {
-        let t = &d.track;
+    for d in drawn {
+        let t = &d.tags;
         let Some(k) = d.album else {
             warned.push(format!("track #{} has no album or title to look up", t.id));
             continue;
@@ -1040,20 +954,21 @@ fn foresee(answers: &Answers, chosen: &[&Drawn], replace: bool, mut warned: Vec<
                 let tagged =
                     |tags: [&str; 2]| tags.into_iter().map(str::trim).find(|s| !s.is_empty()).unwrap_or("").to_string();
                 let (artist, name) = (tagged([&t.album_artist, &t.artist]), tagged([&t.album, &t.title]));
-                albums.push(((d.artist, k), Looked { k, artist, name, isrc: false, paths: Vec::new() }));
+                albums.push(((d.artist, k), Looked { k, artist, name, isrc: false, tracks: Vec::new() }));
                 albums.len() - 1
             }
         };
         let album = &mut albums[at].1;
         album.isrc |= d.isrc;
-        album.paths.push(t.file_path.clone());
+        album.tracks.push(t.id);
     }
 
     let mut fetches: Vec<(String, String)> = Vec::new();
-    // Each cover downloaded, by release group: its tracks, or why there's none.
-    let mut got: Vec<(usize, Result<Vec<String>, String>)> = Vec::new();
+    // Each cover downloaded, by release group: whether there's one, or why not.
+    let mut got: Vec<(usize, Result<(), String>)> = Vec::new();
+    let mut found: Vec<Seen> = Vec::new();
     // A search's release groups (deduplicated), or the status it was refused with; or the error
-    // the plan fails with.
+    // the hook fails with.
     let search = |fetches: &mut Vec<(String, String)>, entity: &str, search: &Search, query: String| {
         let path = format!("{SEARCH}{entity}/");
         for tries in 1..=3 {
@@ -1083,33 +998,36 @@ fn foresee(answers: &Answers, chosen: &[&Drawn], replace: bool, mut warned: Vec<
         unreachable!()
     };
     let mut fail = None;
-    for (_, album) in &albums {
+    'albums: for (_, album) in &albums {
         let shown = album.shown();
-        let mut found = Ok(Vec::new());
+        let (mut found_groups, mut by_isrc) = (Ok(Vec::new()), false);
         if album.isrc {
             match search(&mut fetches, "recording", &answers.recordings[album.k], format!("isrc:{}", isrc_of(album.k)))
             {
-                Ok(answer) => found = answer,
+                Ok(answer) => {
+                    by_isrc = answer.as_ref().is_ok_and(|g| !g.is_empty());
+                    found_groups = answer;
+                }
                 Err(e) => {
                     fail = Some(e);
                     break;
                 }
             }
         }
-        if found.as_ref().is_ok_and(Vec::is_empty) {
+        if found_groups.as_ref().is_ok_and(Vec::is_empty) {
             let mut query = format!("release:\"{}\"", album.name);
             if !album.artist.is_empty() {
                 query = format!("{query} AND artist:\"{}\"", album.artist);
             }
             match search(&mut fetches, "release", &answers.releases[album.k], query) {
-                Ok(answer) => found = answer,
+                Ok(answer) => found_groups = answer,
                 Err(e) => {
                     fail = Some(e);
                     break;
                 }
             }
         }
-        let g = match found {
+        let groups = match found_groups {
             Err(code) => {
                 warned.push(format!("{shown}: left out, as MusicBrainz answered {code}"));
                 continue;
@@ -1118,225 +1036,109 @@ fn foresee(answers: &Answers, chosen: &[&Drawn], replace: bool, mut warned: Vec<
                 warned.push(format!("{shown}: not on MusicBrainz"));
                 continue;
             }
-            Ok(groups) if groups.len() > 1 => {
-                let named = groups.iter().map(|&g| {
-                    let kind = if g.is_multiple_of(2) { "Album" } else { "release" };
-                    format!("Group {g} {kind} https://musicbrainz.org/release-group/{}", GROUPS[g])
-                });
-                let named = named.collect::<Vec<_>>().join(", ");
-                warned.push(format!("{shown}: left out, as MusicBrainz has several of that name: {named}"));
-                continue;
-            }
-            Ok(groups) => groups[0],
+            Ok(groups) => groups,
         };
-        if !got.iter().any(|(had, _)| *had == g) {
-            fetches.push((format!("{COVERS}{}/front-500", GROUPS[g]), String::new()));
-            let cover = match answers.covers[g] {
-                Cover::Image { width, height, .. } if width < 16 || height < 16 => {
-                    Err(format!("its cover is too small ({width} x {height} px)"))
-                }
-                Cover::Image { unwritable: true, .. } => {
-                    fail = Some(("io", format!("cover-{}.jpg: ", GROUPS[g])));
-                    break;
-                }
-                Cover::Image { .. } => Ok(Vec::new()),
-                Cover::Status(404) => Err("the Cover Art Archive has no front cover for it".into()),
-                Cover::Status(code) => Err(format!("its cover didn't download: the Cover Art Archive answered {code}")),
-                Cover::Garbage => Err("its cover isn't an image: The image format could not be determined".into()),
-                Cover::Fails(kind) => Err(format!("its cover didn't download: no answer ({kind})")),
-            };
-            got.push((g, cover));
-        }
-        match &mut got.iter_mut().find(|(had, _)| *had == g).unwrap().1 {
-            Ok(paths) => paths.extend(album.paths.iter().cloned()),
-            Err(why) => warned.push(format!("{shown}: {why}")),
-        }
-    }
-    if let Some(e) = fail {
-        return Outcome { plan: Err(e), fetches };
-    }
-    let edits: Vec<(Vec<String>, (u32, u32))> =
-        got.into_iter().filter_map(|(_, cover)| Some((cover.ok()?, (covers::SIZE, covers::SIZE)))).collect();
-    let tracks: usize = edits.iter().map(|(paths, _)| paths.len()).sum();
-    let summary = match (edits.len(), albums.len()) {
-        (_, 0) => "no track chosen needs cover art".to_string(),
-        (0, n) => format!("found no cover art for the {n} album(s) looked up"),
-        (found, _) => format!("set cover art from the Cover Art Archive on {tracks} track(s) of {found} album(s)"),
-    };
-    Outcome { plan: Ok((summary, warned, edits)), fetches }
-}
-
-/// The tracks a plan is asked for, as the user chooses them: by the params, the context, or both.
-#[derive(Debug)]
-struct Asked {
-    params: Value,
-    context: Value,
-    /// The tracks of the drive's playlist `Set`, by id (some of them not on the drive).
-    set: Vec<u32>,
-}
-
-#[hegel::test_helper]
-fn drawn_ask(tc: &TestCase, n: u32) -> Asked {
-    // Mostly the whole drive, so most plans have albums to look up.
-    let some = |p: f64| tc.draw(gs::weighted_booleans(p));
-    let ids = || gs::vecs(gs::integers::<u32>().min_value(1).max_value(n + 1)).unique(true).min_size(1).max_size(6);
-    let playlist = || gs::sampled_from(vec!["Set", "Set", "Nowhere"]);
-    let mut params = json!({});
-    if some(0.2) {
-        params["tracks"] = json!(tc.draw(ids()));
-    }
-    if some(0.2) {
-        params["playlist"] = json!(tc.draw(playlist()));
-    }
-    if let Some(replace) = tc.draw(gs::optional(gs::booleans())) {
-        params["replace"] = json!(replace);
-    }
-    if params == json!({}) && tc.draw(gs::booleans()) {
-        params = Value::Null;
-    }
-    let mut context = json!({});
-    match some(0.9) {
-        true => context["drive"] = json!("USB"),
-        false => {
-            if let Some(drive) = tc.draw(gs::optional(gs::just("Other"))) {
-                context["drive"] = json!(drive);
+        let score = match (groups.len(), by_isrc) {
+            (1, true) => BY_ISRC,
+            (1, false) => BY_NAME,
+            _ => ONE_OF_SEVERAL,
+        };
+        for &g in groups.iter().take(MAX_GROUPS) {
+            if !got.iter().any(|(had, _)| *had == g) {
+                fetches.push((format!("{COVERS}{}/front-500", GROUPS[g]), String::new()));
+                let cover = match answers.covers[g] {
+                    Cover::Image { width, height, .. } if width < 16 || height < 16 => {
+                        Err(format!("its cover is too small ({width} x {height} px)"))
+                    }
+                    Cover::Image { unwritable: true, .. } => {
+                        fail = Some(("io", format!("{}: ", cover(GROUPS[g]))));
+                        break 'albums;
+                    }
+                    Cover::Image { .. } => Ok(()),
+                    Cover::Status(404) => Err("the Cover Art Archive has no front cover for it".into()),
+                    Cover::Status(code) => {
+                        Err(format!("its cover didn't download: the Cover Art Archive answered {code}"))
+                    }
+                    Cover::Garbage => Err("its cover isn't an image: The image format could not be determined".into()),
+                    Cover::Fails(kind) => Err(format!("its cover didn't download: no answer ({kind})")),
+                };
+                got.push((g, cover));
+            }
+            match &got.iter().find(|(had, _)| *had == g).unwrap().1 {
+                Ok(()) => found.extend(album.tracks.iter().map(|&t| (t, score, label_of(g), cover(GROUPS[g])))),
+                Err(why) if groups.len() > 1 => warned.push(format!("{shown}, {}: {why}", label_of(g))),
+                Err(why) => warned.push(format!("{shown}: {why}")),
             }
         }
     }
-    if some(0.2) {
-        context["tracks"] = json!(tc.draw(ids()));
+    match fail {
+        Some(e) => Outcome { found: Err(e), fetches },
+        None => Outcome { found: Ok((found, warned)), fetches },
     }
-    if some(0.2) {
-        context["playlist"] = json!(tc.draw(playlist()));
-    }
-    // Rarely, a host that gives it no scratch folder.
-    if some(0.05) {
-        context["scratch"] = Value::Null;
-    }
-    let set = gs::vecs(gs::integers::<u32>().min_value(1).max_value(n + 1)).unique(true).max_size(8);
-    Asked { params, context, set: tc.draw(set) }
 }
 
-/// The ids in `v` (an array, or missing).
-fn ids_in(v: &Value) -> Vec<u32> {
-    v.as_array().map(|a| a.iter().map(|id| id.as_u64().unwrap() as u32).collect()).unwrap_or_default()
-}
-
-/// A read the plugin calls back for: its method and params.
-type Read = (String, Value);
-
-/// What the user chose of `drawn`, as the host gives it to the plugin: the tracks (or the error
-/// the plan fails with), the warnings for ids the drive hasn't, and the reads asked for them.
-fn choice<'d>(drawn: &'d [Drawn], asked: &Asked) -> (Result<Vec<&'d Drawn>, Refusal>, Vec<String>, Vec<Read>) {
-    let (params, context) = (&asked.params, &asked.context);
-    let by_id = |id: &u32| drawn.iter().find(|d| d.track.id == *id);
-    let Some(drive) = context["drive"].as_str() else {
-        return (Err(("invalid_params", "invalid params: say which drive".into())), Vec::new(), Vec::new());
-    };
-    if context["scratch"].is_null() && context.get("scratch").is_some() {
-        let refused = "invalid params: the host gives the plugin no scratch folder for the covers (the blobs feature)";
-        return (Err(("invalid_params", refused.into())), Vec::new(), Vec::new());
-    }
-    let not_on_drive = || Err(("not_found", format!("not found: drive {drive:?}")));
-    // The tracks or playlist the params name, else the selection or the playlist open.
-    let named = !ids_in(&params["tracks"]).is_empty() || params["playlist"].is_string();
-    let chosen = if named { params } else { context };
-    let ids = ids_in(&chosen["tracks"]);
-    if !ids.is_empty() {
-        let read = vec![("tracks.get".to_string(), json!({ "drive": drive, "ids": ids }))];
-        if drive != "USB" {
-            return (not_on_drive(), Vec::new(), read);
-        }
-        let missing = ids.iter().filter(|id| by_id(id).is_none());
-        let warned = missing.map(|id| format!("track #{id} isn't on the drive")).collect();
-        return (Ok(ids.iter().filter_map(by_id).collect()), warned, read);
-    }
-    let playlist = chosen["playlist"].as_str();
-    let page = |offset: usize| {
-        let mut query = json!({ "drive": drive, "offset": offset });
-        if let Some(name) = playlist {
-            query["playlist"] = json!(name);
-        }
-        ("tracks.query".to_string(), query)
-    };
-    let tracks: Vec<&Drawn> = match playlist {
-        _ if drive != "USB" => return (not_on_drive(), Vec::new(), vec![page(0)]),
-        Some("Nowhere") => {
-            return (Err(("not_found", "not found: playlist \"Nowhere\"".into())), Vec::new(), vec![page(0)]);
-        }
-        Some(_) => asked.set.iter().filter_map(by_id).collect(),
-        None => drawn.iter().collect(),
-    };
-    // A page at a time, never past the last.
-    let reads = (0..tracks.len().max(1)).step_by(PAGE).map(page).collect();
-    (Ok(tracks), Vec::new(), reads)
-}
-
-/// For any drive (tracks with and without artwork, in albums or singles, by artists spelled
-/// several ways, with ISRCs or not), however the user chooses its tracks, and however MusicBrainz
-/// and the Cover Art Archive answer (found, not found, several, busy, refusing, garbage, out of
-/// reach; covers missing, broken, tiny, or not to be had, or that can't be written), the plan is
-/// what their answers make it: each album needing art looked up once (by ISRC first), each
-/// release group's cover downloaded once and set on those tracks (all of them, with `replace`)
-/// as a file in the scratch folder, and a warning for each album left out.
+/// For any tracks asked about (in albums or singles, by artists spelled several ways, with ISRCs
+/// or not), and however MusicBrainz and the Cover Art Archive answer (found, not found, several,
+/// busy, refusing, garbage, out of reach; covers missing, broken, tiny, or not to be had, or that
+/// can't be written), the candidates are what their answers make them: each album looked up once
+/// (by ISRC first), each release group's cover downloaded once, a file in the scratch folder
+/// offered for each of the album's tracks (surely when it's the only one, more so by an ISRC), and
+/// a warning for each album with none. Without a scratch folder, nothing is looked up.
 #[hegel::test(test_cases = 60)]
-fn any_drive_gets_the_covers_the_services_answer(tc: TestCase) {
+fn any_tracks_get_the_covers_the_services_answer(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(8));
     let drawn: Vec<Drawn> = (1..=n).map(|id| drawn_track(&tc, id)).collect();
-    let mut asked = drawn_ask(&tc, n);
     let answers = drawn_answers(&tc);
-    // The scratch folder the host makes, with a folder in the way of the covers that can't be
-    // written.
+    // The scratch folder the host makes (rarely none), with a folder in the way of the covers
+    // that can't be written.
+    let given = tc.draw(gs::weighted_booleans(0.95));
     let scratch = TempDir::new().unwrap();
-    for (cover, id) in answers.covers.iter().zip(GROUPS) {
-        if let Cover::Image { unwritable: true, .. } = cover {
-            std::fs::create_dir(scratch.path().join(format!("cover-{id}.jpg"))).unwrap();
+    for (drawn, id) in answers.covers.iter().zip(GROUPS) {
+        if let Cover::Image { unwritable: true, .. } = drawn {
+            std::fs::create_dir(scratch.path().join(cover(id))).unwrap();
         }
     }
-    if asked.context.get("scratch").is_none() {
-        asked.context["scratch"] = json!(scratch.path());
-    }
-
-    let tracks = drawn.iter().map(|d| d.track.clone()).collect();
-    let playlists = vec![("Set".to_string(), asked.set.clone())];
-    let session = start(Drive { tracks, playlists }, answering(answers.clone()));
-    let planned = session.plan_with(asked.params.clone(), asked.context.clone());
-
-    let replace = asked.params["replace"].as_bool().unwrap_or(false);
-    let (tracks, warned, reads) = choice(&drawn, &asked);
-    let foreseen = match tracks {
-        Ok(tracks) => foresee(&answers, &tracks, replace, warned),
-        Err(e) => Outcome { plan: Err(e), fetches: Vec::new() },
+    let context = match given {
+        true => json!({ "scratch": scratch.path() }),
+        false => json!({ "scratch": null }),
     };
-    match (&planned, &foreseen.plan) {
-        (Ok(plan), Ok((summary, warned, edits))) => {
-            assert_eq!(&plan.summary, summary);
-            assert_eq!(&plan.warnings, warned);
-            assert_eq!(&set(plan, scratch.path()), edits);
-            assert!(plan.inputs.is_empty());
+
+    let session = start(answering(answers.clone()));
+    let tracks: Vec<TrackTags> = drawn.iter().map(|d| d.tags.clone()).collect();
+    let provided = session.provide_with(&tracks, context);
+    let foreseen = match given {
+        true => foresee(&answers, &drawn),
+        false => {
+            let refused =
+                "invalid params: the host gives the plugin no scratch folder for the covers (the blobs feature)";
+            Outcome { found: Err(("invalid_params", refused.into())), fetches: Vec::new() }
+        }
+    };
+    match (&provided, &foreseen.found) {
+        (Ok(candidates), Ok((seen, warned))) => {
+            assert_eq!(&found(candidates, scratch.path()), seen);
+            assert_eq!(&candidates.warnings, warned);
         }
         (Err(e), Err((kind, start))) => {
             assert_eq!(e.kind(), Some(*kind), "{e:?}");
             assert!(e.message.starts_with(start.as_str()), "{e:?}");
         }
-        (planned, foreseen) => panic!("planned {planned:?}, not {foreseen:?}"),
+        (provided, foreseen) => panic!("provided {provided:?}, not {foreseen:?}"),
     }
     let fetches: Vec<(String, String)> = session.got().into_iter().map(|g| (g.path, g.query)).collect();
     assert_eq!(fetches, foreseen.fetches);
-    assert_eq!(session.stop(), reads);
+    assert_eq!(session.stop(), Vec::new(), "it reads nothing");
 }
 
 /// Cancelled while a fetch is under way, whichever it is (a search or a cover's download) and
-/// whatever it was looking up, the plan stops with `cancelled`, asking for nothing more.
+/// whatever it was looking up, the hook stops with `cancelled`, asking for nothing more.
 #[hegel::test(test_cases = 10)]
-fn cancelling_any_plan_waiting_for_a_fetch_stops_it(tc: TestCase) {
+fn cancelling_while_any_fetch_is_under_way_stops_it(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().min_value(1).max_value(8));
     let drawn: Vec<Drawn> = (1..=n).map(|id| drawn_track(&tc, id)).collect();
     let answers = drawn_answers(&tc);
-    let asked = Asked { params: json!({ "replace": true }), context: json!({ "drive": "USB" }), set: Vec::new() };
-    let (tracks, warned, _) = choice(&drawn, &asked);
-    // The fetches up to one that fails the plan, which are the same whatever the covers' folder.
-    let foreseen = foresee(&answers, &tracks.unwrap(), true, warned);
+    // The fetches up to one that fails the hook, which are the same whatever the covers' folder.
+    let foreseen = foresee(&answers, &drawn);
     tc.assume(!foreseen.fetches.is_empty());
     let held = tc.draw(gs::integers::<usize>().max_value(foreseen.fetches.len() - 1));
 
@@ -1345,63 +1147,50 @@ fn cancelling_any_plan_waiting_for_a_fetch_stops_it(tc: TestCase) {
         true => Reply::Held,
         false => route(req),
     };
-    let session = start(drive(drawn.into_iter().map(|d| d.track).collect()), route);
-    let pending = session.send(asked.params, asked.context);
+    let session = start(route);
+    let tracks: Vec<TrackTags> = drawn.into_iter().map(|d| d.tags).collect();
+    let pending = session.send(&tracks, json!({}));
     for _ in 0..=held {
         session.heard.recv().unwrap();
     }
     pending.cancel();
     let answer = pending.wait_timeout(Duration::from_secs(10)).expect("it stops");
-    assert_eq!(answer.map(|_: OpPlan| ()).unwrap_err(), RpcError::cancelled());
+    assert_eq!(answer.map(|_: Candidates| ()).unwrap_err(), RpcError::cancelled());
     let fetches: Vec<(String, String)> = session.got().into_iter().map(|g| (g.path, g.query)).collect();
     assert_eq!(fetches, foreseen.fetches[..=held]);
 }
 
-/// Served as a real plugin is, a plan with nothing to look up asks for no fetch: params of the
-/// wrong types, and a plan without a drive, are refused; tracks that all have artwork or nothing
-/// to look up by plan nothing, saying why.
+/// Served as a real plugin is, a request with nothing to look up asks for no fetch: one that
+/// doesn't read, or asks another provider (or kind), is refused; tracks with nothing to look up
+/// by come back without a candidate, a warning each.
 #[hegel::test(test_cases = 15)]
-fn served_for_real_it_plans_nothing_it_neednt_look_up(tc: TestCase) {
+fn served_for_real_it_looks_up_nothing_it_neednt(tc: TestCase) {
     let n = tc.draw(gs::integers::<u32>().max_value(5));
-    let mut tracks = Vec::new();
-    let mut nameless = Vec::new();
-    for id in 1..=n {
-        match tc.draw(gs::booleans()) {
-            true => tracks.push(with_art(tagged(id, "Bicep", "Bicep", "Glue"))),
-            false => {
-                tracks.push(tagged(id, "Bicep", " ", ""));
-                nameless.push(format!("track #{id} has no album or title to look up"));
-            }
-        }
-    }
-    let (params, typed) = tc.draw(gs::sampled_from(vec![
-        ("null", true),
-        ("{}", true),
-        (r#"{ "replace": false, "playlist": null }"#, true),
-        (r#"{ "replace": "yes" }"#, false),
-        (r#"{ "tracks": "1" }"#, false),
-        (r#"{ "playlist": 5 }"#, false),
+    let tracks: Vec<TrackTags> =
+        (1..=n).map(|id| tags(id, "Bicep", tc.draw(gs::sampled_from(vec!["", " "])), "")).collect();
+    let nameless: Vec<String> = (1..=n).map(|id| format!("track #{id} has no album or title to look up")).collect();
+    let (shape, said) = tc.draw(gs::sampled_from(vec![
+        ("fine", None),
+        ("provider", Some("invalid params: the manifest declares no provider \"tags\"")),
+        ("kind", Some("invalid params: covers provides no metadata")),
+        ("tracks", None),
     ]));
-    let params: Value = serde_json::from_str(params).unwrap();
-    let on_drive = tc.draw(gs::booleans());
-    let session = start(drive(tracks), services_as_they_are);
-    let context = if on_drive { json!({ "drive": "USB" }) } else { json!({}) };
-    let planned = session.plan_with(params, context);
-    match (typed, on_drive) {
-        (false, _) => assert_eq!(planned.unwrap_err().kind(), Some("invalid_params")),
-        (true, false) => {
-            assert_eq!(kind(&planned.unwrap_err()), ("invalid_params", "invalid params: say which drive"))
-        }
-        (true, true) => {
-            let plan = planned.unwrap();
-            assert_eq!(plan.summary, "no track chosen needs cover art");
-            assert_eq!(plan.warnings, nameless);
-            assert!(plan.edits.is_empty());
-        }
+    let scratch = TempDir::new().unwrap();
+    let context = json!({ "scratch": scratch.path() });
+    let mut req = json!({ "provider": "covers", "kind": "artwork", "tracks": tracks, "context": context });
+    match shape {
+        "provider" => req["provider"] = json!("tags"),
+        "kind" => req["kind"] = json!("metadata"),
+        "tracks" => req["tracks"] = json!("1"),
+        _ => {}
+    }
+    let session = start(services_as_they_are);
+    let answer: Result<Candidates, RpcError> = session.host.request(method::PROVIDE, &req);
+    match (shape, said) {
+        ("fine", _) => assert_eq!(answer.unwrap(), Candidates { candidates: Vec::new(), warnings: nameless }),
+        (_, Some(said)) => assert_eq!(kind(&answer.unwrap_err()), ("invalid_params", said)),
+        _ => assert_eq!(answer.unwrap_err().kind(), Some("invalid_params")),
     }
     assert_eq!(session.got().len(), 0);
-    // The drive's tracks, a page at a time, once there's a plan to make.
-    let pages = (0..n.max(1) as usize).step_by(PAGE).count();
-    let reads = session.stop();
-    assert_eq!(reads.len(), if typed && on_drive { pages } else { 0 }, "{reads:?}");
+    assert_eq!(session.stop(), Vec::new());
 }

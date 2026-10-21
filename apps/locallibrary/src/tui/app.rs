@@ -3323,7 +3323,12 @@ impl App {
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
+            Act::ProviderSettings => self.provider_settings(),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
+            Act::Fetch(kind) => {
+                let target = (self.view == View::Library).then(|| self.target()).flatten();
+                self.fetch_form(kind, self.action_drive(), target.as_ref());
+            }
             Act::Details => {
                 self.show_details = !self.show_details;
                 if !self.show_details && self.focus == Focus::Details {

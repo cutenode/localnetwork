@@ -1,7 +1,7 @@
-//! Which MusicBrainz release group an album is: found by one of its tracks' ISRC when it has one
-//! (a recording search, which names the releases it's on), else by a release search for the
-//! album's name and artist. Only releases named as the album is count, and they must all be of one
-//! release group: the album's, whose cover the Cover Art Archive has.
+//! Which MusicBrainz release groups an album could be: found by one of its tracks' ISRC when it
+//! has one (a recording search, which names the releases it's on), else by a release search for
+//! the album's name and artist. Only releases named as the album is count; their release groups
+//! are what the album could be, one alone being surely it. The Cover Art Archive has their covers.
 
 use loclib_model::model::normalize;
 use loclib_plugin::{Fetch, Host, RpcError};
@@ -49,26 +49,24 @@ pub(crate) struct ReleaseGroup {
 
 /// What looking an album up found.
 pub(crate) enum Found {
-    One(ReleaseGroup),
-    /// Nothing named as the album is.
-    None,
-    /// Releases of several release groups are named as the album is.
-    Several(Vec<ReleaseGroup>),
+    /// The release groups of releases named as the album is, as MusicBrainz lists them (none, or
+    /// several), and whether they were found by an ISRC.
+    Groups { groups: Vec<ReleaseGroup>, by_isrc: bool },
     /// MusicBrainz didn't answer the search (`503`, each time: it's busy).
     Refused(u16),
 }
 
-/// The release group `album` is. Fails when MusicBrainz can't be reached at all, or when the
-/// operation is cancelled.
+/// The release groups `album` could be. Fails when MusicBrainz can't be reached at all, or when
+/// the hook is cancelled.
 pub(crate) fn release_group(host: &Host, album: &Album) -> Result<Found, RpcError> {
     if let Some(isrc) = &album.isrc {
-        let found = match search(host, "recording", &format!("isrc:{isrc}"))? {
-            Ok(Recordings { recordings }) => one(recordings.into_iter().flat_map(|r| r.releases), &album.name),
+        let groups = match search(host, "recording", &format!("isrc:{isrc}"))? {
+            Ok(Recordings { recordings }) => named(recordings.into_iter().flat_map(|r| r.releases), &album.name),
             Err(status) => return Ok(Found::Refused(status)),
         };
         // Not on MusicBrainz by its ISRC, or not on a release of that name: by name, then.
-        if !matches!(found, Found::None) {
-            return Ok(found);
+        if !groups.is_empty() {
+            return Ok(Found::Groups { groups, by_isrc: true });
         }
     }
     let mut query = phrase("release", &album.name);
@@ -76,7 +74,7 @@ pub(crate) fn release_group(host: &Host, album: &Album) -> Result<Found, RpcErro
         query = format!("{query} AND {}", phrase("artist", &album.artist));
     }
     Ok(match search(host, "release", &query)? {
-        Ok(Releases { releases }) => one(releases.into_iter(), &album.name),
+        Ok(Releases { releases }) => Found::Groups { groups: named(releases.into_iter(), &album.name), by_isrc: false },
         Err(status) => Found::Refused(status),
     })
 }
@@ -116,8 +114,8 @@ fn phrase(field: &str, value: &str) -> String {
     format!("{field}:\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// The one release group of `releases` named as `name` is.
-fn one(releases: impl Iterator<Item = Release>, name: &str) -> Found {
+/// The release groups of `releases` named as `name` is, each once, in their order.
+fn named(releases: impl Iterator<Item = Release>, name: &str) -> Vec<ReleaseGroup> {
     let mut groups: Vec<ReleaseGroup> = Vec::new();
     for group in releases.filter(|r| same(&r.title, name)).filter_map(|r| r.release_group) {
         // An id goes in the Cover Art Archive's URL: only one shaped as MusicBrainz's are.
@@ -126,11 +124,7 @@ fn one(releases: impl Iterator<Item = Release>, name: &str) -> Found {
             groups.push(group);
         }
     }
-    match groups.len() {
-        0 => Found::None,
-        1 => Found::One(groups.remove(0)),
-        _ => Found::Several(groups),
-    }
+    groups
 }
 
 /// Whether two titles are the same but for letter case, spacing, Unicode forms, and the curly

@@ -6,10 +6,13 @@
 //! folder it runs in (`cwd`), calls back (`call` with `params`), fetches (`fetch`, a `net/fetch`
 //! request, its blobs named in its scratch folder, logging what it's answered and answering what
 //! it fetched into a blob) or sends its rows in parts (`partial`, `partial_items`) when its
-//! params say so; its operation answers the `edits` (and `inputs`) it's given; both first write
-//! the `blobs` (by name, their bytes), `hard_links` and (on Unix) `links` they're given to the
-//! scratch folder; an analyzer named `order` answers fields `a` (null for a one-byte audio file)
-//! then `b`, or fails naming an empty audio file; and its exporter names the playlists it's
+//! params say so; its operation answers the `edits` (and `inputs`) it's given; both ask the
+//! question `ask` (a `Choice`) until they're given its param (or, `ask_again`, always), the
+//! command then answering that param as text; both first write the `blobs` (by name, their
+//! bytes), `hard_links` and (on Unix) `links` they're given to the scratch folder; a provider
+//! other than echo's answers as its `answer` setting says (see `Test::provide`); an analyzer
+//! named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming an
+//! empty audio file; and its exporter names the playlists it's
 //! given in a note, and would write to `outside`, or writes `extra` too without saying so first.
 //! `--manifest <file>` serves another manifest, `--protocol <version>` answers `hello` with
 //! another protocol and stops, `--silent` never answers, `--wrong-fields` answers fields of the

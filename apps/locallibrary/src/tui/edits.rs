@@ -7,7 +7,7 @@
 //! keeping the view. Any kind of plan goes through the same dialog ([`AnyPlanned`]); playlist and
 //! track edits show in detail.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -124,6 +124,8 @@ pub enum Action {
     Tag,
     /// A plugin's command or operation, by the plugin's id and its name.
     Plugin(&'static str, &'static str),
+    /// Fetch what plugins' providers of a kind find for the tracks.
+    Fetch(loclib_plugin::ProviderKind),
 }
 
 /// What an action works on, captured when the menu opens so moving about afterwards (picking a
@@ -286,6 +288,10 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
         };
         let unavailable = stale.clone().or(o.unavailable).or(because(!on_tracks && !on_list, nothing));
         item("", o.label, Action::Plugin(o.plugin, o.name), unavailable)
+    }))
+    .chain(super::plugins::fetches(Some(!t.folder_drive)).into_iter().map(|(kind, label, _, why)| {
+        let unavailable = stale.clone().or(why).or(because(t.tracks.is_empty(), "no track selected"));
+        item("", label, Action::Fetch(kind), unavailable)
     }))
     .collect()
 }
@@ -869,6 +875,7 @@ impl App {
             Action::Tag => self.tag_tracks(),
             Action::Restore => self.restore_playlist(t.root.clone()),
             Action::Plugin(plugin, name) => self.plugin_act(plugin, name, Some(t.root.clone()), Some(&t)),
+            Action::Fetch(kind) => self.fetch_form(kind, Some(t.root.clone()), Some(&t)),
             Action::RatingMenu | Action::ColourMenu => {}
         }
     }
@@ -1076,8 +1083,7 @@ impl App {
             self.toast(msg, Level::Info);
             return;
         }
-        if self.loaded.as_ref().is_some_and(|l| l.stale && l.root() == root) {
-            self.toast("the drive was unplugged", Level::Error);
+        if self.unplugged(&root) {
             return;
         }
         let id = self.next_id();
@@ -1106,6 +1112,16 @@ impl App {
         };
         self.spawn_or(job, move |e| Msg::Planned { job: id, root: failed_root, result: Err(Error::Invalid(e)) });
     }
+    /// Whether the drive at `root` was unplugged since it was opened: said, as nothing's planned
+    /// on it then.
+    pub(super) fn unplugged(&mut self, root: &Path) -> bool {
+        let gone = self.loaded.as_ref().is_some_and(|l| l.stale && l.root() == root);
+        if gone {
+            self.toast("the drive was unplugged", Level::Error);
+        }
+        gone
+    }
+
     /// Run `make` in the background (something that changes nothing, like a check), with its
     /// progress in the header and esc to stop it; what it hands back finishes on the UI thread.
     pub(super) fn task(&mut self, label: String, make: impl FnOnce(&Ctx<'_>) -> Result<Done, Error> + Send + 'static) {
@@ -1174,6 +1190,12 @@ impl App {
             return; // cancelled
         }
         let after = self.job.take().and_then(|j| j.after);
+        self.planned(root, after, result);
+    }
+
+    /// A plan made for the drive at `root` (`after`: what comes once it's applied): confirmed, or
+    /// said when there's nothing to do or it failed.
+    pub(super) fn planned(&mut self, root: PathBuf, after: Option<After>, result: Result<Box<dyn AnyPlanned>, Error>) {
         let drive = self.drive_label(&root);
         match result {
             Ok(plan) if plan.is_noop() => {

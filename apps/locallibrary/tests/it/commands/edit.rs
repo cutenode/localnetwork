@@ -78,13 +78,13 @@ fn playlist_command_lines_that_dont_say_enough_are_refused() {
     assert!(err.contains("no playlist \"nope\""), "{err}");
     let err = env.fails(2, &["playlist", "lss"]);
     assert!(err.contains("did you mean `locallibrary playlist ls`"), "{err}");
-    let err = env.fails(2, &["playlist", "import", d, "list.txt", "--into", "I", "--choose", "0=1"]);
-    assert!(err.contains("--choose's keys count from 1: \"0\" isn't one"), "{err}");
+    let err = env.fails(2, &["playlist", "import", d, "list.txt", "--into", "I", "--choose", "0"]);
+    assert!(err.contains("--choose takes PARAM=VALUE, not \"0\""), "{err}");
 }
 
-/// The tracklist plugin's `import`, where locallibrary's own was: what it found, the entries
-/// that could be one of several tracks (with them) and those the drive doesn't have, then the
-/// plan, asked about like any edit.
+/// The tracklist plugin's `import`, where locallibrary's own was: an entry that could be one of
+/// several tracks is asked about first (without a terminal, refused saying how to answer), then
+/// the plan says what it found and the entries the drive doesn't have, asked about like any edit.
 #[test]
 fn a_tracklist_is_imported_as_a_playlist() {
     let env = Env::ascii();
@@ -94,19 +94,17 @@ fn a_tracklist_is_imported_as_a_playlist() {
     // Found, two tracks called "In Charge", and one the drive doesn't have.
     std::fs::write(&list, "[a]pendics.shuffle - Deluxe Cynic\nIn Charge\nNobody - Nothing\n").unwrap();
     let import = ["playlist", "import", d, path(&list), "--into", "Imported"];
-    let out = env.ok(&[&["--yes"], &import[..]].concat());
+    let asked = env.fails(2, &[&["--yes"], &import[..]].concat());
+    assert!(asked.contains("2. In Charge: answer with --choose 2=VALUE, VALUE one of:"), "{asked}");
+    assert!(asked.contains("#2 [a]pendics.shuffle - A2 - In Charge"), "{asked}");
+    assert!(asked.contains("  null  leave it out"), "{asked}");
+    let out = env.ok(&[&["--yes"], &import[..], &["--choose", "2=null"]].concat());
     assert!(out.contains("list.txt: 3 entr(ies) as Text: 1 found, 1 ambiguous, 1 missing"), "{out}");
-    let ambiguous = "! 2. In Charge could be #2 [a]pendics.shuffle - A2 - In Charge: left out unless one is chosen\n";
-    assert!(out.contains(ambiguous), "{out}");
+    assert!(out.contains("! 2. In Charge: left out\n"), "{out}");
     assert!(out.contains("! 3. Nobody - Nothing isn't on the drive\n"), "{out}");
     assert!(out.contains("    + Imported\n"), "{out}");
-    // What it found, entry by entry, changing nothing.
-    let matched = env.json(&["tracklist", "match", d, path(&list)]);
-    let statuses: Vec<&str> =
-        matched["entries"].as_array().unwrap().iter().map(|e| e["status"].as_str().unwrap()).collect();
-    assert_eq!(statuses, ["found", "ambiguous", "missing"], "{matched}");
-    assert_eq!(matched["entries"][1]["candidates"][0], 2, "{matched}");
-    let out = env.ok(&[&["--yes"], &import[..], &["--choose", "2=#2", "--append"]].concat());
+    let out = env.ok(&[&["--yes"], &import[..], &["--choose", "2=2", "--append"]].concat());
+    assert!(out.contains("list.txt: 3 entr(ies) as Text: 2 found, 0 ambiguous, 1 missing"), "{out}");
     assert!(out.contains("    ~ Imported +1, 1 -> 3 entries"), "{out}");
 
     // Not made without a terminal or --yes.

@@ -37,8 +37,10 @@ listening to your library the way the players see it:
   (`esc` stops it). What a command answers shows in a panel (a list's rows as they come, when the
   plugin sends them so), or as a message when it's a line; an operation's
   plan, with what the plugin says about it first, is confirmed and written like any edit, and `u`
-  takes it back. An operation, or a command of a plugin that reads the drive, needs one plugged
-  in, not a folder opened by path. What plugins log goes to the messages (`!`). See
+  takes it back. A question one asks first (which track an entry is) is a list to pick from
+  (`space` marks items when it takes several, `enter` takes them, `esc` stops the run). An
+  operation, or a command of a plugin that reads the drive, needs one plugged in, not a folder
+  opened by path. What plugins log goes to the messages (`!`). See
   [Plugins](plugins.md).
 - **Analyzers**: "analyze the tracks: …" in the palette (or a drive's `e` menu) runs a plugin's
   analyzer over the drive's tracks in the background, those not analysed already. "show the
@@ -47,6 +49,12 @@ listening to your library the way the players see it:
   filters by it: `sound.bpm:>120`. "write keys and BPMs to the tracks: …" writes what an
   analyzer heard to the tracks (a form asks which, and whether over what they have), confirmed
   like any edit.
+- **Providers**: "fetch cover art…" and "fetch track details…" in the actions menu (`e`) and the
+  palette ask the plugins' providers about the marked or selected tracks (a form says which
+  provider, or all, and whether over what they have). A track's candidate scoring high enough
+  alone is chosen for you, and for each other track you pick one from a list (or none); then the
+  changes are confirmed like any edit. "provider settings…" in the palette sets how high (as
+  `plugin providers --auto-pick` does).
 - **Plugins' settings**: "Cover art plugin settings…" in the palette opens a plugin's settings in
   the same form, as they're set now; `enter` saves what changed, and a field left empty goes back
   to its default. A secret is never filled in: typed, it's kept in the system's keychain; left

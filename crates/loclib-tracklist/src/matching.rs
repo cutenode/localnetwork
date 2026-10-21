@@ -99,11 +99,6 @@ impl Report {
     pub fn new(format: Format, entries: Vec<Matched>) -> Report {
         Report { format, summary: Summary::of(&entries), entries }
     }
-
-    /// Track ids of the found entries, in list order (repeats kept).
-    pub fn track_ids(&self) -> Vec<u32> {
-        self.entries.iter().filter_map(|m| m.status.track_id()).collect()
-    }
 }
 
 /// Find every entry in `lib`.

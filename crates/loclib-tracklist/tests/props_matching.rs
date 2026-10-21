@@ -371,11 +371,10 @@ fn empty_libraries_find_nothing(tc: TestCase) {
     let report = Report::new(loclib_tracklist::Format::Text, match_entries(&lib, &entries));
     assert!(report.entries.iter().all(|m| m.status == Status::Missing));
     assert_eq!(report.summary, Summary { entries: entries.len(), found: 0, ambiguous: 0, missing: entries.len() });
-    assert!(report.track_ids().is_empty());
 }
 
-/// A report counts exactly what it lists, its track ids are the found entries' in list order,
-/// and it survives a JSON round trip unchanged.
+/// A report counts exactly what it lists, the found entries name tracks of the library, and it
+/// survives a JSON round trip unchanged.
 #[hegel::test(test_cases = 100)]
 fn reports_count_what_they_list(tc: TestCase) {
     let lib = library(&tc, 0, 10);
@@ -389,8 +388,7 @@ fn reports_count_what_they_list(tc: TestCase) {
     assert_eq!(s.found, count(|s| matches!(s, Status::Found { .. })));
     assert_eq!(s.ambiguous, count(|s| matches!(s, Status::Ambiguous { .. })));
     assert_eq!(s.found + s.ambiguous + s.missing, s.entries);
-    let ids: Vec<u32> = matched.iter().filter_map(|m| m.status.track_id()).collect();
-    assert_eq!(report.track_ids(), ids);
+    let ids: Vec<u32> = report.entries.iter().filter_map(|m| m.status.track_id()).collect();
     // Every id it names is a track of the library.
     assert!(ids.iter().all(|id| lib.tracks.iter().any(|t| t.id == *id)));
     let json = serde_json::to_string(&report).unwrap();

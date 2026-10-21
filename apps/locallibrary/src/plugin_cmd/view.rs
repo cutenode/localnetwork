@@ -67,11 +67,11 @@ pub(super) fn rest(v: &View, (rows, items): (usize, usize)) {
 
 /// A view a plugin's command answered, drawn as the CLI's lists and tables are.
 pub(super) fn view(v: &View) {
-    let (View::List { title, .. } | View::Table { title, .. } | View::Kv { title, .. } | View::Text { title, .. }) = v;
-    if let Some(title) = title {
+    if let Some(title) = v.title() {
         heading(title);
     }
     match v {
+        View::Choose(_) => unreachable!("a question is asked, never drawn"),
         View::List { items, .. } => plain(&[], items),
         View::Table { columns, rows, .. } => {
             let lines = table(columns, rows);

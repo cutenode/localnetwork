@@ -5,37 +5,6 @@ protocol = "^0.2"
 # library:delete: replacing a playlist's entries with a shorter list leaves it with fewer.
 capabilities = ["library:read", "library:plan", "library:delete"]
 
-# What the import would find, entry by entry, changing nothing: how each entry was found, and
-# every candidate of an ambiguous one, for a front end to offer (`locallibrary tracklist match`).
-[[contributes.commands]]
-name = "match"
-title = "Find a tracklist's tracks"
-mode = "headless"
-
-[contributes.commands.params]
-type = "object"
-required = ["file"]
-additionalProperties = false
-
-[contributes.commands.params.properties.file]
-type = "string"
-minLength = 1
-x-path = true
-x-cli = { positional = true }
-description = "The tracklist: M3U, CSV (Spotify, TIDAL, Beatport... exports), rekordbox text or XML, or \"Artist - Title\" lines"
-
-[contributes.commands.params.properties.playlist]
-type = "string"
-x-cli = { flag = "from" }
-description = "For rekordbox XML: which of its playlists, by path (the whole collection otherwise)"
-
-[contributes.commands.params.properties.choices]
-type = "object"
-propertyNames = { pattern = "^[0-9]+$" }
-additionalProperties = { type = "integer", minimum = 0 }
-x-cli = { flag = "choose", one_based = true }
-description = "Decisions for ambiguous entries: entry -> track id (entries count from 0, or from 1 on the command line)"
-
 # `locallibrary playlist import`, with the other playlist commands. Offered on a playlist too, to
 # fill it.
 [[contributes.operations]]
@@ -71,9 +40,8 @@ description = "For rekordbox XML: which of its playlists, by path (the whole col
 type = "boolean"
 description = "Add to the playlist instead of replacing its contents"
 
-[contributes.operations.params.properties.choices]
-type = "object"
-propertyNames = { pattern = "^[0-9]+$" }
-additionalProperties = { type = "integer", minimum = 0 }
-x-cli = { flag = "choose", one_based = true }
-description = "Decisions for ambiguous entries: entry -> track id (entries count from 0, or from 1 on the command line)"
+# Which track an ambiguous entry is, by the entry's number counted from 1 (`3 = 42`), or `null`
+# to leave it out: the import asks for each it isn't given, one at a time.
+[contributes.operations.params.patternProperties."^[1-9][0-9]*$"]
+type = ["integer", "null"]
+minimum = 0

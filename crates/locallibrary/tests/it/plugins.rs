@@ -3,9 +3,11 @@
 
 mod blobs;
 mod callbacks;
+mod choose;
 mod hooks;
 mod net;
 mod props;
+mod providers;
 mod roles;
 
 use std::path::{Path, PathBuf};

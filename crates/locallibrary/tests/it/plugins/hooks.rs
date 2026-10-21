@@ -11,7 +11,7 @@ use super::*;
 
 impl Fixture {
     fn plan(&self, params: Value) -> Result<locallibrary::op::Planned<locallibrary::edit::EditPlan>> {
-        self.plugins.plan_op("echo", "playlist", params, self.context(), Some(&self.store), &Ctx::silent())
+        self.plugins.plan_op("echo", "playlist", params, self.context(), Some(&self.store), &Ctx::silent())?.plan()
     }
 }
 

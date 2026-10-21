@@ -1,6 +1,6 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
-//! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters
-//! and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
+//! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters,
+//! providers and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -16,7 +16,8 @@
 //! (kept in the keychain); an operation's edits are planned and applied by the host as any edit
 //! plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
-//! Analyzers' values go to the [`crate::fields`] store.
+//! Analyzers' values go to the [`crate::fields`] store. What providers find for tracks, the host
+//! offers the user and makes the edits of itself (see [`Plugins::provide`]).
 
 mod analyzers;
 mod apply;
@@ -27,6 +28,7 @@ mod exports;
 mod net;
 mod operations;
 mod process;
+mod providers;
 mod secrets;
 mod settings;
 
@@ -51,6 +53,11 @@ pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
 pub use exports::{ExportFile, PluginExport};
+pub use operations::OpPlanned;
+pub use providers::{
+    AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
+};
+pub(crate) use settings::{host_settings, set_host_setting};
 
 use process::Slot;
 pub(crate) use process::THREAD_ELEVATED;
@@ -105,8 +112,15 @@ pub struct Options {
     /// The most tracks analysed at once.
     pub analyses: usize,
     /// The most a request's scratch folder may hold, in bytes: its answer's files, and what
-    /// `net/fetch` wrote there.
+    /// `net/fetch` wrote there. And the most the images providers find for a [`Plugins::provide`]
+    /// may come to in base64, all of them: past it the rest are left out.
     pub max_blobs: u64,
+    /// The most candidates a [`Plugins::provide`] keeps for a track, from all its providers: past
+    /// it the rest are left out.
+    pub track_candidates: usize,
+    /// The most candidates a [`Plugins::provide`] keeps for all the tracks: past it the rest are
+    /// left out.
+    pub candidates: usize,
     /// The most of a `net/fetch` answer given in a message, in bytes: a bigger one goes to a file
     /// in the scratch folder (`into_blob`).
     pub max_body: u64,
@@ -132,6 +146,8 @@ impl Default for Options {
             callbacks: 8,
             analyses: 4,
             max_blobs: 512 << 20,
+            track_candidates: 25,
+            candidates: 50_000,
             max_body: 8 << 20,
             secrets: Storage::from_env(),
             test_loopback: false,

@@ -18,7 +18,7 @@ use locallibrary::api::RpcFailure;
 use locallibrary::plugin::{Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
-use loclib_plugin::{Capability, Manifest, SettingType};
+use loclib_plugin::{Capability, Manifest, ProviderKind, SettingType};
 use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -54,6 +54,8 @@ mod test_plugin;
 pub const PARAMS: &str = "params";
 /// The flag an operation is only planned with.
 pub const DRY_RUN: &str = "dry-run";
+/// The flag a question a command or an operation asks is answered with (`PARAM=VALUE`).
+pub const CHOOSE: &str = "choose";
 
 /// How `plugin serve` serves a plugin.
 #[derive(Clone)]
@@ -194,7 +196,7 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
     }
     let namespaces = crate::rpc::namespaces();
     let mut flags: Vec<&str> = cli.get_arguments().filter(|a| a.is_global_set()).filter_map(|a| a.get_long()).collect();
-    flags.extend(["help", "version", PARAMS, DRY_RUN]);
+    flags.extend(["help", "version", PARAMS, DRY_RUN, CHOOSE]);
     let formats: FxHashMap<String, String> = FormatArg::value_variants()
         .iter()
         .filter_map(ValueEnum::to_possible_value)
@@ -386,12 +388,13 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its commands, operations and analyzers by name, its export formats and its
-    /// settings' keys.
+    /// What it adds: its commands, operations, analyzers and providers by name, its export formats
+    /// and its settings' keys.
     pub commands: Vec<String>,
     pub operations: Vec<String>,
     pub analyzers: Vec<String>,
     pub exporters: Vec<String>,
+    pub providers: Vec<String>,
     pub settings: Vec<String>,
     /// It's running now: plugins start when they're first used, and stop once they're idle.
     pub running: bool,
@@ -412,10 +415,42 @@ impl Listed {
             operations: c.operations.iter().map(|x| x.name.clone()).collect(),
             analyzers: c.analyzers.iter().map(|x| x.name.clone()).collect(),
             exporters: c.exporters.iter().map(|x| x.format.clone()).collect(),
+            providers: c.providers.iter().map(|x| x.name.clone()).collect(),
             settings: c.settings.iter().map(|x| x.key.clone()).collect(),
             running: plugins.is_running(&m.id),
             left_out: None,
         }
+    }
+}
+
+/// The providers the plugins have, and when one's candidate is picked for the user, as `plugin
+/// providers` and the sidecar's `plugins.providers` show them.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct Providers {
+    /// In the order the plugins are.
+    pub providers: Vec<ListedProvider>,
+    /// A candidate alone scoring this or more (0 to 1) is picked for the user: the
+    /// `providers.auto_pick` setting.
+    pub auto_pick: f64,
+}
+
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct ListedProvider {
+    pub plugin: String,
+    pub name: String,
+    pub title: String,
+    pub kind: ProviderKind,
+}
+
+impl Providers {
+    pub fn of(plugins: &Plugins, store: Option<&locallibrary::Store>) -> Providers {
+        let providers = plugins.providers(None).into_iter().map(|(plugin, p)| ListedProvider {
+            plugin: plugin.into(),
+            name: p.name.clone(),
+            title: p.title.clone(),
+            kind: p.kind,
+        });
+        Providers { providers: providers.collect(), auto_pick: locallibrary::plugin::auto_pick(store) }
     }
 }
 

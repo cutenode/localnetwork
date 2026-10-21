@@ -110,8 +110,8 @@ fn offered(tc: &TestCase, x: &mut Value) {
 /// A plugin `id` with drawn capabilities and contributions: commands (`cmd0`...) and
 /// operations (`op0`...), each at a place of its own on the command line or not and in drawn
 /// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`) and
-/// `order` (`a`, `b`) it can run; export formats writing a file or a folder; and settings of
-/// every kind.
+/// `order` (`a`, `b`) it can run; export formats writing a file or a folder; providers of either
+/// kind (granted reading tracks); and settings of every kind.
 #[hegel::test_helper]
 fn manifest(tc: &TestCase, id: &str) -> Value {
     let version = tc.draw(gs::sampled_from(&["0.1.0", "1.2.3-beta.1", "10.0.0"][..]));
@@ -182,6 +182,15 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             e
         })
         .collect();
+    let providers: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let kind = tc.draw(gs::sampled_from(&["artwork", "metadata"][..]));
+            json!({ "name": format!("pv{j}"), "title": title(tc), "kind": kind })
+        })
+        .collect();
+    if !providers.is_empty() && !capabilities.iter().any(|c| c == "library:read") {
+        capabilities.push("library:read".into());
+    }
     let settings: Vec<Value> =
         (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|j| setting(tc, &format!("k{j}"))).collect();
     json!({
@@ -195,6 +204,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             "operations": operations,
             "analyzers": analyzers,
             "exporters": exporters,
+            "providers": providers,
             "settings": settings,
         },
     })
@@ -254,6 +264,7 @@ fn listed_text(listed: &[Value]) -> String {
             ("operation", "operations"),
             ("analyzer", "analyzers"),
             ("export format", "exporters"),
+            ("provider", "providers"),
             ("setting", "settings"),
         ];
         let adds: Vec<String> = kinds
@@ -322,6 +333,17 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section("Export formats (locallibrary export LIBRARY --format FORMAT -o ...):".into(), exporters);
+    let providers = list("providers")
+        .iter()
+        .map(|p| {
+            let finds = match p["kind"].as_str().unwrap() {
+                "artwork" => "cover art, for locallibrary art fetch",
+                _ => "track details, for locallibrary track fetch",
+            };
+            (str_of(&p["name"]), format!("{}: {finds}", str_of(&p["title"])))
+        })
+        .collect();
+    section("Providers:".into(), providers);
     let settings = list("settings")
         .iter()
         .map(|s| {
@@ -367,6 +389,7 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             ("operations", "name"),
             ("analyzers", "name"),
             ("exporters", "format"),
+            ("providers", "name"),
             ("settings", "key"),
         ] {
             assert_eq!(p[key].as_array().unwrap(), &names(key, field), "{key}");

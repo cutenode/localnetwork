@@ -1,14 +1,17 @@
 //! The tracklist plugin: makes a playlist on a drive from a tracklist (M3U, CSV, rekordbox text or
 //! XML, or "Artist - Title" lines), finding its tracks with loclib-tracklist. It reads the list
 //! itself, as it's the user's own file, and the drive's library through the host; the playlist it
-//! answers is an edit locallibrary plans, confirms and applies.
+//! answers is an edit locallibrary plans, confirms and applies. An entry that could be several
+//! tracks it asks the user about first, one at a time (the `choose` feature): the host plans it
+//! again with the answer, the entry's number (`"3"`) set to the track's id, or to `null` to leave
+//! it out.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use indexmap::IndexMap;
-use loclib_model::model::{self, Library, Playlist};
-use loclib_plugin::{Context, Hooks, Host, OpPlan, PlanOp, RpcError, RunCommand, params};
+use loclib_model::model::{self, Library, Playlist, Track};
+use loclib_plugin::{Choice, ChoiceItem, Context, Hooks, Host, OpAnswer, OpPlan, PlanOp, RpcError, params};
 use loclib_tracklist::{self as tracklist, Format, MatchKind, Report, Status, Summary};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -19,50 +22,60 @@ pub const MANIFEST: &str = include_str!("../locallibrary-plugin.toml");
 /// Serves the plugin over `input` and `output` (stdin and stdout, for a real plugin) until `input`
 /// closes.
 pub fn serve(input: impl Read + Send + 'static, output: impl Write + Send + 'static) {
-    loclib_plugin::serve(MANIFEST, Hooks::new().on(run_command).on(plan_op), input, output);
+    loclib_plugin::serve(MANIFEST, Hooks::new().on(plan_op), input, output);
 }
 
-/// The `match` command's params: which list, and the user's choices. The drive is the one the
-/// user is on (`context.drive`).
-#[derive(Deserialize)]
-struct Match {
-    file: PathBuf,
-    #[serde(default)]
-    playlist: Option<String>,
-    /// Entry index (from 0) -> track id.
-    #[serde(default)]
-    choices: IndexMap<usize, u32>,
-}
-
-/// The `import` operation's besides [`Match`]'s: the playlist it fills. (Read apart from them:
-/// `serde(flatten)` would take `choices`' keys as strings, not numbers.)
+/// The `import` operation's params, but for the answers to its questions (see [`answers`]). The
+/// drive is the one the user is on (`context.drive`).
 #[derive(Deserialize)]
 struct Import {
+    file: PathBuf,
     into: String,
+    #[serde(default)]
+    playlist: Option<String>,
     #[serde(default)]
     append: bool,
 }
 
-/// The most candidates a warning names for an ambiguous entry, best first.
-const CANDIDATES_SHOWN: usize = 5;
+/// What the user chose for entries, by index (from 0): a track, or none (left out).
+type Answers = IndexMap<usize, Option<u32>>;
 
-/// `match`: the list's entries, each found (and how), ambiguous (with its candidates) or
-/// missing.
-fn run_command(req: RunCommand, host: &Host) -> Result<Value, RpcError> {
-    let (report, _) = matched(&params(req.params)?, &req.context, host)?;
-    Ok(serde_json::to_value(report).expect("a report is JSON"))
+/// The params naming entries (by number, from 1) and what was chosen for each: a track's id, or
+/// `null` to leave it out.
+fn answers(params: &Value) -> Result<Answers, RpcError> {
+    let numbered = params.as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.parse::<usize>().ok()?, v)));
+    numbered
+        .map(|(n, v)| {
+            let i = n.checked_sub(1).ok_or_else(|| RpcError::invalid_params("entries count from 1"))?;
+            if v.is_null() {
+                return Ok((i, None));
+            }
+            let id = v.as_u64().and_then(|id| u32::try_from(id).ok());
+            let id = id.ok_or_else(|| RpcError::invalid_params(format!("entry {n} is a track's id, not {v}")))?;
+            Ok((i, Some(id)))
+        })
+        .collect()
 }
 
-/// `import`: the playlist filled with the tracks found, in the list's order. With none found,
+/// `import`: the playlist filled with the tracks found, in the list's order. While an entry that
+/// could be several tracks isn't answered, the question which (the first such). With none found,
 /// a plan that changes nothing, saying so.
-fn plan_op(req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
-    let list: Match = params(req.params.clone())?;
-    let import: Import = params(req.params)?;
-    let (report, lib) = matched(&list, &req.context, host)?;
+fn plan_op(req: PlanOp, host: &Host) -> Result<OpAnswer, RpcError> {
+    let import: Import = params(req.params.clone())?;
+    let answers = answers(&req.params)?;
+    let (report, lib) = matched(&import, &answers, &req.context, host)?;
+    let undecided = (report.entries.iter().enumerate())
+        .find(|(i, m)| matches!(m.status, Status::Ambiguous { .. }) && !answers.contains_key(i));
+    if let Some((i, m)) = undecided {
+        let Status::Ambiguous { candidates } = &m.status else { unreachable!("ambiguous") };
+        return Ok(question(i, m.entry.raw.trim(), candidates, &lib).into());
+    }
     let files = |ids: &[u32]| lib.tracks_by_id(ids).into_iter().map(|t| t.file_path.clone()).collect::<Vec<_>>();
-    // As entries, by file: a set list that played a track twice keeps both.
-    let mut paths = files(&report.track_ids());
-    let mut warnings = warnings(&report, &lib);
+    // As entries, by file: a set list that played a track twice keeps both. Those left out
+    // aren't.
+    let kept = report.entries.iter().enumerate().filter(|(i, _)| answers.get(i) != Some(&None));
+    let mut paths = files(&kept.filter_map(|(_, m)| m.status.track_id()).collect::<Vec<_>>());
+    let mut warnings = warnings(&report, &answers);
     let found = !paths.is_empty();
     if !found {
         warnings.push("none of the list's tracks are on the drive".into());
@@ -75,7 +88,7 @@ fn plan_op(req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
     let s = &report.summary;
     let summary = format!(
         "{}: {} entr(ies) as {:?}: {} found, {} ambiguous, {} missing",
-        list.file.display(),
+        import.file.display(),
         s.entries,
         report.format,
         s.found,
@@ -87,12 +100,32 @@ fn plan_op(req: PlanOp, host: &Host) -> Result<OpPlan, RpcError> {
         false => Vec::new(),
     };
     // The list it was matched from: the host won't apply the plan once it changes.
-    Ok(OpPlan { summary, warnings, edits, inputs: vec![list.file] })
+    Ok(OpPlan { summary, warnings, edits, inputs: vec![import.file] }.into())
 }
 
-/// The tracklist `req` names, found in the library of the drive the user is on, with the user's
-/// choices made; and that library.
-fn matched(req: &Match, context: &Context, host: &Host) -> Result<(Report, Library), RpcError> {
+/// Which of `candidates` (best first) entry `i` (`raw`) is, or none: the entry's number (from 1)
+/// set to the track's id, or to `null` to leave it out.
+fn question(i: usize, raw: &str, candidates: &[u32], lib: &Library) -> Choice {
+    let n = i + 1;
+    let items = lib.tracks_by_id(candidates).into_iter().map(|t| ChoiceItem {
+        label: format!("#{} {}", t.id, t.display_name()),
+        detail: detail(t),
+        value: t.id.into(),
+    });
+    let none = ChoiceItem { label: "leave it out".into(), detail: None, value: Value::Null };
+    Choice { title: format!("{n}. {raw}"), param: n.to_string(), multi: false, items: items.chain([none]).collect() }
+}
+
+/// What tells a candidate from its namesakes: its album and length.
+fn detail(t: &Track) -> Option<String> {
+    let length = (t.duration_secs > 0).then(|| format!("{}:{:02}", t.duration_secs / 60, t.duration_secs % 60));
+    let said: Vec<String> = [(!t.album.is_empty()).then(|| t.album.clone()), length].into_iter().flatten().collect();
+    (!said.is_empty()).then(|| said.join(", "))
+}
+
+/// The tracklist `req` names, found in the library of the drive the user is on, with the tracks
+/// the user chose (`answers`) found; and that library.
+fn matched(req: &Import, answers: &Answers, context: &Context, host: &Host) -> Result<(Report, Library), RpcError> {
     let drive = context.drive.as_deref().ok_or_else(|| RpcError::invalid_params("say which drive"))?;
     let file = req.file.display();
     let bytes = std::fs::read(&req.file).map_err(|e| RpcError::failed("io", format!("{file}: {e}")))?;
@@ -112,11 +145,12 @@ fn matched(req: &Match, context: &Context, host: &Host) -> Result<(Report, Libra
     // Not `combined`: an edit can't name a track only OneLibrary has.
     let lib = host.drive(drive).library()?;
     let mut report = Report::new(format, tracklist::match_entries(&lib, &entries));
-    for (&i, &track) in &req.choices {
+    for (&i, &track) in answers {
         let m = report
             .entries
             .get_mut(i)
-            .ok_or_else(|| RpcError::failed("invalid", format!("no entry {i} in the list")))?;
+            .ok_or_else(|| RpcError::failed("invalid", format!("no entry {} in the list", i + 1)))?;
+        let Some(track) = track else { continue };
         if lib.track(track).is_none() {
             return Err(RpcError::failed("not_found", format!("not found: track #{track}")));
         }
@@ -133,20 +167,15 @@ fn exact<'l>(lib: &'l Library, into: &str) -> Option<&'l Playlist> {
     lib.display_order().into_iter().find(|(p, list)| !list.is_folder && *p == path).map(|(_, list)| list)
 }
 
-/// The entries that won't be in the playlist, numbered from 1 as people count: those the drive
-/// doesn't have, and those that need a choice, with their best candidates.
-fn warnings(report: &Report, lib: &Library) -> Vec<String> {
+/// The entries that won't be in the playlist, numbered from 1 as people count: those the user
+/// left out, and those the drive doesn't have.
+fn warnings(report: &Report, answers: &Answers) -> Vec<String> {
     let numbered = report.entries.iter().enumerate().map(|(i, m)| (i + 1, m.entry.raw.trim(), &m.status));
     numbered
         .filter_map(|(n, raw, status)| match status {
-            Status::Found { .. } => None,
-            Status::Ambiguous { candidates } => {
-                let shown = &candidates[..candidates.len().min(CANDIDATES_SHOWN)];
-                let named: Vec<String> =
-                    lib.tracks_by_id(shown).iter().map(|t| format!("#{} {}", t.id, t.display_name())).collect();
-                Some(format!("{n}. {raw} could be {}: left out unless one is chosen", named.join(", ")))
-            }
+            _ if answers.get(&(n - 1)) == Some(&None) => Some(format!("{n}. {raw}: left out")),
             Status::Missing => Some(format!("{n}. {raw} isn't on the drive")),
+            _ => None,
         })
         .collect()
 }

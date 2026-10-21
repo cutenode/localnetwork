@@ -45,7 +45,15 @@ pub const FEATURES: &[Feature] = &[
         sends: &[],
         contributed: |m| !m.contributes.exporters.is_empty(),
     },
+    Feature {
+        name: "providers",
+        methods: &[method::PROVIDE],
+        sends: &[],
+        contributed: |m| !m.contributes.providers.is_empty(),
+    },
     // Every hook's `context.scratch`, `{"blob": name}` in answers, and a view's rows in parts.
     Feature { name: "blobs", methods: &[], sends: &[method::PARTIAL], contributed: |_| false },
     Feature { name: "net", methods: &[], sends: &[method::NET_FETCH], contributed: |m| !m.net.is_empty() },
+    // A view command's or an operation's question for the user (`View::Choose`, `{"choose": ...}`).
+    Feature { name: "choose", methods: &[], sends: &[], contributed: |_| false },
 ];

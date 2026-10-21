@@ -1,6 +1,7 @@
 //! Plugins' commands (`command/run`): headless ones answer any JSON, view ones a [`View`] each
 //! host draws its own way, its rows (or items) shown as they come when the plugin sends them in
-//! parts.
+//! parts, or first a question for the user ([`View::Choose`], the `choose` feature), after which
+//! the host runs the command again with what was chosen.
 
 use loclib_plugin::{Context, Mode, Partial, RunCommand, View, method};
 use schemars::JsonSchema;
@@ -8,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::Plugins;
+use super::process::Live;
 use crate::Result;
 use crate::progress::Ctx;
 use crate::store::Store;
@@ -26,7 +28,8 @@ impl Plugins {
     /// params; one from the selection, `x-from`, that isn't given is filled in from `context`),
     /// where the user is (`context`, its drive by id, name or path as the CLI takes it). A view
     /// command's rows (or items) sent in parts go to `shown` as they come; the view it answers
-    /// has them too, first.
+    /// has them too, first. A question it answers ([`View::Choose`]) is one the user can answer
+    /// with a param it takes: answered, run it again with that param ([`loclib_plugin::Choice::answered`]).
     #[allow(clippy::too_many_arguments)]
     pub fn run_command(
         &self,
@@ -48,12 +51,17 @@ impl Plugins {
                 shown(partial);
             }
         };
-        let answer: Value = slot.call_with(method::RUN_COMMAND, &run, store, ctx, &shown, |answer, _| Ok(answer))?;
-        match declared.mode {
-            Mode::Headless => Ok(CommandOutput::Headless(answer)),
-            Mode::View => serde_json::from_value(answer)
-                .map(CommandOutput::View)
-                .map_err(|e| slot.misbehaved(format!("its view of {command} isn't one: {e}"))),
-        }
+        let read = |answer: Value, _: &_, live: &Live| {
+            if declared.mode == Mode::Headless {
+                return Ok(CommandOutput::Headless(answer));
+            }
+            let view: View = serde_json::from_value(answer)
+                .map_err(|e| slot.misbehaved(format!("its view of {command} isn't one: {e}")))?;
+            if let View::Choose(choice) = &view {
+                slot.askable(choice, declared.params.as_ref(), &run.params, live)?;
+            }
+            Ok(CommandOutput::View(view))
+        };
+        slot.call_with(method::RUN_COMMAND, &run, store, ctx, &shown, read)
     }
 }

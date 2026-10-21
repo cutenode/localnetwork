@@ -5,7 +5,7 @@
 //! whatever is open and q quits.
 //!
 //! The walks stay off the machine: nothing they press opens a browser, signs in, reads the
-//! machine's drives, ejects or writes outside the test's folder (see [`allowed`]).
+//! machine's drives, goes online, ejects or writes outside the test's folder (see [`allowed`]).
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -101,6 +101,8 @@ fn allowed(app: &App, key: KeyEvent) -> bool {
             return !(matches!(key.code, KeyCode::Char('y' | 'Y')) && c.plan.operation() == "eject");
         }
         Some(Modal::Pick(p)) => return !(enter && p.selected().is_some_and(|i| denied_pick(&p.then, i))),
+        // Providers go online (the cover art plugin to MusicBrainz).
+        Some(Modal::Form(f)) => return !(enter && matches!(f.then, super::form::For::Fetch { .. })),
         Some(_) => return true,
         None => {}
     }

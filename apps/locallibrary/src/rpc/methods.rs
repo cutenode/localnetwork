@@ -12,7 +12,9 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use locallibrary::edit::EditPlan;
 use locallibrary::op::{AnyPlanned, Operation, Planned};
+use locallibrary::plugin::OpPlanned;
 use locallibrary::progress::{Ctx, Event, Phase};
 use locallibrary::{Store, api};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
@@ -248,16 +250,36 @@ impl Method {
     }
 }
 
-/// The plan an `.apply` applies, and what applying it returns.
-trait PlanOf {
+/// What a `*.plan` answers: a plan, kept for its `.apply`, and what applying it returns.
+trait PlanAnswer: JsonSchema + 'static {
     type Report: JsonSchema;
+    /// The answer, kept as `method`'s plan when it is one.
+    fn keep(self, plans: &Plans, method: &str) -> Result<Value, RpcError>;
 }
 
-impl<P: Operation> PlanOf for Planned<P, P::Request>
+impl<P: Operation> PlanAnswer for Planned<P, P::Request>
 where
     P::Report: JsonSchema,
+    Planned<P, P::Request>: AnyPlanned + JsonSchema + 'static,
 {
     type Report = P::Report;
+
+    fn keep(self, plans: &Plans, method: &str) -> Result<Value, RpcError> {
+        plans.keep(method, self)
+    }
+}
+
+/// A plugin's operation may ask a question first (`{"choose": ...}`), which keeps nothing: the
+/// caller plans it again with the param set.
+impl PlanAnswer for OpPlanned {
+    type Report = <Planned<EditPlan> as PlanAnswer>::Report;
+
+    fn keep(self, plans: &Plans, method: &str) -> Result<Value, RpcError> {
+        match self {
+            OpPlanned::Plan(plan) => plan.keep(plans, method),
+            asked @ OpPlanned::Choose { .. } => ok(asked),
+        }
+    }
 }
 
 /// Every method, by name and alias.
@@ -299,16 +321,16 @@ impl Registry {
         self.add(Method::new(name, Kind::Immediate, schema::<P>, schema::<R>, Some(run)))
     }
 
-    /// `<op>.plan`: the plan is kept for `<op>.apply {plan_id}`.
+    /// `<op>.plan`: the plan is kept for `<op>.apply {plan_id}` (see [`PlanAnswer`]).
     fn plan<P, Pl, F>(&mut self, name: &'static str, f: F) -> &mut Method
     where
         P: DeserializeOwned + JsonSchema,
-        Pl: AnyPlanned + PlanOf + JsonSchema + 'static,
+        Pl: PlanAnswer,
         F: Fn(&Call<'_>, P) -> Result<Pl, RpcError> + Send + Sync + 'static,
     {
-        let run: Run = Box::new(move |c, v| c.plans.keep(name, f(c, params(v)?)?));
+        let run: Run = Box::new(move |c, v| f(c, params(v)?)?.keep(c.plans, name));
         let m = self.add(Method::new(name, Kind::Plan, schema::<P>, schema::<Pl>, Some(run)));
-        m.applies = Some(schema::<<Pl as PlanOf>::Report>);
+        m.applies = Some(schema::<<Pl as PlanAnswer>::Report>);
         m.operation = name.strip_suffix(".plan");
         m
     }

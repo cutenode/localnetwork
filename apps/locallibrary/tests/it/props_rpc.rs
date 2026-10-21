@@ -68,13 +68,15 @@ fn the_schema_checker_tells_right_from_wrong() {
 }
 
 /// Methods left out of random calls: they reach servers on the internet (the account,
-/// publishing, firmware), touch this machine's disks (formatting, ejecting, fsck), take minutes
-/// (mix identification, the analysis benchmark), are only for tests, or end the session.
+/// publishing, firmware, the providers locallibrary ships), touch this machine's disks
+/// (formatting, ejecting, fsck), take minutes (mix identification, the analysis benchmark), are
+/// only for tests, or end the session.
 pub(crate) fn excluded(m: &str) -> bool {
     let prefixes = ["account.", "firmware.", "format.", "provision.", "prep.", "drive.eject", "mix.", "$/test."];
     prefixes.iter().any(|p| m.starts_with(p))
         || m.contains("publish")
         || ["drive.fsck", "drive.repair", "disks.list", "shutdown", "analysis.bench"].contains(&m)
+        || m == "plugins.provide"
 }
 
 /// A string for a parameter, by its name: what such a parameter names in the fixture, or

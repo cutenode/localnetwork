@@ -1,7 +1,7 @@
-//! A form for a plugin's params, its settings, or an export's: a field for each property of a JSON Schema,
-//! each typed as the command line takes it (see [`crate::plugins::params`]), and checked against
-//! the schema before anything runs or is saved. A switch and a choice of a few values are picked
-//! rather than typed.
+//! A form for a plugin's params, its settings (or providers'), an export's, or fetching from
+//! providers: a field for each property of a JSON Schema, each typed as the command line takes it
+//! (see [`crate::plugins::params`]), and checked against the schema before anything runs or is
+//! saved. A switch and a choice of a few values are picked rather than typed.
 
 use loclib_plugin::{Selection, check_params, is_path};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
@@ -31,12 +31,17 @@ pub enum For {
     Run(Run),
     /// The settings of the plugin with this id.
     Settings(&'static str),
+    /// The settings of every provider.
+    ProviderSettings,
     /// Where to export the drive at `root` (its `playlists` only, when some are named) in a
     /// plugin's format, and the format's options.
     Export { plugin: &'static str, format: &'static str, root: std::path::PathBuf, playlists: Vec<String> },
     /// What to write to the tracks of the drive at `root` from what a plugin's analyzer worked
     /// out.
     ApplyFields { plugin: &'static str, analyzer: &'static str, root: std::path::PathBuf },
+    /// Which providers of a kind to ask about `tracks` (by id) on the drive at `root`, and whether
+    /// over what they have.
+    Fetch { kind: loclib_plugin::ProviderKind, root: std::path::PathBuf, tracks: Vec<u32> },
 }
 
 pub struct Field {
@@ -181,12 +186,14 @@ impl App {
                     return match f.then {
                         For::Run(run) => self.run_plugin(run, params),
                         For::Settings(plugin) => self.save_settings(plugin, params),
+                        For::ProviderSettings => self.save_provider_settings(params),
                         For::Export { plugin, format, root, playlists } => {
                             self.plan_export(plugin, format, root, playlists, params)
                         }
                         For::ApplyFields { plugin, analyzer, root } => {
                             self.plan_apply_fields(plugin, analyzer, root, params)
                         }
+                        For::Fetch { kind, root, tracks } => self.fetch(kind, root, tracks, params),
                     };
                 }
                 Err((i, why)) => (f.selected, f.error) = (i, Some(why)),

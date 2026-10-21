@@ -1,6 +1,7 @@
 //! Choosing from a list by typing: the command palette (`:`), which lists every action of the
-//! keymap by name, and the lists actions ask for an answer from (a drive, a snapshot, a tag).
-//! What's typed narrows the list fuzzily: its letters in order, best where they start words.
+//! keymap by name, and the lists actions ask for an answer from (a drive, a snapshot, a tag, a
+//! plugin's question). What's typed narrows the list fuzzily: its letters in order, best where
+//! they start words. A list some of which may be chosen is marked with space.
 
 use std::path::PathBuf;
 
@@ -14,6 +15,7 @@ use super::drives::{DriveKey, PackWhat};
 use super::edits::Modal;
 use super::keymap::{Act, K, KEYMAP, Scope};
 use super::mytags::TagChoice;
+use super::plugins::Asking;
 
 /// A list to choose from, narrowed by what's typed.
 pub struct Picker {
@@ -27,6 +29,9 @@ pub struct Picker {
     pub then: Then,
     /// Said under the list when nothing matches.
     pub empty: &'static str,
+    /// Which items are marked, for a list any of which may be chosen (space marks one, enter
+    /// takes those marked); `None` for a list one is chosen from.
+    pub marks: Option<Vec<bool>>,
 }
 
 /// One choice.
@@ -63,6 +68,8 @@ pub enum Then {
     Snapshot { root: PathBuf, playlist: String, snapshots: Vec<Option<String>> },
     /// Give `tracks` on the drive at `root` the tag picked, or take it off (one per item).
     Tag { root: PathBuf, tracks: Vec<String>, choices: Vec<TagChoice> },
+    /// Answer a plugin's question: its items are the question's.
+    Choose(Box<Asking>),
 }
 
 impl Picker {
@@ -75,6 +82,7 @@ impl Picker {
             state: ListState::default(),
             then,
             empty: "nothing matches",
+            marks: None,
         };
         p.state.select(p.first_available());
         p
@@ -100,6 +108,13 @@ impl Picker {
     /// The item selected, as an index into `items`.
     pub fn selected(&self) -> Option<usize> {
         self.state.selected().and_then(|s| self.shown.get(s)).copied()
+    }
+
+    /// Marks the item selected, or takes its mark off, in a list any of which may be chosen.
+    fn toggle(&mut self) {
+        if let (Some(i), Some(marks)) = (self.selected(), self.marks.as_mut()) {
+            marks[i] = !marks[i];
+        }
     }
 
     fn step(&mut self, delta: isize) {
@@ -195,8 +210,8 @@ impl App {
         self.modal = Some(Modal::Pick(p));
     }
 
-    /// Keys while a list to choose from is open: typing narrows it, the arrows move, enter
-    /// chooses, esc closes it.
+    /// Keys while a list to choose from is open: typing narrows it (in a question taking several,
+    /// space marks an item), the arrows move, enter chooses, esc closes it.
     pub(super) fn on_picker_key(&mut self, mut p: Picker, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => return,
@@ -205,6 +220,7 @@ impl App {
             KeyCode::Down => p.step(1),
             KeyCode::PageUp => p.step(-10),
             KeyCode::PageDown => p.step(10),
+            KeyCode::Char(' ') if p.marks.is_some() => p.toggle(),
             _ => {
                 if edit_line(&mut p.query, key) {
                     p.filter();
@@ -214,7 +230,8 @@ impl App {
         self.modal = Some(Modal::Pick(p));
     }
 
-    /// Clicks while a list is open: an item is chosen; a click outside closes it.
+    /// Clicks while a list is open: an item is chosen (marked, in a list any of which may be);
+    /// a click outside closes it.
     pub(super) fn on_picker_mouse(&mut self, mut p: Picker, m: MouseEvent) {
         let r = self.areas.menu;
         match m.kind {
@@ -225,7 +242,10 @@ impl App {
                 let row = m.row.saturating_sub(r.y + 2) as usize + p.state.offset();
                 if m.row >= r.y + 2 && row < p.shown.len() {
                     p.state.select(Some(row));
-                    return self.choose_item(p);
+                    if p.marks.is_none() {
+                        return self.choose_item(p);
+                    }
+                    p.toggle();
                 }
             }
             MouseEventKind::Down(_) => return,
@@ -235,6 +255,13 @@ impl App {
     }
 
     fn choose_item(&mut self, p: Picker) {
+        // Those marked, whichever are shown: none is an answer too.
+        if let (Some(marks), Then::Choose(asking)) = (&p.marks, &p.then) {
+            let values = (marks.iter().zip(asking.choice().items.iter())).filter(|(m, _)| **m);
+            let values = values.map(|(_, item)| item.value.clone()).collect();
+            let Then::Choose(asking) = p.then else { unreachable!("matched above") };
+            return self.answer(*asking, values);
+        }
         let Some(i) = p.selected() else {
             self.toast(p.empty, super::app::Level::Info);
             self.modal = Some(Modal::Pick(p));
@@ -258,6 +285,10 @@ impl App {
                 self.plan_restore(root, playlist, snapshots.swap_remove(i))
             }
             Then::Tag { root, tracks, mut choices } => self.tag_chosen(root, tracks, choices.swap_remove(i)),
+            Then::Choose(asking) => {
+                let value = asking.choice().items[i].value.clone();
+                self.answer(*asking, vec![value])
+            }
         }
     }
 }

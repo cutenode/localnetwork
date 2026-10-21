@@ -8,7 +8,6 @@
 //! what those analyzers kept in the [`FieldStore`].
 
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use indexmap::IndexMap;
@@ -21,10 +20,10 @@ pub use loclib_plugin::Role;
 
 use super::{Analyzer, FieldStore, FieldValue};
 use crate::device::Device;
-use crate::error::IoContext;
 use crate::model::Track;
+use crate::plugin::{host_settings, set_host_setting};
 use crate::store::Store;
-use crate::{Error, Result, fsutil, paths};
+use crate::{Error, Result, paths};
 
 /// An analyzer's field with a role.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,19 +64,9 @@ fn offered() -> Offered {
     THREAD_OFFERED.with(|o| o.borrow().clone()).or_else(|| OFFERED.get().cloned()).unwrap_or_default()
 }
 
-/// The host's own settings for plugins, beside each plugin's folder: `<store>/plugins/settings.json`.
-fn settings_file(store: &Store) -> PathBuf {
-    store.root().join("plugins").join("settings.json")
-}
-
 /// The setting naming the analyzer chosen for `role`.
 fn setting(role: Role) -> String {
     format!("analysis.roles.{}", role.name())
-}
-
-/// The host's settings for plugins as they're kept: none when they can't be read.
-fn settings(store: Option<&Store>) -> IndexMap<String, Value> {
-    store.and_then(|s| fsutil::read_json_opt(&settings_file(s)).ok().flatten()).unwrap_or_default()
 }
 
 /// The analyzer `settings` choose for `role` among those `offered` it, if that one still is.
@@ -93,7 +82,7 @@ fn chosen_in<'o>(settings: &IndexMap<String, Value>, offered: &'o Offered, role:
 
 /// The analyzer's field `role` is read from now, with the settings in `store` (none: the default).
 pub fn chosen(store: Option<&Store>, role: Role) -> Option<RoleField> {
-    chosen_in(&settings(store), &offered(), role).cloned()
+    chosen_in(&host_settings(store), &offered(), role).cloned()
 }
 
 /// A role, and the analyzers answering it.
@@ -110,7 +99,7 @@ pub struct RoleChoice {
 
 /// Every role, and the analyzers answering it, with the settings in `store`.
 pub fn choices(store: Option<&Store>) -> Vec<RoleChoice> {
-    let (settings, offered) = (settings(store), offered());
+    let (settings, offered) = (host_settings(store), offered());
     let choice = |role| RoleChoice {
         role,
         chosen: chosen_in(&settings, &offered, role).map(RoleField::name),
@@ -125,28 +114,20 @@ pub fn choices(store: Option<&Store>) -> Vec<RoleChoice> {
 pub fn choose(store: &Store, role: Role, analyzer: Option<&str>) -> Result<Vec<RoleChoice>> {
     let offered = offered();
     let names: Vec<String> = offered.get(&role).into_iter().flatten().map(RoleField::name).collect();
-    let mut kept = settings(Some(store));
-    match analyzer {
-        Some(a) if !names.iter().any(|n| n == a) => {
-            return Err(Error::invalid(match names.is_empty() {
-                true => format!("no analyzer works out {}", role.name()),
-                false => format!("{a} doesn't work out {}: {} does", role.name(), names.join(", ")),
-            }));
-        }
-        Some(a) => kept.insert(setting(role), a.into()),
-        None => kept.shift_remove(&setting(role)),
-    };
-    let file = settings_file(store);
-    let dir = file.parent().expect("in a folder");
-    std::fs::create_dir_all(dir).at(dir)?;
-    fsutil::write_json_atomic(&file, &kept)?;
+    if let Some(a) = analyzer.filter(|a| !names.iter().any(|n| n == a)) {
+        return Err(Error::invalid(match names.is_empty() {
+            true => format!("no analyzer works out {}", role.name()),
+            false => format!("{a} doesn't work out {}: {} does", role.name(), names.join(", ")),
+        }));
+    }
+    set_host_setting(store, &setting(role), analyzer.map(Value::from))?;
     Ok(choices(Some(store)))
 }
 
 /// What the analyzers chosen for `roles` worked out for `tracks` (of `device`), kept in `store`:
 /// by track id, then role. A track with none is left out, as is a role no analyzer has.
 pub fn by_role(store: &Store, roles: &[Role], device: &Device, tracks: &[&Track]) -> FxHashMap<u32, RoleValues> {
-    let (settings, offered) = (settings(Some(store)), offered());
+    let (settings, offered) = (host_settings(Some(store)), offered());
     let chosen: Vec<(Role, &RoleField)> =
         roles.iter().filter_map(|&r| Some((r, chosen_in(&settings, &offered, r)?))).collect();
     let mut analyzers: Vec<Analyzer> = Vec::new();

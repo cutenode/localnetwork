@@ -82,11 +82,10 @@ pub fn absolute(raw: &str) -> Result<Value, String> {
 }
 
 /// The value of a param (or option) whose JSON Schema is `schema`, from what was typed for it,
-/// in order (`raws`): the last of them for one value, each for several, each `KEY=VALUE` (keys
-/// counted from 1 when the schema's hints say so) for pairs, and JSON for another type. Files
-/// (`x-path`) are made absolute. `what` names it in errors (`--times`, `the level option`).
+/// in order (`raws`): the last of them for one value, each for several, each `KEY=VALUE` for
+/// pairs, and JSON for another type. Files (`x-path`) are made absolute. `what` names it in
+/// errors (`--times`, `the level option`).
 pub fn value(schema: &Value, raws: &[&str], what: &str) -> Result<Value, String> {
-    let hints = CliHints::of(schema).unwrap_or_default();
     let last = raws.last().map(|r| r.trim()).unwrap_or_default();
     let one = |kind: &str, raw: &str| -> Result<Value, String> {
         let raw = raw.trim();
@@ -105,13 +104,7 @@ pub fn value(schema: &Value, raws: &[&str], what: &str) -> Result<Value, String>
             let mut pairs = Map::new();
             for pair in raws {
                 let (key, raw) = pair.split_once('=').ok_or_else(|| format!("{what} takes KEY=VALUE, not {pair:?}"))?;
-                let given = key.trim();
-                let key = match hints.one_based {
-                    true => given.parse::<usize>().ok().and_then(|n| n.checked_sub(1)).map(|n| n.to_string()),
-                    false => Some(given.to_string()),
-                };
-                let key = key.ok_or_else(|| format!("{what}'s keys count from 1: {given:?} isn't one"))?;
-                pairs.insert(key, one(kind, raw)?);
+                pairs.insert(key.trim().to_string(), one(kind, raw)?);
             }
             Ok(Value::Object(pairs))
         }
