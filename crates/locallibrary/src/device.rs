@@ -560,13 +560,16 @@ impl Device {
 
     pub fn pdb_bytes(&self) -> Result<Vec<u8>> {
         let p = self.path(paths::EXPORT_PDB);
-        std::fs::read(&p).at(&p)
+        fsutil::read(&p).at(&p)
     }
 
     pub fn pdb_header(&self) -> Option<PdbHeader> {
-        let mut f = std::fs::File::open(self.path(paths::EXPORT_PDB)).ok()?;
         let mut buf = [0u8; 0x1c];
-        std::io::Read::read_exact(&mut f, &mut buf).ok()?;
+        fsutil::unreplaced(|| {
+            let mut f = std::fs::File::open(self.path(paths::EXPORT_PDB))?;
+            std::io::Read::read_exact(&mut f, &mut buf)
+        })
+        .ok()?;
         pdb::read_header(&buf)
     }
 
