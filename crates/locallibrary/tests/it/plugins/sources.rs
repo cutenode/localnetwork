@@ -419,7 +419,8 @@ fn every_track_left_out_is_counted_with_why(tc: TestCase) {
             }
             Given::NotAudio => in_music(&format!("{i:02}.mp3"), b"text", &mut found),
             Given::Text => in_music(&format!("{i:02}.txt"), b"text", &mut found),
-            Given::OnDrive => in_music(&format!("stick/{name}"), &wav(1.0), &mut found),
+            // The host names a file it finds with this system's separator.
+            Given::OnDrive => in_music(&format!("stick{}{name}", std::path::MAIN_SEPARATOR), &wav(1.0), &mut found),
             Given::Outside => {
                 put(&outside.join(&name), &wav(1.0), None);
                 told.push((outside.join(&name).display().to_string(), given.why()));
