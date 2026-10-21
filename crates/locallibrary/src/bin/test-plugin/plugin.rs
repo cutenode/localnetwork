@@ -8,6 +8,8 @@
 #[path = "../../../../loclib-plugin/examples/echo/plugin.rs"]
 pub mod echo;
 
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -65,9 +67,14 @@ impl Test {
             hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
         }
         if has("destinations") {
-            // Echo's, each saying what it's asked in its log (`asked blobs/put <hash>`), and
-            // publishing as the `answer` setting says when it has one.
-            let said = |method: &str, what: &str| eprintln!("asked {method} {what}");
+            // Echo's, each noting what it's asked (`blobs/put <hash>`) as a line of `asked` in
+            // its folder before it answers (its log is read on a thread of the host's own, so a
+            // line there can come after the answer), and publishing as the `answer` setting says
+            // when it has one.
+            let said = |method: &str, what: &str| {
+                let mut asked = OpenOptions::new().create(true).append(true).open("asked").expect("its folder");
+                writeln!(asked, "{method} {what}").expect("its folder");
+            };
             hooks = hooks
                 .on(move |req: HasBlobs, host: &Host| {
                     said("blobs/has", &req.hashes.len().to_string());

@@ -28,10 +28,10 @@ impl Fixture {
         self.store.libraries().unwrap()[0].head.unwrap()
     }
 
-    /// What the test plugin was asked, in order, as `<method> <what>`.
+    /// What the test plugin was asked, in order, as `<method> <what>`: noted before each answer.
     fn asked(&self) -> Vec<String> {
-        let logs = self.logs.lock().unwrap();
-        logs.iter().filter_map(|(_, l)| l.strip_prefix("asked ").map(String::from)).collect()
+        let asked = std::fs::read_to_string(Fixture::kept(&self.store).with_file_name("asked")).unwrap();
+        asked.lines().map(String::from).collect()
     }
 
     /// Where the plugin started in `store` keeps its store destination.
