@@ -229,6 +229,23 @@ fn stage(path: &Path, bytes: &[u8], private: bool) -> Result<tempfile::NamedTemp
 /// `path` made absolute against the current folder, `.` and `..` resolved lexically (as a browser
 /// resolves a link: symlinks aren't followed).
 pub fn absolute(path: &Path) -> PathBuf {
+    fold(path, |_| None)
+}
+
+/// `path` made absolute, with symlinks resolved as far as it exists (macOS's `/tmp` is
+/// `/private/tmp`), so two paths compare, and relative paths between them lead where they say;
+/// without Windows' `\\?\` prefix. A `..` goes where the OS takes it, out of a link's target
+/// rather than back to the link's folder, so a path is inside a folder here exactly when what it
+/// opens is (once the folders that aren't there yet are made, `..` folded over them).
+pub fn resolved(path: &Path) -> PathBuf {
+    fold(path, |p| p.canonicalize().ok().map(crate::device::without_verbatim_prefix))
+}
+
+/// `path` made absolute, part by part: `.` is nothing and `..` takes away the part before it.
+/// Each name is followed by what `real` says the path so far is (when it says), so that what
+/// a `..` takes away is a real folder. `std::path::absolute` leaves `..` in, except on Windows,
+/// which folds it this way itself before a path is opened.
+fn fold(path: &Path, real: impl Fn(&Path) -> Option<PathBuf>) -> PathBuf {
     let mut out = PathBuf::new();
     for c in std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).components() {
         match c {
@@ -236,30 +253,13 @@ pub fn absolute(path: &Path) -> PathBuf {
                 out.pop();
             }
             Component::CurDir => {}
+            Component::Normal(_) => {
+                out.push(c);
+                out = real(&out).unwrap_or(out);
+            }
             c => out.push(c),
         }
     }
-    out
-}
-
-/// `path` made [`absolute`], with symlinks resolved as far as it exists (macOS's `/tmp` is
-/// `/private/tmp`), so two paths compare, and relative paths between them lead where they say;
-/// without Windows' `\\?\` prefix.
-pub fn resolved(path: &Path) -> PathBuf {
-    let abs = absolute(path);
-    let mut existing = abs.as_path();
-    let mut rest = Vec::new();
-    while !existing.exists() {
-        match (existing.parent(), existing.file_name()) {
-            (Some(parent), Some(name)) => {
-                rest.push(name.to_os_string());
-                existing = parent;
-            }
-            _ => return abs,
-        }
-    }
-    let mut out = crate::device::dunce_canonicalize(existing);
-    out.extend(rest.iter().rev());
     out
 }
 

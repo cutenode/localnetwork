@@ -180,19 +180,24 @@ fn an_export_is_confirmed_before_it_overwrites() {
     let relative =
         f.plugins.export_plan("echo", "m3u", source.clone(), Path::new("out.m3u"), Value::Null, None, &Ctx::silent());
     assert_eq!(relative.err().unwrap().to_string(), "the export's output must be an absolute path, not out.m3u");
-    // Never onto a drive, or into the store.
+    // Never onto a drive, or into the store, also by way of a folder that isn't there yet (made
+    // before the plugin writes). Regression: that `..` was left in, so the path didn't start with
+    // the drive's or the store's.
     for (root, what) in [(&f.drive, "the drive at"), (&f.store.root().to_path_buf(), "the store at")] {
-        let e = f.plugins.export_plan(
-            "echo",
-            "m3u",
-            source.clone(),
-            &root.join("x.m3u"),
-            Value::Null,
-            Some(&f.store),
-            &Ctx::silent(),
-        );
-        let e = e.err().unwrap().to_string();
-        assert!(e.starts_with(&format!("a plugin's export isn't written to {what}")), "{e}");
+        let around = root.parent().unwrap().join("new/..").join(root.file_name().unwrap());
+        for output in [root.join("x.m3u"), around.join("x.m3u")] {
+            let e = f.plugins.export_plan(
+                "echo",
+                "m3u",
+                source.clone(),
+                &output,
+                Value::Null,
+                Some(&f.store),
+                &Ctx::silent(),
+            );
+            let e = e.err().unwrap().to_string();
+            assert!(e.starts_with(&format!("a plugin's export isn't written to {what}")), "{e}");
+        }
     }
     let nope = f.plugins.export_plan("echo", "nml", source, &out, Value::Null, None, &Ctx::silent());
     assert_eq!(nope.err().unwrap().code(), "not_found");

@@ -17,7 +17,7 @@ use crate::error::IoContext;
 use crate::op::{Operation, Planned, Probe, Touched};
 use crate::progress::Ctx;
 use crate::store::Store;
-use crate::{Error, Result};
+use crate::{Error, Result, fsutil};
 
 /// An export a plugin will write.
 #[derive(Serialize, JsonSchema)]
@@ -144,25 +144,16 @@ fn key(dir: &Path, file: &Path) -> Option<String> {
 /// Refuses `output` (absolute) on a drive mounted here or in the store: plugins never write
 /// to either.
 fn outside_drives(output: &Path, store: Option<&Store>) -> Result<()> {
-    let output = resolved(output);
+    let output = fsutil::resolved(output);
     let drives = api::list_drives(&api::ListDrives { all: true }).into_iter().map(|d| (d.root, "the drive at"));
     let stores = store.cloned().into_iter().chain(api::registry()).map(|s| (s.root().to_path_buf(), "the store at"));
-    match drives.chain(stores).find(|(root, _)| output.starts_with(resolved(root))) {
+    match drives.chain(stores).find(|(root, _)| output.starts_with(fsutil::resolved(root))) {
         Some((root, what)) => Err(Error::invalid(format!(
             "a plugin's export isn't written to {what} {}: choose a folder on this computer",
             root.display()
         ))),
         None => Ok(()),
     }
-}
-
-/// `path` with its symlinks resolved, as far as it's there.
-fn resolved(path: &Path) -> PathBuf {
-    let Some((there, rest)) = path.ancestors().find_map(|a| Some((a.canonicalize().ok()?, path.strip_prefix(a).ok()?)))
-    else {
-        return path.to_path_buf();
-    };
-    there.join(rest)
 }
 
 impl Operation for PluginExport {

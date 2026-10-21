@@ -417,6 +417,9 @@ fn a_chain_along_any_line_is_one_play(tc: TestCase) {
 // Late by half a frame, so few landmark pairs match: the last 2 s, a slice cut short where the
 // track ends, kept too few to count as heard by a whole slice's measure.
 #[hegel::explicit_test_case(seed = 6678u32, delay = 134usize, gain = 1.0f32, other = 1u32)]
+// Another track whose landmarks put a slice's worth of votes at one offset by chance: one slice
+// heard, 0.125 of the track.
+#[hegel::explicit_test_case(seed = 80978568u32, delay = 0usize, gain = 1.0f32, other = 3284596u32)]
 fn copies_line_up_at_any_delay(tc: TestCase) {
     let seed = tc.draw(gs::integers::<u32>().min_value(1));
     let x = synth(30.0, seed);
@@ -430,11 +433,13 @@ fn copies_line_up_at_any_delay(tc: TestCase) {
     assert!(ab.coverage.0 > 0.9 && ab.coverage.1 > 0.9 && ab.drift.abs() < 0.004, "{ab:?}");
     let ba = align(&b, &a).unwrap();
     assert!((ba.offset + truth).abs() < 0.005, "{truth}: {ba:?}");
-    // With enough shifts the offset counts as measured; another track shares next to nothing.
+    // With enough shifts the offset counts as measured. Another track shares at most a chance
+    // slice's worth of votes (6 land together now and then), which is one of this track's 8
+    // slices heard and never two.
     assert!(ab.shifts < ALIGN_SHIFTS || ab.is_precise(), "{ab:?}");
     let other = tc.draw(gs::integers::<u32>().min_value(1));
     let other = print(&synth(30.0, other ^ 0x5555));
-    assert!(align(&a, &other).is_none_or(|o| o.coverage.0 < 0.1 && !o.is_precise()));
+    assert!(align(&a, &other).is_none_or(|o| o.coverage.0 < 0.25 && !o.is_precise()));
 }
 
 /// Four tracks of 40 s, and the index of them.
