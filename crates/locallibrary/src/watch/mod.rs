@@ -67,10 +67,13 @@ pub struct FileStamp {
 }
 
 impl FileStamp {
-    /// The file at `path`, if it is one.
+    /// The file at `path`, if it is one. Taken between this process's renames: on Windows the
+    /// handles it opens would fail one over the file (see [`crate::fsutil::replace`]).
     pub fn of(path: &Path) -> Option<FileStamp> {
-        let m = std::fs::metadata(path).ok().filter(std::fs::Metadata::is_file)?;
-        Some(FileStamp { len: m.len(), modified: m.modified().ok(), ino: ids(path, &m).1 })
+        crate::fsutil::unreplaced(|| {
+            let m = std::fs::metadata(path).ok().filter(std::fs::Metadata::is_file)?;
+            Some(FileStamp { len: m.len(), modified: m.modified().ok(), ino: ids(path, &m).1 })
+        })
     }
 }
 
@@ -115,7 +118,8 @@ fn state_path(root: &Path) -> PathBuf {
 }
 
 fn describe(root: PathBuf, library: &LibraryStamp) -> MountedDrive {
-    let identity: Option<Identity> = crate::fsutil::read_json_opt(&state_path(&root)).ok().flatten();
+    let identity: Option<Identity> =
+        crate::fsutil::unreplaced(|| crate::fsutil::read_json_opt(&state_path(&root)).ok().flatten());
     let volume =
         root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| root.display().to_string());
     MountedDrive {

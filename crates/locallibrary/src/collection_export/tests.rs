@@ -606,13 +606,11 @@ fn an_export_plan_says_what_it_leaves_out_and_what_it_needs(tc: hegel::TestCase)
         assert!(images[0].is_some() && images[0] == images[1], "{images:?}");
     }
 
-    // Sparse only on Unix: NTFS would have to find the room for it.
-    #[cfg(unix)]
     {
         // Audio far bigger than the drive (sparse, and under ext4's 16 TiB, the most a file holds).
         let audio = pc.dir.path().join("Music/One More Time.mp3");
         let big = 2 * crate::fsutil::available_space(pc.dir.path()).unwrap() + (1 << 30);
-        std::fs::OpenOptions::new().write(true).open(&audio).unwrap().set_len(big).unwrap();
+        crate::testing::sparse(&audio, big).unwrap();
         let mut folder = pc.folder("Small");
         let planned =
             plan(&collection, &pc.cloud(), &folder, &CollectionExportOptions::default(), &Ctx::silent()).unwrap();
