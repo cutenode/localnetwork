@@ -35,11 +35,13 @@ fn a_checks_fix_is_planned_from_the_palette_and_confirmed() {
     press(&mut app, "\u{1b}");
     app.perform(Act::Fix(0), None);
     wait(&mut app, |a| a.job.is_none());
-    let Some(Modal::Confirm(c)) = &app.modal else { panic!("no plan: {}", last_message(&app)) };
+    // Not echoed on failure: CodeQL takes a toast written after a plugin's operation for something
+    // secret.
+    let Some(Modal::Confirm(c)) = &app.modal else { panic!("no plan") };
     assert_eq!((c.plan.operation(), c.plan.summary()[0].as_str()), ("echo.playlist", "make the playlist Untitled"));
     say_yes(&mut app);
     let lib = locallibrary::Device::open_export(&drive.0).unwrap().library().unwrap();
-    assert!(lib.find_playlist("Untitled").is_some(), "{}", last_message(&app));
+    assert!(lib.find_playlist("Untitled").is_some());
 }
 
 /// "check settings…" is a form of every check (and whether each guard stops changes) and how long

@@ -213,3 +213,37 @@ fn check_exits_on_a_plugins_problems_as_on_its_own(tc: TestCase) {
     assert_eq!(mine, levels);
     assert_eq!(r.code == 4, count("problem") > 0, "{}", r.out);
 }
+
+/// `prep`'s check runs the plugins' checks too: a problem one finds keeps the drives mounted, as
+/// locallibrary's own do, but one that fails or takes too long is only a warning, and the job
+/// ends as it would without it.
+#[test]
+fn prep_stops_on_a_plugins_problems_never_on_its_failing() {
+    let env = env();
+    env.ok(&["--yes", "adopt", path(&env.volumes.join("USB")), "--name", "USB"]);
+    env.ok(&["pull", "USB"]);
+    env.ok(&["--yes", "plugin", "checks", "--timeout", "0.5"]);
+    let prep = |answer: Value| {
+        find(&env, answer);
+        let r = env.run(&["--json", "--yes", "prep", "USB", "--no-eject"]);
+        let v: Value = serde_json::from_str(&r.out).unwrap_or_else(|e| panic!("{e}: {}\n{}", r.out, r.err));
+        let report = v["report"].clone();
+        let mine: Vec<Value> = report["check"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["check"] == "echo.found")
+            .cloned()
+            .collect();
+        (r.code, report, mine)
+    };
+    let (code, report, _) = prep(json!({}));
+    assert_eq!((&report["problems"], &report["stopped"]), (&json!(false), &Value::Null), "{report}");
+    for answer in [json!({ "fail": "io" }), json!({ "wait": true })] {
+        let (failed, with, mine) = prep(answer.clone());
+        assert_eq!((failed, &with["problems"], &with["stopped"]), (code, &report["problems"], &Value::Null), "{with}");
+        assert_eq!((mine.len(), &mine[0]["level"]), (1, &json!("warning")), "{answer}");
+    }
+    let (stopped, with, _) = prep(json!({ "findings": [{ "level": "problem", "message": "unplayable" }] }));
+    assert_eq!((stopped, &with["problems"]), (4, &json!(true)), "{with}");
+}
