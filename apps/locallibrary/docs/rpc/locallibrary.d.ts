@@ -2182,6 +2182,8 @@ export type PluginContext = {
   playlist?: string | null;
   /** The tracks they chose, by id. */
   tracks?: number[];
+  /** The set they're on, by id (`sets.list`). */
+  set?: string | null;
 };
 
 export type PlanPluginOp = {
@@ -2196,18 +2198,37 @@ export type PlanPluginExport = {
   plugin: string;
   /** The exporter's format. */
   exporter: string;
-  /** The library or drive to export. */
-  drive: string;
+  /**
+   * The library or drive to export, or (for a set's or a mix's exporter) whose tracks to give
+   * it.
+   */
+  drive?: string;
   /** Only these playlists (and folders), by path; every one when empty. */
   playlists?: string[];
   /** History lists to put in, by name. */
   history?: string[];
+  /** A set's exporter's set: its id, title or day, or `last` (as `sets.get` takes it). */
+  set?: string | null;
+  /** A mix's exporter's mix: the id of its report in the store (`mix.reports.list`). */
+  mix?: string | null;
   /**
    * The file, or folder, to write (absolute), on this computer: never on a drive or in the
    * store.
    */
   output: string;
   /** As the exporter's `options` schema says (`plugins.describe`). */
+  options?: unknown;
+};
+
+export type PlanPluginImport = {
+  plugin: string;
+  /** The importer's format. */
+  importer: string;
+  /** The file to read (absolute), on this computer. */
+  file: string;
+  /** The library or drive whose tracks it's about. */
+  drive: string;
+  /** As the importer's `options` schema says (`plugins.describe`). */
   options?: unknown;
 };
 
@@ -6276,7 +6297,7 @@ export type ImportedSession = {
   /** Like a history list's fingerprint: the same log imported twice is one session. */
   id: string;
   name: string;
-  /** `beat_link_trigger`. */
+  /** `beat_link_trigger`, or the plugin's importer it was read with (`<plugin>.<importer>`). */
   tool: string;
   /** The file it was imported from. */
   file: string;
@@ -7443,13 +7464,14 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations, analyzers and providers by name, its export formats
-   * and its settings' keys.
+   * What it adds: its commands, operations, analyzers and providers by name, its export and
+   * import formats and its settings' keys.
    */
   commands: string[];
   operations: string[];
   analyzers: string[];
   exporters: string[];
+  importers: string[];
   providers: string[];
   settings: string[];
   /** It's running now: plugins start when they're first used, and stop once they're idle. */
@@ -7513,6 +7535,7 @@ export type Contributions = {
   operations: Operation[];
   analyzers: Analyzer[];
   exporters: Exporter[];
+  importers: Importer[];
   providers: Provider[];
   settings: Setting[];
 };
@@ -7595,7 +7618,46 @@ export type Exporter = {
   folder: boolean;
   /** A JSON Schema for its options (an object). */
   options?: unknown;
+  /** What it writes out [default: a drive's library]. */
+  source?: ExportFrom;
 };
+
+/** What an exporter writes out. */
+export type ExportFrom =
+  /** A drive's library. */
+  | "drive"
+  /** A set the DJ declared (`locallibrary sets`). */
+  | "set"
+  /** A recorded mix's tracklist, as `locallibrary mix` found it. */
+  | "mix";
+
+/**
+ * Run with `import/read` on a file the user names: the host finds what it read on a drive and
+ * plans the edits itself, so it needs no capability to plan one.
+ */
+export type Importer = {
+  format: string;
+  title: string;
+  /**
+   * The file it reads usually ends in this: lowercase letters and digits, without the dot
+   * (`nml`).
+   */
+  extension?: string | null;
+  /** A JSON Schema for its options (an object). */
+  options?: unknown;
+  /** What it reads: what of a track's (and the plays) the host takes from it. */
+  provides: ImportKind[];
+};
+
+/** What an importer reads. */
+export type ImportKind =
+  | "cues"
+  /** A track's key and BPM. */
+  | "fields"
+  /** My Tags. */
+  | "tags"
+  /** What played, as sessions. */
+  | "sessions";
 
 /**
  * Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the
@@ -7781,6 +7843,40 @@ export type PluginExportedFile = {
   what?: string;
   /** Its size, as far as it's known before it's written. */
   bytes: number;
+};
+
+/** An import a plugin read, as the host plans it. */
+export type PluginImport = {
+  plugin: string;
+  importer: string;
+  /** The file it read. */
+  file: string;
+  /**
+   * How many of the tracks it read were found on the drive: one track (`found`), several it
+   * could be (`ambiguous`) or none (`missing`); only those found are edited.
+   */
+  tracks: ImportSummary;
+  /** The same, of its sessions' plays: those not found are kept as the log names them. */
+  plays: ImportSummary;
+  /** What's added to the tracks found, planned on the drive. */
+  edits: EditPlan;
+  /** The sessions it keeps in the store, as `sessions.list` will list them. */
+  sessions: ImportedSession[];
+};
+
+export type ImportSummary = {
+  entries: number;
+  found: number;
+  ambiguous: number;
+  missing: number;
+};
+
+/** What an import did. */
+export type PluginImported = {
+  /** The edits' report, when there were any. */
+  edits: EditReport | null;
+  /** The sessions kept, by id. */
+  sessions: string[];
 };
 
 /** What analysing a drive's tracks did. */
@@ -8766,6 +8862,10 @@ export interface Methods {
   "plugins.export.plan": { params: PlanPluginExport & WriteOptions; result: PluginExport & PlanFields };
   /** apply method; paired with `plugins.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.export.apply": { params: ApplyPlan | (PlanPluginExport & WriteOptions); result: Exported };
+  /** plan method; paired with `plugins.import.apply`; long running: sends `progress`, can be cancelled */
+  "plugins.import.plan": { params: PlanPluginImport & WriteOptions; result: PluginImport & PlanFields };
+  /** apply method; paired with `plugins.import.plan`; long running: sends `progress`, can be cancelled */
+  "plugins.import.apply": { params: ApplyPlan | (PlanPluginImport & WriteOptions); result: PluginImported };
   /** immediate method; long running: sends `progress`, can be cancelled */
   "plugins.analyze": { params: AnalyzeWithPlugin & WriteOptions; result: Analyzed };
   /** plan method; paired with `plugins.apply_fields.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

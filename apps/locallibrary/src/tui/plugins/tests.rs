@@ -10,6 +10,7 @@ use super::super::app::testing::{
 use super::super::palette::Picker;
 use super::super::ui::screen;
 use super::exporters::WRITE_TO;
+use super::importers::READ_FROM;
 use super::*;
 
 /// The list open now.
@@ -59,8 +60,8 @@ fn plugins_commands_are_in_the_palette() {
     assert_eq!(entry(&app, "answer the params…").1, Some("only on a plugged-in drive"));
 }
 
-/// The drive menu ends with plugins' commands, operations, analyzers and export formats, which
-/// run on that drive.
+/// The drive menu ends with plugins' commands, operations, analyzers, export and import formats,
+/// which run on that drive.
 #[test]
 fn plugins_commands_are_in_the_drive_menu() {
     let (dir, root) = demo_drive();
@@ -73,7 +74,8 @@ fn plugins_commands_are_in_the_drive_menu() {
     press(&mut app, "e");
     let p = picker(&app);
     assert!(p.title.starts_with("Drive · "), "{}", p.title);
-    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("export for echo-m3u…"));
+    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("import audio files, a line each…"));
+    assert!(p.items.iter().any(|i| i.label == "export for echo-m3u…"));
     assert!(p.items.iter().any(|i| i.label == "analyze the tracks: file size"));
     assert!(p.items.iter().any(|i| i.label == "make a playlist…"));
     assert_eq!(entry(&app, "answer the params…").1, None);
@@ -1053,6 +1055,7 @@ fn plugins_own(act: &Act) -> bool {
             | Act::Analyze(..)
             | Act::ApplyFields(..)
             | Act::Export(..)
+            | Act::Import(..)
             | Act::FieldColumn(_)
             | Act::PluginSettings(_)
             | Act::ProviderSettings
@@ -1137,7 +1140,12 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
         for (i, act) in items.iter().zip(&acts).skip(first) {
             let needs = matches!(
                 act,
-                Act::Plugin(..) | Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..) | Act::Fetch(_)
+                Act::Plugin(..)
+                    | Act::Analyze(..)
+                    | Act::ApplyFields(..)
+                    | Act::Export(..)
+                    | Act::Import(..)
+                    | Act::Fetch(_)
             );
             assert_eq!(i.unavailable.as_deref(), why.filter(|_| needs), "{}", i.label);
             assert!(needs || !in_menu, "{:?} isn't a drive's", i.label);
@@ -1170,7 +1178,9 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
             press(&mut app, "\u{1b}");
             assert!(app.modal.is_none() && app.view == view);
             // Asked for anyway (a key, a stale list), an analyzer or an export says the same.
-            if !in_menu && matches!(acts[i], Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..)) {
+            if !in_menu
+                && matches!(acts[i], Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..) | Act::Import(..))
+            {
                 app.toast = None;
                 app.perform(acts[i], None);
                 assert_eq!((last_message(&app), app.job.is_none(), app.modal.is_none()), (why.as_str(), true, true));
@@ -1234,6 +1244,13 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             let e = m.contributes.exporters.iter().find(|e| e.format == f).unwrap();
             let (title, fields) = form_open(app);
             assert_eq!((title, fields[0].as_str()), (e.title.clone(), WRITE_TO));
+            press(app, "\u{1b}");
+        }
+        Act::Import(p, f) => {
+            let m = crate::plugins::host().unwrap().manifest(p).unwrap();
+            let i = m.contributes.importers.iter().find(|i| i.format == f).unwrap();
+            let (title, fields) = form_open(app);
+            assert_eq!((title, fields[0].as_str()), (i.title.clone(), READ_FROM));
             press(app, "\u{1b}");
         }
         Act::PluginSettings(p) => {
@@ -1936,3 +1953,4 @@ fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
 }
 
 mod asking;
+mod importing;

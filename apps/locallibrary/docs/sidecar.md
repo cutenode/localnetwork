@@ -352,13 +352,13 @@ Native bindings (napi-rs) can wrap the same `api` functions later without changi
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
 each plugin's `{id, name, version, capabilities: [{capability, means}], commands, operations,
-analyzers, exporters, providers, settings, running, left_out}`, `means` saying in plain words what
-a capability lets it do and `left_out` why a plugin isn't loaded, when it clashes with a command, a
-method or another plugin (else `null`); `plugins.describe {plugin}` answers `{manifest,
+analyzers, exporters, importers, providers, settings, running, left_out}`, `means` saying in plain
+words what a capability lets it do and `left_out` why a plugin isn't loaded, when it clashes with a
+command, a method or another plugin (else `null`); `plugins.describe {plugin}` answers `{manifest,
 capabilities, settings, secrets, secrets_unknown?, running}`, the manifest with the JSON Schemas of
-each command's and operation's `params` and each exporter's `options`, to draw forms from, and
-where to offer each command and operation (`where`: `track`, `playlist`, `drive`). A param's
-`x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
+each command's and operation's `params` and each exporter's and importer's `options`, to draw forms
+from, and where to offer each command and operation (`where`: `track`, `playlist`, `drive`). A
+param's `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
 request's `context` when it isn't given; given as `null`, it's left out. `plugins.settings
 {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its
 default) answer `{plugin, settings: {key: value}, secrets: {key: set}}`: a secret setting is set
@@ -380,7 +380,7 @@ it hasn't worked out already), with progress (an `analyze` phase) and `$/cancel`
 
 ### Commands and operations
 
-`plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
+`plugins.run {plugin, command, params, context: {drive, playlist, tracks, set}}` answers a headless
 command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw, with
 every row the plugin sent in parts as it worked. `plugins.op.plan {plugin, operation, params,
 context}` (`context.drive` is required) answers an edit plan whose `operation` is
@@ -392,18 +392,32 @@ multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` `{choose: {...}}` 
 kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
 (with `multi`, a list of the values chosen, maybe none); `plugins.op.apply` with a request refuses
 one that asks. A tracklist is imported as the tracklist plugin's `import` operation (`{file, into,
-playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks
-in turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and
-`null` leaves the entry out.
+playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks in
+turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and `null`
+leaves the entry out.
 
 ### Export formats
 
-`plugins.export.plan {plugin, exporter, drive, playlists?, history?, output, options}` (`output`
-absolute, never on a drive or in the store) answers `{plugin, exporter, output, files: [{path,
-what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what goes in, in order;
-`notes`: what the format can't hold and what to do with the files; the library's problems are the
-plan's `warnings`), destructive when a file `exists` already, applied by `plugins.export.apply
-{plan_id}` (`{files: [{path, what, bytes}], counts, notes, warnings}`).
+`plugins.export.plan {plugin, exporter, drive, playlists?, history?, set?, mix?, output, options}`
+(`output` absolute, never on a drive or in the store; an exporter whose manifest's `source` is
+`set` takes `set`, as `sets.get` names one, and `mix` the id of a report kept in the store,
+`mix.reports.list`, either with a `drive` or not, and no playlists) answers `{plugin, exporter,
+output, files: [{path, what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what
+goes in, in order; `notes`: what the format can't hold and what to do with the files; the library's
+problems are the plan's `warnings`), destructive when a file `exists` already, applied by
+`plugins.export.apply {plan_id}` (`{files: [{path, what, bytes}], counts, notes, warnings}`).
+
+### Import formats
+
+`plugins.import.plan {plugin, importer, file, drive, options}` (`file` absolute) has the plugin
+read the file, finds what it read on the drive and answers `{plugin, importer, file, tracks:
+{entries, found, ambiguous, missing}, plays: {...}, edits, sessions}`: how many of its tracks (and
+its sessions' plays) were found, the edit plan adding to the tracks found what they lack (a key and
+a BPM, cues in slots or places they have none in, My Tags), and the sessions it keeps in the store
+(as `sessions.import` keeps Beat Link Trigger's), with what it left out among the `warnings`. Its
+`operation` is `<plugin>.import.<importer>`; applied by `plugins.import.apply {plan_id}` (`{edits?,
+sessions}`, the edit report and the sessions kept, by id), and stale once the file or the drive
+changes.
 
 ### Providers
 

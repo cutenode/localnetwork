@@ -26,13 +26,13 @@ results), `net` (fetching through the host) and `choose` (asking the user first)
    differs from the manifest it knows, or that contributes what a feature it doesn't have runs
    (commands without `commands`, `[[net]]` limits without `net`).
 3. The host calls hooks, one for each kind of contribution (see [Hooks](#hooks)), each with a
-   `context`: the drive (by id or name), for a command or an operation the playlist and tracks
-   the user is on, the plugin's `settings` (never a secret one) and, with `blobs`, `scratch`: an
-   absolute, empty folder for this request alone. A value too big for a message (an image) is a
-   file the plugin leaves there, given as `{"blob": "cover.jpg"}` (its name in the folder): the
-   host reads it itself, refuses a name that leads out of the folder (or is a link, or a file
-   with another name) and a folder holding more than it takes (512 MiB), and removes the folder
-   once it has.
+   `context`: the drive (by id or name), for a command or an operation the playlist, tracks and set
+   (by id) the user is on, the plugin's `settings` (never a secret one) and, with `blobs`,
+   `scratch`: an absolute, empty folder for this request alone. A value too big for a message (an
+   image) is a file the plugin leaves there, given as `{"blob": "cover.jpg"}` (its name in the
+   folder): the host reads it itself, refuses a name that leads out of the folder (or is a link, or
+   a file with another name) and a folder holding more than it takes (512 MiB), and removes the
+   folder once it has.
    - With `choose`, a view command may answer a question for the user instead, `{"kind":
      "choose", "title", "param", "multi", "items": [{"label", "detail", "value"}]}` (`Choice`),
      and an operation `{"choose": {...}}`: the host asks it, and runs the hook again with
@@ -46,7 +46,7 @@ results), `net` (fetching through the host) and `choose` (asking the user first)
    computer. Each read takes only some of its params from a plugin: drives by id or name (never
    a path), no files, servers or secrets, and pages of at most 500, and what it answers says
    nothing of where things are on the computer: no `root` (where a drive is mounted), nor where
-   the store's copies, a set's recording or rekordbox's collection are, and any other path said
+   the store's copies, a set's or a mix's recording or rekordbox's collection are, and any other path said
    from its drive, `<store>` or `~`, as errors are. A plugin has a few calls under way at once (more fail with
    kind `busy`).
    With `net`, a plugin goes online through the host: `net/fetch {url, method, headers, body?,
@@ -187,17 +187,41 @@ has them all, first.
 
 ### exporters
 
-`export/write {exporter, source: {drive, playlists, history}, output, options, dry_run, context}` ->
+`export/write {exporter, source: {drive, playlists, history, set?, mix?}, output, options, dry_run,
+context}` ->
 `{"files": [{path, what, bytes}], "counts", "notes", "warnings"}`. The plugin writes the files; with
 `dry_run` it only says which it would (`what` each holds, its size as far as it's known), so the
 host can ask before overwriting any. `counts` (optional) are labelled numbers of what goes in, in
 the order to show them (`{"tracks": 12, "cues": 40}`); `notes` (optional) say what the format can't
 hold and what to do with the files, `warnings` what's wrong with this library. An export reads the
 drive's whole library as locallibrary combines it; `playlists` and `history` (lists, by name) only
-narrow which lists go in.
+narrow which lists go in. A set's exporter is given `set` instead (the set's id, which `sets.get`
+reads) and a mix's `mix` (the id of the report kept of it, which `mix.reports.get` reads), each
+with the `drive` its tracks are on when the user names one (else `""`).
 
 - `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
-  without the dot) or `folder = true`, `options`.
+  without the dot) or `folder = true`, `options`, and `source`: what it writes out, `drive` (a
+  drive's library, unless it says), `set` or `mix`; a set's or a mix's reads it, which takes
+  `sets:read`.
+
+### importers
+
+`import/read {importer, file, options, context}` -> `{"tracks": [{match: {path?, isrc?, artist?,
+title?, duration?}, key?, bpm?, cues?: [{hot_cue?, start_ms, loop_beats?, name?, color?}],
+my_tags?}], "sessions"?: [{name?, started?, plays: [{artist, title, started_at?, path?}]}],
+"warnings"?}`: what another program's file (absolute, to read only) says about tracks, and the
+plays it logged (times in RFC 3339; a play without one starts with its session). An answer too big
+for a message is a blob holding it as JSON (`{"blob": "read.json"}`). The host finds each track on
+the drive as a tracklist's entries are found (by file, ISRC, then artist, title and length), says
+how many it couldn't, and plans the edits itself, adding only what a track lacks: a key (in any
+notation rekordbox shows) and a BPM where it has none, cues in hot cue slots (or at places) it has
+none in, and the My Tags (`Category/Tag`) it lacks. It keeps the sessions in its store, as it keeps
+Beat Link Trigger's logs. An importer plans none, and needs no capability to.
+
+- `[[contributes.importers]]`: `format`, `title`, `extension` (the files it reads usually end in:
+  lowercase letters and digits, without the dot), `options`, and `provides`: what of it the host
+  takes, `fields` (keys and BPMs), `cues`, `tags` and `sessions`, each once. An answer with
+  anything else is refused.
 
 ### operations
 

@@ -204,3 +204,86 @@ fn an_import_reads_a_file_the_plugin_has_an_importer_for() {
     let e = f.plugins.import_plan("echo", "given", &file, "USB", Value::Null, None, &Ctx::silent()).err().unwrap();
     assert_eq!(e.to_string(), "sessions are kept in the store, and there's none");
 }
+
+/// For any answer an importer gives, the plan counts the tracks it finds on the drive as the
+/// matcher finds them by file, keeps each session with a time for every play, and applied, only
+/// adds: every track keeps the key, BPM, cues and My Tags it had, a track without a key gets the
+/// first one given for it, and every tag given a track found is on it.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn an_import_only_adds_to_what_tracks_have(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let before = f.bare();
+    let device = Device::open(&f.drive).unwrap();
+    let cues_of = |t: &Track| {
+        let listed = cue_edit::list(&device, &[t.id]).unwrap().remove(0).cues;
+        listed.into_iter().map(|c| (c.hot_cue, c.start_ms)).collect::<Vec<_>>()
+    };
+    let had: Vec<_> = before.iter().map(cues_of).collect();
+    let codes: Vec<String> = (1..=12).flat_map(|n| [format!("{n}A"), format!("{n}B")]).collect();
+    let n = tc.draw(gs::integers::<usize>().max_value(5));
+    let (mut tracks, mut found, mut keys) = (Vec::new(), 0, vec![None; before.len()]);
+    for _ in 0..n {
+        let on = tc.draw(gs::optional(gs::integers::<usize>().max_value(before.len() - 1)));
+        let path = on.map_or_else(|| "/Contents/nowhere/x.mp3".to_string(), |i| before[i].file_path.clone());
+        let key = tc.draw(gs::optional(gs::sampled_from(codes.clone())));
+        let hot = || gs::optional(gs::sampled_from(vec!["A", "D", "H"]));
+        let cues: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+            .map(|_| json!({ "hot_cue": tc.draw(hot()), "start_ms": tc.draw(gs::integers::<u32>().max_value(9_000)) }))
+            .collect();
+        let tag = format!("Genre/Imp{}", tc.draw(gs::integers::<u8>().max_value(2)));
+        if let Some(i) = on {
+            found += 1;
+            keys[i] = keys[i].clone().or(key.clone());
+        }
+        tracks.push(json!({ "match": { "path": path }, "key": key, "cues": cues, "my_tags": [tag], "on": on }));
+    }
+    // And somewhere among them, what each track has already: another key (for one with a key), a
+    // BPM, and a cue in each of its hot cue slots and at each place it has one.
+    for (i, t) in before.iter().enumerate() {
+        let key = Camelot::parse(&t.key).map(|k| k.parallel().code());
+        let cues: Vec<Value> = had[i].iter().map(|(hot, at)| json!({ "hot_cue": hot, "start_ms": at + 50 })).collect();
+        let over = json!({ "match": { "path": t.file_path }, "key": key, "bpm": t.bpm + 1.0, "cues": cues, "on": i });
+        tracks.insert(tc.draw(gs::integers::<usize>().max_value(tracks.len())), over);
+        found += 1;
+    }
+    let n = tracks.len();
+    let logs: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|i| {
+            let timed = tc.draw(gs::booleans());
+            let plays: Vec<Value> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)))
+                .map(|j| {
+                    let at = timed.then(|| format!("2026-10-03T22:0{j}:00Z"));
+                    json!({ "artist": "A", "title": format!("T{i}{j}"), "started_at": at })
+                })
+                .collect();
+            json!({ "plays": plays, "timed": timed })
+        })
+        .collect();
+    let read = json!({ "tracks": tracks, "sessions": logs });
+    let planned = f.import(&read, Value::Null).unwrap();
+    assert_eq!((planned.tracks.entries, planned.tracks.found, planned.tracks.missing), (n, found, n - found));
+    let kept = logs.iter().filter(|l| l["timed"] == true).count();
+    assert_eq!(planned.sessions.len(), kept);
+    assert!(!planned.destructive, "an import only adds");
+    if !planned.noop {
+        planned.apply(Some(&f.store), &Ctx::silent()).unwrap();
+    }
+
+    let after = common::library(&f.drive).tracks;
+    let tags = locallibrary::tags::read(&Device::open(&f.drive).unwrap()).unwrap();
+    for (i, (b, a)) in before.iter().zip(&after).enumerate() {
+        let key = match (b.key.is_empty(), &keys[i]) {
+            (true, Some(code)) => Camelot::parse(code).unwrap().note(),
+            _ => b.key.clone(),
+        };
+        assert_eq!((&a.key, a.bpm), (&key, b.bpm), "track {i}");
+        let now = cues_of(a);
+        assert!(had[i].iter().all(|c| now.contains(c)), "track {i} kept its cues: {:?} -> {now:?}", had[i]);
+        for tag in tracks.iter().filter(|t| t["on"] == json!(i)).filter_map(|t| t["my_tags"][0].as_str()) {
+            let on = tags.categories.iter().flat_map(|c| &c.tags).find(|g| g.path == tag);
+            assert!(on.is_some_and(|g| g.tracks.iter().any(|r| r.id == a.id)), "track {i} has {tag}");
+        }
+    }
+    assert_eq!(SetBook::load(&f.store).unwrap().imported.len(), kept);
+}

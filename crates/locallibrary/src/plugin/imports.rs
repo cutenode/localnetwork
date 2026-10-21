@@ -4,8 +4,9 @@
 //! holding it). The host finds its tracks on a drive with the matcher tracklists are found with
 //! ([`crate::import::Matcher`]), says how many it didn't find, and plans the edits itself, adding
 //! to what the tracks have: a key and a BPM where a track has none, as an analyzer's are written
-//! ([`super::apply`]), cues in slots (or at places) a track has none in, and My Tags it lacks. The plays
-//! are kept in the store as sessions, as Beat Link Trigger's logs are ([`crate::sets::import`]).
+//! ([`super::apply`]), cues in slots (or at places) a track has none in, and My Tags it lacks.
+//! The plays are kept in the store as sessions, as Beat Link Trigger's logs are
+//! ([`crate::sets::import`]).
 //! It's all one plan (`<plugin>.import.<importer>`), confirmed and applied as an edit is, and stale
 //! once the file changes. A plugin's answer with what its manifest doesn't say it `provides` is
 //! refused.

@@ -197,6 +197,7 @@ fn plugins_plans_are_kept_apart() {
     // A plugin's operation and export are each applied by their own apply.
     assert_eq!(applied_as("plugins.op.apply", "echo.playlist"), "plugins.op");
     assert_eq!(applied_as("plugins.export.apply", "echo.export.m3u"), "plugins.export");
+    assert_eq!(applied_as("plugins.import.apply", "echo.import.nml"), "plugins.import");
     assert_eq!(applied_as("store.gc.apply", "store.gc"), "store.gc");
 }
 
@@ -256,9 +257,10 @@ fn applied_by(method: &str, operation: &str) -> String {
         return operation.to_string();
     }
     let parts: Vec<&str> = operation.split('.').collect();
-    match parts.len() == 3 && parts[1] == "export" {
-        true => "plugins.export".into(),
-        false => "plugins.op".into(),
+    match (parts.len(), parts.get(1)) {
+        (3, Some(&"export")) => "plugins.export".into(),
+        (3, Some(&"import")) => "plugins.import".into(),
+        _ => "plugins.op".into(),
     }
 }
 
@@ -367,13 +369,14 @@ fn only_listed_reads_are_run_for_plugins(tc: TestCase) {
 }
 
 /// Which apply takes a plan, for any operation: the plan's own operation for the sidecar's own
-/// methods, and for plugins' `plugins.export` for an export (`<plugin>.export.<format>`) and
-/// `plugins.op` for anything else.
+/// methods, and for plugins' `plugins.export` for an export (`<plugin>.export.<format>`),
+/// `plugins.import` for an import (`<plugin>.import.<format>`) and `plugins.op` for anything else.
 #[hegel::test(test_cases = 100)]
 fn a_plan_is_applied_by_the_apply_of_its_kind(tc: TestCase) {
-    let word = || gs::sampled_from(vec!["echo", "export", "m3u", "playlist", "store", "gc", ""]);
+    let word = || gs::sampled_from(vec!["echo", "export", "import", "m3u", "playlist", "store", "gc", ""]);
     let parts = tc.draw(gs::vecs(word()).min_size(1).max_size(4));
     let operation = parts.join(".");
-    let method = tc.draw(gs::sampled_from(vec!["store.gc.apply", "plugins.op.apply", "plugins.export.apply", "edit"]));
+    let methods = vec!["store.gc.apply", "plugins.op.apply", "plugins.export.apply", "plugins.import.apply", "edit"];
+    let method = tc.draw(gs::sampled_from(methods));
     assert_eq!(applied_as(method, &operation), applied_by(method, &operation), "{method} {operation}");
 }

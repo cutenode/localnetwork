@@ -179,7 +179,25 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
                 true => e["extension"] = json!(tc.draw(gs::sampled_from(&["txt", "m3u8", "nml"][..]))),
                 false => e["folder"] = json!(true),
             }
+            // A drive's library unless it says.
+            if let Some(source) = tc.draw(gs::optional(gs::sampled_from(&["set", "mix"][..]))) {
+                e["source"] = json!(source);
+            }
             e
+        })
+        .collect();
+    if exporters.iter().any(|e| e.get("source").is_some()) && !capabilities.iter().any(|c| c == "sets:read") {
+        capabilities.push("sets:read".into());
+    }
+    let kinds = ["fields", "cues", "tags", "sessions"];
+    let importers: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let provides = tc.draw(gs::vecs(gs::sampled_from(&kinds[..])).min_size(1).max_size(4).unique(true));
+            let mut i = json!({ "format": format!("{id}-i{j}"), "title": title(tc), "provides": provides });
+            if let Some(ext) = tc.draw(gs::optional(gs::sampled_from(&["json", "nml"][..]))) {
+                i["extension"] = json!(ext);
+            }
+            i
         })
         .collect();
     let providers: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
@@ -204,6 +222,7 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             "operations": operations,
             "analyzers": analyzers,
             "exporters": exporters,
+            "importers": importers,
             "providers": providers,
             "settings": settings,
         },
@@ -264,6 +283,7 @@ fn listed_text(listed: &[Value]) -> String {
             ("operation", "operations"),
             ("analyzer", "analyzers"),
             ("export format", "exporters"),
+            ("import format", "importers"),
             ("provider", "providers"),
             ("setting", "settings"),
         ];
@@ -325,14 +345,30 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section(format!("Analyzers (locallibrary analyze --plugin {id}):"), analyzers);
-    let exporters = list("exporters")
+    for (source, title) in [
+        ("drive", "Export formats (locallibrary export LIBRARY --format FORMAT -o ...):"),
+        ("set", "Set export formats (locallibrary sets export SET --format FORMAT -o ...):"),
+        ("mix", "Mix export formats (locallibrary mix RECORDING --format FORMAT --export ...):"),
+    ] {
+        let exporters = list("exporters")
+            .iter()
+            .filter(|e| e["source"].as_str().unwrap_or("drive") == source)
+            .map(|e| {
+                let writes = e["extension"].as_str().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
+                (str_of(&e["format"]), format!("{}, {writes}", str_of(&e["title"])))
+            })
+            .collect();
+        section(title.into(), exporters);
+    }
+    let importers = list("importers")
         .iter()
-        .map(|e| {
-            let writes = e["extension"].as_str().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
-            (str_of(&e["format"]), format!("{}, {writes}", str_of(&e["title"])))
+        .map(|i| {
+            let reads = i["extension"].as_str().map_or_else(|| "a file".to_string(), |x| format!("a .{x} file"));
+            let provides: Vec<String> = i["provides"].as_array().unwrap().iter().map(str_of).collect();
+            (str_of(&i["format"]), format!("{}, {reads}: {}", str_of(&i["title"]), provides.join(", ")))
         })
         .collect();
-    section("Export formats (locallibrary export LIBRARY --format FORMAT -o ...):".into(), exporters);
+    section("Import formats (locallibrary import FILE LIBRARY --format FORMAT):".into(), importers);
     let providers = list("providers")
         .iter()
         .map(|p| {
@@ -389,6 +425,7 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             ("operations", "name"),
             ("analyzers", "name"),
             ("exporters", "format"),
+            ("importers", "format"),
             ("providers", "name"),
             ("settings", "key"),
         ] {

@@ -5076,6 +5076,64 @@
       }
     },
     {
+      "name": "plugins.import.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.import.apply",
+      "operation": "plugins.import",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PlanPluginImport"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PluginImport"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.import.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.import.plan",
+      "operation": "plugins.import",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/PlanPluginImport"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/PluginImported"
+      }
+    },
+    {
       "name": "plugins.analyze",
       "aliases": [],
       "kind": "immediate",
@@ -11185,6 +11243,14 @@
           },
           "description": "The tracks they chose, by id.",
           "default": []
+        },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The set they're on, by id (`sets.list`).",
+          "default": null
         }
       },
       "description": "Where the user is, for a plugin's command or operation."
@@ -11224,7 +11290,8 @@
         },
         "drive": {
           "type": "string",
-          "description": "The library or drive to export."
+          "description": "The library or drive to export, or (for a set's or a mix's exporter) whose tracks to give\nit.",
+          "default": ""
         },
         "playlists": {
           "type": "array",
@@ -11242,6 +11309,22 @@
           "description": "History lists to put in, by name.",
           "default": []
         },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A set's exporter's set: its id, title or day, or `last` (as `sets.get` takes it).",
+          "default": null
+        },
+        "mix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A mix's exporter's mix: the id of its report in the store (`mix.reports.list`).",
+          "default": null
+        },
         "output": {
           "type": "string",
           "description": "The file, or folder, to write (absolute), on this computer: never on a drive or in the\nstore."
@@ -11254,8 +11337,37 @@
       "required": [
         "plugin",
         "exporter",
-        "drive",
         "output"
+      ]
+    },
+    "PlanPluginImport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "importer": {
+          "type": "string",
+          "description": "The importer's format."
+        },
+        "file": {
+          "type": "string",
+          "description": "The file to read (absolute), on this computer."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks it's about."
+        },
+        "options": {
+          "description": "As the importer's `options` schema says (`plugins.describe`).",
+          "default": null
+        }
+      },
+      "required": [
+        "plugin",
+        "importer",
+        "file",
+        "drive"
       ]
     },
     "AnalyzeWithPlugin": {
@@ -24929,7 +25041,7 @@
         },
         "tool": {
           "type": "string",
-          "description": "`beat_link_trigger`."
+          "description": "`beat_link_trigger`, or the plugin's importer it was read with (`<plugin>.<importer>`)."
         },
         "file": {
           "type": "string",
@@ -29057,7 +29169,7 @@
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its commands, operations, analyzers and providers by name, its export formats\nand its settings' keys."
+          "description": "What it adds: its commands, operations, analyzers and providers by name, its export and\nimport formats and its settings' keys."
         },
         "operations": {
           "type": "array",
@@ -29072,6 +29184,12 @@
           }
         },
         "exporters": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "importers": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29110,6 +29228,7 @@
         "operations",
         "analyzers",
         "exporters",
+        "importers",
         "providers",
         "settings",
         "running",
@@ -29241,6 +29360,7 @@
             "operations": [],
             "analyzers": [],
             "exporters": [],
+            "importers": [],
             "providers": [],
             "settings": []
           }
@@ -29294,6 +29414,13 @@
           },
           "default": []
         },
+        "importers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Importer"
+          },
+          "default": []
+        },
         "providers": {
           "type": "array",
           "items": {
@@ -29314,6 +29441,7 @@
         "operations",
         "analyzers",
         "exporters",
+        "importers",
         "providers",
         "settings"
       ]
@@ -29493,6 +29621,10 @@
         },
         "options": {
           "description": "A JSON Schema for its options (an object)."
+        },
+        "source": {
+          "$ref": "#/$defs/ExportFrom",
+          "description": "What it writes out [default: a drive's library]."
         }
       },
       "required": [
@@ -29501,6 +29633,86 @@
         "folder"
       ],
       "description": "Run with `export/write`."
+    },
+    "ExportFrom": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "drive",
+          "description": "A drive's library."
+        },
+        {
+          "type": "string",
+          "const": "set",
+          "description": "A set the DJ declared (`locallibrary sets`)."
+        },
+        {
+          "type": "string",
+          "const": "mix",
+          "description": "A recorded mix's tracklist, as `locallibrary mix` found it."
+        }
+      ],
+      "description": "What an exporter writes out."
+    },
+    "Importer": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "extension": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The file it reads usually ends in this: lowercase letters and digits, without the dot\n(`nml`)."
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportKind"
+          },
+          "description": "What it reads: what of a track's (and the plays) the host takes from it."
+        }
+      },
+      "required": [
+        "format",
+        "title",
+        "provides"
+      ],
+      "description": "Run with `import/read` on a file the user names: the host finds what it read on a drive and\nplans the edits itself, so it needs no capability to plan one."
+    },
+    "ImportKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "cues"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "fields",
+          "description": "A track's key and BPM."
+        },
+        {
+          "type": "string",
+          "const": "tags",
+          "description": "My Tags."
+        },
+        {
+          "type": "string",
+          "const": "sessions",
+          "description": "What played, as sessions."
+        }
+      ],
+      "description": "What an importer reads."
     },
     "Provider": {
       "type": "object",
@@ -30011,6 +30223,109 @@
         "bytes"
       ],
       "description": "A file an export writes."
+    },
+    "PluginImport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "importer": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string",
+          "description": "The file it read."
+        },
+        "tracks": {
+          "$ref": "#/$defs/ImportSummary",
+          "description": "How many of the tracks it read were found on the drive: one track (`found`), several it\ncould be (`ambiguous`) or none (`missing`); only those found are edited."
+        },
+        "plays": {
+          "$ref": "#/$defs/ImportSummary",
+          "description": "The same, of its sessions' plays: those not found are kept as the log names them."
+        },
+        "edits": {
+          "$ref": "#/$defs/EditPlan",
+          "description": "What's added to the tracks found, planned on the drive."
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportedSession"
+          },
+          "description": "The sessions it keeps in the store, as `sessions.list` will list them."
+        }
+      },
+      "required": [
+        "plugin",
+        "importer",
+        "file",
+        "tracks",
+        "plays",
+        "edits",
+        "sessions"
+      ],
+      "description": "An import a plugin read, as the host plans it."
+    },
+    "ImportSummary": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "found": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "ambiguous": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "missing": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "entries",
+        "found",
+        "ambiguous",
+        "missing"
+      ]
+    },
+    "PluginImported": {
+      "type": "object",
+      "properties": {
+        "edits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EditReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The edits' report, when there were any."
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The sessions kept, by id."
+        }
+      },
+      "required": [
+        "edits",
+        "sessions"
+      ],
+      "description": "What an import did."
     },
     "Analyzed": {
       "type": "object",
