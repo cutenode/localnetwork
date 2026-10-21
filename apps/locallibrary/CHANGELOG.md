@@ -570,6 +570,8 @@ their old names.
 
 ### Fixed
 
+- A release date given to an edit has to be written out in full (`2019-05-01`): `2019-05-1`
+  was taken, and the Traktor export left it out.
 - On Windows, an edit, sync or other write no longer fails ("Access is denied") when the drive
   watcher of the TUI, the sidecar or `watch` looks at the drive at the same moment.
 - A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.
