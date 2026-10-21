@@ -16,7 +16,8 @@ use unicode_width::UnicodeWidthStr;
 use crate::jobs_cmd::usage;
 use crate::output::{self, Output, dim, heading, ok};
 use crate::plugins::params::{self, cell};
-use crate::plugins::{Described, Listed, Providers, Secrets, Settings};
+use crate::plugins::providers::Providers;
+use crate::plugins::{Described, Listed, Secrets, Settings};
 
 /// `name`s of a kind (`command`), in a phrase: `commands echo, titles`.
 fn named(what: &str, names: &[String]) -> Option<String> {
