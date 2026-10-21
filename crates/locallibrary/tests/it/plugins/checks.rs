@@ -54,8 +54,13 @@ impl Fixture {
 
     /// A plan making the playlist `name` on the drive, with what the guards make of it.
     fn guarded(&self, name: &str) -> Planned<EditPlan> {
+        self.guarded_as(name, EditOptions::default())
+    }
+
+    /// [`Fixture::guarded`], planned with `options`.
+    fn guarded_as(&self, name: &str, options: EditOptions) -> Planned<EditPlan> {
         let edits = vec![Edit::CreatePlaylist { path: name.into(), folder: false }];
-        let req = EditRequest { drive: "USB".into(), edits, options: EditOptions::default() };
+        let req = EditRequest { drive: "USB".into(), edits, options };
         let mut planned = api::edit_plan(&req, &Ctx::silent()).unwrap();
         self.plugins.guard(&mut planned, Some(&self.store), &Ctx::silent()).unwrap();
         planned
@@ -256,6 +261,53 @@ fn guards_warn_about_a_plan_and_block_it_once_told_to() {
     // A plan that changes nothing isn't guarded.
     let planned = f.guarded("Warmup");
     assert!(planned.noop && planned.warnings.iter().all(|w| !w.starts_with("Guard")), "{:?}", planned.warnings);
+}
+
+/// A guard is given the edits of a plan made without the journal too (a replay's, say), and
+/// blocks it as any; unblocked, it's made, and still not recorded.
+#[test]
+fn a_guard_sees_the_edits_of_a_plan_kept_out_of_the_journal() {
+    let f = Fixture::checks(&["echo"]);
+    let change = |check: &str, change| f.plugins.set_check(&f.store, "echo", check, change).unwrap();
+    change("edits", CheckChange { on: Some(true), ..CheckChange::default() });
+    change("guard", CheckChange { blocking: Some(true), ..CheckChange::default() });
+    let about_edits = json!({ "level": "problem", "message": "not before a set" });
+    f.find("echo", json!({ "about_edits": true, "findings": [about_edits] }));
+    let unjournaled = EditOptions { no_journal: true, ..EditOptions::default() };
+    let journal = || locallibrary::edit::journal::list(&f.device()).unwrap().len();
+    let before = journal();
+    let planned = f.guarded_as("Warmup", unjournaled.clone());
+    let counted = "Count a plan's edits: edit makes 1 edit(s)".to_string();
+    assert!(planned.warnings.contains(&counted), "{:?}", planned.warnings);
+    assert_eq!(planned.plan.blocked.as_deref(), Some("echo.guard"));
+    assert!(planned.apply(None, &Ctx::silent()).is_err());
+    assert!(common::library(&f.drive).find_playlist("Warmup").is_none(), "not applied");
+    change("guard", CheckChange { blocking: Some(false), ..CheckChange::default() });
+    f.guarded_as("Warmup", unjournaled).apply(None, &Ctx::silent()).unwrap();
+    assert!(common::library(&f.drive).find_playlist("Warmup").is_some());
+    assert_eq!(journal(), before, "not recorded");
+}
+
+/// What a check says is shown as it's safe to: without control characters or secrets, and cut
+/// short past a line; a file it names with a control character in it is no file on the drive.
+#[test]
+fn what_a_check_says_is_printable_and_bounded() {
+    let f = Fixture::checks(&["echo"]);
+    let long = "a".repeat(600);
+    let shown =
+        json!({ "level": "warning", "message": "\u{1b}[31mred\u{7}\n", "playlist": "Sets\u{1b}]0;x\u{7}/Friday" });
+    f.find("echo", json!({ "findings": [shown, { "level": "info", "message": long }] }));
+    let items = f.run_checks();
+    let mine: Vec<&CheckItem> = items.iter().filter(|i| i.check == "echo.found").collect();
+    assert_eq!((mine[0].message.as_str(), mine[0].playlist.as_deref()), ("red", Some("Sets/Friday")));
+    assert_eq!(mine[1].message, format!("{}...", "a".repeat(500)));
+    let path = json!({ "level": "info", "message": "m", "paths": ["Contents/\u{1b}[2Ja.mp3"] });
+    f.find("echo", json!({ "findings": [path] }));
+    let found = f.found();
+    let warning = found.iter().find(|(c, ..)| c == "echo.found").expect("a warning");
+    assert_eq!(warning.1, Level::Warning);
+    assert!(warning.2.ends_with("which isn't a file on the drive"), "{}", warning.2);
+    assert!(!warning.2.contains('\u{1b}'), "{}", warning.2);
 }
 
 /// A finding a check might answer, valid or not: its JSON, and whether the host keeps it.

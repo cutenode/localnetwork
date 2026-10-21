@@ -18,7 +18,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::process::Slot;
+use super::process::{Slot, printable};
 use super::{Plugins, host_settings, set_host_setting};
 use crate::check::CheckItem;
 use crate::device::Device;
@@ -44,6 +44,10 @@ const TIMEOUT_SETTING: &str = "checks.timeout";
 
 /// The most of one check's findings kept: past it, the rest are left out, saying so.
 const MAX_FINDINGS: usize = 1000;
+
+/// The most characters of what a finding says (its message, its playlist's name) kept: past it,
+/// it's cut short.
+const MAX_SAID: usize = 500;
 
 /// How often a check under way looks for the time it has being up, or its caller cancelling.
 const TICK: Duration = Duration::from_millis(50);
@@ -286,18 +290,20 @@ impl Plugins {
 }
 
 impl Slot {
-    /// What `check` answered: each finding named `<plugin>.<check>` and saying something, its
-    /// files relative to the drive, and its fix one of the plugin's operations. Past
-    /// [`MAX_FINDINGS`], the rest are left out, a warning saying so.
+    /// What `check` answered: each finding named `<plugin>.<check>` and saying something (as
+    /// [`Slot::said`] has it), its files on the drive, and its fix one of the plugin's operations.
+    /// Past [`MAX_FINDINGS`], the rest are left out, an `info` saying so.
     fn found(&self, check: &Check, answer: Findings) -> Result<Found> {
         let (id, name) = (&self.manifest.id, self.named(check));
         let mut found = Vec::new();
         let total = answer.findings.len();
         for (i, f) in answer.findings.into_iter().take(MAX_FINDINGS).enumerate() {
-            if f.finding.message.trim().is_empty() {
+            let message = self.said(&f.finding.message);
+            if message.trim().is_empty() {
                 return Err(self.misbehaved(format!("its finding {i} says nothing")));
             }
-            if let Some(path) = f.finding.paths.iter().find(|p| !paths::is_safe_key(p)) {
+            let on_the_drive = |p: &String| paths::is_safe_key(p) && !p.chars().any(char::is_control);
+            if let Some(path) = f.finding.paths.iter().find(|p| !on_the_drive(p)) {
                 return Err(self.misbehaved(format!("its finding {i} names {path:?}, which isn't a file on the drive")));
             }
             let fix = match f.fix {
@@ -309,13 +315,24 @@ impl Slot {
                 }
                 fix => fix.map(|f| Fix { plugin: id.clone(), operation: f.operation, params: f.params }),
             };
-            found.push((Finding { check: name.clone(), ..f.finding }, fix));
+            let playlist = f.finding.playlist.as_deref().map(|p| self.said(p));
+            found.push((Finding { check: name.clone(), message, playlist, ..f.finding }, fix));
         }
         if total > MAX_FINDINGS {
             let said = format!("more than {MAX_FINDINGS} found, the rest left out");
             found.push((Finding::new(Level::Info, name, said), None));
         }
         Ok(found)
+    }
+
+    /// `text` as a finding says it: without control characters (see [`printable`]) or the
+    /// secrets the host filled in for the plugin, and at most [`MAX_SAID`] characters.
+    fn said(&self, text: &str) -> String {
+        let text = self.net.scrub(&printable(text));
+        match text.char_indices().nth(MAX_SAID) {
+            Some((at, _)) => format!("{}...", &text[..at]),
+            None => text,
+        }
     }
 
     /// How its findings name `check`: `<plugin>.<check>`.
@@ -335,7 +352,7 @@ impl Slot {
             Ok(Some(found)) => return Ok(Ok(found)),
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Ok(None) => format!("took longer than {}s, so it was stopped", timeout.as_secs_f64()),
-            Err(e) => e.to_string(),
+            Err(e) => self.said(&e.to_string()),
         };
         self.host.log(&self.manifest.id, &format!("its check {}: {why}", check.name));
         Ok(Err(why))

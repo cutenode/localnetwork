@@ -67,11 +67,11 @@ impl Test {
         if has("checks") {
             hooks = hooks.on(|req: RunCheck, host: &Host| match req.check.as_str() {
                 "untitled" => echo::run_check(req, host),
-                _ => checked(&req.context, host),
+                _ => checked(&req.context, &[], host),
             });
             hooks = hooks.on(|req: PlanCheck, host: &Host| match req.check.as_str() {
                 "edits" => echo::plan_check(req, host),
-                _ => checked(&req.context, host),
+                _ => checked(&req.context, &req.edits, host),
             });
         }
         if has("providers") {
@@ -252,8 +252,8 @@ impl Test {
 
 /// What a check (or a guard) other than echo's answers, as its `findings` setting says (JSON):
 /// failing with the error `fail` is, waiting until it's cancelled with `wait`, never stopping with
-/// `stuck`, else its `findings`.
-fn checked(context: &Context, host: &Host) -> Result<Findings, RpcError> {
+/// `stuck`, else its `findings`; with `about_edits`, only when it's given `edits` (a guard's).
+fn checked(context: &Context, edits: &[Value], host: &Host) -> Result<Findings, RpcError> {
     let answer: Value =
         context.settings.get("findings").and_then(Value::as_str).map_or(Ok(json!({})), |a| {
             serde_json::from_str(a).map_err(|e| RpcError::failed("invalid", e.to_string()))
@@ -272,6 +272,9 @@ fn checked(context: &Context, host: &Host) -> Result<Findings, RpcError> {
         loop {
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+    if answer["about_edits"] == true && edits.is_empty() {
+        return Ok(Findings::default());
     }
     Ok(Findings { findings: params(answer.get("findings").cloned().unwrap_or(json!([])))? })
 }

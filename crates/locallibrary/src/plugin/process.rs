@@ -203,7 +203,7 @@ fn process_elevated() -> bool {
 
 /// `line` without terminal escape sequences or other control characters (but tabs), which would
 /// draw on a terminal UI's screen.
-fn printable(line: &str) -> String {
+pub(super) fn printable(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
     while let Some(c) = chars.next() {

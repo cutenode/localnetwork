@@ -3866,7 +3866,10 @@ export type EditPlan = {
   free_space: number | null;
   fits: boolean;
   warnings: string[];
-  /** The edits as recorded in the drive's journal. */
+  /**
+   * The edits as the drive's journal records them (tracks named by file), which applying it
+   * records there, unless it was planned with `no_journal`.
+   */
   recorded: EditOutput[];
   /**
    * OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they

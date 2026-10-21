@@ -186,7 +186,8 @@ adds them to its check before a set and doctor; a problem counts as one of their
 (its operation, and each edit as `edit.plan` takes them), shown with the plan's warnings. Once the
 user makes a guard blocking, a warning or a problem it finds keeps the plan from being applied. A
 check that fails or takes longer than the host gives it (10 s unless the user says) is a warning,
-never a failure; of one's findings the host keeps 1,000.
+never a failure; of one's findings the host keeps 1,000, and of what one says (its message, its
+playlist) 500 characters, without control characters. A file one names must be on the drive.
 
 - `[[contributes.checks]]`: `name`, `title`, `default_on` (true unless it says: it runs until the
   user turns it off) and `when`: `check` (the default), `apply` (a guard) or both.

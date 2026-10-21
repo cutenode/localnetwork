@@ -16910,7 +16910,7 @@
           "items": {
             "$ref": "#/$defs/EditOutput"
           },
-          "description": "The edits as recorded in the drive's journal."
+          "description": "The edits as the drive's journal records them (tracks named by file), which applying it\nrecords there, unless it was planned with `no_journal`."
         },
         "onelibrary_changes": {
           "type": "boolean",
