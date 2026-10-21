@@ -49,10 +49,18 @@ pub fn replace(tmp: tempfile::TempPath, dst: &Path) -> Result<()> {
 }
 
 /// Run `look` (a few `stat` calls, a small file read) while this process renames nothing into
-/// place (see [`replace`]): a watcher polling a drive that another thread is writing.
+/// place (see [`replace`]): a watcher polling a drive that another thread is writing. `look`
+/// mustn't call this (or [`read`]) again: std's lock can deadlock on a second read while a rename
+/// waits for the first.
 pub fn unreplaced<T>(look: impl FnOnce() -> T) -> T {
     let _held = REPLACING.read().unwrap_or_else(PoisonError::into_inner);
     look()
+}
+
+/// [`fs::read`] between this process's renames (see [`unreplaced`]): for a file that one thread
+/// reads while another may rename a new one over it (a drive's database or state, settings).
+pub fn read(path: &Path) -> std::io::Result<Vec<u8>> {
+    unreplaced(|| fs::read(path))
 }
 
 /// Write `bytes` to `path` atomically (temp file in the same directory, fsync, rename).
@@ -130,14 +138,15 @@ pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<
     write_atomic(path, &bytes)
 }
 
+/// Read JSON (with [`read`]).
 pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
-    let bytes = fs::read(path).at(path)?;
+    let bytes = read(path).at(path)?;
     serde_json::from_slice(&bytes).map_err(|e| Error::parse(path, e))
 }
 
-/// Read JSON if the file exists.
+/// Read JSON (with [`read`]) if the file exists.
 pub fn read_json_opt<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
-    match fs::read(path) {
+    match read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|e| Error::parse(path, e)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(Error::Io { path: path.to_path_buf(), source: e }),

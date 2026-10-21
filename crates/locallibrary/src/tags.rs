@@ -461,7 +461,7 @@ pub(crate) fn guard_ext<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
 
 fn read_ext(device: &Device, library: &Library) -> Result<Db> {
     let path = device.path(paths::EXPORT_EXT_PDB);
-    let bytes = std::fs::read(&path).at(&path)?;
+    let bytes = crate::fsutil::read(&path).at(&path)?;
     let db = parse_ext(bytes.clone(), &path)?;
     Ok(Db::new(Source::ExportExt, ext_tree(&db, library), library.clone(), Handle::Ext(bytes)))
 }
@@ -1270,7 +1270,7 @@ impl DbTags {
     /// A drive's `exportExt.pdb`'s, if it has the file (`library`: its export.pdb's).
     pub(crate) fn ext_of(device: &Device, library: &Library) -> Result<Option<DbTags>> {
         let path = device.path(paths::EXPORT_EXT_PDB);
-        match std::fs::read(&path) {
+        match crate::fsutil::read(&path) {
             Ok(bytes) => Ok(Some(DbTags::new(ext_tree(&parse_ext(bytes, &path)?, library), library))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(Error::Io { path, source: e }),
