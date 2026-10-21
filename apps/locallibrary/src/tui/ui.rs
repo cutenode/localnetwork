@@ -1096,7 +1096,7 @@ fn draw_track_details(f: &mut Frame, app: &mut App, area: Rect) {
     let room = inner.height - info_h - matches_h;
     let lists_h = if playlists.is_empty() || room < 2 { 0 } else { (playlists.len() as u16 + 1).min(room).min(4) };
     // Plugins' panels in what's left, before the matches: a panel's title and a row at least.
-    let panels_h = Some(super::plugins::panels::height(app).min(room - lists_h)).filter(|h| *h >= 2).unwrap_or(0);
+    let panels_h = super::plugins::panels::height(app, room - lists_h);
     let [info, lists_area, panels_area, mixes] = Layout::vertical([
         Constraint::Length(info_h),
         Constraint::Length(lists_h),

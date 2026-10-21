@@ -67,7 +67,8 @@ pub enum View {
         /// What it shows, in a few words: what a host that can't draw it says instead.
         alt: String,
         /// The picture as a `data:` URL, filled in by the host once it has read the blob and
-        /// found an image there: whatever a plugin sends here is replaced.
+        /// found an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin
+        /// sends here is replaced.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         data: Option<String>,
     },

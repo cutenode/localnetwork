@@ -4,6 +4,7 @@
 use loclib_plugin::{
     Column, ColumnKind, FieldDisplay, FieldFormat, FieldValue, ListItem, Pair, Series, TreeItem, TypedColumn, View,
 };
+use rustc_hash::FxHashMap;
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
@@ -109,14 +110,23 @@ fn tree(items: &[TreeItem], depth: usize, lines: &mut Vec<Drawn>) {
 pub(crate) fn chart_table(series: &[Series], x_label: Option<&str>) -> (Vec<Column>, Vec<Vec<Value>>) {
     let number = |name: &str| Column::Typed(TypedColumn { name: name.into(), kind: ColumnKind::Number, unit: None });
     let columns = std::iter::once(number(x_label.unwrap_or("x"))).chain(series.iter().map(|s| number(&s.name)));
-    let mut xs: Vec<f64> = series.iter().flat_map(|s| s.points.iter().map(|p| p.0)).collect();
-    xs.sort_by(f64::total_cmp);
-    xs.dedup();
-    let rows = xs.into_iter().map(|x| {
-        let ys = series.iter().map(|s| s.points.iter().find(|p| p.0 == x).map_or(Value::Null, |p| p.1.into()));
-        std::iter::once(x.into()).chain(ys).collect()
-    });
-    (columns.collect(), rows.collect())
+    // Each x's row (`-0`'s is `0`'s), each series' first y at it: one pass, as a plugin's chart
+    // can have millions of points.
+    let mut rows: FxHashMap<u64, Vec<Value>> = FxHashMap::default();
+    for (i, s) in series.iter().enumerate() {
+        for &(x, y) in &s.points {
+            let x = x + 0.0;
+            let row = rows.entry(x.to_bits()).or_insert_with(|| {
+                std::iter::once(x.into()).chain(std::iter::repeat_n(Value::Null, series.len())).collect()
+            });
+            if row[i + 1].is_null() {
+                row[i + 1] = y.into();
+            }
+        }
+    }
+    let mut rows: Vec<(u64, Vec<Value>)> = rows.into_iter().collect();
+    rows.sort_unstable_by(|a, b| f64::from_bits(a.0).total_cmp(&f64::from_bits(b.0)));
+    (columns.collect(), rows.into_iter().map(|(_, row)| row).collect())
 }
 
 /// A cell as its column says: a track by its name (`#id` without one), seconds as minutes and

@@ -89,6 +89,25 @@ fn a_tracks_panels_come_once_the_selection_settles() {
     assert!(!app.panels.waiting(app.selected_key()), "done");
 }
 
+/// Moving off a track stops its panels under way, and coming back to it asks for them again:
+/// they're never left coming.
+#[test]
+fn coming_back_to_a_track_asks_for_its_panels_again() {
+    let (dir, root) = demo_drive();
+    said_plugin(dir.path());
+    let mut app = showing(&root);
+    saying(&app, json!({ "sleep": 600_000 }));
+    settled(&mut app);
+    assert!(matches!(app.panels.shown[1].state, State::Loading));
+    key(&mut app, KeyCode::Down);
+    app.want_panels();
+    key(&mut app, KeyCode::Up);
+    saying(&app, json!({ "view": { "kind": "text", "text": "back again" } }));
+    wait(&mut app, |a| a.selected_key().is_some_and(|k| a.panels.of_track(k)) && answered(a));
+    let s = screen(&mut app, 160, 45);
+    assert!(s.contains("back again"), "{s}");
+}
+
 /// A panel that fails says so, the messages why; one on a folder opened by path can't be asked.
 #[test]
 fn a_panel_that_cant_show_says_why() {
@@ -174,4 +193,30 @@ fn a_track_shows_only_its_own_panels(tc: TestCase) {
             assert!(!s.contains("couldn't show it"), "another track's failure:\n{s}");
         }
     }
+}
+
+/// Any chart a plugin answers (any finite points, however far apart or alike, in any number of
+/// series) is drawn at any size without failing, from at most `MOST_SERIES` series of at most
+/// `MOST_POINTS` points each.
+#[hegel::test(test_cases = 100)]
+fn any_chart_is_drawn(tc: TestCase) {
+    let number = || gs::floats::<f64>().allow_nan(false).allow_infinity(false);
+    // A few points drawn, repeated to make a long series: drawing each of thousands is slow.
+    let series: Vec<Series> = (0..tc.draw(gs::integers::<usize>().max_value(12)))
+        .map(|i| {
+            let drawn = tc.draw(gs::vecs(gs::tuples!(number(), number())).min_size(1).max_size(6));
+            let long = tc.draw(gs::integers::<usize>().max_value(3 * MOST_POINTS));
+            Series { name: format!("s{i}"), points: drawn.into_iter().cycle().take(long).collect() }
+        })
+        .collect();
+    let style = if tc.draw(gs::booleans()) { ChartStyle::Bar } else { ChartStyle::Line };
+    let view = View::Chart { title: None, style, series, x_label: None, y_label: None };
+    let mut ready = Ready::of(&view, &|_| None);
+    if let Some(plot) = &ready.chart {
+        assert!(plot.series.len() <= MOST_SERIES && plot.series.iter().all(|(_, p)| p.len() <= MOST_POINTS));
+    }
+    let w = tc.draw(gs::integers::<u16>().min_value(1).max_value(200));
+    let h = tc.draw(gs::integers::<u16>().min_value(1).max_value(MOST_ROWS));
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
+    terminal.draw(|f| draw_ready(f, &mut ready, f.area())).unwrap();
 }

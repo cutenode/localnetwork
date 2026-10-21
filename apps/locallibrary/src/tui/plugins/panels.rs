@@ -37,6 +37,9 @@ pub const MOST_ROWS: u16 = 8;
 /// The most points of a series drawn: more are thinned out, evenly.
 const MOST_POINTS: usize = 256;
 
+/// The most series of a chart drawn, the first: each is drawn every frame.
+const MOST_SERIES: usize = 8;
+
 /// The selected track's panels.
 #[derive(Default)]
 pub struct Panels {
@@ -81,9 +84,9 @@ pub struct Ready {
 /// A chart, thinned out to be drawn.
 pub struct Plot {
     pub bars: bool,
+    /// Each series' points, x placed 0 to 1 and y in `y`.
     pub series: Vec<(String, Vec<(f64, f64)>)>,
-    /// The least and most x of every point, and y.
-    pub x: [f64; 2],
+    /// Where y is placed: 0 to 1, or for bars, zero at 0.
     pub y: [f64; 2],
 }
 
@@ -105,9 +108,10 @@ impl Ready {
         Ready { lines, art, chart }
     }
 
-    /// How many rows its body takes: all there are for a picture or a chart, else a row a line.
+    /// How many rows its body takes: all there are for a picture (drawn in colour) or a chart,
+    /// else a row a line.
     fn rows(&self) -> u16 {
-        match self.art.is_some() || self.chart.is_some() {
+        match (self.art.is_some() && !theme::plain()) || self.chart.is_some() {
             true => MOST_ROWS,
             false => (self.lines.len() as u16).clamp(1, MOST_ROWS),
         }
@@ -115,24 +119,36 @@ impl Ready {
 }
 
 impl Plot {
+    /// `series` thinned out, each point placed between the least and most x and y of them all
+    /// (0 to 1, or for bars, zero at 0): whatever a plugin's numbers are (huge, far apart, all
+    /// alike), the chart's canvas only gets small ones: a big one overflows there, and a line
+    /// to it is drawn for ever.
     fn of(style: ChartStyle, series: &[Series]) -> Plot {
         let thinned = |points: &[(f64, f64)]| -> Vec<(f64, f64)> {
             let step = points.len().div_ceil(MOST_POINTS).max(1);
             points.iter().step_by(step).copied().collect()
         };
         let series: Vec<(String, Vec<(f64, f64)>)> =
-            series.iter().map(|s| (s.name.clone(), thinned(&s.points))).collect();
+            series.iter().take(MOST_SERIES).map(|s| (s.name.clone(), thinned(&s.points))).collect();
         let range = |of: fn(&(f64, f64)) -> f64| {
             let all = series.iter().flat_map(|(_, p)| p.iter().map(of));
-            let (lo, hi) = all.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| (lo.min(v), hi.max(v)));
-            // A flat range still has room to draw in.
-            if lo < hi { [lo, hi] } else { [lo - 1.0, hi + 1.0] }
+            all.fold([f64::INFINITY, f64::NEG_INFINITY], |[lo, hi], v| [lo.min(v), hi.max(v)])
         };
         let bars = style == ChartStyle::Bar;
         let [lo, hi] = range(|p| p.1);
         // Bars stand on zero.
         let y = if bars { [lo.min(0.0), hi.max(0.0)] } else { [lo, hi] };
-        Plot { bars, x: range(|p| p.0), y, series }
+        // Halved first, so the span of any two numbers is one too; all alike, in the middle.
+        let place = |[lo, hi]: [f64; 2], v: f64| {
+            let span = hi / 2.0 - lo / 2.0;
+            if span > 0.0 { (v / 2.0 - lo / 2.0) / span } else { 0.5 }
+        };
+        let (x, zero) = (range(|p| p.0), if bars { place(y, 0.0) } else { 0.0 });
+        let series = series
+            .into_iter()
+            .map(|(name, points)| (name, points.into_iter().map(|(a, b)| (place(x, a), place(y, b) - zero)).collect()))
+            .collect();
+        Plot { bars, y: [-zero, 1.0 - zero], series }
     }
 }
 
@@ -173,6 +189,12 @@ impl App {
             }
             _ => {
                 self.panels.seen = Some((generation, i, Instant::now()));
+                // Those under way for the track left are stopped now, not once this one settles:
+                // its panels are asked for again if the selection comes back.
+                if self.panels.shown.iter().any(|s| matches!(s.state, State::Loading)) {
+                    self.panels.cancel.cancel();
+                    self.panels.track = None;
+                }
                 return;
             }
         }
@@ -234,15 +256,18 @@ impl App {
     }
 }
 
-/// How many rows the selected track's panels take: each its heading and the rows its last
-/// answer took (one before any), however its answer is coming along, so the details don't
-/// jump. None without a panel.
-pub fn height(app: &App) -> u16 {
-    let shown = &app.panels.shown;
-    match shown.is_empty() {
-        true => crate::plugins::host().map_or(0, |p| p.panels().len() as u16 * 2),
-        false => shown.iter().map(|s| 1 + s.rows).sum(),
-    }
+/// How many rows of `room` the selected track's panels take: each its heading and the rows its
+/// last answer took (one before any), however its answer is coming along, so the details don't
+/// jump; as many as fit, the last cut short, each with a row at least. None without a panel.
+pub fn height(app: &App, room: u16) -> u16 {
+    let rows: Vec<u16> = match app.panels.shown.is_empty() {
+        true => crate::plugins::host().map_or(Vec::new(), |p| vec![1; p.panels().len()]),
+        false => app.panels.shown.iter().map(|s| s.rows).collect(),
+    };
+    rows.into_iter().fold(0, |taken, rows| match room - taken {
+        left if left >= 2 => taken + (1 + rows).min(left),
+        _ => taken,
+    })
 }
 
 /// The selected track's panels in `area`, one after another, each under its title and plugin's
@@ -277,8 +302,9 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         let heading =
             vec![Span::styled(format!(" {} ", shown.title), dim()), Span::styled(format!("{} ", shown.by), faint())];
         let body = section_with(f, r, Line::from(heading));
-        let said =
-            |f: &mut Frame, why: &str| f.render_widget(Paragraph::new(Line::styled(why.to_string(), dim())), body);
+        let said = |f: &mut Frame, why: &str| {
+            f.render_widget(Paragraph::new(Line::styled(clip(why, body.width as usize), dim())), body)
+        };
         match &mut shown.state {
             _ if !current => said(f, "loading…"),
             State::Loading => said(f, "loading…"),
@@ -311,7 +337,7 @@ fn draw_ready(f: &mut Frame, ready: &mut Ready, area: Rect) {
             data.style(fg(colours[i % colours.len()])).data(points)
         });
         let axis = |[lo, hi]: [f64; 2]| Axis::default().bounds([lo, hi]).style(faint());
-        let chart = Chart::new(datasets.collect()).x_axis(axis(plot.x)).y_axis(axis(plot.y));
+        let chart = Chart::new(datasets.collect()).x_axis(axis([0.0, 1.0])).y_axis(axis(plot.y));
         // One series needs no legend.
         let chart = if plot.series.len() < 2 { chart.legend_position(None) } else { chart };
         f.render_widget(chart, area);

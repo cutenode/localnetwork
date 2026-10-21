@@ -277,7 +277,8 @@ A `table`'s column is its heading, or `{name, kind, unit?}`, its cells being `te
 id, shown by its artist and title where the host has the library), `duration` (seconds, `3:07`),
 `key` (in Camelot notation where it's one) or `number` (with the unit after each). Every kind
 from `tree` on, and typed columns, need the `views` feature; an `image` `blobs` too: the host
-reads the file, refuses one that isn't an image, and gives it on as `data` (a `data:` URL). A
+reads the file, refuses one that isn't an image (or is over 8192 pixels a side), and
+gives it on as `data` (a PNG `data:` URL, 512 pixels on its longest side at most). A
 view showing nothing is `nothing to show`. `choose` (a question, feature `choose`) is never
 drawn, and a section can't be one.
 

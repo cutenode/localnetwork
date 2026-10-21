@@ -30074,7 +30074,7 @@
                 "string",
                 "null"
               ],
-              "description": "The picture as a `data:` URL, filled in by the host once it has read the blob and\nfound an image there: whatever a plugin sends here is replaced."
+              "description": "The picture as a `data:` URL, filled in by the host once it has read the blob and\nfound an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin\nsends here is replaced."
             },
             "kind": {
               "type": "string",

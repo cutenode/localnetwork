@@ -7799,7 +7799,8 @@ export type View =
     alt: string;
     /**
      * The picture as a `data:` URL, filled in by the host once it has read the blob and
-     * found an image there: whatever a plugin sends here is replaced.
+     * found an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin
+     * sends here is replaced.
      */
     data?: string | null;
     kind: "image";

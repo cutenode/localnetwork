@@ -2,7 +2,7 @@
 //! details. A panel answers a view of the track, never a question; the views a command or a panel
 //! answers are read here ([`Slot::view`]): the kinds the `views` feature brings only from a plugin
 //! with it, and each image's file read from the request's scratch folder and given on as a PNG
-//! `data:` URL.
+//! `data:` URL, shrunk to a preview.
 
 use std::io::Read;
 

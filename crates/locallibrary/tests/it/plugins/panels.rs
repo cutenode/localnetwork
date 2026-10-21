@@ -75,6 +75,30 @@ fn a_panels_image_is_read_from_its_file() {
     assert!(matches!(&items[0].view, View::Image { data: Some(url), .. } if url.starts_with("data:image/png")));
 }
 
+/// A big picture comes as a preview, 512 pixels on its longest side; one over 8192 pixels on a
+/// side is refused unread.
+#[test]
+fn a_panels_image_is_kept_small() {
+    let png = |w: u32, h: u32| {
+        let mut out = Vec::new();
+        let image = image::RgbImage::from_pixel(w, h, image::Rgb([200, 40, 90]));
+        image.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).unwrap();
+        out
+    };
+    let f = Fixture::panelled(&[]);
+    let image = json!({ "kind": "image", "blob": "a.png", "alt": "a" });
+    let View::Image { data: Some(url), .. } =
+        f.said(json!({ "blobs": { "a.png": png(2000, 1000) }, "view": image })).unwrap()
+    else {
+        panic!("an image")
+    };
+    let preview = BASE64_STANDARD.decode(url.strip_prefix("data:image/png;base64,").unwrap()).unwrap();
+    let preview = image::load_from_memory(&preview).unwrap();
+    assert_eq!((preview.width(), preview.height()), (512, 256));
+    let e = f.said(json!({ "blobs": { "a.png": png(9000, 1) }, "view": image })).unwrap_err();
+    assert!(failure(e).starts_with("the Echo plugin failed: its image a.png: "));
+}
+
 /// A tree, a chart, an image, sections or a typed column come only from a plugin with the
 /// `views` feature; a panel never asks a question, nor does a section of a command's view.
 #[test]
