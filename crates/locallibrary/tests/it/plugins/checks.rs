@@ -211,9 +211,9 @@ fn checks_run_as_the_user_says() {
     assert_eq!(check_timeout(Some(&f.store)), TIMEOUT);
     assert_eq!(set_check_timeout(&f.store, Some(2.5)).unwrap(), Duration::from_millis(2500));
     assert_eq!(set_check_timeout(&f.store, None).unwrap(), TIMEOUT);
-    for wrong in [-1.0, f64::NAN, f64::INFINITY] {
+    for wrong in [-1.0, 0.0, 0.0001, 3601.0, 1e300, f64::NAN, f64::INFINITY] {
         let e = set_check_timeout(&f.store, Some(wrong)).unwrap_err();
-        assert_eq!(e.to_string(), format!("a check has some seconds to answer, not {wrong}"));
+        assert_eq!(e.to_string(), format!("a check has 0.001 to 3600 seconds to answer, not {wrong}"));
     }
     let checks: Vec<(&str, &str, bool)> =
         f.plugins.checks(Some(&f.store)).into_iter().map(|(p, c, s)| (p, c.name.as_str(), s.blocking)).collect();

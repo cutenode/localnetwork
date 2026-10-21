@@ -95,7 +95,7 @@ enum PluginCommand {
         /// A guard: only warn about changes
         #[arg(long, requires = "check")]
         no_blocking: bool,
-        /// How long a check has to answer, in seconds, before it's stopped [default: 10]
+        /// How long a check has to answer, in seconds (at most 3600), before it's stopped [default: 10]
         #[arg(long, value_name = "SECS", conflicts_with_all = ["check", "reset"])]
         timeout: Option<f64>,
         /// Put the check back as it is by default (without CHECK: the timeout)

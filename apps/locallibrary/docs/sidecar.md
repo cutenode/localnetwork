@@ -390,7 +390,8 @@ plan is. Guards (checks run before a plan is applied) add what they say to an ed
 `{checks: [{plugin, name, title, when, on, blocking}], timeout}` (`when`: `check`, `apply`;
 `timeout` in seconds), `plugins.checks.set {plugin, check, on?, blocking?, reset?}` changes one
 (left out: as it is; `reset`: back to its defaults first) and `plugins.checks.timeout.set
-{timeout}` how long a check has (`null`: back to 10), each answering `plugins.checks`'s.
+{timeout}` how long a check has (0.001 to 3600; `null`: back to 10), each answering
+`plugins.checks`'s.
 
 ### Commands and operations
 

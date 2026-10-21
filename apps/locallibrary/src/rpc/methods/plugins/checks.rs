@@ -20,8 +20,8 @@ struct SetCheck {
 
 #[derive(Deserialize, JsonSchema)]
 struct SetTimeout {
-    /// How long a check has to answer, in seconds, before it's stopped (a warning says so);
-    /// `null` (or left out) puts it back to its default.
+    /// How long a check has to answer, in seconds (0.001 to 3600), before it's
+    /// stopped (a warning says so); `null` (or left out) puts it back to its default.
     #[serde(default)]
     timeout: Option<f64>,
 }

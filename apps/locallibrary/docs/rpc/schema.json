@@ -11497,7 +11497,7 @@
             "null"
           ],
           "format": "double",
-          "description": "How long a check has to answer, in seconds, before it's stopped (a warning says so);\n`null` (or left out) puts it back to its default.",
+          "description": "How long a check has to answer, in seconds (0.001 to 3600), before it's\nstopped (a warning says so); `null` (or left out) puts it back to its default.",
           "default": null
         }
       }

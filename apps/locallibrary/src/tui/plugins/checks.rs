@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 use locallibrary::Store;
 use locallibrary::check::CheckReport;
-use locallibrary::plugin::{CheckChange, Cli, Fix, Plugins, TIMEOUT, check_timeout, set_check_timeout};
+use locallibrary::plugin::{
+    CheckChange, Cli, Fix, MAX_TIMEOUT, MIN_TIMEOUT, Plugins, TIMEOUT, check_timeout, set_check_timeout,
+};
 use loclib_plugin::{Context, When};
 use serde_json::{Map, Value, json};
 
@@ -97,7 +99,7 @@ impl App {
         let description = format!("Seconds a check has to answer (empty for {})", TIMEOUT.as_secs());
         properties.insert(
             TIMEOUT_FIELD.into(),
-            json!({ "type": "number", "exclusiveMinimum": 0, "description": description }),
+            json!({ "type": "number", "minimum": MIN_TIMEOUT.as_secs_f64(), "maximum": MAX_TIMEOUT.as_secs(), "description": description }),
         );
         filled.insert(TIMEOUT_FIELD.into(), check_timeout(store.as_ref()).as_secs_f64().into());
         let schema = json!({ "type": "object", "properties": properties });

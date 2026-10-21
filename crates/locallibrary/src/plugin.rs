@@ -55,7 +55,9 @@ pub use apply::ApplyFields;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub(crate) use checks::hosted;
-pub use checks::{CheckChange, CheckSettings, Fix, TIMEOUT, check_timeout, set_check_timeout, set_hosted};
+pub use checks::{
+    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, TIMEOUT, check_timeout, set_check_timeout, set_hosted,
+};
 pub use commands::CommandOutput;
 pub use exports::{ExportFile, PluginExport};
 pub use operations::OpPlanned;

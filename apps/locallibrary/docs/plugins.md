@@ -65,7 +65,8 @@ fails or takes longer than 10 seconds is a warning saying so, never a failure. A
 run before changes are made: what it says is among the plan's warnings, and once you make it
 blocking (`locallibrary plugin checks PLUGIN.CHECK --blocking`), a warning or a problem it finds
 stops the changes. `locallibrary plugin checks` lists them, whether each runs and blocks, and how
-long one has; `--on`, `--off`, `--no-blocking`, `--reset` and `--timeout SECS` change that (kept
+long one has; `--on`, `--off`, `--no-blocking`, `--reset` and `--timeout SECS` (an hour at
+most) change that (kept
 in the store's `plugins/settings.json` as `checks.PLUGIN.CHECK.on`, `.blocking` and
 `checks.timeout`). In the player, a check's results have plugins' findings too, their fixes are
 in the palette until the next check ("fix on DRIVE: ..."), and "check settings…" there is a form

@@ -32,6 +32,13 @@ use crate::{Error, Result};
 /// How long a check has to answer unless the `checks.timeout` setting says.
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 
+/// The longest a check may be given to answer: a setting past it is read as it.
+pub const MAX_TIMEOUT: Duration = Duration::from_secs(3600);
+
+/// The shortest a check may be given to answer: a setting under it (but more than 0) is read as
+/// it.
+pub const MIN_TIMEOUT: Duration = Duration::from_millis(1);
+
 /// The host's setting for how long a check has to answer, in seconds.
 const TIMEOUT_SETTING: &str = "checks.timeout";
 
@@ -92,17 +99,20 @@ pub(crate) fn hosted() -> Option<&'static Plugins> {
     HOSTED.get().and_then(|host| host())
 }
 
-/// How long a check has to answer: the setting in `store`, else [`TIMEOUT`].
+/// How long a check has to answer: the setting in `store`, from [`MIN_TIMEOUT`] to
+/// [`MAX_TIMEOUT`] (one kept by hand may be past them: it's read as the nearest), else [`TIMEOUT`].
 pub fn check_timeout(store: Option<&Store>) -> Duration {
-    let secs = host_settings(store).get(TIMEOUT_SETTING).and_then(Value::as_f64);
-    secs.and_then(|s| Duration::try_from_secs_f64(s).ok()).unwrap_or(TIMEOUT)
+    let secs = host_settings(store).get(TIMEOUT_SETTING).and_then(Value::as_f64).filter(|s| *s > 0.0);
+    let kept = secs.map(|s| Duration::try_from_secs_f64(s).unwrap_or(MAX_TIMEOUT));
+    kept.map_or(TIMEOUT, |d| d.clamp(MIN_TIMEOUT, MAX_TIMEOUT))
 }
 
-/// Gives a check `secs` seconds to answer, or with `None` [`TIMEOUT`] again. Answers the setting
-/// then.
+/// Gives a check `secs` seconds to answer (from [`MIN_TIMEOUT`] to [`MAX_TIMEOUT`]), or with
+/// `None` [`TIMEOUT`] again. Answers the setting then.
 pub fn set_check_timeout(store: &Store, secs: Option<f64>) -> Result<Duration> {
-    if let Some(s) = secs.filter(|s| Duration::try_from_secs_f64(*s).is_err()) {
-        return Err(Error::invalid(format!("a check has some seconds to answer, not {s}")));
+    let (least, most) = (MIN_TIMEOUT.as_secs_f64(), MAX_TIMEOUT.as_secs_f64());
+    if let Some(s) = secs.filter(|s| !(least..=most).contains(s)) {
+        return Err(Error::invalid(format!("a check has {least} to {most} seconds to answer, not {s}")));
     }
     set_host_setting(store, TIMEOUT_SETTING, secs.map(Value::from))?;
     Ok(check_timeout(Some(store)))
@@ -130,9 +140,10 @@ fn within<T>(timeout: Duration, ctx: &Ctx<'_>, f: impl FnOnce(&Ctx<'_>) -> Resul
     let result = std::thread::scope(|s| {
         let (cancel, late) = (&cancel, &late);
         s.spawn(move || {
-            let until = Instant::now() + timeout;
+            // Past what the clock can say, it has no deadline.
+            let until = Instant::now().checked_add(timeout);
             while let Err(RecvTimeoutError::Timeout) = finished.recv_timeout(TICK) {
-                if caller.is_cancelled() || Instant::now() >= until {
+                if caller.is_cancelled() || until.is_some_and(|until| Instant::now() >= until) {
                     late.store(!caller.is_cancelled(), Ordering::SeqCst);
                     return cancel.cancel();
                 }
@@ -330,3 +341,6 @@ impl Slot {
         Ok(Err(why))
     }
 }
+
+#[cfg(test)]
+mod tests;
