@@ -662,3 +662,8 @@ their old names.
   WAL's pages are authenticated before its commit size is believed, and `export.pdb` free-page
   fields and `exportExt.pdb` table counts are checked. A playlist tree that repeats an id or loops
   reads each playlist once instead of crashing or hanging.
+- A path with `..` in it is judged by where it leads. A plugin's export onto a drive or into the
+  store by way of a folder not made yet (`~/new/../../../Volumes/USB/x.m3u`) was let through. A
+  `..` after a symlink went back to the link's folder instead of out of its target, so a format
+  could miss a store reached that way, an offsite copy could go inside the store, and the player
+  could save its state on the drive.

@@ -1,11 +1,13 @@
 # `cargo coverage`: the tests under cargo-llvm-cov, failing below these thresholds. CI runs it on
 # every OS; raise the thresholds to just under the lowest OS's numbers when coverage goes up. Only
 # the code that ships is measured: test modules live in files of their own (`tests.rs`, and the
-# TUI's `props.rs`, `screens.rs` and `testing.rs`), left out with `test_util.rs` by the regex.
+# TUI's `props.rs`, `screens.rs` and `testing.rs`), left out with `test_util.rs` and the test
+# plugin (`bin/test-plugin/`, which the CLI's debug builds include too) by the regex, which takes
+# either separator: on Windows the report names files with backslashes.
 # tools/hegel-coverage.sh runs this too, for the Hegel tests alone. Tests that kill a child process
 # can catch it writing its profile as it exits; `--failure-mode all` merges the rest instead of
 # failing, and coverage lost that way still counts against the thresholds. It takes no build
 # flags (the root manifest is a virtual workspace, so it covers every member) because CI also runs
 # it against a nextest archive, which refuses them.
 [alias]
-coverage = "llvm-cov nextest --no-fail-fast --failure-mode all --fail-under-lines 95 --fail-under-functions 92.5 --fail-under-regions 93 --ignore-filename-regex (^|/)(tests|testing|test_util|screens|props)\\.rs$"
+coverage = "llvm-cov nextest --no-fail-fast --failure-mode all --fail-under-lines 95 --fail-under-functions 92.5 --fail-under-regions 93 --ignore-filename-regex (^|[/\\\\])((tests|testing|test_util|screens|props)\\.rs$|test-plugin[/\\\\])"

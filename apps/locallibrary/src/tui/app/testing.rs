@@ -551,10 +551,18 @@ pub fn mounted(dir: &Path) {
 /// them: set up as the first case starts, for every case after it (the host reads its plugins
 /// once a process, and the environment is best set before any thread runs).
 pub fn plugins_once() -> &'static Path {
+    plugins_once_with(|manifest| manifest)
+}
+
+/// [`plugins_once`], the echo plugin's manifest changed by `change` for this test's process (the
+/// first call sets it up).
+pub fn plugins_once_with(change: fn(String) -> String) -> &'static Path {
     static DIR: std::sync::OnceLock<TempDir> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
         let dir = tempfile::tempdir().unwrap();
         echo_plugin(dir.path());
+        let file = dir.path().join("echo.toml");
+        std::fs::write(&file, change(std::fs::read_to_string(&file).unwrap())).unwrap();
         mounted(dir.path());
         dir
     })
