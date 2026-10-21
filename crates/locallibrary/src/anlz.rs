@@ -3,9 +3,15 @@
 //! Only what locallibrary needs: the audio path a file belongs to (`PPTH`, which must be
 //! rewritten when a merge relocates a track), the beat grid (`PQTZ`) and cue points
 //! (`PCOB`/`PCO2`) for XML export and editing (see [`write_cue_points`]), and the waveforms
-//! (`PWAV`/`PWV3`/`PWV4`/`PWV5`) and phrase analysis (`PSSI`) for display. Everything else is
-//! passed through byte for byte. What they decode to is [`loclib_model::analysis`]'s, re-exported
-//! here, and [`load`] reads it all for a track.
+//! (`PWAV`/`PWV3`/`PWV4`/`PWV5`, and `PWV6`/`PWV7` for a track with no others) and phrase analysis
+//! (`PSSI`) for display. Everything else is passed through byte for byte. What they decode to is
+//! [`loclib_model::analysis`]'s, re-exported here, and [`load`] reads it all for a track.
+//!
+//! The beat grid, phrases and waveforms can be written too ([`write_beat_grid`],
+//! [`write_song_structure`], [`write_waveform`]), and new files made for a track without any
+//! ([`new_analysis_files`]). Each writer reads what it wrote back with the reader here and fails
+//! when that isn't what it was given; these layouts are checked against rekordbox's own files, but
+//! only real players show what they make of them.
 //!
 //! All integers are big-endian. A file is a `PMAI` header followed by tagged sections, each
 //! starting with `tag[4] header_len:u32 total_len:u32`. Layouts follow
@@ -16,9 +22,17 @@ use crate::model::Track;
 use crate::paths;
 use crate::{Error, Result};
 
+mod grid;
+mod structure;
+mod tags;
+mod waves;
 mod write;
 
+pub use grid::{checked_grid, without_extended_grid, write_beat_grid};
 pub use loclib_model::analysis::*;
+pub use structure::{kind_number, write_song_structure};
+pub use tags::new_analysis_files;
+pub use waves::{DETAIL_RATE, at_detail_rate, waveform_entries, waveform_from_bands, waveform_tags, write_waveform};
 pub use write::{CueFile, CuePoint, RawCue, read_cue_points, shift_times, write_cue_points};
 
 #[derive(Debug, Clone, Copy)]
@@ -261,7 +275,7 @@ fn detail_rate(bytes: &[u8], s: &SectionRef) -> f64 {
 }
 
 /// The whole-track overview waveform in an analysis file: colour (`PWV4`, in `.EXT`) if present,
-/// else blue (`PWAV`, in `.DAT`).
+/// else blue (`PWAV`, in `.DAT`), else 3-band (`PWV6`, in `.2EX`).
 pub fn preview(bytes: &[u8]) -> Result<Option<Waveform>> {
     let secs = sections(bytes)?;
     if let Some(s) = find(&secs, b"PWV4")
@@ -288,11 +302,16 @@ pub fn preview(bytes: &[u8]) -> Result<Option<Waveform>> {
         let columns = body.iter().copied().map(blue_column).collect();
         return Ok(Some(Waveform { style: WaveformStyle::Blue, columns_per_sec: None, columns }));
     }
+    if let Some(s) = find(&secs, b"PWV6")
+        && let Some(body) = entries(bytes, s, 3, Some(16))
+    {
+        return Ok(Some(waves::three_band(body, b"PWV6").waveform(None)));
+    }
     Ok(None)
 }
 
-/// The scrolling detail waveform in an analysis file (`.EXT`): colour (`PWV5`) if present, else
-/// blue (`PWV3`).
+/// The scrolling detail waveform in an analysis file: colour (`PWV5`, in `.EXT`) if present, else
+/// blue (`PWV3`, `.EXT`), else 3-band (`PWV7`, `.2EX`).
 pub fn detail(bytes: &[u8]) -> Result<Option<Waveform>> {
     let secs = sections(bytes)?;
     if let Some(s) = find(&secs, b"PWV5")
@@ -319,6 +338,11 @@ pub fn detail(bytes: &[u8]) -> Result<Option<Waveform>> {
             columns_per_sec: Some(detail_rate(bytes, s)),
             columns,
         }));
+    }
+    if let Some(s) = find(&secs, b"PWV7")
+        && let Some(body) = entries(bytes, s, 3, Some(16))
+    {
+        return Ok(Some(waves::three_band(body, b"PWV7").waveform(Some(detail_rate(bytes, s)))));
     }
     Ok(None)
 }
@@ -407,7 +431,8 @@ fn read_track(device: &Device, track: &Track, waveforms: bool) -> TrackAnalysis 
     }
     let dat = paths::key(&track.analyze_path);
     let read = |key: &str| device.checked_path(key).ok().and_then(|p| std::fs::read(p).ok());
-    let ext = dat.strip_suffix(".DAT").map(|s| format!("{s}.EXT")).and_then(|k| read(&k));
+    let sibling = |ext: &str| dat.strip_suffix(".DAT").map(|s| format!("{s}.{ext}")).and_then(|k| read(&k));
+    let ext = sibling("EXT");
     if let Some(bytes) = read(&dat) {
         a.beats = beat_grid(&bytes).unwrap_or_default();
         a.cues = cues(&bytes).unwrap_or_default();
@@ -430,6 +455,14 @@ fn read_track(device: &Device, track: &Track, waveforms: bool) -> TrackAnalysis 
             a.detail = detail(&bytes).ok().flatten();
             a.structure = song_structure(&bytes).ok().flatten();
         }
+    }
+    // The 3-band waveforms (`.2EX`), only for a track with no others.
+    if waveforms
+        && (a.preview.is_none() || a.detail.is_none())
+        && let Some(bytes) = sibling("2EX")
+    {
+        a.preview = a.preview.or_else(|| preview(&bytes).ok().flatten());
+        a.detail = a.detail.or_else(|| detail(&bytes).ok().flatten());
     }
     a
 }

@@ -2910,7 +2910,12 @@ export type WaveformStyle =
   /** Monochrome blue, older players (`PWAV`, `PWV3`). */
   | "blue"
   /** Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`). */
-  | "rgb";
+  | "rgb"
+  /**
+   * Lows, mids and highs drawn over one another, the CDJ-3000's (`PWV6`, `PWV7`), and what
+   * analyzer plugins give ([`Bands`]).
+   */
+  | "three_band";
 
 /** One column of a waveform: a back layer and a (shorter, brighter) front layer drawn over it. */
 export type WaveColumn = {
