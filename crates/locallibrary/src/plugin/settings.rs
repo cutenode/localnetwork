@@ -9,7 +9,7 @@ use loclib_plugin::SettingType;
 use serde_json::Value;
 
 use super::Plugins;
-use super::process::Slot;
+use super::process::Plugin;
 use crate::error::IoContext;
 use crate::store::Store;
 use crate::{Error, Result, fsutil};
@@ -47,7 +47,7 @@ fn write(path: &Path, settings: &IndexMap<String, Value>) -> Result<()> {
     fsutil::write_json_atomic(path, settings)
 }
 
-impl Slot {
+impl Plugin {
     /// What's kept for the plugin, as it was written.
     fn saved(&self, store: &Store) -> Result<IndexMap<String, Value>> {
         Ok(fsutil::read_json_opt(&file(store, &self.manifest.id))?.unwrap_or_default())
