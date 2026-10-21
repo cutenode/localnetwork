@@ -192,6 +192,12 @@ pub enum Act {
     FieldColumn(locallibrary::query::FieldName),
     /// A plugin's settings (the plugin's id).
     PluginSettings(&'static str),
+    /// Plan what a plugin suggested, which it no longer keeps: the one waiting to be reviewed
+    /// with this mark (see `tui::plugins::events::mark`), so a palette open as others come and go
+    /// still plans the one picked.
+    Review(u64),
+    /// No longer keep what a plugin suggested, by its mark (as [`Act::Review`]).
+    Dismiss(u64),
     /// The settings of every provider: when a candidate is picked for the user.
     ProviderSettings,
     /// Export the drive in a plugin's format (the plugin's id, the format).

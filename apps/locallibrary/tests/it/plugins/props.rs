@@ -31,7 +31,7 @@ fn toml(v: &Value) -> String {
 }
 
 /// Every capability a manifest can name but `net:<host>`.
-const CAPABILITIES: [&str; 16] = [
+const CAPABILITIES: [&str; 19] = [
     "library:read",
     "analysis:read",
     "artwork:read",
@@ -48,6 +48,9 @@ const CAPABILITIES: [&str; 16] = [
     "tags:plan",
     "cues:plan",
     "artwork:plan",
+    "events:drives",
+    "events:jobs",
+    "events:plans",
 ];
 
 /// Text a person reads in a manifest: a title or a name.
@@ -193,6 +196,22 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
     }
     let settings: Vec<Value> =
         (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|j| setting(tc, &format!("k{j}"))).collect();
+    // Some events, each granted, and services.
+    let heard: Vec<(&str, &str)> = tc.draw(gs::subsequences(vec![
+        ("drive.mounted", "events:drives"),
+        ("job.finished", "events:jobs"),
+        ("plan.applied", "events:plans"),
+    ]));
+    for (_, grant) in &heard {
+        if !capabilities.iter().any(|c| c == grant) {
+            capabilities.push(grant.to_string());
+        }
+    }
+    let on: Vec<&str> = heard.iter().map(|(e, _)| *e).collect();
+    let events: Vec<Value> = if on.is_empty() { Vec::new() } else { vec![json!({ "on": on })] };
+    let services: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| json!({ "name": format!("sv{j}"), "title": title(tc) }))
+        .collect();
     json!({
         "id": id,
         "name": title(tc),
@@ -201,10 +220,12 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         "capabilities": capabilities,
         "contributes": {
             "commands": commands,
+            "events": events,
             "operations": operations,
             "analyzers": analyzers,
             "exporters": exporters,
             "providers": providers,
+            "services": services,
             "settings": settings,
         },
     })
@@ -261,17 +282,19 @@ fn listed_text(listed: &[Value]) -> String {
         }
         let kinds = [
             ("command", "commands"),
+            ("listens for", "events"),
             ("operation", "operations"),
             ("analyzer", "analyzers"),
             ("export format", "exporters"),
             ("provider", "providers"),
+            ("service", "services"),
             ("setting", "settings"),
         ];
         let adds: Vec<String> = kinds
             .iter()
             .filter_map(|(what, key)| {
                 let all = names(&p[*key]);
-                let s = if all.len() == 1 { "" } else { "s" };
+                let s = if all.len() == 1 || *key == "events" { "" } else { "s" };
                 (!all.is_empty()).then(|| format!("{what}{s} {}", all.join(", ")))
             })
             .collect();
@@ -314,6 +337,8 @@ fn described_text(d: &Value) -> String {
         format!("{} (menus: {})", str_of(&x["title"]), menus.join(", "))
     };
     section("Commands:".into(), list("commands").iter().map(|x| (invocation(x), offered(x))).collect());
+    let heard = list("events").iter().flat_map(|x| x["on"].as_array().unwrap().clone()).collect::<Vec<_>>();
+    section("Listens for:".into(), heard.iter().map(|e| (str_of(e), String::new())).collect());
     let operations = list("operations").iter().map(|x| (invocation(x), offered(x))).collect();
     section("Operations (planned, then confirmed):".into(), operations);
     let analyzers = list("analyzers")
@@ -344,6 +369,14 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section("Providers:".into(), providers);
+    let services = list("services")
+        .iter()
+        .map(|s| {
+            let on = d["settings"][format!("services.{}", str_of(&s["name"]))] == true;
+            (str_of(&s["name"]), format!("{}: {}", str_of(&s["title"]), if on { "on" } else { "off" }))
+        })
+        .collect();
+    section(format!("Services (locallibrary plugin settings {id} services.NAME on):"), services);
     let settings = list("settings")
         .iter()
         .map(|s| {
@@ -390,10 +423,14 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             ("analyzers", "name"),
             ("exporters", "format"),
             ("providers", "name"),
+            ("services", "name"),
             ("settings", "key"),
         ] {
             assert_eq!(p[key].as_array().unwrap(), &names(key, field), "{key}");
         }
+        let heard: Vec<Value> =
+            c["events"].as_array().unwrap().iter().flat_map(|x| x["on"].as_array().unwrap().clone()).collect();
+        assert_eq!(p["events"].as_array().unwrap(), &heard);
         assert_eq!(
             (&p["name"], &p["version"], &p["running"], &p["left_out"]),
             (&m["name"], &m["version"], &json!(false), &Value::Null)
@@ -439,10 +476,25 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             .filter(|s| s.get("default").is_some())
             .map(|s| (s["key"].as_str().unwrap().to_string(), s["default"].clone()))
             .collect();
+        // Then each service's switch, off.
+        let mut defaults = defaults;
+        for s in m["contributes"]["services"].as_array().unwrap() {
+            defaults.insert(format!("services.{}", s["name"].as_str().unwrap()), json!(false));
+        }
         assert_eq!(described["settings"], Value::Object(defaults));
         assert_eq!(described["capabilities"], listed.iter().find(|p| p["id"] == id).unwrap()["capabilities"]);
         assert_eq!(env.ok(&["plugin", "info", id]), described_text(&described));
-        let shown: Vec<&Value> = m["contributes"]["settings"].as_array().unwrap().iter().collect();
+        // Each service's switch, as a boolean setting.
+        let switches: Vec<Value> = m["contributes"]["services"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                let (name, title) = (s["name"].as_str().unwrap(), s["title"].as_str().unwrap());
+                json!({ "key": format!("services.{name}"), "title": format!("{title}: keep it running"), "default": false })
+            })
+            .collect();
+        let shown: Vec<&Value> = m["contributes"]["settings"].as_array().unwrap().iter().chain(&switches).collect();
         assert_eq!(env.ok(&["plugin", "settings", id]), settings_text(id, &shown, &described["settings"]));
     }
     let r = env.run(&["plugin", "info", "plug-z"]);
@@ -525,6 +577,8 @@ fn settings_read_back_as_last_set(tc: TestCase) {
         .map(|j| setting(&tc, &format!("k{j}")))
         .collect();
     m["contributes"]["settings"] = json!(settings);
+    // Its declared settings alone: services' switches are another property's.
+    m["contributes"]["services"] = json!([]);
     // A command that answers what it's given, settings included.
     m["contributes"]["commands"] = json!([{ "name": "ask", "title": "Ask", "mode": "headless" }]);
     let env = env_with(&[m]);
@@ -1276,6 +1330,9 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
         push(&mut c["settings"], setting(&tc, "k0"));
     }
     let settings = c["settings"].as_array().unwrap().clone();
+    // Each service's switch, off: set from the command line in another property.
+    let switches: Vec<String> =
+        c["services"].as_array().unwrap().iter().map(|x| format!("services.{}", x["name"].as_str().unwrap())).collect();
     // Its operation plans edits and its export reads the drive's tracks: each needs a capability.
     let caps = &mut manifests[0]["capabilities"];
     for cap in ["library:read", "library:plan"] {
@@ -1308,6 +1365,7 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
                 let key = s["key"].as_str().unwrap();
                 Some((key.to_string(), set.get(key).or(s.get("default"))?.clone()))
             })
+            .chain(switches.iter().map(|k| (k.clone(), json!(false))))
             .collect()
     };
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(5)) {
@@ -1355,8 +1413,11 @@ fn the_sidecar_hosts_plugins_as_the_command_line_does(tc: TestCase) {
     if !tracks.is_empty() {
         given.insert("tracks".into(), json!(tracks));
     }
-    if !now(&set).is_empty() {
-        given.insert("settings".into(), Value::Object(now(&set)));
+    // Never the services' switches.
+    let mut hooked = now(&set);
+    hooked.retain(|k, _| !switches.contains(k));
+    if !hooked.is_empty() {
+        given.insert("settings".into(), Value::Object(hooked));
     }
     let ran = json!({ "plugin": id, "command": "ask", "params": { "context": true }, "context": context });
     let mut got = answer(&mut s, call, "plugins.run", ran).unwrap();

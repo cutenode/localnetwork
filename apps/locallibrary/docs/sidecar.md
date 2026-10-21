@@ -140,7 +140,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   identity) with the drive's `root`, `id`, `name` and `has_export`; `store.changed` with `changed`
   (`libraries`, `snapshots`, `labels`, `pruned`, `drives`, `settings`, `smart`, `sets`); and
   `job.started` / `job.finished` (`id`, `method`, `ok`, and the error's `kind`) for every request.
-  `kinds` takes event names or groups (`drive`, `store`, `job`, `watch`); empty means all. Drives
+  `plugin.notice` is what a plugin tells the user (see [Events](#events)).
+  `kinds` takes event names or groups (`drive`, `store`, `job`, `watch`, `plugin`); empty means all. Drives
   and the store are polled every second (`interval_ms`, at least 100) by looking at file metadata
   only, so watching costs a few `stat` calls per drive. Every mounted volume counts, blank ones
   included (`has_export: false`). `events.unsubscribe` stops them.
@@ -351,8 +352,8 @@ Native bindings (napi-rs) can wrap the same `api` functions later without changi
 ## Plugins
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
-each plugin's `{id, name, version, capabilities: [{capability, means}], commands, operations,
-analyzers, exporters, providers, settings, running, left_out}`, `means` saying in plain words what
+each plugin's `{id, name, version, capabilities: [{capability, means}], commands, events,
+operations, analyzers, exporters, providers, services, settings, running, left_out}`, `means` saying in plain words what
 a capability lets it do and `left_out` why a plugin isn't loaded, when it clashes with a command, a
 method or another plugin (else `null`); `plugins.describe {plugin}` answers `{manifest,
 capabilities, settings, secrets, secrets_unknown?, running}`, the manifest with the JSON Schemas of
@@ -361,7 +362,8 @@ where to offer each command and operation (`where`: `track`, `playlist`, `drive`
 `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
 request's `context` when it isn't given; given as `null`, it's left out. `plugins.settings
 {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its
-default) answer `{plugin, settings: {key: value}, secrets: {key: set}}`: a secret setting is set
+default; `key` `services.<name>` turns a service on or off) answer `{plugin, settings: {key: value},
+secrets: {key: set}}`: a secret setting is set
 like any other (text), kept in the system's keychain, and only ever answered as set (`true`) or
 not, never in `settings`; when the keychain can't say, each is `null` and `secrets_unknown` says
 why.
@@ -395,6 +397,16 @@ one that asks. A tracklist is imported as the tracklist plugin's `import` operat
 playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks
 in turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and
 `null` leaves the entry out.
+
+### Events
+
+Plugins listening for them are told of drives coming and going, changing and pulled, sets coming
+back, requests finishing and plans applied while the sidecar runs, whether or not the client
+subscribed (it polls drives for them when a plugin listens). What a plugin tells the user is an
+`event` notification, `{"event": "plugin.notice", plugin, message, operation?: {name, params}}`
+(subscribe to `plugin`): show `message`, and offer to review `operation`, one of the plugin's own,
+with `plugins.op.plan {plugin, operation: name, params}`. Never plan or apply it unless the user
+chooses to.
 
 ### Export formats
 
@@ -433,3 +445,10 @@ or `null`: back to its default) chooses one. `plugins.apply_fields.plan {plugin,
 fields, tracks?, overwrite?, min_confidence?}` (`fields`: `key`, `bpm`) answers an edit plan
 (`plugins.apply_fields`) writing what the analyzer kept to the tracks, applied by
 `plugins.apply_fields.apply {plan_id}`.
+
+### Services
+
+A plugin's services the user turned on (`plugins.settings.set {plugin, key: "services.<name>",
+value: true}`) run while the sidecar does, started at once and stopped when turned off; what they
+tell the user is a `plugin.notice` event. One that fails five times in a row is left off, with a
+`plugin.notice` saying so.
