@@ -127,5 +127,6 @@ fn theme_tokens_are_the_schemas_colours() {
     let tokens = loclib_model::theme::TOKENS;
     let ours = tokens.iter().position(|t| t.starts_with("ui.")).expect("the player's own");
     assert_eq!(&tokens[..ours], &named[..]);
-    assert!(tokens[ours..].iter().all(|t| t.starts_with("ui.") || t.starts_with("waveform.")), "{tokens:?}");
+    // Not echoed on failure: CodeQL takes what's named `tokens` for something secret.
+    assert!(tokens[ours..].iter().all(|t| t.starts_with("ui.") || t.starts_with("waveform.")));
 }

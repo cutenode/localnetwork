@@ -1259,9 +1259,9 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             }
             _ => assert_eq!(last_message(app), "no track selected"),
         },
-        Act::Theme(key) => {
+        Act::Theme(theme) => {
             assert!(app.modal.is_none());
-            assert_eq!(super::super::theme::chosen().unwrap_or_default(), key, "drawn in it");
+            assert_eq!(super::super::theme::chosen().unwrap_or_default(), theme, "drawn in it");
         }
         Act::FieldColumn(name) => {
             assert!(app.modal.is_none());
