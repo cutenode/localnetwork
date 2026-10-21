@@ -1,19 +1,22 @@
 //! `plugin list`, `plugin info`, `plugin settings` and `plugin roles`.
 
+use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Result;
 use console::style;
+use indexmap::IndexMap;
 use locallibrary::fields::{self, Role, roles::RoleChoice};
 use locallibrary::plugin::Plugins;
-use loclib_plugin::{Setting, Where};
+use loclib_plugin::{Setting, SettingType, Where};
+use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
 use crate::jobs_cmd::usage;
 use crate::output::{self, Output, dim, heading, ok};
 use crate::plugins::params::{self, cell};
-use crate::plugins::{Described, Listed, Settings};
+use crate::plugins::{Described, Listed, Secrets, Settings};
 
 /// `name`s of a kind (`command`), in a phrase: `commands echo, titles`.
 fn named(what: &str, names: &[String]) -> Option<String> {
@@ -98,10 +101,55 @@ pub(super) fn info(d: &Described) {
         (e.format.clone(), format!("{}, {writes}", e.title))
     });
     section("Export formats (locallibrary export LIBRARY --format FORMAT -o ...):", exporters.collect());
-    let settings = c.settings.iter().map(|s| {
-        (s.key.clone(), format!("{}: {}", s.title, d.settings.get(&s.key).map_or_else(|| "not set".into(), cell)))
-    });
+    let settings =
+        c.settings.iter().map(|s| (s.key.clone(), format!("{}: {}", s.title, shown(s, &d.settings, &d.secrets))));
     section(&format!("Settings (locallibrary plugin settings {}):", m.id), settings.collect());
+    unknown(&d.secrets);
+}
+
+/// Why whether its secrets are set isn't known, when it isn't.
+fn unknown(secrets: &Secrets) {
+    if let Some(why) = &secrets.unknown {
+        say!("{}", dim(format!("whether its secrets are set isn't known: {why}")));
+    }
+}
+
+/// How `plugin settings` changes a setting: to `value`, back to its default (`reset`), or to a
+/// secret read from stdin (`secret`).
+pub(super) struct Change {
+    pub(super) value: Option<String>,
+    pub(super) reset: bool,
+    pub(super) secret: bool,
+}
+
+/// A setting's value as `plugin settings` and `plugin info` show it: a secret only as set or not
+/// (or unknown, when the keychain can't say).
+fn shown(s: &Setting, settings: &IndexMap<String, Value>, secrets: &Secrets) -> String {
+    match (s.kind, secrets.set.get(&s.key)) {
+        (SettingType::Secret, Some(Some(true))) => "set".into(),
+        (SettingType::Secret, Some(None)) => "unknown".into(),
+        _ => settings.get(&s.key).map_or_else(|| "not set".into(), cell),
+    }
+}
+
+/// A secret read from stdin: typed without being shown in a terminal, else its first line.
+fn read_secret(key: &str) -> Result<String> {
+    let secret = match std::io::stdin().is_terminal() {
+        true => {
+            eprint!("{key}: ");
+            console::Term::stderr().read_secure_line()?
+        }
+        false => {
+            let mut line = String::new();
+            std::io::stdin().lock().read_line(&mut line)?;
+            line
+        }
+    };
+    let secret = secret.trim_end_matches(['\r', '\n']);
+    if secret.is_empty() {
+        return Err(usage(format!("no {key} came on stdin")));
+    }
+    Ok(secret.into())
 }
 
 /// `plugin settings`: shows them (or one), or sets one or puts it back to its default.
@@ -109,8 +157,7 @@ pub(super) fn settings(
     plugins: &Plugins,
     plugin: String,
     key: Option<String>,
-    value: Option<String>,
-    reset: bool,
+    change: Change,
     store_path: &Option<PathBuf>,
     out: Output,
 ) -> Result<ExitCode> {
@@ -125,34 +172,58 @@ pub(super) fn settings(
             })
         })
         .transpose()?;
+    // Not named `secret`: CodeQL would take it for the secret itself, and the key it prompts with for a logged secret.
+    let keychained = setting.filter(|s| s.kind == SettingType::Secret);
+    let value = match keychained {
+        Some(s) if change.secret => Some(read_secret(&s.key)?),
+        None if change.secret => {
+            return Err(usage(format!("{} isn't a secret: give its value", key.unwrap_or_default())));
+        }
+        Some(s) if change.value.is_some() => {
+            return Err(usage(format!(
+                "a secret isn't given on the command line, which keeps it in your shell's history: `locallibrary plugin settings {plugin} {} --secret` reads it from stdin",
+                s.key
+            )));
+        }
+        _ => change.value,
+    };
     let change = match (setting, value) {
         (Some(s), Some(v)) => Some((s, Some(params::setting_value(s, &v).map_err(usage)?))),
-        (Some(s), None) if reset => Some((s, None)),
+        (Some(s), None) if change.reset => Some((s, None)),
         _ => None,
     };
     let Some((setting, value)) = change else {
         let store = crate::diff_cmd::existing_store(store_path)?;
         let mut settings = plugins.settings(&plugin, store.as_ref())?;
         settings.retain(|k, _| setting.is_none_or(|s| s.key == *k));
+        let mut secrets = Secrets::of(plugins, &plugin, store.as_ref())?;
+        secrets.set.retain(|k, _| setting.is_none_or(|s| s.key == *k));
         let shown: Vec<&Setting> =
             manifest.contributes.settings.iter().filter(|s| setting.is_none_or(|o| o.key == s.key)).collect();
-        out.emit(&Settings { plugin, settings }, |s| show_settings(&shown, s));
+        out.emit(&Settings { plugin, settings, secrets }, |s| show_settings(&shown, s));
         return Ok(ExitCode::SUCCESS);
     };
-    let change = match &value {
-        Some(v) => format!("set the {plugin} plugin's {} to {}", setting.key, cell(v)),
-        None => format!("put the {plugin} plugin's {} back to its default", setting.key),
+    let change = match (&value, keychained.is_some()) {
+        (Some(_), true) => format!("set the {plugin} plugin's {}", setting.key),
+        (Some(v), false) => format!("set the {plugin} plugin's {} to {}", setting.key, cell(v)),
+        (None, true) => format!("forget the {plugin} plugin's {}", setting.key),
+        (None, false) => format!("put the {plugin} plugin's {} back to its default", setting.key),
     };
-    let question = if value.is_some() { "Set it?" } else { "Put it back?" };
+    let question = match (value.is_some(), keychained.is_some()) {
+        (true, _) => "Set it?",
+        (false, true) => "Forget it?",
+        (false, false) => "Put it back?",
+    };
     out.one_step(
         &change,
         question,
         || {
-            let settings =
-                plugins.set_setting(&plugin, &crate::open_store(store_path)?, &setting.key, value.clone())?;
-            Ok(Settings { plugin: plugin.clone(), settings })
+            let store = crate::open_store(store_path)?;
+            let settings = plugins.set_setting(&plugin, &store, &setting.key, value.clone())?;
+            let secrets = Secrets::of(plugins, &plugin, Some(&store))?;
+            Ok(Settings { plugin: plugin.clone(), settings, secrets })
         },
-        |s| ok(format!("{} is {}", setting.key, s.settings.get(&setting.key).map_or_else(|| "not set".into(), cell))),
+        |s| ok(format!("{} is {}", setting.key, shown(setting, &s.settings, &s.secrets))),
     )
 }
 
@@ -167,10 +238,11 @@ fn show_settings(shown: &[&Setting], s: &Settings) {
         say!(
             "{}  {}  {}",
             output::fit(&setting.key, width),
-            value.map_or_else(|| "not set".into(), cell),
+            self::shown(setting, &s.settings, &s.secrets),
             dim(format!("{}{}", setting.title, if default { " (default)" } else { "" }))
         );
     }
+    unknown(&s.secrets);
 }
 
 /// `plugin roles`: shows which analyzer each role (or one) is read from, or chooses one, or puts

@@ -183,7 +183,7 @@ its drives.
 | | |
 | --- | --- |
 | `locallibrary account [login\|logout\|status]` | Sign in with your Atmosphere account (the one you use for Bluesky and other AT Protocol apps; alpha), see [Atmosphere account](account.md) |
-| `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset]]\|roles [ROLE [PLUGIN.ANALYZER \| --reset]]]` | The plugins locallibrary has, what each may do and adds, their settings, and which analyzer each role (a track's key, tempo, level) is read from; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them, see [Plugins](plugins.md#roles) |
+| `locallibrary plugin [list\|info ID\|settings ID [KEY [VALUE \| --reset \| --secret]]\|roles [ROLE [PLUGIN.ANALYZER \| --reset]]]` | The plugins locallibrary has, what each may do and adds, their settings (`--secret` reads a secret one from stdin, kept in the keychain), and which analyzer each role (a track's key, tempo, level) is read from; the commands and operations they add are `locallibrary ID NAME` or where the plugin puts them, see [Plugins](plugins.md#roles) |
 | `locallibrary bug [--title T] [-m TEXT] [--no-browser]` | Report a bug, with this version and system filled in: posted from your Atmosphere account to userinput.app, or on GitHub's bug report form, see [Reporting a bug](account.md#reporting-a-bug) |
 | `locallibrary completions SHELL [--static]` | Shell completion for bash, zsh, fish, elvish or PowerShell, see [Shell completion and man pages](install.md#shell-completion-and-man-pages) |
 | `locallibrary man [-o DIR]` | Man pages for every command (not in `--help`) |

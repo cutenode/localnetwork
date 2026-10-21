@@ -352,6 +352,10 @@ pub enum ImageSource {
     /// An image staged on the drive (`.locallibrary/artwork/<hash>.jpg`, a JPEG of the larger
     /// size players show), by its hash: how the journal records the others.
     Staged(Hash),
+    /// A file a plugin's answer names in its request's scratch folder: how plugins give images.
+    /// The plugin host reads its bytes once it has checked it.
+    #[schemars(skip)]
+    Blob(String),
 }
 
 /// Where the drive keeps the images artwork edits staged, below its state folder.
@@ -372,6 +376,7 @@ pub(crate) fn stage(device: &Device, image: &ImageSource) -> Result<(Hash, Optio
             return Err(Error::NotFound(format!("the staged image {} on {}", hash.short(), device.name())));
         }
         ImageSource::Path(path) => Artwork::from_path(path)?,
+        ImageSource::Blob(_) => return Err(Error::invalid("only a plugin's plan gives an image as a blob")),
         ImageSource::Base64(text) => Artwork::from_bytes(
             &BASE64_STANDARD.decode(text).map_err(|e| Error::Image(format!("the image isn't base64: {e}")))?,
         )?,

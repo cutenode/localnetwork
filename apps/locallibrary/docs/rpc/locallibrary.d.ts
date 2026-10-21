@@ -2159,7 +2159,10 @@ export type PluginRef = {
 export type SetPluginSetting = {
   plugin: string;
   key: string;
-  /** Of the setting's type; `null` (or left out) puts it back to its default. */
+  /**
+   * Of the setting's type (a secret's, text: kept in the system's keychain and never
+   * answered); `null` (or left out) puts it back to its default, or forgets a secret.
+   */
   value?: unknown;
 };
 
@@ -5402,13 +5405,14 @@ export type Client =
     kind: "hosted";
   };
 
-/** Where the session's secrets are kept. */
+/** Where secrets are kept. */
 export type Storage =
   /** macOS Keychain, Windows Credential Manager, or the Secret Service on Linux. */
   | "keychain"
   /**
-   * `atmosphere-session.json` in the store folder, readable only by you: for computers without
-   * a keychain (a Linux server without a desktop session).
+   * Files in the store folder, readable only by you (`atmosphere-session.json`,
+   * `secrets/plugins/<id>.json`): for computers without a keychain (a Linux server without a
+   * desktop session).
    */
   | "file";
 
@@ -6670,13 +6674,19 @@ export type Standing =
   | {
     standing: "up_to_date";
   }
-  /** It held an older snapshot: `snapshots` newer ones have been saved since. */
+  /**
+   * It held an older state: `snapshots` newer ones have been saved since. `held` is the
+   * snapshot holding it, none when the library's latest went through it unsaved.
+   */
   | {
     snapshots: number;
-    held: string;
+    held: string | null;
     standing: "behind";
   }
-  /** It held a state the store never saved (a later export or edit that wasn't pulled). */
+  /**
+   * It held a state the store never saved, which the library's latest never went through (a
+   * later export or edit that wasn't pulled).
+   */
   | {
     standing: "unsaved";
   }
@@ -7387,6 +7397,13 @@ export type Described = {
   manifest: Manifest;
   capabilities: Granted[];
   settings: { [key: string]: unknown };
+  /**
+   * Whether each secret setting is set, never what it is; `null` for each when the keychain
+   * can't say (see `secrets_unknown`).
+   */
+  secrets: { [key: string]: boolean | null };
+  /** Why the keychain can't say, when it can't: the rest is answered all the same. */
+  secrets_unknown?: string | null;
   running: boolean;
 };
 
@@ -7405,6 +7422,8 @@ export type Manifest = {
   /** What it may call back for (see [`Capability`]). */
   capabilities: Capability[];
   contributes: Contributions;
+  /** How often the host may send `net/fetch` requests to some of the hosts it talks to. */
+  net?: NetLimit[];
 };
 
 export type Contributions = {
@@ -7509,13 +7528,34 @@ export type SettingType =
   | ("string" | "number" | "boolean" | "file" | "directory")
   /** One of `choices`. */
   | "enum"
-  /** It has no default. locallibrary can't keep one yet, and refuses a plugin with one. */
+  /**
+   * A password or a key: kept in the system's keychain, never shown, and given to the plugin
+   * only as the host fills it into its `net/fetch` requests. It has no default.
+   */
   | "secret";
+
+/**
+ * `[[net]]`: at most `per_second` `net/fetch` requests a second to `host`, one of the plugin's
+ * `net:` capabilities as it's written (`musicbrainz.org`, `*.archive.org`), however many hooks
+ * are under way: the limit the server asks its clients to keep.
+ */
+export type NetLimit = {
+  host: string;
+  per_second: number;
+};
 
 /** A plugin's settings now: each one set, else its default. */
 export type Settings = {
   plugin: string;
+  /** Each one set, else its default; never a secret. */
   settings: { [key: string]: unknown };
+  /**
+   * Whether each secret setting is set, never what it is; `null` for each when the keychain
+   * can't say (see `secrets_unknown`).
+   */
+  secrets: { [key: string]: boolean | null };
+  /** Why the keychain can't say, when it can't: the rest is answered all the same. */
+  secrets_unknown?: string | null;
 };
 
 /** What a command answers. */
@@ -7923,8 +7963,9 @@ export type Reason =
    */
   | "not_saved"
   /**
-   * The drive holds an older state of the library than the store: push to update it, or
-   * force the pull to record it as the newest.
+   * The drive holds an older state of the library than the store: one its latest went
+   * through, or an earlier snapshot's (`fields.snapshot`, when a snapshot holds it). Push to
+   * update it, or force the pull to record it as the newest.
    */
   | "older_than_store"
   /**

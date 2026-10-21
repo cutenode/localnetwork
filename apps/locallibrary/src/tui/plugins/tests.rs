@@ -2,6 +2,7 @@ use loclib_plugin::{ListItem, Pair};
 use ratatui::crossterm::event::KeyCode;
 use serde_json::json;
 
+use super::super::app::Msg;
 use super::super::app::testing::{
     app_on, blank, confirming, demo_drive, echo_plugin, key, last_message, mounted, press, say_yes, wait,
 };
@@ -247,6 +248,78 @@ fn answers_are_messages_or_panels() {
     app.show_answer("Tidy".into(), CommandOutput::View(view));
     let s = screen(&mut app, 80, 24);
     assert!(s.contains("Counts") && s.contains("tracks  2"), "{s}");
+}
+
+/// A view command's rows (and items) sent in parts fill a panel as they come, from the job still
+/// running only, and the view it answers then takes the panel's place; another panel open is left
+/// as it is.
+#[test]
+fn a_views_rows_fill_its_panel_as_they_come() {
+    let (mut app, _dir) = blank(Screen::Library);
+    let item = ListItem { label: "Friday".into(), detail: Some("12 tracks".into()) };
+    let part = |rows: Vec<Vec<Value>>, items: Vec<ListItem>| Partial { id: json!(1), rows, items };
+    app.show_partial("Titles".into(), part(vec![vec![json!("a"), json!(1)]], Vec::new()));
+    app.show_partial("Titles".into(), part(vec![vec![json!("b"), Value::Null]], vec![item]));
+    let Some(Modal::Report(r)) = &app.modal else { panic!("a panel") };
+    let lines: Vec<String> = r.lines.iter().map(|(t, l)| format!("{t:?} {l}")).collect();
+    assert_eq!(
+        (r.title.as_str(), &lines[..]),
+        ("Titles", &["Row a  1", "Row b  -", "Text Friday", "Faint   12 tracks"].map(String::from)[..])
+    );
+    // Another panel is left as it is.
+    app.show_partial("Other".into(), part(vec![vec![json!("c")]], Vec::new()));
+    let Some(Modal::Report(r)) = &app.modal else { panic!("a panel") };
+    assert_eq!((r.title.as_str(), r.lines.len()), ("Titles", 4));
+    let view =
+        View::Table { title: None, columns: vec!["Title".into()], rows: vec![vec![json!("a")], vec![json!("b")]] };
+    app.show_answer("Titles".into(), CommandOutput::View(view));
+    let Some(Modal::Report(r)) = &app.modal else { panic!("a panel") };
+    assert_eq!(r.lines.len(), 3, "the view, headings and all");
+
+    // Only the job still running shows what it hands over.
+    app.modal = None;
+    app.task_showing("Listing".into(), |_, _| Ok(Box::new(|_: &mut App| {})));
+    let job = app.job.as_ref().unwrap().id;
+    let shown = |title: &str| -> super::super::edits::Done {
+        let title = title.to_string();
+        Box::new(move |app: &mut App| app.toast(title, Level::Info))
+    };
+    app.handle_msg(Msg::Shown { job: job + 1, update: shown("stale") });
+    app.handle_msg(Msg::Shown { job, update: shown("current") });
+    assert_eq!(last_message(&app), "current");
+}
+
+/// A secret setting is never filled in: typed in, it's kept in the keychain (a file, here), not
+/// with the settings; left empty, it's kept as it is.
+#[test]
+fn a_secret_typed_in_the_form_is_kept_apart() {
+    let (dir, _root) = demo_drive();
+    echo_plugin(dir.path());
+    let file = dir.path().join("echo.toml");
+    let token = "\n[[contributes.settings]]\nkey = \"token\"\ntitle = \"Token\"\ntype = \"secret\"\n";
+    std::fs::write(&file, std::fs::read_to_string(&file).unwrap() + token).unwrap();
+    // SAFETY: as in `echo_plugin`, before the host reads its options.
+    unsafe { std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file") };
+    let (mut app, _store) = blank(Screen::Library);
+    let texts = |f: &super::super::form::Form| f.fields.iter().map(|x| x.text.clone()).collect::<Vec<_>>();
+    assert_eq!(texts(settings_form(&mut app)).last().map(String::as_str), Some(""));
+    press(&mut app, "\t\t\t\t");
+    let s = screen(&mut app, 120, 40);
+    assert!(s.contains("Token (empty keeps it)"), "{s}");
+    press(&mut app, "hunter2\n");
+    wait(&mut app, |a| a.job.is_none());
+    let plugins = crate::plugins::host().unwrap();
+    let store = locallibrary::Store::open(&app.store_root).unwrap();
+    // Not echoed on failure: CodeQL takes the app's toasts (a sign-in's names the account) for something secret.
+    assert!(plugins.secrets("echo", Some(&store)).unwrap()["token"]);
+    let settings = std::fs::read_to_string(app.store_root.join("plugins/echo/settings.json")).unwrap_or_default();
+    assert!(!settings.contains("hunter2"), "{settings}");
+    // Open again: not filled in; saved empty, kept.
+    assert_eq!(texts(settings_form(&mut app)).last().map(String::as_str), Some(""));
+    press(&mut app, "\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert_eq!(last_message(&app), "nothing changed");
+    assert!(plugins.secrets("echo", Some(&store)).unwrap()["token"]);
 }
 
 /// Each kind of view as a panel's lines: a list's details under their labels, a table aligned

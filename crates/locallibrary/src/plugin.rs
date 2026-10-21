@@ -11,17 +11,23 @@
 //! elevated process.
 //!
 //! Plugins never write to a drive. They read the library by calling back for the sidecar's read
-//! methods their capabilities grant, within limits (see [`Reads`]); an operation's edits are
-//! planned and applied by the host as any edit plan is, and an exporter's overwrites are
-//! confirmed first. Analyzers' values go to the [`crate::fields`] store.
+//! methods their capabilities grant, within limits (see [`Reads`]), and reach the servers their
+//! `net:` capabilities grant through the host (`net/fetch`), which fills in their secret settings
+//! (kept in the keychain); an operation's edits are planned and applied by the host as any edit
+//! plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
+//! files in a folder the host makes for each request (`scratch`), which it reads itself.
+//! Analyzers' values go to the [`crate::fields`] store.
 
 mod analyzers;
 mod apply;
+mod blobs;
 mod callbacks;
 mod commands;
 mod exports;
+mod net;
 mod operations;
 mod process;
+mod secrets;
 mod settings;
 
 use std::ffi::OsString;
@@ -30,16 +36,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use indexmap::IndexMap;
-use loclib_plugin::{Command, Context, Manifest, Operation, Selection, SettingType, check_params};
+use loclib_plugin::{Command, Context, Manifest, Operation, Selection, check_params};
 use rustc_hash::FxHashSet;
 use serde_json::{Map, Value};
 
 use crate::fields::Analyzer;
 use crate::fields::roles::{Offered, RoleField};
+use crate::keychain::Storage;
 use crate::{Error, Result};
 
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
+pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
 pub use exports::{ExportFile, PluginExport};
@@ -96,6 +104,17 @@ pub struct Options {
     pub callbacks: usize,
     /// The most tracks analysed at once.
     pub analyses: usize,
+    /// The most a request's scratch folder may hold, in bytes: its answer's files, and what
+    /// `net/fetch` wrote there.
+    pub max_blobs: u64,
+    /// The most of a `net/fetch` answer given in a message, in bytes: a bigger one goes to a file
+    /// in the scratch folder (`into_blob`).
+    pub max_body: u64,
+    /// Where plugins' secret settings are kept.
+    pub secrets: Storage,
+    /// `net/fetch` may reach servers on this computer (over http too), for tests: never in a
+    /// build without debug assertions, whatever this says.
+    pub test_loopback: bool,
     /// Where plugins' logs go: what they write to stderr (without terminal escapes), and what
     /// the host has to say about them. A front end drawing on the terminal gives its own.
     pub log: Log,
@@ -112,6 +131,10 @@ impl Default for Options {
             grace: Duration::from_secs(5),
             callbacks: 8,
             analyses: 4,
+            max_blobs: 512 << 20,
+            max_body: 8 << 20,
+            secrets: Storage::from_env(),
+            test_loopback: false,
             log: Arc::new(|id, line| eprintln!("{id}: {line}")),
         }
     }
@@ -124,9 +147,8 @@ pub struct Plugins {
 
 impl Plugins {
     /// The host for `specs`, reading for them through `reads`. Refused: a plugin locallibrary
-    /// doesn't ship, an invalid manifest, one with a secret setting (none can be kept yet), two
-    /// plugins with one id, and two commands (or operations) with one `cli` place (the app checks
-    /// them against its own commands).
+    /// doesn't ship, an invalid manifest, two plugins with one id, and two commands (or
+    /// operations) with one `cli` place (the app checks them against its own commands).
     pub fn new(specs: Vec<PluginSpec>, reads: Arc<dyn Reads>, options: Options) -> Result<Plugins> {
         let host = Arc::new(process::Host { reads, options });
         let mut plugins = IndexMap::new();
@@ -137,12 +159,6 @@ impl Plugins {
                 return Err(Error::invalid(format!("{}: third-party plugins aren't supported yet", m.id)));
             }
             m.validate(true).map_err(|e| Error::invalid(format!("the {} plugin's manifest: {e}", m.id)))?;
-            if let Some(s) = m.contributes.settings.iter().find(|s| s.kind == SettingType::Secret) {
-                return Err(Error::invalid(format!(
-                    "the {} plugin's setting {:?} is a secret, which locallibrary can't keep yet",
-                    m.id, s.key
-                )));
-            }
             let commands = m.contributes.commands.iter().filter_map(|c| c.cli.as_deref());
             let operations = m.contributes.operations.iter().filter_map(|o| o.cli.as_deref());
             if let Some(name) = commands.chain(operations).find(|n| !cli.insert(n.to_string())) {

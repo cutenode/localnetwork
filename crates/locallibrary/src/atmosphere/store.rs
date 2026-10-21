@@ -104,19 +104,8 @@ fn keychain_account(root: &Path, did: &str) -> Result<String> {
     Ok(format!("atmosphere:{did}@{}", crate::store::Store::open(root)?.id()?))
 }
 
-/// `keyring::Entry::new` refuses whenever the system's keychain couldn't be opened, even when
-/// another store is the default (the tests' in-memory one, on a Linux without Secret Service), so
-/// the entry comes from the default store, once `keyring` has tried to set the system's.
 pub(super) fn keychain_entry(root: &Path, did: &str) -> Result<keyring_core::Entry> {
-    let _ = keyring::Entry::store_status();
-    keyring_core::Entry::new(KEYCHAIN_SERVICE, &keychain_account(root, did)?).map_err(keychain_error)
-}
-
-fn delete_entry(entry: keyring_core::Entry) -> Result<()> {
-    match entry.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(keychain_error(e)),
-    }
+    crate::keychain::entry(KEYCHAIN_SERVICE, &keychain_account(root, did)?).map_err(keychain_error)
 }
 
 fn keychain_error(e: keyring::Error) -> Error {
@@ -204,7 +193,7 @@ pub fn write_secrets(root: &Path, storage: Storage, did: &str, secrets: &Map<Str
 
 pub fn delete_secrets(root: &Path, storage: Storage, did: &str) -> Result<()> {
     match storage {
-        Storage::Keychain => delete_entry(keychain_entry(root, did)?),
+        Storage::Keychain => crate::keychain::delete(&keychain_entry(root, did)?).map_err(keychain_error),
         Storage::File => {
             let mut all = secrets_file(root).unwrap_or_default();
             all.remove(did);

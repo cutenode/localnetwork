@@ -4,6 +4,7 @@
 
 use hegel::TestCase;
 use hegel::generators as gs;
+use indexmap::IndexMap;
 use locallibrary::api::{LibraryRef, PluginFieldsRequest};
 use locallibrary::fields::{FieldType, FieldValue};
 use locallibrary::op::AnyPlanned;
@@ -129,6 +130,7 @@ fn a_plugin_that_wont_stop_is_killed_after_its_grace(tc: TestCase) {
                     Context::default(),
                     None,
                     &Ctx::new(&NoProgress, cancel),
+                    &|_| {},
                 );
                 asking.join().unwrap();
                 assert!(matches!(e, Err(Error::Cancelled)), "{e:?}");
@@ -399,14 +401,17 @@ enum PluginEdit {
     Cues,
     ArtworkBytes,
     ArtworkFile,
+    /// A JPEG in the request's scratch folder: how a plugin gives an image.
+    ArtworkBlob,
     Nonsense,
 }
 
 /// For any edits a plugin's operation answers, with any capabilities granted, the host refuses
-/// the first edit it can't read, that names an image file, or that its capabilities don't grant,
-/// then a file it says it read that isn't one (or isn't named by an absolute path); plans the
-/// rest strictly as one edit plan, named for the plugin, with its summary and warnings; and
-/// refuses a destructive plan without `library:delete`. A plan let through applies.
+/// the first edit it can't read, that its capabilities don't grant, or that gives an image
+/// otherwise than as a file in its scratch folder, then a file it says it read that isn't one
+/// (or isn't named by an absolute path); plans the rest strictly as one edit plan, named for the
+/// plugin, with its summary and warnings; and refuses a destructive plan without
+/// `library:delete`. A plan let through applies.
 #[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
     let grants: Vec<&str> = tc.draw(gs::subsequences(vec!["library:delete", "tags:plan", "cues:plan", "artwork:plan"]));
@@ -419,6 +424,7 @@ fn an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
         PluginEdit::Cues,
         PluginEdit::ArtworkBytes,
         PluginEdit::ArtworkFile,
+        PluginEdit::ArtworkBlob,
         PluginEdit::Nonsense,
     ];
     let f = Fixture::new(|dir| vec![spec(dir, &granting(&grants), &[])], Options::default());
@@ -430,14 +436,13 @@ fn an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
         if !playlists().contains(&"Doomed".to_string()) {
             plan(json!({ "name": "Doomed" })).unwrap().apply(None, &Ctx::silent()).unwrap();
         }
-        // Cues and artwork the drive can't take are left out once granted: what's under test is
-        // the grant, not the edit.
+        // Cues the drive can't take are left out once granted: what's under test is the grant,
+        // not the edit.
         let edits: Vec<PluginEdit> = tc.draw(gs::vecs(gs::sampled_from(all.clone())).min_size(1).max_size(4));
         let edits: Vec<PluginEdit> = edits
             .into_iter()
             .filter(|e| match e {
                 PluginEdit::Cues => !granted("cues:plan"),
-                PluginEdit::ArtworkBytes => !granted("artwork:plan"),
                 _ => true,
             })
             .collect();
@@ -461,18 +466,25 @@ fn an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
                 PluginEdit::ArtworkFile => {
                     json!({ "op": "set_artwork", "tracks": { "ids": [1] }, "image": { "path": "/tmp/cover.jpg" } })
                 }
+                PluginEdit::ArtworkBlob => {
+                    json!({ "op": "set_artwork", "tracks": { "ids": [1] }, "image": { "blob": "cover.jpg" } })
+                }
                 PluginEdit::Nonsense => json!({ "op": "explode" }),
             })
             .collect();
         let needs = |c: &str, i: usize| Some(format!("its edit {i} needs the {c} capability, which it doesn't have"));
         let refused = edits.iter().enumerate().find_map(|(i, e)| match e {
             PluginEdit::Nonsense => Some(format!("its edit {i} isn't one: ")),
-            PluginEdit::ArtworkFile => {
-                Some(format!("its edit {i} names an image file: a plugin gives an image's bytes"))
-            }
             PluginEdit::Tag if !granted("tags:plan") => needs("tags:plan", i),
             PluginEdit::Cues => needs("cues:plan", i),
-            PluginEdit::ArtworkBytes => needs("artwork:plan", i),
+            PluginEdit::ArtworkBytes | PluginEdit::ArtworkFile | PluginEdit::ArtworkBlob
+                if !granted("artwork:plan") =>
+            {
+                needs("artwork:plan", i)
+            }
+            PluginEdit::ArtworkBytes | PluginEdit::ArtworkFile => Some(format!(
+                "its edit {i} gives an image otherwise than as a file in its scratch folder ({{\"blob\": name}})"
+            )),
             _ => None,
         });
         // What the plugin says it read: a file, or something it can't have read as one.
@@ -491,7 +503,8 @@ fn an_operations_edits_are_planned_as_its_grants_say(tc: TestCase) {
             _ => None,
         });
         let renames = answered.iter().any(|e| e["op"] == "rename_playlist");
-        let planned = plan(json!({ "name": "x", "edits": answered, "inputs": inputs }));
+        let blobs = json!({ "cover.jpg": jpeg(32) });
+        let planned = plan(json!({ "name": "x", "edits": answered, "inputs": inputs, "blobs": blobs }));
         match refused {
             Some(refused) => {
                 let said = failure(planned.unwrap_err());
@@ -532,10 +545,11 @@ enum Output {
 /// above it, or by `..`), and one writing more than it said.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn an_export_overwrites_only_as_planned(tc: TestCase) {
+    let mine = |i: usize| format!("mine{}", "!".repeat(i));
     let f = Fixture::echo();
     let here = f.store.root().parent().unwrap().join("exports");
     let relative = tc.draw(gs::sampled_from(vec!["out.m3u", "exports/out.m3u", "./x", ""]));
-    let source = ExportSource { drive: "USB".into(), playlists: Vec::new(), history: Vec::new() };
+    let source = ExportSource { drive: "USB".into(), ..ExportSource::default() };
     let e = f.plugins.export_plan("echo", "m3u", source, Path::new(relative), Value::Null, None, &Ctx::silent());
     assert_eq!(e.err().unwrap().to_string(), format!("the export's output must be an absolute path, not {relative}"));
     let lines: Vec<String> = common::library(&f.drive).tracks.iter().map(|t| t.file_path.clone()).collect();
@@ -550,7 +564,7 @@ fn an_export_overwrites_only_as_planned(tc: TestCase) {
         };
         let out = root.join(format!("out-{}.m3u", tc.draw(gs::integers::<u8>().max_value(2))));
         let playlists: Vec<String> = tc.draw(gs::subsequences(vec!["Warmup".to_string(), "Peak".to_string()]));
-        let source = ExportSource { drive: "USB".into(), playlists: playlists.clone(), history: Vec::new() };
+        let source = ExportSource { drive: "USB".into(), playlists: playlists.clone(), ..ExportSource::default() };
         // Now and then the plugin writes more than it says.
         let options = match tc.draw(gs::integers::<u8>().max_value(2)) {
             0 => json!({ "extra": out.with_file_name(format!("extra-{i}.txt")) }),
@@ -596,13 +610,14 @@ fn an_export_overwrites_only_as_planned(tc: TestCase) {
         let changed = tc.draw(gs::integers::<u8>().max_value(3)) == 0;
         if changed {
             std::fs::create_dir_all(&here).unwrap();
-            std::fs::write(&out, format!("mine {i}")).unwrap();
+            // Of another size each time: within a second, a file's stamp is its size.
+            std::fs::write(&out, mine(i)).unwrap();
         }
         let applied = planned.apply(None, &Ctx::silent());
         match (changed, options["extra"].as_str()) {
             (true, _) => {
                 assert_eq!(applied.err().unwrap().code(), "stale_plan");
-                assert_eq!(std::fs::read_to_string(&out).unwrap(), format!("mine {i}"), "left as it was");
+                assert_eq!(std::fs::read_to_string(&out).unwrap(), mine(i), "left as it was");
             }
             (false, Some(extra)) => {
                 let said = format!("the Echo plugin failed: it wrote what it didn't say it would: {extra}");
@@ -631,6 +646,7 @@ impl Declared {
             "string" | "file" | "directory" => v.is_string(),
             "number" => v.is_number(),
             "boolean" => v.is_boolean(),
+            "secret" => v.as_str().is_some_and(|s| !s.is_empty()),
             _ => v.as_str().is_some_and(|s| self.choices.contains(&s)),
         }
     }
@@ -677,31 +693,35 @@ enum Kept {
 /// For any settings a plugin declares (of each type, with or without a default) and any sequence
 /// of values set, put back, written by an older plugin or left unreadable, each setting is the
 /// value set while that fits it, else its default, and none without either; a value that doesn't
-/// fit is refused, saying what the setting takes, and leaves what's kept as it was.
+/// fit is refused, saying what the setting takes, and leaves what's kept as it was. A secret is
+/// never among them, nor in their file: it's only said to be set, and a wrong one isn't said back.
 #[hegel::test(test_cases = 60, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_plugins_settings_are_what_was_set_while_it_fits(tc: TestCase) {
-    let kinds = vec!["string", "number", "boolean", "enum", "file", "directory"];
+    let kinds = vec!["string", "number", "boolean", "enum", "file", "directory", "secret"];
     let mut declared = Vec::new();
     for i in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
         let kind = tc.draw(gs::sampled_from(kinds.clone()));
         let choices = if kind == "enum" { vec!["deep", "peak"] } else { Vec::new() };
         let mut d = Declared { key: format!("s{i}"), kind, choices, default: None };
         let default = setting_value(&tc);
-        d.default = (tc.draw(gs::booleans()) && d.accepts(&default)).then_some(default);
+        d.default = (tc.draw(gs::booleans()) && kind != "secret" && d.accepts(&default)).then_some(default);
         declared.push(d);
     }
     let start = ECHO.find("\n[[contributes.settings]]").unwrap();
     let manifest = declared.iter().fold(ECHO[..start].to_string(), |m, d| m + &d.toml());
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
-    let plugins = Plugins::new(vec![spec(dir.path(), &manifest, &[])], Arc::new(NoReads), Options::default()).unwrap();
+    let options = Options { secrets: locallibrary::keychain::Storage::File, ..Options::default() };
+    let plugins = Plugins::new(vec![spec(dir.path(), &manifest, &[])], Arc::new(NoReads), options).unwrap();
     let file = store.root().join("plugins/echo/settings.json");
+    // The secrets set, by key.
+    let mut secrets: IndexMap<String, String> = IndexMap::new();
     let expected = |kept: &Kept| -> Value {
         let values = match kept {
             Kept::Values(v) => v.clone(),
             Kept::Unreadable => serde_json::Map::new(),
         };
-        let effective = declared.iter().filter_map(|d| {
+        let effective = declared.iter().filter(|d| d.kind != "secret").filter_map(|d| {
             let value = values.get(&d.key).filter(|v| d.accepts(v)).or(d.default.as_ref())?;
             Some((d.key.clone(), value.clone()))
         });
@@ -735,6 +755,17 @@ fn a_plugins_settings_are_what_was_set_while_it_fits(tc: TestCase) {
                     continue;
                 };
                 match value {
+                    Some(v) if !d.accepts(&v) && d.kind == "secret" => {
+                        let e = set.unwrap_err();
+                        assert_eq!((e.code(), e.to_string()), ("invalid", format!("{key} is a secret: some text")));
+                    }
+                    value if d.kind == "secret" => {
+                        match value.as_ref().and_then(Value::as_str) {
+                            Some(v) => secrets.insert(key.clone(), v.into()),
+                            None => secrets.shift_remove(&key),
+                        };
+                        assert_eq!(serde_json::to_value(set.unwrap()).unwrap(), expected(&kept));
+                    }
                     Some(v) if !d.accepts(&v) => {
                         let e = set.unwrap_err();
                         let takes = match d.kind {
@@ -761,6 +792,12 @@ fn a_plugins_settings_are_what_was_set_while_it_fits(tc: TestCase) {
         }
         let settings = plugins.settings("echo", Some(&store)).unwrap();
         assert_eq!(serde_json::to_value(&settings).unwrap(), expected(&kept));
+        let set: IndexMap<String, bool> = declared
+            .iter()
+            .filter(|d| d.kind == "secret")
+            .map(|d| (d.key.clone(), secrets.contains_key(&d.key)))
+            .collect();
+        assert_eq!(plugins.secrets("echo", Some(&store)).unwrap(), set);
         let keys: Vec<&String> = settings.keys().collect();
         let in_order: Vec<&String> = declared.iter().map(|d| &d.key).filter(|k| keys.contains(k)).collect();
         assert_eq!(keys, in_order, "in the order the plugin declares them");
@@ -786,8 +823,8 @@ struct Offered {
 }
 
 /// For any plugins offered, the host takes them all, in order, or refuses the first that can't
-/// be hosted: one locallibrary doesn't ship, one with a secret setting, one whose place on the
-/// command line another plugin has, or a second with one id. Taken, each place finds its plugin's
+/// be hosted: one locallibrary doesn't ship, one whose place on the command line another plugin
+/// has, or a second with one id. A secret setting is no reason to refuse one. Taken, each place finds its plugin's
 /// command or operation, and every analyzer's fields are named by plugin, in order.
 #[hegel::test(test_cases = 100, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
@@ -830,12 +867,6 @@ fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
         if !o.first_party {
             return Some(format!("{}: third-party plugins aren't supported yet", o.id));
         }
-        if o.secret {
-            return Some(format!(
-                "the {} plugin's setting \"greeting\" is a secret, which locallibrary can't keep yet",
-                o.id
-            ));
-        }
         if let Some(place) = [o.command, o.operation].into_iter().flatten().find(|p| places.contains(p)) {
             return Some(format!("the {} plugin's command {place:?} is another plugin's too", o.id));
         }
@@ -856,6 +887,10 @@ fn a_host_takes_exactly_the_plugins_it_can_run(tc: TestCase) {
     assert_eq!(hosted.manifests().map(|m| m.id.as_str()).collect::<Vec<_>>(), ids);
     for o in &offered {
         assert_eq!(hosted.manifest(o.id).unwrap().id, o.id);
+        // A secret is never among the settings hooks get, and isn't set without a store.
+        assert_eq!(hosted.settings(o.id, None).unwrap().contains_key("greeting"), !o.secret);
+        let secrets = hosted.secrets(o.id, None).unwrap();
+        assert_eq!(secrets, o.secret.then(|| ("greeting".to_string(), false)).into_iter().collect::<IndexMap<_, _>>());
         if let Some(place) = o.command {
             assert!(
                 matches!(hosted.cli(place), Some((id, Cli::Command(c))) if id == o.id && c.name == "echo"),
@@ -973,7 +1008,8 @@ fn only_a_plugin_that_is_what_its_manifest_says_runs(tc: TestCase) {
     );
     for (i, how) in order.into_iter().enumerate() {
         let id = if how == AnotherId { format!("q{i}") } else { format!("p{i}") };
-        let ran = f.plugins.run_command(&id, "echo", json!({ "n": i }), Context::default(), None, &Ctx::silent());
+        let ran =
+            f.plugins.run_command(&id, "echo", json!({ "n": i }), Context::default(), None, &Ctx::silent(), &|_| {});
         let said = match how {
             AsItSays => {
                 assert_eq!(ran.unwrap(), CommandOutput::Headless(json!({ "n": i })));

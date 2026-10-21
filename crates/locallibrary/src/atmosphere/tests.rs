@@ -225,15 +225,7 @@ fn a_saved_session_keeps_its_secrets_apart_and_signing_out_removes_it() {
     assert!(!root.join(store::SECRETS_FILE).exists());
 }
 
-/// Keychain items go to an in-memory keychain in this test binary, never the computer's.
-pub(crate) fn mock_keychain() {
-    static MOCK: std::sync::Once = std::sync::Once::new();
-    MOCK.call_once(|| {
-        // keyring sets the system's keychain as the default the first time it's used.
-        let _ = keyring::Entry::store_status();
-        keyring_core::set_default_store(keyring_core::mock::Store::new().unwrap());
-    });
-}
+pub(crate) use crate::keychain::tests::mock_keychain;
 
 /// The mock keychain's next answer for `did`'s item in the store at `root` is an error.
 pub(crate) fn keychain_fails(root: &Path, did: &str) {

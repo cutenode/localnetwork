@@ -9,19 +9,21 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-base64.workspace = true
+# A search's query in its URL, encoded as a form's are (MusicBrainz reads `+` as a space): the
+# encoder `url` is built on, without the rest of it.
+form_urlencoded = "1.2.2"
 image.workspace = true
 indexmap.workspace = true
 loclib-model.workspace = true
 loclib-plugin.workspace = true
 loclib-progress.workspace = true
-reqwest = { workspace = true, features = ["blocking"] }
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true
 loclib-model = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true
 
 [lints]
 workspace = true

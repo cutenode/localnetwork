@@ -266,21 +266,26 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   capabilities: [{capability, means}], commands, operations, analyzers, exporters, settings,
   running, left_out}`, `means` saying in plain words what a capability lets it do and `left_out`
   why a plugin isn't loaded, when it clashes with a command, a method or another plugin (else
-  `null`); `plugins.describe
-  {plugin}` answers `{manifest, capabilities, settings, running}`, the manifest with the JSON
-  Schemas of each command's and operation's `params` and each exporter's `options`, to draw forms
-  from, and where to offer each command and operation (`where`: `track`, `playlist`, `drive`). A
+  `null`); `plugins.describe {plugin}` answers `{manifest, capabilities, settings, secrets,
+  secrets_unknown?, running}`, the manifest with the JSON Schemas of each command's and
+  operation's `params` and each exporter's `options`, to draw forms from, and where to offer each
+  command and operation (`where`: `track`, `playlist`, `drive`). A
   param's `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from
   the request's `context` when it isn't given; given as `null`, it's left out.
   `plugins.settings {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or
-  left out: back to its default) answer `{plugin, settings: {key: value}}`.
+  left out: back to its default) answer `{plugin, settings: {key: value}, secrets: {key: set}}`:
+  a secret setting is set like any other (text), kept in the system's keychain, and only ever
+  answered as set (`true`) or not, never in `settings`; when the keychain can't say, each is
+  `null` and `secrets_unknown` says why.
   `plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
-  command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw.
+  command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw,
+  with every row the plugin sent in parts as it worked.
   A tracklist is imported as the tracklist plugin's `import` operation (`{file, into, playlist?,
   append?, choices?}`, `file` absolute; `choices` maps an entry, counting from 0, to a track id),
   and its `match` command answers what it finds in the list, entry by entry, changing nothing.
   `plugins.op.plan {plugin, operation, params, context}` (`context.drive` is required) answers an
-  edit plan whose `operation` is `<plugin>.<operation>`, its summary first, applied by
+  edit plan whose `operation` is `<plugin>.<operation>`, its summary first (an image a plugin's
+  `set_artwork` gives is read as it's planned, and held by the plan), applied by
   `plugins.op.apply {plan_id}`; it's stale once the drive changes, or a file on this computer
   the plugin worked it out from. `plugins.export.plan {plugin, exporter, drive, playlists?,
   history?, output, options}` (`output` absolute, never on a drive or in the store) answers

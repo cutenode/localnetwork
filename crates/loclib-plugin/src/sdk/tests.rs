@@ -92,7 +92,8 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
     let s = start(echo::hooks());
     let reply: HelloReply = s.host.request(method::HELLO, &hello("0.2.7", &["telepathy"])).unwrap();
     let plugin = PluginInfo { id: "echo".into(), version: "0.1.0".into() };
-    let features = ["commands", "operations", "analyzers", "exporters"].map(String::from).to_vec();
+    // And the SDK's own.
+    let features = ["commands", "operations", "analyzers", "exporters", "blobs", "net"].map(String::from).to_vec();
     assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features });
     let again = s.call(method::HELLO, hello(PROTOCOL_VERSION, &[])).unwrap_err();
     assert_eq!((again.code, again.message.as_str()), (code::INVALID_REQUEST, "hello was sent already"));
@@ -248,13 +249,13 @@ fn hooks_run_only_for_what_the_manifest_declares() {
     s.stop();
 }
 
-/// A plugin has the features of the hooks it implements, and a hook it doesn't implement isn't
-/// found.
+/// A plugin has the features of the hooks it implements (and the SDK's own), and a hook it
+/// doesn't implement isn't found.
 #[test]
 fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let s = start(Hooks::new().on(echo::analyze_track));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["analyzers"]);
+    assert_eq!(reply.features, ["analyzers", "blobs", "net"]);
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params) in [
         (method::RUN_COMMAND, run("echo", json!({}), None)),
@@ -268,7 +269,7 @@ fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     assert_eq!(e.kind(), Some("io"), "the one it has runs");
     let none = start(Hooks::new());
     let reply: HelloReply = none.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert!(reply.features.is_empty());
+    assert_eq!(reply.features, ["blobs", "net"], "only the SDK's own");
     none.stop();
     s.stop();
 }
@@ -421,7 +422,8 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
     let others =
         vec!["describe", "command/run", "track/analyze", "export/write", "op/plan", "tracks.query", "shutdown"];
     let plugin = PluginInfo { id: manifest.id.clone(), version: manifest.version.clone() };
-    let features = ["commands", "operations", "analyzers", "exporters"].map(String::from).to_vec();
+    // And the SDK's own.
+    let features = ["commands", "operations", "analyzers", "exporters", "blobs", "net"].map(String::from).to_vec();
     let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features };
     let mut greeted = false;
     for _ in 0..tc.draw(gs::integers::<usize>().max_value(6)) {
@@ -719,4 +721,36 @@ fn cancelling_a_hook_reaches_it_and_its_callback(tc: TestCase) {
         assert_eq!(p.wait::<Value>(), Err(RpcError::closed()));
     }
     s.served.join().unwrap();
+}
+
+/// A hook fetches through the host (`net/fetch`, its request as the host gets it), and sends a
+/// view's rows and items in parts, which reach the host's request before its answer, in order.
+#[test]
+fn a_hook_fetches_through_the_host_and_sends_its_rows_in_parts() {
+    let s = greeted(Hooks::new().on(|_: RunCommand, host: &Host| {
+        host.partial_rows(vec![vec![json!("first")]]);
+        host.partial_items(vec![crate::ListItem { label: "an item".into(), detail: None }]);
+        let fetched =
+            host.fetch(&Fetch { into_blob: Some("/scratch/a.jpg".into()), ..Fetch::get("https://a.org/x") })?;
+        host.partial_rows(vec![vec![json!("second")], vec![json!(fetched.status)]]);
+        Ok(serde_json::to_value(fetched).expect("JSON"))
+    }));
+    let pending = s.host.send_request_reporting(method::RUN_COMMAND, &run("echo", json!({}), None)).unwrap();
+    let Incoming::Request(req) = s.next() else { panic!("not a callback") };
+    assert_eq!(req.method, method::NET_FETCH);
+    assert_eq!(req.params, json!({ "url": "https://a.org/x", "method": "GET", "into_blob": "/scratch/a.jpg" }));
+    let answer = json!({ "status": 200, "headers": { "content-type": "image/jpeg" }, "blob": "/scratch/a.jpg" });
+    s.host.respond(&req.id, Ok(answer.clone()));
+    assert_eq!(pending.wait_timeout::<Value>(Duration::from_secs(10)).unwrap().unwrap(), answer);
+    let parts: Vec<(Vec<Vec<Value>>, Vec<String>)> =
+        pending.partials().map(|p| (p.rows, p.items.into_iter().map(|i| i.label).collect())).collect();
+    assert_eq!(
+        parts,
+        [
+            (vec![vec![json!("first")]], vec![]),
+            (vec![], vec!["an item".to_string()]),
+            (vec![vec![json!("second")], vec![json!(200)]], vec![])
+        ]
+    );
+    s.stop();
 }

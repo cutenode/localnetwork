@@ -944,8 +944,9 @@ impl Store {
 
     /// Delete what nothing uses: snapshots of no library the store has (unless labelled, a
     /// library's latest, or a parent of a snapshot that stays), then the stored files no
-    /// remaining snapshot lists, what writes cut off by a crash left among them, and caches no
-    /// version of locallibrary reads any more (see `audio_cache::unread`). Every
+    /// remaining snapshot lists, what writes cut off by a crash left among them, caches no
+    /// version of locallibrary reads any more (see `audio_cache::unread`), and plugins' scratch
+    /// folders a stopped host left (see `plugin::abandoned_scratch`). Every
     /// snapshot of a library stays, whether its latest reaches it or not (a drive back from a set
     /// is saved beside it, see [`crate::sync::pull_beside`]): which of them go is `store prune`'s
     /// choice ([`crate::retention`]). A manifest that can't be read hides which library it
@@ -954,9 +955,11 @@ impl Store {
     pub fn gc(&self, dry_run: bool) -> Result<GcReport> {
         let g = self.garbage(&FxHashSet::default())?;
         let leftovers = self.leftovers()?;
-        // Their files count as files nothing uses.
-        let unread: Vec<(PathBuf, (usize, u64, usize))> =
-            crate::audio_cache::unread(self).into_iter().map(|d| (d.clone(), crate::space::dir_size(&d))).collect();
+        let scratch = crate::plugin::abandoned_scratch(self);
+        // Their files count as files nothing uses, as do those of plugins' scratch folders.
+        let unread: Vec<(PathBuf, (usize, u64, usize))> = (crate::audio_cache::unread(self).iter().chain(&scratch))
+            .map(|d| (d.clone(), crate::space::dir_size(d)))
+            .collect();
         let report = GcReport {
             removed_snapshots: g.snapshots.len(),
             removed_objects: g.objects.len() + leftovers.len() + unread.iter().map(|(_, (n, ..))| n).sum::<usize>(),
@@ -981,6 +984,9 @@ impl Store {
         }
         for (d, _) in &unread {
             fs::remove_dir_all(d).at(d)?;
+        }
+        for d in &scratch {
+            fsutil::remove_if_exists(&d.with_extension("lock"))?;
         }
         if let Some(pruned) = g.pruned {
             fsutil::write_json_atomic(&self.root.join("pruned.json"), &pruned)?;

@@ -261,7 +261,12 @@ jobs:
           path: .hegel
           key: hegel-${{ matrix.shard }}-${{ github.run_id }}
           restore-keys: hegel-${{ matrix.shard }}-
-      - run: cargo nextest run --workspace --locked --no-fail-fast --partition "$SHARD" --stress-duration 40m -E "$(tools/hegel-coverage.sh --print-filter)"
+      # The script prints the filtersets that pick the Hegel tests one per line, each its own
+      # `--filterset` here: one naming every test would outgrow Linux's 128 KiB cap on an argument.
+      - run: |
+          printed=$(tools/hegel-coverage.sh --print-filter)
+          mapfile -t filtersets <<<"$printed"
+          cargo nextest run --workspace --locked --no-fail-fast --partition "$SHARD" --stress-duration 40m "${filtersets[@]/#/--filterset=}"
       - if: ${{ !cancelled() }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

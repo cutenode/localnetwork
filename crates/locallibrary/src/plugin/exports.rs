@@ -53,7 +53,8 @@ pub struct ExportFile {
 
 impl Plugins {
     /// Plans an export with one of a plugin's exporters, of the drive `source.drive` names (by id,
-    /// name or path) to `output` (absolute), with `options` (checked against the exporter's
+    /// name or path; the plugin is told where it's mounted, whatever `source.root` says) to
+    /// `output` (absolute), with `options` (checked against the exporter's
     /// schema; `null` is none), never on a drive or in the store. The plugin says which files it
     /// would write, writing none: the plan (operation `<plugin>.export.<exporter>`) is
     /// destructive when it would overwrite any, and stale once one of them changes. Applying it
@@ -78,9 +79,11 @@ impl Plugins {
             )));
         }
         outside_drives(output, store)?;
-        let (context, _) = slot.context(Context { drive: Some(source.drive.clone()), ..Context::default() }, store)?;
+        let (context, device) =
+            slot.context(Context { drive: Some(source.drive.clone()), ..Context::default() }, store)?;
         let options = super::fitting(declared.options.as_ref(), options, &context)?;
-        let source = ExportSource { drive: context.drive.clone().unwrap_or_default(), ..source };
+        let root = device.expect("a drive was named").root().to_path_buf();
+        let source = ExportSource { drive: context.drive.clone().unwrap_or_default(), root, ..source };
         let mut write =
             WriteExport { exporter: exporter.into(), source, output: output.into(), options, dry_run: true, context };
         let Exported { files, counts, notes, warnings } = slot.call(method::WRITE_EXPORT, &write, store, ctx)?;

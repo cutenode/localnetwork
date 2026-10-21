@@ -1109,6 +1109,16 @@ impl App {
     /// Run `make` in the background (something that changes nothing, like a check), with its
     /// progress in the header and esc to stop it; what it hands back finishes on the UI thread.
     pub(super) fn task(&mut self, label: String, make: impl FnOnce(&Ctx<'_>) -> Result<Done, Error> + Send + 'static) {
+        self.task_showing(label, |ctx, _| make(ctx));
+    }
+
+    /// [`App::task`], `make` handing the UI thread what to show as it goes (rows as they come),
+    /// while the task is still the one running.
+    pub(super) fn task_showing(
+        &mut self,
+        label: String,
+        make: impl FnOnce(&Ctx<'_>, &dyn Fn(Done)) -> Result<Done, Error> + Send + 'static,
+    ) {
         if let Some(j) = &self.job {
             let msg = format!("wait for {} to finish", j.label.to_lowercase());
             self.toast(msg, Level::Info);
@@ -1129,9 +1139,13 @@ impl App {
         });
         let tx = self.sender();
         let job = move || {
+            let shown = tx.clone();
+            let show = move |update| {
+                let _ = shown.send(Msg::Shown { job: id, update });
+            };
             let reporter = Reporter::new(tx, id, cancel.clone(), cancel.clone());
             let ctx = Ctx::new(&reporter, cancel);
-            Msg::Done { job: id, result: make(&ctx) }
+            Msg::Done { job: id, result: make(&ctx, &show) }
         };
         self.spawn_or(job, move |e| Msg::Done { job: id, result: Err(Error::Invalid(e)) });
     }

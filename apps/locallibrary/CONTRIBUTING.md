@@ -185,7 +185,11 @@ proxies ahead of it on `PATH` (`$(brew --prefix rustup)/bin` for Homebrew's rust
 function name, so not the fixed examples beside them in the `props_*` modules), and so fails below
 the same thresholds: the properties alone have to reach what the whole suite does. CI's `hegel` job
 runs it on Linux, from the test archive. It also needs `rg`. Code it reports as missed is code no
-property reaches: a place where a new or wider generator would test more.
+property reaches: a place where a new or wider generator would test more. It names every test in
+its nextest filter, so it packs them into filtersets of at most 96 KiB, each its own `-E`, under
+Linux's 128 KiB cap on a single argument, and fails if one file's tests alone need more.
+`tools/hegel-coverage.sh --print-filter` prints those filtersets one per line, for other runs of the
+same tests; the scheduled workflow's `hegel` job passes each as a `--filterset`.
 
 ## Property-based tests
 
