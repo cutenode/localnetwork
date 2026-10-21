@@ -273,28 +273,41 @@ fn suggested_file(store: &Store) -> std::path::PathBuf {
     store.root().join("plugins").join("suggested.json")
 }
 
-/// Keeps a plugin's suggestion (one with an operation) for the player to offer once it's open,
-/// as the `watch` agent does with what it's told: the newest [`MAX_SUGGESTED`].
-pub fn keep_suggested(store: &Store, notice: &PluginNotice) -> Result<()> {
+/// The suggestions kept for the player to offer, oldest first: none when none are kept, and an
+/// error when the file they're kept in can't be read (it's left as it is).
+pub fn suggested(store: &Store) -> Result<Vec<PluginNotice>> {
     let _keeping = lock(&KEEPING);
-    let file = suggested_file(store);
-    let mut kept: Vec<PluginNotice> = fsutil::read_json_opt(&file).ok().flatten().unwrap_or_default();
-    kept.push(notice.clone());
-    let over = kept.len().saturating_sub(MAX_SUGGESTED);
-    kept.drain(..over);
-    let dir = file.parent().expect("in a folder");
-    std::fs::create_dir_all(dir).at(dir)?;
-    fsutil::write_json_atomic(&file, &kept)
+    Ok(fsutil::read_json_opt(&suggested_file(store))?.unwrap_or_default())
 }
 
-/// The suggestions kept for the player ([`keep_suggested`]), oldest first, no longer kept once
-/// taken. None when they can't be read.
-pub fn take_suggested(store: &Store) -> Result<Vec<PluginNotice>> {
+/// `change`s the suggestions kept, and answers them as they're kept now.
+fn change_kept(store: &Store, change: impl FnOnce(&mut Vec<PluginNotice>)) -> Result<Vec<PluginNotice>> {
     let _keeping = lock(&KEEPING);
     let file = suggested_file(store);
-    let kept = fsutil::read_json_opt(&file).ok().flatten().unwrap_or_default();
-    match std::fs::remove_file(&file) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e).at(&file),
-        _ => Ok(kept),
-    }
+    let mut kept = fsutil::read_json_opt(&file)?.unwrap_or_default();
+    change(&mut kept);
+    let dir = file.parent().expect("in a folder");
+    std::fs::create_dir_all(dir).at(dir)?;
+    fsutil::write_json_atomic(&file, &kept)?;
+    Ok(kept)
+}
+
+/// Keeps a plugin's suggestion (one with an operation) for the player to offer until it's
+/// reviewed or dismissed ([`forget_suggested`]), as the player and the `watch` agent do with what
+/// they're told: the newest [`MAX_SUGGESTED`]. Answers those kept now.
+pub fn keep_suggested(store: &Store, notice: &PluginNotice) -> Result<Vec<PluginNotice>> {
+    change_kept(store, |kept| {
+        kept.push(notice.clone());
+        kept.drain(..kept.len().saturating_sub(MAX_SUGGESTED));
+    })
+}
+
+/// No longer keeps a suggestion (the oldest the same as `notice`): it was reviewed or dismissed.
+/// Answers those kept now.
+pub fn forget_suggested(store: &Store, notice: &PluginNotice) -> Result<Vec<PluginNotice>> {
+    change_kept(store, |kept| {
+        if let Some(i) = kept.iter().position(|k| k == notice) {
+            kept.remove(i);
+        }
+    })
 }

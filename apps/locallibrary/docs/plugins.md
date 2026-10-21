@@ -85,9 +85,11 @@ is dropped, and its log says so), so a slow plugin never holds up the player, th
 
 A plugin may tell you something back, from an event or a service, and suggest one of its own
 operations: the player shows it as a message, and "review: ..." in the palette plans the
-operation, shown and asked about as any is (the newest 20 wait there); the sidecar sends it as a
-`plugin.notice` event; `watch` says it and keeps the suggestion for the player to offer once it's
-open. Nothing a plugin suggests is planned or applied unless you choose to.
+operation, shown and asked about as any is, or "dismiss: ..." lets it go. Suggestions are kept in
+the store until you do either (the newest 20), so they're still there when the player opens
+again; `watch` says what it's told and keeps its suggestions for the player the same way. The
+sidecar sends it as a `plugin.notice` event. Nothing a plugin suggests is planned or applied
+unless you choose to.
 
 ## Export formats
 

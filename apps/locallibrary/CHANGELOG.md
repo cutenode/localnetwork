@@ -245,9 +245,9 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   that never holds them up; and run services, turned on with `plugin settings ID services.NAME on`
   and run by the player, the sidecar and `watch` (never a command run once), started again when
   they fail and left off after five failures in a row. What a plugin tells you back is a message
-  in the player (its suggested operation reviewed from the palette, planned and confirmed as any),
-  a `plugin.notice` event in the sidecar and a line of `watch`, which keeps the suggestion for the
-  player. In the player, plugins' commands,
+  in the player (its suggested operation reviewed from the palette, planned and confirmed as any,
+  or dismissed, and kept until it is), a `plugin.notice` event in the sidecar and a line of
+  `watch`, which keeps the suggestion for the player. In the player, plugins' commands,
   operations and export formats are in the palette, and commands and operations in the menus their
   manifests name (`where`: the actions menu for the tracks selected or a playlist, a drive's menu),
   asking for their params or options in a form drawn from their schemas, a param from the selection

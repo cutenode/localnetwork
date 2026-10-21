@@ -59,7 +59,7 @@ pub use apply::ApplyFields;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
-pub use events::{Event, MAX_SUGGESTED, PluginNotice, keep_suggested, take_suggested};
+pub use events::{Event, MAX_SUGGESTED, PluginNotice, forget_suggested, keep_suggested, suggested};
 pub use exports::{ExportFile, PluginExport};
 pub use operations::OpPlanned;
 pub use providers::{

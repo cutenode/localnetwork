@@ -4,7 +4,7 @@
 use std::time::{Duration, Instant};
 
 use locallibrary::api::{JobEvent, Notice, WatchAction};
-use locallibrary::plugin::{Event, Options, PluginNotice, keep_suggested, take_suggested};
+use locallibrary::plugin::{Event, Options, PluginNotice, forget_suggested, keep_suggested, suggested};
 use locallibrary::watch::{MountedDrive, WatchEvent};
 use loclib_plugin::{EventName, Suggested};
 use serde_json::json;
@@ -190,8 +190,9 @@ fn what_a_plugin_tells_the_user_is_a_short_line() {
     }
 }
 
-/// What a plugin tells the user is suggestion only when it's one of its operations; the watch
-/// agent keeps suggestions for the player, which takes them once.
+/// What a plugin tells the user is suggestion only when it's one of its operations; the player
+/// and the watch agent keep suggestions until each is reviewed or dismissed, the newest few. A
+/// file of them that can't be read is left as it is.
 #[test]
 fn a_suggestion_is_one_of_the_plugins_operations() {
     let manifest = listening(&["plan.applied"]).replace("name = \"playlist\"", "name = \"other\"");
@@ -203,16 +204,23 @@ fn a_suggestion_is_one_of_the_plugins_operations() {
     assert_eq!((notice.message.as_str(), notice.operation.is_none()), ("heard plan.applied", true));
     let logs = f.logs.lock().unwrap().clone();
     assert!(logs.iter().any(|(_, l)| l == "it suggests \"playlist\", which isn't one of its operations"));
-    assert_eq!(take_suggested(&f.store).unwrap(), []);
-    let suggested = Suggested { name: "playlist".into(), params: json!({}) };
+    assert_eq!(suggested(&f.store).unwrap(), []);
+    let suggests = Suggested { name: "playlist".into(), params: json!({}) };
+    let kept = |n: usize| PluginNotice { message: n.to_string(), operation: Some(suggests.clone()), ..notice.clone() };
     for n in 0..locallibrary::plugin::MAX_SUGGESTED + 2 {
-        let kept = PluginNotice { message: n.to_string(), operation: Some(suggested.clone()), ..notice.clone() };
-        keep_suggested(&f.store, &kept).unwrap();
+        keep_suggested(&f.store, &kept(n)).unwrap();
     }
-    let taken = take_suggested(&f.store).unwrap();
-    assert_eq!(taken.len(), locallibrary::plugin::MAX_SUGGESTED);
-    assert_eq!(taken[0].message, "2", "the oldest go");
-    assert_eq!(take_suggested(&f.store).unwrap(), [], "taken once");
+    let all = suggested(&f.store).unwrap();
+    assert_eq!(all.len(), locallibrary::plugin::MAX_SUGGESTED);
+    assert_eq!(all[0].message, "2", "the oldest go");
+    assert_eq!(suggested(&f.store).unwrap(), all, "kept until reviewed or dismissed");
+    let left = forget_suggested(&f.store, &kept(5)).unwrap();
+    assert_eq!(left, [&all[..3], &all[4..]].concat());
+    assert_eq!(forget_suggested(&f.store, &kept(0)).unwrap(), left, "one not kept changes nothing");
+    let file = f.store.root().join("plugins/suggested.json");
+    std::fs::write(&file, "not json").unwrap();
+    assert!(suggested(&f.store).is_err() && keep_suggested(&f.store, &kept(1)).is_err());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "not json");
 }
 
 /// Shutting down sends the events still waiting first, as a command run once needs.
@@ -252,19 +260,36 @@ fn a_plugin_hears_what_it_listens_for_in_order(tc: hegel::TestCase) {
     assert_eq!(heard(&f), expected);
 }
 
-/// For any suggestions kept, the player takes the newest [`MAX_SUGGESTED`], oldest first.
+/// For any suggestions kept and forgotten, what's kept is the newest [`MAX_SUGGESTED`] kept,
+/// oldest first, without each forgotten (the oldest the same as it).
 #[hegel::test(test_cases = 20)]
-fn the_newest_suggestions_are_kept(tc: hegel::TestCase) {
+fn the_newest_suggestions_are_kept_until_forgotten(tc: hegel::TestCase) {
     use hegel::generators as gs;
     use locallibrary::plugin::MAX_SUGGESTED;
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open_or_init(dir.path()).unwrap();
-    let messages: Vec<String> = tc.draw(gs::vecs(gs::text().max_size(8)).max_size(MAX_SUGGESTED * 2));
+    let changes: Vec<(bool, String)> = tc.draw(
+        gs::vecs(gs::tuples!(gs::booleans(), gs::sampled_from(vec![String::new(), "a".into(), "b".into()])))
+            .max_size(MAX_SUGGESTED * 3),
+    );
     let operation = Some(Suggested { name: "playlist".into(), params: json!({}) });
-    for message in &messages {
-        let notice = PluginNotice { plugin: "echo".into(), message: message.clone(), operation: operation.clone() };
-        keep_suggested(&store, &notice).unwrap();
+    let mut expected: Vec<PluginNotice> = Vec::new();
+    for (keep, message) in changes {
+        let notice = PluginNotice { plugin: "echo".into(), message, operation: operation.clone() };
+        let now = match keep {
+            true => {
+                expected.push(notice.clone());
+                expected.drain(..expected.len().saturating_sub(MAX_SUGGESTED));
+                keep_suggested(&store, &notice).unwrap()
+            }
+            false => {
+                if let Some(i) = expected.iter().position(|n| *n == notice) {
+                    expected.remove(i);
+                }
+                forget_suggested(&store, &notice).unwrap()
+            }
+        };
+        assert_eq!(now, expected);
     }
-    let taken: Vec<String> = take_suggested(&store).unwrap().into_iter().map(|n| n.message).collect();
-    assert_eq!(taken, messages[messages.len().saturating_sub(MAX_SUGGESTED)..]);
+    assert_eq!(suggested(&store).unwrap(), expected);
 }

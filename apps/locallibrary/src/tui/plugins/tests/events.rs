@@ -1,17 +1,45 @@
 //! What plugins tell the user in the player: a message, and what they suggest, waiting in the
-//! palette to be reviewed, planned and confirmed as any plan.
+//! palette (and the store) to be reviewed, planned and confirmed as any plan, or dismissed.
 
-use locallibrary::plugin::PluginNotice;
+use std::path::Path;
+
+use locallibrary::plugin::{MAX_SUGGESTED, PluginNotice, suggested};
 use loclib_plugin::Suggested;
 use serde_json::json;
 
-use super::super::super::app::Msg;
-use super::super::super::app::View as Screen;
 use super::super::super::app::testing::{
     app_on, blank, confirming, demo_drive, echo_plugin, last_message, mounted, press, say_yes, wait,
 };
+use super::super::super::app::{App, View as Screen};
 use super::super::super::ui::screen;
 use super::{entry, picker, settings_form};
+
+/// Echo's suggestion of its `playlist` operation, making the playlist `name`.
+fn suggests(message: &str, name: &str) -> PluginNotice {
+    PluginNotice {
+        plugin: "echo".into(),
+        message: message.into(),
+        operation: Some(Suggested { name: "playlist".into(), params: json!({ "name": name }) }),
+    }
+}
+
+/// `notices`, told the player as a plugin tells them, then shown.
+fn tell(app: &mut App, notices: Vec<PluginNotice>) {
+    let (told, last) = (app.plugin_notices(), notices.last().map(|n| n.message.clone()));
+    notices.into_iter().for_each(|n| told(n));
+    wait(app, |a| last.as_ref().is_none_or(|l| a.log.iter().any(|(m, ..)| m.starts_with(&format!("Echo: {l}")))));
+}
+
+/// The messages of what's suggested now, in the player, oldest first.
+fn waiting(app: &App) -> Vec<&str> {
+    app.suggested.iter().map(|n| n.message.as_str()).collect()
+}
+
+/// The messages of the suggestions kept in the store at `root`.
+fn kept(root: &Path) -> Vec<String> {
+    let store = locallibrary::Store::open(root).unwrap();
+    suggested(&store).unwrap().into_iter().map(|n| n.message).collect()
+}
 
 /// What a plugin says is a message; what it suggests waits in the palette, newest first, and
 /// reviewed it's planned and confirmed as any plan, then no longer offered. Only the newest few
@@ -21,15 +49,11 @@ fn what_a_plugin_suggests_is_reviewed_from_the_palette() {
     let (dir, root) = demo_drive();
     echo_plugin(dir.path());
     let mut app = app_on(&root);
-    let suggests = |message: &str, name: &str| PluginNotice {
-        plugin: "echo".into(),
-        message: message.into(),
-        operation: Some(Suggested { name: "playlist".into(), params: json!({ "name": name }) }),
-    };
     let said = PluginNotice { plugin: "echo".into(), message: "just saying".into(), operation: None };
-    app.handle_msg(Msg::Notice(vec![suggests("older", "Old"), suggests("make Suggested", "Suggested"), said]));
+    tell(&mut app, vec![suggests("older", "Old"), suggests("make Suggested", "Suggested"), said]);
     assert_eq!(last_message(&app), "Echo: just saying");
     assert!(app.log.iter().any(|(m, ..)| m == "Echo: make Suggested (: to review)"));
+    wait(&mut app, |a| waiting(a) == ["older", "make Suggested"]);
     press(&mut app, ":");
     let reviews: Vec<&str> =
         picker(&app).items.iter().filter(|i| i.label.starts_with("review: ")).map(|i| i.label.as_str()).collect();
@@ -45,13 +69,37 @@ fn what_a_plugin_suggests_is_reviewed_from_the_palette() {
     say_yes(&mut app);
     let library = locallibrary::Device::open(&root).unwrap().library().unwrap();
     assert!(library.playlists.iter().any(|p| p.name == "Suggested"));
-    assert_eq!(app.suggested.iter().map(|n| n.message.as_str()).collect::<Vec<_>>(), ["older"]);
+    assert_eq!(waiting(&app), ["older"]);
 
-    let many: Vec<PluginNotice> =
-        (0..locallibrary::plugin::MAX_SUGGESTED + 3).map(|n| suggests(&n.to_string(), "N")).collect();
-    app.handle_msg(Msg::Notice(many));
-    assert_eq!(app.suggested.len(), locallibrary::plugin::MAX_SUGGESTED);
-    assert_eq!(app.suggested.front().map(|n| n.message.as_str()), Some("3"), "the oldest go");
+    let many: Vec<PluginNotice> = (0..MAX_SUGGESTED + 3).map(|n| suggests(&n.to_string(), "N")).collect();
+    tell(&mut app, many);
+    wait(&mut app, |a| a.suggested.len() == MAX_SUGGESTED);
+    assert_eq!(waiting(&app)[0], "3", "the oldest go");
+}
+
+/// What a plugin suggests is kept in the store until it's reviewed or dismissed: the player
+/// opened again offers what it didn't, and one dismissed is gone for good.
+#[test]
+fn a_suggestion_waits_until_its_reviewed_or_dismissed() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let mut app = app_on(&root);
+    tell(&mut app, vec![suggests("make First", "First"), suggests("make Second", "Second")]);
+    drop(app);
+    let mut app = app_on(&root);
+    app.start_plugins();
+    wait(&mut app, |a| waiting(a) == ["make First", "make Second"]);
+    press(&mut app, ":dismiss: make First\n");
+    assert_eq!(last_message(&app), "suggestion dismissed");
+    assert_eq!(waiting(&app), ["make Second"]);
+    let store = app.store_root.clone();
+    wait(&mut app, |_| kept(&store) == ["make Second"]);
+    let mut app = app_on(&root);
+    app.start_plugins();
+    wait(&mut app, |a| waiting(a) == ["make Second"]);
+    press(&mut app, ":review: make Second\n");
+    assert_eq!(confirming(&mut app), ("echo.playlist".into(), "make the playlist Second".into()));
+    wait(&mut app, |_| kept(&store).is_empty());
 }
 
 /// A plugin's service is a switch in its settings form: turned on and saved, it runs; turned
@@ -87,27 +135,22 @@ fn the_suggestion_picked_is_planned_as_others_come() {
     let (dir, root) = demo_drive();
     echo_plugin(dir.path());
     let mut app = app_on(&root);
-    let suggests = |message: &str, name: &str| PluginNotice {
-        plugin: "echo".into(),
-        message: message.into(),
-        operation: Some(Suggested { name: "playlist".into(), params: json!({ "name": name }) }),
-    };
-    app.handle_msg(Msg::Notice(vec![suggests("oldest", "Oldest"), suggests("make Picked", "Picked")]));
+    tell(&mut app, vec![suggests("oldest", "Oldest"), suggests("make Picked", "Picked")]);
+    wait(&mut app, |a| a.suggested.len() == 2);
     press(&mut app, ":");
-    let newer = (1..locallibrary::plugin::MAX_SUGGESTED).map(|n| suggests(&format!("newer {n}"), "Newer")).collect();
-    app.handle_msg(Msg::Notice(newer));
-    assert_eq!(app.suggested.front().map(|n| n.message.as_str()), Some("make Picked"), "the oldest went");
-    press(&mut app, "make Picked\n");
+    tell(&mut app, (1..MAX_SUGGESTED).map(|n| suggests(&format!("newer {n}"), "Newer")).collect());
+    wait(&mut app, |a| a.suggested.first().is_some_and(|n| n.message == "make Picked"));
+    press(&mut app, "review: make Picked\n");
     assert_eq!(confirming(&mut app), ("echo.playlist".into(), "make the playlist Picked".into()));
     press(&mut app, "\u{1b}");
     wait(&mut app, |a| a.modal.is_none());
     press(&mut app, ":");
-    let late = (0..locallibrary::plugin::MAX_SUGGESTED).map(|n| suggests(&format!("late {n}"), "Late")).collect();
-    app.handle_msg(Msg::Notice(late));
-    press(&mut app, "newer\n");
+    tell(&mut app, (0..MAX_SUGGESTED).map(|n| suggests(&format!("late {n}"), "Late")).collect());
+    wait(&mut app, |a| a.suggested.first().is_some_and(|n| n.message == "late 0"));
+    press(&mut app, "review: newer\n");
     wait(&mut app, |a| a.job.is_none());
     assert!(app.modal.is_none(), "what went isn't planned");
-    assert_eq!(app.suggested.len(), locallibrary::plugin::MAX_SUGGESTED);
+    assert_eq!(app.suggested.len(), MAX_SUGGESTED);
 }
 
 /// Something the player's drive poll notices first, before anything else used the plugins, is
