@@ -1186,6 +1186,35 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     }
 }
 
+/// Whatever themes are chosen from the palette, in any order, the player draws in the last one
+/// chosen (its accent on screen, no other's), says so, and keeps it for next time; the default
+/// too.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn the_theme_chosen_last_is_drawn_and_kept(tc: TestCase) {
+    plugins_once();
+    let (mut app, _store) = blank(Screen::Library);
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
+        press(&mut app, ":");
+        let (items, acts) = palette(&app);
+        let themes: Vec<usize> = (0..acts.len()).filter(|&i| matches!(acts[i], Act::Theme(_))).collect();
+        assert!(themes.len() > 1, "the default and echo's");
+        let i = tc.draw(gs::sampled_from(themes));
+        move_to(&mut app, i);
+        key(&mut app, KeyCode::Enter);
+        let Act::Theme(chosen) = acts[i] else { unreachable!() };
+        assert_eq!(super::super::theme::chosen().unwrap_or_default(), chosen);
+        assert_eq!(last_message(&app), format!("drawn in the {}", items[i].label));
+        assert_eq!(app.saved_state().theme.unwrap_or_default(), chosen);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 40)).unwrap();
+        terminal.draw(|f| super::super::ui::draw(f, &mut app)).unwrap();
+        let drawn = &terminal.backend().buffer().content;
+        for t in super::super::theme::themes() {
+            let accent = super::super::theme::rgb3(t.theme.accent);
+            assert_eq!(drawn.iter().any(|c| c.fg == accent), t.key == chosen, "{:?}'s accent, in {chosen:?}", t.key);
+        }
+    }
+}
+
 /// What choosing the plugin's entry for `act` does, and esc backing out of it (`columns` the
 /// fields' columns shown before, the drive the one open).
 fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged>) {
