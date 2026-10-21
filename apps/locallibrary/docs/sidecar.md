@@ -372,6 +372,15 @@ plugin starts when it's first used and stops once it's idle a while, and when th
 plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the plugin named
 in the message. Each kind of thing plugins add is below, in a section of its own.
 
+### Analysis
+
+`plugins.apply_analysis.plan {plugin, analyzer, drive, parts: ["grid" | "phrases" | "waveform"],
+tracks?, overwrite?}` plans writing the beat grid, phrases and waveform an analyzer worked out into
+the tracks' analysis files (each track's `set_analysis` edit, a grid with its `edit_tracks` BPM),
+applied by `plugins.apply_analysis.apply {plan_id}`; tracks it can't write to are left out with a
+warning. An operation's `set_analysis` edit (`{op, track, beats?, phrases?, waveform?: {blob}}`,
+the waveform a file in its scratch folder) needs `analysis:plan`.
+
 ### Analyzers
 
 `plugins.analyze {plugin, analyzer, drive, tracks?}` runs an analyzer on the drive's tracks (those

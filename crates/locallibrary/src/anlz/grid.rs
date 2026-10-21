@@ -9,9 +9,9 @@
 //! body (two bytes a beat: [pyrekordbox](https://github.com/dylanljones/pyrekordbox/blob/master/pyrekordbox/anlz/structs.py)
 //! calls the first `beat` and leaves the second unexplained, and in rekordbox 6 exports the first
 //! doesn't count beats in the bar) isn't understood, so it's never written: a new grid takes it out
-//! of the `.EXT`
-//! ([`without_extended_grid`]), leaving the file as rekordbox 5 exports were, without one. Moving
-//! a whole grid by some milliseconds keeps it ([`super::shift_times`]).
+//! of the `.EXT` ([`without_extended_grid`]) rather than leave one that contradicts it (how players
+//! take an `.EXT` without one is for players to show). Moving a whole grid by some milliseconds
+//! keeps it ([`super::shift_times`]).
 
 use super::tags::{only, put, section};
 use super::*;

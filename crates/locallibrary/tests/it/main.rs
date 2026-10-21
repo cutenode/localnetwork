@@ -20,6 +20,7 @@ mod schema;
 mod session;
 
 mod analysis;
+mod analysis_edit;
 mod artwork;
 mod check;
 mod clean;

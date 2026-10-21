@@ -1,17 +1,26 @@
 //! Plugins' analyzers (`track/analyze`): each track's audio file is handed to the plugin (read
 //! only), a few at a time, and the fields it answers, once they're of the types the analyzer
-//! declares, are kept in the [`crate::fields`] store for the analyzer's version.
+//! declares, are kept in the [`crate::fields`] store for the analyzer's version; its beat grid,
+//! phrases and waveform (feature `analysis`) in the [`crate::fields::overlay`] store beside it,
+//! the waveform read from the file its answer names in the request's scratch folder.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use loclib_plugin::{Analysis, AnalyzeTrack, Context, Track, method};
+use std::io::Read;
+
+use indexmap::IndexMap;
+
+use loclib_plugin::{Analysis, AnalyzeTrack, Context, FieldType, Output, Track, method};
 use schemars::JsonSchema;
 use serde::Serialize;
 
 use super::Plugins;
+use super::blobs::Scratch;
+use super::process::Slot;
+use crate::anlz::{self, Bands};
 use crate::audio_cache::TrackFailure;
-use crate::fields::{Analyzer, FieldStore};
+use crate::fields::{Analyzer, FieldStore, Fields, Overlay, OverlayStore};
 use crate::progress::{Ctx, Event, NoProgress, Phase};
 use crate::store::Store;
 use crate::{Error, Result, paths};
@@ -59,7 +68,7 @@ impl Plugins {
             }
             None => library.tracks.iter().collect::<Vec<_>>(),
         };
-        let fields = FieldStore::in_store(store);
+        let (fields, overlays) = (FieldStore::in_store(store), OverlayStore::in_store(store));
         let key = Analyzer { plugin: plugin.into(), analyzer: analyzer.into(), version: declared.version.clone() };
         let mut done = Analyzed::default();
         let mut todo = Vec::new();
@@ -94,7 +103,7 @@ impl Plugins {
                 let Some(track) = todo.get(i) else { break };
                 ctx.emit(Event::Item { phase: Phase::Analyze, path: track.file_path.clone(), bytes: 0 });
                 let req = AnalyzeTrack { analyzer: analyzer.into(), track: track.clone(), context: context.clone() };
-                let answer = slot.call::<Analysis>(method::ANALYZE_TRACK, &req, Some(store), &quiet).and_then(|a| {
+                let read = |a: Analysis, scratch: &Scratch, _: &_| {
                     let wrong = a.fields.iter().find_map(|(name, v)| match declared.fields.get(name) {
                         None => Some(format!("its field {name} isn't one {analyzer} declares")),
                         Some(t) if !t.accepts(v) => {
@@ -110,14 +119,20 @@ impl Plugins {
                         return Err(slot.misbehaved(wrong));
                     }
                     // In the order the analyzer declares them (they're columns), whatever the
-                    // answer's.
-                    let mut fields = a.fields;
-                    fields.sort_by_cached_key(|name, _| declared.fields.get_index_of(name));
-                    Ok(fields)
-                });
+                    // answer's; the structured ones apart.
+                    let (structured, mut columns): (Fields, Fields) =
+                        a.fields.into_iter().partition(|(name, _)| declared.fields[name].is_structured());
+                    columns.sort_by_cached_key(|name, _| declared.fields.get_index_of(name));
+                    let overlay = slot.overlay(&structured, &declared.fields, scratch)?;
+                    Ok((columns, overlay))
+                };
+                let answer = slot.call_with(method::ANALYZE_TRACK, &req, Some(store), &quiet, &|_| {}, read);
                 match answer {
-                    Ok(answer) => {
-                        fields.put(&track.audio_path, &key, &answer)?;
+                    Ok((columns, overlay)) => {
+                        fields.put(&track.audio_path, &key, &columns)?;
+                        if !overlay.is_empty() {
+                            overlays.put(&track.audio_path, &key, &overlay)?;
+                        }
                         analyzed.fetch_add(1, Ordering::SeqCst);
                     }
                     Err(Error::Cancelled) => return Err(Error::Cancelled),
@@ -150,5 +165,44 @@ impl Plugins {
         done.failures = failures.into_iter().map(|(_, f)| f).collect();
         done.failed += done.failures.len();
         Ok(done)
+    }
+}
+
+impl Slot {
+    /// An analyzer's structured fields as the overlay store keeps them (of the types `declared`
+    /// says, checked already): its waveform read from `scratch` and put at 150 columns a second,
+    /// its beat grid one the analysis files can hold. Null ones are left out.
+    fn overlay(
+        &self,
+        structured: &Fields,
+        declared: &IndexMap<String, FieldType>,
+        scratch: &Scratch,
+    ) -> Result<Overlay> {
+        let mut o = Overlay::default();
+        for (name, value) in structured {
+            let output =
+                Output::of(declared[name], value).map_err(|why| self.misbehaved(format!("its {name}: {why}")))?;
+            match output {
+                None => {}
+                Some(Output::Beats(beats)) if beats.is_empty() => {}
+                Some(Output::Beats(beats)) => {
+                    let checked =
+                        anlz::checked_grid(&beats).map_err(|e| self.misbehaved(format!("its {name}: {e}")))?;
+                    o.beats = Some(checked);
+                }
+                Some(Output::Phrases(phrases)) => o.phrases = Some(phrases),
+                Some(Output::Waveform(w)) => {
+                    let mut bytes = Vec::new();
+                    let read =
+                        scratch.blob(&w.blob).and_then(|mut f| f.read_to_end(&mut bytes).map_err(|e| e.to_string()));
+                    read.map_err(|why| self.misbehaved(format!("its {name}: {why}")))?;
+                    let bands = Bands::unpack(&bytes).filter(|b| !b.0.is_empty()).ok_or_else(|| {
+                        self.misbehaved(format!("its {name} isn't three bytes a column, at least one column"))
+                    })?;
+                    o.waveform = Some(anlz::at_detail_rate(&bands, w.columns_per_sec));
+                }
+            }
+        }
+        Ok(o)
     }
 }

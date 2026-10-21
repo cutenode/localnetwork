@@ -84,6 +84,11 @@ fn find<'a>(secs: &'a [SectionRef], tag: &[u8; 4]) -> Option<&'a SectionRef> {
     secs.iter().find(|s| &s.tag == tag)
 }
 
+/// Whether an analysis file has a section tagged `tag`.
+pub fn has_section(bytes: &[u8], tag: &[u8; 4]) -> Result<bool> {
+    Ok(find(&sections(bytes)?, tag).is_some())
+}
+
 fn utf16be(bytes: &[u8]) -> String {
     let units: Vec<u16> =
         bytes.chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).take_while(|&u| u != 0).collect();

@@ -160,11 +160,14 @@ impl Test {
             });
         }
         if req.analyzer == "heard" {
-            // The fields are what the test wrote in the audio file, as JSON.
+            // The fields are what the test wrote in the audio file, as JSON, once the files its
+            // `blobs` give are in the scratch folder (a waveform's).
             let text =
                 std::fs::read_to_string(&req.track.audio_path).map_err(|e| RpcError::failed("io", e.to_string()))?;
-            let fields = serde_json::from_str(&text).map_err(|e| RpcError::failed("parse", e.to_string()))?;
-            return Ok(Analysis { fields });
+            let mut heard: Value = serde_json::from_str(&text).map_err(|e| RpcError::failed("parse", e.to_string()))?;
+            write_blobs(&req.context, &heard)?;
+            heard.as_object_mut().map(|o| o.remove("blobs"));
+            return Ok(Analysis { fields: params(heard)? });
         }
         if req.analyzer == "order" {
             let audio = &req.track.audio_path;

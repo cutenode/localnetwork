@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use locallibrary::anlz::{self, PhraseKind, TrackAnalysis};
 use locallibrary::api;
 use locallibrary::error::panic_text;
-use locallibrary::fields::TrackValues;
+use locallibrary::fields::{OverlayStore, TrackValues};
 use locallibrary::model::normalize;
 use locallibrary::op::AnyPlanned;
 use locallibrary::query::{FieldName, Filter, SortField, SortKey};
@@ -448,24 +448,33 @@ pub struct Details {
 }
 
 /// What starting a track reads in the background: its analysis files and artwork from the
-/// drive, and its matches and playlists from the library.
+/// drive (what they lack from what plugins' analyzers kept in the store, if they have it), and its
+/// matches and playlists from the library.
 #[derive(Default)]
 pub struct TrackInfo {
     analysis: TrackAnalysis,
+    /// What of the analysis is a plugin's, not the drive's: a line to show.
+    from_plugins: Option<String>,
     art: Option<Art>,
     matches: Option<Matches>,
     playlists: Vec<String>,
 }
 
-fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>) -> TrackInfo {
+fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>, store_root: &Path) -> TrackInfo {
     let device = Device::open(root).ok();
-    let analysis = device.as_ref().map(|d| anlz::load(d, track)).unwrap_or_default();
+    let mut analysis = device.as_ref().map(|d| anlz::load(d, track)).unwrap_or_default();
+    let analyzers = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
+    let audio = device.as_ref().and_then(|d| d.checked_path(&paths::key(&track.file_path)).ok());
+    let from_plugins = audio.filter(|_| !analyzers.is_empty()).and_then(|audio| {
+        let overlays = OverlayStore::in_store(&Store::open(store_root).ok()?);
+        overlays.first(&audio, &analyzers).fill(&mut analysis)
+    });
     let art = (device.as_ref().and_then(|d| artwork::file_on_drive(d, track)))
         .and_then(|f| std::fs::read(f).ok())
         .and_then(|b| Art::decode(&b));
     let playlists = library.as_deref().map(|lib| playlists_of(lib, track)).unwrap_or_default();
     let matches = library.map(|lib| Matches::find(lib, root.to_path_buf(), track, 40));
-    TrackInfo { analysis, art, matches, playlists }
+    TrackInfo { analysis, from_plugins, art, matches, playlists }
 }
 
 pub struct NowPlaying {
@@ -475,6 +484,8 @@ pub struct NowPlaying {
     pub drive: String,
     pub root: PathBuf,
     pub analysis: TrackAnalysis,
+    /// What of the analysis is a plugin's, not the drive's: a line to show.
+    pub from_plugins: Option<String>,
     pub art: Option<Art>,
     pub duration: Duration,
     pub key: Option<Camelot>,
@@ -1824,6 +1835,7 @@ impl App {
                     let info = *info;
                     now.phrases = phrase_spans(&info.analysis, now.duration);
                     now.analysis = info.analysis;
+                    now.from_plugins = info.from_plugins;
                     now.art = info.art;
                     now.matches = info.matches;
                     now.playlists = info.playlists;
@@ -2518,7 +2530,7 @@ impl App {
     fn open(&mut self, track: Track, starts: bool) -> NowPlaying {
         let id = self.next_id();
         let root = self.queue.root.clone();
-        let (t, r, auto_cue) = (track.clone(), root.clone(), self.deck.auto_cue);
+        let (t, r, auto_cue, store_root) = (track.clone(), root.clone(), self.deck.auto_cue, self.store_root.clone());
         // Matches and playlists need the drive's library, which is open unless the player
         // moved to another drive since the queue was made.
         let library = self.loaded.as_ref().filter(|l| l.root() == self.queue.root).map(|l| l.library.clone());
@@ -2531,7 +2543,7 @@ impl App {
                 Ok(file)
             });
             if o.send(Msg::Opened(id, file.map_err(|e| format!("{e:#}")))) {
-                o.send(Msg::TrackInfo(id, Box::new(track_info(&r, &t, library))));
+                o.send(Msg::TrackInfo(id, Box::new(track_info(&r, &t, library, &store_root))));
             }
         };
         self.opener.open(&self.tx, id, starts, Box::new(job));
@@ -2543,6 +2555,7 @@ impl App {
             drive: self.queue.drive.clone(),
             root,
             analysis: TrackAnalysis::default(),
+            from_plugins: None,
             art: None,
             phrases: Vec::new(),
             matches: None,
@@ -2865,6 +2878,7 @@ impl App {
             duration: Duration::from_secs(track.duration_secs as u64),
             track,
             analysis: TrackAnalysis::default(),
+            from_plugins: None,
             art: None,
             phrases: Vec::new(),
             matches: None,

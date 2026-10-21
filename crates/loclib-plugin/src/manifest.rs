@@ -225,6 +225,8 @@ pub enum Capability {
     TagsPlan,
     CuesPlan,
     ArtworkPlan,
+    /// Plan writing beat grids, phrases and waveforms into tracks' analysis files.
+    AnalysisPlan,
     /// `net:<host>`: it talks to this server through the host (`net/fetch`), or with
     /// `net:*.<domain>` to any server below that domain. Shown to the user; a native plugin can't
     /// be held to it.
@@ -233,7 +235,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability but `net:<host>`.
-    pub const NAMED: [Capability; 16] = [
+    pub const NAMED: [Capability; 17] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
         Capability::ArtworkRead,
@@ -250,6 +252,7 @@ impl Capability {
         Capability::TagsPlan,
         Capability::CuesPlan,
         Capability::ArtworkPlan,
+        Capability::AnalysisPlan,
     ];
 
     /// Its name, unless it's `net:<host>`.
@@ -271,6 +274,7 @@ impl Capability {
             Capability::TagsPlan => "tags:plan",
             Capability::CuesPlan => "cues:plan",
             Capability::ArtworkPlan => "artwork:plan",
+            Capability::AnalysisPlan => "analysis:plan",
             Capability::Net(_) => return None,
         })
     }
@@ -566,6 +570,7 @@ impl Manifest {
                 return Err(invalid(at, format!("{cli:?} is used twice")));
             }
         }
+        hooks::analysis::validate(self)?;
         hooks::commands::validate(self)?;
         hooks::operations::validate(self)?;
         hooks::analyzers::validate(self)?;

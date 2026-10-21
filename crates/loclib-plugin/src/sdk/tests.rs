@@ -96,7 +96,8 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
     let reply: HelloReply = s.host.request(method::HELLO, &hello("0.2.7", &["telepathy"])).unwrap();
     let plugin = PluginInfo { id: "echo".into(), version: "0.1.0".into() };
     // And the SDK's own.
-    let features = ["commands", "operations", "analyzers", "exporters", "providers", "blobs", "net", "choose"];
+    let features =
+        ["analysis", "commands", "operations", "analyzers", "exporters", "providers", "blobs", "net", "choose"];
     let features = features.map(String::from).to_vec();
     assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features });
     let again = s.call(method::HELLO, hello(PROTOCOL_VERSION, &[])).unwrap_err();
@@ -305,7 +306,7 @@ fn hooks_run_only_for_what_the_manifest_declares() {
 fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let s = start(Hooks::new().on(echo::analyze_track));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["analyzers", "blobs", "net", "choose"]);
+    assert_eq!(reply.features, ["analysis", "analyzers", "blobs", "net", "choose"]);
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params) in [
         (method::RUN_COMMAND, run("echo", json!({}), None)),
@@ -320,7 +321,7 @@ fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     assert_eq!(e.kind(), Some("io"), "the one it has runs");
     let none = start(Hooks::new());
     let reply: HelloReply = none.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["blobs", "net", "choose"], "only the SDK's own");
+    assert_eq!(reply.features, ["analysis", "blobs", "net", "choose"], "only the SDK's own");
     none.stop();
     s.stop();
 }
@@ -475,7 +476,8 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
         vec!["describe", "command/run", "track/analyze", "export/write", "op/plan", "tracks.query", "shutdown"];
     let plugin = PluginInfo { id: manifest.id.clone(), version: manifest.version.clone() };
     // And the SDK's own.
-    let features = ["commands", "operations", "analyzers", "exporters", "providers", "blobs", "net", "choose"];
+    let features =
+        ["analysis", "commands", "operations", "analyzers", "exporters", "providers", "blobs", "net", "choose"];
     let features = features.map(String::from).to_vec();
     let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features };
     let mut greeted = false;

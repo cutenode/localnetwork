@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use locallibrary::api::{self, LibraryCache, PluginFieldsRequest};
 use locallibrary::fields::roles;
 use locallibrary::fields::{FieldValue, PluginsFields, Role};
-use locallibrary::plugin::{Analyzed, ApplyFields};
+use locallibrary::plugin::{AnalysisPart, Analyzed, ApplyAnalysis, ApplyFields};
 use locallibrary::progress::Ctx;
 use serde::Serialize;
 
@@ -32,12 +32,17 @@ pub struct AnalyzeArgs {
     /// Only these tracks, by id (repeatable)
     #[arg(long = "track", value_name = "ID")]
     tracks: Vec<u32>,
-    /// Then write what the analyzer worked out to the tracks (`key`, `bpm`, or both
-    /// comma-separated), planned and asked about as any edit is: only where a track has none,
-    /// unless --overwrite
-    #[arg(long, value_name = "FIELDS", value_delimiter = ',', value_parser = ["key", "bpm"])]
+    /// Then write what the analyzer worked out to the tracks (`key` and `bpm`, or `grid`,
+    /// `phrases` and `waveform` into their analysis files; comma-separated), planned and asked
+    /// about as any edit is: only where a track has none, unless --overwrite
+    #[arg(
+        long,
+        value_name = "FIELDS",
+        value_delimiter = ',',
+        value_parser = ["key", "bpm", "grid", "phrases", "waveform"]
+    )]
     apply: Vec<String>,
-    /// With --apply: also over a key or BPM a track has
+    /// With --apply: also over what a track has
     #[arg(long, requires = "apply")]
     overwrite: bool,
     /// With --apply: leave out values the analyzer is less sure of than this (0 to 1)
@@ -67,25 +72,37 @@ struct Ran {
 /// keeping what they work out for `track show`. Some tracks failing is a partial outcome (exit
 /// status 5), every one failing an error. With `--apply`, only the analyzer for those fields runs
 /// (the one chosen for them, when several could), and what it worked out is then planned onto the
-/// tracks.
+/// tracks: a key and BPM into the databases, or a beat grid, phrases and a waveform into their
+/// analysis files (`plugins.apply_analysis`), one or the other in a run.
 pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
     let plugins = plugins::host()?;
     if let Some(p) = &args.plugin {
         plugins.manifest(p)?;
     }
-    let apply: Vec<Role> = args.apply.iter().map(|r| r.parse().map_err(usage)).collect::<Result<_>>()?;
+    let (parts, roles): (Vec<&String>, Vec<&String>) =
+        args.apply.iter().partition(|f| AnalysisPart::ALL.iter().any(|p| p.name() == f.as_str()));
+    if !parts.is_empty() && !roles.is_empty() {
+        return Err(usage("write a key and BPM in a run of their own, apart from a grid, phrases and a waveform"));
+    }
+    if !parts.is_empty() && args.min_confidence.is_some() {
+        return Err(usage("--min-confidence is for a key and BPM"));
+    }
+    let parts: Vec<AnalysisPart> =
+        AnalysisPart::ALL.into_iter().filter(|p| parts.iter().any(|f| f.as_str() == p.name())).collect();
+    let apply: Vec<Role> = roles.iter().map(|r| r.parse().map_err(usage)).collect::<Result<_>>()?;
     let mut selected: Vec<(&str, &str)> = plugins
         .manifests()
         .filter(|m| args.plugin.as_ref().is_none_or(|p| *p == m.id))
         .flat_map(|m| m.contributes.analyzers.iter().map(move |a| (m, a)))
         .filter(|(_, a)| args.analyzer.as_deref().is_none_or(|n| n == a.name))
         .filter(|(_, a)| apply.iter().all(|r| a.roles.contains_key(r)))
+        .filter(|(_, a)| parts.iter().all(|p| a.fields.values().any(|t| *t == p.kind())))
         .map(|(m, a)| (m.id.as_str(), a.name.as_str()))
         .collect();
-    let fields: Vec<&str> = apply.iter().map(|r| r.name()).collect();
+    let fields: Vec<&str> = apply.iter().map(|r| r.name()).chain(parts.iter().map(|p| p.name())).collect();
     if selected.is_empty() {
         return Err(usage(match (&args.analyzer, &args.plugin) {
-            _ if !apply.is_empty() => format!("no plugin's analyzer here works out {}", fields.join(" and ")),
+            _ if !fields.is_empty() => format!("no plugin's analyzer here works out {}", fields.join(" and ")),
             (Some(a), _) => format!("no plugin has an analyzer {a:?} (`locallibrary plugin list` lists them)"),
             (None, Some(p)) => format!("the {p} plugin has no analyzer"),
             (None, None) => "no plugin locallibrary has analyses tracks".into(),
@@ -99,12 +116,12 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
             chosen.as_ref().is_some_and(|f| f.analyzer.plugin == *p && f.analyzer.analyzer == *a)
         };
         selected.retain(named);
-        if selected.is_empty() {
-            return Err(usage(format!(
-                "several analyzers work out {}: say which with --plugin and --analyzer",
-                fields.join(" and ")
-            )));
-        }
+    }
+    if (!fields.is_empty() && selected.len() > 1) || selected.is_empty() {
+        return Err(usage(format!(
+            "several analyzers work out {}: say which with --plugin and --analyzer",
+            fields.join(" and ")
+        )));
     }
     let tracks = (!args.tracks.is_empty()).then_some(args.tracks.as_slice());
     let mut analyzers = Vec::new();
@@ -118,7 +135,7 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
         bail!("every track failed ({failed}): the warnings above say why");
     }
     let ran = Analyzing { drive, analyzers };
-    if apply.is_empty() {
+    if fields.is_empty() {
         let outcome = if failed > 0 { Outcome::Partial } else { Outcome::Applied };
         return Ok(out.done_with(&ran, outcome, said));
     }
@@ -127,16 +144,23 @@ pub fn analyze(args: AnalyzeArgs, store_path: &Option<PathBuf>, out: Output, ctx
     }
     // Narrowed to one above.
     let Ran { plugin, analyzer, .. } = &ran.analyzers[0];
-    let req = ApplyFields {
-        plugin: plugin.clone(),
-        analyzer: analyzer.clone(),
-        drive: ran.drive.clone(),
-        fields: apply,
-        tracks: tracks.map(<[u32]>::to_vec),
-        overwrite: args.overwrite,
-        min_confidence: args.min_confidence,
+    let (plugin, analyzer, drive, tracks) =
+        (plugin.clone(), analyzer.clone(), ran.drive.clone(), tracks.map(<[u32]>::to_vec));
+    let planned = if parts.is_empty() {
+        let req = ApplyFields {
+            plugin,
+            analyzer,
+            drive,
+            fields: apply,
+            tracks,
+            overwrite: args.overwrite,
+            min_confidence: args.min_confidence,
+        };
+        plugins.plan_apply_fields(&req, &store, ctx)?
+    } else {
+        let req = ApplyAnalysis { plugin, analyzer, drive, parts, tracks, overwrite: args.overwrite };
+        plugins.plan_apply_analysis(&req, &store, ctx)?
     };
-    let planned = plugins.plan_apply_fields(&req, &store, ctx)?;
     if !out.json {
         heading(&planned.summary[0]);
     }
