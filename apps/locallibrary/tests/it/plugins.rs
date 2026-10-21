@@ -12,6 +12,7 @@ use crate::support::{Env, Rpc, echo_plugin, path, recording};
 mod choose;
 mod props;
 mod providers;
+mod sources;
 
 /// The echo manifest as these tests register it ([`echo_plugin`]): its `echo` command at
 /// `locallibrary say` taking flags, and its operation at `locallibrary playlist fresh`.

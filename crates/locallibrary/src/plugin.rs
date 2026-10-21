@@ -1,6 +1,6 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters,
-//! providers and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
+//! providers, library sources and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -18,7 +18,9 @@
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
 //! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
 //! to its overlay store. What providers find for tracks, the host
-//! offers the user and makes the edits of itself (see [`Plugins::provide`]).
+//! offers the user and makes the edits of itself (see [`Plugins::provide`]). A library source's
+//! tracks are copied to a drive only from the folders the user grants it, each file checked by the
+//! host (see [`Plugins::plan_source_export`]).
 
 mod analysis;
 mod analyzers;
@@ -33,6 +35,7 @@ mod process;
 mod providers;
 mod secrets;
 mod settings;
+mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -61,6 +64,7 @@ pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
 pub(crate) use settings::{host_settings, set_host_setting};
+pub use sources::SourceExport;
 
 use process::Slot;
 pub(crate) use process::THREAD_ELEVATED;

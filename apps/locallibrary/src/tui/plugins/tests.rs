@@ -1936,3 +1936,4 @@ fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
 }
 
 mod asking;
+mod sources;

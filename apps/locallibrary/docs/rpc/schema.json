@@ -5353,6 +5353,64 @@
           "$ref": "#/$defs/RoleChoice"
         }
       }
+    },
+    {
+      "name": "plugins.source.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.source.apply",
+      "operation": "plugins.source",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SourceExport"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CollectionExportPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.source.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.source.plan",
+      "operation": "plugins.source",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/SourceExport"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CollectionExportReport"
+      }
     }
   ],
   "notifications": {
@@ -11976,6 +12034,63 @@
       "required": [
         "role"
       ]
+    },
+    "SourceExport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "description": "One of its library sources, by name."
+        },
+        "options": {
+          "description": "As the source's `options` schema says.",
+          "default": null
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The folders the plugin may read files in, absolute: granted for this read alone, and only\naudio files in them are copied."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The drive or folder to write to."
+        },
+        "playlists": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Playlists or folders (paths) to export, with the tracks they use. Empty: every track and\nplaylist, or the selection the target was last exported with.",
+          "default": []
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Export every track and playlist, whatever the target was exported with last.",
+          "default": false
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Replace a library the target holds that wasn't exported from the collection, or the\nfiles on a target with no library.",
+          "default": false
+        },
+        "overwrite_archive": {
+          "type": "boolean",
+          "description": "Write to an archive or retired drive (see [`crate::fleet::check_target`]).",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "source",
+        "grants",
+        "drive"
+      ],
+      "description": "Building a drive from a plugin's library source."
     },
     "Initialized": {
       "type": "object",
@@ -29077,7 +29192,14 @@
       "properties": {
         "collection": {
           "type": "string",
-          "description": "The `master.db` exported."
+          "description": "The `master.db` exported (empty for a plugin's library source)."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin's library source written instead, `<plugin>:<source>`."
         },
         "target": {
           "type": "string"
@@ -29167,7 +29289,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Tracks with an analysis file that can't be read: exported without it."
+          "description": "Tracks with an analysis file that can't be read, or (from a plugin's source) whose cues,\nbeat grid or waveform can't be written: exported without it."
         },
         "replaces_library": {
           "type": "boolean",
@@ -29350,7 +29472,7 @@
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its commands, operations, analyzers and providers by name, its export formats\nand its settings' keys."
+          "description": "What it adds: its commands, operations, analyzers, providers and library sources by name,\nits export formats and its settings' keys."
         },
         "operations": {
           "type": "array",
@@ -29371,6 +29493,12 @@
           }
         },
         "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sources": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29404,6 +29532,7 @@
         "analyzers",
         "exporters",
         "providers",
+        "sources",
         "settings",
         "running",
         "left_out"
@@ -29448,7 +29577,8 @@
             "tags:plan",
             "cues:plan",
             "artwork:plan",
-            "analysis:plan"
+            "analysis:plan",
+            "fs:read"
           ]
         },
         {
@@ -29536,6 +29666,7 @@
             "analyzers": [],
             "exporters": [],
             "providers": [],
+            "sources": [],
             "settings": []
           }
         },
@@ -29595,6 +29726,13 @@
           },
           "default": []
         },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LibrarySource"
+          },
+          "default": []
+        },
         "settings": {
           "type": "array",
           "items": {
@@ -29609,6 +29747,7 @@
         "analyzers",
         "exporters",
         "providers",
+        "sources",
         "settings"
       ]
     },
@@ -29834,6 +29973,25 @@
         "kind"
       ],
       "description": "Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the\nuser every provider's, and makes the edits chosen itself. It's given the tracks' tags, which\ntakes `library:read`, and needs no capability to plan an edit."
+    },
+    "LibrarySource": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ],
+      "description": "Read with `library/read`, a page at a time, for the host to build a drive from. It's given the\nfolders the user grants it, which takes `fs:read`."
     },
     "Setting": {
       "type": "object",

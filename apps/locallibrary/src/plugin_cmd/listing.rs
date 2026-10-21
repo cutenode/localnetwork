@@ -43,6 +43,7 @@ pub(super) fn list(all: &[Listed]) {
             named("analyzer", &p.analyzers),
             named("export format", &p.exporters),
             named("provider", &p.providers),
+            named("library source", &p.sources),
             named("setting", &p.settings),
         ]
         .into_iter()
@@ -111,6 +112,9 @@ pub(super) fn info(d: &Described) {
         (p.name.clone(), format!("{}: {}, for locallibrary {verb}", p.title, p.kind.found()))
     });
     section("Providers:", providers.collect());
+    let sources = c.sources.iter().map(|x| (format!("{}:{}", m.id, x.name), x.title.clone()));
+    let build = "locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant FOLDER";
+    section(&format!("Library sources ({build}):"), sources.collect());
     let settings =
         c.settings.iter().map(|s| (s.key.clone(), format!("{}: {}", s.title, shown(s, &d.settings, &d.secrets))));
     section(&format!("Settings (locallibrary plugin settings {}):", m.id), settings.collect());

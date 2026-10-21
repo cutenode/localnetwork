@@ -11,8 +11,8 @@ use serde_json::json;
 
 use super::*;
 use crate::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, OpAnswer, OpPlan, Pending,
-    PlanOp, ProvideCandidates, RunCommand, View, WriteExport, code,
+    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, LibraryPage, OpAnswer, OpPlan,
+    Pending, PlanOp, ProvideCandidates, ReadLibrary, RunCommand, SourceTrack, View, WriteExport, code,
 };
 
 #[path = "../../examples/echo/plugin.rs"]
@@ -297,6 +297,38 @@ fn hooks_run_only_for_what_the_manifest_declares() {
         assert_eq!(e.code, code::INVALID_PARAMS);
         assert_eq!(e.message, format!("invalid params: the manifest declares no {said}"));
     }
+    s.stop();
+}
+
+/// A library source answers its library a page at a time, from the folders it's granted, and
+/// only for a source the manifest declares.
+#[test]
+fn a_source_answers_its_library_a_page_at_a_time() {
+    let granted = echo::MANIFEST.replace(r#""library:plan"]"#, r#""library:plan", "fs:read"]"#);
+    let manifest = format!("{granted}\n[[contributes.sources]]\nname = \"files\"\ntitle = \"Files\"\n");
+    assert_eq!(Manifest::parse(&manifest).unwrap().validate(false).map_err(|e| e.to_string()), Ok(()));
+    let read = |req: ReadLibrary, _: &Host| {
+        let page: usize = req.cursor.as_deref().map_or(Ok(0), str::parse).map_err(|_| RpcError::invalid_params("x"))?;
+        let track = SourceTrack { path: req.roots[0].join(format!("{page}.mp3")), ..SourceTrack::default() };
+        Ok(LibraryPage { tracks: vec![track], next: (page == 0).then(|| "1".into()), ..LibraryPage::default() })
+    };
+    let s = start_with(manifest, Hooks::new().on(read));
+    let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
+    assert_eq!(reply.features, ["analysis", "sources", "blobs", "net", "choose"]);
+    let mut paths = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let req = json!({ "source": "files", "roots": ["/music"], "cursor": cursor });
+        let page: LibraryPage = s.host.request(method::READ_LIBRARY, &req).unwrap();
+        paths.extend(page.tracks.into_iter().map(|t| t.path));
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(paths, [Path::new("/music/0.mp3"), Path::new("/music/1.mp3")]);
+    let e = s.call(method::READ_LIBRARY, json!({ "source": "nope", "roots": [] })).unwrap_err();
+    assert_eq!(e.message, "invalid params: the manifest declares no source \"nope\"");
     s.stop();
 }
 

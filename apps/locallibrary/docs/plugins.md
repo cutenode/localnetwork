@@ -27,8 +27,8 @@ are:
 
 `locallibrary plugin` lists them, what each may do (its capabilities, in plain words) and what it
 adds. `locallibrary plugin info ID` has one in full: its commands, how to run them and which of
-the player's menus offer them, its analyzers' fields, its export formats, its providers and its
-settings.
+the player's menus offer them, its analyzers' fields, its export formats, its providers, its
+library sources and its settings.
 
 A plugin whose id, commands or export formats clash with locallibrary's, or with another plugin's,
 is left out: every command warns which and why, and the other plugins work. Two plugins clashing
@@ -96,6 +96,21 @@ They're `locallibrary export LIBRARY --format FORMAT -o PATH`, with the plugin's
 format can't hold), and overwriting a file is asked about first unless `--replace`. In the player
 they're in the palette and a drive's menu: an export shows what it would write and asks before
 writing it.
+
+## Library sources
+
+A library source is a library a plugin reads from somewhere on this computer (another DJ
+program's collection, a folder of tagged files), which locallibrary builds a drive from as it
+writes rekordbox's collection: `locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant
+FOLDER` (`--grant` again for more folders, the source's options as `--option KEY=VALUE`,
+`--dry-run` to see the plan). The plugin is given only the folders you grant it, for that build,
+and locallibrary copies only audio files players play that are in them (their links resolved),
+not on the drive itself: it reads each file's length and format itself, hashes it before copying
+it, and checks the copy. What it leaves out (a file elsewhere, one that isn't audio, a cue in a
+slot taken) is listed as a warning. Cues, beat grids and waveforms a track comes with go into
+analysis files made for it, each read back first. Building again copies only what changed; a
+library on the drive that wasn't built from that source is only replaced with `--replace`. In the
+player, "build from …" in the palette and a drive's menu asks for the folders and options first.
 
 ## Providers
 
@@ -174,7 +189,9 @@ plugin's log and of the errors it's told (what a server answers is passed on as 
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with
 another name) or more than 512 MiB of them, and removes; `store gc` removes those a locallibrary
-that crashed left.
+that crashed left. A library source names audio files by path, and locallibrary copies a file
+only when it's in a folder you granted for that build, its links resolved (see
+[Library sources](#library-sources)).
 
 A plugin runs as you and isn't sandboxed, so this is what locallibrary does, not a wall your
 system keeps: a plugin could still read any file you can.

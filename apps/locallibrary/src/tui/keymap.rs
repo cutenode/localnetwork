@@ -196,6 +196,8 @@ pub enum Act {
     ProviderSettings,
     /// Export the drive in a plugin's format (the plugin's id, the format).
     Export(&'static str, &'static str),
+    /// Build the drive from a plugin's library source (the plugin's id, the source).
+    Source(&'static str, &'static str),
     /// Fetch what plugins' providers of a kind find for the tracks selected.
     Fetch(loclib_plugin::ProviderKind),
 }

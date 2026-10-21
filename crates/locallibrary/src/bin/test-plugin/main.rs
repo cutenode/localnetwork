@@ -15,7 +15,8 @@
 //! waveforms too, writing the files its `blobs` give first), and one named `order` answers fields
 //! `a` (null for a one-byte audio file) then `b`, or fails naming an empty audio file; and its
 //! exporter names the playlists it's given in a note, and would write to `outside`, or writes
-//! `extra` too without saying so first.
+//! `extra` too without saying so first. Any library source reads the files in the folders it's
+//! granted, and what `.json` files beside them say (see `plugin::read_library`).
 //! `--manifest <file>` serves another manifest, `--protocol <version>` answers `hello` with
 //! another protocol and stops, `--silent` never answers, `--wrong-fields` answers fields of the
 //! wrong type, and `--without <feature>` leaves out that feature's hooks, and the feature from

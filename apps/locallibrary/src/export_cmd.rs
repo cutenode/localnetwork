@@ -158,7 +158,7 @@ fn run_plugin(
         .manifests()
         .find_map(|m| Some((m.id.as_str(), m.contributes.exporters.iter().find(|e| e.format == format)?)))
         .expect("--format takes the formats there are");
-    let options = crate::plugin_cmd::options(exporter.options.as_ref(), &args.options)?;
+    let options = crate::plugin_cmd::options("format", exporter.options.as_ref(), &args.options)?;
     let source = ExportSource {
         drive: args.drive,
         playlists: args.playlist.into_iter().collect(),

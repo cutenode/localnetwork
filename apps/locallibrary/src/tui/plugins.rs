@@ -12,6 +12,7 @@
 mod analyzers;
 mod exporters;
 pub(super) mod providers;
+mod sources;
 
 use std::path::{Path, PathBuf};
 
@@ -139,7 +140,8 @@ fn named(title: &str) -> String {
 }
 
 /// Who planned `operation` (as a plan is called), if plugins did: the name of the plugin whose
-/// operation (`<plugin>.<name>`) or, with `export`, export (`<plugin>.export.<format>`) it is; or
+/// operation (`<plugin>.<name>`), library source (`<plugin>.source.<source>`) or, with `export`,
+/// export (`<plugin>.export.<format>`) it is; or
 /// `Plugins` for an edit the host plans from what plugins found or worked out (`plugins.provide`,
 /// `plugins.apply_fields`).
 pub fn planned_by(operation: &str, export: bool) -> Option<&'static str> {
@@ -153,7 +155,10 @@ pub fn planned_by(operation: &str, export: bool) -> Option<&'static str> {
             (Some(rest), true) => {
                 rest.strip_prefix("export.").is_some_and(|f| c.exporters.iter().any(|e| e.format == f))
             }
-            (Some(name), false) => c.operations.iter().any(|o| o.name == name),
+            (Some(name), false) => {
+                let source = name.strip_prefix("source.").is_some_and(|s| c.sources.iter().any(|x| x.name == s));
+                source || c.operations.iter().any(|o| o.name == name)
+            }
             (None, _) => false,
         }
     });
@@ -259,8 +264,8 @@ impl App {
             );
         }
         let Ok(plugins) = crate::plugins::host() else { return items };
-        // An analyzer reads the tracks' audio files and an exporter the library: on a drive plugged
-        // in, as a command.
+        // An analyzer reads the tracks' audio files, an exporter the library, and a library source
+        // writes one: on a drive plugged in, as a command.
         let why = match drive {
             None => Some("open a drive first"),
             Some(false) => Some("only on a plugged-in drive"),
@@ -271,6 +276,7 @@ impl App {
         for m in plugins.manifests() {
             items.extend(analyzers::items(m, why));
             items.extend(exporters::items(m, why));
+            items.extend(sources::items(m, why));
         }
         items
     }

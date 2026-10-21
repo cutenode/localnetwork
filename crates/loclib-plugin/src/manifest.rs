@@ -49,6 +49,7 @@ pub struct Contributions {
     pub analyzers: Vec<hooks::analyzers::Analyzer>,
     pub exporters: Vec<hooks::exporters::Exporter>,
     pub providers: Vec<hooks::providers::Provider>,
+    pub sources: Vec<hooks::sources::LibrarySource>,
     pub settings: Vec<Setting>,
 }
 
@@ -227,6 +228,9 @@ pub enum Capability {
     ArtworkPlan,
     /// Plan writing beat grids, phrases and waveforms into tracks' analysis files.
     AnalysisPlan,
+    /// Read files in the folders the user grants it for a read of its library sources: the host
+    /// copies only audio files in them (links resolved), whatever the plugin says.
+    FsRead,
     /// `net:<host>`: it talks to this server through the host (`net/fetch`), or with
     /// `net:*.<domain>` to any server below that domain. Shown to the user; a native plugin can't
     /// be held to it.
@@ -235,7 +239,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability but `net:<host>`.
-    pub const NAMED: [Capability; 17] = [
+    pub const NAMED: [Capability; 18] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
         Capability::ArtworkRead,
@@ -253,6 +257,7 @@ impl Capability {
         Capability::CuesPlan,
         Capability::ArtworkPlan,
         Capability::AnalysisPlan,
+        Capability::FsRead,
     ];
 
     /// Its name, unless it's `net:<host>`.
@@ -275,6 +280,7 @@ impl Capability {
             Capability::CuesPlan => "cues:plan",
             Capability::ArtworkPlan => "artwork:plan",
             Capability::AnalysisPlan => "analysis:plan",
+            Capability::FsRead => "fs:read",
             Capability::Net(_) => return None,
         })
     }
@@ -576,6 +582,7 @@ impl Manifest {
         hooks::analyzers::validate(self)?;
         hooks::exporters::validate(self)?;
         hooks::providers::validate(self)?;
+        hooks::sources::validate(self)?;
         let at = "contributes.settings";
         unique_names(at, "key", c.settings.iter().map(|x| x.key.as_str()).enumerate())?;
         for (i, x) in c.settings.iter().enumerate() {

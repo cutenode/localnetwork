@@ -373,6 +373,7 @@ fn means(c: &Capability) -> String {
         Capability::CuesPlan => "plan cue changes, which you confirm",
         Capability::ArtworkPlan => "plan cover art changes, which you confirm",
         Capability::AnalysisPlan => "plan beat grid, phrase and waveform changes, which you confirm",
+        Capability::FsRead => "read audio files in folders you grant it, to build a drive from",
         Capability::Net(host) => {
             return match host.strip_prefix("*.") {
                 Some(domain) => format!("talk to any server under {domain}"),
@@ -390,13 +391,14 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its commands, operations, analyzers and providers by name, its export formats
-    /// and its settings' keys.
+    /// What it adds: its commands, operations, analyzers, providers and library sources by name,
+    /// its export formats and its settings' keys.
     pub commands: Vec<String>,
     pub operations: Vec<String>,
     pub analyzers: Vec<String>,
     pub exporters: Vec<String>,
     pub providers: Vec<String>,
+    pub sources: Vec<String>,
     pub settings: Vec<String>,
     /// It's running now: plugins start when they're first used, and stop once they're idle.
     pub running: bool,
@@ -418,6 +420,7 @@ impl Listed {
             analyzers: c.analyzers.iter().map(|x| x.name.clone()).collect(),
             exporters: c.exporters.iter().map(|x| x.format.clone()).collect(),
             providers: c.providers.iter().map(|x| x.name.clone()).collect(),
+            sources: c.sources.iter().map(|x| x.name.clone()).collect(),
             settings: c.settings.iter().map(|x| x.key.clone()).collect(),
             running: plugins.is_running(&m.id),
             left_out: None,

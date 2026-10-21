@@ -250,15 +250,17 @@ impl AnyPlanned for Pretend {
 
 /// The apply a plan of `operation` kept by `method` is for, as the protocol has it: a plan of
 /// the sidecar's own by the apply of its operation, a plugin's export (`<plugin>.export.<format>`)
-/// by `plugins.export` and any other plugin operation by `plugins.op`.
+/// by `plugins.export`, a drive built from its library source (`<plugin>.source.<source>`) by
+/// `plugins.source` and any other plugin operation by `plugins.op`.
 fn applied_by(method: &str, operation: &str) -> String {
     if !method.starts_with("plugins.") {
         return operation.to_string();
     }
     let parts: Vec<&str> = operation.split('.').collect();
-    match parts.len() == 3 && parts[1] == "export" {
-        true => "plugins.export".into(),
-        false => "plugins.op".into(),
+    match (parts.len(), parts.get(1)) {
+        (3, Some(&"export")) => "plugins.export".into(),
+        (3, Some(&"source")) => "plugins.source".into(),
+        _ => "plugins.op".into(),
     }
 }
 
@@ -275,10 +277,16 @@ fn plans_are_kept_and_taken_as_modelled(tc: TestCase) {
         ("plugins.op.plan", "echo.playlist"),
         ("plugins.op.plan", "echo.export.m3u"),
         ("plugins.export.plan", "tidy.export.csv"),
+        ("plugins.source.plan", "tidy.source.folder"),
     ];
     let makers = [&[("store.gc.plan", "store.gc"), ("edit.plan", "edit")][..], &theirs[..]];
     let applies = [("store.gc.apply", "store.gc"), ("edit.apply", "edit")];
-    let applies = [&applies[..], &[("plugins.op.apply", "plugins.op"), ("plugins.export.apply", "plugins.export")]];
+    let their_applies = [
+        ("plugins.op.apply", "plugins.op"),
+        ("plugins.export.apply", "plugins.export"),
+        ("plugins.source.apply", "plugins.source"),
+    ];
+    let applies = [&applies[..], &their_applies[..]];
     let mut model: [VecDeque<(String, String)>; 2] = Default::default();
     let mut made = 0;
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(12)) {

@@ -252,9 +252,9 @@ fn params_of(schema: Option<&Value>, m: &ArgMatches) -> Result<Value> {
     Ok(Value::Object(params))
 }
 
-/// An exporter's options from `--option KEY=VALUE`s (one given again adds to a list or a map),
-/// each read as its schema says. A key it doesn't take is refused.
-pub fn options(schema: Option<&Value>, given: &[String]) -> Result<Value> {
+/// An exporter's or a library source's (`what`) options from `--option KEY=VALUE`s (one given
+/// again adds to a list or a map), each read as its schema says. A key it doesn't take is refused.
+pub fn options(what: &str, schema: Option<&Value>, given: &[String]) -> Result<Value> {
     let mut raws: Vec<(&str, Vec<&str>)> = Vec::new();
     for pair in given {
         let (key, raw) =
@@ -271,8 +271,8 @@ pub fn options(schema: Option<&Value>, given: &[String]) -> Result<Value> {
         let property = known.ok_or_else(|| {
             let all: Vec<&str> = properties(schema).map(|(name, _)| name.as_str()).collect();
             usage(match all.is_empty() {
-                true => format!("this format has no options, not even {key:?}"),
-                false => format!("this format has no option {key:?}: its options are {}", all.join(", ")),
+                true => format!("this {what} has no options, not even {key:?}"),
+                false => format!("this {what} has no option {key:?}: its options are {}", all.join(", ")),
             })
         })?;
         options.insert(key.to_string(), params::value(property, &raws, &format!("the {key} option")).map_err(usage)?);

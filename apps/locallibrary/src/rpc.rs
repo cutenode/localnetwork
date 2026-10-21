@@ -203,8 +203,9 @@ impl Plans {
 
 /// The operation (see [`methods::Method::operation`]) of the `.apply` that applies a plan of
 /// `operation`, for `method`: the plan's own (the host's `plugins.*`, too), but a plugin's
-/// operation (`<plugin>.<operation>`) is `plugins.op`'s and its export (`<plugin>.export.<format>`)
-/// `plugins.export`'s.
+/// operation (`<plugin>.<operation>`) is `plugins.op`'s, its export (`<plugin>.export.<format>`)
+/// `plugins.export`'s and a drive built from its library source (`<plugin>.source.<source>`)
+/// `plugins.source`'s.
 fn applied_as<'a>(method: &str, operation: &'a str) -> &'a str {
     if !method.starts_with(PLUGINS) {
         return operation;
@@ -212,6 +213,7 @@ fn applied_as<'a>(method: &str, operation: &'a str) -> &'a str {
     match operation.split('.').collect::<Vec<_>>()[..] {
         ["plugins", _] => operation,
         [_, "export", _] => "plugins.export",
+        [_, "source", _] => "plugins.source",
         _ => "plugins.op",
     }
 }

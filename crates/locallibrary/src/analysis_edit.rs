@@ -24,7 +24,7 @@ use base64::prelude::*;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::anlz::{self, Bands, Beat, SongStructure};
+use crate::anlz::{self, Bands, Beat, CueFile, CuePoint, SongStructure};
 use crate::commit::{self, Changes, NewFile, Options};
 use crate::cue_edit::{clock, read_optional, sibling_key};
 use crate::device::{Device, LineageOp};
@@ -254,6 +254,37 @@ fn rewrite(t: &Track, files: &Files, a: &NewAnalysis, bands: Option<&Bands>) -> 
         .filter_map(|((key, old), new)| new.filter(|n| Some(n) != old.as_ref()).map(|n| (key.clone(), n)))
         .collect();
     Ok((changed, warnings))
+}
+
+/// New analysis files for `t`, a track without any, its audio at its `file_path` on the drive:
+/// `.DAT` and `.EXT` holding `cues` and what `a` gives, its waveform `bands` (with no `.2EX`, the
+/// 3-band ones are left out), each read back as given, and what to warn of. An error when they
+/// can't be written so.
+pub(crate) fn new_files(
+    t: &Track,
+    cues: &[CuePoint],
+    a: &NewAnalysis,
+    bands: Option<&Bands>,
+) -> Result<([Vec<u8>; 2], Vec<String>)> {
+    let (dat, ext) = anlz::new_analysis_files(&t.file_path)?;
+    let mut made =
+        [anlz::write_cue_points(&dat, CueFile::Dat, cues)?, anlz::write_cue_points(&ext, CueFile::Ext, cues)?];
+    // Not on a drive yet: each file by its extension.
+    let keys = ["DAT", "EXT", "2EX"].map(String::from);
+    let files = Files { keys, bytes: [Some(made[0].clone()), Some(made[1].clone()), None] };
+    let (changed, warnings) = rewrite(t, &files, a, bands)?;
+    for (key, new) in changed {
+        made[usize::from(key == "EXT")] = new;
+    }
+    let order = |c: &CuePoint| (c.hot_cue, c.start_ms, c.end_ms);
+    let mut read = anlz::read_cue_points(&made[0], Some(&made[1]))?;
+    let mut given = cues.to_vec();
+    read.sort_by_key(order);
+    given.sort_by_key(order);
+    if read.len() != given.len() || read.iter().zip(&given).any(|(r, g)| !r.same_as(g)) {
+        return Err(Error::invalid(format!("{}'s cues don't read back as they were given", t.display_name())));
+    }
+    Ok((made, warnings))
 }
 
 /// The track of the audio file `file` (a device path) in `library`.

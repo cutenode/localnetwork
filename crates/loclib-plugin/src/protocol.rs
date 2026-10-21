@@ -23,6 +23,7 @@ pub mod method {
     pub use crate::hooks::exporters::WRITE_EXPORT;
     pub use crate::hooks::operations::PLAN_OP;
     pub use crate::hooks::providers::PROVIDE;
+    pub use crate::hooks::sources::READ_LIBRARY;
 
     /// Host to plugin, first: [`super::Hello`] -> [`super::HelloReply`].
     pub const HELLO: &str = "hello";

@@ -120,7 +120,7 @@ assert!(manifest.validate(false).is_err());
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
   `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
-  `artwork:plan`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
+  `artwork:plan`, `analysis:plan`, `fs:read`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
   `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
   other is refused, and each is granted once.
 - `[[net]]`: `host` (one of its `net:` capabilities, as written) and `per_second`, how many
@@ -239,6 +239,27 @@ to 512 MiB (in base64), leaving out the rest with a warning.
   for tracks (`provide/candidates`). It's given their tags, so it needs `library:read`, and
   never a `:plan` capability for what it finds: the host plans that.
 
+### sources
+
+`library/read {source, options, roots, cursor?, context}` -> `{"tracks": [...], "playlists":
+[{path, tracks}], "blob"?, "next"?}`: a page of a library the plugin reads from somewhere on the
+computer (another program's collection, a folder of tagged files), which the host builds a drive
+from. `roots` are the folders the user granted it for this read (absolute); the host asks for
+pages, passing each one's `next` back as `cursor`, until one has none. A track is `{path, title,
+artist, album, album_artist, genre, label, remixer, composer, comment, isrc, year, rating, key?,
+bpm?, cues?, beats?, waveform?, my_tags?}`: `path` its audio file (absolute), `key` a Camelot code
+or a key as rekordbox names it, `cues` `[{hot_cue?, start_ms, end_ms?, name?, color?}]` (`hot_cue`
+0 for A to 7 for H; `color` as cue edits take one), `beats` a beat grid as an analyzer's `beats`
+field is, `waveform` a blob as its `waveform` field is, `my_tags` `Category/Tag`. A playlist's
+`path` is `Folder/Name`, its `tracks` their `path`s. A page too big for a message is a blob, `{"blob":
+"page.json"}`, holding a page as JSON. The host trusts no path: it copies only a regular audio file
+in one of `roots` (links resolved), not on the drive written to, reading its length and format
+itself and hashing it before copying, and leaves out (with a warning) the tracks that aren't and
+what it can't write of the rest; cues, beat grids and waveforms go into analysis files it makes.
+
+- `[[contributes.sources]]`: `name`, `title` and `options`. It reads files in the folders it's
+  given, so it needs `fs:read`.
+
 ## Writing a plugin in Rust
 
 Register a function for each kind of hook the manifest needs in `Hooks` (`.on(run_command)`, for
@@ -318,7 +339,7 @@ served.join().expect("the plugin stops");
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`examples/echo` is a whole plugin, with one of each kind of contribution.
+`examples/echo` is a whole plugin, with one of each kind of contribution but a library source.
 
 ## Licence
 
