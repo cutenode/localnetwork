@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::Plugins;
 use super::callbacks::{answer_for_plugin, known_roots};
-use super::process::{Live, Slot, printable};
+use super::process::{Live, Plugin, Slot, printable};
 use crate::api::{JobEvent, Notice, WatchAction};
 use crate::error::IoContext;
 use crate::op::Applied;
@@ -191,7 +191,9 @@ impl Slot {
             self.host.log(&self.manifest.id, &said);
         }
     }
+}
 
+impl Plugin {
     /// A notification from the plugin: `host/notify`, from one with a feature that sends it,
     /// told to the front end once it's text the user can read, without the secrets the host
     /// filled in for it, and suggesting one of its own operations (with params neither too long

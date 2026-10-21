@@ -628,7 +628,8 @@ fn a_plugin_has_at_most_its_quota_of_calls_under_way(tc: TestCase) {
     let (plugin, _calls) = Peer::new(plugin_in, plugin_out);
     let m = granted(&["library:read", "drive:info"]);
     let (slot, live) = (Arc::new(Slot::new(m, launch, host)), Arc::new(Live::new(None)));
-    let answering = std::thread::spawn(move || answer(&Arc::downgrade(&slot), &live, &host_end, incoming));
+    let answering =
+        std::thread::spawn(move || answer(&Arc::downgrade(&slot), &slot.plugin, &live, &host_end, incoming));
     let busy = |e: RpcError| {
         assert_eq!(e.data.unwrap().kind, "busy");
         assert_eq!(e.message, format!("a plugin has at most {quota} calls under way at once"));
