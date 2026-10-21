@@ -22,11 +22,13 @@ pub use features::{FEATURES, Feature};
 pub use hooks::analysis::{Output, WaveformBlob};
 pub use hooks::analyzers::{Analysis, AnalyzeTrack, Analyzer, FieldType, FieldValue, Role, Track};
 pub use hooks::commands::{Command, Mode, RunCommand};
+pub use hooks::events::{EventName, EventNotify, HostNotify, Listener, Suggested};
 pub use hooks::exporters::{ExportSource, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::operations::{OpAnswer, OpPlan, Operation, PlanOp};
 pub use hooks::providers::{
     Candidate, Candidates, ProvideCandidates, Provider, ProviderKind, TrackMetadata, TrackTags,
 };
+pub use hooks::services::{Service, StartService};
 /// The types [`DriveReads`] answers with (`Track`, `Library`, `TrackAnalysis`), for a plugin to
 /// name without depending on loclib-model itself.
 pub use loclib_model;

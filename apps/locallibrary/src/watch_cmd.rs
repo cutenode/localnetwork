@@ -1,4 +1,6 @@
-//! `locallibrary watch`: save drives into the store as they're plugged in.
+//! `locallibrary watch`: save drives into the store as they're plugged in. Plugins are told of
+//! what it notices and does, and their services run while it does (not with `--once`); what they
+//! tell the user is said here, and what they suggest is kept for the player to offer.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -7,7 +9,8 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::Args;
 use console::style;
-use locallibrary::api::{WatchAction, WatchOptions, Watched, Watching};
+use locallibrary::api::{Notice, PluginEvent, WatchAction, WatchOptions, Watched, Watching};
+use locallibrary::plugin::{PluginNotice, keep_suggested};
 use locallibrary::progress::Ctx;
 use locallibrary::watch::{VolumeWatcher, WatchEvent};
 use locallibrary::{Error, Store};
@@ -15,6 +18,7 @@ use serde_json::json;
 
 use crate::autostart;
 use crate::output::{Output, dim, ok, with_schema};
+use crate::plugins;
 
 #[derive(Args)]
 #[command(after_long_help = "Examples:
@@ -106,7 +110,19 @@ pub fn run(args: WatchArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
             ))
         );
     }
-    let mut on = |w: Watched<'_>| log(out, w);
+    let store = Store::open(&store_root).ok();
+    let kept = store.clone();
+    plugins::events::notices_to(Some(std::sync::Arc::new(move |n| told(out, kept.as_ref(), n))));
+    if let (Ok(host), false) = (plugins::host(), args.once) {
+        host.run_services(store.as_ref());
+    }
+    let mut on = |w: Watched<'_>| {
+        plugins::events::deliver(&match w {
+            Watched::Seen(e) => Notice::Watch(e.clone()),
+            Watched::Did(a) => Notice::Watched(a.clone()),
+        });
+        log(out, w);
+    };
     let done = if args.once {
         watching.until_idle(&store_root, ctx, &mut on)
     } else {
@@ -133,6 +149,24 @@ fn log(out: Output, w: Watched<'_>) {
     if let Watched::Did(WatchAction::Pulled { history_lists, .. }) = w {
         crate::hints::new_sessions(history_lists.len());
     }
+}
+
+/// What a plugin tells the user while watching: said as an event is, and kept for the player to
+/// offer when it suggests something (in `store`).
+fn told(out: Output, store: Option<&Store>, notice: PluginNotice) {
+    if let Some(store) = store.filter(|_| notice.operation.is_some())
+        && let Err(e) = keep_suggested(store, &notice)
+    {
+        say!("{}", dim(format!("{}'s suggestion wasn't kept: {e}", notice.plugin)));
+    }
+    if out.json {
+        let line = serde_json::to_value(Notice::Plugin(PluginEvent::Notice(notice)));
+        say!("{}", with_schema(line.expect("serialisable")));
+        return;
+    }
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let review = if notice.operation.is_some() { " (the player offers to review it)" } else { "" };
+    say!("{} {}: {}{review}", dim(now), notice.plugin, notice.message);
 }
 
 fn describe(w: Watched<'_>) -> Option<String> {

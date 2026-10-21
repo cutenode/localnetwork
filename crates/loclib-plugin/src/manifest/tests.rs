@@ -4,7 +4,10 @@ use indexmap::IndexMap;
 use serde_json::{Map, json};
 
 use super::*;
-use crate::{Analyzer, Command, Exporter, FieldType, FieldValue, Mode, Operation, Provider, ProviderKind, Role, code};
+use crate::{
+    Analyzer, Command, EventName, Exporter, FieldType, FieldValue, Listener, Mode, Operation, Provider, ProviderKind,
+    Role, Service, code,
+};
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
 
@@ -929,6 +932,20 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
     if !providers.is_empty() && !capabilities.contains(&Capability::LibraryRead) {
         capabilities.push(Capability::LibraryRead);
     }
+    // Each event once, shared out among a few listeners, and granted.
+    let heard = tc.draw(gs::permutations(EventName::ALL.to_vec()));
+    let heard = &heard[..tc.draw(gs::integers::<usize>().max_value(heard.len()))];
+    let mut events: Vec<Listener> = Vec::new();
+    for (i, event) in heard.iter().enumerate() {
+        match events.last_mut() {
+            Some(last) if i > 0 && tc.draw(gs::booleans()) => last.on.push(*event),
+            _ => events.push(Listener { on: vec![*event] }),
+        }
+        if !capabilities.contains(&event.capability()) {
+            capabilities.push(event.capability());
+        }
+    }
+    let services = drawn_names(tc, 3).into_iter().map(|name| Service { name, title: title(tc) }).collect();
     let hosts: Vec<String> =
         tc.draw(gs::vecs(gs::from_regex(r"(\*\.)?[A-Za-z0-9.-]{1,16}").fullmatch(true)).max_size(2).unique(true));
     let limited = tc.draw(gs::subsequences(hosts.clone()));
@@ -949,7 +966,16 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         version: format!("{major}.{minor}.{patch}{pre}"),
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
-        contributes: Contributions { commands, operations, analyzers, exporters, providers, settings },
+        contributes: Contributions {
+            commands,
+            events,
+            operations,
+            analyzers,
+            exporters,
+            providers,
+            services,
+            settings,
+        },
         net,
         unknown: Vec::new(),
     }
@@ -1013,7 +1039,8 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 6] = ["commands", "operations", "analyzers", "exporters", "providers", "settings"];
+const CONTRIBUTIONS: [&str; 7] =
+    ["commands", "operations", "analyzers", "exporters", "providers", "services", "settings"];
 
 /// What names a contribution of `kind`.
 fn name_key(kind: &str) -> &'static str {
@@ -1031,6 +1058,7 @@ fn len(c: &Contributions, kind: &str) -> usize {
         "analyzers" => c.analyzers.len(),
         "exporters" => c.exporters.len(),
         "providers" => c.providers.len(),
+        "services" => c.services.len(),
         _ => c.settings.len(),
     }
 }
@@ -1058,6 +1086,7 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
             }
             // Granted library:read by the caller.
             "providers" => c.providers.push(Provider { name, title, kind: ProviderKind::Metadata }),
+            "services" => c.services.push(Service { name, title }),
             _ => c.settings.push(Setting {
                 key: name,
                 title,
@@ -1077,6 +1106,7 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
         "analyzers" => c.analyzers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "exporters" => c.exporters.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
         "providers" => c.providers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "services" => c.services.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         _ => c.settings.iter_mut().map(|x| (&mut x.key, &mut x.title)).collect(),
     }
 }
@@ -1089,6 +1119,7 @@ fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
         "analyzers" => c.analyzers.push(c.analyzers[i].clone()),
         "exporters" => c.exporters.push(c.exporters[i].clone()),
         "providers" => c.providers.push(c.providers[i].clone()),
+        "services" => c.services.push(c.services[i].clone()),
         _ => c.settings.push(c.settings[i].clone()),
     }
 }
@@ -1147,6 +1178,9 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "net twice",
         "net rate",
         "provider grant",
+        "no events",
+        "event twice",
+        "event grant",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let c = &mut m.contributes;
@@ -1476,6 +1510,38 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             m.capabilities.retain(|g| *g != Capability::LibraryRead);
             ("contributes.providers[0]: is given tracks' tags, which needs the library:read capability".into(), false)
         }
+        "no events" => {
+            c.events.push(Listener { on: Vec::new() });
+            (format!("contributes.events[{}].on: names no event", c.events.len() - 1), false)
+        }
+        "event twice" => {
+            // One a listener has already, or one heard twice by a new listener.
+            let heard: Vec<EventName> = c.events.iter().flat_map(|x| x.on.clone()).collect();
+            let again = !heard.is_empty() && tc.draw(gs::booleans());
+            let event = match again {
+                true => tc.draw(gs::sampled_from(heard)),
+                false => tc.draw(gs::sampled_from(EventName::ALL.to_vec())),
+            };
+            c.events.retain(|x| again || !x.on.contains(&event));
+            if !m.capabilities.contains(&event.capability()) {
+                m.capabilities.push(event.capability());
+            }
+            let on = if again { vec![event] } else { vec![event, event] };
+            let at = format!("contributes.events[{}].on[{}]", c.events.len(), on.len() - 1);
+            c.events.push(Listener { on });
+            (format!("{at}: {} is listened for twice", event.name()), false)
+        }
+        "event grant" => {
+            let event = tc.draw(gs::sampled_from(EventName::ALL.to_vec()));
+            let needs = event.capability();
+            // No other listener hears what it takes, so nothing else is refused first.
+            c.events.iter_mut().for_each(|x| x.on.retain(|e| e.capability() != needs));
+            c.events.retain(|x| !x.on.is_empty());
+            m.capabilities.retain(|g| *g != needs);
+            let at = format!("contributes.events[{}].on[0]", c.events.len());
+            c.events.push(Listener { on: vec![event] });
+            (format!("{at}: {} needs the {needs} capability", event.name()), false)
+        }
         _ => {
             add(c, "settings", 1);
             let i = index(&tc, c.settings.len());
@@ -1797,6 +1863,9 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         "cues:plan",
         "artwork:plan",
         "analysis:plan",
+        "events:drives",
+        "events:jobs",
+        "events:plans",
     ];
     let s = match tc.draw(gs::integers::<u8>().max_value(3)) {
         0 => tc.draw(gs::sampled_from(named.to_vec())).to_string(),
