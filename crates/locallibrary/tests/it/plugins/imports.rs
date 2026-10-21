@@ -369,3 +369,186 @@ fn an_import_only_adds_to_what_tracks_have(tc: hegel::TestCase) {
     }
     assert_eq!(SetBook::load(&f.store).unwrap().imported.len(), kept);
 }
+
+/// When a session or a play started, as a file might say: not at all, at a time (`minute` past
+/// ten on the night), or with what isn't a time.
+#[hegel::test_helper]
+fn started(tc: &hegel::TestCase, minute: usize) -> Option<String> {
+    use hegel::generators as gs;
+    match tc.draw(gs::integers::<u8>().max_value(9)) {
+        0..=2 => None,
+        3 => Some("Friday".into()),
+        _ => Some(format!("2026-10-03T22:{minute:02}:00+02:00")),
+    }
+}
+
+/// For any answer an importer gives, inline or in a file in its scratch folder: what its manifest
+/// doesn't say it provides is refused (the first kind it read), and so is a time that isn't one.
+/// Otherwise each session is kept under its name (or the file's, numbered when it has several),
+/// every play at its own time or the session's, unless a play has neither, it has no plays, or
+/// it has the plays of one kept before it: each of those is left out, saying so, before the
+/// tracks not on the drive and the importer's own warnings. Its sessions need the store, to plan
+/// and to apply.
+#[hegel::test(test_cases = 30, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_files_sessions_are_kept_as_its_logs_say(tc: hegel::TestCase) {
+    use chrono::{DateTime, Utc};
+    use hegel::generators as gs;
+    let provides: Vec<&str> = tc.draw(gs::subsequences(vec!["fields", "cues", "tags", "sessions"]).min_size(1));
+    let f = Fixture::new(|dir| vec![spec(dir, &given(&format!("{provides:?}")), &[])], Options::default());
+    let t = f.bare();
+    // Tracks on the drive or not, with a key, a My Tag, and (but on the first track, which has
+    // cues) a hot cue in a slot of its own.
+    let mut tracks: Vec<Value> = Vec::new();
+    for k in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+        let on = tc.draw(gs::optional(gs::integers::<usize>().max_value(t.len() - 1)));
+        let path = on.map_or_else(|| format!("/Contents/nowhere/{k}.mp3"), |i| t[i].file_path.clone());
+        let mut track = json!({ "match": { "path": path } });
+        if tc.draw(gs::booleans()) {
+            track["key"] = json!("8A");
+        }
+        if tc.draw(gs::booleans()) {
+            track["my_tags"] = json!(["Genre/Imported"]);
+        }
+        if on != Some(0) && tc.draw(gs::booleans()) {
+            let slot = ["A", "B", "C"][k];
+            track["cues"] = json!([{ "hot_cue": slot, "start_ms": 1000 * (k + 1) }]);
+        }
+        tracks.push(track);
+    }
+    let mut logs: Vec<Value> = Vec::new();
+    for i in 0..tc.draw(gs::integers::<usize>().max_value(3)) {
+        // Now and then one before it again, under another name.
+        if i > 0 && tc.draw(gs::weighted_booleans(0.25)) {
+            let mut again = logs[tc.draw(gs::integers::<usize>().max_value(i - 1))].clone();
+            again["name"] = json!(format!("Again {i}"));
+            logs.push(again);
+            continue;
+        }
+        let name = match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => Value::Null,
+            1 => json!("  "),
+            _ => json!(format!(" Night {i} ")),
+        };
+        let plays: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
+            .map(|j| {
+                let mut play =
+                    json!({ "artist": "A", "title": format!("T{i}{j}"), "started_at": started(&tc, i * 10 + j) });
+                if tc.draw(gs::booleans()) {
+                    play["path"] = json!(t[0].file_path);
+                }
+                play
+            })
+            .collect();
+        logs.push(json!({ "name": name, "started": started(&tc, 59 - i), "plays": plays }));
+    }
+    let warnings: Vec<String> =
+        (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|w| format!("line {w}")).collect();
+    let read = json!({ "tracks": tracks, "sessions": logs, "warnings": warnings });
+    let options = match tc.draw(gs::booleans()) {
+        true => json!({ "blob": "read.json" }),
+        false => Value::Null,
+    };
+    let store = tc.draw(gs::weighted_booleans(0.8)).then_some(&f.store);
+    let file = f._dir.path().join("read.json");
+    std::fs::write(&file, read.to_string()).unwrap();
+    let planned = f.plugins.import_plan("echo", "given", &file, "USB", options, store, &Ctx::silent());
+
+    let has = |key: &str| tracks.iter().any(|t| t.get(key).is_some());
+    let read_kinds =
+        [("fields", has("key")), ("cues", has("cues")), ("tags", has("my_tags")), ("sessions", !logs.is_empty())];
+    if let Some((kind, _)) = read_kinds.iter().find(|(kind, has)| *has && !provides.contains(kind)) {
+        let e = failure(planned.err().unwrap());
+        assert!(e.ends_with(&format!("it read {kind}, which its manifest doesn't say it provides")), "{e}");
+        return;
+    }
+    // What's kept of each log: its name, and its plays' times and titles.
+    type Plays = Vec<(DateTime<Utc>, String)>;
+    let (mut kept, mut left_out): (Vec<(String, Plays, usize)>, Vec<String>) = (Vec::new(), Vec::new());
+    let mut no_time = None;
+    'logs: for (i, log) in logs.iter().enumerate() {
+        let name = match log["name"].as_str().map(str::trim) {
+            Some(name) if !name.is_empty() => name.to_string(),
+            _ if logs.len() == 1 => "read".into(),
+            _ => format!("read {}", i + 1),
+        };
+        let time = |v: &Value| match v.as_str() {
+            None => Ok(None),
+            Some(at) => DateTime::parse_from_rfc3339(at).map(|t| Some(t.to_utc())).map_err(|_| (i, at.to_string())),
+        };
+        let started = match time(&log["started"]) {
+            Ok(t) => t,
+            Err(e) => {
+                no_time = Some(e);
+                break;
+            }
+        };
+        let mut plays: Plays = Vec::new();
+        for p in log["plays"].as_array().unwrap() {
+            match time(&p["started_at"]) {
+                Err(e) => {
+                    no_time = Some(e);
+                    break 'logs;
+                }
+                Ok(t) => match t.or(started) {
+                    Some(t) => plays.push((t, p["title"].as_str().unwrap().into())),
+                    None => {
+                        left_out.push(format!("{name}: left out, a play has no time and nor has the session"));
+                        continue 'logs;
+                    }
+                },
+            }
+        }
+        if plays.is_empty() {
+            left_out.push(format!("{name}: left out, it has no plays"));
+        } else if kept.iter().any(|(_, p, _)| *p == plays) {
+            left_out.push(format!("{name}: left out, its plays are another session's"));
+        } else {
+            let found = log["plays"].as_array().unwrap().iter().filter(|p| p.get("path").is_some()).count();
+            kept.push((name, plays, found));
+        }
+    }
+    if let Some((i, at)) = no_time {
+        let e = failure(planned.err().unwrap());
+        assert!(e.ends_with(&format!("its session {i}: {at:?} isn't a time (RFC 3339)")), "{e}");
+        return;
+    }
+    if store.is_none() && !kept.is_empty() {
+        assert_eq!(planned.err().unwrap().to_string(), "sessions are kept in the store, and there's none");
+        return;
+    }
+    let planned = planned.unwrap();
+    let names: Vec<&str> = kept.iter().map(|(name, ..)| name.as_str()).collect();
+    assert_eq!(planned.sessions.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), names);
+    for (s, (_, plays, _)) in planned.sessions.iter().zip(&kept) {
+        let mut times: Vec<DateTime<Utc>> = plays.iter().map(|(at, _)| *at).collect();
+        times.sort();
+        assert_eq!(s.plays.iter().map(|p| p.started).collect::<Vec<_>>(), times, "in the order they were played");
+    }
+    let missing = tracks.iter().filter(|t| t["match"]["path"].as_str().unwrap().contains("/nowhere/")).count();
+    let mut expected = left_out;
+    if missing > 0 {
+        let n = tracks.len();
+        expected
+            .push(format!("{missing} of the {n} track(s) left out: {missing} aren't on the drive, 0 could be several"));
+    }
+    expected.extend(warnings.iter().map(|w| format!("Given: {w}")));
+    assert_eq!(planned.warnings, expected);
+    let plays: usize = kept.iter().map(|(_, p, _)| p.len()).sum();
+    let found: usize = kept.iter().map(|(.., found)| found).sum();
+    let keeping = format!("keep {} session(s) of {plays} play(s), {found} of them found on the drive", kept.len());
+    assert_eq!(planned.summary.contains(&keeping), !kept.is_empty(), "{:?}", planned.summary);
+    assert_eq!(planned.noop, planned.edits.is_noop() && kept.is_empty());
+    if planned.noop {
+        return;
+    }
+    // Without the store, sessions have nowhere to go (tried only when there's nothing else to do).
+    if !kept.is_empty() && planned.edits.is_noop() && tc.draw(gs::booleans()) {
+        let e = planned.apply(None, &Ctx::silent()).err().unwrap();
+        assert_eq!(e.to_string(), "sessions are kept in the store, and there's none");
+    }
+    let report = planned.apply(Some(&f.store), &Ctx::silent()).unwrap();
+    assert_eq!(report.edits.is_some(), !planned.edits.is_noop());
+    let book = SetBook::load(&f.store).unwrap();
+    assert_eq!(book.imported.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), names);
+    assert_eq!(report.sessions, book.imported.iter().map(|s| s.id.clone()).collect::<Vec<_>>());
+}
