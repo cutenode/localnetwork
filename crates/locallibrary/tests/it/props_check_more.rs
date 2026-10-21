@@ -36,8 +36,7 @@ fn cut_track(root: &Path) {
 fn big_track(root: &Path) {
     let file = "/Contents/Big/Long Mix.wav";
     common::add_track(root, NewTrack::new("Long Mix", file), b"RIFF");
-    let f = fs::OpenOptions::new().write(true).open(paths::to_fs(root, &paths::key(file))).unwrap();
-    f.set_len(4 << 30).unwrap();
+    locallibrary::testing::sparse(&paths::to_fs(root, &paths::key(file)), 4 << 30).unwrap();
 }
 
 #[hegel::test(test_cases = 3, suppress_health_check = [HealthCheck::TooSlow])]

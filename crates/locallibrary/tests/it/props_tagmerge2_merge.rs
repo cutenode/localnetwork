@@ -295,8 +295,6 @@ fn a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: TestCase
     assert_eq!(images.len(), 2, "both tracks show the one image");
     assert!(paths::to_fs(&plus, &paths::key(&images[0])).is_file());
 
-    // Sparse only on Unix: NTFS would have to find the room for it.
-    #[cfg(unix)]
     {
         // Audio far bigger than the drive (sparse, and under ext4's 16 TiB, the most a file holds):
         // planned with a warning, refused when applied.
@@ -304,7 +302,7 @@ fn a_target_whose_tag_databases_cant_be_read_still_takes_the_tracks(tc: TestCase
         let lib = pdb::read_library(&src_root.join(paths::EXPORT_PDB)).unwrap();
         let audio = paths::to_fs(&src_root, &paths::key(&lib.tracks[0].file_path));
         let big = 2 * locallibrary::fsutil::available_space(&main).unwrap() + (1 << 30);
-        fs::OpenOptions::new().write(true).open(&audio).unwrap().set_len(big).unwrap();
+        locallibrary::testing::sparse(&audio, big).unwrap();
         let before = common::Before::take(&main);
         let mut dst = Device::open_export(&main).unwrap();
         let plan = merge::plan(&src, &dst, &MergeOptions::default(), &Ctx::silent()).unwrap();

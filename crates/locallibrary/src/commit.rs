@@ -248,7 +248,7 @@ pub(crate) fn swap(steps: Vec<Swap>) -> Result<()> {
                 path
             }
             Swap::Place(tmp, dst) => {
-                tmp.persist(&dst).map_err(|e| Error::Io { path: dst.clone(), source: e.error })?;
+                fsutil::replace(tmp, &dst)?;
                 dst
             }
         };

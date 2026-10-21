@@ -90,12 +90,11 @@ fn artwork_missing_on_the_drive_is_a_warning() {
 
 /// A file FAT32 can't hold is a warning while no drive in the check is FAT32. The file is sparse,
 /// so it takes no space.
-#[cfg(unix)]
 #[test]
 fn a_file_of_4_gb_is_a_warning() {
     let dir = tempfile::tempdir().unwrap();
     let root = common::demo_drive(dir.path(), "A");
-    fs::File::create(root.join("Contents/long mix.wav")).unwrap().set_len(1 << 32).unwrap();
+    locallibrary::testing::sparse(&root.join("Contents/long mix.wav"), 1 << 32).unwrap();
     let (level, message) = item(&check(&[&root]), "A", "large_files");
     assert_eq!(level, Level::Warning);
     assert_eq!(message, "1 file(s) of 4 GB or more won't fit on a FAT32 drive: Contents/long mix.wav");

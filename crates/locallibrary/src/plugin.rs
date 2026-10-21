@@ -257,10 +257,11 @@ impl Plugins {
         self.slot(plugin).is_ok_and(|s| s.is_running())
     }
 
-    /// Stops every plugin running, all at once, each given its grace to exit before it's killed
-    /// (a hook under way holds its plugin until it's answered). They start again when used. One
-    /// already stopping (idle, or another caller's shutdown) is waited for: once this returns,
-    /// none is left stopping, so the host can exit.
+    /// Stops every plugin running, all at once, each given its grace to exit before it's killed.
+    /// They start again when used. One already stopping (idle, or another caller's shutdown) is
+    /// waited for: once this returns, each has exited and its folder in the temporary folder is
+    /// gone, so the host can exit. But for one a hook under way holds: it's let go once the hook
+    /// is answered, and stops then, on that hook's thread.
     pub fn shutdown(&self) {
         std::thread::scope(|s| {
             for slot in self.plugins.values() {
