@@ -545,7 +545,8 @@ default = "calm"
 pub fn echo_account(dir: &Path) {
     let file = dir.join("echo.toml");
     let manifest = std::fs::read_to_string(&file).unwrap();
-    let granted = r#""library:plan"]"#;
+    // First in the list, whatever a test granted after it.
+    let granted = "capabilities = [";
     assert!(manifest.contains(granted));
     let account = r#"
 [[contributes.accounts]]
@@ -555,7 +556,7 @@ authorize_url = "http://127.0.0.1:9/authorize"
 token_url = "http://127.0.0.1:9/token"
 client_id = "echo"
 "#;
-    let manifest = manifest.replacen(granted, r#""library:plan", "net:echo.example"]"#, 1) + account;
+    let manifest = manifest.replacen(granted, r#"capabilities = ["net:echo.example", "#, 1) + account;
     std::fs::write(&file, manifest).unwrap();
     // SAFETY: as in `echo_plugin`.
     unsafe { std::env::set_var("LOCALLIBRARY_SESSION_STORE", "file") };
@@ -573,10 +574,18 @@ pub fn mounted(dir: &Path) {
 /// them: set up as the first case starts, for every case after it (the host reads its plugins
 /// once a process, and the environment is best set before any thread runs).
 pub fn plugins_once() -> &'static Path {
+    plugins_once_with(|manifest| manifest)
+}
+
+/// [`plugins_once`], the echo plugin's manifest changed by `change` for this test's process (the
+/// first call sets it up).
+pub fn plugins_once_with(change: fn(String) -> String) -> &'static Path {
     static DIR: std::sync::OnceLock<TempDir> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
         let dir = tempfile::tempdir().unwrap();
         echo_plugin(dir.path());
+        let file = dir.path().join("echo.toml");
+        std::fs::write(&file, change(std::fs::read_to_string(&file).unwrap())).unwrap();
         echo_account(dir.path());
         mounted(dir.path());
         dir

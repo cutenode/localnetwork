@@ -114,7 +114,7 @@ pub(crate) fn validate(bytes: &[u8], path: &Path) -> Result<()> {
 }
 
 pub fn read_library(path: &Path) -> Result<Library> {
-    let bytes = std::fs::read(path).at(path)?;
+    let bytes = crate::fsutil::read(path).at(path)?;
     let db = parse_database(bytes, path)?;
     Ok(library_from_database(&db))
 }

@@ -651,7 +651,7 @@ impl Layout {
         let file = dir.join(format!("{}.{}", self.files.len(), key.rsplit_once('.').map_or("DAT", |(_, e)| e)));
         std::fs::write(&file, bytes).at(&file)?;
         let there = target.checked_path(key)?;
-        let same = std::fs::read(&there).is_ok_and(|b| b == bytes);
+        let same = fsutil::read(&there).is_ok_and(|b| b == bytes);
         let at = match std::fs::metadata(&there) {
             Ok(m) if same => mtime(&m),
             _ => Utc::now().timestamp(),

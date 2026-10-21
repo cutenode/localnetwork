@@ -436,7 +436,7 @@ fn read_track(device: &Device, track: &Track, waveforms: bool) -> TrackAnalysis 
         return a;
     }
     let dat = paths::key(&track.analyze_path);
-    let read = |key: &str| device.checked_path(key).ok().and_then(|p| std::fs::read(p).ok());
+    let read = |key: &str| device.checked_path(key).ok().and_then(|p| crate::fsutil::read(&p).ok());
     let sibling = |ext: &str| dat.strip_suffix(".DAT").map(|s| format!("{s}.{ext}")).and_then(|k| read(&k));
     let ext = sibling("EXT");
     if let Some(bytes) = read(&dat) {

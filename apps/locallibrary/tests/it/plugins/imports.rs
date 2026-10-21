@@ -126,3 +126,188 @@ fn the_sidecar_imports_and_writes_out_sets() {
     let run = json!({ "plugin": "echo", "command": "echo", "params": { "context": true }, "context": context });
     assert_eq!(result(s.call(8, "plugins.run", run))["set"], set["id"]);
 }
+
+/// The tracklists manifest, its importer providing `provides`, with an option: `blob`, the file in
+/// its scratch folder it answers in.
+fn importing(provides: &[&str]) -> String {
+    tracklists().replace(
+        r#"provides = ["fields", "cues", "tags", "sessions"]"#,
+        &format!("provides = {provides:?}\noptions = {{ type = \"object\", properties = {{ blob = {{ type = \"string\" }} }} }}"),
+    )
+}
+
+/// For any file an importer reads (tracks on the drive or not, with keys, cues and My Tags, and
+/// sessions), found by its extension or else named with `--format`, answered inline or in a file
+/// (`--option`): a dry run says in text what `--json` plans (what it found, the edits, the
+/// sessions kept, what's left out) and writes nothing, nor does a run not confirmed; confirmed,
+/// it's made, and the same file again has no edits left. What the importer's manifest doesn't say
+/// it provides, and an option it doesn't take, are refused.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_file_is_imported_as_its_plan_says(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    // Mostly every kind, so most files are read.
+    let kinds = vec!["fields", "cues", "tags", "sessions"];
+    let provides: Vec<&str> = match tc.draw(gs::weighted_booleans(0.7)) {
+        true => kinds.clone(),
+        false => tc.draw(gs::subsequences(kinds).min_size(1)),
+    };
+    let mut env = Env::new();
+    env.plugins(&[&importing(&provides)]);
+    env.demo("USB");
+    let tracks = env.json(&["tracks", "USB"]);
+    let paths: Vec<&str> =
+        tracks["tracks"].as_array().unwrap().iter().map(|t| t["file_path"].as_str().unwrap()).collect();
+    let entries: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(3)))
+        .map(|k| {
+            let on = tc.draw(gs::optional(gs::sampled_from(paths.clone())));
+            let mut t =
+                json!({ "match": { "path": on.map_or_else(|| format!("/Contents/nowhere/{k}.mp3"), String::from) } });
+            if tc.draw(gs::booleans()) {
+                t["key"] = json!(tc.draw(gs::sampled_from(vec!["8A", "3B"])));
+            }
+            if tc.draw(gs::booleans()) {
+                let at = tc.draw(gs::integers::<u32>().max_value(5000));
+                t["cues"] = json!([{ "hot_cue": tc.draw(gs::sampled_from(vec!["A", "H"])), "start_ms": at }]);
+            }
+            if tc.draw(gs::booleans()) {
+                t["my_tags"] = json!([format!("Genre/Imp{}", tc.draw(gs::integers::<u8>().max_value(1)))]);
+            }
+            t
+        })
+        .collect();
+    let logs: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|i| {
+            let plays: Vec<Value> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(2)))
+                .map(|j| json!({ "artist": "A", "title": format!("T{i}{j}"), "started_at": format!("2026-10-03T22:{i}{j}:00Z") }))
+                .collect();
+            json!({ "name": format!("Night {i}"), "plays": plays })
+        })
+        .collect();
+    let warnings: Vec<String> =
+        (0..tc.draw(gs::integers::<usize>().max_value(1))).map(|w| format!("line {w}")).collect();
+    let by_extension = tc.draw(gs::booleans());
+    let file = env.outside(if by_extension { "read.json" } else { "read.nml" });
+    std::fs::write(&file, json!({ "tracks": entries, "sessions": logs, "warnings": warnings }).to_string()).unwrap();
+    let mut args = vec!["import", path(&file), "USB"];
+    if !by_extension {
+        // No importer reads .nml files: it's for `--format` to say.
+        assert!(env.fails(2, &args).contains("say what reads it: --format FORMAT"));
+        args.extend(["--format", "given"]);
+    }
+    if tc.draw(gs::booleans()) {
+        args.extend(["--option", "blob=answer.json"]);
+    }
+    if tc.draw(gs::weighted_booleans(0.25)) {
+        let refused = env.fails(2, &[&args[..], &["--option", "nope=1"]].concat());
+        assert!(refused.contains("this format has no option \"nope\": its options are blob"), "{refused}");
+    }
+    let dry = [&args[..], &["--dry-run"]].concat();
+    let has = |key: &str| entries.iter().any(|t| t.get(key).is_some());
+    let kinds =
+        [("fields", has("key")), ("cues", has("cues")), ("tags", has("my_tags")), ("sessions", !logs.is_empty())];
+    if let Some((kind, _)) = kinds.iter().find(|(kind, has)| *has && !provides.contains(kind)) {
+        let refused = env.fails(1, &dry);
+        assert!(refused.contains(&format!("it read {kind}, which its manifest doesn't say it provides")), "{refused}");
+        return;
+    }
+
+    let before = Env::files_in(&env.volumes);
+    let planned = env.json(&dry);
+    let plan = &planned["plan"];
+    let found = entries.iter().filter(|t| !t["match"]["path"].as_str().unwrap().contains("/nowhere/")).count();
+    assert_eq!(
+        (plan["tracks"]["entries"].as_u64(), plan["tracks"]["found"].as_u64()),
+        (Some(entries.len() as u64), Some(found as u64))
+    );
+    let names = |plan: &Value| -> Vec<String> {
+        plan["sessions"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap().into()).collect()
+    };
+    assert_eq!(names(plan), logs.iter().map(|l| l["name"].as_str().unwrap().to_string()).collect::<Vec<_>>());
+    let said: Vec<&str> = plan["warnings"].as_array().unwrap().iter().map(|w| w.as_str().unwrap()).collect();
+    assert!(warnings.iter().all(|w| said.contains(&format!("Given: {w}").as_str())), "{said:?}");
+    let noop = plan["noop"].as_bool().unwrap();
+    assert_eq!(planned["outcome"], if noop { "nothing_to_do" } else { "dry_run" });
+    let text = env.ok(&dry);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], format!("• {}", plan["summary"][0].as_str().unwrap()), "{text}");
+    let changes: Vec<&str> = plan["edits"]["changes"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+    for c in &changes {
+        assert!(lines.contains(&format!("  - {c}").as_str()), "{c}: {text}");
+    }
+    for s in plan["sessions"].as_array().unwrap() {
+        let line = format!("  {} {} play(s)", s["name"].as_str().unwrap(), s["plays"].as_array().unwrap().len());
+        assert!(lines.contains(&line.as_str()), "{line}: {text}");
+    }
+    for w in &said {
+        assert!(lines.contains(&format!("! {w}").as_str()), "{w}: {text}");
+    }
+    assert_eq!(text.contains("nothing to import"), noop, "{text}");
+    assert_eq!(Env::files_in(&env.volumes), before, "a dry run writes nothing");
+    if noop {
+        return;
+    }
+    // Without a terminal to ask on, it isn't confirmed.
+    env.exits(3, &args);
+    assert_eq!(Env::files_in(&env.volumes), before, "nor does a run not confirmed");
+    assert!(!env.store.join("sets.json").exists());
+    let applied = env.ok(&[&["--yes"][..], &args].concat());
+    assert_eq!(applied.contains("change(s) written"), !changes.is_empty(), "{applied}");
+    assert_eq!(applied.contains(&format!("kept {} session(s)", logs.len())), !logs.is_empty(), "{applied}");
+    let again = env.json(&dry);
+    assert_eq!(again["plan"]["edits"]["changes"], json!([]), "what it planned is there");
+    let ids = |plan: &Value| plan["sessions"].as_array().unwrap().iter().map(|s| s["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(ids(&again["plan"]), ids(plan), "the same sessions");
+}
+
+/// For any set (by its title or `last`) or a recorded mix, written out in a plugin's format to a
+/// file there already or not: a dry run says what it would write (the set, by its id) and writes
+/// nothing; a file there already is overwritten only with `--replace` or once confirmed, never
+/// without a terminal to ask on; otherwise the plugin writes it. A set's format needs `-o`, and
+/// a mix's a single mix.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_set_or_a_mix_is_written_out_as_planned(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let env = tracklists_env();
+    let titles: Vec<String> =
+        (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3))).map(|i| format!("Night {i}")).collect();
+    for (i, title) in titles.iter().enumerate() {
+        env.ok(&["sets", "new", "--title", title, "--date", &format!("2026-10-0{}", i + 1)]);
+    }
+    let named = tc.draw(gs::sampled_from(vec!["last".to_string(), titles[0].clone()]));
+    let id = env.json(&["sets", "show", &named])["id"].as_str().unwrap().to_string();
+    let out = env.outside("night.txt");
+    let there = tc.draw(gs::booleans());
+    if there {
+        std::fs::write(&out, "mine").unwrap();
+    }
+    let export = ["sets", "export", &named, "--format", "sheet"];
+    assert!(env.fails(2, &export).contains("say where with -o"));
+    let to = [&export[..], &["-o", path(&out)]].concat();
+    let planned = env.json(&[&to[..], &["--dry-run"]].concat());
+    assert_eq!((planned["outcome"].as_str(), planned["plan"]["destructive"].as_bool()), (Some("dry_run"), Some(there)));
+    assert_eq!(planned["plan"]["notes"][1], format!("set: {id}"), "the set, by its id");
+    assert_eq!(std::fs::read_to_string(&out).ok(), there.then(|| "mine".to_string()), "a dry run writes nothing");
+    let (replace, yes) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let args = [&["--yes"][..yes as usize], &to, &["--replace"][..replace as usize]].concat();
+    if there && !replace && !yes {
+        env.exits(3, &args);
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "mine", "not confirmed, it's left as it was");
+        return;
+    }
+    assert!(env.ok(&args).contains(&format!("wrote 1 file(s) to {}", out.display())));
+    // A set made on the command line has no tracks yet.
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "");
+
+    if !tc.draw(gs::weighted_booleans(0.3)) {
+        return;
+    }
+    let recording = env.outside("set.wav");
+    std::fs::write(&recording, recording_of()).unwrap();
+    let mix = ["mix", path(&recording), "--drive", "USB", "--format", "mixsheet", "--export", path(&out)];
+    let two = env.fails(1, &[&mix[..2], &[path(&recording)], &mix[2..]].concat());
+    assert!(two.contains("--format goes with a single mix"), "{two}");
+    env.exits(3, &mix);
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "", "not confirmed, it's left as it was");
+    let written = env.ok(&[&mix[..], &["--replace"]].concat());
+    assert!(written.contains("mix: ") && written.contains("wrote 1 file(s)"), "{written}");
+}
