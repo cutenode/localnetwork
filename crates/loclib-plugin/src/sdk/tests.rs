@@ -18,6 +18,7 @@ use crate::{
 
 #[path = "../../examples/echo/plugin.rs"]
 mod echo;
+mod events;
 
 /// The host's end of a plugin served on a thread, over pipes.
 struct Session {

@@ -39,11 +39,13 @@ pub(super) fn list(all: &[Listed]) {
         }
         let adds: Vec<String> = [
             named("command", &p.commands),
+            (!p.events.is_empty()).then(|| format!("listens for {}", p.events.join(", "))),
             named("operation", &p.operations),
             named("analyzer", &p.analyzers),
             named("export format", &p.exporters),
             named("import format", &p.importers),
             named("provider", &p.providers),
+            named("service", &p.services),
             named("setting", &p.settings),
         ]
         .into_iter()
@@ -86,6 +88,8 @@ pub(super) fn info(d: &Described) {
     let commands =
         c.commands.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Commands:", commands.collect());
+    let events = c.events.iter().flat_map(|x| &x.on).map(|e| (e.name().to_string(), String::new()));
+    section("Listens for:", events.collect());
     let operations =
         c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Operations (planned, then confirmed):", operations.collect());
@@ -126,6 +130,11 @@ pub(super) fn info(d: &Described) {
         (p.name.clone(), format!("{}: {}, for locallibrary {verb}", p.title, p.kind.found()))
     });
     section("Providers:", providers.collect());
+    let services = c.services.iter().map(|s| {
+        let on = d.settings.get(&format!("{}{}", locallibrary::plugin::SERVICES, s.name)) == Some(&Value::Bool(true));
+        (s.name.clone(), format!("{}: {}", s.title, if on { "on" } else { "off" }))
+    });
+    section(&format!("Services (locallibrary plugin settings {} services.NAME on):", m.id), services.collect());
     let settings =
         c.settings.iter().map(|s| (s.key.clone(), format!("{}: {}", s.title, shown(s, &d.settings, &d.secrets))));
     section(&format!("Settings (locallibrary plugin settings {}):", m.id), settings.collect());
@@ -186,11 +195,11 @@ pub(super) fn settings(
     store_path: &Option<PathBuf>,
     out: Output,
 ) -> Result<ExitCode> {
-    let manifest = plugins.manifest(&plugin)?;
+    let listed = plugins.setting_list(&plugin)?;
     let setting = key
         .as_deref()
         .map(|k| {
-            manifest.contributes.settings.iter().find(|s| s.key == k).ok_or_else(|| {
+            listed.iter().find(|s| s.key == k).ok_or_else(|| {
                 usage(format!(
                     "the {plugin} plugin has no setting {k:?} (`locallibrary plugin settings {plugin}` lists them)"
                 ))
@@ -223,8 +232,7 @@ pub(super) fn settings(
         settings.retain(|k, _| setting.is_none_or(|s| s.key == *k));
         let mut secrets = Secrets::of(plugins, &plugin, store.as_ref())?;
         secrets.set.retain(|k, _| setting.is_none_or(|s| s.key == *k));
-        let shown: Vec<&Setting> =
-            manifest.contributes.settings.iter().filter(|s| setting.is_none_or(|o| o.key == s.key)).collect();
+        let shown: Vec<&Setting> = listed.iter().filter(|s| setting.is_none_or(|o| o.key == s.key)).collect();
         out.emit(&Settings { plugin, settings, secrets }, |s| show_settings(&shown, s));
         return Ok(ExitCode::SUCCESS);
     };

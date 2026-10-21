@@ -2170,7 +2170,8 @@ export type SetPluginSetting = {
   key: string;
   /**
    * Of the setting's type (a secret's, text: kept in the system's keychain and never
-   * answered); `null` (or left out) puts it back to its default, or forgets a secret.
+   * answered; a service's switch, `services.<name>`, true or false); `null` (or left out)
+   * puts it back to its default, or forgets a secret.
    */
   value?: unknown;
 };
@@ -7473,15 +7474,17 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations, analyzers and providers by name, its export and
-   * import formats and its settings' keys.
+   * What it adds: its commands, operations, analyzers, providers and services by name, the
+   * events it listens for, its export and import formats and its settings' keys.
    */
   commands: string[];
+  events: string[];
   operations: string[];
   analyzers: string[];
   exporters: string[];
   importers: string[];
   providers: string[];
+  services: string[];
   settings: string[];
   /** It's running now: plugins start when they're first used, and stop once they're idle. */
   running: boolean;
@@ -7541,11 +7544,13 @@ export type Manifest = {
 
 export type Contributions = {
   commands: Command[];
+  events: Listener[];
   operations: Operation[];
   analyzers: Analyzer[];
   exporters: Exporter[];
   importers: Importer[];
   providers: Provider[];
+  services: Service[];
   settings: Setting[];
 };
 
@@ -7573,6 +7578,34 @@ export type Mode =
  * playlist, or of a drive. A host's palette has every one.
  */
 export type Where = "track" | "playlist" | "drive";
+
+/** `[[contributes.events]]`: what the plugin is told of (`event/notify`). */
+export type Listener = {
+  on: EventName[];
+};
+
+/**
+ * What a host tells plugins of: a closed list, each needing a capability (see
+ * [`EventName::capability`]).
+ */
+export type EventName =
+  /** A drive was plugged in. */
+  | "drive.mounted"
+  /** A drive was unplugged. */
+  | "drive.unmounted"
+  /** A drive's databases or its locallibrary state changed (`payload.changed` says which). */
+  | "drive.changed"
+  /**
+   * A drive was saved into the store as a new snapshot (`payload.history_lists`: the
+   * history lists the store lacked).
+   */
+  | "drive.pulled"
+  /** A drive back from a set was saved beside its library's newest snapshot. */
+  | "set.returned"
+  /** A request to the sidecar finished (`payload.method`, `payload.ok`). */
+  | "job.finished"
+  /** A plan was applied (`payload.operation`, `payload.summary`). */
+  | "plan.applied";
 
 /**
  * Planned with `op/plan`, applied by the host, which works out from the edits whether it's
@@ -7677,6 +7710,16 @@ export type Provider = {
   name: string;
   title: string;
   kind: ProviderKind;
+};
+
+/**
+ * Started with `service/start` by a host that stays open (the player, the sidecar, the `watch`
+ * agent), once the user has turned it on (its plugin's setting `services.<name>`), never by a
+ * command run once.
+ */
+export type Service = {
+  name: string;
+  title: string;
 };
 
 /** A setting the host stores and shows in its settings. */
@@ -8043,9 +8086,9 @@ export type Step = {
 
 /**
  * An `event` notification's parameters: drives and the store (after `events.subscribe`),
- * requests starting and finishing, and what `watch.start` does.
+ * requests starting and finishing, what `watch.start` does, and what plugins tell the user.
  */
-export type Notice = WatchEvent | JobEvent | WatchAction;
+export type Notice = WatchEvent | JobEvent | WatchAction | PluginEvent;
 
 /** What a poll noticed. */
 export type WatchEvent =
@@ -8201,6 +8244,28 @@ export type WatchAction =
     message: string;
     event: "watch.failed";
   };
+
+/** What a plugin did. */
+export type PluginEvent = PluginNotice & {
+  event: "plugin.notice";
+};
+
+/** One of the plugin's operations, with its params, suggested to the user. */
+export type Suggested = {
+  name: string;
+  params: unknown;
+};
+
+/**
+ * A line a plugin tells the user (`host/notify`), and the operation of its it suggests, with
+ * its params: the front end offers to plan it, and the user confirms it as any plan.
+ */
+export type PluginNotice = {
+  /** The plugin's id. */
+  plugin: string;
+  message: string;
+  operation?: Suggested | null;
+};
 
 /** An error response's `error.data`: what a front end can act on without reading the message. */
 export type ErrorData = {

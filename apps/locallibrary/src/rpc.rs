@@ -47,6 +47,10 @@
 //! * `watch.start` pulls drives into the store as they're plugged in (`locallibrary watch`, see
 //!   [`locallibrary::api::AutoPull`]) until `watch.stop`, sending a `watch.*` event for each
 //!   thing it does.
+//! * Plugins listening for them are told of these events while the sidecar runs (drives are
+//!   polled for them whether or not the client subscribed), and of plans applied; what plugins
+//!   tell the user is a `plugin.notice` event. Plugins' services the user turned on run while it
+//!   does.
 //! * Every `*.plan` answers with a `plan_id` (see [`locallibrary::op`]) and keeps the plan, so
 //!   `*.apply {"plan_id": ...}` applies exactly what the user was shown, or fails with
 //!   `stale_plan` if anything it touches changed since. A plan is applied once; the newest
@@ -72,6 +76,7 @@ use locallibrary::api::RpcFailure as RpcError;
 use locallibrary::op::AnyPlanned;
 use locallibrary::progress::{CancelToken, Coalesced, Ctx, Event, Flusher, Progress, Report, Scope};
 use locallibrary::watch::{DriveChange, VolumeWatcher, WatchEvent};
+use loclib_plugin::EventName;
 use loclib_plugin::code::{FAILED, INTERNAL, INVALID_PARAMS, INVALID_REQUEST, PARSE_ERROR};
 use loclib_plugin::framing::{Line, MAX_LINE, read_line};
 use serde::de::DeserializeOwned;
@@ -464,7 +469,10 @@ struct EventState {
     /// Subscribed: the kinds wanted (empty: every kind). `None`: not subscribed.
     kinds: Option<Vec<String>>,
     every: Duration,
-    /// Shared with the thread polling it, which ends (and clears this) once nobody is subscribed.
+    /// Plugins listen for drives: they're polled as long as the sidecar runs.
+    plugins: bool,
+    /// Shared with the thread polling it, which ends (and clears this) once nobody is subscribed
+    /// and no plugin listens.
     watcher: Option<Arc<Mutex<VolumeWatcher>>>,
 }
 
@@ -486,8 +494,9 @@ impl Events {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Sends `event` if it's wanted.
+    /// Sends `event` if it's wanted, and tells the plugins listening for it.
     fn send(&self, out: &Out, event: api::Notice) {
+        crate::plugins::events::deliver(&event);
         let event = json!(event);
         let s = self.lock();
         if event["event"].as_str().is_some_and(|kind| s.wants(kind)) {
@@ -495,8 +504,10 @@ impl Events {
         }
     }
 
-    /// Sends a `watch.*` event: always while watching, unless a subscription leaves it out.
+    /// Sends a `watch.*` event: always while watching, unless a subscription leaves it out. And
+    /// tells the plugins listening for it.
     fn send_watch(&self, out: &Out, event: api::Notice) {
+        crate::plugins::events::deliver(&event);
         let event = json!(event);
         let s = self.lock();
         if s.kinds.is_none() || event["event"].as_str().is_some_and(|kind| s.wants(kind)) {
@@ -510,21 +521,38 @@ impl Events {
         let mut s = self.lock();
         s.kinds = Some(req.kinds.clone());
         s.every = req.interval_ms.map_or(EVENTS_EVERY, |ms| Duration::from_millis(ms.max(100)));
-        let watcher = match &s.watcher {
-            Some(w) => w.clone(),
-            None => {
-                let w = Arc::new(Mutex::new(VolumeWatcher::new().with_store(store_root)));
-                s.watcher = Some(w.clone());
-                let (events, out, polled) = (self.clone(), out.clone(), w.clone());
-                std::thread::spawn(move || events.poll(&polled, &out));
-                w
-            }
-        };
+        let watcher = self.watcher(&mut s, store_root, out);
         let drives = watcher.lock().unwrap_or_else(PoisonError::into_inner).drives();
         api::Subscribed { kinds: req.kinds, drives }
     }
 
-    /// Polls drives and the store while anyone is subscribed.
+    /// Polls drives for the plugins listening for them as long as the sidecar runs, whoever
+    /// subscribes, when any is.
+    fn poll_for_plugins(self: &Arc<Self>, store_root: &Path, out: &Out) {
+        let Ok(plugins) = crate::plugins::host() else { return };
+        let drives = [EventName::DriveMounted, EventName::DriveUnmounted, EventName::DriveChanged];
+        if !drives.into_iter().any(|e| plugins.listens(e)) {
+            return;
+        }
+        let mut s = self.lock();
+        s.plugins = true;
+        s.every = EVENTS_EVERY;
+        self.watcher(&mut s, store_root, out);
+    }
+
+    /// The watcher, started polling if it isn't.
+    fn watcher(self: &Arc<Self>, s: &mut EventState, store_root: &Path, out: &Out) -> Arc<Mutex<VolumeWatcher>> {
+        if let Some(w) = &s.watcher {
+            return w.clone();
+        }
+        let w = Arc::new(Mutex::new(VolumeWatcher::new().with_store(store_root)));
+        s.watcher = Some(w.clone());
+        let (events, out, polled) = (self.clone(), out.clone(), w.clone());
+        std::thread::spawn(move || events.poll(&polled, &out));
+        w
+    }
+
+    /// Polls drives and the store while anyone is subscribed, or plugins listen.
     fn poll(&self, watcher: &Mutex<VolumeWatcher>, out: &Out) {
         loop {
             let every = self.lock().every;
@@ -538,9 +566,10 @@ impl Events {
                     WatchEvent::Detached(drive) => LIBRARIES.invalidate(&drive.root),
                     _ => {}
                 }
+                crate::plugins::events::deliver(&api::Notice::Watch(e.clone()));
             }
             let mut s = self.lock();
-            if s.kinds.is_none() {
+            if s.kinds.is_none() && !s.plugins {
                 s.watcher = None;
                 return;
             }
@@ -592,6 +621,13 @@ pub fn serve(store_root: PathBuf, workers: usize) -> anyhow::Result<()> {
     };
     watch_signals(&server)?;
     std::thread::spawn(|| PROGRESS.run(PROGRESS_EVERY));
+    let (events, out) = (server.events.clone(), server.out.clone());
+    let told = move |n| events.send(&out, api::Notice::Plugin(api::PluginEvent::Notice(n)));
+    crate::plugins::events::notices_to(Some(Arc::new(told)));
+    server.events.poll_for_plugins(&server.store_root, &server.out);
+    if let Ok(plugins) = crate::plugins::host() {
+        plugins.run_services(locallibrary::Store::open(&server.store_root).ok().as_ref());
+    }
 
     let mut input = std::io::stdin().lock();
     let mut buf = Vec::new();
