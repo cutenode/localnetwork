@@ -430,6 +430,8 @@ locallibrary pack Home /Volumes/TONIGHT --playlist Friday --transcode --players 
     Watch(watch_cmd::WatchArgs),
     /// Write a playlist, folder, history list or the whole library as M3U8, CSV or text, or in a plugin's format (other DJ software's)
     Export(export_cmd::ExportArgs),
+    /// Read another program's file with a plugin: keys, BPMs, cues and My Tags added to a drive's tracks, plays kept as sessions
+    Import(plugin_cmd::ImportArgs),
     /// Export a drive's library as rekordbox XML (import it into rekordbox to recover a library)
     Xml {
         #[arg(help = "A library's name, or a drive's mount path, name or id prefix [default: the only mounted \
@@ -1189,6 +1191,8 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         });
     }
     api::set_store_root(cli.store.clone().unwrap_or_else(Store::default_root));
+    // The check before a set, doctor and edit plans run the plugins' checks.
+    locallibrary::plugin::set_hosted(|| plugins::host().ok());
     let progress = out.progress();
     let ctx = Ctx::new(&progress, cancel);
     let store = || open_store(&cli.store);
@@ -1511,6 +1515,7 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         Command::Account(args) => return account_cmd::run(args, &cli.store, out, &ctx),
         Command::Profile(args) => return profile_cmd::run(args, &cli.store, out, &ctx),
         Command::Export(args) => return export_cmd::run(args, &cli.store, out, &ctx),
+        Command::Import(args) => return plugin_cmd::import(args, &cli.store, out, &ctx),
         Command::Diff(args) => return diff_cmd::run(args, &cli.store, out, &ctx),
         Command::Collection(args) => return collection_cmd::run(args, &cli.store, out, &ctx),
         Command::Check(args) => return check_cmd::run(args, &cli.store, out, &ctx),

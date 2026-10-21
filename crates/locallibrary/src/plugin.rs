@@ -1,7 +1,8 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
-//! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters,
-//! providers, accounts, destinations, services and settings, and listening for events. The CLI,
-//! the TUI and the RPC sidecar host them through [`Plugins`].
+//! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, panels, track analyzers,
+//! checks, exporters, importers, providers, accounts, destinations, services, library sources,
+//! themes and settings, and listening for events. The CLI, the TUI and the RPC sidecar host them
+//! through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -18,32 +19,42 @@
 //! [`Plugins::begin_sign_in`]); an operation's edits are planned and applied by the host as any
 //! edit plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
-//! Analyzers' values go to the [`crate::fields`] store. What providers find for tracks, the host
-//! offers the user and makes the edits of itself (see [`Plugins::provide`]). A store destination
-//! keeps a copy of the store, which the host alone decides the content of and checks what it
-//! fetches back from ([`Plugins::store_destination`]); a set destination publishes a set once the
-//! user confirms, and the host keeps its link ([`Plugins::publish_plan`]). Plugins are told of
-//! what happens as the front ends notice it ([`Plugins::deliver`]), and services run while a
-//! front end that stays open does ([`Plugins::run_services`]); what either tells the user, the
+//! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
+//! to its overlay store. What providers find for tracks, the host offers the user and makes the
+//! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
+//! [`Plugins::import_plan`]). A library source's tracks are copied to a drive only from the
+//! folders the user grants it, each file checked by the host (see [`Plugins::plan_source_export`]).
+//! What checks find joins the check before a set and doctor, and guards say what they make of an
+//! edit plan before it's confirmed (see [`Plugins::run_checks`], [`Plugins::guard`]). A store
+//! destination keeps a copy of the store, which the host alone decides the content of and checks
+//! what it fetches back from ([`Plugins::store_destination`]); a set destination publishes a set
+//! once the user confirms, and the host keeps its link ([`Plugins::publish_plan`]). Plugins are
+//! told of what happens as the front ends notice it ([`Plugins::deliver`]), and services run while
+//! a front end that stays open does ([`Plugins::run_services`]); what either tells the user, the
 //! front end shows ([`Options::notices`]), and nothing they suggest is planned unless the user
 //! chooses to.
 
 mod accounts;
+mod analysis;
 mod analyzers;
 mod apply;
 mod blobs;
 mod callbacks;
+mod checks;
 mod commands;
 mod destinations;
 mod events;
 mod exports;
+mod imports;
 mod net;
 mod operations;
+mod panels;
 mod process;
 mod providers;
 mod secrets;
 mod services;
 mod settings;
+mod sources;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -61,22 +72,29 @@ use crate::keychain::Storage;
 use crate::{Error, Result};
 
 pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
+pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
+pub(crate) use checks::hosted;
+pub use checks::{
+    CheckChange, CheckSettings, Fix, MAX_TIMEOUT, MIN_TIMEOUT, TIMEOUT, check_timeout, set_check_timeout, set_hosted,
+};
 pub use commands::CommandOutput;
 pub use destinations::{SetPublish, SetPublished, StoreDestination, destination_spec};
 pub use events::{Event, MAX_SUGGESTED, PluginNotice, forget_suggested, keep_suggested, suggested};
 pub use exports::{ExportFile, PluginExport};
+pub use imports::{PluginImport, PluginImported};
 pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,
 };
 pub(crate) use settings::{host_settings, set_host_setting};
+pub use sources::SourceExport;
 
-use process::Slot;
 pub(crate) use process::THREAD_ELEVATED;
+use process::{Plugin, Slot};
 
 /// A plugin's command or operation, as the command line runs it.
 #[derive(Debug, Clone, Copy)]
@@ -277,11 +295,20 @@ impl Plugins {
         offered
     }
 
-    /// Every analyzer's fields, by name as filters and sorts name them (`sound.bpm`), with their
-    /// types: in the order the plugins, and their analyzers, declare them.
+    /// How the plugin's analyzers say their field `field` is shown, if they say.
+    pub fn display(&self, plugin: &str, field: &str) -> Option<&loclib_plugin::FieldDisplay> {
+        let analyzers = &self.plugins.get(plugin)?.manifest.contributes.analyzers;
+        analyzers.iter().find_map(|a| a.display.get(field))
+    }
+
+    /// Every analyzer's fields but its beat grids, phrases and waveforms (no columns), by name as
+    /// filters and sorts name them (`sound.bpm`), with their types: in the order the plugins, and
+    /// their analyzers, declare them.
     pub fn fields(&self) -> crate::fields::Declared {
         let all = self.manifests().flat_map(|m| m.contributes.analyzers.iter().map(move |a| (m, a)));
-        all.flat_map(|(m, a)| a.fields.iter().map(move |(name, &kind)| (format!("{}.{name}", m.id), kind))).collect()
+        let columns =
+            all.flat_map(|(m, a)| a.fields.iter().map(move |(name, &kind)| (format!("{}.{name}", m.id), kind)));
+        columns.filter(|(_, kind)| !kind.is_structured()).collect()
     }
 
     /// Whether the plugin is running now. Never waits.
@@ -329,7 +356,7 @@ impl Drop for Plugins {
     }
 }
 
-impl Slot {
+impl Plugin {
     /// The plugin's contribution of a kind (`what`) named `name`, among `all` (named by
     /// `named`).
     fn declared<'a, T>(&self, what: &str, name: &str, all: &'a [T], named: fn(&T) -> &str) -> Result<&'a T> {

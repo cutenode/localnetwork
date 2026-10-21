@@ -89,6 +89,51 @@ fn analyses_serialise_as_their_schema_describes(tc: TestCase) {
     assert_eq!(json["detail"], serde_json::Value::Null);
 }
 
+/// Packed bands unpack to themselves, and only whole columns unpack; pooled, each band's loudest
+/// stays the loudest; drawn, a column is its two tallest bands, the taller behind.
+#[hegel::test(test_cases = 100)]
+fn bands_pack_pool_and_draw(tc: TestCase) {
+    let columns = tc.draw(gs::vecs(gs::tuples!(gs::integers(), gs::integers(), gs::integers())).max_size(40));
+    let bands = Bands(columns.into_iter().map(|(l, m, h)| [l, m, h]).collect());
+    let packed = bands.pack();
+    assert_eq!(packed.len(), 3 * bands.0.len());
+    assert_eq!(Bands::unpack(&packed), Some(bands.clone()));
+    let extra = tc.draw(gs::integers::<usize>().min_value(1).max_value(2));
+    assert_eq!(Bands::unpack(&[packed, vec![0; extra]].concat()), None);
+
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(60));
+    let pooled = bands.pooled(n);
+    assert_eq!(pooled.0.len(), n);
+    for band in 0..3 {
+        let loudest = |b: &Bands| b.0.iter().map(|c| c[band]).max().unwrap_or(0);
+        assert_eq!(loudest(&pooled), loudest(&bands), "band {band}");
+    }
+
+    let w = bands.waveform(Some(150.0));
+    assert_eq!((w.style, w.columns_per_sec, w.columns.len()), (WaveformStyle::ThreeBand, Some(150.0), bands.0.len()));
+    for (c, b) in w.columns.iter().zip(&bands.0) {
+        let mut scaled: Vec<f32> = (0..3).map(|i| f32::from(b[i]) / 255.0 * crate::tokens::bands::SCALES[i]).collect();
+        scaled.sort_by(|a, b| b.total_cmp(a));
+        assert_eq!((c.back.height, c.front.height), (scaled[0], scaled[1]));
+        assert!(c.back.height <= 1.0);
+    }
+}
+
+#[test]
+fn bands_pool_into_previews() {
+    let bands = Bands(vec![[1, 0, 0], [0, 9, 0], [0, 0, 3], [4, 4, 4]]);
+    assert_eq!(bands.pooled(2), Bands(vec![[1, 9, 0], [4, 4, 4]]));
+    assert_eq!(bands.pooled(8).0[..2], [[1, 0, 0], [1, 0, 0]]);
+    assert_eq!(Bands::default().pooled(3), Bands(vec![[0; 3]; 3]));
+    // The lows behind, the mids (as tall as the highs) in front.
+    let w = Bands(vec![[255, 0, 0]]).waveform(None);
+    assert_eq!(
+        (w.columns[0].back.color, w.columns[0].front.color),
+        (crate::tokens::bands::LOW, crate::tokens::bands::MID)
+    );
+    assert_eq!(w.columns[0].front.height, 0.0);
+}
+
 /// Beats and cues read back as they're written, as a plugin reads them from the host.
 #[test]
 fn beats_and_cues_read_back() {

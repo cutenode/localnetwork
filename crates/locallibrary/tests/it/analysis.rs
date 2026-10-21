@@ -59,7 +59,11 @@ fn falls_back_to_blue_preview_without_ext() {
     let preview = a.preview.expect("blue preview from .DAT");
     assert_eq!(preview.style, WaveformStyle::Blue);
     assert_eq!(preview.columns.len(), 400);
-    assert!(a.detail.is_none());
+    // The scrolling one is the .2EX's 3-band one, then: there's no other.
+    let detail = a.detail.expect("3-band detail from .2EX");
+    assert_eq!((detail.style, detail.columns_per_sec), (WaveformStyle::ThreeBand, Some(150.0)));
+    std::fs::remove_file(dat.with_extension("2EX")).unwrap();
+    assert!(anlz::load(&d, t).detail.is_none());
 }
 
 #[test]

@@ -543,7 +543,8 @@ fn mix_reports_are_kept_once_per_save(tc: TestCase) {
         let got = api::mix_report_get(store.root(), &api::ReportRef { id: id.clone(), extras: true }).unwrap();
         assert_eq!(got.saved.as_deref(), Some(id.as_str()));
         let page =
-            api::mix_report_html(&store, &api::ReportHtml { id: id.clone(), inline: tc.draw(gs::booleans()) }).unwrap();
+            api::mix_report_html(&store, &api::ReportHtml { id: id.clone(), inline: tc.draw(gs::booleans()) }, None)
+                .unwrap();
         assert_eq!(fs::metadata(&page.path).unwrap().len(), page.bytes);
         assert!(page.html.is_none_or(|h| h.len() as u64 == page.bytes));
     }

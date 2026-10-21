@@ -793,7 +793,12 @@ fn build() -> Registry {
         .writes_to("output");
     r.read("mix.reports.list", |c, _: NoParams| Ok(api::mix_reports_list(c.root)?)).quick();
     r.read("mix.reports.get", |c, req| Ok(api::mix_report_get(c.root, &req)?));
-    r.immediate("mix.reports.html", |c, req| Ok(api::mix_report_html(&c.store()?, &req)?)).keeps_cache();
+    r.immediate("mix.reports.html", |c, req| {
+        let store = c.store()?;
+        let shown = crate::plugins::shown_fields(Some(store.clone()));
+        Ok(api::mix_report_html(&store, &req, Some(&shown))?)
+    })
+    .keeps_cache();
 
     // Every drive you own.
     r.read("fleet.status", |c, req| Ok(api::fleet_status(c.existing()?.as_ref(), &req, c.ctx)?)).long();
@@ -827,7 +832,7 @@ fn build() -> Registry {
     // With `repair`, the drive is unmounted and damaged files may be truncated or removed.
     r.immediate("drive.fsck", |c, req| Ok(api::drive_fs_check(c.store_opt().as_ref(), &req)?)).long().destructive();
     r.read("drive.space", |c, req| Ok(api::drive_space(c.existing()?.as_ref(), &req, c.ctx)?)).long();
-    r.plan("drive.contact.plan", |_, req| Ok(api::drive_contact_plan(&req)?));
+    r.plan("drive.contact.plan", |c, req| Ok(api::drive_contact_plan(&req, c.ctx)?));
     r.apply("drive.contact.apply", PlanStore::None, |c, req| Ok(api::drive_contact(&req, c.ctx)?))
         .alias("drive.contact");
     r.read("player.show", |_, req| Ok(api::player_show(&req)?)).quick();

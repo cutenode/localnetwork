@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Plugins;
 use super::net::unreachable;
-use super::process::{Live, Slot};
+use super::process::{Live, Plugin};
 use crate::callback::{self, CallbackQuery};
 use crate::export::one_line;
 use crate::net::with_causes;
@@ -44,7 +44,7 @@ const PENDING_LIMIT: Duration = Duration::from_secs(15 * 60);
 const MAX_ANSWER: u64 = 1 << 20;
 
 /// An account's client at its service, for signing in (with the browser's way back) and
-/// refreshing. Revoking is the host's own request (see [`Slot::revoke`]): the crate's refuses an
+/// refreshing. Revoking is the host's own request (see [`Plugin::revoke`]): the crate's refuses an
 /// endpoint on this computer, which tests have.
 type Client = BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
 
@@ -150,9 +150,9 @@ fn key(id: &str) -> String {
     format!("account:{id}")
 }
 
-impl Slot {
+impl Plugin {
     /// The account `id` it declares: its service's endpoints, client and scopes. Neither this nor
-    /// [`Slot::sign_in_client`] is named for an account or OAuth: CodeQL guesses secrets from
+    /// [`Plugin::sign_in_client`] is named for an account or OAuth: CodeQL guesses secrets from
     /// names, and would take the sign-in link made from them for one.
     fn declared_sign_in(&self, id: &str) -> Result<&Account> {
         self.declared("account", id, &self.manifest.contributes.accounts, |a| &a.id)

@@ -19,13 +19,17 @@ pub const PROTOCOL_VERSION: &str = "0.2.0";
 /// The methods' names.
 pub mod method {
     pub use crate::hooks::analyzers::ANALYZE_TRACK;
+    pub use crate::hooks::checks::{PLAN_CHECK, RUN_CHECK};
     pub use crate::hooks::commands::RUN_COMMAND;
     pub use crate::hooks::destinations::{BLOBS_GET, BLOBS_HAS, BLOBS_PUT, MANIFEST_GET, MANIFEST_PUT, SET_PUBLISH};
     pub use crate::hooks::events::{EVENT_NOTIFY, HOST_NOTIFY};
     pub use crate::hooks::exporters::WRITE_EXPORT;
+    pub use crate::hooks::importers::READ_IMPORT;
     pub use crate::hooks::operations::PLAN_OP;
+    pub use crate::hooks::panels::RENDER_PANEL;
     pub use crate::hooks::providers::PROVIDE;
     pub use crate::hooks::services::SERVICE_START;
+    pub use crate::hooks::sources::READ_LIBRARY;
 
     /// Host to plugin, first: [`super::Hello`] -> [`super::HelloReply`].
     pub const HELLO: &str = "hello";
@@ -88,8 +92,8 @@ pub struct PluginInfo {
     pub version: String,
 }
 
-/// Where the user was when they ran a command or an operation (for an analyzer or an exporter,
-/// the drive), and the plugin's settings. Everything is optional.
+/// Where the user was when they ran a command or an operation (for an analyzer, an exporter or an
+/// importer, the drive), and the plugin's settings. Everything is optional.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Context {
     /// The drive's id or name.
@@ -101,6 +105,9 @@ pub struct Context {
     /// The tracks selected, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<u32>,
+    /// The set open, by id (`sets.get` reads it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<String>,
     /// The plugin's settings, by key: each one the user set, else its default. Never a secret:
     /// those only go into `net/fetch` requests, filled in by the host.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]

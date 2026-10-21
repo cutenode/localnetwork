@@ -31,7 +31,7 @@ fn toml(v: &Value) -> String {
 }
 
 /// Every capability a manifest can name but `net:<host>`.
-const CAPABILITIES: [&str; 19] = [
+const CAPABILITIES: [&str; 21] = [
     "library:read",
     "analysis:read",
     "artwork:read",
@@ -48,9 +48,11 @@ const CAPABILITIES: [&str; 19] = [
     "tags:plan",
     "cues:plan",
     "artwork:plan",
+    "analysis:plan",
     "events:drives",
     "events:jobs",
     "events:plans",
+    "fs:read",
 ];
 
 /// Text a person reads in a manifest: a title or a name.
@@ -112,10 +114,11 @@ fn offered(tc: &TestCase, x: &mut Value) {
 
 /// A plugin `id` with drawn capabilities and contributions: commands (`cmd0`...) and
 /// operations (`op0`...), each at a place of its own on the command line or not and in drawn
-/// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`) and
-/// `order` (`a`, `b`) it can run; export formats writing a file or a folder; providers of either
-/// kind (granted reading tracks); accounts (granted a server to talk to) and destinations of
-/// either kind; and settings of every kind.
+/// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`, shown
+/// in bytes or not) and `order` (`a`, `b`) it can run; export formats writing a file or a folder;
+/// providers of either kind (granted reading tracks); accounts (granted a server to talk to) and
+/// destinations of either kind; panels; library sources (granted reading folders); themes; and
+/// settings of every kind.
 #[hegel::test_helper]
 fn manifest(tc: &TestCase, id: &str) -> Value {
     let version = tc.draw(gs::sampled_from(&["0.1.0", "1.2.3-beta.1", "10.0.0"][..]));
@@ -169,13 +172,30 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         analyzers.push(json!({ "name": format!("an{j}"), "title": title(tc), "version": version, "fields": fields }));
     }
     if tc.draw(gs::booleans()) {
-        let size = json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+        let mut size =
+            json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+        if tc.draw(gs::booleans()) {
+            size["display"] =
+                json!({ "bytes": { "unit": "B", "width": tc.draw(gs::integers::<u16>().min_value(1).max_value(40)) } });
+        }
         analyzers.push(size);
     }
     if tc.draw(gs::booleans()) {
         let fields = json!({ "a": "integer", "b": "integer" });
         analyzers.push(json!({ "name": "order", "title": "Order", "version": "1", "fields": fields }));
     }
+    let checks: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let mut c = json!({ "name": format!("ck{j}"), "title": title(tc) });
+            if tc.draw(gs::booleans()) {
+                c["default_on"] = json!(tc.draw(gs::booleans()));
+            }
+            if tc.draw(gs::booleans()) {
+                c["when"] = json!(tc.draw(gs::sampled_from(&[&["check"][..], &["apply"], &["apply", "check"]][..])));
+            }
+            c
+        })
+        .collect();
     let exporters: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
         .map(|j| {
             let mut e = json!({ "format": format!("{id}-x{j}"), "title": title(tc) });
@@ -183,7 +203,25 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
                 true => e["extension"] = json!(tc.draw(gs::sampled_from(&["txt", "m3u8", "nml"][..]))),
                 false => e["folder"] = json!(true),
             }
+            // A drive's library unless it says.
+            if let Some(source) = tc.draw(gs::optional(gs::sampled_from(&["set", "mix"][..]))) {
+                e["source"] = json!(source);
+            }
             e
+        })
+        .collect();
+    if exporters.iter().any(|e| e.get("source").is_some()) && !capabilities.iter().any(|c| c == "sets:read") {
+        capabilities.push("sets:read".into());
+    }
+    let kinds = ["fields", "cues", "tags", "sessions"];
+    let importers: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let provides = tc.draw(gs::vecs(gs::sampled_from(&kinds[..])).min_size(1).max_size(4).unique(true));
+            let mut i = json!({ "format": format!("{id}-i{j}"), "title": title(tc), "provides": provides });
+            if let Some(ext) = tc.draw(gs::optional(gs::sampled_from(&["json", "nml"][..]))) {
+                i["extension"] = json!(ext);
+            }
+            i
         })
         .collect();
     let providers: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
@@ -219,8 +257,33 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             json!({ "name": format!("ds{j}"), "title": title(tc), "kind": kind })
         })
         .collect();
+    let sources: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| json!({ "name": format!("src{j}"), "title": title(tc) }))
+        .collect();
+    if !sources.is_empty() && !capabilities.iter().any(|c| c == "fs:read") {
+        capabilities.push("fs:read".into());
+    }
     let settings: Vec<Value> =
         (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|j| setting(tc, &format!("k{j}"))).collect();
+    let panels: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let mut p = json!({ "name": format!("pn{j}"), "title": title(tc) });
+            if tc.draw(gs::booleans()) {
+                p["where"] = json!("track");
+            }
+            p
+        })
+        .collect();
+    let themes: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let colour = format!("#{:06x}", tc.draw(gs::integers::<u32>().max_value(0xff_ffff)));
+            let tokens = match tc.draw(gs::booleans()) {
+                true => json!({ "playhead": colour }),
+                false => json!({ "ui": { "accent": colour }, "waveform": { "scope": [colour, "#000000"] } }),
+            };
+            json!({ "name": format!("th{j}"), "title": title(tc), "tokens": tokens })
+        })
+        .collect();
     // Some events, each granted, and services.
     let heard: Vec<(&str, &str)> = tc.draw(gs::subsequences(vec![
         ("drive.mounted", "events:drives"),
@@ -249,10 +312,15 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             "destinations": destinations,
             "events": events,
             "operations": operations,
+            "panels": panels,
             "analyzers": analyzers,
+            "checks": checks,
             "exporters": exporters,
+            "importers": importers,
             "providers": providers,
             "services": services,
+            "sources": sources,
+            "themes": themes,
             "settings": settings,
         },
     })
@@ -314,9 +382,14 @@ fn listed_text(listed: &[Value]) -> String {
             ("listens for", "events"),
             ("operation", "operations"),
             ("analyzer", "analyzers"),
+            ("check", "checks"),
             ("export format", "exporters"),
+            ("import format", "importers"),
             ("provider", "providers"),
+            ("panel", "panels"),
             ("service", "services"),
+            ("library source", "sources"),
+            ("theme", "themes"),
             ("setting", "settings"),
         ];
         let adds: Vec<String> = kinds
@@ -388,6 +461,11 @@ fn described_text(d: &Value) -> String {
     section("Listens for:".into(), heard.iter().map(|e| (str_of(e), String::new())).collect());
     let operations = list("operations").iter().map(|x| (invocation(x), offered(x))).collect();
     section("Operations (planned, then confirmed):".into(), operations);
+    let panels = list("panels")
+        .iter()
+        .map(|p| (str_of(&p["name"]), format!("{}, under a track's details", str_of(&p["title"]))))
+        .collect();
+    section("Panels (locallibrary track show, and the player):".into(), panels);
     let analyzers = list("analyzers")
         .iter()
         .map(|a| {
@@ -397,14 +475,38 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section(format!("Analyzers (locallibrary analyze --plugin {id}):"), analyzers);
-    let exporters = list("exporters")
+    let checks = list("checks")
         .iter()
-        .map(|e| {
-            let writes = e["extension"].as_str().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
-            (str_of(&e["format"]), format!("{}, {writes}", str_of(&e["title"])))
+        .map(|c| {
+            let when: Vec<String> = c["when"].as_array().unwrap().iter().map(str_of).collect();
+            (str_of(&c["name"]), format!("{} (when: {})", str_of(&c["title"]), when.join(", ")))
         })
         .collect();
-    section("Export formats (locallibrary export LIBRARY --format FORMAT -o ...):".into(), exporters);
+    section("Checks (locallibrary plugin checks):".into(), checks);
+    for (source, title) in [
+        ("drive", "Export formats (locallibrary export LIBRARY --format FORMAT -o ...):"),
+        ("set", "Set export formats (locallibrary sets export SET --format FORMAT -o ...):"),
+        ("mix", "Mix export formats (locallibrary mix RECORDING --format FORMAT --export ...):"),
+    ] {
+        let exporters = list("exporters")
+            .iter()
+            .filter(|e| e["source"].as_str().unwrap_or("drive") == source)
+            .map(|e| {
+                let writes = e["extension"].as_str().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
+                (str_of(&e["format"]), format!("{}, {writes}", str_of(&e["title"])))
+            })
+            .collect();
+        section(title.into(), exporters);
+    }
+    let importers = list("importers")
+        .iter()
+        .map(|i| {
+            let reads = i["extension"].as_str().map_or_else(|| "a file".to_string(), |x| format!("a .{x} file"));
+            let provides: Vec<String> = i["provides"].as_array().unwrap().iter().map(str_of).collect();
+            (str_of(&i["format"]), format!("{}, {reads}: {}", str_of(&i["title"]), provides.join(", ")))
+        })
+        .collect();
+    section("Import formats (locallibrary import FILE LIBRARY --format FORMAT):".into(), importers);
     let providers = list("providers")
         .iter()
         .map(|p| {
@@ -424,6 +526,15 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section(format!("Services (locallibrary plugin settings {id} services.NAME on):"), services);
+    let sources =
+        list("sources").iter().map(|x| (format!("{id}:{}", str_of(&x["name"])), str_of(&x["title"]))).collect();
+    let build = "locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant FOLDER";
+    section(format!("Library sources ({build}):"), sources);
+    let themes = list("themes")
+        .iter()
+        .map(|t| (str_of(&t["name"]), format!("{}, in the player", str_of(&t["title"]))))
+        .collect();
+    section("Themes:".into(), themes);
     let settings = list("settings")
         .iter()
         .map(|s| {
@@ -470,9 +581,14 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             ("destinations", "name"),
             ("operations", "name"),
             ("analyzers", "name"),
+            ("checks", "name"),
             ("exporters", "format"),
+            ("importers", "format"),
             ("providers", "name"),
+            ("panels", "name"),
             ("services", "name"),
+            ("sources", "name"),
+            ("themes", "name"),
             ("settings", "key"),
         ] {
             assert_eq!(p[key].as_array().unwrap(), &names(key, field), "{key}");
@@ -503,8 +619,11 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
         let described = unschema(env.json(&["plugin", "info", id]));
         let mut manifest = m.clone();
         // The manifest as it reads back: nothing left out is written.
-        for key in ["accounts", "commands", "operations", "analyzers", "exporters"] {
+        for key in ["accounts", "commands", "operations", "panels", "analyzers", "checks", "exporters"] {
             for x in manifest["contributes"][key].as_array_mut().unwrap() {
+                if key == "panels" && x.get("where").is_none() {
+                    x["where"] = json!("track");
+                }
                 x.as_object_mut().unwrap().retain(|_, v| !v.is_null());
                 if key == "accounts" {
                     x["pkce"] = json!(true);
@@ -514,6 +633,11 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
                 }
                 if ["commands", "operations"].contains(&key) && x.get("where").is_none() {
                     x["where"] = json!(["drive"]);
+                }
+                for (default, value) in [("default_on", json!(true)), ("when", json!(["check"]))] {
+                    if key == "checks" && x.get(default).is_none() {
+                        x[default] = value;
+                    }
                 }
                 if key == "exporters" && x.get("folder").is_none() {
                     x["folder"] = json!(false);
@@ -1019,24 +1143,30 @@ fn view_text(v: &Value) -> String {
     lines.iter().map(|l| format!("{l}\n")).collect()
 }
 
-/// Any view a plugin's command answers reads back in `--json` as it was answered, and in text
-/// as the command line draws its own lists, tables, labelled values and text.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn views_read_in_text_as_in_json(tc: TestCase) {
-    // The test plugin's `echo` answers its params: here, a view.
-    let m = json!({
+/// The `views` plugin, whose `echo` (the test plugin's) answers its params: here, a view.
+fn views_env() -> Env {
+    env_with(&[json!({
         "id": "views", "name": "Views", "version": "0.1.0", "protocol": "^0.2",
         "contributes": { "commands": [{ "name": "echo", "title": "Show", "mode": "view" }] },
-    });
-    let env = env_with(&[m]);
-    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
-        let v = view(&tc);
-        let args = ["views", "echo", "--params", &v.to_string()];
-        assert_eq!(unschema(env.json(&args)), v);
-        assert_eq!(env.ok(&args), view_text(&v), "{v}");
-    }
-    // Anything else is the plugin's mistake.
-    let r = env.run(&["views", "echo", "--params", r#"{"kind": "chart"}"#]);
+    })])
+}
+
+/// Any view a plugin's command answers reads back in `--json` as it was answered, and in text
+/// as the command line draws its own lists, tables, labelled values and text. One view a case:
+/// each run of the command line starts it and the plugin, which a loaded machine makes slow.
+#[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
+fn views_read_in_text_as_in_json(tc: TestCase) {
+    let env = views_env();
+    let v = view(&tc);
+    let args = ["views", "echo", "--params", &v.to_string()];
+    assert_eq!(unschema(env.json(&args)), v);
+    assert_eq!(env.ok(&args), view_text(&v), "{v}");
+}
+
+/// A view that isn't one is the plugin's mistake.
+#[test]
+fn a_view_that_isnt_one_is_the_plugins_mistake() {
+    let r = views_env().run(&["views", "echo", "--params", r#"{"kind": "chart"}"#]);
     assert_eq!(r.code, 1, "{}", r.err);
     assert!(r.err.contains("its view of echo isn't one"), "{}", r.err);
 }

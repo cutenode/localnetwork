@@ -1,16 +1,16 @@
 use loclib_model::TrackColor;
 use loclib_model::analysis::Cue;
-use loclib_model::tokens::cues;
+use loclib_model::theme::{self, Theme};
 use ratatui::buffer::Buffer;
 use ratatui::style::{Color, Modifier};
 
 /// An 8-bit sRGB colour, as rekordbox stores them.
 pub use loclib_model::tokens::Rgb;
 
-/// The colours the widgets draw in, and how a colour becomes what the terminal draws. Every
-/// widget takes one; `Palette::default()` is [`Palette::DARK`].
+/// The colours the widgets draw in, a theme's ([`Palette::of`]), and how a colour becomes what
+/// the terminal draws. Every widget takes one; `Palette::default()` is [`Palette::DARK`].
 #[derive(Debug, Clone, Copy)]
-pub struct Palette {
+pub struct Palette<'a> {
     /// The playhead.
     pub fg: Rgb,
     /// Beat ticks, and (mixed with `faint`) the cue lane's rail ahead of the playhead.
@@ -20,17 +20,20 @@ pub struct Palette {
     /// The played part of the progress rail, and bar starts among the beat ticks.
     pub accent: Rgb,
     /// The spectrum's bars by height, bottom to top: two stops or more.
-    pub spectrum: &'static [Rgb],
+    pub spectrum: &'a [Rgb],
     /// The scope's trace by loudness, quiet to loud: two stops or more.
-    pub scope: &'static [Rgb],
+    pub scope: &'a [Rgb],
     /// A hot cue without a colour of its own.
     pub hot_cue: Rgb,
     /// A memory cue without a colour of its own.
     pub memory_cue: Rgb,
     /// A loop without a colour of its own.
     pub loop_cue: Rgb,
-    /// The colour a memory cue's or loop's `color_id` names (rekordbox's track colours).
-    pub track_color: fn(TrackColor) -> Rgb,
+    /// The colours a memory cue's or loop's `color_id` names (rekordbox's track colours), pink
+    /// to purple.
+    pub track_colors: [Rgb; 8],
+    /// The playhead's line.
+    pub playhead: Rgb,
     /// How a colour is drawn: where a light terminal's version of it, or the nearest of 256
     /// colours, comes in.
     pub paint: fn(Rgb) -> Color,
@@ -41,34 +44,63 @@ pub struct Palette {
     pub plain: bool,
 }
 
-impl Default for Palette {
+impl Default for Palette<'_> {
     fn default() -> Self {
         Palette::DARK
     }
 }
 
-impl Palette {
-    /// A palette for a dark terminal in 24-bit colour.
-    pub const DARK: Palette = Palette {
-        fg: [226, 226, 236],
-        dim: [120, 120, 142],
-        faint: [72, 72, 92],
-        accent: [255, 92, 160],
-        spectrum: &[[64, 140, 255], [158, 112, 255], [255, 92, 160], [255, 196, 86]],
-        scope: &[[92, 214, 255], [158, 112, 255], [255, 92, 160]],
-        hot_cue: cues::HOT,
-        memory_cue: cues::MEMORY,
-        loop_cue: cues::LOOP,
-        track_color: TrackColor::rgb,
-        paint: |[r, g, b]| Color::Rgb(r, g, b),
-        image: |[r, g, b]| Color::Rgb(r, g, b),
-        plain: false,
+impl Palette<'static> {
+    /// [`Theme::DEFAULT`]'s palette for a dark terminal in 24-bit colour.
+    pub const DARK: Palette<'static> = {
+        let t = Theme::DEFAULT;
+        Palette {
+            fg: t.text,
+            dim: t.dim,
+            faint: t.faint,
+            accent: t.accent,
+            spectrum: theme::SPECTRUM,
+            scope: theme::SCOPE,
+            hot_cue: t.hot_cue,
+            memory_cue: t.memory_cue,
+            loop_cue: t.loop_cue,
+            track_colors: t.track_colors,
+            playhead: t.playhead,
+            paint: |[r, g, b]| Color::Rgb(r, g, b),
+            image: |[r, g, b]| Color::Rgb(r, g, b),
+            plain: false,
+        }
     };
+}
+
+impl<'a> Palette<'a> {
+    /// `theme`'s colours, drawn as they are in 24-bit colour (as [`Palette::DARK`] is).
+    pub fn of(theme: &'a Theme) -> Palette<'a> {
+        Palette {
+            fg: theme.text,
+            dim: theme.dim,
+            faint: theme.faint,
+            accent: theme.accent,
+            spectrum: &theme.spectrum,
+            scope: &theme.scope,
+            hot_cue: theme.hot_cue,
+            memory_cue: theme.memory_cue,
+            loop_cue: theme.loop_cue,
+            track_colors: theme.track_colors,
+            playhead: theme.playhead,
+            ..Palette::DARK
+        }
+    }
+
+    /// The colour rekordbox's track colour `c` is drawn in.
+    pub fn track_color(&self, c: TrackColor) -> Rgb {
+        self.track_colors[usize::from(c.id() - 1)]
+    }
 
     /// The colour a cue is shown in: its own (a hot cue's, or a memory cue's from rekordbox's
     /// colour table), else the palette's for its kind.
     pub fn cue_color(&self, c: &Cue) -> Rgb {
-        match (c.color.or_else(|| TrackColor::from_id(c.color_id).map(self.track_color)), c.hot_cue, c.end_ms) {
+        match (c.color.or_else(|| TrackColor::from_id(c.color_id).map(|t| self.track_color(t))), c.hot_cue, c.end_ms) {
             (Some(rgb), _, _) => rgb,
             (None, _, Some(_)) => self.loop_cue,
             (None, Some(_), None) => self.hot_cue,

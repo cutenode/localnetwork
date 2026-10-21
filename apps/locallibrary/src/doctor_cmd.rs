@@ -76,6 +76,8 @@ enum SectionArg {
     LargeFiles,
     /// How players get on with the drive's file system
     Compatibility,
+    /// What plugins' checks find
+    Checks,
     /// Audio files cut short or that don't decode (only when named, or with --audio)
     Audio,
     /// Tempos, keys and levels by an analysis of the audio (only when named, or with --analyze)
@@ -92,6 +94,7 @@ impl From<SectionArg> for Section {
             SectionArg::Drift => Section::Drift,
             SectionArg::LargeFiles => Section::LargeFiles,
             SectionArg::Compatibility => Section::Compatibility,
+            SectionArg::Checks => Section::Checks,
             SectionArg::Audio => Section::Audio,
             SectionArg::Analysis => Section::Analysis,
         }
@@ -364,6 +367,10 @@ pub fn render(r: &DoctorReport) {
         for n in &c.notes {
             say!("    {}", dim(n));
         }
+    }
+    if let Some(checks) = r.checks.as_ref().filter(|c| !c.is_empty()) {
+        heading(&format!("Plugins' checks ({})", checks.len()));
+        checks.iter().for_each(crate::check_cmd::item);
     }
     for w in &r.warnings {
         output::warn(w);

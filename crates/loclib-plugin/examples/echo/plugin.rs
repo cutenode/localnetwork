@@ -4,9 +4,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Blob, Candidate, Candidates, Context, Exported, ExportedFile, FieldValue, GetBlob,
-    GetManifest, Got, GotManifest, HasBlobs, Hooks, Host, Kept, Missing, OpPlan, PlanOp, ProvideCandidates, PublishSet,
-    Published, PutBlob, PutManifest, RpcError, RunCommand, TrackMetadata, TracksQuery, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Blob, Candidate, Candidates, CheckFinding, Context, Exported, ExportedFile, FieldValue,
+    Finding, Findings, Fix, GetBlob, GetManifest, Got, GotManifest, HasBlobs, Hooks, Host, Imported, ImportedTrack,
+    Kept, Level, Missing, OpPlan, Pair, PlanCheck, PlanOp, ProvideCandidates, PublishSet, Published, PutBlob,
+    PutManifest, ReadImport, RenderPanel, RpcError, RunCheck, RunCommand, TrackMatch, TrackMetadata, TracksQuery, View,
+    WriteExport, params,
 };
 use loclib_progress::{Event, Phase, Steps};
 use serde::Deserialize;
@@ -16,8 +18,22 @@ pub const MANIFEST: &str = include_str!("locallibrary-plugin.toml");
 
 /// Its hooks: one of each kind.
 pub fn hooks() -> Hooks {
-    let hooks = Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide);
-    hooks.on(has_blobs).on(put_blob).on(get_blob).on(put_manifest).on(get_manifest).on(publish_set)
+    Hooks::new()
+        .on(run_command)
+        .on(analyze_track)
+        .on(write_export)
+        .on(read_import)
+        .on(plan_op)
+        .on(provide)
+        .on(render_panel)
+        .on(run_check)
+        .on(plan_check)
+        .on(has_blobs)
+        .on(put_blob)
+        .on(get_blob)
+        .on(put_manifest)
+        .on(get_manifest)
+        .on(publish_set)
 }
 
 #[derive(Deserialize)]
@@ -77,6 +93,17 @@ pub fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError>
     let file = ExportedFile { path: req.output, what: "playlist".into(), bytes: text.len() as u64 };
     let counts = [("tracks".to_string(), lines.len() as u64)].into_iter().collect();
     Ok(Exported { files: vec![file], counts, ..Exported::default() })
+}
+
+/// `import/read`: each line of the file is a track's audio file, given the My Tag `Genre/Echo`.
+pub fn read_import(req: ReadImport, host: &Host) -> Result<Imported, RpcError> {
+    let text = std::fs::read_to_string(&req.file).map_err(|e| RpcError::failure(&e, "io", &host.ctx()))?;
+    let tracks = text.lines().map(str::trim).filter(|l| !l.is_empty()).map(|path| ImportedTrack {
+        find: TrackMatch { path: Some(path.into()), ..TrackMatch::default() },
+        my_tags: vec!["Genre/Echo".into()],
+        ..ImportedTrack::default()
+    });
+    Ok(Imported { tracks: tracks.collect(), ..Imported::default() })
 }
 
 /// `op/plan`.
@@ -182,4 +209,43 @@ pub fn publish_set(req: PublishSet, _: &Host) -> Result<Published, RpcError> {
         return Ok(Published { url: None, warnings: vec![format!("{tracks} tracks would be published")] });
     }
     Ok(Published { url: Some(format!("https://sets.example/{}", req.set.id)), warnings: Vec::new() })
+}
+
+/// `check/run`: the drive's tracks without a title, its fix making the playlist `Untitled` (its
+/// operation, as it does).
+pub fn run_check(req: RunCheck, host: &Host) -> Result<Findings, RpcError> {
+    let drive = req.context.drive.unwrap_or_default();
+    let untitled: Vec<u32> = host
+        .drive(&drive)
+        .query(&TracksQuery::default())?
+        .into_iter()
+        .filter(|t| t.title.is_empty())
+        .map(|t| t.id)
+        .collect();
+    if untitled.is_empty() {
+        return Ok(Findings::default());
+    }
+    let finding = Finding {
+        tracks: untitled.clone(),
+        ..Finding::new(Level::Warning, req.check, format!("{} track(s) have no title", untitled.len()))
+    };
+    let fix = Fix { operation: "playlist".into(), params: json!({ "name": "Untitled" }) };
+    Ok(Findings { findings: vec![CheckFinding { finding, fix: Some(fix) }] })
+}
+
+/// `plan/check`: how many edits the plan makes.
+pub fn plan_check(req: PlanCheck, _: &Host) -> Result<Findings, RpcError> {
+    let message = format!("{} makes {} edit(s)", req.operation, req.edits.len());
+    let finding = Finding::new(Level::Info, req.check, message);
+    Ok(Findings { findings: vec![CheckFinding { finding, fix: None }] })
+}
+
+/// `panel/render`: the track's id and title.
+pub fn render_panel(req: RenderPanel, host: &Host) -> Result<View, RpcError> {
+    let drive = req.context.drive.unwrap_or_default();
+    let found = host.drive(&drive).tracks(&req.context.tracks)?;
+    let pairs = found.tracks.into_iter().flat_map(|t| {
+        [Pair { label: "id".into(), value: t.id.into() }, Pair { label: "title".into(), value: t.title.into() }]
+    });
+    Ok(View::Kv { title: None, pairs: pairs.collect() })
 }

@@ -1,5 +1,5 @@
 use locallibrary::query::{FieldName, SortField};
-use loclib_plugin::{ListItem, Pair};
+use loclib_plugin::{ChartStyle, Column, ColumnKind, ListItem, Pair, Section, Series, TreeItem, TypedColumn};
 use ratatui::crossterm::event::KeyCode;
 use serde_json::json;
 
@@ -10,6 +10,7 @@ use super::super::app::testing::{
 use super::super::palette::Picker;
 use super::super::ui::screen;
 use super::exporters::WRITE_TO;
+use super::importers::READ_FROM;
 use super::*;
 
 /// The list open now.
@@ -59,8 +60,8 @@ fn plugins_commands_are_in_the_palette() {
     assert_eq!(entry(&app, "answer the params…").1, Some("only on a plugged-in drive"));
 }
 
-/// The drive menu ends with plugins' commands, operations, analyzers and export formats, which
-/// run on that drive.
+/// The drive menu ends with plugins' commands, operations, analyzers, export and import formats,
+/// which run on that drive.
 #[test]
 fn plugins_commands_are_in_the_drive_menu() {
     let (dir, root) = demo_drive();
@@ -73,7 +74,8 @@ fn plugins_commands_are_in_the_drive_menu() {
     press(&mut app, "e");
     let p = picker(&app);
     assert!(p.title.starts_with("Drive · "), "{}", p.title);
-    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("export for echo-m3u…"));
+    assert_eq!(p.items.last().map(|i| i.label.as_str()), Some("import audio files, a line each…"));
+    assert!(p.items.iter().any(|i| i.label == "export for echo-m3u…"));
     assert!(p.items.iter().any(|i| i.label == "analyze the tracks: file size"));
     assert!(p.items.iter().any(|i| i.label == "make a playlist…"));
     assert_eq!(entry(&app, "answer the params…").1, None);
@@ -330,7 +332,7 @@ fn a_secret_typed_in_the_form_is_kept_apart() {
 fn views_are_drawn_generically() {
     let item = |label: &str, detail: Option<&str>| ListItem { label: label.into(), detail: detail.map(String::from) };
     let list = View::List { title: None, items: vec![item("Friday", Some("12 tracks")), item("Warmup", None)] };
-    let lines = |v: &View| view_lines(v).into_iter().map(|(t, l)| format!("{t:?} {l}")).collect::<Vec<_>>();
+    let lines = |v: &View| view_lines(v, &|_| None).into_iter().map(|(t, l)| format!("{t:?} {l}")).collect::<Vec<_>>();
     assert_eq!(lines(&list), ["Text Friday", "Faint   12 tracks", "Text Warmup"]);
     let rows = vec![vec![json!("Around the World"), json!(121.0)], vec![json!("Pick Up"), Value::Null]];
     let table = View::Table { title: None, columns: vec!["Title".into(), "BPM".into()], rows };
@@ -1053,12 +1055,16 @@ fn plugins_own(act: &Act) -> bool {
             | Act::Analyze(..)
             | Act::ApplyFields(..)
             | Act::Export(..)
+            | Act::Import(..)
             | Act::FieldColumn(_)
             | Act::PluginSettings(_)
             | Act::PluginSignIn(..)
             | Act::PluginSignOut(..)
             | Act::ProviderSettings
+            | Act::CheckSettings
+            | Act::Fix(_)
             | Act::Fetch(_)
+            | Act::Theme(_)
     )
 }
 
@@ -1106,8 +1112,8 @@ fn form_open(app: &App) -> (String, Vec<String>) {
 /// one of the player's first; the drive's menu has no settings, columns or fetching. Each entry
 /// that can't run where the player is says why when it's chosen and does nothing (nor does its
 /// analyzer or export asked for anyway); one that can does what it is (a form for its params, its
-/// settings or which provider to fetch from, a job, a panel, a column) and esc backs out of it to
-/// the view it started in.
+/// settings or which provider to fetch from, a job, a panel, a column, a theme) and esc backs out
+/// of it to the view it started in.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     let (at, mut app, drive, _store) = somewhere(&tc);
@@ -1139,7 +1145,12 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
         for (i, act) in items.iter().zip(&acts).skip(first) {
             let needs = matches!(
                 act,
-                Act::Plugin(..) | Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..) | Act::Fetch(_)
+                Act::Plugin(..)
+                    | Act::Analyze(..)
+                    | Act::ApplyFields(..)
+                    | Act::Export(..)
+                    | Act::Import(..)
+                    | Act::Fetch(_)
             );
             assert_eq!(i.unavailable.as_deref(), why.filter(|_| needs), "{}", i.label);
             assert!(needs || !in_menu, "{:?} isn't a drive's", i.label);
@@ -1172,7 +1183,9 @@ fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
             press(&mut app, "\u{1b}");
             assert!(app.modal.is_none() && app.view == view);
             // Asked for anyway (a key, a stale list), an analyzer or an export says the same.
-            if !in_menu && matches!(acts[i], Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..)) {
+            if !in_menu
+                && matches!(acts[i], Act::Analyze(..) | Act::ApplyFields(..) | Act::Export(..) | Act::Import(..))
+            {
                 app.toast = None;
                 app.perform(acts[i], None);
                 assert_eq!((last_message(&app), app.job.is_none(), app.modal.is_none()), (why.as_str(), true, true));
@@ -1238,6 +1251,13 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             assert_eq!((title, fields[0].as_str()), (e.title.clone(), WRITE_TO));
             press(app, "\u{1b}");
         }
+        Act::Import(p, f) => {
+            let m = crate::plugins::host().unwrap().manifest(p).unwrap();
+            let i = m.contributes.importers.iter().find(|i| i.format == f).unwrap();
+            let (title, fields) = form_open(app);
+            assert_eq!((title, fields[0].as_str()), (i.title.clone(), READ_FROM));
+            press(app, "\u{1b}");
+        }
         Act::PluginSettings(p) => {
             let m = crate::plugins::host().unwrap().manifest(p).unwrap();
             let keys: Vec<String> = m.contributes.settings.iter().map(|s| s.key.clone()).collect();
@@ -1258,6 +1278,19 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             wait(app, |a| a.job.is_none());
             assert_eq!(last_message(app), "not signed in to Echo Cloud");
         }
+        Act::CheckSettings => {
+            let plugins = crate::plugins::host().unwrap();
+            let mut fields: Vec<String> = Vec::new();
+            for (p, c, _) in plugins.checks(None) {
+                fields.push(format!("{p}.{}", c.name));
+                if c.when.contains(&loclib_plugin::When::Apply) {
+                    fields.push(format!("{p}.{}.blocking", c.name));
+                }
+            }
+            fields.push("timeout".into());
+            assert_eq!(form_open(app), ("Check settings".into(), fields));
+            press(app, "\u{1b}");
+        }
         // A form asking which provider and whether over what tracks have, for the track selected.
         Act::Fetch(kind) => match &app.modal {
             Some(Modal::Form(_)) => {
@@ -1270,6 +1303,10 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             }
             _ => assert_eq!(last_message(app), "no track selected"),
         },
+        Act::Theme(theme) => {
+            assert!(app.modal.is_none());
+            assert_eq!(super::super::theme::chosen().unwrap_or_default(), theme, "drawn in it");
+        }
         Act::FieldColumn(name) => {
             assert!(app.modal.is_none());
             assert_ne!(app.field_columns.contains(&name), columns.contains(&name), "{name:?} toggled");
@@ -1508,7 +1545,7 @@ fn any_value(tc: &TestCase) -> Value {
 fn any_view(tc: &TestCase) -> View {
     let title = tc.draw(gs::booleans()).then(|| any_word(tc));
     let n = tc.draw(gs::integers::<usize>().max_value(12));
-    match tc.draw(gs::integers::<u8>().max_value(3)) {
+    match tc.draw(gs::integers::<u8>().max_value(7)) {
         0 => View::List {
             title,
             items: (0..n)
@@ -1516,14 +1553,48 @@ fn any_view(tc: &TestCase) -> View {
                 .collect(),
         },
         1 => {
-            let columns: Vec<String> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
-                .map(|_| tc.draw(gs::sampled_from(&["Title", "BPM", "日本", "😹"][..])).to_string())
+            let columns: Vec<Column> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+                .map(|_| {
+                    let name = tc.draw(gs::sampled_from(&["Title", "BPM", "日本", "😹"][..])).to_string();
+                    // A number column shows its cells as they are, without a unit.
+                    let kind = tc.draw(gs::sampled_from(vec![ColumnKind::Text, ColumnKind::Number]));
+                    match tc.draw(gs::booleans()) {
+                        true => Column::Name(name),
+                        false => Column::Typed(TypedColumn { name, kind, unit: None }),
+                    }
+                })
                 .collect();
             let rows = (0..n).map(|_| columns.iter().map(|_| any_value(tc)).collect()).collect();
             View::Table { title, columns, rows }
         }
         2 => View::Kv { title, pairs: (0..n).map(|_| Pair { label: any_word(tc), value: any_value(tc) }).collect() },
-        _ => View::Text { title, text: (0..n).map(|_| any_word(tc)).collect::<Vec<_>>().join("\n") },
+        3 => View::Text { title, text: (0..n).map(|_| any_word(tc)).collect::<Vec<_>>().join("\n") },
+        4 => {
+            let item = |tc: &TestCase, children| TreeItem {
+                label: any_word(tc),
+                detail: tc.draw(gs::booleans()).then(|| any_word(tc)),
+                children,
+            };
+            let items = (0..n.min(4)).map(|_| {
+                let below = (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|_| item(tc, Vec::new())).collect();
+                item(tc, below)
+            });
+            View::Tree { title, items: items.collect() }
+        }
+        5 => {
+            let points = || gs::vecs(gs::tuples!(gs::integers::<i8>(), gs::integers::<i8>())).max_size(4);
+            let series = (0..n.min(3)).map(|_| Series {
+                // Short enough for a column's heading.
+                name: any_word(tc).chars().take(20).collect(),
+                points: tc.draw(points()).into_iter().map(|(x, y)| (x.into(), y.into())).collect(),
+            });
+            View::Chart { title, style: ChartStyle::Line, series: series.collect(), x_label: None, y_label: None }
+        }
+        6 => View::Image { title, blob: "a.png".into(), alt: any_word(tc), data: None },
+        _ => {
+            let items = (0..n.min(3)).map(|_| Section { title: any_word(tc), view: any_view(tc) });
+            View::Sections { title, items: items.collect() }
+        }
     }
 }
 
@@ -1541,10 +1612,28 @@ fn cells(v: &View) -> Vec<String> {
             items.iter().flat_map(|i| [Some(i.label.clone()), i.detail.clone()]).flatten().collect()
         }
         View::Table { columns, rows, .. } => {
-            columns.iter().cloned().chain(rows.iter().flatten().map(crate::plugins::params::cell)).collect()
+            let headings = columns.iter().map(|c| c.name().to_string());
+            headings.chain(rows.iter().flatten().map(crate::plugins::params::cell)).collect()
         }
         View::Kv { pairs, .. } => pairs.iter().flat_map(|p| [p.label.clone(), cell(&p.value)]).collect(),
         View::Text { text, .. } => text.lines().map(String::from).collect(),
+        View::Tree { items, .. } => {
+            fn labels(items: &[TreeItem]) -> Vec<String> {
+                let each = items.iter().flat_map(|i| {
+                    [Some(i.label.clone()), i.detail.clone()].into_iter().flatten().chain(labels(&i.children))
+                });
+                each.collect()
+            }
+            labels(items)
+        }
+        View::Chart { series, x_label, .. } => {
+            let (columns, rows) = crate::plugin_cmd::view::chart_table(series, x_label.as_deref());
+            cells(&View::Table { title: None, columns, rows }).into_iter().filter(|_| !v.is_empty()).collect()
+        }
+        View::Image { alt, .. } => vec![format!("[image: {alt}]")],
+        View::Sections { items, .. } => {
+            items.iter().flat_map(|s| std::iter::once(s.title.clone()).chain(cells(&s.view))).collect()
+        }
         View::Choose(_) => unreachable!("never drawn"),
     }
 }
@@ -1949,4 +2038,7 @@ fn a_plugins_plan_is_confirmed_and_applied_as_it_says(tc: TestCase) {
 
 mod accounts;
 mod asking;
+mod checks;
 mod events;
+mod importing;
+mod sources;

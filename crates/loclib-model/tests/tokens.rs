@@ -98,3 +98,35 @@ fn tokens_match_the_shared_json() {
         "crates/loclib-model/src/tokens.rs is out of date with packages/tokens/colors.json. Regenerate it with `{RERUN}`"
     );
 }
+
+/// The colours a theme sets are colors.schema.json's colours, but a light background's status
+/// colours (hosts work those out from the dark ones), in its order, then the player's own.
+#[test]
+fn theme_tokens_are_the_schemas_colours() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let Ok(text) = std::fs::read_to_string(root.join("../../packages/tokens/colors.schema.json")) else {
+        eprintln!("skipped: colors.schema.json isn't here");
+        return;
+    };
+    let schema: Value = serde_json::from_str(&text).expect("the schema is JSON");
+    // Each property whose value is a colour (`#/$defs/hex`), as a dotted name.
+    fn colours(schema: &Value, defs: &Value, at: &str, out: &mut Vec<String>) {
+        let schema = match schema["$ref"].as_str().and_then(|r| r.strip_prefix("#/$defs/")) {
+            Some("hex") => return out.push(at.to_string()),
+            Some(def) => &defs[def],
+            None => schema,
+        };
+        for (key, property) in schema["properties"].as_object().into_iter().flatten() {
+            let name = if at.is_empty() { key.clone() } else { format!("{at}.{key}") };
+            colours(property, defs, &name, out);
+        }
+    }
+    let mut named = Vec::new();
+    colours(&schema, &schema["$defs"], "", &mut named);
+    let named: Vec<&str> = named.iter().map(String::as_str).filter(|n| !n.starts_with("status.light.")).collect();
+    let tokens = loclib_model::theme::TOKENS;
+    let ours = tokens.iter().position(|t| t.starts_with("ui.")).expect("the player's own");
+    assert_eq!(&tokens[..ours], &named[..]);
+    // Not echoed on failure: CodeQL takes what's named `tokens` for something secret.
+    assert!(tokens[ours..].iter().all(|t| t.starts_with("ui.") || t.starts_with("waveform.")));
+}

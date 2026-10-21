@@ -49,15 +49,22 @@ fn recorded_cue_edit(tc: &TestCase, files: &[String]) -> Edit {
     }
     let hot = HotCue(tc.draw(gs::integers::<u8>().max_value(3)));
     let from = || tc.draw(gs::sampled_from(files.to_vec()));
-    let change = match tc.draw(gs::integers::<u8>().max_value(4)) {
-        0 => CueChange::Set(SetCue {
-            hot_cue: Some(hot),
-            at: CuePosition::Ms(tc.draw(gs::integers::<u32>().min_value(1_000).max_value(60_000))),
-            snap: false,
-            loop_beats: None,
-            name: None,
-            color: None,
-        }),
+    let set = |hot_cue| SetCue {
+        hot_cue,
+        at: CuePosition::Ms(tc.draw(gs::integers::<u32>().min_value(1_000).max_value(60_000))),
+        snap: false,
+        loop_beats: None,
+        name: None,
+        color: None,
+    };
+    let change = match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => CueChange::Set(set(Some(hot))),
+        5 => {
+            let slots = || tc.draw(gs::optional(gs::integers::<u8>().max_value(3))).map(HotCue);
+            CueChange::SetMany(
+                (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3))).map(|_| set(slots())).collect(),
+            )
+        }
         1 => CueChange::Update(UpdateCue { cue: CueRef::Hot(hot), name: Some("Again".into()), color: None }),
         2 => CueChange::Delete(if tc.draw(gs::booleans()) { CueRef::Hot(hot) } else { CueRef::All }),
         3 => CueChange::Copy { from: from() },
@@ -109,6 +116,7 @@ fn replayed_cue_edits_redo_what_still_applies_and_skip_the_rest(tc: TestCase) {
         let ids: Vec<u32> = tracks.iter().filter_map(|f| id(f)).collect();
         let edit = match change {
             CueChange::Set(s) => Some(CueEdit::Set(s.clone())),
+            CueChange::SetMany(cues) => Some(CueEdit::SetMany(cues.clone())),
             CueChange::Update(u) => Some(CueEdit::Update(u.clone())),
             CueChange::Delete(r) => Some(CueEdit::Delete(r.clone())),
             CueChange::Copy { from } => id(from).map(|from| CueEdit::Copy { from }),

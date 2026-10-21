@@ -6,6 +6,7 @@
 //! line says why as it starts, the sidecar's `plugins.list` has it with why, and every other
 //! plugin works.
 
+pub mod checks;
 pub mod events;
 pub mod params;
 pub mod providers;
@@ -17,16 +18,16 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
+use locallibrary::mix::report::ShownField;
 use locallibrary::plugin::{AccountStatus, Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
-use loclib_plugin::{Capability, Manifest, SettingType};
+use loclib_plugin::{Capability, ExportFrom, Manifest, SettingType};
 use rustc_hash::FxHashMap;
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::export_cmd::FormatArg;
 use params::properties;
 
 /// Serves a plugin over stdin and stdout until its input closes (the SDK's `serve`).
@@ -170,8 +171,9 @@ fn exe() -> std::io::Result<PathBuf> {
     }
 }
 
-/// A name a plugin adds where it must be its alone (the command line, `export --format`): whose
-/// it is ("the echo plugin's command") and what it is ("the echo plugin's command \"say\"").
+/// A name a plugin adds where it must be its alone (the command line, `export --format`, `import
+/// --format`): whose it is ("the echo plugin's command") and what it is ("the echo plugin's
+/// command \"say\"").
 type Claim = (String, String);
 
 /// Why each plugin is left out, if it is (by its place in `manifests`): its contributions couldn't
@@ -180,9 +182,11 @@ type Claim = (String, String);
 /// or command), a place in something that isn't one of locallibrary's groups of commands, an id
 /// that's a namespace of the sidecar's methods (its plans would be named like theirs,
 /// `sync.group`), a command and an operation of one name, a param named like a flag its command
-/// has anyway, and an export format named like another. A place in a group is under its name, not
-/// an alias. Plugins that clash with each other are all left out, since none is more right than
-/// the others; one left out already (clashing with locallibrary) clashes with none.
+/// has anyway, and an export format (or an import format) named like another, or like one of
+/// locallibrary's own for what it writes out (`export`'s, `sets export`'s). A place in a group
+/// is under its name, not an alias. Plugins that clash with each other are all left out, since
+/// none is more right than the others; one left out already (clashing with locallibrary) clashes
+/// with none.
 fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
     let cli = crate::Cli::command();
     let names = |c: &clap::Command| -> Vec<String> {
@@ -200,12 +204,17 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
     let namespaces = crate::rpc::namespaces();
     let mut flags: Vec<&str> = cli.get_arguments().filter(|a| a.is_global_set()).filter_map(|a| a.get_long()).collect();
     flags.extend(["help", "version", PARAMS, DRY_RUN, CHOOSE]);
-    let formats: FxHashMap<String, String> = FormatArg::value_variants()
-        .iter()
-        .filter_map(ValueEnum::to_possible_value)
-        .flat_map(|v| v.get_name_and_aliases().map(String::from).collect::<Vec<_>>())
-        .map(|f| (f, "a locallibrary format".to_string()))
-        .collect();
+    fn format_names<F: ValueEnum>() -> FxHashMap<String, String> {
+        let values = F::value_variants().iter().filter_map(ValueEnum::to_possible_value);
+        let names = values.flat_map(|v| v.get_name_and_aliases().map(String::from).collect::<Vec<_>>());
+        names.map(|f| (f, "a locallibrary format".to_string())).collect()
+    }
+    // locallibrary's own formats for what each kind of exporter writes out: a mix has none.
+    let formats = [
+        (ExportFrom::Drive, format_names::<crate::export_cmd::FormatArg>()),
+        (ExportFrom::Set, format_names::<crate::sets_cmd::FormatArg>()),
+        (ExportFrom::Mix, FxHashMap::default()),
+    ];
     let claim = |claims: &mut IndexMap<String, Claim>, ours: &FxHashMap<String, String>, name: &str, whose, what| {
         if let Some(other) = ours.get(name).or_else(|| claims.get(name).map(|c| &c.0)) {
             return Err(format!("{what} is {other} already"));
@@ -214,14 +223,14 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
         Ok(())
     };
     // A plugin against locallibrary and itself: what it claims, unless it clashes.
-    let alone = |m: &Manifest| -> std::result::Result<[IndexMap<String, Claim>; 2], String> {
+    let alone = |m: &Manifest| -> std::result::Result<[IndexMap<String, Claim>; 3], String> {
         let id = &m.id;
         if namespaces.contains(&id.as_str()) {
             return Err(format!(
                 "the {id} plugin's id is the sidecar's {id}.* methods' too: its plans would be named like them"
             ));
         }
-        let (mut places, mut exports) = (IndexMap::new(), IndexMap::new());
+        let (mut places, mut exports, mut imports) = (IndexMap::new(), IndexMap::new(), IndexMap::new());
         claim(&mut places, &top, id, format!("the {id} plugin"), format!("the {id} plugin's id"))?;
         let commands = m.contributes.commands.iter().filter_map(|c| c.cli.as_deref());
         for place in commands.chain(m.contributes.operations.iter().filter_map(|o| o.cli.as_deref())) {
@@ -254,15 +263,20 @@ fn check(manifests: &[&Manifest]) -> Vec<Option<String>> {
                 given.push(flag);
             }
         }
-        for format in m.contributes.exporters.iter().map(|e| e.format.as_str()) {
-            let what = format!("the {id} plugin's export format {format:?}");
-            claim(&mut exports, &formats, format, format!("the {id} plugin's"), what)?;
+        for e in &m.contributes.exporters {
+            let what = format!("the {id} plugin's export format {:?}", e.format);
+            let ours = &formats.iter().find(|(of, _)| *of == e.source).expect("every kind has its formats").1;
+            claim(&mut exports, ours, &e.format, format!("the {id} plugin's"), what)?;
         }
-        Ok([places, exports])
+        for format in m.contributes.importers.iter().map(|i| i.format.as_str()) {
+            let what = format!("the {id} plugin's import format {format:?}");
+            claim(&mut imports, &FxHashMap::default(), format, format!("the {id} plugin's"), what)?;
+        }
+        Ok([places, exports, imports])
     };
     let mut left_out = Vec::new();
     // Each name the plugins kept so far claim, and which of them claim it.
-    let mut claimed: [IndexMap<String, Vec<(usize, Claim)>>; 2] = Default::default();
+    let mut claimed: [IndexMap<String, Vec<(usize, Claim)>>; 3] = Default::default();
     for (i, m) in manifests.iter().enumerate() {
         match alone(m) {
             Err(why) => left_out.push(Some(why)),
@@ -342,6 +356,26 @@ impl Installed {
     }
 }
 
+/// What analyzers worked out for a track on a drive, kept in `store`, that a page shows: each
+/// field whose analyzer says how it's shown, so (see [`locallibrary::mix::report::ShownFields`]).
+pub fn shown_fields(
+    store: Option<locallibrary::Store>,
+) -> impl Fn(&locallibrary::Device, &locallibrary::Track) -> Vec<ShownField> {
+    let plugins = host().ok();
+    let analyzers = plugins.map(Plugins::analyzers).unwrap_or_default();
+    move |device, track| {
+        let (Some(plugins), Some(store)) = (plugins, &store) else { return Vec::new() };
+        let Ok(audio) = device.checked_path(&locallibrary::paths::key(&track.file_path)) else { return Vec::new() };
+        let kept = locallibrary::fields::FieldStore::in_store(store).get(&audio, &analyzers);
+        let each = kept.iter().flat_map(|(plugin, by)| by.values().flatten().map(move |(field, v)| (plugin, field, v)));
+        let shown = each.filter_map(|(plugin, field, v)| {
+            let hint = plugins.display(plugin, field)?;
+            Some(ShownField { label: format!("{plugin}.{field}"), value: hint.show(v) })
+        });
+        shown.collect()
+    }
+}
+
 /// A capability a plugin has, and what it lets the plugin do.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Granted {
@@ -374,9 +408,11 @@ fn means(c: &Capability) -> String {
         Capability::TagsPlan => "plan My Tag changes, which you confirm",
         Capability::CuesPlan => "plan cue changes, which you confirm",
         Capability::ArtworkPlan => "plan cover art changes, which you confirm",
+        Capability::AnalysisPlan => "plan beat grid, phrase and waveform changes, which you confirm",
         Capability::EventsDrives => "hear of drives plugged in, unplugged, changed and saved into the store",
         Capability::EventsJobs => "hear of the sidecar's requests finishing",
         Capability::EventsPlans => "hear of changes applied, and what they were",
+        Capability::FsRead => "read audio files in folders you grant it, to build a drive from",
         Capability::Net(host) => {
             return match host.strip_prefix("*.") {
                 Some(domain) => format!("talk to any server under {domain}"),
@@ -394,18 +430,23 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its accounts by id, its commands, destinations, operations, analyzers,
-    /// providers and services by name, the events it listens for, its export formats and its
-    /// settings' keys.
+    /// What it adds: its accounts by id, its commands, destinations, operations, panels,
+    /// analyzers, checks, providers, services, library sources and themes by name, the events it
+    /// listens for, its export and import formats and its settings' keys.
     pub accounts: Vec<String>,
     pub commands: Vec<String>,
     pub destinations: Vec<String>,
     pub events: Vec<String>,
     pub operations: Vec<String>,
+    pub panels: Vec<String>,
     pub analyzers: Vec<String>,
+    pub checks: Vec<String>,
     pub exporters: Vec<String>,
+    pub importers: Vec<String>,
     pub providers: Vec<String>,
     pub services: Vec<String>,
+    pub sources: Vec<String>,
+    pub themes: Vec<String>,
     pub settings: Vec<String>,
     /// It's running now: plugins start when they're first used, and stop once they're idle.
     pub running: bool,
@@ -427,10 +468,15 @@ impl Listed {
             destinations: c.destinations.iter().map(|x| x.name.clone()).collect(),
             events: c.events.iter().flat_map(|x| &x.on).map(|e| e.name().to_string()).collect(),
             operations: c.operations.iter().map(|x| x.name.clone()).collect(),
+            panels: c.panels.iter().map(|x| x.name.clone()).collect(),
             analyzers: c.analyzers.iter().map(|x| x.name.clone()).collect(),
+            checks: c.checks.iter().map(|x| x.name.clone()).collect(),
             exporters: c.exporters.iter().map(|x| x.format.clone()).collect(),
+            importers: c.importers.iter().map(|x| x.format.clone()).collect(),
             providers: c.providers.iter().map(|x| x.name.clone()).collect(),
             services: c.services.iter().map(|x| x.name.clone()).collect(),
+            sources: c.sources.iter().map(|x| x.name.clone()).collect(),
+            themes: c.themes.iter().map(|x| x.name.clone()).collect(),
             settings: c.settings.iter().map(|x| x.key.clone()).collect(),
             running: plugins.is_running(&m.id),
             left_out: None,

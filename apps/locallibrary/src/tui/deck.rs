@@ -173,7 +173,7 @@ pub fn phrase_jump(app: &mut App, forward: bool) {
         app.toast("no more phrases", Level::Info);
         return;
     };
-    let color = now.phrases.iter().find(|p| p.start_ms == start).map(|p| theme::phrase_color(p.kind));
+    let color = now.phrases.iter().find(|p| p.start_ms == start).map(|p| theme::current().phrase(p.kind));
     app.jump(at, color);
 }
 

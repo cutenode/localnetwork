@@ -49,7 +49,8 @@ use crate::{Error, Result, fsutil};
 static STORE_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 thread_local! {
-    /// [`set_store_root`] for one thread: tests sharing a process each name their own store
+    /// [`set_store_root`] for one thread: a plugin's callbacks', the store of the host that
+    /// started it, and tests', sharing a process, each naming their own
     /// (`testing::store_root_on_this_thread`).
     pub(crate) static THREAD_STORE_ROOT: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
@@ -68,7 +69,8 @@ pub fn set_store_root(root: PathBuf) {
     let _ = STORE_ROOT.set(root);
 }
 
-/// The store's folder [`set_store_root`] named (this thread's, in tests), if it was named.
+/// The store's folder [`set_store_root`] named (this thread's, for a plugin's callback and in
+/// tests), if it was named.
 pub fn store_root() -> Option<PathBuf> {
     default_store_root()
 }
