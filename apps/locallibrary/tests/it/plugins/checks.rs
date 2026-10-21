@@ -191,6 +191,68 @@ fn plugin_checks_lists_and_changes_them() {
     assert!(items.iter().any(|i| i["check"] == "echo.found" && i["message"] == "said over RPC"), "{report}");
 }
 
+/// For any changes `plugin checks` is asked for, one after another (a check run or not, blocking
+/// or not, put back as it is by default, or the time a check has), it lists every check and that
+/// time as changed so far, in JSON and in words. Only a guard can block, a check put back can't be
+/// changed in the same breath, and only a time from a millisecond to an hour is taken: a change
+/// refused changes nothing.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn plugin_checks_lists_every_change_made(tc: TestCase) {
+    let env = env();
+    // Each check, whether it's a guard (run before a plan is applied), and whether it runs by default.
+    let checks = [("untitled", false, true), ("edits", true, false), ("found", false, true), ("guard", true, true)];
+    let mut settings: Vec<(bool, bool)> = checks.iter().map(|&(_, _, on)| (on, false)).collect();
+    let mut timeout = 10.0;
+    for _ in 0..tc.draw(gs::integers::<usize>().max_value(4)) {
+        let mut args: Vec<String> = ["--yes", "plugin", "checks"].map(String::from).into();
+        let refused = if tc.draw(gs::booleans()) {
+            let i = tc.draw(gs::integers::<usize>().max_value(3));
+            let (name, guard, default_on) = checks[i];
+            let on = tc.draw(gs::optional(gs::booleans()));
+            let blocking = tc.draw(gs::optional(gs::booleans()));
+            let reset = tc.draw(gs::booleans());
+            args.push(format!("echo.{name}"));
+            args.extend(on.map(|on| if on { "--on" } else { "--off" }.to_string()));
+            args.extend(blocking.map(|b| if b { "--blocking" } else { "--no-blocking" }.to_string()));
+            args.extend(reset.then(|| "--reset".to_string()));
+            // --reset puts both back, so it takes neither.
+            let refused = blocking == Some(true) && !guard || reset && (on.is_some() || blocking.is_some());
+            if !refused {
+                let (was_on, was_blocking) = if reset { (default_on, false) } else { settings[i] };
+                settings[i] = (on.unwrap_or(was_on), guard && blocking.unwrap_or(was_blocking));
+            }
+            refused
+        } else {
+            // Quarter seconds, which a duration keeps exactly.
+            let secs = tc.draw(gs::optional(gs::integers::<u32>().max_value(16_000))).map(|q| f64::from(q) / 4.0);
+            match secs {
+                Some(secs) => args.extend(["--timeout".to_string(), secs.to_string()]),
+                None => args.push("--reset".to_string()),
+            }
+            let refused = secs.is_some_and(|s| !(0.001..=3600.0).contains(&s));
+            if !refused {
+                timeout = secs.unwrap_or(10.0);
+            }
+            refused
+        };
+        let r = env.run(&args.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(r.code != 0, refused, "{args:?}\n{}", r.err);
+
+        let listed = env.json(&["plugin", "checks"]);
+        let listed_settings: Vec<(bool, bool)> = (listed["checks"].as_array().unwrap().iter())
+            .map(|c| (c["on"].as_bool().unwrap(), c["blocking"].as_bool().unwrap()))
+            .collect();
+        assert_eq!((listed_settings, &listed["timeout"]), (settings.clone(), &json!(timeout)), "{args:?}");
+        let shown = env.ok(&["plugin", "checks"]);
+        for (&(name, ..), &(on, blocking)) in checks.iter().zip(&settings) {
+            let state = format!("{}{}", if on { "on" } else { "off" }, if blocking { ", blocking" } else { "" });
+            let line = shown.lines().find_map(|l| l.strip_prefix(&format!("echo.{name} "))).unwrap();
+            assert!(line.trim_start().starts_with(&format!("{state}  ")), "{shown}");
+        }
+        assert!(shown.contains(&format!("a check has {timeout}s to answer")), "{shown}");
+    }
+}
+
 /// Whatever a plugin's check finds, `check` counts its problems and warnings with locallibrary's
 /// own, and exits 4 exactly when there's a problem among them all.
 #[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]

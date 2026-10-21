@@ -134,7 +134,14 @@ fn phrases_are_written_into_the_ext() {
 fn without_colour_overview(dir: &Path) -> (std::path::PathBuf, Track) {
     let root = common::demo_drive(dir, "USB");
     let t = track(&root, "Demo Track 1");
-    let dat = paths::to_fs(&root, &paths::key(&t.analyze_path));
+    strip_colour_overview(&root, &t);
+    (root, t)
+}
+
+/// Takes rekordbox's colour overview (`PWV4`) out of the `.EXT` of `t` on the drive at `root`,
+/// and its `.2EX` away: a waveform can then be written to it.
+pub(crate) fn strip_colour_overview(root: &Path, t: &Track) {
+    let dat = paths::to_fs(root, &paths::key(&t.analyze_path));
     let ext = std::fs::read(dat.with_extension("EXT")).unwrap();
     let be = |at: usize| u32::from_be_bytes(ext[at..at + 4].try_into().unwrap()) as usize;
     let mut pos = be(4);
@@ -146,7 +153,6 @@ fn without_colour_overview(dir: &Path) -> (std::path::PathBuf, Track) {
     without[8..12].copy_from_slice(&len.to_be_bytes());
     std::fs::write(dat.with_extension("EXT"), without).unwrap();
     std::fs::remove_file(dat.with_extension("2EX")).unwrap();
-    (root, t)
 }
 
 fn bands(n: usize) -> Bands {
@@ -468,4 +474,99 @@ fn analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
     assert!(err.contains(&why), "{err}");
     assert!(common::changed_files(&before, &common::drive_files(&root)).is_empty());
     assert!(!root.join(paths::STATE_DIR).join("waveforms").exists());
+}
+
+/// For any grid moved or kept, phrases or not, a waveform or not (on a track with or without an
+/// `.EXT`), and cues on the old grid's beats: the plan warns of the cues left off the new grid
+/// and of a waveform with no `.EXT` to hold its detail, and applied, a replay makes it again as
+/// it was made: nothing more when the drive has it, the same files after rekordbox exports again
+/// (the waveform from its staged copy), skipped with a warning once the track's `.DAT` is gone;
+/// and a grid set over a moved one has no extended grid left to lose.
+#[hegel::test(test_cases = 24, suppress_health_check = [HealthCheck::TooSlow])]
+fn any_analysis_edit_warns_of_what_it_leaves_and_replays_as_made(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "USB");
+    let t = track(&root, "Demo Track 1");
+    let name = t.display_name();
+    let dat = paths::to_fs(&root, &paths::key(&t.analyze_path));
+    let waved = tc.draw(gs::booleans());
+    let no_ext = waved && tc.draw(gs::booleans());
+    if waved {
+        strip_colour_overview(&root, &t);
+    }
+    if no_ext {
+        std::fs::remove_file(dat.with_extension("EXT")).unwrap();
+    }
+    let grid = anlz::beat_grid(&std::fs::read(&dat).unwrap()).unwrap();
+    let on_beats = tc.draw(gs::integers::<usize>().max_value(3));
+    let mut cues: Vec<CuePoint> = (0..on_beats)
+        .map(|i| CuePoint { hot_cue: Some(i as u8), start_ms: grid[4 * (i + 1)].time_ms, ..Default::default() })
+        .collect();
+    cues.push(CuePoint { start_ms: grid[2].time_ms + 100, ..Default::default() });
+    let [d, e, _] = files(&root, &t);
+    std::fs::write(&dat, anlz::write_cue_points(&d.unwrap(), CueFile::Dat, &cues).unwrap()).unwrap();
+    if let Some(e) = e {
+        std::fs::write(dat.with_extension("EXT"), anlz::write_cue_points(&e, CueFile::Ext, &cues).unwrap()).unwrap();
+    }
+    let exported = common::library_files(&root);
+
+    let phrases = (!no_ext && tc.draw(gs::booleans())).then(|| SongStructure {
+        mood: Mood::Mid,
+        phrases: vec![Phrase { kind: PhraseKind::Intro, start_beat: 1, end_beat: 9, fill_beat: None }],
+    });
+    let mut shift = tc.draw(gs::sampled_from(vec![0u32, 20, 40]));
+    if shift == 0 && phrases.is_none() && !waved {
+        shift = 20;
+    }
+    let moved: Vec<Beat> = grid.iter().map(|b| Beat { time_ms: b.time_ms + shift, ..*b }).collect();
+    let b = bands(tc.draw(gs::integers::<usize>().min_value(1).max_value(600)));
+    let analysis = NewAnalysis { beats: Some(moved.clone()), phrases, waveform: waved.then(|| wave(&b)) };
+    let p = plan(&root, &[set(&t, analysis)]).unwrap();
+    let off = format!("cue(s) of {name} sat on beats of its old grid: they stay where they are, off the new one");
+    let moved_cues = if shift > 0 { on_beats } else { 0 };
+    let said = p.warnings.iter().find(|w| w.ends_with(&off));
+    assert_eq!(said, (moved_cues > 0).then(|| format!("{moved_cues} {off}")).as_ref(), "{:?}", p.warnings);
+    let overview_only = format!("{name} has no .EXT analysis file, so only its overview waveform is written");
+    assert_eq!(p.warnings.contains(&overview_only), no_ext, "{:?}", p.warnings);
+    edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+    let edited = files(&root, &t);
+    assert_eq!(anlz::beat_grid(edited[0].as_ref().unwrap()).unwrap(), moved);
+
+    let replay = |root: &Path| {
+        let mut d = Device::open_export(root).unwrap();
+        let edits = edit::journal::edits(&d).unwrap();
+        let opts = EditOptions { lenient: true, no_journal: true };
+        let plan = edit::plan(&d, &edits, &opts, &Ctx::silent()).unwrap();
+        edit::apply(&plan, &mut d, &Ctx::silent()).unwrap()
+    };
+    match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => {
+            let report = replay(&root);
+            assert_eq!(files(&root, &t), edited, "as it is already");
+            assert!(report.warnings.iter().all(|w| !w.contains("skipped")), "{:?}", report.warnings);
+        }
+        1 => {
+            for (key, bytes) in &exported {
+                std::fs::write(paths::to_fs(&root, key), bytes).unwrap();
+            }
+            replay(&root);
+            assert_eq!(files(&root, &t), edited);
+        }
+        2 => {
+            std::fs::remove_file(&dat).unwrap();
+            let report = replay(&root);
+            let skipped = "skipped an edit that no longer applies (set the beat grid";
+            assert!(report.warnings.iter().any(|w| w.starts_with(skipped)), "{:?}", report.warnings);
+            assert_eq!(files(&root, &t)[1..], edited[1..]);
+        }
+        _ => {
+            let again: Vec<Beat> = moved.iter().map(|b| Beat { time_ms: b.time_ms + 7, ..*b }).collect();
+            let p = plan(&root, &[set(&t, NewAnalysis { beats: Some(again.clone()), ..Default::default() })]).unwrap();
+            // Its extended grid went with the first grid that moved.
+            let loses = p.warnings.iter().any(|w| w.contains("loses its extended beat grid (PQT2)"));
+            assert_eq!(loses, shift == 0 && !no_ext, "{:?}", p.warnings);
+            edit::apply(&p, &mut Device::open_export(&root).unwrap(), &Ctx::silent()).unwrap();
+            assert_eq!(anlz::beat_grid(files(&root, &t)[0].as_ref().unwrap()).unwrap(), again);
+        }
+    }
 }

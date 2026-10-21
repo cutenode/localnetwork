@@ -625,7 +625,7 @@ pub fn copy_to(store: &Store, dest: &dyn Destination, opts: &CopyOptions, ctx: &
         }
         if !had.contains(sid) {
             ctx.check()?;
-            let bytes = fs::read(store.snapshot_path(sid)).at(store.snapshot_path(sid))?;
+            let bytes = fsutil::read(&store.snapshot_path(sid)).at(store.snapshot_path(sid))?;
             dest.put_manifest(&format!("snapshots/{}.json", sid.to_hex()), &bytes, ctx)?;
             report.snapshots_copied += 1;
         }
@@ -636,10 +636,10 @@ pub fn copy_to(store: &Store, dest: &dyn Destination, opts: &CopyOptions, ctx: &
 
     // The rest of the store's records, then the libraries' latest snapshots.
     if !ours {
-        dest.put_manifest("store.json", &fs::read(store.root().join("store.json")).at(store.root())?, ctx)?;
+        dest.put_manifest("store.json", &fsutil::read(&store.root().join("store.json")).at(store.root())?, ctx)?;
     }
     for name in METADATA {
-        match fs::read(store.root().join(name)) {
+        match fsutil::read(&store.root().join(name)) {
             Ok(bytes) => dest.put_manifest(name, &bytes, ctx)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(Error::Io { path: store.root().join(name), source: e }),
