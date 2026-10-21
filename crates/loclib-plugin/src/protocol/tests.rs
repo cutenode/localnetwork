@@ -2,6 +2,7 @@ use loclib_progress::{Event, Phase};
 use serde_json::json;
 
 use super::*;
+use crate::OpPlan;
 
 fn report(event: Value) -> ProgressReport {
     serde_json::from_value::<ProgressParams>(json!({ "id": 1, "event": event })).unwrap().event

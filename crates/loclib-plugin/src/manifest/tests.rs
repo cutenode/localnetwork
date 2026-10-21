@@ -1,9 +1,10 @@
 use hegel::TestCase;
 use hegel::generators::{self as gs, Generator};
+use indexmap::IndexMap;
 use serde_json::{Map, json};
 
 use super::*;
-use crate::code;
+use crate::{Analyzer, Command, Exporter, FieldType, FieldValue, Mode, Operation, Provider, ProviderKind, Role, code};
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
 

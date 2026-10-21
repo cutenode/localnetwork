@@ -6,14 +6,13 @@ use std::fmt;
 use std::path::Path;
 use std::str::FromStr;
 
-use indexmap::IndexMap;
 use rustc_hash::FxHashSet;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{Context, PROTOCOL_VERSION, RpcError};
+use crate::{Context, PROTOCOL_VERSION, RpcError, hooks};
 
 /// Read tolerantly: a key this side doesn't know is left out, and [`Manifest::validate`] refuses
 /// it only in a plugin locallibrary ships (see [`Manifest::unknown`]).
@@ -40,46 +39,17 @@ pub struct Manifest {
     unknown: Vec<String>,
 }
 
+// A field for each family of hooks, in the order `describe` and the sidecar's contract show them
+// (a family's placed as `crate::hooks` says), and the settings.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
 pub struct Contributions {
-    #[serde(default)]
-    pub commands: Vec<Command>,
-    #[serde(default)]
-    pub operations: Vec<Operation>,
-    #[serde(default)]
-    pub analyzers: Vec<Analyzer>,
-    #[serde(default)]
-    pub exporters: Vec<Exporter>,
-    #[serde(default)]
-    pub providers: Vec<Provider>,
-    #[serde(default)]
+    pub commands: Vec<hooks::commands::Command>,
+    pub operations: Vec<hooks::operations::Operation>,
+    pub analyzers: Vec<hooks::analyzers::Analyzer>,
+    pub exporters: Vec<hooks::exporters::Exporter>,
+    pub providers: Vec<hooks::providers::Provider>,
     pub settings: Vec<Setting>,
-}
-
-/// Run with `command/run`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Command {
-    pub name: String,
-    pub title: String,
-    pub mode: Mode,
-    /// Where hosts offer it (see [`Where`]).
-    #[serde(default = "on_a_drive", rename = "where")]
-    pub offered: Vec<Where>,
-    /// A JSON Schema for its params (an object).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<Value>,
-    /// Its own place on the command line (see [`Operation::cli`]).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cli: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-    /// Answers any JSON, shown as it is (`--json`) or not at all.
-    Headless,
-    /// Answers a [`crate::View`].
-    View,
 }
 
 /// Where a host offers a command or an operation: in the menu of the tracks selected, of a
@@ -104,30 +74,8 @@ impl Where {
 }
 
 /// Where a command or an operation is offered when its manifest doesn't say: a drive's menu.
-fn on_a_drive() -> Vec<Where> {
+pub(crate) fn on_a_drive() -> Vec<Where> {
     vec![Where::Drive]
-}
-
-/// Planned with `op/plan`, applied by the host, which works out from the edits whether it's
-/// destructive.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Operation {
-    pub name: String,
-    pub title: String,
-    /// Where hosts offer it (see [`Where`]).
-    #[serde(default = "on_a_drive", rename = "where")]
-    pub offered: Vec<Where>,
-    /// Planning takes a while: the host shows progress.
-    #[serde(default)]
-    pub long_running: bool,
-    /// A JSON Schema for its params (an object).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub params: Option<Value>,
-    /// Its own place on the command line, rather than `locallibrary <plugin> <name>`: a
-    /// top-level command (`import`), or one in a group of the host's (`playlist import`).
-    /// First-party plugins only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cli: Option<String>,
 }
 
 /// What a param's (or option's) JSON Schema says about giving it on the command line, under its
@@ -202,191 +150,6 @@ impl Selection {
             Selection::Tracks => Some(context.tracks.clone().into()),
             Selection::Playlist => context.playlist.clone().map(Value::from),
             Selection::Drive => context.drive.clone().map(Value::from),
-        }
-    }
-}
-
-/// Run with `track/analyze`; its fields become columns.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Analyzer {
-    pub name: String,
-    pub title: String,
-    /// Its own version: the host keeps its values by it, so a new one works them out again. Bump
-    /// it whenever the values would change.
-    pub version: String,
-    pub fields: IndexMap<String, FieldType>,
-    /// Which of its fields has each role it answers (`bpm = "bpm"`): what the host reads for
-    /// that role (see [`Role`]).
-    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
-    pub roles: IndexMap<Role, String>,
-}
-
-/// What a field is to locallibrary, whichever plugin works it out: the host reads a role's value
-/// (doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and
-/// BPMs to tracks) from the analyzer chosen for it. A closed list, each with one type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[schemars(rename = "FieldRole")]
-#[serde(rename_all = "snake_case")]
-pub enum Role {
-    /// A Camelot code (`8A`): a string.
-    Key,
-    /// Beats per minute: a number.
-    Bpm,
-    /// How sure the analyzer is of its key, 0 to 1: a number.
-    KeyConfidence,
-    /// How sure it is of its tempo, 0 to 1: a number.
-    BpmConfidence,
-    /// Integrated loudness in LUFS: a number.
-    Loudness,
-    /// True peak in dBTP: a number.
-    TruePeak,
-    /// Runs of samples at full scale: an integer.
-    ClippedRuns,
-    /// Equal values are the same recording: a string.
-    Identity,
-}
-
-impl Role {
-    pub const ALL: [Role; 8] = [
-        Role::Key,
-        Role::Bpm,
-        Role::KeyConfidence,
-        Role::BpmConfidence,
-        Role::Loudness,
-        Role::TruePeak,
-        Role::ClippedRuns,
-        Role::Identity,
-    ];
-
-    /// The type of a field with it.
-    pub fn kind(self) -> FieldType {
-        match self {
-            Role::Key | Role::Identity => FieldType::String,
-            Role::ClippedRuns => FieldType::Integer,
-            _ => FieldType::Number,
-        }
-    }
-
-    /// As a manifest names it (`key_confidence`).
-    pub fn name(self) -> &'static str {
-        match self {
-            Role::Key => "key",
-            Role::Bpm => "bpm",
-            Role::KeyConfidence => "key_confidence",
-            Role::BpmConfidence => "bpm_confidence",
-            Role::Loudness => "loudness",
-            Role::TruePeak => "true_peak",
-            Role::ClippedRuns => "clipped_runs",
-            Role::Identity => "identity",
-        }
-    }
-}
-
-impl FromStr for Role {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Role, String> {
-        Role::ALL.into_iter().find(|r| r.name() == s).ok_or_else(|| {
-            let all: Vec<&str> = Role::ALL.iter().map(|r| r.name()).collect();
-            format!("{s:?} isn't a role: one of {}", all.join(", "))
-        })
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub enum FieldType {
-    #[serde(rename = "number")]
-    Number,
-    #[serde(rename = "integer")]
-    Integer,
-    #[serde(rename = "string")]
-    String,
-    #[serde(rename = "boolean")]
-    Boolean,
-    #[serde(rename = "string[]")]
-    Strings,
-}
-
-impl FieldType {
-    /// Whether `value` is one of these (an integer is a number too), or null.
-    pub fn accepts(self, value: &FieldValue) -> bool {
-        matches!(
-            (self, value),
-            (_, FieldValue::Null)
-                | (FieldType::Number, FieldValue::Number(_) | FieldValue::Integer(_))
-                | (FieldType::Integer, FieldValue::Integer(_))
-                | (FieldType::String, FieldValue::String(_))
-                | (FieldType::Boolean, FieldValue::Boolean(_))
-                | (FieldType::Strings, FieldValue::Strings(_))
-        )
-    }
-}
-
-/// A field's value, as an analyzer answers it and the host keeps it: of the type the manifest
-/// declares (numbers are finite, as JSON's are), or null for one worked out with nothing to show
-/// (a track left out of an answer has no value: it wasn't worked out).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum FieldValue {
-    Integer(i64),
-    Number(f64),
-    Boolean(bool),
-    String(String),
-    Strings(Vec<String>),
-    Null,
-}
-
-/// Run with `export/write`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Exporter {
-    pub format: String,
-    pub title: String,
-    /// The file it writes ends in this: lowercase letters and digits, without the dot (`nml`).
-    /// Either this or `folder`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extension: Option<String>,
-    /// It writes a folder.
-    #[serde(default)]
-    pub folder: bool,
-    /// A JSON Schema for its options (an object).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub options: Option<Value>,
-}
-
-/// Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the
-/// user every provider's, and makes the edits chosen itself. It's given the tracks' tags, which
-/// takes `library:read`, and needs no capability to plan an edit.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct Provider {
-    pub name: String,
-    pub title: String,
-    pub kind: ProviderKind,
-}
-
-/// What a provider finds for a track.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderKind {
-    /// Cover art: an image.
-    Artwork,
-    /// Tags: a title, an artist, an album...
-    Metadata,
-}
-
-impl ProviderKind {
-    /// As a manifest names it (`artwork`).
-    pub fn name(self) -> &'static str {
-        match self {
-            ProviderKind::Artwork => "artwork",
-            ProviderKind::Metadata => "metadata",
-        }
-    }
-
-    /// What it finds, as hosts say it to the user (`cover art`).
-    pub fn found(self) -> &'static str {
-        match self {
-            ProviderKind::Artwork => "cover art",
-            ProviderKind::Metadata => "track details",
         }
     }
 }
@@ -593,22 +356,22 @@ pub enum ManifestError {
     Invalid { at: String, message: String },
 }
 
-fn invalid(at: impl Into<String>, message: impl Into<String>) -> ManifestError {
+pub(crate) fn invalid(at: impl Into<String>, message: impl Into<String>) -> ManifestError {
     ManifestError::Invalid { at: at.into(), message: message.into() }
 }
 
 /// What [`is_name`] takes.
-const NAME_RULE: &str = "lowercase letters, digits, - and _, starting with a letter";
+pub(crate) const NAME_RULE: &str = "lowercase letters, digits, - and _, starting with a letter";
 
 /// Lowercase letters, digits, `-` and `_`, starting with a letter, at most 64 bytes.
-fn is_name(s: &str) -> bool {
+pub(crate) fn is_name(s: &str) -> bool {
     s.len() <= 64
         && s.starts_with(|c: char| c.is_ascii_lowercase())
         && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
 }
 
 /// Each of `names` (`at[i].field`) a valid name, used once.
-fn unique_names<'a>(
+pub(crate) fn unique_names<'a>(
     at: &str,
     field: &str,
     names: impl IntoIterator<Item = (usize, &'a str)>,
@@ -627,7 +390,7 @@ fn unique_names<'a>(
 
 /// `schema` (at `at`), when there is one, a valid JSON Schema for an object, whose properties'
 /// [`CliHints`] can be read.
-fn object_schema(at: String, schema: Option<&Value>) -> Result<(), ManifestError> {
+pub(crate) fn object_schema(at: String, schema: Option<&Value>) -> Result<(), ManifestError> {
     let Some(schema) = schema else { return Ok(()) };
     if schema.get("type") != Some(&Value::from("object")) {
         return Err(invalid(at, "must be a JSON Schema for an object (type = \"object\")"));
@@ -657,7 +420,7 @@ fn object_schema(at: String, schema: Option<&Value>) -> Result<(), ManifestError
 }
 
 /// `offered` (at `at`) names somewhere, each place once.
-fn offered_in(at: String, offered: &[Where]) -> Result<(), ManifestError> {
+pub(crate) fn offered_in(at: String, offered: &[Where]) -> Result<(), ManifestError> {
     if offered.is_empty() {
         return Err(invalid(at, "names no place: track, playlist or drive"));
     }
@@ -666,14 +429,6 @@ fn offered_in(at: String, offered: &[Where]) -> Result<(), ManifestError> {
         Some(w) => Err(invalid(at, format!("{} is there twice", w.name()))),
         None => Ok(()),
     }
-}
-
-/// An analyzer's version, which names a folder: letters, digits, `.`, `_`, `+` and `-`, not
-/// starting with a dot, at most 64 bytes (`3`, `1.2.0`).
-fn is_version(s: &str) -> bool {
-    (1..=64).contains(&s.len())
-        && !s.starts_with('.')
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || "._+-".contains(c))
 }
 
 /// Where `path` is in a manifest, as its errors say (`contributes.commands[0].colour`).
@@ -746,16 +501,11 @@ fn invalid_at(path: &str, message: &str) -> RpcError {
 }
 
 /// `text` (at `at`) isn't blank.
-fn shown(at: impl Into<String>, text: &str) -> Result<(), ManifestError> {
+pub(crate) fn shown(at: impl Into<String>, text: &str) -> Result<(), ManifestError> {
     match text.trim().is_empty() {
         true => Err(invalid(at, "is empty")),
         false => Ok(()),
     }
-}
-
-/// An exporter's file extension: no dot, just lowercase letters and digits.
-fn is_extension(s: &str) -> bool {
-    (1..=16).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
 impl Manifest {
@@ -816,75 +566,11 @@ impl Manifest {
                 return Err(invalid(at, format!("{cli:?} is used twice")));
             }
         }
-        let at = "contributes.commands";
-        unique_names(at, "name", c.commands.iter().map(|x| x.name.as_str()).enumerate())?;
-        for (i, x) in c.commands.iter().enumerate() {
-            shown(format!("{at}[{i}].title"), &x.title)?;
-            offered_in(format!("{at}[{i}].where"), &x.offered)?;
-            object_schema(format!("{at}[{i}].params"), x.params.as_ref())?;
-        }
-        let at = "contributes.operations";
-        unique_names(at, "name", c.operations.iter().map(|x| x.name.as_str()).enumerate())?;
-        for (i, x) in c.operations.iter().enumerate() {
-            shown(format!("{at}[{i}].title"), &x.title)?;
-            offered_in(format!("{at}[{i}].where"), &x.offered)?;
-            object_schema(format!("{at}[{i}].params"), x.params.as_ref())?;
-        }
-        let at = "contributes.analyzers";
-        unique_names(at, "name", c.analyzers.iter().map(|x| x.name.as_str()).enumerate())?;
-        // Fields are columns: one name is one column, whichever analyzer fills it.
-        let mut fields = FxHashSet::default();
-        for (i, x) in c.analyzers.iter().enumerate() {
-            shown(format!("{at}[{i}].title"), &x.title)?;
-            if !is_version(&x.version) {
-                return Err(invalid(
-                    format!("{at}[{i}].version"),
-                    format!("{:?} isn't a version: letters, digits, ., _, + and -", x.version),
-                ));
-            }
-            if x.fields.is_empty() {
-                return Err(invalid(format!("{at}[{i}].fields"), "an analyzer needs a field"));
-            }
-            for name in x.fields.keys() {
-                if !is_name(name) {
-                    return Err(invalid(format!("{at}[{i}].fields.{name}"), format!("isn't a name: {NAME_RULE}")));
-                }
-                if !fields.insert(name) {
-                    return Err(invalid(format!("{at}[{i}].fields.{name}"), "another analyzer has this field"));
-                }
-            }
-            for (role, field) in &x.roles {
-                let at = format!("{at}[{i}].roles.{}", role.name());
-                let kind = x.fields.get(field).ok_or_else(|| invalid(&at, format!("{field:?} isn't its field")))?;
-                if *kind != role.kind() {
-                    let kind = serde_json::to_value(role.kind()).unwrap_or_default();
-                    let message = format!("{field} isn't a {}, which the role is", kind.as_str().unwrap_or("?"));
-                    return Err(invalid(at, message));
-                }
-            }
-        }
-        let at = "contributes.exporters";
-        unique_names(at, "format", c.exporters.iter().map(|x| x.format.as_str()).enumerate())?;
-        for (i, x) in c.exporters.iter().enumerate() {
-            shown(format!("{at}[{i}].title"), &x.title)?;
-            if x.extension.is_some() == x.folder {
-                return Err(invalid(format!("{at}[{i}]"), "an exporter has either an extension or folder = true"));
-            }
-            if let Some(ext) = x.extension.as_deref().filter(|ext| !is_extension(ext)) {
-                let message = format!("{ext:?} isn't an extension: lowercase letters and digits, without the dot");
-                return Err(invalid(format!("{at}[{i}].extension"), message));
-            }
-            object_schema(format!("{at}[{i}].options"), x.options.as_ref())?;
-        }
-        let at = "contributes.providers";
-        unique_names(at, "name", c.providers.iter().map(|x| x.name.as_str()).enumerate())?;
-        for (i, x) in c.providers.iter().enumerate() {
-            shown(format!("{at}[{i}].title"), &x.title)?;
-        }
-        if !c.providers.is_empty() && !self.capabilities.contains(&Capability::LibraryRead) {
-            let message = format!("is given tracks' tags, which needs the {} capability", Capability::LibraryRead);
-            return Err(invalid(format!("{at}[0]"), message));
-        }
+        hooks::commands::validate(self)?;
+        hooks::operations::validate(self)?;
+        hooks::analyzers::validate(self)?;
+        hooks::exporters::validate(self)?;
+        hooks::providers::validate(self)?;
         let at = "contributes.settings";
         unique_names(at, "key", c.settings.iter().map(|x| x.key.as_str()).enumerate())?;
         for (i, x) in c.settings.iter().enumerate() {
