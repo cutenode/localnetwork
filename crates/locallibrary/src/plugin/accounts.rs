@@ -154,7 +154,7 @@ impl Slot {
     /// The account `id` it declares: its service's endpoints, client and scopes. Neither this nor
     /// [`Slot::sign_in_client`] is named for an account or OAuth: CodeQL guesses secrets from
     /// names, and would take the sign-in link made from them for one.
-    fn service(&self, id: &str) -> Result<&Account> {
+    fn declared_sign_in(&self, id: &str) -> Result<&Account> {
         self.declared("account", id, &self.manifest.contributes.accounts, |a| &a.id)
     }
 
@@ -265,7 +265,7 @@ impl Slot {
     /// is told how to sign in when it's signed out.
     pub(crate) fn bearer(&self, live: &Live, id: &str) -> std::result::Result<String, RpcError> {
         let invalid = |why: String| RpcError::failed("invalid", why);
-        let account = self.service(id).map_err(|_| invalid(format!("{id:?} isn't one of its accounts")))?;
+        let account = self.declared_sign_in(id).map_err(|_| invalid(format!("{id:?} isn't one of its accounts")))?;
         let signed_out = || {
             let plugin = &self.manifest.id;
             invalid(format!(
@@ -318,7 +318,7 @@ impl Plugins {
     /// One of a plugin's accounts, and whether it's signed in.
     pub fn account(&self, plugin: &str, account: &str, store: Option<&Store>) -> Result<AccountStatus> {
         let slot = self.slot(plugin)?;
-        let declared = slot.service(account)?;
+        let declared = slot.declared_sign_in(account)?;
         let tokens = store.map(|s| slot.tokens(s, account)).transpose()?.flatten();
         Ok(slot.status(declared, tokens.as_ref()))
     }
@@ -329,7 +329,7 @@ impl Plugins {
     /// a quarter of an hour.
     pub fn begin_sign_in(&self, plugin: &str, account: &str, store: &Store) -> Result<SignIn> {
         let slot = self.slot(plugin)?;
-        let declared = slot.service(account)?;
+        let declared = slot.declared_sign_in(account)?;
         // The keychain can be used, before the browser is sent anywhere. Only whether it can, the
         // tokens dropped first: CodeQL follows a `?` on them into the sign-in link.
         slot.tokens(store, account).map(drop)?;
@@ -405,7 +405,7 @@ impl Plugins {
     /// The account signed in, from what the browser came back with.
     fn signed_in(&self, p: Pending, query: &CallbackQuery) -> Result<AccountStatus> {
         let slot = self.slot(&p.plugin)?;
-        let account = slot.service(&p.account)?;
+        let account = slot.declared_sign_in(&p.account)?;
         if let Some(why) = query.refusal() {
             return Err(Error::Account(why));
         }
@@ -429,7 +429,7 @@ impl Plugins {
     /// all the same).
     pub fn sign_out(&self, plugin: &str, account: &str, store: &Store) -> Result<SignedOut> {
         let slot = self.slot(plugin)?;
-        let declared = slot.service(account)?;
+        let declared = slot.declared_sign_in(account)?;
         let tokens = slot.tokens(store, account)?;
         let revoked = tokens.as_ref().is_some_and(|t| slot.revoke(declared, t));
         slot.set_secret(store, &key(account), None)?;
