@@ -39,10 +39,11 @@ pub(super) fn tell_applied() {
 }
 
 /// Tells the plugins listening of what `notice` says happened, if anything they hear of: in the
-/// store the command line names. Never waits for them.
+/// store the command line names. Never waits for them, but loads them if nothing has yet (what
+/// a front end notices first isn't lost): never call it on the player's frame path.
 pub fn deliver(notice: &Notice) {
-    let Some(plugins) = super::checked() else { return };
     let events = Event::of(notice);
+    let Ok(plugins) = super::host() else { return };
     if !events.iter().any(|e| plugins.listens(e.name)) {
         return;
     }

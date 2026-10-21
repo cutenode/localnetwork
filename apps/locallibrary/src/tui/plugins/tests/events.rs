@@ -8,7 +8,7 @@ use serde_json::json;
 use super::super::super::app::Msg;
 use super::super::super::app::View as Screen;
 use super::super::super::app::testing::{
-    app_on, blank, confirming, demo_drive, echo_plugin, last_message, press, say_yes, wait,
+    app_on, blank, confirming, demo_drive, echo_plugin, last_message, mounted, press, say_yes, wait,
 };
 use super::super::super::ui::screen;
 use super::{entry, picker, settings_form};
@@ -108,4 +108,33 @@ fn the_suggestion_picked_is_planned_as_others_come() {
     wait(&mut app, |a| a.job.is_none());
     assert!(app.modal.is_none(), "what went isn't planned");
     assert_eq!(app.suggested.len(), locallibrary::plugin::MAX_SUGGESTED);
+}
+
+/// Something the player's drive poll notices first, before anything else used the plugins, is
+/// told to those listening: delivering loads them.
+#[test]
+fn what_the_player_notices_first_is_told() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    mounted(dir.path());
+    let file = dir.path().join("echo.toml");
+    let manifest = std::fs::read_to_string(&file).unwrap().replacen(
+        r#"capabilities = ["library:read", "library:plan""#,
+        r#"capabilities = ["library:read", "library:plan", "events:drives""#,
+        1,
+    );
+    std::fs::write(&file, manifest + "\n[[contributes.events]]\non = [\"drive.mounted\"]\n").unwrap();
+    let logs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let logged = logs.clone();
+    crate::plugins::log_to(Some(std::sync::Arc::new(move |_, line| logged.lock().unwrap().push(line.into()))));
+    let drive = locallibrary::watch::MountedDrive { root, id: None, name: "DEMO".into(), has_export: true };
+    let attached = locallibrary::api::Notice::Watch(locallibrary::watch::WatchEvent::Attached(drive));
+    crate::plugins::events::deliver(&attached);
+    let heard = || logs.lock().unwrap().iter().any(|l| l.starts_with("event drive.mounted DEMO "));
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !heard() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    crate::plugins::log_to(None);
+    assert!(heard(), "the plugin heard it");
 }
