@@ -779,22 +779,31 @@ export type TagChange = {
  * by its audio file (a device path), like the tracks edited, so a replay on a later export, where
  * ids differ, finds them.
  */
-export type CueChange = {
-  set: SetCue;
-} | {
-  update: UpdateCue;
-} | {
-  delete: CueRef;
-} | {
-  copy: {
-    from: string;
+export type CueChange =
+  | {
+    set: SetCue;
+  }
+  /** Several cues set in turn, each as `set` sets one (what an import adds to a track). */
+  | {
+    set_many: SetCue[];
+  }
+  | {
+    update: UpdateCue;
+  }
+  | {
+    delete: CueRef;
+  }
+  | {
+    copy: {
+      from: string;
+    };
+  }
+  | {
+    carry: {
+      from: string;
+      shift_ms: number;
+    };
   };
-} | {
-  carry: {
-    from: string;
-    shift_ms: number;
-  };
-};
 
 /**
  * Add a cue, or replace the hot cue in its slot (or the memory cue at its position). A replaced
@@ -2231,7 +2240,8 @@ export type SetPluginSetting = {
   key: string;
   /**
    * Of the setting's type (a secret's, text: kept in the system's keychain and never
-   * answered); `null` (or left out) puts it back to its default, or forgets a secret.
+   * answered; a service's switch, `services.<name>`, true or false); `null` (or left out)
+   * puts it back to its default, or forgets a secret.
    */
   value?: unknown;
 };
@@ -2275,6 +2285,8 @@ export type PluginContext = {
   playlist?: string | null;
   /** The tracks they chose, by id. */
   tracks?: number[];
+  /** The set they're on, by id (`sets.list`). */
+  set?: string | null;
 };
 
 export type PlanPluginOp = {
@@ -2285,22 +2297,51 @@ export type PlanPluginOp = {
   context: PluginContext;
 };
 
+export type RenderPluginPanel = {
+  plugin: string;
+  /** One of the plugin's panels (`plugins.describe`). */
+  panel: string;
+  /** A library's name, or a drive's mount path, name or id prefix. */
+  drive: string;
+  /** The track, by id. */
+  track: number;
+};
+
 export type PlanPluginExport = {
   plugin: string;
   /** The exporter's format. */
   exporter: string;
-  /** The library or drive to export. */
-  drive: string;
+  /**
+   * The library or drive to export, or (for a set's or a mix's exporter) whose tracks to give
+   * it.
+   */
+  drive?: string;
   /** Only these playlists (and folders), by path; every one when empty. */
   playlists?: string[];
   /** History lists to put in, by name. */
   history?: string[];
+  /** A set's exporter's set: its id, title or day, or `last` (as `sets.get` takes it). */
+  set?: string | null;
+  /** A mix's exporter's mix: the id of its report in the store (`mix.reports.list`). */
+  mix?: string | null;
   /**
    * The file, or folder, to write (absolute), on this computer: never on a drive or in the
    * store.
    */
   output: string;
   /** As the exporter's `options` schema says (`plugins.describe`). */
+  options?: unknown;
+};
+
+export type PlanPluginImport = {
+  plugin: string;
+  /** The importer's format. */
+  importer: string;
+  /** The file to read (absolute), on this computer. */
+  file: string;
+  /** The library or drive whose tracks it's about. */
+  drive: string;
+  /** As the importer's `options` schema says (`plugins.describe`). */
   options?: unknown;
 };
 
@@ -6361,7 +6402,7 @@ export type Session = {
   path: string;
   /**
    * `device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from
-   * (`beat_link_trigger`).
+   * (`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`).
    */
   source: string;
   /** The mounted drives holding it now. */
@@ -6390,7 +6431,7 @@ export type ImportedSession = {
   /** Like a history list's fingerprint: the same log imported twice is one session. */
   id: string;
   name: string;
-  /** `beat_link_trigger`. */
+  /** `beat_link_trigger`, or the plugin's importer it was read with (`<plugin>.<importer>`). */
   tool: string;
   /** The file it was imported from. */
   file: string;
@@ -6583,6 +6624,8 @@ export type PlayExtras = {
   phrases: PhraseSpan[];
   /** Its hot cues, in seconds into the track. */
   cues: CueMark[];
+  /** What analyzers worked out for it that a page shows (the HTML report's), in order. */
+  fields?: ShownField[];
 };
 
 export type PhraseSpan = {
@@ -6599,6 +6642,14 @@ export type CueMark = {
   label: string;
   /** `#rrggbb`. */
   color: string | null;
+};
+
+/** An analyzer's field, as a page shows it. */
+export type ShownField = {
+  /** `<plugin>.<field>` (`sound.lufs`). */
+  label: string;
+  /** As its analyzer says it's shown (`-8.2 LUFS`). */
+  value: string;
 };
 
 export type MixExport = {
@@ -7562,15 +7613,21 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations, analyzers, providers and library sources by name,
-   * its export formats and its settings' keys.
+   * What it adds: its commands, operations, panels, analyzers, providers, services, library
+   * sources and themes by name, the events it listens for, its export and import formats and
+   * its settings' keys.
    */
   commands: string[];
+  events: string[];
   operations: string[];
+  panels: string[];
   analyzers: string[];
   exporters: string[];
+  importers: string[];
   providers: string[];
+  services: string[];
   sources: string[];
+  themes: string[];
   settings: string[];
   /** It's running now: plugins start when they're first used, and stop once they're idle. */
   running: boolean;
@@ -7630,11 +7687,16 @@ export type Manifest = {
 
 export type Contributions = {
   commands: Command[];
+  events: Listener[];
   operations: Operation[];
+  panels: Panel[];
   analyzers: Analyzer[];
   exporters: Exporter[];
+  importers: Importer[];
   providers: Provider[];
+  services: Service[];
   sources: LibrarySource[];
+  themes: Theme[];
   settings: Setting[];
 };
 
@@ -7663,6 +7725,34 @@ export type Mode =
  */
 export type Where = "track" | "playlist" | "drive";
 
+/** `[[contributes.events]]`: what the plugin is told of (`event/notify`). */
+export type Listener = {
+  on: EventName[];
+};
+
+/**
+ * What a host tells plugins of: a closed list, each needing a capability (see
+ * [`EventName::capability`]).
+ */
+export type EventName =
+  /** A drive was plugged in. */
+  | "drive.mounted"
+  /** A drive was unplugged. */
+  | "drive.unmounted"
+  /** A drive's databases or its locallibrary state changed (`payload.changed` says which). */
+  | "drive.changed"
+  /**
+   * A drive was saved into the store as a new snapshot (`payload.history_lists`: the
+   * history lists the store lacked).
+   */
+  | "drive.pulled"
+  /** A drive back from a set was saved beside its library's newest snapshot. */
+  | "set.returned"
+  /** A request to the sidecar finished (`payload.method`, `payload.ok`). */
+  | "job.finished"
+  /** A plan was applied (`payload.operation`, `payload.summary`). */
+  | "plan.applied";
+
 /**
  * Planned with `op/plan`, applied by the host, which works out from the edits whether it's
  * destructive.
@@ -7684,6 +7774,17 @@ export type Operation = {
   cli?: string | null;
 };
 
+/**
+ * Shown under a track's details, as `panel/render` answers for the track. Hosts ask for it as
+ * the user comes to a track, so it answers quickly, reading only what it needs.
+ */
+export type Panel = {
+  name: string;
+  title: string;
+  /** What it's shown with: a track, unless it says. */
+  where: Where;
+};
+
 /** Run with `track/analyze`; its fields become columns. */
 export type Analyzer = {
   name: string;
@@ -7699,6 +7800,11 @@ export type Analyzer = {
    * that role (see [`Role`]).
    */
   roles?: { [key: string]: string };
+  /**
+   * How hosts show some of its fields, by field (`display.lufs = { unit = "LUFS" }`): in the
+   * player's columns, `track show` and the mix report.
+   */
+  display?: { [key: string]: FieldDisplay };
 };
 
 export type FieldType =
@@ -7709,6 +7815,33 @@ export type FieldType =
   | "phrases"
   /** A waveform in three bands, in a blob (feature `analysis`). */
   | "waveform";
+
+/**
+ * How hosts show a field's values, each part optional. Without them a number shows to two
+ * places at most (trailing zeros left out), a list joined with commas, a boolean as yes or no.
+ */
+export type FieldDisplay = {
+  /** Said after a value (`LUFS`); a `db` format's is `dB` unless it says. */
+  unit?: string | null;
+  /** A number's decimal places, 0 to 6. */
+  precision?: number | null;
+  format?: FieldFormat | null;
+  /** How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is. */
+  width?: number | null;
+};
+
+/** What a field's values are, for hosts to show them as such. */
+export type FieldFormat =
+  /** A key (a string), as the host shows keys. */
+  | "key"
+  /** Seconds (a number), as minutes and seconds (`3:07`, `1:02:03`). */
+  | "duration"
+  /** Decibels (a number), signed (`+0.4 dB`, `-8.2 dB`). */
+  | "db"
+  /** A fraction (a number, 0 to 1) as a percentage (`85%`; no decimal places unless it says). */
+  | "percent"
+  /** A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says). */
+  | "meter";
 
 /** Run with `export/write`. */
 export type Exporter = {
@@ -7723,7 +7856,46 @@ export type Exporter = {
   folder: boolean;
   /** A JSON Schema for its options (an object). */
   options?: unknown;
+  /** What it writes out [default: a drive's library]. */
+  source?: ExportFrom;
 };
+
+/** What an exporter writes out. */
+export type ExportFrom =
+  /** A drive's library. */
+  | "drive"
+  /** A set the DJ declared (`locallibrary sets`). */
+  | "set"
+  /** A recorded mix's tracklist, as `locallibrary mix` found it. */
+  | "mix";
+
+/**
+ * Run with `import/read` on a file the user names: the host finds what it read on a drive and
+ * plans the edits itself, so it needs no capability to plan one.
+ */
+export type Importer = {
+  format: string;
+  title: string;
+  /**
+   * The file it reads usually ends in this: lowercase letters and digits, without the dot
+   * (`nml`).
+   */
+  extension?: string | null;
+  /** A JSON Schema for its options (an object). */
+  options?: unknown;
+  /** What it reads: what of a track's (and the plays) the host takes from it. */
+  provides: ImportKind[];
+};
+
+/** What an importer reads. */
+export type ImportKind =
+  | "cues"
+  /** A track's key and BPM. */
+  | "fields"
+  /** My Tags. */
+  | "tags"
+  /** What played, as sessions. */
+  | "sessions";
 
 /**
  * Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the
@@ -7737,6 +7909,16 @@ export type Provider = {
 };
 
 /**
+ * Started with `service/start` by a host that stays open (the player, the sidecar, the `watch`
+ * agent), once the user has turned it on (its plugin's setting `services.<name>`), never by a
+ * command run once.
+ */
+export type Service = {
+  name: string;
+  title: string;
+};
+
+/**
  * Read with `library/read`, a page at a time, for the host to build a drive from. It's given the
  * folders the user grants it, which takes `fs:read`.
  */
@@ -7745,6 +7927,17 @@ export type LibrarySource = {
   title: string;
   /** A JSON Schema for its options (an object). */
   options?: unknown;
+};
+
+/**
+ * `[[contributes.themes]]`: a theme's colours, by the names of [`theme::TOKENS`] as tables (`cues.hot =
+ * "#28e214"`, `ui = { accent = "#ff8800" }`), each `#rrggbb` (a gradient, `waveform.*`, a list
+ * of two or more). What it leaves out is the default's.
+ */
+export type Theme = {
+  name: string;
+  title: string;
+  tokens: { [key: string]: unknown };
 };
 
 /** A setting the host stores and shows in its settings. */
@@ -7804,10 +7997,13 @@ export type View =
     items: ListItem[];
     kind: "list";
   }
-  /** Rows of cells (strings, numbers, booleans or `null`) under column headings. */
+  /**
+   * Rows of cells (strings, numbers, booleans or `null`) under column headings: each a name,
+   * or (feature `views`) a name with what its cells are ([`Column`]).
+   */
   | {
     title?: string | null;
-    columns: string[];
+    columns: Column[];
     rows: unknown[][];
     kind: "table";
   }
@@ -7829,12 +8025,77 @@ export type View =
    */
   | (PluginChoice & {
     kind: "choose";
-  });
+  })
+  /** Items with items below them (feature `views`). */
+  | {
+    title?: string | null;
+    items: TreeItem[];
+    kind: "tree";
+  }
+  /** Points, each series a line or bars (feature `views`). */
+  | {
+    title?: string | null;
+    style: ChartStyle;
+    series: Series[];
+    x_label?: string | null;
+    y_label?: string | null;
+    kind: "chart";
+  }
+  /**
+   * A picture (features `views` and `blobs`): a file in the request's scratch folder, which
+   * the host reads (see [`crate::Blob`]).
+   */
+  | {
+    title?: string | null;
+    /** Its file's name in the scratch folder. */
+    blob: string;
+    /** What it shows, in a few words: what a host that can't draw it says instead. */
+    alt: string;
+    /**
+     * The picture as a `data:` URL, filled in by the host once it has read the blob and
+     * found an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin
+     * sends here is replaced.
+     */
+    data?: string | null;
+    kind: "image";
+  }
+  /** Views one after another, each under a title of its own (feature `views`). */
+  | {
+    title?: string | null;
+    items: Section[];
+    kind: "sections";
+  };
 
 export type ListItem = {
   label: string;
   detail?: string | null;
 };
+
+/**
+ * A table's column: its heading alone (text), or (feature `views`) a heading and what its cells
+ * are.
+ */
+export type Column = string | TypedColumn;
+
+/** A column and what its cells are. */
+export type TypedColumn = {
+  name: string;
+  kind: ColumnKind;
+  unit?: string | null;
+};
+
+/** What a column's cells are, for a host to show them as it shows its own. */
+export type ColumnKind =
+  /** As they are. */
+  | "text"
+  /** A track, by id: shown by its artist and title where the host has the drive's library. */
+  | "track"
+  /** Seconds: shown as minutes and seconds (`3:07`). */
+  | "duration"
+  /** A key (`8A`, `Am`): shown in Camelot notation where it's one. */
+  | "key"
+  /** Numbers, with the column's unit after each. */
+  | "number";
 
 export type Pair = {
   label: string;
@@ -7856,6 +8117,26 @@ export type PluginChoice = {
   /** Any of the items may be chosen, none too: the param is set to a list of their values. */
   multi?: boolean;
   items: ChoiceItem[];
+};
+
+export type TreeItem = {
+  label: string;
+  detail?: string | null;
+  children?: TreeItem[];
+};
+
+/** How a chart draws its series. */
+export type ChartStyle = "line" | "bar";
+
+/** A chart's series: its name and its points, `[x, y]`. */
+export type Series = {
+  name: string;
+  points: [number, number][];
+};
+
+export type Section = {
+  title: string;
+  view: View;
 };
 
 /**
@@ -7920,6 +8201,40 @@ export type PluginExportedFile = {
   what?: string;
   /** Its size, as far as it's known before it's written. */
   bytes: number;
+};
+
+/** An import a plugin read, as the host plans it. */
+export type PluginImport = {
+  plugin: string;
+  importer: string;
+  /** The file it read. */
+  file: string;
+  /**
+   * How many of the tracks it read were found on the drive: one track (`found`), several it
+   * could be (`ambiguous`) or none (`missing`); only those found are edited.
+   */
+  tracks: ImportSummary;
+  /** The same, of its sessions' plays: those not found are kept as the log names them. */
+  plays: ImportSummary;
+  /** What's added to the tracks found, planned on the drive. */
+  edits: EditPlan;
+  /** The sessions it keeps in the store, as `sessions.list` will list them. */
+  sessions: ImportedSession[];
+};
+
+export type ImportSummary = {
+  entries: number;
+  found: number;
+  ambiguous: number;
+  missing: number;
+};
+
+/** What an import did. */
+export type PluginImported = {
+  /** The edits' report, when there were any. */
+  edits: EditReport | null;
+  /** The sessions kept, by id. */
+  sessions: string[];
 };
 
 /** What analysing a drive's tracks did. */
@@ -8077,9 +8392,9 @@ export type Step = {
 
 /**
  * An `event` notification's parameters: drives and the store (after `events.subscribe`),
- * requests starting and finishing, and what `watch.start` does.
+ * requests starting and finishing, what `watch.start` does, and what plugins tell the user.
  */
-export type Notice = WatchEvent | JobEvent | WatchAction;
+export type Notice = WatchEvent | JobEvent | WatchAction | PluginEvent;
 
 /** What a poll noticed. */
 export type WatchEvent =
@@ -8235,6 +8550,28 @@ export type WatchAction =
     message: string;
     event: "watch.failed";
   };
+
+/** What a plugin did. */
+export type PluginEvent = PluginNotice & {
+  event: "plugin.notice";
+};
+
+/** One of the plugin's operations, with its params, suggested to the user. */
+export type Suggested = {
+  name: string;
+  params: unknown;
+};
+
+/**
+ * A line a plugin tells the user (`host/notify`), and the operation of its it suggests, with
+ * its params: the front end offers to plan it, and the user confirms it as any plan.
+ */
+export type PluginNotice = {
+  /** The plugin's id. */
+  plugin: string;
+  message: string;
+  operation?: Suggested | null;
+};
 
 /** An error response's `error.data`: what a front end can act on without reading the message. */
 export type ErrorData = {
@@ -8905,10 +9242,16 @@ export interface Methods {
   "plugins.op.plan": { params: PlanPluginOp & WriteOptions; result: OpPlanned };
   /** apply method; paired with `plugins.op.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.op.apply": { params: ApplyPlan | (PlanPluginOp & WriteOptions); result: EditReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "plugins.panel": { params: RenderPluginPanel; result: View };
   /** plan method; paired with `plugins.export.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.export.plan": { params: PlanPluginExport & WriteOptions; result: PluginExport & PlanFields };
   /** apply method; paired with `plugins.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.export.apply": { params: ApplyPlan | (PlanPluginExport & WriteOptions); result: Exported };
+  /** plan method; paired with `plugins.import.apply`; long running: sends `progress`, can be cancelled */
+  "plugins.import.plan": { params: PlanPluginImport & WriteOptions; result: PluginImport & PlanFields };
+  /** apply method; paired with `plugins.import.plan`; long running: sends `progress`, can be cancelled */
+  "plugins.import.apply": { params: ApplyPlan | (PlanPluginImport & WriteOptions); result: PluginImported };
   /** immediate method; long running: sends `progress`, can be cancelled */
   "plugins.analyze": { params: AnalyzeWithPlugin & WriteOptions; result: Analyzed };
   /** plan method; paired with `plugins.apply_fields.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

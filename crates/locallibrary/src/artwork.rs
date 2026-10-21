@@ -778,9 +778,23 @@ pub fn apply_auto(device: &mut Device, plan: &AutoArtworkPlan, ctx: &Ctx<'_>) ->
     Ok(report)
 }
 
-/// Encode any supported image as PNG (handy for UIs that want a lossless preview).
+/// The longest side of a [`to_png`] preview, in pixels.
+pub const PREVIEW_SIZE: u32 = 512;
+
+/// Encode any supported image as PNG (handy for UIs that want a lossless preview), shrunk to
+/// [`PREVIEW_SIZE`] on its longest side if it's bigger. The bytes may come from anywhere (a
+/// plugin's picture), so one wider or taller than 8192 pixels, or needing more than 256 MiB
+/// decoded, is refused without being decoded.
 pub fn to_png(bytes: &[u8]) -> Result<Vec<u8>> {
-    let img = image::load_from_memory(bytes).map_err(|e| Error::Image(e.to_string()))?;
+    let mut limits = image::Limits::default();
+    (limits.max_image_width, limits.max_image_height, limits.max_alloc) = (Some(8192), Some(8192), Some(256 << 20));
+    let mut reader =
+        image::ImageReader::new(Cursor::new(bytes)).with_guessed_format().map_err(|e| Error::Image(e.to_string()))?;
+    reader.limits(limits);
+    let mut img = reader.decode().map_err(|e| Error::Image(e.to_string()))?;
+    if img.width().max(img.height()) > PREVIEW_SIZE {
+        img = img.resize(PREVIEW_SIZE, PREVIEW_SIZE, FilterType::Triangle);
+    }
     let mut out = Cursor::new(Vec::new());
     img.write_to(&mut out, ImageFormat::Png).map_err(|e| Error::Image(e.to_string()))?;
     Ok(out.into_inner())

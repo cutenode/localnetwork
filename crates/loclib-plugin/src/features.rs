@@ -11,8 +11,8 @@ use crate::{Manifest, hooks, method};
 pub struct Feature {
     /// As `hello` names it: its family of hooks (`commands`).
     pub name: &'static str,
-    /// The host's methods a plugin with it answers. A feature with none is the SDK's own: what
-    /// a plugin may send the host, which every plugin written with it has.
+    /// The host's methods (and notifications) a plugin with it handles. A feature with none is
+    /// the SDK's own: what a plugin may send the host, which every plugin written with it has.
     pub methods: &'static [&'static str],
     /// The requests and notifications a plugin with it may send the host.
     pub sends: &'static [&'static str],
@@ -25,14 +25,21 @@ pub struct Feature {
 pub const FEATURES: &[Feature] = &[
     hooks::analysis::FEATURE,
     hooks::commands::FEATURE,
+    hooks::events::FEATURE,
     hooks::operations::FEATURE,
+    hooks::panels::FEATURE,
     hooks::analyzers::FEATURE,
     hooks::exporters::FEATURE,
+    hooks::importers::FEATURE,
     hooks::providers::FEATURE,
+    hooks::services::FEATURE,
     hooks::sources::FEATURE,
     // Every hook's `context.scratch`, `{"blob": name}` in answers, and a view's rows in parts.
     Feature { name: "blobs", methods: &[], sends: &[method::PARTIAL], contributed: |_| false },
     Feature { name: "net", methods: &[], sends: &[method::NET_FETCH], contributed: |m| !m.net.is_empty() },
     // A view command's or an operation's question for the user (`View::Choose`, `{"choose": ...}`).
     Feature { name: "choose", methods: &[], sends: &[], contributed: |_| false },
+    // What a view may be besides a list, a table of plain columns, labelled values and text: a
+    // tree, a chart, an image, sections, and a table's typed columns.
+    Feature { name: "views", methods: &[], sends: &[], contributed: |_| false },
 ];

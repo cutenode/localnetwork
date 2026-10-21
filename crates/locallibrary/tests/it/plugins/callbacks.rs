@@ -44,8 +44,9 @@ fn a_plugin_reads_no_roots() {
     assert_eq!(info, json!({ "result": { "name": "USB", "drives": [{ "id": 1 }] } }));
 }
 
-/// Nor where anything else is: a store's copies, a set's recording, rekordbox's collection or a
-/// drive last mounted are left out, and a mounted drive is said by its name, in a path or alone.
+/// Nor where anything else is: a store's copies, a set's or a mix's recording (and its cover),
+/// rekordbox's collection or a drive last mounted are left out, and a mounted drive is said by its
+/// name, in a path or alone.
 #[test]
 fn a_plugin_reads_where_nothing_is() {
     let granted = granting(&["drive:info", "store:read", "sets:read", "collection:read"]);
@@ -55,6 +56,11 @@ fn a_plugin_reads_where_nothing_is() {
     assert_eq!(read("store.info"), json!({ "copy_of": { "name": "n" }, "x": { "path": "kept" } }));
     assert_eq!(read("sets.get"), json!({ "recording": { "report": "r" }, "entries": [{ "path": "/Contents/a" }] }));
     assert_eq!(read("collection.info"), json!({ "bytes": 1 }));
+    let mix = json!({
+        "mix": { "title": "Friday" },
+        "plays": [{ "track": { "artist": "A", "title": "B", "file_path": "/Contents/a.mp3" } }],
+    });
+    assert_eq!(read("mix.reports.get"), mix);
     let said = json!({
         "offline": [{ "name": "Old" }],
         "duplicates": [{ "roots": ["USB"], "original": "USB" }],
@@ -123,4 +129,27 @@ fn a_plugin_has_a_few_calls_under_way_at_once() {
     // Once it's answered, there's room again.
     f.release.send(()).unwrap();
     assert_eq!(call(&f, "track.show", json!({ "drive": "USB" })), json!({ "result": "shown" }));
+}
+
+/// Reads answering which store the app reads them in.
+struct StoreReads;
+
+impl Reads for StoreReads {
+    fn read(&self, _: &str, _: Value, _: &Ctx<'_>) -> Result<Value, RpcFailure> {
+        Ok(json!(api::store_root()))
+    }
+}
+
+/// What a plugin reads is read in the store the host started it in, whichever store the process
+/// would read otherwise.
+#[test]
+fn a_plugin_reads_in_its_hosts_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let specs = vec![spec(dir.path(), &granting(&["store:read"]), &[])];
+    let plugins = Plugins::new(specs, Arc::new(StoreReads), Options::default()).unwrap();
+    let params = json!({ "call": "store.info", "params": {} });
+    let ran = plugins.run_command("echo", "echo", params, Context::default(), Some(&store), &Ctx::silent(), &|_| {});
+    let CommandOutput::Headless(answer) = ran.unwrap() else { panic!("a headless command answers JSON") };
+    assert_eq!(answer, json!({ "result": "<store>" }));
 }

@@ -753,9 +753,16 @@ pub enum Msg {
     Note(String, Level),
     /// A line of a plugin's log, for the messages (`!`) alone.
     Log(String),
+    /// What a plugin tells the user.
+    Notice(locallibrary::plugin::PluginNotice),
+    /// What plugins suggested, as it's kept now: to review from the palette.
+    Suggested(Vec<locallibrary::plugin::PluginNotice>),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
+    /// A plugin's panel answered, for the track (as `Panels` keeps it) and the panel at this
+    /// place among its panels.
+    Panel((u64, usize), usize, Result<Box<super::plugins::panels::Ready>, String>),
     Status(Result<api::FleetStatus, String>),
     History(Result<History, String>),
     /// A profile build: which one, and its result.
@@ -970,6 +977,8 @@ pub struct App {
     pub field_columns: Vec<FieldName>,
     pub details: Option<Details>,
     pub details_state: ListState,
+    /// The selected track's panels, plugins' (see `plugins::panels`).
+    pub panels: super::plugins::panels::Panels,
     /// The selected track and since when, to look up its details once the selection settles.
     details_seen: Option<(u64, usize, Instant)>,
     details_asked: Option<(u64, usize)>,
@@ -1068,6 +1077,9 @@ pub struct App {
     listed: bool,
     /// Notices drives coming and going: a poll that finds any reads the list again.
     watcher: Watcher,
+    /// What plugins suggested, to review from the palette, oldest first, as the store keeps it
+    /// (see [`locallibrary::plugin::keep_suggested`]).
+    pub(super) suggested: Vec<locallibrary::plugin::PluginNotice>,
     drives_in_flight: bool,
     /// Read the drives again when the read in flight finishes (asked for while it ran).
     drives_again: bool,
@@ -1160,6 +1172,7 @@ impl App {
             field_columns: Vec::new(),
             details: None,
             details_state: ListState::default(),
+            panels: Default::default(),
             details_seen: None,
             details_asked: None,
             details_failed: None,
@@ -1220,6 +1233,7 @@ impl App {
             offline: true,
             listed: false,
             watcher: Watcher::default(),
+            suggested: Vec::new(),
             drives_in_flight: false,
             drives_again: false,
             volumes_in_flight: false,
@@ -1256,6 +1270,8 @@ impl App {
         self.show_ratings = s.ratings;
         self.show_tags_column = s.tags_column;
         self.field_columns = s.field_columns.iter().map(|f| FieldName::new(f)).collect();
+        // Before the first frame: drawn in it from the start.
+        super::theme::select(s.theme.as_deref());
         self.shuffle = s.shuffle;
         self.repeat = match s.repeat.as_deref() {
             Some("all") => Repeat::All,
@@ -1304,6 +1320,7 @@ impl App {
             ratings: self.show_ratings,
             tags_column: self.show_tags_column,
             field_columns: self.field_columns.iter().map(|f| f.as_str().to_string()).collect(),
+            theme: super::theme::chosen().map(String::from),
             shuffle: self.shuffle,
             repeat: Some(format!("{:?}", self.repeat).to_lowercase()),
             quantize: Some(self.deck.quantize),
@@ -1433,7 +1450,7 @@ impl App {
     }
 
     /// Keep a message in the log (`!`).
-    fn remember(&mut self, msg: String, level: Level) {
+    pub(super) fn remember(&mut self, msg: String, level: Level) {
         if self.log.len() >= LOG {
             self.log.pop_front();
         }
@@ -1590,7 +1607,11 @@ impl App {
                     (r, ok)
                 });
                 let mut watcher = watcher.lock().unwrap_or_else(PoisonError::into_inner);
-                Msg::Volumes(watcher.as_mut().map(VolumeWatcher::poll).unwrap_or_default(), present)
+                let events = watcher.as_mut().map(VolumeWatcher::poll).unwrap_or_default();
+                for e in &events {
+                    crate::plugins::events::deliver(&api::Notice::Watch(e.clone()));
+                }
+                Msg::Volumes(events, present)
             };
             self.spawn_or(job, |e| Msg::Failed(Work::Volumes, e));
         }
@@ -1606,6 +1627,7 @@ impl App {
         self.watch_output();
         self.follow_queue();
         self.want_details();
+        self.want_panels();
 
         let dt = self.last_tick.elapsed().as_secs_f32().min(0.25);
         self.last_tick = Instant::now();
@@ -1655,6 +1677,7 @@ impl App {
             || self.mix.is_loading()
             || self.job.is_some()
             || self.details_asked.is_some()
+            || (self.show_details && self.view == View::Library && self.panels.waiting(self.selected_key()))
             || (self.show_details
                 && self.view == View::Library
                 && self.selected_track().is_some()
@@ -1829,6 +1852,8 @@ impl App {
             Msg::Opened(id, r) => self.opened(id, r),
             Msg::Note(msg, level) => self.toast(msg, level),
             Msg::Log(line) => self.remember(line, Level::Info),
+            Msg::Notice(notice) => self.told(notice),
+            Msg::Suggested(kept) => self.suggested = kept,
             Msg::TrackInfo(id, info) => {
                 let upcoming = self.upcoming.as_mut().map(|u| &mut u.now);
                 if let Some(now) = self.now.as_mut().into_iter().chain(upcoming).find(|n| n.id == id) {
@@ -1855,6 +1880,7 @@ impl App {
                     self.details = Some(*d);
                 }
             }
+            Msg::Panel(track, at, answer) => self.panel_answered(track, at, answer),
             Msg::Status(r) => {
                 self.status_loading = false;
                 let r = r.map(|s| {
@@ -2273,6 +2299,12 @@ impl App {
         let mut out: Vec<usize> = self.visible.iter().copied().filter(marked).filter(|i| seen.insert(*i)).collect();
         out.extend((0..l.library.tracks.len()).filter(marked).filter(|i| seen.insert(*i)));
         out
+    }
+
+    /// The selected track as background work keeps it: the library load's generation, and its
+    /// index there.
+    pub fn selected_key(&self) -> Option<(u64, usize)> {
+        Some((self.loaded.as_ref()?.generation, self.selected_track()?))
     }
 
     /// Whether the details shown are for the selected track.
@@ -3337,8 +3369,12 @@ impl App {
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
+            Act::Review(mark) => self.review(mark),
+            Act::Dismiss(mark) => self.dismiss(mark),
             Act::ProviderSettings => self.provider_settings(),
+            Act::Theme(key) => self.use_theme(key),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
+            Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
             Act::Source(plugin, source) => self.plugin_source(plugin, source, self.action_drive()),
             Act::Fetch(kind) => {
                 let target = (self.view == View::Library).then(|| self.target()).flatten();

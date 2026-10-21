@@ -321,10 +321,11 @@ impl TrackFields {
         if let Some(i) = self.isrc.as_deref().filter(|i| !i.is_empty() && !is_isrc(i)) {
             return Err(Error::invalid(format!("{i:?} isn't an ISRC (like GBDUW0000059)")));
         }
-        // Zero-padded, as rekordbox writes them (chrono takes `2019-5-1` too).
+        // Zero-padded, as rekordbox writes them (chrono takes `2019-5-1` and `2019-05-1` too):
+        // the Traktor export reads the date from the first ten characters.
         let date = |d: &str| {
-            let digits =
-                d.bytes().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == b'-' } else { c.is_ascii_digit() });
+            let digits = d.len() == 10
+                && d.bytes().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == b'-' } else { c.is_ascii_digit() });
             digits && chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()
         };
         if let Some(d) = self.release_date.as_deref().filter(|d| !d.is_empty() && !date(d)) {
@@ -3273,9 +3274,9 @@ pub mod journal {
     /// The journal's format. 1 was a bare list of entries; 2 is `{"version": 2, "entries": [...]}`
     /// and its entries can hold edits older builds don't know (`set_entries`,
     /// `delete_history_lists`, `my_tag`, `cues`); 3 adds `set_artwork`, and track details 2 would
-    /// drop (`album_artist`, `bpm`, `isrc`, `release_date`); 4 adds `set_analysis`. Each is
-    /// written only when an entry uses what it adds. A journal of a later version is refused
-    /// rather than misread or overwritten.
+    /// drop (`album_artist`, `bpm`, `isrc`, `release_date`); 4 adds `set_analysis` and cue edits
+    /// setting several (`set_many`). Each is written only when an entry uses what it adds. A
+    /// journal of a later version is refused rather than misread or overwritten.
     pub const VERSION: u32 = 4;
 
     #[derive(Serialize)]
@@ -3323,12 +3324,12 @@ pub mod journal {
         staged(entries).into_iter().try_for_each(|(kind, keep)| kind.prune(device, &keep))
     }
 
-    /// The version `entries` need: 4 once one holds an analysis edit, 3 once one holds an artwork
-    /// edit or a track detail 3 added, else 2, so a build that reads an older one keeps editing a
-    /// drive whose edits use nothing newer.
+    /// The version `entries` need: 4 once one holds an analysis edit or a cue edit setting
+    /// several, 3 once one holds an artwork edit or a track detail 3 added, else 2, so a build
+    /// that reads an older one keeps editing a drive whose edits use nothing newer.
     fn version(entries: &[JournalEntry]) -> u32 {
         let needs = |e: &Edit| match e {
-            Edit::SetAnalysis { .. } => 4,
+            Edit::SetAnalysis { .. } | Edit::Cues { change: crate::cue_edit::CueChange::SetMany(_), .. } => 4,
             Edit::SetArtwork { .. } => 3,
             Edit::EditTracks { fields, .. }
                 if fields.album_artist.is_some()

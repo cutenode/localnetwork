@@ -1368,6 +1368,18 @@ impl App {
                 }
                 self.toast(msg, Level::Info);
             }
+            Ok(Applied { operation, report }) if super::plugins::importers::imported_by(&operation).is_some() => {
+                let by = super::plugins::importers::imported_by(&operation).unwrap_or_default();
+                let changes = report["edits"]["changes"].as_u64().unwrap_or(0) as usize;
+                let sessions = report["sessions"].as_array().map_or(0, Vec::len);
+                let mut msg =
+                    format!("{by}: {} written, {} kept", plural(changes, "change"), plural(sessions, "session"));
+                if report["edits"]["backup"].is_string() {
+                    self.last_backup = Some(self.drive_at(root.clone()));
+                    msg.push_str(" · u to undo");
+                }
+                self.toast(msg, Level::Info);
+            }
             Ok(Applied { operation, report }) if operation == "undo" => {
                 let when = report["created"].as_str().and_then(|t| t.get(..16)).unwrap_or("").replace('T', " ");
                 let why = report["reason"].as_str().unwrap_or("a change");

@@ -168,7 +168,7 @@ impl super::process::Slot {
                     let bands = Bands::unpack(&bytes).filter(|b| !b.0.is_empty());
                     let bands = bands.ok_or("its waveform isn't three bytes a column, at least one column")?;
                     match w.columns_per_sec.is_finite() && w.columns_per_sec > 0.0 {
-                        true => Ok(anlz::at_detail_rate(&bands, w.columns_per_sec)),
+                        true => anlz::at_detail_rate(&bands, w.columns_per_sec).map_err(|e| e.to_string()),
                         false => {
                             Err(format!("its waveform's columns a second, {}, aren't more than 0", w.columns_per_sec))
                         }

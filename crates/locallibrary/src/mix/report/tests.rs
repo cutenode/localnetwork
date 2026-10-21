@@ -267,13 +267,30 @@ fn extras_come_from_the_drive_by_file() {
         loop_beats: None,
     };
     let analyses = [TrackAnalysis { cues: vec![cue(1), cue(200)], ..Default::default() }];
-    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses) };
+    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None };
     let labels = |e: PlayExtras| e.cues.into_iter().map(|c| c.label).collect::<Vec<_>>();
     let p = play(track(1, "A", "One", "/Contents/one.mp3"));
     assert_eq!(labels(extras(drive, &p, 0, false)), ["B · drop", "? · drop"]);
     assert_eq!(labels(extras(drive, &p, 0, true)), ["B", "?"]);
     let elsewhere = play(track(7, "B", "Two", "/Contents/two.mp3"));
     assert_eq!(extras(drive, &elsewhere, 0, false), PlayExtras::default());
+}
+
+/// A play has the fields its drive shows of its track, and none said when there are none.
+#[test]
+fn a_play_has_the_fields_its_drive_shows() {
+    use loclib_model::test_util::track;
+    let dir = tempfile::tempdir().unwrap();
+    let device = Device::open(dir.path()).unwrap();
+    let library = Library { tracks: vec![track(7, "A", "One", "/Contents/one.mp3")], ..Default::default() };
+    let shown = |_: &Device, t: &Track| vec![ShownField { label: "echo.id".into(), value: format!("#{}", t.id) }];
+    let drive = Drive { fields: Some(&shown), ..Drive::new(&device, &library) };
+    let p = play(track(1, "A", "One", "/Contents/one.mp3"));
+    let e = extras(drive, &p, 0, true);
+    assert_eq!(e.fields, [ShownField { label: "echo.id".into(), value: "#7".into() }], "the drive's track");
+    assert_eq!(serde_json::to_value(&e).unwrap()["fields"][0]["value"], "#7");
+    let none = extras(Drive::new(&device, &library), &p, 0, true);
+    assert!(serde_json::to_value(none).unwrap().get("fields").is_none());
 }
 
 #[test]
@@ -550,7 +567,7 @@ fn extras_carry_each_hot_cue_and_on_the_page_the_cover(tc: TestCase) {
         .collect();
     let library = Library { tracks: vec![t.clone()], ..Default::default() };
     let analyses = [TrackAnalysis { cues: cues.clone(), ..Default::default() }];
-    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses) };
+    let drive = Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None };
     let page = tc.draw(gs::booleans());
     let e = extras(drive, &play(t), 0, page);
 

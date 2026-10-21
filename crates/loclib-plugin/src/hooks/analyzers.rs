@@ -75,6 +75,132 @@ pub struct Analyzer {
     /// that role (see [`Role`]).
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub roles: IndexMap<Role, String>,
+    /// How hosts show some of its fields, by field (`display.lufs = { unit = "LUFS" }`): in the
+    /// player's columns, `track show` and the mix report.
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub display: IndexMap<String, FieldDisplay>,
+}
+
+/// How hosts show a field's values, each part optional. Without them a number shows to two
+/// places at most (trailing zeros left out), a list joined with commas, a boolean as yes or no.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FieldDisplay {
+    /// Said after a value (`LUFS`); a `db` format's is `dB` unless it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    /// A number's decimal places, 0 to 6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub precision: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<FieldFormat>,
+    /// How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u16>,
+}
+
+/// What a field's values are, for hosts to show them as such.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldFormat {
+    /// A key (a string), as the host shows keys.
+    Key,
+    /// Seconds (a number), as minutes and seconds (`3:07`, `1:02:03`).
+    Duration,
+    /// Decibels (a number), signed (`+0.4 dB`, `-8.2 dB`).
+    Db,
+    /// A fraction (a number, 0 to 1) as a percentage (`85%`; no decimal places unless it says).
+    Percent,
+    /// A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says).
+    Meter,
+}
+
+impl FieldFormat {
+    /// Whether a field of type `kind` can be shown so.
+    fn fits(self, kind: FieldType) -> bool {
+        match self {
+            FieldFormat::Key => kind == FieldType::String,
+            _ => matches!(kind, FieldType::Number | FieldType::Integer),
+        }
+    }
+
+    /// As a manifest names it.
+    fn name(self) -> &'static str {
+        match self {
+            FieldFormat::Key => "key",
+            FieldFormat::Duration => "duration",
+            FieldFormat::Db => "db",
+            FieldFormat::Percent => "percent",
+            FieldFormat::Meter => "meter",
+        }
+    }
+}
+
+impl FieldDisplay {
+    /// The most decimal places.
+    pub const MAX_PRECISION: u8 = 6;
+    /// The widest a column is.
+    pub const MAX_WIDTH: u16 = 40;
+
+    /// `value` as hosts show it, by these hints: null is `-` (worked out, nothing to show), and so
+    /// is a beat grid, phrases or a waveform, which no column shows.
+    pub fn show(&self, value: &FieldValue) -> String {
+        let n = match value {
+            FieldValue::Null | FieldValue::Structured(_) => return "-".into(),
+            FieldValue::Boolean(b) => return if *b { "yes" } else { "no" }.into(),
+            FieldValue::String(s) => return self.with_unit(s.clone()),
+            FieldValue::Strings(all) => return self.with_unit(all.join(", ")),
+            FieldValue::Integer(i) if self.format.is_none() => return self.with_unit(i.to_string()),
+            FieldValue::Integer(i) => *i as f64,
+            FieldValue::Number(n) => *n,
+        };
+        match self.format {
+            Some(FieldFormat::Duration) => {
+                let secs = n.abs().round() as u64;
+                let sign = if n <= -0.5 { "-" } else { "" };
+                match secs >= 3600 {
+                    true => format!("{sign}{}:{:02}:{:02}", secs / 3600, secs / 60 % 60, secs % 60),
+                    false => format!("{sign}{}:{:02}", secs / 60, secs % 60),
+                }
+            }
+            Some(FieldFormat::Db) => {
+                let shown = number(n, self.precision);
+                let sign = if n > 0.0 && !zero(&shown) { "+" } else { "" };
+                format!("{sign}{shown} {}", self.unit.as_deref().unwrap_or("dB"))
+            }
+            Some(FieldFormat::Percent) => format!("{}%", number(n * 100.0, Some(self.precision.unwrap_or(0)))),
+            Some(FieldFormat::Meter) => {
+                let cells = usize::from(self.width.unwrap_or(8));
+                let full = ((n.clamp(0.0, 1.0) * cells as f64).round() as usize).min(cells);
+                format!("{}{}", "█".repeat(full), "░".repeat(cells - full))
+            }
+            Some(FieldFormat::Key) | None => self.with_unit(number(n, self.precision)),
+        }
+    }
+
+    fn with_unit(&self, shown: String) -> String {
+        match &self.unit {
+            Some(unit) => format!("{shown} {unit}"),
+            None => shown,
+        }
+    }
+}
+
+/// `n` to `precision` places, or without it to two at most (trailing zeros left out); never
+/// `-0`.
+fn number(n: f64, precision: Option<u8>) -> String {
+    let mut shown = format!("{n:.*}", usize::from(precision.unwrap_or(2)));
+    if precision.is_none() && shown.contains('.') {
+        shown = shown.trim_end_matches('0').trim_end_matches('.').into();
+    }
+    match shown.strip_prefix('-') {
+        Some(rest) if zero(rest) => rest.into(),
+        _ => shown,
+    }
+}
+
+/// Whether a number as shown is nothing but zeros.
+fn zero(shown: &str) -> bool {
+    shown.bytes().all(|b| matches!(b, b'0' | b'.' | b'-'))
 }
 
 /// What a field is to locallibrary, whichever plugin works it out: the host reads a role's value
@@ -222,8 +348,8 @@ fn is_version(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || "._+-".contains(c))
 }
 
-/// `[[contributes.analyzers]]`: names, titles, versions, fields (no two analyzers with one) and
-/// roles of their fields' types.
+/// `[[contributes.analyzers]]`: names, titles, versions, fields (no two analyzers with one),
+/// roles of their fields' types, and how fields are shown.
 pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
     let (at, c) = ("contributes.analyzers", &m.contributes);
     unique_names(at, "name", c.analyzers.iter().map(|x| x.name.as_str()).enumerate())?;
@@ -255,6 +381,24 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
                 let kind = serde_json::to_value(role.kind()).unwrap_or_default();
                 let message = format!("{field} isn't a {}, which the role is", kind.as_str().unwrap_or("?"));
                 return Err(invalid(at, message));
+            }
+        }
+        for (field, d) in &x.display {
+            let at = format!("{at}[{i}].display.{field}");
+            let kind = x.fields.get(field).ok_or_else(|| invalid(&at, format!("{field:?} isn't its field")))?;
+            if let Some(f) = d.format.filter(|f| !f.fits(*kind)) {
+                let kind = serde_json::to_value(kind).unwrap_or_default();
+                let message = format!("{field} is a {}, which {} isn't for", kind.as_str().unwrap_or("?"), f.name());
+                return Err(invalid(format!("{at}.format"), message));
+            }
+            if d.precision.is_some_and(|p| p > FieldDisplay::MAX_PRECISION) {
+                return Err(invalid(format!("{at}.precision"), "is 0 to 6 places"));
+            }
+            if d.width.is_some_and(|w| !(1..=FieldDisplay::MAX_WIDTH).contains(&w)) {
+                return Err(invalid(format!("{at}.width"), "is 1 to 40 cells"));
+            }
+            if let Some(unit) = &d.unit {
+                shown(format!("{at}.unit"), unit)?;
             }
         }
     }

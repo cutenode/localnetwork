@@ -1,6 +1,7 @@
 use serde_json::json;
 
 use super::*;
+use crate::export_cmd::FormatArg;
 
 /// A first-party manifest with the id `id` and `contributes` (TOML) added.
 fn manifest(id: &str, contributes: &str) -> Manifest {
@@ -122,6 +123,34 @@ fn commands_and_params_that_clash_are_refused() {
 /// An export format is one `export --format` takes: never one locallibrary has (or its alias),
 /// nor another plugin's.
 #[test]
+fn import_formats_and_set_formats_that_clash_are_refused() {
+    let importer = |id: &str, format: &str| {
+        manifest(
+            id,
+            &format!("[[contributes.importers]]\nformat = \"{format}\"\ntitle = \"T\"\nprovides = [\"tags\"]\n"),
+        )
+    };
+    // An import format is named apart from export formats.
+    assert_eq!(check(&[&importer("a", "csv")]), [None]);
+    assert_eq!(
+        refused(&[importer("a", "nml"), importer("b", "nml")]),
+        "the b plugin's import format \"nml\" is the a plugin's already"
+    );
+    let set = |format: &str| {
+        let exporter = format!(
+            "capabilities = [\"sets:read\"]\n[[contributes.exporters]]\nformat = \"{format}\"\ntitle = \"T\"\n\
+             extension = \"txt\"\nsource = \"set\"\n"
+        );
+        manifest("a", &exporter)
+    };
+    assert_eq!(
+        refused(&[set("mixcloud")]),
+        "the a plugin's export format \"mixcloud\" is a locallibrary format already"
+    );
+    assert_eq!(check(&[&set("m3u")]), [None], "export's own formats are a drive's");
+}
+
+#[test]
 fn formats_that_clash_are_refused() {
     let exporter = |id: &str, format: &str| {
         let toml = format!("[[contributes.exporters]]\nformat = \"{format}\"\ntitle = \"T\"\nextension = \"txt\"\n");
@@ -151,23 +180,26 @@ fn capabilities_are_said_plainly() {
 }
 
 /// What one drawn plugin is: its manifest's JSON, what it claims (its id and places on the
-/// command line, its export formats) as `(name, whose, what)`, and why it's left out on its own.
+/// command line, its export formats, its import formats) as `(name, whose, what)`, and why it's
+/// left out on its own.
 struct Planned {
     manifest: Value,
     places: Vec<(String, String, String)>,
     formats: Vec<(String, String, String)>,
+    imports: Vec<(String, String, String)>,
     alone: Option<String>,
 }
 
 impl Planned {
     /// A plugin `id` that clashes with nothing: a command and an operation (at places of their
-    /// own or not) whose params' flags are their own, and an export format.
+    /// own or not) whose params' flags are their own, an export format and an import format.
     fn clean(tc: &hegel::TestCase, id: &str, i: usize) -> Planned {
         use hegel::generators as gs;
         let mut p = Planned {
             manifest: json!({ "id": id, "name": "P", "version": "0.1.0", "protocol": "^0.2" }),
             places: vec![(id.into(), format!("the {id} plugin"), format!("the {id} plugin's id"))],
             formats: Vec::new(),
+            imports: Vec::new(),
             alone: None,
         };
         for (list, name) in [("commands", "run"), ("operations", "change")] {
@@ -191,7 +223,10 @@ impl Planned {
             p.manifest["contributes"][list] = json!([c]);
         }
         if tc.draw(gs::booleans()) {
-            p.add_format(&format!("fmt-of-{i}"));
+            p.add_format(&format!("fmt-of-{i}"), "drive");
+        }
+        if tc.draw(gs::booleans()) {
+            p.add_import(&format!("imp-of-{i}"));
         }
         p
     }
@@ -209,15 +244,31 @@ impl Planned {
         ));
     }
 
-    fn add_format(&mut self, format: &str) {
+    /// An exporter of `source` (`drive`, `set` or `mix`).
+    fn add_format(&mut self, format: &str, source: &str) {
         let id = self.id();
-        let exporter = json!({ "format": format, "title": "T", "extension": "txt" });
+        let exporter = json!({ "format": format, "title": "T", "extension": "txt", "source": source });
+        if source != "drive" {
+            self.manifest["capabilities"] = json!(["sets:read"]);
+        }
         let exporters = self.manifest["contributes"]["exporters"].as_array().cloned().unwrap_or_default();
         self.manifest["contributes"]["exporters"] = json!([exporters, vec![exporter]].concat());
         self.formats.push((
             format.into(),
             format!("the {id} plugin's"),
             format!("the {id} plugin's export format {format:?}"),
+        ));
+    }
+
+    fn add_import(&mut self, format: &str) {
+        let id = self.id();
+        let importer = json!({ "format": format, "title": "T", "provides": ["tags"] });
+        let importers = self.manifest["contributes"]["importers"].as_array().cloned().unwrap_or_default();
+        self.manifest["contributes"]["importers"] = json!([importers, vec![importer]].concat());
+        self.imports.push((
+            format.into(),
+            format!("the {id} plugin's"),
+            format!("the {id} plugin's import format {format:?}"),
         ));
     }
 
@@ -271,11 +322,14 @@ fn plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
     let globals: Vec<String> =
         cli.get_arguments().filter(|a| a.is_global_set()).filter_map(|a| a.get_long()).map(String::from).collect();
     let flags = [globals, ["help", "version", "params", "dry-run"].map(String::from).to_vec()].concat();
-    let formats: Vec<String> = FormatArg::value_variants()
-        .iter()
-        .filter_map(ValueEnum::to_possible_value)
-        .flat_map(|v| v.get_name_and_aliases().map(String::from).collect::<Vec<_>>())
-        .collect();
+    fn names<F: ValueEnum>() -> Vec<String> {
+        let values = F::value_variants().iter().filter_map(ValueEnum::to_possible_value);
+        let names = values.flat_map(|v| v.get_name_and_aliases().map(String::from).collect::<Vec<_>>());
+        // Those a format's name can be (not `1001`).
+        names.filter(|n| n.starts_with(|c: char| c.is_ascii_lowercase())).collect()
+    }
+    // A drive exporter's against `export`'s, a set exporter's against `sets export`'s.
+    let formats = [("drive", names::<FormatArg>()), ("set", names::<crate::sets_cmd::FormatArg>())];
     let top: Vec<&String> = commands.iter().filter(|c| !c.contains(' ') && !namespaces.contains(&c.as_str())).collect();
     let ungrouped: Vec<String> = commands.iter().filter(|c| !c.contains(' ') && !groups.contains(c)).cloned().collect();
 
@@ -287,7 +341,7 @@ fn plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
         let i = free.remove(tc.draw(gs::integers::<usize>().max_value(free.len() - 1)));
         let p = &mut plugins[i];
         let id = p.id();
-        let kind = tc.draw(gs::integers::<u8>().max_value(if free.is_empty() { 6 } else { 9 }));
+        let kind = tc.draw(gs::integers::<u8>().max_value(if free.is_empty() { 6 } else { 10 }));
         match kind {
             0 => {
                 let ns = tc.draw(gs::sampled_from(namespaces.clone()));
@@ -340,8 +394,9 @@ fn plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
                     Some(format!("the {id} plugin's {name} has a param {param:?} for --{flag}, a flag it has already"));
             }
             6 => {
-                let format = tc.draw(gs::sampled_from(formats.clone()));
-                p.add_format(&format);
+                let (source, theirs) = tc.draw(gs::sampled_from(formats.to_vec()));
+                let format = tc.draw(gs::sampled_from(theirs));
+                p.add_format(&format, source);
                 p.alone = Some(format!("the {id} plugin's export format {format:?} is a locallibrary format already"));
             }
             // Clashing with another plugin, one not clashing yet.
@@ -360,17 +415,24 @@ fn plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
                                 (name, whose.replace(&id, &other), what.replace(&id, &other))
                             }),
                         );
-                        p.formats = p
-                            .formats
-                            .drain(..)
-                            .map(|(n, w, x)| (n, w.replace(&id, &other), x.replace(&id, &other)))
-                            .collect();
+                        for claims in [&mut p.formats, &mut p.imports] {
+                            *claims = claims
+                                .drain(..)
+                                .map(|(n, w, x)| (n, w.replace(&id, &other), x.replace(&id, &other)))
+                                .collect();
+                        }
                     }
                     8 => p.place(&other),
+                    9 => {
+                        // Whatever each writes out: formats are each plugin's alone.
+                        let format = format!("shared-{i}-{j}");
+                        p.add_format(&format, tc.draw(gs::sampled_from(vec!["drive", "set", "mix"])));
+                        plugins[j].add_format(&format, "drive");
+                    }
                     _ => {
                         let format = format!("shared-{i}-{j}");
-                        p.add_format(&format);
-                        plugins[j].add_format(&format);
+                        p.add_import(&format);
+                        plugins[j].add_import(&format);
                     }
                 }
             }
@@ -381,7 +443,7 @@ fn plugins_that_clash_are_left_out_saying_why(tc: hegel::TestCase) {
     // claims too, else by the first name an earlier one claims that a later one claims too.
     let mut expected: Vec<Option<String>> = plugins.iter().map(|p| p.alone.clone()).collect();
     type Claims = fn(&Planned) -> Vec<(String, String, String)>;
-    let kinds: [Claims; 2] = [|p| p.places.clone(), |p| p.formats.clone()];
+    let kinds: [Claims; 3] = [|p| p.places.clone(), |p| p.formats.clone(), |p| p.imports.clone()];
     for claims in kinds {
         let mut first: Vec<(String, usize, String)> = Vec::new();
         for (i, p) in plugins.iter().enumerate().filter(|(_, p)| p.alone.is_none()) {

@@ -328,7 +328,7 @@ fn any_structured_answer_is_kept_and_planned_as_given(tc: hegel::TestCase) {
     assert_eq!(analyzed.analyzed, 2, "{:?}", analyzed.failures);
     let kept = OverlayStore::in_store(&f.store).get(&f.audio(&tracks[0]), &heard()).unwrap();
     assert_eq!(kept.beats.as_ref(), Some(&beats));
-    assert_eq!(kept.waveform, Some(anlz::at_detail_rate(&Bands::unpack(&bytes).unwrap(), rate)));
+    assert_eq!(kept.waveform, anlz::at_detail_rate(&Bands::unpack(&bytes).unwrap(), rate).ok());
     let planned = f.apply_analysis(&[AnalysisPart::Grid], true).unwrap();
     let grids: Vec<Option<&Vec<Beat>>> = planned
         .plan
@@ -340,4 +340,141 @@ fn any_structured_answer_is_kept_and_planned_as_given(tc: hegel::TestCase) {
         })
         .collect();
     assert_eq!(grids, [Some(&beats), Some(&beats)]);
+}
+
+/// What an analyzer kept reads back as it was put, for the audio file as it is now (changed, it
+/// has nothing kept), and is drawn from the first analyzer with each part. Names that aren't a
+/// plugin's, an analyzer's or a version are refused, an audio file that isn't there keeps
+/// nothing, and a stored overlay that's damaged reads as none.
+#[hegel::test(test_cases = 100)]
+fn overlays_read_back_as_kept_and_refuse_what_isnt_theirs(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::fields::Overlay;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let overlays = OverlayStore::in_store(&store);
+    let audio = dir.path().join("a.mp3");
+    std::fs::write(&audio, b"audio").unwrap();
+    let drawn = || {
+        let columns = tc.draw(gs::binary().max_size(30));
+        Overlay {
+            beats: tc.draw(gs::booleans()).then(|| grid(tc.draw(gs::integers::<usize>().max_value(40)), 0)),
+            phrases: tc.draw(gs::booleans()).then(phrases),
+            waveform: tc
+                .draw(gs::booleans())
+                .then(|| Bands(columns.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect())),
+        }
+    };
+    let (first, second) = (drawn(), drawn());
+    let other = Analyzer { analyzer: "other".into(), ..heard() };
+    let stored = || {
+        walkdir::WalkDir::new(store.root().join("cache/overlay"))
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .count()
+    };
+    match tc.draw(gs::integers::<u8>().max_value(3)) {
+        0 => {
+            let bad = tc.draw(gs::sampled_from(vec!["", ".hidden", "a/b", "a b", "..", "é"]));
+            let named = match tc.draw(gs::integers::<u8>().max_value(2)) {
+                0 => Analyzer { plugin: bad.into(), ..heard() },
+                1 => Analyzer { analyzer: bad.into(), ..heard() },
+                _ => Analyzer { version: bad.into(), ..heard() },
+            };
+            let e = overlays.put(&audio, &named, &first).unwrap_err().to_string();
+            assert_eq!(e, format!("{bad:?} isn't a plugin id, version or analyzer"));
+            assert_eq!(stored(), 0);
+        }
+        1 => {
+            let gone = dir.path().join("gone.mp3");
+            assert_eq!(overlays.put(&gone, &heard(), &first).unwrap_err().code(), "not_found");
+            assert_eq!(overlays.get(&gone, &heard()), None);
+            assert_eq!(stored(), 0);
+        }
+        2 => {
+            overlays.put(&audio, &heard(), &first).unwrap();
+            let file = walkdir::WalkDir::new(store.root().join("cache/overlay"))
+                .into_iter()
+                .flatten()
+                .find(|e| e.file_type().is_file())
+                .unwrap();
+            let bytes = std::fs::read(file.path()).unwrap();
+            let keep = tc.draw(gs::integers::<usize>().max_value(bytes.len() - 1));
+            std::fs::write(file.path(), &bytes[..keep]).unwrap();
+            assert_eq!(overlays.get(&audio, &heard()), None);
+        }
+        _ => {
+            overlays.put(&audio, &heard(), &first).unwrap();
+            overlays.put(&audio, &other, &second).unwrap();
+            assert_eq!(overlays.get(&audio, &heard()).as_ref(), Some(&first));
+            let shown = overlays.first(&audio, &[heard(), other.clone()]);
+            let pick = |mine: bool, theirs: bool| match (mine, theirs) {
+                (true, _) => Some(heard()),
+                (false, true) => Some(other.clone()),
+                _ => None,
+            };
+            assert_eq!(shown.beats_from, pick(first.beats.is_some(), second.beats.is_some()));
+            assert_eq!(shown.phrases_from, pick(first.phrases.is_some(), second.phrases.is_some()));
+            assert_eq!(shown.waveform_from, pick(first.waveform.is_some(), second.waveform.is_some()));
+            let beats = if first.beats.is_some() { &first.beats } else { &second.beats };
+            assert_eq!(&shown.overlay.beats, beats);
+            // A changed audio file has nothing kept.
+            std::fs::write(&audio, b"another take").unwrap();
+            assert_eq!(overlays.get(&audio, &heard()), None);
+        }
+    }
+}
+
+/// Writing what an analyzer kept is refused, before anything's planned, when it isn't asked for
+/// anything, when the analyzer doesn't work out what's asked, and for an analyzer, a plugin, a
+/// drive or a track that isn't there.
+#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn writing_an_analysis_is_refused_for_what_isnt_there(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
+    let parts = tc.draw(gs::vecs(gs::sampled_from(AnalysisPart::ALL.to_vec())).min_size(1).max_size(3));
+    let req = ApplyAnalysis {
+        plugin: "echo".into(),
+        analyzer: "heard".into(),
+        drive: "USB".into(),
+        parts: parts.clone(),
+        tracks: None,
+        overwrite: tc.draw(gs::booleans()),
+    };
+    let (req, code) = match tc.draw(gs::integers::<u8>().max_value(5)) {
+        0 => (ApplyAnalysis { parts: Vec::new(), ..req }, "invalid"),
+        1 => (ApplyAnalysis { analyzer: "size".into(), ..req }, "invalid"),
+        2 => (ApplyAnalysis { analyzer: "unheard".into(), ..req }, "not_found"),
+        3 => (ApplyAnalysis { plugin: "nobody".into(), ..req }, "not_found"),
+        4 => (ApplyAnalysis { drive: "NOWHERE".into(), ..req }, "not_found"),
+        _ => {
+            let id = tc.draw(gs::integers::<u32>().min_value(10_000));
+            (ApplyAnalysis { tracks: Some(vec![id]), ..req }, "not_found")
+        }
+    };
+    let e = f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap_err();
+    assert_eq!(e.code(), code, "{e}");
+    if req.analyzer == "size" {
+        assert_eq!(e.to_string(), format!("File size works out no {}", parts[0].name()));
+    }
+}
+
+/// A waveform an analyzer says is slower than a day's worth of columns fails the track, saying
+/// so, rather than being pooled out to fill memory, and keeps nothing of it.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn waveforms_over_a_day_fail_the_track(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
+    let columns = tc.draw(gs::integers::<usize>().min_value(1).max_value(100));
+    let rate = tc.draw(gs::floats::<f64>().min_value(f64::MIN_POSITIVE).max_value(1e-5));
+    let answer = json!({
+        "wave": { "blob": "w.bands", "columns_per_sec": rate },
+        "blobs": { "w.bands": vec![7u8; 3 * columns] },
+    });
+    let tracks = f.hear_all(&[answer]);
+    let analyzed = f.plugins.analyze("echo", "heard", "USB", Some(&[tracks[0].id]), &f.store, &Ctx::silent()).unwrap();
+    let error = &analyzed.failures[0].error;
+    assert!(error.ends_with(&format!("its wave: {columns} columns at {rate} a second run over a day")), "{error}");
+    assert_eq!(OverlayStore::in_store(&f.store).get(&f.audio(&tracks[0]), &heard()), None);
 }

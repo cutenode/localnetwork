@@ -1,5 +1,4 @@
 use loclib_model::analysis::{Beat, Cue, WaveColumn, Waveform};
-use loclib_model::tokens::PLAYHEAD;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
@@ -27,7 +26,7 @@ pub struct Overview<'a> {
     pub progress: f32,
     pub cues: &'a [Cue],
     pub duration_ms: f64,
-    pub palette: Palette,
+    pub palette: Palette<'a>,
 }
 
 impl Widget for Overview<'_> {
@@ -79,7 +78,7 @@ impl Widget for Overview<'_> {
             let played = x < head;
             let shade = |c: Rgb| {
                 if x == head {
-                    PLAYHEAD
+                    p.playhead
                 } else if played {
                     scale(c, 0.5)
                 } else {
@@ -127,7 +126,7 @@ pub struct Detail<'a> {
     /// The beat grid; the first beat's tempo gives loops without a stored length theirs.
     pub beats: &'a [Beat],
     pub cues: &'a [Cue],
-    pub palette: Palette,
+    pub palette: Palette<'a>,
 }
 
 impl Widget for Detail<'_> {
@@ -176,7 +175,7 @@ impl Widget for Detail<'_> {
         for x in 0..area.width {
             let t0 = start + x as f64 * secs_per_col;
             let Some(col) = column(self.wave, t0 * cps, (t0 + secs_per_col) * cps) else { continue };
-            let color = if x == centre { PLAYHEAD } else { col.back.color };
+            let color = if x == centre { p.playhead } else { col.back.color };
             let past = x < centre;
             let color = if past { scale(color, 0.7) } else { color };
             let a = col.back.height;

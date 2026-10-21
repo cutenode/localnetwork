@@ -5,11 +5,16 @@ mod analysis;
 mod blobs;
 mod callbacks;
 mod choose;
+mod events;
+mod exports;
 mod hooks;
+mod imports;
 mod net;
+mod panels;
 mod props;
 mod providers;
 mod roles;
+mod services;
 mod sources;
 
 use std::path::{Path, PathBuf};
@@ -93,6 +98,10 @@ impl Reads for TestReads {
                 let req = serde_json::from_value(params).unwrap();
                 Ok(serde_json::to_value(api::tracks_query_cached(LibraryCache::none(), &req)?).unwrap())
             }
+            "tracks.get" => {
+                let req = serde_json::from_value(params).unwrap();
+                Ok(serde_json::to_value(api::tracks_get(LibraryCache::none(), &req)?).unwrap())
+            }
             "track.matches" => {
                 let path = self.volumes.join("USB/PIONEER/rekordbox/export.pdb");
                 let e = Error::Io { path, source: std::io::Error::other("unreadable") };
@@ -120,6 +129,11 @@ impl Reads for TestReads {
                 json!({ "recording": { "path": "/rec.wav", "report": "r" }, "entries": [{ "path": "/Contents/a" }] }),
             ),
             "collection.info" => Ok(json!({ "path": "/Pioneer/master.db", "bytes": 1 })),
+            "mix.reports.get" => Ok(json!({
+                "mix": { "path": "/rec.wav", "cover": { "kind": "file", "path": "/rec.jpg" }, "title": "Friday" },
+                "audio": "/rec.wav",
+                "plays": [{ "track": { "artist": "A", "title": "B", "file_path": "/Contents/a.mp3" } }],
+            })),
             "fleet.status" => {
                 let usb = self.volumes.join("USB");
                 Ok(json!({
@@ -232,7 +246,7 @@ fn a_plugin_starts_when_first_used_and_answers() {
         panic!("a table")
     };
     let id = locallibrary::Device::open(&f.drive).unwrap().id().unwrap().to_string();
-    assert_eq!((title, columns, rows), (Some(id), vec!["Title".to_string()], titles));
+    assert_eq!((title, columns, rows), (Some(id), vec!["Title".into()], titles));
     let e = f.command("echo", json!([1]), &Ctx::silent()).unwrap_err();
     assert_eq!(e.code(), "invalid", "params are checked against the command's schema: {e}");
     let e = f.command("nope", Value::Null, &Ctx::silent()).unwrap_err();

@@ -13,7 +13,7 @@ use indexmap::IndexMap;
 use loclib_plugin::SettingType;
 
 use super::Plugins;
-use super::process::Slot;
+use super::process::Plugin;
 use crate::error::IoContext;
 use crate::keychain::{self, Storage};
 use crate::store::Store;
@@ -43,7 +43,7 @@ fn keychain_error(e: keyring::Error) -> Error {
     }
 }
 
-impl Slot {
+impl Plugin {
     fn entry(&self, store: &Store, key: &str) -> Result<keyring_core::Entry> {
         let service = format!("locallibrary-plugin-{}", self.manifest.id);
         keychain::entry(&service, &format!("{key}@{}", store.id()?)).map_err(keychain_error)

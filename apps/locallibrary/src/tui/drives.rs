@@ -327,6 +327,7 @@ impl App {
             Act::Analyze(plugin, analyzer) => self.analyze(plugin, analyzer, Some(root)),
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, Some(root)),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, Some(root)),
+            Act::Import(plugin, format) => self.plugin_import(plugin, format, Some(root)),
             Act::Source(plugin, source) => self.plugin_source(plugin, source, Some(root)),
             act => self.perform(act, None),
         }

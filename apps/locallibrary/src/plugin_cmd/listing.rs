@@ -9,7 +9,7 @@ use console::style;
 use indexmap::IndexMap;
 use locallibrary::fields::{self, Role, roles::RoleChoice};
 use locallibrary::plugin::Plugins;
-use loclib_plugin::{Setting, SettingType, Where};
+use loclib_plugin::{ExportFrom, Setting, SettingType, Where};
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
@@ -39,11 +39,16 @@ pub(super) fn list(all: &[Listed]) {
         }
         let adds: Vec<String> = [
             named("command", &p.commands),
+            (!p.events.is_empty()).then(|| format!("listens for {}", p.events.join(", "))),
             named("operation", &p.operations),
             named("analyzer", &p.analyzers),
             named("export format", &p.exporters),
+            named("import format", &p.importers),
             named("provider", &p.providers),
+            named("panel", &p.panels),
+            named("service", &p.services),
             named("library source", &p.sources),
+            named("theme", &p.themes),
             named("setting", &p.settings),
         ]
         .into_iter()
@@ -86,9 +91,13 @@ pub(super) fn info(d: &Described) {
     let commands =
         c.commands.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Commands:", commands.collect());
+    let events = c.events.iter().flat_map(|x| &x.on).map(|e| (e.name().to_string(), String::new()));
+    section("Listens for:", events.collect());
     let operations =
         c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Operations (planned, then confirmed):", operations.collect());
+    let panels = c.panels.iter().map(|p| (p.name.clone(), format!("{}, under a track's details", p.title)));
+    section("Panels (locallibrary track show, and the player):", panels.collect());
     let analyzers = c.analyzers.iter().map(|a| {
         let fields: Vec<&str> = a.fields.keys().map(String::as_str).collect();
         // Each with its field, where that's named otherwise: `loudness (integrated_lufs)`.
@@ -99,11 +108,25 @@ pub(super) fn info(d: &Described) {
         (a.name.clone(), format!("{}: {}{roles}", a.title, fields.join(", ")))
     });
     section(&format!("Analyzers (locallibrary analyze --plugin {}):", m.id), analyzers.collect());
-    let exporters = c.exporters.iter().map(|e| {
-        let writes = e.extension.as_ref().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
-        (e.format.clone(), format!("{}, {writes}", e.title))
+    // Each kind of what they write out, and how it's run.
+    let of = [
+        (ExportFrom::Drive, "Export formats (locallibrary export LIBRARY --format FORMAT -o ...):"),
+        (ExportFrom::Set, "Set export formats (locallibrary sets export SET --format FORMAT -o ...):"),
+        (ExportFrom::Mix, "Mix export formats (locallibrary mix RECORDING --format FORMAT --export ...):"),
+    ];
+    for (source, title) in of {
+        let exporters = c.exporters.iter().filter(|e| e.source == source).map(|e| {
+            let writes = e.extension.as_ref().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
+            (e.format.clone(), format!("{}, {writes}", e.title))
+        });
+        section(title, exporters.collect());
+    }
+    let importers = c.importers.iter().map(|i| {
+        let reads = i.extension.as_ref().map_or_else(|| "a file".to_string(), |x| format!("a .{x} file"));
+        let provides: Vec<&str> = i.provides.iter().map(|k| k.name()).collect();
+        (i.format.clone(), format!("{}, {reads}: {}", i.title, provides.join(", ")))
     });
-    section("Export formats (locallibrary export LIBRARY --format FORMAT -o ...):", exporters.collect());
+    section("Import formats (locallibrary import FILE LIBRARY --format FORMAT):", importers.collect());
     let providers = c.providers.iter().map(|p| {
         let verb = match p.kind {
             loclib_plugin::ProviderKind::Artwork => "art fetch",
@@ -112,9 +135,16 @@ pub(super) fn info(d: &Described) {
         (p.name.clone(), format!("{}: {}, for locallibrary {verb}", p.title, p.kind.found()))
     });
     section("Providers:", providers.collect());
+    let services = c.services.iter().map(|s| {
+        let on = d.settings.get(&format!("{}{}", locallibrary::plugin::SERVICES, s.name)) == Some(&Value::Bool(true));
+        (s.name.clone(), format!("{}: {}", s.title, if on { "on" } else { "off" }))
+    });
+    section(&format!("Services (locallibrary plugin settings {} services.NAME on):", m.id), services.collect());
     let sources = c.sources.iter().map(|x| (format!("{}:{}", m.id, x.name), x.title.clone()));
     let build = "locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant FOLDER";
     section(&format!("Library sources ({build}):"), sources.collect());
+    let themes = c.themes.iter().map(|t| (t.name.clone(), format!("{}, in the player", t.title)));
+    section("Themes:", themes.collect());
     let settings =
         c.settings.iter().map(|s| (s.key.clone(), format!("{}: {}", s.title, shown(s, &d.settings, &d.secrets))));
     section(&format!("Settings (locallibrary plugin settings {}):", m.id), settings.collect());
@@ -175,11 +205,11 @@ pub(super) fn settings(
     store_path: &Option<PathBuf>,
     out: Output,
 ) -> Result<ExitCode> {
-    let manifest = plugins.manifest(&plugin)?;
+    let listed = plugins.setting_list(&plugin)?;
     let setting = key
         .as_deref()
         .map(|k| {
-            manifest.contributes.settings.iter().find(|s| s.key == k).ok_or_else(|| {
+            listed.iter().find(|s| s.key == k).ok_or_else(|| {
                 usage(format!(
                     "the {plugin} plugin has no setting {k:?} (`locallibrary plugin settings {plugin}` lists them)"
                 ))
@@ -212,8 +242,7 @@ pub(super) fn settings(
         settings.retain(|k, _| setting.is_none_or(|s| s.key == *k));
         let mut secrets = Secrets::of(plugins, &plugin, store.as_ref())?;
         secrets.set.retain(|k, _| setting.is_none_or(|s| s.key == *k));
-        let shown: Vec<&Setting> =
-            manifest.contributes.settings.iter().filter(|s| setting.is_none_or(|o| o.key == s.key)).collect();
+        let shown: Vec<&Setting> = listed.iter().filter(|s| setting.is_none_or(|o| o.key == s.key)).collect();
         out.emit(&Settings { plugin, settings, secrets }, |s| show_settings(&shown, s));
         return Ok(ExitCode::SUCCESS);
     };

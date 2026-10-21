@@ -195,10 +195,11 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
                     answer => break answer,
                 }
             };
+            let names = view::names_on(context.drive.as_deref());
             match answer {
                 CommandOutput::Headless(v) => out.emit(&v, view::headless),
-                CommandOutput::View(v) if drawn.get() == (0, 0) => out.emit_paged(&v, view::view),
-                CommandOutput::View(v) => out.emit(&v, |v| view::rest(v, drawn.get())),
+                CommandOutput::View(v) if drawn.get() == (0, 0) => out.emit_paged(&v, |v| view::view(v, &names)),
+                CommandOutput::View(v) => out.emit(&v, |v| view::rest(v, drawn.get(), &names)),
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -252,8 +253,9 @@ fn params_of(schema: Option<&Value>, m: &ArgMatches) -> Result<Value> {
     Ok(Value::Object(params))
 }
 
-/// An exporter's or a library source's (`what`) options from `--option KEY=VALUE`s (one given
-/// again adds to a list or a map), each read as its schema says. A key it doesn't take is refused.
+/// An exporter's, an importer's or a library source's (`what`) options from `--option
+/// KEY=VALUE`s (one given again adds to a list or a map), each read as its schema says. A key it
+/// doesn't take is refused.
 pub fn options(what: &str, schema: Option<&Value>, given: &[String]) -> Result<Value> {
     let mut raws: Vec<(&str, Vec<&str>)> = Vec::new();
     for pair in given {
