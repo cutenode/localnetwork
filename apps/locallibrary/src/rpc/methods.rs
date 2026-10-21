@@ -793,7 +793,12 @@ fn build() -> Registry {
         .writes_to("output");
     r.read("mix.reports.list", |c, _: NoParams| Ok(api::mix_reports_list(c.root)?)).quick();
     r.read("mix.reports.get", |c, req| Ok(api::mix_report_get(c.root, &req)?));
-    r.immediate("mix.reports.html", |c, req| Ok(api::mix_report_html(&c.store()?, &req)?)).keeps_cache();
+    r.immediate("mix.reports.html", |c, req| {
+        let store = c.store()?;
+        let shown = crate::plugins::shown_fields(Some(store.clone()));
+        Ok(api::mix_report_html(&store, &req, Some(&shown))?)
+    })
+    .keeps_cache();
 
     // Every drive you own.
     r.read("fleet.status", |c, req| Ok(api::fleet_status(c.existing()?.as_ref(), &req, c.ctx)?)).long();

@@ -5018,6 +5018,19 @@
       }
     },
     {
+      "name": "plugins.panel",
+      "aliases": [],
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/RenderPluginPanel"
+      },
+      "result": {
+        "$ref": "#/$defs/View"
+      }
+    },
+    {
       "name": "plugins.export.plan",
       "aliases": [],
       "kind": "plan",
@@ -11210,6 +11223,34 @@
         "plugin",
         "operation",
         "context"
+      ]
+    },
+    "RenderPluginPanel": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "panel": {
+          "type": "string",
+          "description": "One of the plugin's panels (`plugins.describe`)."
+        },
+        "drive": {
+          "type": "string",
+          "description": "A library's name, or a drive's mount path, name or id prefix."
+        },
+        "track": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The track, by id."
+        }
+      },
+      "required": [
+        "plugin",
+        "panel",
+        "drive",
+        "track"
       ]
     },
     "PlanPluginExport": {
@@ -25586,6 +25627,13 @@
             "$ref": "#/$defs/CueMark"
           },
           "description": "Its hot cues, in seconds into the track."
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShownField"
+          },
+          "description": "What analyzers worked out for it that a page shows (the HTML report's), in order."
         }
       },
       "required": [
@@ -25642,6 +25690,24 @@
         "label",
         "color"
       ]
+    },
+    "ShownField": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "`<plugin>.<field>` (`sound.lufs`)."
+        },
+        "value": {
+          "type": "string",
+          "description": "As its analyzer says it's shown (`-8.2 LUFS`)."
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "description": "An analyzer's field, as a page shows it."
     },
     "MixExport": {
       "type": "object",
@@ -29057,9 +29123,15 @@
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its commands, operations, analyzers and providers by name, its export formats\nand its settings' keys."
+          "description": "What it adds: its commands, operations, panels, analyzers, providers and themes by name,\nits export formats and its settings' keys."
         },
         "operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "panels": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29078,6 +29150,12 @@
           }
         },
         "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "themes": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29108,9 +29186,11 @@
         "capabilities",
         "commands",
         "operations",
+        "panels",
         "analyzers",
         "exporters",
         "providers",
+        "themes",
         "settings",
         "running",
         "left_out"
@@ -29239,9 +29319,11 @@
           "default": {
             "commands": [],
             "operations": [],
+            "panels": [],
             "analyzers": [],
             "exporters": [],
             "providers": [],
+            "themes": [],
             "settings": []
           }
         },
@@ -29280,6 +29362,13 @@
           },
           "default": []
         },
+        "panels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Panel"
+          },
+          "default": []
+        },
         "analyzers": {
           "type": "array",
           "items": {
@@ -29301,6 +29390,13 @@
           },
           "default": []
         },
+        "themes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Theme"
+          },
+          "default": []
+        },
         "settings": {
           "type": "array",
           "items": {
@@ -29312,9 +29408,11 @@
       "required": [
         "commands",
         "operations",
+        "panels",
         "analyzers",
         "exporters",
         "providers",
+        "themes",
         "settings"
       ]
     },
@@ -29425,6 +29523,28 @@
       ],
       "description": "Planned with `op/plan`, applied by the host, which works out from the edits whether it's\ndestructive."
     },
+    "Panel": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "where": {
+          "$ref": "#/$defs/Where",
+          "description": "What it's shown with: a track, unless it says.",
+          "default": "track"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "where"
+      ],
+      "description": "Shown under a track's details, as `panel/render` answers for the track. Hosts ask for it as\nthe user comes to a track, so it answers quickly, reading only what it needs."
+    },
     "Analyzer": {
       "type": "object",
       "properties": {
@@ -29450,6 +29570,13 @@
             "type": "string"
           },
           "description": "Which of its fields has each role it answers (`bpm = \"bpm\"`): what the host reads for\nthat role (see [`Role`])."
+        },
+        "display": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/FieldDisplay"
+          },
+          "description": "How hosts show some of its fields, by field (`display.lufs = { unit = \"LUFS\" }`): in the\nplayer's columns, `track show` and the mix report."
         }
       },
       "required": [
@@ -29469,6 +29596,79 @@
         "boolean",
         "string[]"
       ]
+    },
+    "FieldDisplay": {
+      "type": "object",
+      "properties": {
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Said after a value (`LUFS`); a `db` format's is `dB` unless it says."
+        },
+        "precision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "A number's decimal places, 0 to 6."
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is."
+        }
+      },
+      "description": "How hosts show a field's values, each part optional. Without them a number shows to two\nplaces at most (trailing zeros left out), a list joined with commas, a boolean as yes or no."
+    },
+    "FieldFormat": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "key",
+          "description": "A key (a string), as the host shows keys."
+        },
+        {
+          "type": "string",
+          "const": "duration",
+          "description": "Seconds (a number), as minutes and seconds (`3:07`, `1:02:03`)."
+        },
+        {
+          "type": "string",
+          "const": "db",
+          "description": "Decibels (a number), signed (`+0.4 dB`, `-8.2 dB`)."
+        },
+        {
+          "type": "string",
+          "const": "percent",
+          "description": "A fraction (a number, 0 to 1) as a percentage (`85%`; no decimal places unless it says)."
+        },
+        {
+          "type": "string",
+          "const": "meter",
+          "description": "A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says)."
+        }
+      ],
+      "description": "What a field's values are, for hosts to show them as such."
     },
     "Exporter": {
       "type": "object",
@@ -29521,6 +29721,27 @@
         "kind"
       ],
       "description": "Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the\nuser every provider's, and makes the edits chosen itself. It's given the tracks' tags, which\ntakes `library:read`, and needs no capability to plan an edit."
+    },
+    "Theme": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "tokens"
+      ],
+      "description": "`[[contributes.themes]]`: a theme's colours, by the names of [`theme::TOKENS`] as tables (`cues.hot =\n\"#28e214\"`, `ui = { accent = \"#ff8800\" }`), each `#rrggbb` (a gradient, `waveform.*`, a list\nof two or more). What it leaves out is the default's."
     },
     "Setting": {
       "type": "object",
@@ -29678,7 +29899,7 @@
             "columns": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/$defs/Column"
               }
             },
             "rows": {
@@ -29698,7 +29919,7 @@
             "columns",
             "rows"
           ],
-          "description": "Rows of cells (strings, numbers, booleans or `null`) under column headings."
+          "description": "Rows of cells (strings, numbers, booleans or `null`) under column headings: each a name,\nor (feature `views`) a name with what its cells are ([`Column`])."
         },
         {
           "type": "object",
@@ -29762,6 +29983,136 @@
             "kind"
           ],
           "description": "A question for the user (feature `choose`): the host asks it, then runs the command again\nwith what was chosen (see [`Choice`]). It's never drawn."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TreeItem"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "tree"
+            }
+          },
+          "required": [
+            "kind",
+            "items"
+          ],
+          "description": "Items with items below them (feature `views`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": {
+              "$ref": "#/$defs/ChartStyle"
+            },
+            "series": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Series"
+              }
+            },
+            "x_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "y_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "chart"
+            }
+          },
+          "required": [
+            "kind",
+            "style",
+            "series"
+          ],
+          "description": "Points, each series a line or bars (feature `views`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "blob": {
+              "type": "string",
+              "description": "Its file's name in the scratch folder."
+            },
+            "alt": {
+              "type": "string",
+              "description": "What it shows, in a few words: what a host that can't draw it says instead."
+            },
+            "data": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The picture as a `data:` URL, filled in by the host once it has read the blob and\nfound an image there: whatever a plugin sends here is replaced."
+            },
+            "kind": {
+              "type": "string",
+              "const": "image"
+            }
+          },
+          "required": [
+            "kind",
+            "blob",
+            "alt"
+          ],
+          "description": "A picture (features `views` and `blobs`): a file in the request's scratch folder, which\nthe host reads (see [`crate::Blob`])."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Section"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "sections"
+            }
+          },
+          "required": [
+            "kind",
+            "items"
+          ],
+          "description": "Views one after another, each under a title of its own (feature `views`)."
         }
       ]
     },
@@ -29781,6 +30132,70 @@
       "required": [
         "label"
       ]
+    },
+    "Column": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/TypedColumn"
+        }
+      ],
+      "description": "A table's column: its heading alone (text), or (feature `views`) a heading and what its cells\nare."
+    },
+    "TypedColumn": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ColumnKind",
+          "default": "text"
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "description": "A column and what its cells are."
+    },
+    "ColumnKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "text",
+          "description": "As they are."
+        },
+        {
+          "type": "string",
+          "const": "track",
+          "description": "A track, by id: shown by its artist and title where the host has the drive's library."
+        },
+        {
+          "type": "string",
+          "const": "duration",
+          "description": "Seconds: shown as minutes and seconds (`3:07`)."
+        },
+        {
+          "type": "string",
+          "const": "key",
+          "description": "A key (`8A`, `Am`): shown in Camelot notation where it's one."
+        },
+        {
+          "type": "string",
+          "const": "number",
+          "description": "Numbers, with the column's unit after each."
+        }
+      ],
+      "description": "What a column's cells are, for a host to show them as it shows its own."
     },
     "Pair": {
       "type": "object",
@@ -29842,6 +30257,83 @@
         "title",
         "param",
         "items"
+      ]
+    },
+    "TreeItem": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TreeItem"
+          }
+        }
+      },
+      "required": [
+        "label"
+      ]
+    },
+    "ChartStyle": {
+      "type": "string",
+      "enum": [
+        "line",
+        "bar"
+      ],
+      "description": "How a chart draws its series."
+    },
+    "Series": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "format": "double"
+              },
+              {
+                "type": "number",
+                "format": "double"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "required": [
+        "name",
+        "points"
+      ],
+      "description": "A chart's series: its name and its points, `[x, y]`."
+    },
+    "Section": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "view": {
+          "$ref": "#/$defs/View"
+        }
+      },
+      "required": [
+        "title",
+        "view"
       ]
     },
     "OpPlanned": {

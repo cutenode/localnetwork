@@ -1,5 +1,5 @@
 use locallibrary::query::{FieldName, SortField};
-use loclib_plugin::{ListItem, Pair};
+use loclib_plugin::{ChartStyle, Column, ColumnKind, ListItem, Pair, Section, Series, TreeItem, TypedColumn};
 use ratatui::crossterm::event::KeyCode;
 use serde_json::json;
 
@@ -330,7 +330,7 @@ fn a_secret_typed_in_the_form_is_kept_apart() {
 fn views_are_drawn_generically() {
     let item = |label: &str, detail: Option<&str>| ListItem { label: label.into(), detail: detail.map(String::from) };
     let list = View::List { title: None, items: vec![item("Friday", Some("12 tracks")), item("Warmup", None)] };
-    let lines = |v: &View| view_lines(v).into_iter().map(|(t, l)| format!("{t:?} {l}")).collect::<Vec<_>>();
+    let lines = |v: &View| view_lines(v, &|_| None).into_iter().map(|(t, l)| format!("{t:?} {l}")).collect::<Vec<_>>();
     assert_eq!(lines(&list), ["Text Friday", "Faint   12 tracks", "Text Warmup"]);
     let rows = vec![vec![json!("Around the World"), json!(121.0)], vec![json!("Pick Up"), Value::Null]];
     let table = View::Table { title: None, columns: vec!["Title".into(), "BPM".into()], rows };
@@ -1057,6 +1057,7 @@ fn plugins_own(act: &Act) -> bool {
             | Act::PluginSettings(_)
             | Act::ProviderSettings
             | Act::Fetch(_)
+            | Act::Theme(_)
     )
 }
 
@@ -1104,8 +1105,8 @@ fn form_open(app: &App) -> (String, Vec<String>) {
 /// one of the player's first; the drive's menu has no settings, columns or fetching. Each entry
 /// that can't run where the player is says why when it's chosen and does nothing (nor does its
 /// analyzer or export asked for anyway); one that can does what it is (a form for its params, its
-/// settings or which provider to fetch from, a job, a panel, a column) and esc backs out of it to
-/// the view it started in.
+/// settings or which provider to fetch from, a job, a panel, a column, a theme) and esc backs out
+/// of it to the view it started in.
 #[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
 fn the_palettes_plugin_entries_do_what_they_say(tc: TestCase) {
     let (at, mut app, drive, _store) = somewhere(&tc);
@@ -1258,6 +1259,10 @@ fn chosen(app: &mut App, act: Act, columns: &[FieldName], drive: Option<&Plugged
             }
             _ => assert_eq!(last_message(app), "no track selected"),
         },
+        Act::Theme(key) => {
+            assert!(app.modal.is_none());
+            assert_eq!(super::super::theme::chosen().unwrap_or_default(), key, "drawn in it");
+        }
         Act::FieldColumn(name) => {
             assert!(app.modal.is_none());
             assert_ne!(app.field_columns.contains(&name), columns.contains(&name), "{name:?} toggled");
@@ -1496,7 +1501,7 @@ fn any_value(tc: &TestCase) -> Value {
 fn any_view(tc: &TestCase) -> View {
     let title = tc.draw(gs::booleans()).then(|| any_word(tc));
     let n = tc.draw(gs::integers::<usize>().max_value(12));
-    match tc.draw(gs::integers::<u8>().max_value(3)) {
+    match tc.draw(gs::integers::<u8>().max_value(7)) {
         0 => View::List {
             title,
             items: (0..n)
@@ -1504,14 +1509,48 @@ fn any_view(tc: &TestCase) -> View {
                 .collect(),
         },
         1 => {
-            let columns: Vec<String> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
-                .map(|_| tc.draw(gs::sampled_from(&["Title", "BPM", "日本", "😹"][..])).to_string())
+            let columns: Vec<Column> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)))
+                .map(|_| {
+                    let name = tc.draw(gs::sampled_from(&["Title", "BPM", "日本", "😹"][..])).to_string();
+                    // A number column shows its cells as they are, without a unit.
+                    let kind = tc.draw(gs::sampled_from(vec![ColumnKind::Text, ColumnKind::Number]));
+                    match tc.draw(gs::booleans()) {
+                        true => Column::Name(name),
+                        false => Column::Typed(TypedColumn { name, kind, unit: None }),
+                    }
+                })
                 .collect();
             let rows = (0..n).map(|_| columns.iter().map(|_| any_value(tc)).collect()).collect();
             View::Table { title, columns, rows }
         }
         2 => View::Kv { title, pairs: (0..n).map(|_| Pair { label: any_word(tc), value: any_value(tc) }).collect() },
-        _ => View::Text { title, text: (0..n).map(|_| any_word(tc)).collect::<Vec<_>>().join("\n") },
+        3 => View::Text { title, text: (0..n).map(|_| any_word(tc)).collect::<Vec<_>>().join("\n") },
+        4 => {
+            let item = |tc: &TestCase, children| TreeItem {
+                label: any_word(tc),
+                detail: tc.draw(gs::booleans()).then(|| any_word(tc)),
+                children,
+            };
+            let items = (0..n.min(4)).map(|_| {
+                let below = (0..tc.draw(gs::integers::<usize>().max_value(2))).map(|_| item(tc, Vec::new())).collect();
+                item(tc, below)
+            });
+            View::Tree { title, items: items.collect() }
+        }
+        5 => {
+            let points = || gs::vecs(gs::tuples!(gs::integers::<i8>(), gs::integers::<i8>())).max_size(4);
+            let series = (0..n.min(3)).map(|_| Series {
+                // Short enough for a column's heading.
+                name: any_word(tc).chars().take(20).collect(),
+                points: tc.draw(points()).into_iter().map(|(x, y)| (x.into(), y.into())).collect(),
+            });
+            View::Chart { title, style: ChartStyle::Line, series: series.collect(), x_label: None, y_label: None }
+        }
+        6 => View::Image { title, blob: "a.png".into(), alt: any_word(tc), data: None },
+        _ => {
+            let items = (0..n.min(3)).map(|_| Section { title: any_word(tc), view: any_view(tc) });
+            View::Sections { title, items: items.collect() }
+        }
     }
 }
 
@@ -1529,10 +1568,28 @@ fn cells(v: &View) -> Vec<String> {
             items.iter().flat_map(|i| [Some(i.label.clone()), i.detail.clone()]).flatten().collect()
         }
         View::Table { columns, rows, .. } => {
-            columns.iter().cloned().chain(rows.iter().flatten().map(crate::plugins::params::cell)).collect()
+            let headings = columns.iter().map(|c| c.name().to_string());
+            headings.chain(rows.iter().flatten().map(crate::plugins::params::cell)).collect()
         }
         View::Kv { pairs, .. } => pairs.iter().flat_map(|p| [p.label.clone(), cell(&p.value)]).collect(),
         View::Text { text, .. } => text.lines().map(String::from).collect(),
+        View::Tree { items, .. } => {
+            fn labels(items: &[TreeItem]) -> Vec<String> {
+                let each = items.iter().flat_map(|i| {
+                    [Some(i.label.clone()), i.detail.clone()].into_iter().flatten().chain(labels(&i.children))
+                });
+                each.collect()
+            }
+            labels(items)
+        }
+        View::Chart { series, x_label, .. } => {
+            let (columns, rows) = crate::plugin_cmd::view::chart_table(series, x_label.as_deref());
+            cells(&View::Table { title: None, columns, rows }).into_iter().filter(|_| !v.is_empty()).collect()
+        }
+        View::Image { alt, .. } => vec![format!("[image: {alt}]")],
+        View::Sections { items, .. } => {
+            items.iter().flat_map(|s| std::iter::once(s.title.clone()).chain(cells(&s.view))).collect()
+        }
         View::Choose(_) => unreachable!("never drawn"),
     }
 }

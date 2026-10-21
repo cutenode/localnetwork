@@ -19,13 +19,17 @@ mod view;
 pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
-pub use hooks::analyzers::{Analysis, AnalyzeTrack, Analyzer, FieldType, FieldValue, Role, Track};
+pub use hooks::analyzers::{
+    Analysis, AnalyzeTrack, Analyzer, FieldDisplay, FieldFormat, FieldType, FieldValue, Role, Track,
+};
 pub use hooks::commands::{Command, Mode, RunCommand};
 pub use hooks::exporters::{ExportSource, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::operations::{OpAnswer, OpPlan, Operation, PlanOp};
+pub use hooks::panels::{Panel, RenderPanel};
 pub use hooks::providers::{
     Candidate, Candidates, ProvideCandidates, Provider, ProviderKind, TrackMetadata, TrackTags,
 };
+pub use hooks::themes::Theme;
 /// The types [`DriveReads`] answers with (`Track`, `Library`, `TrackAnalysis`), for a plugin to
 /// name without depending on loclib-model itself.
 pub use loclib_model;
@@ -40,7 +44,7 @@ pub use reads::{
     TrackArtwork, TracksAnalysis, TracksById, TracksQuery,
 };
 pub use sdk::{Hook, Hooks, Host, serve};
-pub use view::{ListItem, Pair, View};
+pub use view::{ChartStyle, Column, ColumnKind, ListItem, Pair, Section, Series, TreeItem, TypedColumn, View};
 
 /// The error codes.
 pub mod code {

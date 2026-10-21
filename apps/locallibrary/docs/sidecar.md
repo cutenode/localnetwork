@@ -352,12 +352,13 @@ Native bindings (napi-rs) can wrap the same `api` functions later without changi
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
 each plugin's `{id, name, version, capabilities: [{capability, means}], commands, operations,
-analyzers, exporters, providers, settings, running, left_out}`, `means` saying in plain words what
+panels, analyzers, exporters, providers, themes, settings, running, left_out}`, `means` saying in plain words what
 a capability lets it do and `left_out` why a plugin isn't loaded, when it clashes with a command, a
 method or another plugin (else `null`); `plugins.describe {plugin}` answers `{manifest,
 capabilities, settings, secrets, secrets_unknown?, running}`, the manifest with the JSON Schemas of
 each command's and operation's `params` and each exporter's `options`, to draw forms from, and
-where to offer each command and operation (`where`: `track`, `playlist`, `drive`). A param's
+where to offer each command and operation (`where`: `track`, `playlist`, `drive`), each panel's
+title, each theme's colours (`tokens`) and how each analyzer's fields are shown (`display`). A param's
 `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
 request's `context` when it isn't given; given as `null`, it's left out. `plugins.settings
 {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its
@@ -381,8 +382,10 @@ it hasn't worked out already), with progress (an `analyze` phase) and `$/cancel`
 ### Commands and operations
 
 `plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
-command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw, with
-every row the plugin sent in parts as it worked. `plugins.op.plan {plugin, operation, params,
+command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text" | "tree" | "chart" | "image"
+| "sections", title, ...}`, see loclib-plugin's README for each kind and its plain text form) to
+draw, with every row the plugin sent in parts as it worked; an image's `data` is a PNG `data:`
+URL, and a table's column is its heading or `{name, kind, unit?}`. `plugins.op.plan {plugin, operation, params,
 context}` (`context.drive` is required) answers an edit plan whose `operation` is
 `<plugin>.<operation>`, its summary first (an image a plugin's `set_artwork` gives is read as it's
 planned, and held by the plan), applied by `plugins.op.apply {plan_id}`; it's stale once the drive
@@ -404,6 +407,11 @@ what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what goes 
 `notes`: what the format can't hold and what to do with the files; the library's problems are the
 plan's `warnings`), destructive when a file `exists` already, applied by `plugins.export.apply
 {plan_id}` (`{files: [{path, what, bytes}], counts, notes, warnings}`).
+
+### Panels
+
+`plugins.panel {plugin, panel, drive, track}` answers the panel's view of the track (by id), as
+`plugins.run` answers a view; a panel never asks a question.
 
 ### Providers
 
