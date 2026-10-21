@@ -112,9 +112,9 @@ fn offered(tc: &TestCase, x: &mut Value) {
 
 /// A plugin `id` with drawn capabilities and contributions: commands (`cmd0`...) and
 /// operations (`op0`...), each at a place of its own on the command line or not and in drawn
-/// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`) and
-/// `order` (`a`, `b`) it can run; export formats writing a file or a folder; providers of either
-/// kind (granted reading tracks); and settings of every kind.
+/// menus; analyzers of drawn fields and versions, and the test plugin's `size` (`bytes`, shown
+/// in bytes or not) and `order` (`a`, `b`) it can run; export formats writing a file or a folder;
+/// providers of either kind (granted reading tracks); panels; themes; and settings of every kind.
 #[hegel::test_helper]
 fn manifest(tc: &TestCase, id: &str) -> Value {
     let version = tc.draw(gs::sampled_from(&["0.1.0", "1.2.3-beta.1", "10.0.0"][..]));
@@ -168,7 +168,12 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
         analyzers.push(json!({ "name": format!("an{j}"), "title": title(tc), "version": version, "fields": fields }));
     }
     if tc.draw(gs::booleans()) {
-        let size = json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+        let mut size =
+            json!({ "name": "size", "title": "File size", "version": "1", "fields": { "bytes": "integer" } });
+        if tc.draw(gs::booleans()) {
+            size["display"] =
+                json!({ "bytes": { "unit": "B", "width": tc.draw(gs::integers::<u16>().min_value(1).max_value(40)) } });
+        }
         analyzers.push(size);
     }
     if tc.draw(gs::booleans()) {
@@ -196,6 +201,25 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
     }
     let settings: Vec<Value> =
         (0..tc.draw(gs::integers::<usize>().max_value(4))).map(|j| setting(tc, &format!("k{j}"))).collect();
+    let panels: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let mut p = json!({ "name": format!("pn{j}"), "title": title(tc) });
+            if tc.draw(gs::booleans()) {
+                p["where"] = json!("track");
+            }
+            p
+        })
+        .collect();
+    let themes: Vec<Value> = (0..tc.draw(gs::integers::<usize>().max_value(2)))
+        .map(|j| {
+            let colour = format!("#{:06x}", tc.draw(gs::integers::<u32>().max_value(0xff_ffff)));
+            let tokens = match tc.draw(gs::booleans()) {
+                true => json!({ "playhead": colour }),
+                false => json!({ "ui": { "accent": colour }, "waveform": { "scope": [colour, "#000000"] } }),
+            };
+            json!({ "name": format!("th{j}"), "title": title(tc), "tokens": tokens })
+        })
+        .collect();
     // Some events, each granted, and services.
     let heard: Vec<(&str, &str)> = tc.draw(gs::subsequences(vec![
         ("drive.mounted", "events:drives"),
@@ -222,10 +246,12 @@ fn manifest(tc: &TestCase, id: &str) -> Value {
             "commands": commands,
             "events": events,
             "operations": operations,
+            "panels": panels,
             "analyzers": analyzers,
             "exporters": exporters,
             "providers": providers,
             "services": services,
+            "themes": themes,
             "settings": settings,
         },
     })
@@ -287,7 +313,9 @@ fn listed_text(listed: &[Value]) -> String {
             ("analyzer", "analyzers"),
             ("export format", "exporters"),
             ("provider", "providers"),
+            ("panel", "panels"),
             ("service", "services"),
+            ("theme", "themes"),
             ("setting", "settings"),
         ];
         let adds: Vec<String> = kinds
@@ -341,6 +369,11 @@ fn described_text(d: &Value) -> String {
     section("Listens for:".into(), heard.iter().map(|e| (str_of(e), String::new())).collect());
     let operations = list("operations").iter().map(|x| (invocation(x), offered(x))).collect();
     section("Operations (planned, then confirmed):".into(), operations);
+    let panels = list("panels")
+        .iter()
+        .map(|p| (str_of(&p["name"]), format!("{}, under a track's details", str_of(&p["title"]))))
+        .collect();
+    section("Panels (locallibrary track show, and the player):".into(), panels);
     let analyzers = list("analyzers")
         .iter()
         .map(|a| {
@@ -377,6 +410,11 @@ fn described_text(d: &Value) -> String {
         })
         .collect();
     section(format!("Services (locallibrary plugin settings {id} services.NAME on):"), services);
+    let themes = list("themes")
+        .iter()
+        .map(|t| (str_of(&t["name"]), format!("{}, in the player", str_of(&t["title"]))))
+        .collect();
+    section("Themes:".into(), themes);
     let settings = list("settings")
         .iter()
         .map(|s| {
@@ -423,7 +461,9 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
             ("analyzers", "name"),
             ("exporters", "format"),
             ("providers", "name"),
+            ("panels", "name"),
             ("services", "name"),
+            ("themes", "name"),
             ("settings", "key"),
         ] {
             assert_eq!(p[key].as_array().unwrap(), &names(key, field), "{key}");
@@ -454,8 +494,11 @@ fn plugins_are_listed_and_described_in_text_as_in_json(tc: TestCase) {
         let described = unschema(env.json(&["plugin", "info", id]));
         let mut manifest = m.clone();
         // The manifest as it reads back: nothing left out is written.
-        for key in ["commands", "operations", "analyzers", "exporters"] {
+        for key in ["commands", "operations", "panels", "analyzers", "exporters"] {
             for x in manifest["contributes"][key].as_array_mut().unwrap() {
+                if key == "panels" && x.get("where").is_none() {
+                    x["where"] = json!("track");
+                }
                 x.as_object_mut().unwrap().retain(|_, v| !v.is_null());
                 if key == "operations" {
                     x["long_running"] = json!(false);
@@ -960,24 +1003,30 @@ fn view_text(v: &Value) -> String {
     lines.iter().map(|l| format!("{l}\n")).collect()
 }
 
-/// Any view a plugin's command answers reads back in `--json` as it was answered, and in text
-/// as the command line draws its own lists, tables, labelled values and text.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn views_read_in_text_as_in_json(tc: TestCase) {
-    // The test plugin's `echo` answers its params: here, a view.
-    let m = json!({
+/// The `views` plugin, whose `echo` (the test plugin's) answers its params: here, a view.
+fn views_env() -> Env {
+    env_with(&[json!({
         "id": "views", "name": "Views", "version": "0.1.0", "protocol": "^0.2",
         "contributes": { "commands": [{ "name": "echo", "title": "Show", "mode": "view" }] },
-    });
-    let env = env_with(&[m]);
-    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
-        let v = view(&tc);
-        let args = ["views", "echo", "--params", &v.to_string()];
-        assert_eq!(unschema(env.json(&args)), v);
-        assert_eq!(env.ok(&args), view_text(&v), "{v}");
-    }
-    // Anything else is the plugin's mistake.
-    let r = env.run(&["views", "echo", "--params", r#"{"kind": "chart"}"#]);
+    })])
+}
+
+/// Any view a plugin's command answers reads back in `--json` as it was answered, and in text
+/// as the command line draws its own lists, tables, labelled values and text. One view a case:
+/// each run of the command line starts it and the plugin, which a loaded machine makes slow.
+#[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
+fn views_read_in_text_as_in_json(tc: TestCase) {
+    let env = views_env();
+    let v = view(&tc);
+    let args = ["views", "echo", "--params", &v.to_string()];
+    assert_eq!(unschema(env.json(&args)), v);
+    assert_eq!(env.ok(&args), view_text(&v), "{v}");
+}
+
+/// A view that isn't one is the plugin's mistake.
+#[test]
+fn a_view_that_isnt_one_is_the_plugins_mistake() {
+    let r = views_env().run(&["views", "echo", "--params", r#"{"kind": "chart"}"#]);
     assert_eq!(r.code, 1, "{}", r.err);
     assert!(r.err.contains("its view of echo isn't one"), "{}", r.err);
 }

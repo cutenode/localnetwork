@@ -5,8 +5,8 @@ use serde_json::{Map, json};
 
 use super::*;
 use crate::{
-    Analyzer, Command, EventName, Exporter, FieldType, FieldValue, Listener, Mode, Operation, Provider, ProviderKind,
-    Role, Service, code,
+    Analyzer, Command, EventName, Exporter, FieldDisplay, FieldFormat, FieldType, FieldValue, Listener, Mode,
+    Operation, Panel, Provider, ProviderKind, Role, Service, Theme, code,
 };
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
@@ -655,6 +655,135 @@ fn analyzers_give_fields_roles_of_their_type() {
     assert_eq!("tempo".parse::<Role>().unwrap_err().split(':').next(), Some("\"tempo\" isn't a role"));
 }
 
+/// A panel is shown with a track, unless it says otherwise, which is refused.
+#[test]
+fn panels_are_shown_with_a_track() {
+    let panel = |more: &str| format!("[[contributes.panels]]\nname = \"about\"\ntitle = \"About\"\n{more}");
+    let m = Manifest::parse(&format!("{HEAD}{}", panel(""))).unwrap();
+    m.validate(false).unwrap();
+    assert_eq!(m.contributes.panels[0].offered, Where::Track);
+    let e = problem(&panel("where = \"drive\""));
+    assert_eq!(e, "contributes.panels[0].where: a panel is shown with a track: where = \"track\"");
+}
+
+/// A theme's colours are tables of the names a theme sets them by, each over the default's.
+#[test]
+fn a_theme_sets_colours_by_their_names() {
+    let theme = |tokens: &str| {
+        format!("[[contributes.themes]]\nname = \"dusk\"\ntitle = \"Dusk\"\n[contributes.themes.tokens]\n{tokens}")
+    };
+    let tokens = "playhead = \"#ffeedd\"\ncues.hot = \"#00ff00\"\nstatus.dark.good = \"#010203\"\nui = { accent = \"#ff8800\" }\nwaveform.scope = [\"#000000\", \"#ffffff\"]";
+    let m = Manifest::parse(&format!("{HEAD}{}", theme(tokens))).unwrap();
+    m.validate(false).unwrap();
+    let t = m.contributes.themes[0].theme().unwrap();
+    assert_eq!((t.playhead, t.hot_cue, t.good, t.accent), ([255, 238, 221], [0, 255, 0], [1, 2, 3], [255, 136, 0]));
+    assert_eq!(t.scope.to_vec(), [[0, 0, 0], [255, 255, 255]]);
+    assert_eq!(t.memory_cue, loclib_model::theme::Theme::DEFAULT.memory_cue, "the rest as they are");
+    let at = "contributes.themes[0].tokens";
+    assert_eq!(
+        problem(&theme("ui.colour = \"#000000\"")),
+        format!("{at}.ui.colour: \"ui.colour\" isn't a colour a theme sets")
+    );
+    assert_eq!(
+        problem(&theme("playhead = \"white\"")),
+        format!("{at}.playhead: isn't #rrggbb (lowercase), or a list of them")
+    );
+    assert_eq!(
+        problem(&theme("waveform.spectrum = [\"#000000\"]")),
+        format!("{at}.waveform.spectrum: waveform.spectrum is a gradient: two colours or more")
+    );
+    assert_eq!(problem(&theme("")), format!("{at}: a theme sets a colour at least"));
+}
+
+/// How an analyzer's fields are shown: hints for its own fields, in a format that fits each.
+#[test]
+fn an_analyzers_fields_say_how_theyre_shown() {
+    let analyzer = |display: &str| {
+        format!(
+            "[[contributes.analyzers]]\nname = \"a\"\ntitle = \"A\"\nversion = \"1\"\nfields = {{ lufs = \"number\", camelot = \"string\" }}\n{display}"
+        )
+    };
+    let ok = analyzer(
+        "display.lufs = { unit = \"LUFS\", precision = 1 }\ndisplay.camelot = { format = \"key\", width = 4 }",
+    );
+    let m = Manifest::parse(&format!("{HEAD}{ok}")).unwrap();
+    m.validate(false).unwrap();
+    let d = &m.contributes.analyzers[0].display;
+    assert_eq!(d["lufs"].show(&FieldValue::Number(-8.25)), "-8.2 LUFS");
+    assert_eq!(d["camelot"].width, Some(4));
+    let at = "contributes.analyzers[0].display";
+    assert_eq!(
+        problem(&analyzer("display.tempo = { unit = \"BPM\" }")),
+        format!("{at}.tempo: \"tempo\" isn't its field")
+    );
+    assert_eq!(
+        problem(&analyzer("display.lufs = { format = \"key\" }")),
+        format!("{at}.lufs.format: lufs is a number, which key isn't for")
+    );
+    assert_eq!(
+        problem(&analyzer("display.camelot = { format = \"db\" }")),
+        format!("{at}.camelot.format: camelot is a string, which db isn't for")
+    );
+    assert_eq!(
+        problem(&analyzer("display.lufs = { precision = 7 }")),
+        format!("{at}.lufs.precision: is 0 to 6 places")
+    );
+    assert_eq!(problem(&analyzer("display.lufs = { width = 0 }")), format!("{at}.lufs.width: is 1 to 40 cells"));
+    assert_eq!(problem(&analyzer("display.lufs = { unit = \" \" }")), format!("{at}.lufs.unit: is empty"));
+}
+
+#[test]
+fn field_values_are_shown_as_their_hints_say() {
+    let hint = |format: Option<FieldFormat>, precision, width| FieldDisplay { unit: None, precision, format, width };
+    let n = |v| FieldValue::Number(v);
+    let cases = [
+        (FieldDisplay::default(), n(124.5), "124.5"),
+        (FieldDisplay::default(), n(-0.001), "0"),
+        (FieldDisplay::default(), FieldValue::Integer(3), "3"),
+        (FieldDisplay::default(), FieldValue::Null, "-"),
+        (FieldDisplay::default(), FieldValue::Boolean(true), "yes"),
+        (FieldDisplay::default(), FieldValue::Strings(vec!["a".into(), "b".into()]), "a, b"),
+        (FieldDisplay { unit: Some("BPM".into()), ..FieldDisplay::default() }, n(128.0), "128 BPM"),
+        (hint(None, Some(3), None), n(1.5), "1.500"),
+        (hint(Some(FieldFormat::Duration), None, None), n(187.4), "3:07"),
+        (hint(Some(FieldFormat::Duration), None, None), FieldValue::Integer(3723), "1:02:03"),
+        (hint(Some(FieldFormat::Db), Some(1), None), n(0.44), "+0.4 dB"),
+        (hint(Some(FieldFormat::Db), None, None), n(-8.2), "-8.2 dB"),
+        (hint(Some(FieldFormat::Db), Some(1), None), n(0.01), "0.0 dB"),
+        (hint(Some(FieldFormat::Percent), None, None), n(0.856), "86%"),
+        (hint(Some(FieldFormat::Percent), Some(1), None), n(0.856), "85.6%"),
+        (hint(Some(FieldFormat::Meter), None, Some(4)), n(0.5), "██░░"),
+        (hint(Some(FieldFormat::Meter), None, None), n(2.0), "████████"),
+        (hint(Some(FieldFormat::Key), None, None), FieldValue::String("8A".into()), "8A"),
+    ];
+    for (d, v, shown) in cases {
+        assert_eq!(d.show(&v), shown, "{d:?} {v:?}");
+    }
+}
+
+/// A meter is always as long as it says, and fuller for more; a percentage and a duration read
+/// back as the number they show, to their rounding.
+#[hegel::test(test_cases = 300)]
+fn hints_show_numbers_as_they_are(tc: TestCase) {
+    let v = tc.draw(gs::floats::<f64>().min_value(-1e7).max_value(1e7));
+    let width = tc.draw(gs::integers::<u16>().min_value(1).max_value(FieldDisplay::MAX_WIDTH));
+    let meter = FieldDisplay { format: Some(FieldFormat::Meter), width: Some(width), ..FieldDisplay::default() };
+    let bar = meter.show(&FieldValue::Number(v));
+    assert_eq!(bar.chars().count(), usize::from(width));
+    let full = |b: &str| b.chars().filter(|c| *c == '█').count();
+    let more = meter.show(&FieldValue::Number(v + 0.25));
+    assert!(full(&more) >= full(&bar), "{bar} then {more}");
+    let percent = FieldDisplay { format: Some(FieldFormat::Percent), ..FieldDisplay::default() };
+    let shown = percent.show(&FieldValue::Number(v));
+    let back: f64 = shown.strip_suffix('%').unwrap().parse().unwrap();
+    assert!((back - v * 100.0).abs() <= 0.5 + 1e-6, "{v} as {shown}");
+    let duration = FieldDisplay { format: Some(FieldFormat::Duration), ..FieldDisplay::default() };
+    let shown = duration.show(&FieldValue::Number(v));
+    let (sign, digits) = shown.strip_prefix('-').map_or((1.0, shown.as_str()), |d| (-1.0, d));
+    let secs = digits.split(':').fold(0.0, |total, part| total * 60.0 + part.parse::<f64>().unwrap());
+    assert!((sign * secs - v).abs() <= 0.5 + 1e-6, "{v} as {shown}");
+}
+
 // Properties: manifests drawn whole, then broken in one place each.
 
 /// What `validate` says about `m` (`""`: nothing).
@@ -834,6 +963,62 @@ fn offered(tc: &TestCase) -> Vec<Where> {
     tc.draw(gs::subsequences(vec![Where::Track, Where::Playlist, Where::Drive]).min_size(1))
 }
 
+/// How a field of type `kind` may be shown: any unit, places and width, and a format that fits it.
+#[hegel::test_helper]
+fn display(tc: &TestCase, kind: FieldType) -> FieldDisplay {
+    let formats = match kind {
+        FieldType::String => vec![FieldFormat::Key],
+        FieldType::Number | FieldType::Integer => {
+            vec![FieldFormat::Duration, FieldFormat::Db, FieldFormat::Percent, FieldFormat::Meter]
+        }
+        FieldType::Boolean | FieldType::Strings => Vec::new(),
+    };
+    let format = match formats.is_empty() {
+        true => None,
+        false => tc.draw(gs::optional(gs::sampled_from(formats))),
+    };
+    FieldDisplay {
+        unit: tc.draw(gs::optional(gs::from_regex("[A-Za-z%]{1,5}"))),
+        precision: tc.draw(gs::optional(gs::integers::<u8>().max_value(FieldDisplay::MAX_PRECISION))),
+        format,
+        width: tc.draw(gs::optional(gs::integers::<u16>().min_value(1).max_value(FieldDisplay::MAX_WIDTH))),
+    }
+}
+
+/// Whether a field of type `kind` may be shown as `f`: a key a string, the rest a number.
+fn fits(kind: FieldType, f: FieldFormat) -> bool {
+    match f {
+        FieldFormat::Key => kind == FieldType::String,
+        _ => matches!(kind, FieldType::Number | FieldType::Integer),
+    }
+}
+
+/// Some of the colours a theme sets, as tables by their names' parts (`cues.hot` in `cues`), one
+/// at least: `#rrggbb` each, a gradient two or more.
+#[hegel::test_helper]
+fn tokens(tc: &TestCase) -> Map<String, Value> {
+    let names = tc.draw(gs::subsequences(loclib_model::theme::TOKENS.to_vec()).min_size(1));
+    let colour = |tc: &TestCase| {
+        let [r, g, b] = tc.draw(gs::arrays(gs::integers::<u8>()));
+        Value::from(format!("#{r:02x}{g:02x}{b:02x}"))
+    };
+    let mut tokens = Map::new();
+    for name in names {
+        let value = match name.starts_with("waveform.") {
+            true => (0..tc.draw(gs::integers::<usize>().min_value(2).max_value(5))).map(|_| colour(tc)).collect(),
+            false => colour(tc),
+        };
+        let mut parts: Vec<&str> = name.split('.').collect();
+        let last = parts.pop().unwrap();
+        let mut table = &mut tokens;
+        for part in parts {
+            table = table.entry(part).or_insert_with(|| Value::Object(Map::new())).as_object_mut().unwrap();
+        }
+        table.insert(last.into(), value);
+    }
+    tokens
+}
+
 /// A manifest that keeps every rule: commands and operations with places on the command line
 /// only for a first-party plugin.
 #[hegel::test_helper]
@@ -885,14 +1070,19 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             version: tc.draw(gs::from_regex("[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,11}")),
             fields: IndexMap::from_iter([(field, tc.draw(gs::sampled_from(field_types.clone())))]),
             roles: IndexMap::new(),
+            display: IndexMap::new(),
         })
         .collect();
     for field in fields {
         let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
         analyzers[i].fields.insert(field, tc.draw(gs::sampled_from(field_types.clone())));
     }
-    // Some roles for each, each from one of its fields of the role's type.
+    // Some roles for each, each from one of its fields of the role's type, and how some of its
+    // fields are shown.
     for a in &mut analyzers {
+        for (field, kind) in tc.draw(gs::subsequences(a.fields.clone().into_iter().collect::<Vec<_>>())) {
+            a.display.insert(field, display(tc, kind));
+        }
         for role in tc.draw(gs::subsequences(Role::ALL.to_vec())) {
             let typed: Vec<String> =
                 a.fields.iter().filter(|(_, t)| **t == role.kind()).map(|(f, _)| f.clone()).collect();
@@ -909,6 +1099,8 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         })
         .collect();
     let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
+    let panels = drawn_names(tc, 3).into_iter().map(|name| Panel { name, title: title(tc), offered: Where::Track });
+    let themes = drawn_names(tc, 3).into_iter().map(|name| Theme { name, title: title(tc), tokens: tokens(tc) });
     let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
     let kinds = vec![ProviderKind::Artwork, ProviderKind::Metadata];
     let providers: Vec<Provider> = drawn_names(tc, 3)
@@ -957,10 +1149,12 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             commands,
             events,
             operations,
+            panels: panels.collect(),
             analyzers,
             exporters,
             providers,
             services,
+            themes: themes.collect(),
             settings,
         },
         net,
@@ -1026,8 +1220,8 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 7] =
-    ["commands", "operations", "analyzers", "exporters", "providers", "services", "settings"];
+const CONTRIBUTIONS: [&str; 9] =
+    ["commands", "operations", "panels", "analyzers", "exporters", "providers", "services", "themes", "settings"];
 
 /// What names a contribution of `kind`.
 fn name_key(kind: &str) -> &'static str {
@@ -1045,7 +1239,9 @@ fn len(c: &Contributions, kind: &str) -> usize {
         "analyzers" => c.analyzers.len(),
         "exporters" => c.exporters.len(),
         "providers" => c.providers.len(),
+        "panels" => c.panels.len(),
         "services" => c.services.len(),
+        "themes" => c.themes.len(),
         _ => c.settings.len(),
     }
 }
@@ -1066,14 +1262,20 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
             }
             "analyzers" => {
                 let fields = IndexMap::from_iter([(format!("{name}-field"), FieldType::Number)]);
-                c.analyzers.push(Analyzer { name, title, version: "1".into(), fields, roles: IndexMap::new() });
+                let (roles, display) = (IndexMap::new(), IndexMap::new());
+                c.analyzers.push(Analyzer { name, title, version: "1".into(), fields, roles, display });
             }
             "exporters" => {
                 c.exporters.push(Exporter { format: name, title, extension: None, folder: true, options: None });
             }
             // Granted library:read by the caller.
             "providers" => c.providers.push(Provider { name, title, kind: ProviderKind::Metadata }),
+            "panels" => c.panels.push(Panel { name, title, offered: Where::Track }),
             "services" => c.services.push(Service { name, title }),
+            "themes" => {
+                let tokens = Map::from_iter([("playhead".into(), Value::from("#ffffff"))]);
+                c.themes.push(Theme { name, title, tokens });
+            }
             _ => c.settings.push(Setting {
                 key: name,
                 title,
@@ -1093,7 +1295,9 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
         "analyzers" => c.analyzers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "exporters" => c.exporters.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
         "providers" => c.providers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "panels" => c.panels.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "services" => c.services.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "themes" => c.themes.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         _ => c.settings.iter_mut().map(|x| (&mut x.key, &mut x.title)).collect(),
     }
 }
@@ -1106,7 +1310,9 @@ fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
         "analyzers" => c.analyzers.push(c.analyzers[i].clone()),
         "exporters" => c.exporters.push(c.exporters[i].clone()),
         "providers" => c.providers.push(c.providers[i].clone()),
+        "panels" => c.panels.push(c.panels[i].clone()),
         "services" => c.services.push(c.services[i].clone()),
+        "themes" => c.themes.push(c.themes[i].clone()),
         _ => c.settings.push(c.settings[i].clone()),
     }
 }
@@ -1164,6 +1370,16 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "net twice",
         "net rate",
         "provider grant",
+        "panel place",
+        "no tokens",
+        "token name",
+        "token colour",
+        "token count",
+        "display field",
+        "display format",
+        "display precision",
+        "display width",
+        "display unit",
         "no events",
         "event twice",
         "event grant",
@@ -1477,6 +1693,104 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     (format!("net[{i}].per_second: is how many requests a second, at least 1/3600"), false)
                 }
             }
+        }
+        "panel place" => {
+            add(c, "panels", 1);
+            let i = index(&tc, c.panels.len());
+            c.panels[i].offered = tc.draw(gs::sampled_from(vec![Where::Playlist, Where::Drive]));
+            (format!("contributes.panels[{i}].where: a panel is shown with a track: where = \"track\""), false)
+        }
+        "no tokens" | "token name" | "token colour" | "token count" => {
+            add(c, "themes", 1);
+            let i = index(&tc, c.themes.len());
+            let tokens = &mut c.themes[i].tokens;
+            let at = format!("contributes.themes[{i}].tokens");
+            match mistake {
+                "no tokens" => {
+                    tokens.clear();
+                    (format!("{at}: a theme sets a colour at least"), false)
+                }
+                "token name" => {
+                    // Longer than any token, under a group a theme has or one it hasn't.
+                    let group = tc.draw(gs::sampled_from(vec!["ui", "cues", "added"]));
+                    let name = format!("{group}.added-colour");
+                    tokens.insert(group.into(), json!({ "added-colour": "#000000" }));
+                    (format!("{at}.{name}: {name:?} isn't a colour a theme sets"), false)
+                }
+                "token colour" => {
+                    let wrong = tc.draw(gs::sampled_from(vec![
+                        json!("#FFFFFF"),
+                        json!("#fff"),
+                        json!("ffffff"),
+                        json!(5),
+                        json!(true),
+                        json!(["#ffffff", 1]),
+                    ]));
+                    tokens.insert("playhead".into(), wrong);
+                    (format!("{at}.playhead: isn't #rrggbb (lowercase), or a list of them"), false)
+                }
+                _ => match tc.draw(gs::booleans()) {
+                    true => {
+                        tokens.insert("playhead".into(), json!(["#ffffff", "#000000"]));
+                        (format!("{at}.playhead: playhead is one colour"), false)
+                    }
+                    false => {
+                        tokens.insert("waveform".into(), json!({ "scope": tc.draw(gs::sampled_from(vec![json!("#ffffff"), json!([]), json!(["#ffffff"])])) }));
+                        (format!("{at}.waveform.scope: waveform.scope is a gradient: two colours or more"), false)
+                    }
+                },
+            }
+        }
+        "display field" | "display format" | "display precision" | "display width" | "display unit" => {
+            add(c, "analyzers", 1);
+            let i = index(&tc, c.analyzers.len());
+            let a = &mut c.analyzers[i];
+            let (field, kind) = a.fields.iter().next().map(|(f, k)| (f.clone(), *k)).unwrap();
+            let at = format!("contributes.analyzers[{i}].display");
+            let mut d = display(&tc, kind);
+            let said = match mistake {
+                "display field" => {
+                    // Longer than any drawn name, so none of its fields.
+                    a.display.insert("added-display-field".into(), d);
+                    return assert_eq!(
+                        problem_with(&m, first_party),
+                        format!("{at}.added-display-field: \"added-display-field\" isn't its field")
+                    );
+                }
+                "display format" => {
+                    let all = [
+                        FieldFormat::Key,
+                        FieldFormat::Duration,
+                        FieldFormat::Db,
+                        FieldFormat::Percent,
+                        FieldFormat::Meter,
+                    ];
+                    let unfit: Vec<FieldFormat> = all.into_iter().filter(|f| !fits(kind, *f)).collect();
+                    let f = tc.draw(gs::sampled_from(unfit));
+                    d.format = Some(f);
+                    let named = serde_json::to_value(kind).unwrap();
+                    let format = serde_json::to_value(f).unwrap();
+                    format!(
+                        ".format: {field} is a {}, which {} isn't for",
+                        named.as_str().unwrap(),
+                        format.as_str().unwrap()
+                    )
+                }
+                "display precision" => {
+                    d.precision = Some(tc.draw(gs::integers::<u8>().min_value(FieldDisplay::MAX_PRECISION + 1)));
+                    ".precision: is 0 to 6 places".into()
+                }
+                "display width" => {
+                    d.width = Some(tc.draw(gs::sampled_from(vec![0, FieldDisplay::MAX_WIDTH + 1, u16::MAX])));
+                    ".width: is 1 to 40 cells".into()
+                }
+                _ => {
+                    d.unit = Some(tc.draw(gs::text().alphabet(" \t").max_size(3)));
+                    ".unit: is empty".into()
+                }
+            };
+            a.display.insert(field.clone(), d);
+            (format!("{at}.{field}{said}"), false)
         }
         "provider grant" => {
             add(c, "providers", 1);

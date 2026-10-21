@@ -15,8 +15,8 @@ use std::time::Duration;
 
 use loclib_plugin::{
     Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, EventNotify, Exported, ExportedFile, Fetch,
-    FieldValue, Hooks, Host, HostNotify, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, RpcError, RunCommand,
-    StartService, Suggested, View, WriteExport, params,
+    FieldValue, Hooks, Host, HostNotify, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, RenderPanel, RpcError,
+    RunCommand, StartService, Suggested, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -63,6 +63,10 @@ impl Test {
         if has("operations") {
             let test = test.clone();
             hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
+        }
+        if has("panels") {
+            let test = test.clone();
+            hooks = hooks.on(move |req: RenderPanel, host: &Host| test.render_panel(req, host));
         }
         if has("providers") {
             hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));
@@ -141,6 +145,9 @@ impl Test {
                 }
                 Err(error) => json!({ "error": error }),
             });
+        }
+        if let Some(view) = p.get("view") {
+            return Ok(view.clone());
         }
         if let Some(rows) = p["partial"].as_array() {
             // Each row as a part of its own, then the table of them all.
@@ -243,6 +250,29 @@ impl Test {
         }
         let warnings = params(answer.get("warnings").cloned().unwrap_or(json!([])))?;
         Ok(Candidates { candidates, warnings })
+    }
+
+    /// Echo's panel (`about`), or any other answering as its `panel` setting says (JSON):
+    /// failing with the error `fail` is, else after `sleep` milliseconds (failing as cancelled
+    /// once the host cancels it), once the files `blobs` gives are in the scratch folder, its
+    /// `view`.
+    fn render_panel(&self, req: RenderPanel, host: &Host) -> Result<View, RpcError> {
+        if req.panel == "about" {
+            return echo::render_panel(req, host);
+        }
+        let answer: Value = req.context.settings.get("panel").and_then(Value::as_str).map_or(Ok(json!({})), |a| {
+            serde_json::from_str(a).map_err(|e| RpcError::failed("invalid", e.to_string()))
+        })?;
+        if let Some(kind) = answer["fail"].as_str() {
+            return Err(RpcError::failed(kind, "it failed"));
+        }
+        let until = std::time::Instant::now() + Duration::from_millis(answer["sleep"].as_u64().unwrap_or(0));
+        while std::time::Instant::now() < until {
+            host.ctx().check()?;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        write_blobs(&req.context, &answer)?;
+        params(answer.get("view").cloned().unwrap_or(json!({ "kind": "text", "text": "" })))
     }
 }
 

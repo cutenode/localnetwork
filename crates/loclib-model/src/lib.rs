@@ -7,6 +7,7 @@ pub mod model;
 pub mod paths;
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_util;
+pub mod theme;
 pub mod tokens;
 
 pub use model::{Library, Playlist, Track, TrackColor};

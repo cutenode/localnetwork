@@ -230,7 +230,7 @@ pub mod testing {
     }
 }
 
-pub use loclib_model::{harmony, model, tokens};
+pub use loclib_model::{harmony, model, theme, tokens};
 
 /// A mutex's guard, though a thread panicked holding it: what it guards is left whole by every
 /// change made under it.

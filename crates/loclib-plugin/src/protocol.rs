@@ -23,6 +23,7 @@ pub mod method {
     pub use crate::hooks::events::{EVENT_NOTIFY, HOST_NOTIFY};
     pub use crate::hooks::exporters::WRITE_EXPORT;
     pub use crate::hooks::operations::PLAN_OP;
+    pub use crate::hooks::panels::RENDER_PANEL;
     pub use crate::hooks::providers::PROVIDE;
     pub use crate::hooks::services::SERVICE_START;
 

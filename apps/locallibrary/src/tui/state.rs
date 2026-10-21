@@ -1,6 +1,6 @@
 //! What the player remembers between runs (the drive and list it was showing, the view, sort,
-//! volume, visualiser and panels, quantize, the output, the crate, and the queue and where it was
-//! in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
+//! volume, visualiser and panels, its theme, quantize, the output, the crate, and the queue and
+//! where it was in it), in `tui.json` in the store, or beside the store's folder until there is one. Best
 //! effort: a missing or unreadable file just means starting fresh, and nothing is ever written to
 //! a drive.
 
@@ -41,6 +41,8 @@ pub struct Saved {
     pub tags_column: bool,
     /// The track list's columns of plugins' fields (`sound.bpm`), in order.
     pub field_columns: Vec<String>,
+    /// The theme it draws in, a plugin's (`<plugin>.<name>`): the default without one.
+    pub theme: Option<String>,
     pub shuffle: bool,
     /// `off`, `all` or `one`.
     pub repeat: Option<String>,

@@ -47,10 +47,12 @@ pub struct Contributions {
     pub commands: Vec<hooks::commands::Command>,
     pub events: Vec<hooks::events::Listener>,
     pub operations: Vec<hooks::operations::Operation>,
+    pub panels: Vec<hooks::panels::Panel>,
     pub analyzers: Vec<hooks::analyzers::Analyzer>,
     pub exporters: Vec<hooks::exporters::Exporter>,
     pub providers: Vec<hooks::providers::Provider>,
     pub services: Vec<hooks::services::Service>,
+    pub themes: Vec<hooks::themes::Theme>,
     pub settings: Vec<Setting>,
 }
 
@@ -584,10 +586,12 @@ impl Manifest {
         hooks::commands::validate(self)?;
         hooks::events::validate(self)?;
         hooks::operations::validate(self)?;
+        hooks::panels::validate(self)?;
         hooks::analyzers::validate(self)?;
         hooks::exporters::validate(self)?;
         hooks::providers::validate(self)?;
         hooks::services::validate(self)?;
+        hooks::themes::validate(self)?;
         let at = "contributes.settings";
         unique_names(at, "key", c.settings.iter().map(|x| x.key.as_str()).enumerate())?;
         for (i, x) in c.settings.iter().enumerate() {

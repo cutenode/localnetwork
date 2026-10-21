@@ -2193,6 +2193,16 @@ export type PlanPluginOp = {
   context: PluginContext;
 };
 
+export type RenderPluginPanel = {
+  plugin: string;
+  /** One of the plugin's panels (`plugins.describe`). */
+  panel: string;
+  /** A library's name, or a drive's mount path, name or id prefix. */
+  drive: string;
+  /** The track, by id. */
+  track: number;
+};
+
 export type PlanPluginExport = {
   plugin: string;
   /** The exporter's format. */
@@ -6470,6 +6480,8 @@ export type PlayExtras = {
   phrases: PhraseSpan[];
   /** Its hot cues, in seconds into the track. */
   cues: CueMark[];
+  /** What analyzers worked out for it that a page shows (the HTML report's), in order. */
+  fields?: ShownField[];
 };
 
 export type PhraseSpan = {
@@ -6486,6 +6498,14 @@ export type CueMark = {
   label: string;
   /** `#rrggbb`. */
   color: string | null;
+};
+
+/** An analyzer's field, as a page shows it. */
+export type ShownField = {
+  /** `<plugin>.<field>` (`sound.lufs`). */
+  label: string;
+  /** As its analyzer says it's shown (`-8.2 LUFS`). */
+  value: string;
 };
 
 export type MixExport = {
@@ -7444,16 +7464,18 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations, analyzers, providers and services by name, the
-   * events it listens for, its export formats and its settings' keys.
+   * What it adds: its commands, operations, panels, analyzers, providers, services and themes by
+   * name, the events it listens for, its export formats and its settings' keys.
    */
   commands: string[];
   events: string[];
   operations: string[];
+  panels: string[];
   analyzers: string[];
   exporters: string[];
   providers: string[];
   services: string[];
+  themes: string[];
   settings: string[];
   /** It's running now: plugins start when they're first used, and stop once they're idle. */
   running: boolean;
@@ -7515,10 +7537,12 @@ export type Contributions = {
   commands: Command[];
   events: Listener[];
   operations: Operation[];
+  panels: Panel[];
   analyzers: Analyzer[];
   exporters: Exporter[];
   providers: Provider[];
   services: Service[];
+  themes: Theme[];
   settings: Setting[];
 };
 
@@ -7596,6 +7620,17 @@ export type Operation = {
   cli?: string | null;
 };
 
+/**
+ * Shown under a track's details, as `panel/render` answers for the track. Hosts ask for it as
+ * the user comes to a track, so it answers quickly, reading only what it needs.
+ */
+export type Panel = {
+  name: string;
+  title: string;
+  /** What it's shown with: a track, unless it says. */
+  where: Where;
+};
+
 /** Run with `track/analyze`; its fields become columns. */
 export type Analyzer = {
   name: string;
@@ -7611,9 +7646,41 @@ export type Analyzer = {
    * that role (see [`Role`]).
    */
   roles?: { [key: string]: string };
+  /**
+   * How hosts show some of its fields, by field (`display.lufs = { unit = "LUFS" }`): in the
+   * player's columns, `track show` and the mix report.
+   */
+  display?: { [key: string]: FieldDisplay };
 };
 
 export type FieldType = "number" | "integer" | "string" | "boolean" | "string[]";
+
+/**
+ * How hosts show a field's values, each part optional. Without them a number shows to two
+ * places at most (trailing zeros left out), a list joined with commas, a boolean as yes or no.
+ */
+export type FieldDisplay = {
+  /** Said after a value (`LUFS`); a `db` format's is `dB` unless it says. */
+  unit?: string | null;
+  /** A number's decimal places, 0 to 6. */
+  precision?: number | null;
+  format?: FieldFormat | null;
+  /** How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is. */
+  width?: number | null;
+};
+
+/** What a field's values are, for hosts to show them as such. */
+export type FieldFormat =
+  /** A key (a string), as the host shows keys. */
+  | "key"
+  /** Seconds (a number), as minutes and seconds (`3:07`, `1:02:03`). */
+  | "duration"
+  /** Decibels (a number), signed (`+0.4 dB`, `-8.2 dB`). */
+  | "db"
+  /** A fraction (a number, 0 to 1) as a percentage (`85%`; no decimal places unless it says). */
+  | "percent"
+  /** A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says). */
+  | "meter";
 
 /** Run with `export/write`. */
 export type Exporter = {
@@ -7649,6 +7716,17 @@ export type Provider = {
 export type Service = {
   name: string;
   title: string;
+};
+
+/**
+ * `[[contributes.themes]]`: a theme's colours, by the names of [`theme::TOKENS`] as tables (`cues.hot =
+ * "#28e214"`, `ui = { accent = "#ff8800" }`), each `#rrggbb` (a gradient, `waveform.*`, a list
+ * of two or more). What it leaves out is the default's.
+ */
+export type Theme = {
+  name: string;
+  title: string;
+  tokens: { [key: string]: unknown };
 };
 
 /** A setting the host stores and shows in its settings. */
@@ -7708,10 +7786,13 @@ export type View =
     items: ListItem[];
     kind: "list";
   }
-  /** Rows of cells (strings, numbers, booleans or `null`) under column headings. */
+  /**
+   * Rows of cells (strings, numbers, booleans or `null`) under column headings: each a name,
+   * or (feature `views`) a name with what its cells are ([`Column`]).
+   */
   | {
     title?: string | null;
-    columns: string[];
+    columns: Column[];
     rows: unknown[][];
     kind: "table";
   }
@@ -7733,12 +7814,77 @@ export type View =
    */
   | (PluginChoice & {
     kind: "choose";
-  });
+  })
+  /** Items with items below them (feature `views`). */
+  | {
+    title?: string | null;
+    items: TreeItem[];
+    kind: "tree";
+  }
+  /** Points, each series a line or bars (feature `views`). */
+  | {
+    title?: string | null;
+    style: ChartStyle;
+    series: Series[];
+    x_label?: string | null;
+    y_label?: string | null;
+    kind: "chart";
+  }
+  /**
+   * A picture (features `views` and `blobs`): a file in the request's scratch folder, which
+   * the host reads (see [`crate::Blob`]).
+   */
+  | {
+    title?: string | null;
+    /** Its file's name in the scratch folder. */
+    blob: string;
+    /** What it shows, in a few words: what a host that can't draw it says instead. */
+    alt: string;
+    /**
+     * The picture as a `data:` URL, filled in by the host once it has read the blob and
+     * found an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin
+     * sends here is replaced.
+     */
+    data?: string | null;
+    kind: "image";
+  }
+  /** Views one after another, each under a title of its own (feature `views`). */
+  | {
+    title?: string | null;
+    items: Section[];
+    kind: "sections";
+  };
 
 export type ListItem = {
   label: string;
   detail?: string | null;
 };
+
+/**
+ * A table's column: its heading alone (text), or (feature `views`) a heading and what its cells
+ * are.
+ */
+export type Column = string | TypedColumn;
+
+/** A column and what its cells are. */
+export type TypedColumn = {
+  name: string;
+  kind: ColumnKind;
+  unit?: string | null;
+};
+
+/** What a column's cells are, for a host to show them as it shows its own. */
+export type ColumnKind =
+  /** As they are. */
+  | "text"
+  /** A track, by id: shown by its artist and title where the host has the drive's library. */
+  | "track"
+  /** Seconds: shown as minutes and seconds (`3:07`). */
+  | "duration"
+  /** A key (`8A`, `Am`): shown in Camelot notation where it's one. */
+  | "key"
+  /** Numbers, with the column's unit after each. */
+  | "number";
 
 export type Pair = {
   label: string;
@@ -7760,6 +7906,26 @@ export type PluginChoice = {
   /** Any of the items may be chosen, none too: the param is set to a list of their values. */
   multi?: boolean;
   items: ChoiceItem[];
+};
+
+export type TreeItem = {
+  label: string;
+  detail?: string | null;
+  children?: TreeItem[];
+};
+
+/** How a chart draws its series. */
+export type ChartStyle = "line" | "bar";
+
+/** A chart's series: its name and its points, `[x, y]`. */
+export type Series = {
+  name: string;
+  points: [number, number][];
+};
+
+export type Section = {
+  title: string;
+  view: View;
 };
 
 /**
@@ -8827,6 +8993,8 @@ export interface Methods {
   "plugins.op.plan": { params: PlanPluginOp & WriteOptions; result: OpPlanned };
   /** apply method; paired with `plugins.op.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.op.apply": { params: ApplyPlan | (PlanPluginOp & WriteOptions); result: EditReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "plugins.panel": { params: RenderPluginPanel; result: View };
   /** plan method; paired with `plugins.export.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.export.plan": { params: PlanPluginExport & WriteOptions; result: PluginExport & PlanFields };
   /** apply method; paired with `plugins.export.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

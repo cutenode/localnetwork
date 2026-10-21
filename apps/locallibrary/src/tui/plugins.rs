@@ -13,7 +13,9 @@
 mod analyzers;
 mod events;
 mod exporters;
+pub(super) mod panels;
 pub(super) mod providers;
+mod themes;
 
 use std::path::{Path, PathBuf};
 
@@ -29,7 +31,7 @@ use super::edits::{Modal, Target};
 use super::form::{For, Form};
 use super::keymap::Act;
 use super::palette::{Item, Picker, Then};
-use crate::plugin_cmd::view::{pairs, table};
+use crate::plugin_cmd::view::{Drawn, Names};
 use crate::plugins::params::{cell, properties};
 
 /// A plugin's command or operation, and where it runs: the drive, and what's selected there (its
@@ -207,36 +209,34 @@ fn reads_drive(capability: &Capability) -> bool {
     )
 }
 
-/// A view a command answered, as a panel's lines: a list's items (each detail under its label),
-/// a table's rows under its headings, labelled values aligned, or text.
-pub fn view_lines(v: &View) -> Vec<(Tone, String)> {
+/// A view a command (or a panel) answered, as a panel's lines: each kind as plain text (see
+/// [`crate::plugin_cmd::view::lines`]), an item's detail under its label, a section's title as a
+/// heading. `names` names the tracks of a `track` column.
+pub fn view_lines(v: &View, names: Names<'_>) -> Vec<(Tone, String)> {
     let mut lines = Vec::new();
-    match v {
-        View::List { items, .. } => {
-            for i in items {
-                lines.push((Tone::Text, i.label.clone()));
-                lines.extend(i.detail.as_ref().map(|d| (Tone::Faint, format!("  {d}"))));
+    for line in crate::plugin_cmd::view::lines(v, names) {
+        match line {
+            Drawn::Heading(title) => lines.push((Tone::Heading, title)),
+            Drawn::Item { label, detail, depth } => {
+                let indent = "  ".repeat(depth);
+                lines.push((Tone::Text, format!("{indent}{label}")));
+                lines.extend(detail.map(|d| (Tone::Faint, format!("{indent}  {d}"))));
             }
+            Drawn::Columns(headings) => lines.push((Tone::Columns, headings)),
+            Drawn::Row(row) => lines.push((Tone::Row, row)),
+            Drawn::Text(text) => lines.extend(text.lines().map(|l| (Tone::Text, l.to_string()))),
+            Drawn::Missing => lines.push((Tone::Faint, "nothing to show".into())),
         }
-        View::Table { columns, rows, .. } => {
-            let mut table = table(columns, rows).into_iter();
-            lines.extend(table.next().map(|headings| (Tone::Columns, headings)));
-            lines.extend(table.map(|row| (Tone::Row, row)));
-            if rows.is_empty() {
-                lines.push((Tone::Faint, "nothing to show".into()));
-            }
-        }
-        View::Kv { pairs: kv, .. } => lines.extend(pairs(kv).into_iter().map(|p| (Tone::Text, p))),
-        View::Text { text, .. } => lines.extend(text.lines().map(|l| (Tone::Text, l.to_string()))),
-        View::Choose(_) => unreachable!("a question is asked, never drawn"),
-    }
-    if lines.is_empty() {
-        lines.push((Tone::Faint, "nothing to show".into()));
     }
     lines
 }
 
 impl App {
+    /// The open library's track `id` as it's named (`Artist - Title`), for a view's `track` cells.
+    pub(super) fn track_name(&self, id: u32) -> Option<String> {
+        self.loaded.as_ref()?.library.track(id).map(|t| t.display_name())
+    }
+
     /// Whether plugins can run on the drive at `root`: one plugged in, rather than a folder
     /// opened by path. `None` without a drive.
     pub(super) fn pluggable(&self, root: Option<&Path>) -> Option<bool> {
@@ -293,7 +293,8 @@ impl App {
     }
 
     /// The settings of each plugin that has some (or a service), then the providers' when there
-    /// are any, as the palette lists them, wherever it's open.
+    /// are any, then the themes to draw in when a plugin has one, as the palette lists them,
+    /// wherever it's open.
     pub(super) fn settings_items(&self) -> Vec<(Act, Item)> {
         let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
         let with =
@@ -302,7 +303,7 @@ impl App {
             with.map(|m| (Act::PluginSettings(&m.id), Item::new(format!("{} plugin settings…", m.name), &m.name)));
         let providers =
             providers::providing(plugins, None).map(|by| (Act::ProviderSettings, Item::new("provider settings…", by)));
-        items.chain(providers).collect()
+        items.chain(providers).chain(themes::items()).collect()
     }
 
     /// A plugin's settings in a form, each filled in as it's set now (else its default), and a
@@ -504,7 +505,10 @@ impl App {
                 let text = serde_json::to_string_pretty(&v).unwrap_or_default();
                 (title, text.lines().map(|l| (Tone::Text, l.into())).collect())
             }
-            CommandOutput::View(v) => (v.title().map_or(title, String::from), view_lines(&v)),
+            CommandOutput::View(v) => {
+                let names = |id| self.track_name(id);
+                (v.title().map_or(title, String::from), view_lines(&v, &names))
+            }
         };
         self.modal = Some(Modal::Report(Report { title, lines, scroll: 0 }));
     }

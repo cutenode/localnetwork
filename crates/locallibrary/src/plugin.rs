@@ -1,7 +1,7 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
-//! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters,
-//! providers, services and settings, and listening for events. The CLI, the TUI and the RPC
-//! sidecar host them through [`Plugins`].
+//! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, panels, track analyzers,
+//! exporters, providers, services, themes and settings, and listening for events. The CLI, the
+//! TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -33,6 +33,7 @@ mod events;
 mod exports;
 mod net;
 mod operations;
+mod panels;
 mod process;
 mod providers;
 mod secrets;
@@ -265,6 +266,12 @@ impl Plugins {
             }
         }
         offered
+    }
+
+    /// How the plugin's analyzers say their field `field` is shown, if they say.
+    pub fn display(&self, plugin: &str, field: &str) -> Option<&loclib_plugin::FieldDisplay> {
+        let analyzers = &self.plugins.get(plugin)?.manifest.contributes.analyzers;
+        analyzers.iter().find_map(|a| a.display.get(field))
     }
 
     /// Every analyzer's fields, by name as filters and sorts name them (`sound.bpm`), with their

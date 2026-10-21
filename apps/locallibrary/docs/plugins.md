@@ -53,7 +53,11 @@ matches no filter and sorts last. `locallibrary track LIBRARY --track ID` shows 
 track's details, each as `ID.FIELD` (`sound.bpm`), and `locallibrary tracks` filters and sorts by
 them (`--filter "sound.bpm:>120" --sort -sound.bpm`), as the sidecar's `tracks.query` does. In
 the player, analyzers are in the palette and a drive's menu, and their fields are columns to
-show, sort and search by. What locallibrary itself reads from them is their [roles](#roles).
+show, sort and search by. An analyzer may say how its fields are shown: a unit (`LUFS`), how many
+places, as a key, a duration (`3:07`), decibels, a percentage or a meter, and how wide its column
+is in the player; `track` and the player show them so, and the rest as they are, and a mix's
+HTML report shows those fields of each track it played. What
+locallibrary itself reads from them is their [roles](#roles).
 
 ## Commands and operations
 
@@ -61,7 +65,9 @@ They're `locallibrary ID NAME`, or where the plugin puts them (`locallibrary pla
 tracklist plugin's `import`). Their params are flags (`--into Sets`, `--append`; `KEY=VALUE` pairs
 for a map, repeated), or JSON with `--params`. `locallibrary ID NAME --help` lists them. A command
 shows what it answers as a list or a table (its rows as they come, when the plugin sends them so),
-or as text or JSON when it answers a plain value (`--json`: as it is); an operation shows its plan
+labelled values, a tree, a chart (as a table of its points), a picture (said in words) or
+sections of those, or as text or JSON when it answers a plain value (`--json`: as it is, a
+picture as a PNG `data:` URL); an operation shows its plan
 and asks first, like any edit (`--dry-run`, `--yes`), and `locallibrary undo` takes it back.
 Either may ask you something first (which track an entry is, say): in a terminal you pick from a
 numbered list; otherwise, or with `--json`, it stops and says how to answer with `--choose
@@ -98,6 +104,14 @@ They're `locallibrary export LIBRARY --format FORMAT -o PATH`, with the plugin's
 format can't hold), and overwriting a file is asked about first unless `--replace`. In the player
 they're in the palette and a drive's menu: an export shows what it would write and asks before
 writing it.
+
+## Panels
+
+A panel shows something about a track under its details: `locallibrary track LIBRARY --track ID`
+prints each plugin's panel after the track's details and fields (with `--json`, each panel's
+view, or why it couldn't show one), and the player shows them under the selected track's details,
+asked for once the selection settles on a track. A panel that fails says so, and the others show
+all the same. The sidecar's `plugins.panel` renders one for a desktop app.
 
 ## Providers
 
@@ -155,6 +169,16 @@ kept in the system's keychain (or with `LOCALLIBRARY_SESSION_STORE=file` in
 ever shown as set or not set (or unknown, with why, when the keychain can't say), and never
 copied off the computer. In the player, each plugin's settings are a form in the palette.
 
+## Themes
+
+A theme is the colours the player draws in, a plugin's as data: the player's own (text, accents,
+the selection), the waveform's gradients, cue and phrase colours, rekordbox's track colours and
+good, warning and critical. "Night theme" and the others in the player's palette (`:`) draw in
+one from then on, and "default theme" puts the default back; the one chosen is kept in the
+player's `tui.json`, and the next run starts in it. What a theme leaves out is the default's. On a
+light terminal its colours are turned round as the default's are, and with `NO_COLOR` there are
+none.
+
 ## Writing one
 
 A plugin in Rust uses [loclib-plugin](../../../crates/loclib-plugin)'s SDK: a function for each
@@ -162,8 +186,11 @@ kind of hook it has, `host.drive(drive)` to read a drive (the library, tracks by
 query, playlists, analysis, artwork and `drive.info`, each read whole however locallibrary pages
 it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's rows as they're
 ready. A command or an operation may answer a question for you (`Choice`) instead, and is run
-again with your answer as one of its params. `Hooks::on_event` handles events, a service is a hook
-that runs until it's cancelled, and `host.notify(..)` tells you something. Each family of hooks is an optional feature of the
+again with your answer as one of its params. A view (a command's, a panel's) is any of
+loclib-plugin's kinds, each with a plain text form for a host that can't draw it, and a theme
+is a table of colours in the manifest. `Hooks::on_event` handles events, a service is a hook
+that runs until it's cancelled, and `host.notify(..)` tells you something. Each family of hooks
+is an optional feature of the
 protocol, so a newer locallibrary adds kinds of hooks without breaking older plugins.
 
 ## Safety

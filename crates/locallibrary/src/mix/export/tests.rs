@@ -266,7 +266,8 @@ fn exports_count_what_the_report_found(tc: TestCase) {
     let library = Library { tracks: r.plays.iter().map(|p| p.track.clone()).collect(), ..Default::default() };
     let analyses: Vec<TrackAnalysis> = r.plays.iter().map(|_| analysis(&tc)).collect();
     let on_drive = tc.draw(gs::booleans());
-    let drive = on_drive.then_some(Drive { device: &device, library: &library, analyses: Some(&analyses) });
+    let drive =
+        on_drive.then_some(Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None });
     let e = build(&r, drive, &prefs);
 
     assert_eq!(
@@ -309,8 +310,12 @@ fn exports_count_what_the_report_found(tc: TestCase) {
             .filter(|ph| (1..=a.beats.len()).contains(&(ph.start_beat as usize).max(1)))
             .count();
         let preview = a.preview.as_ref().filter(|w| !w.columns.is_empty());
-        let page =
-            extras(Drive { device: &device, library: &library, analyses: Some(&analyses) }, &r.plays[i], i, false);
+        let page = extras(
+            Drive { device: &device, library: &library, analyses: Some(&analyses), fields: None },
+            &r.plays[i],
+            i,
+            false,
+        );
         if !on_drive {
             assert!(x.track.overview.is_none() && x.track.cues.is_empty() && x.track.phrases.is_empty());
             continue;
@@ -418,7 +423,7 @@ fn exports_carry_thumbnails_of_only_what_may_be_shared(tc: TestCase) {
             p
         })
         .collect();
-    let drive = Drive { device: &device, library: &library, analyses: None };
+    let drive = Drive { device: &device, library: &library, analyses: None, fields: None };
     let e = build(&r, Some(drive), &prefs);
 
     let thumbnail_side = |url: &str| {

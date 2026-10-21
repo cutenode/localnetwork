@@ -1,6 +1,7 @@
 //! `plugin`: the plugins locallibrary has, their settings, which analyzer each field role is read
 //! from and when a provider's candidate is chosen for the user; `analyze`, running their
-//! analyzers on a drive's tracks; `art fetch` and `track fetch`, what their providers find; and
+//! analyzers on a drive's tracks; `art fetch` and `track fetch`, what their providers find; their
+//! panels under `track show`'s details; and
 //! the commands and operations they add to the command line (`locallibrary <plugin> <name>`, or
 //! the place a manifest gives one, `playlist import`), whose flags come from their params' JSON
 //! Schemas.
@@ -10,6 +11,7 @@ mod choose;
 mod contributed;
 mod fetch;
 mod listing;
+mod panels;
 pub(crate) mod view;
 
 use std::path::PathBuf;
@@ -24,6 +26,7 @@ use crate::plugins::{self, Described, Listed};
 pub use analyze::{AnalyzeArgs, analyze, fields, show_fields};
 pub use contributed::{Contributed, add_to, options, run_contributed, take};
 pub use fetch::{FetchArgs, fetch};
+pub use panels::{panels, show_panels};
 
 #[derive(Args)]
 pub struct PluginArgs {

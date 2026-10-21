@@ -26,6 +26,7 @@ pub const FEATURES: &[Feature] = &[
     hooks::commands::FEATURE,
     hooks::events::FEATURE,
     hooks::operations::FEATURE,
+    hooks::panels::FEATURE,
     hooks::analyzers::FEATURE,
     hooks::exporters::FEATURE,
     hooks::providers::FEATURE,
@@ -35,4 +36,7 @@ pub const FEATURES: &[Feature] = &[
     Feature { name: "net", methods: &[], sends: &[method::NET_FETCH], contributed: |m| !m.net.is_empty() },
     // A view command's or an operation's question for the user (`View::Choose`, `{"choose": ...}`).
     Feature { name: "choose", methods: &[], sends: &[], contributed: |_| false },
+    // What a view may be besides a list, a table of plain columns, labelled values and text: a
+    // tree, a chart, an image, sections, and a table's typed columns.
+    Feature { name: "views", methods: &[], sends: &[], contributed: |_| false },
 ];

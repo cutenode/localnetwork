@@ -44,7 +44,9 @@ pub(super) fn list(all: &[Listed]) {
             named("analyzer", &p.analyzers),
             named("export format", &p.exporters),
             named("provider", &p.providers),
+            named("panel", &p.panels),
             named("service", &p.services),
+            named("theme", &p.themes),
             named("setting", &p.settings),
         ]
         .into_iter()
@@ -92,6 +94,8 @@ pub(super) fn info(d: &Described) {
     let operations =
         c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Operations (planned, then confirmed):", operations.collect());
+    let panels = c.panels.iter().map(|p| (p.name.clone(), format!("{}, under a track's details", p.title)));
+    section("Panels (locallibrary track show, and the player):", panels.collect());
     let analyzers = c.analyzers.iter().map(|a| {
         let fields: Vec<&str> = a.fields.keys().map(String::as_str).collect();
         // Each with its field, where that's named otherwise: `loudness (integrated_lufs)`.
@@ -120,6 +124,8 @@ pub(super) fn info(d: &Described) {
         (s.name.clone(), format!("{}: {}", s.title, if on { "on" } else { "off" }))
     });
     section(&format!("Services (locallibrary plugin settings {} services.NAME on):", m.id), services.collect());
+    let themes = c.themes.iter().map(|t| (t.name.clone(), format!("{}, in the player", t.title)));
+    section("Themes:", themes.collect());
     let settings =
         c.settings.iter().map(|s| (s.key.clone(), format!("{}: {}", s.title, shown(s, &d.settings, &d.secrets))));
     section(&format!("Settings (locallibrary plugin settings {}):", m.id), settings.collect());
