@@ -418,3 +418,22 @@ fn a_lock_has_one_holder_at_a_time(tc: hegel::TestCase) {
     assert!(matches!(FileLock::try_take(&nowhere), Err(Error::Io { path, .. }) if path == nowhere));
     assert!(!dir.path().join("gone").exists());
 }
+
+/// A rename waits for a look [`unreplaced`] is taking (on Windows the look's handles would fail
+/// it), and is made once the look is done.
+#[test]
+fn a_rename_waits_for_a_look_to_finish() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("export.pdb");
+    fs::write(&path, b"old").unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::scope(|s| {
+        unreplaced(|| {
+            s.spawn(|| tx.send(write_atomic(&path, b"new")).unwrap());
+            assert!(rx.recv_timeout(std::time::Duration::from_millis(100)).is_err(), "renamed during the look");
+            assert_eq!(fs::read(&path).unwrap(), b"old");
+        });
+        rx.recv().unwrap().unwrap();
+    });
+    assert_eq!(fs::read(&path).unwrap(), b"new");
+}

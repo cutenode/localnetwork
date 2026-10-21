@@ -710,25 +710,42 @@ fn a_stretch_found_twice_is_one_play(tc: TestCase) {
 /// from different places in it (a chorus coming round again), the weaker is dropped when it
 /// overlaps the stronger by half its length, or by over 6 s with under 60% of its votes. One
 /// heard just after it, or overlapping it for a moment with nearly as many votes, is kept: a
-/// jump to another place in the track.
+/// jump to another place in the track, when it has the votes a chain needs.
 #[hegel::test(test_cases = 200)]
+// 24 s from the last 3 frames of a slice: `chain_at` gives that slice no anchors and leaves out
+// the one it ends partway through, so the stretch after it is heard in 5 slices, 25 votes.
+#[hegel::explicit_test_case(len = 24.0f64, kind = 2u8, on = 7.84375f64)]
 fn a_track_isnt_heard_in_two_places_at_once(tc: TestCase) {
     let variants = fingerprint::variants(0.08);
     // 15 slices of 20 votes.
     let strong = chain_at(&variants, 0.0, 60.0, 10.0, 1.0);
     let len = tc.draw(gs::floats::<f64>().min_value(24.0).max_value(36.0));
-    let (kind, from, votes) = match tc.draw(gs::integers::<u8>().max_value(3)) {
-        0 => ("inside", tc.draw(gs::floats::<f64>().min_value(2.0).max_value(58.0 - len)), 30),
-        1 => ("ghost", 60.0 - tc.draw(gs::floats::<f64>().min_value(8.0).max_value(0.45 * len)), 5),
-        2 => ("after", 60.0 + tc.draw(gs::floats::<f64>().min_value(6.0).max_value(18.0)), 5),
-        _ => ("brief", 60.0 - tc.draw(gs::floats::<f64>().min_value(0.5).max_value(4.0)), 35),
+    let kind = tc.draw(gs::integers::<u8>().max_value(3));
+    let (kind, from, votes) = match kind {
+        0 => {
+            let at = tc.draw(gs::floats::<f64>().min_value(2.0).max_value(58.0 - len));
+            ("inside", at, 30)
+        }
+        1 => {
+            let back = tc.draw(gs::floats::<f64>().min_value(8.0).max_value(0.45 * len));
+            ("ghost", 60.0 - back, 5)
+        }
+        2 => {
+            let on = tc.draw(gs::floats::<f64>().min_value(6.0).max_value(18.0));
+            ("after", 60.0 + on, 5)
+        }
+        _ => {
+            let back = tc.draw(gs::floats::<f64>().min_value(0.5).max_value(4.0));
+            ("brief", 60.0 - back, 35)
+        }
     };
     let mut weak = chain_at(&variants, from, from + len, 150.0, 1.0);
     weak.detections.retain(|d| !d.pairs.is_empty());
     weak.detections.iter_mut().for_each(|d| d.votes = votes);
+    // Without the votes a chain needs, which 5 a slice over 24 s can fall short of, it isn't heard.
+    let kept = matches!(kind, "after" | "brief") && weak.votes() >= CHAIN_VOTES;
     let found = plays(vec![strong, weak], &variants);
     let fits: usize = found.iter().map(|f| f.fits.len()).sum();
-    let kept = matches!(kind, "after" | "brief");
     assert_eq!((found.len(), fits), (1, 1 + usize::from(kept)), "{kind} from {from} for {len}: {found:#?}");
     assert_eq!(found[0].jumps, u32::from(kept));
 }

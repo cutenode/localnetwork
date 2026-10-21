@@ -100,6 +100,30 @@ fn stamps_tell_rewritten_databases_apart() {
     assert_ne!(LibraryStamp::of(root), before);
 }
 
+/// Regression: a watcher stamping a drive's database while another thread renamed a new one over
+/// it failed the rename on Windows ("Access is denied"), so an edit failed now and then while a
+/// GUI or `watch` polled.
+#[test]
+fn stamps_taken_while_another_thread_writes_never_fail_the_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join(paths::EXPORT_PDB);
+    write(&db, b"0");
+    let done = std::sync::atomic::AtomicBool::new(false);
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                FileStamp::of(&db);
+            }
+        });
+        for i in 0..2000 {
+            // Without an fsync each: the renames are what's tested.
+            crate::fsutil::write_deferred(&db, i.to_string().as_bytes()).unwrap();
+        }
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    assert_eq!(std::fs::read(&db).unwrap(), b"1999");
+}
+
 #[test]
 fn events_serialize_flat() {
     let d = MountedDrive { root: "/Volumes/A".into(), id: None, name: "A".into(), has_export: true };

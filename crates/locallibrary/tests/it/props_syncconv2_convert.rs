@@ -347,8 +347,6 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
     assert_eq!(err.code(), "stale_plan", "{err}");
     before.untouched(&root).unwrap();
 
-    // Sparse only on Unix: NTFS would have to find the room for it.
-    #[cfg(unix)]
     {
         // Artwork bigger than the drive (a sparse file: it takes no room itself).
         let root = drive(dir.path(), "Big", false);
@@ -356,7 +354,7 @@ fn what_a_conversion_cant_do_is_said(tc: TestCase) {
         let art =
             pdb::read_library(&root.join(paths::EXPORT_PDB)).unwrap().track(1).unwrap().artwork_path.clone().unwrap();
         let free = locallibrary::fsutil::available_space(&root).unwrap();
-        fs::File::options().write(true).open(file(&root, &art)).unwrap().set_len(2 * free + (1 << 30)).unwrap();
+        locallibrary::testing::sparse(&file(&root, &art), 2 * free + (1 << 30)).unwrap();
         let mut d = Device::open_export(&root).unwrap();
         let plan = convert::plan(&d, &to, &ctx).unwrap();
         assert!(!plan.fits, "{plan:?}");

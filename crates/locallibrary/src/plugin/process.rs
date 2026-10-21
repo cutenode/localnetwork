@@ -99,13 +99,14 @@ impl Live {
     }
 }
 
-/// A plugin's process, once it has shaken hands. Dropping the last of it stops it.
+/// A plugin's process, once it has shaken hands. Dropping the last of it stops it. Only its slot
+/// and the hooks using it hold it, never a thread of the host's (the idle reaper reads its
+/// [`Activity`], and whether it runs is asked through the slot): whoever takes it out of the slot
+/// is the last to let go of it, unless a hook under way is, so waits for it to stop.
 pub(crate) struct Process {
     child: Mutex<Child>,
     peer: Peer,
-    /// Hooks under way.
-    busy: AtomicUsize,
-    last_used: Mutex<Instant>,
+    activity: Arc<Activity>,
     /// It closed its output (it exited or crashed), or was killed.
     dead: Arc<AtomicBool>,
     grace: Duration,
@@ -114,6 +115,13 @@ pub(crate) struct Process {
     scratch: PathBuf,
     /// Its folder when there's no store, removed once it has stopped.
     _temp: Option<tempfile::TempDir>,
+}
+
+/// How busy a process is, as the idle reaper reads it.
+struct Activity {
+    /// Hooks under way.
+    busy: AtomicUsize,
+    last_used: Mutex<Instant>,
 }
 
 impl Process {
@@ -141,12 +149,12 @@ impl Drop for Process {
 }
 
 /// A hook under way, keeping its process from being stopped as idle.
-struct Busy<'a>(&'a Process);
+struct Busy<'a>(&'a Activity);
 
 impl<'a> Busy<'a> {
     fn new(p: &'a Process) -> Busy<'a> {
-        p.busy.fetch_add(1, Ordering::SeqCst);
-        Busy(p)
+        p.activity.busy.fetch_add(1, Ordering::SeqCst);
+        Busy(&p.activity)
     }
 }
 
@@ -282,8 +290,10 @@ impl Slot {
         lock(&self.process).clone().filter(|p| !p.stopped())
     }
 
+    /// Whether it's running, without holding the process: a caller that did could be left the
+    /// last to let go of it, after whoever stopped it was told it had.
     pub(crate) fn is_running(&self) -> bool {
-        self.running().is_some()
+        lock(&self.process).as_ref().is_some_and(|p| !p.stopped())
     }
 
     /// The process, started (and shaken hands with) if it isn't running: in its folder in
@@ -301,7 +311,8 @@ impl Slot {
         let features = self.handshake(&p)?;
         let _ = p.live.features.set(features);
         let (slot, process, idle) = (Arc::downgrade(self), Arc::downgrade(&p), self.host.options.idle);
-        std::thread::spawn(move || reap(&slot, &process, idle));
+        let (activity, dead) = (p.activity.clone(), p.dead.clone());
+        std::thread::spawn(move || reap(&slot, &process, &activity, &dead, idle));
         // One that stopped is waited for as it's dropped, once the lock is let go.
         let stopped = lock(&self.process).replace(p.clone());
         drop(stopped);
@@ -375,11 +386,10 @@ impl Slot {
             ended.store(true, Ordering::SeqCst);
         });
         let grace = self.host.options.grace;
-        let last_used = Mutex::new(Instant::now());
-        let busy = AtomicUsize::new(0);
+        let activity = Arc::new(Activity { busy: AtomicUsize::new(0), last_used: Mutex::new(Instant::now()) });
         let child = Mutex::new(child);
         let scratch = base.join("scratch");
-        Ok(Process { child, peer, busy, last_used, dead, grace, live, scratch, _temp: temp })
+        Ok(Process { child, peer, activity, dead, grace, live, scratch, _temp: temp })
     }
 
     /// `hello`, then `describe`: it must speak the protocol, be the plugin its manifest says, and
@@ -549,33 +559,36 @@ fn pass_on(report: ProgressReport, ctx: &Ctx<'_>) {
 }
 
 /// Stops the process once it has been idle for `idle`, unless it has stopped already or the
-/// plugin has started another since.
-fn reap(slot: &Weak<Slot>, process: &Weak<Process>, idle: Duration) {
-    let idle_for = |p: &Process| match p.busy.load(Ordering::SeqCst) {
-        0 => idle.saturating_sub(lock(&p.last_used).elapsed()),
+/// plugin has started another since. It reads the process's `activity` and whether it's `dead`,
+/// but never holds it: holding it as another caller stopped it would leave this thread to stop
+/// it, after that caller was told it had.
+fn reap(slot: &Weak<Slot>, process: &Weak<Process>, activity: &Activity, dead: &AtomicBool, idle: Duration) {
+    let idle_for = || match activity.busy.load(Ordering::SeqCst) {
+        0 => idle.saturating_sub(lock(&activity.last_used).elapsed()),
         _ => idle,
     };
     loop {
-        let Some(p) = process.upgrade().filter(|p| !p.dead.load(Ordering::SeqCst)) else { return };
-        let wait = idle_for(&p);
+        if dead.load(Ordering::SeqCst) || process.strong_count() == 0 {
+            return;
+        }
+        let wait = idle_for();
         if !wait.is_zero() {
-            drop(p);
             std::thread::sleep(wait);
             continue;
         }
         let Some(slot) = slot.upgrade() else { return };
         let one = lock(&slot.changing);
         let mut running = lock(&slot.process);
-        if !running.as_ref().is_some_and(|r| Arc::ptr_eq(r, &p)) {
+        if !running.as_ref().is_some_and(|r| std::ptr::eq(Arc::as_ptr(r), process.as_ptr())) {
             return;
         }
         // Checked again, now that nothing else can take it out.
-        if idle_for(&p).is_zero() {
+        if idle_for().is_zero() {
             // Stopped once nothing else holds it (a hook that has just started still can), while
             // `changing` is held.
             let stopped = running.take();
             drop(running);
-            drop((stopped, p));
+            drop(stopped);
             drop(one);
             return;
         }

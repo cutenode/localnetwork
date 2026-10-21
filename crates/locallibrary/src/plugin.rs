@@ -281,10 +281,11 @@ impl Plugins {
 
     /// Stops every plugin running, all at once, once the events waiting for it are sent (for as
     /// long as it may take to start and stop) and its services stopped, each given its grace to
-    /// exit before it's killed (a hook under way holds its plugin until it's answered). They start
-    /// again when used, but services only once they're run again. One already stopping (idle, or
-    /// another caller's shutdown) is waited for: once this returns, none is left stopping, so the
-    /// host can exit.
+    /// exit before it's killed. They start again when used, but services only once they're run
+    /// again. One already stopping (idle, or another caller's shutdown) is waited for: once this
+    /// returns, each has exited and its folder in the temporary folder is gone, so the host can
+    /// exit. But for one a hook under way holds: it's let go once the hook is answered, and stops
+    /// then, on that hook's thread.
     pub fn shutdown(&self) {
         std::thread::scope(|s| {
             for slot in self.plugins.values() {
