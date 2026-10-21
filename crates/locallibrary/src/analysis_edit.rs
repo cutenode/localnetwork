@@ -272,7 +272,7 @@ fn staged_bands(device: &Device, hash: &Hash, staged: &FxHashMap<Hash, Vec<u8>>)
     let gone = || Error::NotFound(format!("the staged waveform {} on {}", hash.short(), device.name()));
     let bytes = match staged.get(hash) {
         Some(b) => b.clone(),
-        None => std::fs::read(WAVEFORMS.path(device, hash)).map_err(|_| gone())?,
+        None => crate::fsutil::read(&WAVEFORMS.path(device, hash)).map_err(|_| gone())?,
     };
     Bands::unpack(&bytes).filter(|b| !b.0.is_empty()).ok_or_else(gone)
 }

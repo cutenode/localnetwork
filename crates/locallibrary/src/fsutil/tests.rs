@@ -7,8 +7,9 @@ fn paths_are_made_absolute_lexically() {
     assert!(absolute(Path::new("x")).is_absolute());
 }
 
-/// The part of a path that exists is resolved (symlinks too), the rest appended; `..` below a
-/// folder that isn't there yet is folded first. Regression: export's own copy of this left
+/// The part of a path that exists is resolved (symlinks too, a `..` after one stepping out of its
+/// target), the rest appended; `..` below a folder that isn't there yet takes it away.
+/// Regressions: `..` after a link went back to the link's folder; export's own copy of this left
 /// such a path unresolved, so `/tmp/new/../out` and `/private/tmp/out` didn't compare.
 #[test]
 fn the_part_that_exists_is_resolved() {
@@ -19,6 +20,10 @@ fn the_part_that_exists_is_resolved() {
     {
         std::os::unix::fs::symlink(&real, real.join("link")).unwrap();
         assert_eq!(resolved(&real.join("link/missing/../there")), real.join("there"));
+        // `..` out of a link is the folder its target is in, where the OS takes it.
+        fs::create_dir_all(real.join("deep/er")).unwrap();
+        std::os::unix::fs::symlink(real.join("deep/er"), real.join("up")).unwrap();
+        assert_eq!(resolved(&real.join("up/../x")), real.join("deep/x"));
     }
 }
 
@@ -283,6 +288,9 @@ fn json_reads_back_what_was_written(tc: hegel::TestCase) {
 #[hegel::test(test_cases = 60)]
 #[hegel::explicit_test_case(parts = vec!["a", "..", ".", "b"], rooted = false, made = 1usize)]
 #[hegel::explicit_test_case(parts = Vec::<&str>::new(), rooted = false, made = 0usize)]
+// Regression: `..` was folded before symlinks were resolved, so this many up from a macOS temp
+// folder (`/var/folders/xx/yyy/T/.tmpX`, `/var` being `/private/var`) gave `/`, not `/private`.
+#[hegel::explicit_test_case(parts = vec![".."; 6], rooted = false, made = 0usize)]
 fn paths_are_folded_part_by_part(tc: hegel::TestCase) {
     use hegel::generators as gs;
     let parts: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["a", "b", "..", ".", "c d"])).max_size(6));
@@ -436,4 +444,30 @@ fn a_rename_waits_for_a_look_to_finish() {
         rx.recv().unwrap().unwrap();
     });
     assert_eq!(fs::read(&path).unwrap(), b"new");
+}
+
+/// One thread reads a JSON file while another writes it over and over: every read finds the file
+/// whole, and every write lands. Regression: on Windows a rename over the file while a read held
+/// it open failed ("Access is denied"), as a plugin's settings changed while its service ran.
+#[test]
+fn a_file_read_while_its_rewritten_is_read_whole() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    write_json_atomic(&path, &0u32).unwrap();
+    let writing = std::sync::atomic::AtomicBool::new(true);
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let mut last = 0;
+            while writing.load(std::sync::atomic::Ordering::SeqCst) {
+                let read: u32 = read_json(&path).unwrap();
+                assert!(read >= last, "read {read} after {last}");
+                last = read;
+            }
+        });
+        for n in 1..=50u32 {
+            write_json_atomic(&path, &n).unwrap();
+        }
+        writing.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+    assert_eq!(read_json::<u32>(&path).unwrap(), 50);
 }

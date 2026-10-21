@@ -226,9 +226,9 @@ pub fn write(device: &Device, bytes: &[u8]) -> Result<()> {
 /// Read a drive's `exportLibrary.db` and `-wal` (if present).
 pub fn read_files(root: &Path) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
     let db = paths::to_fs(root, paths::LIBRARY_PLUS_DB);
-    let bytes = std::fs::read(&db).at(&db)?;
+    let bytes = crate::fsutil::read(&db).at(&db)?;
     let wal = paths::to_fs(root, paths::LIBRARY_PLUS_WAL);
-    let wal = match std::fs::read(&wal) {
+    let wal = match crate::fsutil::read(&wal) {
         Ok(b) => Some(b),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(Error::Io { path: wal, source: e }),
