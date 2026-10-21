@@ -192,7 +192,8 @@ pub enum Act {
     FieldColumn(locallibrary::query::FieldName),
     /// A plugin's settings (the plugin's id).
     PluginSettings(&'static str),
-    /// Plan what a plugin suggested (by its place among those waiting to be reviewed).
+    /// Plan what a plugin suggested: by its place among those waiting to be reviewed, counting
+    /// those gone to make room since, so a palette open as one goes still plans the one picked.
     Review(usize),
     /// The settings of every provider: when a candidate is picked for the user.
     ProviderSettings,

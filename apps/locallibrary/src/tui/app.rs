@@ -1061,6 +1061,9 @@ pub struct App {
     watcher: Watcher,
     /// What plugins suggested, to review from the palette, oldest first.
     pub(super) suggested: VecDeque<locallibrary::plugin::PluginNotice>,
+    /// How many suggestions the oldest have gone to make room for newer ones: the palette names
+    /// one by its place counting these (see [`Act::Review`]).
+    pub(super) suggested_gone: usize,
     drives_in_flight: bool,
     /// Read the drives again when the read in flight finishes (asked for while it ran).
     drives_again: bool,
@@ -1214,6 +1217,7 @@ impl App {
             listed: false,
             watcher: Watcher::default(),
             suggested: VecDeque::new(),
+            suggested_gone: 0,
             drives_in_flight: false,
             drives_again: false,
             volumes_in_flight: false,

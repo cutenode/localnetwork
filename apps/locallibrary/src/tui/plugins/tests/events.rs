@@ -79,3 +79,33 @@ fn a_service_is_turned_on_in_the_settings_form() {
         assert_eq!(plugins.service_running("echo", "beat"), on);
     }
 }
+
+/// A suggestion picked in the palette is the one planned, even when older ones went to make room
+/// for newer ones while it was open; one that went itself isn't planned.
+#[test]
+fn the_suggestion_picked_is_planned_as_others_come() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let mut app = app_on(&root);
+    let suggests = |message: &str, name: &str| PluginNotice {
+        plugin: "echo".into(),
+        message: message.into(),
+        operation: Some(Suggested { name: "playlist".into(), params: json!({ "name": name }) }),
+    };
+    app.handle_msg(Msg::Notice(vec![suggests("oldest", "Oldest"), suggests("make Picked", "Picked")]));
+    press(&mut app, ":");
+    let newer = (1..locallibrary::plugin::MAX_SUGGESTED).map(|n| suggests(&format!("newer {n}"), "Newer")).collect();
+    app.handle_msg(Msg::Notice(newer));
+    assert_eq!(app.suggested.front().map(|n| n.message.as_str()), Some("make Picked"), "the oldest went");
+    press(&mut app, "make Picked\n");
+    assert_eq!(confirming(&mut app), ("echo.playlist".into(), "make the playlist Picked".into()));
+    press(&mut app, "\u{1b}");
+    wait(&mut app, |a| a.modal.is_none());
+    press(&mut app, ":");
+    let late = (0..locallibrary::plugin::MAX_SUGGESTED).map(|n| suggests(&format!("late {n}"), "Late")).collect();
+    app.handle_msg(Msg::Notice(late));
+    press(&mut app, "newer\n");
+    wait(&mut app, |a| a.job.is_none());
+    assert!(app.modal.is_none(), "what went isn't planned");
+    assert_eq!(app.suggested.len(), locallibrary::plugin::MAX_SUGGESTED);
+}

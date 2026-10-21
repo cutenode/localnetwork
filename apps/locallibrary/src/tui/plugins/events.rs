@@ -52,6 +52,7 @@ impl App {
             if notice.operation.is_some() {
                 if self.suggested.len() >= MAX_SUGGESTED {
                     self.suggested.pop_front();
+                    self.suggested_gone += 1;
                 }
                 self.suggested.push_back(notice);
             }
@@ -61,12 +62,16 @@ impl App {
     /// What plugins suggested, as the palette lists them: newest first.
     pub(in crate::tui) fn suggested_items(&self) -> Vec<(Act, Item)> {
         let all = self.suggested.iter().enumerate().rev();
-        all.map(|(i, n)| (Act::Review(i), Item::new(format!("review: {}", n.message), name(&n.plugin)))).collect()
+        let item = |(i, n): (usize, &PluginNotice)| {
+            (Act::Review(self.suggested_gone + i), Item::new(format!("review: {}", n.message), name(&n.plugin)))
+        };
+        all.map(item).collect()
     }
 
-    /// Plans what a plugin suggested (the one at `i`), on the drive actions work on: the plan is
-    /// confirmed as any is, or it asks first.
-    pub(in crate::tui) fn review(&mut self, i: usize) {
+    /// Plans what a plugin suggested (the one at `place`, see [`Act::Review`]), on the drive
+    /// actions work on: the plan is confirmed as any is, or it asks first. One gone since is not.
+    pub(in crate::tui) fn review(&mut self, place: usize) {
+        let Some(i) = place.checked_sub(self.suggested_gone) else { return };
         let Some(notice) = self.suggested.remove(i) else { return };
         let Some(suggested) = notice.operation else { return };
         let Ok(m) = crate::plugins::host().and_then(|p| p.manifest(&notice.plugin)) else { return };
