@@ -5,8 +5,11 @@
 //! account's access token once the request is checked, refreshing it first when it's about to
 //! expire.
 
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use url::{Host, Url};
 
 use crate::manifest::{invalid, shown, unique_names};
 use crate::{Capability, Feature, Manifest, ManifestError};
@@ -46,22 +49,24 @@ fn pkce() -> bool {
     true
 }
 
-/// A web address an account's endpoint may be at: https, or http on this computer for a test
-/// server (which the host reaches only in tests).
+/// A web address an account's endpoint may be at, as the host's HTTP client reads it: https, or
+/// http on this computer for a test server (which the host reaches only in tests), with no user
+/// name or password.
 fn is_endpoint(url: &str) -> bool {
-    let host = |rest: &str| rest.split(['/', '?', '#']).next().unwrap_or_default().to_string();
     let plain = !url.chars().any(|c| c.is_whitespace() || c.is_control());
-    match (url.strip_prefix("https://"), url.strip_prefix("http://")) {
-        (Some(rest), _) => plain && !host(rest).is_empty(),
-        (_, Some(rest)) => {
-            let host = host(rest);
-            // Without its port.
-            let name = match host.starts_with('[') {
-                true => host.split_inclusive(']').next(),
-                false => host.split(':').next(),
-            };
-            plain && matches!(name, Some("127.0.0.1" | "localhost" | "[::1]"))
-        }
+    let Some(parsed) = Url::parse(url).ok().filter(|u| plain && u.username().is_empty() && u.password().is_none())
+    else {
+        return false;
+    };
+    let this_computer = match parsed.host() {
+        Some(Host::Domain(name)) => name == "localhost",
+        Some(Host::Ipv4(ip)) => ip == Ipv4Addr::LOCALHOST,
+        Some(Host::Ipv6(ip)) => ip == Ipv6Addr::LOCALHOST,
+        None => return false,
+    };
+    match parsed.scheme() {
+        "https" => true,
+        "http" => this_computer,
         _ => false,
     }
 }
@@ -78,7 +83,10 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
         let urls = [("authorize_url", Some(&x.authorize_url)), ("token_url", Some(&x.token_url))];
         for (key, url) in urls.into_iter().chain([("revoke_url", x.revoke_url.as_ref())]) {
             if let Some(url) = url.filter(|u| !is_endpoint(u)) {
-                return Err(invalid(format!("{at}.{key}"), format!("{url:?} isn't an https:// address")));
+                return Err(invalid(
+                    format!("{at}.{key}"),
+                    format!("{url:?} isn't an https:// address without a user name or password"),
+                ));
             }
         }
         if let Some((j, scope)) = x.scopes.iter().enumerate().find(|(_, s)| s.is_empty() || s.contains(' ')) {

@@ -347,6 +347,41 @@ fn a_provider_is_granted_reading_tracks() {
     assert!(provider("", "lyrics").contains("unknown variant `lyrics`"));
 }
 
+/// An account's endpoints are read as the HTTP client reads them: https, or http to this computer
+/// itself, never with a user name or password, whatever the address looks like.
+#[test]
+fn an_accounts_endpoints_are_read_as_the_client_reads_them() {
+    let token_url = |url: &str| {
+        problem(&format!(
+            "capabilities = [\"net:auth.example\"]\n[[contributes.accounts]]\nid = \"main\"\ntitle = \"Main\"\n\
+             authorize_url = \"https://auth.example/authorize\"\ntoken_url = {url:?}\nclient_id = \"demo\"\n"
+        ))
+    };
+    for url in
+        ["https://auth.example/token", "http://127.0.0.1:8080/token", "http://localhost/token", "http://[::1]:9/t"]
+    {
+        assert_eq!(token_url(url), "", "{url}");
+    }
+    let refused = [
+        "http://localhost@evil.example/token",
+        "http://127.0.0.1@evil.example/token",
+        "http://127.0.0.1.evil.example/token",
+        "http://localhost.evil.example/token",
+        "http://localhost%2eevil.example/token",
+        "http://evil.example\\@localhost/token",
+        "http://[::1].evil.example/token",
+        "http://0x7f.0.0.2/token",
+        "https://someone@auth.example/token",
+        "http://local host/token",
+    ];
+    for url in refused {
+        let said = format!(
+            "contributes.accounts[0].token_url: {url:?} isn't an https:// address without a user name or password"
+        );
+        assert_eq!(token_url(url), said, "{url}");
+    }
+}
+
 #[test]
 fn exporters_write_a_file_or_a_folder() {
     let both = "[[contributes.exporters]]\nformat = \"f\"\ntitle = \"F\"\nextension = \"x\"\nfolder = true\n";
@@ -840,7 +875,9 @@ fn endpoint(tc: &TestCase) -> String {
     let path = tc.draw(gs::from_regex("(/[a-z0-9_-]{0,8}){0,2}(\\?[a-z]=[a-z0-9]{0,4})?"));
     match tc.draw(gs::booleans()) {
         true => {
-            format!("https://{}{path}", tc.draw(gs::from_regex("[a-z0-9-]{1,8}(\\.[a-z0-9-]{1,8}){0,2}(:[0-9]{2,5})?")))
+            let host = tc.draw(gs::from_regex("[a-z][a-z0-9]{0,7}(\\.[a-z][a-z0-9]{0,7}){0,2}"));
+            let port = tc.draw(gs::optional(gs::integers::<u16>())).map(|p| format!(":{p}")).unwrap_or_default();
+            format!("https://{host}{port}{path}")
         }
         false => {
             let host = tc.draw(gs::sampled_from(vec!["127.0.0.1", "localhost", "[::1]"]));
@@ -1538,7 +1575,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             let at = format!("contributes.accounts[{i}]");
             match mistake {
                 "account endpoint" => {
-                    let wrong = tc.draw(gs::sampled_from(vec![
+                    let odd = tc.draw(gs::sampled_from(vec![
                         "",
                         "auth.example/token",
                         "ftp://auth.example",
@@ -1546,15 +1583,28 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                         "https:// auth.example",
                         "http://auth.example/token",
                         "http://127.0.0.1.example",
+                        "http://127.0.0.1.evil.example/token",
+                        "http://localhost@evil.example/token",
+                        "http://localhost:80@evil.example/token",
+                        "http://evil.example\\@localhost/token",
+                        "http://localhost%2eevil.example/token",
+                        "http://[::1].evil.example/token",
+                        "https://someone:words@auth.example/token",
+                        "https://auth.example:99999/token",
                         "javascript:alert(1)",
                     ]));
+                    // An endpoint it may have, but with a user in it, is read as the client
+                    // would: a user name (and maybe a password), never the host.
+                    let user = tc.draw(gs::from_regex("[a-z0-9]{1,6}(:[a-z0-9]{0,6})?"));
+                    let with_user = endpoint(&tc).replacen("://", &format!("://{user}@"), 1);
+                    let wrong = if tc.draw(gs::booleans()) { with_user } else { odd.to_string() };
                     let key = tc.draw(gs::sampled_from(vec!["authorize_url", "token_url", "revoke_url"]));
                     match key {
-                        "authorize_url" => x.authorize_url = wrong.into(),
-                        "token_url" => x.token_url = wrong.into(),
-                        _ => x.revoke_url = Some(wrong.into()),
+                        "authorize_url" => x.authorize_url = wrong.clone(),
+                        "token_url" => x.token_url = wrong.clone(),
+                        _ => x.revoke_url = Some(wrong.clone()),
                     }
-                    (format!("{at}.{key}: {wrong:?} isn't an https:// address"), false)
+                    (format!("{at}.{key}: {wrong:?} isn't an https:// address without a user name or password"), false)
                 }
                 "account client" => {
                     x.client_id = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));

@@ -168,10 +168,11 @@ token, once it's checked, and never on to another server a redirect leads to. A 
 account that isn't signed in fails with kind `invalid`, saying how to sign in. The feature has no
 methods: it's the SDK's own.
 
-- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url` (https), `scopes`,
-  `client_id` (a public client, without a secret), `pkce = true` (the default; nothing else is
-  taken) and `revoke_url` (RFC 7009, optional), where the tokens are revoked at signing out. A
-  plugin with an account needs a `net:` capability, for the requests its token goes into.
+- `[[contributes.accounts]]`: `id`, `title`, `authorize_url`, `token_url`, `scopes`, `client_id`
+  (a public client, without a secret), `pkce = true` (the default; nothing else is taken) and
+  `revoke_url` (RFC 7009, optional), where the tokens are revoked at signing out. Each endpoint
+  is an https address without a user name or password. A plugin with an account needs a `net:`
+  capability, for the requests its token goes into.
 
 ### analyzers
 
