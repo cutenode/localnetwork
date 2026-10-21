@@ -1239,6 +1239,10 @@ impl App {
     #[cfg(test)]
     pub(super) fn with_library(root: &Path, lib: Library) -> App {
         let mut app = App::blank(root.join("store"), None);
+        // The volumes are polled only when a test asks: a poll (once a second of the clock, as
+        // the background is waited for) takes a folder with no export for an unplugged drive, so
+        // a test slowed past a second by a loaded machine would find its drive gone.
+        app.last_volume_poll = testing::just_now();
         let device = Device::open(root).unwrap();
         let root = device.root().to_path_buf();
         app.install(root, Loaded::prepare(device, lib));

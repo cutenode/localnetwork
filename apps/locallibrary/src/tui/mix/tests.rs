@@ -1157,7 +1157,8 @@ fn a_sets_data_is_written_only_from_its_drive(tc: hegel::TestCase) {
     press(&mut app, key);
     let (start, end) = if report { ("writing ", ".html…") } else { ("saving ", ".mix.json…") };
     assert!(last_message(&app).starts_with(start) && last_message(&app).ends_with(end), "{}", last_message(&app));
-    wait(&mut app, |a| !last_message(a).starts_with(start));
+    // (Not the line going once it's been read: a slow write can outlast it.)
+    wait(&mut app, |a| !last_message(a).starts_with(start) && !last_message(a).is_empty());
     let said = last_message(&app);
     match (matched, drive.is_dir()) {
         (true, _) if in_way > 0 => {
@@ -1434,7 +1435,6 @@ fn the_drives_recordings_are_listed_and_answer_to_keys(tc: hegel::TestCase) {
     std::fs::create_dir_all(&drive).unwrap();
     let mut app = App::with_library(&drive, library());
     app.view = View::Mixes;
-    hold_volume_polls(&mut app);
     let own = wav_at(&dir.path().join("own.wav"));
     app.mix.set_recent(std::slice::from_ref(&own));
     screen(&mut app, 120, 30);
