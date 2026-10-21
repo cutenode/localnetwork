@@ -4,7 +4,8 @@
 
 	/**
 	 * A section's eyebrow, title and lede. `start` stacks them on the left, `center` is for heroes
-	 * and closing calls, `split` puts the lede beside the title. `display` is the hero size.
+	 * and closing calls, `split` puts the lede beside the title. `display` is the hero size. `title`
+	 * can be a snippet for a heading that's more than text.
 	 */
 	let {
 		id,
@@ -20,7 +21,7 @@
 		id?: string;
 		eyebrow?: string;
 		tone?: Tone;
-		title: string;
+		title: string | Snippet;
 		lede?: string;
 		level?: 1 | 2 | 3;
 		size?: 'title' | 'display';
@@ -34,7 +35,7 @@
 <div class={['flex gap-x-14 gap-y-4.5', align === 'split' ? 'flex-wrap items-end justify-between' : 'flex-col', align === 'center' && 'mx-auto max-w-245 items-center text-center', align === 'start' && 'max-w-190']}>
 	<div class={['flex flex-col gap-4.5', align === 'split' && 'min-w-0 flex-[1_1_32rem]', align === 'center' && 'items-center']}>
 		{#if eyebrow}<Eyebrow {tone}>{eyebrow}</Eyebrow>{/if}
-		<svelte:element this={`h${level}`} {id} class={['m-0 font-semibold text-balance', display ? 'text-display' : 'text-title']}>{title}</svelte:element>
+		<svelte:element this={`h${level}`} {id} class={['m-0 font-semibold text-balance', display ? 'text-display' : 'text-title']}>{#if typeof title === 'string'}{title}{:else}{@render title()}{/if}</svelte:element>
 	</div>
 	{#if lede}
 		<p class={['m-0 text-fg-muted', display ? 'max-w-160 text-lede sm:text-intro' : 'text-lede', align === 'split' && 'min-w-0 flex-[1_1_22rem]']}>{lede}</p>

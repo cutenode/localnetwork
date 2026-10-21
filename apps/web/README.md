@@ -267,6 +267,7 @@ lua/                            HappyView scripts: the project and set record ga
 scripts/                        dev-network (local atproto network), publish-lexicons, seed data, mix-fixture
 scripts/lib/                    Local HappyView container and Jetstream stand-in
 src/lib/                        Shared code: matching, genre taxonomy, geo, formatting, components
+src/lib/headline.json           The homepage headline's words ("<verb> your <noun>."), to edit by hand
 src/lib/ui/                     The design system: theme tokens, components and their stories
 src/lib/server/atproto/         Identity, OAuth, root session, repo clients, space credentials, service auth
 src/lib/server/audit/           Hash-chained audit log with dual atproto delivery

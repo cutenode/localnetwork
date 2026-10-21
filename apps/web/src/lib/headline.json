@@ -1,0 +1,5 @@
+{
+	"$schema": "./headline.schema.json",
+	"verbs": ["Find", "Discover", "Scout", "Dig up", "Uncover", "Meet"],
+	"nouns": ["DJ", "resident", "opener", "headliner", "selector", "b2b duo", "crew", "collective"]
+}
