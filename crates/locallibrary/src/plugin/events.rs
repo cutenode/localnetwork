@@ -31,6 +31,9 @@ const IDLE: Duration = Duration::from_secs(5);
 /// The longest message a plugin tells the user, in characters: the rest is cut.
 const MAX_MESSAGE: usize = 500;
 
+/// The longest params an operation a plugin suggests may have, as JSON: they're kept to plan it.
+const MAX_PARAMS: usize = 64 << 10;
+
 /// The most suggestions kept for the player to offer (see [`keep_suggested`]): the oldest go.
 pub const MAX_SUGGESTED: usize = 20;
 
@@ -172,20 +175,28 @@ impl Slot {
         }
     }
 
-    /// Waits, for at most `within`, until the plugin's events are all sent.
+    /// Waits, for at most `within`, until the plugin's events are all sent. Those still waiting
+    /// then are dropped (and logged): sent later, they'd start it again once it has stopped.
     pub(crate) fn sent_events(&self, within: Duration) {
         let until = Instant::now() + within;
         let mut waiting = self.events.lock();
         while !waiting.events.is_empty() || waiting.sending {
-            let Some(left) = until.checked_duration_since(Instant::now()).filter(|l| !l.is_zero()) else { return };
+            let Some(left) = until.checked_duration_since(Instant::now()).filter(|l| !l.is_zero()) else { break };
             waiting = self.events.changed.wait_timeout(waiting, left).unwrap_or_else(PoisonError::into_inner).0;
+        }
+        let dropped = std::mem::take(&mut waiting.events).len();
+        drop(waiting);
+        if dropped > 0 {
+            let said = format!("it's stopping: {dropped} of its events waiting weren't sent");
+            self.host.log(&self.manifest.id, &said);
         }
     }
 
     /// A notification from the plugin: `host/notify`, from one with a feature that sends it,
     /// told to the front end once it's text the user can read, without the secrets the host
-    /// filled in for it, and suggesting one of its own operations, if any. Anything else (the
-    /// progress of a request nobody waits for any more) is dropped.
+    /// filled in for it, and suggesting one of its own operations (with params neither too long
+    /// nor holding those secrets), if any. Anything else (the progress of a request nobody waits
+    /// for any more) is dropped.
     pub(crate) fn notified(&self, live: &Live, name: &str, params: Value) {
         if name != method::HOST_NOTIFY {
             return;
@@ -205,13 +216,22 @@ impl Slot {
         }
         let operation = notice.operation.filter(|o| {
             let ours = self.manifest.contributes.operations.iter().any(|x| x.name == o.name);
-            let refused = match (ours, o.params.is_null() || o.params.is_object()) {
-                (false, _) => format!("it suggests {:?}, which isn't one of its operations", o.name),
-                (true, false) => format!("it suggests {:?} with params that aren't an object", o.name),
-                (true, true) => return true,
+            let refused = if !ours {
+                format!("it suggests {:?}, which isn't one of its operations", o.name)
+            } else if !(o.params.is_null() || o.params.is_object()) {
+                format!("it suggests {:?} with params that aren't an object", o.name)
+            } else if o.params.to_string().len() > MAX_PARAMS {
+                format!("it suggests {:?} with params longer than {MAX_PARAMS} bytes", o.name)
+            } else {
+                return true;
             };
             self.host.log(id, &refused);
             false
+        });
+        // Kept and shown (planned) as the message is.
+        let operation = operation.map(|mut o| {
+            self.net.scrub_value(&mut o.params);
+            o
         });
         (self.host.options.notices)(PluginNotice { plugin: id.clone(), message, operation });
     }
@@ -244,6 +264,10 @@ fn send_queued(slot: &Weak<Slot>, queue: &Queue) {
     }
 }
 
+/// Held while the suggestions kept are read and written: plugins tell the user things at once,
+/// each on its own thread.
+static KEEPING: Mutex<()> = Mutex::new(());
+
 /// Where suggestions are kept for the player: `<store>/plugins/suggested.json`.
 fn suggested_file(store: &Store) -> std::path::PathBuf {
     store.root().join("plugins").join("suggested.json")
@@ -252,6 +276,7 @@ fn suggested_file(store: &Store) -> std::path::PathBuf {
 /// Keeps a plugin's suggestion (one with an operation) for the player to offer once it's open,
 /// as the `watch` agent does with what it's told: the newest [`MAX_SUGGESTED`].
 pub fn keep_suggested(store: &Store, notice: &PluginNotice) -> Result<()> {
+    let _keeping = lock(&KEEPING);
     let file = suggested_file(store);
     let mut kept: Vec<PluginNotice> = fsutil::read_json_opt(&file).ok().flatten().unwrap_or_default();
     kept.push(notice.clone());
@@ -265,6 +290,7 @@ pub fn keep_suggested(store: &Store, notice: &PluginNotice) -> Result<()> {
 /// The suggestions kept for the player ([`keep_suggested`]), oldest first, no longer kept once
 /// taken. None when they can't be read.
 pub fn take_suggested(store: &Store) -> Result<Vec<PluginNotice>> {
+    let _keeping = lock(&KEEPING);
     let file = suggested_file(store);
     let kept = fsutil::read_json_opt(&file).ok().flatten().unwrap_or_default();
     match std::fs::remove_file(&file) {

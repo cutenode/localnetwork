@@ -197,8 +197,9 @@ left out, and other paths are said from their drive, `<store>` or `~`. Nothing a
 host never waits for it: once too many wait to be sent to a plugin, it drops the oldest.
 
 A plugin with `events` (or `services`) may send the host `host/notify {message, operation?:
-{name, params}}`, a notification, whenever it likes: a line for the user, and one of its own
-operations to suggest, which the host plans (and the user confirms) only if the user chooses to.
+{name, params}}`, a notification, whenever it likes: a line for the user (cut to one line of 500
+characters), and one of its own operations to suggest, its `params` an object of at most 64 KiB as
+JSON, which the host plans (and the user confirms) only if the user chooses to.
 
 - `[[contributes.events]]`: `on`, the events it listens for, each once, each granted.
 

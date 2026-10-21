@@ -103,21 +103,91 @@ fn events_are_what_the_host_says_happens() {
 }
 
 /// Once too many events wait for a plugin the oldest are dropped, saying so, and adding one never
-/// waits for the plugin, even one that never answers.
+/// waits for the plugin, even one slow to start: the one it's sending goes once it has, then the
+/// newest that waited.
 #[test]
 fn a_plugins_events_wait_in_a_queue_of_their_own() {
-    let options = Options { events: 2, handshake: Duration::from_millis(200), ..Options::default() };
-    let (f, _) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &["--silent"])], options);
-    let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({}) };
+    let mut go = PathBuf::new();
+    let specs = |dir: &Path| {
+        go = dir.join("go");
+        vec![spec(dir, &listening(&["plan.applied"]), &["--paused", &go.display().to_string()])]
+    };
+    let (f, _) = told(specs, Options { events: 2, ..Options::default() });
+    let event = |n: usize| Event { name: EventName::PlanApplied, drive: None, payload: json!({ "n": n }) };
+    let said = |what: &str| f.logs.lock().unwrap().iter().filter(|(_, l)| l.starts_with(what)).count();
+    f.plugins.deliver(&event(0), Some(&f.store));
+    eventually("it's sending the first, to the plugin starting", || said("paused") == 1);
     let started = Instant::now();
-    for _ in 0..5 {
-        f.plugins.deliver(&event, Some(&f.store));
+    for n in 1..5 {
+        f.plugins.deliver(&event(n), Some(&f.store));
     }
     assert!(started.elapsed() < Duration::from_millis(150), "it doesn't wait for the plugin");
+    assert_eq!(said("dropped a plan.applied event: 2 were waiting"), 2);
+    std::fs::write(&go, "").unwrap();
+    eventually("it hears the rest", || heard(&f).len() == 3);
+    let sent: Vec<Value> = heard(&f).into_iter().map(|(_, _, payload)| payload["n"].clone()).collect();
+    assert_eq!(sent, [0, 3, 4]);
+}
+
+/// Shutting down waits a while for the events left to be sent, then drops them, saying so: the
+/// plugin isn't started again for them once it has stopped. One that can't be sent is logged.
+#[test]
+fn shutting_down_drops_the_events_left_waiting() {
+    let options =
+        Options { handshake: Duration::from_millis(300), grace: Duration::from_millis(100), ..Options::default() };
+    let specs = |dir: &Path| {
+        let never = dir.join("never").display().to_string();
+        vec![spec(dir, &listening(&["plan.applied"]), &["--paused", &never])]
+    };
+    let (f, _) = told(specs, options);
+    let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({}) };
+    for _ in 0..3 {
+        f.plugins.deliver(&event, Some(&f.store));
+    }
+    f.plugins.shutdown();
     let said = |what: &str| f.logs.lock().unwrap().iter().filter(|(_, l)| l.starts_with(what)).count();
-    let dropped = said("dropped a plan.applied event: 2 were waiting");
-    assert!((2..=3).contains(&dropped), "{dropped} dropped");
-    eventually("the rest fail to be sent", || said("the plan.applied event wasn't sent: ") == 5 - dropped);
+    let started = said("paused");
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(said("paused"), started, "it isn't started again");
+    assert!(!f.plugins.is_running("echo"));
+    let logs = f.logs.lock().unwrap().clone();
+    let dropped: Vec<&str> = logs.iter().filter_map(|(_, l)| l.strip_prefix("it's stopping: ")).collect();
+    let [dropped] = dropped[..] else { panic!("dropped {dropped:?}") };
+    assert!(dropped.ends_with(" of its events waiting weren't sent"), "{dropped}");
+    assert!(said("the plan.applied event wasn't sent: ") >= 1);
+}
+
+/// What a plugin tells the user is a line of text, cut short past a few hundred characters; an
+/// empty one isn't told, and a suggestion with params that aren't an object, or that are too
+/// long, is left out of it.
+#[test]
+fn what_a_plugin_tells_the_user_is_a_short_line() {
+    let (f, notices) = told(|dir| vec![spec(dir, &listening(&["plan.applied"]), &[])], Options::default());
+    let suggests = |message: &str, params: Value| json!({ "message": message, "operation": { "name": "playlist", "params": params } });
+    let tells = [
+        json!({ "message": " " }),
+        suggests("not an object", json!([1])),
+        suggests("too long", json!({ "name": "x".repeat(70 << 10) })),
+        json!({ "message": format!("a\u{1b}[31mred\nline {}", "x".repeat(600)) }),
+    ];
+    for tell in tells {
+        let event = Event { name: EventName::PlanApplied, drive: None, payload: json!({ "tell": tell }) };
+        f.plugins.deliver(&event, Some(&f.store));
+    }
+    eventually("it tells the user", || notices.lock().unwrap().len() == 3);
+    let notices = notices.lock().unwrap().clone();
+    let said: Vec<(&str, bool)> = notices[..2].iter().map(|n| (n.message.as_str(), n.operation.is_some())).collect();
+    assert_eq!(said, [("not an object", false), ("too long", false)]);
+    assert!(notices[2].message.starts_with("aredline xxx"));
+    assert_eq!(notices[2].message.chars().count(), 500);
+    let logs = f.logs.lock().unwrap().clone();
+    for refused in [
+        "it tells the user nothing",
+        "it suggests \"playlist\" with params that aren't an object",
+        "it suggests \"playlist\" with params longer than 65536 bytes",
+    ] {
+        assert!(logs.iter().any(|(_, l)| l == refused), "{refused}");
+    }
 }
 
 /// What a plugin tells the user is suggestion only when it's one of its operations; the watch

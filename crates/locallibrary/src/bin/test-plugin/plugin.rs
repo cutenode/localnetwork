@@ -247,12 +247,13 @@ impl Test {
 }
 
 /// An event: logged (`event <name> <drive> <payload>`), and told back to the user, suggesting
-/// echo's `playlist` named after it.
+/// echo's `playlist` named after it, or as its payload's `tell` says.
 fn heard(e: EventNotify, host: &Host) -> Result<(), RpcError> {
     let name = e.event.name();
     eprintln!("event {name} {} {}", e.drive.as_deref().unwrap_or("-"), e.payload);
     let operation = Some(Suggested { name: "playlist".into(), params: json!({ "name": name }) });
-    host.notify(&HostNotify { message: format!("heard {name}"), operation });
+    let told = serde_json::from_value(e.payload["tell"].clone());
+    host.notify(&told.unwrap_or(HostNotify { message: format!("heard {name}"), operation }));
     Ok(())
 }
 
