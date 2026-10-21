@@ -104,6 +104,26 @@ fn a_recording_is_identified_into_a_tracklist_a_report_and_data() {
     assert_eq!(doc["plays"].as_array().unwrap().len(), 1, "{doc}");
 }
 
+/// The report shows what analyzers worked out of each track it plays, of the fields they say
+/// how to show, as they say.
+#[test]
+fn the_report_shows_the_fields_analyzers_say_how_to_show() {
+    let mut env = Env::ascii();
+    let hinted = crate::support::echo_plugin().replace(
+        "fields = { bytes = \"integer\" }",
+        "fields = { bytes = \"integer\" }\ndisplay.bytes = { unit = \"B\" }",
+    );
+    env.plugins(&[&hinted]);
+    let (drive, recording) = drive_and_recording(&env);
+    let d = path(&drive);
+    env.ok(&["analyze", d, "--analyzer", "size"]);
+    let page = env.outside("friday.html");
+    env.ok(&["mix", path(&recording), "--drive", d, "--html", path(&page)]);
+    let html = std::fs::read_to_string(&page).unwrap();
+    let bytes = std::fs::metadata(drive.join("Contents/Loopmasters/UnknownAlbum/Demo Track 1.mp3")).unwrap().len();
+    assert!(html.contains(&format!(r#""fields":[{{"label":"echo.bytes","value":"{bytes} B"}}]"#)), "{html}");
+}
+
 #[test]
 fn several_recordings_are_written_into_a_folder() {
     let env = Env::ascii();

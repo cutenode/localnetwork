@@ -18,8 +18,10 @@ listening to your library the way the players see it:
   `b`, to sort by title, artist, album, genre, BPM, key (round the Camelot wheel), rating, time,
   date added or play count; click again to reverse, a third time for no sort.
 - **Track details** (`i`): everything rekordbox knows about the selected track (comment, label,
-  remixer, mix, date added, plays, format, size), the playlists it's in, and the tracks that
-  **mix into** it, which you can play or tag from there.
+  remixer, mix, date added, plays, format, size), the playlists it's in, plugins' panels (what
+  each shows about the track, asked for once the selection settles on it: "loading…" until it
+  answers, and what went wrong in the messages when it fails), and the tracks that **mix into**
+  it, which you can play or tag from there.
 - **Crate** (`t`): a CDJ's TAG LIST, called the crate here so it isn't taken for My Tags. Collect
   tracks while browsing (`a` adds the marked or selected ones; `m` marks), reorder them, play the
   crate, save it to the drive as a playlist, or pack it onto another drive for a set.
@@ -45,10 +47,14 @@ listening to your library the way the players see it:
 - **Analyzers**: "analyze the tracks: …" in the palette (or a drive's `e` menu) runs a plugin's
   analyzer over the drive's tracks in the background, those not analysed already. "show the
   sound.bpm column" adds a column of what it worked out (remembered for the next run; `-` where
-  it found nothing to show), sorted by a click on its header like any column, and the search box
+  it found nothing to show; shown as its analyzer says, in bytes or as a meter, say), sorted by a click on its header like any column, and the search box
   filters by it: `sound.bpm:>120`. "write keys and BPMs to the tracks: …" writes what an
   analyzer heard to the tracks (a form asks which, and whether over what they have), confirmed
   like any edit.
+- **Imports**: "import …" in the palette (or a drive's `e` menu) reads a file with a plugin's
+  importer (a form asks for the file and the format's options), then shows what it adds to the
+  drive's tracks and the sessions it keeps, with how many tracks it couldn't find, confirmed like
+  any edit.
 - **Providers**: "fetch cover art…" and "fetch track details…" in the actions menu (`e`) and the
   palette ask the plugins' providers about the marked or selected tracks (a form says which
   provider, or all, and whether over what they have). A track's candidate scoring high enough
@@ -165,7 +171,8 @@ listening to your library the way the players see it:
   some are), asking where first. A plugin's format ("export for traktor…", in a drive's `e` menu
   too) asks where and for the format's options in a form, then shows what it would write (each
   file, what goes in, what the format can't hold) and writes it on `y`, asking first when that
-  overwrites files there already; it takes the marked playlists too.
+  overwrites files there already; it takes the marked playlists too. A set's format ("export the
+  set for …") writes out the set open in Browse › Sets.
 - **Mixes** (`5`): a recorded set and the tracks it plays, like [`locallibrary mix`](sets.md#mixes)
   against the drive open in the library. Pick one of the drive's recordings (XDJ-AZ and OPUS-QUAD
   MASTER REC files), or `O` to type the path of a recording or a folder of them on this computer. A
@@ -179,7 +186,9 @@ listening to your library the way the players see it:
   seeks, `z` zooms. `o` goes to the selected track in the library, `E` exports the set as data for
   [Local Network](sets.md#mixes) and `w` writes the HTML report and opens it.
 
-Colours are made for a dark terminal. For a light one, set `LOCALLIBRARY_THEME=light`; terminals
+Colours are the theme's: the default, or a plugin's chosen in the palette ("Night theme",
+"default theme"), kept for the next run in `tui.json`. They're made for a dark terminal. For a
+light one, set `LOCALLIBRARY_THEME=light`; terminals
 that set `COLORFGBG` (rxvt, Konsole and others) are recognised without it, and
 `LOCALLIBRARY_THEME=dark` overrides them. With [`NO_COLOR`](https://no-color.org) set, the player
 draws no colours: the selection is in reverse video, the focused pane has a heavy border, keys

@@ -33,6 +33,7 @@ pub use loclib_model::analysis::*;
 pub use structure::{kind_number, write_song_structure};
 pub use tags::new_analysis_files;
 pub use waves::{DETAIL_RATE, at_detail_rate, waveform_entries, waveform_from_bands, waveform_tags, write_waveform};
+pub(crate) use write::MAX_COMMENT;
 pub use write::{CueFile, CuePoint, RawCue, read_cue_points, shift_times, write_cue_points};
 
 #[derive(Debug, Clone, Copy)]

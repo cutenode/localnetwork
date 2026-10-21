@@ -138,6 +138,7 @@ its drives.
 | `locallibrary export <library> [PLAYLIST] -o FILE` | A playlist, folder, history list or the whole library as M3U8, CSV or text |
 | `locallibrary export <library> [PLAYLIST] --format traktor\|serato\|engine -o DIR [--option KEY=VALUE]... [--dry-run]` | The library for other DJ software (the interop plugin's), written on this computer, see [Other DJ software](other-software.md#other-dj-software) |
 | `locallibrary export <library> [PLAYLIST] --format FORMAT -o PATH [--option KEY=VALUE]... [--dry-run] [--replace]` | A format a plugin adds; overwriting a file is asked about first unless `--replace`, see [Plugins](plugins.md) |
+| `locallibrary import FILE [<library>] [--format FORMAT] [--option KEY=VALUE]... [--dry-run]` | Read another program's file with a plugin's importer: keys, BPMs, cues and My Tags added to the tracks it finds where they have none, plays kept as sessions, see [Plugins](plugins.md#import-formats) |
 | `locallibrary analyze [<library>] [--plugin ID] [--analyzer NAME] [--track ID]... [--apply key,bpm\|grid,phrases,waveform [--overwrite] [--min-confidence N] [--dry-run]]` | Run plugins' analyzers on a library's tracks, once each; `track` shows what they worked out as `PLUGIN.FIELD` (`sound.bpm`); `--apply` then writes the analyzer's keys and BPMs to the tracks, or its beat grids, phrases and waveforms into their analysis files, as an edit, see [Plugins](plugins.md) |
 | `locallibrary xml [<library>] -o rekordbox.xml [--only PLAYLIST]` | Export as rekordbox XML (`--only`: just those playlists or folders and their tracks) |
 
@@ -147,7 +148,7 @@ its drives.
 | --- | --- |
 | `locallibrary playlist [<library>]` | A library's playlist tree (`playlist ls`) |
 | `locallibrary playlist ...` | Create, rename, move, delete, fill, sort, order for mixing and import playlists, see [Editing playlists and tracks](editing.md#editing-playlists-and-tracks) |
-| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), swap MP3s for lossless files of their recording (`track upgrade`, see [Upgrading to lossless](editing.md#upgrading-to-lossless)), find harmonic matches, find their tags online (`track fetch`, see [Providers](plugins.md#providers)) |
+| `locallibrary track ...` | Show a track's details and where it's filed (`track <library> --query ...`), rate, colour and edit tracks, delete them, replace duplicates, find missing files (`track relocate`, see [Missing files](editing.md#missing-files)), swap MP3s for lossless files of their recording (`track upgrade`, see [Upgrading to lossless](editing.md#upgrading-to-lossless)), find harmonic matches, find their tags online (`track fetch`, see [Providers](plugins.md#providers)); `track show` prints plugins' panels after a track's details (see [Panels](plugins.md#panels)) |
 | `locallibrary tags ...` | My Tags: list, `add`/`untag` tracks, `rename`, `delete` a tag, see [My Tags](editing.md#my-tags) |
 | `locallibrary cues ...` | Hot cues, memory cues and loops: list, set, rename, recolour, delete, copy, see [Cues](editing.md#cues) |
 | `locallibrary art [<library>] ...` | Tracks without artwork (`art missing`), and setting it, from a file or online (`art fetch`), see [Cover art](editing.md#cover-art) |
@@ -172,9 +173,11 @@ its drives.
 | `locallibrary sets suggest [--dismiss SESSION]` | The sets your sessions suggest, each with the command that declares it |
 | `locallibrary sets new\|show\|edit\|delete ...` | Declare a set from sessions or a recording, show it, change its details and tracklist, delete it |
 | `locallibrary sets export <SET> [--format text\|mixcloud\|cue\|youtube\|1001\|csv\|m3u8] [-o FILE]` | A set's tracklist for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists, a spreadsheet, or a playlist file |
+| `locallibrary sets export <SET> --format FORMAT -o PATH [--drive LIB] [--option KEY=VALUE]... [--dry-run] [--replace]` | A set in a format a plugin adds for sets, see [Plugins](plugins.md#export-formats) |
 | `locallibrary sets played <QUERY>` / `sets playlist <SET> <library>` | When and where you played a track; a playlist of a set's tracks in a library |
 | `locallibrary sets publish <SET>` | Publish a set on your Atmosphere account (alpha), see [Publishing](account.md#publishing) |
 | `locallibrary mix <recording>... [--drive LIB] [--html PATH] [--export PATH] [--open]` | Which of a drive's tracks a recorded set plays, when, at what speed and in what key, as a tracklist and an interactive report, see [Mixes](sets.md#mixes) |
+| `locallibrary mix <recording> --format FORMAT --export PATH [--option KEY=VALUE]...` | A mix's tracklist in a format a plugin adds for mixes (its report kept in the store), see [Plugins](plugins.md#export-formats) |
 | `locallibrary profile [<library>...]` | What your sets, collection and settings say about how you play, and what a public profile would show, see [DJ profile](sets.md#dj-profile) |
 | `locallibrary players [show\|set\|clear\|models]` | The player models `check` uses when none are given, and what each model reads, see [Before a set](sets.md#before-a-set) |
 

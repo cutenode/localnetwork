@@ -1,4 +1,5 @@
-//! Feature `exporters`: a drive's library written in another program's format, on this computer.
+//! Feature `exporters`: a drive's library, a set or a mix written in another program's format, on
+//! this computer.
 
 use std::path::PathBuf;
 
@@ -9,7 +10,7 @@ use serde_json::Value;
 
 use crate::manifest::{invalid, object_schema, shown, unique_names};
 use crate::sdk::declared;
-use crate::{Context, Contributions, Feature, Hook, Manifest, ManifestError, RpcError};
+use crate::{Capability, Context, Contributions, Feature, Hook, Manifest, ManifestError, RpcError};
 
 /// Host to plugin: [`WriteExport`] -> [`Exported`].
 pub const WRITE_EXPORT: &str = "export/write";
@@ -39,12 +40,15 @@ pub struct WriteExport {
     pub context: Context,
 }
 
-/// What to export. An export always reads the drive's whole library as locallibrary combines it
-/// (`export.pdb` with `exportExt.pdb`, or OneLibrary); `playlists` and `history` only narrow which
-/// lists go in, and with neither, every list does.
+/// What to export, as the exporter's `source` says: a drive's library, a set or a mix. A drive's
+/// export always reads its whole library as locallibrary combines it (`export.pdb` with
+/// `exportExt.pdb`, or OneLibrary); `playlists` and `history` only narrow which lists go in, and
+/// with neither, every list does. A set's or a mix's names the drive its tracks are on, when
+/// there's one.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExportSource {
-    /// The drive's id or name.
+    /// The drive's id or name: always a drive exporter's.
+    #[serde(default)]
     pub drive: String,
     /// Where it's mounted, absolute, as the host sets it: its tracks' audio files are below it,
     /// at their `file_path`, and the files an export writes may name them there. Read them; never
@@ -57,6 +61,12 @@ pub struct ExportSource {
     /// History lists the players recorded, by name, as `playlists.tree` lists them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub history: Vec<String>,
+    /// A set exporter's set, by id: `sets.get` reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<String>,
+    /// A mix exporter's mix, the report kept of it, by id: `mix.reports.get` reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mix: Option<String>,
 }
 
 /// What `export/write` answers.
@@ -115,10 +125,41 @@ pub struct Exporter {
     /// A JSON Schema for its options (an object).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<Value>,
+    /// What it writes out [default: a drive's library].
+    #[serde(default, skip_serializing_if = "ExportFrom::is_drive")]
+    pub source: ExportFrom,
 }
 
-/// An exporter's file extension: no dot, just lowercase letters and digits.
-fn is_extension(s: &str) -> bool {
+/// What an exporter writes out.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportFrom {
+    /// A drive's library.
+    #[default]
+    Drive,
+    /// A set the DJ declared (`locallibrary sets`).
+    Set,
+    /// A recorded mix's tracklist, as `locallibrary mix` found it.
+    Mix,
+}
+
+impl ExportFrom {
+    /// As a manifest names it (`set`).
+    pub fn name(self) -> &'static str {
+        match self {
+            ExportFrom::Drive => "drive",
+            ExportFrom::Set => "set",
+            ExportFrom::Mix => "mix",
+        }
+    }
+
+    fn is_drive(&self) -> bool {
+        *self == ExportFrom::Drive
+    }
+}
+
+/// An exporter's (or an importer's) file extension: no dot, just lowercase letters and digits.
+pub(crate) fn is_extension(s: &str) -> bool {
     (1..=16).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
 }
 
@@ -136,6 +177,10 @@ pub(crate) fn validate(m: &Manifest) -> Result<(), ManifestError> {
             return Err(invalid(format!("{at}[{i}].extension"), message));
         }
         object_schema(format!("{at}[{i}].options"), x.options.as_ref())?;
+        if x.source != ExportFrom::Drive && !m.capabilities.contains(&Capability::SetsRead) {
+            let message = format!("reads {}s, which needs the {} capability", x.source.name(), Capability::SetsRead);
+            return Err(invalid(format!("{at}[{i}].source"), message));
+        }
     }
     Ok(())
 }

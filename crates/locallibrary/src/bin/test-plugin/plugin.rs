@@ -14,9 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, EventNotify, Exported, ExportedFile, Fetch,
-    FieldValue, Hooks, Host, HostNotify, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, RpcError, RunCommand,
-    StartService, Suggested, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Blob, Candidate, Candidates, Choice, Context, EventNotify, Exported, ExportedFile, Fetch,
+    FieldValue, Hooks, Host, HostNotify, ImportAnswer, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates,
+    ReadImport, RenderPanel, RpcError, RunCommand, StartService, Suggested, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -60,9 +60,16 @@ impl Test {
             let test = test.clone();
             hooks = hooks.on(move |req: WriteExport, host: &Host| test.write_export(req, host));
         }
+        if has("importers") {
+            hooks = hooks.on(read_import);
+        }
         if has("operations") {
             let test = test.clone();
             hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
+        }
+        if has("panels") {
+            let test = test.clone();
+            hooks = hooks.on(move |req: RenderPanel, host: &Host| test.render_panel(req, host));
         }
         if has("providers") {
             hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));
@@ -142,6 +149,9 @@ impl Test {
                 Err(error) => json!({ "error": error }),
             });
         }
+        if let Some(view) = p.get("view") {
+            return Ok(view.clone());
+        }
         if let Some(rows) = p["partial"].as_array() {
             // Each row as a part of its own, then the table of them all.
             let rows: Vec<Vec<Value>> = rows.iter().map(|r| vec![r.clone()]).collect();
@@ -190,6 +200,9 @@ impl Test {
     }
 
     fn write_export(&self, req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
+        if req.source.set.is_some() || req.source.mix.is_some() {
+            return write_tracklist(req, host);
+        }
         if let Some(outside) = req.options["outside"].as_str() {
             let file = ExportedFile { path: outside.into(), what: String::new(), bytes: 0 };
             return Ok(Exported { files: vec![file], ..Exported::default() });
@@ -247,6 +260,85 @@ impl Test {
         let warnings = params(answer.get("warnings").cloned().unwrap_or(json!([])))?;
         Ok(Candidates { candidates, warnings })
     }
+
+    /// Echo's panel (`about`), or any other answering as its `panel` setting says (JSON):
+    /// failing with the error `fail` is, else after `sleep` milliseconds (failing as cancelled
+    /// once the host cancels it), once the files `blobs` gives are in the scratch folder, its
+    /// `view`.
+    fn render_panel(&self, req: RenderPanel, host: &Host) -> Result<View, RpcError> {
+        if req.panel == "about" {
+            return echo::render_panel(req, host);
+        }
+        let answer: Value = req.context.settings.get("panel").and_then(Value::as_str).map_or(Ok(json!({})), |a| {
+            serde_json::from_str(a).map_err(|e| RpcError::failed("invalid", e.to_string()))
+        })?;
+        if let Some(kind) = answer["fail"].as_str() {
+            return Err(RpcError::failed(kind, "it failed"));
+        }
+        let until = std::time::Instant::now() + Duration::from_millis(answer["sleep"].as_u64().unwrap_or(0));
+        while std::time::Instant::now() < until {
+            host.ctx().check()?;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        write_blobs(&req.context, &answer)?;
+        params(answer.get("view").cloned().unwrap_or(json!({ "kind": "text", "text": "" })))
+    }
+}
+
+/// A set exporter's or a mix exporter's: the set's tracks (`sets.get`), or the mix's plays
+/// (`mix.reports.get`), a line each (`Artist - Title`), with the drive and the set or the mix it
+/// was given in notes.
+fn write_tracklist(req: WriteExport, host: &Host) -> Result<Exported, RpcError> {
+    let names: Vec<String> = match (&req.source.set, &req.source.mix) {
+        (Some(set), _) => {
+            let set: Value = host.call("sets.get", &json!({ "set": set }))?;
+            let tracks = set["tracks"].as_array().cloned().unwrap_or_default();
+            tracks
+                .iter()
+                .map(|t| format!("{} - {}", t["artist"].as_str().unwrap_or(""), t["title"].as_str().unwrap_or("")))
+                .collect()
+        }
+        (None, mix) => {
+            let mix: Value = host.call("mix.reports.get", &json!({ "id": mix }))?;
+            let plays = mix["plays"].as_array().cloned().unwrap_or_default();
+            plays
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{} - {}",
+                        p["track"]["artist"].as_str().unwrap_or(""),
+                        p["track"]["title"].as_str().unwrap_or("")
+                    )
+                })
+                .collect()
+        }
+    };
+    let text: String = names.iter().map(|n| format!("{n}\n")).collect();
+    if !req.dry_run {
+        std::fs::write(&req.output, &text).map_err(|e| RpcError::failed("io", e.to_string()))?;
+    }
+    let file = ExportedFile { path: req.output, what: "tracklist".into(), bytes: text.len() as u64 };
+    let counts = [("tracks".to_string(), names.len() as u64)].into_iter().collect();
+    let of = req.source.set.as_ref().map(|s| format!("set: {s}"));
+    let notes = vec![
+        format!("drive: {}", req.source.drive),
+        of.unwrap_or_else(|| format!("mix: {}", req.source.mix.unwrap_or_default())),
+    ];
+    Ok(Exported { files: vec![file], counts, notes, ..Exported::default() })
+}
+
+/// An importer: the file as JSON, what it answers (`{"tracks": ..., "sessions": ...}`, as the
+/// test wrote it), in a file in its scratch folder too with the `blob` option (named as it says);
+/// any other file as echo's importer reads it.
+fn read_import(req: ReadImport, host: &Host) -> Result<ImportAnswer, RpcError> {
+    let text = std::fs::read_to_string(&req.file).map_err(|e| RpcError::failed("io", e.to_string()))?;
+    let Ok(answer) = serde_json::from_str::<Value>(&text) else { return echo::read_import(req, host).map(Into::into) };
+    if let Some(name) = req.options["blob"].as_str() {
+        let scratch = req.context.scratch.clone().ok_or_else(|| RpcError::failed("invalid", "no scratch folder"))?;
+        std::fs::write(scratch.join(name), &text).map_err(|e| RpcError::failed("io", e.to_string()))?;
+        return Ok(Blob { blob: name.into() }.into());
+    }
+    Ok(ImportAnswer::Read(params(answer)?))
 }
 
 /// An event: logged (`event <name> <drive> <payload>`), and told back to the user, suggesting

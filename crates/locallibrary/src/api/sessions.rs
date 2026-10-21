@@ -103,8 +103,7 @@ pub fn sessions_import(store: &Store, req: &ImportSessionLog) -> Result<Imported
     let library = super::sets::drive_library(req.drive.as_deref())?;
     let log = import::beat_link_trigger(&req.file, req.name.as_deref(), library.as_ref())?;
     let mut book = SetBook::load(store)?;
-    book.imported.retain(|s| s.id != log.id);
-    book.imported.push(log.clone());
+    book.keep(log.clone());
     book.save(store)?;
     Ok(log)
 }

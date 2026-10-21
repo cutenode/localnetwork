@@ -28,7 +28,7 @@ pub struct Spectrum<'a> {
     pub mirror: bool,
     /// A colour washed over the bars (a cue just passed) and how strongly, 0-1.
     pub tint: Option<(Rgb, f32)>,
-    pub palette: Palette,
+    pub palette: Palette<'a>,
 }
 
 impl Widget for Spectrum<'_> {
@@ -79,7 +79,7 @@ pub struct Scope<'a> {
     pub samples: &'a [f32],
     /// A colour washed over the trace (a cue just passed) and how strongly, 0-1.
     pub tint: Option<(Rgb, f32)>,
-    pub palette: Palette,
+    pub palette: Palette<'a>,
 }
 
 impl Widget for Scope<'_> {

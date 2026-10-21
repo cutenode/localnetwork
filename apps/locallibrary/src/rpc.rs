@@ -208,8 +208,8 @@ impl Plans {
 
 /// The operation (see [`methods::Method::operation`]) of the `.apply` that applies a plan of
 /// `operation`, for `method`: the plan's own (the host's `plugins.*`, too), but a plugin's
-/// operation (`<plugin>.<operation>`) is `plugins.op`'s and its export (`<plugin>.export.<format>`)
-/// `plugins.export`'s.
+/// operation (`<plugin>.<operation>`) is `plugins.op`'s, its export (`<plugin>.export.<format>`)
+/// `plugins.export`'s and its import (`<plugin>.import.<format>`) `plugins.import`'s.
 fn applied_as<'a>(method: &str, operation: &'a str) -> &'a str {
     if !method.starts_with(PLUGINS) {
         return operation;
@@ -217,6 +217,7 @@ fn applied_as<'a>(method: &str, operation: &'a str) -> &'a str {
     match operation.split('.').collect::<Vec<_>>()[..] {
         ["plugins", _] => operation,
         [_, "export", _] => "plugins.export",
+        [_, "import", _] => "plugins.import",
         _ => "plugins.op",
     }
 }
@@ -936,6 +937,7 @@ pub fn read(method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcErro
     static NONE: Plans = Plans::new();
     let m = registry().get(method).filter(|m| m.kind == Kind::Read && !m.hidden);
     let m = m.ok_or_else(|| RpcError::method_not_found(method))?;
+    // The store the host started the plugin in (see `Reads::read`), else the process's.
     let root = api::store_root().unwrap_or_else(locallibrary::Store::default_root);
     let call = Call { root: &root, plans: &NONE, ctx };
     m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(method)))

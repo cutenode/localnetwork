@@ -10,13 +10,16 @@
 //! question `ask` (a `Choice`) until they're given its param (or, `ask_again`, always), the
 //! command then answering that param as text; both first write the `blobs` (by name, their
 //! bytes), `hard_links` and (on Unix) `links` they're given to the scratch folder; a provider
-//! other than echo's answers as its `answer` setting says (see `Test::provide`); an analyzer
-//! named `heard` answers the fields written in the audio file as JSON (beat grids, phrases and
-//! waveforms too, writing the files its `blobs` give first), and one named `order` answers fields
-//! `a` (null for a one-byte audio file) then `b`, or fails naming an empty audio file; its
-//! exporter names the playlists it's given in a note, and would write to `outside`, or writes
-//! `extra` too without saying so first; it logs each event it's told of and tells the user it
-//! heard it, suggesting echo's `playlist` (or tells them what its payload's `tell` says); and its
+//! other than echo's answers as its `answer` setting says (see `Test::provide`), and a panel other
+//! than echo's as its `panel` setting does (see `Test::render_panel`); a command given a `view`
+//! answers it as it is (once its `blobs` are written); an analyzer named `heard` answers the
+//! fields written in the audio file as JSON (beat grids, phrases and waveforms too, writing the
+//! files its `blobs` give first), and one named `order` answers fields `a` (null for a one-byte
+//! audio file) then `b`, or fails naming an empty audio file; its exporter names the playlists
+//! it's given in a note, and would write to `outside`, or writes `extra` too without saying so
+//! first, and given a set or a mix writes its tracklist; its importer answers a JSON file as it is
+//! (in a blob with the `blob` option); it logs each event it's told of and tells the user it heard
+//! it, suggesting echo's `playlist` (or tells them what its payload's `tell` says); and its
 //! services run as their names say (see `plugin::serve_service`).
 //! `--manifest <file>` serves another manifest, `--protocol <version>` answers `hello` with
 //! another protocol and stops, `--silent` never answers, `--paused <file>` logs `paused` and

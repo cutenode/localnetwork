@@ -1,11 +1,13 @@
 //! Plugins' exporters (`export/write`): planned with a dry run, which says which files the export
-//! writes, so overwriting any is confirmed first; applied by the plugin writing them.
+//! writes, so overwriting any is confirmed first; applied by the plugin writing them. An exporter
+//! writes out a drive's library, a set or a mix, as its manifest's `source` says: the host checks
+//! the request names that (and only that), and finds it.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 
 use indexmap::IndexMap;
-use loclib_plugin::{Context, ExportSource, Exported, ExportedFile, WriteExport, method};
+use loclib_plugin::{Context, ExportFrom, ExportSource, Exported, ExportedFile, Exporter, WriteExport, method};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;
@@ -16,6 +18,7 @@ use crate::api;
 use crate::error::IoContext;
 use crate::op::{Operation, Planned, Probe, Touched};
 use crate::progress::Ctx;
+use crate::sets::SetBook;
 use crate::store::Store;
 use crate::{Error, Result};
 
@@ -52,13 +55,16 @@ pub struct ExportFile {
 }
 
 impl Plugins {
-    /// Plans an export with one of a plugin's exporters, of the drive `source.drive` names (by id,
-    /// name or path; the plugin is told where it's mounted, whatever `source.root` says) to
-    /// `output` (absolute), with `options` (checked against the exporter's
-    /// schema; `null` is none), never on a drive or in the store. The plugin says which files it
-    /// would write, writing none: the plan (operation `<plugin>.export.<exporter>`) is
-    /// destructive when it would overwrite any, and stale once one of them changes. Applying it
-    /// fails when the plugin writes other files than it said.
+    /// Plans an export with one of a plugin's exporters, of what `source` names as the
+    /// exporter's `source` says: the drive `source.drive` names (by id, name or path; the plugin
+    /// is told where it's mounted, whatever `source.root` says), the set `source.set` names (as
+    /// `sets show` finds one, the plugin told its id) or the mix kept in `store` as
+    /// `source.mix`, a set's or a mix's with the drive its tracks are on when it names one. To
+    /// `output` (absolute), with `options` (checked against the exporter's schema; `null` is
+    /// none), never on a drive or in the store. The plugin says which files it would write,
+    /// writing none: the plan (operation `<plugin>.export.<exporter>`) is destructive when it
+    /// would overwrite any, and stale once one of them changes. Applying it fails when the plugin
+    /// writes other files than it said.
     #[allow(clippy::too_many_arguments)]
     pub fn export_plan(
         &self,
@@ -79,10 +85,12 @@ impl Plugins {
             )));
         }
         outside_drives(output, store)?;
+        let source = of(declared, source, store)?;
+        let drive = Some(source.drive.clone()).filter(|d| !d.is_empty());
         let (context, device) =
-            slot.context(Context { drive: Some(source.drive.clone()), ..Context::default() }, store)?;
+            slot.context(Context { drive, set: source.set.clone(), ..Context::default() }, store)?;
         let options = super::fitting(declared.options.as_ref(), options, &context)?;
-        let root = device.expect("a drive was named").root().to_path_buf();
+        let root = device.map(|d| d.root().to_path_buf()).unwrap_or_default();
         let source = ExportSource { drive: context.drive.clone().unwrap_or_default(), root, ..source };
         let mut write =
             WriteExport { exporter: exporter.into(), source, output: output.into(), options, dry_run: true, context };
@@ -129,6 +137,35 @@ impl Plugins {
             .noop(noop)
             .touches(Touched::path(dir, true, vec![Probe::Stamp(keys)])))
     }
+}
+
+/// `source` as `exporter` writes it out, once it names what the exporter's `source` says, and
+/// nothing another kind of exporter's does: a set by its id, found in `store`, and a mix kept
+/// there.
+fn of(exporter: &Exporter, mut source: ExportSource, store: Option<&Store>) -> Result<ExportSource> {
+    let named = |what: &str| Error::invalid(format!("{} writes out {what}: say which", exporter.title));
+    let not =
+        |what: &str| Error::invalid(format!("{} writes out a {}, not {what}", exporter.title, exporter.source.name()));
+    let lists = !source.playlists.is_empty() || !source.history.is_empty();
+    let store = || store.ok_or_else(|| Error::invalid("sets and mixes are kept in the store, and there's none"));
+    match exporter.source {
+        ExportFrom::Drive if source.drive.is_empty() => return Err(named("a drive's library")),
+        ExportFrom::Drive if source.set.is_some() => return Err(not("a set")),
+        ExportFrom::Drive if source.mix.is_some() => return Err(not("a mix")),
+        ExportFrom::Drive => {}
+        ExportFrom::Set | ExportFrom::Mix if lists => return Err(not("a drive's playlists")),
+        ExportFrom::Set if source.mix.is_some() => return Err(not("a mix")),
+        ExportFrom::Set => {
+            let set = source.set.as_deref().ok_or_else(|| named("a set"))?;
+            source.set = Some(SetBook::load(store()?)?.find(set)?.id.clone());
+        }
+        ExportFrom::Mix if source.set.is_some() => return Err(not("a set")),
+        ExportFrom::Mix => {
+            let mix = source.mix.as_deref().ok_or_else(|| named("a mix"))?;
+            crate::mix::report::load(store()?.root(), mix)?;
+        }
+    }
+    Ok(source)
 }
 
 /// `file`'s key below `dir`, when it's there.

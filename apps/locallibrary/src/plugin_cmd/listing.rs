@@ -9,7 +9,7 @@ use console::style;
 use indexmap::IndexMap;
 use locallibrary::fields::{self, Role, roles::RoleChoice};
 use locallibrary::plugin::Plugins;
-use loclib_plugin::{Setting, SettingType, Where};
+use loclib_plugin::{ExportFrom, Setting, SettingType, Where};
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
@@ -43,8 +43,11 @@ pub(super) fn list(all: &[Listed]) {
             named("operation", &p.operations),
             named("analyzer", &p.analyzers),
             named("export format", &p.exporters),
+            named("import format", &p.importers),
             named("provider", &p.providers),
+            named("panel", &p.panels),
             named("service", &p.services),
+            named("theme", &p.themes),
             named("setting", &p.settings),
         ]
         .into_iter()
@@ -92,6 +95,8 @@ pub(super) fn info(d: &Described) {
     let operations =
         c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Operations (planned, then confirmed):", operations.collect());
+    let panels = c.panels.iter().map(|p| (p.name.clone(), format!("{}, under a track's details", p.title)));
+    section("Panels (locallibrary track show, and the player):", panels.collect());
     let analyzers = c.analyzers.iter().map(|a| {
         let fields: Vec<&str> = a.fields.keys().map(String::as_str).collect();
         // Each with its field, where that's named otherwise: `loudness (integrated_lufs)`.
@@ -102,11 +107,25 @@ pub(super) fn info(d: &Described) {
         (a.name.clone(), format!("{}: {}{roles}", a.title, fields.join(", ")))
     });
     section(&format!("Analyzers (locallibrary analyze --plugin {}):", m.id), analyzers.collect());
-    let exporters = c.exporters.iter().map(|e| {
-        let writes = e.extension.as_ref().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
-        (e.format.clone(), format!("{}, {writes}", e.title))
+    // Each kind of what they write out, and how it's run.
+    let of = [
+        (ExportFrom::Drive, "Export formats (locallibrary export LIBRARY --format FORMAT -o ...):"),
+        (ExportFrom::Set, "Set export formats (locallibrary sets export SET --format FORMAT -o ...):"),
+        (ExportFrom::Mix, "Mix export formats (locallibrary mix RECORDING --format FORMAT --export ...):"),
+    ];
+    for (source, title) in of {
+        let exporters = c.exporters.iter().filter(|e| e.source == source).map(|e| {
+            let writes = e.extension.as_ref().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
+            (e.format.clone(), format!("{}, {writes}", e.title))
+        });
+        section(title, exporters.collect());
+    }
+    let importers = c.importers.iter().map(|i| {
+        let reads = i.extension.as_ref().map_or_else(|| "a file".to_string(), |x| format!("a .{x} file"));
+        let provides: Vec<&str> = i.provides.iter().map(|k| k.name()).collect();
+        (i.format.clone(), format!("{}, {reads}: {}", i.title, provides.join(", ")))
     });
-    section("Export formats (locallibrary export LIBRARY --format FORMAT -o ...):", exporters.collect());
+    section("Import formats (locallibrary import FILE LIBRARY --format FORMAT):", importers.collect());
     let providers = c.providers.iter().map(|p| {
         let verb = match p.kind {
             loclib_plugin::ProviderKind::Artwork => "art fetch",
@@ -120,6 +139,8 @@ pub(super) fn info(d: &Described) {
         (s.name.clone(), format!("{}: {}", s.title, if on { "on" } else { "off" }))
     });
     section(&format!("Services (locallibrary plugin settings {} services.NAME on):", m.id), services.collect());
+    let themes = c.themes.iter().map(|t| (t.name.clone(), format!("{}, in the player", t.title)));
+    section("Themes:", themes.collect());
     let settings =
         c.settings.iter().map(|s| (s.key.clone(), format!("{}: {}", s.title, shown(s, &d.settings, &d.secrets))));
     section(&format!("Settings (locallibrary plugin settings {}):", m.id), settings.collect());

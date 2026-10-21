@@ -26,7 +26,7 @@ use rustc_hash::FxHashMap;
 use serde_json::Value;
 
 use super::blobs;
-use super::process::{Live, Slot};
+use super::process::{Live, Plugin};
 use crate::export::one_line;
 use crate::net::{public, this_computer, with_causes};
 use crate::progress::CancelToken;
@@ -115,13 +115,13 @@ fn refused(capabilities: &[Capability], url: &Url, loopback: bool) -> Option<Str
     public(url.as_str()).err()
 }
 
-impl Slot {
+impl Plugin {
     /// Whether `net/fetch` may reach servers on this computer: in tests, never in a release.
     fn loopback(&self) -> bool {
         cfg!(debug_assertions) && self.host.options.test_loopback
     }
 
-    /// The plugin's client, which follows no redirect: [`Slot::fetch`] does, checking each.
+    /// The plugin's client, which follows no redirect: [`Plugin::fetch`] does, checking each.
     fn client(&self) -> Result<&Client, RpcError> {
         let made = self.net.client.get_or_init(|| {
             let none = reqwest::redirect::Policy::none();

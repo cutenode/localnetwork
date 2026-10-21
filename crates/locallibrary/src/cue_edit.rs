@@ -30,7 +30,7 @@ use crate::progress::Ctx;
 use crate::{Error, Result};
 
 /// How far (ms) a memory cue may be from the position given to find it.
-const FIND_TOLERANCE_MS: u32 = 100;
+pub(crate) const FIND_TOLERANCE_MS: u32 = 100;
 
 /// A hot cue slot, A-H (written as its letter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
@@ -134,6 +134,9 @@ pub struct UpdateCue {
 #[derive(Debug, Clone)]
 pub enum CueEdit {
     Set(SetCue),
+    /// Set these in turn, each as [`CueEdit::Set`] sets one, after the ones before it: what an
+    /// import adds to a track, as one edit.
+    SetMany(Vec<SetCue>),
     Update(UpdateCue),
     Delete(CueRef),
     /// Replace the tracks' cues with a copy of this track's (an id from [`Device::library`]).
@@ -156,10 +159,17 @@ pub enum CueEdit {
 #[serde(rename_all = "snake_case")]
 pub enum CueChange {
     Set(SetCue),
+    /// Several cues set in turn, each as `set` sets one (what an import adds to a track).
+    SetMany(Vec<SetCue>),
     Update(UpdateCue),
     Delete(CueRef),
-    Copy { from: String },
-    Carry { from: String, shift_ms: i32 },
+    Copy {
+        from: String,
+    },
+    Carry {
+        from: String,
+        shift_ms: i32,
+    },
 }
 
 impl CueChange {
@@ -167,6 +177,7 @@ impl CueChange {
         let file = |id: u32| library.track(id).map(|t| t.file_path.clone()).unwrap_or_default();
         match edit {
             CueEdit::Set(s) => CueChange::Set(s.clone()),
+            CueEdit::SetMany(cues) => CueChange::SetMany(cues.clone()),
             CueEdit::Update(u) => CueChange::Update(u.clone()),
             CueEdit::Delete(r) => CueChange::Delete(r.clone()),
             CueEdit::Copy { from } => CueChange::Copy { from: file(*from) },
@@ -181,6 +192,7 @@ impl CueChange {
             CueChange::Set(SetCue { at, .. }) => {
                 format!("set a {} on {tracks} track(s)", describe(&CueRef::Memory(*at)))
             }
+            CueChange::SetMany(cues) => format!("set {} cue(s) on {tracks} track(s)", cues.len()),
             CueChange::Update(u) => format!("rename or recolour {} on {tracks} track(s)", describe(&u.cue)),
             CueChange::Delete(r) => format!("delete {} on {tracks} track(s)", describe(r)),
             CueChange::Copy { from } => format!("copy the cues of {from} to {tracks} track(s)"),
@@ -633,9 +645,13 @@ fn find(drafts: &[Draft], r: &CueRef, beats: &[Beat], t: &Track) -> Result<Vec<u
     Ok(found)
 }
 
+/// Sets `s` among `drafts`, or says why it can't, leaving them as they were.
 fn set(drafts: &mut Vec<Draft>, t: &Track, beats: &[Beat], s: &SetCue) -> Result<()> {
     if s.hot_cue.is_some_and(|h| h.0 >= HotCue::COUNT) {
         return Err(Error::invalid("hot cues are A-H"));
+    }
+    if s.name.as_ref().is_some_and(|n| n.len() > anlz::MAX_COMMENT) {
+        return Err(Error::invalid(format!("a cue's name is {} bytes at most", anlz::MAX_COMMENT)));
     }
     let (start, beat) = resolve(s.at, s.snap, beats)?;
     check_in_track(t, start)?;
@@ -653,13 +669,13 @@ fn set(drafts: &mut Vec<Draft>, t: &Track, beats: &[Beat], s: &SetCue) -> Result
         Some(_) => drafts.iter().position(|d| d.cue.hot_cue == slot),
         None => drafts.iter().position(|d| d.cue.hot_cue.is_none() && d.cue.start_ms.abs_diff(start) <= 1),
     };
-    let i = existing.unwrap_or_else(|| {
-        let rgb = if slot.is_some() { DEFAULT_HOT_CUE_RGB } else { [0; 3] };
-        let cue = CuePoint { hot_cue: slot, color_rgb: rgb, ..Default::default() };
-        drafts.push(Draft { cue, origin: None, source: None });
-        drafts.len() - 1
-    });
-    let c = &mut drafts[i].cue;
+    let mut c = match existing {
+        Some(i) => drafts[i].cue.clone(),
+        None => {
+            let rgb = if slot.is_some() { DEFAULT_HOT_CUE_RGB } else { [0; 3] };
+            CuePoint { hot_cue: slot, color_rgb: rgb, ..Default::default() }
+        }
+    };
     c.start_ms = start;
     c.end_ms = end;
     c.loop_beats = loop_beats;
@@ -668,9 +684,40 @@ fn set(drafts: &mut Vec<Draft>, t: &Track, beats: &[Beat], s: &SetCue) -> Result
         c.comment = n.clone();
     }
     if let Some(color) = &s.color {
-        set_color(c, color)?;
+        set_color(&mut c, color)?;
+    }
+    match existing {
+        Some(i) => drafts[i].cue = c,
+        None => drafts.push(Draft { cue: c, origin: None, source: None }),
     }
     Ok(())
+}
+
+/// A track's cues as its analysis files hold them, to check cues to set on it before an edit
+/// sets them ([`CueChange::SetMany`]): each is set here as the edit would, after those before it.
+pub(crate) struct Drafts<'a> {
+    track: &'a Track,
+    beats: Vec<Beat>,
+    drafts: Vec<Draft>,
+}
+
+impl<'a> Drafts<'a> {
+    /// `track`'s on `device`, failing when it can't hold cues (rekordbox hasn't analysed it).
+    pub(crate) fn of(device: &Device, track: &'a Track) -> Result<Drafts<'a>> {
+        let loaded = load(device, track)?;
+        let drafts = loaded.cues.into_iter().map(|cue| Draft { cue, origin: None, source: None }).collect();
+        Ok(Drafts { track, beats: loaded.beats, drafts })
+    }
+
+    /// Each cue's hot cue slot, when it's one, and where it starts.
+    pub(crate) fn there(&self) -> Vec<(Option<HotCue>, u32)> {
+        self.drafts.iter().map(|d| (d.cue.hot_cue.map(HotCue), d.cue.start_ms)).collect()
+    }
+
+    /// Sets `s` as the edit would, or says why it can't (the cues left as they were).
+    pub(crate) fn set(&mut self, s: &SetCue) -> Result<()> {
+        set(&mut self.drafts, self.track, &self.beats, s)
+    }
 }
 
 /// The cues a track has after `edit`.
@@ -679,6 +726,11 @@ fn edited(t: &Track, loaded: &Loaded, edit: &CueEdit, source: Option<&Loaded>) -
         loaded.cues.iter().enumerate().map(|(i, c)| Draft { cue: c.clone(), origin: Some(i), source: None }).collect();
     match edit {
         CueEdit::Set(s) => set(&mut drafts, t, &loaded.beats, s)?,
+        CueEdit::SetMany(cues) => {
+            for s in cues {
+                set(&mut drafts, t, &loaded.beats, s)?;
+            }
+        }
         CueEdit::Update(u) => {
             for i in find(&drafts, &u.cue, &loaded.beats, t)? {
                 if let Some(n) = &u.name {
@@ -1037,6 +1089,7 @@ pub(crate) fn replay(
     }
     let edit = match change {
         CueChange::Set(s) => CueEdit::Set(s.clone()),
+        CueChange::SetMany(cues) => CueEdit::SetMany(cues.clone()),
         CueChange::Update(u) => CueEdit::Update(u.clone()),
         CueChange::Delete(r) => CueEdit::Delete(r.clone()),
         CueChange::Copy { from } | CueChange::Carry { from, .. } => match (id(from), change) {
