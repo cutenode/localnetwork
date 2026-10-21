@@ -901,6 +901,7 @@ pub fn read(method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcErro
     static NONE: Plans = Plans::new();
     let m = registry().get(method).filter(|m| m.kind == Kind::Read && !m.hidden);
     let m = m.ok_or_else(|| RpcError::method_not_found(method))?;
+    // The store the host started the plugin in (see `Reads::read`), else the process's.
     let root = api::store_root().unwrap_or_else(locallibrary::Store::default_root);
     let call = Call { root: &root, plans: &NONE, ctx };
     m.run(&call, params).unwrap_or_else(|| Err(RpcError::method_not_found(method)))

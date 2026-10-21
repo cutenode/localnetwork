@@ -130,3 +130,26 @@ fn a_plugin_has_a_few_calls_under_way_at_once() {
     f.release.send(()).unwrap();
     assert_eq!(call(&f, "track.show", json!({ "drive": "USB" })), json!({ "result": "shown" }));
 }
+
+/// Reads answering which store the app reads them in.
+struct StoreReads;
+
+impl Reads for StoreReads {
+    fn read(&self, _: &str, _: Value, _: &Ctx<'_>) -> Result<Value, RpcFailure> {
+        Ok(json!(api::store_root()))
+    }
+}
+
+/// What a plugin reads is read in the store the host started it in, whichever store the process
+/// would read otherwise.
+#[test]
+fn a_plugin_reads_in_its_hosts_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path().join("store")).unwrap();
+    let specs = vec![spec(dir.path(), &granting(&["store:read"]), &[])];
+    let plugins = Plugins::new(specs, Arc::new(StoreReads), Options::default()).unwrap();
+    let params = json!({ "call": "store.info", "params": {} });
+    let ran = plugins.run_command("echo", "echo", params, Context::default(), Some(&store), &Ctx::silent(), &|_| {});
+    let CommandOutput::Headless(answer) = ran.unwrap() else { panic!("a headless command answers JSON") };
+    assert_eq!(answer, json!({ "result": "<store>" }));
+}

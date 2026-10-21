@@ -22,7 +22,8 @@ use crate::progress::{Ctx, NoProgress};
 /// How the host reads for plugins: the app's read methods, by the sidecar's names
 /// (`tracks.query`), with its params and results.
 pub trait Reads: Send + Sync {
-    /// Runs the read method `method` with `params`, as the RPC sidecar does.
+    /// Runs the read method `method` with `params`, as the RPC sidecar does: on a thread whose
+    /// store ([`api::store_root`]) is the one the host started the plugin in, when it had one.
     fn read(&self, method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcFailure>;
 
     /// The root of the drive a plugin names: one known here (by identity, adopted name or
@@ -164,6 +165,10 @@ pub(crate) fn answer(slot: &Weak<Slot>, live: &Arc<Live>, peer: &Peer, incoming:
         }
         let (live, peer) = (live.clone(), peer.clone());
         std::thread::spawn(move || {
+            // The app reads (and finds drives) in the store of the host that started the plugin,
+            // whichever store the process would default to.
+            let store = live.store.as_ref().map(|s| s.root().to_path_buf());
+            crate::api::THREAD_STORE_ROOT.with(|r| *r.borrow_mut() = store);
             let reads = &*slot.host.reads;
             let run = || match req.method.as_str() {
                 method::NET_FETCH if live.sends(method::NET_FETCH) => slot.fetch(&live, req.params, &req.cancel),
