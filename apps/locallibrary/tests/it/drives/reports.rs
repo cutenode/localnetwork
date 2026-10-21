@@ -45,9 +45,8 @@ fn doctor_reports_each_problem_with_what_fixes_it() {
     let out = env.exits(4, &["doctor", path(&main), "--only", "audio"]);
     assert!(line(&out, "Audio files with problems (1 of 1)").starts_with("Audio"), "{out}");
 
-    // FAT32 holds files up to 4 GB. `set_len` writes nothing: the file is sparse on macOS and
-    // Linux, and NTFS reserves the space without filling it.
-    std::fs::File::create(main.join("Contents/whole night.wav")).unwrap().set_len(4 << 30).unwrap();
+    // FAT32 holds files up to 4 GB (a sparse file: it takes no room).
+    locallibrary::testing::sparse(&main.join("Contents/whole night.wav"), 4 << 30).unwrap();
     let out = env.exits(4, &["doctor", path(&main), "--only", "large-files"]);
     assert!(out.contains("Files FAT32 can't hold (1)\n    Contents/whole night.wav  4.3 GB"), "{out}");
 }

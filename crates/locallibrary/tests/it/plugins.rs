@@ -13,7 +13,7 @@ mod providers;
 mod roles;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -582,6 +582,35 @@ fn shutting_down_stops_every_plugin() {
     f.plugins.shutdown();
     assert!(!f.plugins.is_running("echo") && !f.plugins.is_running("other"));
     assert_eq!(f.echo_params(json!({ "after": 1 })).unwrap(), json!({ "after": 1 }), "used again, it starts");
+}
+
+/// Once shutting down returns, a plugin has exited and its temporary folder is gone, however often
+/// another thread asks meanwhile whether it runs: asking never leaves that thread to stop it. The
+/// plugin takes a while to exit, so a folder another thread was left to remove is still there.
+#[test]
+fn shutting_down_waits_for_a_plugin_others_ask_about() {
+    let f = Fixture::echo();
+    let asking = AtomicBool::new(true);
+    let shut_down = |_| {
+        let params = json!({ "cwd": true, "linger": 50 });
+        let answer = f.plugins.run_command("echo", "echo", params, f.context(), None, &Ctx::silent(), &|_| {});
+        let CommandOutput::Headless(Value::String(work)) = answer.unwrap() else { panic!("a folder") };
+        let folder = PathBuf::from(work).parent().unwrap().to_path_buf();
+        f.plugins.shutdown();
+        folder.exists().then_some(folder)
+    };
+    let left: std::thread::Result<Vec<PathBuf>> = std::thread::scope(|s| {
+        s.spawn(|| {
+            while asking.load(Ordering::SeqCst) {
+                f.plugins.is_running("echo");
+            }
+        });
+        // Stopped asking before a failure is reported, which waits for the thread asking.
+        let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (0..20).filter_map(shut_down).collect()));
+        asking.store(false, Ordering::SeqCst);
+        left
+    });
+    assert_eq!(left.unwrap(), Vec::<PathBuf>::new(), "left once shutting down returned");
 }
 
 /// A plugin is started without the environment variables its launch leaves out.

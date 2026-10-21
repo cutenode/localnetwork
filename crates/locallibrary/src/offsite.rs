@@ -744,6 +744,5 @@ pub(crate) fn fetch_object(store: &Store, dest: &dyn Destination, hash: &Hash, c
     let dst = store.object_path(hash);
     let parent = dst.parent().expect("object path has parent");
     fs::create_dir_all(parent).at(parent)?;
-    tmp.persist(&dst).map_err(|e| Error::Io { path: dst.clone(), source: e.error })?;
-    Ok(())
+    fsutil::replace(tmp.into_temp_path(), &dst)
 }

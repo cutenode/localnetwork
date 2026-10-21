@@ -83,8 +83,7 @@ fn write_unsynced(dst: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::create_dir_all(dir).at(dir)?;
     let mut tmp = fsutil::temp_for(dir, dst, "")?;
     tmp.write_all(bytes).at(tmp.path())?;
-    tmp.persist(dst).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })?;
-    Ok(())
+    fsutil::replace(tmp.into_temp_path(), dst)
 }
 
 /// The new databases. Without `pdb` or `plus`, the drive's is removed; without `ext`, the drive's
