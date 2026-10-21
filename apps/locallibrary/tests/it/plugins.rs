@@ -12,6 +12,7 @@ use crate::support::{Env, Rpc, echo_plugin, path, recording};
 mod choose;
 mod events;
 mod imports;
+mod panels;
 mod props;
 mod providers;
 

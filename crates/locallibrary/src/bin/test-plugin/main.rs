@@ -10,7 +10,9 @@
 //! question `ask` (a `Choice`) until they're given its param (or, `ask_again`, always), the
 //! command then answering that param as text; both first write the `blobs` (by name, their
 //! bytes), `hard_links` and (on Unix) `links` they're given to the scratch folder; a provider
-//! other than echo's answers as its `answer` setting says (see `Test::provide`); an analyzer
+//! other than echo's answers as its `answer` setting says (see `Test::provide`), and a panel other
+//! than echo's as its `panel` setting does (see `Test::render_panel`); a command given a `view`
+//! answers it as it is (once its `blobs` are written); an analyzer
 //! named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming an
 //! empty audio file; its exporter names the playlists it's given in a note, and would write to
 //! `outside`, or writes `extra` too without saying so first, and given a set or a mix writes its

@@ -312,10 +312,11 @@ impl TrackFields {
         if let Some(i) = self.isrc.as_deref().filter(|i| !i.is_empty() && !is_isrc(i)) {
             return Err(Error::invalid(format!("{i:?} isn't an ISRC (like GBDUW0000059)")));
         }
-        // Zero-padded, as rekordbox writes them (chrono takes `2019-5-1` too).
+        // Zero-padded, as rekordbox writes them (chrono takes `2019-5-1` and `2019-05-1` too):
+        // the Traktor export reads the date from the first ten characters.
         let date = |d: &str| {
-            let digits =
-                d.bytes().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == b'-' } else { c.is_ascii_digit() });
+            let digits = d.len() == 10
+                && d.bytes().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == b'-' } else { c.is_ascii_digit() });
             digits && chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()
         };
         if let Some(d) = self.release_date.as_deref().filter(|d| !d.is_empty() && !date(d)) {

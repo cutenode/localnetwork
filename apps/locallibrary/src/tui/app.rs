@@ -749,6 +749,9 @@ pub enum Msg {
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
+    /// A plugin's panel answered, for the track (as `Panels` keeps it) and the panel at this
+    /// place among its panels.
+    Panel((u64, usize), usize, Result<Box<super::plugins::panels::Ready>, String>),
     Status(Result<api::FleetStatus, String>),
     History(Result<History, String>),
     /// A profile build: which one, and its result.
@@ -963,6 +966,8 @@ pub struct App {
     pub field_columns: Vec<FieldName>,
     pub details: Option<Details>,
     pub details_state: ListState,
+    /// The selected track's panels, plugins' (see `plugins::panels`).
+    pub panels: super::plugins::panels::Panels,
     /// The selected track and since when, to look up its details once the selection settles.
     details_seen: Option<(u64, usize, Instant)>,
     details_asked: Option<(u64, usize)>,
@@ -1156,6 +1161,7 @@ impl App {
             field_columns: Vec::new(),
             details: None,
             details_state: ListState::default(),
+            panels: Default::default(),
             details_seen: None,
             details_asked: None,
             details_failed: None,
@@ -1253,6 +1259,8 @@ impl App {
         self.show_ratings = s.ratings;
         self.show_tags_column = s.tags_column;
         self.field_columns = s.field_columns.iter().map(|f| FieldName::new(f)).collect();
+        // Before the first frame: drawn in it from the start.
+        super::theme::select(s.theme.as_deref());
         self.shuffle = s.shuffle;
         self.repeat = match s.repeat.as_deref() {
             Some("all") => Repeat::All,
@@ -1301,6 +1309,7 @@ impl App {
             ratings: self.show_ratings,
             tags_column: self.show_tags_column,
             field_columns: self.field_columns.iter().map(|f| f.as_str().to_string()).collect(),
+            theme: super::theme::chosen().map(String::from),
             shuffle: self.shuffle,
             repeat: Some(format!("{:?}", self.repeat).to_lowercase()),
             quantize: Some(self.deck.quantize),
@@ -1430,7 +1439,7 @@ impl App {
     }
 
     /// Keep a message in the log (`!`).
-    fn remember(&mut self, msg: String, level: Level) {
+    pub(super) fn remember(&mut self, msg: String, level: Level) {
         if self.log.len() >= LOG {
             self.log.pop_front();
         }
@@ -1607,6 +1616,7 @@ impl App {
         self.watch_output();
         self.follow_queue();
         self.want_details();
+        self.want_panels();
 
         let dt = self.last_tick.elapsed().as_secs_f32().min(0.25);
         self.last_tick = Instant::now();
@@ -1656,6 +1666,7 @@ impl App {
             || self.mix.is_loading()
             || self.job.is_some()
             || self.details_asked.is_some()
+            || (self.show_details && self.view == View::Library && self.panels.waiting(self.selected_key()))
             || (self.show_details
                 && self.view == View::Library
                 && self.selected_track().is_some()
@@ -1857,6 +1868,7 @@ impl App {
                     self.details = Some(*d);
                 }
             }
+            Msg::Panel(track, at, answer) => self.panel_answered(track, at, answer),
             Msg::Status(r) => {
                 self.status_loading = false;
                 let r = r.map(|s| {
@@ -2275,6 +2287,12 @@ impl App {
         let mut out: Vec<usize> = self.visible.iter().copied().filter(marked).filter(|i| seen.insert(*i)).collect();
         out.extend((0..l.library.tracks.len()).filter(marked).filter(|i| seen.insert(*i)));
         out
+    }
+
+    /// The selected track as background work keeps it: the library load's generation, and its
+    /// index there.
+    pub fn selected_key(&self) -> Option<(u64, usize)> {
+        Some((self.loaded.as_ref()?.generation, self.selected_track()?))
     }
 
     /// Whether the details shown are for the selected track.
@@ -3340,6 +3358,7 @@ impl App {
             Act::Review(mark) => self.review(mark),
             Act::Dismiss(mark) => self.dismiss(mark),
             Act::ProviderSettings => self.provider_settings(),
+            Act::Theme(key) => self.use_theme(key),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
             Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
             Act::Fetch(kind) => {

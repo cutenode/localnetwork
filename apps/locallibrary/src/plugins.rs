@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use clap::{CommandFactory, ValueEnum};
 use indexmap::IndexMap;
 use locallibrary::api::RpcFailure;
+use locallibrary::mix::report::ShownField;
 use locallibrary::plugin::{Launch, Log, Options, PluginSpec, Plugins, Reads};
 use locallibrary::progress::Ctx;
 use locallibrary::{Error, Result};
@@ -354,6 +355,26 @@ impl Installed {
     }
 }
 
+/// What analyzers worked out for a track on a drive, kept in `store`, that a page shows: each
+/// field whose analyzer says how it's shown, so (see [`locallibrary::mix::report::ShownFields`]).
+pub fn shown_fields(
+    store: Option<locallibrary::Store>,
+) -> impl Fn(&locallibrary::Device, &locallibrary::Track) -> Vec<ShownField> {
+    let plugins = host().ok();
+    let analyzers = plugins.map(Plugins::analyzers).unwrap_or_default();
+    move |device, track| {
+        let (Some(plugins), Some(store)) = (plugins, &store) else { return Vec::new() };
+        let Ok(audio) = device.checked_path(&locallibrary::paths::key(&track.file_path)) else { return Vec::new() };
+        let kept = locallibrary::fields::FieldStore::in_store(store).get(&audio, &analyzers);
+        let each = kept.iter().flat_map(|(plugin, by)| by.values().flatten().map(move |(field, v)| (plugin, field, v)));
+        let shown = each.filter_map(|(plugin, field, v)| {
+            let hint = plugins.display(plugin, field)?;
+            Some(ShownField { label: format!("{plugin}.{field}"), value: hint.show(v) })
+        });
+        shown.collect()
+    }
+}
+
 /// A capability a plugin has, and what it lets the plugin do.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Granted {
@@ -406,16 +427,18 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its commands, operations, analyzers, providers and services by name, the
-    /// events it listens for, its export and import formats and its settings' keys.
+    /// What it adds: its commands, operations, panels, analyzers, providers, services and themes by
+    /// name, the events it listens for, its export and import formats and its settings' keys.
     pub commands: Vec<String>,
     pub events: Vec<String>,
     pub operations: Vec<String>,
+    pub panels: Vec<String>,
     pub analyzers: Vec<String>,
     pub exporters: Vec<String>,
     pub importers: Vec<String>,
     pub providers: Vec<String>,
     pub services: Vec<String>,
+    pub themes: Vec<String>,
     pub settings: Vec<String>,
     /// It's running now: plugins start when they're first used, and stop once they're idle.
     pub running: bool,
@@ -435,11 +458,13 @@ impl Listed {
             commands: c.commands.iter().map(|x| x.name.clone()).collect(),
             events: c.events.iter().flat_map(|x| &x.on).map(|e| e.name().to_string()).collect(),
             operations: c.operations.iter().map(|x| x.name.clone()).collect(),
+            panels: c.panels.iter().map(|x| x.name.clone()).collect(),
             analyzers: c.analyzers.iter().map(|x| x.name.clone()).collect(),
             exporters: c.exporters.iter().map(|x| x.format.clone()).collect(),
             importers: c.importers.iter().map(|x| x.format.clone()).collect(),
             providers: c.providers.iter().map(|x| x.name.clone()).collect(),
             services: c.services.iter().map(|x| x.name.clone()).collect(),
+            themes: c.themes.iter().map(|x| x.name.clone()).collect(),
             settings: c.settings.iter().map(|x| x.key.clone()).collect(),
             running: plugins.is_running(&m.id),
             left_out: None,

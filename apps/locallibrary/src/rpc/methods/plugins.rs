@@ -7,6 +7,7 @@ mod commands;
 mod exporters;
 mod importers;
 mod operations;
+mod panels;
 mod providers;
 mod roles;
 
@@ -90,6 +91,7 @@ pub(super) fn register(r: &mut Registry) {
     // `hooks` says).
     commands::register(r);
     operations::register(r);
+    panels::register(r);
     exporters::register(r);
     importers::register(r);
     analyzers::register(r);

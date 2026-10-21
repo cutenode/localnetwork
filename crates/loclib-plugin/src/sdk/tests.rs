@@ -12,8 +12,8 @@ use serde_json::json;
 use super::*;
 use crate::{
     Analysis, AnalyzeTrack, Blob, Candidate, Candidates, Exported, ExportedFile, FieldValue, ImportAnswer, Imported,
-    ImportedTrack, OpAnswer, OpPlan, Pending, PlanOp, ProvideCandidates, ReadImport, RunCommand, TrackMatch, View,
-    WriteExport, code,
+    ImportedTrack, OpAnswer, OpPlan, Pair, Pending, PlanOp, ProvideCandidates, ReadImport, RenderPanel, RunCommand,
+    TrackMatch, View, WriteExport, code,
 };
 
 #[path = "../../examples/echo/plugin.rs"]
@@ -98,8 +98,19 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
     let reply: HelloReply = s.host.request(method::HELLO, &hello("0.2.7", &["telepathy"])).unwrap();
     let plugin = PluginInfo { id: "echo".into(), version: "0.1.0".into() };
     // And the SDK's own.
-    let features =
-        ["commands", "operations", "analyzers", "exporters", "importers", "providers", "blobs", "net", "choose"];
+    let features = [
+        "commands",
+        "operations",
+        "panels",
+        "analyzers",
+        "exporters",
+        "importers",
+        "providers",
+        "blobs",
+        "net",
+        "choose",
+        "views",
+    ];
     let features = features.map(String::from).to_vec();
     assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features });
     let again = s.call(method::HELLO, hello(PROTOCOL_VERSION, &[])).unwrap_err();
@@ -304,6 +315,22 @@ fn a_provider_answers_candidates_of_its_kind() {
     s.stop();
 }
 
+/// A panel answers a view of the track it's given, read through the host.
+#[test]
+fn a_panel_answers_a_view_of_its_track() {
+    let s = greeted(echo::hooks());
+    let req = json!({ "panel": "about", "context": { "drive": "USB", "tracks": [7] } });
+    let rendering = s.host.send_request(method::RENDER_PANEL, &req).unwrap();
+    let Incoming::Request(callback) = s.next() else { panic!("a callback") };
+    assert_eq!((callback.method.as_str(), callback.params), ("tracks.get", json!({ "drive": "USB", "ids": [7] })));
+    let track = loclib_model::Track { id: 7, title: "Archangel".into(), ..Default::default() };
+    s.host.respond(&callback.id, Ok(json!({ "tracks": [track], "missing": [] })));
+    let pairs =
+        vec![Pair { label: "id".into(), value: json!(7) }, Pair { label: "title".into(), value: json!("Archangel") }];
+    assert_eq!(rendering.wait::<View>().unwrap(), View::Kv { title: None, pairs });
+    s.stop();
+}
+
 #[test]
 fn hooks_run_only_for_what_the_manifest_declares() {
     let s = greeted(echo::hooks());
@@ -318,6 +345,7 @@ fn hooks_run_only_for_what_the_manifest_declares() {
         ),
         (method::PLAN_OP, json!({ "operation": "nope" }), "operation \"nope\""),
         (method::PROVIDE, json!({ "provider": "nope", "kind": "metadata", "tracks": [] }), "provider \"nope\""),
+        (method::RENDER_PANEL, json!({ "panel": "nope" }), "panel \"nope\""),
     ] {
         let e = s.call(method, params).unwrap_err();
         assert_eq!(e.code, code::INVALID_PARAMS);
@@ -332,13 +360,14 @@ fn hooks_run_only_for_what_the_manifest_declares() {
 fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let s = start(Hooks::new().on(echo::analyze_track));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["analyzers", "blobs", "net", "choose"]);
+    assert_eq!(reply.features, ["analyzers", "blobs", "net", "choose", "views"]);
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params) in [
         (method::RUN_COMMAND, run("echo", json!({}), None)),
         (method::WRITE_EXPORT, json!({ "exporter": "m3u", "source": { "drive": "A" }, "output": "/x" })),
         (method::PLAN_OP, json!({ "operation": "playlist" })),
         (method::PROVIDE, json!({ "provider": "tags", "kind": "metadata", "tracks": [] })),
+        (method::RENDER_PANEL, json!({ "panel": "about" })),
     ] {
         let e = s.call(method, params).unwrap_err();
         assert_eq!((e.code, e.message), (code::METHOD_NOT_FOUND, format!("unknown method {method:?}")));
@@ -347,7 +376,7 @@ fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     assert_eq!(e.kind(), Some("io"), "the one it has runs");
     let none = start(Hooks::new());
     let reply: HelloReply = none.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["blobs", "net", "choose"], "only the SDK's own");
+    assert_eq!(reply.features, ["blobs", "net", "choose", "views"], "only the SDK's own");
     none.stop();
     s.stop();
 }
@@ -461,12 +490,13 @@ fn closing_the_input_cancels_running_hooks() {
 // Properties.
 
 /// The hooks a request names, and what each declares its contributions by.
-const HOOKS: [(&str, &str); 6] = [
+const HOOKS: [(&str, &str); 7] = [
     (method::RUN_COMMAND, "command"),
     (method::ANALYZE_TRACK, "analyzer"),
     (method::WRITE_EXPORT, "exporter"),
     (method::PLAN_OP, "operation"),
     (method::PROVIDE, "provider"),
+    (method::RENDER_PANEL, "panel"),
     (method::READ_IMPORT, "importer"),
 ];
 
@@ -511,8 +541,19 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
     ];
     let plugin = PluginInfo { id: manifest.id.clone(), version: manifest.version.clone() };
     // And the SDK's own.
-    let features =
-        ["commands", "operations", "analyzers", "exporters", "importers", "providers", "blobs", "net", "choose"];
+    let features = [
+        "commands",
+        "operations",
+        "panels",
+        "analyzers",
+        "exporters",
+        "importers",
+        "providers",
+        "blobs",
+        "net",
+        "choose",
+        "views",
+    ];
     let features = features.map(String::from).to_vec();
     let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features };
     let mut greeted = false;
@@ -621,7 +662,15 @@ fn answers() -> Hooks {
             ..Imported::default()
         })
     };
-    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide).on(read_import)
+    let render_panel = |req: RenderPanel, _: &Host| Ok(View::Text { title: Some(req.panel), text: String::new() });
+    Hooks::new()
+        .on(run_command)
+        .on(analyze_track)
+        .on(write_export)
+        .on(plan_op)
+        .on(provide)
+        .on(render_panel)
+        .on(read_import)
 }
 
 /// Hooks that panic, every one.
@@ -631,7 +680,8 @@ fn panics_everywhere() -> Hooks {
     }
     let hooks = Hooks::new().on(bug::<RunCommand, Value>).on(bug::<AnalyzeTrack, Analysis>);
     let hooks = hooks.on(bug::<WriteExport, Exported>).on(bug::<PlanOp, OpAnswer>);
-    hooks.on(bug::<ProvideCandidates, Candidates>).on(bug::<ReadImport, ImportAnswer>)
+    let hooks = hooks.on(bug::<ProvideCandidates, Candidates>).on(bug::<RenderPanel, View>);
+    hooks.on(bug::<ReadImport, ImportAnswer>)
 }
 
 /// Any hooks, run at once: one the plugin doesn't implement isn't found, whatever its params. The
@@ -648,12 +698,13 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
     };
     let manifest = echo_manifest();
     let c = &manifest.contributes;
-    let declared: [Vec<String>; 6] = [
+    let declared: [Vec<String>; 7] = [
         c.commands.iter().filter(|x| !["steps", "titles"].contains(&x.name.as_str())).map(|x| x.name.clone()).collect(),
         c.analyzers.iter().map(|x| x.name.clone()).collect(),
         c.exporters.iter().map(|x| x.format.clone()).collect(),
         c.operations.iter().map(|x| x.name.clone()).collect(),
         c.providers.iter().map(|x| x.name.clone()).collect(),
+        c.panels.iter().map(|x| x.name.clone()).collect(),
         c.importers.iter().map(|x| x.format.clone()).collect(),
     ];
     let mut sent = Vec::new();
@@ -689,6 +740,7 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 let found = json!({ "candidates": [{ "track": id, "score": 1.0, "source": name, "label": "" }] });
                 (json!({ "provider": name, "kind": kind, "tracks": [{ "id": id }] }), found)
             }
+            5 => (json!({ "panel": name }), json!({ "kind": "text", "title": name, "text": "" })),
             _ => {
                 let read = json!({ "tracks": [{ "match": { "path": output }, "my_tags": [name] }] });
                 (json!({ "importer": name, "file": output }), read)
@@ -703,6 +755,7 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 2 => (json!({ "exporter": name, "source": { "drive": "USB" } }), None),
                 3 => (json!({ "operation": [] }), Some("operation")),
                 4 => (json!({ "provider": name, "kind": "lyrics", "tracks": [] }), Some("kind")),
+                5 => (json!({ "panel": 5 }), Some("panel")),
                 _ => (json!({ "importer": name, "file": 5 }), Some("file")),
             },
         };

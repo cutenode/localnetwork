@@ -60,7 +60,7 @@ fn cues(tc: &TestCase, max_ms: u32) -> Vec<Cue> {
 }
 
 #[hegel::test_helper]
-fn palette(tc: &TestCase) -> Palette {
+fn palette(tc: &TestCase) -> Palette<'static> {
     Palette { plain: tc.draw(gs::booleans()), ..Palette::default() }
 }
 

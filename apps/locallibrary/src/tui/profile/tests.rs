@@ -229,7 +229,7 @@ fn loading_and_errors_draw() {
 
 #[test]
 fn columns_stack_eighths() {
-    let lines = columns(&[Some(0.0), Some(1.0), None], 0.0, 2, 2, |_| theme::CYAN);
+    let lines = columns(&[Some(0.0), Some(1.0), None], 0.0, 2, 2, |_| theme::current().info);
     assert_eq!(lines.len(), 2);
     let top: String = lines[0].spans.iter().map(|s| s.content.to_string()).collect();
     let bottom: String = lines[1].spans.iter().map(|s| s.content.to_string()).collect();

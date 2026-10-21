@@ -195,10 +195,11 @@ pub fn run_contributed(c: Contributed, store_path: &Option<PathBuf>, out: Output
                     answer => break answer,
                 }
             };
+            let names = view::names_on(context.drive.as_deref());
             match answer {
                 CommandOutput::Headless(v) => out.emit(&v, view::headless),
-                CommandOutput::View(v) if drawn.get() == (0, 0) => out.emit_paged(&v, view::view),
-                CommandOutput::View(v) => out.emit(&v, |v| view::rest(v, drawn.get())),
+                CommandOutput::View(v) if drawn.get() == (0, 0) => out.emit_paged(&v, |v| view::view(v, &names)),
+                CommandOutput::View(v) => out.emit(&v, |v| view::rest(v, drawn.get(), &names)),
             }
             Ok(ExitCode::SUCCESS)
         }

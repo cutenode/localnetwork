@@ -265,6 +265,15 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   a set or a mix instead of a drive's library: `sets export --format` and `mix --format FORMAT
   --export PATH` take those formats, the player offers a set's while the set is open, and the
   sidecar's `plugins.export.plan` takes `set` and `mix`.
+  A view is a list, a table (its columns tracks, durations, keys or numbers with a unit, or plain),
+  labelled values, text, a tree, a chart, a picture or sections of those, each drawn in the
+  player and as plain text on the command line. Panels show what a plugin has to say about a
+  track under its details, in the player (asked for once the selection settles, never another
+  track's), under `track show`'s details and from the sidecar's `plugins.panel`. A plugin's theme
+  (colours as data) is chosen in the player's palette and kept in `tui.json`, the default drawing
+  as before; an analyzer says how its fields are shown (a unit, places, a key, a duration,
+  decibels, a percentage, a meter, a column's width) in the player's columns and `track show`,
+  and a mix's HTML report shows those fields of each track.
   See docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), asking which track an
@@ -343,7 +352,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     `Event`, `Cancelled`).
   - `loclib-model`: tracks, playlists and the diff between two exports, Camelot keys and mix
     costs, a track's decoded analysis (beat grid, cues, waveforms, phrases, the hot cue palette)
-    and the path keys tracks are matched by.
+    and the path keys tracks are matched by, and a theme: every colour DJ data and a player are
+    drawn in, the shared ones by default, set by name.
   - `loclib-equipment`: what each Pioneer DJ / AlphaTheta player, all-in-one system and mixer
     reads (databases, file systems, audio formats), with each value's source, and the same
     table as `equipment.json` for other languages.
@@ -366,14 +376,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     format, so a build for NML alone needs no SQLite.
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
-    caller passes.
+    caller passes, a theme's (`Palette::of`).
   - `loclib-plugin`: the plugin protocol (versioned on its own, at 0.2.0; each family of hooks
     an optional feature named in its handshake), the `locallibrary-plugin.toml` manifest (read
     tolerantly, keys a newer locallibrary adds left out) and its checks, a JSON-RPC peer over a
     pair of pipes and an SDK for writing plugins in Rust, a hook per request type, with typed
     reads of a drive, `net/fetch` through the host, files in a request's scratch folder for big
-    answers, a view's rows sent in parts, questions for the user (`Choice`) and providers
-    (`provide/candidates`). The RPC sidecar reads lines and reports errors with it.
+    answers, a view's rows sent in parts, questions for the user (`Choice`), providers
+    (`provide/candidates`), panels (`panel/render`), views of every kind (the `views` feature),
+    themes and how analyzers' fields are shown. The RPC sidecar reads lines and reports errors
+    with it.
 
 ### Changed
 
@@ -578,6 +590,8 @@ their old names.
 
 ### Fixed
 
+- A release date given to an edit has to be written out in full (`2019-05-01`): `2019-05-1`
+  was taken, and the Traktor export left it out.
 - On Windows, an edit, sync or other write no longer fails ("Access is denied") when the drive
   watcher of the TUI, the sidecar or `watch` looks at the drive at the same moment.
 - A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.

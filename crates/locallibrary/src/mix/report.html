@@ -729,6 +729,7 @@ function drawTracks() {
     if (p.key_lock === false && Math.abs(p.semitones) >= 0.05) meta.append(el("span", "badge", `Pitched ${p.semitones > 0 ? "+" : "−"}${Math.abs(p.semitones).toFixed(1)} st`));
     if (p.jumps > 0) meta.append(el("span", "badge", `${p.jumps} jump${p.jumps > 1 ? "s" : ""}/loop${p.jumps > 1 ? "s" : ""}`));
     if (p.tentative) meta.append(el("span", "badge warn", "Tentative"));
+    (ex.fields || []).forEach((f) => meta.append(el("span", null, `${f.label} ${f.value}`)));
     who.append(meta); li.append(who);
 
     const used = el("div", "used"); const c = el("canvas"); c.setAttribute("aria-label", `Played ${clock(p.track_start)} to ${clock(p.track_end)} of ${clock(t.duration_secs)}`); used.append(c);

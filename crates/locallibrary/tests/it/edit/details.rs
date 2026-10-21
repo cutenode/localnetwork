@@ -97,7 +97,7 @@ fn details_the_databases_cant_keep_are_refused() {
     for i in ["gbduw0000059", "GB-DUW-00-00059", "GBDUW000005", "1BDUW0000059", "GBDUW00000A9", " "] {
         assert_eq!(refused(isrc(i)), format!("{i:?} isn't an ISRC (like GBDUW0000059)"));
     }
-    for r in ["2019-13-01", "01/05/2019", "2019", "2019-5-1", "2019-05-1 ", "+019-05-01"] {
+    for r in ["2019-13-01", "01/05/2019", "2019", "2019-5-1", "2019-05-1", "2019-05-1 ", "+019-05-01"] {
         assert_eq!(refused(date(r)), format!("{r:?} isn't a release date (YYYY-MM-DD)"));
     }
     let no_album = TrackFields { album: Some(" ".into()), album_artist: Some("Someone".into()), ..Default::default() };

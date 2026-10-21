@@ -110,7 +110,8 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     let named: Vec<&Path> = pages.iter().filter(|_| args.html.is_some()).chain(&data).map(PathBuf::as_path).collect();
     fsutil::refuse_to_replace(&named, args.replace)?;
     let prefs = ProfilePrefs::load(&store)?;
-    let drive = Some(Drive::new(&device, &id.library));
+    let shown = crate::plugins::shown_fields(Some(store.clone()));
+    let drive = Some(Drive { fields: Some(&shown), ..Drive::new(&device, &id.library) });
     // A page written with --html is made to be shared: it names the recording by its file alone.
     let shared = args.html.is_some();
     for (r, path) in reports.iter().zip(&pages) {

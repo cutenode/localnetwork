@@ -39,7 +39,7 @@ fn a_recordings_report_is_kept_and_read_back() {
     assert_eq!(kept[0].title, "Friday night");
     let got = api::mix_report_get(store.root(), &api::ReportRef { id: id.clone(), extras: true }).unwrap();
     assert_eq!((got.saved.as_deref(), got.report.mix.path.as_path()), (Some(id.as_str()), mix.as_path()));
-    let page = api::mix_report_html(&store, &api::ReportHtml { id: id.clone(), inline: true }).unwrap();
+    let page = api::mix_report_html(&store, &api::ReportHtml { id: id.clone(), inline: true }, None).unwrap();
     assert!(page.path.is_file() && page.path.ends_with(format!("{id}.html")));
     assert_eq!(page.html.map(|h| h.len() as u64), Some(page.bytes));
 
