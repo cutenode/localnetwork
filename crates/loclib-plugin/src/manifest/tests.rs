@@ -4,7 +4,10 @@ use indexmap::IndexMap;
 use serde_json::{Map, json};
 
 use super::*;
-use crate::{Analyzer, Command, Exporter, FieldType, FieldValue, Mode, Operation, Provider, ProviderKind, Role, code};
+use crate::{
+    Analyzer, Check, Command, Exporter, FieldType, FieldValue, Mode, Operation, Provider, ProviderKind, Role, When,
+    code,
+};
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
 
@@ -326,6 +329,21 @@ fn field_types_accept_their_values() {
         let value_accepted = serde_json::from_value(value.clone()).is_ok_and(|v: FieldValue| kind.accepts(&v));
         assert_eq!(value_accepted, accepted, "{kind:?} {value}");
     }
+}
+
+/// A check runs with the check before a set unless it says when, and until it's turned off unless
+/// it says it's off to start with.
+#[test]
+fn a_check_runs_with_the_check_and_is_on_unless_it_says() {
+    let m = Manifest::parse(&format!("{HEAD}[[contributes.checks]]\nname = \"c\"\ntitle = \"C\"\n")).unwrap();
+    assert_eq!(
+        m.contributes.checks,
+        [Check { name: "c".into(), title: "C".into(), default_on: true, when: vec![When::Check] }]
+    );
+    let when = |when: &str| problem(&format!("[[contributes.checks]]\nname = \"c\"\ntitle = \"C\"\nwhen = {when}\n"));
+    assert_eq!(when(r#"["apply", "check"]"#), "");
+    assert_eq!(when("[]"), "contributes.checks[0].when: names no time: check, apply or both");
+    assert!(when(r#"["later"]"#).contains("unknown variant `later`"));
 }
 
 /// A provider is given tracks' tags: it's granted reading them, whatever it finds.
@@ -898,6 +916,16 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             }
         }
     }
+    let times = vec![When::Check, When::Apply];
+    let checks = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| Check {
+            name,
+            title: title(tc),
+            default_on: tc.draw(gs::booleans()),
+            when: tc.draw(gs::permutations(tc.draw(gs::subsequences(times.clone()).min_size(1)))),
+        })
+        .collect();
     let exporters = drawn_names(tc, 3)
         .into_iter()
         .map(|format| {
@@ -936,7 +964,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         version: format!("{major}.{minor}.{patch}{pre}"),
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
-        contributes: Contributions { commands, operations, analyzers, exporters, providers, settings },
+        contributes: Contributions { commands, operations, analyzers, checks, exporters, providers, settings },
         net,
         unknown: Vec::new(),
     }
@@ -1000,7 +1028,8 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 6] = ["commands", "operations", "analyzers", "exporters", "providers", "settings"];
+const CONTRIBUTIONS: [&str; 7] =
+    ["commands", "operations", "analyzers", "checks", "exporters", "providers", "settings"];
 
 /// What names a contribution of `kind`.
 fn name_key(kind: &str) -> &'static str {
@@ -1016,6 +1045,7 @@ fn len(c: &Contributions, kind: &str) -> usize {
         "commands" => c.commands.len(),
         "operations" => c.operations.len(),
         "analyzers" => c.analyzers.len(),
+        "checks" => c.checks.len(),
         "exporters" => c.exporters.len(),
         "providers" => c.providers.len(),
         _ => c.settings.len(),
@@ -1040,6 +1070,7 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
                 let fields = IndexMap::from_iter([(format!("{name}-field"), FieldType::Number)]);
                 c.analyzers.push(Analyzer { name, title, version: "1".into(), fields, roles: IndexMap::new() });
             }
+            "checks" => c.checks.push(Check { name, title, default_on: true, when: vec![When::Check] }),
             "exporters" => {
                 c.exporters.push(Exporter { format: name, title, extension: None, folder: true, options: None });
             }
@@ -1062,6 +1093,7 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
         "commands" => c.commands.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "operations" => c.operations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "analyzers" => c.analyzers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "checks" => c.checks.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "exporters" => c.exporters.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
         "providers" => c.providers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         _ => c.settings.iter_mut().map(|x| (&mut x.key, &mut x.title)).collect(),
@@ -1074,6 +1106,7 @@ fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
         "commands" => c.commands.push(Command { cli: None, ..c.commands[i].clone() }),
         "operations" => c.operations.push(Operation { cli: None, ..c.operations[i].clone() }),
         "analyzers" => c.analyzers.push(c.analyzers[i].clone()),
+        "checks" => c.checks.push(c.checks[i].clone()),
         "exporters" => c.exporters.push(c.exporters[i].clone()),
         "providers" => c.providers.push(c.providers[i].clone()),
         _ => c.settings.push(c.settings[i].clone()),
@@ -1133,6 +1166,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "net twice",
         "net rate",
         "provider grant",
+        "check when",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let c = &mut m.contributes;
@@ -1441,6 +1475,23 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     let rate = tc.draw(gs::sampled_from(vec![0.0, -1.0, f64::NAN, f64::INFINITY, 1.0 / 7200.0]));
                     m.net.push(limit(rate));
                     (format!("net[{i}].per_second: is how many requests a second, at least 1/3600"), false)
+                }
+            }
+        }
+        "check when" => {
+            add(c, "checks", 1);
+            let i = index(&tc, c.checks.len());
+            let x = &mut c.checks[i];
+            let at = format!("contributes.checks[{i}].when");
+            match tc.draw(gs::booleans()) {
+                true => {
+                    x.when.clear();
+                    (format!("{at}: names no time: check, apply or both"), false)
+                }
+                false => {
+                    let again = x.when[index(&tc, x.when.len())];
+                    x.when.push(again);
+                    (format!("{at}: {} is there twice", again.name()), false)
                 }
             }
         }

@@ -3,6 +3,7 @@
 //! from locallibrary's own (see [`super::super::Plans::plugins`]).
 
 mod analyzers;
+mod checks;
 mod commands;
 mod exporters;
 mod operations;
@@ -83,6 +84,7 @@ pub(super) fn register(r: &mut Registry) {
     operations::register(r);
     exporters::register(r);
     analyzers::register(r);
+    checks::register(r);
     providers::register(r);
     roles::register(r);
 }

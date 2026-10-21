@@ -352,7 +352,7 @@ Native bindings (napi-rs) can wrap the same `api` functions later without changi
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
 each plugin's `{id, name, version, capabilities: [{capability, means}], commands, operations,
-analyzers, exporters, providers, settings, running, left_out}`, `means` saying in plain words what
+analyzers, checks, exporters, providers, settings, running, left_out}`, `means` saying in plain words what
 a capability lets it do and `left_out` why a plugin isn't loaded, when it clashes with a command, a
 method or another plugin (else `null`); `plugins.describe {plugin}` answers `{manifest,
 capabilities, settings, secrets, secrets_unknown?, running}`, the manifest with the JSON Schemas of
@@ -377,6 +377,20 @@ in the message. Each kind of thing plugins add is below, in a section of its own
 `plugins.analyze {plugin, analyzer, drive, tracks?}` runs an analyzer on the drive's tracks (those
 it hasn't worked out already), with progress (an `analyze` phase) and `$/cancel`, answering
 `{analyzed, kept, failed}`.
+
+### Checks
+
+What plugins' checks find is in `check`'s `items` and `doctor`'s `checks` (the `checks` section),
+each named `<plugin>.<check>`, and a plugin's problem counts as one; a check that failed or took
+too long is a warning saying so. An item a plugin can fix has `fix: {plugin, operation, params}`:
+plan it with `plugins.op.plan {plugin, operation, params, context: {drive}}`, confirmed as any
+plan is. Guards (checks run before a plan is applied) add what they say to an edit plan's
+`warnings`; one the user made blocking that finds a warning or a problem sets the plan's `blocked`
+(`<plugin>.<check>`), and applying it fails with reason `blocked`. `plugins.checks` answers
+`{checks: [{plugin, name, title, when, on, blocking}], timeout}` (`when`: `check`, `apply`;
+`timeout` in seconds), `plugins.checks.set {plugin, check, on?, blocking?, reset?}` changes one
+(left out: as it is; `reset`: back to its defaults first) and `plugins.checks.timeout.set
+{timeout}` how long a check has (`null`: back to 10), each answering `plugins.checks`'s.
 
 ### Commands and operations
 

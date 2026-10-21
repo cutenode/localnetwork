@@ -180,20 +180,31 @@ fn drives() {
     key(&mut app, KeyCode::Char('e'));
     check(&mut app, "the drive's actions", &["Drive · ", "save a snapshot of the drive", "eject the drive"], &[]);
     key(&mut app, KeyCode::Esc);
-    // A check's results.
+    // A check's results, a plugin's finding with its fix.
+    let mut report = api::check(
+        None,
+        &api::CheckRequest { drives: vec![root_of(&app)], options: Default::default() },
+        &Ctx::silent(),
+    )
+    .unwrap();
+    let fix = locallibrary::plugin::Fix {
+        plugin: "echo".into(),
+        operation: "playlist".into(),
+        params: serde_json::Value::Null,
+    };
+    let finding = locallibrary::check::Finding::new(locallibrary::check::Level::Warning, "echo.untitled", "1 untitled");
+    report.items.push(locallibrary::check::CheckItem { drive: report.drives[0].clone(), finding, fix: Some(fix) });
     app.modal = Some(Modal::Report(super::drives::Report {
         title: "Check · DEMO".into(),
-        lines: super::drives::check_lines(
-            &api::check(
-                None,
-                &api::CheckRequest { drives: vec![root_of(&app)], options: Default::default() },
-                &Ctx::silent(),
-            )
-            .unwrap(),
-        ),
+        lines: super::drives::check_lines(&report),
         scroll: 0,
     }));
-    check(&mut app, "a check", &["Check · DEMO", "any other key closes"], &[]);
+    check(
+        &mut app,
+        "a check",
+        &["Check · DEMO", "1 untitled", "fix it from the commands (:)", "any other key closes"],
+        &[],
+    );
 }
 
 #[test]
@@ -523,6 +534,24 @@ fn edit_menu_and_confirmation() {
         &mut app,
         "the confirmation",
         &["Write to DEMO?", "export.pdb", "1 track changed", "y write", "n cancel", "backed up first"],
+        &[],
+    );
+    // A guard said something about it, and stops it.
+    let mut plan = Box::new(api::edit_plan(&req, &Ctx::silent()).unwrap());
+    plan.warnings.push("On a Friday: it's a Friday".into());
+    plan.plan.blocked = Some("echo.friday".into());
+    app.modal = Some(Modal::Confirm(Confirm {
+        root: root.clone(),
+        drive,
+        plan,
+        scroll: 0,
+        shown: Instant::now() - Duration::from_secs(1),
+        after: None,
+    }));
+    check(
+        &mut app,
+        "a guarded confirmation",
+        &["⚠ On a Friday: it's a Friday", "✗ echo.friday stops these changes"],
         &[],
     );
 }

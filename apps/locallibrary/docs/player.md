@@ -49,6 +49,12 @@ listening to your library the way the players see it:
   filters by it: `sound.bpm:>120`. "write keys and BPMs to the tracks: …" writes what an
   analyzer heard to the tracks (a form asks which, and whether over what they have), confirmed
   like any edit.
+- **Checks**: a drive's check (in its `e` menu) shows what plugins' checks found too, and a fix
+  one gives is in the palette until the next check ("fix on DRIVE: …"), planned and confirmed
+  like any plugin's operation. What a guard says about changes is among the warnings when they're
+  confirmed, and a blocking one that found something stops them. "check settings…" in the palette
+  says which checks run, which guards stop changes, and how long a check has (as `plugin checks`
+  does).
 - **Providers**: "fetch cover art…" and "fetch track details…" in the actions menu (`e`) and the
   palette ask the plugins' providers about the marked or selected tracks (a form says which
   provider, or all, and whether over what they have). A track's candidate scoring high enough

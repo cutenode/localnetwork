@@ -1,0 +1,215 @@
+//! Plugins' checks in `check` and `doctor`, their fixes run as the operations they are, guards on
+//! the plans the command line and the sidecar make, and `plugin checks` (`plugins.checks*` over
+//! RPC), with the test plugin's check `found` and guard `guard` answering as its `findings`
+//! setting says (see the plugin host's test plugin).
+
+use hegel::TestCase;
+use hegel::generators as gs;
+use serde_json::{Value, json};
+
+use crate::support::{Env, Rpc, echo_plugin, path};
+
+/// The echo manifest with a check `found` and a guard `guard` besides its own, each answering as
+/// its `findings` setting says.
+fn checking() -> String {
+    let more = "[[contributes.checks]]\nname = \"found\"\ntitle = \"Found\"\n\n\
+                [[contributes.checks]]\nname = \"guard\"\ntitle = \"Guard\"\nwhen = [\"apply\"]\n\n\
+                [[contributes.settings]]\nkey = \"findings\"\ntitle = \"Findings\"\ntype = \"string\"\n\n\
+                [[contributes.settings]]";
+    echo_plugin().replacen("[[contributes.settings]]", more, 1)
+}
+
+/// An [`Env`] with [`checking`]'s plugin, and the demo drive USB.
+fn env() -> Env {
+    let mut env = Env::new();
+    env.plugins(&[&checking()]);
+    env.demo("USB");
+    env
+}
+
+/// The echo plugin's checks and guards answer `answer`.
+fn find(env: &Env, answer: Value) {
+    env.ok(&["--yes", "plugin", "settings", "echo", "findings", &answer.to_string()]);
+}
+
+/// The items of `check USB --json` a check of the echo plugin found, and its exit status.
+fn checked(env: &Env) -> (Vec<Value>, i32) {
+    let r = env.run(&["--json", "check", "USB"]);
+    let v: Value = serde_json::from_str(&r.out).unwrap_or_else(|e| panic!("{e}: {}\n{}", r.out, r.err));
+    let items = v["items"].as_array().unwrap().iter().filter(|i| i["check"] == "echo.found").cloned().collect();
+    (items, r.code)
+}
+
+/// What a plugin's check finds is in `check` and `doctor`, named after it, with the command line
+/// that fixes it, which runs its plugin's operation as any is run; a problem it finds is a
+/// problem (`check` exits 4 then), a warning isn't.
+#[test]
+fn a_plugins_findings_are_in_check_and_doctor_with_their_fix() {
+    let env = env();
+    let fix = json!({ "operation": "playlist", "params": { "name": "Fixed" } });
+    find(&env, json!({ "findings": [{ "level": "warning", "message": "two copies", "tracks": [1], "fix": fix }] }));
+    let (items, code) = checked(&env);
+    let expected = json!({
+        "drive": "USB", "level": "warning", "check": "echo.found", "message": "two copies", "tracks": [1],
+        "fix": { "plugin": "echo", "operation": "playlist", "params": { "name": "Fixed" } },
+    });
+    assert_eq!(items, [expected]);
+    let shown = env.run(&["check", "USB"]);
+    assert_eq!(shown.code, code, "{}", shown.out);
+    let fixed = r#"fix with `locallibrary echo playlist "USB" --params '{"name":"Fixed"}'`"#;
+    for said in ["echo.found", "two copies", fixed] {
+        assert!(shown.out.contains(said), "{said}: {}", shown.out);
+    }
+    // The fix is the plugin's operation.
+    env.ok(&["--yes", "echo", "playlist", "USB", "--params", r#"{"name":"Fixed"}"#]);
+    assert!(env.ok(&["playlist", "list", "USB"]).contains("Fixed"));
+    // A problem it finds is a problem.
+    find(&env, json!({ "findings": [{ "level": "problem", "message": "unplayable" }] }));
+    assert_eq!(checked(&env).1, 4);
+    let doctor = env.run(&["--json", "doctor", "USB", "--only", "checks"]);
+    let v: Value = serde_json::from_str(&doctor.out).unwrap();
+    assert_eq!(doctor.code, 4, "{}", doctor.out);
+    let found: Vec<&Value> = v["checks"].as_array().unwrap().iter().filter(|i| i["check"] == "echo.found").collect();
+    assert_eq!((found.len(), &found[0]["level"]), (1, &json!("problem")));
+    assert!(v["duplicates"].is_null(), "only the checks ran");
+    let shown = env.run(&["doctor", "USB", "--only", "checks"]);
+    assert!(shown.out.contains("Plugins' checks (") && shown.out.contains("unplayable"), "{}", shown.out);
+    // Turned off, it isn't run.
+    env.ok(&["--yes", "plugin", "checks", "echo.found", "--off"]);
+    assert!(checked(&env).0.is_empty());
+    let v = env.json(&["doctor", "USB", "--only", "checks"]);
+    assert!(v["checks"].as_array().unwrap().iter().all(|i| i["check"] != "echo.found"), "{v}");
+}
+
+/// A check that fails or takes longer than `plugin checks --timeout` gives it is a warning, and
+/// `check` exits as it would without it.
+#[test]
+fn a_check_that_fails_or_takes_too_long_never_fails_the_check() {
+    let env = env();
+    find(&env, json!({}));
+    let (_, code) = checked(&env);
+    env.ok(&["--yes", "plugin", "checks", "--timeout", "0.5"]);
+    for answer in [json!({ "fail": "io" }), json!({ "wait": true })] {
+        find(&env, answer.clone());
+        let (items, failed) = checked(&env);
+        assert_eq!(failed, code, "{answer}");
+        assert_eq!((items.len(), &items[0]["level"]), (1, &json!("warning")), "{answer}");
+    }
+    find(&env, json!({ "wait": true }));
+    assert_eq!(checked(&env).0[0]["message"], "took longer than 0.5s, so it was stopped");
+}
+
+/// A guard's findings are among a plan's warnings, on the command line and over RPC; made
+/// blocking, one that finds a warning stops the plan before it's asked about (over RPC, when
+/// it's applied), and `--no-blocking` lets it through again.
+#[test]
+fn a_guard_warns_about_a_plan_and_stops_it_once_blocking() {
+    let env = env();
+    find(&env, json!({ "findings": [{ "level": "warning", "message": "on a Friday" }] }));
+    let run = |name: &str| {
+        let params = json!({ "name": name }).to_string();
+        env.run(&["--yes", "echo", "playlist", "USB", "--params", &params])
+    };
+    let r = run("Warmup");
+    assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
+    assert!(format!("{}{}", r.out, r.err).contains("Guard: on a Friday"), "{}\n{}", r.out, r.err);
+    env.ok(&["--yes", "plugin", "checks", "echo.guard", "--blocking"]);
+    let r = run("Cooldown");
+    assert_eq!(r.code, 1, "{}\n{}", r.out, r.err);
+    assert!(r.err.contains("echo.guard found something about these changes"), "{}", r.err);
+    assert!(!env.ok(&["playlist", "list", "USB"]).contains("Cooldown"), "not made");
+    // Not asked about, with no terminal to ask on: refused all the same.
+    let said = env.fails(1, &["echo", "playlist", "USB", "--params", r#"{"name":"Cooldown"}"#]);
+    assert!(said.contains("echo.guard found something"), "{said}");
+    let said = env.fails(1, &["plugin", "checks", "echo.found", "--blocking"]);
+    assert!(said.contains("isn't run before a plan is applied"), "{said}");
+
+    let mut s = Rpc::start(env.command());
+    let drive = path(&env.volumes.join("USB")).to_string();
+    let edits = json!([{ "op": "create_playlist", "path": "Late" }]);
+    let plan = s.call(1, "edit.plan", json!({ "drive": drive, "edits": edits }));
+    let plan = plan.get("result").cloned().unwrap_or_else(|| panic!("{plan}"));
+    assert_eq!(plan["blocked"], "echo.guard");
+    assert!(plan["warnings"].as_array().unwrap().contains(&json!("Guard: on a Friday")), "{plan}");
+    let applied = s.call(2, "edit.apply", json!({ "plan_id": plan["plan_id"] }));
+    assert_eq!(applied["error"]["data"]["reason"], "blocked", "{applied}");
+    let unblocked = s.call(3, "plugins.checks.set", json!({ "plugin": "echo", "check": "guard", "blocking": false }));
+    let guard = &unblocked["result"]["checks"].as_array().unwrap().iter().find(|c| c["name"] == "guard").cloned();
+    assert_eq!(guard.as_ref().map(|g| (&g["on"], &g["blocking"])), Some((&json!(true), &json!(false))), "{unblocked}");
+    let plan = s.call(4, "edit.plan", json!({ "drive": drive, "edits": edits }));
+    assert!(plan["result"].get("blocked").is_none(), "{plan}");
+    let applied = s.call(5, "edit.apply", json!({ "plan_id": plan["result"]["plan_id"] }));
+    assert!(applied.get("result").is_some(), "{applied}");
+}
+
+/// `plugin checks` lists the checks, whether each runs and blocks and how long one has, and
+/// changes them as told; over RPC, `plugins.checks`, `plugins.checks.set` and
+/// `plugins.checks.timeout.set`. What a check finds is in the sidecar's `check` too.
+#[test]
+fn plugin_checks_lists_and_changes_them() {
+    let env = env();
+    let listed = env.json(&["plugin", "checks"]);
+    let names: Vec<(&str, bool)> = (listed["checks"].as_array().unwrap().iter())
+        .map(|c| (c["name"].as_str().unwrap(), c["on"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(names, [("untitled", true), ("edits", false), ("found", true), ("guard", true)]);
+    assert_eq!(listed["timeout"], 10.0);
+    let shown = env.ok(&["plugin", "checks"]);
+    assert!(
+        shown.contains("echo.edits") && shown.contains("off") && shown.contains("a check has 10s to answer"),
+        "{shown}"
+    );
+    env.ok(&["--yes", "plugin", "checks", "echo.edits", "--on"]);
+    let one = env.json(&["plugin", "checks", "echo.edits"]);
+    assert_eq!((one["checks"].as_array().unwrap().len(), &one["checks"][0]["on"]), (1, &json!(true)));
+    env.ok(&["--yes", "plugin", "checks", "echo.edits", "--reset"]);
+    assert_eq!(env.json(&["plugin", "checks", "echo.edits"])["checks"][0]["on"], false);
+    env.ok(&["--yes", "plugin", "checks", "--timeout", "3"]);
+    assert_eq!(env.json(&["plugin", "checks"])["timeout"], 3.0);
+    env.ok(&["--yes", "plugin", "checks", "--reset"]);
+    assert_eq!(env.json(&["plugin", "checks"])["timeout"], 10.0);
+    assert!(env.fails(2, &["plugin", "checks", "nodot"]).contains("name a check as PLUGIN.CHECK"));
+    assert!(env.fails(1, &["plugin", "checks", "echo.nope"]).contains("check \"nope\""));
+    let info = env.ok(&["plugin", "info", "echo"]);
+    assert!(info.contains("Checks (locallibrary plugin checks):") && info.contains("Guard (when: apply)"), "{info}");
+    assert!(env.ok(&["plugin"]).contains("checks untitled, edits, found, guard"));
+
+    let mut s = Rpc::start(env.command());
+    let checks = s.call(1, "plugins.checks", Value::Null);
+    assert_eq!(checks["result"]["checks"].as_array().unwrap().len(), 4, "{checks}");
+    let set = s.call(2, "plugins.checks.timeout.set", json!({ "timeout": 2 }));
+    assert_eq!(set["result"]["timeout"], 2.0, "{set}");
+    let set = s.call(3, "plugins.checks.set", json!({ "plugin": "echo", "check": "found", "on": false }));
+    let found = set["result"]["checks"].as_array().unwrap().iter().find(|c| c["name"] == "found").cloned().unwrap();
+    assert_eq!(found["on"], false);
+    let set = s.call(4, "plugins.checks.set", json!({ "plugin": "echo", "check": "found", "reset": true }));
+    assert!(set.get("result").is_some(), "{set}");
+    find(&env, json!({ "findings": [{ "level": "info", "message": "said over RPC" }] }));
+    let drive = path(&env.volumes.join("USB")).to_string();
+    let report = s.call(5, "check", json!({ "drives": [drive] }));
+    let items = report["result"]["items"].as_array().unwrap();
+    assert!(items.iter().any(|i| i["check"] == "echo.found" && i["message"] == "said over RPC"), "{report}");
+}
+
+/// Whatever a plugin's check finds, `check` counts its problems and warnings with locallibrary's
+/// own, and exits 4 exactly when there's a problem among them all.
+#[hegel::test(test_cases = 5, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn check_exits_on_a_plugins_problems_as_on_its_own(tc: TestCase) {
+    let env = env();
+    let levels: Vec<&str> = tc.draw(gs::vecs(gs::sampled_from(vec!["info", "warning", "problem"])).max_size(4));
+    let findings: Vec<Value> =
+        levels.iter().enumerate().map(|(i, l)| json!({ "level": l, "message": format!("finding {i}") })).collect();
+    find(&env, json!({ "findings": findings }));
+    let r = env.run(&["--json", "check", "USB"]);
+    let v: Value = serde_json::from_str(&r.out).unwrap();
+    let items = v["items"].as_array().unwrap();
+    let count = |level: &str| items.iter().filter(|i| i["level"] == level).count();
+    assert_eq!(
+        (v["problems"].as_u64(), v["warnings"].as_u64()),
+        (Some(count("problem") as u64), Some(count("warning") as u64))
+    );
+    let mine: Vec<&str> =
+        items.iter().filter(|i| i["check"] == "echo.found").map(|i| i["level"].as_str().unwrap()).collect();
+    assert_eq!(mine, levels);
+    assert_eq!(r.code == 4, count("problem") > 0, "{}", r.out);
+}

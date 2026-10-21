@@ -19,6 +19,7 @@ pub const PROTOCOL_VERSION: &str = "0.2.0";
 /// The methods' names.
 pub mod method {
     pub use crate::hooks::analyzers::ANALYZE_TRACK;
+    pub use crate::hooks::checks::{PLAN_CHECK, RUN_CHECK};
     pub use crate::hooks::commands::RUN_COMMAND;
     pub use crate::hooks::exporters::WRITE_EXPORT;
     pub use crate::hooks::operations::PLAN_OP;

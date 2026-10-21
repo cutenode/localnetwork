@@ -48,7 +48,8 @@ pub fn edit_apply(req: &EditRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
 
 /// An edit plan, as the operation `operation`, for the drive `touched` measured (its library, see
 /// [`Touched::library`], and whatever else the plan was made from), reaching its library's other
-/// clones (see `Planned::reaching_clones`).
+/// clones (see `Planned::reaching_clones`), with what plugins' guards make of it (see
+/// [`crate::plugin::Plugins::guard`]).
 pub(crate) fn planned_edit(
     operation: impl Into<std::borrow::Cow<'static, str>>,
     plan: EditPlan,
@@ -65,14 +66,19 @@ pub(crate) fn planned_edit(
         ));
     }
     let (destructive, noop, warnings) = (plan.destructive(), plan.is_noop(), plan.warnings.clone());
-    Planned::new(operation, plan, ())
+    let mut planned = Planned::new(operation, plan, ())
         .summary(summary)
         .warnings(warnings)
         .destructive(destructive)
         .noop(noop)
         .touches(touched)
         .reaching_clones(ctx)?
-        .guard(None)
+        .guard(None)?;
+    // What plugins' guards make of it, before it's confirmed.
+    if let Some(plugins) = crate::plugin::hosted() {
+        plugins.guard(&mut planned, super::registry().as_ref(), ctx)?;
+    }
+    Ok(planned)
 }
 
 impl Operation for EditPlan {
@@ -80,6 +86,7 @@ impl Operation for EditPlan {
     type Report = EditReport;
 
     fn apply(planned: &Planned<Self>, _: Option<&Store>, ctx: &Ctx<'_>) -> Result<EditReport> {
+        planned.plan.unblocked()?;
         edit::apply(&planned.plan, &mut planned.drive(0)?, ctx)
     }
 }

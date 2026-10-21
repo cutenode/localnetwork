@@ -47,6 +47,7 @@ pub struct Contributions {
     pub commands: Vec<hooks::commands::Command>,
     pub operations: Vec<hooks::operations::Operation>,
     pub analyzers: Vec<hooks::analyzers::Analyzer>,
+    pub checks: Vec<hooks::checks::Check>,
     pub exporters: Vec<hooks::exporters::Exporter>,
     pub providers: Vec<hooks::providers::Provider>,
     pub settings: Vec<Setting>,
@@ -569,6 +570,7 @@ impl Manifest {
         hooks::commands::validate(self)?;
         hooks::operations::validate(self)?;
         hooks::analyzers::validate(self)?;
+        hooks::checks::validate(self)?;
         hooks::exporters::validate(self)?;
         hooks::providers::validate(self)?;
         let at = "contributes.settings";

@@ -581,6 +581,10 @@ pub(crate) fn confirm_and_apply(
             warn(w);
         }
     }
+    // A guard made blocking found something: not asked, as it can't be applied.
+    if !dry_run {
+        planned.plan.unblocked()?;
+    }
     if let Some(o) = out.decide(dry_run, "Make these changes?") {
         return Ok(out.not_applied(&planned, o));
     }

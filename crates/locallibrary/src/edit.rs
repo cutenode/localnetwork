@@ -2118,6 +2118,10 @@ pub struct EditPlan {
     /// OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they
     /// leave out edits only OneLibrary lacks, as after rekordbox exported over it alone.
     pub onelibrary_changes: bool,
+    /// The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
+    /// it, among its warnings: it isn't applied (see [`EditPlan::unblocked`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
     /// My Tag, cue and artwork edits to make first (see [`plan`]).
     #[serde(skip)]
     replay: Option<Box<Steps>>,
@@ -2129,6 +2133,16 @@ pub struct EditPlan {
 }
 
 impl EditPlan {
+    /// Refused when a guard the user made blocking found something about it ([`EditPlan::blocked`]).
+    pub fn unblocked(&self) -> Result<()> {
+        let Some(check) = &self.blocked else { return Ok(()) };
+        let message = format!(
+            "{check} found something about these changes (see the warnings), so they weren't made; \
+             `locallibrary plugin checks {check} --no-blocking` lets it warn without stopping them"
+        );
+        Err(Error::conflict(Reason::Blocked, message).with("check", check))
+    }
+
     pub fn is_noop(&self) -> bool {
         self.playlists_created.is_empty()
             && self.playlists_deleted.is_empty()
@@ -2484,6 +2498,7 @@ fn plan_with(
         // My Tag, cue and artwork edits are recorded first, as they're made.
         recorded: if opts.no_journal { Vec::new() } else { steps.iter().cloned().chain(recorded).collect() },
         onelibrary_changes,
+        blocked: None,
         replay: (!steps.is_empty()).then(|| Box::new(Steps { steps, rest, opts: opts.clone(), images })),
         ops,
         state,

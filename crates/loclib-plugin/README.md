@@ -174,6 +174,23 @@ worked out with nothing to show. A field left out wasn't worked out.
   only one, else the first. Roles need no feature of their own: a host that doesn't know them
   leaves them out.
 
+### checks
+
+`check/run {check, context}` -> `{"findings": [{level, message, tracks?, playlist?, paths?,
+fix?}]}`: what a check finds on the drive `context.drive` (`Finding`: `level` `info`, `warning` or
+`problem`, the tracks by id, a playlist by path, files relative to the drive), nothing when all is
+well. A `fix` is one of the plugin's operations with its params (`{operation, params}`), which the
+user can run, planned and confirmed as any is. The host names each finding `<plugin>.<check>` and
+adds them to its check before a set and doctor; a problem counts as one of theirs. `plan/check
+{check, operation, edits, context}` -> the same: what a guard says about a plan before it's applied
+(its operation, and each edit as `edit.plan` takes them), shown with the plan's warnings. Once the
+user makes a guard blocking, a warning or a problem it finds keeps the plan from being applied. A
+check that fails or takes longer than the host gives it (10 s unless the user says) is a warning,
+never a failure; of one's findings the host keeps 1,000.
+
+- `[[contributes.checks]]`: `name`, `title`, `default_on` (true unless it says: it runs until the
+  user turns it off) and `when`: `check` (the default), `apply` (a guard) or both.
+
 ### commands
 
 `command/run {command, params, context}`: any JSON for a headless command; for a view command a

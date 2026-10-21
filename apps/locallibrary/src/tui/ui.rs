@@ -2551,7 +2551,7 @@ fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
         | super::form::For::Export { .. }
         | super::form::For::ApplyFields { .. }
         | super::form::For::Fetch { .. } => "run",
-        super::form::For::Settings(_) | super::form::For::ProviderSettings => "save",
+        super::form::For::Settings(_) | super::form::For::ProviderSettings | super::form::For::CheckSettings => "save",
     };
     let b = block(title(&form.title, true), true)
         .title_bottom(Line::styled(format!(" ↑↓ field · {keys}enter {then} · esc cancel "), faint()).right_aligned())
@@ -2789,6 +2789,10 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             // What's said about the plan as a whole (a plugin's warnings), besides its edits'.
             for w in c.plan.warnings().iter().filter(|w| !p.warnings.contains(w)) {
                 lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
+            }
+            // A guard made blocking found something: applying it is refused.
+            if let Some(check) = &p.blocked {
+                lines.push(Line::styled(format!("✗ {check} stops these changes"), fg(theme::RED)));
             }
             lines.push(Line::raw(""));
             lines.push(Line::styled("The drive is backed up first: u takes this back.", dim()));

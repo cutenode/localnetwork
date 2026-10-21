@@ -20,6 +20,7 @@ pub use choice::{Choice, ChoiceItem};
 pub use error::{ErrorData, RpcError, params};
 pub use features::{FEATURES, Feature};
 pub use hooks::analyzers::{Analysis, AnalyzeTrack, Analyzer, FieldType, FieldValue, Role, Track};
+pub use hooks::checks::{Check, CheckFinding, Findings, Fix, PlanCheck, RunCheck, When};
 pub use hooks::commands::{Command, Mode, RunCommand};
 pub use hooks::exporters::{ExportSource, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::operations::{OpAnswer, OpPlan, Operation, PlanOp};
@@ -29,6 +30,8 @@ pub use hooks::providers::{
 /// The types [`DriveReads`] answers with (`Track`, `Library`, `TrackAnalysis`), for a plugin to
 /// name without depending on loclib-model itself.
 pub use loclib_model;
+/// What a check finds, as [`CheckFinding`]s carry it.
+pub use loclib_model::finding::{Finding, Level};
 pub use manifest::{
     Capability, CliHints, Contributions, Manifest, ManifestError, NetLimit, Selection, Setting, SettingType, Where,
     check_params, is_path,

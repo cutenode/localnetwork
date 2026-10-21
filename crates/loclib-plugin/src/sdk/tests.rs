@@ -11,8 +11,9 @@ use serde_json::json;
 
 use super::*;
 use crate::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, OpAnswer, OpPlan, Pending,
-    PlanOp, ProvideCandidates, RunCommand, View, WriteExport, code,
+    Analysis, AnalyzeTrack, Candidate, Candidates, CheckFinding, Exported, ExportedFile, FieldValue, Finding, Findings,
+    Fix, Level, OpAnswer, OpPlan, Pending, PlanCheck, PlanOp, ProvideCandidates, RunCheck, RunCommand, View, When,
+    WriteExport, code,
 };
 
 #[path = "../../examples/echo/plugin.rs"]
@@ -96,7 +97,8 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
     let reply: HelloReply = s.host.request(method::HELLO, &hello("0.2.7", &["telepathy"])).unwrap();
     let plugin = PluginInfo { id: "echo".into(), version: "0.1.0".into() };
     // And the SDK's own.
-    let features = ["commands", "operations", "analyzers", "exporters", "providers", "blobs", "net", "choose"];
+    let features =
+        ["commands", "operations", "analyzers", "checks", "exporters", "providers", "blobs", "net", "choose"];
     let features = features.map(String::from).to_vec();
     assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features });
     let again = s.call(method::HELLO, hello(PROTOCOL_VERSION, &[])).unwrap_err();
@@ -277,6 +279,28 @@ fn a_provider_answers_candidates_of_its_kind() {
     s.stop();
 }
 
+/// A check calls back for the drive's tracks and answers what it finds, with what fixes it; a
+/// guard answers what it says about a plan.
+#[test]
+fn a_check_answers_its_findings_and_a_guard_what_it_says_about_a_plan() {
+    let s = greeted(echo::hooks());
+    let pending =
+        s.host.send_request(method::RUN_CHECK, &json!({ "check": "untitled", "context": { "drive": "USB" } }));
+    let Incoming::Request(req) = s.next() else { panic!("not a callback") };
+    let untitled = loclib_model::Track { id: 7, ..Default::default() };
+    let titled = loclib_model::Track { id: 8, title: "Glue".into(), ..Default::default() };
+    s.host.respond(&req.id, Ok(json!({ "total": 2, "total_duration_secs": 0, "tracks": [untitled, titled] })));
+    let found: Findings = pending.unwrap().wait().unwrap();
+    let finding = Finding { tracks: vec![7], ..Finding::new(Level::Warning, "untitled", "1 track(s) have no title") };
+    let fix = Fix { operation: "playlist".into(), params: json!({ "name": "Untitled" }) };
+    assert_eq!(found, Findings { findings: vec![CheckFinding { finding, fix: Some(fix) }] });
+    let req = json!({ "check": "edits", "operation": "edit", "edits": [{ "op": "create_playlist" }, {}] });
+    let said: Findings = s.host.request(method::PLAN_CHECK, &req).unwrap();
+    let finding = Finding::new(Level::Info, "edits", "edit makes 2 edit(s)");
+    assert_eq!(said, Findings { findings: vec![CheckFinding { finding, fix: None }] });
+    s.stop();
+}
+
 #[test]
 fn hooks_run_only_for_what_the_manifest_declares() {
     let s = greeted(echo::hooks());
@@ -291,6 +315,10 @@ fn hooks_run_only_for_what_the_manifest_declares() {
         ),
         (method::PLAN_OP, json!({ "operation": "nope" }), "operation \"nope\""),
         (method::PROVIDE, json!({ "provider": "nope", "kind": "metadata", "tracks": [] }), "provider \"nope\""),
+        (method::RUN_CHECK, json!({ "check": "nope" }), "check \"nope\""),
+        // A check, but not one run before a plan is applied.
+        (method::PLAN_CHECK, json!({ "check": "untitled", "operation": "edit", "edits": [] }), "guard \"untitled\""),
+        (method::RUN_CHECK, json!({ "check": "edits" }), "check \"edits\""),
     ] {
         let e = s.call(method, params).unwrap_err();
         assert_eq!(e.code, code::INVALID_PARAMS);
@@ -312,6 +340,8 @@ fn a_hook_the_plugin_doesnt_implement_isnt_found() {
         (method::WRITE_EXPORT, json!({ "exporter": "m3u", "source": { "drive": "A" }, "output": "/x" })),
         (method::PLAN_OP, json!({ "operation": "playlist" })),
         (method::PROVIDE, json!({ "provider": "tags", "kind": "metadata", "tracks": [] })),
+        (method::RUN_CHECK, json!({ "check": "untitled" })),
+        (method::PLAN_CHECK, json!({ "check": "edits", "operation": "edit", "edits": [] })),
     ] {
         let e = s.call(method, params).unwrap_err();
         assert_eq!((e.code, e.message), (code::METHOD_NOT_FOUND, format!("unknown method {method:?}")));
@@ -434,12 +464,14 @@ fn closing_the_input_cancels_running_hooks() {
 // Properties.
 
 /// The hooks a request names, and what each declares its contributions by.
-const HOOKS: [(&str, &str); 5] = [
+const HOOKS: [(&str, &str); 7] = [
     (method::RUN_COMMAND, "command"),
     (method::ANALYZE_TRACK, "analyzer"),
     (method::WRITE_EXPORT, "exporter"),
     (method::PLAN_OP, "operation"),
     (method::PROVIDE, "provider"),
+    (method::RUN_CHECK, "check"),
+    (method::PLAN_CHECK, "guard"),
 ];
 
 /// A version the host might speak: mostly 0.x and 1.x, sometimes not a version at all.
@@ -475,7 +507,8 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
         vec!["describe", "command/run", "track/analyze", "export/write", "op/plan", "tracks.query", "shutdown"];
     let plugin = PluginInfo { id: manifest.id.clone(), version: manifest.version.clone() };
     // And the SDK's own.
-    let features = ["commands", "operations", "analyzers", "exporters", "providers", "blobs", "net", "choose"];
+    let features =
+        ["commands", "operations", "analyzers", "checks", "exporters", "providers", "blobs", "net", "choose"];
     let features = features.map(String::from).to_vec();
     let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features };
     let mut greeted = false;
@@ -576,7 +609,13 @@ fn answers() -> Hooks {
         });
         Ok(Candidates { candidates: found.collect(), warnings: Vec::new() })
     };
-    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide)
+    let said = |check: String, message: String| Findings {
+        findings: vec![CheckFinding { finding: Finding::new(Level::Info, check, message), fix: None }],
+    };
+    let run_check = move |req: RunCheck, _: &Host| Ok(said(req.check, String::new()));
+    let plan_check = move |req: PlanCheck, _: &Host| Ok(said(req.check, req.operation));
+    let hooks = Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide);
+    hooks.on(run_check).on(plan_check)
 }
 
 /// Hooks that panic, every one.
@@ -585,7 +624,9 @@ fn panics_everywhere() -> Hooks {
         panic!("a bug");
     }
     let hooks = Hooks::new().on(bug::<RunCommand, Value>).on(bug::<AnalyzeTrack, Analysis>);
-    hooks.on(bug::<WriteExport, Exported>).on(bug::<PlanOp, OpAnswer>).on(bug::<ProvideCandidates, Candidates>)
+    let hooks =
+        hooks.on(bug::<WriteExport, Exported>).on(bug::<PlanOp, OpAnswer>).on(bug::<ProvideCandidates, Candidates>);
+    hooks.on(bug::<RunCheck, Findings>).on(bug::<PlanCheck, Findings>)
 }
 
 /// Any hooks, run at once: one the plugin doesn't implement isn't found, whatever its params. The
@@ -602,16 +643,19 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
     };
     let manifest = echo_manifest();
     let c = &manifest.contributes;
-    let declared: [Vec<String>; 5] = [
+    let run_when = |when: When| c.checks.iter().filter(|x| x.when.contains(&when)).map(|x| x.name.clone()).collect();
+    let declared: [Vec<String>; 7] = [
         c.commands.iter().filter(|x| !["steps", "titles"].contains(&x.name.as_str())).map(|x| x.name.clone()).collect(),
         c.analyzers.iter().map(|x| x.name.clone()).collect(),
         c.exporters.iter().map(|x| x.format.clone()).collect(),
         c.operations.iter().map(|x| x.name.clone()).collect(),
         c.providers.iter().map(|x| x.name.clone()).collect(),
+        run_when(When::Check),
+        run_when(When::Apply),
     ];
     let mut sent = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
-        let hook = tc.draw(gs::integers::<usize>().max_value(4));
+        let hook = tc.draw(gs::integers::<usize>().max_value(HOOKS.len() - 1));
         let (method, what) = HOOKS[hook];
         let name = match tc.draw(gs::booleans()) {
             true => tc.draw(gs::sampled_from(declared[hook].clone())),
@@ -636,11 +680,19 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 let plan = json!({ "summary": name, "warnings": [], "edits": [echoed] });
                 (json!({ "operation": name, "params": echoed }), plan)
             }
-            _ => {
+            4 => {
                 // Echo's provider gives tags.
                 let kind = tc.draw(gs::sampled_from(vec!["metadata", "artwork"]));
                 let found = json!({ "candidates": [{ "track": id, "score": 1.0, "source": name, "label": "" }] });
                 (json!({ "provider": name, "kind": kind, "tracks": [{ "id": id }] }), found)
+            }
+            5 => {
+                let found = json!({ "findings": [{ "level": "info", "check": name, "message": "" }] });
+                (json!({ "check": name }), found)
+            }
+            _ => {
+                let said = json!({ "findings": [{ "level": "info", "check": name, "message": "edit" }] });
+                (json!({ "check": name, "operation": "edit", "edits": [echoed] }), said)
             }
         };
         // Params that don't read, and where `invalid_params` says they're wrong.
@@ -651,7 +703,9 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 1 => (json!({ "analyzer": name, "track": { "id": "x" } }), Some("track.id")),
                 2 => (json!({ "exporter": name, "source": { "drive": "USB" } }), None),
                 3 => (json!({ "operation": [] }), Some("operation")),
-                _ => (json!({ "provider": name, "kind": "lyrics", "tracks": [] }), Some("kind")),
+                4 => (json!({ "provider": name, "kind": "lyrics", "tracks": [] }), Some("kind")),
+                5 => (json!({ "check": name, "context": { "tracks": "all" } }), Some("context.tracks")),
+                _ => (json!({ "check": name, "operation": "edit", "edits": {} }), Some("edits")),
             },
         };
         let pending = s.host.send_request(method, &params).unwrap();

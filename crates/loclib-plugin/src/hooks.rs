@@ -11,6 +11,7 @@
 //! alphabetically (first, when there's none). Families added side by side then add separate lines.
 
 pub(crate) mod analyzers;
+pub(crate) mod checks;
 pub(crate) mod commands;
 pub(crate) mod exporters;
 pub(crate) mod operations;

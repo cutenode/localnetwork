@@ -27,6 +27,9 @@
 //! DJ's profile because this is the report read before a set, when a track that will clip the
 //! mixer or need the trim cranked can still be swapped.
 //!
+//! What plugins' checks find on each drive that could be read follows (see
+//! [`crate::plugin::Plugins::run_checks`]).
+//!
 //! Nothing is written to the drives (beyond the hash cache every scan of an adopted drive keeps).
 
 use indexmap::IndexMap;
@@ -47,6 +50,7 @@ use crate::format::{FsKind, Scheme};
 use crate::model::{Library, Track, TrackRef};
 use crate::paths;
 use crate::plays;
+use crate::plugin::Fix;
 use crate::probe;
 use crate::progress::{Ctx, Phase};
 use crate::sound;
@@ -74,13 +78,17 @@ pub use loclib_model::finding::{Finding, Level};
 
 /// What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,
 /// `files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`
-/// or `formats`; what was found fine is `info`.
+/// or `formats`, or a plugin's `<plugin>.<check>`; what was found fine is `info`.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CheckItem {
     /// The drive it's about.
     pub drive: String,
     #[serde(flatten)]
     pub finding: Finding,
+    /// What fixes it, a plugin's check says: its plugin's operation, planned on the drive and
+    /// confirmed as any is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<Fix>,
 }
 
 /// An item reads as its finding (`item.level`).
@@ -245,7 +253,7 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
         let mut audio = DriveAudio::default();
         let mut mine = Vec::new();
         let mut item = |check, level, message: String| {
-            mine.push(CheckItem { drive: name.clone(), finding: Finding::new(level, check, message) })
+            mine.push(CheckItem { drive: name.clone(), finding: Finding::new(level, check, message), fix: None })
         };
         let mut d = Drive { device, name: name.clone(), side: None, dbs: None, fs: None, large: Vec::new() };
         if !device.has_export() {
@@ -306,7 +314,7 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
     for (n, d) in drives.iter().enumerate() {
         let mine = &mut items[n];
         let mut item = |check, level, message: String| {
-            mine.push(CheckItem { drive: d.name.clone(), finding: Finding::new(level, check, message) })
+            mine.push(CheckItem { drive: d.name.clone(), finding: Finding::new(level, check, message), fix: None })
         };
         if let (Some((first_name, first)), Some(side), true) = (&first, &d.side, n > 0) {
             match packed_item(&drives[0], d) {
@@ -326,9 +334,12 @@ pub fn check(devices: &[Device], store: Option<&Store>, opts: &CheckOptions, ctx
             history_item(d, dbs, side, store, &mut archives, ctx, &mut item)?;
         }
     }
-    // By drive, then by check.
-    for mine in &mut items {
+    // By drive, then by check, plugins' after locallibrary's own (see `plugin::set_hosted`).
+    for (mine, d) in items.iter_mut().zip(&drives) {
         mine.sort_by_key(|i| CHECKS.iter().position(|c| i.check == *c));
+        if let Some(plugins) = crate::plugin::hosted().filter(|_| d.dbs.is_some()) {
+            mine.extend(plugins.run_checks(d.device, store, ctx)?);
+        }
     }
     let items: Vec<CheckItem> = items.into_iter().flatten().collect();
     Ok(CheckReport {

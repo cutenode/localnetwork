@@ -194,6 +194,10 @@ pub enum Act {
     PluginSettings(&'static str),
     /// The settings of every provider: when a candidate is picked for the user.
     ProviderSettings,
+    /// Which plugins' checks run, and how long one has to answer.
+    CheckSettings,
+    /// Plan a fix the last check found (its place in [`super::app::App::fixes`]).
+    Fix(usize),
     /// Export the drive in a plugin's format (the plugin's id, the format).
     Export(&'static str, &'static str),
     /// Fetch what plugins' providers of a kind find for the tracks selected.

@@ -45,7 +45,8 @@ fn a_checks_report_says_how_it_went_problems_first() {
         players(&["CDJ-2000NXS2"], PlayersFrom::Default),
         players(&[], PlayersFrom::None),
     ];
-    let item = |level, message: &str| CheckItem { drive: "DNA".into(), finding: Finding::new(level, "x", message) };
+    let item =
+        |level, message: &str| CheckItem { drive: "DNA".into(), finding: Finding::new(level, "x", message), fix: None };
     r.items = vec![item(CheckLevel::Info, "the export reads"), item(CheckLevel::Problem, "2 tracks missing")];
     r.unloadable = vec![Unloadable {
         drive: "DNA".into(),
@@ -291,6 +292,7 @@ fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
         .map(|i| CheckItem {
             drive: pick(&tc),
             finding: Finding::new(levels[tc.draw(gs::integers::<usize>().max_value(2))], "x", format!("item {i}")),
+            fix: None,
         })
         .collect();
     r.unloadable = (0..tc.draw(gs::integers::<usize>().max_value(2)))

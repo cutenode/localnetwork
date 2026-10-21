@@ -5154,6 +5154,59 @@
       }
     },
     {
+      "name": "plugins.checks",
+      "aliases": [],
+      "kind": "read",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/NoParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
+      }
+    },
+    {
+      "name": "plugins.checks.set",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetCheck"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
+      }
+    },
+    {
+      "name": "plugins.checks.timeout.set",
+      "aliases": [],
+      "kind": "immediate",
+      "long_running": false,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SetTimeout"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/Checks"
+      }
+    },
+    {
       "name": "plugins.provide",
       "aliases": [],
       "kind": "read",
@@ -8768,6 +8821,11 @@
         },
         {
           "type": "string",
+          "const": "checks",
+          "description": "What plugins' checks find on the drive (see [`crate::plugin::Plugins::run_checks`])."
+        },
+        {
+          "type": "string",
           "const": "audio",
           "description": "Audio files cut short or that don't decode. Only when asked for (`audio`, or `only`\nnaming it): it reads every file's last seconds."
         },
@@ -11391,6 +11449,58 @@
         }
       ],
       "description": "What a field is to locallibrary, whichever plugin works it out: the host reads a role's value\n(doctor's tempos, keys and levels, the check before a set, ordering a set, writing keys and\nBPMs to tracks) from the analyzer chosen for it. A closed list, each with one type."
+    },
+    "SetCheck": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "check": {
+          "type": "string",
+          "description": "The check's name."
+        },
+        "on": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Run it, or not; left out, as it is.",
+          "default": null
+        },
+        "blocking": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "For a guard: keep a plan it finds a warning or a problem about from being applied, or not;\nleft out, as it is.",
+          "default": null
+        },
+        "reset": {
+          "type": "boolean",
+          "description": "Put both back to their defaults first.",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "check"
+      ],
+      "description": "A change to a check's settings."
+    },
+    "SetTimeout": {
+      "type": "object",
+      "properties": {
+        "timeout": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double",
+          "description": "How long a check has to answer, in seconds, before it's stopped (a warning says so);\n`null` (or left out) puts it back to its default.",
+          "default": null
+        }
+      }
     },
     "Provide": {
       "type": "object",
@@ -16805,6 +16915,13 @@
         "onelibrary_changes": {
           "type": "boolean",
           "description": "OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they\nleave out edits only OneLibrary lacks, as after rekordbox exported over it alone."
+        },
+        "blocked": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about\nit, among its warnings: it isn't applied (see [`EditPlan::unblocked`])."
         }
       },
       "required": [
@@ -19830,6 +19947,16 @@
           ],
           "description": "The volume's file system as the OS names it."
         },
+        "checks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/CheckItem"
+          },
+          "description": "What plugins' checks found, each named `<plugin>.<check>`."
+        },
         "warnings": {
           "type": "array",
           "items": {
@@ -19851,6 +19978,7 @@
         "analysis",
         "compatibility",
         "file_system",
+        "checks",
         "warnings"
       ]
     },
@@ -20573,6 +20701,106 @@
         }
       ]
     },
+    "CheckItem": {
+      "type": "object",
+      "properties": {
+        "drive": {
+          "type": "string",
+          "description": "The drive it's about."
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "check": {
+          "type": "string",
+          "description": "The check that found it (`files`, a plugin's `<plugin>.<check>`).",
+          "default": ""
+        },
+        "message": {
+          "type": "string",
+          "description": "What it found, in a line."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "The tracks it's about, by id."
+        },
+        "playlist": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The playlist it's about, by path (`Folder/Name`)."
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The files it's about, relative to the drive's root (`Contents/a.mp3`)."
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fix"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What fixes it, a plugin's check says: its plugin's operation, planned on the drive and\nconfirmed as any is."
+        }
+      },
+      "required": [
+        "drive",
+        "level",
+        "check",
+        "message"
+      ],
+      "description": "What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,\n`files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`\nor `formats`, or a plugin's `<plugin>.<check>`; what was found fine is `info`."
+    },
+    "Level": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "info",
+          "description": "Worth knowing, nothing to fix (what was checked and found fine, too)."
+        },
+        {
+          "type": "string",
+          "const": "warning",
+          "description": "Worth a look: it may be a problem, or a problem for some players."
+        },
+        {
+          "type": "string",
+          "const": "problem",
+          "description": "Something to fix before it's used."
+        }
+      ],
+      "description": "How much a finding matters, least first."
+    },
+    "Fix": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "params": true
+      },
+      "required": [
+        "plugin",
+        "operation",
+        "params"
+      ],
+      "description": "The plugin operation that fixes a finding, with its params: planned and confirmed as any is\n(`plugins.op.plan`, with the drive it was found on)."
+    },
     "OrphanPlan": {
       "type": "object",
       "properties": {
@@ -20730,77 +20958,6 @@
         "audio",
         "loudness"
       ]
-    },
-    "CheckItem": {
-      "type": "object",
-      "properties": {
-        "drive": {
-          "type": "string",
-          "description": "The drive it's about."
-        },
-        "level": {
-          "$ref": "#/$defs/Level"
-        },
-        "check": {
-          "type": "string",
-          "description": "The check that found it (`files`, a plugin's `<plugin>.<check>`).",
-          "default": ""
-        },
-        "message": {
-          "type": "string",
-          "description": "What it found, in a line."
-        },
-        "tracks": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint32",
-            "minimum": 0
-          },
-          "description": "The tracks it's about, by id."
-        },
-        "playlist": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The playlist it's about, by path (`Folder/Name`)."
-        },
-        "paths": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "The files it's about, relative to the drive's root (`Contents/a.mp3`)."
-        }
-      },
-      "required": [
-        "drive",
-        "level",
-        "check",
-        "message"
-      ],
-      "description": "What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,\n`files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`\nor `formats`; what was found fine is `info`."
-    },
-    "Level": {
-      "oneOf": [
-        {
-          "type": "string",
-          "const": "info",
-          "description": "Worth knowing, nothing to fix (what was checked and found fine, too)."
-        },
-        {
-          "type": "string",
-          "const": "warning",
-          "description": "Worth a look: it may be a problem, or a problem for some players."
-        },
-        {
-          "type": "string",
-          "const": "problem",
-          "description": "Something to fix before it's used."
-        }
-      ],
-      "description": "How much a finding matters, least first."
     },
     "DrivePlayers": {
       "type": "object",
@@ -29095,7 +29252,7 @@
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its commands, operations, analyzers and providers by name, its export formats\nand its settings' keys."
+          "description": "What it adds: its commands, operations, analyzers, checks and providers by name, its export\nformats and its settings' keys."
         },
         "operations": {
           "type": "array",
@@ -29104,6 +29261,12 @@
           }
         },
         "analyzers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "checks": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29147,6 +29310,7 @@
         "commands",
         "operations",
         "analyzers",
+        "checks",
         "exporters",
         "providers",
         "settings",
@@ -29278,6 +29442,7 @@
             "commands": [],
             "operations": [],
             "analyzers": [],
+            "checks": [],
             "exporters": [],
             "providers": [],
             "settings": []
@@ -29325,6 +29490,13 @@
           },
           "default": []
         },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Check"
+          },
+          "default": []
+        },
         "exporters": {
           "type": "array",
           "items": {
@@ -29351,6 +29523,7 @@
         "commands",
         "operations",
         "analyzers",
+        "checks",
         "exporters",
         "providers",
         "settings"
@@ -29507,6 +29680,54 @@
         "boolean",
         "string[]"
       ]
+    },
+    "Check": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "default_on": {
+          "type": "boolean",
+          "description": "It runs unless the user turns it off; otherwise, once they turn it on.",
+          "default": true
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/When"
+          },
+          "description": "When it runs: with the check before a set and doctor (`check`, the default), and before a\nplan is applied (`apply`: a guard).",
+          "default": [
+            "check"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "default_on",
+        "when"
+      ],
+      "description": "Run with `check/run` on a drive along with locallibrary's own checks, and with `plan/check`\nbefore a plan is applied: as its `when` says."
+    },
+    "When": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "check",
+          "description": "With locallibrary's check before a set and doctor (`check/run`)."
+        },
+        {
+          "type": "string",
+          "const": "apply",
+          "description": "Before a plan is applied (`plan/check`): a guard."
+        }
+      ],
+      "description": "When a check runs."
     },
     "Exporter": {
       "type": "object",
@@ -30078,6 +30299,65 @@
         "failed"
       ],
       "description": "What analysing a drive's tracks did."
+    },
+    "Checks": {
+      "type": "object",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ListedCheck"
+          },
+          "description": "In the order the plugins are."
+        },
+        "timeout": {
+          "type": "number",
+          "format": "double",
+          "description": "How long a check has to answer, in seconds, before it's stopped (a warning says so): the\n`checks.timeout` setting."
+        }
+      },
+      "required": [
+        "checks",
+        "timeout"
+      ],
+      "description": "The plugins' checks, whether each runs, and how long one has to answer, as `plugin checks` and\nthe sidecar's `plugins.checks` show them."
+    },
+    "ListedCheck": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "when": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/When"
+          },
+          "description": "With the check before a set and doctor (`check`), before a plan is applied (`apply`: a\nguard), or both."
+        },
+        "on": {
+          "type": "boolean"
+        },
+        "blocking": {
+          "type": "boolean",
+          "description": "Only a guard's can be on."
+        }
+      },
+      "required": [
+        "plugin",
+        "name",
+        "title",
+        "when",
+        "on",
+        "blocking"
+      ],
+      "description": "Whether a plugin's check runs, and whether a guard keeps a plan it finds something about from\nbeing applied."
     },
     "Provided": {
       "type": "object",
@@ -31194,6 +31474,11 @@
           "type": "string",
           "const": "verify_failed",
           "description": "Files didn't read back correctly."
+        },
+        {
+          "type": "string",
+          "const": "blocked",
+          "description": "A plugin's guard the user made blocking (`fields.check`, `<plugin>.<check>`) found\nsomething about the plan: deal with what it found, or stop the guard blocking."
         },
         {
           "type": "string",

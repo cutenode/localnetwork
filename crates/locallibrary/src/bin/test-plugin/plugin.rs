@@ -14,8 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, Exported, ExportedFile, Fetch, FieldValue, Hooks,
-    Host, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, RpcError, RunCommand, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, Exported, ExportedFile, Fetch, FieldValue,
+    Findings, Hooks, Host, ListItem, OpAnswer, OpPlan, PlanCheck, PlanOp, ProvideCandidates, RpcError, RunCheck,
+    RunCommand, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -62,6 +63,16 @@ impl Test {
         if has("operations") {
             let test = test.clone();
             hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
+        }
+        if has("checks") {
+            hooks = hooks.on(|req: RunCheck, host: &Host| match req.check.as_str() {
+                "untitled" => echo::run_check(req, host),
+                _ => checked(&req.context, host),
+            });
+            hooks = hooks.on(|req: PlanCheck, host: &Host| match req.check.as_str() {
+                "edits" => echo::plan_check(req, host),
+                _ => checked(&req.context, host),
+            });
         }
         if has("providers") {
             hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));
@@ -237,6 +248,32 @@ impl Test {
         let warnings = params(answer.get("warnings").cloned().unwrap_or(json!([])))?;
         Ok(Candidates { candidates, warnings })
     }
+}
+
+/// What a check (or a guard) other than echo's answers, as its `findings` setting says (JSON):
+/// failing with the error `fail` is, waiting until it's cancelled with `wait`, never stopping with
+/// `stuck`, else its `findings`.
+fn checked(context: &Context, host: &Host) -> Result<Findings, RpcError> {
+    let answer: Value =
+        context.settings.get("findings").and_then(Value::as_str).map_or(Ok(json!({})), |a| {
+            serde_json::from_str(a).map_err(|e| RpcError::failed("invalid", e.to_string()))
+        })?;
+    if let Some(kind) = answer["fail"].as_str() {
+        return Err(RpcError::failed(kind, "it failed"));
+    }
+    if answer["wait"] == true {
+        loop {
+            host.ctx().check()?;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    if answer["stuck"] == true {
+        // Never checks for being cancelled.
+        loop {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    Ok(Findings { findings: params(answer.get("findings").cloned().unwrap_or(json!([])))? })
 }
 
 /// The question `p["ask"]` asks, while `p` doesn't answer it (has no value of its param), or

@@ -6,6 +6,7 @@
 //! line says why as it starts, the sidecar's `plugins.list` has it with why, and every other
 //! plugin works.
 
+pub mod checks;
 pub mod params;
 pub mod providers;
 pub mod roles;
@@ -389,11 +390,12 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its commands, operations, analyzers and providers by name, its export formats
-    /// and its settings' keys.
+    /// What it adds: its commands, operations, analyzers, checks and providers by name, its export
+    /// formats and its settings' keys.
     pub commands: Vec<String>,
     pub operations: Vec<String>,
     pub analyzers: Vec<String>,
+    pub checks: Vec<String>,
     pub exporters: Vec<String>,
     pub providers: Vec<String>,
     pub settings: Vec<String>,
@@ -415,6 +417,7 @@ impl Listed {
             commands: c.commands.iter().map(|x| x.name.clone()).collect(),
             operations: c.operations.iter().map(|x| x.name.clone()).collect(),
             analyzers: c.analyzers.iter().map(|x| x.name.clone()).collect(),
+            checks: c.checks.iter().map(|x| x.name.clone()).collect(),
             exporters: c.exporters.iter().map(|x| x.format.clone()).collect(),
             providers: c.providers.iter().map(|x| x.name.clone()).collect(),
             settings: c.settings.iter().map(|x| x.key.clone()).collect(),

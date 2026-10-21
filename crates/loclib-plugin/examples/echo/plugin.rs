@@ -3,8 +3,9 @@
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, Hooks, Host, OpPlan, PlanOp,
-    ProvideCandidates, RpcError, RunCommand, TrackMetadata, TracksQuery, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Candidate, Candidates, CheckFinding, Exported, ExportedFile, FieldValue, Finding, Findings,
+    Fix, Hooks, Host, Level, OpPlan, PlanCheck, PlanOp, ProvideCandidates, RpcError, RunCheck, RunCommand,
+    TrackMetadata, TracksQuery, View, WriteExport, params,
 };
 use loclib_progress::{Event, Phase, Steps};
 use serde::Deserialize;
@@ -14,7 +15,7 @@ pub const MANIFEST: &str = include_str!("locallibrary-plugin.toml");
 
 /// Its hooks: one of each kind.
 pub fn hooks() -> Hooks {
-    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide)
+    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide).on(run_check).on(plan_check)
 }
 
 #[derive(Deserialize)]
@@ -104,4 +105,33 @@ pub fn provide(req: ProvideCandidates, _: &Host) -> Result<Candidates, RpcError>
         }),
     });
     Ok(Candidates { candidates: candidates.collect(), warnings: Vec::new() })
+}
+
+/// `check/run`: the drive's tracks without a title, its fix making the playlist `Untitled` (its
+/// operation, as it does).
+pub fn run_check(req: RunCheck, host: &Host) -> Result<Findings, RpcError> {
+    let drive = req.context.drive.unwrap_or_default();
+    let untitled: Vec<u32> = host
+        .drive(&drive)
+        .query(&TracksQuery::default())?
+        .into_iter()
+        .filter(|t| t.title.is_empty())
+        .map(|t| t.id)
+        .collect();
+    if untitled.is_empty() {
+        return Ok(Findings::default());
+    }
+    let finding = Finding {
+        tracks: untitled.clone(),
+        ..Finding::new(Level::Warning, req.check, format!("{} track(s) have no title", untitled.len()))
+    };
+    let fix = Fix { operation: "playlist".into(), params: json!({ "name": "Untitled" }) };
+    Ok(Findings { findings: vec![CheckFinding { finding, fix: Some(fix) }] })
+}
+
+/// `plan/check`: how many edits the plan makes.
+pub fn plan_check(req: PlanCheck, _: &Host) -> Result<Findings, RpcError> {
+    let message = format!("{} makes {} edit(s)", req.operation, req.edits.len());
+    let finding = Finding::new(Level::Info, req.check, message);
+    Ok(Findings { findings: vec![CheckFinding { finding, fix: None }] })
 }

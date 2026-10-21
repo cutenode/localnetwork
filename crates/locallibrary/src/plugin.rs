@@ -1,6 +1,6 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
-//! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters,
-//! providers and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
+//! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, checks,
+//! exporters, providers and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -17,12 +17,15 @@
 //! plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
 //! Analyzers' values go to the [`crate::fields`] store. What providers find for tracks, the host
-//! offers the user and makes the edits of itself (see [`Plugins::provide`]).
+//! offers the user and makes the edits of itself (see [`Plugins::provide`]). What checks find
+//! joins the check before a set and doctor, and guards say what they make of an edit plan before
+//! it's confirmed (see [`Plugins::run_checks`], [`Plugins::guard`]).
 
 mod analyzers;
 mod apply;
 mod blobs;
 mod callbacks;
+mod checks;
 mod commands;
 mod exports;
 mod net;
@@ -51,6 +54,8 @@ pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
+pub(crate) use checks::hosted;
+pub use checks::{CheckChange, CheckSettings, Fix, TIMEOUT, check_timeout, set_check_timeout, set_hosted};
 pub use commands::CommandOutput;
 pub use exports::{ExportFile, PluginExport};
 pub use operations::OpPlanned;

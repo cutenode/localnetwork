@@ -1170,6 +1170,8 @@ fn run(cli: Cli, out: Output, contributed: Option<plugin_cmd::Contributed>) -> R
         });
     }
     api::set_store_root(cli.store.clone().unwrap_or_else(Store::default_root));
+    // The check before a set, doctor and edit plans run the plugins' checks.
+    locallibrary::plugin::set_hosted(|| plugins::host().ok());
     let progress = out.progress();
     let ctx = Ctx::new(&progress, cancel);
     let store = || open_store(&cli.store);

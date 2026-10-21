@@ -3,6 +3,7 @@
 
 mod blobs;
 mod callbacks;
+mod checks;
 mod choose;
 mod hooks;
 mod net;

@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use crate::support::{Env, Rpc, echo_plugin, path, recording};
 
+mod checks;
 mod choose;
 mod props;
 mod providers;

@@ -235,6 +235,15 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   you, and locallibrary plans the edits itself, confirmed as any are (the player's actions menu
   has both, and its palette the auto-pick; the sidecar `plugins.provide`,
   `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  Checks (`[[contributes.checks]]`, `check/run`, the `checks` feature) find what's wrong with a
+  drive: what they find is in `check` and `doctor` (`--only checks`), named `PLUGIN.CHECK`, a
+  problem counting as one, with the command line of the plugin's operation that fixes it when
+  there is one; a check that fails or takes longer than 10 seconds is a warning. Guards (`when =
+  ["apply"]`, `plan/check`) say what they make of an edit plan among its warnings before it's
+  confirmed, and one made blocking stops a plan it finds a warning or a problem about. `plugin
+  checks` turns each on or off, makes guards blocking and sets how long a check has (the sidecar
+  `plugins.checks`, `plugins.checks.set` and `plugins.checks.timeout.set`; the player a "check
+  settings…" form, a check's findings in its results and their fixes in the palette).
   An analyzer's fields may have roles (a track's key, tempo, loudness...), which doctor, `check` and
   `playlist order` read from the analyzer `plugin roles` chooses (the sound plugin's unless another
   has them), and `analyze --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`,
