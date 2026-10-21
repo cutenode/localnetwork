@@ -197,7 +197,7 @@ fn a_track_shows_only_its_own_panels(tc: TestCase) {
 
 /// Any chart a plugin answers (any finite points, however far apart or alike, in any number of
 /// series) is drawn at any size without failing, from at most `MOST_SERIES` series of at most
-/// `MOST_POINTS` points each.
+/// `MOST_POINTS` points each, two or more named under it.
 #[hegel::test(test_cases = 100)]
 fn any_chart_is_drawn(tc: TestCase) {
     let number = || gs::floats::<f64>().allow_nan(false).allow_infinity(false);
@@ -219,4 +219,34 @@ fn any_chart_is_drawn(tc: TestCase) {
     let h = tc.draw(gs::integers::<u16>().min_value(1).max_value(MOST_ROWS));
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h)).unwrap();
     terminal.draw(|f| draw_ready(f, &mut ready, f.area())).unwrap();
+    // Two or more series are named in the last row.
+    let named = ready.chart.as_ref().is_some_and(|p| p.series.len() > 1) && h > 1;
+    assert_eq!(terminal.backend().buffer()[(0, h - 1)].symbol() == "■", named);
+}
+
+/// A chart of two or more series names each, in its colour, under it (ratatui's own legend never
+/// fits a panel's rows); without colours, which can't tell them apart, its table is drawn instead.
+#[test]
+fn a_charts_series_are_named() {
+    let sine = (0..64).map(|i| (f64::from(i), (f64::from(i) / 8.0).sin())).collect();
+    let saw = (0..64).map(|i| (f64::from(i), f64::from(i % 16))).collect();
+    let series = vec![Series { name: "sine".into(), points: sine }, Series { name: "saw".into(), points: saw }];
+    let view = View::Chart { title: None, style: ChartStyle::Line, series, x_label: None, y_label: None };
+    let mut ready = Ready::of(&view, &|_| None);
+    let mut drawn = || {
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(28, MOST_ROWS)).unwrap();
+        terminal.draw(|f| draw_ready(f, &mut ready, f.area())).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        let keys: Vec<_> = buf.content().iter().filter(|c| c.symbol() == "■").map(|c| c.fg).collect();
+        (text, keys)
+    };
+    let braille = |s: &str| s.chars().any(|c| ('\u{2801}'..='\u{28ff}').contains(&c));
+    let (s, keys) = drawn();
+    assert!(braille(&s) && s.contains("■ sine") && s.contains("■ saw"), "{s}");
+    assert!(keys.len() == 2 && keys[0] != keys[1], "{keys:?}");
+    theme::set_test_mode(Some(theme::Mode::Plain));
+    let (s, _) = drawn();
+    theme::set_test_mode(None);
+    assert!(!braille(&s) && s.contains("sine") && s.contains("more"), "{s}");
 }

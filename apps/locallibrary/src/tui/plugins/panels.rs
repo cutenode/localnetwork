@@ -108,13 +108,19 @@ impl Ready {
         Ready { lines, art, chart }
     }
 
-    /// How many rows its body takes: all there are for a picture (drawn in colour) or a chart,
-    /// else a row a line.
+    /// How many rows its body takes: all there are for a picture or a chart it draws, else a row
+    /// a line.
     fn rows(&self) -> u16 {
-        match (self.art.is_some() && !theme::plain()) || self.chart.is_some() {
+        match self.art.is_some() && !theme::plain() || self.plot().is_some() {
             true => MOST_ROWS,
             false => (self.lines.len() as u16).clamp(1, MOST_ROWS),
         }
+    }
+
+    /// Its chart, if it's drawn: without colours, two series can't be told apart, so its lines
+    /// (a table of the points) are drawn instead.
+    fn plot(&self) -> Option<&Plot> {
+        self.chart.as_ref().filter(|p| p.series.len() < 2 || !theme::plain())
     }
 }
 
@@ -316,7 +322,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
 }
 
 /// A panel's answer in `area`: its picture (in colour; without colours, its lines say what it
-/// shows), its chart, or its lines.
+/// shows), its chart (its series named under it when there are two or more), or its lines.
 fn draw_ready(f: &mut Frame, ready: &mut Ready, area: Rect) {
     if area.height == 0 || area.width == 0 {
         return;
@@ -328,19 +334,28 @@ fn draw_ready(f: &mut Frame, ready: &mut Ready, area: Rect) {
         f.render_widget(Pixels { width: cols, pixels: px, palette: theme::palette() }, Rect { width: cols, ..area });
         return;
     }
-    if let Some(plot) = &ready.chart {
+    if let Some(plot) = ready.plot() {
         let t = theme::current();
         let colours = [t.accent, t.info, t.warning, t.secondary, t.good];
+        let colour = |i: usize| fg(colours[i % colours.len()]);
         let graph = if plot.bars { GraphType::Bar } else { GraphType::Line };
-        let datasets = plot.series.iter().enumerate().map(|(i, (name, points))| {
-            let data = Dataset::default().name(name.clone()).marker(Marker::Braille).graph_type(graph);
-            data.style(fg(colours[i % colours.len()])).data(points)
+        let datasets = plot.series.iter().enumerate().map(|(i, (_, points))| {
+            Dataset::default().marker(Marker::Braille).graph_type(graph).style(colour(i)).data(points)
         });
+        // ratatui's legend takes a row a series and two more, but at most a quarter of the
+        // height, so it never fits a panel: two or more series are named in the last row instead.
+        let named = plot.series.len() > 1 && area.height > 1;
+        if named {
+            let key =
+                plot.series.iter().enumerate().flat_map(|(i, (name, _))| {
+                    [Span::styled("■ ", colour(i)), Span::styled(format!("{name}  "), dim())]
+                });
+            let row = Rect { y: area.bottom() - 1, height: 1, ..area };
+            f.render_widget(Paragraph::new(Line::from(key.collect::<Vec<_>>())), row);
+        }
         let axis = |[lo, hi]: [f64; 2]| Axis::default().bounds([lo, hi]).style(faint());
         let chart = Chart::new(datasets.collect()).x_axis(axis([0.0, 1.0])).y_axis(axis(plot.y));
-        // One series needs no legend.
-        let chart = if plot.series.len() < 2 { chart.legend_position(None) } else { chart };
-        f.render_widget(chart, area);
+        f.render_widget(chart, Rect { height: area.height - u16::from(named), ..area });
         return;
     }
     let w = area.width as usize;
