@@ -351,7 +351,7 @@ fn transcode(job: &Job, dst: &Path, ctx: &Ctx<'_>) -> Result<AudioFile> {
     let made = loclib_transcode::transcode(&job.source, &job.recipe, tmp.path(), ctx)?;
     tmp.as_file().sync_all().at(tmp.path())?;
     let size = tmp.as_file().metadata().at(tmp.path())?.len();
-    tmp.persist(dst).map_err(|e| Error::Io { path: dst.to_path_buf(), source: e.error })?;
+    fsutil::replace(tmp.into_temp_path(), dst)?;
     let r = &job.recipe;
     let bitrate = match r.container {
         // rekordbox gives uncompressed audio its nominal rate, and FLAC its average.

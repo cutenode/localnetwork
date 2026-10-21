@@ -573,6 +573,8 @@ their old names.
 
 ### Fixed
 
+- On Windows, an edit, sync or other write no longer fails ("Access is denied") when the drive
+  watcher of the TUI, the sidecar or `watch` looks at the drive at the same moment.
 - A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.
 - A plugin's log keeps a backslash that follows a window title ended by BEL.
 - Two making the store at once (the sidecar's workers, or a CLI beside them) make one store:

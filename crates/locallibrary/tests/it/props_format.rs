@@ -80,7 +80,7 @@ fn fatfs_reads_formatted_volumes(tc: TestCase) {
     let layout = Layout::new(size, 512, cluster, 2048).unwrap();
 
     let file = tempfile::NamedTempFile::new().unwrap();
-    file.as_file().set_len(size).unwrap();
+    locallibrary::testing::sparse(file.path(), size).unwrap();
     let mut f = OpenOptions::new().read(true).write(true).open(file.path()).unwrap();
     fat32::write(&mut f, 0, &layout, &label, volume_id, &Ctx::silent()).unwrap();
     drop(f);

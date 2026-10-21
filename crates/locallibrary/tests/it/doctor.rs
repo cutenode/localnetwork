@@ -204,7 +204,7 @@ fn files_over_4_gib() {
     let id = common::add_track(&root, NewTrack::new("Five hours", big), b"");
     // A sparse file: export.pdb's 32-bit size field holds the size modulo 4 GiB.
     let size = doctor::FAT32_MAX_FILE + 1000;
-    fs::File::options().write(true).open(paths::to_fs(&root, &paths::key(big))).unwrap().set_len(size).unwrap();
+    locallibrary::testing::sparse(&paths::to_fs(&root, &paths::key(big)), size).unwrap();
     let pdb = root.join(paths::EXPORT_PDB);
     let mut ed = PdbEditor::from_file(&pdb).unwrap();
     ed.set_track_field(id, "file_size", 1000).unwrap();

@@ -169,6 +169,12 @@ jobs:
           env-mapping: |
             TMP,{{ DEV_DRIVE }}
             TEMP,{{ DEV_DRIVE }}
+      # Performance mode still scans what the tests write there, late: a scan holding a file the
+      # tests just wrote fails the rename over it ("Access is denied", os error 5), a failure no
+      # replay repeats. So the drive is left out of real-time scanning.
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-MpPreference -ExclusionPath "$env:DEV_DRIVE\"
       # The sqlcipher CLI checks that SQLCipher itself reads what locallibrary encrypts;
       # LOCALLIBRARY_REQUIRE_SQLCIPHER makes those tests fail when they can't find it, where they'd
       # otherwise skip the check. Windows takes it from the runner's MSYS2, which isn't on PATH.
