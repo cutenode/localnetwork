@@ -949,24 +949,30 @@ fn view_text(v: &Value) -> String {
     lines.iter().map(|l| format!("{l}\n")).collect()
 }
 
-/// Any view a plugin's command answers reads back in `--json` as it was answered, and in text
-/// as the command line draws its own lists, tables, labelled values and text.
-#[hegel::test(test_cases = 10, suppress_health_check = [HealthCheck::TooSlow])]
-fn views_read_in_text_as_in_json(tc: TestCase) {
-    // The test plugin's `echo` answers its params: here, a view.
-    let m = json!({
+/// The `views` plugin, whose `echo` (the test plugin's) answers its params: here, a view.
+fn views_env() -> Env {
+    env_with(&[json!({
         "id": "views", "name": "Views", "version": "0.1.0", "protocol": "^0.2",
         "contributes": { "commands": [{ "name": "echo", "title": "Show", "mode": "view" }] },
-    });
-    let env = env_with(&[m]);
-    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(3)) {
-        let v = view(&tc);
-        let args = ["views", "echo", "--params", &v.to_string()];
-        assert_eq!(unschema(env.json(&args)), v);
-        assert_eq!(env.ok(&args), view_text(&v), "{v}");
-    }
-    // Anything else is the plugin's mistake.
-    let r = env.run(&["views", "echo", "--params", r#"{"kind": "chart"}"#]);
+    })])
+}
+
+/// Any view a plugin's command answers reads back in `--json` as it was answered, and in text
+/// as the command line draws its own lists, tables, labelled values and text. One view a case:
+/// each run of the command line starts it and the plugin, which a loaded machine makes slow.
+#[hegel::test(test_cases = 15, suppress_health_check = [HealthCheck::TooSlow])]
+fn views_read_in_text_as_in_json(tc: TestCase) {
+    let env = views_env();
+    let v = view(&tc);
+    let args = ["views", "echo", "--params", &v.to_string()];
+    assert_eq!(unschema(env.json(&args)), v);
+    assert_eq!(env.ok(&args), view_text(&v), "{v}");
+}
+
+/// A view that isn't one is the plugin's mistake.
+#[test]
+fn a_view_that_isnt_one_is_the_plugins_mistake() {
+    let r = views_env().run(&["views", "echo", "--params", r#"{"kind": "chart"}"#]);
     assert_eq!(r.code, 1, "{}", r.err);
     assert!(r.err.contains("its view of echo isn't one"), "{}", r.err);
 }
