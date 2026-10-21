@@ -262,74 +262,7 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   library lacks), from the plugins locallibrary has, at their analyzers' versions; a value is
   `null` when it was worked out with nothing to show. Without a store
   there are none, and none is made.
-- Plugins (see [Plugins](plugins.md)): `plugins.list` answers each plugin's `{id, name, version,
-  capabilities: [{capability, means}], commands, operations, analyzers, exporters, providers,
-  settings, running, left_out}`, `means` saying in plain words what a capability lets it do and
-  `left_out` why a plugin isn't loaded, when it clashes with a command, a method or another plugin
-  (else `null`); `plugins.describe {plugin}` answers `{manifest, capabilities, settings, secrets,
-  secrets_unknown?, running}`, the manifest with the JSON Schemas of each command's and
-  operation's `params` and each exporter's `options`, to draw forms from, and where to offer each
-  command and operation (`where`: `track`, `playlist`, `drive`). A
-  param's `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from
-  the request's `context` when it isn't given; given as `null`, it's left out.
-  `plugins.settings {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or
-  left out: back to its default) answer `{plugin, settings: {key: value}, secrets: {key: set}}`:
-  a secret setting is set like any other (text), kept in the system's keychain, and only ever
-  answered as set (`true`) or not, never in `settings`; when the keychain can't say, each is
-  `null` and `secrets_unknown` says why.
-  `plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
-  command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw,
-  with every row the plugin sent in parts as it worked.
-  `plugins.op.plan {plugin, operation, params, context}` (`context.drive` is required) answers an
-  edit plan whose `operation` is `<plugin>.<operation>`, its summary first (an image a plugin's
-  `set_artwork` gives is read as it's planned, and held by the plan), applied by
-  `plugins.op.apply {plan_id}`; it's stale once the drive changes, or a file on this computer
-  the plugin worked it out from. A view command or an operation may ask the user something
-  first: `plugins.run` answers a view `{kind: "choose", title, param, multi?, items: [{label,
-  detail?, value}]}`, `plugins.op.plan` `{choose: {...}}` (no plan, nothing kept). Show the
-  items, then call it again with `params[param]` set to the chosen item's `value` (with `multi`,
-  a list of the values chosen, maybe none); `plugins.op.apply` with a request refuses one that
-  asks. A tracklist is imported as the tracklist plugin's `import` operation (`{file, into,
-  playlist?, append?}`, `file` absolute), which asks about each entry that could be several
-  tracks in turn: `param` is the entry's number, counting from 1, each item's `value` a track id,
-  and `null` leaves the entry out.
-  `plugins.provide {kind, drive, tracks?, from?, replace?}` (`kind`: `artwork` or `metadata`;
-  `tracks` a selection as `edit.plan`'s take [default: every one]; `from` a plugin, or
-  `<plugin>.<provider>`) asks the providers of that kind what they find for the tracks without it
-  (cover art, or some tag; every one chosen, with `replace`), with progress and `$/cancel`, and
-  answers `{kind, asked, offers: [{track, name, candidates: [{provider, source, label, score,
-  artwork?, metadata?}], picked}], images, warnings}`: each track's candidates best first
-  (`artwork` the id of its image in `images`, `metadata` `{title?, artist?, album?, year?,
-  genre?, label?, isrc?}`), `picked` the one picked for the user, when it alone scores the
-  `auto_pick` setting or more, `images` each image once, however many tracks it's offered for,
-  by id (its content's hash) in base64, and in `warnings` a provider that failed, or answered
-  more than is kept (25 candidates a track, 50,000 in all, images coming to 512 MiB in base64:
-  the rest are left out). Show the rest, then `plugins.provide.plan {kind, drive, picks: [{track,
-  candidate}], images?, replace?}` (each candidate as it was offered, with the images picked, or
-  all of `images`) answers an edit plan (`plugins.provide`) setting the images or writing the tags (only where a track has
-  none, unless `replace`), applied by `plugins.provide.apply {plan_id}`. `plugins.providers`
-  answers `{providers: [{plugin, name, title, kind}], auto_pick}`, and `plugins.providers.set
-  {auto_pick}` (0 to 1, more than 1: never; `null`: back to 0.9) sets it.
-  `plugins.export.plan {plugin, exporter, drive, playlists?, history?, output, options}` (`output`
-  absolute, never on a drive or in the store) answers `{plugin, exporter, output, files: [{path,
-  what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what goes in, in order;
-  `notes`: what the format can't hold and what to do with the files; the library's problems are the
-  plan's `warnings`), destructive when a file `exists` already, applied by `plugins.export.apply
-  {plan_id}` (`{files: [{path, what, bytes}], counts, notes, warnings}`). The applies also take the
-  request,
-  planning and applying in one go. Plugins' plans are kept apart from the rest, so planning with
-  plugins never pushes out a plan of locallibrary's own. `plugins.analyze {plugin, analyzer,
-  drive, tracks?}` runs an analyzer on the drive's tracks (those it hasn't worked out already),
-  with progress (an `analyze` phase) and `$/cancel`, answering `{analyzed, kept, failed}`.
-  `plugins.roles` answers which analyzer each role (`key`, `bpm`, `loudness`...) is read from,
-  `[{role, chosen, set, offered}]`, and `plugins.roles.set {role, analyzer}` (`<plugin>.<analyzer>`,
-  or `null`: back to its default) chooses one. `plugins.apply_fields.plan {plugin, analyzer,
-  drive, fields, tracks?, overwrite?, min_confidence?}` (`fields`: `key`, `bpm`) answers an edit
-  plan (`plugins.apply_fields`) writing what the analyzer kept to the tracks, applied by
-  `plugins.apply_fields.apply {plan_id}`. A
-  plugin starts when it's first used and stops once it's idle a while, and when the sidecar
-  exits. A plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the
-  plugin named in the message.
+- Plugins: see [Plugins](#plugins) below.
 - Reading: `tracks.query` (filter, sort, paging), `track.analysis` (beat grid, cues, waveforms,
   phrases), `track.show` (details, playlists, My Tags, copies, analysis summary), `track.matches`
   (harmonic matches), `doctor` (`analyze`: the analysis section, after the analyzers for its
@@ -414,3 +347,89 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   the schema and the TypeScript types name each element (`[path: string, error: string]`).
 
 Native bindings (napi-rs) can wrap the same `api` functions later without changing behaviour.
+
+## Plugins
+
+What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
+each plugin's `{id, name, version, capabilities: [{capability, means}], commands, operations,
+analyzers, exporters, providers, settings, running, left_out}`, `means` saying in plain words what
+a capability lets it do and `left_out` why a plugin isn't loaded, when it clashes with a command, a
+method or another plugin (else `null`); `plugins.describe {plugin}` answers `{manifest,
+capabilities, settings, secrets, secrets_unknown?, running}`, the manifest with the JSON Schemas of
+each command's and operation's `params` and each exporter's `options`, to draw forms from, and
+where to offer each command and operation (`where`: `track`, `playlist`, `drive`). A param's
+`x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
+request's `context` when it isn't given; given as `null`, it's left out. `plugins.settings
+{plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its
+default) answer `{plugin, settings: {key: value}, secrets: {key: set}}`: a secret setting is set
+like any other (text), kept in the system's keychain, and only ever answered as set (`true`) or
+not, never in `settings`; when the keychain can't say, each is `null` and `secrets_unknown` says
+why.
+
+The applies below also take the request, planning and applying in one go. Plugins' plans are kept
+apart from the rest, so planning with plugins never pushes out a plan of locallibrary's own. A
+plugin starts when it's first used and stops once it's idle a while, and when the sidecar exits. A
+plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the plugin named
+in the message. Each kind of thing plugins add is below, in a section of its own.
+
+### Analyzers
+
+`plugins.analyze {plugin, analyzer, drive, tracks?}` runs an analyzer on the drive's tracks (those
+it hasn't worked out already), with progress (an `analyze` phase) and `$/cancel`, answering
+`{analyzed, kept, failed}`.
+
+### Commands and operations
+
+`plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
+command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw, with
+every row the plugin sent in parts as it worked. `plugins.op.plan {plugin, operation, params,
+context}` (`context.drive` is required) answers an edit plan whose `operation` is
+`<plugin>.<operation>`, its summary first (an image a plugin's `set_artwork` gives is read as it's
+planned, and held by the plan), applied by `plugins.op.apply {plan_id}`; it's stale once the drive
+changes, or a file on this computer the plugin worked it out from. A view command or an operation
+may ask the user something first: `plugins.run` answers a view `{kind: "choose", title, param,
+multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` `{choose: {...}}` (no plan, nothing
+kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
+(with `multi`, a list of the values chosen, maybe none); `plugins.op.apply` with a request refuses
+one that asks. A tracklist is imported as the tracklist plugin's `import` operation (`{file, into,
+playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks
+in turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and
+`null` leaves the entry out.
+
+### Export formats
+
+`plugins.export.plan {plugin, exporter, drive, playlists?, history?, output, options}` (`output`
+absolute, never on a drive or in the store) answers `{plugin, exporter, output, files: [{path,
+what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what goes in, in order;
+`notes`: what the format can't hold and what to do with the files; the library's problems are the
+plan's `warnings`), destructive when a file `exists` already, applied by `plugins.export.apply
+{plan_id}` (`{files: [{path, what, bytes}], counts, notes, warnings}`).
+
+### Providers
+
+`plugins.provide {kind, drive, tracks?, from?, replace?}` (`kind`: `artwork` or `metadata`;
+`tracks` a selection as `edit.plan`'s take [default: every one]; `from` a plugin, or
+`<plugin>.<provider>`) asks the providers of that kind what they find for the tracks without it
+(cover art, or some tag; every one chosen, with `replace`), with progress and `$/cancel`, and
+answers `{kind, asked, offers: [{track, name, candidates: [{provider, source, label, score,
+artwork?, metadata?}], picked}], images, warnings}`: each track's candidates best first (`artwork`
+the id of its image in `images`, `metadata` `{title?, artist?, album?, year?, genre?, label?,
+isrc?}`), `picked` the one picked for the user, when it alone scores the `auto_pick` setting or
+more, `images` each image once, however many tracks it's offered for, by id (its content's hash)
+in base64, and in `warnings` a provider that failed, or answered more than is kept (25 candidates
+a track, 50,000 in all, images coming to 512 MiB in base64: the rest are left out). Show the rest,
+then `plugins.provide.plan {kind, drive, picks: [{track, candidate}], images?, replace?}` (each
+candidate as it was offered, with the images picked, or all of `images`) answers an edit plan
+(`plugins.provide`) setting the images or writing the tags (only where a track has none, unless
+`replace`), applied by `plugins.provide.apply {plan_id}`. `plugins.providers` answers `{providers:
+[{plugin, name, title, kind}], auto_pick}`, and `plugins.providers.set {auto_pick}` (0 to 1, more
+than 1: never; `null`: back to 0.9) sets it.
+
+### Roles
+
+`plugins.roles` answers which analyzer each role (`key`, `bpm`, `loudness`...) is read from,
+`[{role, chosen, set, offered}]`, and `plugins.roles.set {role, analyzer}` (`<plugin>.<analyzer>`,
+or `null`: back to its default) chooses one. `plugins.apply_fields.plan {plugin, analyzer, drive,
+fields, tracks?, overwrite?, min_confidence?}` (`fields`: `key`, `bpm`) answers an edit plan
+(`plugins.apply_fields`) writing what the analyzer kept to the tracks, applied by
+`plugins.apply_fields.apply {plan_id}`.

@@ -2,9 +2,10 @@
 //! those it has, a plugin those it implements (the SDK works them out from its hooks). The host
 //! calls a feature's methods only on a plugin that has it, answers what it sends only from one
 //! that has it, and refuses one whose manifest contributes what a feature it doesn't have would
-//! run. A new kind of hook is a new row here, not a new protocol version.
+//! run. A new kind of hook is a new row here (its family's, see `crate::hooks`), not a new
+//! protocol version.
 
-use crate::{Manifest, method};
+use crate::{Manifest, hooks, method};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Feature {
@@ -19,38 +20,14 @@ pub struct Feature {
     pub contributed: fn(&Manifest) -> bool,
 }
 
-/// Every feature this side knows.
+/// Every feature this side knows, in the order `hello` lists them (a family's placed as
+/// `crate::hooks` says).
 pub const FEATURES: &[Feature] = &[
-    Feature {
-        name: "commands",
-        methods: &[method::RUN_COMMAND],
-        sends: &[],
-        contributed: |m| !m.contributes.commands.is_empty(),
-    },
-    Feature {
-        name: "operations",
-        methods: &[method::PLAN_OP],
-        sends: &[],
-        contributed: |m| !m.contributes.operations.is_empty(),
-    },
-    Feature {
-        name: "analyzers",
-        methods: &[method::ANALYZE_TRACK],
-        sends: &[],
-        contributed: |m| !m.contributes.analyzers.is_empty(),
-    },
-    Feature {
-        name: "exporters",
-        methods: &[method::WRITE_EXPORT],
-        sends: &[],
-        contributed: |m| !m.contributes.exporters.is_empty(),
-    },
-    Feature {
-        name: "providers",
-        methods: &[method::PROVIDE],
-        sends: &[],
-        contributed: |m| !m.contributes.providers.is_empty(),
-    },
+    hooks::commands::FEATURE,
+    hooks::operations::FEATURE,
+    hooks::analyzers::FEATURE,
+    hooks::exporters::FEATURE,
+    hooks::providers::FEATURE,
     // Every hook's `context.scratch`, `{"blob": name}` in answers, and a view's rows in parts.
     Feature { name: "blobs", methods: &[], sends: &[method::PARTIAL], contributed: |_| false },
     Feature { name: "net", methods: &[], sends: &[method::NET_FETCH], contributed: |m| !m.net.is_empty() },

@@ -2,8 +2,8 @@
 
 The protocol [locallibrary](https://github.com/cutenode/localnetwork/tree/main/apps/locallibrary)
 plugins speak, the manifest they declare themselves in, and an SDK for writing one in Rust. A
-plugin adds commands, operations, track analyzers, exporters, providers and settings; it never
-ships UI code, and it never writes to a drive.
+plugin adds the kinds of things its families of hooks contribute (see [Hooks](#hooks)), and
+settings; it never ships UI code, and it never writes to a drive.
 
 ## The protocol
 
@@ -12,10 +12,9 @@ They talk JSON-RPC 2.0 over the plugin's stdin and stdout, one JSON message per 
 inside one, at most 16 MiB). Anything the plugin writes to stderr is its log. The protocol is
 versioned on its own, at `0.2.0` (`PROTOCOL_VERSION`); two versions are compatible by semver's
 caret rule, so before 1.0 the minor version must match. A new kind of hook doesn't change it: each
-family of hooks is an optional feature (`FEATURES`): `commands`, `operations`, `analyzers`,
-`exporters` and `providers`, and the SDK's own, which every plugin written with it has: `blobs`
-(scratch folders and partial results), `net` (fetching through the host) and `choose` (asking the
-user first).
+family of hooks is an optional feature named after it (`FEATURES`, see [Hooks](#hooks)), and so
+are the SDK's own, which every plugin written with it has: `blobs` (scratch folders and partial
+results), `net` (fetching through the host) and `choose` (asking the user first).
 
 1. The host's first message is `hello`
    (`{"protocol": "0.2.0", "host": {"name", "version"}, "features": [...]}`, the features it
@@ -26,53 +25,20 @@ user first).
 2. `describe` answers the plugin's manifest as JSON. locallibrary refuses a plugin whose answer
    differs from the manifest it knows, or that contributes what a feature it doesn't have runs
    (commands without `commands`, `[[net]]` limits without `net`).
-3. The host calls hooks, one for each kind of contribution, each with a `context`: the drive
-   (by id or name), for a command or an operation the playlist and tracks the user is on, the
-   plugin's `settings` (never a secret one) and, with `blobs`, `scratch`: an absolute, empty
-   folder for this request alone. A value too big for a message (an image) is a file the plugin
-   leaves there, given as `{"blob": "cover.jpg"}` (its name in the folder): the host reads it
-   itself, refuses a name that leads out of the folder (or is a link, or a file with another
-   name) and a folder holding more than it takes (512 MiB), and removes the folder once it has.
-   - `command/run {command, params, context}`: any JSON for a headless command; for a view
-     command a view, `{"kind": "list" | "table" | "kv" | "text", ...}` (`View`), which each
-     host draws its own way. While it works, a view command may send its rows (or items) in
-     parts, `partial {id, rows | items}` notifications (`id`: the host's request), for a host to
-     show as they come; the view it answers still has them all, first.
+3. The host calls hooks, one for each kind of contribution (see [Hooks](#hooks)), each with a
+   `context`: the drive (by id or name), for a command or an operation the playlist and tracks
+   the user is on, the plugin's `settings` (never a secret one) and, with `blobs`, `scratch`: an
+   absolute, empty folder for this request alone. A value too big for a message (an image) is a
+   file the plugin leaves there, given as `{"blob": "cover.jpg"}` (its name in the folder): the
+   host reads it itself, refuses a name that leads out of the folder (or is a link, or a file
+   with another name) and a folder holding more than it takes (512 MiB), and removes the folder
+   once it has.
    - With `choose`, a view command may answer a question for the user instead, `{"kind":
      "choose", "title", "param", "multi", "items": [{"label", "detail", "value"}]}` (`Choice`),
      and an operation `{"choose": {...}}`: the host asks it, and runs the hook again with
      `params[param]` set to the value chosen (with `multi`, a list of any of them). The param is
      one the hook takes but doesn't require (the host checks params first), and each item's
      value one it takes: a question that isn't is refused.
-   - `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
-     `{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`), or `null`
-     for one worked out with nothing to show. A field left out wasn't worked out.
-   - `export/write {exporter, source: {drive, playlists, history}, output, options, dry_run,
-     context}` -> `{"files": [{path, what, bytes}], "counts", "notes", "warnings"}`. The plugin
-     writes the files; with `dry_run` it only says which it would (`what` each holds, its
-     size as far as it's known), so the host can ask before overwriting any. `counts`
-     (optional) are labelled numbers of what goes in, in the order to show them (`{"tracks":
-     12, "cues": 40}`); `notes` (optional) say what the format can't hold and what to do with
-     the files, `warnings` what's wrong with this library. An export reads the drive's whole
-     library as locallibrary combines it; `playlists` and `history` (lists, by name) only narrow
-     which lists go in.
-   - `op/plan {operation, params, context}` -> `{"summary", "warnings", "edits", "inputs"}`,
-     where each edit is an `Edit` as the sidecar's `edit.plan` takes it (`{"op":
-     "create_playlist", ...}`). locallibrary plans them as one `edit.plan` (one confirmation, one
-     backup, applied together) and applies them itself. `inputs` (optional) lists the files on
-     the computer the plan was worked out from (absolute): it isn't applied once one changes. A
-     `set_artwork` edit gives its image as a blob (`{"blob": "cover.jpg"}`), never by path or
-     in base64.
-   - `provide/candidates {provider, kind, tracks: [{id, artist, title, album, album_artist,
-     isrc, duration}], context}` -> `{"candidates": [{track, score, source, label, artwork?,
-     metadata?}], "warnings"}`: what a provider found for the tracks, of its kind, any number
-     for each. `score` (0 to 1) is how sure it is; an artwork provider's `artwork` is a blob, a
-     metadata provider's `metadata` the tags it has (`title`, `artist`, `album`, `year`, `genre`,
-     `label`, `isrc`). `warnings` say what it found nothing for. The host asks every provider of a
-     kind, offers the user what they found, best first, picking one alone that scores high
-     enough, and plans the edits itself: a provider plans none. It keeps 25 candidates a track
-     and 50,000 in all, and images coming to 512 MiB (in base64), leaving out the rest with a
-     warning.
 4. While answering, a plugin may call back with requests named after the sidecar's read
    methods (`tracks.query`, `playlists.tree`, `drive.info`...), with their params and results
    (see `apps/locallibrary/docs/rpc`). Its manifest's capabilities say which it may call (one
@@ -160,10 +126,6 @@ assert!(manifest.validate(false).is_err());
 - `[[net]]`: `host` (one of its `net:` capabilities, as written) and `per_second`, how many
   `net/fetch` requests a second the host sends there, at least 1/3600: the limit the server asks
   for. Each host is limited once.
-- `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `where`, `params`
-  (a JSON Schema for an object) and `cli`.
-- `[[contributes.operations]]`: `name`, `title`, `long_running`, `where`, `params` and `cli`.
-  Whether one is destructive, the host works out from the edits it plans.
 - `where` is which menus offer a command or an operation: `track` (the tracks selected),
   `playlist` and `drive`, `["drive"]` unless it says. A palette has every one.
 - `cli` (first-party plugins only) is a command's or operation's own place on the command line:
@@ -179,6 +141,26 @@ assert!(manifest.validate(false).is_err());
   (a list of integers, the tracks' ids), `selection.playlist` (a string, its path) or
   `selection.drive` (a string, its id or name), from where the user runs it. A form shows it
   filled in. Given as `null` (cleared in a form), it's left out instead.
+- `[[contributes.settings]]`: `key`, `title`, `type` (`string`, `number`, `boolean`, `enum`,
+  `file`, `directory` or `secret`), `default` and, for an enum, `choices`. A secret (text, and
+  no default) is kept in the system's keychain and never given to the plugin: it's only filled
+  into its `net/fetch` requests.
+
+Names (`id`, contributions' `name`, `format` and `key`, fields) are lowercase letters, digits,
+`-` and `_`, starting with a letter, each used once; titles aren't empty; `params` and `options`
+must be JSON Schemas for an object that compile.
+
+## Hooks
+
+Each family of hooks is a feature of its own, with the methods the host calls for it and what a
+manifest contributes for it. A plugin has a family's feature once it implements one of its hooks.
+
+### analyzers
+
+`track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
+`{"fields": {name: value}}`, of the types the manifest declares (`FieldValue`), or `null` for one
+worked out with nothing to show. A field left out wasn't worked out.
+
 - `[[contributes.analyzers]]`: `name`, `title`, `version` (its own: locallibrary keeps its
   values by it, so bump it when they'd change), `fields` (each `number`, `integer`, `string`,
   `boolean` or `string[]`) and `roles`. Fields become columns, so no two analyzers have one of a
@@ -191,19 +173,59 @@ assert!(manifest.validate(false).is_err());
   writing keys and BPMs to tracks read a role from the analyzer the user chose for it, else the
   only one, else the first. Roles need no feature of their own: a host that doesn't know them
   leaves them out.
+
+### commands
+
+`command/run {command, params, context}`: any JSON for a headless command; for a view command a
+view, `{"kind": "list" | "table" | "kv" | "text", ...}` (`View`), which each host draws its own way.
+While it works, a view command may send its rows (or items) in parts, `partial {id, rows | items}`
+notifications (`id`: the host's request), for a host to show as they come; the view it answers still
+has them all, first.
+
+- `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `where`, `params`
+  (a JSON Schema for an object) and `cli`.
+
+### exporters
+
+`export/write {exporter, source: {drive, playlists, history}, output, options, dry_run, context}` ->
+`{"files": [{path, what, bytes}], "counts", "notes", "warnings"}`. The plugin writes the files; with
+`dry_run` it only says which it would (`what` each holds, its size as far as it's known), so the
+host can ask before overwriting any. `counts` (optional) are labelled numbers of what goes in, in
+the order to show them (`{"tracks": 12, "cues": 40}`); `notes` (optional) say what the format can't
+hold and what to do with the files, `warnings` what's wrong with this library. An export reads the
+drive's whole library as locallibrary combines it; `playlists` and `history` (lists, by name) only
+narrow which lists go in.
+
 - `[[contributes.exporters]]`: `format`, `title`, `extension` (lowercase letters and digits,
   without the dot) or `folder = true`, `options`.
+
+### operations
+
+`op/plan {operation, params, context}` -> `{"summary", "warnings", "edits", "inputs"}`, where each
+edit is an `Edit` as the sidecar's `edit.plan` takes it (`{"op": "create_playlist", ...}`).
+locallibrary plans them as one `edit.plan` (one confirmation, one backup, applied together) and
+applies them itself. `inputs` (optional) lists the files on the computer the plan was worked out
+from (absolute): it isn't applied once one changes. A `set_artwork` edit gives its image as a blob
+(`{"blob": "cover.jpg"}`), never by path or in base64.
+
+- `[[contributes.operations]]`: `name`, `title`, `long_running`, `where`, `params` and `cli`.
+  Whether one is destructive, the host works out from the edits it plans.
+
+### providers
+
+`provide/candidates {provider, kind, tracks: [{id, artist, title, album, album_artist, isrc,
+duration}], context}` -> `{"candidates": [{track, score, source, label, artwork?, metadata?}],
+"warnings"}`: what a provider found for the tracks, of its kind, any number for each. `score` (0
+to 1) is how sure it is; an artwork provider's `artwork` is a blob, a metadata provider's
+`metadata` the tags it has (`title`, `artist`, `album`, `year`, `genre`, `label`, `isrc`).
+`warnings` say what it found nothing for. The host asks every provider of a kind, offers the user
+what they found, best first, picking one alone that scores high enough, and plans the edits
+itself: a provider plans none. It keeps 25 candidates a track and 50,000 in all, and images coming
+to 512 MiB (in base64), leaving out the rest with a warning.
+
 - `[[contributes.providers]]`: `name`, `title` and `kind`, `artwork` or `metadata`: what it finds
   for tracks (`provide/candidates`). It's given their tags, so it needs `library:read`, and
   never a `:plan` capability for what it finds: the host plans that.
-- `[[contributes.settings]]`: `key`, `title`, `type` (`string`, `number`, `boolean`, `enum`,
-  `file`, `directory` or `secret`), `default` and, for an enum, `choices`. A secret (text, and
-  no default) is kept in the system's keychain and never given to the plugin: it's only filled
-  into its `net/fetch` requests.
-
-Names (`id`, contributions' `name`, `format` and `key`, fields) are lowercase letters, digits,
-`-` and `_`, starting with a letter, each used once; titles aren't empty; `params` and `options`
-must be JSON Schemas for an object that compile.
 
 ## Writing a plugin in Rust
 
@@ -226,7 +248,8 @@ operation an `OpPlan`, or an `OpAnswer` when it may ask first (`Choice`; `View::
 command).
 `RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
 hook is, `io` for a file that couldn't be read or written, else the kind it's given. A new kind of
-hook is a request type implementing `Hook` and a row in `FEATURES`.
+hook is a family of its own in this crate (`src/hooks/`): its request types implementing `Hook`
+and its row in `FEATURES`.
 
 `Peer` is the connection itself, for a host or a plugin: either end sends requests and
 notifications from any thread, and its reader thread hands the other end's to its owner (a

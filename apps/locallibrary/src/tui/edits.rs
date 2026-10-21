@@ -289,7 +289,7 @@ pub fn menu_items(t: &Target) -> Vec<MenuItem> {
         let unavailable = stale.clone().or(o.unavailable).or(because(!on_tracks && !on_list, nothing));
         item("", o.label, Action::Plugin(o.plugin, o.name), unavailable)
     }))
-    .chain(super::plugins::fetches(Some(!t.folder_drive)).into_iter().map(|(kind, label, _, why)| {
+    .chain(super::plugins::providers::fetches(Some(!t.folder_drive)).into_iter().map(|(kind, label, _, why)| {
         let unavailable = stale.clone().or(why).or(because(t.tracks.is_empty(), "no track selected"));
         item("", label, Action::Fetch(kind), unavailable)
     }))

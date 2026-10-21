@@ -13,9 +13,8 @@ use serde_json::Value;
 
 use crate::error::{ok, params};
 use crate::protocol::{
-    Analysis, AnalyzeTrack, Candidates, Exported, Fetch, Fetched, Hello, HelloReply, OpAnswer, Partial, PlanOp,
-    PluginInfo, ProgressEvent, ProgressParams, ProgressReport, Progressed, ProvideCandidates, RunCommand, StepInfo,
-    StepStarted, WriteExport, check_protocol, method,
+    Fetch, Fetched, Hello, HelloReply, Partial, PluginInfo, ProgressEvent, ProgressParams, ProgressReport, Progressed,
+    StepInfo, StepStarted, check_protocol, method,
 };
 use crate::{Contributions, FEATURES, Incoming, ListItem, Manifest, PROTOCOL_VERSION, Peer, Request, RpcError};
 
@@ -30,62 +29,14 @@ pub trait Hook: DeserializeOwned + 'static {
 }
 
 /// `name` is one of the manifest's contributions of this kind (`what`).
-fn declared<'a>(what: &str, name: &str, mut names: impl Iterator<Item = &'a String>) -> Result<(), RpcError> {
+pub(crate) fn declared<'a>(
+    what: &str,
+    name: &str,
+    mut names: impl Iterator<Item = &'a String>,
+) -> Result<(), RpcError> {
     match names.any(|n| n == name) {
         true => Ok(()),
         false => Err(RpcError::invalid_params(format!("the manifest declares no {what} {name:?}"))),
-    }
-}
-
-/// Any JSON for a headless command, a [`crate::View`] for a view command (or a question first,
-/// [`crate::View::Choose`]).
-impl Hook for RunCommand {
-    const METHOD: &'static str = method::RUN_COMMAND;
-    type Answer = Value;
-
-    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
-        declared("command", &self.command, c.commands.iter().map(|x| &x.name))
-    }
-}
-
-impl Hook for AnalyzeTrack {
-    const METHOD: &'static str = method::ANALYZE_TRACK;
-    type Answer = Analysis;
-
-    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
-        declared("analyzer", &self.analyzer, c.analyzers.iter().map(|x| &x.name))
-    }
-}
-
-impl Hook for WriteExport {
-    const METHOD: &'static str = method::WRITE_EXPORT;
-    type Answer = Exported;
-
-    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
-        declared("exporter", &self.exporter, c.exporters.iter().map(|x| &x.format))
-    }
-}
-
-impl Hook for PlanOp {
-    const METHOD: &'static str = method::PLAN_OP;
-    type Answer = OpAnswer;
-
-    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
-        declared("operation", &self.operation, c.operations.iter().map(|x| &x.name))
-    }
-}
-
-/// For a provider of the kind asked for.
-impl Hook for ProvideCandidates {
-    const METHOD: &'static str = method::PROVIDE;
-    type Answer = Candidates;
-
-    fn declared(&self, c: &Contributions) -> Result<(), RpcError> {
-        declared("provider", &self.provider, c.providers.iter().map(|x| &x.name))?;
-        match c.providers.iter().any(|x| x.name == self.provider && x.kind == self.kind) {
-            true => Ok(()),
-            false => Err(RpcError::invalid_params(format!("{} provides no {}", self.provider, self.kind.name()))),
-        }
     }
 }
 
