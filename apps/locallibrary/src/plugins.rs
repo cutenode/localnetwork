@@ -6,6 +6,7 @@
 //! line says why as it starts, the sidecar's `plugins.list` has it with why, and every other
 //! plugin works.
 
+pub mod events;
 pub mod params;
 pub mod providers;
 pub mod roles;
@@ -133,8 +134,9 @@ fn load() -> Result<Loaded> {
         Some(log) => log(id, line),
         None => stderr(id, line),
     });
-    let options = Options { log, ..Options::default() };
+    let options = Options { notices: events::notices(log.clone()), log, ..Options::default() };
     let plugins = Plugins::new(specs, Arc::new(SidecarReads), options)?;
+    events::tell_applied();
     // What core reads tracks' keys, tempos and levels from.
     locallibrary::fields::roles::set_offered(plugins.roles());
     Ok(Loaded { plugins, serves, left_out })
@@ -372,6 +374,9 @@ fn means(c: &Capability) -> String {
         Capability::TagsPlan => "plan My Tag changes, which you confirm",
         Capability::CuesPlan => "plan cue changes, which you confirm",
         Capability::ArtworkPlan => "plan cover art changes, which you confirm",
+        Capability::EventsDrives => "hear of drives plugged in, unplugged, changed and saved into the store",
+        Capability::EventsJobs => "hear of the sidecar's requests finishing",
+        Capability::EventsPlans => "hear of changes applied, and what they were",
         Capability::Net(host) => {
             return match host.strip_prefix("*.") {
                 Some(domain) => format!("talk to any server under {domain}"),
@@ -389,15 +394,18 @@ pub struct Listed {
     pub name: String,
     pub version: String,
     pub capabilities: Vec<Granted>,
-    /// What it adds: its accounts by id, its commands, destinations, operations, analyzers and
-    /// providers by name, its export formats and its settings' keys.
+    /// What it adds: its accounts by id, its commands, destinations, operations, analyzers,
+    /// providers and services by name, the events it listens for, its export formats and its
+    /// settings' keys.
     pub accounts: Vec<String>,
     pub commands: Vec<String>,
     pub destinations: Vec<String>,
+    pub events: Vec<String>,
     pub operations: Vec<String>,
     pub analyzers: Vec<String>,
     pub exporters: Vec<String>,
     pub providers: Vec<String>,
+    pub services: Vec<String>,
     pub settings: Vec<String>,
     /// It's running now: plugins start when they're first used, and stop once they're idle.
     pub running: bool,
@@ -417,10 +425,12 @@ impl Listed {
             accounts: c.accounts.iter().map(|x| x.id.clone()).collect(),
             commands: c.commands.iter().map(|x| x.name.clone()).collect(),
             destinations: c.destinations.iter().map(|x| x.name.clone()).collect(),
+            events: c.events.iter().flat_map(|x| &x.on).map(|e| e.name().to_string()).collect(),
             operations: c.operations.iter().map(|x| x.name.clone()).collect(),
             analyzers: c.analyzers.iter().map(|x| x.name.clone()).collect(),
             exporters: c.exporters.iter().map(|x| x.format.clone()).collect(),
             providers: c.providers.iter().map(|x| x.name.clone()).collect(),
+            services: c.services.iter().map(|x| x.name.clone()).collect(),
             settings: c.settings.iter().map(|x| x.key.clone()).collect(),
             running: plugins.is_running(&m.id),
             left_out: None,

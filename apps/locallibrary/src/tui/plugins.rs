@@ -4,14 +4,16 @@
 //! any task is (esc stops one). A command's answer shows in a panel;
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. A question
 //! either asks first is a list to choose from, after which it runs again with the answer. Each
-//! plugin's settings are a form, kept in the store, and its accounts are signed in to and out of
-//! beside them. What the other families of hooks add (cover
-//! art and tags from providers, analyzers, exports) is in a module each. Nothing here tells one
+//! plugin's settings are a form, kept in the store, with a switch for each of its services, and
+//! its accounts are signed in to and out of beside them. What the other families of hooks add
+//! (cover art and tags from providers, analyzers, exports, what plugins tell the user and
+//! suggest) is in a module each. Nothing here tells one
 //! plugin from another: it's all drawn from their manifests, through the host the command line
 //! uses (see [`crate::plugins`]).
 
 mod accounts;
 mod analyzers;
+mod events;
 mod exporters;
 pub(super) mod providers;
 
@@ -292,14 +294,16 @@ impl App {
         }
     }
 
-    /// The settings of each plugin that has some and signing in to and out of its accounts, then
-    /// the providers' settings when there are any, as the palette lists them, wherever it's open.
+    /// The settings of each plugin that has some (or a service) and signing in to and out of its
+    /// accounts, then the providers' settings when there are any, as the palette lists them,
+    /// wherever it's open.
     pub(super) fn settings_items(&self) -> Vec<(Act, Item)> {
         let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
         let mut items = Vec::new();
         for m in plugins.manifests() {
             let settings = (Act::PluginSettings(&m.id), Item::new(format!("{} plugin settings…", m.name), &m.name));
-            items.extend(Some(settings).filter(|_| !m.contributes.settings.is_empty()));
+            let has_settings = !m.contributes.settings.is_empty() || !m.contributes.services.is_empty();
+            items.extend(Some(settings).filter(|_| has_settings));
             items.extend(accounts::items(m));
         }
         let providers =
@@ -308,30 +312,31 @@ impl App {
         items
     }
 
-    /// A plugin's settings in a form, each filled in as it's set now (else its default).
+    /// A plugin's settings in a form, each filled in as it's set now (else its default), and a
+    /// switch for each of its services.
     pub(super) fn plugin_settings(&mut self, plugin: &'static str) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Ok(m) = plugins.manifest(plugin) else { return };
+        let (Ok(m), Ok(listed)) = (plugins.manifest(plugin), plugins.setting_list(plugin)) else { return };
         let store = Store::open(&self.store_root).ok();
         let now = plugins.settings(plugin, store.as_ref()).unwrap_or_default();
         let filled: Map<String, Value> = now.into_iter().collect();
-        let schema = Some(settings_schema(&m.contributes.settings));
+        let schema = Some(settings_schema(&listed));
         let form = Form::with(format!("{} settings", m.name), schema, &filled, For::Settings(plugin));
         self.modal = Some(Modal::Form(form));
     }
 
     /// Keep a plugin's settings as the form has them (`given`), in the background: those that
     /// changed, each left empty put back to its default, and each secret typed in (one left
-    /// empty is kept).
+    /// empty is kept). A service turned on starts, one turned off stops.
     pub(super) fn save_settings(&mut self, plugin: &'static str, given: Value) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Ok(m) = plugins.manifest(plugin) else { return };
+        let (Ok(m), Ok(listed)) = (plugins.manifest(plugin), plugins.setting_list(plugin)) else { return };
         let store_root = self.store_root.clone();
         self.task("Saving settings".into(), move |_| {
             let store = Store::open_or_init(&store_root)?;
             let now = plugins.settings(plugin, Some(&store))?;
             let mut changed = 0;
-            for s in &m.contributes.settings {
+            for s in &listed {
                 let value = given.get(&s.key);
                 let typed = value.and_then(Value::as_str).is_some_and(|v| !v.is_empty());
                 if s.kind == SettingType::Secret && !typed {
@@ -341,6 +346,9 @@ impl App {
                     plugins.set_setting(plugin, &store, &s.key, value.cloned())?;
                     changed += 1;
                 }
+            }
+            if changed > 0 && !m.contributes.services.is_empty() {
+                plugins.run_services(Some(&store));
             }
             let said = match changed {
                 0 => "nothing changed".to_string(),

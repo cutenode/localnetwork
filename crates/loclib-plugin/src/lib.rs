@@ -26,11 +26,13 @@ pub use hooks::destinations::{
     Destination, DestinationKind, GetBlob, GetManifest, Got, GotManifest, HasBlobs, Kept, Missing, PublishSet,
     Published, PublishedSet, PutBlob, PutManifest, TracklistEntry,
 };
+pub use hooks::events::{EventName, EventNotify, HostNotify, Listener, Suggested};
 pub use hooks::exporters::{ExportSource, Exported, ExportedFile, Exporter, WriteExport};
 pub use hooks::operations::{OpAnswer, OpPlan, Operation, PlanOp};
 pub use hooks::providers::{
     Candidate, Candidates, ProvideCandidates, Provider, ProviderKind, TrackMetadata, TrackTags,
 };
+pub use hooks::services::{Service, StartService};
 /// The types [`DriveReads`] answers with (`Track`, `Library`, `TrackAnalysis`), for a plugin to
 /// name without depending on loclib-model itself.
 pub use loclib_model;

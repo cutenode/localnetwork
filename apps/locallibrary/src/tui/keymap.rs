@@ -196,6 +196,12 @@ pub enum Act {
     PluginSignIn(&'static str, &'static str),
     /// Sign out of a plugin's account (the plugin's id, the account's).
     PluginSignOut(&'static str, &'static str),
+    /// Plan what a plugin suggested, which it no longer keeps: the one waiting to be reviewed
+    /// with this mark (see `tui::plugins::events::mark`), so a palette open as others come and go
+    /// still plans the one picked.
+    Review(u64),
+    /// No longer keep what a plugin suggested, by its mark (as [`Act::Review`]).
+    Dismiss(u64),
     /// The settings of every provider: when a candidate is picked for the user.
     ProviderSettings,
     /// Export the drive in a plugin's format (the plugin's id, the format).

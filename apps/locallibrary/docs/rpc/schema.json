@@ -11394,7 +11394,7 @@
           "type": "string"
         },
         "value": {
-          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered); `null` (or left out) puts it back to its default, or forgets a secret.",
+          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered; a service's switch, `services.<name>`, true or false); `null` (or left out)\nputs it back to its default, or forgets a secret.",
           "default": null
         }
       },
@@ -29517,7 +29517,7 @@
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its accounts by id, its commands, destinations, operations, analyzers and\nproviders by name, its export formats and its settings' keys."
+          "description": "What it adds: its accounts by id, its commands, destinations, operations, analyzers,\nproviders and services by name, the events it listens for, its export formats and its\nsettings' keys."
         },
         "commands": {
           "type": "array",
@@ -29526,6 +29526,12 @@
           }
         },
         "destinations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "events": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29550,6 +29556,12 @@
           }
         },
         "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "services": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29581,10 +29593,12 @@
         "accounts",
         "commands",
         "destinations",
+        "events",
         "operations",
         "analyzers",
         "exporters",
         "providers",
+        "services",
         "settings",
         "running",
         "left_out"
@@ -29628,7 +29642,10 @@
             "library:delete",
             "tags:plan",
             "cues:plan",
-            "artwork:plan"
+            "artwork:plan",
+            "events:drives",
+            "events:jobs",
+            "events:plans"
           ]
         },
         {
@@ -29722,10 +29739,12 @@
             "accounts": [],
             "commands": [],
             "destinations": [],
+            "events": [],
             "operations": [],
             "analyzers": [],
             "exporters": [],
             "providers": [],
+            "services": [],
             "settings": []
           }
         },
@@ -29771,6 +29790,13 @@
           },
           "default": []
         },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Listener"
+          },
+          "default": []
+        },
         "operations": {
           "type": "array",
           "items": {
@@ -29799,6 +29825,13 @@
           },
           "default": []
         },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Service"
+          },
+          "default": []
+        },
         "settings": {
           "type": "array",
           "items": {
@@ -29811,10 +29844,12 @@
         "accounts",
         "commands",
         "destinations",
+        "events",
         "operations",
         "analyzers",
         "exporters",
         "providers",
+        "services",
         "settings"
       ]
     },
@@ -29969,6 +30004,61 @@
       ],
       "description": "What a destination keeps."
     },
+    "Listener": {
+      "type": "object",
+      "properties": {
+        "on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventName"
+          }
+        }
+      },
+      "required": [
+        "on"
+      ],
+      "description": "`[[contributes.events]]`: what the plugin is told of (`event/notify`)."
+    },
+    "EventName": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "drive.mounted",
+          "description": "A drive was plugged in."
+        },
+        {
+          "type": "string",
+          "const": "drive.unmounted",
+          "description": "A drive was unplugged."
+        },
+        {
+          "type": "string",
+          "const": "drive.changed",
+          "description": "A drive's databases or its locallibrary state changed (`payload.changed` says which)."
+        },
+        {
+          "type": "string",
+          "const": "drive.pulled",
+          "description": "A drive was saved into the store as a new snapshot (`payload.history_lists`: the\nhistory lists the store lacked)."
+        },
+        {
+          "type": "string",
+          "const": "set.returned",
+          "description": "A drive back from a set was saved beside its library's newest snapshot."
+        },
+        {
+          "type": "string",
+          "const": "job.finished",
+          "description": "A request to the sidecar finished (`payload.method`, `payload.ok`)."
+        },
+        {
+          "type": "string",
+          "const": "plan.applied",
+          "description": "A plan was applied (`payload.operation`, `payload.summary`)."
+        }
+      ],
+      "description": "What a host tells plugins of: a closed list, each needing a capability (see\n[`EventName::capability`])."
+    },
     "Operation": {
       "type": "object",
       "properties": {
@@ -30108,6 +30198,22 @@
         "kind"
       ],
       "description": "Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the\nuser every provider's, and makes the edits chosen itself. It's given the tracks' tags, which\ntakes `library:read`, and needs no capability to plan an edit."
+    },
+    "Service": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ],
+      "description": "Started with `service/start` by a host that stays open (the player, the sidecar, the `watch`\nagent), once the user has turned it on (its plugin's setting `services.<name>`), never by a\ncommand run once."
     },
     "Setting": {
       "type": "object",
@@ -31377,9 +31483,12 @@
         },
         {
           "$ref": "#/$defs/WatchAction"
+        },
+        {
+          "$ref": "#/$defs/PluginEvent"
         }
       ],
-      "description": "An `event` notification's parameters: drives and the store (after `events.subscribe`),\nrequests starting and finishing, and what `watch.start` does."
+      "description": "An `event` notification's parameters: drives and the store (after `events.subscribe`),\nrequests starting and finishing, what `watch.start` does, and what plugins tell the user."
     },
     "WatchEvent": {
       "oneOf": [
@@ -31896,6 +32005,68 @@
         }
       ],
       "description": "What watching did about a drive."
+    },
+    "PluginEvent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PluginNotice",
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "plugin.notice"
+            }
+          },
+          "required": [
+            "event"
+          ],
+          "description": "It tells the user something (`host/notify`), and may suggest one of its operations, which\na front end offers to plan (`plugins.op.plan`): never planned or applied unless the user\nchooses to."
+        }
+      ],
+      "description": "What a plugin did."
+    },
+    "Suggested": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "params"
+      ],
+      "description": "One of the plugin's operations, with its params, suggested to the user."
+    },
+    "PluginNotice": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        },
+        "message": {
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Suggested"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "plugin",
+        "message"
+      ],
+      "description": "A line a plugin tells the user (`host/notify`), and the operation of its it suggests, with\nits params: the front end offers to plan it, and the user confirms it as any plan."
     },
     "ErrorData": {
       "type": "object",
