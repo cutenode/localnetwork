@@ -31,6 +31,10 @@ title = "Make a playlist"
 where = ["track", "playlist", "drive"]
 params = { type = "object", properties = { name = { type = "string" } }, required = ["name"] }
 
+[[contributes.panels]]
+name = "about"
+title = "About the track"
+
 [[contributes.analyzers]]
 name = "size"
 title = "File size"
@@ -52,10 +56,21 @@ format = "m3u"
 title = "M3U playlist"
 extension = "m3u"
 
+[[contributes.importers]]
+format = "lines"
+title = "Audio files, a line each"
+extension = "txt"
+provides = ["tags"]
+
 [[contributes.providers]]
 name = "tags"
 title = "The tags as they are"
 kind = "metadata"
+
+[[contributes.themes]]
+name = "night"
+title = "Night"
+tokens = { ui = { accent = "#ff8800" }, cues = { hot = "#00e5ff" }, waveform = { spectrum = ["#102040", "#ff8800"] } }
 
 [[contributes.settings]]
 key = "greeting"

@@ -5,11 +5,10 @@
 //! symbols.
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
-use locallibrary::anlz::PhraseKind;
 use locallibrary::model::TrackColor;
-use locallibrary::tokens::{phrases, status};
+use locallibrary::theme::Theme;
 use loclib_waveform::Palette;
 pub use loclib_waveform::color::{gradient, mix, scale};
 use ratatui::style::{Color, Modifier, Style};
@@ -204,24 +203,75 @@ fn xterm256(r: u8, g: u8, b: u8) -> u8 {
     if dist([grey, grey, grey]) < dist(cube) { 232 + gi_ } else { 16 + 36 * ri as u8 + 6 * gi as u8 + bi as u8 }
 }
 
-// Palette: the waveforms' dark one, and the player's own colours.
-const DARK: Palette = Palette::DARK;
-pub const FG: [u8; 3] = DARK.fg;
-pub const DIM: [u8; 3] = DARK.dim;
-pub const FAINT: [u8; 3] = DARK.faint;
-pub const PINK: [u8; 3] = DARK.accent;
-pub const CYAN: [u8; 3] = DARK.scope[0];
-pub const AMBER: [u8; 3] = status::dark::WARNING;
-pub const VIOLET: [u8; 3] = DARK.spectrum[1];
-pub const GREEN: [u8; 3] = status::dark::GOOD;
-pub const RED: [u8; 3] = status::dark::CRITICAL;
-pub const SELECTION: [u8; 3] = [44, 44, 70];
-pub const VINYL: [u8; 3] = [40, 40, 52];
+/// The player's themes: the default, then each plugin's (`[[contributes.themes]]`), by
+/// `<plugin>.<name>`. Read from the plugins' manifests once, when first drawn: data, never a
+/// plugin's process.
+pub struct Named {
+    /// `<plugin>.<name>`, as tui.json keeps it; empty for the default.
+    pub key: String,
+    pub title: String,
+    /// Its plugin's name; empty for the default.
+    pub by: String,
+    pub theme: Theme,
+}
 
-/// The palette the player's waveforms, visualisers and cover art draw in, for the mode it draws
-/// in.
-pub fn palette() -> Palette {
-    Palette { paint: rgb3, image, plain: plain(), ..DARK }
+pub fn themes() -> &'static [Named] {
+    static THEMES: OnceLock<Vec<Named>> = OnceLock::new();
+    THEMES.get_or_init(|| {
+        let default = Named { key: String::new(), title: "default".into(), by: String::new(), theme: Theme::DEFAULT };
+        let plugins = crate::plugins::host().into_iter().flat_map(|p| p.manifests());
+        let theirs = plugins.flat_map(|m| {
+            // Each checked as its manifest was.
+            m.contributes.themes.iter().filter_map(move |t| {
+                let theme = t.theme().ok()?;
+                Some(Named { key: format!("{}.{}", m.id, t.name), title: t.title.clone(), by: m.name.clone(), theme })
+            })
+        });
+        std::iter::once(default).chain(theirs).collect()
+    })
+}
+
+/// The theme drawn in, by its place in [`themes`].
+static CURRENT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own theme, so tests drawing in different themes can run side by side.
+    static TEST_THEME: std::cell::Cell<Option<&'static Theme>> = const { std::cell::Cell::new(None) };
+}
+
+/// The theme the player draws in: every colour of its chrome, its waveforms and the shared ones.
+pub fn current() -> &'static Theme {
+    #[cfg(test)]
+    if let Some(t) = TEST_THEME.with(std::cell::Cell::get) {
+        return t;
+    }
+    themes().get(CURRENT.load(Ordering::Relaxed)).map_or(&Theme::DEFAULT, |n| &n.theme)
+}
+
+/// Draw in the theme `key` names (`<plugin>.<name>`), or the default without one or for one no
+/// plugin has (any more): the key of the theme drawn in now, `None` for the default.
+pub fn select(key: Option<&str>) -> Option<&'static str> {
+    let at = key.and_then(|k| themes().iter().position(|n| !n.key.is_empty() && n.key == k)).unwrap_or(0);
+    CURRENT.store(at, Ordering::Relaxed);
+    chosen()
+}
+
+/// The key of the theme drawn in now, `None` for the default.
+pub fn chosen() -> Option<&'static str> {
+    themes().get(CURRENT.load(Ordering::Relaxed)).map(|n| n.key.as_str()).filter(|k| !k.is_empty())
+}
+
+/// Draw this thread's frames in `theme` (`None`: as the player would).
+#[cfg(test)]
+pub fn set_test_theme(theme: Option<&'static Theme>) {
+    TEST_THEME.with(|t| t.set(theme));
+}
+
+/// The palette the player's waveforms, visualisers and cover art draw in, the theme's, for the
+/// mode it draws in.
+pub fn palette() -> Palette<'static> {
+    Palette { paint: rgb3, image, plain: plain(), ..Palette::of(current()) }
 }
 
 pub fn fg(c: [u8; 3]) -> Style {
@@ -229,15 +279,15 @@ pub fn fg(c: [u8; 3]) -> Style {
 }
 
 pub fn text() -> Style {
-    fg(FG)
+    fg(current().text)
 }
 
 pub fn dim() -> Style {
-    fg(DIM)
+    fg(current().dim)
 }
 
 pub fn faint() -> Style {
-    if plain() { Style::new().add_modifier(Modifier::DIM) } else { fg(FAINT) }
+    if plain() { Style::new().add_modifier(Modifier::DIM) } else { fg(current().faint) }
 }
 
 pub fn bold(c: [u8; 3]) -> Style {
@@ -245,7 +295,7 @@ pub fn bold(c: [u8; 3]) -> Style {
 }
 
 pub fn border(focused: bool) -> Style {
-    if focused { fg(CYAN) } else { faint() }
+    if focused { fg(current().info) } else { faint() }
 }
 
 /// Rounded borders; without colours, the focused pane's are heavy.
@@ -257,7 +307,7 @@ pub fn selected() -> Style {
     if plain() {
         Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD)
     } else {
-        Style::new().bg(rgb3(SELECTION)).add_modifier(Modifier::BOLD)
+        Style::new().bg(rgb3(current().selection)).add_modifier(Modifier::BOLD)
     }
 }
 
@@ -282,38 +332,14 @@ pub fn colour_dot(c: TrackColor) -> Span<'static> {
     if plain() {
         Span::styled(c.id().to_string(), Style::new().add_modifier(Modifier::BOLD))
     } else {
-        Span::styled("●", fg(track_color(c)))
+        Span::styled("●", fg(current().track_color(c)))
     }
 }
 
 /// A key hint, e.g. the `q` in "q quit".
 pub fn key() -> Style {
-    bold(PINK)
+    bold(current().accent)
 }
-
-pub fn track_color(c: TrackColor) -> [u8; 3] {
-    (DARK.track_color)(c)
-}
-
-/// Phrases by role: intros and outros cool, builds and verses warm, choruses hot, breakdowns
-/// light.
-pub fn phrase_color(kind: PhraseKind) -> [u8; 3] {
-    match kind {
-        PhraseKind::Intro => phrases::INTRO,
-        PhraseKind::Up => phrases::UP,
-        PhraseKind::Verse(_) => phrases::VERSE,
-        PhraseKind::Chorus => phrases::CHORUS,
-        PhraseKind::Down => phrases::DOWN,
-        PhraseKind::Bridge => phrases::BRIDGE,
-        PhraseKind::Outro => phrases::OUTRO,
-        PhraseKind::Unknown(_) => phrases::UNKNOWN,
-    }
-}
-
-/// rekordbox's default hot cue colour (green), used for cues without one.
-pub const HOT_CUE: [u8; 3] = DARK.hot_cue;
-pub const MEMORY_CUE: [u8; 3] = DARK.memory_cue;
-pub const LOOP: [u8; 3] = DARK.loop_cue;
 
 #[cfg(test)]
 mod tests;

@@ -131,7 +131,7 @@ fn analyze_writes_keys_and_bpms_to_the_tracks() {
     let err = env.fails(2, &["analyze", path(&root), "--overwrite"]);
     assert!(err.contains("--apply"), "{err}");
     let err = env.fails(2, &["analyze", path(&root), "--apply", "loudness"]);
-    assert!(err.contains("[possible values: key, bpm]"), "{err}");
+    assert!(err.contains("[possible values: key, bpm, grid, phrases, waveform]"), "{err}");
     let err = env.fails(2, &["analyze", path(&root), "--plugin", "sound", "--analyzer", "nope", "--apply", "key"]);
     assert!(err.contains("no plugin's analyzer here works out key"), "{err}");
 }
@@ -285,4 +285,49 @@ fn analyze_applies_from_the_analyzer_chosen_for_the_role() {
     }
     let out = env.ok(&["analyze", path(&root), "--apply", "key", "--dry-run"]);
     assert!(out.contains("heard (echo): 2 tracks analyzed") && !out.contains("(sound)"), "{out}");
+}
+
+/// `--apply grid,phrases,waveform` writes what an analyzer worked out besides its columns into the
+/// tracks' analysis files, planned as any edit is, and the sidecar plans it too; a key or BPM goes
+/// in a run of its own.
+#[cfg(debug_assertions)]
+#[test]
+fn analyze_writes_a_grid_into_the_analysis_files() {
+    let mut env = Env::new();
+    let heard = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
+                 fields = { grid = \"beats\", tone = \"string\" }\nroles = { key = \"tone\" }\n";
+    env.plugins(&[&(crate::support::echo_plugin() + heard)]);
+    let root = env.demo("A");
+    let grid: Vec<Value> =
+        (0..16).map(|i| json!({ "beat_number": i % 4 + 1, "bpm": 125.0, "time_ms": 30 + i * 480 })).collect();
+    // What the test plugin's `heard` answers: what's in the audio file.
+    for t in Device::open(&root).unwrap().library().unwrap().tracks {
+        std::fs::write(paths::to_fs(&root, &paths::key(&t.file_path)), json!({ "grid": grid }).to_string()).unwrap();
+    }
+    let err = env.fails(2, &["analyze", path(&root), "--apply", "key,grid"]);
+    assert!(err.contains("write a key and BPM in a run of their own"), "{err}");
+    let err = env.fails(2, &["analyze", path(&root), "--apply", "grid", "--min-confidence", "0.5"]);
+    assert!(err.contains("--min-confidence is for a key and BPM"), "{err}");
+    let out = env.ok(&["analyze", path(&root), "--apply", "grid", "--dry-run"]);
+    assert!(out.contains("heard (echo): 2 tracks analyzed"), "{out}");
+    assert!(out.contains("2 of what's asked the tracks have already"), "{out}");
+    let out = env.ok(&["--yes", "analyze", path(&root), "--apply", "grid", "--overwrite"]);
+    assert!(out.contains("write the grid from Heard to 2 track(s)"), "{out}");
+    let d = Device::open(&root).unwrap();
+    for t in d.library().unwrap().tracks {
+        let beats = locallibrary::anlz::load(&d, &t).beats;
+        assert_eq!((beats.len(), beats[1].time_ms, t.bpm), (16, 510, 125.0));
+    }
+
+    let mut s = Rpc::start(env.command());
+    let apply =
+        json!({ "plugin": "echo", "analyzer": "heard", "drive": path(&root), "parts": ["grid"], "overwrite": true });
+    let planned = s.call(1, "plugins.apply_analysis.plan", apply);
+    assert_eq!(planned["result"]["noop"], true, "as it is now: {planned}");
+    let nothing = s.call(
+        2,
+        "plugins.apply_analysis.plan",
+        json!({ "plugin": "echo", "analyzer": "heard", "drive": path(&root), "parts": [] }),
+    );
+    assert_eq!(nothing["error"]["data"]["kind"], "invalid", "{nothing}");
 }

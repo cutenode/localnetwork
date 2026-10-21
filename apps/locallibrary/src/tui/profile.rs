@@ -444,7 +444,7 @@ fn block(title: Line<'static>, focused: bool) -> Block<'static> {
 }
 
 fn title(s: &str, focused: bool) -> Line<'static> {
-    let style = if focused { bold(theme::CYAN) } else { bold(theme::DIM) };
+    let style = if focused { bold(theme::current().info) } else { bold(theme::current().dim) };
     Line::from(vec![Span::raw(" "), Span::styled(s.to_string(), style), Span::raw(" ")])
 }
 
@@ -562,11 +562,15 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         other => {
             let lines = match other {
                 Some(Err(e)) => {
-                    vec![Line::raw(""), Line::styled(e.clone(), fg(theme::RED)), Line::styled("R tries again", dim())]
+                    vec![
+                        Line::raw(""),
+                        Line::styled(e.clone(), fg(theme::current().critical)),
+                        Line::styled("R tries again", dim()),
+                    ]
                 }
                 _ => vec![
                     Line::raw(""),
-                    Line::styled(status.unwrap_or_else(|| "Building profile…".into()), bold(theme::FG)),
+                    Line::styled(status.unwrap_or_else(|| "Building profile…".into()), bold(theme::current().text)),
                     Line::styled(
                         "Reading sets, history lists, tags and analysis from your drives and the store",
                         dim(),
@@ -591,7 +595,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     let headline = v.prefs.headline.clone().unwrap_or_else(|| r.summary.headline.clone());
     let mut tags: Vec<Span<'static>> = Vec::new();
     for tag in &r.summary.tags {
-        tags.push(Span::styled("✓ ", bold(theme::GREEN)));
+        tags.push(Span::styled("✓ ", bold(theme::current().good)));
         tags.push(Span::styled(format!("{}  ", tag.label), text()));
     }
     if tags.is_empty() {
@@ -619,9 +623,9 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         dim(),
     )];
     if let Some(s) = status {
-        info.push(Span::styled(format!("  ⟳ {s}"), fg(theme::CYAN)));
+        info.push(Span::styled(format!("  ⟳ {s}"), fg(theme::current().info)));
     }
-    let mut head = vec![Span::styled(headline, bold(theme::CYAN))];
+    let mut head = vec![Span::styled(headline, bold(theme::current().info))];
     if v.prefs.headline.is_some() {
         head.push(Span::styled("  (your headline)", faint()));
     }
@@ -640,7 +644,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
         .iter()
         .map(|&s| {
             let on = v.published.contains(&s) && r.basis.publishes(s);
-            let mark = if on { Span::styled("● ", fg(theme::GREEN)) } else { Span::styled("○ ", faint()) };
+            let mark = if on { Span::styled("● ", fg(theme::current().good)) } else { Span::styled("○ ", faint()) };
             // The stat can be user text (the top genre or key): it gets half the column at most.
             let st = super::ui::clip(&stat(r, s), inner_w / 2);
             let name_w = inner_w.saturating_sub(unicode_width::UnicodeWidthStr::width(st.as_str()) + 3).max(4);
@@ -654,7 +658,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     let list = List::new(items)
         .block(block(title("Sections", focused), focused))
         .highlight_style(if focused { theme::selected() } else { Style::new().add_modifier(Modifier::BOLD) })
-        .highlight_symbol(Span::styled("▍", fg(theme::PINK)));
+        .highlight_symbol(Span::styled("▍", fg(theme::current().accent)));
     t.sections.fit(side.height.saturating_sub(2) as usize, Section::ALL.len());
     f.render_stateful_widget(list, side, &mut t.sections);
 
@@ -665,7 +669,7 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
     let section = Section::ALL[t.sections.selected().unwrap_or(0).min(Section::ALL.len() - 1)];
     let on = v.published.contains(&section);
     let state = if on && r.basis.publishes(section) {
-        Span::styled(" in the document ", fg(theme::GREEN))
+        Span::styled(" in the document ", fg(theme::current().good))
     } else {
         Span::styled(" only on this computer ", faint())
     };
@@ -714,10 +718,12 @@ fn draw_tab(f: &mut Frame, t: &mut ProfileTab, area: Rect) {
 
 fn summary_lines(v: &ProfileView) -> Vec<Line<'static>> {
     let r = &v.report;
-    let mut lines = vec![Line::styled(r.summary.headline.clone(), bold(theme::FG))];
+    let mut lines = vec![Line::styled(r.summary.headline.clone(), bold(theme::current().text))];
     if let Some(h) = &v.prefs.headline {
-        lines
-            .push(Line::from(vec![Span::styled("Your headline: ", dim()), Span::styled(h.clone(), bold(theme::CYAN))]));
+        lines.push(Line::from(vec![
+            Span::styled("Your headline: ", dim()),
+            Span::styled(h.clone(), bold(theme::current().info)),
+        ]));
     } else {
         lines.push(note("Your own: locallibrary profile headline \"…\""));
     }
@@ -727,8 +733,8 @@ fn summary_lines(v: &ProfileView) -> Vec<Line<'static>> {
     }
     for t in &r.summary.tags {
         lines.push(Line::from(vec![
-            Span::styled("✓ ", bold(theme::GREEN)),
-            Span::styled(t.label.clone(), bold(theme::FG)),
+            Span::styled("✓ ", bold(theme::current().good)),
+            Span::styled(t.label.clone(), bold(theme::current().text)),
         ]));
         lines.push(Line::styled(format!("  {}", t.why), dim()));
     }
@@ -739,7 +745,7 @@ fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: b
     let s = &r.sets;
     let unit = r.basis.unit();
     let mut head = vec![Line::from(vec![
-        Span::styled(plural(s.count, unit), bold(theme::FG)),
+        Span::styled(plural(s.count, unit), bold(theme::current().text)),
         Span::styled(
             format!(
                 " · {} tracks in a typical {unit} (longest {}) · {} plays of {} tracks",
@@ -775,10 +781,10 @@ fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: b
                 _ => String::new(),
             };
             Row::new(vec![
-                Cell::from(Span::styled(when, fg(theme::AMBER))),
+                Cell::from(Span::styled(when, fg(theme::current().warning))),
                 Cell::from(Span::styled(set.name.clone(), text())),
                 Cell::from(Line::styled(set.tracks.to_string(), text()).right_aligned()),
-                Cell::from(Span::styled(bpm, fg(theme::CYAN))),
+                Cell::from(Span::styled(bpm, fg(theme::current().info))),
                 Cell::from(Line::styled(set.harmonic_share.map(pct).unwrap_or_default(), text()).right_aligned()),
                 Cell::from(Span::styled(set.place.clone(), dim())),
                 Cell::from(Span::styled(set.id.get(..8).unwrap_or(&set.id).to_string(), faint())),
@@ -801,10 +807,10 @@ fn draw_sets(f: &mut Frame, r: &ProfileReport, rows: &mut TableState, focused: b
             Constraint::Length(8),
         ],
     )
-    .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::DIM))))))
+    .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
     .column_spacing(2)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
-    .highlight_symbol(Span::styled("▍", fg(if focused { theme::PINK } else { theme::FAINT })));
+    .highlight_symbol(Span::styled("▍", fg(if focused { theme::current().accent } else { theme::current().faint })));
     // Under the header row.
     rows.fit(table.height.saturating_sub(1) as usize, s.list.len());
     f.render_stateful_widget(t, table, rows);
@@ -818,7 +824,7 @@ fn tempo_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     let (lo, hi) = (core.low, core.high);
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(profile::bpm_range(lo, hi), bold(theme::CYAN)),
+            Span::styled(profile::bpm_range(lo, hi), bold(theme::current().info)),
             Span::styled(
                 format!(
                     " in the middle 80% · median {median:.1} · half between {:.1} and {:.1}",
@@ -835,7 +841,7 @@ fn tempo_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     let values: Vec<Option<f64>> = t.histogram.iter().map(|b| Some(b.count as f64)).collect();
     let core = |i: usize| {
         let start = t.histogram[i].bpm;
-        if start + t.bin_width > lo && start <= hi { theme::CYAN } else { theme::FAINT }
+        if start + t.bin_width > lo && start <= hi { theme::current().info } else { theme::current().faint }
     };
     lines.extend(columns(&values, 0.0, 8, col_w, core));
     // Labels under every column that has room.
@@ -864,21 +870,21 @@ fn arc_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
         Line::from(vec![
             Span::styled(
                 format!("{:.1} → {:.1} BPM", a.opening_bpm.unwrap_or(0.0), a.closing_bpm.unwrap_or(0.0)),
-                bold(theme::CYAN),
+                bold(theme::current().info),
             ),
             Span::styled(format!("  opening and closing quarter, averaged over {}", plural(a.sets, unit)), text()),
         ]),
         Line::raw(""),
     ];
     let bw = w.saturating_sub(20).clamp(10, 40);
-    lines.push(bar_line("builds", 12, a.builds, bw, theme::GREEN, pct(a.builds)));
-    lines.push(bar_line("steady", 12, a.steady, bw, theme::CYAN, pct(a.steady)));
-    lines.push(bar_line("winds down", 12, a.winds_down, bw, theme::AMBER, pct(a.winds_down)));
+    lines.push(bar_line("builds", 12, a.builds, bw, theme::current().good, pct(a.builds)));
+    lines.push(bar_line("steady", 12, a.steady, bw, theme::current().info, pct(a.steady)));
+    lines.push(bar_line("winds down", 12, a.winds_down, bw, theme::current().warning, pct(a.winds_down)));
     lines.push(Line::raw(""));
     let lo = a.curve.iter().flatten().copied().fold(f64::INFINITY, f64::min);
     if lo.is_finite() {
         let col_w = (w / 10).clamp(3, 8);
-        lines.extend(columns(&a.curve, lo - 0.5, 6, col_w, |_| theme::VIOLET));
+        lines.extend(columns(&a.curve, lo - 0.5, 6, col_w, |_| theme::current().secondary));
         let mut axis = fit("start", col_w * 5);
         axis.push_str(&format!("{:>width$}", "end", width = col_w * 5 - 1));
         lines.push(Line::styled(axis, dim()));
@@ -896,16 +902,16 @@ fn mixing_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     if m.keyed > 0 {
         lines.push(Line::from(vec![
-            Span::styled(opt_pct(m.harmonic_share), bold(theme::CYAN)),
+            Span::styled(opt_pct(m.harmonic_share), bold(theme::current().info)),
             Span::styled(format!(" of {} transitions between keyed tracks are harmonic", m.keyed), text()),
         ]));
         lines.push(Line::raw(""));
         let parts = [
-            ("same key", m.same_key, theme::GREEN),
-            ("±1", m.adjacent, theme::CYAN),
-            ("relative", m.relative, theme::VIOLET),
-            ("energy boost", m.energy_boost, theme::AMBER),
-            ("clash", m.clash, theme::RED),
+            ("same key", m.same_key, theme::current().good),
+            ("±1", m.adjacent, theme::current().info),
+            ("relative", m.relative, theme::current().secondary),
+            ("energy boost", m.energy_boost, theme::current().warning),
+            ("clash", m.clash, theme::current().critical),
         ];
         let width = w.clamp(10, 60);
         let mut stacked = Vec::new();
@@ -963,8 +969,8 @@ fn keys_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
         for n in 0..12 {
             let count = k.wheel[n * 2 + row].count;
             let t = count as f32 / max as f32;
-            let bg = theme::mix(theme::VINYL, theme::CYAN, t.sqrt());
-            let fgc = if t > 0.45 { [16, 16, 22] } else { theme::FG };
+            let bg = theme::mix(theme::current().vinyl, theme::current().info, t.sqrt());
+            let fgc = if t > 0.45 { [16, 16, 22] } else { theme::current().text };
             let label = if count == 0 { "·".to_string() } else { count.to_string() };
             spans.push(Span::styled(format!("{label:^cell$}"), Style::new().bg(rgb3(bg)).fg(rgb3(fgc))));
         }
@@ -986,14 +992,14 @@ fn energy_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     let mut lines = vec![
         note(format!("rekordbox's phrase-analysis mood, {} tracks", e.tracks)),
         Line::raw(""),
-        bar_line("high", 6, e.high, bw, theme::PINK, pct(e.high)),
-        bar_line("mid", 6, e.mid, bw, theme::VIOLET, pct(e.mid)),
-        bar_line("low", 6, e.low, bw, theme::CYAN, pct(e.low)),
+        bar_line("high", 6, e.high, bw, theme::current().accent, pct(e.high)),
+        bar_line("mid", 6, e.mid, bw, theme::current().secondary, pct(e.mid)),
+        bar_line("low", 6, e.low, bw, theme::current().info, pct(e.low)),
         Line::raw(""),
     ];
     if e.curve.iter().flatten().count() > 1 {
         let col_w = (w / 10).clamp(3, 8);
-        lines.extend(columns(&e.curve, 0.0, 5, col_w, |_| theme::PINK));
+        lines.extend(columns(&e.curve, 0.0, 5, col_w, |_| theme::current().accent));
         let mut axis = fit("start", col_w * 5);
         axis.push_str(&format!("{:>width$}", "end", width = col_w * 5 - 1));
         lines.push(Line::styled(axis, dim()));
@@ -1035,13 +1041,16 @@ fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState
         .map(|x| {
             let hidden = s == Section::Artists && v.prefs.is_hidden_artist(&x.name);
             let color = match s {
-                Section::Genres => theme::CYAN,
-                Section::Labels => theme::AMBER,
-                _ => theme::VIOLET,
+                Section::Genres => theme::current().info,
+                Section::Labels => theme::current().warning,
+                _ => theme::current().secondary,
             };
             Row::new(vec![
                 Cell::from(Span::styled(x.name.clone(), if hidden { faint() } else { text() })),
-                Cell::from(Span::styled(bar(x.share / max, bw), fg(if hidden { theme::FAINT } else { color }))),
+                Cell::from(Span::styled(
+                    bar(x.share / max, bw),
+                    fg(if hidden { theme::current().faint } else { color }),
+                )),
                 Cell::from(Line::styled(pct(x.share), text()).right_aligned()),
                 Cell::from(Span::styled(if hidden { "hidden" } else { "" }, faint())),
             ])
@@ -1051,10 +1060,12 @@ fn draw_ranked(f: &mut Frame, v: &ProfileView, s: Section, rows: &mut TableState
         data,
         [Constraint::Length(26), Constraint::Length(bw as u16), Constraint::Length(5), Constraint::Length(7)],
     )
-    .header(Row::new(["Name", "", "Share", ""].into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::DIM))))))
+    .header(Row::new(
+        ["Name", "", "Share", ""].into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim)))),
+    ))
     .column_spacing(1)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
-    .highlight_symbol(Span::styled("▍", fg(if focused { theme::PINK } else { theme::FAINT })));
+    .highlight_symbol(Span::styled("▍", fg(if focused { theme::current().accent } else { theme::current().faint })));
     rows.fit(table.height.saturating_sub(1) as usize, ranked.top.len());
     f.render_stateful_widget(t, table, rows);
 }
@@ -1066,7 +1077,7 @@ fn era_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     }
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(format!("median {}", e.median_year.unwrap_or(0)), bold(theme::CYAN)),
+            Span::styled(format!("median {}", e.median_year.unwrap_or(0)), bold(theme::current().info)),
             Span::styled(
                 format!(
                     " ({}–{}) · {} released the year played or the year before",
@@ -1082,7 +1093,14 @@ fn era_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
     let max = e.decades.iter().map(|d| d.count).max().unwrap_or(1).max(1);
     let bw = w.saturating_sub(16).clamp(10, 40);
     for (decade, n) in e.decades.iter().map(|d| (&d.decade, &d.count)) {
-        lines.push(bar_line(&format!("{decade}s"), 6, *n as f64 / max as f64, bw, theme::AMBER, n.to_string()));
+        lines.push(bar_line(
+            &format!("{decade}s"),
+            6,
+            *n as f64 / max as f64,
+            bw,
+            theme::current().warning,
+            n.to_string(),
+        ));
     }
     lines
 }
@@ -1102,7 +1120,7 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
     f.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
-                Span::styled("★ pinned ", fg(theme::AMBER)),
+                Span::styled("★ pinned ", fg(theme::current().warning)),
                 Span::styled(format!("tracks lead the document's list, then those in the most {unit}s. "), dim()),
                 Span::styled("m", theme::key()),
                 Span::styled(" pin  ", dim()),
@@ -1125,11 +1143,11 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
         .iter()
         .map(|t| {
             let (mark, mark_style) = if !p.may_name(&t.name, &t.artist) {
-                ("⊘", fg(theme::RED))
+                ("⊘", fg(theme::current().critical))
             } else if p.is_pinned(&t.name) {
-                ("★", fg(theme::AMBER))
+                ("★", fg(theme::current().warning))
             } else if t.sets >= 2 {
-                ("•", fg(theme::GREEN))
+                ("•", fg(theme::current().good))
             } else {
                 (" ", faint())
             };
@@ -1163,17 +1181,17 @@ fn draw_signature(f: &mut Frame, v: &ProfileView, rows: &mut TableState, focused
             Constraint::Fill(1),
         ],
     )
-    .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::DIM))))))
+    .header(Row::new(header.into_iter().map(|h| Cell::from(Span::styled(h, bold(theme::current().dim))))))
     .column_spacing(1)
     .row_highlight_style(if focused { theme::selected() } else { Style::new() })
-    .highlight_symbol(Span::styled("▍", fg(if focused { theme::PINK } else { theme::FAINT })));
+    .highlight_symbol(Span::styled("▍", fg(if focused { theme::current().accent } else { theme::current().faint })));
     rows.fit(table.height.saturating_sub(1) as usize, s.played.len());
     f.render_stateful_widget(t, table, rows);
     if moves > 0 {
         let mut lines = vec![note("Moves played again and again")];
         for m in s.transitions.iter().take(moves) {
             lines.push(Line::from(vec![
-                Span::styled(format!("{:>2}× ", m.sets), fg(theme::AMBER)),
+                Span::styled(format!("{:>2}× ", m.sets), fg(theme::current().warning)),
                 Span::styled(format!("{} → {}", m.from, m.to), text()),
             ]));
         }
@@ -1194,15 +1212,15 @@ fn prep_lines(r: &ProfileReport, w: usize) -> Vec<Line<'static>> {
             12,
             p.hot_cue_share,
             bw,
-            theme::HOT_CUE,
+            theme::current().hot_cue,
             format!(
                 "{}{}",
                 pct(p.hot_cue_share),
                 p.hot_cues_per_track.map(|n| format!(" · {n:.1} each")).unwrap_or_default()
             ),
         ),
-        bar_line("memory cues", 12, p.memory_cue_share, bw, theme::MEMORY_CUE, pct(p.memory_cue_share)),
-        bar_line("loops", 12, p.loop_share, bw, theme::LOOP, pct(p.loop_share)),
+        bar_line("memory cues", 12, p.memory_cue_share, bw, theme::current().memory_cue, pct(p.memory_cue_share)),
+        bar_line("loops", 12, p.loop_share, bw, theme::current().loop_cue, pct(p.loop_share)),
     ]
 }
 
@@ -1238,7 +1256,7 @@ fn style_lines(r: &ProfileReport) -> Vec<Line<'static>> {
         .map(|v| {
             Line::from(vec![
                 Span::styled(fit(&v.label, 22), dim()),
-                Span::styled(v.value_label.clone(), bold(theme::FG)),
+                Span::styled(v.value_label.clone(), bold(theme::current().text)),
             ])
         })
         .collect();
@@ -1266,15 +1284,15 @@ fn json_line(line: &str) -> Line<'static> {
         None => (None, rest),
     };
     if let Some(k) = key {
-        spans.push(Span::styled(format!("\"{k}\""), fg(theme::CYAN)));
+        spans.push(Span::styled(format!("\"{k}\""), fg(theme::current().info)));
         spans.push(Span::styled(": ", faint()));
     }
     let style = if value.starts_with('"') {
-        fg(theme::GREEN)
+        fg(theme::current().good)
     } else if value.starts_with(|c: char| c.is_ascii_digit() || c == '-') {
-        fg(theme::AMBER)
+        fg(theme::current().warning)
     } else if value.starts_with("true") || value.starts_with("false") || value.starts_with("null") {
-        fg(theme::VIOLET)
+        fg(theme::current().secondary)
     } else {
         faint()
     };

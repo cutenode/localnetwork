@@ -23,6 +23,7 @@ use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -228,6 +229,15 @@ pub struct CloneTarget {
     /// plan's warnings.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub left_alone: Option<String>,
+}
+
+/// Names for summaries: `a`, `a and b`, `a, b and c`.
+pub(crate) fn and_list(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [a] => a.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 /// A size for summaries: `840 B`, `12.5 MB`.
@@ -601,8 +611,33 @@ impl<P: Operation> Planned<P, P::Request> {
         if let Some(written) = self.written().filter(|_| !clones.is_empty()) {
             crate::api::copy_onto_clones(&written.root, &clones, store, ctx);
         }
+        if let Some(tell) = APPLIED.get() {
+            let (operation, summary, drives) =
+                (self.operation.as_ref(), self.summary.as_slice(), self.drives.as_slice());
+            tell(&Applied { operation, summary, destructive: self.destructive, drives }, store);
+        }
         Ok(report)
     }
+}
+
+/// A plan that was applied, as [`on_applied`] tells of it.
+#[derive(Debug, Clone, Copy)]
+pub struct Applied<'a> {
+    pub operation: &'a str,
+    pub summary: &'a [String],
+    pub destructive: bool,
+    pub drives: &'a [Touched],
+}
+
+type Tell = Box<dyn Fn(&Applied<'_>, Option<&Store>) + Send + Sync>;
+
+static APPLIED: OnceLock<Tell> = OnceLock::new();
+
+/// Has `tell` told of each plan applied from now on, as it's applied, on the thread that applied
+/// it (with the store it was applied with): what an app's plugins hear (`plan.applied`). Set once:
+/// another call does nothing.
+pub fn on_applied(tell: impl Fn(&Applied<'_>, Option<&Store>) + Send + Sync + 'static) {
+    let _ = APPLIED.set(Box::new(tell));
 }
 
 /// What every plan says besides its own fields, as `*.plan` returns it (see [`Planned`]).

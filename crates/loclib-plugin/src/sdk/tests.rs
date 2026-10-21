@@ -11,13 +11,15 @@ use serde_json::json;
 
 use super::*;
 use crate::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, CheckFinding, Exported, ExportedFile, FieldValue, Finding, Findings,
-    Fix, Level, OpAnswer, OpPlan, Pending, PlanCheck, PlanOp, ProvideCandidates, RunCheck, RunCommand, View, When,
-    WriteExport, code,
+    Analysis, AnalyzeTrack, Blob, Candidate, Candidates, CheckFinding, Exported, ExportedFile, FieldValue, Finding,
+    Findings, Fix, ImportAnswer, Imported, ImportedTrack, Level, LibraryPage, OpAnswer, OpPlan, Pair, Pending,
+    PlanCheck, PlanOp, ProvideCandidates, ReadImport, ReadLibrary, RenderPanel, RunCheck, RunCommand, SourceTrack,
+    TrackMatch, View, When, WriteExport, code,
 };
 
 #[path = "../../examples/echo/plugin.rs"]
 mod echo;
+mod events;
 
 /// The host's end of a plugin served on a thread, over pipes.
 struct Session {
@@ -97,8 +99,21 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
     let reply: HelloReply = s.host.request(method::HELLO, &hello("0.2.7", &["telepathy"])).unwrap();
     let plugin = PluginInfo { id: "echo".into(), version: "0.1.0".into() };
     // And the SDK's own.
-    let features =
-        ["commands", "operations", "analyzers", "checks", "exporters", "providers", "blobs", "net", "choose"];
+    let features = [
+        "analysis",
+        "commands",
+        "operations",
+        "panels",
+        "analyzers",
+        "checks",
+        "exporters",
+        "importers",
+        "providers",
+        "blobs",
+        "net",
+        "choose",
+        "views",
+    ];
     let features = features.map(String::from).to_vec();
     assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features });
     let again = s.call(method::HELLO, hello(PROTOCOL_VERSION, &[])).unwrap_err();
@@ -234,6 +249,30 @@ fn an_operation_plans_core_edits() {
     s.stop();
 }
 
+/// An importer answers what it read, or a file in its scratch folder holding it: told apart by
+/// the `blob` key, so what's wrong with what it read is said as that.
+#[test]
+fn an_import_is_read_or_a_blob() {
+    let s = greeted(echo::hooks());
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("list.txt");
+    std::fs::write(&file, "/Contents/a.mp3\n\n /Contents/b.mp3\n").unwrap();
+    let read: ImportAnswer =
+        serde_json::from_value(s.call(method::READ_IMPORT, json!({ "importer": "lines", "file": file })).unwrap())
+            .unwrap();
+    let ImportAnswer::Read(read) = read else { panic!("what it read") };
+    let paths: Vec<_> = read.tracks.iter().map(|t| t.find.path.as_deref().unwrap()).collect();
+    assert_eq!(paths, ["/Contents/a.mp3", "/Contents/b.mp3"]);
+    assert_eq!(read.tracks[0].my_tags, ["Genre/Echo"]);
+    let blob: ImportAnswer = serde_json::from_value(json!({ "blob": "read.json" })).unwrap();
+    assert_eq!(blob, ImportAnswer::Blob(Blob { blob: "read.json".into() }));
+    let e = serde_json::from_value::<ImportAnswer>(json!({ "tracks": 5 })).unwrap_err().to_string();
+    assert!(e.contains("expected a sequence"), "{e}");
+    let e = s.call(method::READ_IMPORT, json!({ "importer": "lines", "file": dir.path().join("none") })).unwrap_err();
+    assert_eq!(e.kind(), Some("io"), "{e:?}");
+    s.stop();
+}
+
 /// An operation may ask the user first: its answer is `{"choose": ...}`, read back as one.
 #[test]
 fn an_operation_may_ask_first() {
@@ -301,6 +340,22 @@ fn a_check_answers_its_findings_and_a_guard_what_it_says_about_a_plan() {
     s.stop();
 }
 
+/// A panel answers a view of the track it's given, read through the host.
+#[test]
+fn a_panel_answers_a_view_of_its_track() {
+    let s = greeted(echo::hooks());
+    let req = json!({ "panel": "about", "context": { "drive": "USB", "tracks": [7] } });
+    let rendering = s.host.send_request(method::RENDER_PANEL, &req).unwrap();
+    let Incoming::Request(callback) = s.next() else { panic!("a callback") };
+    assert_eq!((callback.method.as_str(), callback.params), ("tracks.get", json!({ "drive": "USB", "ids": [7] })));
+    let track = loclib_model::Track { id: 7, title: "Archangel".into(), ..Default::default() };
+    s.host.respond(&callback.id, Ok(json!({ "tracks": [track], "missing": [] })));
+    let pairs =
+        vec![Pair { label: "id".into(), value: json!(7) }, Pair { label: "title".into(), value: json!("Archangel") }];
+    assert_eq!(rendering.wait::<View>().unwrap(), View::Kv { title: None, pairs });
+    s.stop();
+}
+
 #[test]
 fn hooks_run_only_for_what_the_manifest_declares() {
     let s = greeted(echo::hooks());
@@ -315,6 +370,7 @@ fn hooks_run_only_for_what_the_manifest_declares() {
         ),
         (method::PLAN_OP, json!({ "operation": "nope" }), "operation \"nope\""),
         (method::PROVIDE, json!({ "provider": "nope", "kind": "metadata", "tracks": [] }), "provider \"nope\""),
+        (method::RENDER_PANEL, json!({ "panel": "nope" }), "panel \"nope\""),
         (method::RUN_CHECK, json!({ "check": "nope" }), "check \"nope\""),
         // A check, but not one run before a plan is applied.
         (method::PLAN_CHECK, json!({ "check": "untitled", "operation": "edit", "edits": [] }), "guard \"untitled\""),
@@ -327,19 +383,52 @@ fn hooks_run_only_for_what_the_manifest_declares() {
     s.stop();
 }
 
+/// A library source answers its library a page at a time, from the folders it's granted, and
+/// only for a source the manifest declares.
+#[test]
+fn a_source_answers_its_library_a_page_at_a_time() {
+    let granted = echo::MANIFEST.replace(r#""library:plan"]"#, r#""library:plan", "fs:read"]"#);
+    let manifest = format!("{granted}\n[[contributes.sources]]\nname = \"files\"\ntitle = \"Files\"\n");
+    assert_eq!(Manifest::parse(&manifest).unwrap().validate(false).map_err(|e| e.to_string()), Ok(()));
+    let read = |req: ReadLibrary, _: &Host| {
+        let page: usize = req.cursor.as_deref().map_or(Ok(0), str::parse).map_err(|_| RpcError::invalid_params("x"))?;
+        let track = SourceTrack { path: req.roots[0].join(format!("{page}.mp3")), ..SourceTrack::default() };
+        Ok(LibraryPage { tracks: vec![track], next: (page == 0).then(|| "1".into()), ..LibraryPage::default() })
+    };
+    let s = start_with(manifest, Hooks::new().on(read));
+    let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
+    assert_eq!(reply.features, ["analysis", "sources", "blobs", "net", "choose", "views"]);
+    let mut paths = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let req = json!({ "source": "files", "roots": ["/music"], "cursor": cursor });
+        let page: LibraryPage = s.host.request(method::READ_LIBRARY, &req).unwrap();
+        paths.extend(page.tracks.into_iter().map(|t| t.path));
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(paths, [Path::new("/music/0.mp3"), Path::new("/music/1.mp3")]);
+    let e = s.call(method::READ_LIBRARY, json!({ "source": "nope", "roots": [] })).unwrap_err();
+    assert_eq!(e.message, "invalid params: the manifest declares no source \"nope\"");
+    s.stop();
+}
+
 /// A plugin has the features of the hooks it implements (and the SDK's own), and a hook it
 /// doesn't implement isn't found.
 #[test]
 fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let s = start(Hooks::new().on(echo::analyze_track));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["analyzers", "blobs", "net", "choose"]);
+    assert_eq!(reply.features, ["analysis", "analyzers", "blobs", "net", "choose", "views"]);
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params) in [
         (method::RUN_COMMAND, run("echo", json!({}), None)),
         (method::WRITE_EXPORT, json!({ "exporter": "m3u", "source": { "drive": "A" }, "output": "/x" })),
         (method::PLAN_OP, json!({ "operation": "playlist" })),
         (method::PROVIDE, json!({ "provider": "tags", "kind": "metadata", "tracks": [] })),
+        (method::RENDER_PANEL, json!({ "panel": "about" })),
         (method::RUN_CHECK, json!({ "check": "untitled" })),
         (method::PLAN_CHECK, json!({ "check": "edits", "operation": "edit", "edits": [] })),
     ] {
@@ -350,7 +439,7 @@ fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     assert_eq!(e.kind(), Some("io"), "the one it has runs");
     let none = start(Hooks::new());
     let reply: HelloReply = none.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["blobs", "net", "choose"], "only the SDK's own");
+    assert_eq!(reply.features, ["analysis", "blobs", "net", "choose", "views"], "only the SDK's own");
     none.stop();
     s.stop();
 }
@@ -464,12 +553,14 @@ fn closing_the_input_cancels_running_hooks() {
 // Properties.
 
 /// The hooks a request names, and what each declares its contributions by.
-const HOOKS: [(&str, &str); 7] = [
+const HOOKS: [(&str, &str); 9] = [
     (method::RUN_COMMAND, "command"),
     (method::ANALYZE_TRACK, "analyzer"),
     (method::WRITE_EXPORT, "exporter"),
     (method::PLAN_OP, "operation"),
     (method::PROVIDE, "provider"),
+    (method::RENDER_PANEL, "panel"),
+    (method::READ_IMPORT, "importer"),
     (method::RUN_CHECK, "check"),
     (method::PLAN_CHECK, "guard"),
 ];
@@ -503,12 +594,33 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
         .replacen("name = \"Echo\"", &format!("name = {}", quoted(&manifest.name)), 1)
         .replacen("version = \"0.1.0\"", &format!("version = {}", quoted(&manifest.version)), 1);
     let s = start_with(toml, echo::hooks());
-    let others =
-        vec!["describe", "command/run", "track/analyze", "export/write", "op/plan", "tracks.query", "shutdown"];
+    let others = vec![
+        "describe",
+        "command/run",
+        "track/analyze",
+        "export/write",
+        "import/read",
+        "op/plan",
+        "tracks.query",
+        "shutdown",
+    ];
     let plugin = PluginInfo { id: manifest.id.clone(), version: manifest.version.clone() };
     // And the SDK's own.
-    let features =
-        ["commands", "operations", "analyzers", "checks", "exporters", "providers", "blobs", "net", "choose"];
+    let features = [
+        "analysis",
+        "commands",
+        "operations",
+        "panels",
+        "analyzers",
+        "checks",
+        "exporters",
+        "importers",
+        "providers",
+        "blobs",
+        "net",
+        "choose",
+        "views",
+    ];
     let features = features.map(String::from).to_vec();
     let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features };
     let mut greeted = false;
@@ -609,13 +721,30 @@ fn answers() -> Hooks {
         });
         Ok(Candidates { candidates: found.collect(), warnings: Vec::new() })
     };
+    // A track found by the file's name, its importer's name a tag.
+    let read_import = |req: ReadImport, _: &Host| {
+        let find = TrackMatch { path: Some(req.file.display().to_string()), ..TrackMatch::default() };
+        Ok(Imported {
+            tracks: vec![ImportedTrack { find, my_tags: vec![req.importer], ..ImportedTrack::default() }],
+            ..Imported::default()
+        })
+    };
+    let render_panel = |req: RenderPanel, _: &Host| Ok(View::Text { title: Some(req.panel), text: String::new() });
     let said = |check: String, message: String| Findings {
         findings: vec![CheckFinding { finding: Finding::new(Level::Info, check, message), fix: None }],
     };
     let run_check = move |req: RunCheck, _: &Host| Ok(said(req.check, String::new()));
     let plan_check = move |req: PlanCheck, _: &Host| Ok(said(req.check, req.operation));
-    let hooks = Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide);
-    hooks.on(run_check).on(plan_check)
+    Hooks::new()
+        .on(run_command)
+        .on(analyze_track)
+        .on(write_export)
+        .on(plan_op)
+        .on(provide)
+        .on(render_panel)
+        .on(read_import)
+        .on(run_check)
+        .on(plan_check)
 }
 
 /// Hooks that panic, every one.
@@ -624,9 +753,9 @@ fn panics_everywhere() -> Hooks {
         panic!("a bug");
     }
     let hooks = Hooks::new().on(bug::<RunCommand, Value>).on(bug::<AnalyzeTrack, Analysis>);
-    let hooks =
-        hooks.on(bug::<WriteExport, Exported>).on(bug::<PlanOp, OpAnswer>).on(bug::<ProvideCandidates, Candidates>);
-    hooks.on(bug::<RunCheck, Findings>).on(bug::<PlanCheck, Findings>)
+    let hooks = hooks.on(bug::<WriteExport, Exported>).on(bug::<PlanOp, OpAnswer>);
+    let hooks = hooks.on(bug::<ProvideCandidates, Candidates>).on(bug::<RenderPanel, View>);
+    hooks.on(bug::<ReadImport, ImportAnswer>).on(bug::<RunCheck, Findings>).on(bug::<PlanCheck, Findings>)
 }
 
 /// Any hooks, run at once: one the plugin doesn't implement isn't found, whatever its params. The
@@ -644,12 +773,14 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
     let manifest = echo_manifest();
     let c = &manifest.contributes;
     let run_when = |when: When| c.checks.iter().filter(|x| x.when.contains(&when)).map(|x| x.name.clone()).collect();
-    let declared: [Vec<String>; 7] = [
+    let declared: [Vec<String>; 9] = [
         c.commands.iter().filter(|x| !["steps", "titles"].contains(&x.name.as_str())).map(|x| x.name.clone()).collect(),
         c.analyzers.iter().map(|x| x.name.clone()).collect(),
         c.exporters.iter().map(|x| x.format.clone()).collect(),
         c.operations.iter().map(|x| x.name.clone()).collect(),
         c.providers.iter().map(|x| x.name.clone()).collect(),
+        c.panels.iter().map(|x| x.name.clone()).collect(),
+        c.importers.iter().map(|x| x.format.clone()).collect(),
         run_when(When::Check),
         run_when(When::Apply),
     ];
@@ -686,7 +817,12 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 let found = json!({ "candidates": [{ "track": id, "score": 1.0, "source": name, "label": "" }] });
                 (json!({ "provider": name, "kind": kind, "tracks": [{ "id": id }] }), found)
             }
-            5 => {
+            5 => (json!({ "panel": name }), json!({ "kind": "text", "title": name, "text": "" })),
+            6 => {
+                let read = json!({ "tracks": [{ "match": { "path": output }, "my_tags": [name] }] });
+                (json!({ "importer": name, "file": output }), read)
+            }
+            7 => {
                 let found = json!({ "findings": [{ "level": "info", "check": name, "message": "" }] });
                 (json!({ "check": name }), found)
             }
@@ -704,7 +840,9 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 2 => (json!({ "exporter": name, "source": { "drive": "USB" } }), None),
                 3 => (json!({ "operation": [] }), Some("operation")),
                 4 => (json!({ "provider": name, "kind": "lyrics", "tracks": [] }), Some("kind")),
-                5 => (json!({ "check": name, "context": { "tracks": "all" } }), Some("context.tracks")),
+                5 => (json!({ "panel": 5 }), Some("panel")),
+                6 => (json!({ "importer": name, "file": 5 }), Some("file")),
+                7 => (json!({ "check": name, "context": { "tracks": "all" } }), Some("context.tracks")),
                 _ => (json!({ "check": name, "operation": "edit", "edits": {} }), Some("edits")),
             },
         };

@@ -140,7 +140,8 @@ if (!preview.noop && (await confirmDialog(preview.summary, preview.warnings))) {
   identity) with the drive's `root`, `id`, `name` and `has_export`; `store.changed` with `changed`
   (`libraries`, `snapshots`, `labels`, `pruned`, `drives`, `settings`, `smart`, `sets`); and
   `job.started` / `job.finished` (`id`, `method`, `ok`, and the error's `kind`) for every request.
-  `kinds` takes event names or groups (`drive`, `store`, `job`, `watch`); empty means all. Drives
+  `plugin.notice` is what a plugin tells the user (see [Events](#events)).
+  `kinds` takes event names or groups (`drive`, `store`, `job`, `watch`, `plugin`); empty means all. Drives
   and the store are polled every second (`interval_ms`, at least 100) by looking at file metadata
   only, so watching costs a few `stat` calls per drive. Every mounted volume counts, blank ones
   included (`has_export: false`). `events.unsubscribe` stops them.
@@ -351,17 +352,20 @@ Native bindings (napi-rs) can wrap the same `api` functions later without changi
 ## Plugins
 
 What plugins add (see [Plugins](plugins.md)) is the `plugins.*` methods. `plugins.list` answers
-each plugin's `{id, name, version, capabilities: [{capability, means}], commands, operations,
-analyzers, checks, exporters, providers, settings, running, left_out}`, `means` saying in plain words what
-a capability lets it do and `left_out` why a plugin isn't loaded, when it clashes with a command, a
-method or another plugin (else `null`); `plugins.describe {plugin}` answers `{manifest,
-capabilities, settings, secrets, secrets_unknown?, running}`, the manifest with the JSON Schemas of
-each command's and operation's `params` and each exporter's `options`, to draw forms from, and
-where to offer each command and operation (`where`: `track`, `playlist`, `drive`). A param's
+each plugin's `{id, name, version, capabilities: [{capability, means}], commands, events,
+operations, panels, analyzers, checks, exporters, importers, providers, services, themes, settings,
+running, left_out}`, `means` saying in plain words what a capability lets it do and `left_out` why
+a plugin isn't loaded, when it clashes with a command, a method or another plugin (else `null`);
+`plugins.describe {plugin}` answers `{manifest, capabilities, settings, secrets, secrets_unknown?,
+running}`, the manifest with the JSON Schemas of each command's and operation's `params` and each
+exporter's and importer's `options`, to draw forms from, and where to offer each command and
+operation (`where`: `track`, `playlist`, `drive`), each panel's title, each theme's colours
+(`tokens`) and how each analyzer's fields are shown (`display`). A param's
 `x-from` (`selection.tracks`, `selection.playlist`, `selection.drive`) is filled from the
 request's `context` when it isn't given; given as `null`, it's left out. `plugins.settings
 {plugin}` and `plugins.settings.set {plugin, key, value}` (`value` `null` or left out: back to its
-default) answer `{plugin, settings: {key: value}, secrets: {key: set}}`: a secret setting is set
+default; `key` `services.<name>` turns a service on or off) answer `{plugin, settings: {key: value},
+secrets: {key: set}}`: a secret setting is set
 like any other (text), kept in the system's keychain, and only ever answered as set (`true`) or
 not, never in `settings`; when the keychain can't say, each is `null` and `secrets_unknown` says
 why.
@@ -371,6 +375,15 @@ apart from the rest, so planning with plugins never pushes out a plan of localli
 plugin starts when it's first used and stops once it's idle a while, and when the sidecar exits. A
 plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the plugin named
 in the message. Each kind of thing plugins add is below, in a section of its own.
+
+### Analysis
+
+`plugins.apply_analysis.plan {plugin, analyzer, drive, parts: ["grid" | "phrases" | "waveform"],
+tracks?, overwrite?}` plans writing the beat grid, phrases and waveform an analyzer worked out into
+the tracks' analysis files (each track's `set_analysis` edit, a grid with its `edit_tracks` BPM),
+applied by `plugins.apply_analysis.apply {plan_id}`; tracks it can't write to are left out with a
+warning. An operation's `set_analysis` edit (`{op, track, beats?, phrases?, waveform?: {blob}}`,
+the waveform a file in its scratch folder) needs `analysis:plan`.
 
 ### Analyzers
 
@@ -396,9 +409,11 @@ playlist...); one the user made blocking that finds a warning or a problem sets 
 
 ### Commands and operations
 
-`plugins.run {plugin, command, params, context: {drive, playlist, tracks}}` answers a headless
-command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text", title, ...}`) to draw, with
-every row the plugin sent in parts as it worked. `plugins.op.plan {plugin, operation, params,
+`plugins.run {plugin, command, params, context: {drive, playlist, tracks, set}}` answers a headless
+command's JSON, or a view (`{kind: "list" | "table" | "kv" | "text" | "tree" | "chart" | "image"
+| "sections", title, ...}`, see loclib-plugin's README for each kind and its plain text form) to
+draw, with every row the plugin sent in parts as it worked; an image's `data` is a PNG `data:`
+URL, and a table's column is its heading or `{name, kind, unit?}`. `plugins.op.plan {plugin, operation, params,
 context}` (`context.drive` is required) answers an edit plan whose `operation` is
 `<plugin>.<operation>`, its summary first (an image a plugin's `set_artwork` gives is read as it's
 planned, and held by the plan), applied by `plugins.op.apply {plan_id}`; it's stale once the drive
@@ -408,18 +423,48 @@ multi?, items: [{label, detail?, value}]}`, `plugins.op.plan` `{choose: {...}}` 
 kept). Show the items, then call it again with `params[param]` set to the chosen item's `value`
 (with `multi`, a list of the values chosen, maybe none); `plugins.op.apply` with a request refuses
 one that asks. A tracklist is imported as the tracklist plugin's `import` operation (`{file, into,
-playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks
-in turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and
-`null` leaves the entry out.
+playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks in
+turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and `null`
+leaves the entry out.
+
+### Events
+
+Plugins listening for them are told of drives coming and going, changing and pulled, sets coming
+back, requests finishing and plans applied while the sidecar runs, whether or not the client
+subscribed (it polls drives for them when a plugin listens). What a plugin tells the user is an
+`event` notification, `{"event": "plugin.notice", plugin, message, operation?: {name, params}}`
+(subscribe to `plugin`): show `message`, and offer to review `operation`, one of the plugin's own,
+with `plugins.op.plan {plugin, operation: name, params}`. Never plan or apply it unless the user
+chooses to.
 
 ### Export formats
 
-`plugins.export.plan {plugin, exporter, drive, playlists?, history?, output, options}` (`output`
-absolute, never on a drive or in the store) answers `{plugin, exporter, output, files: [{path,
-what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what goes in, in order;
-`notes`: what the format can't hold and what to do with the files; the library's problems are the
-plan's `warnings`), destructive when a file `exists` already, applied by `plugins.export.apply
-{plan_id}` (`{files: [{path, what, bytes}], counts, notes, warnings}`).
+`plugins.export.plan {plugin, exporter, drive, playlists?, history?, set?, mix?, output, options}`
+(`output` absolute, never on a drive or in the store; an exporter whose manifest's `source` is
+`set` takes `set`, as `sets.get` names one, and `mix` the id of a report kept in the store,
+`mix.reports.list`, either with a `drive` or not, and no playlists) answers `{plugin, exporter,
+output, files: [{path, what, bytes, exists}], counts, notes}` (`counts`: labelled numbers of what
+goes in, in order; `notes`: what the format can't hold and what to do with the files; the library's
+problems are the plan's `warnings`), destructive when a file `exists` already, applied by
+`plugins.export.apply {plan_id}` (`{files: [{path, what, bytes}], counts, notes, warnings}`).
+
+### Import formats
+
+`plugins.import.plan {plugin, importer, file, drive, options}` (`file` absolute) has the plugin
+read the file, finds what it read on the drive and answers `{plugin, importer, file, tracks:
+{entries, found, ambiguous, missing}, plays: {...}, edits, sessions}`: how many of its tracks (and
+its sessions' plays) were found, the edit plan adding to the tracks found what they lack (a key and
+a BPM, cues in slots or places they have none in, a track's as one `cues` edit `{"set_many": [...]}`,
+My Tags), and the sessions it keeps in the store
+(as `sessions.import` keeps Beat Link Trigger's), with what it left out among the `warnings`. Its
+`operation` is `<plugin>.import.<importer>`; applied by `plugins.import.apply {plan_id}` (`{edits?,
+sessions}`, the edit report and the sessions kept, by id), and stale once the file or the drive
+changes.
+
+### Panels
+
+`plugins.panel {plugin, panel, drive, track}` answers the panel's view of the track (by id), as
+`plugins.run` answers a view; a panel never asks a question.
 
 ### Providers
 
@@ -441,6 +486,15 @@ candidate as it was offered, with the images picked, or all of `images`) answers
 [{plugin, name, title, kind}], auto_pick}`, and `plugins.providers.set {auto_pick}` (0 to 1, more
 than 1: never; `null`: back to 0.9) sets it.
 
+### Library sources
+
+`plugins.source.plan {plugin, source, options, grants, drive, playlists?, all?, replace?}`
+(`grants`: absolute folders the plugin may read files in, for this build) answers a
+`collection.export.plan`-shaped plan (`<plugin>.source.<source>`, with `source`:
+`<plugin>:<source>`) building the drive or folder `drive` from what the plugin reads: only audio
+files in the folders granted are copied, and what's left out is in its `warnings`. Applied by
+`plugins.source.apply {plan_id}`, answering what `collection.export.apply` does.
+
 ### Roles
 
 `plugins.roles` answers which analyzer each role (`key`, `bpm`, `loudness`...) is read from,
@@ -449,3 +503,10 @@ or `null`: back to its default) chooses one. `plugins.apply_fields.plan {plugin,
 fields, tracks?, overwrite?, min_confidence?}` (`fields`: `key`, `bpm`) answers an edit plan
 (`plugins.apply_fields`) writing what the analyzer kept to the tracks, applied by
 `plugins.apply_fields.apply {plan_id}`.
+
+### Services
+
+A plugin's services the user turned on (`plugins.settings.set {plugin, key: "services.<name>",
+value: true}`) run while the sidecar does, started at once and stopped when turned off; what they
+tell the user is a `plugin.notice` event. One that fails five times in a row is left off, with a
+`plugin.notice` saying so.

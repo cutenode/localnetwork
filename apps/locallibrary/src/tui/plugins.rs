@@ -4,15 +4,21 @@
 //! any task is (esc stops one). A command's answer shows in a panel;
 //! an operation's plan is confirmed and applied as any edit is, and undone with `u`. A question
 //! either asks first is a list to choose from, after which it runs again with the answer. Each
-//! plugin's settings are a form, kept in the store. What the other families of hooks add (cover
-//! art and tags from providers, analyzers, checks, exports) is in a module each. Nothing here
-//! tells one plugin from another: it's all drawn from their manifests, through the host the
-//! command line uses (see [`crate::plugins`]).
+//! plugin's settings are a form, kept in the store, with a switch for each of its services. What
+//! the other families of hooks add (cover art and tags from providers, analyzers, checks, exports,
+//! imports, what plugins tell the user and suggest) is in a module each. Nothing here tells one
+//! plugin from another: it's all drawn from their manifests, through the host the command line
+//! uses (see [`crate::plugins`]).
 
 mod analyzers;
 pub(super) mod checks;
+mod events;
 mod exporters;
+pub(super) mod importers;
+pub(super) mod panels;
 pub(super) mod providers;
+mod sources;
+mod themes;
 
 use std::path::{Path, PathBuf};
 
@@ -28,7 +34,7 @@ use super::edits::{Modal, Target};
 use super::form::{For, Form};
 use super::keymap::Act;
 use super::palette::{Item, Picker, Then};
-use crate::plugin_cmd::view::{pairs, table};
+use crate::plugin_cmd::view::{Drawn, Names};
 use crate::plugins::params::{cell, properties};
 
 /// A plugin's command or operation, and where it runs: the drive, and what's selected there (its
@@ -140,7 +146,8 @@ fn named(title: &str) -> String {
 }
 
 /// Who planned `operation` (as a plan is called), if plugins did: the name of the plugin whose
-/// operation (`<plugin>.<name>`) or, with `export`, export (`<plugin>.export.<format>`) it is; or
+/// operation (`<plugin>.<name>`), library source (`<plugin>.source.<source>`) or, with `export`,
+/// export (`<plugin>.export.<format>`) it is; or
 /// `Plugins` for an edit the host plans from what plugins found or worked out (`plugins.provide`,
 /// `plugins.apply_fields`).
 pub fn planned_by(operation: &str, export: bool) -> Option<&'static str> {
@@ -154,7 +161,10 @@ pub fn planned_by(operation: &str, export: bool) -> Option<&'static str> {
             (Some(rest), true) => {
                 rest.strip_prefix("export.").is_some_and(|f| c.exporters.iter().any(|e| e.format == f))
             }
-            (Some(name), false) => c.operations.iter().any(|o| o.name == name),
+            (Some(name), false) => {
+                let source = name.strip_prefix("source.").is_some_and(|s| c.sources.iter().any(|x| x.name == s));
+                source || c.operations.iter().any(|o| o.name == name)
+            }
             (None, _) => false,
         }
     });
@@ -206,45 +216,43 @@ fn reads_drive(capability: &Capability) -> bool {
     )
 }
 
-/// A view a command answered, as a panel's lines: a list's items (each detail under its label),
-/// a table's rows under its headings, labelled values aligned, or text.
-pub fn view_lines(v: &View) -> Vec<(Tone, String)> {
+/// A view a command (or a panel) answered, as a panel's lines: each kind as plain text (see
+/// [`crate::plugin_cmd::view::lines`]), an item's detail under its label, a section's title as a
+/// heading. `names` names the tracks of a `track` column.
+pub fn view_lines(v: &View, names: Names<'_>) -> Vec<(Tone, String)> {
     let mut lines = Vec::new();
-    match v {
-        View::List { items, .. } => {
-            for i in items {
-                lines.push((Tone::Text, i.label.clone()));
-                lines.extend(i.detail.as_ref().map(|d| (Tone::Faint, format!("  {d}"))));
+    for line in crate::plugin_cmd::view::lines(v, names) {
+        match line {
+            Drawn::Heading(title) => lines.push((Tone::Heading, title)),
+            Drawn::Item { label, detail, depth } => {
+                let indent = "  ".repeat(depth);
+                lines.push((Tone::Text, format!("{indent}{label}")));
+                lines.extend(detail.map(|d| (Tone::Faint, format!("{indent}  {d}"))));
             }
+            Drawn::Columns(headings) => lines.push((Tone::Columns, headings)),
+            Drawn::Row(row) => lines.push((Tone::Row, row)),
+            Drawn::Text(text) => lines.extend(text.lines().map(|l| (Tone::Text, l.to_string()))),
+            Drawn::Missing => lines.push((Tone::Faint, "nothing to show".into())),
         }
-        View::Table { columns, rows, .. } => {
-            let mut table = table(columns, rows).into_iter();
-            lines.extend(table.next().map(|headings| (Tone::Columns, headings)));
-            lines.extend(table.map(|row| (Tone::Row, row)));
-            if rows.is_empty() {
-                lines.push((Tone::Faint, "nothing to show".into()));
-            }
-        }
-        View::Kv { pairs: kv, .. } => lines.extend(pairs(kv).into_iter().map(|p| (Tone::Text, p))),
-        View::Text { text, .. } => lines.extend(text.lines().map(|l| (Tone::Text, l.to_string()))),
-        View::Choose(_) => unreachable!("a question is asked, never drawn"),
-    }
-    if lines.is_empty() {
-        lines.push((Tone::Faint, "nothing to show".into()));
     }
     lines
 }
 
 impl App {
+    /// The open library's track `id` as it's named (`Artist - Title`), for a view's `track` cells.
+    pub(super) fn track_name(&self, id: u32) -> Option<String> {
+        self.loaded.as_ref()?.library.track(id).map(|t| t.display_name())
+    }
+
     /// Whether plugins can run on the drive at `root`: one plugged in, rather than a folder
     /// opened by path. `None` without a drive.
     pub(super) fn pluggable(&self, root: Option<&Path>) -> Option<bool> {
         root.map(|root| !self.extra_roots.iter().any(|r| r == root))
     }
 
-    /// Every plugin's commands and operations offered in a menu of one of `places`, analyzers and
-    /// export formats, as the palette and the drive menu list them for the drive at `root`: by
-    /// title, with the plugin's name beside each.
+    /// Every plugin's commands and operations offered in a menu of one of `places`, analyzers,
+    /// export and import formats, as the palette and the drive menu list them for the drive at
+    /// `root`: by title, with the plugin's name beside each.
     pub(super) fn plugin_items(&self, root: Option<&Path>, places: &[Where]) -> Vec<(Act, Item)> {
         let drive = self.pluggable(root);
         let all = offered(drive, places).into_iter();
@@ -260,8 +268,8 @@ impl App {
             );
         }
         let Ok(plugins) = crate::plugins::host() else { return items };
-        // An analyzer reads the tracks' audio files and an exporter the library: on a drive plugged
-        // in, as a command.
+        // An analyzer reads the tracks' audio files, an exporter the library, an importer's file is
+        // about its tracks and a library source writes one: on a drive plugged in, as a command.
         let why = match drive {
             None => Some("open a drive first"),
             Some(false) => Some("only on a plugged-in drive"),
@@ -269,9 +277,12 @@ impl App {
         };
         // Each family's, in the order the palette lists them (a family's placed as loclib-plugin's
         // `hooks` says).
+        let set = self.open_set().is_some();
         for m in plugins.manifests() {
             items.extend(analyzers::items(m, why));
-            items.extend(exporters::items(m, why));
+            items.extend(exporters::items(m, why, set));
+            items.extend(importers::items(m, why));
+            items.extend(sources::items(m, why));
         }
         items
     }
@@ -291,43 +302,46 @@ impl App {
         }
     }
 
-    /// The settings of each plugin that has some, then the providers' and the checks' when there
-    /// are any, as the palette lists them, wherever it's open.
+    /// The settings of each plugin that has some (or a service), then the providers' and the
+    /// checks' when there are any, then the themes to draw in when a plugin has one, as the palette
+    /// lists them, wherever it's open.
     pub(super) fn settings_items(&self) -> Vec<(Act, Item)> {
         let Ok(plugins) = crate::plugins::host() else { return Vec::new() };
-        let with = plugins.manifests().filter(|m| !m.contributes.settings.is_empty());
+        let with =
+            plugins.manifests().filter(|m| !m.contributes.settings.is_empty() || !m.contributes.services.is_empty());
         let items =
             with.map(|m| (Act::PluginSettings(&m.id), Item::new(format!("{} plugin settings…", m.name), &m.name)));
         let providers =
             providers::providing(plugins, None).map(|by| (Act::ProviderSettings, Item::new("provider settings…", by)));
         let checks = checks::checking(plugins).map(|by| (Act::CheckSettings, Item::new("check settings…", by)));
-        items.chain(providers).chain(checks).collect()
+        items.chain(providers).chain(checks).chain(themes::items()).collect()
     }
 
-    /// A plugin's settings in a form, each filled in as it's set now (else its default).
+    /// A plugin's settings in a form, each filled in as it's set now (else its default), and a
+    /// switch for each of its services.
     pub(super) fn plugin_settings(&mut self, plugin: &'static str) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Ok(m) = plugins.manifest(plugin) else { return };
+        let (Ok(m), Ok(listed)) = (plugins.manifest(plugin), plugins.setting_list(plugin)) else { return };
         let store = Store::open(&self.store_root).ok();
         let now = plugins.settings(plugin, store.as_ref()).unwrap_or_default();
         let filled: Map<String, Value> = now.into_iter().collect();
-        let schema = Some(settings_schema(&m.contributes.settings));
+        let schema = Some(settings_schema(&listed));
         let form = Form::with(format!("{} settings", m.name), schema, &filled, For::Settings(plugin));
         self.modal = Some(Modal::Form(form));
     }
 
     /// Keep a plugin's settings as the form has them (`given`), in the background: those that
     /// changed, each left empty put back to its default, and each secret typed in (one left
-    /// empty is kept).
+    /// empty is kept). A service turned on starts, one turned off stops.
     pub(super) fn save_settings(&mut self, plugin: &'static str, given: Value) {
         let Ok(plugins) = crate::plugins::host() else { return };
-        let Ok(m) = plugins.manifest(plugin) else { return };
+        let (Ok(m), Ok(listed)) = (plugins.manifest(plugin), plugins.setting_list(plugin)) else { return };
         let store_root = self.store_root.clone();
         self.task("Saving settings".into(), move |_| {
             let store = Store::open_or_init(&store_root)?;
             let now = plugins.settings(plugin, Some(&store))?;
             let mut changed = 0;
-            for s in &m.contributes.settings {
+            for s in &listed {
                 let value = given.get(&s.key);
                 let typed = value.and_then(Value::as_str).is_some_and(|v| !v.is_empty());
                 if s.kind == SettingType::Secret && !typed {
@@ -337,6 +351,9 @@ impl App {
                     plugins.set_setting(plugin, &store, &s.key, value.cloned())?;
                     changed += 1;
                 }
+            }
+            if changed > 0 && !m.contributes.services.is_empty() {
+                plugins.run_services(Some(&store));
             }
             let said = match changed {
                 0 => "nothing changed".to_string(),
@@ -358,12 +375,12 @@ impl App {
     }
 
     /// What's selected, as a plugin's hook takes it: the tracks (by id) and the playlist (not a
-    /// folder) the actions menu works on.
+    /// folder) the actions menu works on, and the set open.
     fn context(&self, t: &Target) -> Context {
         let l = self.loaded.as_ref().filter(|l| l.root() == t.root);
         let ids = l.map(|l| t.tracks.iter().filter_map(|p| l.index_of(p)).map(|i| l.library.tracks[i].id).collect());
         let playlist = t.node.clone().filter(|(_, folder)| !folder).map(|(path, _)| path);
-        Context { playlist, tracks: ids.unwrap_or_default(), ..Context::default() }
+        Context { playlist, tracks: ids.unwrap_or_default(), set: self.open_set(), ..Context::default() }
     }
 
     /// A plugin's command or operation from the palette: on the drive actions work on, with what's
@@ -499,7 +516,10 @@ impl App {
                 let text = serde_json::to_string_pretty(&v).unwrap_or_default();
                 (title, text.lines().map(|l| (Tone::Text, l.into())).collect())
             }
-            CommandOutput::View(v) => (v.title().map_or(title, String::from), view_lines(&v)),
+            CommandOutput::View(v) => {
+                let names = |id| self.track_name(id);
+                (v.title().map_or(title, String::from), view_lines(&v, &names))
+            }
         };
         self.modal = Some(Modal::Report(Report { title, lines, scroll: 0 }));
     }

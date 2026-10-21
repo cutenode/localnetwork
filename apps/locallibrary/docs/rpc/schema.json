@@ -4954,6 +4954,64 @@
       }
     },
     {
+      "name": "plugins.apply_analysis.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.apply_analysis.apply",
+      "operation": "plugins.apply_analysis",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ApplyAnalysis"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/EditPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.apply_analysis.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.apply_analysis.plan",
+      "operation": "plugins.apply_analysis",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ApplyAnalysis"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
       "name": "plugins.run",
       "aliases": [],
       "kind": "read",
@@ -5018,6 +5076,19 @@
       }
     },
     {
+      "name": "plugins.panel",
+      "aliases": [],
+      "kind": "read",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "$ref": "#/$defs/RenderPluginPanel"
+      },
+      "result": {
+        "$ref": "#/$defs/View"
+      }
+    },
+    {
       "name": "plugins.export.plan",
       "aliases": [],
       "kind": "plan",
@@ -5073,6 +5144,64 @@
       },
       "result": {
         "$ref": "#/$defs/Exported"
+      }
+    },
+    {
+      "name": "plugins.import.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.import.apply",
+      "operation": "plugins.import",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PlanPluginImport"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/PluginImport"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.import.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.import.plan",
+      "operation": "plugins.import",
+      "long_running": true,
+      "destructive": false,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/PlanPluginImport"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/PluginImported"
       }
     },
     {
@@ -5347,6 +5476,64 @@
         "items": {
           "$ref": "#/$defs/RoleChoice"
         }
+      }
+    },
+    {
+      "name": "plugins.source.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.source.apply",
+      "operation": "plugins.source",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/SourceExport"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/CollectionExportPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.source.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.source.plan",
+      "operation": "plugins.source",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/SourceExport"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/CollectionExportReport"
       }
     }
   ],
@@ -7055,6 +7242,54 @@
             "image"
           ],
           "description": "Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The\njournal records the tracks by file and the image as staged on the drive."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": "string"
+            },
+            "beats": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/Beat"
+              },
+              "description": "The beat grid: each beat's number in its bar (1-4), the tempo there and its time."
+            },
+            "phrases": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SongStructure"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The phrases, named as the track's mood names them."
+            },
+            "waveform": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WaveSource"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "type": "string",
+              "const": "set_analysis"
+            }
+          },
+          "required": [
+            "op",
+            "track"
+          ],
+          "description": "Write a beat grid, phrases or a waveform into the analysis files of the track of this\naudio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the\ntrack's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the\ndrive."
         }
       ],
       "description": "One change to a drive's library. Playlists are given as paths (`Folder/Name`) or unique\nnames; positions in a playlist count from 1."
@@ -7425,6 +7660,22 @@
         {
           "type": "object",
           "properties": {
+            "set_many": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SetCue"
+              }
+            }
+          },
+          "required": [
+            "set_many"
+          ],
+          "additionalProperties": false,
+          "description": "Several cues set in turn, each as `set` sets one (what an import adds to a track)."
+        },
+        {
+          "type": "object",
+          "properties": {
             "update": {
               "$ref": "#/$defs/UpdateCue"
             }
@@ -7689,6 +7940,180 @@
       "type": "string",
       "description": "A BLAKE3 hash, as 64 lowercase hex characters.",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "Beat": {
+      "type": "object",
+      "properties": {
+        "beat_number": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Position in the bar, 1-4."
+        },
+        "bpm": {
+          "type": "number",
+          "format": "double"
+        },
+        "time_ms": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "beat_number",
+        "bpm",
+        "time_ms"
+      ]
+    },
+    "SongStructure": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "$ref": "#/$defs/Mood"
+        },
+        "phrases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Phrase"
+          }
+        }
+      },
+      "required": [
+        "mood",
+        "phrases"
+      ],
+      "description": "rekordbox's phrase analysis (`PSSI`, in `.EXT`)."
+    },
+    "Mood": {
+      "type": "string",
+      "enum": [
+        "high",
+        "mid",
+        "low"
+      ],
+      "description": "rekordbox's overall classification of a track, which decides how phrases are named."
+    },
+    "Phrase": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/PhraseKind"
+        },
+        "start_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
+        },
+        "end_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "fill_beat": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Beat where a fill-in leads into the next phrase."
+        }
+      },
+      "required": [
+        "kind",
+        "start_beat",
+        "end_beat"
+      ]
+    },
+    "PhraseKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "intro",
+            "bridge",
+            "chorus",
+            "outro"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "up",
+          "description": "Build-ups, in high-mood tracks."
+        },
+        {
+          "type": "string",
+          "const": "down",
+          "description": "Breakdowns, in high-mood tracks."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "verse": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "verse"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "unknown": {
+              "type": "integer",
+              "format": "uint16",
+              "minimum": 0,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "unknown"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "WaveSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "base64": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "base64"
+          ],
+          "additionalProperties": false,
+          "description": "The bands packed (three bytes a column), in base64."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "staged": {
+              "$ref": "#/$defs/Hash"
+            }
+          },
+          "required": [
+            "staged"
+          ],
+          "additionalProperties": false,
+          "description": "Staged on the drive (`.locallibrary/waveforms/<hash>.bands`), by its hash: how the journal\nrecords the others."
+        }
+      ],
+      "description": "A waveform an analysis edit writes: three bands, each column's lows, mids and highs (0-255),\n150 columns a second ([`Bands`]), from which each of the track's waveform tags is worked out."
     },
     "ClearEdits": {
       "type": "object",
@@ -11184,7 +11609,7 @@
           "type": "string"
         },
         "value": {
-          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered); `null` (or left out) puts it back to its default, or forgets a secret.",
+          "description": "Of the setting's type (a secret's, text: kept in the system's keychain and never\nanswered; a service's switch, `services.<name>`, true or false); `null` (or left out)\nputs it back to its default, or forgets a secret.",
           "default": null
         }
       },
@@ -11192,6 +11617,73 @@
         "plugin",
         "key"
       ]
+    },
+    "ApplyAnalysis": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "analyzer": {
+          "type": "string"
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks to write to."
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalysisPart"
+          },
+          "description": "What to write, which the analyzer must work out: `grid`, `phrases`, `waveform`."
+        },
+        "tracks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one].",
+          "default": null
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Also over what a track's analysis files have: without it, only where they have none.",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "analyzer",
+        "drive",
+        "parts"
+      ],
+      "description": "What to write to a drive's tracks' analysis files, from what one analyzer kept."
+    },
+    "AnalysisPart": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "grid",
+          "description": "The beat grid (a `beats` field)."
+        },
+        {
+          "type": "string",
+          "const": "phrases",
+          "description": "The phrases (a `phrases` field)."
+        },
+        {
+          "type": "string",
+          "const": "waveform",
+          "description": "The waveform (a `waveform` field)."
+        }
+      ],
+      "description": "A part of a track's analysis an analyzer can work out."
     },
     "RunPluginCommand": {
       "type": "object",
@@ -11243,6 +11735,14 @@
           },
           "description": "The tracks they chose, by id.",
           "default": []
+        },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The set they're on, by id (`sets.list`).",
+          "default": null
         }
       },
       "description": "Where the user is, for a plugin's command or operation."
@@ -11270,6 +11770,34 @@
         "context"
       ]
     },
+    "RenderPluginPanel": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "panel": {
+          "type": "string",
+          "description": "One of the plugin's panels (`plugins.describe`)."
+        },
+        "drive": {
+          "type": "string",
+          "description": "A library's name, or a drive's mount path, name or id prefix."
+        },
+        "track": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "The track, by id."
+        }
+      },
+      "required": [
+        "plugin",
+        "panel",
+        "drive",
+        "track"
+      ]
+    },
     "PlanPluginExport": {
       "type": "object",
       "properties": {
@@ -11282,7 +11810,8 @@
         },
         "drive": {
           "type": "string",
-          "description": "The library or drive to export."
+          "description": "The library or drive to export, or (for a set's or a mix's exporter) whose tracks to give\nit.",
+          "default": ""
         },
         "playlists": {
           "type": "array",
@@ -11300,6 +11829,22 @@
           "description": "History lists to put in, by name.",
           "default": []
         },
+        "set": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A set's exporter's set: its id, title or day, or `last` (as `sets.get` takes it).",
+          "default": null
+        },
+        "mix": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A mix's exporter's mix: the id of its report in the store (`mix.reports.list`).",
+          "default": null
+        },
         "output": {
           "type": "string",
           "description": "The file, or folder, to write (absolute), on this computer: never on a drive or in the\nstore."
@@ -11312,8 +11857,37 @@
       "required": [
         "plugin",
         "exporter",
-        "drive",
         "output"
+      ]
+    },
+    "PlanPluginImport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "importer": {
+          "type": "string",
+          "description": "The importer's format."
+        },
+        "file": {
+          "type": "string",
+          "description": "The file to read (absolute), on this computer."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks it's about."
+        },
+        "options": {
+          "description": "As the importer's `options` schema says (`plugins.describe`).",
+          "default": null
+        }
+      },
+      "required": [
+        "plugin",
+        "importer",
+        "file",
+        "drive"
       ]
     },
     "AnalyzeWithPlugin": {
@@ -11739,6 +12313,63 @@
       "required": [
         "role"
       ]
+    },
+    "SourceExport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string",
+          "description": "One of its library sources, by name."
+        },
+        "options": {
+          "description": "As the source's `options` schema says.",
+          "default": null
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The folders the plugin may read files in, absolute: granted for this read alone, and only\naudio files in them are copied."
+        },
+        "drive": {
+          "type": "string",
+          "description": "The drive or folder to write to."
+        },
+        "playlists": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Playlists or folders (paths) to export, with the tracks they use. Empty: every track and\nplaylist, or the selection the target was last exported with.",
+          "default": []
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Export every track and playlist, whatever the target was exported with last.",
+          "default": false
+        },
+        "replace": {
+          "type": "boolean",
+          "description": "Replace a library the target holds that wasn't exported from the collection, or the\nfiles on a target with no library.",
+          "default": false
+        },
+        "overwrite_archive": {
+          "type": "boolean",
+          "description": "Write to an archive or retired drive (see [`crate::fleet::check_target`]).",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "source",
+        "grants",
+        "drive"
+      ],
+      "description": "Building a drive from a plugin's library source."
     },
     "Initialized": {
       "type": "object",
@@ -13489,32 +14120,6 @@
       ],
       "description": "[`TrackAnalysis`] with only the waveforms asked for, in the encoding asked for. With the\ndefaults it's the same as [`TrackAnalysis`]."
     },
-    "Beat": {
-      "type": "object",
-      "properties": {
-        "beat_number": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "Position in the bar, 1-4."
-        },
-        "bpm": {
-          "type": "number",
-          "format": "double"
-        },
-        "time_ms": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "beat_number",
-        "bpm",
-        "time_ms"
-      ]
-    },
     "Cue": {
       "type": "object",
       "properties": {
@@ -13658,6 +14263,11 @@
           "type": "string",
           "const": "rgb",
           "description": "Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`)."
+        },
+        {
+          "type": "string",
+          "const": "three_band",
+          "description": "Lows, mids and highs drawn over one another, the CDJ-3000's (`PWV6`, `PWV7`), and what\nanalyzer plugins give ([`Bands`])."
         }
       ]
     },
@@ -13769,123 +14379,36 @@
       ],
       "description": "One layer of a [`PackedWaveform`]."
     },
-    "SongStructure": {
+    "Action": {
       "type": "object",
       "properties": {
-        "mood": {
-          "$ref": "#/$defs/Mood"
+        "label": {
+          "type": "string",
+          "description": "What a button offering it says."
         },
-        "phrases": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Phrase"
-          }
-        }
-      },
-      "required": [
-        "mood",
-        "phrases"
-      ],
-      "description": "rekordbox's phrase analysis (`PSSI`, in `.EXT`)."
-    },
-    "Mood": {
-      "type": "string",
-      "enum": [
-        "high",
-        "mid",
-        "low"
-      ],
-      "description": "rekordbox's overall classification of a track, which decides how phrases are named."
-    },
-    "Phrase": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "$ref": "#/$defs/PhraseKind"
-        },
-        "start_beat": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
-        },
-        "end_beat": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535
-        },
-        "fill_beat": {
+        "method": {
           "type": [
-            "integer",
+            "string",
             "null"
           ],
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "Beat where a fill-in leads into the next phrase."
+          "description": "The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,\nwith `params` added to its own."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The parameters: the method's, or the ones to add to the request that failed. `null`\nmeans a value the user has to give (a name, a path).",
+          "default": {}
+        },
+        "elevate": {
+          "type": "boolean",
+          "description": "Run it with administrator rights (restart the sidecar elevated first)."
         }
       },
       "required": [
-        "kind",
-        "start_beat",
-        "end_beat",
-        "fill_beat"
-      ]
-    },
-    "PhraseKind": {
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": [
-            "intro",
-            "bridge",
-            "chorus",
-            "outro"
-          ]
-        },
-        {
-          "type": "string",
-          "const": "up",
-          "description": "Build-ups, in high-mood tracks."
-        },
-        {
-          "type": "string",
-          "const": "down",
-          "description": "Breakdowns, in high-mood tracks."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "verse": {
-              "type": "integer",
-              "format": "uint8",
-              "minimum": 0,
-              "maximum": 255
-            }
-          },
-          "required": [
-            "verse"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "unknown": {
-              "type": "integer",
-              "format": "uint16",
-              "minimum": 0,
-              "maximum": 65535
-            }
-          },
-          "required": [
-            "unknown"
-          ],
-          "additionalProperties": false
-        }
-      ]
+        "label",
+        "params"
+      ],
+      "description": "Something a front end can offer to resolve an error: call a method, or send the request that\nfailed again with some parameters added (`method` absent), or again with administrator rights."
     },
     "TracksAnalysis": {
       "type": "object",
@@ -14425,36 +14948,42 @@
         "position"
       ]
     },
-    "Action": {
+    "PhraseOutput": {
       "type": "object",
       "properties": {
-        "label": {
-          "type": "string",
-          "description": "What a button offering it says."
+        "kind": {
+          "$ref": "#/$defs/PhraseKind"
         },
-        "method": {
+        "start_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
+        },
+        "end_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "fill_beat": {
           "type": [
-            "string",
+            "integer",
             "null"
           ],
-          "description": "The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,\nwith `params` added to its own."
-        },
-        "params": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "The parameters: the method's, or the ones to add to the request that failed. `null`\nmeans a value the user has to give (a name, a path).",
-          "default": {}
-        },
-        "elevate": {
-          "type": "boolean",
-          "description": "Run it with administrator rights (restart the sidecar elevated first)."
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Beat where a fill-in leads into the next phrase."
         }
       },
       "required": [
-        "label",
-        "params"
-      ],
-      "description": "Something a front end can offer to resolve an error: call a method, or send the request that\nfailed again with some parameters added (`method` absent), or again with administrator rights."
+        "kind",
+        "start_beat",
+        "end_beat",
+        "fill_beat"
+      ]
     },
     "UndoPlan": {
       "type": "object",
@@ -18234,6 +18763,54 @@
             "image"
           ],
           "description": "Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The\njournal records the tracks by file and the image as staged on the drive."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": "string"
+            },
+            "beats": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/Beat"
+              },
+              "description": "The beat grid: each beat's number in its bar (1-4), the tempo there and its time."
+            },
+            "phrases": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SongStructure"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The phrases, named as the track's mood names them."
+            },
+            "waveform": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WaveSource"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "type": "string",
+              "const": "set_analysis"
+            }
+          },
+          "required": [
+            "op",
+            "track"
+          ],
+          "description": "Write a beat grid, phrases or a waveform into the analysis files of the track of this\naudio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the\ntrack's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the\ndrive."
         }
       ],
       "description": "One change to a drive's library. Playlists are given as paths (`Folder/Name`) or unique\nnames; positions in a playlist count from 1."
@@ -25032,7 +25609,7 @@
         },
         "source": {
           "type": "string",
-          "description": "`device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from\n(`beat_link_trigger`)."
+          "description": "`device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from\n(`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`)."
         },
         "drives": {
           "type": "array",
@@ -25124,7 +25701,7 @@
         },
         "tool": {
           "type": "string",
-          "description": "`beat_link_trigger`."
+          "description": "`beat_link_trigger`, or the plugin's importer it was read with (`<plugin>.<importer>`)."
         },
         "file": {
           "type": "string",
@@ -25781,6 +26358,13 @@
             "$ref": "#/$defs/CueMark"
           },
           "description": "Its hot cues, in seconds into the track."
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ShownField"
+          },
+          "description": "What analyzers worked out for it that a page shows (the HTML report's), in order."
         }
       },
       "required": [
@@ -25837,6 +26421,24 @@
         "label",
         "color"
       ]
+    },
+    "ShownField": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "`<plugin>.<field>` (`sound.lufs`)."
+        },
+        "value": {
+          "type": "string",
+          "description": "As its analyzer says it's shown (`-8.2 LUFS`)."
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "description": "An analyzer's field, as a page shows it."
     },
     "MixExport": {
       "type": "object",
@@ -28979,7 +29581,14 @@
       "properties": {
         "collection": {
           "type": "string",
-          "description": "The `master.db` exported."
+          "description": "The `master.db` exported (empty for a plugin's library source)."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin's library source written instead, `<plugin>:<source>`."
         },
         "target": {
           "type": "string"
@@ -29069,7 +29678,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Tracks with an analysis file that can't be read: exported without it."
+          "description": "Tracks with an analysis file that can't be read, or (from a plugin's source) whose cues,\nbeat grid or waveform can't be written: exported without it."
         },
         "replaces_library": {
           "type": "boolean",
@@ -29252,9 +29861,21 @@
           "items": {
             "type": "string"
           },
-          "description": "What it adds: its commands, operations, analyzers, checks and providers by name, its export\nformats and its settings' keys."
+          "description": "What it adds: its commands, operations, panels, analyzers, checks, providers, services,\nlibrary sources and themes by name, the events it listens for, its export and import formats\nand its settings' keys."
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "operations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "panels": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29278,7 +29899,31 @@
             "type": "string"
           }
         },
+        "importers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "themes": {
           "type": "array",
           "items": {
             "type": "string"
@@ -29308,11 +29953,17 @@
         "version",
         "capabilities",
         "commands",
+        "events",
         "operations",
+        "panels",
         "analyzers",
         "checks",
         "exporters",
+        "importers",
         "providers",
+        "services",
+        "sources",
+        "themes",
         "settings",
         "running",
         "left_out"
@@ -29356,7 +30007,12 @@
             "library:delete",
             "tags:plan",
             "cues:plan",
-            "artwork:plan"
+            "artwork:plan",
+            "analysis:plan",
+            "events:drives",
+            "events:jobs",
+            "events:plans",
+            "fs:read"
           ]
         },
         {
@@ -29440,11 +30096,17 @@
           "$ref": "#/$defs/Contributions",
           "default": {
             "commands": [],
+            "events": [],
             "operations": [],
+            "panels": [],
             "analyzers": [],
             "checks": [],
             "exporters": [],
+            "importers": [],
             "providers": [],
+            "services": [],
+            "sources": [],
+            "themes": [],
             "settings": []
           }
         },
@@ -29476,10 +30138,24 @@
           },
           "default": []
         },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Listener"
+          },
+          "default": []
+        },
         "operations": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Operation"
+          },
+          "default": []
+        },
+        "panels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Panel"
           },
           "default": []
         },
@@ -29504,10 +30180,38 @@
           },
           "default": []
         },
+        "importers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Importer"
+          },
+          "default": []
+        },
         "providers": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/Provider"
+          },
+          "default": []
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Service"
+          },
+          "default": []
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LibrarySource"
+          },
+          "default": []
+        },
+        "themes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Theme"
           },
           "default": []
         },
@@ -29521,11 +30225,17 @@
       },
       "required": [
         "commands",
+        "events",
         "operations",
+        "panels",
         "analyzers",
         "checks",
         "exporters",
+        "importers",
         "providers",
+        "services",
+        "sources",
+        "themes",
         "settings"
       ]
     },
@@ -29593,6 +30303,61 @@
       ],
       "description": "Where a host offers a command or an operation: in the menu of the tracks selected, of a\nplaylist, or of a drive. A host's palette has every one."
     },
+    "Listener": {
+      "type": "object",
+      "properties": {
+        "on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventName"
+          }
+        }
+      },
+      "required": [
+        "on"
+      ],
+      "description": "`[[contributes.events]]`: what the plugin is told of (`event/notify`)."
+    },
+    "EventName": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "drive.mounted",
+          "description": "A drive was plugged in."
+        },
+        {
+          "type": "string",
+          "const": "drive.unmounted",
+          "description": "A drive was unplugged."
+        },
+        {
+          "type": "string",
+          "const": "drive.changed",
+          "description": "A drive's databases or its locallibrary state changed (`payload.changed` says which)."
+        },
+        {
+          "type": "string",
+          "const": "drive.pulled",
+          "description": "A drive was saved into the store as a new snapshot (`payload.history_lists`: the\nhistory lists the store lacked)."
+        },
+        {
+          "type": "string",
+          "const": "set.returned",
+          "description": "A drive back from a set was saved beside its library's newest snapshot."
+        },
+        {
+          "type": "string",
+          "const": "job.finished",
+          "description": "A request to the sidecar finished (`payload.method`, `payload.ok`)."
+        },
+        {
+          "type": "string",
+          "const": "plan.applied",
+          "description": "A plan was applied (`payload.operation`, `payload.summary`)."
+        }
+      ],
+      "description": "What a host tells plugins of: a closed list, each needing a capability (see\n[`EventName::capability`])."
+    },
     "Operation": {
       "type": "object",
       "properties": {
@@ -29636,6 +30401,28 @@
       ],
       "description": "Planned with `op/plan`, applied by the host, which works out from the edits whether it's\ndestructive."
     },
+    "Panel": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "where": {
+          "$ref": "#/$defs/Where",
+          "description": "What it's shown with: a track, unless it says.",
+          "default": "track"
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "where"
+      ],
+      "description": "Shown under a track's details, as `panel/render` answers for the track. Hosts ask for it as\nthe user comes to a track, so it answers quickly, reading only what it needs."
+    },
     "Analyzer": {
       "type": "object",
       "properties": {
@@ -29661,6 +30448,13 @@
             "type": "string"
           },
           "description": "Which of its fields has each role it answers (`bpm = \"bpm\"`): what the host reads for\nthat role (see [`Role`])."
+        },
+        "display": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/FieldDisplay"
+          },
+          "description": "How hosts show some of its fields, by field (`display.lufs = { unit = \"LUFS\" }`): in the\nplayer's columns, `track show` and the mix report."
         }
       },
       "required": [
@@ -29672,14 +30466,106 @@
       "description": "Run with `track/analyze`; its fields become columns."
     },
     "FieldType": {
-      "type": "string",
-      "enum": [
-        "number",
-        "integer",
-        "string",
-        "boolean",
-        "string[]"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "number",
+            "integer",
+            "string",
+            "boolean",
+            "string[]"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "beats",
+          "description": "A beat grid (feature `analysis`, see [`crate::Output`])."
+        },
+        {
+          "type": "string",
+          "const": "phrases",
+          "description": "A song structure: the mood and the phrases (feature `analysis`)."
+        },
+        {
+          "type": "string",
+          "const": "waveform",
+          "description": "A waveform in three bands, in a blob (feature `analysis`)."
+        }
       ]
+    },
+    "FieldDisplay": {
+      "type": "object",
+      "properties": {
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Said after a value (`LUFS`); a `db` format's is `dB` unless it says."
+        },
+        "precision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "A number's decimal places, 0 to 6."
+        },
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FieldFormat"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "How wide its column is in the player, in cells (1 to 40); for a `meter`, how long it is."
+        }
+      },
+      "description": "How hosts show a field's values, each part optional. Without them a number shows to two\nplaces at most (trailing zeros left out), a list joined with commas, a boolean as yes or no."
+    },
+    "FieldFormat": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "key",
+          "description": "A key (a string), as the host shows keys."
+        },
+        {
+          "type": "string",
+          "const": "duration",
+          "description": "Seconds (a number), as minutes and seconds (`3:07`, `1:02:03`)."
+        },
+        {
+          "type": "string",
+          "const": "db",
+          "description": "Decibels (a number), signed (`+0.4 dB`, `-8.2 dB`)."
+        },
+        {
+          "type": "string",
+          "const": "percent",
+          "description": "A fraction (a number, 0 to 1) as a percentage (`85%`; no decimal places unless it says)."
+        },
+        {
+          "type": "string",
+          "const": "meter",
+          "description": "A fraction (a number, 0 to 1) as a bar, `width` cells long (8 unless it says)."
+        }
+      ],
+      "description": "What a field's values are, for hosts to show them as such."
     },
     "Check": {
       "type": "object",
@@ -29752,6 +30638,10 @@
         },
         "options": {
           "description": "A JSON Schema for its options (an object)."
+        },
+        "source": {
+          "$ref": "#/$defs/ExportFrom",
+          "description": "What it writes out [default: a drive's library]."
         }
       },
       "required": [
@@ -29760,6 +30650,86 @@
         "folder"
       ],
       "description": "Run with `export/write`."
+    },
+    "ExportFrom": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "drive",
+          "description": "A drive's library."
+        },
+        {
+          "type": "string",
+          "const": "set",
+          "description": "A set the DJ declared (`locallibrary sets`)."
+        },
+        {
+          "type": "string",
+          "const": "mix",
+          "description": "A recorded mix's tracklist, as `locallibrary mix` found it."
+        }
+      ],
+      "description": "What an exporter writes out."
+    },
+    "Importer": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "extension": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The file it reads usually ends in this: lowercase letters and digits, without the dot\n(`nml`)."
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportKind"
+          },
+          "description": "What it reads: what of a track's (and the plays) the host takes from it."
+        }
+      },
+      "required": [
+        "format",
+        "title",
+        "provides"
+      ],
+      "description": "Run with `import/read` on a file the user names: the host finds what it read on a drive and\nplans the edits itself, so it needs no capability to plan one."
+    },
+    "ImportKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "cues"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "fields",
+          "description": "A track's key and BPM."
+        },
+        {
+          "type": "string",
+          "const": "tags",
+          "description": "My Tags."
+        },
+        {
+          "type": "string",
+          "const": "sessions",
+          "description": "What played, as sessions."
+        }
+      ],
+      "description": "What an importer reads."
     },
     "Provider": {
       "type": "object",
@@ -29780,6 +30750,62 @@
         "kind"
       ],
       "description": "Asked with `provide/candidates` for what it has for tracks, of its kind: the host offers the\nuser every provider's, and makes the edits chosen itself. It's given the tracks' tags, which\ntakes `library:read`, and needs no capability to plan an edit."
+    },
+    "Service": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ],
+      "description": "Started with `service/start` by a host that stays open (the player, the sidecar, the `watch`\nagent), once the user has turned it on (its plugin's setting `services.<name>`), never by a\ncommand run once."
+    },
+    "LibrarySource": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "description": "A JSON Schema for its options (an object)."
+        }
+      },
+      "required": [
+        "name",
+        "title"
+      ],
+      "description": "Read with `library/read`, a page at a time, for the host to build a drive from. It's given the\nfolders the user grants it, which takes `fs:read`."
+    },
+    "Theme": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "name",
+        "title",
+        "tokens"
+      ],
+      "description": "`[[contributes.themes]]`: a theme's colours, by the names of [`theme::TOKENS`] as tables (`cues.hot =\n\"#28e214\"`, `ui = { accent = \"#ff8800\" }`), each `#rrggbb` (a gradient, `waveform.*`, a list\nof two or more). What it leaves out is the default's."
     },
     "Setting": {
       "type": "object",
@@ -29937,7 +30963,7 @@
             "columns": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/$defs/Column"
               }
             },
             "rows": {
@@ -29957,7 +30983,7 @@
             "columns",
             "rows"
           ],
-          "description": "Rows of cells (strings, numbers, booleans or `null`) under column headings."
+          "description": "Rows of cells (strings, numbers, booleans or `null`) under column headings: each a name,\nor (feature `views`) a name with what its cells are ([`Column`])."
         },
         {
           "type": "object",
@@ -30021,6 +31047,136 @@
             "kind"
           ],
           "description": "A question for the user (feature `choose`): the host asks it, then runs the command again\nwith what was chosen (see [`Choice`]). It's never drawn."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TreeItem"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "tree"
+            }
+          },
+          "required": [
+            "kind",
+            "items"
+          ],
+          "description": "Items with items below them (feature `views`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style": {
+              "$ref": "#/$defs/ChartStyle"
+            },
+            "series": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Series"
+              }
+            },
+            "x_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "y_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "chart"
+            }
+          },
+          "required": [
+            "kind",
+            "style",
+            "series"
+          ],
+          "description": "Points, each series a line or bars (feature `views`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "blob": {
+              "type": "string",
+              "description": "Its file's name in the scratch folder."
+            },
+            "alt": {
+              "type": "string",
+              "description": "What it shows, in a few words: what a host that can't draw it says instead."
+            },
+            "data": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "The picture as a `data:` URL, filled in by the host once it has read the blob and\nfound an image there (locallibrary's: a PNG, shrunk to a preview): whatever a plugin\nsends here is replaced."
+            },
+            "kind": {
+              "type": "string",
+              "const": "image"
+            }
+          },
+          "required": [
+            "kind",
+            "blob",
+            "alt"
+          ],
+          "description": "A picture (features `views` and `blobs`): a file in the request's scratch folder, which\nthe host reads (see [`crate::Blob`])."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Section"
+              }
+            },
+            "kind": {
+              "type": "string",
+              "const": "sections"
+            }
+          },
+          "required": [
+            "kind",
+            "items"
+          ],
+          "description": "Views one after another, each under a title of its own (feature `views`)."
         }
       ]
     },
@@ -30040,6 +31196,70 @@
       "required": [
         "label"
       ]
+    },
+    "Column": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/TypedColumn"
+        }
+      ],
+      "description": "A table's column: its heading alone (text), or (feature `views`) a heading and what its cells\nare."
+    },
+    "TypedColumn": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ColumnKind",
+          "default": "text"
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "description": "A column and what its cells are."
+    },
+    "ColumnKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "text",
+          "description": "As they are."
+        },
+        {
+          "type": "string",
+          "const": "track",
+          "description": "A track, by id: shown by its artist and title where the host has the drive's library."
+        },
+        {
+          "type": "string",
+          "const": "duration",
+          "description": "Seconds: shown as minutes and seconds (`3:07`)."
+        },
+        {
+          "type": "string",
+          "const": "key",
+          "description": "A key (`8A`, `Am`): shown in Camelot notation where it's one."
+        },
+        {
+          "type": "string",
+          "const": "number",
+          "description": "Numbers, with the column's unit after each."
+        }
+      ],
+      "description": "What a column's cells are, for a host to show them as it shows its own."
     },
     "Pair": {
       "type": "object",
@@ -30101,6 +31321,83 @@
         "title",
         "param",
         "items"
+      ]
+    },
+    "TreeItem": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TreeItem"
+          }
+        }
+      },
+      "required": [
+        "label"
+      ]
+    },
+    "ChartStyle": {
+      "type": "string",
+      "enum": [
+        "line",
+        "bar"
+      ],
+      "description": "How a chart draws its series."
+    },
+    "Series": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "number",
+                "format": "double"
+              },
+              {
+                "type": "number",
+                "format": "double"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "required": [
+        "name",
+        "points"
+      ],
+      "description": "A chart's series: its name and its points, `[x, y]`."
+    },
+    "Section": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "view": {
+          "$ref": "#/$defs/View"
+        }
+      },
+      "required": [
+        "title",
+        "view"
       ]
     },
     "OpPlanned": {
@@ -30270,6 +31567,109 @@
         "bytes"
       ],
       "description": "A file an export writes."
+    },
+    "PluginImport": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "importer": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string",
+          "description": "The file it read."
+        },
+        "tracks": {
+          "$ref": "#/$defs/ImportSummary",
+          "description": "How many of the tracks it read were found on the drive: one track (`found`), several it\ncould be (`ambiguous`) or none (`missing`); only those found are edited."
+        },
+        "plays": {
+          "$ref": "#/$defs/ImportSummary",
+          "description": "The same, of its sessions' plays: those not found are kept as the log names them."
+        },
+        "edits": {
+          "$ref": "#/$defs/EditPlan",
+          "description": "What's added to the tracks found, planned on the drive."
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportedSession"
+          },
+          "description": "The sessions it keeps in the store, as `sessions.list` will list them."
+        }
+      },
+      "required": [
+        "plugin",
+        "importer",
+        "file",
+        "tracks",
+        "plays",
+        "edits",
+        "sessions"
+      ],
+      "description": "An import a plugin read, as the host plans it."
+    },
+    "ImportSummary": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "found": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "ambiguous": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "missing": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "entries",
+        "found",
+        "ambiguous",
+        "missing"
+      ]
+    },
+    "PluginImported": {
+      "type": "object",
+      "properties": {
+        "edits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EditReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The edits' report, when there were any."
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The sessions kept, by id."
+        }
+      },
+      "required": [
+        "edits",
+        "sessions"
+      ],
+      "description": "What an import did."
     },
     "Analyzed": {
       "type": "object",
@@ -30789,9 +32189,12 @@
         },
         {
           "$ref": "#/$defs/WatchAction"
+        },
+        {
+          "$ref": "#/$defs/PluginEvent"
         }
       ],
-      "description": "An `event` notification's parameters: drives and the store (after `events.subscribe`),\nrequests starting and finishing, and what `watch.start` does."
+      "description": "An `event` notification's parameters: drives and the store (after `events.subscribe`),\nrequests starting and finishing, what `watch.start` does, and what plugins tell the user."
     },
     "WatchEvent": {
       "oneOf": [
@@ -31308,6 +32711,68 @@
         }
       ],
       "description": "What watching did about a drive."
+    },
+    "PluginEvent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PluginNotice",
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "plugin.notice"
+            }
+          },
+          "required": [
+            "event"
+          ],
+          "description": "It tells the user something (`host/notify`), and may suggest one of its operations, which\na front end offers to plan (`plugins.op.plan`): never planned or applied unless the user\nchooses to."
+        }
+      ],
+      "description": "What a plugin did."
+    },
+    "Suggested": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "name",
+        "params"
+      ],
+      "description": "One of the plugin's operations, with its params, suggested to the user."
+    },
+    "PluginNotice": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string",
+          "description": "The plugin's id."
+        },
+        "message": {
+          "type": "string"
+        },
+        "operation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Suggested"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "plugin",
+        "message"
+      ],
+      "description": "A line a plugin tells the user (`host/notify`), and the operation of its it suggests, with\nits params: the front end offers to plan it, and the user confirms it as any plan."
     },
     "ErrorData": {
       "type": "object",

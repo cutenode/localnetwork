@@ -1280,6 +1280,7 @@ fn tracks_open_in_the_background() {
         drive: "TEST".into(),
         root,
         analysis: TrackAnalysis::default(),
+        from_plugins: None,
         art: None,
         duration: Duration::from_secs(300),
         phrases: Vec::new(),
@@ -3110,4 +3111,50 @@ fn the_deck_plays_any_analysis(tc: hegel::TestCase) {
             assert!(s.contains("Around the World") && s.contains("BPM"), "the deck at {w}x{h}:\n{s}");
         }
     }
+}
+
+/// What a track's drive lacks of its analysis comes from what a plugin's analyzer kept, read with
+/// the rest in the background, and the deck says so under the track.
+#[test]
+fn a_plugins_analysis_fills_in_what_the_drive_lacks() {
+    let (dir, root) = demo_drive();
+    echo_plugin(dir.path());
+    let heard = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
+                 fields = { grid = \"beats\", wave = \"waveform\" }\n";
+    let manifest = std::fs::read_to_string(dir.path().join("echo.toml")).unwrap();
+    std::fs::write(dir.path().join("echo.toml"), manifest + heard).unwrap();
+    let device = Device::open_export(&root).unwrap();
+    let t = device.library().unwrap().tracks[0].clone();
+    // The drive has no analysis for it: rekordbox's files are gone.
+    let dat = device.path(&paths::key(&t.analyze_path));
+    for ext in ["DAT", "EXT", "2EX"] {
+        std::fs::remove_file(dat.with_extension(ext)).unwrap();
+    }
+    let grid: Vec<Beat> =
+        (0..8).map(|i| Beat { beat_number: i % 4 + 1, bpm: 120.0, time_ms: 500 * u32::from(i) }).collect();
+    let heard = serde_json::json!({
+        "grid": grid,
+        "wave": { "blob": "w.bands", "columns_per_sec": 150.0 },
+        "blobs": { "w.bands": [10, 20, 30, 40, 50, 60] },
+    });
+    std::fs::write(device.path(&paths::key(&t.file_path)), heard.to_string()).unwrap();
+    let store_root = dir.path().join("store");
+    let store = Store::open_or_init(&store_root).unwrap();
+    let plugins = crate::plugins::host().unwrap();
+    plugins.analyze("echo", "heard", &root.display().to_string(), None, &store, &Ctx::silent()).unwrap();
+
+    let info = track_info(&root, &t, None, &store_root);
+    let said = "grid and waveform from echo.heard, not on the drive";
+    assert_eq!(info.from_plugins.as_deref(), Some(said));
+    assert_eq!(info.analysis.beats, grid);
+    let detail = info.analysis.detail.as_ref().unwrap();
+    assert_eq!((detail.style, detail.columns.len()), (anlz::WaveformStyle::ThreeBand, 2));
+    // Another track, which rekordbox analysed, is all the drive's.
+    let other = device.library().unwrap().tracks[1].clone();
+    assert_eq!(track_info(&root, &other, None, &store_root).from_plugins, None);
+
+    let (mut app, _played) = playing(info.analysis);
+    app.now.as_mut().unwrap().from_plugins = info.from_plugins;
+    let s = crate::tui::ui::screen(&mut app, 160, 45);
+    assert!(s.contains(said), "{s}");
 }

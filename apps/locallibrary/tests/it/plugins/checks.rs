@@ -289,6 +289,27 @@ fn a_blocking_guard_stops_cues_a_restore_and_a_contacts_playlist() {
     assert_eq!(applied["error"]["data"]["reason"], "blocked", "{applied}");
 }
 
+/// What an importer read is a plan a guard is asked about too: made blocking, one that finds
+/// something stops the import before it's asked about.
+#[test]
+fn a_blocking_guard_stops_an_import() {
+    let env = env();
+    let tracks = env.json(&["tracks", "USB"]);
+    let list = env.outside("list.txt");
+    std::fs::write(&list, format!("{}\n", tracks["tracks"][0]["file_path"].as_str().unwrap())).unwrap();
+    env.ok(&["--yes", "plugin", "checks", "echo.edits", "--on"]);
+    env.ok(&["--yes", "plugin", "checks", "echo.guard", "--blocking"]);
+    find(&env, json!({ "findings": [{ "level": "warning", "message": "not tonight" }] }));
+    let r = env.run(&["--yes", "import", path(&list), "USB"]);
+    let said = format!("{}{}", r.out, r.err);
+    assert_eq!(r.code, 1, "{said}");
+    assert!(r.err.contains("echo.guard found something about these changes"), "{said}");
+    let counted = "Count a plan's edits: echo.import.lines makes ";
+    assert!(said.contains("Guard: not tonight") && said.contains(counted), "{said}");
+    let again = env.ok(&["import", path(&list), "USB", "--dry-run"]);
+    assert!(again.contains("add My Tag Genre/Echo to 1 track(s)"), "not imported: {again}");
+}
+
 /// The command line a fix runs with escapes the C1 control characters (U+0080 to U+009F) JSON
 /// leaves as they are, which some terminals act on: the same JSON, shown safely.
 #[test]

@@ -439,6 +439,69 @@ fn plugins_fields() {
     check(&mut app, "the search box filtering by a plugin's field", &["/ echo.bytes:>1000", "1 match", "4000"], &[]);
 }
 
+/// What an analyzer says of how its field is shown, in the field's column: its unit, in the
+/// width it gives.
+#[test]
+fn plugins_field_hints() {
+    let Fixture { _dir, mut app, root } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    let file = _dir.path().join("echo.toml");
+    let hinted = std::fs::read_to_string(&file).unwrap().replace(
+        "fields = { bytes = \"integer\" }",
+        "fields = { bytes = \"integer\" }\ndisplay.bytes = { unit = \"B\", width = 12 }",
+    );
+    std::fs::write(&file, hinted).unwrap();
+    let lib = app.loaded.as_ref().unwrap().library.clone();
+    std::fs::write(root.join(lib.tracks[1].file_path.trim_start_matches('/')), "x".repeat(4000)).unwrap();
+    let store = Store::open(&app.store_root).unwrap();
+    let plugins = crate::plugins::host().unwrap();
+    plugins.analyze("echo", "size", &root.display().to_string(), None, &store, &Ctx::silent()).unwrap();
+    app.focus = Focus::Tracks;
+    for c in ":show the echo.bytes column".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    wait(&mut app, |a| a.loaded.as_ref().unwrap().values().is_some());
+    check(&mut app, "a plugin's column, as its analyzer says it's shown", &["echo.bytes", "4000 B"], &[]);
+}
+
+/// A plugin's theme, chosen in the palette: drawn in from then on (the default's colours gone),
+/// and kept for next time; the default again the same way.
+#[test]
+fn plugins_themes() {
+    let Fixture { _dir, mut app, .. } = fixture();
+    super::app::testing::echo_plugin(_dir.path());
+    app.focus = Focus::Tracks;
+    for c in ":theme".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    check(&mut app, "the themes in the palette", &["Night theme", "Echo", "default theme"], &[]);
+    let colours = |app: &mut App| {
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 45)).unwrap();
+        terminal.draw(|f| super::ui::draw(f, app)).unwrap();
+        terminal.backend().buffer().content.iter().map(|c| c.fg).collect::<Vec<_>>()
+    };
+    let (night, accent) =
+        (super::theme::rgb(255, 136, 0), super::theme::rgb3(locallibrary::theme::Theme::DEFAULT.accent));
+    key(&mut app, KeyCode::Esc);
+    for c in ":night theme".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(super::theme::chosen(), Some("echo.night"));
+    check(&mut app, "drawn in a plugin's theme", &["drawn in the Night theme"], &[]);
+    let drawn = colours(&mut app);
+    assert!(drawn.contains(&night) && !drawn.contains(&accent), "the theme's accent, not the default's");
+    assert_eq!(app.saved_state().theme.as_deref(), Some("echo.night"));
+    for c in ":default theme".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    let drawn = colours(&mut app);
+    assert!(drawn.contains(&accent) && !drawn.contains(&night));
+    assert_eq!((super::theme::chosen(), app.saved_state().theme), (None, None));
+}
+
 /// A plugin's settings in a form, as set now, from the palette.
 #[test]
 fn plugins_settings() {

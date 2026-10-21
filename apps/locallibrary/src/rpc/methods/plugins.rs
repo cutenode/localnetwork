@@ -2,13 +2,17 @@
 //! (see loclib-plugin's `hooks`), registered from a module of its own. Their plans are kept apart
 //! from locallibrary's own (see [`super::super::Plans::plugins`]).
 
+mod analysis;
 mod analyzers;
 mod checks;
 mod commands;
 mod exporters;
+mod importers;
 mod operations;
+mod panels;
 mod providers;
 mod roles;
+mod sources;
 
 use loclib_plugin::Context;
 use schemars::JsonSchema;
@@ -36,11 +40,14 @@ struct PluginContext {
     /// The tracks they chose, by id.
     #[serde(default)]
     tracks: Vec<u32>,
+    /// The set they're on, by id (`sets.list`).
+    #[serde(default)]
+    set: Option<String>,
 }
 
 impl From<PluginContext> for Context {
     fn from(c: PluginContext) -> Context {
-        Context { drive: c.drive, playlist: c.playlist, tracks: c.tracks, ..Context::default() }
+        Context { drive: c.drive, playlist: c.playlist, tracks: c.tracks, set: c.set, ..Context::default() }
     }
 }
 
@@ -49,7 +56,8 @@ struct SetPluginSetting {
     plugin: String,
     key: String,
     /// Of the setting's type (a secret's, text: kept in the system's keychain and never
-    /// answered); `null` (or left out) puts it back to its default, or forgets a secret.
+    /// answered; a service's switch, `services.<name>`, true or false); `null` (or left out)
+    /// puts it back to its default, or forgets a secret.
     #[serde(default)]
     value: Option<Value>,
 }
@@ -74,17 +82,25 @@ pub(super) fn register(r: &mut Registry) {
     r.immediate("plugins.settings.set", |c, req: SetPluginSetting| {
         let store = c.store()?;
         let settings = host()?.set_setting(&req.plugin, &store, &req.key, req.value.filter(|v| !v.is_null()))?;
+        // A service turned on starts now, one turned off stops.
+        if req.key.starts_with(locallibrary::plugin::SERVICES) {
+            host()?.run_services(Some(&store));
+        }
         let secrets = Secrets::of(host()?, &req.plugin, Some(&store))?;
         Ok(Settings { plugin: req.plugin, settings, secrets })
     })
     .keeps_cache();
     // Each family's, in the order the contract lists them (a family's placed as loclib-plugin's
     // `hooks` says).
+    analysis::register(r);
     commands::register(r);
     operations::register(r);
+    panels::register(r);
     exporters::register(r);
+    importers::register(r);
     analyzers::register(r);
     checks::register(r);
     providers::register(r);
     roles::register(r);
+    sources::register(r);
 }

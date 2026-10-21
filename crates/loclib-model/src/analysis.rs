@@ -67,6 +67,62 @@ pub enum WaveformStyle {
     Blue,
     /// Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`).
     Rgb,
+    /// Lows, mids and highs drawn over one another, the CDJ-3000's (`PWV6`, `PWV7`), and what
+    /// analyzer plugins give ([`Bands`]).
+    ThreeBand,
+}
+
+/// A waveform as loudness in three bands, each column's lows, mids and highs, 0-255: what an
+/// analyzer plugin works out, and what every kind of rekordbox waveform can be made from.
+/// Packed (a plugin's blob) it's three bytes a column in that order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Bands(pub Vec<[u8; 3]>);
+
+impl Bands {
+    pub fn pack(&self) -> Vec<u8> {
+        self.0.concat()
+    }
+
+    /// Packed bytes as columns, if they're whole ones.
+    pub fn unpack(bytes: &[u8]) -> Option<Bands> {
+        bytes.len().is_multiple_of(3).then(|| Bands(bytes.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect()))
+    }
+
+    /// `n` columns spanning the same time (a preview's), each band the loudest of the columns
+    /// it covers. None makes silent ones; more than there are repeats them.
+    pub fn pooled(&self, n: usize) -> Bands {
+        let len = self.0.len();
+        if len == 0 {
+            return Bands(vec![[0; 3]; n]);
+        }
+        let column = |i: usize| {
+            let from = i * len / n;
+            let to = ((i + 1) * len).div_ceil(n).clamp(from + 1, len);
+            self.0[from..to].iter().fold([0u8; 3], |m, c| [m[0].max(c[0]), m[1].max(c[1]), m[2].max(c[2])])
+        };
+        Bands((0..n).map(column).collect())
+    }
+
+    /// As drawn: each column's two tallest bands, scaled as [`crate::tokens::bands::SCALES`]
+    /// says, in their colours, the tallest at the back (a column draws two layers).
+    pub fn waveform(&self, columns_per_sec: Option<f64>) -> Waveform {
+        use crate::tokens::bands::{HIGH, LOW, MID, SCALES};
+        let colors = [LOW, MID, HIGH];
+        let columns = self
+            .0
+            .iter()
+            .map(|c| {
+                let mut layers: [WaveLayer; 3] = std::array::from_fn(|i| WaveLayer {
+                    height: f32::from(c[i]) / 255.0 * SCALES[i],
+                    color: colors[i],
+                });
+                // Stable: of two alike, the lower band stays behind.
+                layers.sort_by(|a, b| b.height.total_cmp(&a.height));
+                WaveColumn { back: layers[0], front: layers[1] }
+            })
+            .collect();
+        Waveform { style: WaveformStyle::ThreeBand, columns_per_sec, columns }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

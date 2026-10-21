@@ -10,15 +10,24 @@
 //! question `ask` (a `Choice`) until they're given its param (or, `ask_again`, always), the
 //! command then answering that param as text; both first write the `blobs` (by name, their
 //! bytes), `hard_links` and (on Unix) `links` they're given to the scratch folder; a provider
-//! other than echo's answers as its `answer` setting says (see `Test::provide`), and a check or a
-//! guard as its `findings` setting does (see `checked`); an analyzer
-//! named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming an
-//! empty audio file; and its exporter names the playlists it's
-//! given in a note, and would write to `outside`, or writes `extra` too without saying so first.
+//! other than echo's answers as its `answer` setting says (see `Test::provide`), a panel other
+//! than echo's as its `panel` setting does (see `Test::render_panel`), and a check or a guard as
+//! its `findings` setting does (see `checked`); a command given a `view` answers it as it is (once
+//! its `blobs` are written); an analyzer named `heard` answers the fields written in the audio file
+//! as JSON (beat grids, phrases and waveforms too, writing the files its `blobs` give first), and
+//! one named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming
+//! an empty audio file; its exporter names the playlists it's given in a note, and would write to
+//! `outside`, or writes `extra` too without saying so first, and given a set or a mix writes its
+//! tracklist; its importer answers a JSON file as it is (in a blob with the `blob` option); it logs
+//! each event it's told of and tells the user it heard it, suggesting echo's `playlist` (or tells
+//! them what its payload's `tell` says); and its services run as their names say (see
+//! `plugin::serve_service`). Any library source reads the files in the folders it's granted, and
+//! what `.json` files beside them say (see `plugin::read_library`).
 //! `--manifest <file>` serves another manifest, `--protocol <version>` answers `hello` with
-//! another protocol and stops, `--silent` never answers, `--wrong-fields` answers fields of the
-//! wrong type, and `--without <feature>` leaves out that feature's hooks, and the feature from
-//! its `hello` (the SDK's own too).
+//! another protocol and stops, `--silent` never answers, `--paused <file>` logs `paused` and
+//! serves only once `<file>` is there, `--wrong-fields` answers fields of the wrong type, and
+//! `--without <feature>` leaves out that feature's hooks, and the feature from its `hello` (the
+//! SDK's own too).
 
 mod plugin;
 
@@ -30,6 +39,7 @@ use serde_json::{Value, json};
 
 fn main() {
     let (mut manifest, mut wrong_fields, mut without) = (echo::MANIFEST.to_string(), false, Vec::new());
+    let mut paused = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         let mut value = || args.next().expect("a value");
@@ -37,9 +47,16 @@ fn main() {
             "--manifest" => manifest = std::fs::read_to_string(value()).unwrap(),
             "--protocol" => return hello(&value()),
             "--silent" => return std::io::stdin().lines().for_each(drop),
+            "--paused" => paused = Some(value()),
             "--wrong-fields" => wrong_fields = true,
             "--without" => without.push(value()),
             other => panic!("unknown argument {other}"),
+        }
+    }
+    if let Some(file) = paused {
+        eprintln!("paused");
+        while !std::path::Path::new(&file).exists() {
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
     let hooks = Test { wrong_fields }.hooks(&without);

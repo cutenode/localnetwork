@@ -13,6 +13,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::common::{apply, replay};
+use locallibrary::cue_edit::{CueChange, CuePosition, SetCue};
 use locallibrary::device::{Device, LineageOp};
 use locallibrary::edit::{self, Edit, EditOptions, TrackFields};
 use locallibrary::model::TrackColor;
@@ -457,6 +458,28 @@ fn the_journal_has_a_version() {
     assert!(err.contains("written by a newer locallibrary"), "{err}");
     assert!(common::changed_files(&files, &common::drive_files(&root)).is_empty());
     assert_eq!(fs::read_to_string(&file).unwrap(), newer);
+}
+
+/// A journal is written at the lowest version its edits need: a track detail 3 added makes it 3,
+/// and a cue edit setting several makes it 4 (as an analysis edit does, see `analysis_edit`), so
+/// a build that reads 3 keeps editing the drive until an edit needs 4.
+#[test]
+fn the_journal_is_written_at_the_version_its_edits_need() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = common::demo_drive(dir.path(), "Main");
+    let version = || {
+        let file = Device::open_export(&root).unwrap().state_dir().join("edits.json");
+        serde_json::from_slice::<serde_json::Value>(&fs::read(file).unwrap()).unwrap()["version"].clone()
+    };
+    let track = pdb_library(&root).tracks[0].clone();
+    let bpm = TrackFields { bpm: Some(track.bpm + 1.0), ..Default::default() };
+    apply(&root, &[Edit::EditTracks { tracks: ids(&[track.id]), fields: bpm }]);
+    assert_eq!(version(), 3);
+    let at =
+        |ms| SetCue { hot_cue: None, at: CuePosition::Ms(ms), snap: false, loop_beats: None, name: None, color: None };
+    let change = CueChange::SetMany(vec![at(1_000), at(2_000)]);
+    apply(&root, &[Edit::Cues { tracks: vec![track.file_path.clone()], change }]);
+    assert_eq!(version(), 4);
 }
 
 #[test]
