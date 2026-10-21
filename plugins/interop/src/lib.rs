@@ -10,7 +10,7 @@
 //! (`location_root`).
 
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use loclib_interop::{Error, Export, Software, Source, engine, serato, traktor};
 use loclib_model::analysis::TrackAnalysis;
@@ -168,10 +168,25 @@ fn missing_audio(source: &Source<'_>) -> Option<String> {
 }
 
 /// `path` (absolute) with its symlinks resolved as far as it's there, so two paths compare, and
-/// relative paths between them lead where they say.
+/// relative paths between them lead where they say. Part by part, as locallibrary's own
+/// `fsutil::resolved`: a `..` takes away a real folder (out of a link's target), or, past what's
+/// there, the name before it (Windows folds `..` by name itself, in `std::path::absolute`).
 fn resolved(path: &Path) -> PathBuf {
-    let found = path.ancestors().find_map(|a| Some((dunce::canonicalize(a).ok()?, path.strip_prefix(a).ok()?)));
-    found.map_or_else(|| path.to_path_buf(), |(there, rest)| there.join(rest))
+    let mut out = PathBuf::new();
+    for c in std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            Component::Normal(_) => {
+                out.push(c);
+                out = dunce::canonicalize(&out).unwrap_or(out);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// What can't be done as asked, as locallibrary's `invalid` error.
