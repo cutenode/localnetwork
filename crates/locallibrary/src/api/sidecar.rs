@@ -305,7 +305,7 @@ pub enum StepTag {
 }
 
 /// An `event` notification's parameters: drives and the store (after `events.subscribe`),
-/// requests starting and finishing, and what `watch.start` does.
+/// requests starting and finishing, what `watch.start` does, and what plugins tell the user.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged)]
 #[non_exhaustive]
@@ -313,6 +313,19 @@ pub enum Notice {
     Watch(WatchEvent),
     Job(JobEvent),
     Watched(WatchAction),
+    Plugin(PluginEvent),
+}
+
+/// What a plugin did.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(tag = "event")]
+#[non_exhaustive]
+pub enum PluginEvent {
+    /// It tells the user something (`host/notify`), and may suggest one of its operations, which
+    /// a front end offers to plan (`plugins.op.plan`): never planned or applied unless the user
+    /// chooses to.
+    #[serde(rename = "plugin.notice")]
+    Notice(crate::plugin::PluginNotice),
 }
 
 /// A request starting or finishing.

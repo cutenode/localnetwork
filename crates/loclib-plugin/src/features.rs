@@ -11,8 +11,8 @@ use crate::{Manifest, hooks, method};
 pub struct Feature {
     /// As `hello` names it: its family of hooks (`commands`).
     pub name: &'static str,
-    /// The host's methods a plugin with it answers. A feature with none is the SDK's own: what
-    /// a plugin may send the host, which every plugin written with it has.
+    /// The host's methods (and notifications) a plugin with it handles. A feature with none is
+    /// the SDK's own: what a plugin may send the host, which every plugin written with it has.
     pub methods: &'static [&'static str],
     /// The requests and notifications a plugin with it may send the host.
     pub sends: &'static [&'static str],
@@ -24,10 +24,12 @@ pub struct Feature {
 /// `crate::hooks` says).
 pub const FEATURES: &[Feature] = &[
     hooks::commands::FEATURE,
+    hooks::events::FEATURE,
     hooks::operations::FEATURE,
     hooks::analyzers::FEATURE,
     hooks::exporters::FEATURE,
     hooks::providers::FEATURE,
+    hooks::services::FEATURE,
     // Every hook's `context.scratch`, `{"blob": name}` in answers, and a view's rows in parts.
     Feature { name: "blobs", methods: &[], sends: &[method::PARTIAL], contributed: |_| false },
     Feature { name: "net", methods: &[], sends: &[method::NET_FETCH], contributed: |m| !m.net.is_empty() },

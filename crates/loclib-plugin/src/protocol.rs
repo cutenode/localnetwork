@@ -20,9 +20,11 @@ pub const PROTOCOL_VERSION: &str = "0.2.0";
 pub mod method {
     pub use crate::hooks::analyzers::ANALYZE_TRACK;
     pub use crate::hooks::commands::RUN_COMMAND;
+    pub use crate::hooks::events::{EVENT_NOTIFY, HOST_NOTIFY};
     pub use crate::hooks::exporters::WRITE_EXPORT;
     pub use crate::hooks::operations::PLAN_OP;
     pub use crate::hooks::providers::PROVIDE;
+    pub use crate::hooks::services::SERVICE_START;
 
     /// Host to plugin, first: [`super::Hello`] -> [`super::HelloReply`].
     pub const HELLO: &str = "hello";

@@ -238,7 +238,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   An analyzer's fields may have roles (a track's key, tempo, loudness...), which doctor, `check` and
   `playlist order` read from the analyzer `plugin roles` chooses (the sound plugin's unless another
   has them), and `analyze --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`,
-  `plugins.roles.set` and `plugins.apply_fields.plan/apply`. In the player, plugins' commands,
+  `plugins.roles.set` and `plugins.apply_fields.plan/apply`. Plugins may listen for drives
+  plugged in, unplugged, changed, pulled and back from a set, the sidecar's requests finishing and
+  plans applied (capabilities `events:drives`, `events:jobs`, `events:plans`), told by the player,
+  the sidecar, `watch` and any command applying a plan, through a bounded queue for each plugin
+  that never holds them up; and run services, turned on with `plugin settings ID services.NAME on`
+  and run by the player, the sidecar and `watch` (never a command run once), started again when
+  they fail and left off after five failures in a row. What a plugin tells you back is a message
+  in the player (its suggested operation reviewed from the palette, planned and confirmed as any,
+  or dismissed, and kept until it is), a `plugin.notice` event in the sidecar and a line of
+  `watch`, which keeps the suggestion for the player. In the player, plugins' commands,
   operations and export formats are in the palette, and commands and operations in the menus their
   manifests name (`where`: the actions menu for the tracks selected or a playlist, a drive's menu),
   asking for their params or options in a form drawn from their schemas, a param from the selection
@@ -561,6 +570,8 @@ their old names.
 
 ### Fixed
 
+- A release date given to an edit has to be written out in full (`2019-05-01`): `2019-05-1`
+  was taken, and the Traktor export left it out.
 - On Windows, an edit, sync or other write no longer fails ("Access is denied") when the drive
   watcher of the TUI, the sidecar or `watch` looks at the drive at the same moment.
 - A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.

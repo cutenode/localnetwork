@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
+use indexmap::IndexMap;
 use loclib_plugin::framing::{Line, read_line};
 use loclib_plugin::{
     Cancel, Context, FEATURES, Hello, HelloReply, HostInfo, Manifest, PROTOCOL_VERSION, Partial, Peer, ProgressReport,
@@ -19,6 +20,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::blobs::{Scratch, Scratches};
+use super::events::Queue;
+use super::services::Running;
 use super::{Launch, Options, Reads, callbacks, net};
 use crate::device::Device;
 use crate::error::IoContext;
@@ -59,14 +62,18 @@ pub(crate) struct Plugin {
     pub(crate) net: Arc<net::State>,
 }
 
-/// One plugin, and its process while it runs. Only the host and the hooks under way hold it; a
-/// plan kept, the plugin's callbacks and the idle reaper never do: once the host lets go of it,
-/// a plan kept is stale.
+/// One plugin, and its process while it runs. Only the host and the hooks under way (an event
+/// being sent and a service running too) hold it; a plan kept, the plugin's callbacks and the
+/// idle reaper never do: once the host lets go of it, a plan kept is stale.
 pub(crate) struct Slot {
     pub(crate) plugin: Arc<Plugin>,
     launch: Launch,
     /// What the idle reaper holds instead, while it stops the process.
     hosting: Arc<Hosting>,
+    /// Its events waiting to be sent.
+    pub(crate) events: Arc<Queue>,
+    /// Its services running, by name.
+    pub(crate) services: Mutex<IndexMap<String, Running>>,
 }
 
 /// A slot's process, and its starting and stopping.
@@ -227,7 +234,7 @@ fn process_elevated() -> bool {
 
 /// `line` without terminal escape sequences or other control characters (but tabs), which would
 /// draw on a terminal UI's screen.
-fn printable(line: &str) -> String {
+pub(crate) fn printable(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
     while let Some(c) = chars.next() {
@@ -259,7 +266,7 @@ fn printable(line: &str) -> String {
 impl Slot {
     pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
         let plugin = Arc::new(Plugin { manifest, host, net: Arc::default() });
-        Slot { plugin, launch, hosting: Arc::default() }
+        Slot { plugin, launch, hosting: Arc::default(), events: Arc::default(), services: Mutex::default() }
     }
 
     /// How errors name it: "the Echo plugin".
@@ -519,6 +526,23 @@ impl Slot {
                 return Err(Error::Cancelled);
             }
         }
+    }
+
+    /// Sends the plugin the notification `method`, if it has the feature `feature`, starting it
+    /// (in `store`) if it isn't running: it's been used then, for the idle reaper.
+    pub(crate) fn notify(
+        self: &Arc<Self>,
+        feature: &str,
+        method: &str,
+        params: &impl Serialize,
+        store: Option<&Store>,
+    ) -> Result<()> {
+        let p = self.start(store)?;
+        if p.live.has(feature) {
+            let _busy = Busy::new(&p);
+            p.peer.notify(method, params);
+        }
+        Ok(())
     }
 
     /// Kills the process: a request it was asked to cancel wasn't answered within its grace.

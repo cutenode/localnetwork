@@ -140,7 +140,8 @@ impl Drop for Quota {
 /// Answers the plugin's callbacks until its output closes, each on a thread of its own, a few
 /// at a time. Every one is answered, one whose read panics too, and one that comes once the host
 /// has let go of its `slot` (which stops it). Nothing here keeps the plugin hosted: a callback
-/// holds the [`Plugin`], never its slot.
+/// holds the [`Plugin`], never its slot. Its notifications are handled here, in order (see
+/// [`Plugin::notified`]).
 pub(crate) fn answer(
     slot: &Weak<Slot>,
     plugin: &Arc<Plugin>,
@@ -149,12 +150,18 @@ pub(crate) fn answer(
     incoming: Receiver<Incoming>,
 ) {
     let busy = Arc::new(AtomicUsize::new(0));
-    // Progress about a request nobody waits for any more is dropped.
-    for req in incoming.into_iter().filter_map(|m| match m {
-        Incoming::Request(req) => Some(req),
-        Incoming::Notification { .. } => None,
-    }) {
-        if slot.strong_count() == 0 {
+    for msg in incoming {
+        let hosted = slot.strong_count() > 0;
+        let req = match msg {
+            Incoming::Request(req) => req,
+            Incoming::Notification { method, params } => {
+                if hosted {
+                    plugin.notified(live, &method, params);
+                }
+                continue;
+            }
+        };
+        if !hosted {
             peer.respond(&req.id, Err(RpcError::closed()));
             continue;
         }
@@ -237,7 +244,7 @@ const MOUNTS: [&str; 2] = ["root", "last_mount"];
 /// without a drive's mount point ([`MOUNTS`]) or the place of a file outside any drive (a store
 /// copy's, a set's recording, rekordbox's collection), and with any other path under one of
 /// `roots` said from there (see [`known_roots`]), as errors' are.
-fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
+pub(crate) fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
     // Each key, at any depth, in an object that's the value of the first key when one is given.
     let places: &[(Option<&str>, &str)] = match method {
         "store.copies" => &[(None, "path"), (None, "from")],

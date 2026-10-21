@@ -1006,6 +1006,7 @@ fn isrc_model(s: &str) -> bool {
 #[hegel::test(test_cases = 300)]
 #[hegel::explicit_test_case(bpm = Some(999.994f64), isrc = Some("GB1A30000059".to_string()), date = Some("2019-05-01".to_string()), album = None::<String>, album_artist = None::<String>, ids = vec![1u32, 2])]
 #[hegel::explicit_test_case(bpm = None::<f64>, isrc = None::<String>, date = Some("2019-02-29".to_string()), album = None::<String>, album_artist = None::<String>, ids = vec![1u32, 2])]
+#[hegel::explicit_test_case(bpm = None::<f64>, isrc = None::<String>, date = Some("0000-01-1".to_string()), album = None::<String>, album_artist = None::<String>, ids = vec![1u32])]
 #[hegel::explicit_test_case(bpm = None::<f64>, isrc = Some("GBDUW000005".to_string()), date = None::<String>, album = None::<String>, album_artist = None::<String>, ids = vec![1u32, 2])]
 #[hegel::explicit_test_case(bpm = None::<f64>, isrc = None::<String>, date = None::<String>, album = Some(" ".to_string()), album_artist = Some("Bicep".to_string()), ids = vec![2u32])]
 fn track_edits_take_only_tempos_codes_dates_and_album_artists_there_are(tc: hegel::TestCase) {
