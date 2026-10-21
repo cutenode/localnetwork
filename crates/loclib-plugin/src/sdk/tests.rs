@@ -12,9 +12,10 @@ use serde_json::json;
 use super::*;
 use crate::{
     Analysis, AnalyzeTrack, Blob, Candidate, Candidates, CheckFinding, DestinationKind, Exported, ExportedFile,
-    FieldValue, Finding, Findings, Fix, HasBlobs, ImportAnswer, Imported, ImportedTrack, Level, LibraryPage, Missing,
-    OpAnswer, OpPlan, Pair, Pending, PlanCheck, PlanOp, ProvideCandidates, PublishSet, Published, ReadImport,
-    ReadLibrary, RenderPanel, RunCheck, RunCommand, SourceTrack, TrackMatch, View, When, WriteExport, code,
+    FieldValue, Finding, Findings, Fix, GetBlob, GetManifest, Got, GotManifest, HasBlobs, ImportAnswer, Imported,
+    ImportedTrack, Kept, Level, LibraryPage, Missing, OpAnswer, OpPlan, Pair, Pending, PlanCheck, PlanOp,
+    ProvideCandidates, PublishSet, Published, PutBlob, PutManifest, ReadImport, ReadLibrary, RenderPanel, RunCheck,
+    RunCommand, SourceTrack, TrackMatch, View, When, WriteExport, code,
 };
 
 #[path = "../../examples/echo/plugin.rs"]
@@ -583,7 +584,7 @@ fn closing_the_input_cancels_running_hooks() {
 // Properties.
 
 /// The hooks a request names, and what each declares its contributions by.
-const HOOKS: [(&str, &str); 11] = [
+const HOOKS: [(&str, &str); 15] = [
     (method::RUN_COMMAND, "command"),
     (method::ANALYZE_TRACK, "analyzer"),
     (method::WRITE_EXPORT, "exporter"),
@@ -595,6 +596,10 @@ const HOOKS: [(&str, &str); 11] = [
     (method::PLAN_CHECK, "guard"),
     (method::BLOBS_HAS, "destination"),
     (method::SET_PUBLISH, "destination"),
+    (method::BLOBS_PUT, "destination"),
+    (method::BLOBS_GET, "destination"),
+    (method::MANIFEST_PUT, "destination"),
+    (method::MANIFEST_GET, "destination"),
 ];
 
 /// A version the host might speak: mostly 0.x and 1.x, sometimes not a version at all.
@@ -756,6 +761,7 @@ fn answers() -> Hooks {
         Ok(Candidates { candidates: found.collect(), warnings: Vec::new() })
     };
     let has_blobs = |req: HasBlobs, _: &Host| Ok(Missing { missing: req.hashes });
+    let get_blob = |req: GetBlob, _: &Host| Ok(Got { blob: Blob { blob: req.hash } });
     let publish_set = |req: PublishSet, _: &Host| Ok(Published { url: Some(req.set.id), warnings: Vec::new() });
     // A track found by the file's name, its importer's name a tag.
     let read_import = |req: ReadImport, _: &Host| {
@@ -783,6 +789,10 @@ fn answers() -> Hooks {
         .on(plan_check)
         .on(has_blobs)
         .on(publish_set)
+        .on(|_: PutBlob, _: &Host| Ok(Kept {}))
+        .on(get_blob)
+        .on(|_: PutManifest, _: &Host| Ok(Kept {}))
+        .on(|_: GetManifest, _: &Host| Ok(GotManifest::default()))
 }
 
 /// Hooks that panic, every one.
@@ -794,7 +804,9 @@ fn panics_everywhere() -> Hooks {
     let hooks = hooks.on(bug::<WriteExport, Exported>).on(bug::<PlanOp, OpAnswer>);
     let hooks = hooks.on(bug::<ProvideCandidates, Candidates>).on(bug::<RenderPanel, View>);
     let hooks = hooks.on(bug::<ReadImport, ImportAnswer>).on(bug::<RunCheck, Findings>).on(bug::<PlanCheck, Findings>);
-    hooks.on(bug::<HasBlobs, Missing>).on(bug::<PublishSet, Published>)
+    let hooks = hooks.on(bug::<HasBlobs, Missing>).on(bug::<PublishSet, Published>);
+    let hooks = hooks.on(bug::<PutBlob, Kept>).on(bug::<GetBlob, Got>);
+    hooks.on(bug::<PutManifest, Kept>).on(bug::<GetManifest, GotManifest>)
 }
 
 /// Any hooks, run at once: one the plugin doesn't implement isn't found, whatever its params. The
@@ -816,7 +828,7 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
     let destinations: Vec<String> = c.destinations.iter().map(|x| x.name.clone()).collect();
     let of_kind = |kind| c.destinations.iter().find(|x| x.kind == kind).map(|x| x.name.clone()).unwrap();
     let (store, set) = (of_kind(DestinationKind::Store), of_kind(DestinationKind::Set));
-    let declared: [Vec<String>; 11] = [
+    let declared: [Vec<String>; 15] = [
         c.commands.iter().filter(|x| !["steps", "titles"].contains(&x.name.as_str())).map(|x| x.name.clone()).collect(),
         c.analyzers.iter().map(|x| x.name.clone()).collect(),
         c.exporters.iter().map(|x| x.format.clone()).collect(),
@@ -826,6 +838,10 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
         c.importers.iter().map(|x| x.format.clone()).collect(),
         run_when(When::Check),
         run_when(When::Apply),
+        destinations.clone(),
+        destinations.clone(),
+        destinations.clone(),
+        destinations.clone(),
         destinations.clone(),
         destinations,
     ];
@@ -879,11 +895,18 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 let hash = format!("{id:064x}");
                 (json!({ "destination": name, "hashes": [hash] }), json!({ "missing": [hash] }))
             }
-            _ => {
+            10 => {
                 let set = json!({ "id": format!("set{id}"), "date": "2026-10-03" });
                 let req = json!({ "destination": name, "set": set, "recording": output, "tracklist": [{}] });
                 (req, json!({ "url": format!("set{id}") }))
             }
+            11 => (json!({ "destination": name, "hash": format!("{id:064x}"), "path": output }), json!({})),
+            12 => {
+                let hash = format!("{id:064x}");
+                (json!({ "destination": name, "hash": hash }), json!({ "blob": { "blob": hash } }))
+            }
+            13 => (json!({ "destination": name, "name": "libraries.json", "blob": { "blob": "record" } }), json!({})),
+            _ => (json!({ "destination": name, "name": "libraries.json" }), json!({})),
         };
         // Params that don't read, and where `invalid_params` says they're wrong.
         let (params, path) = match tc.draw(gs::weighted_booleans(0.25)) {
@@ -899,14 +922,18 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 7 => (json!({ "check": name, "context": { "tracks": "all" } }), Some("context.tracks")),
                 8 => (json!({ "check": name, "operation": "edit", "edits": {} }), Some("edits")),
                 9 => (json!({ "destination": name, "hashes": "all" }), Some("hashes")),
-                _ => (json!({ "destination": name, "set": { "id": 5 }, "recording": output }), Some("set.id")),
+                10 => (json!({ "destination": name, "set": { "id": 5 }, "recording": output }), Some("set.id")),
+                11 => (json!({ "destination": name, "hash": "ab", "path": 5 }), Some("path")),
+                12 => (json!({ "destination": name, "hash": 5 }), Some("hash")),
+                13 => (json!({ "destination": name, "name": "x", "blob": "record" }), Some("blob")),
+                _ => (json!({ "destination": name, "name": [] }), Some("name")),
             },
         };
         let pending = s.host.send_request(method, &params).unwrap();
         let is_declared = declared[hook].contains(&name);
         // A destination of the other kind.
         let other_kind = match hook {
-            9 => (name == set).then_some("store"),
+            9 | 11.. => (name == set).then_some("store"),
             10 => (name == store).then_some("set"),
             _ => None,
         };

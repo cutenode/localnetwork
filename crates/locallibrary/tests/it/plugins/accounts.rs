@@ -23,6 +23,8 @@ struct Service {
     rotates: bool,
     /// An error the token endpoint answers instead (`invalid_grant`), with its description.
     refuses: Option<(String, String)>,
+    /// The token endpoint answers what can't be read as tokens instead.
+    garbles: bool,
     challenge: String,
     issued: usize,
 }
@@ -46,6 +48,9 @@ fn service(state: Arc<Mutex<Service>>) -> Server {
                 let f = form(got);
                 if let Some((error, description)) = &s.refuses {
                     return json_reply(400, json!({ "error": error, "error_description": description }));
+                }
+                if s.garbles {
+                    return json_reply(200, json!({ "token_type": "bearer" }));
                 }
                 let pkce_holds = |v: &String| {
                     PkceCodeChallenge::from_code_verifier_sha256(&PkceCodeVerifier::new(v.clone())).as_str()
@@ -405,4 +410,134 @@ fn a_token_goes_only_where_the_account_is_named(tc: TestCase) {
     let tokens: Vec<String> = (1..=current).flat_map(|n| [format!("at-{n}"), format!("rt-{n}")]).collect();
     let seen = f.seen(&answers.iter().collect::<Vec<_>>());
     assert!(tokens.iter().all(|t| !seen.contains(t.as_str())), "a token is out where it may not be");
+}
+
+/// A step of [`an_account_is_signed_in_exactly_when_its_last_sign_in_finished`].
+#[derive(Debug, Clone, Copy)]
+enum Signing {
+    /// Signed in, the browser coming back to this computer.
+    Browser,
+    /// Signed in with the address the browser ended up on, pasted.
+    Pasted,
+    /// An address from another sign-in pasted.
+    Foreign,
+    /// The user declined in the browser.
+    Declined,
+    /// The service refuses the code.
+    Refused,
+    /// The service answers what can't be read.
+    Garbled,
+    /// A sign-in begun, then cancelled.
+    Cancelled,
+    SignOut,
+}
+
+/// For any order of sign-ins (finished in the browser or pasted, declined, from another sign-in,
+/// refused or misanswered by the service, cancelled) and sign-outs, of an account whose service
+/// can revoke tokens or not: the account is signed in exactly when a sign-in finished since it was
+/// last signed out, each failed one saying why and keeping what was there; signing out says
+/// whether it was signed in and whether the service was told (exactly when it was signed in and
+/// can be), and a sign-in is finished or cancelled once. Listing the plugin's accounts says what
+/// asking for the one does, and no token gets into the plugin's log, the answers or the store but
+/// its secrets.
+#[hegel::test(test_cases = 8, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn an_account_is_signed_in_exactly_when_its_last_sign_in_finished(tc: TestCase) {
+    let state = Arc::new(Mutex::new(Service { expires_in: Some(3600), ..Service::default() }));
+    let server = service(state.clone());
+    let revokes = tc.draw(gs::booleans());
+    let mut manifest = with_account(&server.url);
+    if !revokes {
+        manifest = manifest.replace(&format!("revoke_url = \"{}/revoke\"\n", server.url), "");
+    }
+    let f = fixture(&manifest, &[], Options::default());
+    let steps = tc.draw(
+        gs::vecs(gs::sampled_from(vec![
+            Signing::Browser,
+            Signing::Pasted,
+            Signing::Foreign,
+            Signing::Declined,
+            Signing::Refused,
+            Signing::Garbled,
+            Signing::Cancelled,
+            Signing::SignOut,
+        ]))
+        .max_size(6),
+    );
+    let mut signed_in = false;
+    let mut answers = Vec::new();
+    for (i, step) in steps.into_iter().enumerate() {
+        let failed = match step {
+            Signing::Browser => {
+                answers.push(shown(&f.sign_in(&state).unwrap()));
+                signed_in = true;
+                None
+            }
+            Signing::Pasted => {
+                let start = f.plugins.begin_sign_in("echo", "main", &f.store).unwrap();
+                state.lock().unwrap().challenge = opened(&start)["code_challenge"].clone();
+                let pasted = format!("{}?code=c0de&state={}", start.redirect_uri, opened(&start)["state"]);
+                answers.push(shown(&f.plugins.finish_sign_in_with_url(&start.id, &pasted).unwrap()));
+                assert!(!f.plugins.cancel_sign_in(&start.id), "step {i}: a sign-in finished is over");
+                signed_in = true;
+                None
+            }
+            Signing::Foreign => {
+                let start = f.plugins.begin_sign_in("echo", "main", &f.store).unwrap();
+                let foreign = format!("{}?code=c0de&state=guess", start.redirect_uri);
+                let e = f.plugins.finish_sign_in_with_url(&start.id, &foreign).unwrap_err();
+                assert!(!f.plugins.cancel_sign_in(&start.id), "step {i}: a sign-in pasted to is over");
+                Some((e, "that address is from another sign-in: sign in again"))
+            }
+            Signing::Declined => {
+                let start = f.plugins.begin_sign_in("echo", "main", &f.store).unwrap();
+                let browser = come_back(&start, Some(format!("error=access_denied&state={}", opened(&start)["state"])));
+                let e = f.plugins.finish_sign_in(&start.id, Duration::from_secs(10), &Ctx::silent()).unwrap_err();
+                assert!(browser.join().unwrap().contains("locallibrary couldn't sign you in"), "step {i}");
+                Some((e, "the sign-in was declined, so locallibrary wasn't given access"))
+            }
+            Signing::Refused | Signing::Garbled => {
+                let refused = matches!(step, Signing::Refused);
+                {
+                    let mut s = state.lock().unwrap();
+                    s.refuses = refused.then(|| ("invalid_grant".into(), "the code\nexpired".into()));
+                    s.garbles = !refused;
+                }
+                let e = f.sign_in(&state).unwrap_err();
+                {
+                    let mut s = state.lock().unwrap();
+                    (s.refuses, s.garbles) = (None, false);
+                }
+                match refused {
+                    true => Some((e, "signing in to Mock: invalid_grant: the code expired")),
+                    false => Some((e, "signing in to Mock: its answer couldn't be read")),
+                }
+            }
+            Signing::Cancelled => {
+                let start = f.plugins.begin_sign_in("echo", "main", &f.store).unwrap();
+                assert!(f.plugins.cancel_sign_in(&start.id), "step {i}: not waiting");
+                let e = f.plugins.finish_sign_in(&start.id, Duration::from_secs(1), &Ctx::silent()).unwrap_err();
+                assert_eq!(e.code(), "not_found", "step {i}");
+                None
+            }
+            Signing::SignOut => {
+                let out = f.plugins.sign_out("echo", "main", &f.store).unwrap();
+                let said = (out.was_signed_in, out.revoked, out.status.signed_in);
+                assert_eq!(said, (signed_in, signed_in && revokes, false), "step {i}");
+                answers.push(serde_json::to_value(&out).unwrap());
+                signed_in = false;
+                None
+            }
+        };
+        if let Some((e, said)) = failed {
+            assert_eq!(e.to_string(), said, "step {i}");
+        }
+        let status = f.plugins.account("echo", "main", Some(&f.store)).unwrap();
+        assert_eq!((status.signed_in, status.refreshes), (signed_in, signed_in), "step {i}");
+        assert_eq!(f.plugins.accounts("echo", Some(&f.store)).unwrap(), vec![status.clone()], "step {i}");
+        answers.push(shown(&status));
+    }
+    let issued = state.lock().unwrap().issued;
+    let given: Vec<String> = (1..=issued).flat_map(|n| [format!("at-{n}"), format!("rt-{n}")]).collect();
+    let seen = f.seen(&answers.iter().collect::<Vec<_>>());
+    assert!(given.iter().all(|t| !seen.contains(t.as_str())), "what the service gave is out where it may not be");
 }

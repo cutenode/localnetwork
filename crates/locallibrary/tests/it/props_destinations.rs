@@ -14,6 +14,7 @@ use locallibrary::device::Device;
 use locallibrary::hash::Hash;
 use locallibrary::offsite::{self, CopyOptions, Destination, RestoreOptions};
 use locallibrary::paths::FileClass;
+use locallibrary::peers::LibraryOutcome;
 use locallibrary::progress::Ctx;
 use locallibrary::scrub::{self, FileProblem, RepairSource, ScrubReport};
 use locallibrary::store::{LibraryRecord, Store};
@@ -297,5 +298,170 @@ fn a_destination_offers_what_it_has_and_only_that_comes_in(tc: TestCase) {
         } else if fetched.is_ok() {
             assert!(store.has_object(h));
         }
+    }
+}
+
+/// Whatever stored files the store has lost or has damaged, a copy leaves out each snapshot
+/// listing one, saying why, and gives every other: it's complete only when none is left out, and
+/// a library whose latest snapshot is left out isn't in the copy. Brought back into an empty store,
+/// it's those libraries and the stored files their snapshots list, unless the destination's
+/// records come back rewritten: a snapshot's that isn't the snapshot it's named after, or a
+/// `libraries.json` that isn't one, is refused, and nothing goes in.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_copy_leaves_out_what_the_store_lost_and_what_comes_back_is_checked(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), tc.draw(gs::integers::<usize>().min_value(1).max_value(3)));
+    let snapshots: Vec<(Hash, FxHashSet<Hash>)> = store
+        .snapshot_ids()
+        .unwrap()
+        .into_iter()
+        .map(|id| (id, store.load_snapshot(&id).unwrap().files.iter().filter_map(|f| f.hash).collect()))
+        .collect();
+    let mut all: Vec<Hash> = snapshots.iter().flat_map(|(_, files)| files.iter().copied()).collect();
+    all.sort_by_key(Hash::to_hex);
+    all.dedup();
+    let broken: FxHashSet<Hash> = tc.draw(gs::subsequences(all).max_size(2)).into_iter().collect();
+    for h in &broken {
+        match tc.draw(gs::booleans()) {
+            true => std::fs::remove_file(store.object_path(h)).unwrap(),
+            false => common::rot(&store.object_path(h)),
+        }
+    }
+    let memory = Memory::default();
+    let r = offsite::copy_to(&store, &memory, &CopyOptions::default(), &Ctx::silent()).unwrap();
+    let left_out: FxHashSet<Hash> =
+        snapshots.iter().filter(|(_, files)| !files.is_disjoint(&broken)).map(|(id, _)| *id).collect();
+    assert_eq!((r.complete, r.problems.len()), (left_out.is_empty(), left_out.len()), "{r:?}");
+    for (id, _) in &snapshots {
+        let given = memory.records.lock().unwrap().contains_key(&format!("snapshots/{}.json", id.to_hex()));
+        assert_eq!(given, !left_out.contains(id), "snapshot {}", id.short());
+        assert_eq!(r.problems.iter().any(|p| p.starts_with(&format!("snapshot {} left out: ", id.short()))), !given);
+    }
+    let reached: Vec<(String, Option<Hash>)> = store
+        .libraries()
+        .unwrap()
+        .into_iter()
+        .filter(|l| l.head.is_some_and(|h| !left_out.contains(&h)))
+        .map(|l| (l.name, l.head))
+        .collect();
+    let copied: Vec<LibraryRecord> = memory.record("libraries.json").unwrap();
+    assert_eq!(copied.into_iter().map(|l| (l.name, l.head)).collect::<Vec<_>>(), reached);
+
+    let other = Store::open_or_init(dir.path().join("other")).unwrap();
+    let rewritten = tc.draw(gs::sampled_from(vec![None, Some("libraries.json"), Some("snapshot")]));
+    let head = reached.first().and_then(|(_, h)| *h);
+    match (rewritten, head) {
+        (Some("libraries.json"), _) => {
+            memory.records.lock().unwrap().insert("libraries.json".into(), b"{\"not\": \"libraries\"}".to_vec());
+            let e = offsite::restore(&other, &memory, &RestoreOptions::default(), &Ctx::silent()).unwrap_err();
+            let said = "the memory:here destination failed: its libraries.json can't be read: ";
+            assert!(e.to_string().starts_with(said), "{e}");
+        }
+        (Some(_), Some(head)) => {
+            let name = format!("snapshots/{}.json", head.to_hex());
+            let mut record: serde_json::Value = memory.record(&name).unwrap();
+            record["message"] = "rewritten".into();
+            memory.records.lock().unwrap().insert(name, record.to_string().into_bytes());
+            let e = offsite::restore(&other, &memory, &RestoreOptions::default(), &Ctx::silent()).unwrap_err();
+            let said = format!("the memory:here destination failed: snapshot {} came back damaged", head.short());
+            assert_eq!(e.to_string(), said);
+        }
+        _ => {
+            offsite::restore(&other, &memory, &RestoreOptions::default(), &Ctx::silent()).unwrap();
+            let back: Vec<(String, Option<Hash>)> =
+                other.libraries().unwrap().into_iter().map(|l| (l.name, l.head)).collect();
+            assert_eq!(back, reached);
+            assert!(sound(&other));
+            for (id, files) in &snapshots {
+                if reached.iter().any(|(_, h)| *h == Some(*id)) {
+                    assert!(files.iter().all(|h| other.has_object(h)), "snapshot {} came back short", id.short());
+                }
+            }
+            return;
+        }
+    }
+    assert!(other.libraries().unwrap().is_empty(), "a library came back from rewritten records");
+}
+
+/// The snapshot `id` and those it descends from, in whichever of `stores` has each.
+fn ancestry(stores: &[&Store], id: Hash) -> FxHashSet<Hash> {
+    let mut seen = FxHashSet::default();
+    let mut todo = vec![id];
+    while let Some(h) = todo.pop() {
+        if seen.insert(h) {
+            let snap = stores.iter().find_map(|s| s.load_snapshot(&h).ok()).unwrap();
+            todo.extend(snap.parents);
+        }
+    }
+    seen
+}
+
+/// For any rounds of pulls into a store, pulls of the same drive into a second store that has the
+/// library, and copies of the first to a destination, each round ending with the second store
+/// brought up to date from there: a restore before any copy is told there's none; the library is
+/// added the first time, with the store's labels, then moves to the copy's latest snapshot exactly
+/// when that descends from its own, stays as it is when its own is as new or newer, and keeps its
+/// own when both have changed, with the copy's beside it. A dry run says the same and changes
+/// nothing.
+#[hegel::test(test_cases = 10, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_store_restored_again_moves_on_only_to_what_descends_from_its_own(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = pulled(dir.path(), 1);
+    let root = dir.path().join("Main");
+    let other = Store::open_or_init(dir.path().join("other")).unwrap();
+    let memory = Memory::default();
+    let head = |s: &Store| s.libraries().unwrap().first().and_then(|l| l.head);
+    if tc.draw(gs::booleans()) {
+        let e = offsite::restore(&other, &memory, &RestoreOptions::default(), &Ctx::silent()).unwrap_err();
+        assert_eq!(e.to_string(), "not found: a copy of a store at memory:here");
+    }
+    let pull = |into: &Store, i: usize| {
+        common::export_new_track(&root, "Artist", &format!("Track {i}"));
+        let mut d = Device::open(&root).unwrap();
+        let opts = PullOptions { library: None, message: Some(format!("pull {i}")), force: false };
+        sync::pull(into, &mut d, &opts, &Ctx::silent()).unwrap();
+        assert_eq!(into.libraries().unwrap().len(), 1, "pulled into a library of its own");
+    };
+    let mut copied = None;
+    let rounds = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    for round in 0..=rounds {
+        // The first round copies the store, and adds the library to the second.
+        let (here, there, copy) = match round {
+            0 => (false, false, true),
+            _ => (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans())),
+        };
+        let order = tc.draw(gs::booleans());
+        for (into, pulls) in if order { [(&store, here), (&other, there)] } else { [(&other, there), (&store, here)] } {
+            if pulls {
+                pull(into, round * 2 + usize::from(std::ptr::eq(into, &other)));
+            }
+        }
+        if copy {
+            offsite::copy_to(&store, &memory, &CopyOptions::default(), &Ctx::silent()).unwrap();
+            copied = head(&store);
+        }
+        let theirs = copied.unwrap();
+        let ours = head(&other);
+        let want = match ours {
+            None => LibraryOutcome::Added,
+            Some(o) if ancestry(&[&store, &other], o).contains(&theirs) => LibraryOutcome::UpToDate,
+            Some(o) if ancestry(&[&store, &other], theirs).contains(&o) => LibraryOutcome::Updated,
+            Some(_) => LibraryOutcome::Diverged,
+        };
+        let before = holding(&other);
+        let dry = RestoreOptions { dry_run: true, ..Default::default() };
+        let planned = offsite::restore(&other, &memory, &dry, &Ctx::silent()).unwrap();
+        assert_eq!(planned.libraries[0].outcome, want, "round {round}: a dry run says otherwise");
+        assert_eq!(holding(&other), before, "round {round}: a dry run changed the store");
+        let r = offsite::restore(&other, &memory, &RestoreOptions::default(), &Ctx::silent()).unwrap();
+        assert_eq!((r.libraries.len(), r.libraries[0].outcome), (1, want), "round {round}: {r:?}");
+        let now = match want {
+            LibraryOutcome::Added | LibraryOutcome::Updated => Some(theirs),
+            _ => ours,
+        };
+        assert_eq!(head(&other), now, "round {round}");
+        assert!(other.load_snapshot(&theirs).is_ok(), "round {round}: the copy's latest isn't here");
+        assert!(other.find_label("latest").unwrap().is_some(), "round {round}: the labels didn't come back");
+        assert!(sound(&other));
     }
 }
