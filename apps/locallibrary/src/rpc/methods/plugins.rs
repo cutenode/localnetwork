@@ -49,7 +49,8 @@ struct SetPluginSetting {
     plugin: String,
     key: String,
     /// Of the setting's type (a secret's, text: kept in the system's keychain and never
-    /// answered); `null` (or left out) puts it back to its default, or forgets a secret.
+    /// answered; a service's switch, `services.<name>`, true or false); `null` (or left out)
+    /// puts it back to its default, or forgets a secret.
     #[serde(default)]
     value: Option<Value>,
 }
@@ -74,6 +75,10 @@ pub(super) fn register(r: &mut Registry) {
     r.immediate("plugins.settings.set", |c, req: SetPluginSetting| {
         let store = c.store()?;
         let settings = host()?.set_setting(&req.plugin, &store, &req.key, req.value.filter(|v| !v.is_null()))?;
+        // A service turned on starts now, one turned off stops.
+        if req.key.starts_with(locallibrary::plugin::SERVICES) {
+            host()?.run_services(Some(&store));
+        }
         let secrets = Secrets::of(host()?, &req.plugin, Some(&store))?;
         Ok(Settings { plugin: req.plugin, settings, secrets })
     })

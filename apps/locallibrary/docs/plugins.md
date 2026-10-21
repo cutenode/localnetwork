@@ -27,8 +27,8 @@ are:
 
 `locallibrary plugin` lists them, what each may do (its capabilities, in plain words) and what it
 adds. `locallibrary plugin info ID` has one in full: its commands, how to run them and which of
-the player's menus offer them, its analyzers' fields, its export formats, its providers and its
-settings.
+the player's menus offer them, the events it listens for, its analyzers' fields, its export
+formats, its providers, its services and its settings.
 
 A plugin whose id, commands or export formats clash with locallibrary's, or with another plugin's,
 is left out: every command warns which and why, and the other plugins work. Two plugins clashing
@@ -75,6 +75,27 @@ PARAM=VALUE`. In the player they're in the palette, and in a drive's menu or the
 where the plugin offers them, and a question one asks is a list to pick from. On the command
 line, a param filled from what's selected is given the drive named, if that's what it takes, and
 its flag gives it otherwise.
+
+## Events
+
+A plugin may listen for what locallibrary notices happen: a drive plugged in (`drive.mounted`),
+unplugged (`drive.unmounted`) or changed (`drive.changed`), saved into the store (`drive.pulled`,
+with the history lists the store lacked) or back from a set (`set.returned`), one of the sidecar's
+requests finishing (`job.finished`) and a plan applied (`plan.applied`). Each needs a capability,
+shown as any is: `events:drives`, `events:jobs` or `events:plans`. The player, the sidecar and the
+`watch` agent tell it as they notice them, and any command tells it of the plans it applies. It's
+told by name or id, never where a drive is mounted, and whatever path it's told is said from its
+drive, the store or `~`. Events wait in a queue for each plugin (64 at most: past that the oldest
+is dropped, and its log says so), so a slow plugin never holds up the player, the sidecar or
+`watch`.
+
+A plugin may tell you something back, from an event or a service, and suggest one of its own
+operations: the player shows it as a message, and "review: ..." in the palette plans the
+operation, shown and asked about as any is, or "dismiss: ..." lets it go. Suggestions are kept in
+the store until you do either (the newest 20), so they're still there when the player opens
+again; `watch` says what it's told and keeps its suggestions for the player the same way. The
+sidecar sends it as a `plugin.notice` event. Nothing a plugin suggests is planned or applied
+unless you choose to.
 
 ## Export formats
 
@@ -127,6 +148,16 @@ edit you're shown and asked about (only where a track has none unless `--overwri
 `--min-confidence 0.8` leaves out what it's less sure of; `--dry-run`), and `undo` takes it back.
 In the player, "write keys and BPMs to the tracks: …" does the same.
 
+## Services
+
+A service is something a plugin keeps running in the background (watching a folder, say). It's
+off until you turn it on, `locallibrary plugin settings ID services.NAME on` (or its switch in the
+player's settings form), and runs while the player, the sidecar or `watch` (but not `watch
+--once`) do, never for a command run once. A plugin with a service running isn't stopped as idle.
+One that stops or crashes is started again a second later, then twice that, and so on, and left
+off (saying so) after failing five times in a row. `plugin info` and `plugin list` show each
+plugin's services, and whether they're on.
+
 ## Settings
 
 `locallibrary plugin settings ID` shows them, `plugin settings ID KEY VALUE` sets one and `plugin
@@ -157,7 +188,9 @@ it), `host.fetch(..)` to go online and `host.partial_rows(..)` to send a view's 
 ready. A command or an operation may answer a question for you (`Choice`) instead, and is run
 again with your answer as one of its params. A view (a command's, a panel's) is any of
 loclib-plugin's kinds, each with a plain text form for a host that can't draw it, and a theme
-is a table of colours in the manifest. Each family of hooks is an optional feature of the
+is a table of colours in the manifest. `Hooks::on_event` handles events, a service is a hook
+that runs until it's cancelled, and `host.notify(..)` tells you something. Each family of hooks
+is an optional feature of the
 protocol, so a newer locallibrary adds kinds of hooks without breaking older plugins.
 
 ## Safety

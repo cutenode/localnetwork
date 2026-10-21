@@ -12,8 +12,10 @@
 
 pub(crate) mod analyzers;
 pub(crate) mod commands;
+pub(crate) mod events;
 pub(crate) mod exporters;
 pub(crate) mod operations;
 pub(crate) mod panels;
 pub(crate) mod providers;
+pub(crate) mod services;
 pub(crate) mod themes;

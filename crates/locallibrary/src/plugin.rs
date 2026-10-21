@@ -1,6 +1,7 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, panels, track analyzers,
-//! exporters, providers, themes and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
+//! exporters, providers, services, themes and settings, and listening for events. The CLI, the
+//! TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -17,13 +18,18 @@
 //! plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
 //! Analyzers' values go to the [`crate::fields`] store. What providers find for tracks, the host
-//! offers the user and makes the edits of itself (see [`Plugins::provide`]).
+//! offers the user and makes the edits of itself (see [`Plugins::provide`]). Plugins are told of
+//! what happens as the front ends notice it ([`Plugins::deliver`]), and services run while a
+//! front end that stays open does ([`Plugins::run_services`]); what either tells the user, the
+//! front end shows ([`Options::notices`]), and nothing they suggest is planned unless the user
+//! chooses to.
 
 mod analyzers;
 mod apply;
 mod blobs;
 mod callbacks;
 mod commands;
+mod events;
 mod exports;
 mod net;
 mod operations;
@@ -31,6 +37,7 @@ mod panels;
 mod process;
 mod providers;
 mod secrets;
+mod services;
 mod settings;
 
 use std::ffi::OsString;
@@ -53,6 +60,7 @@ pub use apply::ApplyFields;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
+pub use events::{Event, MAX_SUGGESTED, PluginNotice, forget_suggested, keep_suggested, suggested};
 pub use exports::{ExportFile, PluginExport};
 pub use operations::OpPlanned;
 pub use providers::{
@@ -133,10 +141,27 @@ pub struct Options {
     /// Where plugins' logs go: what they write to stderr (without terminal escapes), and what
     /// the host has to say about them. A front end drawing on the terminal gives its own.
     pub log: Log,
+    /// The most events waiting to be sent to one plugin: past it the oldest is dropped.
+    pub events: usize,
+    /// What plugins tell the user (`host/notify`), and that a service was left off: each front
+    /// end shows them its own way. Called on the thread reading the plugin, so it mustn't wait.
+    pub notices: Notices,
+    /// How many times in a row a service may stop or fail before it's left off.
+    pub restarts: u32,
+    /// How long a service that stopped waits to be started again, the first time: twice that the
+    /// next, and so on.
+    pub backoff: Duration,
 }
 
 /// Takes a line about a plugin, with the plugin's id.
 pub type Log = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
+/// Takes what a plugin tells the user.
+pub type Notices = Arc<dyn Fn(PluginNotice) + Send + Sync>;
+
+/// What the switch turning one of a plugin's services on is named with, among its settings:
+/// `services.<name>`.
+pub const SERVICES: &str = "services.";
 
 impl Default for Options {
     fn default() -> Options {
@@ -153,6 +178,10 @@ impl Default for Options {
             secrets: Storage::from_env(),
             test_loopback: false,
             log: Arc::new(|id, line| eprintln!("{id}: {line}")),
+            events: 64,
+            notices: Arc::new(|n| eprintln!("{}: {}", n.plugin, n.message)),
+            restarts: 5,
+            backoff: Duration::from_secs(1),
         }
     }
 }
@@ -257,21 +286,43 @@ impl Plugins {
         self.slot(plugin).is_ok_and(|s| s.is_running())
     }
 
-    /// Stops every plugin running, all at once, each given its grace to exit before it's killed.
-    /// They start again when used. One already stopping (idle, or another caller's shutdown) is
-    /// waited for: once this returns, each has exited and its folder in the temporary folder is
-    /// gone, so the host can exit. But for one a hook under way holds: it's let go once the hook
-    /// is answered, and stops then, on that hook's thread.
+    /// Stops every plugin running, all at once, once the events waiting for it are sent (for as
+    /// long as it may take to start and stop) and its services stopped, each given its grace to
+    /// exit before it's killed. They start again when used, but services only once they're run
+    /// again. One already stopping (idle, or another caller's shutdown) is waited for: once this
+    /// returns, each has exited and its folder in the temporary folder is gone, so the host can
+    /// exit. But for one a hook under way holds: it's let go once the hook is answered, and stops
+    /// then, on that hook's thread.
     pub fn shutdown(&self) {
         std::thread::scope(|s| {
             for slot in self.plugins.values() {
-                s.spawn(|| slot.stop());
+                s.spawn(|| {
+                    slot.sent_events(slot.host.options.handshake + slot.host.options.grace);
+                    slot.stop_services();
+                    slot.stop();
+                });
+            }
+        });
+    }
+
+    /// Stops every service, each given its grace, all at once.
+    pub fn stop_services(&self) {
+        std::thread::scope(|s| {
+            for slot in self.plugins.values() {
+                s.spawn(|| slot.stop_services());
             }
         });
     }
 
     fn slot(&self, plugin: &str) -> Result<&Arc<Slot>> {
         self.plugins.get(plugin).ok_or_else(|| Error::NotFound(format!("plugin {plugin:?}")))
+    }
+}
+
+/// Services hold their plugin until they're stopped.
+impl Drop for Plugins {
+    fn drop(&mut self) {
+        self.stop_services();
     }
 }
 

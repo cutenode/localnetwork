@@ -14,7 +14,7 @@ use std::sync::{Arc, Weak};
 use loclib_plugin::{Capability, ErrorData, Incoming, MAX_IDS, MAX_IMAGES, Manifest, Peer, RpcError, code, method};
 use serde_json::Value;
 
-use super::process::{Live, Slot};
+use super::process::{Live, Plugin, Slot};
 use crate::Result;
 use crate::api::{self, RpcFailure};
 use crate::progress::{Ctx, NoProgress};
@@ -139,19 +139,33 @@ impl Drop for Quota {
 
 /// Answers the plugin's callbacks until its output closes, each on a thread of its own, a few
 /// at a time. Every one is answered, one whose read panics too, and one that comes once the host
-/// has let go of the plugin (which stops it). Nothing here keeps the plugin hosted.
-pub(crate) fn answer(slot: &Weak<Slot>, live: &Arc<Live>, peer: &Peer, incoming: Receiver<Incoming>) {
+/// has let go of its `slot` (which stops it). Nothing here keeps the plugin hosted: a callback
+/// holds the [`Plugin`], never its slot. Its notifications are handled here, in order (see
+/// [`Plugin::notified`]).
+pub(crate) fn answer(
+    slot: &Weak<Slot>,
+    plugin: &Arc<Plugin>,
+    live: &Arc<Live>,
+    peer: &Peer,
+    incoming: Receiver<Incoming>,
+) {
     let busy = Arc::new(AtomicUsize::new(0));
-    // Progress about a request nobody waits for any more is dropped.
-    for req in incoming.into_iter().filter_map(|m| match m {
-        Incoming::Request(req) => Some(req),
-        Incoming::Notification { .. } => None,
-    }) {
-        let Some(slot) = slot.upgrade() else {
+    for msg in incoming {
+        let hosted = slot.strong_count() > 0;
+        let req = match msg {
+            Incoming::Request(req) => req,
+            Incoming::Notification { method, params } => {
+                if hosted {
+                    plugin.notified(live, &method, params);
+                }
+                continue;
+            }
+        };
+        if !hosted {
             peer.respond(&req.id, Err(RpcError::closed()));
             continue;
-        };
-        let most = slot.host.options.callbacks;
+        }
+        let most = plugin.host.options.callbacks;
         let under_way = busy.fetch_add(1, Ordering::SeqCst);
         let quota = Quota(busy.clone());
         if under_way >= most {
@@ -160,13 +174,13 @@ pub(crate) fn answer(slot: &Weak<Slot>, live: &Arc<Live>, peer: &Peer, incoming:
             peer.respond(&req.id, Err(e));
             continue;
         }
-        let (live, peer) = (live.clone(), peer.clone());
+        let (plugin, live, peer) = (plugin.clone(), live.clone(), peer.clone());
         std::thread::spawn(move || {
-            let reads = &*slot.host.reads;
+            let reads = &*plugin.host.reads;
             let run = || match req.method.as_str() {
-                method::NET_FETCH if live.sends(method::NET_FETCH) => slot.fetch(&live, req.params, &req.cancel),
+                method::NET_FETCH if live.sends(method::NET_FETCH) => plugin.fetch(&live, req.params, &req.cancel),
                 _ => {
-                    let params = check(&slot.manifest, reads, &req.method, req.params);
+                    let params = check(&plugin.manifest, reads, &req.method, req.params);
                     let read =
                         params.and_then(|p| reads.read(&req.method, p, &Ctx::new(&NoProgress, req.cancel.clone())));
                     let roots = known_roots(live.store.as_ref());
@@ -230,7 +244,7 @@ const MOUNTS: [&str; 2] = ["root", "last_mount"];
 /// without a drive's mount point ([`MOUNTS`]) or the place of a file outside any drive (a store
 /// copy's, a set's recording, rekordbox's collection), and with any other path under one of
 /// `roots` said from there (see [`known_roots`]), as errors' are.
-fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
+pub(crate) fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
     // Each key, at any depth, in an object that's the value of the first key when one is given.
     let places: &[(Option<&str>, &str)] = match method {
         "store.copies" => &[(None, "path"), (None, "from")],

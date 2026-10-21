@@ -4,12 +4,14 @@
 mod blobs;
 mod callbacks;
 mod choose;
+mod events;
 mod hooks;
 mod net;
 mod panels;
 mod props;
 mod providers;
 mod roles;
+mod services;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
