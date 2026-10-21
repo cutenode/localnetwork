@@ -160,7 +160,7 @@ pub type Notices = Arc<dyn Fn(PluginNotice) + Send + Sync>;
 
 /// What the switch turning one of a plugin's services on is named with, among its settings:
 /// `services.<name>`.
-const SERVICES: &str = "services.";
+pub const SERVICES: &str = "services.";
 
 impl Default for Options {
     fn default() -> Options {

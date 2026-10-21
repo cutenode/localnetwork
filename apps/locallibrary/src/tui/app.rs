@@ -742,6 +742,8 @@ pub enum Msg {
     Note(String, Level),
     /// A line of a plugin's log, for the messages (`!`) alone.
     Log(String),
+    /// What plugins tell the user.
+    Notice(Vec<locallibrary::plugin::PluginNotice>),
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
@@ -1057,6 +1059,8 @@ pub struct App {
     listed: bool,
     /// Notices drives coming and going: a poll that finds any reads the list again.
     watcher: Watcher,
+    /// What plugins suggested, to review from the palette, oldest first.
+    pub(super) suggested: VecDeque<locallibrary::plugin::PluginNotice>,
     drives_in_flight: bool,
     /// Read the drives again when the read in flight finishes (asked for while it ran).
     drives_again: bool,
@@ -1209,6 +1213,7 @@ impl App {
             offline: true,
             listed: false,
             watcher: Watcher::default(),
+            suggested: VecDeque::new(),
             drives_in_flight: false,
             drives_again: false,
             volumes_in_flight: false,
@@ -1579,7 +1584,11 @@ impl App {
                     (r, ok)
                 });
                 let mut watcher = watcher.lock().unwrap_or_else(PoisonError::into_inner);
-                Msg::Volumes(watcher.as_mut().map(VolumeWatcher::poll).unwrap_or_default(), present)
+                let events = watcher.as_mut().map(VolumeWatcher::poll).unwrap_or_default();
+                for e in &events {
+                    crate::plugins::events::deliver(&api::Notice::Watch(e.clone()));
+                }
+                Msg::Volumes(events, present)
             };
             self.spawn_or(job, |e| Msg::Failed(Work::Volumes, e));
         }
@@ -1818,6 +1827,7 @@ impl App {
             Msg::Opened(id, r) => self.opened(id, r),
             Msg::Note(msg, level) => self.toast(msg, level),
             Msg::Log(line) => self.remember(line, Level::Info),
+            Msg::Notice(notices) => self.told(notices),
             Msg::TrackInfo(id, info) => {
                 let upcoming = self.upcoming.as_mut().map(|u| &mut u.now);
                 if let Some(now) = self.now.as_mut().into_iter().chain(upcoming).find(|n| n.id == id) {
@@ -3323,6 +3333,7 @@ impl App {
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
+            Act::Review(i) => self.review(i),
             Act::ProviderSettings => self.provider_settings(),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
             Act::Fetch(kind) => {

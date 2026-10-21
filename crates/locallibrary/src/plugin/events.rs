@@ -205,11 +205,13 @@ impl Slot {
         }
         let operation = notice.operation.filter(|o| {
             let ours = self.manifest.contributes.operations.iter().any(|x| x.name == o.name);
-            let fits = o.params.is_null() || o.params.is_object();
-            if !(ours && fits) {
-                self.host.log(id, &format!("it suggests {:?}, which isn't one of its operations", o.name));
-            }
-            ours && fits
+            let refused = match (ours, o.params.is_null() || o.params.is_object()) {
+                (false, _) => format!("it suggests {:?}, which isn't one of its operations", o.name),
+                (true, false) => format!("it suggests {:?} with params that aren't an object", o.name),
+                (true, true) => return true,
+            };
+            self.host.log(id, &refused);
+            false
         });
         (self.host.options.notices)(PluginNotice { plugin: id.clone(), message, operation });
     }

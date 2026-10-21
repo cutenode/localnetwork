@@ -120,7 +120,7 @@ assert!(manifest.validate(false).is_err());
 - `capabilities`: `library:read`, `analysis:read`, `artwork:read`, `drive:info`, `health:read`,
   `store:read`, `settings:read`, `plays:read`, `sets:read`, `account:status`,
   `collection:read`, `library:plan`, `library:delete`, `tags:plan`, `cues:plan`,
-  `artwork:plan`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
+  `artwork:plan`, `events:drives`, `events:jobs`, `events:plans`, and `net:<host>`, or `net:*.<domain>` for any host below the domain: what
   `net/fetch` may reach (shown to the user; a native plugin can't be held to it otherwise). Any
   other is refused, and each is granted once.
 - `[[net]]`: `host` (one of its `net:` capabilities, as written) and `per_second`, how many
@@ -185,6 +185,23 @@ has them all, first.
 - `[[contributes.commands]]`: `name`, `title`, `mode` (`headless` or `view`), `where`, `params`
   (a JSON Schema for an object) and `cli`.
 
+### events
+
+`event/notify {event, drive?, payload}`, a notification from the host: something happened that
+the plugin listens for. `event` is one of a closed list (`EventName`), each needing a capability:
+`drive.mounted`, `drive.unmounted`, `drive.changed`, `drive.pulled` and `set.returned`
+(`events:drives`), `job.finished` (`events:jobs`) and `plan.applied` (`events:plans`). `drive` is
+the drive's id or name; `payload` is what the host says of it (as the sidecar's `event`
+notification does), with no path saying where anything is on the computer: a drive's `root` is
+left out, and other paths are said from their drive, `<store>` or `~`. Nothing answers it, and the
+host never waits for it: once too many wait to be sent to a plugin, it drops the oldest.
+
+A plugin with `events` (or `services`) may send the host `host/notify {message, operation?:
+{name, params}}`, a notification, whenever it likes: a line for the user, and one of its own
+operations to suggest, which the host plans (and the user confirms) only if the user chooses to.
+
+- `[[contributes.events]]`: `on`, the events it listens for, each once, each granted.
+
 ### exporters
 
 `export/write {exporter, source: {drive, playlists, history}, output, options, dry_run, context}` ->
@@ -227,6 +244,16 @@ to 512 MiB (in base64), leaving out the rest with a warning.
   for tracks (`provide/candidates`). It's given their tags, so it needs `library:read`, and
   never a `:plan` capability for what it finds: the host plans that.
 
+### services
+
+`service/start {service, context}` runs the service until the host cancels it (`$/cancel`), and
+then answers, as cancelled; while it runs it may send `host/notify` and `progress`. A host that
+stays open starts it once the user turns it on (the setting `services.<name>`, which the host
+keeps and no hook is given), keeps the plugin running while it does, and starts it again a while
+after it stops or fails, a few times in a row at most.
+
+- `[[contributes.services]]`: `name` and `title`.
+
 ## Writing a plugin in Rust
 
 Register a function for each kind of hook the manifest needs in `Hooks` (`.on(run_command)`, for
@@ -243,7 +270,8 @@ info, each whole however the host pages and batches it (`host.call` makes any ot
 loclib-model's types (`Track`, `Library`, `TrackAnalysis`), which `loclib_plugin::loclib_model`
 re-exports. `host.fetch(&Fetch::get(url))` goes online through the host (`net/fetch`), and
 `host.partial_rows(rows)` (`partial_items`) sends a view's rows as they're ready; files the
-answer names go in `req.context.scratch`. A hook answers its answer or what makes one: an
+answer names go in `req.context.scratch`; `host.notify(..)` tells the user something
+(`host/notify`). A hook answers its answer or what makes one: an
 operation an `OpPlan`, or an `OpAnswer` when it may ask first (`Choice`; `View::Choose` for a
 command).
 `RpcError::failure` gives a library's error the kind the host shows it as: `cancelled` once the
@@ -306,7 +334,9 @@ served.join().expect("the plugin stops");
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`examples/echo` is a whole plugin, with one of each kind of contribution.
+`examples/echo` is a whole plugin, with one of each kind of contribution but events and services
+(`Hooks::on_event` handles events; a service is a hook, `StartService`, that runs until it's
+cancelled).
 
 ## Licence
 

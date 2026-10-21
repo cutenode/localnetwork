@@ -311,6 +311,8 @@ pub struct Rpc {
     child: Child,
     stdin: Option<ChildStdin>,
     lines: Lines<BufReader<ChildStdout>>,
+    /// The `event` notifications [`Rpc::call`] read past, for [`Rpc::event`].
+    events: Vec<Value>,
 }
 
 impl Rpc {
@@ -318,7 +320,7 @@ impl Rpc {
         let mut child = command.arg("rpc").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         let stdin = child.stdin.take();
         let lines = BufReader::new(child.stdout.take().unwrap()).lines();
-        Rpc { child, stdin, lines }
+        Rpc { child, stdin, lines, events: Vec::new() }
     }
 
     /// For signalling it, which only Unix tests do.
@@ -339,6 +341,23 @@ impl Rpc {
             let v: Value = serde_json::from_str(&self.lines.next().expect("a response").unwrap()).unwrap();
             if v["id"] == id {
                 return v;
+            }
+            if v["method"] == "event" {
+                self.events.push(v["params"].clone());
+            }
+        }
+    }
+
+    /// The params of the first `event` notification `wanted`, read past already or still to
+    /// come (the others are dropped).
+    pub fn event(&mut self, wanted: impl Fn(&Value) -> bool) -> Value {
+        if let Some(i) = self.events.iter().position(&wanted) {
+            return self.events.remove(i);
+        }
+        loop {
+            let v: Value = serde_json::from_str(&self.lines.next().expect("an event").unwrap()).unwrap();
+            if v["method"] == "event" && wanted(&v["params"]) {
+                return v["params"].clone();
             }
         }
     }
