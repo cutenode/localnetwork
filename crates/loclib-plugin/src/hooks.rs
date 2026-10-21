@@ -13,5 +13,6 @@
 pub(crate) mod analyzers;
 pub(crate) mod commands;
 pub(crate) mod exporters;
+pub(crate) mod importers;
 pub(crate) mod operations;
 pub(crate) mod providers;

@@ -1,6 +1,6 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters,
-//! providers and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
+//! importers, providers and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -17,7 +17,8 @@
 //! plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
 //! Analyzers' values go to the [`crate::fields`] store. What providers find for tracks, the host
-//! offers the user and makes the edits of itself (see [`Plugins::provide`]).
+//! offers the user and makes the edits of itself (see [`Plugins::provide`]), as it does of what
+//! importers read (see [`Plugins::import_plan`]).
 
 mod analyzers;
 mod apply;
@@ -25,6 +26,7 @@ mod blobs;
 mod callbacks;
 mod commands;
 mod exports;
+mod imports;
 mod net;
 mod operations;
 mod process;
@@ -53,6 +55,7 @@ pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
 pub use exports::{ExportFile, PluginExport};
+pub use imports::{PluginImport, PluginImported};
 pub use operations::OpPlanned;
 pub use providers::{
     AUTO_PICK, Found, Offer, Pick, PlanProvided, Provide, Provided, auto_pick, plan_provided, set_auto_pick,

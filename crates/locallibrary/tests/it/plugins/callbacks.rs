@@ -44,8 +44,9 @@ fn a_plugin_reads_no_roots() {
     assert_eq!(info, json!({ "result": { "name": "USB", "drives": [{ "id": 1 }] } }));
 }
 
-/// Nor where anything else is: a store's copies, a set's recording, rekordbox's collection or a
-/// drive last mounted are left out, and a mounted drive is said by its name, in a path or alone.
+/// Nor where anything else is: a store's copies, a set's or a mix's recording (and its cover),
+/// rekordbox's collection or a drive last mounted are left out, and a mounted drive is said by its
+/// name, in a path or alone.
 #[test]
 fn a_plugin_reads_where_nothing_is() {
     let granted = granting(&["drive:info", "store:read", "sets:read", "collection:read"]);
@@ -55,6 +56,11 @@ fn a_plugin_reads_where_nothing_is() {
     assert_eq!(read("store.info"), json!({ "copy_of": { "name": "n" }, "x": { "path": "kept" } }));
     assert_eq!(read("sets.get"), json!({ "recording": { "report": "r" }, "entries": [{ "path": "/Contents/a" }] }));
     assert_eq!(read("collection.info"), json!({ "bytes": 1 }));
+    let mix = json!({
+        "mix": { "title": "Friday" },
+        "plays": [{ "track": { "artist": "A", "title": "B", "file_path": "/Contents/a.mp3" } }],
+    });
+    assert_eq!(read("mix.reports.get"), mix);
     let said = json!({
         "offline": [{ "name": "Old" }],
         "duplicates": [{ "roots": ["USB"], "original": "USB" }],

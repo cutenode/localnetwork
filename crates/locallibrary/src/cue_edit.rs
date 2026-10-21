@@ -30,7 +30,7 @@ use crate::progress::Ctx;
 use crate::{Error, Result};
 
 /// How far (ms) a memory cue may be from the position given to find it.
-const FIND_TOLERANCE_MS: u32 = 100;
+pub(crate) const FIND_TOLERANCE_MS: u32 = 100;
 
 /// A hot cue slot, A-H (written as its letter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]

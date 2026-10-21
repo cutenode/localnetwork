@@ -12,8 +12,9 @@
 //! bytes), `hard_links` and (on Unix) `links` they're given to the scratch folder; a provider
 //! other than echo's answers as its `answer` setting says (see `Test::provide`); an analyzer
 //! named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming an
-//! empty audio file; and its exporter names the playlists it's
-//! given in a note, and would write to `outside`, or writes `extra` too without saying so first.
+//! empty audio file; its exporter names the playlists it's given in a note, and would write to
+//! `outside`, or writes `extra` too without saying so first, and given a set or a mix writes its
+//! tracklist; and its importer answers a JSON file as it is (in a blob with the `blob` option).
 //! `--manifest <file>` serves another manifest, `--protocol <version>` answers `hello` with
 //! another protocol and stops, `--silent` never answers, `--wrong-fields` answers fields of the
 //! wrong type, and `--without <feature>` leaves out that feature's hooks, and the feature from

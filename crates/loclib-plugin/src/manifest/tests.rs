@@ -4,7 +4,10 @@ use indexmap::IndexMap;
 use serde_json::{Map, json};
 
 use super::*;
-use crate::{Analyzer, Command, Exporter, FieldType, FieldValue, Mode, Operation, Provider, ProviderKind, Role, code};
+use crate::{
+    Analyzer, Command, ExportFrom, Exporter, FieldType, FieldValue, ImportKind, Importer, Mode, Operation, Provider,
+    ProviderKind, Role, code,
+};
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
 
@@ -350,6 +353,39 @@ fn exporters_write_a_file_or_a_folder() {
     assert_eq!(problem(both), "contributes.exporters[0]: an exporter has either an extension or folder = true");
     let neither = "[[contributes.exporters]]\nformat = \"f\"\ntitle = \"F\"\n";
     assert_eq!(problem(neither), "contributes.exporters[0]: an exporter has either an extension or folder = true");
+}
+
+#[test]
+fn an_exporter_of_sets_or_mixes_reads_sets() {
+    let exporter = |source: &str, grants: &str| {
+        problem(&format!(
+            "capabilities = [{grants}]\n[[contributes.exporters]]\nformat = \"f\"\ntitle = \"F\"\nfolder = true\n\
+             source = \"{source}\"\n"
+        ))
+    };
+    assert_eq!(exporter("drive", ""), "");
+    assert_eq!(exporter("set", "\"sets:read\""), "");
+    let m =
+        Manifest::parse(&format!("{HEAD}[[contributes.exporters]]\nformat = \"f\"\ntitle = \"F\"\nfolder = true\n"));
+    assert_eq!(m.unwrap().contributes.exporters[0].source, ExportFrom::Drive, "unless it says");
+    let said =
+        |what: &str| format!("contributes.exporters[0].source: reads {what}s, which needs the sets:read capability");
+    assert_eq!(exporter("set", ""), said("set"));
+    assert_eq!(exporter("mix", "\"library:read\""), said("mix"));
+    assert!(exporter("playlist", "").contains("unknown variant `playlist`"));
+}
+
+#[test]
+fn an_importer_says_what_it_provides() {
+    let importer = |rest: &str| problem(&format!("[[contributes.importers]]\nformat = \"f\"\ntitle = \"F\"\n{rest}\n"));
+    assert_eq!(importer("extension = \"nml\"\nprovides = [\"fields\", \"cues\", \"tags\", \"sessions\"]"), "");
+    assert_eq!(
+        importer("provides = []"),
+        "contributes.importers[0].provides: names nothing: fields, cues, tags or sessions"
+    );
+    assert_eq!(importer("provides = [\"cues\", \"cues\"]"), "contributes.importers[0].provides: cues is there twice");
+    assert!(importer("provides = [\"lyrics\"]").contains("unknown variant `lyrics`"));
+    assert!(importer("").contains("missing field `provides`"));
 }
 
 #[test]
@@ -898,15 +934,36 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             }
         }
     }
-    let exporters = drawn_names(tc, 3)
+    let sources = vec![ExportFrom::Drive, ExportFrom::Set, ExportFrom::Mix];
+    let exporters: Vec<Exporter> = drawn_names(tc, 3)
         .into_iter()
         .map(|format| {
             let extension = tc.draw(gs::optional(gs::from_regex("[a-z0-9]{1,16}")));
-            Exporter { format, title: title(tc), folder: extension.is_none(), extension, options: maybe_schema(tc) }
+            let (title, folder, options) = (title(tc), extension.is_none(), maybe_schema(tc));
+            Exporter { format, title, folder, extension, options, source: tc.draw(gs::sampled_from(sources.clone())) }
         })
         .collect();
+    let kinds = vec![ImportKind::Fields, ImportKind::Cues, ImportKind::Tags, ImportKind::Sessions];
+    let importers = drawn_names(tc, 3)
+        .into_iter()
+        .map(|format| Importer {
+            format,
+            title: title(tc),
+            extension: tc.draw(gs::optional(gs::from_regex("[a-z0-9]{1,16}"))),
+            options: maybe_schema(tc),
+            provides: {
+                let mut provides = tc.draw(gs::permutations(kinds.clone()));
+                provides.truncate(tc.draw(gs::integers::<usize>().min_value(1).max_value(kinds.len())));
+                provides
+            },
+        })
+        .collect::<Vec<_>>();
     let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
     let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
+    // Granted reading the sets and mixes they write out.
+    if exporters.iter().any(|x| x.source != ExportFrom::Drive) && !capabilities.contains(&Capability::SetsRead) {
+        capabilities.push(Capability::SetsRead);
+    }
     let kinds = vec![ProviderKind::Artwork, ProviderKind::Metadata];
     let providers: Vec<Provider> = drawn_names(tc, 3)
         .into_iter()
@@ -936,7 +993,7 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         version: format!("{major}.{minor}.{patch}{pre}"),
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
-        contributes: Contributions { commands, operations, analyzers, exporters, providers, settings },
+        contributes: Contributions { commands, operations, analyzers, exporters, importers, providers, settings },
         net,
         unknown: Vec::new(),
     }
@@ -1000,12 +1057,13 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 6] = ["commands", "operations", "analyzers", "exporters", "providers", "settings"];
+const CONTRIBUTIONS: [&str; 7] =
+    ["commands", "operations", "analyzers", "exporters", "importers", "providers", "settings"];
 
 /// What names a contribution of `kind`.
 fn name_key(kind: &str) -> &'static str {
     match kind {
-        "exporters" => "format",
+        "exporters" | "importers" => "format",
         "settings" => "key",
         _ => "name",
     }
@@ -1017,6 +1075,7 @@ fn len(c: &Contributions, kind: &str) -> usize {
         "operations" => c.operations.len(),
         "analyzers" => c.analyzers.len(),
         "exporters" => c.exporters.len(),
+        "importers" => c.importers.len(),
         "providers" => c.providers.len(),
         _ => c.settings.len(),
     }
@@ -1041,7 +1100,19 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
                 c.analyzers.push(Analyzer { name, title, version: "1".into(), fields, roles: IndexMap::new() });
             }
             "exporters" => {
-                c.exporters.push(Exporter { format: name, title, extension: None, folder: true, options: None });
+                let source = ExportFrom::Drive;
+                c.exporters.push(Exporter {
+                    format: name,
+                    title,
+                    extension: None,
+                    folder: true,
+                    options: None,
+                    source,
+                });
+            }
+            "importers" => {
+                let provides = vec![ImportKind::Fields];
+                c.importers.push(Importer { format: name, title, extension: None, options: None, provides });
             }
             // Granted library:read by the caller.
             "providers" => c.providers.push(Provider { name, title, kind: ProviderKind::Metadata }),
@@ -1063,6 +1134,7 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
         "operations" => c.operations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "analyzers" => c.analyzers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "exporters" => c.exporters.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
+        "importers" => c.importers.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
         "providers" => c.providers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         _ => c.settings.iter_mut().map(|x| (&mut x.key, &mut x.title)).collect(),
     }
@@ -1075,6 +1147,7 @@ fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
         "operations" => c.operations.push(Operation { cli: None, ..c.operations[i].clone() }),
         "analyzers" => c.analyzers.push(c.analyzers[i].clone()),
         "exporters" => c.exporters.push(c.exporters[i].clone()),
+        "importers" => c.importers.push(c.importers[i].clone()),
         "providers" => c.providers.push(c.providers[i].clone()),
         _ => c.settings.push(c.settings[i].clone()),
     }
@@ -1085,6 +1158,7 @@ fn schema_of<'a>(c: &'a mut Contributions, kind: &str, i: usize) -> (&'a mut Opt
     match kind {
         "commands" => (&mut c.commands[i].params, format!("contributes.commands[{i}].params")),
         "operations" => (&mut c.operations[i].params, format!("contributes.operations[{i}].params")),
+        "importers" => (&mut c.importers[i].options, format!("contributes.importers[{i}].options")),
         _ => (&mut c.exporters[i].options, format!("contributes.exporters[{i}].options")),
     }
 }
@@ -1133,6 +1207,10 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "net twice",
         "net rate",
         "provider grant",
+        "export grant",
+        "import extension",
+        "provides nothing",
+        "provides twice",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let c = &mut m.contributes;
@@ -1247,7 +1325,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             }
         }
         "not an object" | "bad schema" | "param name" | "x-cli" | "positional twice" | "x-path" => {
-            let kind = tc.draw(gs::sampled_from(vec!["commands", "operations", "exporters"]));
+            let kind = tc.draw(gs::sampled_from(vec!["commands", "operations", "exporters", "importers"]));
             add(c, kind, 1);
             let i = index(&tc, len(c, kind));
             let (slot, at) = schema_of(c, kind, i);
@@ -1448,6 +1526,41 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             add(c, "providers", 1);
             m.capabilities.retain(|g| *g != Capability::LibraryRead);
             ("contributes.providers[0]: is given tracks' tags, which needs the library:read capability".into(), false)
+        }
+        "export grant" => {
+            add(c, "exporters", 1);
+            let i = index(&tc, c.exporters.len());
+            c.exporters[i].source = tc.draw(gs::sampled_from(vec![ExportFrom::Set, ExportFrom::Mix]));
+            m.capabilities.retain(|g| *g != Capability::SetsRead);
+            let (i, x) = c.exporters.iter().enumerate().find(|(_, x)| x.source != ExportFrom::Drive).unwrap();
+            let what = x.source.name();
+            (format!("contributes.exporters[{i}].source: reads {what}s, which needs the sets:read capability"), false)
+        }
+        "import extension" => {
+            add(c, "importers", 1);
+            let i = index(&tc, c.importers.len());
+            let ext = match tc.draw(gs::integers::<u8>().max_value(2)) {
+                0 => String::new(),
+                1 => tc.draw(gs::from_regex("[a-z0-9]{0,3}[A-Z._/ -][a-z0-9]{0,3}")),
+                _ => "a".repeat(tc.draw(gs::integers::<usize>().min_value(17).max_value(24))),
+            };
+            c.importers[i].extension = Some(ext.clone());
+            let said = format!("{ext:?} isn't an extension: lowercase letters and digits, without the dot");
+            (format!("contributes.importers[{i}].extension: {said}"), false)
+        }
+        "provides nothing" | "provides twice" => {
+            add(c, "importers", 1);
+            let i = index(&tc, c.importers.len());
+            let x = &mut c.importers[i];
+            let at = format!("contributes.importers[{i}].provides");
+            if mistake == "provides nothing" {
+                x.provides.clear();
+                (format!("{at}: names nothing: fields, cues, tags or sessions"), false)
+            } else {
+                let again = x.provides[index(&tc, x.provides.len())];
+                x.provides.push(again);
+                (format!("{at}: {} is there twice", again.name()), false)
+            }
         }
         _ => {
             add(c, "settings", 1);

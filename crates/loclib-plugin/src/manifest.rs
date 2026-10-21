@@ -48,6 +48,7 @@ pub struct Contributions {
     pub operations: Vec<hooks::operations::Operation>,
     pub analyzers: Vec<hooks::analyzers::Analyzer>,
     pub exporters: Vec<hooks::exporters::Exporter>,
+    pub importers: Vec<hooks::importers::Importer>,
     pub providers: Vec<hooks::providers::Provider>,
     pub settings: Vec<Setting>,
 }
@@ -570,6 +571,7 @@ impl Manifest {
         hooks::operations::validate(self)?;
         hooks::analyzers::validate(self)?;
         hooks::exporters::validate(self)?;
+        hooks::importers::validate(self)?;
         hooks::providers::validate(self)?;
         let at = "contributes.settings";
         unique_names(at, "key", c.settings.iter().map(|x| x.key.as_str()).enumerate())?;

@@ -1,4 +1,5 @@
-//! Importing play logs from other tools as sessions (Beat Link Trigger's Playlist Writer CSV).
+//! Importing play logs from other tools as sessions (Beat Link Trigger's Playlist Writer CSV; a
+//! plugin's importer's are read by the plugin host, and kept as these are).
 //!
 //! Beat Link Trigger follows the players over Pro DJ Link, and its Playlist Writer adds a row to a
 //! CSV file each time a track that played long enough stops (`playlist_writer.clj`):
@@ -61,17 +62,12 @@ fn read_log(text: &str, library: Option<&Library>) -> std::result::Result<(Strin
         .map(|t| ((normalize(&t.artist), normalize(&t.title)), t))
         .collect();
 
-    let mut id = blake3::Hasher::new();
-    id.update(BEAT_LINK_TRIGGER.as_bytes());
-    let mut plays = Vec::new();
+    let (mut hashed, mut plays) = (Vec::new(), Vec::new());
     for r in records {
         let field = |i: Option<usize>| i.and_then(|i| r.fields.get(i)).map_or("", |f| f.trim());
         let (title, artist, started_at) = (field(Some(title)), field(artist), field(Some(started)));
         // The time as written, so the id doesn't depend on the time zone the log is read in.
-        for part in [started_at, artist, title] {
-            id.update(b"\x1f");
-            id.update(part.as_bytes());
-        }
+        hashed.extend([started_at, artist, title].map(String::from));
         let entry = match tracks.get(&(normalize(artist), normalize(title))) {
             Some(t) => SetEntry::from_track(t, EntryOrigin::Session, None),
             None => SetEntry {
@@ -93,7 +89,19 @@ fn read_log(text: &str, library: Option<&Library>) -> std::result::Result<(Strin
         return Err("it has no plays".into());
     }
     plays.sort_by_key(|p| p.started);
-    Ok((id.finalize().to_hex()[..32].to_string(), plays))
+    Ok((log_id(BEAT_LINK_TRIGGER, &hashed), plays))
+}
+
+/// An imported log's id: its `tool` and each play's start, artist and title (`parts`, in the
+/// log's order, as it writes them) hashed, so the same log imported again has the same one.
+pub(crate) fn log_id(tool: &str, parts: impl IntoIterator<Item = impl AsRef<str>>) -> String {
+    let mut id = blake3::Hasher::new();
+    id.update(tool.as_bytes());
+    for part in parts {
+        id.update(b"\x1f");
+        id.update(part.as_ref().as_bytes());
+    }
+    id.finalize().to_hex()[..32].to_string()
 }
 
 /// A `java.util.Date` as Beat Link Trigger writes one: `Sat Oct 03 23:14:05 CEST 2026`. chrono

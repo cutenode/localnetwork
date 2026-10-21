@@ -42,6 +42,12 @@ format = "m3u"
 title = "M3U playlist"
 extension = "m3u"
 
+[[contributes.importers]]
+format = "lines"
+title = "Audio files, a line each"
+extension = "txt"
+provides = ["tags"]
+
 [[contributes.providers]]
 name = "tags"
 title = "The tags as they are"

@@ -261,6 +261,7 @@ const SPEC: &[Read] = {
         ("sets.list", "sets:read", false, &[("venue", Plain), ("kind", Plain), ("since", Plain), ("until", Plain)]),
         ("sets.get", "sets:read", false, &[("set", Plain), ("venue", Plain)]),
         ("sessions.list", "sets:read", false, &[("drive", Drive), ("unassigned", Plain)]),
+        ("mix.reports.get", "sets:read", false, &[("id", Plain)]),
         ("account.status", "account:status", false, &[]),
         ("collection.info", "collection:read", false, &[]),
         ("collection.diff", "collection:read", false, &[("drive", Drive), ("playlist", Plain)]),

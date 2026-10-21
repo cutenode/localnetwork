@@ -1,0 +1,206 @@
+//! Importers: what a file says about tracks found on the drive, added to them as an edit plan, and
+//! the plays it logged kept as sessions.
+
+use locallibrary::api::DriveRef;
+use locallibrary::cue_edit::{self, CueChange, CueRef};
+use locallibrary::edit::{Edit, TrackFields};
+use locallibrary::harmony::Camelot;
+use locallibrary::op::Planned;
+use locallibrary::plugin::PluginImport;
+use locallibrary::query::TrackSelector;
+use locallibrary::sets::SetBook;
+use locallibrary::{Device, Track};
+
+use super::*;
+
+/// The echo manifest with an importer, `given`, providing `provides` (TOML's list): the test
+/// plugin answers a JSON file as it is.
+fn given(provides: &str) -> String {
+    ECHO.replace(
+        "[[contributes.providers]]",
+        &format!(
+            "[[contributes.importers]]\nformat = \"given\"\ntitle = \"Given\"\nprovides = {provides}\n\
+             options = {{ type = \"object\", properties = {{ blob = {{ type = \"string\" }} }} }}\n\n\
+             [[contributes.providers]]"
+        ),
+    )
+}
+
+const EVERYTHING: &str = r#"["fields", "cues", "tags", "sessions"]"#;
+
+impl Fixture {
+    /// Imports `read` (what the importer answers) with `options`, from `read.json`.
+    fn import(&self, read: &Value, options: Value) -> Result<Planned<PluginImport>> {
+        let file = self._dir.path().join("read.json");
+        std::fs::write(&file, read.to_string()).unwrap();
+        self.plugins.import_plan("echo", "given", &file, "USB", options, Some(&self.store), &Ctx::silent())
+    }
+
+    /// The drive's tracks, the first without a key and the second without cues.
+    fn bare(&self) -> Vec<Track> {
+        let tracks = common::library(&self.drive).tracks;
+        let ids = |t: &Track| TrackSelector { ids: vec![t.id], ..TrackSelector::default() };
+        let clear = TrackFields { key: Some(String::new()), ..TrackFields::default() };
+        let none = CueChange::Delete(CueRef::All);
+        common::apply(
+            &self.drive,
+            &[
+                Edit::EditTracks { tracks: ids(&tracks[0]), fields: clear },
+                Edit::Cues { tracks: vec![tracks[1].file_path.clone()], change: none },
+            ],
+        );
+        common::library(&self.drive).tracks
+    }
+}
+
+/// What a file says the tracks it finds have, as the importer read it, and the plays it logged.
+fn read(t: &[Track]) -> Value {
+    json!({
+        "tracks": [
+            { "match": { "path": t[0].file_path }, "key": "8A", "bpm": 99.0 },
+            {
+                "match": { "artist": t[1].artist, "title": t[1].title },
+                "cues": [{ "hot_cue": "A", "start_ms": 1000 }, { "start_ms": 5000, "name": "drop" }],
+                "my_tags": ["Genre/Imported", " "],
+            },
+            { "match": { "title": "Nothing on this drive" }, "key": "1A" },
+        ],
+        "sessions": [
+            {
+                "name": "Friday",
+                "started": "2026-10-03T22:00:00+02:00",
+                "plays": [
+                    { "artist": t[0].artist, "title": t[0].title, "path": t[0].file_path },
+                    { "artist": "Someone", "title": "Else", "started_at": "2026-10-03T22:05:00+02:00" },
+                ],
+            },
+            { "plays": [{ "artist": "No", "title": "Time" }] },
+        ],
+        "warnings": ["a line it couldn't read"],
+    })
+}
+
+/// The tracks a file names are found on the drive and added to, as one edit plan, journaled: a key
+/// where a track has none (a BPM it has kept), cues in slots it has none in, and My Tags. Its
+/// sessions are kept in the store. Those it doesn't find, and what's there already, are left out,
+/// saying so; the same file again adds nothing more, and keeps its sessions as they were.
+#[test]
+fn what_a_file_says_is_added_to_the_tracks_it_finds() {
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let t = f.bare();
+    let read = read(&t);
+    let journal = || api::edits_list(&DriveRef { drive: common::path(&f.drive) }).unwrap().len();
+    let before = journal();
+    let planned = f.import(&read, Value::Null).unwrap();
+    let file = f._dir.path().join("read.json");
+    assert_eq!(&*planned.operation, "echo.import.given");
+    assert_eq!(planned.summary[0], format!("import 2 of 3 track(s) found on USB from {}", file.display()));
+    assert!(
+        planned.summary.contains(&"keep 1 session(s) of 2 play(s), 1 of them found on the drive".to_string()),
+        "{:?}",
+        planned.summary
+    );
+    let warnings = [
+        "read 2: left out, a play has no time and nor has the session",
+        "1 of the 3 track(s) left out: 1 aren't on the drive, 0 could be several",
+        "Given: a line it couldn't read",
+    ];
+    assert_eq!(planned.warnings, warnings);
+    assert_eq!((planned.tracks.entries, planned.tracks.found, planned.tracks.missing), (3, 2, 1));
+    assert!(!planned.destructive && !planned.noop);
+    planned.apply(Some(&f.store), &Ctx::silent()).unwrap();
+
+    let after = common::library(&f.drive).tracks;
+    assert_eq!((after[0].key.clone(), after[0].bpm), (Camelot::parse("8A").unwrap().note(), t[0].bpm));
+    let device = Device::open(&f.drive).unwrap();
+    let cues = &cue_edit::list(&device, &[t[1].id]).unwrap()[0].cues;
+    let said: Vec<_> = cues.iter().map(|c| (c.hot_cue.as_deref(), c.start_ms, c.name.as_str())).collect();
+    assert_eq!(said, [(None, 5000, "drop"), (Some("A"), 1000, "")], "memory cues first, as a drive lists them");
+    let tags = locallibrary::tags::read(&device).unwrap();
+    let tagged = tags.categories.iter().flat_map(|c| &c.tags).find(|g| g.path == "Genre/Imported").unwrap();
+    assert_eq!(tagged.tracks.iter().map(|r| r.id).collect::<Vec<_>>(), [t[1].id]);
+    assert_eq!(journal(), before + 1, "journaled");
+    let book = SetBook::load(&f.store).unwrap();
+    let [session] = &book.imported[..] else { panic!("one session: {:?}", book.imported) };
+    assert_eq!((session.name.as_str(), session.tool.as_str(), &session.file), ("Friday", "echo.given", &file));
+    let plays: Vec<_> = session.plays.iter().map(|p| (p.entry.file.clone(), p.started.to_rfc3339())).collect();
+    let at = |t: &str| chrono::DateTime::parse_from_rfc3339(t).unwrap().to_utc().to_rfc3339();
+    assert_eq!(
+        plays,
+        [(Some(t[0].file_path.clone()), at("2026-10-03T22:00:00+02:00")), (None, at("2026-10-03T22:05:00+02:00"))]
+    );
+    assert_eq!(session.plays[1].entry.name(), "Someone - Else");
+
+    let again = f.import(&read, Value::Null).unwrap();
+    assert!(again.edits.is_noop(), "{:?}", again.summary);
+    assert!(again.warnings.contains(&"2 cue(s) left out: their tracks have one there already, or end before".into()));
+    assert_eq!(again.sessions[0].id, session.id, "the same log is the same session");
+    again.apply(Some(&f.store), &Ctx::silent()).unwrap();
+    assert_eq!(SetBook::load(&f.store).unwrap().imported.len(), 1);
+}
+
+/// What an importer answers in a file in its scratch folder is read as it would be in its answer:
+/// a file outside the folder, or that isn't an answer, is refused.
+#[test]
+fn a_big_import_comes_in_a_file() {
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let t = f.bare();
+    let inline = f.import(&read(&t), Value::Null).unwrap();
+    let blob = f.import(&read(&t), json!({ "blob": "read.json" })).unwrap();
+    assert_eq!((blob.summary.clone(), blob.warnings.clone()), (inline.summary.clone(), inline.warnings.clone()));
+    let e = f.import(&read(&t), json!({ "blob": "../read.json" })).err().unwrap();
+    assert!(failure(e).contains("its answer: \"../read.json\" isn't a file's name in the scratch folder"));
+    let e = f.import(&json!({ "tracks": 5 }), json!({ "blob": "read.json" })).err().unwrap();
+    assert!(failure(e).contains("its answer in read.json isn't one: invalid type: integer `5`"));
+}
+
+/// An importer's answer with what its manifest doesn't say it provides is refused, and so is a
+/// cue, or a time, that isn't one.
+#[test]
+fn an_importer_answers_only_what_it_provides() {
+    let f = Fixture::new(|dir| vec![spec(dir, &given(r#"["tags"]"#), &[])], Options::default());
+    let t = common::library(&f.drive).tracks;
+    let refused = |read: Value| failure(f.import(&read, Value::Null).err().unwrap());
+    let key = json!({ "tracks": [{ "match": { "path": t[0].file_path }, "key": "8A" }] });
+    assert!(refused(key).contains("it read fields, which its manifest doesn't say it provides"));
+    assert!(refused(read(&t)).contains("it read fields"));
+    let sessions = json!({ "sessions": [{ "plays": [] }] });
+    assert!(refused(sessions).contains("it read sessions, which its manifest doesn't say it provides"));
+
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let cue =
+        json!({ "tracks": [{ "match": { "path": t[1].file_path }, "cues": [{ "hot_cue": "Z", "start_ms": 1 }] }] });
+    let e = failure(f.import(&cue, Value::Null).err().unwrap());
+    assert!(e.contains(&format!("its cue for {}: hot cues are A-H, not \"Z\"", t[1].display_name())), "{e}");
+    let time = json!({ "sessions": [{ "plays": [{ "artist": "A", "title": "B", "started_at": "Friday" }] }] });
+    let e = failure(f.import(&time, Value::Null).err().unwrap());
+    assert!(e.contains("its session 0: \"Friday\" isn't a time (RFC 3339)"), "{e}");
+}
+
+/// The file is one on this computer, and the importer one the plugin has.
+#[test]
+fn an_import_reads_a_file_the_plugin_has_an_importer_for() {
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let plan = |importer: &str, file: &Path| {
+        f.plugins.import_plan("echo", importer, file, "USB", Value::Null, Some(&f.store), &Ctx::silent())
+    };
+    let e = plan("given", Path::new("read.json")).err().unwrap();
+    assert_eq!(e.to_string(), "the file to import must be an absolute path, not read.json");
+    let e = plan("given", f._dir.path()).err().unwrap();
+    assert_eq!(e.to_string(), format!("{} isn't a file", f._dir.path().display()));
+    let e = plan("nope", f._dir.path()).err().unwrap();
+    assert_eq!(e.code(), "not_found", "{e}");
+    // Echo's own importer reads a list of audio files, a line each.
+    let list = f._dir.path().join("list.txt");
+    let t = common::library(&f.drive).tracks;
+    std::fs::write(&list, format!("{}\n/Contents/nowhere.mp3\n", t[0].file_path)).unwrap();
+    let planned = plan("lines", &list).unwrap();
+    assert_eq!(planned.summary[0], format!("import 1 of 2 track(s) found on USB from {}", list.display()));
+    // Without a store, sessions have nowhere to go.
+    let read =
+        json!({ "sessions": [{ "plays": [{ "artist": "A", "title": "B", "started_at": "2026-10-03T22:00:00Z" }] }] });
+    let file = f._dir.path().join("read.json");
+    std::fs::write(&file, read.to_string()).unwrap();
+    let e = f.plugins.import_plan("echo", "given", &file, "USB", Value::Null, None, &Ctx::silent()).err().unwrap();
+    assert_eq!(e.to_string(), "sessions are kept in the store, and there's none");
+}

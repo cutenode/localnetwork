@@ -21,6 +21,7 @@ pub mod method {
     pub use crate::hooks::analyzers::ANALYZE_TRACK;
     pub use crate::hooks::commands::RUN_COMMAND;
     pub use crate::hooks::exporters::WRITE_EXPORT;
+    pub use crate::hooks::importers::READ_IMPORT;
     pub use crate::hooks::operations::PLAN_OP;
     pub use crate::hooks::providers::PROVIDE;
 
@@ -85,8 +86,8 @@ pub struct PluginInfo {
     pub version: String,
 }
 
-/// Where the user was when they ran a command or an operation (for an analyzer or an exporter,
-/// the drive), and the plugin's settings. Everything is optional.
+/// Where the user was when they ran a command or an operation (for an analyzer, an exporter or an
+/// importer, the drive), and the plugin's settings. Everything is optional.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Context {
     /// The drive's id or name.
@@ -98,6 +99,9 @@ pub struct Context {
     /// The tracks selected, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<u32>,
+    /// The set open, by id (`sets.get` reads it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<String>,
     /// The plugin's settings, by key: each one the user set, else its default. Never a secret:
     /// those only go into `net/fetch` requests, filled in by the host.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]

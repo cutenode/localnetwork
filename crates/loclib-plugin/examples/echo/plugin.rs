@@ -3,8 +3,9 @@
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, Hooks, Host, OpPlan, PlanOp,
-    ProvideCandidates, RpcError, RunCommand, TrackMetadata, TracksQuery, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, Hooks, Host, Imported,
+    ImportedTrack, OpPlan, PlanOp, ProvideCandidates, ReadImport, RpcError, RunCommand, TrackMatch, TrackMetadata,
+    TracksQuery, View, WriteExport, params,
 };
 use loclib_progress::{Event, Phase, Steps};
 use serde::Deserialize;
@@ -14,7 +15,7 @@ pub const MANIFEST: &str = include_str!("locallibrary-plugin.toml");
 
 /// Its hooks: one of each kind.
 pub fn hooks() -> Hooks {
-    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide)
+    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(read_import).on(plan_op).on(provide)
 }
 
 #[derive(Deserialize)]
@@ -74,6 +75,17 @@ pub fn write_export(req: WriteExport, host: &Host) -> Result<Exported, RpcError>
     let file = ExportedFile { path: req.output, what: "playlist".into(), bytes: text.len() as u64 };
     let counts = [("tracks".to_string(), lines.len() as u64)].into_iter().collect();
     Ok(Exported { files: vec![file], counts, ..Exported::default() })
+}
+
+/// `import/read`: each line of the file is a track's audio file, given the My Tag `Genre/Echo`.
+pub fn read_import(req: ReadImport, host: &Host) -> Result<Imported, RpcError> {
+    let text = std::fs::read_to_string(&req.file).map_err(|e| RpcError::failure(&e, "io", &host.ctx()))?;
+    let tracks = text.lines().map(str::trim).filter(|l| !l.is_empty()).map(|path| ImportedTrack {
+        find: TrackMatch { path: Some(path.into()), ..TrackMatch::default() },
+        my_tags: vec!["Genre/Echo".into()],
+        ..ImportedTrack::default()
+    });
+    Ok(Imported { tracks: tracks.collect(), ..Imported::default() })
 }
 
 /// `op/plan`.

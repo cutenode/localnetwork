@@ -117,6 +117,8 @@ fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
         "sets.list" => (SetsRead, false, &[("venue", Plain), ("kind", Plain), ("since", Plain), ("until", Plain)]),
         "sets.get" => (SetsRead, false, &[("set", Plain), ("venue", Plain)]),
         "sessions.list" => (SetsRead, false, &[("drive", Drive), ("unassigned", Plain)]),
+        // A recorded set's tracklist, for a mix exporter.
+        "mix.reports.get" => (SetsRead, false, &[("id", Plain)]),
         "account.status" => (AccountStatus, false, &[]),
         "collection.info" => (CollectionRead, false, &[]),
         "collection.diff" => (CollectionRead, false, &[("drive", Drive), ("playlist", Plain)]),
@@ -228,14 +230,15 @@ const MOUNTS: [&str; 2] = ["root", "last_mount"];
 
 /// A read's answer as a plugin gets it, saying nothing of where things are on this computer:
 /// without a drive's mount point ([`MOUNTS`]) or the place of a file outside any drive (a store
-/// copy's, a set's recording, rekordbox's collection), and with any other path under one of
-/// `roots` said from there (see [`known_roots`]), as errors' are.
+/// copy's, a set's or a mix's recording and its cover, rekordbox's collection), and with any other
+/// path under one of `roots` said from there (see [`known_roots`]), as errors' are.
 fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
     // Each key, at any depth, in an object that's the value of the first key when one is given.
     let places: &[(Option<&str>, &str)] = match method {
         "store.copies" => &[(None, "path"), (None, "from")],
         "store.info" => &[(Some("copy_of"), "path"), (Some("copy_of"), "from")],
         "sets.list" | "sets.get" => &[(Some("recording"), "path")],
+        "mix.reports.get" => &[(Some("mix"), "path"), (Some("mix"), "cover"), (None, "audio")],
         "collection.info" => &[(None, "path")],
         _ => &[],
     };
