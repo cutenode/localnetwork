@@ -359,3 +359,113 @@ fn a_grids_tempo_is_most_of_its_beats() {
     let a = NewAnalysis { beats: Some(vec![]), phrases: None, waveform: Some(WaveSource::Staged(Hash::of(b"x"))) };
     assert_eq!(a.describe("/Contents/a.mp3"), "set the beat grid and the waveform of /Contents/a.mp3");
 }
+
+/// Each way an analysis edit can't be made is refused as it's planned, saying why, and leaves
+/// the drive as it was, no waveform staged: nothing to write, a grid or phrases the files can't
+/// hold, a beat past the end, phrases without an `.EXT`, no `.DAT`, no analysis files at all or
+/// ones outside rekordbox's folder, a waveform over rekordbox's colour overview, one that isn't
+/// bands, given as a plugin's blob or staged and gone, and a track that isn't on the drive.
+#[hegel::test(test_cases = 40, suppress_health_check = [HealthCheck::TooSlow])]
+fn analysis_edits_that_cant_be_made_change_nothing(tc: TestCase) {
+    let dir = tempfile::tempdir().unwrap();
+    let case = tc.draw(gs::integers::<u8>().max_value(14));
+    let root = match case {
+        13 => common::bigger_drive(dir.path(), "USB"),
+        _ => common::demo_drive(dir.path(), "USB"),
+    };
+    let t = track(&root, "Demo Track 2");
+    let name = t.display_name();
+    let dat = paths::to_fs(&root, &paths::key(&t.analyze_path));
+    let beat = |n: u16, bpm: f64, ms: u32| Beat { beat_number: n, bpm, time_ms: ms };
+    let grid = |beats: Vec<Beat>| NewAnalysis { beats: Some(beats), ..Default::default() };
+    let phrased = |mood, phrases: Vec<(PhraseKind, u16, u16)>| NewAnalysis {
+        phrases: Some(SongStructure {
+            mood,
+            phrases: phrases
+                .into_iter()
+                .map(|(kind, start_beat, end_beat)| Phrase { kind, start_beat, end_beat, fill_beat: None })
+                .collect(),
+        }),
+        ..Default::default()
+    };
+    let waved = |w: WaveSource| NewAnalysis { waveform: Some(w), ..Default::default() };
+    let intro = vec![(PhraseKind::Intro, 1, 9)];
+    let (edit, why) = match case {
+        0 => (set(&t, NewAnalysis::default()), "say what to write: a beat grid, phrases or a waveform".to_string()),
+        1 => {
+            let n = tc.draw(hegel::one_of!(gs::just(0u16), gs::integers::<u16>().min_value(5)));
+            (set(&t, grid(vec![beat(n, 120.0, 0)])), format!("beat 1 is beat {n} of its bar: 1-4"))
+        }
+        2 => {
+            let bpm = tc.draw(hegel::one_of!(
+                gs::just(f64::NAN),
+                gs::floats::<f64>().max_value(0.004),
+                gs::floats::<f64>().min_value(655.36)
+            ));
+            (set(&t, grid(vec![beat(1, bpm, 0)])), format!("beat 1's tempo, {bpm} BPM, isn't 0.01-655.35"))
+        }
+        3 => {
+            let ms = tc.draw(gs::integers::<u32>().max_value(10_000));
+            let back = tc.draw(gs::integers::<u32>().max_value(ms));
+            (
+                set(&t, grid(vec![beat(1, 120.0, ms), beat(2, 120.0, back)])),
+                "beat 2 isn't after the one before it".into(),
+            )
+        }
+        4 => {
+            let past = (t.duration_secs + 1) * 1000 + tc.draw(gs::integers::<u32>().max_value(1_000_000));
+            (set(&t, grid(steady(1, 120.0, past))), format!("is past the end of {name}"))
+        }
+        5 => {
+            let gap = tc.draw(gs::integers::<u16>().min_value(10).max_value(100));
+            let gapped = phrased(Mood::Mid, vec![(PhraseKind::Intro, 1, 9), (PhraseKind::Outro, gap, gap + 8)]);
+            (set(&t, gapped), "phrases follow one another from beat 1".into())
+        }
+        6 => (
+            set(&t, phrased(Mood::High, vec![(PhraseKind::Bridge, 1, 9)])),
+            "a High track has no Bridge phrases".into(),
+        ),
+        7 => {
+            std::fs::remove_file(dat.with_extension("EXT")).unwrap();
+            (set(&t, phrased(Mood::Low, intro)), format!("{name} has no .EXT analysis file to hold phrases"))
+        }
+        8 => {
+            std::fs::remove_file(&dat).unwrap();
+            (set(&t, grid(steady(4, 120.0, 0))), format!("{name} has no .DAT analysis file"))
+        }
+        9 => (set(&t, waved(wave(&bands(150)))), "(PWV4) that can't be worked out from another waveform".into()),
+        10 => {
+            let mut bytes = tc.draw(gs::binary().max_size(40));
+            if !bytes.is_empty() && bytes.len().is_multiple_of(3) {
+                bytes.pop();
+            }
+            let why = "a waveform is three bytes a column (lows, mids, highs), at least one column";
+            match tc.draw(gs::booleans()) {
+                true => (set(&t, waved(WaveSource::Base64(BASE64_STANDARD.encode(bytes)))), why.into()),
+                false => (set(&t, waved(WaveSource::Base64("not base64!".into()))), "the waveform isn't base64".into()),
+            }
+        }
+        11 => (
+            set(&t, waved(WaveSource::Blob("w.bands".into()))),
+            "only a plugin's plan gives a waveform as a blob".into(),
+        ),
+        12 => (set(&t, waved(WaveSource::Staged(Hash::of(b"gone")))), "the staged waveform".into()),
+        13 => (set(&t, grid(steady(4, 120.0, 0))), format!("refusing analysis path {:?} of {name}", t.analyze_path)),
+        _ => {
+            let audio = "/Contents/none/a.mp3";
+            common::add_track(
+                &root,
+                rekordbox_pdb::NewTrack::new("Unanalysed", audio),
+                &common::placeholder_audio(audio),
+            );
+            let t = track(&root, "Unanalysed");
+            let why = format!("{} has no analysis files (rekordbox hasn't analysed it)", t.display_name());
+            (set(&t, grid(steady(4, 120.0, 0))), why)
+        }
+    };
+    let before = common::drive_files(&root);
+    let err = plan(&root, &[edit]).unwrap_err().to_string();
+    assert!(err.contains(&why), "{err}");
+    assert!(common::changed_files(&before, &common::drive_files(&root)).is_empty());
+    assert!(!root.join(paths::STATE_DIR).join("waveforms").exists());
+}

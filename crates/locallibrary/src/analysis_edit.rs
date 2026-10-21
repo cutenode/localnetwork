@@ -324,9 +324,9 @@ pub(crate) fn replay(
     };
     let made = track(&library, file).and_then(|t| {
         let bands = hash.map(|h| staged_bands(device, &h, staged)).transpose()?;
-        rewrite(t, &read(device, t)?, a, bands.as_ref())
+        Ok((rewrite(t, &read(device, t)?, a, bands.as_ref())?, bands))
     });
-    let (changed, warnings) = match made {
+    let ((changed, warnings), bands) = match made {
         Ok(made) => made,
         Err(e) => return out.skipped(strict, &described, e),
     };
@@ -334,10 +334,10 @@ pub(crate) fn replay(
     if changed.is_empty() {
         return Ok(out);
     }
-    // Not on the drive yet, it was read from `staged`.
-    let fresh = hash.map(|h| (WAVEFORMS.path(device, &h), h)).filter(|(p, _)| !p.is_file());
-    if let Some((path, hash)) = &fresh {
-        fsutil::write_atomic(path, &staged[hash])?;
+    // Not on the drive yet (it was read from `staged`), it's staged as it was read.
+    let fresh = hash.zip(bands).map(|(h, b)| (WAVEFORMS.path(device, &h), b)).filter(|(p, _)| !p.is_file());
+    if let Some((path, bands)) = &fresh {
+        fsutil::write_atomic(path, &bands.pack())?;
     }
     let changes =
         Changes { files: changed.into_iter().map(|(k, b)| NewFile::bytes(k, b)).collect(), ..Default::default() };

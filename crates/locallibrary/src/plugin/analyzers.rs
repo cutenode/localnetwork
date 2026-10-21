@@ -199,7 +199,9 @@ impl Slot {
                     let bands = Bands::unpack(&bytes).filter(|b| !b.0.is_empty()).ok_or_else(|| {
                         self.misbehaved(format!("its {name} isn't three bytes a column, at least one column"))
                     })?;
-                    o.waveform = Some(anlz::at_detail_rate(&bands, w.columns_per_sec));
+                    let bands = anlz::at_detail_rate(&bands, w.columns_per_sec)
+                        .map_err(|e| self.misbehaved(format!("its {name}: {e}")))?;
+                    o.waveform = Some(bands);
                 }
             }
         }

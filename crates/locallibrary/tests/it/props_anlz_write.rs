@@ -280,6 +280,16 @@ fn phrases_that_cant_be_stored_are_refused() {
     assert_eq!(refused(Mood::Mid, vec![fill]), "phrase 1's fill-in starts on beat 0: beats count from 1");
 }
 
+/// The bytes a column of waveform `tag` takes.
+fn column_size(tag: &[u8; 4]) -> usize {
+    match tag {
+        b"PWV4" => 6,
+        b"PWV5" => 2,
+        b"PWV6" | b"PWV7" => 3,
+        _ => 1,
+    }
+}
+
 /// A waveform tag's stored columns: whole columns of its size.
 #[hegel::test_helper]
 fn columns(tc: &TestCase, size: usize) -> Vec<u8> {
@@ -292,12 +302,7 @@ fn columns(tc: &TestCase, size: usize) -> Vec<u8> {
 #[hegel::test(test_cases = 200)]
 fn waveforms_read_back_as_written(tc: TestCase) {
     let tag = *tc.draw(gs::sampled_from(anlz::waveform_tags().collect::<Vec<_>>()));
-    let size = match &tag {
-        b"PWV4" => 6,
-        b"PWV5" => 2,
-        b"PWV6" | b"PWV7" => 3,
-        _ => 1,
-    };
+    let size = column_size(&tag);
     let file = base(&tc, tc.draw(gs::booleans()));
     let cols = columns(&tc, size);
     let out = anlz::write_waveform(&file, &tag, &cols).unwrap();
@@ -368,9 +373,85 @@ fn waveforms_are_worked_out_from_bands(tc: TestCase) {
 #[test]
 fn bands_go_to_the_detail_rate() {
     let b = Bands(vec![[1, 2, 3]; 100]);
-    assert_eq!(anlz::at_detail_rate(&b, 75.0).0.len(), 200);
-    assert_eq!(anlz::at_detail_rate(&b, 300.0).0.len(), 50);
-    assert_eq!(anlz::at_detail_rate(&Bands::default(), 150.0).0.len(), 1);
+    assert_eq!(anlz::at_detail_rate(&b, 75.0).unwrap().0.len(), 200);
+    assert_eq!(anlz::at_detail_rate(&b, 300.0).unwrap().0.len(), 50);
+    assert_eq!(anlz::at_detail_rate(&Bands::default(), 150.0).unwrap().0.len(), 1);
+}
+
+/// Bands at any rate are pooled to 150 columns a second, as long in time, up to a day of audio;
+/// slower ones, which would fill memory, are refused.
+#[hegel::test(test_cases = 200)]
+fn bands_over_a_day_are_refused(tc: TestCase) {
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(2_000));
+    let rate = tc.draw(gs::floats::<f64>().min_value(f64::MIN_POSITIVE).max_value(1e6));
+    let b = Bands(vec![[1, 2, 3]; n]);
+    let want = (n as f64 * 150.0 / rate).round();
+    match anlz::at_detail_rate(&b, rate) {
+        Ok(pooled) => {
+            assert!(want <= 24.0 * 3600.0 * 150.0);
+            assert_eq!(pooled.0.len(), (want as usize).max(1));
+            assert!(pooled.0.iter().all(|c| *c == [1, 2, 3]));
+        }
+        Err(e) => {
+            assert!(want > 24.0 * 3600.0 * 150.0);
+            assert_eq!(e.to_string(), format!("{n} columns at {rate} a second run over a day"));
+        }
+    }
+}
+
+/// A damaged analysis file (bytes changed, perhaps in a section's header, or cut short) is
+/// never a panic for a writer: each refuses it, or writes a file holding what it was given,
+/// whatever damage the other sections keep; nor for a reader.
+#[hegel::test(test_cases = 300)]
+fn writers_take_damaged_files_without_panicking(tc: TestCase) {
+    let ext = tc.draw(gs::booleans());
+    let mut file = base(&tc, ext);
+    let starts: Vec<usize> = {
+        let be = |at: usize| u32::from_be_bytes(file[at..at + 4].try_into().unwrap()) as usize;
+        let mut at = vec![0];
+        let mut pos = be(4);
+        while pos + 12 <= be(8) {
+            at.push(pos);
+            pos += be(pos + 8);
+        }
+        at
+    };
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
+        let at = tc.draw(gs::sampled_from(starts.clone())) + tc.draw(gs::integers::<usize>().max_value(31));
+        if let Some(b) = file.get_mut(at) {
+            *b = tc.draw(gs::integers::<u8>());
+        }
+    }
+    if tc.draw(gs::booleans()) {
+        file.truncate(tc.draw(gs::integers::<usize>().max_value(file.len())));
+    }
+    let tag = *tc.draw(gs::sampled_from(anlz::waveform_tags().collect::<Vec<_>>()));
+    let columns = vec![9; column_size(&tag) * 4];
+    let (beats, phrases) = (grid(&tc), structure(&tc));
+    let mut written = Vec::new();
+    if let Ok(out) = anlz::write_beat_grid(&file, &beats) {
+        assert_eq!(anlz::beat_grid(&out).unwrap(), beats);
+        written.push(out);
+    }
+    if let Ok(out) = anlz::write_song_structure(&file, Some(&phrases)) {
+        assert_eq!(anlz::song_structure(&out).unwrap(), Some(phrases));
+        written.push(out);
+    }
+    if let Ok(out) = anlz::write_song_structure(&file, None) {
+        assert_eq!(anlz::song_structure(&out).unwrap(), None);
+        written.push(out);
+    }
+    if let Ok(out) = anlz::without_extended_grid(&file) {
+        assert!(!anlz::has_section(&out, b"PQT2").unwrap());
+        written.push(out);
+    }
+    if let Ok(out) = anlz::write_waveform(&file, &tag, &columns) {
+        assert_eq!(anlz::waveform_entries(&out, &tag).unwrap(), Some(columns));
+        written.push(out);
+    }
+    for out in written.iter().chain([&file]) {
+        let _ = (anlz::read_path(out), anlz::cues(out), anlz::preview(out), anlz::detail(out));
+    }
 }
 
 /// A waveform the format can't hold, or a tag that isn't a waveform's, is refused.

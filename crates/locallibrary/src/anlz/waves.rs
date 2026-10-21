@@ -92,10 +92,17 @@ pub fn write_waveform(bytes: &[u8], tag: &[u8; 4], columns: &[u8]) -> Result<Vec
     Ok(out)
 }
 
-/// `bands` (at `rate` columns a second) at [`DETAIL_RATE`], as long.
-pub fn at_detail_rate(bands: &Bands, rate: f64) -> Bands {
-    let n = (bands.0.len() as f64 * DETAIL_RATE / rate).round() as usize;
-    bands.pooled(n.max(1))
+/// The most columns [`at_detail_rate`] makes, a day's: however slow a plugin says its waveform
+/// is, pooling it never allocates more.
+const MOST_DETAIL_COLUMNS: f64 = 24.0 * 3600.0 * DETAIL_RATE;
+
+/// `bands` (at `rate` columns a second) at [`DETAIL_RATE`], as long, unless that's over a day.
+pub fn at_detail_rate(bands: &Bands, rate: f64) -> Result<Bands> {
+    let n = (bands.0.len() as f64 * DETAIL_RATE / rate).round();
+    if n.is_nan() || n > MOST_DETAIL_COLUMNS {
+        return Err(Error::invalid(format!("{} columns at {rate} a second run over a day", bands.0.len())));
+    }
+    Ok(bands.pooled((n as usize).max(1)))
 }
 
 /// The columns of waveform `tag` worked out from `bands` (the detail, at [`DETAIL_RATE`]; previews

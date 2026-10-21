@@ -160,9 +160,9 @@ manifest contributes for it. A plugin has a family's feature once it implements 
 No method of its own: an analyzer's fields may also be a beat grid (`beats`: `[{beat_number,
 bpm, time_ms}]`), phrases (`phrases`: `{mood, phrases: [{kind, start_beat, end_beat,
 fill_beat?}]}`) or a waveform (`waveform`: `{blob, columns_per_sec}`, the file holding three bytes
-a column, its lows, mids and highs, 0-255, `Bands` packed), one of each at most, or `null`.
-`FieldValue::beats`, `FieldValue::phrases` and `FieldValue::waveform` make them and `Output` reads
-them. Every plugin the SDK serves has the feature, and a host without it refuses a manifest
+a column, its lows, mids and highs, 0-255, `Bands` packed, no more than a day of audio), one
+of each at most, or `null`. `FieldValue::beats`, `FieldValue::phrases` and `FieldValue::waveform`
+make them and `Output` reads them. Every plugin the SDK serves has the feature, and a host without it refuses a manifest
 declaring such a field. They're not columns: the host keeps them apart, draws them where a drive
 has none and writes them into analysis files only when the user asks. An operation's
 `set_analysis` edit needs `analysis:plan`.
