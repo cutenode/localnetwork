@@ -192,6 +192,10 @@ pub enum Act {
     FieldColumn(locallibrary::query::FieldName),
     /// A plugin's settings (the plugin's id).
     PluginSettings(&'static str),
+    /// Sign in to a plugin's account in the browser (the plugin's id, the account's).
+    PluginSignIn(&'static str, &'static str),
+    /// Sign out of a plugin's account (the plugin's id, the account's).
+    PluginSignOut(&'static str, &'static str),
     /// The settings of every provider: when a candidate is picked for the user.
     ProviderSettings,
     /// Export the drive in a plugin's format (the plugin's id, the format).

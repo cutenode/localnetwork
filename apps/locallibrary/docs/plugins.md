@@ -1,12 +1,13 @@
 # Plugins
 
 A plugin adds to locallibrary the kinds of things below (commands, operations that change a
-library, analyzers that work out values for each track, export formats...), each in a section of
-its own. It's a program of its own that locallibrary starts when it's first used and talks to over
-its stdin and stdout (the protocol is in [loclib-plugin](../../../crates/loclib-plugin)). A plugin
-never writes to a drive: it reads the library through locallibrary, within what its capabilities
-allow, and an operation hands locallibrary the edits it would make, which you're shown and asked
-about as any edit is, backed up and journaled.
+library, analyzers that work out values for each track, export formats, accounts, places to copy
+the store to...), each in a section of its own. It's a program of its own that locallibrary
+starts when it's first used and talks to over its stdin and stdout (the protocol is in
+[loclib-plugin](../../../crates/loclib-plugin)). A plugin never writes to a drive: it reads the
+library through locallibrary, within what its capabilities allow, and an operation hands
+locallibrary the edits it would make, which you're shown and asked about as any edit is, backed up
+and journaled.
 
 For now only plugins built into locallibrary run. There's no way to install another yet. Those
 are:
@@ -44,6 +45,20 @@ tracks, the playlist, the drive) starting as it (see [the player](player.md)). T
 `plugins.*` methods (see [Building a GUI](sidecar.md)). Each kind is below, in a section of its
 own.
 
+## Accounts
+
+A plugin may have accounts on other services (a mix host, a cloud drive). `locallibrary plugin
+account PLUGIN ACCOUNT sign-in` opens the service's sign-in page in the browser and waits for it
+to come back to this computer (`--no-browser` prints the link, `--paste` takes the address the
+browser ended up on when it runs on another computer); `status` says whether you're signed in and
+until when, and `sign-out` forgets the tokens and tells the service when it can. In the player,
+"sign in to ACCOUNT…" and "sign out of ACCOUNT" are in the palette, beside the plugin's settings.
+
+The tokens are kept in the system's keychain, as secret settings are (see [Settings](#settings)),
+and refreshed a minute before they expire. The plugin never sees them: a request it makes names
+the account as its `Authorization` header (`{account:ID}`), and locallibrary fills in the token
+once it has checked the request, never sending it on to another server a redirect leads to.
+
 ## Analyzers
 
 `locallibrary analyze [LIBRARY] [--plugin ID] [--analyzer NAME]` runs them, which works out each
@@ -69,6 +84,25 @@ PARAM=VALUE`. In the player they're in the palette, and in a drive's menu or the
 where the plugin offers them, and a question one asks is a list to pick from. On the command
 line, a param filled from what's selected is given the drive named, if that's what it takes, and
 its flag gives it otherwise.
+
+## Destinations
+
+A destination is somewhere a plugin keeps things for you.
+
+A store destination keeps a copy of the store, as a copy in a folder does (`store copy DIR`):
+`locallibrary store copy --to PLUGIN:DESTINATION` copies only what it lacks, in the same order
+(stored files, then snapshots once all their files are there, then the libraries last), and
+`--dry-run` says what would go. The account session never goes. `locallibrary store restore
+--from PLUGIN:DESTINATION` brings back what the copy has that the store lacks (`--library L` for
+some, `--dry-run`), after losing this computer say, and `locallibrary drive verify DRIVE --from
+PLUGIN:DESTINATION --repair` rewrites damaged files from it when nothing nearer has them. Every
+file that comes back is checked against its BLAKE3 hash before it goes in the store, and only
+locallibrary writes the store.
+
+A set destination publishes a set's recording with its tracklist (tracks marked unnamed stay
+unnamed, notes stay private): `locallibrary sets publish SET --to PLUGIN:DESTINATION` asks the
+plugin what would happen first, shows it and always asks before anything goes (`--dry-run` stops
+there), and keeps where the set can be heard as its link.
 
 ## Export formats
 
@@ -149,9 +183,11 @@ answering is stopped, and started again the next time it's needed.
 A plugin goes online through locallibrary, which fetches only from the servers its `net:`
 capabilities name (`plugin info` lists them), at public https addresses, following redirects only
 to those, as `locallibrary/VERSION` with the plugin's contact setting if it has one, as often as
-its manifest says each server allows. A secret setting goes only where such a request names it,
-filled in by locallibrary, never on to another server a redirect leads to, and is left out of the
-plugin's log and of the errors it's told (what a server answers is passed on as it is).
+its manifest says each server allows. A secret setting, or an account's token, goes only where
+such a request names it, filled in by locallibrary, never on to another server a redirect leads
+to, and is left out of the plugin's log and of the errors it's told (what a server answers is
+passed on as it is). A destination is given stored files to read, never the store's folder to
+write: what it gives back is checked before locallibrary keeps it.
 Images and other large answers come back as files in a folder locallibrary makes for each request
 (`plugins/ID/scratch/`), which it reads itself, never past the folder (nor a link, or a file with
 another name) or more than 512 MiB of them, and removes; `store gc` removes those a locallibrary

@@ -101,20 +101,27 @@ enum SetsCommand {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Publish a set on your Atmosphere account, where anyone can read it (alpha)
-    #[cfg(feature = "account")]
+    /// Publish a set: with its recording at a plugin's set destination (--to), or on your
+    /// Atmosphere account, where anyone can read it (alpha)
     Publish {
         #[arg(value_name = "SET")]
         set: String,
+        /// Publish it with its recording at a plugin's set destination (`plugin info PLUGIN` lists
+        /// them): asked first, and its link kept
+        #[arg(long, value_name = "PLUGIN:DESTINATION")]
+        #[cfg_attr(not(feature = "account"), arg(required = true))]
+        to: Option<String>,
         /// Publish these tracks without naming them, by position: 3,7 or 1-2,30 (tracks the set
         /// marks unnamed and tracks your profile hides are never named)
-        #[arg(long, value_name = "POSITIONS", value_parser = positions)]
+        #[cfg(feature = "account")]
+        #[arg(long, value_name = "POSITIONS", value_parser = positions, conflicts_with = "to")]
         hide: Vec<Positions>,
         /// Show what would be published without publishing
         #[arg(long)]
         dry_run: bool,
+        #[cfg(feature = "account")]
         #[command(flatten)]
-        browser: crate::account_cmd::BrowserArgs,
+        browser: crate::browser::BrowserArgs,
     },
 }
 
@@ -456,13 +463,57 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             let plan = api::set_playlist_plan(&store()?, &req, ctx)?;
             return crate::edit_cmd::confirm_and_apply(&drive, plan, dry_run, out, ctx);
         }
-        #[cfg(feature = "account")]
-        SetsCommand::Publish { set, hide, dry_run, browser } => {
-            let req = api::SetPublishRequest { set, hide: all(hide) };
-            return crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx);
+        SetsCommand::Publish {
+            set,
+            to,
+            dry_run,
+            #[cfg(feature = "account")]
+            hide,
+            #[cfg(feature = "account")]
+            browser,
+        } => {
+            if let Some(spec) = to {
+                return publish_to(&store()?, &spec, &set, dry_run, out, ctx);
+            }
+            #[cfg(feature = "account")]
+            {
+                let req = api::SetPublishRequest { set, hide: all(hide) };
+                return crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx);
+            }
+            #[cfg(not(feature = "account"))]
+            unreachable!("clap requires --to without the Atmosphere account");
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `sets publish SET --to PLUGIN:DESTINATION`: the plugin's dry run shown, and publishing always
+/// asked about, since it reaches outside this computer.
+fn publish_to(
+    store: &locallibrary::Store,
+    spec: &str,
+    set: &str,
+    dry_run: bool,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    let plan = crate::plugins::host()?.publish_plan(spec, set, store, ctx)?;
+    if !out.json {
+        crate::output::summary(&plan.summary, &plan.warnings);
+    }
+    if let Some(o) = out.decide(dry_run, "Publish it?") {
+        return Ok(out.not_applied(&plan, o));
+    }
+    let r = plan.apply(Some(store), ctx)?;
+    Ok(out.applied(&plan, &r, crate::output::Outcome::Applied, || {
+        match &r.url {
+            Some(url) => ok(format!("published: {url}")),
+            None => ok("published"),
+        }
+        for w in &r.warnings {
+            warn(w);
+        }
+    }))
 }
 
 fn list(sets: &[Set]) {

@@ -336,6 +336,9 @@ pub struct VerifyArgs {
     /// Another mounted drive with the same library, for good copies (repeatable)
     #[arg(long = "against", value_name = "DRIVE", add = DriveOnly)]
     against: Vec<String>,
+    /// A copy of the store at a plugin's destination, for good copies the store lacks
+    #[arg(long, value_name = "PLUGIN:DESTINATION")]
+    from: Option<String>,
     /// Rewrite what's damaged or missing
     #[arg(long)]
     repair: bool,
@@ -942,12 +945,21 @@ fn eject(a: EjectArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>)
 }
 
 fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
-    let VerifyArgs { drive, snapshot, against, repair, all } = a;
+    let VerifyArgs { drive, snapshot, against, from, repair, all } = a;
     let drive = crate::jobs_cmd::drive_or_default(drive, store_path, "verify")?;
     output::show_all(all);
     let store = open_store(store_path).ok();
+    // Its good copies are fetched into the store.
+    let dest = match (&from, &store) {
+        (None, _) => None,
+        (Some(spec), Some(store)) => Some(crate::plugins::host()?.store_destination(spec, Some(store))?),
+        (Some(_), None) => return Err(crate::jobs_cmd::usage("--from needs the store, which couldn't be opened")),
+    };
     let req = api::VerifyRequest { drive: drive.clone(), snapshot, against: against.clone() };
-    let report = api::drive_verify(store.as_ref(), &req, ctx)?;
+    let mut report = api::drive_verify(store.as_ref(), &req, ctx)?;
+    if let Some(dest) = &dest {
+        locallibrary::scrub::offer(&mut report, dest, ctx)?;
+    }
     if !out.json {
         scrub_report(&report);
     }
@@ -960,7 +972,7 @@ fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
     let fixable = report.problems().filter(|p| p.repair.is_some()).count();
     if fixable == 0 {
         warn(
-            "no known-good copy of the damaged files is available (pull the drive regularly, or pass --against another drive)",
+            "no known-good copy of the damaged files is available (pull the drive regularly, or pass --against another drive, or --from a copy of the store)",
         );
         return Ok(out.not_applied(&report, found));
     }
@@ -968,6 +980,9 @@ fn verify(a: VerifyArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<'_
         return Ok(out.not_applied(&report, o));
     }
     let problems: Vec<_> = report.problems().cloned().collect();
+    if let (Some(dest), Some(store)) = (&dest, &store) {
+        locallibrary::scrub::fetch(store, dest, &problems, ctx)?;
+    }
     let r = api::drive_repair(store.as_ref(), &api::RepairRequest { drive, problems, against }, ctx)?;
     let failed = !r.failed.is_empty();
     // Files still wrong after being rewritten: problems found, not fixed.

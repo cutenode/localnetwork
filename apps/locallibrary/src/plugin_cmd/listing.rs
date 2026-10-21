@@ -9,7 +9,7 @@ use console::style;
 use indexmap::IndexMap;
 use locallibrary::fields::{self, Role, roles::RoleChoice};
 use locallibrary::plugin::Plugins;
-use loclib_plugin::{Setting, SettingType, Where};
+use loclib_plugin::{DestinationKind, Setting, SettingType, Where};
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
@@ -38,7 +38,9 @@ pub(super) fn list(all: &[Listed]) {
             say!("  {} {}", dim("may"), g.means);
         }
         let adds: Vec<String> = [
+            named("account", &p.accounts),
             named("command", &p.commands),
+            named("destination", &p.destinations),
             named("operation", &p.operations),
             named("analyzer", &p.analyzers),
             named("export format", &p.exporters),
@@ -77,6 +79,11 @@ pub(super) fn info(d: &Described) {
         }
     };
     section("May:", d.capabilities.iter().map(|g| (g.means.clone(), String::new())).collect());
+    let accounts = d.accounts.iter().map(|a| {
+        let signed = if a.signed_in { "signed in" } else { "not signed in" };
+        (a.account.clone(), format!("{}: {signed}", a.title))
+    });
+    section(&format!("Accounts (locallibrary plugin account {} ACCOUNT sign-in):", m.id), accounts.collect());
     // With the menus that offer it.
     let offered = |title: &str, places: &[Where]| {
         let places: Vec<&str> = places.iter().map(|w| w.name()).collect();
@@ -87,6 +94,16 @@ pub(super) fn info(d: &Described) {
     section("Commands:", commands.collect());
     let operations =
         c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
+    let destinations = c.destinations.iter().map(|x| {
+        let keeps = match x.kind {
+            DestinationKind::Store => {
+                format!("a copy of the store, for locallibrary store copy --to {}:{}", m.id, x.name)
+            }
+            DestinationKind::Set => format!("sets, for locallibrary sets publish SET --to {}:{}", m.id, x.name),
+        };
+        (x.name.clone(), format!("{}: {keeps}", x.title))
+    });
+    section("Destinations:", destinations.collect());
     section("Operations (planned, then confirmed):", operations.collect());
     let analyzers = c.analyzers.iter().map(|a| {
         let fields: Vec<&str> = a.fields.keys().map(String::as_str).collect();

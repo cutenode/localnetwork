@@ -1925,13 +1925,21 @@ export type ReferenceKind =
   | "history";
 
 /** Where a damaged or missing file can be rewritten from. */
-export type RepairSource = {
-  from: "store";
-} | {
-  name: string;
-  root: string;
-  from: "drive";
-};
+export type RepairSource =
+  | {
+    from: "store";
+  }
+  | {
+    name: string;
+    root: string;
+    from: "drive";
+  }
+  /** The copy of the store at a plugin's destination, from which it's fetched into the store. */
+  | {
+    plugin: string;
+    destination: string;
+    from: "destination";
+  };
 
 export type FsCheckRequest = {
   drive: string;
@@ -2166,6 +2174,29 @@ export type SetPluginSetting = {
   value?: unknown;
 };
 
+export type AccountRef = {
+  plugin: string;
+  /** The account's id, as the plugin's manifest has it. */
+  account: string;
+};
+
+export type FinishSignIn = {
+  /** What `plugins.account.sign_in.begin` answered. */
+  id: string;
+  /** How long to wait for the browser (default 300, an hour at most). */
+  timeout_secs?: number | null;
+};
+
+export type PasteSignIn = {
+  id: string;
+  /** The address the browser ended up on after approving. */
+  url: string;
+};
+
+export type CancelSignIn = {
+  id: string;
+};
+
 export type RunPluginCommand = {
   plugin: string;
   command: string;
@@ -2182,6 +2213,49 @@ export type PluginContext = {
   playlist?: string | null;
   /** The tracks they chose, by id. */
   tracks?: number[];
+};
+
+export type CopyTo = {
+  /** `<plugin>:<destination>`: one of a plugin's store destinations. */
+  destination: string;
+  /** Copy over a copy that has snapshots the store doesn't, or that's another store's. */
+  force?: boolean;
+  /** Say what would be copied, and copy nothing. */
+  dry_run?: boolean;
+};
+
+export type RestoreFrom = {
+  destination: string;
+  /** Libraries to bring back, by name or id. Empty: all of them. */
+  libraries?: string[];
+  /** Say what would be fetched, and fetch nothing. */
+  dry_run?: boolean;
+};
+
+export type VerifyFrom = {
+  /** Whose good copies the files the store and the drives lack are offered from. */
+  destination: string;
+  drive: string;
+  /** Compare with this snapshot (id prefix) [default: the snapshot of the drive's state]. */
+  snapshot?: string | null;
+  /** Other mounted drives that may hold good copies. */
+  against?: string[];
+};
+
+export type RepairFrom = {
+  /** Whose good copies are fetched into the store first. */
+  destination: string;
+  drive: string;
+  /** The problems a [`drive_verify`] found (each is checked again before anything is written). */
+  problems: FileProblem[];
+  against?: string[];
+};
+
+export type PublishSetAt = {
+  /** `<plugin>:<destination>`: one of a plugin's set destinations. */
+  destination: string;
+  /** The set: its id (or the start of it), title or day, or `last`. */
+  set: string;
 };
 
 export type PlanPluginOp = {
@@ -3747,6 +3821,7 @@ export type KeepReason =
   | "unreadable";
 
 export type CopyReport = {
+  /** The folder copied to, or `<plugin>:<destination>` for a plugin's destination. */
   path: string;
   /** Snapshots the copy holds now. */
   snapshots: number;
@@ -7443,10 +7518,12 @@ export type Listed = {
   version: string;
   capabilities: Granted[];
   /**
-   * What it adds: its commands, operations, analyzers and providers by name, its export formats
-   * and its settings' keys.
+   * What it adds: its accounts by id, its commands, destinations, operations, analyzers and
+   * providers by name, its export formats and its settings' keys.
    */
+  accounts: string[];
   commands: string[];
+  destinations: string[];
   operations: string[];
   analyzers: string[];
   exporters: string[];
@@ -7473,7 +7550,7 @@ export type Capability = string;
 /**
  * A plugin in full, as `plugin info` and the sidecar's `plugins.describe` show it: its manifest
  * (with the JSON Schemas of its params and options, to draw forms from), what its capabilities
- * let it do, and its settings now.
+ * let it do, its settings now, and whether each of its accounts is signed in.
  */
 export type Described = {
   manifest: Manifest;
@@ -7486,6 +7563,11 @@ export type Described = {
   secrets: { [key: string]: boolean | null };
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
+  /**
+   * Each of its accounts, and whether it's signed in (never a token): none signed in when the
+   * keychain can't say (see `secrets_unknown`).
+   */
+  accounts: PluginAccountStatus[];
   running: boolean;
 };
 
@@ -7509,12 +7591,36 @@ export type Manifest = {
 };
 
 export type Contributions = {
+  accounts: Account[];
   commands: Command[];
+  destinations: Destination[];
   operations: Operation[];
   analyzers: Analyzer[];
   exporters: Exporter[];
   providers: Provider[];
   settings: Setting[];
+};
+
+/** `[[contributes.accounts]]`: an account on a service, signed in to in the browser. */
+export type Account = {
+  /** How requests name it (`{account:<id>}`). */
+  id: string;
+  title: string;
+  /** The service's authorization endpoint, where the browser signs in (https). */
+  authorize_url: string;
+  /**
+   * Its token endpoint, where the host trades the browser's code for tokens and refreshes
+   * them (https).
+   */
+  token_url: string;
+  /** What it asks the service for, as the service names them. */
+  scopes?: string[];
+  /** The plugin's client at the service: a public one, without a secret. */
+  client_id: string;
+  /** Signing in uses PKCE: always, and a manifest saying otherwise is refused. */
+  pkce: boolean;
+  /** Where its tokens are revoked at signing out (RFC 7009), when the service has one (https). */
+  revoke_url?: string | null;
 };
 
 /** Run with `command/run`. */
@@ -7541,6 +7647,23 @@ export type Mode =
  * playlist, or of a drive. A host's palette has every one.
  */
 export type Where = "track" | "playlist" | "drive";
+
+/**
+ * `[[contributes.destinations]]`: somewhere the user copies their store to (`store`), or
+ * publishes sets at (`set`).
+ */
+export type Destination = {
+  name: string;
+  title: string;
+  kind: DestinationKind;
+};
+
+/** What a destination keeps. */
+export type DestinationKind =
+  /** Copies of the store: `blobs/*` and `manifest/*`. */
+  | "store"
+  /** Sets, published: `set/publish`. */
+  | "set";
 
 /**
  * Planned with `op/plan`, applied by the host, which works out from the edits whether it's
@@ -7638,6 +7761,23 @@ export type NetLimit = {
   per_second: number;
 };
 
+/** An account of a plugin's, as hosts show it: never a token. */
+export type PluginAccountStatus = {
+  plugin: string;
+  account: string;
+  title: string;
+  signed_in: boolean;
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+};
+
 /** A plugin's settings now: each one set, else its default. */
 export type Settings = {
   plugin: string;
@@ -7650,6 +7790,39 @@ export type Settings = {
   secrets: { [key: string]: boolean | null };
   /** Why the keychain can't say, when it can't: the rest is answered all the same. */
   secrets_unknown?: string | null;
+};
+
+/** A sign-in waiting for the browser. */
+export type SignIn = {
+  /** Finishes it: [`Plugins::finish_sign_in`], [`Plugins::finish_sign_in_with_url`]. */
+  id: string;
+  plugin: string;
+  account: string;
+  /** Open this in the browser. */
+  url: string;
+  /** Where the browser comes back to. */
+  redirect_uri: string;
+};
+
+/** What signing out did. */
+export type SignedOut = {
+  plugin: string;
+  account: string;
+  title: string;
+  signed_in: boolean;
+  /**
+   * When its access token expires, when the service said: it's refreshed before then when it
+   * can be.
+   */
+  expires?: string | null;
+  /** It's refreshed without signing in again. */
+  refreshes: boolean;
+  /** What the service granted, as it names them. */
+  scopes: string[];
+  /** It was signed in. */
+  was_signed_in: boolean;
+  /** The service was told to forget its tokens (it has a revocation endpoint, which answered). */
+  revoked: boolean;
 };
 
 /** What a command answers. */
@@ -7717,6 +7890,70 @@ export type PluginChoice = {
   /** Any of the items may be chosen, none too: the param is set to a list of their values. */
   multi?: boolean;
   items: ChoiceItem[];
+};
+
+export type FetchReport = {
+  /**
+   * Where it was fetched from: the other computer's key, shortened, or a plugin's store
+   * destination (`<plugin>:<destination>`).
+   */
+  peer: string;
+  libraries: FetchedLibrary[];
+  snapshots: number;
+  /** Stored files copied, and the store had already. */
+  files: number;
+  bytes: number;
+  present: number;
+  dry_run: boolean;
+};
+
+export type FetchedLibrary = {
+  /** Its name in this store. */
+  name: string;
+  /** Its name on the other computer, when that was taken here. */
+  was?: string | null;
+  id: string;
+  /** The other computer's latest snapshot. */
+  head: Hash | null;
+  outcome: LibraryOutcome;
+};
+
+export type LibraryOutcome =
+  /** This store didn't have it. */
+  | "added"
+  /** It moved to the other computer's newer latest snapshot. */
+  | "updated"
+  /** This store was as new, or newer. */
+  | "up_to_date"
+  /** Both changed: this store keeps its latest, and has the other's beside it. */
+  | "diverged"
+  /**
+   * The other computer's latest snapshot couldn't be had (removed there during the fetch, or
+   * missing from its store): the library is left as it was.
+   */
+  | "unavailable";
+
+/** A set a plugin will publish, as its dry run said. */
+export type SetPublish = {
+  plugin: string;
+  destination: string;
+  /** The set, by id. */
+  set: string;
+  /** Its recording, on this computer, which goes too. */
+  recording: string;
+  tracks: number;
+  /** Where it would be, when the dry run said. */
+  url?: string | null;
+  /** The link the set has now, which publishing replaces. */
+  replaces?: string | null;
+};
+
+/** What publishing a set did. */
+export type SetPublished = {
+  set: string;
+  /** Where it can be heard, which is the set's link now; none when the plugin didn't say. */
+  url?: string | null;
+  warnings?: string[];
 };
 
 /**
@@ -8756,8 +8993,32 @@ export interface Methods {
   "plugins.settings": { params: PluginRef; result: Settings };
   /** immediate method */
   "plugins.settings.set": { params: SetPluginSetting & WriteOptions; result: Settings };
+  /** read method */
+  "plugins.accounts": { params: PluginRef; result: PluginAccountStatus[] };
+  /** immediate method */
+  "plugins.account.sign_in.begin": { params: AccountRef & WriteOptions; result: SignIn };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "plugins.account.sign_in.finish": { params: FinishSignIn & WriteOptions; result: PluginAccountStatus };
+  /** immediate method */
+  "plugins.account.sign_in.paste": { params: PasteSignIn & WriteOptions; result: PluginAccountStatus };
+  /** immediate method */
+  "plugins.account.sign_in.cancel": { params: CancelSignIn & WriteOptions; result: Cancelled };
+  /** immediate method */
+  "plugins.account.sign_out": { params: AccountRef & WriteOptions; result: SignedOut };
   /** read method; long running: sends `progress`, can be cancelled */
   "plugins.run": { params: RunPluginCommand; result: CommandOutput };
+  /** immediate method; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.store.copy": { params: CopyTo & WriteOptions; result: CopyReport };
+  /** immediate method; long running: sends `progress`, can be cancelled */
+  "plugins.store.restore": { params: RestoreFrom & WriteOptions; result: FetchReport };
+  /** read method; long running: sends `progress`, can be cancelled */
+  "plugins.store.verify": { params: VerifyFrom; result: ScrubReport };
+  /** immediate method; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.store.repair": { params: RepairFrom & WriteOptions; result: RepairReport };
+  /** plan method; paired with `plugins.publish.apply`; long running: sends `progress`, can be cancelled */
+  "plugins.publish.plan": { params: PublishSetAt & WriteOptions; result: SetPublish & PlanFields };
+  /** apply method; paired with `plugins.publish.plan`; long running: sends `progress`, can be cancelled */
+  "plugins.publish.apply": { params: ApplyPlan | (PublishSetAt & WriteOptions); result: SetPublished };
   /** plan method; paired with `plugins.op.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
   "plugins.op.plan": { params: PlanPluginOp & WriteOptions; result: OpPlanned };
   /** apply method; paired with `plugins.op.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

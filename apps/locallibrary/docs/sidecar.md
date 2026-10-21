@@ -372,6 +372,18 @@ plugin starts when it's first used and stops once it's idle a while, and when th
 plugin's errors come with locallibrary's kinds (`not_found`, `invalid`, `io`...), the plugin named
 in the message. Each kind of thing plugins add is below, in a section of its own.
 
+### Accounts
+
+`plugins.accounts {plugin}` answers each of a plugin's accounts, `[{plugin, account, title,
+signed_in, expires?, refreshes, scopes}]` (never a token). `plugins.account.sign_in.begin {plugin,
+account}` answers `{id, plugin, account, url, redirect_uri}`: open `url` in the browser, then
+`plugins.account.sign_in.finish {id, timeout_secs?}` waits for it to come back (300 seconds unless
+it says, an hour at most; `$/cancel` stops it) and answers the account, signed in.
+`plugins.account.sign_in.paste {id, url}` finishes with the address the browser ended up on, when
+it runs on another computer, and `plugins.account.sign_in.cancel {id}` answers `{cancelled}`.
+`plugins.account.sign_out {plugin, account}` answers the account with `{was_signed_in,
+revoked}`.
+
 ### Analyzers
 
 `plugins.analyze {plugin, analyzer, drive, tracks?}` runs an analyzer on the drive's tracks (those
@@ -395,6 +407,21 @@ one that asks. A tracklist is imported as the tracklist plugin's `import` operat
 playlist?, append?}`, `file` absolute), which asks about each entry that could be several tracks
 in turn: `param` is the entry's number, counting from 1, each item's `value` a track id, and
 `null` leaves the entry out.
+
+### Destinations
+
+`destination` is `<plugin>:<destination>`. `plugins.store.copy {destination, force?, dry_run?}`
+copies the store to a store destination, answering `store.copy`'s report (`path` the destination).
+`plugins.store.restore {destination, libraries?, dry_run?}` brings back what it has that the store
+lacks, answering `store.fetch`'s report (`peer` the destination). `plugins.store.verify
+{destination, drive, snapshot?, against?}` answers `drive.verify`'s report, a file that's good
+there and nowhere nearer with `repair: {from: "destination", plugin, destination}`, and
+`plugins.store.repair {destination, drive, problems, against?}` fetches those into the store
+(each checked against its hash) and rewrites them as `drive.repair` does. `plugins.publish.plan
+{destination, set}` answers the plugin's dry run as a plan (`<plugin>.publish.<destination>`:
+`{plugin, destination, set, recording, tracks, url?, replaces?}`, destructive when it replaces the
+set's link), applied by `plugins.publish.apply {plan_id}` (`{set, url?, warnings}`, the set's link
+then `url`): always confirm it, as it reaches outside the computer.
 
 ### Export formats
 
