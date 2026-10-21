@@ -478,3 +478,229 @@ fn waveforms_over_a_day_fail_the_track(tc: hegel::TestCase) {
     assert!(error.ends_with(&format!("its wave: {columns} columns at {rate} a second run over a day")), "{error}");
     assert_eq!(OverlayStore::in_store(&f.store).get(&f.audio(&tracks[0]), &heard()), None);
 }
+
+/// Any beat grid, phrases and waveform an analyzer answers are kept as it gave them (nulls and an
+/// empty grid as nothing), or fail the track, saying why, keeping nothing: a beat out of its bar,
+/// of a tempo out of range or not after the one before, a waveform whose file isn't there or
+/// isn't three bytes a column.
+#[hegel::test(test_cases = 20, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn any_structured_answer_is_kept_or_fails_the_track_saying_why(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
+    let beat = |n: u16, bpm: f64, ms: u32| Beat { beat_number: n, bpm, time_ms: ms };
+    let wave = |blob: &str| json!({ "blob": blob, "columns_per_sec": 150.0 });
+    let columns = tc.draw(gs::integers::<usize>().min_value(1).max_value(200));
+    let packed = Bands((0..columns).map(|i| [i as u8, 7, 9]).collect()).pack();
+    let (answer, why): (Value, Option<String>) = match tc.draw(gs::integers::<u8>().max_value(6)) {
+        0 => {
+            let grid = tc.draw(gs::sampled_from(vec![json!(null), json!([])]));
+            (json!({ "grid": grid, "phrases": null, "wave": null, "tempo": 1 }), None)
+        }
+        1 => (json!({ "phrases": phrases() }), None),
+        2 => {
+            let n = tc.draw(hegel::one_of!(gs::just(0u16), gs::integers::<u16>().min_value(5)));
+            (
+                json!({ "grid": [beat(1, 120.0, 0), beat(n, 120.0, 500)] }),
+                Some(format!("its grid: beat 2 is beat {n} of its bar: 1-4")),
+            )
+        }
+        3 => {
+            let bpm = tc.draw(hegel::one_of!(
+                gs::floats::<f64>().min_value(0.0).max_value(0.004),
+                gs::floats::<f64>().min_value(655.36).max_value(1e9)
+            ));
+            (
+                json!({ "grid": [beat(1, bpm, 0)] }),
+                Some(format!("its grid: beat 1's tempo, {bpm} BPM, isn't 0.01-655.35")),
+            )
+        }
+        4 => {
+            let ms = tc.draw(gs::integers::<u32>().max_value(10_000));
+            let back = tc.draw(gs::integers::<u32>().max_value(ms));
+            (
+                json!({ "grid": [beat(1, 120.0, ms), beat(2, 120.0, back)] }),
+                Some("its grid: beat 2 isn't after the one before it".into()),
+            )
+        }
+        5 => (json!({ "wave": wave("gone.bands") }), Some("its wave: its file \"gone.bands\" isn't there".into())),
+        _ => {
+            let mut bytes = tc.draw(gs::binary().max_size(40));
+            if !bytes.is_empty() && bytes.len().is_multiple_of(3) {
+                bytes.pop();
+            }
+            let answer = json!({ "wave": wave("w.bands"), "blobs": { "w.bands": bytes } });
+            (answer, Some("its wave isn't three bytes a column, at least one column".into()))
+        }
+    };
+    // The other track's answer is always kept: a grid and a waveform.
+    let kept = json!({ "grid": grid(8, 0), "wave": wave("w.bands"), "blobs": { "w.bands": packed } });
+    let tracks = f.hear_all(&[answer.clone(), kept]);
+    let analyzed = f.plugins.analyze("echo", "heard", "USB", None, &f.store, &Ctx::silent()).unwrap();
+    let overlays = OverlayStore::in_store(&f.store);
+    let (first, second) = (overlays.get(&f.audio(&tracks[0]), &heard()), overlays.get(&f.audio(&tracks[1]), &heard()));
+    let second = second.unwrap();
+    assert_eq!((second.beats, second.waveform.map(|w| w.0.len())), (Some(grid(8, 0)), Some(columns)));
+    match why {
+        Some(why) => {
+            assert_eq!((analyzed.analyzed, analyzed.failed), (1, 1));
+            let error = &analyzed.failures[0].error;
+            assert!(error.contains(&why), "{error}");
+            assert_eq!(first, None);
+        }
+        None => {
+            assert_eq!((analyzed.analyzed, analyzed.failed), (2, 0), "{:?}", analyzed.failures);
+            let phrases = answer.get("phrases").filter(|p| !p.is_null()).map(|_| phrases());
+            assert_eq!(first.map(|o| o.phrases), phrases.map(Some), "nothing to keep, nothing kept");
+        }
+    }
+}
+
+/// For any of what an analyzer kept for each track (a grid like the drive's or another, phrases,
+/// a waveform, or nothing yet: the track failed it or it answered none of them), parts asked for, overwriting or not, of every track or one, and
+/// a track's files that can take a waveform or can't: the plan writes to each track just what's
+/// asked that it gives, over what the track has only when overwriting, phrases only on the grid
+/// they count and no waveform where it can't go (leaving the track out), saying what it left out
+/// and why; applied, the drive has what it planned.
+#[hegel::test(test_cases = 50, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn any_kept_analysis_is_planned_as_asked_and_left_out_as_said(tc: hegel::TestCase) {
+    use crate::analysis_edit::strip_colour_overview;
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &structured(), &[])], Options::default());
+    let device = locallibrary::Device::open_export(&f.drive).unwrap();
+    let tracks = common::library(&f.drive).tracks;
+    let own = grid(64, 25);
+    let mut answers = Vec::new();
+    // Each track's: analysed, its answer's grid, phrases and waveform, its files taking one.
+    let mut drawn = Vec::new();
+    for t in &tracks {
+        let on_drive = anlz::load(&device, t).beats;
+        let analysed = tc.draw(gs::weighted_booleans(0.8));
+        let beats = tc.draw(gs::sampled_from(vec![None, Some(on_drive), Some(own.clone())]));
+        let (phrased, waved) = (tc.draw(gs::weighted_booleans(0.7)), tc.draw(gs::booleans()));
+        let takes_wave = tc.draw(gs::booleans());
+        if takes_wave {
+            strip_colour_overview(&f.drive, t);
+        }
+        let mut answer = json!({ "grid": beats, "tempo": 120.0 });
+        if phrased {
+            answer["phrases"] = json!(phrases());
+        }
+        if waved {
+            answer["wave"] = json!({ "blob": "w.bands", "columns_per_sec": 150.0 });
+            answer["blobs"] = json!({ "w.bands": Bands(vec![[1, 2, 3]; 300]).pack() });
+        }
+        // An audio file that isn't the answer's JSON fails the track: nothing kept for it.
+        answers.push(if analysed { answer } else { json!("not an answer") });
+        drawn.push((analysed, beats, phrased, waved, takes_wave));
+    }
+    f.hear_all(&answers);
+    f.plugins.analyze("echo", "heard", "USB", None, &f.store, &Ctx::silent()).unwrap();
+    let device = locallibrary::Device::open_export(&f.drive).unwrap();
+    let before: Vec<_> = tracks.iter().map(|t| anlz::load(&device, t)).collect();
+
+    let mut parts: Vec<AnalysisPart> =
+        AnalysisPart::ALL.into_iter().filter(|_| tc.draw(gs::weighted_booleans(0.6))).collect();
+    if parts.is_empty() {
+        parts.push(tc.draw(gs::sampled_from(AnalysisPart::ALL.to_vec())));
+    }
+    let overwrite = tc.draw(gs::weighted_booleans(0.7));
+    let only = tc.draw(gs::optional(gs::integers::<usize>().max_value(tracks.len() - 1)));
+    let req = ApplyAnalysis {
+        plugin: "echo".into(),
+        analyzer: "heard".into(),
+        drive: "USB".into(),
+        parts: parts.clone(),
+        tracks: only.map(|i| vec![tracks[i].id]),
+        overwrite,
+    };
+    let planned = f.plugins.plan_apply_analysis(&req, &f.store, &Ctx::silent()).unwrap();
+
+    let wants = |p| parts.contains(&p);
+    let (mut unanalysed, mut had, mut other_grid, mut refused) = (0, 0, 0, 0);
+    // Each written track's new grid and phrases.
+    let mut written: Vec<(usize, Option<Vec<Beat>>, bool, bool)> = Vec::new();
+    for (i, (analysed, beats, phrased, waved, takes_wave)) in drawn.iter().enumerate() {
+        if only.is_some_and(|o| o != i) {
+            continue;
+        }
+        // An answer with none of them keeps no overlay: the plan has nothing of it.
+        if !analysed || (beats.is_none() && !phrased && !waved) {
+            unanalysed += 1;
+            continue;
+        }
+        let drive = &before[i];
+        let mut take = |wanted: bool, given: bool, has: bool| {
+            had += usize::from(wanted && given && !overwrite && has);
+            wanted && given && (overwrite || !has)
+        };
+        let grid_in = take(wants(AnalysisPart::Grid), beats.is_some(), !drive.beats.is_empty());
+        let ends_with = if grid_in { beats.clone().unwrap() } else { drive.beats.clone() };
+        let counts = beats.as_ref().is_none_or(|b| *b == ends_with);
+        let phrases_asked = take(wants(AnalysisPart::Phrases), *phrased, drive.structure.is_some());
+        other_grid += usize::from(phrases_asked && !counts);
+        let phrases_in = phrases_asked && counts;
+        let wave_in = take(wants(AnalysisPart::Waveform), *waved, drive.preview.is_some() || drive.detail.is_some());
+        if wave_in && !takes_wave {
+            refused += 1;
+            continue;
+        }
+        let grid_changes = grid_in && ends_with != drive.beats;
+        let phrases_change = phrases_in && drive.structure != Some(phrases());
+        if grid_changes || phrases_change || wave_in {
+            written.push((i, grid_in.then_some(ends_with), phrases_in, wave_in));
+        }
+    }
+    let what: Vec<&str> = AnalysisPart::ALL.into_iter().filter(|p| wants(*p)).map(AnalysisPart::name).collect();
+    assert_eq!(
+        planned.summary[0],
+        format!("write the {} from Heard to {} track(s)", what.join(" and "), written.len())
+    );
+    let yet = format!("{unanalysed} track(s) aren't analysed by Heard yet");
+    assert_eq!(planned.warnings.contains(&yet), unanalysed > 0, "{:?}", planned.warnings);
+    let kept = format!("{had} of what's asked the tracks have already, kept: overwrite to replace it");
+    assert_eq!(planned.warnings.contains(&kept), had > 0, "{:?}", planned.warnings);
+    let counted =
+        format!("{other_grid} track(s)' phrases left out: they count the beats of Heard's grid, not the track's");
+    assert_eq!(planned.warnings.contains(&counted), other_grid > 0, "{:?}", planned.warnings);
+    let left_out = planned.warnings.iter().find(|w| w.contains("track(s) left out, e.g. "));
+    assert_eq!(left_out.is_some(), refused > 0, "{:?}", planned.warnings);
+    if let Some(w) = left_out {
+        assert!(w.starts_with(&format!("{refused} track(s) left out, e.g. ")) && w.contains("(PWV4)"), "{w}");
+    }
+    let set: Vec<(&String, &NewAnalysis)> = planned
+        .plan
+        .recorded
+        .iter()
+        .filter_map(|e| match e {
+            Edit::SetAnalysis { track, analysis } => Some((track, analysis)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(set.len(), written.len());
+    for ((track, analysis), (i, beats, phrases_in, wave_in)) in set.iter().zip(&written) {
+        assert_eq!(*track, &tracks[*i].file_path);
+        assert_eq!(
+            (&analysis.beats, analysis.phrases.is_some(), analysis.waveform.is_some()),
+            (beats, *phrases_in, *wave_in)
+        );
+    }
+    assert_eq!(planned.noop, written.is_empty());
+    if written.is_empty() {
+        return;
+    }
+    planned.apply(None, &Ctx::silent()).unwrap();
+    let device = locallibrary::Device::open_export(&f.drive).unwrap();
+    let after = common::library(&f.drive).tracks;
+    for (i, beats, phrases_in, wave_in) in &written {
+        let a = anlz::load(&device, &after[*i]);
+        assert_eq!(&a.beats, beats.as_ref().unwrap_or(&before[*i].beats));
+        if beats.as_ref() == Some(&own) {
+            assert_eq!(after[*i].bpm, 120.0);
+        }
+        assert_eq!(a.structure, if *phrases_in { Some(phrases()) } else { before[*i].structure.clone() });
+        if *wave_in {
+            let detail = a.detail.unwrap();
+            assert_eq!((detail.columns.len(), detail.columns_per_sec), (300, Some(150.0)));
+        }
+    }
+}
