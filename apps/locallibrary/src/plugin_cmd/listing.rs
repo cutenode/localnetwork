@@ -1,4 +1,5 @@
-//! `plugin list`, `plugin info`, `plugin settings`, `plugin roles` and `plugin providers`.
+//! `plugin list`, `plugin info`, `plugin settings`, `plugin roles` and `plugin providers`
+//! (`plugin checks` is [`super::checks`]).
 
 use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
@@ -9,7 +10,7 @@ use console::style;
 use indexmap::IndexMap;
 use locallibrary::fields::{self, Role, roles::RoleChoice};
 use locallibrary::plugin::Plugins;
-use loclib_plugin::{Setting, SettingType, Where};
+use loclib_plugin::{DestinationKind, ExportFrom, Setting, SettingType, Where};
 use serde_json::Value;
 use unicode_width::UnicodeWidthStr;
 
@@ -38,13 +39,20 @@ pub(super) fn list(all: &[Listed]) {
             say!("  {} {}", dim("may"), g.means);
         }
         let adds: Vec<String> = [
+            named("account", &p.accounts),
             named("command", &p.commands),
+            named("destination", &p.destinations),
             (!p.events.is_empty()).then(|| format!("listens for {}", p.events.join(", "))),
             named("operation", &p.operations),
             named("analyzer", &p.analyzers),
+            named("check", &p.checks),
             named("export format", &p.exporters),
+            named("import format", &p.importers),
             named("provider", &p.providers),
+            named("panel", &p.panels),
             named("service", &p.services),
+            named("library source", &p.sources),
+            named("theme", &p.themes),
             named("setting", &p.settings),
         ]
         .into_iter()
@@ -57,7 +65,7 @@ pub(super) fn list(all: &[Listed]) {
 }
 
 /// How a plugin's command or operation is run: `locallibrary import`, `locallibrary echo titles`.
-fn invocation(id: &str, name: &str, cli: Option<&str>) -> String {
+pub(super) fn invocation(id: &str, name: &str, cli: Option<&str>) -> String {
     format!("locallibrary {}", cli.map_or_else(|| format!("{id} {name}"), String::from))
 }
 
@@ -79,6 +87,11 @@ pub(super) fn info(d: &Described) {
         }
     };
     section("May:", d.capabilities.iter().map(|g| (g.means.clone(), String::new())).collect());
+    let accounts = d.accounts.iter().map(|a| {
+        let signed = if a.signed_in { "signed in" } else { "not signed in" };
+        (a.account.clone(), format!("{}: {signed}", a.title))
+    });
+    section(&format!("Accounts (locallibrary plugin account {} ACCOUNT sign-in):", m.id), accounts.collect());
     // With the menus that offer it.
     let offered = |title: &str, places: &[Where]| {
         let places: Vec<&str> = places.iter().map(|w| w.name()).collect();
@@ -87,11 +100,23 @@ pub(super) fn info(d: &Described) {
     let commands =
         c.commands.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Commands:", commands.collect());
+    let destinations = c.destinations.iter().map(|x| {
+        let keeps = match x.kind {
+            DestinationKind::Store => {
+                format!("a copy of the store, for locallibrary store copy --to {}:{}", m.id, x.name)
+            }
+            DestinationKind::Set => format!("sets, for locallibrary sets publish SET --to {}:{}", m.id, x.name),
+        };
+        (x.name.clone(), format!("{}: {keeps}", x.title))
+    });
+    section("Destinations:", destinations.collect());
     let events = c.events.iter().flat_map(|x| &x.on).map(|e| (e.name().to_string(), String::new()));
     section("Listens for:", events.collect());
     let operations =
         c.operations.iter().map(|x| (invocation(&m.id, &x.name, x.cli.as_deref()), offered(&x.title, &x.offered)));
     section("Operations (planned, then confirmed):", operations.collect());
+    let panels = c.panels.iter().map(|p| (p.name.clone(), format!("{}, under a track's details", p.title)));
+    section("Panels (locallibrary track show, and the player):", panels.collect());
     let analyzers = c.analyzers.iter().map(|a| {
         let fields: Vec<&str> = a.fields.keys().map(String::as_str).collect();
         // Each with its field, where that's named otherwise: `loudness (integrated_lufs)`.
@@ -102,11 +127,30 @@ pub(super) fn info(d: &Described) {
         (a.name.clone(), format!("{}: {}{roles}", a.title, fields.join(", ")))
     });
     section(&format!("Analyzers (locallibrary analyze --plugin {}):", m.id), analyzers.collect());
-    let exporters = c.exporters.iter().map(|e| {
-        let writes = e.extension.as_ref().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
-        (e.format.clone(), format!("{}, {writes}", e.title))
+    let checks = c.checks.iter().map(|x| {
+        let when: Vec<&str> = x.when.iter().map(|w| w.name()).collect();
+        (x.name.clone(), format!("{} (when: {})", x.title, when.join(", ")))
     });
-    section("Export formats (locallibrary export LIBRARY --format FORMAT -o ...):", exporters.collect());
+    section("Checks (locallibrary plugin checks):", checks.collect());
+    // Each kind of what they write out, and how it's run.
+    let of = [
+        (ExportFrom::Drive, "Export formats (locallibrary export LIBRARY --format FORMAT -o ...):"),
+        (ExportFrom::Set, "Set export formats (locallibrary sets export SET --format FORMAT -o ...):"),
+        (ExportFrom::Mix, "Mix export formats (locallibrary mix RECORDING --format FORMAT --export ...):"),
+    ];
+    for (source, title) in of {
+        let exporters = c.exporters.iter().filter(|e| e.source == source).map(|e| {
+            let writes = e.extension.as_ref().map_or_else(|| "a folder".to_string(), |x| format!("a .{x} file"));
+            (e.format.clone(), format!("{}, {writes}", e.title))
+        });
+        section(title, exporters.collect());
+    }
+    let importers = c.importers.iter().map(|i| {
+        let reads = i.extension.as_ref().map_or_else(|| "a file".to_string(), |x| format!("a .{x} file"));
+        let provides: Vec<&str> = i.provides.iter().map(|k| k.name()).collect();
+        (i.format.clone(), format!("{}, {reads}: {}", i.title, provides.join(", ")))
+    });
+    section("Import formats (locallibrary import FILE LIBRARY --format FORMAT):", importers.collect());
     let providers = c.providers.iter().map(|p| {
         let verb = match p.kind {
             loclib_plugin::ProviderKind::Artwork => "art fetch",
@@ -120,6 +164,11 @@ pub(super) fn info(d: &Described) {
         (s.name.clone(), format!("{}: {}", s.title, if on { "on" } else { "off" }))
     });
     section(&format!("Services (locallibrary plugin settings {} services.NAME on):", m.id), services.collect());
+    let sources = c.sources.iter().map(|x| (format!("{}:{}", m.id, x.name), x.title.clone()));
+    let build = "locallibrary collection export DRIVE --from PLUGIN:SOURCE --grant FOLDER";
+    section(&format!("Library sources ({build}):"), sources.collect());
+    let themes = c.themes.iter().map(|t| (t.name.clone(), format!("{}, in the player", t.title)));
+    section("Themes:", themes.collect());
     let settings =
         c.settings.iter().map(|s| (s.key.clone(), format!("{}: {}", s.title, shown(s, &d.settings, &d.secrets))));
     section(&format!("Settings (locallibrary plugin settings {}):", m.id), settings.collect());

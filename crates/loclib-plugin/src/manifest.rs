@@ -44,13 +44,20 @@ pub struct Manifest {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Contributions {
+    pub accounts: Vec<hooks::accounts::Account>,
     pub commands: Vec<hooks::commands::Command>,
+    pub destinations: Vec<hooks::destinations::Destination>,
     pub events: Vec<hooks::events::Listener>,
     pub operations: Vec<hooks::operations::Operation>,
+    pub panels: Vec<hooks::panels::Panel>,
     pub analyzers: Vec<hooks::analyzers::Analyzer>,
+    pub checks: Vec<hooks::checks::Check>,
     pub exporters: Vec<hooks::exporters::Exporter>,
+    pub importers: Vec<hooks::importers::Importer>,
     pub providers: Vec<hooks::providers::Provider>,
     pub services: Vec<hooks::services::Service>,
+    pub sources: Vec<hooks::sources::LibrarySource>,
+    pub themes: Vec<hooks::themes::Theme>,
     pub settings: Vec<Setting>,
 }
 
@@ -227,6 +234,8 @@ pub enum Capability {
     TagsPlan,
     CuesPlan,
     ArtworkPlan,
+    /// Plan writing beat grids, phrases and waveforms into tracks' analysis files.
+    AnalysisPlan,
     /// Told of drives plugged in, unplugged, changed and saved into the store, and sets coming
     /// back (`event/notify`).
     EventsDrives,
@@ -234,6 +243,9 @@ pub enum Capability {
     EventsJobs,
     /// Told of plans applied.
     EventsPlans,
+    /// Read files in the folders the user grants it for a read of its library sources: the host
+    /// copies only audio files in them (links resolved), whatever the plugin says.
+    FsRead,
     /// `net:<host>`: it talks to this server through the host (`net/fetch`), or with
     /// `net:*.<domain>` to any server below that domain. Shown to the user; a native plugin can't
     /// be held to it.
@@ -242,7 +254,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability but `net:<host>`.
-    pub const NAMED: [Capability; 19] = [
+    pub const NAMED: [Capability; 21] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
         Capability::ArtworkRead,
@@ -259,9 +271,11 @@ impl Capability {
         Capability::TagsPlan,
         Capability::CuesPlan,
         Capability::ArtworkPlan,
+        Capability::AnalysisPlan,
         Capability::EventsDrives,
         Capability::EventsJobs,
         Capability::EventsPlans,
+        Capability::FsRead,
     ];
 
     /// Its name, unless it's `net:<host>`.
@@ -283,9 +297,11 @@ impl Capability {
             Capability::TagsPlan => "tags:plan",
             Capability::CuesPlan => "cues:plan",
             Capability::ArtworkPlan => "artwork:plan",
+            Capability::AnalysisPlan => "analysis:plan",
             Capability::EventsDrives => "events:drives",
             Capability::EventsJobs => "events:jobs",
             Capability::EventsPlans => "events:plans",
+            Capability::FsRead => "fs:read",
             Capability::Net(_) => return None,
         })
     }
@@ -581,13 +597,21 @@ impl Manifest {
                 return Err(invalid(at, format!("{cli:?} is used twice")));
             }
         }
+        hooks::accounts::validate(self)?;
+        hooks::analysis::validate(self)?;
         hooks::commands::validate(self)?;
+        hooks::destinations::validate(self)?;
         hooks::events::validate(self)?;
         hooks::operations::validate(self)?;
+        hooks::panels::validate(self)?;
         hooks::analyzers::validate(self)?;
+        hooks::checks::validate(self)?;
         hooks::exporters::validate(self)?;
+        hooks::importers::validate(self)?;
         hooks::providers::validate(self)?;
         hooks::services::validate(self)?;
+        hooks::sources::validate(self)?;
+        hooks::themes::validate(self)?;
         let at = "contributes.settings";
         unique_names(at, "key", c.settings.iter().map(|x| x.key.as_str()).enumerate())?;
         for (i, x) in c.settings.iter().enumerate() {

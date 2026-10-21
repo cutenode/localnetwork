@@ -48,7 +48,8 @@ pub fn edit_apply(req: &EditRequest, ctx: &Ctx<'_>) -> Result<EditReport> {
 
 /// An edit plan, as the operation `operation`, for the drive `touched` measured (its library, see
 /// [`Touched::library`], and whatever else the plan was made from), reaching its library's other
-/// clones (see `Planned::reaching_clones`).
+/// clones (see `Planned::reaching_clones`), with what plugins' guards make of it (see
+/// [`crate::plugin::Plugins::guard`]).
 pub(crate) fn planned_edit(
     operation: impl Into<std::borrow::Cow<'static, str>>,
     plan: EditPlan,
@@ -72,7 +73,8 @@ pub(crate) fn planned_edit(
         .noop(noop)
         .touches(touched)
         .reaching_clones(ctx)?
-        .guard(None)
+        .guard(None)?
+        .guarded(|p| p.recorded.clone(), ctx)
 }
 
 impl Operation for EditPlan {

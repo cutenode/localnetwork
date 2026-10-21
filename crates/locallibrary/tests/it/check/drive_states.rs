@@ -62,7 +62,7 @@ fn onelibrary_alone_or_unreadable_is_said() {
     let only = common::bigger_drive(dir.path(), "Only");
     common::onelibrary_only(&only);
     let (level, message) = item(&check(&[&only]), "Only", "databases");
-    assert_eq!((level, message.as_str()), (Level::Ok, "OneLibrary only (older players need export.pdb)"));
+    assert_eq!((level, message.as_str()), (Level::Info, "OneLibrary only (older players need export.pdb)"));
 
     let broken = common::bigger_drive(dir.path(), "Broken");
     common::add_onelibrary(&broken);

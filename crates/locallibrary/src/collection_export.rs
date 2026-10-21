@@ -1,7 +1,10 @@
 //! Writing rekordbox's collection (`master.db` on this computer, see [`crate::masterdb`]) to a
 //! drive or a folder, as rekordbox's Export does, so a library can be had from this computer
 //! without a drive rekordbox exported to. A folder written this way is a drive like any other:
-//! `pull` saves it in the store, and `library push` writes it to any drive.
+//! `pull` saves it in the store, and `library push` writes it to any drive. A plugin's library
+//! source is written the same way (a `Collected` library, filled by [`crate::plugin`]'s host): its
+//! audio files hashed before they're copied, and checked as they are, and analysis files made for
+//! tracks that come with cues, beat grids or waveforms.
 //!
 //! The export holds every track (or those of the chosen playlists), the playlists and folders
 //! (intelligent playlists, whose rules aren't read, are left out), cues and My Tags. Audio goes in
@@ -26,15 +29,19 @@
 //! recorded, changes since the last export) is saved in the store first, as [`crate::pack`] does.
 
 use indexmap::IndexMap;
-use rustc_hash::FxHashSet;
-use std::path::PathBuf;
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::analysis_edit::{self, NewAnalysis};
+use crate::anlz::{Bands, Beat, CuePoint};
 use crate::artwork::{image_key, medium_variant};
 use crate::device::{Device, LineageEntry, LineageOp};
+use crate::error::IoContext;
 use crate::error::{Action, Reason};
 use crate::hash::Hash;
 use crate::library_write::{self, FileCopy, Planned, Source, Written};
@@ -46,7 +53,7 @@ use crate::progress::{Ctx, Event, Phase};
 use crate::store::{SnapshotInfo, Store};
 use crate::sync::PullOptions;
 use crate::tags::DbTags;
-use crate::{Error, Result, backup, convert, edit, fsutil, merge};
+use crate::{Error, Result, backup, convert, edit, fsutil, hash, merge};
 
 const RECORD_FILE: &str = "collection.json";
 
@@ -75,8 +82,11 @@ pub struct CollectionExportOptions {
 /// What a target was exported from, kept on the target.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CollectionExportRecord {
-    /// The `master.db` it was exported from.
+    /// The `master.db` it was exported from (empty for a plugin's library source).
     pub collection: PathBuf,
+    /// The plugin's library source it was built from, `<plugin>:<source>`, instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     /// The playlists chosen; empty for the whole collection.
     pub playlists: Vec<String>,
     pub at: DateTime<Utc>,
@@ -98,8 +108,11 @@ pub fn forget(device: &Device) -> Result<()> {
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct CollectionExportPlan {
-    /// The `master.db` exported.
+    /// The `master.db` exported (empty for a plugin's library source).
     pub collection: PathBuf,
+    /// The plugin's library source written instead, `<plugin>:<source>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     pub target: String,
     pub target_root: PathBuf,
     /// The playlists chosen; empty for the whole collection.
@@ -124,7 +137,8 @@ pub struct CollectionExportPlan {
     /// Tracks whose analysis or artwork Cloud Library Sync hasn't finished bringing to this
     /// computer.
     pub syncing: Vec<String>,
-    /// Tracks with an analysis file that can't be read: exported without it.
+    /// Tracks with an analysis file that can't be read, or (from a plugin's source) whose cues,
+    /// beat grid or waveform can't be written: exported without it.
     pub unreadable: Vec<String>,
     /// The target holds a library that wasn't exported from the collection, or files the export
     /// removes though it holds no library.
@@ -150,11 +164,90 @@ pub struct CollectionExportPlan {
     artwork: IndexMap<String, String>,
     #[serde(skip)]
     written: Planned,
+    /// The analysis files made for the export, until they're copied.
+    #[serde(skip)]
+    _made: Option<Arc<tempfile::TempDir>>,
 }
 
 impl CollectionExportPlan {
     pub fn is_noop(&self) -> bool {
         false // the databases are always rebuilt
+    }
+
+    /// What's exported, as messages name it: `rekordbox's collection`, or the source.
+    pub fn what(&self) -> String {
+        match &self.source {
+            None => "rekordbox's collection".into(),
+            Some(source) => format!("the library source {source}"),
+        }
+    }
+}
+
+/// A library a drive is built from, whichever program it's read from: rekordbox's collection
+/// ([`Collected::rekordbox`]), or a plugin's library source ([`Collected::checked`]). Its tracks'
+/// paths are their audio files' on this computer.
+pub(crate) struct Collected<'a> {
+    /// The plugin's library source it's from (`<plugin>:<source>`), if it's from one.
+    source: Option<String>,
+    /// Tracks, playlists and folders.
+    library: Library,
+    /// My Tags: categories in order, each with its tags and their tracks.
+    tags: Vec<TagCategory>,
+    /// Ids of intelligent playlists, whose rules aren't read: left out.
+    smart_playlists: Vec<u32>,
+    files: Files<'a>,
+}
+
+/// Where a [`Collected`] library's tracks' files are.
+enum Files<'a> {
+    /// rekordbox's: audio where its paths say (or in Cloud Library Sync's folders), analysis and
+    /// artwork in its `share` folder.
+    Rekordbox { collection: &'a Collection, cloud: &'a CloudFolders },
+    /// Audio files the plugin host checked, by track id.
+    Checked(FxHashMap<u32, Checked>),
+}
+
+/// A track's audio file as the plugin host checked it (in a folder the user granted, a file
+/// players play), and what its analysis files are made with.
+pub(crate) struct Checked {
+    /// Its size and modification time then: the export copies it as it was, hashed before it's
+    /// copied and checked as it is.
+    pub(crate) size: u64,
+    pub(crate) mtime: i64,
+    pub(crate) cues: Vec<CuePoint>,
+    pub(crate) beats: Option<Vec<Beat>>,
+    /// At 150 columns a second.
+    pub(crate) waveform: Option<Bands>,
+}
+
+impl Checked {
+    /// Whether it makes analysis files for its track.
+    fn analysed(&self) -> bool {
+        !self.cues.is_empty() || self.beats.is_some() || self.waveform.is_some()
+    }
+}
+
+impl<'a> Collected<'a> {
+    /// rekordbox's collection, its tracks' files found through `cloud`.
+    pub(crate) fn rekordbox(collection: &'a Collection, cloud: &'a CloudFolders) -> Collected<'a> {
+        Collected {
+            source: None,
+            library: collection.library.clone(),
+            tags: collection.tags.clone(),
+            smart_playlists: collection.smart_playlists.clone(),
+            files: Files::Rekordbox { collection, cloud },
+        }
+    }
+
+    /// A plugin's library source (`<plugin>:<source>`): `library`'s tracks each at its audio file
+    /// (absolute) as `checked` has it, by id.
+    pub(crate) fn checked(
+        source: String,
+        library: Library,
+        tags: Vec<TagCategory>,
+        checked: FxHashMap<u32, Checked>,
+    ) -> Collected<'static> {
+        Collected { source: Some(source), library, tags, smart_playlists: Vec::new(), files: Files::Checked(checked) }
     }
 }
 
@@ -186,7 +279,19 @@ pub fn plan(
     opts: &CollectionExportOptions,
     ctx: &Ctx<'_>,
 ) -> Result<CollectionExportPlan> {
-    let previous = record(target)?;
+    plan_from(&Collected::rekordbox(collection, cloud), target, opts, ctx)
+}
+
+/// Plan writing `from` to `target`. An export from somewhere else than the target's last one
+/// counts as none: the selection isn't carried over, and a library on the target is only replaced
+/// when asked.
+pub(crate) fn plan_from(
+    from: &Collected<'_>,
+    target: &Device,
+    opts: &CollectionExportOptions,
+    ctx: &Ctx<'_>,
+) -> Result<CollectionExportPlan> {
+    let previous = record(target)?.filter(|r| r.source == from.source);
     // An export cut off before it recorded itself counts as one.
     let interrupted = target.state().and_then(|s| s.pending.as_ref()).is_some_and(|p| p.op == LineageOp::Export);
     let exported = previous.is_some() || interrupted;
@@ -196,7 +301,7 @@ pub fn plan(
         (p, _) => p.to_vec(),
     };
     let mut warnings = Vec::new();
-    let chosen = choose(collection, &playlists, &mut warnings)?;
+    let chosen = choose(from, &playlists, &mut warnings)?;
     // Each track's analysis files are read to write its path into them, which takes a while.
     let mut layout = Layout { artwork: previous.map(|r| r.artwork).unwrap_or_default(), ..Default::default() };
     layout.used_keys = layout.artwork.values().map(|k| k.to_lowercase()).collect();
@@ -204,7 +309,7 @@ pub fn plan(
     for t in &chosen.tracks {
         ctx.check()?;
         ctx.emit(Event::Item { phase: Phase::Scan, path: t.file_path.clone(), bytes: 0 });
-        layout.add(collection, cloud, t)?;
+        layout.add(from, t, target)?;
     }
     ctx.phase_end(Phase::Scan);
     let mut library = chosen;
@@ -228,12 +333,18 @@ pub fn plan(
         ));
     }
     if let Some(first) = layout.unreadable.first() {
-        warnings.push(format!(
-            "{} track(s) have analysis files that can't be read (e.g. {first}); they're exported without them",
-            layout.unreadable.len()
-        ));
+        let what = match from.files {
+            Files::Rekordbox { .. } => "have analysis files that can't be read",
+            Files::Checked(_) => "have cues, beat grids or waveforms that can't be written",
+        };
+        warnings
+            .push(format!("{} track(s) {what} (e.g. {first}); they're exported without them", layout.unreadable.len()));
     }
-    let tags = collection.tags.clone();
+    if let Some(first) = layout.analysis_warnings.first() {
+        let more = layout.analysis_warnings.len() - 1;
+        warnings.push(if more > 0 { format!("{first} (and {more} more like it)") } else { first.clone() });
+    }
+    let tags = from.tags.clone();
 
     let target_lib = target.library().ok();
     let scanned = target.scan_fingerprinted(target_lib.as_ref(), ctx)?;
@@ -242,15 +353,17 @@ pub fn plan(
     let entries: usize = library.playlists.iter().map(|p| p.track_ids.len()).sum();
     let database = 256 * 1024 + (library.tracks.len() + entries) as u64 * 1024;
     let databases = Written { pdb: Some(database), ext: None, plus: Some(database) };
-    let written = library_write::plan(target, &scanned.tree, &layout.files, &[], databases, false);
+    let mut written = library_write::plan(target, &scanned.tree, &layout.files, &[], databases, false);
+    hash_checked(&mut written, &layout.checked, ctx)?;
     let downloads: Vec<&FileCopy> = written.copies.iter().filter(|c| layout.online_only.contains(&c.path)).collect();
     // Without a record of an earlier export, whatever the target holds (a library, or loose audio
     // the export would remove) is only replaced when asked.
     let replaces_library = !exported && (target.has_export() || !written.deletes.is_empty());
     if replaces_library && !opts.replace {
-        let what = match target.has_export() {
-            true => "a library that wasn't exported from rekordbox's collection",
-            false => "files the export would remove",
+        let what = match (target.has_export(), &from.source) {
+            (true, None) => "a library that wasn't exported from rekordbox's collection".to_string(),
+            (true, Some(source)) => format!("a library that wasn't built from {source}"),
+            (false, _) => "files the export would remove".to_string(),
         };
         return Err(Error::conflict(
             Reason::Exists,
@@ -272,7 +385,11 @@ pub fn plan(
             u.describe()
         ));
     }
-    warnings.extend(edit::journal::forget_warning(target, None, "exporting the collection"));
+    let exporting = match &from.source {
+        None => "exporting the collection".to_string(),
+        Some(source) => format!("writing {source}"),
+    };
+    warnings.extend(edit::journal::forget_warning(target, None, &exporting));
     if !written.fits {
         warnings.push(format!(
             "the export needs about {} bytes (its files, databases and backup) but only {} are free on {}",
@@ -281,8 +398,13 @@ pub fn plan(
             target.name()
         ));
     }
+    let collection = match &from.files {
+        Files::Rekordbox { collection, .. } => collection.path.clone(),
+        Files::Checked(_) => PathBuf::new(),
+    };
     Ok(CollectionExportPlan {
-        collection: collection.path.clone(),
+        collection,
+        source: from.source.clone(),
         target: target.name(),
         target_root: target.root().to_path_buf(),
         playlists,
@@ -310,20 +432,47 @@ pub fn plan(
         tags,
         artwork: layout.artwork,
         written,
+        _made: layout.made.map(Arc::new),
     })
 }
 
-/// The collection's tracks and playlists to export: those of `playlists` (with the folders above
+/// Hashes each audio file `written` copies that the plugin host checked (by key, `checked`), as
+/// it is now, for the copy to be checked against: one whose size changed since is refused.
+fn hash_checked(written: &mut Planned, checked: &FxHashSet<String>, ctx: &Ctx<'_>) -> Result<()> {
+    let hashed: Vec<&FileCopy> = written.copies.iter().filter(|c| checked.contains(&c.path)).collect();
+    if hashed.is_empty() {
+        return Ok(());
+    }
+    ctx.phase_start(Phase::Hash, hashed.len() as u64, hashed.iter().map(|c| c.size).sum());
+    let mut hashes = Vec::new();
+    for c in hashed {
+        let src = &written.sources[&c.path];
+        ctx.emit(Event::Item { phase: Phase::Hash, path: c.path.clone(), bytes: 0 });
+        let now = std::fs::metadata(&src.path).at(&src.path)?.len();
+        if now != src.size {
+            let changed = format!("{} changed while the export was planned; plan it again", src.path.display());
+            return Err(Error::invalid(changed));
+        }
+        hashes.push((c.path.clone(), hash::hash_file(&src.path, ctx, Phase::Hash)?));
+    }
+    ctx.phase_end(Phase::Hash);
+    for (key, h) in hashes {
+        written.sources.get_mut(&key).expect("one of its copies").hash = Some(h);
+    }
+    Ok(())
+}
+
+/// The library's tracks and playlists to export: those of `playlists` (with the folders above
 /// them), or everything. Intelligent playlists and history lists are left out.
-fn choose(collection: &Collection, playlists: &[String], warnings: &mut Vec<String>) -> Result<Library> {
-    let lib = &collection.library;
-    let smart: FxHashSet<u32> = collection.smart_playlists.iter().copied().collect();
+fn choose(from: &Collected<'_>, playlists: &[String], warnings: &mut Vec<String>) -> Result<Library> {
+    let lib = &from.library;
+    let smart: FxHashSet<u32> = from.smart_playlists.iter().copied().collect();
     let keep = match playlists {
         [] => lib.playlists.iter().map(|p| p.id).collect(),
         specs => edit::chosen_nodes(lib, specs)?,
     };
     let left_out: Vec<String> =
-        collection.smart_playlists.iter().filter(|id| keep.contains(id)).map(|id| lib.playlist_path(*id)).collect();
+        from.smart_playlists.iter().filter(|id| keep.contains(id)).map(|id| lib.playlist_path(*id)).collect();
     if let Some(first) = left_out.first() {
         warnings.push(format!(
             "{} intelligent playlist(s) aren't exported (e.g. {first}): their rules aren't read",
@@ -360,15 +509,28 @@ struct Layout {
     missing: Vec<String>,
     syncing: Vec<String>,
     unreadable: Vec<String>,
+    /// What making analysis files warned of, a line each.
+    analysis_warnings: Vec<String>,
+    /// Keys of the audio files the plugin host checked.
+    checked: FxHashSet<String>,
+    /// The analysis files made, until they're copied.
+    made: Option<tempfile::TempDir>,
 }
 
 impl Layout {
-    fn add(&mut self, collection: &Collection, cloud: &CloudFolders, t: &Track) -> Result<()> {
-        let audio = collection.audio_file(t, cloud).and_then(|p| std::fs::metadata(&p).ok().map(|m| (p, m)));
-        let Some((audio, meta)) = audio.filter(|(_, m)| m.is_file()) else {
-            self.missing.push(t.display_name());
-            return Ok(());
-        };
+    fn add(&mut self, from: &Collected<'_>, t: &Track, target: &Device) -> Result<()> {
+        match &from.files {
+            Files::Rekordbox { collection, cloud } => self.add_rekordbox(collection, cloud, t),
+            Files::Checked(checked) => {
+                let c = checked.get(&t.id).ok_or_else(|| Error::invalid(format!("{} wasn't checked", t.file_path)))?;
+                self.add_checked(t, c, target)
+            }
+        }
+    }
+
+    /// The audio file `audio` of `t` placed in `Contents/<artist>/<album>/`, copied from
+    /// `source`: its key on the target.
+    fn place(&mut self, t: &Track, audio: &Path, source: Source) -> String {
         let folder = |s: &str, unknown: &str| match s.trim() {
             "" => unknown.to_string(),
             s => paths::sanitize_component(s),
@@ -381,24 +543,42 @@ impl Layout {
             paths::sanitize_component(&name)
         );
         let key = merge::unique_key(&wanted, &mut self.taken, &|_| false);
+        self.files.insert(key.clone(), source);
+        key
+    }
+
+    /// A folder no other track's analysis files have, for those of the track at `device_path`.
+    fn analysis_dir(&self, device_path: &str) -> String {
+        let mut salt = 0;
+        let mut dir = merge::analysis_dir(device_path, salt);
+        while self.taken.contains(&format!("{dir}/anlz0000.dat").to_lowercase()) {
+            salt += 1;
+            dir = merge::analysis_dir(device_path, salt);
+        }
+        dir
+    }
+
+    /// `t` as it goes on the target, its audio at `device_path`: no analysis or artwork yet.
+    fn placed(t: &Track, device_path: &str) -> Track {
+        Track { file_path: device_path.into(), analyze_path: String::new(), artwork_path: None, ..t.clone() }
+    }
+
+    fn add_rekordbox(&mut self, collection: &Collection, cloud: &CloudFolders, t: &Track) -> Result<()> {
+        let audio = collection.audio_file(t, cloud).and_then(|p| std::fs::metadata(&p).ok().map(|m| (p, m)));
+        let Some((audio, meta)) = audio.filter(|(_, m)| m.is_file()) else {
+            self.missing.push(t.display_name());
+            return Ok(());
+        };
+        let key = self.place(t, &audio, Source::file(audio.clone(), meta.len(), mtime(&meta)));
         let device_path = format!("/{key}");
         if fsutil::is_online_only(&meta) {
-            self.online_only.insert(key.clone());
+            self.online_only.insert(key);
         }
-        self.files.insert(key, Source::file(audio, meta.len(), mtime(&meta)));
 
-        let mut track = t.clone();
-        track.file_path = device_path.clone();
-        track.analyze_path = String::new();
-        track.artwork_path = None;
+        let mut track = Layout::placed(t, &device_path);
         let (mut syncing, mut unreadable) = (false, false);
         if let Some((stem, _)) = t.analyze_path.rsplit_once('.').filter(|_| !t.analyze_path.is_empty()) {
-            let mut salt = 0;
-            let mut dir = merge::analysis_dir(&device_path, salt);
-            while self.taken.contains(&format!("{dir}/anlz0000.dat").to_lowercase()) {
-                salt += 1;
-                dir = merge::analysis_dir(&device_path, salt);
-            }
+            let dir = self.analysis_dir(&device_path);
             for ext in ANALYSIS_EXTENSIONS {
                 let share = format!("{stem}.{ext}");
                 syncing |= collection.still_syncing(&share);
@@ -427,6 +607,56 @@ impl Layout {
         }
         self.tracks.push(track);
         Ok(())
+    }
+
+    /// A plugin's track, its audio file checked as `c` says (`t.file_path`), with analysis files
+    /// made for it when it brings cues, a beat grid or a waveform.
+    fn add_checked(&mut self, t: &Track, c: &Checked, target: &Device) -> Result<()> {
+        let audio = PathBuf::from(&t.file_path);
+        let key = self.place(t, &audio, Source::file(audio.clone(), c.size, c.mtime));
+        let device_path = format!("/{key}");
+        self.checked.insert(key);
+        let mut track = Layout::placed(t, &device_path);
+        if c.analysed() {
+            let a = NewAnalysis { beats: c.beats.clone(), ..NewAnalysis::default() };
+            match analysis_edit::new_files(&track, &c.cues, &a, c.waveform.as_ref()) {
+                Ok((made, warnings)) => {
+                    let dir = self.analysis_dir(&device_path);
+                    for (ext, bytes) in ["DAT", "EXT"].into_iter().zip(made) {
+                        let to = format!("{dir}/ANLZ0000.{ext}");
+                        let source = self.made(&to, &bytes, target)?;
+                        self.taken.insert(to.to_lowercase());
+                        self.files.insert(to, source);
+                    }
+                    track.analyze_path = format!("/{dir}/ANLZ0000.DAT");
+                    self.analysis_warnings.extend(warnings);
+                }
+                Err(e) => self.unreadable.push(format!("{}: {e}", t.display_name())),
+            }
+        }
+        self.tracks.push(track);
+        Ok(())
+    }
+
+    /// An analysis file made for the export (`bytes`, to go at `key`), kept in a temporary folder
+    /// until it's copied: as current as the target's when that holds the same, else copied.
+    fn made(&mut self, key: &str, bytes: &[u8], target: &Device) -> Result<Source> {
+        let dir = match &self.made {
+            Some(dir) => dir.path().to_path_buf(),
+            None => {
+                let made = tempfile::tempdir().map_err(|e| Error::Io { path: std::env::temp_dir(), source: e })?;
+                self.made.insert(made).path().to_path_buf()
+            }
+        };
+        let file = dir.join(format!("{}.{}", self.files.len(), key.rsplit_once('.').map_or("DAT", |(_, e)| e)));
+        std::fs::write(&file, bytes).at(&file)?;
+        let there = target.checked_path(key)?;
+        let same = std::fs::read(&there).is_ok_and(|b| b == bytes);
+        let at = match std::fs::metadata(&there) {
+            Ok(m) if same => mtime(&m),
+            _ => Utc::now().timestamp(),
+        };
+        Ok(Source { force: !same, ..Source::file(file, bytes.len() as u64, at) })
     }
 
     /// The key of the image at `image` in the `share` folder on the target (with its `_m` copy,
@@ -497,17 +727,17 @@ pub fn apply(
             })?;
         let opts = PullOptions {
             library: None,
-            message: Some(format!("{} before exporting rekordbox's collection to it: {}", plan.target, u.describe())),
+            message: Some(format!("{} before exporting {} to it: {}", plan.target, plan.what(), u.describe())),
             force: true,
         };
         report.saved = crate::sync::pull(store, target, &opts, ctx)?.snapshot;
     }
     let _lock = crate::commit::lock(target, None)?;
     if target.has_export() {
-        let reason = "before exporting rekordbox's collection".to_string();
+        let reason = format!("before exporting {}", plan.what());
         report.backup = Some(backup::create(target, &reason, &plan.written.backed_up, None)?.id);
     }
-    target.begin(LineageOp::Export, "export rekordbox's collection", report.backup.clone())?;
+    target.begin(LineageOp::Export, format!("export {}", plan.what()), report.backup.clone())?;
     let identity = crate::player::stash(target, true)?;
     ctx.phase_start(Phase::Copy, plan.written.copies.len() as u64, plan.written.copy_bytes);
     (report.copied, report.copied_bytes) = library_write::copy(target, &plan.written, ctx)?;
@@ -539,6 +769,7 @@ pub fn apply(
     }))?;
     let rec = CollectionExportRecord {
         collection: plan.collection.clone(),
+        source: plan.source.clone(),
         playlists: plan.playlists.clone(),
         at: Utc::now(),
         artwork: plan.artwork.clone(),

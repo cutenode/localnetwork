@@ -235,6 +235,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   you, and locallibrary plans the edits itself, confirmed as any are (the player's actions menu
   has both, and its palette the auto-pick; the sidecar `plugins.provide`,
   `plugins.provide.plan/apply`, `plugins.providers` and `plugins.providers.set`).
+  Checks (`[[contributes.checks]]`, `check/run`, the `checks` feature) find what's wrong with a
+  drive: what they find is in `check` and `doctor` (`--only checks`), named `PLUGIN.CHECK`, a
+  problem counting as one, with the command line of the plugin's operation that fixes it when
+  there is one; a check that fails or takes longer than 10 seconds is a warning. Guards (`when =
+  ["apply"]`, `plan/check`) say what they make of a plan that edits a library (edits, cues, a
+  playlist restored, a contact's playlist) among its warnings before it's confirmed, and one
+  made blocking stops a plan it finds a warning or a problem about. `plugin
+  checks` turns each on or off, makes guards blocking and sets how long a check has (the sidecar
+  `plugins.checks`, `plugins.checks.set` and `plugins.checks.timeout.set`; the player a "check
+  settings…" form, a check's findings in its results and their fixes in the palette).
   An analyzer's fields may have roles (a track's key, tempo, loudness...), which doctor, `check` and
   `playlist order` read from the analyzer `plugin roles` chooses (the sound plugin's unless another
   has them), and `analyze --apply key,bpm` writes to the tracks; the sidecar has `plugins.roles`,
@@ -257,6 +267,23 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   by (and an analyzer's keys and BPMs are written to the tracks from there), plugins' settings are a
   form in the palette, and what plugins log goes to its messages (`!`). `tracks --filter`, `tracks
   --sort` and the sidecar's `tracks.query` take analyzers' fields (`sound.bpm:>120`, `-sound.bpm`).
+  Importers read another program's file (`import FILE [LIBRARY] --format FORMAT`): locallibrary
+  finds its tracks on the drive as it finds a tracklist's, says how many it couldn't, and adds what
+  they lack (a key and a BPM where a track has none, cues in slots it has none in, My Tags) as one
+  edit, confirmed and undone as any is, and keeps the plays the file logged as sessions (the
+  player's drive menu has it, the sidecar `plugins.import.plan/apply`). An exporter may write out
+  a set or a mix instead of a drive's library: `sets export --format` and `mix --format FORMAT
+  --export PATH` take those formats, the player offers a set's while the set is open, and the
+  sidecar's `plugins.export.plan` takes `set` and `mix`.
+  A view is a list, a table (its columns tracks, durations, keys or numbers with a unit, or plain),
+  labelled values, text, a tree, a chart, a picture or sections of those, each drawn in the
+  player and as plain text on the command line. Panels show what a plugin has to say about a
+  track under its details, in the player (asked for once the selection settles, never another
+  track's), under `track show`'s details and from the sidecar's `plugins.panel`. A plugin's theme
+  (colours as data) is chosen in the player's palette and kept in `tui.json`, the default drawing
+  as before; an analyzer says how its fields are shown (a unit, places, a key, a duration,
+  decibels, a percentage, a meter, a column's width) in the player's columns and `track show`,
+  and a mix's HTML report shows those fields of each track.
   See docs/plugins.md. The ones it ships:
   - `tracklist`: `playlist import` makes a playlist from a tracklist (M3U, CSV exports of
     streaming playlists, rekordbox text or XML, "Artist - Title" lines), asking which track an
@@ -268,6 +295,32 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
     album that could be several release groups offered as each of them. It's the only one that
     goes online, and only when it's run.
+- **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
+  grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
+  `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
+  edit (`set_analysis`), each read back before it's written, rewriting rekordbox's own files byte
+  for byte where the data is the same, and reads 3-band waveforms (`PWV6`, `PWV7`) for a track
+  with no others. An analyzer plugin may work out a track's grid, phrases and waveform (fields of
+  type `beats`, `phrases`, `waveform`, feature `analysis`): kept beside its columns, drawn in the
+  player where the drive has none, and written with `analyze --apply grid,phrases,waveform` (the
+  sidecar's `plugins.apply_analysis.plan/apply`), a grid setting the track's BPM; operations plan
+  the same edit with `analysis:plan`. Checked against rekordbox's files, not yet on players.
+- **Drives built from a plugin's library source.** `collection export DRIVE --from PLUGIN:SOURCE
+  --grant FOLDER` builds a drive from a library a plugin reads (feature `sources`, capability
+  `fs:read`), as rekordbox's collection is written: the plugin is given only the folders granted,
+  and only audio files players play in them (links resolved) are copied, each read and hashed by
+  locallibrary itself and checked as it's copied; the rest is left out with a warning. Cues, beat
+  grids and waveforms a track brings go into analysis files made for it, read back first. The
+  player has "build from …" in the palette and a drive's menu, the sidecar
+  `plugins.source.plan/apply`. Not yet tried on players.
+- **Plugins' accounts and destinations.** A plugin may have accounts on other services, which
+  locallibrary signs you in to in the browser (`plugin account PLUGIN ACCOUNT sign-in`, or the
+  player's palette), keeping the tokens in the keychain and refreshing them itself: the plugin
+  never sees one. A plugin may keep a copy of the store (`store copy --to PLUGIN:DESTINATION`,
+  `store restore --from`, `drive verify --from`), every file it gives back checked against its
+  hash, or publish a set with its recording (`sets publish SET --to`), after a dry run you confirm,
+  the link it answers kept in the set. The sidecar has both as `plugins.account*`,
+  `plugins.store.*` and `plugins.publish.*`.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're
@@ -335,7 +388,8 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     `Event`, `Cancelled`).
   - `loclib-model`: tracks, playlists and the diff between two exports, Camelot keys and mix
     costs, a track's decoded analysis (beat grid, cues, waveforms, phrases, the hot cue palette)
-    and the path keys tracks are matched by.
+    and the path keys tracks are matched by, and a theme: every colour DJ data and a player are
+    drawn in, the shared ones by default, set by name.
   - `loclib-equipment`: what each Pioneer DJ / AlphaTheta player, all-in-one system and mixer
     reads (databases, file systems, audio formats), with each value's source, and the same
     table as `equipment.json` for other languages.
@@ -358,14 +412,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
     format, so a build for NML alone needs no SQLite.
   - `loclib-waveform`: the player's ratatui widgets (overview and detail waveforms, cue lane,
     phrase strip, spectrum, scope, cover art in half blocks), in the colours of a palette the
-    caller passes.
+    caller passes, a theme's (`Palette::of`).
   - `loclib-plugin`: the plugin protocol (versioned on its own, at 0.2.0; each family of hooks
     an optional feature named in its handshake), the `locallibrary-plugin.toml` manifest (read
     tolerantly, keys a newer locallibrary adds left out) and its checks, a JSON-RPC peer over a
     pair of pipes and an SDK for writing plugins in Rust, a hook per request type, with typed
     reads of a drive, `net/fetch` through the host, files in a request's scratch folder for big
-    answers, a view's rows sent in parts, questions for the user (`Choice`) and providers
-    (`provide/candidates`). The RPC sidecar reads lines and reports errors with it.
+    answers, a view's rows sent in parts, questions for the user (`Choice`), providers
+    (`provide/candidates`), panels (`panel/render`), views of every kind (the `views` feature),
+    themes and how analyzers' fields are shown. The RPC sidecar reads lines and reports errors
+    with it.
 
 ### Changed
 
@@ -567,9 +623,14 @@ their old names.
   decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
   real startup disk name, and stamps its entries with `SOURCE_DATE_EPOCH` when it's set (refusing
   a value that isn't seconds since 1970).
+- `check`'s items (with `--json`, and over RPC) are findings, the shape plugins' checks report
+  in: what was found fine is `info` where it was `ok`, and an item may name the tracks, playlist
+  and files it's about (`tracks`, `playlist`, `paths`).
 
 ### Fixed
 
+- A release date given to an edit has to be written out in full (`2019-05-01`): `2019-05-1`
+  was taken, and the Traktor export left it out.
 - On Windows, an edit, sync or other write no longer fails ("Access is denied") when the drive
   watcher of the TUI, the sidecar or `watch` looks at the drive at the same moment.
 - A plugin setting or param typed as a whole number (`3`) reads back as one, not as `3.0`.

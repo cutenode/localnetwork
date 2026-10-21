@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use locallibrary::anlz::{self, PhraseKind, TrackAnalysis};
 use locallibrary::api;
 use locallibrary::error::panic_text;
-use locallibrary::fields::TrackValues;
+use locallibrary::fields::{OverlayStore, TrackValues};
 use locallibrary::model::normalize;
 use locallibrary::op::AnyPlanned;
 use locallibrary::query::{FieldName, Filter, SortField, SortKey};
@@ -448,24 +448,33 @@ pub struct Details {
 }
 
 /// What starting a track reads in the background: its analysis files and artwork from the
-/// drive, and its matches and playlists from the library.
+/// drive (what they lack from what plugins' analyzers kept in the store, if they have it), and its
+/// matches and playlists from the library.
 #[derive(Default)]
 pub struct TrackInfo {
     analysis: TrackAnalysis,
+    /// What of the analysis is a plugin's, not the drive's: a line to show.
+    from_plugins: Option<String>,
     art: Option<Art>,
     matches: Option<Matches>,
     playlists: Vec<String>,
 }
 
-fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>) -> TrackInfo {
+fn track_info(root: &Path, track: &Track, library: Option<Arc<Library>>, store_root: &Path) -> TrackInfo {
     let device = Device::open(root).ok();
-    let analysis = device.as_ref().map(|d| anlz::load(d, track)).unwrap_or_default();
+    let mut analysis = device.as_ref().map(|d| anlz::load(d, track)).unwrap_or_default();
+    let analyzers = crate::plugins::host().map(|p| p.analyzers()).unwrap_or_default();
+    let audio = device.as_ref().and_then(|d| d.checked_path(&paths::key(&track.file_path)).ok());
+    let from_plugins = audio.filter(|_| !analyzers.is_empty()).and_then(|audio| {
+        let overlays = OverlayStore::in_store(&Store::open(store_root).ok()?);
+        overlays.first(&audio, &analyzers).fill(&mut analysis)
+    });
     let art = (device.as_ref().and_then(|d| artwork::file_on_drive(d, track)))
         .and_then(|f| std::fs::read(f).ok())
         .and_then(|b| Art::decode(&b));
     let playlists = library.as_deref().map(|lib| playlists_of(lib, track)).unwrap_or_default();
     let matches = library.map(|lib| Matches::find(lib, root.to_path_buf(), track, 40));
-    TrackInfo { analysis, art, matches, playlists }
+    TrackInfo { analysis, from_plugins, art, matches, playlists }
 }
 
 pub struct NowPlaying {
@@ -475,6 +484,8 @@ pub struct NowPlaying {
     pub drive: String,
     pub root: PathBuf,
     pub analysis: TrackAnalysis,
+    /// What of the analysis is a plugin's, not the drive's: a line to show.
+    pub from_plugins: Option<String>,
     pub art: Option<Art>,
     pub duration: Duration,
     pub key: Option<Camelot>,
@@ -749,6 +760,9 @@ pub enum Msg {
     /// The playing track's analysis, artwork and matches, for the play with this id.
     TrackInfo(u64, Box<TrackInfo>),
     Details(Box<Details>),
+    /// A plugin's panel answered, for the track (as `Panels` keeps it) and the panel at this
+    /// place among its panels.
+    Panel((u64, usize), usize, Result<Box<super::plugins::panels::Ready>, String>),
     Status(Result<api::FleetStatus, String>),
     History(Result<History, String>),
     /// A profile build: which one, and its result.
@@ -963,6 +977,8 @@ pub struct App {
     pub field_columns: Vec<FieldName>,
     pub details: Option<Details>,
     pub details_state: ListState,
+    /// The selected track's panels, plugins' (see `plugins::panels`).
+    pub panels: super::plugins::panels::Panels,
     /// The selected track and since when, to look up its details once the selection settles.
     details_seen: Option<(u64, usize, Instant)>,
     details_asked: Option<(u64, usize)>,
@@ -973,6 +989,8 @@ pub struct App {
     /// Dialogs from the background (a plan, a task's results) waiting for the one open to close.
     pub(super) waiting: VecDeque<Modal>,
     pub picking: Option<Pick>,
+    /// The fixes plugins' checks gave in the last check, offered in the palette.
+    pub fixes: Vec<super::plugins::checks::Fixing>,
     pub job: Option<Job>,
     /// The drive the last change that made a backup was made to: `u` takes it back.
     pub(super) last_backup: Option<DriveKey>,
@@ -1156,12 +1174,14 @@ impl App {
             field_columns: Vec::new(),
             details: None,
             details_state: ListState::default(),
+            panels: Default::default(),
             details_seen: None,
             details_asked: None,
             details_failed: None,
             modal: None,
             waiting: VecDeque::new(),
             picking: None,
+            fixes: Vec::new(),
             job: None,
             last_backup: None,
             status: None,
@@ -1257,6 +1277,8 @@ impl App {
         self.show_ratings = s.ratings;
         self.show_tags_column = s.tags_column;
         self.field_columns = s.field_columns.iter().map(|f| FieldName::new(f)).collect();
+        // Before the first frame: drawn in it from the start.
+        super::theme::select(s.theme.as_deref());
         self.shuffle = s.shuffle;
         self.repeat = match s.repeat.as_deref() {
             Some("all") => Repeat::All,
@@ -1305,6 +1327,7 @@ impl App {
             ratings: self.show_ratings,
             tags_column: self.show_tags_column,
             field_columns: self.field_columns.iter().map(|f| f.as_str().to_string()).collect(),
+            theme: super::theme::chosen().map(String::from),
             shuffle: self.shuffle,
             repeat: Some(format!("{:?}", self.repeat).to_lowercase()),
             quantize: Some(self.deck.quantize),
@@ -1434,7 +1457,7 @@ impl App {
     }
 
     /// Keep a message in the log (`!`).
-    fn remember(&mut self, msg: String, level: Level) {
+    pub(super) fn remember(&mut self, msg: String, level: Level) {
         if self.log.len() >= LOG {
             self.log.pop_front();
         }
@@ -1611,6 +1634,7 @@ impl App {
         self.watch_output();
         self.follow_queue();
         self.want_details();
+        self.want_panels();
 
         let dt = self.last_tick.elapsed().as_secs_f32().min(0.25);
         self.last_tick = Instant::now();
@@ -1660,6 +1684,7 @@ impl App {
             || self.mix.is_loading()
             || self.job.is_some()
             || self.details_asked.is_some()
+            || (self.show_details && self.view == View::Library && self.panels.waiting(self.selected_key()))
             || (self.show_details
                 && self.view == View::Library
                 && self.selected_track().is_some()
@@ -1842,6 +1867,7 @@ impl App {
                     let info = *info;
                     now.phrases = phrase_spans(&info.analysis, now.duration);
                     now.analysis = info.analysis;
+                    now.from_plugins = info.from_plugins;
                     now.art = info.art;
                     now.matches = info.matches;
                     now.playlists = info.playlists;
@@ -1861,6 +1887,7 @@ impl App {
                     self.details = Some(*d);
                 }
             }
+            Msg::Panel(track, at, answer) => self.panel_answered(track, at, answer),
             Msg::Status(r) => {
                 self.status_loading = false;
                 let r = r.map(|s| {
@@ -2281,6 +2308,12 @@ impl App {
         out
     }
 
+    /// The selected track as background work keeps it: the library load's generation, and its
+    /// index there.
+    pub fn selected_key(&self) -> Option<(u64, usize)> {
+        Some((self.loaded.as_ref()?.generation, self.selected_track()?))
+    }
+
     /// Whether the details shown are for the selected track.
     pub fn details_current(&self) -> bool {
         let (Some(l), Some(d)) = (&self.loaded, &self.details) else { return false };
@@ -2536,7 +2569,7 @@ impl App {
     fn open(&mut self, track: Track, starts: bool) -> NowPlaying {
         let id = self.next_id();
         let root = self.queue.root.clone();
-        let (t, r, auto_cue) = (track.clone(), root.clone(), self.deck.auto_cue);
+        let (t, r, auto_cue, store_root) = (track.clone(), root.clone(), self.deck.auto_cue, self.store_root.clone());
         // Matches and playlists need the drive's library, which is open unless the player
         // moved to another drive since the queue was made.
         let library = self.loaded.as_ref().filter(|l| l.root() == self.queue.root).map(|l| l.library.clone());
@@ -2549,7 +2582,7 @@ impl App {
                 Ok(file)
             });
             if o.send(Msg::Opened(id, file.map_err(|e| format!("{e:#}")))) {
-                o.send(Msg::TrackInfo(id, Box::new(track_info(&r, &t, library))));
+                o.send(Msg::TrackInfo(id, Box::new(track_info(&r, &t, library, &store_root))));
             }
         };
         self.opener.open(&self.tx, id, starts, Box::new(job));
@@ -2561,6 +2594,7 @@ impl App {
             drive: self.queue.drive.clone(),
             root,
             analysis: TrackAnalysis::default(),
+            from_plugins: None,
             art: None,
             phrases: Vec::new(),
             matches: None,
@@ -2883,6 +2917,7 @@ impl App {
             duration: Duration::from_secs(track.duration_secs as u64),
             track,
             analysis: TrackAnalysis::default(),
+            from_plugins: None,
             art: None,
             phrases: Vec::new(),
             matches: None,
@@ -3341,10 +3376,17 @@ impl App {
             Act::ApplyFields(plugin, analyzer) => self.apply_fields(plugin, analyzer, self.action_drive()),
             Act::FieldColumn(name) => self.toggle_field_column(name),
             Act::PluginSettings(plugin) => self.plugin_settings(plugin),
+            Act::PluginSignIn(plugin, account) => self.plugin_sign_in(plugin, account),
+            Act::PluginSignOut(plugin, account) => self.plugin_sign_out(plugin, account),
             Act::Review(mark) => self.review(mark),
             Act::Dismiss(mark) => self.dismiss(mark),
             Act::ProviderSettings => self.provider_settings(),
+            Act::CheckSettings => self.check_settings(),
+            Act::Fix(i) => self.fix(i),
+            Act::Theme(key) => self.use_theme(key),
             Act::Export(plugin, format) => self.plugin_export(plugin, format, self.action_drive()),
+            Act::Import(plugin, format) => self.plugin_import(plugin, format, self.action_drive()),
+            Act::Source(plugin, source) => self.plugin_source(plugin, source, self.action_drive()),
             Act::Fetch(kind) => {
                 let target = (self.view == View::Library).then(|| self.target()).flatten();
                 self.fetch_form(kind, self.action_drive(), target.as_ref());

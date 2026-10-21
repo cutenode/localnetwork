@@ -33,7 +33,7 @@ pub fn cue_label(c: &Cue, bpm: f64) -> String {
 }
 
 /// Marker for a cue in a single cell: the hot cue's letter on its colour, or a triangle.
-pub(crate) fn put_cue(p: &Palette, buf: &mut Buffer, x: u16, y: u16, c: &Cue, dim: bool) {
+pub(crate) fn put_cue(p: &Palette<'_>, buf: &mut Buffer, x: u16, y: u16, c: &Cue, dim: bool) {
     let (color, paint) = (p.cue_color(c), p.paint);
     let color = if dim { scale(color, 0.55) } else { color };
     match cue_letter(c) {
@@ -44,7 +44,7 @@ pub(crate) fn put_cue(p: &Palette, buf: &mut Buffer, x: u16, y: u16, c: &Cue, di
 
 /// Write cue names along row `y`, each starting at its marker and cut short before the next one.
 /// `marks` are (column, label, colour), in any order.
-pub(crate) fn put_labels(p: &Palette, buf: &mut Buffer, area: Rect, y: u16, mut marks: Vec<(u16, String, Rgb)>) {
+pub(crate) fn put_labels(p: &Palette<'_>, buf: &mut Buffer, area: Rect, y: u16, mut marks: Vec<(u16, String, Rgb)>) {
     marks.retain(|(_, l, _)| !l.is_empty());
     marks.sort_by_key(|(x, _, _)| *x);
     let mut free = 0u16;
@@ -72,7 +72,7 @@ pub struct CueLane<'a> {
     pub visible_secs: f64,
     /// For a loop's length in beats, when rekordbox didn't store it.
     pub bpm: f64,
-    pub palette: Palette,
+    pub palette: Palette<'a>,
 }
 
 impl Widget for CueLane<'_> {

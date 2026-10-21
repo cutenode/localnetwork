@@ -171,6 +171,20 @@ impl Output {
         }
     }
 
+    /// [`Output::decide`] about `planned`, refused without asking when a plugin's guard the user
+    /// made blocking found something about it (it can't be applied).
+    pub fn decide_on<P, R>(
+        &self,
+        planned: &Planned<P, R>,
+        dry_run: bool,
+        question: &str,
+    ) -> locallibrary::Result<Option<Outcome>> {
+        if !dry_run {
+            planned.unblocked()?;
+        }
+        Ok(self.decide(dry_run, question))
+    }
+
     /// A plan that wasn't applied: in `--json` mode, the envelope with `"report": null` and
     /// `"applied": false` (see [`envelope`]).
     pub fn not_applied<T: Serialize>(&self, plan: &T, outcome: Outcome) -> ExitCode {
@@ -430,6 +444,15 @@ pub fn summary(lines: &[String], warnings: &[String]) {
         say!("{} {l}", style("•").cyan());
     }
     for w in warnings {
+        warn(w);
+    }
+}
+
+/// For a plan shown its own way: the warnings it has besides `shown` (its own, said with it) and
+/// those about its clones (see [`clones`]), such as what a plugin's guard says.
+pub fn more_warnings<P, R>(plan: &Planned<P, R>, shown: &[String]) {
+    let about_clones = |w: &String| plan.clones.iter().any(|c| c.left_alone.as_ref() == Some(w));
+    for w in plan.warnings.iter().filter(|w| !shown.contains(w) && !about_clones(w)) {
         warn(w);
     }
 }

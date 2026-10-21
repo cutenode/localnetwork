@@ -603,8 +603,9 @@ impl Term {
                     text.iter().any(|w| has_words(&s, w))
                 };
                 match ctx.fields.and_then(|f| f.get(t.id, name)) {
-                    // Worked out, with nothing to show: it matches no comparison.
-                    None | Some(FieldValue::Null) => false,
+                    // Worked out, with nothing to show: it matches no comparison. Nor does a
+                    // beat grid, phrases or a waveform, which are no columns.
+                    None | Some(FieldValue::Null | FieldValue::Structured(_)) => false,
                     Some(FieldValue::Integer(v)) => num.is_some_and(|n| n.test(*v as f64)),
                     Some(FieldValue::Number(v)) => num.is_some_and(|n| n.test(*v)),
                     Some(FieldValue::Boolean(b)) => {

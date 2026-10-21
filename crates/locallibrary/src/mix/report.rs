@@ -113,18 +113,33 @@ pub fn project_audio(project: &Path) -> Option<PathBuf> {
 }
 
 /// The drive a mix was matched against, for what it adds to each play: cover art, the overview
-/// waveform, hot cues and phrases.
+/// waveform, hot cues and phrases, and the fields of a track analyzers worked out that a page
+/// shows.
 #[derive(Clone, Copy)]
 pub struct Drive<'a> {
     pub device: &'a Device,
     pub library: &'a Library,
     /// Each play's analysis files, in play order, when they've been read already.
     pub analyses: Option<&'a [TrackAnalysis]>,
+    pub fields: Option<ShownFields<'a>>,
+}
+
+/// A track's fields on a drive that analyzers worked out and say how they're shown (the app
+/// knows its plugins; the library doesn't), as a page shows them.
+pub type ShownFields<'a> = &'a dyn Fn(&Device, &Track) -> Vec<ShownField>;
+
+/// An analyzer's field, as a page shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ShownField {
+    /// `<plugin>.<field>` (`sound.lufs`).
+    pub label: String,
+    /// As its analyzer says it's shown (`-8.2 LUFS`).
+    pub value: String,
 }
 
 impl<'a> Drive<'a> {
     pub fn new(device: &'a Device, library: &'a Library) -> Drive<'a> {
-        Drive { device, library, analyses: None }
+        Drive { device, library, analyses: None, fields: None }
     }
 
     /// The drive's track `play` is of, by its file: a kept report's track ids may name other
@@ -158,6 +173,9 @@ pub struct PlayExtras {
     pub phrases: Vec<PhraseSpan>,
     /// Its hot cues, in seconds into the track.
     pub cues: Vec<CueMark>,
+    /// What analyzers worked out for it that a page shows (the HTML report's), in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<ShownField>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -178,9 +196,10 @@ pub struct CueMark {
     pub color: Option<String>,
 }
 
-/// What `drive` says about play `i`: its track's overview waveform, hot cues and phrases. For
-/// the HTML report (`page`), also its cover, and its cues without their names (the page doesn't
-/// show them). Nothing when the drive no longer has the track's file.
+/// What `drive` says about play `i`: its track's overview waveform, hot cues and phrases, and
+/// the fields `drive` shows. For the HTML report (`page`), also its cover, and its cues without
+/// their names (the page doesn't show them). Nothing when the drive no longer has the track's
+/// file.
 pub fn extras(drive: Drive<'_>, play: &Play, i: usize, page: bool) -> PlayExtras {
     let Some(track) = drive.track(play) else { return PlayExtras::default() };
     let art = page
@@ -230,7 +249,8 @@ pub fn extras(drive: Drive<'_>, play: &Play, i: usize, page: bool) -> PlayExtras
             })
         })
         .collect();
-    PlayExtras { art, wave, phrases, cues }
+    let fields = drive.fields.map(|shown| shown(drive.device, track)).unwrap_or_default();
+    PlayExtras { art, wave, phrases, cues, fields }
 }
 
 fn data_url(mime: &str, bytes: &[u8]) -> String {

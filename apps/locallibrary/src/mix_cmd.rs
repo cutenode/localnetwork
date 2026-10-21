@@ -1,5 +1,6 @@
 //! `locallibrary mix`: find a drive's tracks in recorded mixes, print the tracklist, and write
-//! the interactive HTML report.
+//! the interactive HTML report, the report as data, or a mix's tracklist in a format a plugin
+//! adds.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -12,6 +13,7 @@ use locallibrary::mix::{Identifier, MixReport, Options, Play, export};
 use locallibrary::profile::ProfilePrefs;
 use locallibrary::progress::Ctx;
 use locallibrary::{Store, api, fsutil};
+use loclib_plugin::ExportSource;
 
 use crate::output::{self, Output, clock, dim};
 
@@ -33,9 +35,18 @@ pub struct MixArgs {
     #[arg(long)]
     open: bool,
     /// Write the report as data for other software (Local Network renders it on a DJ profile):
-    /// a .json file, or a folder when there are several mixes
+    /// a .json file, or a folder when there are several mixes; or, with --format, in a plugin's
+    /// format
     #[arg(long, value_name = "PATH")]
     export: Option<PathBuf>,
+    /// What --export writes of a single mix: a format a plugin adds for mixes (the report is
+    /// kept in the store for it) [default: the report as data]
+    #[arg(long, value_parser = formats(), requires = "export")]
+    format: Option<String>,
+    /// A plugin's format: an option for it, like key=value (repeatable; `locallibrary plugin
+    /// info` shows them)
+    #[arg(long = "option", value_name = "KEY=VALUE", requires = "format")]
+    options: Vec<String>,
     /// Replace files --html and --export would write that are there already
     #[arg(long)]
     replace: bool,
@@ -45,6 +56,11 @@ pub struct MixArgs {
     /// Playback speeds to search, in percent either way
     #[arg(long, value_name = "PERCENT", default_value_t = 16.0)]
     tempo_range: f64,
+}
+
+/// `--format`'s values: the formats plugins add for mixes.
+fn formats() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(crate::export_cmd::plugin_formats(loclib_plugin::ExportFrom::Mix))
 }
 
 pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -> Result<ExitCode> {
@@ -61,6 +77,9 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     }
     if args.audio.is_some() && args.mixes.len() != 1 {
         bail!("--audio goes with a single mix");
+    }
+    if args.format.is_some() && args.mixes.len() != 1 {
+        bail!("--format goes with a single mix");
     }
     let device = api::mix_drive(args.drive.as_deref())?;
     // Fingerprints are cached in the store, made here if there's none yet.
@@ -81,16 +100,18 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
         true => reports.iter().map(|r| report_path(args.html.as_deref(), reports.len(), r, &store)).collect(),
         false => Vec::new(),
     };
-    let data: Vec<PathBuf> = match &args.export {
-        Some(target) => reports.iter().map(|r| export_path(target, reports.len(), r)).collect(),
-        None => Vec::new(),
+    // A plugin's format is written once the rest is (see below).
+    let data: Vec<PathBuf> = match (&args.export, &args.format) {
+        (Some(target), None) => reports.iter().map(|r| export_path(target, reports.len(), r)).collect(),
+        _ => Vec::new(),
     };
     // Every file named with --html or --export is checked before any is written. The store's own
     // copy of a page (--open alone) is the recording's, replaced each time it's identified.
     let named: Vec<&Path> = pages.iter().filter(|_| args.html.is_some()).chain(&data).map(PathBuf::as_path).collect();
     fsutil::refuse_to_replace(&named, args.replace)?;
     let prefs = ProfilePrefs::load(&store)?;
-    let drive = Some(Drive::new(&device, &id.library));
+    let shown = crate::plugins::shown_fields(Some(store.clone()));
+    let drive = Some(Drive { fields: Some(&shown), ..Drive::new(&device, &id.library) });
     // A page written with --html is made to be shared: it names the recording by its file alone.
     let shared = args.html.is_some();
     for (r, path) in reports.iter().zip(&pages) {
@@ -102,27 +123,43 @@ pub fn run(args: MixArgs, store: &Option<PathBuf>, out: Output, ctx: &Ctx<'_>) -
     }
     let written: Vec<&PathBuf> = pages.iter().chain(&data).collect();
 
-    out.emit(&reports, |reports| {
-        for (i, r) in reports.iter().enumerate() {
-            if i > 0 {
-                say!();
+    // With a plugin's format, what it writes is what's answered as JSON.
+    if !(args.format.is_some() && out.json) {
+        out.emit(&reports, |reports| {
+            for (i, r) in reports.iter().enumerate() {
+                if i > 0 {
+                    say!();
+                }
+                tracklist(r);
             }
-            tracklist(r);
-        }
-        if reports.first().is_some_and(|r| r.library.fingerprinted > 0) {
-            say!("{}", dim(format!("fingerprinted {} new track(s) on {}", reports[0].library.fingerprinted, id.drive)));
-        }
-        for p in &written {
-            let what = if p.extension().is_some_and(|e| e == "json") { "data" } else { "report" };
-            output::ok(format!("{what}: {}", p.display()));
-        }
-    });
+            if reports.first().is_some_and(|r| r.library.fingerprinted > 0) {
+                let fingerprinted = reports[0].library.fingerprinted;
+                say!("{}", dim(format!("fingerprinted {fingerprinted} new track(s) on {}", id.drive)));
+            }
+            for p in &written {
+                let what = if p.extension().is_some_and(|e| e == "json") { "data" } else { "report" };
+                output::ok(format!("{what}: {}", p.display()));
+            }
+        });
+    }
     if args.open {
         for p in written.iter().filter(|p| p.extension().is_some_and(|e| e == "html")) {
             if let Err(e) = locallibrary::opener::open_file(p) {
                 output::warn(format!("couldn't open {}: {e}", p.display()));
             }
         }
+    }
+    if let (Some(format), Some(target)) = (&args.format, &args.export) {
+        let mix = report::save(&store, &reports[0])?;
+        let source =
+            ExportSource { drive: device.root().display().to_string(), mix: Some(mix), ..ExportSource::default() };
+        let written = crate::export_cmd::Written {
+            output: target,
+            options: &args.options,
+            dry_run: false,
+            replace: args.replace,
+        };
+        return crate::export_cmd::plugin_export(format, source, written, Some(&store), out, ctx);
     }
     Ok(ExitCode::SUCCESS)
 }

@@ -1,7 +1,7 @@
 //! Plugins' commands (`command/run`): headless ones answer any JSON, view ones a [`View`] each
-//! host draws its own way, its rows (or items) shown as they come when the plugin sends them in
-//! parts, or first a question for the user ([`View::Choose`], the `choose` feature), after which
-//! the host runs the command again with what was chosen.
+//! host draws its own way (read as panels' are, see `panels`), its rows (or items) shown as they
+//! come when the plugin sends them in parts, or first a question for the user ([`View::Choose`],
+//! the `choose` feature), after which the host runs the command again with what was chosen.
 
 use loclib_plugin::{Context, Mode, Partial, RunCommand, View, method};
 use schemars::JsonSchema;
@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::Plugins;
+use super::blobs::Scratch;
 use super::process::Live;
 use crate::Result;
 use crate::progress::Ctx;
@@ -51,12 +52,11 @@ impl Plugins {
                 shown(partial);
             }
         };
-        let read = |answer: Value, _: &_, live: &Live| {
+        let read = |answer: Value, scratch: &Scratch, live: &Live| {
             if declared.mode == Mode::Headless {
                 return Ok(CommandOutput::Headless(answer));
             }
-            let view: View = serde_json::from_value(answer)
-                .map_err(|e| slot.misbehaved(format!("its view of {command} isn't one: {e}")))?;
+            let view = slot.view(command, answer, scratch, live)?;
             if let View::Choose(choice) = &view {
                 slot.askable(choice, declared.params.as_ref(), &run.params, live)?;
             }
