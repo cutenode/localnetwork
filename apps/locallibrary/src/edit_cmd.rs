@@ -574,18 +574,10 @@ pub(crate) fn confirm_and_apply(
     if !out.json {
         render_plan(&planned);
         output::clones(&planned);
-        // What the plan says besides the edit's own and its clones' (a set's tracks not on the
-        // drive, say).
-        let about_clones = |w: &String| planned.clones.iter().any(|c| c.left_alone.as_ref() == Some(w));
-        for w in planned.warnings.iter().filter(|w| !planned.plan.warnings.contains(w) && !about_clones(w)) {
-            warn(w);
-        }
+        // What the plan says besides the edit's own (a set's tracks not on the drive, say).
+        output::more_warnings(&planned, &planned.plan.warnings);
     }
-    // A guard made blocking found something: not asked, as it can't be applied.
-    if !dry_run {
-        planned.plan.unblocked()?;
-    }
-    if let Some(o) = out.decide(dry_run, "Make these changes?") {
+    if let Some(o) = out.decide_on(&planned, dry_run, "Make these changes?")? {
         return Ok(out.not_applied(&planned, o));
     }
     let report = planned.apply(None, ctx)?;

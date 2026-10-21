@@ -62,7 +62,8 @@ A plugin's check looks for something on a drive, and what it finds is in `locall
 is a problem (`check` exits 4), a warning a warning; when a fix goes with it, the command line
 that runs it follows (the plugin's operation, planned and asked about as any is). A check that
 fails or takes longer than 10 seconds is a warning saying so, never a failure. A guard is a check
-run before changes are made: what it says is among the plan's warnings, and once you make it
+run before changes to a library are made (edits, cues, a playlist restored, a contact's
+playlist): what it says is among the plan's warnings, and once you make it
 blocking (`locallibrary plugin checks PLUGIN.CHECK --blocking`), a warning or a problem it finds
 stops the changes. `locallibrary plugin checks` lists them, whether each runs and blocks, and how
 long one has; `--on`, `--off`, `--no-blocking`, `--reset` and `--timeout SECS` (an hour at

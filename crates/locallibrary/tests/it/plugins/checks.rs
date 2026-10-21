@@ -62,7 +62,7 @@ impl Fixture {
         let edits = vec![Edit::CreatePlaylist { path: name.into(), folder: false }];
         let req = EditRequest { drive: "USB".into(), edits, options };
         let mut planned = api::edit_plan(&req, &Ctx::silent()).unwrap();
-        self.plugins.guard(&mut planned, Some(&self.store), &Ctx::silent()).unwrap();
+        self.plugins.guard(&mut planned, |p| p.recorded.clone(), Some(&self.store), &Ctx::silent()).unwrap();
         planned
     }
 }
@@ -240,23 +240,23 @@ fn guards_warn_about_a_plan_and_block_it_once_told_to() {
         p.warnings.iter().filter(|w| w.starts_with("Count") || w.starts_with("Guard")).cloned().collect()
     };
     assert_eq!(guarded(&planned), ["Count a plan's edits: edit makes 1 edit(s)", "Guard: on a Friday"]);
-    assert_eq!(planned.plan.blocked, None);
+    assert_eq!(planned.blocked, None);
     f.plugins
         .set_check(&f.store, "echo", "guard", CheckChange { blocking: Some(true), ..CheckChange::default() })
         .unwrap();
     let planned = f.guarded("Warmup");
-    assert_eq!(planned.plan.blocked.as_deref(), Some("echo.guard"));
+    assert_eq!(planned.blocked.as_deref(), Some("echo.guard"));
     let e = planned.apply(None, &Ctx::silent()).unwrap_err();
     assert_eq!((e.code(), e.detail().fields["check"].as_str()), ("conflict", Some("echo.guard")));
     assert!(common::library(&f.drive).find_playlist("Warmup").is_none(), "not applied");
     f.find("echo", json!({ "findings": [{ "level": "info", "message": "fine" }] }));
     let planned = f.guarded("Warmup");
-    assert_eq!(planned.plan.blocked, None, "an info doesn't block");
+    assert_eq!(planned.blocked, None, "an info doesn't block");
     planned.apply(None, &Ctx::silent()).unwrap();
     // A guard that fails is a warning, and never blocks.
     f.find("echo", json!({ "fail": "conflict" }));
     let planned = f.guarded("Cooldown");
-    assert_eq!(planned.plan.blocked, None);
+    assert_eq!(planned.blocked, None);
     assert!(planned.warnings.contains(&"Guard: it failed (the Echo plugin)".to_string()));
     // A plan that changes nothing isn't guarded.
     let planned = f.guarded("Warmup");
@@ -279,7 +279,7 @@ fn a_guard_sees_the_edits_of_a_plan_kept_out_of_the_journal() {
     let planned = f.guarded_as("Warmup", unjournaled.clone());
     let counted = "Count a plan's edits: edit makes 1 edit(s)".to_string();
     assert!(planned.warnings.contains(&counted), "{:?}", planned.warnings);
-    assert_eq!(planned.plan.blocked.as_deref(), Some("echo.guard"));
+    assert_eq!(planned.blocked.as_deref(), Some("echo.guard"));
     assert!(planned.apply(None, &Ctx::silent()).is_err());
     assert!(common::library(&f.drive).find_playlist("Warmup").is_none(), "not applied");
     change("guard", CheckChange { blocking: Some(false), ..CheckChange::default() });
@@ -418,7 +418,7 @@ fn a_plan_is_blocked_exactly_when_a_blocking_guard_finds_something(tc: TestCase)
         once
     });
     assert_eq!(guarded, said);
-    assert_eq!(planned.plan.blocked, blocks);
+    assert_eq!(planned.blocked, blocks);
     let applied = planned.apply(None, &Ctx::silent());
     assert_eq!(applied.is_ok(), blocks.is_none(), "{applied:?}");
 }

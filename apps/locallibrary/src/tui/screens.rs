@@ -539,10 +539,10 @@ fn edit_menu_and_confirmation() {
     // A guard said something about it, and stops it.
     let mut plan = Box::new(api::edit_plan(&req, &Ctx::silent()).unwrap());
     plan.warnings.push("On a Friday: it's a Friday".into());
-    plan.plan.blocked = Some("echo.friday".into());
+    plan.blocked = Some("echo.friday".into());
     app.modal = Some(Modal::Confirm(Confirm {
         root: root.clone(),
-        drive,
+        drive: drive.clone(),
         plan,
         scroll: 0,
         shown: Instant::now() - Duration::from_secs(1),
@@ -554,4 +554,18 @@ fn edit_menu_and_confirmation() {
         &["⚠ On a Friday: it's a Friday", "✗ echo.friday stops these changes"],
         &[],
     );
+    // A plan of another kind that edits the library (a contact's playlist): stopped all the same.
+    let contact =
+        api::SetContact { drive: root.display().to_string(), contact: "dj@example.com".into(), playlist: true };
+    let mut plan = Box::new(api::drive_contact_plan(&contact, &Ctx::silent()).unwrap());
+    plan.blocked = Some("echo.friday".into());
+    app.modal = Some(Modal::Confirm(Confirm {
+        root: root.clone(),
+        drive,
+        plan,
+        scroll: 0,
+        shown: Instant::now() - Duration::from_secs(1),
+        after: None,
+    }));
+    check(&mut app, "a guarded contact", &["IF FOUND", "✗ echo.friday stops these changes"], &[]);
 }

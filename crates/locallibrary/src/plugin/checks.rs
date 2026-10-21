@@ -1,11 +1,12 @@
 //! Plugins' checks (`check/run`, `plan/check`, the `checks` feature). What a check finds on a
 //! drive joins the check before a set and doctor, each finding named `<plugin>.<check>` and with
 //! the plugin's operation that fixes it, when it says. What a guard (a check run `when = "apply"`)
-//! says about an edit plan is among the plan's warnings, and once the user makes the guard
-//! blocking, a warning or a problem it finds keeps the plan from being applied. A check that fails,
-//! answers what it may not, or takes longer than the `checks.timeout` setting is a warning, never
-//! a failure. Each runs unless the user turns it off, or (`default_on = false`) once they turn it
-//! on. The app hands the check before a set, doctor and edit plans its host ([`set_hosted`]).
+//! says about a plan that edits a library (edits, cues, a playlist restored, a contact's
+//! playlist) is among the plan's warnings, and once the user makes the guard blocking, a warning
+//! or a problem it finds keeps the plan from being applied. A check that fails, answers what it
+//! may not, or takes longer than the `checks.timeout` setting is a warning, never a failure. Each
+//! runs unless the user turns it off, or (`default_on = false`) once they turn it on. The app
+//! hands the check before a set, doctor and those plans its host ([`set_hosted`]).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -22,7 +23,7 @@ use super::process::{Slot, printable};
 use super::{Plugins, host_settings, set_host_setting};
 use crate::check::CheckItem;
 use crate::device::Device;
-use crate::edit::EditPlan;
+use crate::edit::Edit;
 use crate::op::Planned;
 use crate::paths;
 use crate::progress::{CancelToken, Ctx};
@@ -91,8 +92,8 @@ pub struct CheckChange {
 /// What the check before a set, doctor and edit plans find plugins in: the app's host.
 static HOSTED: OnceLock<fn() -> Option<&'static Plugins>> = OnceLock::new();
 
-/// Has the check before a set and doctor run the checks of the plugins `host` answers, and edit
-/// plans their guards (see [`Plugins::run_checks`], [`Plugins::guard`]): set once, by the app.
+/// Has the check before a set and doctor run the checks of the plugins `host` answers, and plans
+/// that edit a library their guards (see [`Plugins::run_checks`], [`Plugins::guard`]): set once, by the app.
 /// Until it is, they run none.
 pub fn set_hosted(host: fn() -> Option<&'static Plugins>) {
     let _ = HOSTED.set(host);
@@ -251,16 +252,27 @@ impl Plugins {
     }
 
     /// Runs the guards that are on (the plugins' checks run before a plan is applied) on
-    /// `planned`, unless it changes nothing: each finding among its warnings, as `<check's title>:
+    /// `planned`, given its edits as `edits` has them (as the journal records them), unless it
+    /// changes nothing or makes no edit: each finding among its warnings, as `<check's title>:
     /// <message>`, and a guard that failed or took too long one saying so. When a blocking guard
     /// found a warning or a problem, it's what keeps the plan from being applied
-    /// ([`EditPlan::blocked`]); one that failed never does. Fails only when cancelled.
-    pub fn guard(&self, planned: &mut Planned<EditPlan>, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<()> {
+    /// ([`Planned::blocked`]); one that failed never does. Fails only when cancelled.
+    pub fn guard<P, R>(
+        &self,
+        planned: &mut Planned<P, R>,
+        edits: impl FnOnce(&P) -> Vec<Edit>,
+        store: Option<&Store>,
+        ctx: &Ctx<'_>,
+    ) -> Result<()> {
         let guards = self.running(When::Apply, store);
         if planned.noop || guards.is_empty() {
             return Ok(());
         }
-        let edits = planned.plan.recorded.iter().map(serde_json::to_value).collect::<serde_json::Result<Vec<_>>>();
+        let edits = edits(&planned.plan);
+        if edits.is_empty() {
+            return Ok(());
+        }
+        let edits = edits.iter().map(serde_json::to_value).collect::<serde_json::Result<Vec<_>>>();
         let edits = edits.map_err(|e| Error::invalid(e.to_string()))?;
         let drive = planned.drives.iter().find(|t| t.writes && t.drive).map(|t| t.root.display().to_string());
         let timeout = check_timeout(store);
@@ -281,11 +293,22 @@ impl Plugins {
                     planned.warnings.push(said);
                 }
                 if settings.blocking && finding.level >= Level::Warning {
-                    planned.plan.blocked.get_or_insert(finding.check);
+                    planned.blocked.get_or_insert(finding.check);
                 }
             }
         }
         Ok(())
+    }
+}
+
+impl<P, R> Planned<P, R> {
+    /// With what the guards of the plugins [`set_hosted`] gave make of it, its edits as `edits`
+    /// has them (see [`Plugins::guard`]), before it's confirmed.
+    pub(crate) fn guarded(mut self, edits: impl FnOnce(&P) -> Vec<Edit>, ctx: &Ctx<'_>) -> Result<Self> {
+        if let Some(plugins) = hosted() {
+            plugins.guard(&mut self, edits, crate::api::registry().as_ref(), ctx)?;
+        }
+        Ok(self)
     }
 }
 

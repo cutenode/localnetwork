@@ -253,7 +253,7 @@ pub struct CuePlan {
     pub warnings: Vec<String>,
     /// The edit as the journal records it.
     #[serde(skip)]
-    recorded: Option<crate::edit::Edit>,
+    pub(crate) recorded: Option<crate::edit::Edit>,
 }
 
 impl CuePlan {

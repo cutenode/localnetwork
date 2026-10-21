@@ -2714,6 +2714,11 @@ export type PlanFields = {
   /** Every warning, the plan's own included. */
   warnings: string[];
   /**
+   * The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
+   * it: applying it is refused (`blocked`).
+   */
+  blocked?: string | null;
+  /**
    * It deletes or overwrites something (files, tracks, a library, a disk): a dialog should
    * say so.
    */
@@ -3876,11 +3881,6 @@ export type EditPlan = {
    * leave out edits only OneLibrary lacks, as after rekordbox exported over it alone.
    */
   onelibrary_changes: boolean;
-  /**
-   * The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
-   * it, among its warnings: it isn't applied (see [`EditPlan::unblocked`]).
-   */
-  blocked?: string | null;
 };
 
 /** A playlist whose contents change. */

@@ -725,11 +725,11 @@ pub fn drive(args: DriveArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
             return Ok(out.applied(&plan, &r, Outcome::Applied, || show(&r)));
         }
         DriveCommand::Contact { drive, contact, playlist, dry_run } => {
-            let plan = api::drive_contact_plan(&api::SetContact { drive, contact, playlist })?;
+            let plan = api::drive_contact_plan(&api::SetContact { drive, contact, playlist }, ctx)?;
             if !out.json {
                 output::summary(&plan.summary, &plan.warnings);
             }
-            if let Some(o) = out.decide(dry_run, "Write it?") {
+            if let Some(o) = out.decide_on(&plan, dry_run, "Write it?")? {
                 return Ok(out.not_applied(&plan, o));
             }
             let r = plan.apply(None, ctx)?;

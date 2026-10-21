@@ -12878,6 +12878,13 @@
           },
           "description": "Every warning, the plan's own included."
         },
+        "blocked": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about\nit: applying it is refused (`blocked`)."
+        },
         "destructive": {
           "type": "boolean",
           "description": "It deletes or overwrites something (files, tracks, a library, a disk): a dialog should\nsay so."
@@ -16915,13 +16922,6 @@
         "onelibrary_changes": {
           "type": "boolean",
           "description": "OneLibrary, beside `export.pdb`, changes. The counts above are `export.pdb`'s, so they\nleave out edits only OneLibrary lacks, as after rekordbox exported over it alone."
-        },
-        "blocked": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about\nit, among its warnings: it isn't applied (see [`EditPlan::unblocked`])."
         }
       },
       "required": [

@@ -2770,6 +2770,8 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(Modal::Confirm(c)) = &mut app.modal else { return };
     let wording = super::edits::wording(&*c.plan, &c.drive);
     let mut lines = Vec::new();
+    // A guard made blocking found something: applying it is refused.
+    let blocked = c.plan.blocked().map(|check| Line::styled(format!("✗ {check} stops these changes"), fg(theme::RED)));
     match c.edit() {
         Some(p) => {
             lines.push(Line::from(vec![
@@ -2790,10 +2792,7 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             for w in c.plan.warnings().iter().filter(|w| !p.warnings.contains(w)) {
                 lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
             }
-            // A guard made blocking found something: applying it is refused.
-            if let Some(check) = &p.blocked {
-                lines.push(Line::styled(format!("✗ {check} stops these changes"), fg(theme::RED)));
-            }
+            lines.extend(blocked);
             lines.push(Line::raw(""));
             lines.push(Line::styled("The drive is backed up first: u takes this back.", dim()));
             lines.push(Line::styled(
@@ -2820,6 +2819,7 @@ fn draw_confirm(f: &mut Frame, app: &mut App, area: Rect) {
             for w in plan.warnings() {
                 lines.push(Line::styled(format!("⚠ {w}"), fg(theme::AMBER)));
             }
+            lines.extend(blocked);
             if plan.destructive() {
                 lines.push(Line::raw(""));
                 lines.push(Line::styled("This deletes or replaces what's there now.", fg(theme::AMBER)));

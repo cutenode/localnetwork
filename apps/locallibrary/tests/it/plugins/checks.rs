@@ -247,3 +247,56 @@ fn prep_stops_on_a_plugins_problems_never_on_its_failing() {
     let (stopped, with, _) = prep(json!({ "findings": [{ "level": "problem", "message": "unplayable" }] }));
     assert_eq!((stopped, &with["problems"]), (4, &json!(true)), "{with}");
 }
+
+/// A guard is asked about every plan that edits a library, given its edits: cues, a playlist
+/// restored and a contact's playlist too. Made blocking, one that finds something stops each
+/// before it's asked about, and over RPC when it's applied.
+#[test]
+fn a_blocking_guard_stops_cues_a_restore_and_a_contacts_playlist() {
+    let env = env();
+    let usb = env.volumes.join("USB");
+    env.ok(&["--yes", "adopt", path(&usb), "--name", "USB"]);
+    env.ok(&["--yes", "playlist", "new", "USB", "Keep"]);
+    env.ok(&["pull", "USB"]);
+    env.ok(&["--yes", "playlist", "delete", "USB", "Keep"]);
+    let cues_before = env.ok(&["cues", "list", "USB", "--track", "1"]);
+    env.ok(&["--yes", "plugin", "checks", "echo.edits", "--on"]);
+    env.ok(&["--yes", "plugin", "checks", "echo.guard", "--blocking"]);
+    find(&env, json!({ "about_edits": true, "findings": [{ "level": "warning", "message": "not tonight" }] }));
+    let plans: [(&[&str], &str); 3] = [
+        (&["cues", "set", "USB", "--track", "1", "--hot", "A", "--at", "1"], "cues"),
+        (&["restore", "USB", "--playlist", "Keep"], "playlist.restore"),
+        (&["drive", "contact", "USB", "dj@example.com", "--playlist"], "drive.contact"),
+    ];
+    for (args, operation) in plans {
+        let r = env.run(&[&["--yes"], args].concat());
+        let said = format!("{}{}", r.out, r.err);
+        assert_eq!(r.code, 1, "{said}");
+        assert!(r.err.contains("echo.guard found something about these changes"), "{said}");
+        let counted = format!("Count a plan's edits: {operation} makes ");
+        assert!(said.contains("Guard: not tonight") && said.contains(&counted), "{said}");
+    }
+    assert_eq!(env.ok(&["cues", "list", "USB", "--track", "1"]), cues_before, "no cue set");
+    assert!(!env.ok(&["playlist", "list", "USB"]).contains("Keep"), "not restored");
+    assert!(!usb.join("IF FOUND.txt").exists(), "no contact written");
+
+    let mut s = Rpc::start(env.command());
+    let edit = json!({ "op": "set", "hot_cue": "A", "at": { "ms": 1000 } });
+    let plan = s.call(1, "cues.plan", json!({ "drive": path(&usb), "ids": [1], "edit": edit }));
+    let plan = plan.get("result").cloned().unwrap_or_else(|| panic!("{plan}"));
+    assert_eq!(plan["blocked"], "echo.guard", "{plan}");
+    let applied = s.call(2, "cues.apply", json!({ "plan_id": plan["plan_id"] }));
+    assert_eq!(applied["error"]["data"]["reason"], "blocked", "{applied}");
+}
+
+/// The command line a fix runs with escapes the C1 control characters (U+0080 to U+009F) JSON
+/// leaves as they are, which some terminals act on: the same JSON, shown safely.
+#[test]
+fn a_fixs_command_line_escapes_c1_control_characters() {
+    let env = env();
+    let fix = json!({ "operation": "playlist", "params": { "name": "a\u{85}b\u{9b}2J" } });
+    find(&env, json!({ "findings": [{ "level": "warning", "message": "odd", "fix": fix }] }));
+    let shown = env.run(&["check", "USB"]).out;
+    assert!(shown.contains(r#"--params '{"name":"a\u0085b\u009b2J"}'"#), "{shown:?}");
+    assert!(!shown.contains(['\u{85}', '\u{9b}']), "{shown:?}");
+}

@@ -384,8 +384,9 @@ What plugins' checks find is in `check`'s `items` and `doctor`'s `checks` (the `
 each named `<plugin>.<check>`, and a plugin's problem counts as one; a check that failed or took
 too long is a warning saying so. An item a plugin can fix has `fix: {plugin, operation, params}`:
 plan it with `plugins.op.plan {plugin, operation, params, context: {drive}}`, confirmed as any
-plan is. Guards (checks run before a plan is applied) add what they say to an edit plan's
-`warnings`; one the user made blocking that finds a warning or a problem sets the plan's `blocked`
+plan is. Guards (checks run before a plan is applied) add what they say to the `warnings` of a
+plan that edits a library (`edit`, a plugin's operation, `cues`, `playlist.restore`, a contact's
+playlist...); one the user made blocking that finds a warning or a problem sets the plan's `blocked`
 (`<plugin>.<check>`), and applying it fails with reason `blocked`. `plugins.checks` answers
 `{checks: [{plugin, name, title, when, on, blocking}], timeout}` (`when`: `check`, `apply`;
 `timeout` in seconds), `plugins.checks.set {plugin, check, on?, blocking?, reset?}` changes one

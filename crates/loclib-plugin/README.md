@@ -182,9 +182,14 @@ fix?}]}`: what a check finds on the drive `context.drive` (`Finding`: `level` `i
 well. A `fix` is one of the plugin's operations with its params (`{operation, params}`), which the
 user can run, planned and confirmed as any is. The host names each finding `<plugin>.<check>` and
 adds them to its check before a set and doctor; a problem counts as one of theirs. `plan/check
-{check, operation, edits, context}` -> the same: what a guard says about a plan before it's applied
-(its operation, and each edit as `edit.plan` takes them), shown with the plan's warnings. Once the
-user makes a guard blocking, a warning or a problem it finds keeps the plan from being applied. A
+{check, operation, edits, context}` -> the same: what a guard says about a plan that edits a
+library before it's applied (its operation, and each edit as `edit.plan` takes them, tracks named
+by file), shown with the plan's warnings. That's an edit plan's edits (`edit`, a plugin's
+operation, `edits.replay`...), a playlist restored (`playlist.restore`, its playlists made again),
+a contact's playlist (`drive.contact`, a `create_playlist`) and a cue edit (`cues`, one `{"op":
+"cues", "tracks": [file], "change": ...}` whose change is `{"set": {...}}`, `{"update": {...}}`
+with the fields `cues.plan` takes, `{"delete": cue}`, `{"copy": {"from": file}}` or `{"carry":
+{"from": file, "shift_ms": n}}`). A plan making no edit isn't asked about. Once the user makes a guard blocking, a warning or a problem it finds keeps the plan from being applied. A
 check that fails or takes longer than the host gives it (10 s unless the user says) is a warning,
 never a failure; of one's findings the host keeps 1,000, and of what one says (its message, its
 playlist) 500 characters, without control characters. A file one names must be on the drive.

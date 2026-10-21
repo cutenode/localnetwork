@@ -97,8 +97,16 @@ pub fn fix_line(plugins: &Plugins, fix: &Fix, drive: &str) -> String {
     let manifest = plugins.manifest(&fix.plugin).ok();
     let operation = manifest.and_then(|m| m.contributes.operations.iter().find(|o| o.name == fix.operation));
     let run = invocation(&fix.plugin, &fix.operation, operation.and_then(|o| o.cli.as_deref()));
+    // JSON escapes C0 control characters but writes C1 ones (U+0080 to U+009F), which some
+    // terminals act on, as they are: escaped too, it's the same JSON.
+    let json: String = (fix.params.to_string().chars())
+        .map(|c| match c {
+            '\u{80}'..='\u{9f}' => format!("\\u{:04x}", c as u32),
+            c => c.to_string(),
+        })
+        .collect();
     let params = match fix.params.as_object().is_some_and(|p| !p.is_empty()) {
-        true => format!(" --params '{}'", fix.params.to_string().replace('\'', r"'\''")),
+        true => format!(" --params '{}'", json.replace('\'', r"'\''")),
         false => String::new(),
     };
     format!("{run} {drive:?}{params}")

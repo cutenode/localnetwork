@@ -363,6 +363,9 @@ pub struct Planned<P, R = ()> {
     /// What will change, in a few lines, for a confirmation dialog.
     pub summary: Vec<String>,
     pub warnings: Vec<String>,
+    /// The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
+    /// its edits, among its warnings: it isn't applied (see [`Planned::unblocked`]).
+    pub blocked: Option<String>,
     /// It deletes or overwrites something (files, tracks, a library, a disk); a dialog should
     /// say so.
     pub destructive: bool,
@@ -390,6 +393,7 @@ impl<P, R> Planned<P, R> {
             plan,
             summary: Vec::new(),
             warnings: Vec::new(),
+            blocked: None,
             destructive: false,
             noop: false,
             drives: Vec::new(),
@@ -547,6 +551,17 @@ impl<P, R> Planned<P, R> {
         self.guard_targets(store)
     }
 
+    /// Refused when a plugin's guard the user made blocking found something about it
+    /// ([`Planned::blocked`]).
+    pub fn unblocked(&self) -> Result<()> {
+        let Some(check) = &self.blocked else { return Ok(()) };
+        let message = format!(
+            "{check} found something about these changes (see the warnings), so they weren't made; \
+             `locallibrary plugin checks {check} --no-blocking` lets it warn without stopping them"
+        );
+        Err(Error::conflict(crate::error::Reason::Blocked, message).with("check", check))
+    }
+
     /// The touched drive at `index`, opened again.
     pub(crate) fn drive(&self, index: usize) -> Result<Device> {
         self.drives.get(index).ok_or_else(|| Error::invalid("the plan names no such drive"))?.open()
@@ -578,6 +593,7 @@ impl<P: Operation> Planned<P, P::Request> {
     /// since it was made (see [`Self::check`]). Then copy the drive it wrote onto its clones (see
     /// `Self::reaching_clones`): the write is done, so a clone that isn't copied onto is a warning.
     pub fn apply(&self, store: Option<&Store>, ctx: &Ctx<'_>) -> Result<P::Report> {
+        self.unblocked()?;
         self.check(store)?;
         let _applying = Applying::start(&self.drives, self.archive_allowed());
         let report = P::apply(self, store, ctx)?;
@@ -601,6 +617,10 @@ pub struct PlanFields<'a> {
     pub summary: &'a [String],
     /// Every warning, the plan's own included.
     pub warnings: &'a [String],
+    /// The plugin's guard (`<plugin>.<check>`) the user made blocking that found something about
+    /// it: applying it is refused (`blocked`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<&'a str>,
     /// It deletes or overwrites something (files, tracks, a library, a disk): a dialog should
     /// say so.
     pub destructive: bool,
@@ -631,6 +651,7 @@ impl<P: Serialize, R> Serialize for Planned<P, R> {
             operation: &self.operation,
             summary: &self.summary,
             warnings: &self.warnings,
+            blocked: self.blocked.as_deref(),
             destructive: self.destructive,
             noop: self.noop,
             drives: &self.drives,
@@ -687,6 +708,14 @@ pub trait AnyPlanned: Send + Sync {
     fn operation(&self) -> &str;
     fn summary(&self) -> &[String];
     fn warnings(&self) -> &[String];
+    /// [`Planned::blocked`] (none for a plan no guard is asked about).
+    fn blocked(&self) -> Option<&str> {
+        None
+    }
+    /// [`Planned::unblocked`].
+    fn unblocked(&self) -> Result<()> {
+        Ok(())
+    }
     fn destructive(&self) -> bool;
     fn is_noop(&self) -> bool;
     fn drives(&self) -> &[Touched];
@@ -720,6 +749,14 @@ where
 
     fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    fn blocked(&self) -> Option<&str> {
+        self.blocked.as_deref()
+    }
+
+    fn unblocked(&self) -> Result<()> {
+        Planned::unblocked(self)
     }
 
     fn destructive(&self) -> bool {
