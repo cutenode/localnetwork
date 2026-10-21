@@ -233,14 +233,18 @@ impl Plugin {
 
     /// The account's tokens, if it's signed in, each told to [`super::net::State::scrub`].
     fn tokens(&self, store: &Store, id: &str) -> Result<Option<Tokens>> {
-        let Some(kept) = self.secret(store, &key(id))? else { return Ok(None) };
-        let tokens: Tokens = serde_json::from_str(&kept)
+        self.secret(store, &key(id))?.map(|kept| self.read_tokens(id, &kept)).transpose()
+    }
+
+    /// The tokens `kept` for the account `id`, told to [`super::net::State::scrub`].
+    fn read_tokens(&self, id: &str, kept: &str) -> Result<Tokens> {
+        let tokens: Tokens = serde_json::from_str(kept)
             .map_err(|_| Error::Account(format!("the {id} account's sign-in can't be read: sign in again")))?;
         self.net.saw(&tokens.access_token);
         if let Some(refresh) = &tokens.refresh_token {
             self.net.saw(refresh);
         }
-        Ok(Some(tokens))
+        Ok(tokens)
     }
 
     fn keep(&self, store: &Store, id: &str, tokens: &Tokens) -> Result<()> {
@@ -330,9 +334,10 @@ impl Plugins {
     pub fn begin_sign_in(&self, plugin: &str, account: &str, store: &Store) -> Result<SignIn> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared_sign_in(account)?;
-        // The keychain can be used, before the browser is sent anywhere. Only whether it can, the
-        // tokens dropped first: CodeQL follows a `?` on them into the sign-in link.
-        slot.tokens(store, account).map(drop)?;
+        // The keychain can be used, before the browser is sent anywhere. Only whether it can, what
+        // it keeps dropped first: CodeQL follows a `?` on it into the sign-in link. A kept sign-in
+        // that can't be read is replaced.
+        slot.secret(store, &key(account)).map(drop)?;
         let (listener, redirect_uri) = callback::bind()?;
         let redirect = RedirectUrl::new(redirect_uri.clone()).map_err(|e| Error::Account(e.to_string()))?;
         let client = slot.sign_in_client(declared, Some(redirect))?;
@@ -430,10 +435,12 @@ impl Plugins {
     pub fn sign_out(&self, plugin: &str, account: &str, store: &Store) -> Result<SignedOut> {
         let slot = self.slot(plugin)?;
         let declared = slot.declared_sign_in(account)?;
-        let tokens = slot.tokens(store, account)?;
+        let kept = slot.secret(store, &key(account))?;
+        // One that can't be read is forgotten all the same, with nothing to revoke it with.
+        let tokens = kept.as_deref().and_then(|kept| slot.read_tokens(account, kept).ok());
         let revoked = tokens.as_ref().is_some_and(|t| slot.revoke(declared, t));
         slot.set_secret(store, &key(account), None)?;
-        Ok(SignedOut { status: slot.status(declared, None), was_signed_in: tokens.is_some(), revoked })
+        Ok(SignedOut { status: slot.status(declared, None), was_signed_in: kept.is_some(), revoked })
     }
 }
 

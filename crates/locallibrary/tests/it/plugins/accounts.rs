@@ -301,6 +301,28 @@ fn signing_out_revokes_the_tokens_and_forgets_them() {
     assert!(!secrets.contains("at-1"), "forgotten here too");
 }
 
+/// A kept sign-in that can't be read says to sign in again, and both signing in again and signing
+/// out (with nothing to revoke) put it right.
+#[test]
+fn a_sign_in_that_cant_be_read_is_signed_in_again_or_out() {
+    let state = Arc::new(Mutex::new(Service { expires_in: Some(3600), ..Service::default() }));
+    let server = service(state.clone());
+    let f = fixture(&with_account(&server.url), &[], Options::default());
+    let garble = || {
+        let file = f.store.root().join("secrets/plugins/echo.json");
+        std::fs::write(&file, json!({ "account:main": "not json" }).to_string()).unwrap();
+    };
+    f.sign_in(&state).unwrap();
+    garble();
+    let e = f.plugins.account("echo", "main", Some(&f.store)).unwrap_err();
+    assert_eq!(e.to_string(), "the main account's sign-in can't be read: sign in again");
+    assert!(f.sign_in(&state).unwrap().signed_in);
+    garble();
+    let out = f.plugins.sign_out("echo", "main", &f.store).unwrap();
+    assert_eq!((out.was_signed_in, out.revoked, out.status.signed_in), (true, false, false));
+    assert!(!f.plugins.account("echo", "main", Some(&f.store)).unwrap().signed_in);
+}
+
 #[test]
 fn a_declined_or_foreign_sign_in_keeps_nothing() {
     let state = Arc::new(Mutex::new(Service { expires_in: Some(3600), ..Service::default() }));
