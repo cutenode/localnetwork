@@ -117,8 +117,9 @@ jsonschema.workspace = true
 [target."cfg(windows)".dependencies]
 # A file's index and its volume's serial number, which the drive watcher tells rewrites by.
 winapi-util = "0.1.11"
-# Whether this process is elevated: plugins are never started from one.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+# Whether this process is elevated: plugins are never started from one. And sparse files for
+# tests (`testing::sparse`).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Threading"] }
 
 [target."cfg(unix)".dependencies]
 # Whether this process runs as root: plugins are never started from one.

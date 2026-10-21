@@ -129,10 +129,42 @@ pub mod upgrade;
 pub mod watch;
 pub mod xml;
 
-/// Hooks for tests: what a failed write leaves behind, and tests that share a process.
+/// Hooks for tests: what a failed write leaves behind, tests that share a process, and big files
+/// that take no room.
 #[doc(hidden)]
 pub mod testing {
     pub use crate::commit::{fail_after_swap, fail_before_swap};
+
+    /// Make the file at `path` (made if missing) `len` bytes long without taking the room: sparse,
+    /// as `set_len` makes it on Unix, and on Windows once it's marked sparse (NTFS and ReFS; FAT
+    /// can't), where `set_len` alone reserves it all. Tests make tracks of 4 GiB and more this
+    /// way, and the Windows runners' 10 GB drive held only two of them otherwise.
+    pub fn sparse(path: &std::path::Path, len: u64) -> std::io::Result<()> {
+        let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)?;
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::System::{IO::DeviceIoControl, Ioctl::FSCTL_SET_SPARSE};
+            let mut returned = 0;
+            // SAFETY: an open file's handle, no buffers, and a place for the byte count.
+            let ok = unsafe {
+                DeviceIoControl(
+                    f.as_raw_handle(),
+                    FSCTL_SET_SPARSE,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut returned,
+                    std::ptr::null_mut(),
+                )
+            };
+            if ok == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+        f.set_len(len)
+    }
 
     /// Drive lookups on this thread consult the store at `root` (`None`: the one
     /// [`crate::api::set_store_root`] named), as `set_store_root` would make them do for the whole

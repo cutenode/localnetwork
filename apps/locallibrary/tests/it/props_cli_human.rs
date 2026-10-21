@@ -963,7 +963,7 @@ fn track_reads_say_what_their_json_says(tc: TestCase) {
     // A file FAT32 can't hold (sparse: it takes no room), made in each copy as `twin` would read
     // it whole.
     for fx in [&fx, &other] {
-        std::fs::File::create(fx.volumes.join("A/Contents/big.mov")).unwrap().set_len(4 << 30).unwrap();
+        locallibrary::testing::sparse(&fx.volumes.join("A/Contents/big.mov"), 4 << 30).unwrap();
     }
     // Both copies run these reads too, so each is as the other when the reads start.
     let (universe, _) = side_by_side(|| universe(&fx), || universe(&other));
