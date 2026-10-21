@@ -4,7 +4,8 @@
 //! holding it). The host finds its tracks on a drive with the matcher tracklists are found with
 //! ([`crate::import::Matcher`]), says how many it didn't find, and plans the edits itself, adding
 //! to what the tracks have: a key and a BPM where a track has none, as an analyzer's are written
-//! ([`super::apply`]), cues in slots (or at places) a track has none in, and My Tags it lacks.
+//! ([`super::apply`]), cues in slots (or at places) a track has none in (in one edit a track; one
+//! the edit can't set is left out, saying why), and My Tags it lacks.
 //! The plays are kept in the store as sessions, as Beat Link Trigger's logs are
 //! ([`crate::sets::import`]).
 //! It's all one plan (`<plugin>.import.<importer>`), confirmed and applied as an edit is, and stale
@@ -15,7 +16,7 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use loclib_plugin::{
     Context, ImportAnswer, ImportKind, Imported, ImportedCue, ImportedLog, Importer, ReadImport, TrackMatch, method,
 };
@@ -27,7 +28,7 @@ use serde_json::Value;
 use super::Plugins;
 use super::apply::key_and_bpm;
 use super::process::Slot;
-use crate::cue_edit::{CueChange, CuePosition, FIND_TOLERANCE_MS, HotCue, SetCue};
+use crate::cue_edit::{CueChange, CuePosition, Drafts, FIND_TOLERANCE_MS, HotCue, SetCue};
 use crate::device::Device;
 use crate::edit::{self, Edit, EditOptions, EditPlan, EditReport};
 use crate::import::{Entry, Matched, Matcher, Summary};
@@ -129,7 +130,7 @@ impl Plugins {
             g.tags.extend(t.my_tags.iter().map(|tag| tag.trim()).filter(|tag| !tag.is_empty()));
         }
         let tracks = Summary::of(&std::mem::take(&mut found.matched));
-        let (edits, left_out) = slot.edits(&device, &library, &gathered)?;
+        let (edits, left_out, refused) = edits(&device, &library, &gathered)?;
         let tool = format!("{plugin}.{importer}");
         let (sessions, mut warnings) = slot.sessions(&tool, file, &read.sessions, &mut found)?;
         if !sessions.is_empty() && store.is_none() {
@@ -146,6 +147,7 @@ impl Plugins {
         if left_out > 0 {
             warnings.push(format!("{left_out} cue(s) left out: their tracks have one there already, or end before"));
         }
+        warnings.extend(refused);
         warnings.extend(read.warnings.iter().map(|w| format!("{}: {w}", declared.title)));
         let planned = op::refusing_archive_writes(|| {
             let options = EditOptions { lenient: false, no_journal: false };
@@ -249,64 +251,9 @@ impl Slot {
         }
     }
 
-    /// The edits of what was `gathered` for the drive's tracks found, adding to what they have (a
-    /// My Tag only to a track without it), and how many cues are left out (a track has one there,
-    /// or it ends before).
-    fn edits(
-        &self,
-        device: &Device,
-        library: &Library,
-        gathered: &IndexMap<u32, Gathered>,
-    ) -> Result<(Vec<Edit>, usize)> {
-        let with_cues: Vec<u32> = gathered.iter().filter(|(_, g)| !g.cues.is_empty()).map(|(id, _)| *id).collect();
-        let cues = match with_cues.is_empty() {
-            true => Vec::new(),
-            false => crate::cue_edit::list_in(device, library, &with_cues)?,
-        };
-        // Each track's My Tags, `Category/Tag` in lowercase, as tags match.
-        let tagged: FxHashSet<(String, u32)> = match gathered.values().any(|g| !g.tags.is_empty()) {
-            false => FxHashSet::default(),
-            true => {
-                let read = crate::tags::read(device)?;
-                let tags = read.categories.iter().flat_map(|c| &c.tags);
-                tags.flat_map(|g| g.tracks.iter().map(|t| (g.path.to_lowercase(), t.id))).collect()
-            }
-        };
-        let (mut edits, mut left_out) = (Vec::new(), 0);
-        let mut tags: IndexMap<&str, Vec<String>> = IndexMap::new();
-        for (&id, g) in gathered {
-            let t = library.track(id).expect("found in the library");
-            let fields = key_and_bpm(t, g.key, g.bpm, false);
-            if !fields.is_empty() {
-                edits.push(Edit::EditTracks {
-                    tracks: TrackSelector { ids: vec![id], ..TrackSelector::default() },
-                    fields,
-                });
-            }
-            let has = cues.iter().find(|c| c.track.id == id).into_iter().flat_map(|c| &c.cues);
-            let has: Vec<(Option<HotCue>, u32)> =
-                has.map(|c| (c.hot_cue.as_deref().and_then(|h| h.parse().ok()), c.start_ms)).collect();
-            let ends = (t.duration_secs > 0).then(|| t.duration_secs.saturating_add(1).saturating_mul(1000));
-            let added = adding(&has, &g.cues, ends)
-                .map_err(|why| self.misbehaved(format!("its cue for {}: {why}", t.display_name())))?;
-            left_out += g.cues.len() - added.len();
-            let on = || vec![t.file_path.clone()];
-            edits.extend(added.into_iter().map(|c| Edit::Cues { tracks: on(), change: CueChange::Set(c) }));
-            for tag in g.tags.iter().filter(|tag| !tagged.contains(&(tag.to_lowercase(), id))) {
-                let files = tags.entry(*tag).or_default();
-                if !files.contains(&t.file_path) {
-                    files.push(t.file_path.clone());
-                }
-            }
-        }
-        let tags = tags.into_iter().map(|(tag, tracks)| Edit::MyTag(TagChange::Add { tag: tag.into(), tracks }));
-        edits.extend(tags);
-        Ok((edits, left_out))
-    }
-
     /// The sessions `logs` (read from `file` with `tool`) as the store keeps them, their plays
-    /// found on the drive with `found`, and why any is left out: one without plays, or with a
-    /// play that has no time (nor the session).
+    /// found on the drive with `found`, and why any is left out: one without plays, with a play
+    /// that has no time (nor the session), or with the plays of one before it (the same session).
     fn sessions(
         &self,
         tool: &str,
@@ -340,6 +287,10 @@ impl Slot {
             let parts =
                 log.plays.iter().zip(&times).flat_map(|(p, t)| [t.to_rfc3339(), p.artist.clone(), p.title.clone()]);
             let id = log_id(tool, parts);
+            if sessions.iter().any(|s: &ImportedSession| s.id == id) {
+                warnings.push(format!("{name}: left out, its plays are another session's"));
+                continue;
+            }
             let mut plays: Vec<TimedPlay> = (log.plays.iter().zip(times).enumerate())
                 .map(|(j, (p, started))| {
                     let find = TrackMatch {
@@ -369,16 +320,83 @@ impl Slot {
     }
 }
 
-/// Of `cues` (a track's, as a file has them), those to add to a track with `has` (each cue's hot
-/// cue slot, if it's one, and where it is), as cue edits: a hot cue in a slot neither the track
-/// nor one before it has, a memory cue further than [`FIND_TOLERANCE_MS`] from any the track or
-/// one before it has, and none at `ends` (ms, when the track's length is known) or after. A hot
-/// cue slot that isn't one (`A` to `H`) is why they're refused.
-fn adding(has: &[(Option<HotCue>, u32)], cues: &[&ImportedCue], ends: Option<u32>) -> Result<Vec<SetCue>, String> {
+/// The edits of what was `gathered` for the drive's tracks found, adding to what they have (a My
+/// Tag only to a track without it, a track's cues in one edit), how many cues are left out (a
+/// track has one there, or it ends before), and why the cues a track can't take are left out (a
+/// line a track, naming it).
+fn edits(
+    device: &Device,
+    library: &Library,
+    gathered: &IndexMap<u32, Gathered>,
+) -> Result<(Vec<Edit>, usize, Vec<String>)> {
+    // Each track's My Tags, `Category/Tag` in lowercase, as tags match.
+    let tagged: FxHashSet<(String, u32)> = match gathered.values().any(|g| !g.tags.is_empty()) {
+        false => FxHashSet::default(),
+        true => {
+            let read = crate::tags::read(device)?;
+            let tags = read.categories.iter().flat_map(|c| &c.tags);
+            tags.flat_map(|g| g.tracks.iter().map(|t| (g.path.to_lowercase(), t.id))).collect()
+        }
+    };
+    let (mut edits, mut left_out, mut refused) = (Vec::new(), 0, Vec::new());
+    let mut tags: IndexMap<&str, Vec<String>> = IndexMap::new();
+    for (&id, g) in gathered {
+        let t = library.track(id).expect("found in the library");
+        let fields = key_and_bpm(t, g.key, g.bpm, false);
+        if !fields.is_empty() {
+            edits
+                .push(Edit::EditTracks { tracks: TrackSelector { ids: vec![id], ..TrackSelector::default() }, fields });
+        }
+        if !g.cues.is_empty() {
+            let ends = (t.duration_secs > 0).then(|| t.duration_secs.saturating_add(1).saturating_mul(1000));
+            let (added, why) = match Drafts::of(device, t) {
+                Ok(mut drafts) => adding(&drafts.there(), &g.cues, ends, |c| drafts.set(c)),
+                Err(e) => (Vec::new(), vec![e.to_string(); g.cues.len()]),
+            };
+            left_out += g.cues.len() - added.len() - why.len();
+            if !why.is_empty() {
+                let reasons: IndexSet<&str> = why.iter().map(String::as_str).collect();
+                let reasons = reasons.into_iter().collect::<Vec<_>>().join("; ");
+                refused.push(format!("{}: {} cue(s) left out: {reasons}", t.display_name(), why.len()));
+            }
+            if !added.is_empty() {
+                edits.push(Edit::Cues { tracks: vec![t.file_path.clone()], change: CueChange::SetMany(added) });
+            }
+        }
+        for tag in g.tags.iter().filter(|tag| !tagged.contains(&(tag.to_lowercase(), id))) {
+            let files = tags.entry(*tag).or_default();
+            if !files.contains(&t.file_path) {
+                files.push(t.file_path.clone());
+            }
+        }
+    }
+    let tags = tags.into_iter().map(|(tag, tracks)| Edit::MyTag(TagChange::Add { tag: tag.into(), tracks }));
+    edits.extend(tags);
+    Ok((edits, left_out, refused))
+}
+
+/// Of `cues` (a track's, as a file has them), those to set on a track with `has` (each cue's hot
+/// cue slot, if it's one, and where it is), in turn: a hot cue in a slot neither the track nor
+/// one before it has, a memory cue further than [`FIND_TOLERANCE_MS`] from any the track or one
+/// before it has, and none at `ends` (ms, when the track's length is known) or after; and why each
+/// of the others `check` refuses (the cue edit's own checks, set as it sets them), or whose hot cue
+/// slot isn't one (`A` to `H`), is left out.
+fn adding(
+    has: &[(Option<HotCue>, u32)],
+    cues: &[&ImportedCue],
+    ends: Option<u32>,
+    mut check: impl FnMut(&SetCue) -> Result<()>,
+) -> (Vec<SetCue>, Vec<String>) {
     let mut taken = has.to_vec();
-    let mut added = Vec::new();
+    let (mut added, mut refused) = (Vec::new(), Vec::new());
     for c in cues {
-        let hot_cue = c.hot_cue.as_deref().map(str::parse::<HotCue>).transpose().map_err(|e| e.to_string())?;
+        let hot_cue = match c.hot_cue.as_deref().map(str::parse::<HotCue>).transpose() {
+            Ok(h) => h,
+            Err(e) => {
+                refused.push(e.to_string());
+                continue;
+            }
+        };
         let there = taken.iter().any(|(slot, at)| match hot_cue {
             Some(_) => *slot == hot_cue,
             None => slot.is_none() && at.abs_diff(c.start_ms) <= FIND_TOLERANCE_MS,
@@ -386,17 +404,23 @@ fn adding(has: &[(Option<HotCue>, u32)], cues: &[&ImportedCue], ends: Option<u32
         if there || ends.is_some_and(|end| c.start_ms >= end) {
             continue;
         }
-        taken.push((hot_cue, c.start_ms));
-        added.push(SetCue {
+        let set = SetCue {
             hot_cue,
             at: CuePosition::Ms(c.start_ms),
             snap: false,
             loop_beats: c.loop_beats,
             name: c.name.clone(),
             color: c.color.clone(),
-        });
+        };
+        match check(&set) {
+            Ok(()) => {
+                taken.push((hot_cue, c.start_ms));
+                added.push(set);
+            }
+            Err(e) => refused.push(e.to_string()),
+        }
     }
-    Ok(added)
+    (added, refused)
 }
 
 impl Operation for PluginImport {

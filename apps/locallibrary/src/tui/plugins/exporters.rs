@@ -86,7 +86,8 @@ impl App {
         };
         let schema = with_path(WRITE_TO, what, e.options.as_ref());
         let filled = Map::from_iter([(WRITE_TO.to_string(), Value::from(to))]);
-        let open = self.loaded.as_ref().is_some_and(|l| l.root() == root);
+        // A set's format writes out the set, whatever lists are marked.
+        let open = self.loaded.as_ref().is_some_and(|l| l.root() == root) && e.source == ExportFrom::Drive;
         let playlists = if open { self.list_marks.clone() } else { Vec::new() };
         let then = For::Export { plugin, format, root, playlists, set };
         let form = Form::with(e.title.clone(), Some(schema), &filled, then);

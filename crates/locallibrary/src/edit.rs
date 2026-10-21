@@ -3221,9 +3221,10 @@ pub mod journal {
     /// The journal's format. 1 was a bare list of entries; 2 is `{"version": 2, "entries": [...]}`
     /// and its entries can hold edits older builds don't know (`set_entries`,
     /// `delete_history_lists`, `my_tag`, `cues`); 3 adds `set_artwork`, and track details 2 would
-    /// drop (`album_artist`, `bpm`, `isrc`, `release_date`), and is written only when an entry
-    /// uses them. A journal of a later version is refused rather than misread or overwritten.
-    pub const VERSION: u32 = 3;
+    /// drop (`album_artist`, `bpm`, `isrc`, `release_date`); 4 adds cue edits setting several
+    /// (`set_many`). Each is written only when an entry uses what it adds. A journal of a later
+    /// version is refused rather than misread or overwritten.
+    pub const VERSION: u32 = 4;
 
     #[derive(Serialize)]
     struct Versioned<'a> {
@@ -3270,9 +3271,11 @@ pub mod journal {
         crate::artwork::prune_staged(device, &images(entries))
     }
 
-    /// The version `entries` need: 3 once one holds an artwork edit or a track detail 3 added,
-    /// else 2, so a build that reads 2 keeps editing a drive whose edits use neither.
+    /// The version `entries` need: 4 once one holds a cue edit setting several, else 3 once one
+    /// holds an artwork edit or a track detail 3 added, else 2, so a build that reads an earlier
+    /// one keeps editing a drive whose edits use nothing later.
     fn version(entries: &[JournalEntry]) -> u32 {
+        let needs_4 = |e: &Edit| matches!(e, Edit::Cues { change: crate::cue_edit::CueChange::SetMany(_), .. });
         let needs_3 = |e: &Edit| match e {
             Edit::SetArtwork { .. } => true,
             Edit::EditTracks { fields, .. } => {
@@ -3283,7 +3286,12 @@ pub mod journal {
             }
             _ => false,
         };
-        if entries.iter().flat_map(|e| &e.edits).any(needs_3) { VERSION } else { 2 }
+        let edits = || entries.iter().flat_map(|e| &e.edits);
+        match (edits().any(needs_4), edits().any(needs_3)) {
+            (true, _) => VERSION,
+            (false, true) => 3,
+            (false, false) => 2,
+        }
     }
 
     /// The staged images the entries' artwork edits name.

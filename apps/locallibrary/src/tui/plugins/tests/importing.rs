@@ -17,7 +17,7 @@ use super::entry;
 /// The import form open, its file replaced with `file`.
 fn import(app: &mut App, file: &std::path::Path) {
     press(app, ":import audio\n");
-    let Some(Modal::Form(f)) = &mut app.modal else { panic!("no form: {}", last_message(app)) };
+    let Some(Modal::Form(f)) = &mut app.modal else { panic!("no form") };
     assert_eq!((f.title.as_str(), f.fields[0].name.as_str()), ("Audio files, a line each", READ_FROM));
     f.fields[0].text = file.display().to_string();
     press(app, "\n");
@@ -44,14 +44,14 @@ fn an_import_is_planned_confirmed_and_made() {
     assert_eq!(last_message(&app), "Echo: 1 change written, 0 sessions kept · u to undo");
     import(&mut app, &list);
     wait(&mut app, |a| a.job.is_none());
-    assert!(last_message(&app).contains("nothing to change"), "{}", last_message(&app));
+    assert!(last_message(&app).contains("nothing to change"));
     app.toast = None;
     app.plugin_import("echo", "lines", None);
     assert_eq!((app.modal.is_none(), last_message(&app)), (true, "open a drive first"));
 }
 
-/// A set's format is offered while a set is open, writing out that set; elsewhere it says to open
-/// one first.
+/// A set's format is offered while a set is open, writing out that set (not the lists marked);
+/// elsewhere it says to open one first.
 #[test]
 fn a_sets_format_writes_out_the_set_open() {
     let (dir, root) = demo_drive();
@@ -65,12 +65,9 @@ fn a_sets_format_writes_out_the_set_open() {
                  source = \"set\"\n";
     std::fs::write(&file, manifest + sheet).unwrap();
     mounted(dir.path());
-    // The store the plugin reads the set from, as the player's is.
-    let store = dir.path().join("store");
-    // SAFETY: as in `echo_plugin`: before the test starts a thread.
-    unsafe { std::env::set_var("LOCALLIBRARY_STORE", &store) };
+    // The store the plugin reads the set from: the player's.
     let mut app = app_on(&root);
-    app.store_root = store;
+    app.store_root = dir.path().join("store");
     let friday = Set { id: "3m2friday2222".into(), title: Some("Friday".into()), ..Set::default() };
     SetBook { sets: vec![friday], ..SetBook::default() }.save(&Store::open_or_init(&app.store_root).unwrap()).unwrap();
     press(&mut app, ":");
@@ -87,8 +84,10 @@ fn a_sets_format_writes_out_the_set_open() {
     open(&mut app, NodeId::Category(Category::Sets));
     open(&mut app, NodeId::Group(Category::Sets, "3m2friday2222".into()));
     assert_eq!(app.open_set().as_deref(), Some("3m2friday2222"));
+    // A list marked in the tree is the drive's, not the set's.
+    app.list_marks = vec!["Warmup".into()];
     press(&mut app, ":export the set\n");
-    let Some(Modal::Form(f)) = &mut app.modal else { panic!("no form: {}", last_message(&app)) };
+    let Some(Modal::Form(f)) = &mut app.modal else { panic!("no form") };
     assert!(f.fields[0].text.ends_with("Friday.txt"), "named after the set: {}", f.fields[0].text);
     let out = dir.path().join("friday.txt");
     f.fields[0].text = out.display().to_string();

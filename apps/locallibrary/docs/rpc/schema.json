@@ -7430,6 +7430,22 @@
         {
           "type": "object",
           "properties": {
+            "set_many": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/SetCue"
+              }
+            }
+          },
+          "required": [
+            "set_many"
+          ],
+          "additionalProperties": false,
+          "description": "Several cues set in turn, each as `set` sets one (what an import adds to a track)."
+        },
+        {
+          "type": "object",
+          "properties": {
             "update": {
               "$ref": "#/$defs/UpdateCue"
             }
@@ -24949,7 +24965,7 @@
         },
         "source": {
           "type": "string",
-          "description": "`device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from\n(`beat_link_trigger`)."
+          "description": "`device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from\n(`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`)."
         },
         "drives": {
           "type": "array",

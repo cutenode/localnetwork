@@ -300,7 +300,7 @@ pub struct Session {
     /// Folders and name.
     pub path: String,
     /// `device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from
-    /// (`beat_link_trigger`).
+    /// (`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`).
     pub source: String,
     /// The mounted drives holding it now.
     pub drives: Vec<String>,

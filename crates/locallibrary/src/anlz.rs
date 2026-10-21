@@ -19,6 +19,7 @@ use crate::{Error, Result};
 mod write;
 
 pub use loclib_model::analysis::*;
+pub(crate) use write::MAX_COMMENT;
 pub use write::{CueFile, CuePoint, RawCue, read_cue_points, shift_times, write_cue_points};
 
 #[derive(Debug, Clone, Copy)]

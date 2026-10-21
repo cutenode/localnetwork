@@ -215,7 +215,8 @@ for a message is a blob holding it as JSON (`{"blob": "read.json"}`). The host f
 the drive as a tracklist's entries are found (by file, ISRC, then artist, title and length), says
 how many it couldn't, and plans the edits itself, adding only what a track lacks: a key (in any
 notation rekordbox shows) and a BPM where it has none, cues in hot cue slots (or at places) it has
-none in, and the My Tags (`Category/Tag`) it lacks. It keeps the sessions in its store, as it keeps
+none in (a cue it can't set, say a colour or a loop length it doesn't take, is left out with a
+warning), and the My Tags (`Category/Tag`) it lacks. It keeps the sessions in its store, as it keeps
 Beat Link Trigger's logs. An importer plans none, and needs no capability to.
 
 - `[[contributes.importers]]`: `format`, `title`, `extension` (the files it reads usually end in:

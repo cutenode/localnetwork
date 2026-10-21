@@ -155,7 +155,7 @@ fn a_big_import_comes_in_a_file() {
 }
 
 /// An importer's answer with what its manifest doesn't say it provides is refused, and so is a
-/// cue, or a time, that isn't one.
+/// time that isn't one.
 #[test]
 fn an_importer_answers_only_what_it_provides() {
     let f = Fixture::new(|dir| vec![spec(dir, &given(r#"["tags"]"#), &[])], Options::default());
@@ -168,13 +168,95 @@ fn an_importer_answers_only_what_it_provides() {
     assert!(refused(sessions).contains("it read sessions, which its manifest doesn't say it provides"));
 
     let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
-    let cue =
-        json!({ "tracks": [{ "match": { "path": t[1].file_path }, "cues": [{ "hot_cue": "Z", "start_ms": 1 }] }] });
-    let e = failure(f.import(&cue, Value::Null).err().unwrap());
-    assert!(e.contains(&format!("its cue for {}: hot cues are A-H, not \"Z\"", t[1].display_name())), "{e}");
     let time = json!({ "sessions": [{ "plays": [{ "artist": "A", "title": "B", "started_at": "Friday" }] }] });
     let e = failure(f.import(&time, Value::Null).err().unwrap());
     assert!(e.contains("its session 0: \"Friday\" isn't a time (RFC 3339)"), "{e}");
+}
+
+/// However many cues a file has for a track, they're one edit of it, made at once.
+#[test]
+fn a_tracks_cues_are_one_edit() {
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let t = f.bare();
+    let hot = ["A", "B", "C", "D", "E", "F", "G", "H"].map(|h| json!({ "hot_cue": h, "start_ms": 1000 }));
+    let memory = (0..200).map(|i| json!({ "start_ms": 2000 + i * 150 }));
+    let cues: Vec<Value> = hot.into_iter().chain(memory).collect();
+    assert!(t[1].duration_secs * 1000 > 2000 + 200 * 150, "the track is long enough");
+    let read = json!({ "tracks": [{ "match": { "path": t[1].file_path }, "cues": cues }] });
+    let planned = f.import(&read, Value::Null).unwrap();
+    assert_eq!(planned.edits.changes, ["set 208 cue(s) on 1 track(s)"]);
+    planned.apply(Some(&f.store), &Ctx::silent()).unwrap();
+    let device = Device::open(&f.drive).unwrap();
+    assert_eq!(cue_edit::list(&device, &[t[1].id]).unwrap()[0].cues.len(), 208);
+    let journal = api::edits_list(&DriveRef { drive: common::path(&f.drive) }).unwrap();
+    let last = journal.last().unwrap();
+    assert_eq!(last.changes, ["set 208 cue(s) on 1 track(s)"], "journaled as one edit");
+}
+
+/// Of a track's cues, those the cue edit can't set (a slot that isn't one, a colour, a loop
+/// length or a name it doesn't take, a loop past the end), and every one for a track that can't
+/// hold cues (without analysis files), are left out, saying so for each track and why; the rest
+/// are set, as one edit.
+#[hegel::test(test_cases = 6, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_cue_the_edit_cant_set_is_left_out(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let t = f.bare();
+    let end = t[1].duration_secs * 1000;
+    let wrong = [
+        (json!({ "hot_cue": "Z", "start_ms": 1500 }), "hot cues are A-H, not \"Z\""),
+        (json!({ "hot_cue": "B", "start_ms": 2000, "color": "chartreuse" }), "unknown colour \"chartreuse\""),
+        (json!({ "hot_cue": "C", "start_ms": 3000, "loop_beats": 3.3 }), "not 3.3"),
+        (json!({ "hot_cue": "D", "start_ms": end - 1000, "loop_beats": 512 }), "is past the end"),
+        (json!({ "start_ms": 4000, "name": "x".repeat(0x10001) }), "65536 bytes"),
+    ];
+    let wrong: Vec<_> = wrong.into_iter().filter(|_| tc.draw(gs::booleans())).collect();
+    let good = [json!({ "hot_cue": "A", "start_ms": 1000 }), json!({ "start_ms": 5000, "name": "kept" })];
+    let mut cues: Vec<Value> = wrong.iter().map(|(c, _)| c.clone()).chain(good).collect();
+    let first = tc.draw(gs::integers::<usize>().max_value(cues.len() - 1));
+    cues.swap(0, first);
+    // And at times a track without analysis files, which can't hold the cue given it.
+    let unanalysed = tc.draw(gs::booleans());
+    if unanalysed {
+        std::fs::remove_file(locallibrary::paths::to_fs(&f.drive, &locallibrary::paths::key(&t[0].analyze_path)))
+            .unwrap();
+    }
+    let read = json!({ "tracks": [
+        { "match": { "path": t[1].file_path }, "cues": cues },
+        { "match": { "path": t[0].file_path }, "cues": [{ "hot_cue": "H", "start_ms": 1000 }] },
+    ] });
+    let planned = f.import(&read, Value::Null).unwrap();
+    let said = |t: &Track| planned.warnings.iter().find(|w| w.starts_with(&format!("{}: ", t.display_name())));
+    match said(&t[1]) {
+        None => assert!(wrong.is_empty(), "{:?}", planned.warnings),
+        Some(said) => {
+            assert!(said.starts_with(&format!("{}: {} cue(s) left out: ", t[1].display_name(), wrong.len())));
+            for (_, why) in &wrong {
+                assert!(said.contains(why), "{why}: {said}");
+            }
+        }
+    }
+    assert_eq!(said(&t[0]).is_some_and(|w| w.contains("can't hold cues")), unanalysed, "{:?}", planned.warnings);
+    let t0 = (!unanalysed).then_some("set 1 cue(s) on 1 track(s)");
+    let changes: Vec<&str> = std::iter::once("set 2 cue(s) on 1 track(s)").chain(t0).collect();
+    assert_eq!(planned.edits.changes, changes);
+    planned.apply(Some(&f.store), &Ctx::silent()).unwrap();
+    let device = Device::open(&f.drive).unwrap();
+    let cues = &cue_edit::list(&device, &[t[1].id]).unwrap()[0].cues;
+    let set: Vec<_> = cues.iter().map(|c| (c.hot_cue.as_deref(), c.start_ms)).collect();
+    assert_eq!(set, [(None, 5000), (Some("A"), 1000)]);
+}
+
+/// A session a file has twice (the same plays at the same times) is kept once.
+#[test]
+fn a_session_twice_in_a_file_is_kept_once() {
+    let f = Fixture::new(|dir| vec![spec(dir, &given(EVERYTHING), &[])], Options::default());
+    let log =
+        json!({ "name": "Friday", "plays": [{ "artist": "A", "title": "B", "started_at": "2026-10-03T22:00:00Z" }] });
+    let read = json!({ "sessions": [log, { "name": "Again", "plays": log["plays"] }] });
+    let planned = f.import(&read, Value::Null).unwrap();
+    assert_eq!(planned.sessions.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["Friday"]);
+    assert_eq!(planned.warnings, ["Again: left out, its plays are another session's"]);
 }
 
 /// The file is one on this computer, and the importer one the plugin has.

@@ -94,7 +94,8 @@ their keys and BPMs, cues, My Tags, and the plays it logged. `locallibrary impor
 `playlist import` finds a tracklist's, by file, ISRC, then artist and title, and says how many it
 couldn't (not on the drive, or could be several). It only adds to what they have: a key and a BPM
 where a track has none (a key written as rekordbox names it, a BPM to hundredths), a cue in a hot
-cue slot (or at a place) a track has none in, and the My Tags a track lacks. It's one edit, shown
+cue slot (or at a place) a track has none in (one a cue edit can't set, say a colour or a loop it
+doesn't take, is left out, saying why), and the My Tags a track lacks. It's one edit, shown
 and asked about as any is (`--dry-run`), and `undo` takes it back. The plays it logged are kept in
 the store as sessions, as Beat Link Trigger's are (`plays`), each play found on the drive or kept
 as the log names it; the same log imported again replaces its session. In the player, a drive's

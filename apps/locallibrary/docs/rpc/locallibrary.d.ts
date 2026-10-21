@@ -764,22 +764,31 @@ export type TagChange = {
  * by its audio file (a device path), like the tracks edited, so a replay on a later export, where
  * ids differ, finds them.
  */
-export type CueChange = {
-  set: SetCue;
-} | {
-  update: UpdateCue;
-} | {
-  delete: CueRef;
-} | {
-  copy: {
-    from: string;
+export type CueChange =
+  | {
+    set: SetCue;
+  }
+  /** Several cues set in turn, each as `set` sets one (what an import adds to a track). */
+  | {
+    set_many: SetCue[];
+  }
+  | {
+    update: UpdateCue;
+  }
+  | {
+    delete: CueRef;
+  }
+  | {
+    copy: {
+      from: string;
+    };
+  }
+  | {
+    carry: {
+      from: string;
+      shift_ms: number;
+    };
   };
-} | {
-  carry: {
-    from: string;
-    shift_ms: number;
-  };
-};
 
 /**
  * Add a cue, or replace the hot cue in its slot (or the memory cue at its position). A replaced
@@ -6268,7 +6277,7 @@ export type Session = {
   path: string;
   /**
    * `device_library` (`export.pdb`), `onelibrary`, or the tool a log was imported from
-   * (`beat_link_trigger`).
+   * (`beat_link_trigger`, or a plugin's importer, `<plugin>.<importer>`).
    */
   source: string;
   /** The mounted drives holding it now. */

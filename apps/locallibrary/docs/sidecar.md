@@ -413,7 +413,8 @@ problems are the plan's `warnings`), destructive when a file `exists` already, a
 read the file, finds what it read on the drive and answers `{plugin, importer, file, tracks:
 {entries, found, ambiguous, missing}, plays: {...}, edits, sessions}`: how many of its tracks (and
 its sessions' plays) were found, the edit plan adding to the tracks found what they lack (a key and
-a BPM, cues in slots or places they have none in, My Tags), and the sessions it keeps in the store
+a BPM, cues in slots or places they have none in, a track's as one `cues` edit `{"set_many": [...]}`,
+My Tags), and the sessions it keeps in the store
 (as `sessions.import` keeps Beat Link Trigger's), with what it left out among the `warnings`. Its
 `operation` is `<plugin>.import.<importer>`; applied by `plugins.import.apply {plan_id}` (`{edits?,
 sessions}`, the edit report and the sessions kept, by id), and stale once the file or the drive
