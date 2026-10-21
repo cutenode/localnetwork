@@ -43,8 +43,7 @@ fn copies_linked_through_another_copy_are_one_group(tc: TestCase) {
             ids[i] = common::add_track(&root, rows[i].clone(), &common::placeholder_audio(&rows[i].file_path));
         }
         if big {
-            let f = fs::OpenOptions::new().write(true).open(root.join("Contents/a/Song.mp3")).unwrap();
-            f.set_len(4 << 30).unwrap();
+            locallibrary::testing::sparse(&root.join("Contents/a/Song.mp3"), 4 << 30).unwrap();
         }
         let d = Device::open_export(&root).unwrap();
         let only = vec![Section::Duplicates, Section::LargeFiles];

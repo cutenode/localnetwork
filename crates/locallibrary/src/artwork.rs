@@ -154,8 +154,7 @@ pub fn embed_in_file(path: &Path, art: &Artwork) -> Result<()> {
     std::fs::copy(path, tmp.path()).at(path)?;
     tag.save_to_path(tmp.path(), WriteOptions::default()).map_err(|e| tag_err(&e))?;
     tmp.as_file().sync_all().at(tmp.path())?;
-    tmp.persist(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e.error })?;
-    Ok(())
+    fsutil::replace(tmp.into_temp_path(), path)
 }
 
 // ---------------------------------------------------------------------------------------------
