@@ -70,7 +70,7 @@ pub(crate) fn database_state_at(root: &Path) -> Hash {
     let mut hasher = blake3::Hasher::new();
     for key in paths::DATABASE_FILES {
         hasher.update(key.as_bytes());
-        if let Ok(bytes) = std::fs::read(paths::to_fs(root, key)) {
+        if let Ok(bytes) = fsutil::read(&paths::to_fs(root, key)) {
             hasher.update(&bytes);
         }
     }
