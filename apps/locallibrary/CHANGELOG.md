@@ -558,6 +558,9 @@ their old names.
   decides whether it starts paused. A refused sign-in says why. The Traktor export uses the Mac's
   real startup disk name, and stamps its entries with `SOURCE_DATE_EPOCH` when it's set (refusing
   a value that isn't seconds since 1970).
+- `check`'s items (with `--json`, and over RPC) are findings, the shape plugins' checks report
+  in: what was found fine is `info` where it was `ok`, and an item may name the tracks, playlist
+  and files it's about (`tracks`, `playlist`, `paths`).
 
 ### Fixed
 

@@ -1,4 +1,4 @@
-use locallibrary::check::{CheckItem, DrivePlayers, PlayersFrom, Unloadable};
+use locallibrary::check::{CheckItem, DrivePlayers, Finding, PlayersFrom, Unloadable};
 use locallibrary::model::TrackRef;
 
 use super::super::app::testing::{app_on, app_with, blank, demo_drive, fleet, last_message, library, wait};
@@ -45,8 +45,8 @@ fn a_checks_report_says_how_it_went_problems_first() {
         players(&["CDJ-2000NXS2"], PlayersFrom::Default),
         players(&[], PlayersFrom::None),
     ];
-    let item = |level, message: &str| CheckItem { drive: "DNA".into(), check: "x", level, message: message.into() };
-    r.items = vec![item(CheckLevel::Ok, "the export reads"), item(CheckLevel::Problem, "2 tracks missing")];
+    let item = |level, message: &str| CheckItem { drive: "DNA".into(), finding: Finding::new(level, "x", message) };
+    r.items = vec![item(CheckLevel::Info, "the export reads"), item(CheckLevel::Problem, "2 tracks missing")];
     r.unloadable = vec![Unloadable {
         drive: "DNA".into(),
         player: "CDJ-2000NXS2".into(),
@@ -284,15 +284,13 @@ fn a_checks_report_lists_each_drive_problems_first(tc: hegel::TestCase) {
         .map(|d| d.to_string())
         .collect();
     let pick = |tc: &hegel::TestCase| drives[tc.draw(gs::integers::<usize>().max_value(drives.len() - 1))].clone();
-    let levels = [CheckLevel::Ok, CheckLevel::Warning, CheckLevel::Problem];
+    let levels = [CheckLevel::Info, CheckLevel::Warning, CheckLevel::Problem];
     let mut r = report(tc.draw(gs::integers::<usize>().max_value(3)), tc.draw(gs::integers::<usize>().max_value(3)));
     r.drives = drives.clone();
     r.items = (0..tc.draw(gs::integers::<usize>().max_value(6)))
         .map(|i| CheckItem {
             drive: pick(&tc),
-            check: "x",
-            level: levels[tc.draw(gs::integers::<usize>().max_value(2))],
-            message: format!("item {i}"),
+            finding: Finding::new(levels[tc.draw(gs::integers::<usize>().max_value(2))], "x", format!("item {i}")),
         })
         .collect();
     r.unloadable = (0..tc.draw(gs::integers::<usize>().max_value(2)))

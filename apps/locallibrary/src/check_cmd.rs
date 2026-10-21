@@ -65,11 +65,11 @@ pub(crate) fn render(r: &CheckReport, verbose: bool) {
             }
         }
         let mark = match i.level {
-            Level::Ok => style("✓").green().bold(),
+            Level::Info => style("✓").green().bold(),
             Level::Warning => style("!").yellow().bold(),
             Level::Problem => style("✗").red().bold(),
         };
-        say!("  {mark} {:<13} {}", dim(i.check), i.message);
+        say!("  {mark} {:<13} {}", dim(&i.check), i.message);
         let same = |drive: &str, message: &str| drive == i.drive && message == i.message;
         let loudness = r.loudness.iter().find(|l| i.check == "loudness" && l.drive == i.drive);
         let lines: Vec<(String, String)> = match (

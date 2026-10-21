@@ -47,7 +47,7 @@ fn check_lists_the_tracks_whose_level_is_a_problem(tc: TestCase) {
     let item = item.unwrap_or_else(|| panic!("no loudness item: {said}"));
     let found: Vec<&Value> =
         v["loudness"].as_array().unwrap().iter().flat_map(|d| d["tracks"].as_array().unwrap()).collect();
-    assert_eq!(item["level"] == "ok", found.is_empty(), "{said}");
+    assert_eq!(item["level"] == "info", found.is_empty(), "{said}");
     let listed: Vec<&str> = verbose.out.lines().filter(|l| l.starts_with(&" ".repeat(18))).collect();
     assert_eq!(listed.len(), found.len(), "{said}");
     for f in &found {

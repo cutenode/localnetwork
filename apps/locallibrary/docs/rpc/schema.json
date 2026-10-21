@@ -20738,31 +20738,69 @@
           "type": "string",
           "description": "The drive it's about."
         },
-        "check": {
-          "type": "string",
-          "description": "What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,\n`large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`."
-        },
         "level": {
           "$ref": "#/$defs/Level"
         },
+        "check": {
+          "type": "string",
+          "description": "The check that found it (`files`, a plugin's `<plugin>.<check>`).",
+          "default": ""
+        },
         "message": {
-          "type": "string"
+          "type": "string",
+          "description": "What it found, in a line."
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "The tracks it's about, by id."
+        },
+        "playlist": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The playlist it's about, by path (`Folder/Name`)."
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The files it's about, relative to the drive's root (`Contents/a.mp3`)."
         }
       },
       "required": [
         "drive",
-        "check",
         "level",
+        "check",
         "message"
-      ]
+      ],
+      "description": "What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,\n`files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`\nor `formats`; what was found fine is `info`."
     },
     "Level": {
-      "type": "string",
-      "enum": [
-        "ok",
-        "warning",
-        "problem"
-      ]
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "info",
+          "description": "Worth knowing, nothing to fix (what was checked and found fine, too)."
+        },
+        {
+          "type": "string",
+          "const": "warning",
+          "description": "Worth a look: it may be a problem, or a problem for some players."
+        },
+        {
+          "type": "string",
+          "const": "problem",
+          "description": "Something to fix before it's used."
+        }
+      ],
+      "description": "How much a finding matters, least first."
     },
     "DrivePlayers": {
       "type": "object",

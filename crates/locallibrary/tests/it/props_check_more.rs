@@ -112,7 +112,7 @@ fn each_fault_put_in_is_named_with(tc: &TestCase, variant: u8) {
             return;
         }
         2 => assert!(said(&r, "A", "databases", Level::Problem, "OneLibrary can't be read"), "{notes}"),
-        1 => assert!(said(&r, "A", "databases", Level::Ok, "OneLibrary only"), "{notes}"),
+        1 => assert!(said(&r, "A", "databases", Level::Info, "OneLibrary only"), "{notes}"),
         _ => {}
     }
     assert_eq!(said(&r, "A", "files", Level::Problem, "stop short of their length"), cut, "{notes}");

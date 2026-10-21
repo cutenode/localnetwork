@@ -91,7 +91,7 @@ pub fn check_lines(r: &CheckReport) -> Vec<(Tone, String)> {
         items.sort_by_key(|i| std::cmp::Reverse(i.level));
         for i in items {
             let tone = match i.level {
-                CheckLevel::Ok => Tone::Ok,
+                CheckLevel::Info => Tone::Ok,
                 CheckLevel::Warning => Tone::Warning,
                 CheckLevel::Problem => Tone::Problem,
             };

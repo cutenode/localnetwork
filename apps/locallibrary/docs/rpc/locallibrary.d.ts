@@ -4997,19 +4997,35 @@ export type CheckReport = {
   loudness: DriveLoudness[];
 };
 
+/**
+ * What a check found on one of the drives. Its `check` is `export`, `same_library`, `databases`,
+ * `files`, `audio`, `loudness`, `large_files`, `interrupted`, `history`, `file_system`, `players`
+ * or `formats`; what was found fine is `info`.
+ */
 export type CheckItem = {
   /** The drive it's about. */
   drive: string;
-  /**
-   * What was checked: `export`, `same_library`, `databases`, `files`, `audio`, `loudness`,
-   * `large_files`, `interrupted`, `history`, `file_system`, `players` or `formats`.
-   */
-  check: string;
   level: Level;
+  /** The check that found it (`files`, a plugin's `<plugin>.<check>`). */
+  check: string;
+  /** What it found, in a line. */
   message: string;
+  /** The tracks it's about, by id. */
+  tracks?: number[];
+  /** The playlist it's about, by path (`Folder/Name`). */
+  playlist?: string | null;
+  /** The files it's about, relative to the drive's root (`Contents/a.mp3`). */
+  paths?: string[];
 };
 
-export type Level = "ok" | "warning" | "problem";
+/** How much a finding matters, least first. */
+export type Level =
+  /** Worth knowing, nothing to fix (what was checked and found fine, too). */
+  | "info"
+  /** Worth a look: it may be a problem, or a problem for some players. */
+  | "warning"
+  /** Something to fix before it's used. */
+  | "problem";
 
 export type DrivePlayers = {
   drive: string;

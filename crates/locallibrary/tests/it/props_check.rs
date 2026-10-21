@@ -135,7 +135,7 @@ fn the_check_names_exactly_the_faults_put_in(tc: TestCase) {
         };
         assert_eq!(said(Level::Problem, "have no audio file", missing_audio), missing_audio > 0, "{files:?}");
         assert_eq!(said(Level::Warning, "have no analysis file", missing_analysis), missing_analysis > 0, "{files:?}");
-        assert_eq!(files.iter().any(|(l, _)| *l == Level::Ok), missing_audio + missing_analysis == 0, "{files:?}");
+        assert_eq!(files.iter().any(|(l, _)| *l == Level::Info), missing_audio + missing_analysis == 0, "{files:?}");
 
         let databases = items(&r, &name, "databases");
         assert_eq!(databases.len(), 1);
@@ -144,14 +144,14 @@ fn the_check_names_exactly_the_faults_put_in(tc: TestCase) {
         assert_eq!(databases[0].0 == Level::Problem, drifted, "{databases:?}");
 
         let pending = items(&r, &name, "interrupted");
-        let expect = if interrupted && name == names[0] { Level::Problem } else { Level::Ok };
+        let expect = if interrupted && name == names[0] { Level::Problem } else { Level::Info };
         assert_eq!(pending.iter().map(|(l, _)| *l).collect::<Vec<_>>(), [expect]);
 
         // History lists are safe only once they're in the store.
         let history = items(&r, &name, "history");
         let lists = !lib.history.is_empty();
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0].0 == Level::Ok, !lists || pulled, "{history:?}");
+        assert_eq!(history[0].0 == Level::Info, !lists || pulled, "{history:?}");
 
         // Players: each one given, Ok exactly when it reads a database the drive has (the
         // temporary folder isn't a volume, so file systems aren't checked).
@@ -164,7 +164,7 @@ fn the_check_names_exactly_the_faults_put_in(tc: TestCase) {
                 None => assert!(level == Level::Warning && message.contains("not a model"), "{message}"),
                 Some(m) => {
                     let reads = m.is_mixer() || m.export_pdb.value || (m.onelibrary.value && plus);
-                    assert_eq!(level == Level::Ok, reads, "{message}");
+                    assert_eq!(level == Level::Info, reads, "{message}");
                 }
             }
         }
@@ -194,7 +194,7 @@ fn the_check_names_exactly_the_faults_put_in(tc: TestCase) {
     if copied {
         let same = items(&r, "B", "same_library");
         assert_eq!(same.len(), 1);
-        assert_eq!(same[0].0 == Level::Ok, !moved_on, "{same:?}");
+        assert_eq!(same[0].0 == Level::Info, !moved_on, "{same:?}");
     }
 
     // Nothing on the drives changed, and checking again says the same.
@@ -202,8 +202,8 @@ fn the_check_names_exactly_the_faults_put_in(tc: TestCase) {
         assert!(common::changed_files(files, &common::drive_files(d.root())).is_empty());
     }
     let again = check::check(&devices, Some(&store), &opts, &Ctx::silent()).unwrap();
-    let flat = |r: &CheckReport| -> Vec<(String, &'static str, Level, String)> {
-        r.items.iter().map(|i| (i.drive.clone(), i.check, i.level, i.message.clone())).collect()
+    let flat = |r: &CheckReport| -> Vec<(String, String, Level, String)> {
+        r.items.iter().map(|i| (i.drive.clone(), i.check.clone(), i.level, i.message.clone())).collect()
     };
     assert_eq!(flat(&again), flat(&r));
 }
@@ -285,5 +285,5 @@ fn remembered_players_and_packs_are_checked_against(tc: TestCase) {
     assert_eq!(packed.len(), 1);
     let (level, message) = packed[0];
     assert!(message.contains("packed from"), "{message}");
-    assert_eq!(level == Level::Ok, !moved_on, "{message}");
+    assert_eq!(level == Level::Info, !moved_on, "{message}");
 }
