@@ -265,7 +265,7 @@ fn send_queued(slot: &Weak<Slot>, queue: &Queue) {
 }
 
 /// Held while the suggestions kept are read and written: plugins tell the user things at once,
-/// each on its own thread.
+/// each on its own thread. (Another process changing them too waits on `suggested.lock`.)
 static KEEPING: Mutex<()> = Mutex::new(());
 
 /// Where suggestions are kept for the player: `<store>/plugins/suggested.json`.
@@ -280,14 +280,18 @@ pub fn suggested(store: &Store) -> Result<Vec<PluginNotice>> {
     Ok(fsutil::read_json_opt(&suggested_file(store))?.unwrap_or_default())
 }
 
-/// `change`s the suggestions kept, and answers them as they're kept now.
+/// `change`s the suggestions kept, and answers them as they're kept now. The read and the write
+/// happen under a lock of their own (`suggested.lock` beside them, waited for), so the player and
+/// the `watch` agent keeping and forgetting them at once don't drop each other's changes. (Read
+/// alone, they needn't wait: they're written whole, in place at once.)
 fn change_kept(store: &Store, change: impl FnOnce(&mut Vec<PluginNotice>)) -> Result<Vec<PluginNotice>> {
     let _keeping = lock(&KEEPING);
     let file = suggested_file(store);
-    let mut kept = fsutil::read_json_opt(&file)?.unwrap_or_default();
-    change(&mut kept);
     let dir = file.parent().expect("in a folder");
     std::fs::create_dir_all(dir).at(dir)?;
+    let _changing = fsutil::FileLock::wait(&dir.join("suggested.lock"))?;
+    let mut kept = fsutil::read_json_opt(&file)?.unwrap_or_default();
+    change(&mut kept);
     fsutil::write_json_atomic(&file, &kept)?;
     Ok(kept)
 }

@@ -293,3 +293,56 @@ fn the_newest_suggestions_are_kept_until_forgotten(tc: hegel::TestCase) {
     }
     assert_eq!(suggested(&store).unwrap(), expected);
 }
+
+/// Where [`suggestions_kept_at_once_by_two_processes_are_all_kept`] runs as one of the two:
+/// the store, then what this one's suggestions start with.
+const KEEPER: &str = "LOCALLIBRARY_TEST_SUGGESTION_KEEPER";
+
+/// Two processes (the player and the `watch` agent, say) keeping suggestions at the same time
+/// lose none of them: each keeps its own, all at once, and every one is kept.
+#[test]
+fn suggestions_kept_at_once_by_two_processes_are_all_kept() {
+    const EACH: usize = locallibrary::plugin::MAX_SUGGESTED / 2;
+    let notice = |message: String| PluginNotice {
+        plugin: "echo".into(),
+        message,
+        operation: Some(Suggested { name: "playlist".into(), params: json!({}) }),
+    };
+    if let Some(keeper) = std::env::var_os(KEEPER) {
+        let keeper = keeper.into_string().unwrap();
+        let (root, tag) = keeper.rsplit_once('\n').unwrap();
+        let store = Store::open(Path::new(root)).unwrap();
+        while !Path::new(root).join("go").exists() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        for n in 0..EACH {
+            keep_suggested(&store, &notice(format!("{tag} {n}"))).unwrap();
+        }
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open_or_init(dir.path()).unwrap();
+    let name = "plugins::events::suggestions_kept_at_once_by_two_processes_are_all_kept";
+    let keepers: Vec<std::process::Child> = ["a", "b"]
+        .into_iter()
+        .map(|tag| {
+            let keeper = format!("{}\n{tag}", dir.path().display());
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([name, "--exact", "--nocapture"])
+                .env(KEEPER, keeper)
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    std::fs::write(dir.path().join("go"), "").unwrap();
+    for mut keeper in keepers {
+        assert!(keeper.wait().unwrap().success(), "a keeper failed");
+    }
+    let mut kept: Vec<String> = suggested(&store).unwrap().into_iter().map(|n| n.message).collect();
+    kept.sort();
+    let mut expected: Vec<String> =
+        ["a", "b"].iter().flat_map(|t| (0..EACH).map(move |n| format!("{t} {n}"))).collect();
+    expected.sort();
+    assert_eq!(kept, expected, "none lost");
+}
