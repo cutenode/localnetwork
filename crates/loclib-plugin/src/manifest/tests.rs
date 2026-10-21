@@ -4,7 +4,10 @@ use indexmap::IndexMap;
 use serde_json::{Map, json};
 
 use super::*;
-use crate::{Analyzer, Command, Exporter, FieldType, FieldValue, Mode, Operation, Provider, ProviderKind, Role, code};
+use crate::{
+    Account, Analyzer, Command, Destination, DestinationKind, Exporter, FieldType, FieldValue, Mode, Operation,
+    Provider, ProviderKind, Role, code,
+};
 
 const HEAD: &str = "id = \"demo\"\nname = \"Demo\"\nversion = \"0.1.0\"\nprotocol = \"^0.2\"\n";
 
@@ -831,6 +834,40 @@ fn offered(tc: &TestCase) -> Vec<Where> {
     tc.draw(gs::subsequences(vec![Where::Track, Where::Playlist, Where::Drive]).min_size(1))
 }
 
+/// An endpoint an account may have: https anywhere, or http on this computer.
+#[hegel::test_helper]
+fn endpoint(tc: &TestCase) -> String {
+    let path = tc.draw(gs::from_regex("(/[a-z0-9_-]{0,8}){0,2}(\\?[a-z]=[a-z0-9]{0,4})?"));
+    match tc.draw(gs::booleans()) {
+        true => {
+            format!("https://{}{path}", tc.draw(gs::from_regex("[a-z0-9-]{1,8}(\\.[a-z0-9-]{1,8}){0,2}(:[0-9]{2,5})?")))
+        }
+        false => {
+            let host = tc.draw(gs::sampled_from(vec!["127.0.0.1", "localhost", "[::1]"]));
+            let port = tc.draw(gs::optional(gs::integers::<u16>())).map(|p| format!(":{p}")).unwrap_or_default();
+            format!("http://{host}{port}{path}")
+        }
+    }
+}
+
+/// An account with endpoints it may have, scopes and maybe a revocation endpoint.
+#[hegel::test_helper]
+fn account(tc: &TestCase, id: String) -> Account {
+    Account {
+        id,
+        title: title(tc),
+        authorize_url: endpoint(tc),
+        token_url: endpoint(tc),
+        scopes: tc.draw(gs::vecs(gs::from_regex("[!-~]{1,12}")).max_size(3)),
+        client_id: title(tc),
+        pkce: true,
+        revoke_url: tc.draw(gs::booleans()).then(|| endpoint(tc)),
+    }
+}
+
+/// A host granted for an account's requests when no other is: longer than any drawn.
+const ACCOUNT_HOST: &str = "account-host.example";
+
 /// A manifest that keeps every rule: commands and operations with places on the command line
 /// only for a first-party plugin.
 #[hegel::test_helper]
@@ -906,6 +943,12 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         })
         .collect();
     let settings = drawn_names(tc, 3).into_iter().map(|key| setting(tc, key)).collect();
+    let accounts: Vec<Account> = drawn_names(tc, 2).into_iter().map(|id| account(tc, id)).collect();
+    let destination_kinds = vec![DestinationKind::Store, DestinationKind::Set];
+    let destinations = drawn_names(tc, 3)
+        .into_iter()
+        .map(|name| Destination { name, title: title(tc), kind: tc.draw(gs::sampled_from(destination_kinds.clone())) })
+        .collect();
     let mut capabilities = tc.draw(gs::subsequences(Capability::NAMED.to_vec()));
     let kinds = vec![ProviderKind::Artwork, ProviderKind::Metadata];
     let providers: Vec<Provider> = drawn_names(tc, 3)
@@ -926,6 +969,10 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
             per_second: tc.draw(gs::floats::<f64>().min_value(1.0 / 3600.0).max_value(100.0)),
         })
         .collect();
+    // Granted a server for the accounts' requests.
+    if !accounts.is_empty() && hosts.is_empty() {
+        capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
+    }
     capabilities.extend(hosts.into_iter().map(Capability::Net));
     let pre = tc.draw(gs::optional(gs::from_regex("[a-z][a-z0-9]{0,4}"))).map(|p| format!("-{p}")).unwrap_or_default();
     let [major, minor, patch] = tc.draw(gs::arrays(gs::integers::<u16>()));
@@ -936,7 +983,16 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         version: format!("{major}.{minor}.{patch}{pre}"),
         protocol: tc.draw(gs::sampled_from(protocols)).to_string(),
         capabilities: tc.draw(gs::permutations(capabilities)),
-        contributes: Contributions { commands, operations, analyzers, exporters, providers, settings },
+        contributes: Contributions {
+            accounts,
+            commands,
+            destinations,
+            operations,
+            analyzers,
+            exporters,
+            providers,
+            settings,
+        },
         net,
         unknown: Vec::new(),
     }
@@ -1000,11 +1056,13 @@ fn a_drawn_manifest_is_valid_and_reads_back_as_it_was_written(tc: TestCase) {
     }
 }
 
-const CONTRIBUTIONS: [&str; 6] = ["commands", "operations", "analyzers", "exporters", "providers", "settings"];
+const CONTRIBUTIONS: [&str; 8] =
+    ["accounts", "commands", "destinations", "operations", "analyzers", "exporters", "providers", "settings"];
 
 /// What names a contribution of `kind`.
 fn name_key(kind: &str) -> &'static str {
     match kind {
+        "accounts" => "id",
         "exporters" => "format",
         "settings" => "key",
         _ => "name",
@@ -1013,7 +1071,9 @@ fn name_key(kind: &str) -> &'static str {
 
 fn len(c: &Contributions, kind: &str) -> usize {
     match kind {
+        "accounts" => c.accounts.len(),
         "commands" => c.commands.len(),
+        "destinations" => c.destinations.len(),
         "operations" => c.operations.len(),
         "analyzers" => c.analyzers.len(),
         "exporters" => c.exporters.len(),
@@ -1028,6 +1088,18 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
         let name = format!("added-{kind}-{}", len(c, kind));
         let title = "Added".to_string();
         match kind {
+            // Granted a net: capability by the caller.
+            "accounts" => c.accounts.push(Account {
+                id: name,
+                title,
+                authorize_url: "https://auth.example/authorize".into(),
+                token_url: "https://auth.example/token".into(),
+                scopes: Vec::new(),
+                client_id: "added".into(),
+                pkce: true,
+                revoke_url: None,
+            }),
+            "destinations" => c.destinations.push(Destination { name, title, kind: DestinationKind::Store }),
             "commands" => {
                 let offered = on_a_drive();
                 c.commands.push(Command { name, title, mode: Mode::Headless, offered, params: None, cli: None });
@@ -1059,7 +1131,9 @@ fn add(c: &mut Contributions, kind: &str, n: usize) {
 /// The name (or format, or key) and title of each contribution of `kind`.
 fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut String, &'a mut String)> {
     match kind {
+        "accounts" => c.accounts.iter_mut().map(|x| (&mut x.id, &mut x.title)).collect(),
         "commands" => c.commands.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
+        "destinations" => c.destinations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "operations" => c.operations.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "analyzers" => c.analyzers.iter_mut().map(|x| (&mut x.name, &mut x.title)).collect(),
         "exporters" => c.exporters.iter_mut().map(|x| (&mut x.format, &mut x.title)).collect(),
@@ -1071,7 +1145,9 @@ fn names_and_titles<'a>(c: &'a mut Contributions, kind: &str) -> Vec<(&'a mut St
 /// Another of contribution `i` of `kind`, named the same, at the end.
 fn duplicate(c: &mut Contributions, kind: &str, i: usize) {
     match kind {
+        "accounts" => c.accounts.push(c.accounts[i].clone()),
         "commands" => c.commands.push(Command { cli: None, ..c.commands[i].clone() }),
+        "destinations" => c.destinations.push(c.destinations[i].clone()),
         "operations" => c.operations.push(Operation { cli: None, ..c.operations[i].clone() }),
         "analyzers" => c.analyzers.push(c.analyzers[i].clone()),
         "exporters" => c.exporters.push(c.exporters[i].clone()),
@@ -1133,6 +1209,11 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "net twice",
         "net rate",
         "provider grant",
+        "account endpoint",
+        "account client",
+        "account scope",
+        "account pkce",
+        "account grant",
     ];
     let mistake = tc.draw(gs::sampled_from(mistakes));
     let c = &mut m.contributes;
@@ -1226,6 +1307,9 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
             add(c, kind, 1);
             if kind == "providers" && !m.capabilities.contains(&Capability::LibraryRead) {
                 m.capabilities.push(Capability::LibraryRead);
+            }
+            if kind == "accounts" && !m.capabilities.iter().any(|g| matches!(g, Capability::Net(_))) {
+                m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
             }
             let i = index(&tc, len(c, kind));
             let key = name_key(kind);
@@ -1443,6 +1527,56 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     (format!("net[{i}].per_second: is how many requests a second, at least 1/3600"), false)
                 }
             }
+        }
+        "account endpoint" | "account client" | "account scope" | "account pkce" => {
+            add(c, "accounts", 1);
+            if !m.capabilities.iter().any(|g| matches!(g, Capability::Net(_))) {
+                m.capabilities.push(Capability::Net(ACCOUNT_HOST.into()));
+            }
+            let i = index(&tc, c.accounts.len());
+            let x = &mut c.accounts[i];
+            let at = format!("contributes.accounts[{i}]");
+            match mistake {
+                "account endpoint" => {
+                    let wrong = tc.draw(gs::sampled_from(vec![
+                        "",
+                        "auth.example/token",
+                        "ftp://auth.example",
+                        "https://",
+                        "https:// auth.example",
+                        "http://auth.example/token",
+                        "http://127.0.0.1.example",
+                        "javascript:alert(1)",
+                    ]));
+                    let key = tc.draw(gs::sampled_from(vec!["authorize_url", "token_url", "revoke_url"]));
+                    match key {
+                        "authorize_url" => x.authorize_url = wrong.into(),
+                        "token_url" => x.token_url = wrong.into(),
+                        _ => x.revoke_url = Some(wrong.into()),
+                    }
+                    (format!("{at}.{key}: {wrong:?} isn't an https:// address"), false)
+                }
+                "account client" => {
+                    x.client_id = tc.draw(gs::text().alphabet(" \t\r\n").max_size(3));
+                    (format!("{at}.client_id: is empty"), false)
+                }
+                "account scope" => {
+                    let wrong = tc.draw(gs::sampled_from(vec!["", "two words", " lead"]));
+                    let j = tc.draw(gs::integers::<usize>().max_value(x.scopes.len()));
+                    x.scopes.insert(j, wrong.into());
+                    (format!("{at}.scopes[{j}]: {wrong:?} isn't a scope: a word, no spaces"), false)
+                }
+                _ => {
+                    x.pkce = false;
+                    (format!("{at}.pkce: is true: locallibrary signs in with PKCE only"), false)
+                }
+            }
+        }
+        "account grant" => {
+            add(c, "accounts", 1);
+            m.capabilities.retain(|g| !matches!(g, Capability::Net(_)));
+            m.net.clear();
+            ("contributes.accounts[0]: goes into net/fetch requests, which needs a net:<host> capability".into(), false)
         }
         "provider grant" => {
             add(c, "providers", 1);

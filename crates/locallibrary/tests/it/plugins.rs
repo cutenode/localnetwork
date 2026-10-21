@@ -1,9 +1,11 @@
 //! The plugin host, running the test plugin (`src/bin/test-plugin`: loclib-plugin's echo
 //! example, and what these tests need besides) as a child process, on a fixture drive.
 
+mod accounts;
 mod blobs;
 mod callbacks;
 mod choose;
+mod destinations;
 mod hooks;
 mod net;
 mod props;

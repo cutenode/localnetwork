@@ -23,7 +23,9 @@ pub struct Feature {
 /// Every feature this side knows, in the order `hello` lists them (a family's placed as
 /// `crate::hooks` says).
 pub const FEATURES: &[Feature] = &[
+    hooks::accounts::FEATURE,
     hooks::commands::FEATURE,
+    hooks::destinations::FEATURE,
     hooks::operations::FEATURE,
     hooks::analyzers::FEATURE,
     hooks::exporters::FEATURE,

@@ -443,6 +443,22 @@ impl Slot {
         shown: &dyn Fn(Partial),
         read: impl FnOnce(R, &Scratch, &Live) -> Result<T>,
     ) -> Result<T> {
+        self.call_giving(method, params, &[], store, ctx, shown, read)
+    }
+
+    /// [`Slot::call_with`], the files `given` (by name, their bytes) written to the scratch
+    /// folder first, for the request to name: it fails without one.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn call_giving<R: DeserializeOwned, T>(
+        self: &Arc<Self>,
+        method: &str,
+        params: &impl Serialize,
+        given: &[(&str, &[u8])],
+        store: Option<&Store>,
+        ctx: &Ctx<'_>,
+        shown: &dyn Fn(Partial),
+        read: impl FnOnce(R, &Scratch, &Live) -> Result<T>,
+    ) -> Result<T> {
         ctx.check()?;
         let p = self.start(store)?;
         let _busy = Busy::new(&p);
@@ -450,6 +466,13 @@ impl Slot {
             true => p.live.scratches.make(&p.scratch)?,
             false => p.live.scratches.none(),
         };
+        for (name, bytes) in given {
+            let dir = scratch
+                .dir()
+                .ok_or_else(|| self.misbehaved("it has no scratch folder for files (the blobs feature)"))?;
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).at(&path)?;
+        }
         let mut params = serde_json::to_value(params).map_err(|e| Error::invalid(e.to_string()))?;
         if let Some(dir) = scratch.dir() {
             params["context"]["scratch"] = Value::from(dir.to_string_lossy().into_owned());

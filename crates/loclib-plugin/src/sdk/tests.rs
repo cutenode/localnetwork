@@ -11,8 +11,9 @@ use serde_json::json;
 
 use super::*;
 use crate::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, OpAnswer, OpPlan, Pending,
-    PlanOp, ProvideCandidates, RunCommand, View, WriteExport, code,
+    Analysis, AnalyzeTrack, Candidate, Candidates, DestinationKind, Exported, ExportedFile, FieldValue, HasBlobs,
+    Missing, OpAnswer, OpPlan, Pending, PlanOp, ProvideCandidates, PublishSet, Published, RunCommand, View,
+    WriteExport, code,
 };
 
 #[path = "../../examples/echo/plugin.rs"]
@@ -96,7 +97,18 @@ fn hello_answers_who_the_plugin_is_and_ignores_unknown_features() {
     let reply: HelloReply = s.host.request(method::HELLO, &hello("0.2.7", &["telepathy"])).unwrap();
     let plugin = PluginInfo { id: "echo".into(), version: "0.1.0".into() };
     // And the SDK's own.
-    let features = ["commands", "operations", "analyzers", "exporters", "providers", "blobs", "net", "choose"];
+    let features = [
+        "accounts",
+        "commands",
+        "destinations",
+        "operations",
+        "analyzers",
+        "exporters",
+        "providers",
+        "blobs",
+        "net",
+        "choose",
+    ];
     let features = features.map(String::from).to_vec();
     assert_eq!(reply, HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features });
     let again = s.call(method::HELLO, hello(PROTOCOL_VERSION, &[])).unwrap_err();
@@ -277,6 +289,34 @@ fn a_provider_answers_candidates_of_its_kind() {
     s.stop();
 }
 
+/// A destination answers for its kind alone: echo's store has nothing yet, and its set
+/// destination says what it would publish, then where it did.
+#[test]
+fn a_destination_answers_for_its_kind() {
+    let s = greeted(echo::hooks());
+    let hash = "ab".repeat(32);
+    let missing: Missing =
+        s.host.request(method::BLOBS_HAS, &json!({ "destination": "folder", "hashes": [hash] })).unwrap();
+    assert_eq!(missing.missing, std::slice::from_ref(&hash));
+    let recording = if cfg!(windows) { "C:\\set.wav" } else { "/set.wav" };
+    let set = json!({ "id": "3m4n", "date": "2026-10-03" });
+    let publish = |dry_run: bool| {
+        let req = json!({ "destination": "nowhere", "set": set, "recording": recording, "tracklist": [{}, {}], "dry_run": dry_run });
+        s.host.request::<_, Published>(method::SET_PUBLISH, &req)
+    };
+    assert_eq!(publish(true).unwrap(), Published { url: None, warnings: vec!["2 tracks would be published".into()] });
+    assert_eq!(publish(false).unwrap().url.as_deref(), Some("https://sets.example/3m4n"));
+    let e = s.call(method::BLOBS_HAS, json!({ "destination": "nowhere", "hashes": [] })).unwrap_err();
+    assert_eq!(
+        (e.code, e.message.as_str()),
+        (code::INVALID_PARAMS, "invalid params: nowhere isn't a store destination")
+    );
+    let req = json!({ "destination": "folder", "set": set, "recording": recording, "tracklist": [] });
+    let e = s.call(method::SET_PUBLISH, req).unwrap_err();
+    assert_eq!((e.code, e.message.as_str()), (code::INVALID_PARAMS, "invalid params: folder isn't a set destination"));
+    s.stop();
+}
+
 #[test]
 fn hooks_run_only_for_what_the_manifest_declares() {
     let s = greeted(echo::hooks());
@@ -305,7 +345,7 @@ fn hooks_run_only_for_what_the_manifest_declares() {
 fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     let s = start(Hooks::new().on(echo::analyze_track));
     let reply: HelloReply = s.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["analyzers", "blobs", "net", "choose"]);
+    assert_eq!(reply.features, ["accounts", "analyzers", "blobs", "net", "choose"]);
     let track = json!({ "id": 1, "file_path": "/a.mp3", "audio_path": "/a.mp3" });
     for (method, params) in [
         (method::RUN_COMMAND, run("echo", json!({}), None)),
@@ -320,7 +360,7 @@ fn a_hook_the_plugin_doesnt_implement_isnt_found() {
     assert_eq!(e.kind(), Some("io"), "the one it has runs");
     let none = start(Hooks::new());
     let reply: HelloReply = none.host.request(method::HELLO, &hello(PROTOCOL_VERSION, &[])).unwrap();
-    assert_eq!(reply.features, ["blobs", "net", "choose"], "only the SDK's own");
+    assert_eq!(reply.features, ["accounts", "blobs", "net", "choose"], "only the SDK's own");
     none.stop();
     s.stop();
 }
@@ -434,12 +474,14 @@ fn closing_the_input_cancels_running_hooks() {
 // Properties.
 
 /// The hooks a request names, and what each declares its contributions by.
-const HOOKS: [(&str, &str); 5] = [
+const HOOKS: [(&str, &str); 7] = [
     (method::RUN_COMMAND, "command"),
     (method::ANALYZE_TRACK, "analyzer"),
     (method::WRITE_EXPORT, "exporter"),
     (method::PLAN_OP, "operation"),
     (method::PROVIDE, "provider"),
+    (method::BLOBS_HAS, "destination"),
+    (method::SET_PUBLISH, "destination"),
 ];
 
 /// A version the host might speak: mostly 0.x and 1.x, sometimes not a version at all.
@@ -475,7 +517,18 @@ fn hello_comes_first_and_then_the_plugin_describes_its_manifest(tc: TestCase) {
         vec!["describe", "command/run", "track/analyze", "export/write", "op/plan", "tracks.query", "shutdown"];
     let plugin = PluginInfo { id: manifest.id.clone(), version: manifest.version.clone() };
     // And the SDK's own.
-    let features = ["commands", "operations", "analyzers", "exporters", "providers", "blobs", "net", "choose"];
+    let features = [
+        "accounts",
+        "commands",
+        "destinations",
+        "operations",
+        "analyzers",
+        "exporters",
+        "providers",
+        "blobs",
+        "net",
+        "choose",
+    ];
     let features = features.map(String::from).to_vec();
     let greeting = HelloReply { protocol: PROTOCOL_VERSION.into(), plugin, features };
     let mut greeted = false;
@@ -576,7 +629,10 @@ fn answers() -> Hooks {
         });
         Ok(Candidates { candidates: found.collect(), warnings: Vec::new() })
     };
-    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide)
+    let has_blobs = |req: HasBlobs, _: &Host| Ok(Missing { missing: req.hashes });
+    let publish_set = |req: PublishSet, _: &Host| Ok(Published { url: Some(req.set.id), warnings: Vec::new() });
+    let hooks = Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide);
+    hooks.on(has_blobs).on(publish_set)
 }
 
 /// Hooks that panic, every one.
@@ -585,11 +641,13 @@ fn panics_everywhere() -> Hooks {
         panic!("a bug");
     }
     let hooks = Hooks::new().on(bug::<RunCommand, Value>).on(bug::<AnalyzeTrack, Analysis>);
-    hooks.on(bug::<WriteExport, Exported>).on(bug::<PlanOp, OpAnswer>).on(bug::<ProvideCandidates, Candidates>)
+    let hooks = hooks.on(bug::<WriteExport, Exported>).on(bug::<PlanOp, OpAnswer>);
+    hooks.on(bug::<ProvideCandidates, Candidates>).on(bug::<HasBlobs, Missing>).on(bug::<PublishSet, Published>)
 }
 
 /// Any hooks, run at once: one the plugin doesn't implement isn't found, whatever its params. The
-/// others answer only for a contribution the manifest declares (a provider, of its kind), with
+/// others answer only for a contribution the manifest declares (a provider or a destination, of
+/// its kind), with
 /// params that read: params that don't are refused saying where, an undeclared name saying what
 /// isn't declared, and one that panics still answers. The rest answer what the plugin does.
 #[hegel::test(test_cases = 25)]
@@ -602,16 +660,21 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
     };
     let manifest = echo_manifest();
     let c = &manifest.contributes;
-    let declared: [Vec<String>; 5] = [
+    let destinations: Vec<String> = c.destinations.iter().map(|x| x.name.clone()).collect();
+    let of_kind = |kind| c.destinations.iter().find(|x| x.kind == kind).map(|x| x.name.clone()).unwrap();
+    let (store, set) = (of_kind(DestinationKind::Store), of_kind(DestinationKind::Set));
+    let declared: [Vec<String>; 7] = [
         c.commands.iter().filter(|x| !["steps", "titles"].contains(&x.name.as_str())).map(|x| x.name.clone()).collect(),
         c.analyzers.iter().map(|x| x.name.clone()).collect(),
         c.exporters.iter().map(|x| x.format.clone()).collect(),
         c.operations.iter().map(|x| x.name.clone()).collect(),
         c.providers.iter().map(|x| x.name.clone()).collect(),
+        destinations.clone(),
+        destinations,
     ];
     let mut sent = Vec::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
-        let hook = tc.draw(gs::integers::<usize>().max_value(4));
+        let hook = tc.draw(gs::integers::<usize>().max_value(6));
         let (method, what) = HOOKS[hook];
         let name = match tc.draw(gs::booleans()) {
             true => tc.draw(gs::sampled_from(declared[hook].clone())),
@@ -636,11 +699,20 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 let plan = json!({ "summary": name, "warnings": [], "edits": [echoed] });
                 (json!({ "operation": name, "params": echoed }), plan)
             }
-            _ => {
+            4 => {
                 // Echo's provider gives tags.
                 let kind = tc.draw(gs::sampled_from(vec!["metadata", "artwork"]));
                 let found = json!({ "candidates": [{ "track": id, "score": 1.0, "source": name, "label": "" }] });
                 (json!({ "provider": name, "kind": kind, "tracks": [{ "id": id }] }), found)
+            }
+            5 => {
+                let hash = format!("{id:064x}");
+                (json!({ "destination": name, "hashes": [hash] }), json!({ "missing": [hash] }))
+            }
+            _ => {
+                let set = json!({ "id": format!("set{id}"), "date": "2026-10-03" });
+                let req = json!({ "destination": name, "set": set, "recording": output, "tracklist": [{}] });
+                (req, json!({ "url": format!("set{id}") }))
             }
         };
         // Params that don't read, and where `invalid_params` says they're wrong.
@@ -651,14 +723,22 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                 1 => (json!({ "analyzer": name, "track": { "id": "x" } }), Some("track.id")),
                 2 => (json!({ "exporter": name, "source": { "drive": "USB" } }), None),
                 3 => (json!({ "operation": [] }), Some("operation")),
-                _ => (json!({ "provider": name, "kind": "lyrics", "tracks": [] }), Some("kind")),
+                4 => (json!({ "provider": name, "kind": "lyrics", "tracks": [] }), Some("kind")),
+                5 => (json!({ "destination": name, "hashes": "all" }), Some("hashes")),
+                _ => (json!({ "destination": name, "set": { "id": 5 }, "recording": output }), Some("set.id")),
             },
         };
         let pending = s.host.send_request(method, &params).unwrap();
         let is_declared = declared[hook].contains(&name);
-        sent.push((method, what, name, is_declared, params, path, answer, pending));
+        // A destination of the other kind.
+        let other_kind = match hook {
+            5 => (name == set).then_some("store"),
+            6 => (name == store).then_some("set"),
+            _ => None,
+        };
+        sent.push((method, what, name, is_declared, other_kind, params, path, answer, pending));
     }
-    for (method, what, name, declared, params, path, answer, pending) in sent {
+    for (method, what, name, declared, other_kind, params, path, answer, pending) in sent {
         let got = pending.wait::<Value>();
         let malformed = path.is_some() || params.get("output").is_none() && method == method::WRITE_EXPORT;
         match got {
@@ -681,6 +761,10 @@ fn hooks_answer_only_for_what_the_manifest_declares(tc: TestCase) {
                     (e.code, e.message),
                     (code::INVALID_PARAMS, format!("invalid params: {name} provides no artwork"))
                 );
+            }
+            Err(e) if let Some(kind) = other_kind => {
+                let said = format!("invalid params: {name} isn't a {kind} destination");
+                assert_eq!((e.code, e.message), (code::INVALID_PARAMS, said));
             }
             Err(e) if plugin == "panics" => {
                 assert_eq!((e.code, e.message), (code::INTERNAL, format!("internal error while handling {method:?}")));

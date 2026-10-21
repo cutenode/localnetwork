@@ -543,9 +543,8 @@ impl Store {
         Ok(rec)
     }
 
-    /// Add a library another store has, keeping its id (see `crate::peers`). Refused when this
+    /// Add a library another store has, keeping its id (see `crate::catalog`). Refused when this
     /// store has a library of that id or name.
-    #[cfg(feature = "peers")]
     pub(crate) fn add_library(&self, id: Uuid, name: &str, head: Option<Hash>) -> Result<()> {
         let mut libs = self.libraries()?;
         if libs.iter().any(|l| l.id == id || l.name.eq_ignore_ascii_case(name)) {

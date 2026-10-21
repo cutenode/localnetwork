@@ -14,8 +14,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, Exported, ExportedFile, Fetch, FieldValue, Hooks,
-    Host, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, RpcError, RunCommand, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Candidate, Candidates, Choice, Context, Exported, ExportedFile, Fetch, FieldValue, GetBlob,
+    GetManifest, HasBlobs, Hooks, Host, ListItem, OpAnswer, OpPlan, PlanOp, ProvideCandidates, PublishSet, PutBlob,
+    PutManifest, RpcError, RunCommand, View, WriteExport, params,
 };
 use serde_json::{Value, json};
 
@@ -62,6 +63,41 @@ impl Test {
         if has("operations") {
             let test = test.clone();
             hooks = hooks.on(move |req: PlanOp, host: &Host| test.plan_op(req, host));
+        }
+        if has("destinations") {
+            // Echo's, each saying what it's asked in its log (`asked blobs/put <hash>`), and
+            // publishing as the `answer` setting says when it has one.
+            let said = |method: &str, what: &str| eprintln!("asked {method} {what}");
+            hooks = hooks
+                .on(move |req: HasBlobs, host: &Host| {
+                    said("blobs/has", &req.hashes.len().to_string());
+                    echo::has_blobs(req, host)
+                })
+                .on(move |req: PutBlob, host: &Host| {
+                    said("blobs/put", &req.hash);
+                    echo::put_blob(req, host)
+                })
+                .on(move |req: GetBlob, host: &Host| {
+                    said("blobs/get", &req.hash);
+                    echo::get_blob(req, host)
+                })
+                .on(move |req: PutManifest, host: &Host| {
+                    said("manifest/put", &req.name);
+                    echo::put_manifest(req, host)
+                })
+                .on(move |req: GetManifest, host: &Host| {
+                    said("manifest/get", &req.name);
+                    echo::get_manifest(req, host)
+                })
+                .on(move |req: PublishSet, host: &Host| {
+                    said("set/publish", &serde_json::to_string(&req).expect("a request is JSON"));
+                    match req.context.settings.get("answer").and_then(Value::as_str) {
+                        Some(answer) => {
+                            serde_json::from_str(answer).map_err(|e| RpcError::failed("invalid", e.to_string()))
+                        }
+                        None => echo::publish_set(req, host),
+                    }
+                });
         }
         if has("providers") {
             hooks = hooks.on(move |req: ProvideCandidates, host: &Host| test.provide(req, host));

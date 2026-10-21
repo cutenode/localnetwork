@@ -1,6 +1,7 @@
 //! The plugin host: plugins are programs locallibrary runs and talks to over their stdin and
 //! stdout ([`loclib_plugin`]'s protocol), adding commands, operations, track analyzers, exporters,
-//! providers and settings. The CLI, the TUI and the RPC sidecar host them through [`Plugins`].
+//! providers, accounts, destinations and settings. The CLI, the TUI and the RPC sidecar host them
+//! through [`Plugins`].
 //!
 //! Only plugins locallibrary ships run for now ([`PluginSpec::first_party`]): the app hands the
 //! host each one's manifest, compiled in, and how to start it (the locallibrary binary itself,
@@ -13,17 +14,23 @@
 //! Plugins never write to a drive. They read the library by calling back for the sidecar's read
 //! methods their capabilities grant, within limits (see [`Reads`]), and reach the servers their
 //! `net:` capabilities grant through the host (`net/fetch`), which fills in their secret settings
-//! (kept in the keychain); an operation's edits are planned and applied by the host as any edit
-//! plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
+//! (kept in the keychain) and their accounts' tokens (signed in to by the host, see
+//! [`Plugins::begin_sign_in`]); an operation's edits are planned and applied by the host as any
+//! edit plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
 //! Analyzers' values go to the [`crate::fields`] store. What providers find for tracks, the host
-//! offers the user and makes the edits of itself (see [`Plugins::provide`]).
+//! offers the user and makes the edits of itself (see [`Plugins::provide`]). A store destination
+//! keeps a copy of the store, which the host alone decides the content of and checks what it
+//! fetches back from ([`Plugins::store_destination`]); a set destination publishes a set once the
+//! user confirms, and the host keeps its link ([`Plugins::publish_plan`]).
 
+mod accounts;
 mod analyzers;
 mod apply;
 mod blobs;
 mod callbacks;
 mod commands;
+mod destinations;
 mod exports;
 mod net;
 mod operations;
@@ -47,11 +54,13 @@ use crate::fields::roles::{Offered, RoleField};
 use crate::keychain::Storage;
 use crate::{Error, Result};
 
+pub use accounts::{AccountStatus, REFRESH_BEFORE, SignIn, SignedOut};
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
 pub(crate) use blobs::abandoned as abandoned_scratch;
 pub use callbacks::Reads;
 pub use commands::CommandOutput;
+pub use destinations::{SetPublish, SetPublished, StoreDestination, destination_spec};
 pub use exports::{ExportFile, PluginExport};
 pub use operations::OpPlanned;
 pub use providers::{
@@ -159,6 +168,8 @@ impl Default for Options {
 /// The plugins the app has, by id.
 pub struct Plugins {
     plugins: IndexMap<String, Arc<Slot>>,
+    /// Sign-ins to plugins' accounts waiting for the browser.
+    signing_in: accounts::SigningIn,
 }
 
 impl Plugins {
@@ -186,7 +197,7 @@ impl Plugins {
             let id = m.id.clone();
             plugins.insert(id, Arc::new(Slot::new(spec.manifest, spec.launch, host.clone())));
         }
-        Ok(Plugins { plugins })
+        Ok(Plugins { plugins, signing_in: Default::default() })
     }
 
     /// Each plugin's manifest, in the order the app gave them.

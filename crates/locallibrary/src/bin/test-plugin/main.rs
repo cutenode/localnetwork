@@ -13,7 +13,9 @@
 //! other than echo's answers as its `answer` setting says (see `Test::provide`); an analyzer
 //! named `order` answers fields `a` (null for a one-byte audio file) then `b`, or fails naming an
 //! empty audio file; and its exporter names the playlists it's
-//! given in a note, and would write to `outside`, or writes `extra` too without saying so first.
+//! given in a note, and would write to `outside`, or writes `extra` too without saying so first;
+//! its destinations are echo's (a store kept in `destination/` where it runs, and a set published
+//! nowhere, or as its `answer` setting says), each request logged as `asked <method> <what>`.
 //! `--manifest <file>` serves another manifest, `--protocol <version>` answers `hello` with
 //! another protocol and stops, `--silent` never answers, `--wrong-fields` answers fields of the
 //! wrong type, and `--without <feature>` leaves out that feature's hooks, and the feature from

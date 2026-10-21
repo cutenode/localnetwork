@@ -1,10 +1,12 @@
 //! The echo plugin: one of each kind of contribution, doing as little as it can.
 
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use loclib_plugin::{
-    Analysis, AnalyzeTrack, Candidate, Candidates, Exported, ExportedFile, FieldValue, Hooks, Host, OpPlan, PlanOp,
-    ProvideCandidates, RpcError, RunCommand, TrackMetadata, TracksQuery, View, WriteExport, params,
+    Analysis, AnalyzeTrack, Blob, Candidate, Candidates, Context, Exported, ExportedFile, FieldValue, GetBlob,
+    GetManifest, Got, GotManifest, HasBlobs, Hooks, Host, Kept, Missing, OpPlan, PlanOp, ProvideCandidates, PublishSet,
+    Published, PutBlob, PutManifest, RpcError, RunCommand, TrackMetadata, TracksQuery, View, WriteExport, params,
 };
 use loclib_progress::{Event, Phase, Steps};
 use serde::Deserialize;
@@ -14,7 +16,8 @@ pub const MANIFEST: &str = include_str!("locallibrary-plugin.toml");
 
 /// Its hooks: one of each kind.
 pub fn hooks() -> Hooks {
-    Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide)
+    let hooks = Hooks::new().on(run_command).on(analyze_track).on(write_export).on(plan_op).on(provide);
+    hooks.on(has_blobs).on(put_blob).on(get_blob).on(put_manifest).on(get_manifest).on(publish_set)
 }
 
 #[derive(Deserialize)]
@@ -104,4 +107,79 @@ pub fn provide(req: ProvideCandidates, _: &Host) -> Result<Candidates, RpcError>
         }),
     });
     Ok(Candidates { candidates: candidates.collect(), warnings: Vec::new() })
+}
+
+/// Where its store destination keeps a stored file or a record of the store's, by name (`objects`
+/// or `manifests`): in `destination/` in the folder it runs in.
+fn kept(kind: &str, name: &str) -> Result<PathBuf, RpcError> {
+    let plain = Path::new(name).components().all(|c| matches!(c, std::path::Component::Normal(_)));
+    if name.is_empty() || !plain {
+        return Err(RpcError::failed("invalid", format!("{name:?} isn't a name it keeps things by")));
+    }
+    Ok(Path::new("destination").join(kind).join(name))
+}
+
+fn io(e: std::io::Error) -> RpcError {
+    RpcError::failed("io", e.to_string())
+}
+
+/// Copies `from` to `to`, making `to`'s folder first.
+fn copy(from: &Path, to: &Path) -> Result<(), RpcError> {
+    std::fs::create_dir_all(to.parent().unwrap_or(Path::new("."))).map_err(io)?;
+    std::fs::copy(from, to).map(drop).map_err(io)
+}
+
+/// The request's scratch folder.
+fn scratch(context: &Context) -> Result<&Path, RpcError> {
+    context.scratch.as_deref().ok_or_else(|| RpcError::failed("invalid", "no scratch folder"))
+}
+
+/// `blobs/has`.
+pub fn has_blobs(req: HasBlobs, _: &Host) -> Result<Missing, RpcError> {
+    let mut missing = Vec::new();
+    for hash in req.hashes {
+        if !kept("objects", &hash)?.is_file() {
+            missing.push(hash);
+        }
+    }
+    Ok(Missing { missing })
+}
+
+/// `blobs/put`.
+pub fn put_blob(req: PutBlob, _: &Host) -> Result<Kept, RpcError> {
+    copy(&req.path, &kept("objects", &req.hash)?).map(|()| Kept {})
+}
+
+/// `blobs/get`.
+pub fn get_blob(req: GetBlob, _: &Host) -> Result<Got, RpcError> {
+    let from = kept("objects", &req.hash)?;
+    if !from.is_file() {
+        return Err(RpcError::failed("not_found", format!("it has no {}", req.hash)));
+    }
+    copy(&from, &scratch(&req.context)?.join(&req.hash))?;
+    Ok(Got { blob: Blob { blob: req.hash } })
+}
+
+/// `manifest/put`.
+pub fn put_manifest(req: PutManifest, _: &Host) -> Result<Kept, RpcError> {
+    copy(&scratch(&req.context)?.join(&req.blob.blob), &kept("manifests", &req.name)?).map(|()| Kept {})
+}
+
+/// `manifest/get`.
+pub fn get_manifest(req: GetManifest, _: &Host) -> Result<GotManifest, RpcError> {
+    let from = kept("manifests", &req.name)?;
+    if !from.is_file() {
+        return Ok(GotManifest { blob: None });
+    }
+    copy(&from, &scratch(&req.context)?.join("manifest"))?;
+    Ok(GotManifest { blob: Some(Blob { blob: "manifest".into() }) })
+}
+
+/// `set/publish`: nowhere, saying where.
+pub fn publish_set(req: PublishSet, _: &Host) -> Result<Published, RpcError> {
+    let tracks = req.tracklist.len();
+    if req.dry_run {
+        return Ok(Published { url: None, warnings: vec![format!("{tracks} tracks would be published")] });
+    }
+    Ok(Published { url: Some(format!("https://sets.example/{}", req.set.id)), warnings: Vec::new() })
 }

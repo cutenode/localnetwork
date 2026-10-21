@@ -62,6 +62,8 @@ pub mod artwork;
 pub mod atmosphere;
 pub mod audio_cache;
 pub mod backup;
+pub mod callback;
+pub mod catalog;
 pub mod check;
 pub mod clean;
 pub mod collection_export;

@@ -1461,6 +1461,9 @@ pub fn scrub_report(r: &ScrubReport) {
         Some(locallibrary::scrub::RepairSource::Drive { name, .. }) => {
             dim(format!(" (good copy on {name})")).to_string()
         }
+        Some(locallibrary::scrub::RepairSource::Destination { plugin, destination }) => {
+            dim(format!(" (good copy at {plugin}:{destination})")).to_string()
+        }
         None => String::new(),
     };
     let n = output::cap(20);
