@@ -230,6 +230,8 @@ pub enum Capability {
     TagsPlan,
     CuesPlan,
     ArtworkPlan,
+    /// Plan writing beat grids, phrases and waveforms into tracks' analysis files.
+    AnalysisPlan,
     /// Told of drives plugged in, unplugged, changed and saved into the store, and sets coming
     /// back (`event/notify`).
     EventsDrives,
@@ -245,7 +247,7 @@ pub enum Capability {
 
 impl Capability {
     /// Every capability but `net:<host>`.
-    pub const NAMED: [Capability; 19] = [
+    pub const NAMED: [Capability; 20] = [
         Capability::LibraryRead,
         Capability::AnalysisRead,
         Capability::ArtworkRead,
@@ -262,6 +264,7 @@ impl Capability {
         Capability::TagsPlan,
         Capability::CuesPlan,
         Capability::ArtworkPlan,
+        Capability::AnalysisPlan,
         Capability::EventsDrives,
         Capability::EventsJobs,
         Capability::EventsPlans,
@@ -286,6 +289,7 @@ impl Capability {
             Capability::TagsPlan => "tags:plan",
             Capability::CuesPlan => "cues:plan",
             Capability::ArtworkPlan => "artwork:plan",
+            Capability::AnalysisPlan => "analysis:plan",
             Capability::EventsDrives => "events:drives",
             Capability::EventsJobs => "events:jobs",
             Capability::EventsPlans => "events:plans",
@@ -584,6 +588,7 @@ impl Manifest {
                 return Err(invalid(at, format!("{cli:?} is used twice")));
             }
         }
+        hooks::analysis::validate(self)?;
         hooks::commands::validate(self)?;
         hooks::events::validate(self)?;
         hooks::operations::validate(self)?;

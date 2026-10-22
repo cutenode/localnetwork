@@ -79,7 +79,7 @@ fn images_are_staged_by_the_hash_of_their_jpeg(tc: TestCase) {
 
     let kept = tc.draw(gs::booleans());
     if kept {
-        let staged = staged_path(&device, &hash);
+        let staged = crate::staged::IMAGES.path(&device, &hash);
         std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
         std::fs::write(&staged, &jpeg).unwrap();
     }

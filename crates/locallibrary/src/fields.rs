@@ -8,11 +8,15 @@
 //! which versions they read: the plugin host's, those installed. A field may be null: worked out,
 //! with nothing to show (a field left out wasn't worked out).
 //!
+//! An analyzer's beat grid, phrases and waveform (structured fields) aren't columns: they're kept
+//! apart, in the [`overlay`] store.
+//!
 //! Filters and sorts name a field by its plugin's id and its own (`sound.bpm`): a plugin's
 //! analyzers never share a field name. [`TrackValues`] has a library's, for them. What
 //! locallibrary itself reads (a track's key, its tempo, its level) it reads by role, whichever
 //! analyzer has it ([`by_role`]).
 
+pub mod overlay;
 pub mod roles;
 
 use std::path::{Path, PathBuf};
@@ -28,6 +32,7 @@ use crate::{Error, Result, paths};
 
 /// One field's value, and the types a plugin's manifest declares.
 pub use loclib_plugin::{FieldType, FieldValue};
+pub use overlay::{Overlay, OverlayStore};
 pub use roles::{Role, by_role};
 
 /// An analyzer's fields for one track, by name.

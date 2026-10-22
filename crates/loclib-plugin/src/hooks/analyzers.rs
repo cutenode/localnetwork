@@ -141,10 +141,11 @@ impl FieldDisplay {
     /// The widest a column is.
     pub const MAX_WIDTH: u16 = 40;
 
-    /// `value` as hosts show it, by these hints: null is `-` (worked out, nothing to show).
+    /// `value` as hosts show it, by these hints: null is `-` (worked out, nothing to show), and so
+    /// is a beat grid, phrases or a waveform, which no column shows.
     pub fn show(&self, value: &FieldValue) -> String {
         let n = match value {
-            FieldValue::Null => return "-".into(),
+            FieldValue::Null | FieldValue::Structured(_) => return "-".into(),
             FieldValue::Boolean(b) => return if *b { "yes" } else { "no" }.into(),
             FieldValue::String(s) => return self.with_unit(s.clone()),
             FieldValue::Strings(all) => return self.with_unit(all.join(", ")),
@@ -286,11 +287,23 @@ pub enum FieldType {
     Boolean,
     #[serde(rename = "string[]")]
     Strings,
+    /// A beat grid (feature `analysis`, see [`crate::Output`]).
+    #[serde(rename = "beats")]
+    Beats,
+    /// A song structure: the mood and the phrases (feature `analysis`).
+    #[serde(rename = "phrases")]
+    Phrases,
+    /// A waveform in three bands, in a blob (feature `analysis`).
+    #[serde(rename = "waveform")]
+    Waveform,
 }
 
 impl FieldType {
     /// Whether `value` is one of these (an integer is a number too), or null.
     pub fn accepts(self, value: &FieldValue) -> bool {
+        if self.is_structured() {
+            return crate::Output::of(self, value).is_ok();
+        }
         matches!(
             (self, value),
             (_, FieldValue::Null)
@@ -300,6 +313,11 @@ impl FieldType {
                 | (FieldType::Boolean, FieldValue::Boolean(_))
                 | (FieldType::Strings, FieldValue::Strings(_))
         )
+    }
+
+    /// A beat grid, phrases or a waveform: kept apart from the columns (see [`crate::Output`]).
+    pub fn is_structured(self) -> bool {
+        matches!(self, FieldType::Beats | FieldType::Phrases | FieldType::Waveform)
     }
 }
 
@@ -315,6 +333,11 @@ pub enum FieldValue {
     String(String),
     Strings(Vec<String>),
     Null,
+    /// A beat grid, phrases or a waveform (feature `analysis`), as JSON: what [`crate::Output`]
+    /// reads. Made with [`FieldValue::beats`], [`FieldValue::phrases`] and
+    /// [`FieldValue::waveform`]; never a column.
+    #[schemars(skip)]
+    Structured(serde_json::Value),
 }
 
 /// An analyzer's version, which names a folder: letters, digits, `.`, `_`, `+` and `-`, not

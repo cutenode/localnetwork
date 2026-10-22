@@ -1004,7 +1004,9 @@ fn display(tc: &TestCase, kind: FieldType) -> FieldDisplay {
         FieldType::Number | FieldType::Integer => {
             vec![FieldFormat::Duration, FieldFormat::Db, FieldFormat::Percent, FieldFormat::Meter]
         }
-        FieldType::Boolean | FieldType::Strings => Vec::new(),
+        FieldType::Boolean | FieldType::Strings | FieldType::Beats | FieldType::Phrases | FieldType::Waveform => {
+            Vec::new()
+        }
     };
     let format = match formats.is_empty() {
         true => None,
@@ -1090,8 +1092,16 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
     // Each analyzer a field of its own at least, and the rest shared out.
     let names = drawn_names(tc, 3);
     let n = names.len();
-    let field_types =
-        vec![FieldType::Number, FieldType::Integer, FieldType::String, FieldType::Boolean, FieldType::Strings];
+    let field_types = vec![
+        FieldType::Number,
+        FieldType::Integer,
+        FieldType::String,
+        FieldType::Boolean,
+        FieldType::Strings,
+        FieldType::Beats,
+        FieldType::Phrases,
+        FieldType::Waveform,
+    ];
     let fields = tc.draw(gs::vecs(gs::from_regex(DRAWN_NAME)).min_size(n).max_size(n * 3).unique(true));
     let mut fields = fields.into_iter();
     let mut analyzers: Vec<Analyzer> = names
@@ -1108,7 +1118,12 @@ fn manifest(tc: &TestCase, first_party: bool) -> Manifest {
         .collect();
     for field in fields {
         let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
-        analyzers[i].fields.insert(field, tc.draw(gs::sampled_from(field_types.clone())));
+        let mut kind = tc.draw(gs::sampled_from(field_types.clone()));
+        // A structured field of each type at most.
+        if kind.is_structured() && analyzers[i].fields.values().any(|t| *t == kind) {
+            kind = FieldType::String;
+        }
+        analyzers[i].fields.insert(field, kind);
     }
     // Some roles for each, each from one of its fields of the role's type, and how some of its
     // fields are shown.
@@ -1440,6 +1455,7 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
         "no fields",
         "field name",
         "field twice",
+        "structured twice",
         "role field",
         "role type",
         "file or folder",
@@ -1716,6 +1732,19 @@ fn each_kind_of_mistake_is_refused_saying_where(tc: TestCase) {
                     (format!("contributes.analyzers[{i}].fields.{field}: another analyzer has this field"), false)
                 }
             }
+        }
+        "structured twice" => {
+            add(c, "analyzers", 1);
+            let i = index(&tc, c.analyzers.len());
+            let kind = tc.draw(gs::sampled_from(vec![FieldType::Beats, FieldType::Phrases, FieldType::Waveform]));
+            let fields = &mut c.analyzers[i].fields;
+            // Longer than any drawn name, so none of the analyzers' fields.
+            fields.insert("added-structured-1".into(), kind);
+            fields.insert("added-structured-2".into(), kind);
+            let second = fields.iter().filter(|(_, t)| **t == kind).nth(1).map(|(f, _)| f.clone()).unwrap();
+            let named = serde_json::to_value(kind).unwrap();
+            let said = format!("another field is its {} already", named.as_str().unwrap());
+            (format!("contributes.analyzers[{i}].fields.{second}: {said}"), false)
         }
         "role field" | "role type" => {
             add(c, "analyzers", 1);
@@ -2140,12 +2169,13 @@ fn without_a_schema_params_are_any_object(tc: TestCase) {
 /// One of each kind of field value.
 #[hegel::test_helper]
 fn field_value(tc: &TestCase) -> FieldValue {
-    match tc.draw(gs::integers::<u8>().max_value(5)) {
+    match tc.draw(gs::integers::<u8>().max_value(6)) {
         0 => FieldValue::Integer(tc.draw(gs::integers())),
         1 => FieldValue::Number(tc.draw(gs::floats::<f64>().allow_nan(false).allow_infinity(false))),
         2 => FieldValue::Boolean(tc.draw(gs::booleans())),
         3 => FieldValue::String(tc.draw(gs::text())),
         4 => FieldValue::Strings(tc.draw(gs::vecs(gs::text()).max_size(3))),
+        5 => FieldValue::Structured(json!({ "of": tc.draw(gs::integers::<i64>()) })),
         _ => FieldValue::Null,
     }
 }
@@ -2164,11 +2194,63 @@ fn a_value_fits_its_field_type_alone(tc: TestCase) {
         FieldValue::String(_) => Some(FieldType::String),
         FieldValue::Strings(_) => Some(FieldType::Strings),
         FieldValue::Null => None,
+        // What none of these hold.
+        FieldValue::Structured(_) => Some(FieldType::Beats),
     };
     for kind in [FieldType::Number, FieldType::Integer, FieldType::String, FieldType::Boolean, FieldType::Strings] {
         let fits = own.is_none_or(|own| kind == own || (kind, own) == (FieldType::Number, FieldType::Integer));
         assert_eq!(kind.accepts(&value), fits, "{kind:?} {value:?}");
     }
+}
+
+/// A beat grid, phrases or a waveform made for a field fits that field's type alone (and null
+/// fits each, as nothing to report; an empty grid is an empty list of strings too), reads back
+/// from JSON as the same, and is what [`crate::Output`] reads; a waveform needs columns a second.
+#[hegel::test(test_cases = 100)]
+fn structured_values_fit_their_type_alone(tc: TestCase) {
+    use loclib_model::analysis::{Beat, Mood, Phrase, PhraseKind, SongStructure};
+    let n = tc.draw(gs::integers::<usize>().max_value(4));
+    let beats: Vec<Beat> =
+        (0..n).map(|i| Beat { beat_number: tc.draw(gs::integers::<u16>()), bpm: 120.5, time_ms: i as u32 }).collect();
+    let phrases = SongStructure {
+        mood: Mood::Low,
+        phrases: vec![Phrase { kind: PhraseKind::Verse(2), start_beat: 1, end_beat: 9, fill_beat: Some(5) }],
+    };
+    let rate = tc.draw(gs::floats::<f64>().allow_nan(false).allow_infinity(false));
+    let given = [
+        (FieldType::Beats, FieldValue::beats(&beats), Some(crate::Output::Beats(beats))),
+        (FieldType::Phrases, FieldValue::phrases(&phrases), Some(crate::Output::Phrases(phrases))),
+        (
+            FieldType::Waveform,
+            FieldValue::waveform("w.bands", rate),
+            (rate > 0.0).then(|| {
+                crate::Output::Waveform(crate::WaveformBlob { blob: "w.bands".into(), columns_per_sec: rate })
+            }),
+        ),
+    ];
+    let all = [
+        FieldType::Number,
+        FieldType::Integer,
+        FieldType::String,
+        FieldType::Boolean,
+        FieldType::Strings,
+        FieldType::Beats,
+        FieldType::Phrases,
+        FieldType::Waveform,
+    ];
+    for (own, value, output) in given {
+        let json = serde_json::to_string(&value).unwrap();
+        let back: FieldValue = serde_json::from_str(&json).unwrap();
+        assert_eq!(crate::Output::of(own, &back), crate::Output::of(own, &value), "{json}");
+        assert_eq!(crate::Output::of(own, &value).ok().flatten(), output);
+        for kind in all {
+            let fits = (kind == own && output.is_some()) || (kind == FieldType::Strings && json == "[]");
+            assert_eq!(kind.accepts(&back), fits, "{kind:?} {back:?}");
+            assert!(kind.accepts(&FieldValue::Null));
+        }
+        assert_eq!(crate::Output::of(own, &FieldValue::Null), Ok(None));
+    }
+    assert!(crate::Output::of(FieldType::Number, &FieldValue::Integer(1)).is_err());
 }
 
 /// A setting takes a value of its type (an enum, one of its choices; a secret, text that isn't
@@ -2216,6 +2298,7 @@ fn capabilities_read_back_from_their_names_and_nothing_else(tc: TestCase) {
         "tags:plan",
         "cues:plan",
         "artwork:plan",
+        "analysis:plan",
         "events:drives",
         "events:jobs",
         "events:plans",

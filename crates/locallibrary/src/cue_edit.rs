@@ -439,12 +439,17 @@ struct Loaded {
 
 /// `.../ANLZ0000.DAT` -> `.../ANLZ0000.EXT`.
 fn ext_key(dat: &str) -> Option<String> {
-    let stem =
-        dat.len().checked_sub(4).filter(|&i| dat.is_char_boundary(i) && dat[i..].eq_ignore_ascii_case(".DAT"))?;
-    Some(format!("{}.EXT", &dat[..stem]))
+    sibling_key(dat, "EXT")
 }
 
-fn read_optional(device: &Device, key: &str) -> Result<Option<Vec<u8>>> {
+/// `.../ANLZ0000.DAT` -> `.../ANLZ0000.<ext>`.
+pub(crate) fn sibling_key(dat: &str, ext: &str) -> Option<String> {
+    let stem =
+        dat.len().checked_sub(4).filter(|&i| dat.is_char_boundary(i) && dat[i..].eq_ignore_ascii_case(".DAT"))?;
+    Some(format!("{}.{ext}", &dat[..stem]))
+}
+
+pub(crate) fn read_optional(device: &Device, key: &str) -> Result<Option<Vec<u8>>> {
     let p = device.checked_path(key)?;
     match std::fs::read(&p) {
         Ok(b) => Ok(Some(b)),

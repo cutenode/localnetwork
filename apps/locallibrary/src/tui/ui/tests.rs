@@ -187,6 +187,7 @@ fn draws_every_pane_and_dialog_at_any_size() {
         drive: "TEST".into(),
         root: l.root().to_path_buf(),
         analysis: Default::default(),
+        from_plugins: None,
         art: None,
         duration: std::time::Duration::from_secs(300),
         phrases: Vec::new(),

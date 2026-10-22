@@ -1,8 +1,8 @@
 //! Plugins' operations (`op/plan`): a plugin answers edits, which the host plans as one edit plan
 //! on the drive the user is on, and applies as it applies any (locked, checked against the drive
 //! and the files the plugin read as planned, backed up first and journaled). The plugin never
-//! writes to the drive. An image an edit gives is a file in the request's scratch folder
-//! (`{"blob": "cover.jpg"}`), which the host reads as it plans. It may answer a question for the
+//! writes to the drive. An image or a waveform an edit gives is a file in the request's scratch
+//! folder (`{"blob": "cover.jpg"}`), which the host reads as it plans. It may answer a question for the
 //! user instead (`{"choose": ...}`, the `choose` feature), after which the host plans it again with
 //! what was chosen.
 
@@ -17,6 +17,7 @@ use serde_json::Value;
 use super::Plugins;
 use super::blobs::Scratch;
 use super::process::{Live, Slot};
+use crate::analysis_edit::WaveSource;
 use crate::api;
 use crate::artwork::ImageSource;
 use crate::edit::{self, Edit, EditOptions, EditPlan};
@@ -141,8 +142,8 @@ impl Slot {
     }
 
     /// The plugin's edit `i`, once it may make it: one the host can read, of a kind its
-    /// capabilities grant, and giving an image only as a file in `scratch`, which the host reads
-    /// as it plans.
+    /// capabilities grant, and giving an image or a waveform only as a file in `scratch`, which
+    /// the host reads as it plans.
     fn edit(&self, i: usize, edit: Value, scratch: &Scratch) -> Result<Edit> {
         let mut edit: Edit =
             serde_json::from_value(edit).map_err(|e| self.misbehaved(format!("its edit {i} isn't one: {e}")))?;
@@ -150,22 +151,41 @@ impl Slot {
             Edit::MyTag(_) => Capability::TagsPlan,
             Edit::Cues { .. } => Capability::CuesPlan,
             Edit::SetArtwork { .. } => Capability::ArtworkPlan,
+            Edit::SetAnalysis { .. } => Capability::AnalysisPlan,
             _ => Capability::LibraryPlan,
         };
         if !self.manifest.capabilities.contains(&needs) {
             return Err(self.misbehaved(format!("its edit {i} needs the {needs} capability, which it doesn't have")));
         }
-        if let Edit::SetArtwork { image, .. } = &mut edit {
-            let ImageSource::Blob(name) = image else {
+        // A file named in its scratch folder, read now: the plugin can't change it once it's
+        // checked.
+        let blob = |what: &str, given: Option<&str>| -> Result<String> {
+            let Some(name) = given else {
                 return Err(self.misbehaved(format!(
-                    "its edit {i} gives an image otherwise than as a file in its scratch folder ({{\"blob\": name}})"
+                    "its edit {i} gives {what} otherwise than as a file in its scratch folder ({{\"blob\": name}})"
                 )));
             };
             let mut bytes = Vec::new();
             let read = scratch.blob(name).and_then(|mut f| f.read_to_end(&mut bytes).map_err(|e| e.to_string()));
             read.map_err(|why| self.misbehaved(format!("its edit {i}: {why}")))?;
-            // Its bytes, read now: the plugin can't change the file it named once it's checked.
-            *image = ImageSource::Base64(BASE64_STANDARD.encode(bytes));
+            Ok(BASE64_STANDARD.encode(bytes))
+        };
+        match &mut edit {
+            Edit::SetArtwork { image, .. } => {
+                let name = match image {
+                    ImageSource::Blob(name) => Some(name.as_str()),
+                    _ => None,
+                };
+                *image = ImageSource::Base64(blob("an image", name)?);
+            }
+            Edit::SetAnalysis { analysis, .. } if analysis.waveform.is_some() => {
+                let name = match &analysis.waveform {
+                    Some(WaveSource::Blob(name)) => Some(name.as_str()),
+                    _ => None,
+                };
+                analysis.waveform = Some(WaveSource::Base64(blob("a waveform", name)?));
+            }
+            _ => {}
         }
         Ok(edit)
     }

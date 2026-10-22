@@ -147,11 +147,11 @@ impl CueFile {
     }
 }
 
-fn put_u16(b: &mut [u8], o: usize, v: u16) {
+pub(super) fn put_u16(b: &mut [u8], o: usize, v: u16) {
     b[o..o + 2].copy_from_slice(&v.to_be_bytes());
 }
 
-fn put_u32(b: &mut [u8], o: usize, v: u32) {
+pub(super) fn put_u32(b: &mut [u8], o: usize, v: u32) {
     b[o..o + 4].copy_from_slice(&v.to_be_bytes());
 }
 

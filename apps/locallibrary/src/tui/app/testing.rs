@@ -218,6 +218,7 @@ pub fn playing(analysis: TrackAnalysis) -> (App, TempDir) {
         drive: "TEST".into(),
         root,
         analysis,
+        from_plugins: None,
         art: None,
         duration: Duration::from_secs(300),
         phrases: Vec::new(),

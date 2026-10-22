@@ -662,6 +662,21 @@ export type Edit =
     tracks: TrackSelector;
     image: ImageSource;
     op: "set_artwork";
+  }
+  /**
+   * Write a beat grid, phrases or a waveform into the analysis files of the track of this
+   * audio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the
+   * track's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the
+   * drive.
+   */
+  | {
+    track: string;
+    /** The beat grid: each beat's number in its bar (1-4), the tempo there and its time. */
+    beats?: Beat[] | null;
+    /** The phrases, named as the track's mood names them. */
+    phrases?: SongStructure | null;
+    waveform?: WaveSource | null;
+    op: "set_analysis";
   };
 
 /**
@@ -861,6 +876,61 @@ export type ImageSource =
 
 /** A BLAKE3 hash, as 64 lowercase hex characters. */
 export type Hash = string;
+
+export type Beat = {
+  /** Position in the bar, 1-4. */
+  beat_number: number;
+  bpm: number;
+  time_ms: number;
+};
+
+/** rekordbox's phrase analysis (`PSSI`, in `.EXT`). */
+export type SongStructure = {
+  mood: Mood;
+  phrases: Phrase[];
+};
+
+/** rekordbox's overall classification of a track, which decides how phrases are named. */
+export type Mood = "high" | "mid" | "low";
+
+export type Phrase = {
+  kind: PhraseKind;
+  /** 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`. */
+  start_beat: number;
+  end_beat: number;
+  /** Beat where a fill-in leads into the next phrase. */
+  fill_beat?: number | null;
+};
+
+export type PhraseKind =
+  | ("intro" | "bridge" | "chorus" | "outro")
+  /** Build-ups, in high-mood tracks. */
+  | "up"
+  /** Breakdowns, in high-mood tracks. */
+  | "down"
+  | {
+    verse: number;
+  }
+  | {
+    unknown: number;
+  };
+
+/**
+ * A waveform an analysis edit writes: three bands, each column's lows, mids and highs (0-255),
+ * 150 columns a second ([`Bands`]), from which each of the track's waveform tags is worked out.
+ */
+export type WaveSource =
+  /** The bands packed (three bytes a column), in base64. */
+  | {
+    base64: string;
+  }
+  /**
+   * Staged on the drive (`.locallibrary/waveforms/<hash>.bands`), by its hash: how the journal
+   * records the others.
+   */
+  | {
+    staged: Hash;
+  };
 
 export type ClearEdits = {
   drive: string;
@@ -2176,6 +2246,29 @@ export type SetPluginSetting = {
   value?: unknown;
 };
 
+/** What to write to a drive's tracks' analysis files, from what one analyzer kept. */
+export type ApplyAnalysis = {
+  plugin: string;
+  analyzer: string;
+  /** The library or drive whose tracks to write to. */
+  drive: string;
+  /** What to write, which the analyzer must work out: `grid`, `phrases`, `waveform`. */
+  parts: AnalysisPart[];
+  /** Only these tracks, by id [default: every one]. */
+  tracks?: number[] | null;
+  /** Also over what a track's analysis files have: without it, only where they have none. */
+  overwrite?: boolean;
+};
+
+/** A part of a track's analysis an analyzer can work out. */
+export type AnalysisPart =
+  /** The beat grid (a `beats` field). */
+  | "grid"
+  /** The phrases (a `phrases` field). */
+  | "phrases"
+  /** The waveform (a `waveform` field). */
+  | "waveform";
+
 export type RunPluginCommand = {
   plugin: string;
   command: string;
@@ -2905,13 +2998,6 @@ export type AnalysisView = {
   structure: SongStructure | null;
 };
 
-export type Beat = {
-  /** Position in the bar, 1-4. */
-  beat_number: number;
-  bpm: number;
-  time_ms: number;
-};
-
 export type Cue = {
   /** `None` for memory cues; `Some(0)` = hot cue A, `Some(1)` = B, ... */
   hot_cue: number | null;
@@ -2951,7 +3037,12 @@ export type WaveformStyle =
   /** Monochrome blue, older players (`PWAV`, `PWV3`). */
   | "blue"
   /** Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`). */
-  | "rgb";
+  | "rgb"
+  /**
+   * Lows, mids and highs drawn over one another, the CDJ-3000's (`PWV6`, `PWV7`), and what
+   * analyzer plugins give ([`Bands`]).
+   */
+  | "three_band";
 
 /** One column of a waveform: a back layer and a (shorter, brighter) front layer drawn over it. */
 export type WaveColumn = {
@@ -2987,36 +3078,26 @@ export type PackedLayer = {
   colors: string;
 };
 
-/** rekordbox's phrase analysis (`PSSI`, in `.EXT`). */
-export type SongStructure = {
-  mood: Mood;
-  phrases: Phrase[];
+/**
+ * Something a front end can offer to resolve an error: call a method, or send the request that
+ * failed again with some parameters added (`method` absent), or again with administrator rights.
+ */
+export type Action = {
+  /** What a button offering it says. */
+  label: string;
+  /**
+   * The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,
+   * with `params` added to its own.
+   */
+  method?: string | null;
+  /**
+   * The parameters: the method's, or the ones to add to the request that failed. `null`
+   * means a value the user has to give (a name, a path).
+   */
+  params: { [key: string]: unknown };
+  /** Run it with administrator rights (restart the sidecar elevated first). */
+  elevate?: boolean;
 };
-
-/** rekordbox's overall classification of a track, which decides how phrases are named. */
-export type Mood = "high" | "mid" | "low";
-
-export type Phrase = {
-  kind: PhraseKind;
-  /** 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`. */
-  start_beat: number;
-  end_beat: number;
-  /** Beat where a fill-in leads into the next phrase. */
-  fill_beat: number | null;
-};
-
-export type PhraseKind =
-  | ("intro" | "bridge" | "chorus" | "outro")
-  /** Build-ups, in high-mood tracks. */
-  | "up"
-  /** Breakdowns, in high-mood tracks. */
-  | "down"
-  | {
-    verse: number;
-  }
-  | {
-    unknown: number;
-  };
 
 export type TracksAnalysis = {
   /** In the order asked for. */
@@ -3180,25 +3261,13 @@ export type DiffEntry = {
   position: number;
 };
 
-/**
- * Something a front end can offer to resolve an error: call a method, or send the request that
- * failed again with some parameters added (`method` absent), or again with administrator rights.
- */
-export type Action = {
-  /** What a button offering it says. */
-  label: string;
-  /**
-   * The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,
-   * with `params` added to its own.
-   */
-  method?: string | null;
-  /**
-   * The parameters: the method's, or the ones to add to the request that failed. `null`
-   * means a value the user has to give (a name, a path).
-   */
-  params: { [key: string]: unknown };
-  /** Run it with administrator rights (restart the sidecar elevated first). */
-  elevate?: boolean;
+export type PhraseOutput = {
+  kind: PhraseKind;
+  /** 1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`. */
+  start_beat: number;
+  end_beat: number;
+  /** Beat where a fill-in leads into the next phrase. */
+  fill_beat: number | null;
 };
 
 /** What putting a backup back would change. */
@@ -4293,6 +4362,21 @@ export type EditOutput =
     tracks: TrackSelector;
     image: ImageSource;
     op: "set_artwork";
+  }
+  /**
+   * Write a beat grid, phrases or a waveform into the analysis files of the track of this
+   * audio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the
+   * track's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the
+   * drive.
+   */
+  | {
+    track: string;
+    /** The beat grid: each beat's number in its bar (1-4), the tempo there and its time. */
+    beats?: Beat[] | null;
+    /** The phrases, named as the track's mood names them. */
+    phrases?: SongStructure | null;
+    waveform?: WaveSource | null;
+    op: "set_analysis";
   };
 
 /** A track none of the players play that packing leaves as it is. */
@@ -7685,7 +7769,14 @@ export type Analyzer = {
   display?: { [key: string]: FieldDisplay };
 };
 
-export type FieldType = "number" | "integer" | "string" | "boolean" | "string[]";
+export type FieldType =
+  | ("number" | "integer" | "string" | "boolean" | "string[]")
+  /** A beat grid (feature `analysis`, see [`crate::Output`]). */
+  | "beats"
+  /** A song structure: the mood and the phrases (feature `analysis`). */
+  | "phrases"
+  /** A waveform in three bands, in a blob (feature `analysis`). */
+  | "waveform";
 
 /**
  * How hosts show a field's values, each part optional. Without them a number shows to two
@@ -9092,6 +9183,10 @@ export interface Methods {
   "plugins.settings": { params: PluginRef; result: Settings };
   /** immediate method */
   "plugins.settings.set": { params: SetPluginSetting & WriteOptions; result: Settings };
+  /** plan method; paired with `plugins.apply_analysis.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.apply_analysis.plan": { params: ApplyAnalysis & WriteOptions; result: EditPlan & PlanFields };
+  /** apply method; paired with `plugins.apply_analysis.plan`; long running: sends `progress`, can be cancelled; can delete or overwrite something */
+  "plugins.apply_analysis.apply": { params: ApplyPlan | (ApplyAnalysis & WriteOptions); result: EditReport };
   /** read method; long running: sends `progress`, can be cancelled */
   "plugins.run": { params: RunPluginCommand; result: CommandOutput };
   /** plan method; paired with `plugins.op.apply`; long running: sends `progress`, can be cancelled; can delete or overwrite something */

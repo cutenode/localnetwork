@@ -1370,14 +1370,6 @@ fn pct(x: f64) -> String {
     format!("{:.0}%", x * 100.0)
 }
 
-fn and_list(names: &[&str]) -> String {
-    match names {
-        [] => String::new(),
-        [a] => a.to_string(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
-    }
-}
-
 /// "122–128 BPM" (or "128 BPM").
 pub fn bpm_range(lo: f64, hi: f64) -> String {
     let (lo, hi) = (lo.round(), hi.round());
@@ -1391,7 +1383,7 @@ pub fn headline(r: &ProfileReport, shows: impl Fn(Section) -> bool, count: impl 
     let mut parts = Vec::new();
     let genres: Vec<&str> = r.genres.top.iter().filter(|s| s.share >= 0.1).take(2).map(|s| s.name.as_str()).collect();
     if !genres.is_empty() && shows(Section::Genres) {
-        parts.push(and_list(&genres));
+        parts.push(crate::op::and_list(&genres));
     }
     if let Some(core) = r.tempo.core
         && shows(Section::Tempo)

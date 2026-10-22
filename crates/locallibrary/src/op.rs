@@ -231,6 +231,15 @@ pub struct CloneTarget {
     pub left_alone: Option<String>,
 }
 
+/// Names for summaries: `a`, `a and b`, `a, b and c`.
+pub(crate) fn and_list(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [a] => a.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
 /// A size for summaries: `840 B`, `12.5 MB`.
 pub fn bytes(n: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];

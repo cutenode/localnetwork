@@ -45,6 +45,25 @@ tracks, the playlist, the drive) starting as it (see [the player](player.md)). T
 `plugins.*` methods (see [Building a GUI](sidecar.md)). Each kind is below, in a section of its
 own.
 
+## Analysis
+
+An analyzer may also work out a track's beat grid, phrases and waveform (fields of type `beats`,
+`phrases` and `waveform`). They're not columns: locallibrary keeps them in the store beside the
+analyzer's other values, and the player draws them for a track whose drive has none, marked as not
+on the drive. `locallibrary analyze [LIBRARY] --apply grid,phrases,waveform` writes them into the
+tracks' analysis files, planned and confirmed as any edit is (`undo` takes it back, and `edits
+replay` makes it again after rekordbox exports): only where a track has none, unless
+`--overwrite`. A grid sets the track's BPM too, and its cues stay where they are (the plan says
+how many sat on beats of the old grid). Phrases count the analyzer's own beats, so they're written
+only with its grid, or onto the same one. A track rekordbox never analysed has no analysis files
+to take them, and a waveform can't go where rekordbox's colour waveforms are (locallibrary can't
+work out every byte of those). An operation can plan the same edit (`set_analysis`), with the
+`analysis:plan` capability.
+
+What locallibrary writes reads back as given, and rewriting what rekordbox wrote leaves its files
+byte for byte as they were, but that's checked against rekordbox's files, not on players: try a
+drive on yours before you rely on it.
+
 ## Analyzers
 
 `locallibrary analyze [LIBRARY] [--plugin ID] [--analyzer NAME]` runs them, which works out each

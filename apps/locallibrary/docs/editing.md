@@ -241,9 +241,9 @@ replay makes edits again in whichever lacks them. The recorded edits travel with
 source drive's onto the drives it updates, so `refresh` makes edits made on any of the library's
 drives again. A push or pack, which gives a drive a library from a snapshot or a selection, forgets
 the edits recorded for the one it held (its plan says so). `edits.json` says which version of its
-format it is, the lowest its edits need (artwork edits, and a BPM, album artist, ISRC or release
-date, need the newest): a locallibrary older than that refuses to read it or add to it (and says
-so) rather than misreading it. Builds from before it had a version read it as a plain
+format it is, the lowest its edits need (artwork edits and a BPM, album artist, ISRC or release
+date need 3; analysis edits and cue edits setting several cues need 4, the newest): a locallibrary
+older than that refuses to read it or add to it (and says so) rather than misreading it. Builds from before it had a version read it as a plain
 list: they change the drive, then fail to record the edit. Update every copy (the CLI and the
 app's sidecar) before editing a drive this version has edited.
 

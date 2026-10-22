@@ -2,6 +2,7 @@
 //! (see loclib-plugin's `hooks`), registered from a module of its own. Their plans are kept apart
 //! from locallibrary's own (see [`super::super::Plans::plugins`]).
 
+mod analysis;
 mod analyzers;
 mod commands;
 mod exporters;
@@ -89,6 +90,7 @@ pub(super) fn register(r: &mut Registry) {
     .keeps_cache();
     // Each family's, in the order the contract lists them (a family's placed as loclib-plugin's
     // `hooks` says).
+    analysis::register(r);
     commands::register(r);
     operations::register(r);
     panels::register(r);

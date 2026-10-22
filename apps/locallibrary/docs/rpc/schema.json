@@ -4954,6 +4954,64 @@
       }
     },
     {
+      "name": "plugins.apply_analysis.plan",
+      "aliases": [],
+      "kind": "plan",
+      "pair": "plugins.apply_analysis.apply",
+      "operation": "plugins.apply_analysis",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/ApplyAnalysis"
+          },
+          {
+            "$ref": "#/$defs/WriteOptions"
+          }
+        ]
+      },
+      "result": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/EditPlan"
+          },
+          {
+            "$ref": "#/$defs/PlanFields"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugins.apply_analysis.apply",
+      "aliases": [],
+      "kind": "apply",
+      "pair": "plugins.apply_analysis.plan",
+      "operation": "plugins.apply_analysis",
+      "long_running": true,
+      "destructive": true,
+      "params": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ApplyPlan"
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/$defs/ApplyAnalysis"
+              },
+              {
+                "$ref": "#/$defs/WriteOptions"
+              }
+            ]
+          }
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/EditReport"
+      }
+    },
+    {
       "name": "plugins.run",
       "aliases": [],
       "kind": "read",
@@ -7073,6 +7131,54 @@
             "image"
           ],
           "description": "Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The\njournal records the tracks by file and the image as staged on the drive."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": "string"
+            },
+            "beats": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/Beat"
+              },
+              "description": "The beat grid: each beat's number in its bar (1-4), the tempo there and its time."
+            },
+            "phrases": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SongStructure"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The phrases, named as the track's mood names them."
+            },
+            "waveform": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WaveSource"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "type": "string",
+              "const": "set_analysis"
+            }
+          },
+          "required": [
+            "op",
+            "track"
+          ],
+          "description": "Write a beat grid, phrases or a waveform into the analysis files of the track of this\naudio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the\ntrack's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the\ndrive."
         }
       ],
       "description": "One change to a drive's library. Playlists are given as paths (`Folder/Name`) or unique\nnames; positions in a playlist count from 1."
@@ -7723,6 +7829,180 @@
       "type": "string",
       "description": "A BLAKE3 hash, as 64 lowercase hex characters.",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "Beat": {
+      "type": "object",
+      "properties": {
+        "beat_number": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Position in the bar, 1-4."
+        },
+        "bpm": {
+          "type": "number",
+          "format": "double"
+        },
+        "time_ms": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "beat_number",
+        "bpm",
+        "time_ms"
+      ]
+    },
+    "SongStructure": {
+      "type": "object",
+      "properties": {
+        "mood": {
+          "$ref": "#/$defs/Mood"
+        },
+        "phrases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Phrase"
+          }
+        }
+      },
+      "required": [
+        "mood",
+        "phrases"
+      ],
+      "description": "rekordbox's phrase analysis (`PSSI`, in `.EXT`)."
+    },
+    "Mood": {
+      "type": "string",
+      "enum": [
+        "high",
+        "mid",
+        "low"
+      ],
+      "description": "rekordbox's overall classification of a track, which decides how phrases are named."
+    },
+    "Phrase": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/PhraseKind"
+        },
+        "start_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
+        },
+        "end_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "fill_beat": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Beat where a fill-in leads into the next phrase."
+        }
+      },
+      "required": [
+        "kind",
+        "start_beat",
+        "end_beat"
+      ]
+    },
+    "PhraseKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "intro",
+            "bridge",
+            "chorus",
+            "outro"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "up",
+          "description": "Build-ups, in high-mood tracks."
+        },
+        {
+          "type": "string",
+          "const": "down",
+          "description": "Breakdowns, in high-mood tracks."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "verse": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "verse"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "unknown": {
+              "type": "integer",
+              "format": "uint16",
+              "minimum": 0,
+              "maximum": 65535
+            }
+          },
+          "required": [
+            "unknown"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "WaveSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "base64": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "base64"
+          ],
+          "additionalProperties": false,
+          "description": "The bands packed (three bytes a column), in base64."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "staged": {
+              "$ref": "#/$defs/Hash"
+            }
+          },
+          "required": [
+            "staged"
+          ],
+          "additionalProperties": false,
+          "description": "Staged on the drive (`.locallibrary/waveforms/<hash>.bands`), by its hash: how the journal\nrecords the others."
+        }
+      ],
+      "description": "A waveform an analysis edit writes: three bands, each column's lows, mids and highs (0-255),\n150 columns a second ([`Bands`]), from which each of the track's waveform tags is worked out."
     },
     "ClearEdits": {
       "type": "object",
@@ -11222,6 +11502,73 @@
         "key"
       ]
     },
+    "ApplyAnalysis": {
+      "type": "object",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "analyzer": {
+          "type": "string"
+        },
+        "drive": {
+          "type": "string",
+          "description": "The library or drive whose tracks to write to."
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AnalysisPart"
+          },
+          "description": "What to write, which the analyzer must work out: `grid`, `phrases`, `waveform`."
+        },
+        "tracks": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Only these tracks, by id [default: every one].",
+          "default": null
+        },
+        "overwrite": {
+          "type": "boolean",
+          "description": "Also over what a track's analysis files have: without it, only where they have none.",
+          "default": false
+        }
+      },
+      "required": [
+        "plugin",
+        "analyzer",
+        "drive",
+        "parts"
+      ],
+      "description": "What to write to a drive's tracks' analysis files, from what one analyzer kept."
+    },
+    "AnalysisPart": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "grid",
+          "description": "The beat grid (a `beats` field)."
+        },
+        {
+          "type": "string",
+          "const": "phrases",
+          "description": "The phrases (a `phrases` field)."
+        },
+        {
+          "type": "string",
+          "const": "waveform",
+          "description": "The waveform (a `waveform` field)."
+        }
+      ],
+      "description": "A part of a track's analysis an analyzer can work out."
+    },
     "RunPluginCommand": {
       "type": "object",
       "properties": {
@@ -13541,32 +13888,6 @@
       ],
       "description": "[`TrackAnalysis`] with only the waveforms asked for, in the encoding asked for. With the\ndefaults it's the same as [`TrackAnalysis`]."
     },
-    "Beat": {
-      "type": "object",
-      "properties": {
-        "beat_number": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "Position in the bar, 1-4."
-        },
-        "bpm": {
-          "type": "number",
-          "format": "double"
-        },
-        "time_ms": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "beat_number",
-        "bpm",
-        "time_ms"
-      ]
-    },
     "Cue": {
       "type": "object",
       "properties": {
@@ -13710,6 +14031,11 @@
           "type": "string",
           "const": "rgb",
           "description": "Colour by frequency content, nexus 2 and later (`PWV4`, `PWV5`)."
+        },
+        {
+          "type": "string",
+          "const": "three_band",
+          "description": "Lows, mids and highs drawn over one another, the CDJ-3000's (`PWV6`, `PWV7`), and what\nanalyzer plugins give ([`Bands`])."
         }
       ]
     },
@@ -13821,123 +14147,36 @@
       ],
       "description": "One layer of a [`PackedWaveform`]."
     },
-    "SongStructure": {
+    "Action": {
       "type": "object",
       "properties": {
-        "mood": {
-          "$ref": "#/$defs/Mood"
+        "label": {
+          "type": "string",
+          "description": "What a button offering it says."
         },
-        "phrases": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Phrase"
-          }
-        }
-      },
-      "required": [
-        "mood",
-        "phrases"
-      ],
-      "description": "rekordbox's phrase analysis (`PSSI`, in `.EXT`)."
-    },
-    "Mood": {
-      "type": "string",
-      "enum": [
-        "high",
-        "mid",
-        "low"
-      ],
-      "description": "rekordbox's overall classification of a track, which decides how phrases are named."
-    },
-    "Phrase": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "$ref": "#/$defs/PhraseKind"
-        },
-        "start_beat": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
-        },
-        "end_beat": {
-          "type": "integer",
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535
-        },
-        "fill_beat": {
+        "method": {
           "type": [
-            "integer",
+            "string",
             "null"
           ],
-          "format": "uint16",
-          "minimum": 0,
-          "maximum": 65535,
-          "description": "Beat where a fill-in leads into the next phrase."
+          "description": "The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,\nwith `params` added to its own."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The parameters: the method's, or the ones to add to the request that failed. `null`\nmeans a value the user has to give (a name, a path).",
+          "default": {}
+        },
+        "elevate": {
+          "type": "boolean",
+          "description": "Run it with administrator rights (restart the sidecar elevated first)."
         }
       },
       "required": [
-        "kind",
-        "start_beat",
-        "end_beat",
-        "fill_beat"
-      ]
-    },
-    "PhraseKind": {
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": [
-            "intro",
-            "bridge",
-            "chorus",
-            "outro"
-          ]
-        },
-        {
-          "type": "string",
-          "const": "up",
-          "description": "Build-ups, in high-mood tracks."
-        },
-        {
-          "type": "string",
-          "const": "down",
-          "description": "Breakdowns, in high-mood tracks."
-        },
-        {
-          "type": "object",
-          "properties": {
-            "verse": {
-              "type": "integer",
-              "format": "uint8",
-              "minimum": 0,
-              "maximum": 255
-            }
-          },
-          "required": [
-            "verse"
-          ],
-          "additionalProperties": false
-        },
-        {
-          "type": "object",
-          "properties": {
-            "unknown": {
-              "type": "integer",
-              "format": "uint16",
-              "minimum": 0,
-              "maximum": 65535
-            }
-          },
-          "required": [
-            "unknown"
-          ],
-          "additionalProperties": false
-        }
-      ]
+        "label",
+        "params"
+      ],
+      "description": "Something a front end can offer to resolve an error: call a method, or send the request that\nfailed again with some parameters added (`method` absent), or again with administrator rights."
     },
     "TracksAnalysis": {
       "type": "object",
@@ -14477,36 +14716,42 @@
         "position"
       ]
     },
-    "Action": {
+    "PhraseOutput": {
       "type": "object",
       "properties": {
-        "label": {
-          "type": "string",
-          "description": "What a button offering it says."
+        "kind": {
+          "$ref": "#/$defs/PhraseKind"
         },
-        "method": {
+        "start_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "1-based beat numbers into the beat grid; the phrase runs up to (not including) `end_beat`."
+        },
+        "end_beat": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "fill_beat": {
           "type": [
-            "string",
+            "integer",
             "null"
           ],
-          "description": "The RPC method to call (`pull`, `sync.plan`). Absent: the request that failed, again,\nwith `params` added to its own."
-        },
-        "params": {
-          "type": "object",
-          "additionalProperties": true,
-          "description": "The parameters: the method's, or the ones to add to the request that failed. `null`\nmeans a value the user has to give (a name, a path).",
-          "default": {}
-        },
-        "elevate": {
-          "type": "boolean",
-          "description": "Run it with administrator rights (restart the sidecar elevated first)."
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Beat where a fill-in leads into the next phrase."
         }
       },
       "required": [
-        "label",
-        "params"
-      ],
-      "description": "Something a front end can offer to resolve an error: call a method, or send the request that\nfailed again with some parameters added (`method` absent), or again with administrator rights."
+        "kind",
+        "start_beat",
+        "end_beat",
+        "fill_beat"
+      ]
     },
     "UndoPlan": {
       "type": "object",
@@ -18286,6 +18531,54 @@
             "image"
           ],
           "description": "Give tracks this artwork, scaled to the sizes players show (see [`crate::artwork`]). The\njournal records the tracks by file and the image as staged on the drive."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": "string"
+            },
+            "beats": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "$ref": "#/$defs/Beat"
+              },
+              "description": "The beat grid: each beat's number in its bar (1-4), the tempo there and its time."
+            },
+            "phrases": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SongStructure"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The phrases, named as the track's mood names them."
+            },
+            "waveform": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/WaveSource"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "type": "string",
+              "const": "set_analysis"
+            }
+          },
+          "required": [
+            "op",
+            "track"
+          ],
+          "description": "Write a beat grid, phrases or a waveform into the analysis files of the track of this\naudio file (a device path, see [`crate::analysis_edit`]). Planned, a grid brings the\ntrack's BPM with it (an `edit_tracks`); the journal records a waveform as staged on the\ndrive."
         }
       ],
       "description": "One change to a drive's library. Playlists are given as paths (`Folder/Name`) or unique\nnames; positions in a playlist count from 1."
@@ -29384,6 +29677,7 @@
             "tags:plan",
             "cues:plan",
             "artwork:plan",
+            "analysis:plan",
             "events:drives",
             "events:jobs",
             "events:plans"
@@ -29822,13 +30116,32 @@
       "description": "Run with `track/analyze`; its fields become columns."
     },
     "FieldType": {
-      "type": "string",
-      "enum": [
-        "number",
-        "integer",
-        "string",
-        "boolean",
-        "string[]"
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "number",
+            "integer",
+            "string",
+            "boolean",
+            "string[]"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "beats",
+          "description": "A beat grid (feature `analysis`, see [`crate::Output`])."
+        },
+        {
+          "type": "string",
+          "const": "phrases",
+          "description": "A song structure: the mood and the phrases (feature `analysis`)."
+        },
+        {
+          "type": "string",
+          "const": "waveform",
+          "description": "A waveform in three bands, in a blob (feature `analysis`)."
+        }
       ]
     },
     "FieldDisplay": {

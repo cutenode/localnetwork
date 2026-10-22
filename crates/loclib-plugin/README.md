@@ -156,6 +156,18 @@ must be JSON Schemas for an object that compile.
 Each family of hooks is a feature of its own, with the methods the host calls for it and what a
 manifest contributes for it. A plugin has a family's feature once it implements one of its hooks.
 
+### analysis
+
+No method of its own: an analyzer's fields may also be a beat grid (`beats`: `[{beat_number,
+bpm, time_ms}]`), phrases (`phrases`: `{mood, phrases: [{kind, start_beat, end_beat,
+fill_beat?}]}`) or a waveform (`waveform`: `{blob, columns_per_sec}`, the file holding three bytes
+a column, its lows, mids and highs, 0-255, `Bands` packed, no more than a day of audio), one
+of each at most, or `null`. `FieldValue::beats`, `FieldValue::phrases` and `FieldValue::waveform`
+make them and `Output` reads them. Every plugin the SDK serves has the feature, and a host without it refuses a manifest
+declaring such a field. They're not columns: the host keeps them apart, draws them where a drive
+has none and writes them into analysis files only when the user asks. An operation's
+`set_analysis` edit needs `analysis:plan`.
+
 ### analyzers
 
 `track/analyze {analyzer, track: {id, file_path, audio_path, analyze_path?}, context}` ->
@@ -164,7 +176,7 @@ worked out with nothing to show. A field left out wasn't worked out.
 
 - `[[contributes.analyzers]]`: `name`, `title`, `version` (its own: locallibrary keeps its
   values by it, so bump it when they'd change), `fields` (each `number`, `integer`, `string`,
-  `boolean` or `string[]`) and `roles`. Fields become columns, so no two analyzers have one of a
+  `boolean` or `string[]`, or one of [analysis](#analysis)'s) and `roles`. Fields become columns, so no two analyzers have one of a
   name.
 - `display` says how hosts show some of its fields (`FieldDisplay`), by field, each part
   optional: `unit` (said after a value), `precision` (a number's places, 0 to 6), `format` (`key`
@@ -400,7 +412,7 @@ let (host, incoming) = Peer::new(from_plugin, to_plugin);
 
 let hello = json!({ "protocol": "0.2.0", "host": { "name": "locallibrary", "version": "0.1.0" } });
 let reply: Value = host.request(method::HELLO, &hello)?;
-assert_eq!(reply["features"], json!(["commands", "blobs", "net", "choose", "views"]));
+assert_eq!(reply["features"], json!(["analysis", "commands", "blobs", "net", "choose", "views"]));
 let run = json!({ "command": "count", "context": { "drive": "USB" } });
 let counting = host.send_request(method::RUN_COMMAND, &run)?;
 let Ok(Incoming::Request(callback)) = incoming.recv() else { panic!("a callback") };

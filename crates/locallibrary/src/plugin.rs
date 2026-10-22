@@ -17,13 +17,15 @@
 //! (kept in the keychain); an operation's edits are planned and applied by the host as any edit
 //! plan is, and an exporter's overwrites are confirmed first. Answers too big for a message are
 //! files in a folder the host makes for each request (`scratch`), which it reads itself.
-//! Analyzers' values go to the [`crate::fields`] store. What providers find for tracks, the host
-//! offers the user and makes the edits of itself (see [`Plugins::provide`]), as it does of what
-//! importers read (see [`Plugins::import_plan`]). Plugins are told of what happens as the front
-//! ends notice it ([`Plugins::deliver`]), and services run while a front end that stays open does
+//! Analyzers' values go to the [`crate::fields`] store, their beat grids, phrases and waveforms
+//! to its overlay store. What providers find for tracks, the host offers the user and makes the
+//! edits of itself (see [`Plugins::provide`]), as it does of what importers read (see
+//! [`Plugins::import_plan`]). Plugins are told of what happens as the front ends notice it
+//! ([`Plugins::deliver`]), and services run while a front end that stays open does
 //! ([`Plugins::run_services`]); what either tells the user, the front end shows
 //! ([`Options::notices`]), and nothing they suggest is planned unless the user chooses to.
 
+mod analysis;
 mod analyzers;
 mod apply;
 mod blobs;
@@ -56,6 +58,7 @@ use crate::fields::roles::{Offered, RoleField};
 use crate::keychain::Storage;
 use crate::{Error, Result};
 
+pub use analysis::{AnalysisPart, ApplyAnalysis, same_grid};
 pub use analyzers::Analyzed;
 pub use apply::ApplyFields;
 pub(crate) use blobs::abandoned as abandoned_scratch;
@@ -276,11 +279,14 @@ impl Plugins {
         analyzers.iter().find_map(|a| a.display.get(field))
     }
 
-    /// Every analyzer's fields, by name as filters and sorts name them (`sound.bpm`), with their
-    /// types: in the order the plugins, and their analyzers, declare them.
+    /// Every analyzer's fields but its beat grids, phrases and waveforms (no columns), by name as
+    /// filters and sorts name them (`sound.bpm`), with their types: in the order the plugins, and
+    /// their analyzers, declare them.
     pub fn fields(&self) -> crate::fields::Declared {
         let all = self.manifests().flat_map(|m| m.contributes.analyzers.iter().map(move |a| (m, a)));
-        all.flat_map(|(m, a)| a.fields.iter().map(move |(name, &kind)| (format!("{}.{name}", m.id), kind))).collect()
+        let columns =
+            all.flat_map(|(m, a)| a.fields.iter().map(move |(name, &kind)| (format!("{}.{name}", m.id), kind)));
+        columns.filter(|(_, kind)| !kind.is_structured()).collect()
     }
 
     /// Whether the plugin is running now. Never waits.

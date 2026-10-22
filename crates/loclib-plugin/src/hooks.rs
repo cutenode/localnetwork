@@ -10,6 +10,7 @@
 //! sidecar's contract: there a family's line goes right after the line of the family before it
 //! alphabetically (first, when there's none). Families added side by side then add separate lines.
 
+pub(crate) mod analysis;
 pub(crate) mod analyzers;
 pub(crate) mod commands;
 pub(crate) mod events;

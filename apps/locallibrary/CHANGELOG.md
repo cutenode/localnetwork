@@ -285,6 +285,16 @@ Windows builds are experimental and untested on hardware (see Platforms in the R
   - `coverart`: finds front covers on MusicBrainz and the Cover Art Archive for `art fetch`, an
     album that could be several release groups offered as each of them. It's the only one that
     goes online, and only when it's run.
+- **Beat grids, phrases and waveforms written to drives.** locallibrary writes rekordbox's beat
+  grid (`PQTZ`), phrases (`PSSI`, masked as rekordbox 6 writes them) and waveforms (`PWAV`,
+  `PWV2`, `PWV3`, `PWV5`, `PWV6`, `PWV7`) into a track's analysis files as a journaled, undoable
+  edit (`set_analysis`), each read back before it's written, rewriting rekordbox's own files byte
+  for byte where the data is the same, and reads 3-band waveforms (`PWV6`, `PWV7`) for a track
+  with no others. An analyzer plugin may work out a track's grid, phrases and waveform (fields of
+  type `beats`, `phrases`, `waveform`, feature `analysis`): kept beside its columns, drawn in the
+  player where the drive has none, and written with `analyze --apply grid,phrases,waveform` (the
+  sidecar's `plugins.apply_analysis.plan/apply`), a grid setting the track's BPM; operations plan
+  the same edit with `analysis:plan`. Checked against rekordbox's files, not yet on players.
 - **The library is the unit.** Each drive holding a library is a clone of it, and its name doesn't
   matter much: a library's name works where a drive does (but in commands about one particular
   drive) and means its lead clone, the newest of its drives plugged in (the primary when they're

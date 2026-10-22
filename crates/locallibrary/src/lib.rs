@@ -55,6 +55,7 @@
 //!   everything else works, the profile document included; it just can't be published.
 
 pub mod after_set;
+pub mod analysis_edit;
 pub mod anlz;
 pub mod api;
 pub mod artwork;
@@ -121,6 +122,7 @@ pub mod settings;
 pub mod smart;
 pub mod sound;
 pub mod space;
+mod staged;
 pub mod store;
 pub mod sync;
 pub mod tags;

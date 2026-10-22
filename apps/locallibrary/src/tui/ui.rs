@@ -717,7 +717,7 @@ fn field_cell(v: &FieldValue, hint: Option<&FieldDisplay>) -> Line<'static> {
         };
     }
     match v {
-        FieldValue::Null => Line::styled("-", faint()).right_aligned(),
+        FieldValue::Null | FieldValue::Structured(_) => Line::styled("-", faint()).right_aligned(),
         FieldValue::Number(n) => {
             let s = format!("{n:.2}");
             Line::styled(s.trim_end_matches('0').trim_end_matches('.').to_string(), fg(theme::current().warning))
@@ -1467,6 +1467,10 @@ fn draw_info(f: &mut Frame, app: &App, area: Rect, big: bool) {
     }
     fmt.push(now.drive.clone());
     lines.push(Line::styled(fmt.join(" · "), faint()));
+    // What a plugin's analyzer worked out, drawn for what the drive lacks.
+    if let Some(from) = &now.from_plugins {
+        lines.push(Line::styled(from.clone(), dim()));
+    }
 
     let cues = &now.analysis.cues;
     if !cues.is_empty() {
