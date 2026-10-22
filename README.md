@@ -17,7 +17,7 @@ apps/localtoolbox/    localtoolbox, the Chrome extension (its README is also its
 lexicons/             Every tool's lexicons (computer.localnetwork.*); others' they use are fetched as published
 crates/               Rust libraries: locallibrary's core and the loclib-* crates other DJ tools can use
 plugins/              locallibrary's own plugins, each a crate on its plugin SDK
-packages/tokens/      Shared colours for DJ data
+packages/tokens/      The shared design system: colours for DJ data, and the theme the website and extension use
 packages/atstore/     Makes each tool's AT Store listing pictures (pnpm atstore)
 vendor/               Vendored Rust crates
 tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript app
@@ -25,7 +25,7 @@ tools/oxlint/         The vendored anti-slop Oxlint plugin, for every TypeScript
 
 The repo root is both the pnpm workspace and the Cargo workspace, so commands run from here.
 
-`packages/tokens/colors.json` holds the colours that mean the same thing wherever DJ data is drawn: waveform bands, phrase kinds, cue defaults, track colours, good, warning and critical, and the playhead. The website imports it, and `crates/loclib-model/src/tokens.rs` is generated from it for the player and the HTML report (`LOCALLIBRARY_BLESS=1 cargo test -p loclib-model --test tokens` regenerates it).
+`packages/tokens/colors.json` holds the colours that mean the same thing wherever DJ data is drawn: waveform bands, phrase kinds, cue defaults, track colours, good, warning and critical, and the playhead. `packages/tokens/theme.css` is the Local Network design system (surfaces, type, the shared classes) that the website and localtoolbox both import, and `data-colors.css` beside it is generated from `colors.json`. The website imports it, and `crates/loclib-model/src/tokens.rs` is generated from it for the player and the HTML report (`LOCALLIBRARY_BLESS=1 cargo test -p loclib-model --test tokens` regenerates it).
 
 ## Working on it
 

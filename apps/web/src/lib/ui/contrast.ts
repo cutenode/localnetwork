@@ -1,4 +1,4 @@
-/** The values of --color-fg and --color-fg-inverse in theme.css. */
+/** The values of --color-fg and --color-fg-inverse in packages/tokens/theme.css. */
 const LIGHT = '#f4f4f5';
 
 const DARK = '#09090b';
