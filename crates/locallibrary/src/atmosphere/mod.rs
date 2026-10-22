@@ -29,7 +29,6 @@
 //! after sign-in however often it's refreshed ([`AccountInfo::sign_in_again_by`]).
 
 pub mod bug_report;
-mod callback;
 pub mod lexicon;
 mod net;
 pub mod repo;
@@ -59,8 +58,9 @@ use jacquard_oauth::types::{AuthorizeOptions, CallbackParams};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::callback;
+pub use crate::callback::{CALLBACK_PATH, CallbackQuery, LONGEST_LOGIN_WAIT, span};
 pub(crate) use crate::net::this_computer;
-pub use callback::{CALLBACK_PATH, CallbackQuery, span};
 use net::Http;
 use store::{AccountFile, LocalStore};
 
@@ -147,9 +147,6 @@ pub const SESSION_LIMIT_DAYS: i64 = 14;
 
 /// How long to wait for the browser.
 pub const LOGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-
-/// The longest the browser is waited for, whatever's asked.
-pub const LONGEST_LOGIN_WAIT: Duration = Duration::from_secs(60 * 60);
 
 /// A sign-in nobody finishes is forgotten after this.
 const PENDING_LIMIT: Duration = Duration::from_secs(15 * 60);

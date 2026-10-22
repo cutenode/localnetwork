@@ -20,11 +20,12 @@
 //! lists, or without one (a file gone changes the state), those of a consulted snapshot whose
 //! databases the drive still holds. [`repair`] rewrites damaged and missing
 //! files from store objects or another mounted drive, verifying every byte on the way, then
-//! reads them back.
+//! reads them back. A copy of the store at a plugin's destination can supply them too
+//! ([`offer`]): they're fetched into the store first ([`fetch`]), each checked against its hash.
 
 use std::collections::BTreeSet;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -35,6 +36,7 @@ use crate::device::{self, Device, LineageOp};
 use crate::fsutil;
 use crate::hash::{self, Hash};
 use crate::model::{Library, TrackRef};
+use crate::offsite::{self, Destination};
 use crate::paths::{self, FileClass};
 use crate::progress::{Ctx, Event, Phase};
 use crate::schema::{Failure, Skip};
@@ -67,7 +69,15 @@ struct Expected {
 #[serde(tag = "from", rename_all = "snake_case")]
 pub enum RepairSource {
     Store,
-    Drive { name: String, root: PathBuf },
+    Drive {
+        name: String,
+        root: PathBuf,
+    },
+    /// The copy of the store at a plugin's destination, from which it's fetched into the store.
+    Destination {
+        plugin: String,
+        destination: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -527,7 +537,10 @@ pub fn repair(
             continue;
         }
         let src = match &p.repair {
-            Some(RepairSource::Store) => store.filter(|s| s.has_object(&expected)).map(|s| s.object_path(&expected)),
+            // A destination's once it's fetched (see `fetch`).
+            Some(RepairSource::Store | RepairSource::Destination { .. }) => {
+                store.filter(|s| s.has_object(&expected)).map(|s| s.object_path(&expected))
+            }
             Some(RepairSource::Drive { root, .. }) => sibling_trees
                 .iter()
                 .find(|(d, _)| d.root() == root)
@@ -594,6 +607,42 @@ pub fn repair(
     }
     device.save_index(&index)?;
     Ok(report)
+}
+
+/// Offers the good copies a store destination has of the files `report` found no other for:
+/// their repair is from it, once they're fetched into the store ([`fetch`]).
+pub fn offer(report: &mut ScrubReport, dest: &dyn Destination, ctx: &Ctx<'_>) -> Result<()> {
+    let unrepaired = |p: &FileProblem| p.repair.is_none().then_some(p.expected).flatten();
+    let hashes: FxHashSet<Hash> = report.problems().filter_map(unrepaired).collect();
+    let hashes: Vec<Hash> = hashes.into_iter().collect();
+    let missing = offsite::missing_from(dest, &hashes, ctx)?;
+    let from = RepairSource::Destination { plugin: dest.plugin().into(), destination: dest.name().into() };
+    for p in report.damaged.iter_mut().chain(&mut report.unreadable).chain(&mut report.missing) {
+        if unrepaired(p).is_some_and(|h| !missing.contains(&h)) {
+            p.repair = Some(from.clone());
+        }
+    }
+    Ok(())
+}
+
+/// Fetches into `store` the good copies `dest` has of `problems` that are to be repaired from it
+/// (see [`offer`]), each checked against its hash: then [`repair`] rewrites them from the store.
+pub fn fetch(store: &Store, dest: &dyn Destination, problems: &[FileProblem], ctx: &Ctx<'_>) -> Result<()> {
+    let _lock = store.lock()?;
+    let ours = |p: &&FileProblem| {
+        matches!(&p.repair, Some(RepairSource::Destination { plugin, destination })
+            if plugin == dest.plugin() && destination == dest.name())
+    };
+    let mut fetched = Vec::new();
+    let got: Result<()> = problems.iter().filter(ours).filter_map(|p| p.expected).try_for_each(|h| {
+        if !store.has_object(&h) && !fetched.contains(&h) {
+            offsite::fetch_object(store, dest, &h, ctx)?;
+            fetched.push(h);
+        }
+        Ok(())
+    });
+    store.flush_objects(&fetched)?;
+    got
 }
 
 /// Whether a file a scrub flags would change the drive's fingerprint when repaired (database,

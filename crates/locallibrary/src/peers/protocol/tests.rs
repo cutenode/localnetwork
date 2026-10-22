@@ -1,6 +1,9 @@
 use super::*;
+use crate::catalog::CatalogSnapshot;
+use crate::store::{LibraryRecord, SnapshotLabel};
 use hegel::TestCase;
 use hegel::generators as gs;
+use uuid::Uuid;
 
 fn hash(tc: &TestCase) -> Hash {
     Hash::of(&tc.draw(gs::binary().max_size(8)))

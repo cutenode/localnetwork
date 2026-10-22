@@ -574,14 +574,10 @@ pub(crate) fn confirm_and_apply(
     if !out.json {
         render_plan(&planned);
         output::clones(&planned);
-        // What the plan says besides the edit's own and its clones' (a set's tracks not on the
-        // drive, say).
-        let about_clones = |w: &String| planned.clones.iter().any(|c| c.left_alone.as_ref() == Some(w));
-        for w in planned.warnings.iter().filter(|w| !planned.plan.warnings.contains(w) && !about_clones(w)) {
-            warn(w);
-        }
+        // What the plan says besides the edit's own (a set's tracks not on the drive, say).
+        output::more_warnings(&planned, &planned.plan.warnings);
     }
-    if let Some(o) = out.decide(dry_run, "Make these changes?") {
+    if let Some(o) = out.decide_on(&planned, dry_run, "Make these changes?")? {
         return Ok(out.not_applied(&planned, o));
     }
     let report = planned.apply(None, ctx)?;
@@ -811,8 +807,10 @@ pub fn track(args: TrackArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
         TrackCommand::Show { drive, select } => {
             let req = api::TrackDetailsRequest { library: drive.clone().into(), tracks: selector(&select)? };
             let list = api::track_details(&req)?;
-            // What analyzer plugins worked out for them, with each one's details.
-            let fields = crate::plugin_cmd::fields(&drive, list.iter().map(|d| d.track.id).collect(), store_path)?;
+            // What analyzer plugins worked out for them, and their panels, with each one's details.
+            let ids: Vec<u32> = list.iter().map(|d| d.track.id).collect();
+            let fields = crate::plugin_cmd::fields(&drive, ids.clone(), store_path)?;
+            let panels = crate::plugin_cmd::panels(&drive, &ids, store_path, ctx)?;
             let shown: Vec<serde_json::Value> = list
                 .iter()
                 .map(|d| {
@@ -820,9 +818,13 @@ pub fn track(args: TrackArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                     if let Some(f) = fields.get(&d.track.id) {
                         v["fields"] = serde_json::to_value(f).expect("serialisable");
                     }
+                    if let Some(p) = panels.get(&d.track.id) {
+                        v["panels"] = serde_json::to_value(p).expect("serialisable");
+                    }
                     v
                 })
                 .collect();
+            let names = crate::plugin_cmd::view::names_on(Some(&drive));
             out.emit_paged(&shown, |_| {
                 for (i, d) in list.iter().enumerate() {
                     if i > 0 {
@@ -831,6 +833,9 @@ pub fn track(args: TrackArgs, store_path: &Option<PathBuf>, out: Output, ctx: &C
                     crate::render::track_details(d);
                     if let Some(f) = fields.get(&d.track.id) {
                         crate::plugin_cmd::show_fields(f);
+                    }
+                    if let Some(p) = panels.get(&d.track.id) {
+                        crate::plugin_cmd::show_panels(p, &names);
                     }
                 }
             });

@@ -985,7 +985,8 @@ pub struct ContactPlan {
     pub playlist: Option<String>,
 }
 
-pub fn drive_contact_plan(req: &SetContact) -> Result<Planned<ContactPlan, SetContact>> {
+/// What putting a contact on a drive would write, with what plugins' guards make of its playlist.
+pub fn drive_contact_plan(req: &SetContact, ctx: &Ctx<'_>) -> Result<Planned<ContactPlan, SetContact>> {
     let d = resolve_one_drive(&req.drive)?;
     if req.contact.trim().is_empty() || req.contact.chars().any(char::is_control) {
         return Err(Error::invalid("give an email address, phone number or name to contact"));
@@ -1001,7 +1002,8 @@ pub fn drive_contact_plan(req: &SetContact) -> Result<Planned<ContactPlan, SetCo
     Planned::new("drive.contact", plan, req.clone())
         .summary(summary)
         .touches(Touched::drive(&d, true, vec![Probe::Databases, Probe::Content(vec![player::CONTACT_FILE.into()])]))
-        .guard(None)
+        .guard(None)?
+        .guarded(|p| p.playlist.iter().map(|name| player::contact_edit(name)).collect(), ctx)
 }
 
 impl Operation for ContactPlan {
@@ -1016,7 +1018,7 @@ impl Operation for ContactPlan {
 
 /// Plan and write the contact in one go, for callers that don't confirm.
 pub fn drive_contact(req: &SetContact, ctx: &Ctx<'_>) -> Result<ContactReport> {
-    drive_contact_plan(req)?.apply(None, ctx)
+    drive_contact_plan(req, ctx)?.apply(None, ctx)
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -87,7 +87,7 @@ fn keys_that_mix_show_green() {
             .unwrap_or_else(|| panic!("{title} not on screen"));
         buf[(key_x, y)].fg
     };
-    let green = theme::rgb3(theme::GREEN);
+    let green = theme::rgb3(theme::current().good);
     app.visible = (0..4).collect();
     let row = |app: &App, title: &str| {
         let l = app.loaded.as_ref().unwrap();
@@ -187,6 +187,7 @@ fn draws_every_pane_and_dialog_at_any_size() {
         drive: "TEST".into(),
         root: l.root().to_path_buf(),
         analysis: Default::default(),
+        from_plugins: None,
         art: None,
         duration: std::time::Duration::from_secs(300),
         phrases: Vec::new(),
@@ -1846,7 +1847,7 @@ fn plugins_columns_go_before_tempo_key_and_time() {
 /// A plugin's value as its column shows it: numbers to two places at most, a list joined.
 #[test]
 fn plugins_values_show_shortly() {
-    let text = |v: FieldValue| field_cell(&v).to_string();
+    let text = |v: FieldValue| field_cell(&v, None).to_string();
     assert_eq!(text(FieldValue::Number(121.0)), "121");
     assert_eq!(text(FieldValue::Number(121.256)), "121.26");
     assert_eq!(text(FieldValue::Number(-8.5)), "-8.5");

@@ -42,7 +42,7 @@ pub struct BugArgs {
     message: Option<String>,
     #[cfg(feature = "account")]
     #[command(flatten)]
-    browser: crate::account_cmd::BrowserArgs,
+    browser: crate::browser::BrowserArgs,
     /// Print the link instead of opening the browser
     #[cfg(not(feature = "account"))]
     #[arg(long)]

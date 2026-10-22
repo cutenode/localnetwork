@@ -14,7 +14,7 @@ use std::sync::{Arc, Weak};
 use loclib_plugin::{Capability, ErrorData, Incoming, MAX_IDS, MAX_IMAGES, Manifest, Peer, RpcError, code, method};
 use serde_json::Value;
 
-use super::process::{Live, Slot};
+use super::process::{Live, Plugin, Slot};
 use crate::Result;
 use crate::api::{self, RpcFailure};
 use crate::progress::{Ctx, NoProgress};
@@ -22,7 +22,8 @@ use crate::progress::{Ctx, NoProgress};
 /// How the host reads for plugins: the app's read methods, by the sidecar's names
 /// (`tracks.query`), with its params and results.
 pub trait Reads: Send + Sync {
-    /// Runs the read method `method` with `params`, as the RPC sidecar does.
+    /// Runs the read method `method` with `params`, as the RPC sidecar does: on a thread whose
+    /// store ([`api::store_root`]) is the one the host started the plugin in, when it had one.
     fn read(&self, method: &str, params: Value, ctx: &Ctx<'_>) -> Result<Value, RpcFailure>;
 
     /// The root of the drive a plugin names: one known here (by identity, adopted name or
@@ -117,6 +118,8 @@ fn allowed(method: &str) -> Option<(Capability, bool, Params)> {
         "sets.list" => (SetsRead, false, &[("venue", Plain), ("kind", Plain), ("since", Plain), ("until", Plain)]),
         "sets.get" => (SetsRead, false, &[("set", Plain), ("venue", Plain)]),
         "sessions.list" => (SetsRead, false, &[("drive", Drive), ("unassigned", Plain)]),
+        // A recorded set's tracklist, for a mix exporter.
+        "mix.reports.get" => (SetsRead, false, &[("id", Plain)]),
         "account.status" => (AccountStatus, false, &[]),
         "collection.info" => (CollectionRead, false, &[]),
         "collection.diff" => (CollectionRead, false, &[("drive", Drive), ("playlist", Plain)]),
@@ -139,25 +142,33 @@ impl Drop for Quota {
 
 /// Answers the plugin's callbacks until its output closes, each on a thread of its own, a few
 /// at a time. Every one is answered, one whose read panics too, and one that comes once the host
-/// has let go of the plugin (which stops it). Nothing here keeps the plugin hosted. Its
-/// notifications are handled here, in order (see [`Slot::notified`]).
-pub(crate) fn answer(slot: &Weak<Slot>, live: &Arc<Live>, peer: &Peer, incoming: Receiver<Incoming>) {
+/// has let go of its `slot` (which stops it). Nothing here keeps the plugin hosted: a callback
+/// holds the [`Plugin`], never its slot. Its notifications are handled here, in order (see
+/// [`Plugin::notified`]).
+pub(crate) fn answer(
+    slot: &Weak<Slot>,
+    plugin: &Arc<Plugin>,
+    live: &Arc<Live>,
+    peer: &Peer,
+    incoming: Receiver<Incoming>,
+) {
     let busy = Arc::new(AtomicUsize::new(0));
     for msg in incoming {
+        let hosted = slot.strong_count() > 0;
         let req = match msg {
             Incoming::Request(req) => req,
             Incoming::Notification { method, params } => {
-                if let Some(slot) = slot.upgrade() {
-                    slot.notified(live, &method, params);
+                if hosted {
+                    plugin.notified(live, &method, params);
                 }
                 continue;
             }
         };
-        let Some(slot) = slot.upgrade() else {
+        if !hosted {
             peer.respond(&req.id, Err(RpcError::closed()));
             continue;
-        };
-        let most = slot.host.options.callbacks;
+        }
+        let most = plugin.host.options.callbacks;
         let under_way = busy.fetch_add(1, Ordering::SeqCst);
         let quota = Quota(busy.clone());
         if under_way >= most {
@@ -166,13 +177,17 @@ pub(crate) fn answer(slot: &Weak<Slot>, live: &Arc<Live>, peer: &Peer, incoming:
             peer.respond(&req.id, Err(e));
             continue;
         }
-        let (live, peer) = (live.clone(), peer.clone());
+        let (plugin, live, peer) = (plugin.clone(), live.clone(), peer.clone());
         std::thread::spawn(move || {
-            let reads = &*slot.host.reads;
+            // The app reads (and finds drives) in the store of the host that started the plugin,
+            // whichever store the process would default to.
+            let store = live.store.as_ref().map(|s| s.root().to_path_buf());
+            crate::api::THREAD_STORE_ROOT.with(|r| *r.borrow_mut() = store);
+            let reads = &*plugin.host.reads;
             let run = || match req.method.as_str() {
-                method::NET_FETCH if live.sends(method::NET_FETCH) => slot.fetch(&live, req.params, &req.cancel),
+                method::NET_FETCH if live.sends(method::NET_FETCH) => plugin.fetch(&live, req.params, &req.cancel),
                 _ => {
-                    let params = check(&slot.manifest, reads, &req.method, req.params);
+                    let params = check(&plugin.manifest, reads, &req.method, req.params);
                     let read =
                         params.and_then(|p| reads.read(&req.method, p, &Ctx::new(&NoProgress, req.cancel.clone())));
                     let roots = known_roots(live.store.as_ref());
@@ -234,14 +249,15 @@ const MOUNTS: [&str; 2] = ["root", "last_mount"];
 
 /// A read's answer as a plugin gets it, saying nothing of where things are on this computer:
 /// without a drive's mount point ([`MOUNTS`]) or the place of a file outside any drive (a store
-/// copy's, a set's recording, rekordbox's collection), and with any other path under one of
-/// `roots` said from there (see [`known_roots`]), as errors' are.
+/// copy's, a set's or a mix's recording and its cover, rekordbox's collection), and with any other
+/// path under one of `roots` said from there (see [`known_roots`]), as errors' are.
 pub(crate) fn answer_for_plugin(method: &str, mut answer: Value, roots: &[(String, String)]) -> Value {
     // Each key, at any depth, in an object that's the value of the first key when one is given.
     let places: &[(Option<&str>, &str)] = match method {
         "store.copies" => &[(None, "path"), (None, "from")],
         "store.info" => &[(Some("copy_of"), "path"), (Some("copy_of"), "from")],
         "sets.list" | "sets.get" => &[(Some("recording"), "path")],
+        "mix.reports.get" => &[(Some("mix"), "path"), (Some("mix"), "cover"), (None, "audio")],
         "collection.info" => &[(None, "path")],
         _ => &[],
     };

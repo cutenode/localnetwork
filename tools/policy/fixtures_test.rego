@@ -4,12 +4,17 @@ package fixtures
 
 passed_step := {"if": "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}", "run": "exit 1"}
 
+base_step := {"id": "base", "uses": "./.github/actions/last-passed"}
+
+# The changes job's steps, filtering on `filter`.
+changes_steps(filter) := [base_step, {"uses": "dorny/paths-filter@abc", "with": {"base": "${{ steps.base.outputs.sha }}", "filters": filter}}]
+
 # A gated workflow whose changes job filters on `filter`.
 workflow(on, name, filter) := {
 	"true": on,
-	"concurrency": {"group": name},
+	"concurrency": {"group": name, "cancel-in-progress": true},
 	"jobs": {
-		"changes": {"steps": [{"uses": "dorny/paths-filter@abc", "with": {"filters": filter}}]},
+		"changes": {"steps": changes_steps(filter)},
 		"passed": {"name": name, "if": "always()", "needs": ["changes"], "steps": [passed_step]},
 	},
 }
@@ -52,9 +57,9 @@ repo := [
 	}},
 	{"path": ".github/workflows/site-ci.yml", "contents": {
 		"true": {"pull_request": null, "push": {"branches": ["main"]}},
-		"concurrency": {"group": "ci"},
+		"concurrency": {"group": "ci", "cancel-in-progress": true},
 		"jobs": {
-			"changes": {"steps": [{"uses": "dorny/paths-filter@abc", "with": {"filters": "run:\n  - 'apps/**'\n  - 'packages/**'\n  - '!**/*.md'\n"}}]},
+			"changes": {"steps": changes_steps("run:\n  - 'apps/**'\n  - 'packages/**'\n  - '!**/*.md'\n")},
 			"verify": {"needs": "changes"},
 			"passed": {"name": "Site CI passed", "if": "always()", "needs": ["changes", "verify"], "steps": [passed_step]},
 		},

@@ -167,6 +167,9 @@ pub enum Reason {
     ReplayStopped,
     /// Files didn't read back correctly.
     VerifyFailed,
+    /// A plugin's guard the user made blocking (`fields.check`, `<plugin>.<check>`) found
+    /// something about the plan: deal with what it found, or stop the guard blocking.
+    Blocked,
 
     // `invalid` and `not_found`: something to give or choose.
     /// Several libraries could be meant: name one (`fields.libraries`).

@@ -40,6 +40,20 @@ pub struct ApplyFields {
     pub min_confidence: Option<f64>,
 }
 
+/// What of `key` (in any notation rekordbox shows, `8A`) and `bpm` to write to `t`, as a key
+/// role's and a BPM role's values are written: a key as rekordbox names it (`Am`), a BPM to
+/// hundredths (1 to 999.99); neither when `t` has it already (a key in any notation), nor over
+/// one it has unless `overwrite`. A key that isn't one is left out.
+pub(crate) fn key_and_bpm(t: &Track, key: Option<&str>, bpm: Option<f64>, overwrite: bool) -> TrackFields {
+    let wanted = |has: bool, same: bool| !same && (overwrite || !has);
+    let key =
+        key.and_then(Camelot::parse).filter(|k| wanted(!t.key.trim().is_empty(), Camelot::parse(&t.key) == Some(*k)));
+    let bpm = bpm
+        .map(|b| (b * 100.0).round() / 100.0)
+        .filter(|b| (1.0..=999.99).contains(b) && wanted(t.bpm > 0.0, *b == t.bpm));
+    TrackFields { key: key.map(|k| k.note()), bpm, ..TrackFields::default() }
+}
+
 /// The role saying how sure an analyzer is of a value of `role`'s.
 fn confidence_of(role: Role) -> Role {
     match role {
@@ -96,28 +110,19 @@ impl Plugins {
             };
             let sure =
                 |role: Role| req.min_confidence.is_none_or(|min| number(confidence_of(role)).is_some_and(|c| c >= min));
-            // A value to write: asked for, not the track's already, and over one it has only
-            // when asked to.
-            let wanted =
-                |role: Role, has: bool, same: bool| req.fields.contains(&role) && !same && (req.overwrite || !has);
-            let mut set = TrackFields::default();
-            if let Some(FieldValue::String(code)) = value(Role::Key)
-                && let Some(key) = Camelot::parse(code)
-                && wanted(Role::Key, !t.key.trim().is_empty(), Camelot::parse(&t.key) == Some(key))
-            {
-                match sure(Role::Key) {
-                    true => set.key = Some(key.note()),
-                    false => unsure += 1,
-                }
-            }
-            if let Some(bpm) = number(Role::Bpm)
-                && let bpm = (bpm * 100.0).round() / 100.0
-                && (1.0..=999.99).contains(&bpm)
-                && wanted(Role::Bpm, t.bpm > 0.0, bpm == t.bpm)
-            {
-                match sure(Role::Bpm) {
-                    true => set.bpm = Some(bpm),
-                    false => unsure += 1,
+            let asked = |role: Role| req.fields.contains(&role);
+            let key = match value(Role::Key) {
+                Some(FieldValue::String(code)) if asked(Role::Key) => Some(code.as_str()),
+                _ => None,
+            };
+            let mut set = key_and_bpm(t, key, number(Role::Bpm).filter(|_| asked(Role::Bpm)), req.overwrite);
+            for (role, written) in [(Role::Key, set.key.is_some()), (Role::Bpm, set.bpm.is_some())] {
+                if written && !sure(role) {
+                    unsure += 1;
+                    match role {
+                        Role::Key => set.key = None,
+                        _ => set.bpm = None,
+                    }
                 }
             }
             if !set.is_empty() {

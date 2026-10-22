@@ -131,7 +131,7 @@ fn analyze_writes_keys_and_bpms_to_the_tracks() {
     let err = env.fails(2, &["analyze", path(&root), "--overwrite"]);
     assert!(err.contains("--apply"), "{err}");
     let err = env.fails(2, &["analyze", path(&root), "--apply", "loudness"]);
-    assert!(err.contains("[possible values: key, bpm]"), "{err}");
+    assert!(err.contains("[possible values: key, bpm, grid, phrases, waveform]"), "{err}");
     let err = env.fails(2, &["analyze", path(&root), "--plugin", "sound", "--analyzer", "nope", "--apply", "key"]);
     assert!(err.contains("no plugin's analyzer here works out key"), "{err}");
 }
@@ -285,4 +285,225 @@ fn analyze_applies_from_the_analyzer_chosen_for_the_role() {
     }
     let out = env.ok(&["analyze", path(&root), "--apply", "key", "--dry-run"]);
     assert!(out.contains("heard (echo): 2 tracks analyzed") && !out.contains("(sound)"), "{out}");
+}
+
+/// `--apply grid,phrases,waveform` writes what an analyzer worked out besides its columns into the
+/// tracks' analysis files, planned as any edit is, and the sidecar plans it too; a key or BPM goes
+/// in a run of its own.
+#[cfg(debug_assertions)]
+#[test]
+fn analyze_writes_a_grid_into_the_analysis_files() {
+    let mut env = Env::new();
+    let heard = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
+                 fields = { grid = \"beats\", tone = \"string\" }\nroles = { key = \"tone\" }\n";
+    env.plugins(&[&(crate::support::echo_plugin() + heard)]);
+    let root = env.demo("A");
+    let grid: Vec<Value> =
+        (0..16).map(|i| json!({ "beat_number": i % 4 + 1, "bpm": 125.0, "time_ms": 30 + i * 480 })).collect();
+    // What the test plugin's `heard` answers: what's in the audio file.
+    for t in Device::open(&root).unwrap().library().unwrap().tracks {
+        std::fs::write(paths::to_fs(&root, &paths::key(&t.file_path)), json!({ "grid": grid }).to_string()).unwrap();
+    }
+    let err = env.fails(2, &["analyze", path(&root), "--apply", "key,grid"]);
+    assert!(err.contains("write a key and BPM in a run of their own"), "{err}");
+    let err = env.fails(2, &["analyze", path(&root), "--apply", "grid", "--min-confidence", "0.5"]);
+    assert!(err.contains("--min-confidence is for a key and BPM"), "{err}");
+    let out = env.ok(&["analyze", path(&root), "--apply", "grid", "--dry-run"]);
+    assert!(out.contains("heard (echo): 2 tracks analyzed"), "{out}");
+    assert!(out.contains("2 of what's asked the tracks have already"), "{out}");
+    let out = env.ok(&["--yes", "analyze", path(&root), "--apply", "grid", "--overwrite"]);
+    assert!(out.contains("write the grid from Heard to 2 track(s)"), "{out}");
+    let d = Device::open(&root).unwrap();
+    for t in d.library().unwrap().tracks {
+        let beats = locallibrary::anlz::load(&d, &t).beats;
+        assert_eq!((beats.len(), beats[1].time_ms, t.bpm), (16, 510, 125.0));
+    }
+
+    let mut s = Rpc::start(env.command());
+    let apply =
+        json!({ "plugin": "echo", "analyzer": "heard", "drive": path(&root), "parts": ["grid"], "overwrite": true });
+    let planned = s.call(1, "plugins.apply_analysis.plan", apply);
+    assert_eq!(planned["result"]["noop"], true, "as it is now: {planned}");
+    let nothing = s.call(
+        2,
+        "plugins.apply_analysis.plan",
+        json!({ "plugin": "echo", "analyzer": "heard", "drive": path(&root), "parts": [] }),
+    );
+    assert_eq!(nothing["error"]["data"]["kind"], "invalid", "{nothing}");
+}
+
+/// For any of grid, phrases and waveform asked of the test plugin's `heard` (one of two analyzers
+/// working out a grid), overwriting or not, planned or applied, in text or `--json`, with a track
+/// whose audio fails it or none: `analyze --apply` runs it and writes what it worked out where
+/// it can, saying what it left out (a grid only over the tracks' with --overwrite, phrases on the
+/// tracks' grid, no waveform over rekordbox's colour one), and changes nothing on a dry run. A
+/// key or BPM asked with them, --min-confidence, an analyzer not named or one that doesn't work
+/// it out is refused before anything runs, and every track failing is an error. A key or BPM
+/// asked alone is written from the analyzer chosen for it (the sound plugin's, of it and
+/// `heard`), as `plugins.apply_fields` plans it.
+#[cfg(debug_assertions)]
+#[hegel::test(test_cases = 40, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn analyze_apply_writes_the_parts_asked_where_it_can(tc: hegel::TestCase) {
+    use hegel::generators as gs;
+    use locallibrary::plugin::AnalysisPart;
+    let mut env = Env::new();
+    let analyzers = "\n[[contributes.analyzers]]\nname = \"heard\"\ntitle = \"Heard\"\nversion = \"1\"\n\
+                     fields = { grid = \"beats\", phrases = \"phrases\", wave = \"waveform\", tone = \"string\" }\n\
+                     roles = { key = \"tone\" }\n\n\
+                     [[contributes.analyzers]]\nname = \"beat\"\ntitle = \"Beat\"\nversion = \"1\"\n\
+                     fields = { beats = \"beats\" }\n";
+    env.plugins(&[&(crate::support::echo_plugin() + analyzers)]);
+    let (overwrite, dry_run, as_json) = (tc.draw(gs::booleans()), tc.draw(gs::booleans()), tc.draw(gs::booleans()));
+    let flags = |mut args: Vec<&'static str>| {
+        args.extend(overwrite.then_some("--overwrite"));
+        args.extend(dry_run.then_some("--dry-run"));
+        if as_json {
+            args.insert(0, "--json");
+        }
+        args
+    };
+    if tc.draw(gs::weighted_booleans(0.25)) {
+        // The sound plugin heard the first track at double its tempo in its parallel key.
+        let root = analysed(&env, false);
+        let before = Device::open(&root).unwrap().library().unwrap().tracks;
+        let bpm = tc.draw(gs::booleans());
+        let key = !bpm || tc.draw(gs::booleans());
+        let roles: Vec<&str> = [(key, "key"), (bpm, "bpm")].into_iter().filter(|r| r.0).map(|r| r.1).collect();
+        let listed = roles.join(",");
+        let mut args = flags(vec!["--yes", "analyze"]);
+        args.extend([path(&root), "--apply", &listed]);
+        let r = env.run(&args);
+        assert_eq!(r.code, 0, "{args:?}\n{}\n{}", r.out, r.err);
+        let written = usize::from(overwrite);
+        let summary = format!("write {} from Tempo, key and loudness to {written} track(s)", roles.join(" and "));
+        if as_json {
+            let v: Value = serde_json::from_str(&r.out).unwrap();
+            assert_eq!(v["plan"]["operation"], "plugins.apply_fields", "{v}");
+            assert_eq!(v["plan"]["summary"][0], summary.as_str(), "{v}");
+        } else {
+            assert!(r.out.contains("tempo-key-loudness (sound): 0 tracks analyzed, 2 already"), "{}", r.out);
+            assert!(r.out.contains(&summary), "{}", r.out);
+        }
+        let after = Device::open(&root).unwrap().library().unwrap().tracks;
+        let applied = written > 0 && !dry_run;
+        let heard_key = Camelot::parse(&before[0].key).unwrap().parallel().note();
+        assert_eq!(after[0].key, if applied && key { heard_key } else { before[0].key.clone() });
+        assert_eq!(after[0].bpm, if applied && bpm { before[0].bpm * 2.0 } else { before[0].bpm });
+        assert_eq!((&after[1].key, after[1].bpm), (&before[1].key, before[1].bpm));
+        return;
+    }
+    let root = env.demo("A");
+    let device = Device::open(&root).unwrap();
+    let tracks = device.library().unwrap().tracks;
+    let before: Vec<_> = tracks.iter().map(|t| locallibrary::anlz::load(&device, t).beats).collect();
+    let grid: Vec<Value> =
+        (0..16).map(|i| json!({ "beat_number": i % 4 + 1, "bpm": 125.0, "time_ms": 30 + i * 480 })).collect();
+    let phrases = json!({ "mood": "mid", "phrases": [{ "kind": "intro", "start_beat": 1, "end_beat": 17 }] });
+    let failing = match tc.draw(gs::weighted_booleans(0.3)) {
+        true => tc.draw(gs::integers::<usize>().min_value(1).max_value(tracks.len())),
+        false => 0,
+    };
+    // What the test plugin's `heard` answers: what's in the audio file, the first `failing`
+    // tracks' not JSON.
+    for (i, t) in tracks.iter().enumerate() {
+        let answer = json!({
+            "grid": grid,
+            "phrases": phrases,
+            "wave": { "blob": "w.bands", "columns_per_sec": 150.0 },
+            "blobs": { "w.bands": vec![9u8; 3 * 300] },
+        });
+        let audio = if i < failing { "not JSON".to_string() } else { answer.to_string() };
+        std::fs::write(paths::to_fs(&root, &paths::key(&t.file_path)), audio).unwrap();
+    }
+    let at = path(&root);
+    let heard = ["--plugin", "echo", "--analyzer", "heard"];
+    let refusal = tc.draw(gs::weighted_booleans(0.3)).then(|| tc.draw(gs::integers::<u8>().max_value(3)));
+    let refused: Option<(Vec<&str>, &str)> = match refusal {
+        None => None,
+        Some(0) => Some((vec!["--apply", "bpm,phrases"], "write a key and BPM in a run of their own")),
+        Some(1) => Some((vec!["--apply", "grid", "--min-confidence", "0.5"], "--min-confidence is for a key and BPM")),
+        Some(2) => {
+            Some((vec!["--apply", "grid"], "several analyzers work out grid: say which with --plugin and --analyzer"))
+        }
+        Some(_) => {
+            Some((vec!["--analyzer", "beat", "--apply", "waveform"], "no plugin's analyzer here works out waveform"))
+        }
+    };
+    if let Some((args, why)) = refused {
+        let err = env.fails(2, &[&["analyze", at][..], &args].concat());
+        assert!(err.contains(why), "{err}");
+        assert!(!err.contains("analyzed"), "nothing ran: {err}");
+        return;
+    }
+    let mut parts: Vec<AnalysisPart> =
+        [(AnalysisPart::Grid, 0.7), (AnalysisPart::Phrases, 0.5), (AnalysisPart::Waveform, 0.3)]
+            .into_iter()
+            .filter(|(_, p)| tc.draw(gs::weighted_booleans(*p)))
+            .map(|(part, _)| part)
+            .collect();
+    if parts.is_empty() {
+        parts.push(AnalysisPart::Grid);
+    }
+    let asked: Vec<&str> = parts.iter().map(|p| p.name()).collect();
+    let listed = asked.join(",");
+    let mut args = flags(vec!["--yes", "analyze"]);
+    args.extend([at, "--apply", &listed]);
+    args.extend(heard);
+    let r = env.run(&args);
+    let analysed = tracks.len() - failing;
+    if analysed == 0 {
+        assert_eq!(r.code, 1, "{}", r.err);
+        let said = if as_json { &r.out } else { &r.err };
+        assert!(said.contains(&format!("every track failed ({failing})")), "{said}");
+        return;
+    }
+    assert_eq!(r.code, 0, "{}\n{}", r.out, r.err);
+    let wants = |p| parts.contains(&p);
+    // The demo's tracks have a grid, phrases and rekordbox's colour waveform: only a grid with
+    // --overwrite is written (with the phrases on it), a waveform leaving the track out.
+    let written = match overwrite && wants(AnalysisPart::Grid) && !wants(AnalysisPart::Waveform) {
+        true => analysed,
+        false => 0,
+    };
+    let what: Vec<&str> = AnalysisPart::ALL.into_iter().filter(|p| wants(*p)).map(AnalysisPart::name).collect();
+    let summary = format!("write the {} from Heard to {written} track(s)", what.join(" and "));
+    let mut warnings = Vec::new();
+    if failing > 0 {
+        warnings.push(format!("{failing} track(s) aren't analysed by Heard yet"));
+    }
+    if !overwrite {
+        warnings.push(format!("{} of what's asked the tracks have already", analysed * parts.len()));
+    }
+    if overwrite && wants(AnalysisPart::Phrases) && !wants(AnalysisPart::Grid) {
+        warnings.push(format!("{analysed} track(s)' phrases left out"));
+    }
+    if overwrite && wants(AnalysisPart::Waveform) {
+        warnings.push(format!("{analysed} track(s) left out, e.g. "));
+    }
+    if as_json {
+        let v: Value = serde_json::from_str(&r.out).unwrap();
+        assert_eq!(v["plan"]["operation"], "plugins.apply_analysis", "{v}");
+        assert_eq!(v["plan"]["summary"][0], summary.as_str(), "{v}");
+        assert_eq!(v["applied"], json!(written > 0 && !dry_run), "{v}");
+        let said = v["plan"]["warnings"].as_array().unwrap();
+        for w in &warnings {
+            assert!(said.iter().any(|s| s.as_str().unwrap().starts_with(w.as_str())), "{w:?} in {said:?}");
+        }
+    } else {
+        let ran = format!("heard (echo): {analysed} track{} analyzed", if analysed == 1 { "" } else { "s" });
+        assert!(r.out.contains(&ran) && r.out.contains(&summary), "{}", r.out);
+        assert_eq!(r.out.contains("nothing to change"), written == 0, "{}", r.out);
+        for w in &warnings {
+            assert!(r.out.contains(w.as_str()) || r.err.contains(w.as_str()), "{w:?} in\n{}\n{}", r.out, r.err);
+        }
+    }
+    let device = Device::open(&root).unwrap();
+    let applied = written > 0 && !dry_run;
+    for (i, t) in device.library().unwrap().tracks.iter().enumerate() {
+        let beats = locallibrary::anlz::load(&device, t).beats;
+        match applied && i >= failing {
+            true => assert_eq!((beats.len(), beats[1].time_ms, t.bpm), (16, 510, 125.0)),
+            false => assert_eq!(beats, before[i]),
+        }
+    }
 }

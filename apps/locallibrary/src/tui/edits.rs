@@ -14,6 +14,7 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use locallibrary::api::{self, EditRequest};
+use locallibrary::collection_export::{CollectionExportOptions, CollectionExportPlan};
 use locallibrary::edit::{Edit, EditOptions, EditPlan, TrackFields};
 use locallibrary::model::TrackColor;
 use locallibrary::op::{AnyPlanned, Planned};
@@ -517,6 +518,15 @@ pub fn wording(plan: &dyn AnyPlanned, drive: &str) -> Wording {
     }
     let written: Vec<&str> = (plan.drives().iter()).filter(|t| t.writes && t.drive).map(|t| t.name.as_str()).collect();
     let who = if written.is_empty() { drive.to_string() } else { written.join(", ") };
+    // Building a drive from a plugin's library source: the only collection export the player plans.
+    if let Some(b) = plan.as_any().downcast_ref::<Planned<CollectionExportPlan, CollectionExportOptions>>() {
+        let ask = match b.plan.replaces_library {
+            true => format!("Replace the library on {drive} with {}?", b.plan.what()),
+            false => format!("Build {drive} from {}?", b.plan.what()),
+        };
+        let what = "build it from a library source".into();
+        return Wording { ask, yes: "build", who, what, doing: format!("Building {drive}") };
+    }
     let w =
         |ask: String, yes, what: &str, doing: String| Wording { ask, yes, who: who.clone(), what: what.into(), doing };
     match plan.operation() {
@@ -1355,6 +1365,18 @@ impl App {
                 let mut msg = format!("{by}: {} written", plural(n, "file"));
                 if let Some(w) = report["warnings"].as_array().and_then(|w| w.first()).and_then(|w| w.as_str()) {
                     msg.push_str(&format!(" · {w}"));
+                }
+                self.toast(msg, Level::Info);
+            }
+            Ok(Applied { operation, report }) if super::plugins::importers::imported_by(&operation).is_some() => {
+                let by = super::plugins::importers::imported_by(&operation).unwrap_or_default();
+                let changes = report["edits"]["changes"].as_u64().unwrap_or(0) as usize;
+                let sessions = report["sessions"].as_array().map_or(0, Vec::len);
+                let mut msg =
+                    format!("{by}: {} written, {} kept", plural(changes, "change"), plural(sessions, "session"));
+                if report["edits"]["backup"].is_string() {
+                    self.last_backup = Some(self.drive_at(root.clone()));
+                    msg.push_str(" · u to undo");
                 }
                 self.toast(msg, Level::Info);
             }

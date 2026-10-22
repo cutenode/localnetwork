@@ -649,7 +649,7 @@ fn a_contact_is_written_with_its_playlist(tc: TestCase) {
     let contact = tc.draw(gs::sampled_from(CONTACTS)).to_string();
     let playlist = tc.draw(gs::booleans());
     let req = api::SetContact { drive: path(root), contact: contact.clone(), playlist };
-    let plan = api::drive_contact_plan(&req);
+    let plan = api::drive_contact_plan(&req, &Ctx::silent());
     let valid = !contact.trim().is_empty() && !contact.chars().any(char::is_control);
     assert_eq!(plan.is_ok(), valid, "{contact:?}");
     let Ok(plan) = plan else { return };

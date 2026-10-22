@@ -127,7 +127,7 @@ fn packing_again_saves_what_players_recorded_first() {
     assert!(c.evidence.iter().any(|e| e.detail.contains("packed from")), "{:?}", c.evidence);
     let report = check::check(&[src, club], None, &CheckOptions::default(), &Ctx::silent()).unwrap();
     let item = report.items.iter().find(|i| i.drive == "Club" && i.check == "same_library").unwrap();
-    assert_eq!(item.level, Level::Ok, "{}", item.message);
+    assert_eq!(item.level, Level::Info, "{}", item.message);
     assert!(item.message.contains("up to date"), "{}", item.message);
 
     // A set: the player records a history list.

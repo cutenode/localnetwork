@@ -1,4 +1,5 @@
 use locallibrary::mix::{Alternate, MixInfo, Span as Gap};
+use locallibrary::tokens::bands::{HIGH, LOW, MID};
 
 use super::super::app::View;
 use super::super::app::testing::*;

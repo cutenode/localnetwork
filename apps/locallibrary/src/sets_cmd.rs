@@ -5,14 +5,17 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
+use clap::builder::PossibleValuesParser;
 use clap::{Args, Subcommand, ValueEnum};
 use console::style;
 use locallibrary::api::{self, SetFields, SetFormat};
 use locallibrary::progress::Ctx;
 use locallibrary::sets::query::Appearance;
 use locallibrary::sets::{EntryOrigin, Session, Set, SetEntry, describe};
+use loclib_plugin::{ExportFrom, ExportSource};
 
+use crate::jobs_cmd::usage;
 use crate::output::{Output, clock, dim, duration, fit, heading, ok, plural, warn};
 
 /// `sets`: with no subcommand, the list.
@@ -65,23 +68,32 @@ enum SetsCommand {
         undismiss: Vec<String>,
     },
     /// Write a set's tracklist out: for Mixcloud, a CUE sheet, YouTube chapters, 1001Tracklists,
-    /// CSV, or an M3U8 of its tracks on a drive
+    /// CSV, an M3U8 of its tracks on a drive, or in a format a plugin adds
     #[command(after_long_help = EXPORT_HELP)]
     Export {
         #[arg(value_name = "SET")]
         set: String,
-        /// [default: from -o's extension (.cue, .csv, .m3u8, .txt), else text]
-        #[arg(long, short, value_enum)]
-        format: Option<FormatArg>,
+        /// Or a format a plugin adds for sets [default: from -o's extension (.cue, .csv, .m3u8,
+        /// .txt), else text]
+        #[arg(long, short, value_parser = formats())]
+        format: Option<String>,
         /// Write it to this file [default: print it]
         #[arg(long, short)]
         output: Option<PathBuf>,
-        /// For m3u8: the drive the tracks are on [default: the only mounted rekordbox drive]
+        /// For m3u8: the drive the tracks are on [default: the only mounted rekordbox drive]; for a
+        /// plugin's format, one to give it
         #[arg(long)]
         drive: Option<String>,
         /// Replace the file if it's there already
         #[arg(long, requires = "output")]
         replace: bool,
+        /// A plugin's format: list what would be written, and write nothing
+        #[arg(long)]
+        dry_run: bool,
+        /// A plugin's format: an option for it, like key=value (repeatable; `locallibrary plugin
+        /// info` shows them)
+        #[arg(long = "option", value_name = "KEY=VALUE")]
+        options: Vec<String>,
     },
     /// When and where you played a track
     Played {
@@ -101,20 +113,27 @@ enum SetsCommand {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Publish a set on your Atmosphere account, where anyone can read it (alpha)
-    #[cfg(feature = "account")]
+    /// Publish a set: with its recording at a plugin's set destination (--to), or on your
+    /// Atmosphere account, where anyone can read it (alpha)
     Publish {
         #[arg(value_name = "SET")]
         set: String,
+        /// Publish it with its recording at a plugin's set destination (`plugin info PLUGIN` lists
+        /// them): asked first, and its link kept
+        #[arg(long, value_name = "PLUGIN:DESTINATION")]
+        #[cfg_attr(not(feature = "account"), arg(required = true))]
+        to: Option<String>,
         /// Publish these tracks without naming them, by position: 3,7 or 1-2,30 (tracks the set
         /// marks unnamed and tracks your profile hides are never named)
-        #[arg(long, value_name = "POSITIONS", value_parser = positions)]
+        #[cfg(feature = "account")]
+        #[arg(long, value_name = "POSITIONS", value_parser = positions, conflicts_with = "to")]
         hide: Vec<Positions>,
         /// Show what would be published without publishing
         #[arg(long)]
         dry_run: bool,
+        #[cfg(feature = "account")]
         #[command(flatten)]
-        browser: crate::account_cmd::BrowserArgs,
+        browser: crate::browser::BrowserArgs,
     },
 }
 
@@ -312,9 +331,15 @@ fn an_insert(s: &str) -> std::result::Result<api::Insert, String> {
     Ok(api::Insert { at, track })
 }
 
-/// `--format`.
+/// `export --format`'s values: locallibrary's formats, and those plugins add for sets.
+fn formats() -> PossibleValuesParser {
+    let own = FormatArg::value_variants().iter().filter_map(ValueEnum::to_possible_value);
+    PossibleValuesParser::new(own.chain(crate::export_cmd::plugin_formats(ExportFrom::Set)).collect::<Vec<_>>())
+}
+
+/// `export --format`.
 #[derive(Clone, Copy, ValueEnum)]
-enum FormatArg {
+pub(crate) enum FormatArg {
     /// 01. Artist - Title
     Text,
     /// Mixcloud's tracklist, with its rules checked
@@ -426,8 +451,20 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             let s = api::sets_suggest(store.as_ref(), &api::SuggestSets { drive }, ctx)?;
             out.emit_paged(&s, suggestions);
         }
-        SetsCommand::Export { set, format, output, drive, replace } => {
-            let format = format.map(Into::into).or_else(|| output.as_deref().and_then(format_of));
+        SetsCommand::Export { set, format: Some(format), output, drive, replace, dry_run, options }
+            if FormatArg::from_str(&format, true).is_err() =>
+        {
+            let output = output.ok_or_else(|| usage("a plugin's format writes a file: say where with -o"))?;
+            let source = ExportSource { drive: drive.unwrap_or_default(), set: Some(set), ..ExportSource::default() };
+            let written = crate::export_cmd::Written { output: &output, options: &options, dry_run, replace };
+            let store = crate::diff_cmd::existing_store(store_path)?;
+            return crate::export_cmd::plugin_export(&format, source, written, store.as_ref(), out, ctx);
+        }
+        SetsCommand::Export { dry_run: true, .. } => bail!("--dry-run is for plugins' formats"),
+        SetsCommand::Export { options, .. } if !options.is_empty() => bail!("--option is for plugins' formats"),
+        SetsCommand::Export { set, format, output, drive, replace, .. } => {
+            let format = format.map(|f| FormatArg::from_str(&f, true).expect("one of locallibrary's").into());
+            let format = format.or_else(|| output.as_deref().and_then(format_of));
             let req = api::SetExport { set, format: format.unwrap_or(SetFormat::Text), drive, output, replace };
             let r = api::set_export(&crate::diff_cmd::store_to_read(store_path)?, &req)?;
             let Some(path) = &r.path else {
@@ -456,13 +493,57 @@ pub fn run(args: SetsArgs, store_path: &Option<PathBuf>, out: Output, ctx: &Ctx<
             let plan = api::set_playlist_plan(&store()?, &req, ctx)?;
             return crate::edit_cmd::confirm_and_apply(&drive, plan, dry_run, out, ctx);
         }
-        #[cfg(feature = "account")]
-        SetsCommand::Publish { set, hide, dry_run, browser } => {
-            let req = api::SetPublishRequest { set, hide: all(hide) };
-            return crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx);
+        SetsCommand::Publish {
+            set,
+            to,
+            dry_run,
+            #[cfg(feature = "account")]
+            hide,
+            #[cfg(feature = "account")]
+            browser,
+        } => {
+            if let Some(spec) = to {
+                return publish_to(&store()?, &spec, &set, dry_run, out, ctx);
+            }
+            #[cfg(feature = "account")]
+            {
+                let req = api::SetPublishRequest { set, hide: all(hide) };
+                return crate::publish_cmd::set_publish(store_path, &req, dry_run, browser, out, ctx);
+            }
+            #[cfg(not(feature = "account"))]
+            unreachable!("clap requires --to without the Atmosphere account");
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// `sets publish SET --to PLUGIN:DESTINATION`: the plugin's dry run shown, and publishing always
+/// asked about, since it reaches outside this computer.
+fn publish_to(
+    store: &locallibrary::Store,
+    spec: &str,
+    set: &str,
+    dry_run: bool,
+    out: Output,
+    ctx: &Ctx<'_>,
+) -> Result<ExitCode> {
+    let plan = crate::plugins::host()?.publish_plan(spec, set, store, ctx)?;
+    if !out.json {
+        crate::output::summary(&plan.summary, &plan.warnings);
+    }
+    if let Some(o) = out.decide(dry_run, "Publish it?") {
+        return Ok(out.not_applied(&plan, o));
+    }
+    let r = plan.apply(Some(store), ctx)?;
+    Ok(out.applied(&plan, &r, crate::output::Outcome::Applied, || {
+        match &r.url {
+            Some(url) => ok(format!("published: {url}")),
+            None => ok("published"),
+        }
+        for w in &r.warnings {
+            warn(w);
+        }
+    }))
 }
 
 fn list(sets: &[Set]) {

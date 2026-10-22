@@ -53,22 +53,46 @@ impl Host {
     }
 }
 
-/// One plugin, and its process while it runs.
-pub(crate) struct Slot {
+/// A plugin, whichever of its processes runs: what its callbacks hold, which keeps none of
+/// them running.
+pub(crate) struct Plugin {
     pub(crate) manifest: Manifest,
-    launch: Launch,
     pub(crate) host: Arc<Host>,
+    /// Its `net/fetch` requests' turns, client and secrets, whichever process makes them.
+    pub(crate) net: Arc<net::State>,
+}
+
+/// One plugin, and its process while it runs. Only the host and the hooks under way (an event
+/// being sent and a service running too) hold it; a plan kept, the plugin's callbacks and the
+/// idle reaper never do: once the host lets go of it, a plan kept is stale.
+pub(crate) struct Slot {
+    pub(crate) plugin: Arc<Plugin>,
+    launch: Launch,
+    /// What the idle reaper holds instead, while it stops the process.
+    hosting: Arc<Hosting>,
+    /// Its events waiting to be sent.
+    pub(crate) events: Arc<Queue>,
+    /// Its services running, by name.
+    pub(crate) services: Mutex<IndexMap<String, Running>>,
+}
+
+/// A slot's process, and its starting and stopping.
+#[derive(Default)]
+struct Hosting {
     /// The process while it runs. Only ever locked for a moment.
     process: Mutex<Option<Arc<Process>>>,
     /// Held while a process starts (and shakes hands) or stops, so one does at a time: whoever
     /// stops it next waits for a stop under way, as a host exiting must.
     changing: Mutex<()>,
-    /// Its `net/fetch` requests' turns, client and secrets, whichever process makes them.
-    pub(crate) net: Arc<net::State>,
-    /// Its events waiting to be sent.
-    pub(crate) events: Arc<Queue>,
-    /// Its services running, by name.
-    pub(crate) services: Mutex<IndexMap<String, Running>>,
+}
+
+/// A slot is its plugin, hosted: what's the plugin's is read through it.
+impl std::ops::Deref for Slot {
+    type Target = Plugin;
+
+    fn deref(&self) -> &Plugin {
+        &self.plugin
+    }
 }
 
 /// What a process's callbacks need besides its plugin.
@@ -239,12 +263,7 @@ pub(crate) fn printable(line: &str) -> String {
     out
 }
 
-impl Slot {
-    pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
-        let (net, events, services) = (Arc::default(), Arc::default(), Mutex::default());
-        Slot { manifest, launch, host, process: Mutex::new(None), changing: Mutex::new(()), net, events, services }
-    }
-
+impl Plugin {
     /// How errors name it: "the Echo plugin".
     fn label(&self) -> String {
         format!("the {} plugin", self.manifest.name)
@@ -253,6 +272,13 @@ impl Slot {
     /// An error for something the plugin did wrong.
     pub(crate) fn misbehaved(&self, message: impl Into<String>) -> Error {
         Error::External { command: self.label(), message: message.into() }
+    }
+}
+
+impl Slot {
+    pub(crate) fn new(manifest: Manifest, launch: Launch, host: Arc<Host>) -> Slot {
+        let plugin = Arc::new(Plugin { manifest, host, net: Arc::default() });
+        Slot { plugin, launch, hosting: Arc::default(), events: Arc::default(), services: Mutex::default() }
     }
 
     /// The plugin's error as locallibrary's, of the kind it says (`not_found`, `invalid`,
@@ -287,13 +313,13 @@ impl Slot {
 
     /// The process, if it's running. Never waits.
     fn running(&self) -> Option<Arc<Process>> {
-        lock(&self.process).clone().filter(|p| !p.stopped())
+        lock(&self.hosting.process).clone().filter(|p| !p.stopped())
     }
 
     /// Whether it's running, without holding the process: a caller that did could be left the
     /// last to let go of it, after whoever stopped it was told it had.
     pub(crate) fn is_running(&self) -> bool {
-        lock(&self.process).as_ref().is_some_and(|p| !p.stopped())
+        lock(&self.hosting.process).as_ref().is_some_and(|p| !p.stopped())
     }
 
     /// The process, started (and shaken hands with) if it isn't running: in its folder in
@@ -302,7 +328,7 @@ impl Slot {
         if let Some(p) = self.running() {
             return Ok(p);
         }
-        let _one = lock(&self.changing);
+        let _one = lock(&self.hosting.changing);
         // Another caller may have started it meanwhile.
         if let Some(p) = self.running() {
             return Ok(p);
@@ -310,11 +336,11 @@ impl Slot {
         let p = Arc::new(self.spawn(store)?);
         let features = self.handshake(&p)?;
         let _ = p.live.features.set(features);
-        let (slot, process, idle) = (Arc::downgrade(self), Arc::downgrade(&p), self.host.options.idle);
+        let (hosting, process, idle) = (Arc::downgrade(&self.hosting), Arc::downgrade(&p), self.host.options.idle);
         let (activity, dead) = (p.activity.clone(), p.dead.clone());
-        std::thread::spawn(move || reap(&slot, &process, &activity, &dead, idle));
+        std::thread::spawn(move || reap(&hosting, &process, &activity, &dead, idle));
         // One that stopped is waited for as it's dropped, once the lock is let go.
-        let stopped = lock(&self.process).replace(p.clone());
+        let stopped = lock(&self.hosting.process).replace(p.clone());
         drop(stopped);
         Ok(p)
     }
@@ -322,8 +348,8 @@ impl Slot {
     /// Stops the process, if it's running (see [`Process`]'s drop), or waits for it to stop if
     /// that's under way.
     pub(crate) fn stop(&self) {
-        let _one = lock(&self.changing);
-        let stopped = lock(&self.process).take();
+        let _one = lock(&self.hosting.changing);
+        let stopped = lock(&self.hosting.process).take();
         drop(stopped);
     }
 
@@ -381,8 +407,9 @@ impl Slot {
         let dead = Arc::new(AtomicBool::new(false));
         let live = Arc::new(Live::new(store.cloned()));
         let (answering, ended, slot, answered) = (peer.clone(), dead.clone(), Arc::downgrade(self), live.clone());
+        let plugin = self.plugin.clone();
         std::thread::spawn(move || {
-            callbacks::answer(&slot, &answered, &answering, incoming);
+            callbacks::answer(&slot, &plugin, &answered, &answering, incoming);
             ended.store(true, Ordering::SeqCst);
         });
         let grace = self.host.options.grace;
@@ -460,6 +487,22 @@ impl Slot {
         shown: &dyn Fn(Partial),
         read: impl FnOnce(R, &Scratch, &Live) -> Result<T>,
     ) -> Result<T> {
+        self.call_giving(method, params, &[], store, ctx, shown, read)
+    }
+
+    /// [`Slot::call_with`], the files `given` (by name, their bytes) written to the scratch
+    /// folder first, for the request to name: it fails without one.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn call_giving<R: DeserializeOwned, T>(
+        self: &Arc<Self>,
+        method: &str,
+        params: &impl Serialize,
+        given: &[(&str, &[u8])],
+        store: Option<&Store>,
+        ctx: &Ctx<'_>,
+        shown: &dyn Fn(Partial),
+        read: impl FnOnce(R, &Scratch, &Live) -> Result<T>,
+    ) -> Result<T> {
         ctx.check()?;
         let p = self.start(store)?;
         let _busy = Busy::new(&p);
@@ -467,6 +510,13 @@ impl Slot {
             true => p.live.scratches.make(&p.scratch)?,
             false => p.live.scratches.none(),
         };
+        for (name, bytes) in given {
+            let dir = scratch
+                .dir()
+                .ok_or_else(|| self.misbehaved("it has no scratch folder for files (the blobs feature)"))?;
+            let path = dir.join(name);
+            std::fs::write(&path, bytes).at(&path)?;
+        }
         let mut params = serde_json::to_value(params).map_err(|e| Error::invalid(e.to_string()))?;
         if let Some(dir) = scratch.dir() {
             params["context"]["scratch"] = Value::from(dir.to_string_lossy().into_owned());
@@ -526,7 +576,7 @@ impl Slot {
         self.host.log(&self.manifest.id, &format!("killed: it didn't stop within {grace:?} of being asked to"));
         p.dead.store(true, Ordering::SeqCst);
         let _ = lock(&p.child).kill();
-        let mut running = lock(&self.process);
+        let mut running = lock(&self.hosting.process);
         let stopped = running.take_if(|r| Arc::ptr_eq(r, p));
         drop(running);
         drop(stopped);
@@ -561,8 +611,9 @@ fn pass_on(report: ProgressReport, ctx: &Ctx<'_>) {
 /// Stops the process once it has been idle for `idle`, unless it has stopped already or the
 /// plugin has started another since. It reads the process's `activity` and whether it's `dead`,
 /// but never holds it: holding it as another caller stopped it would leave this thread to stop
-/// it, after that caller was told it had.
-fn reap(slot: &Weak<Slot>, process: &Weak<Process>, activity: &Activity, dead: &AtomicBool, idle: Duration) {
+/// it, after that caller was told it had. Nor does it hold the slot, only its [`Hosting`]: a host
+/// letting go of the plugin as it stops the process lets go of the slot.
+fn reap(hosting: &Weak<Hosting>, process: &Weak<Process>, activity: &Activity, dead: &AtomicBool, idle: Duration) {
     let idle_for = || match activity.busy.load(Ordering::SeqCst) {
         0 => idle.saturating_sub(lock(&activity.last_used).elapsed()),
         _ => idle,
@@ -576,9 +627,9 @@ fn reap(slot: &Weak<Slot>, process: &Weak<Process>, activity: &Activity, dead: &
             std::thread::sleep(wait);
             continue;
         }
-        let Some(slot) = slot.upgrade() else { return };
-        let one = lock(&slot.changing);
-        let mut running = lock(&slot.process);
+        let Some(hosting) = hosting.upgrade() else { return };
+        let one = lock(&hosting.changing);
+        let mut running = lock(&hosting.process);
         if !running.as_ref().is_some_and(|r| std::ptr::eq(Arc::as_ptr(r), process.as_ptr())) {
             return;
         }

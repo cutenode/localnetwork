@@ -16,8 +16,8 @@ The look of the product page: dark ink, white type, and colour only where DJ dat
 
 ## Where things live
 
-- `theme.css`: the tokens, fonts and base styles. Import it after `@import 'tailwindcss'`.
-- `data-colors.css`: generated from `packages/tokens/colors.json`, the colours the player and the HTML report also use. After editing that file, run `TOKENS_BLESS=1 pnpm vitest run --project server src/lib/ui/data-colors.test.ts`.
+- `theme.css`: the fonts and Tailwind plugins, over the shared theme in `packages/tokens/theme.css` (the tokens, base styles and shared classes, which localtoolbox uses too). Import it after `@import 'tailwindcss'`.
+- `packages/tokens/data-colors.css`: generated from `packages/tokens/colors.json`, the colours the player and the HTML report also use. After editing that file, run `TOKENS_BLESS=1 pnpm -C apps/web vitest run --project server src/lib/ui/data-colors.test.ts`.
 - `*.svelte`: the components. Each has stories beside it, and `ui.svelte.test.ts` tests their behaviour.
 - **Patterns/Homepage**: the product page built from these pieces, on desktop and on a phone. Its events and match scores are examples.
 

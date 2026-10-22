@@ -192,6 +192,10 @@ pub enum Act {
     FieldColumn(locallibrary::query::FieldName),
     /// A plugin's settings (the plugin's id).
     PluginSettings(&'static str),
+    /// Sign in to a plugin's account in the browser (the plugin's id, the account's).
+    PluginSignIn(&'static str, &'static str),
+    /// Sign out of a plugin's account (the plugin's id, the account's).
+    PluginSignOut(&'static str, &'static str),
     /// Plan what a plugin suggested, which it no longer keeps: the one waiting to be reviewed
     /// with this mark (see `tui::plugins::events::mark`), so a palette open as others come and go
     /// still plans the one picked.
@@ -200,8 +204,18 @@ pub enum Act {
     Dismiss(u64),
     /// The settings of every provider: when a candidate is picked for the user.
     ProviderSettings,
+    /// Which plugins' checks run, and how long one has to answer.
+    CheckSettings,
+    /// Plan a fix the last check found (its place in [`super::app::App::fixes`]).
+    Fix(usize),
+    /// Draw in a theme, by its key (`<plugin>.<name>`; empty for the default).
+    Theme(&'static str),
     /// Export the drive in a plugin's format (the plugin's id, the format).
     Export(&'static str, &'static str),
+    /// Import a file into the drive with a plugin's importer (the plugin's id, the format).
+    Import(&'static str, &'static str),
+    /// Build the drive from a plugin's library source (the plugin's id, the source).
+    Source(&'static str, &'static str),
     /// Fetch what plugins' providers of a kind find for the tracks selected.
     Fetch(loclib_plugin::ProviderKind),
 }

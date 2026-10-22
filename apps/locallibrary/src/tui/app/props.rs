@@ -2245,7 +2245,8 @@ fn any_field_value(tc: &TestCase, kind: usize) -> Option<locallibrary::fields::F
 fn field_text(v: &locallibrary::fields::FieldValue) -> std::string::String {
     use locallibrary::fields::FieldValue::*;
     match v {
-        Null => "-".to_string(),
+        // A structured value is never a column; drawn, it's as if it were null.
+        Null | Structured(_) => "-".to_string(),
         Integer(n) => n.to_string(),
         Number(n) => format!("{n:.2}").trim_end_matches('0').trim_end_matches('.').to_string(),
         Boolean(b) => if *b { "yes" } else { "no" }.to_string(),

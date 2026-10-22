@@ -162,8 +162,8 @@ fn player_name_and_contact_are_planned_then_written() {
     assert_eq!((shown.name.as_deref(), shown.colour), (Some("MAIN"), Some(3)));
 
     let contact = |contact: &str| api::SetContact { drive: path(&root), contact: contact.into(), playlist: true };
-    assert!(api::drive_contact_plan(&contact(" ")).is_err());
-    let plan = api::drive_contact_plan(&contact("dj@example.com")).unwrap();
+    assert!(api::drive_contact_plan(&contact(" "), &Ctx::silent()).is_err());
+    let plan = api::drive_contact_plan(&contact("dj@example.com"), &Ctx::silent()).unwrap();
     assert!(!plan.replaces);
     assert_eq!(plan.playlist.as_deref(), Some("IF FOUND: dj@example.com"));
     let report = api::drive_contact(&contact("dj@example.com"), &Ctx::silent()).unwrap();
@@ -171,7 +171,7 @@ fn player_name_and_contact_are_planned_then_written() {
     let names: Vec<String> =
         Device::open(&root).unwrap().library().unwrap().playlists.into_iter().map(|p| p.name).collect();
     assert!(names.contains(&"IF FOUND: dj@example.com".to_string()), "{names:?}");
-    let again = api::drive_contact_plan(&contact("dj@example.com")).unwrap();
+    let again = api::drive_contact_plan(&contact("dj@example.com"), &Ctx::silent()).unwrap();
     assert!(again.replaces && again.summary[0].starts_with("replace "), "{:?}", again.summary);
 }
 

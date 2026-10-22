@@ -95,7 +95,8 @@ pub fn playlist_restore_plan(
     );
     let mut warnings = plan.warnings.clone();
     if !restoration.missing.is_empty() {
-        warnings.push(format!("{} entries are left out: their tracks aren't on the drive", restoration.missing.len()));
+        let left_out = restoration.missing.len();
+        warnings.push(format!("{left_out} entr(ies) left out: their tracks aren't on the drive any more"));
     }
     let noop = plan.is_noop();
     let preview = PlaylistRestorePreview {
@@ -114,7 +115,8 @@ pub fn playlist_restore_plan(
         .noop(noop)
         .touches(Touched::library(&d, true))
         .reaching_clones(ctx)?
-        .guard(store)
+        .guard(store)?
+        .guarded(|p| p.plan.recorded.clone(), ctx)
 }
 
 impl Operation for PlaylistRestorePreview {

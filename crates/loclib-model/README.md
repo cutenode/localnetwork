@@ -15,8 +15,13 @@ reads and writes these from rekordbox USB exports, so the fields follow what rek
 - `analysis`: `TrackAnalysis` and its parts, and rekordbox's hot cue palette.
 - `audio`: the audio format a file's extension names (`audio::Format`), and which extensions DJ
   players list.
+- `finding`: `Finding`, one thing a check found about a library (its `Level`, the tracks,
+  playlist and files it's about), as locallibrary's checks and plugins' report them.
 - `paths`: the normalised path keys tracks are matched by, finding them below a folder, names
   made safe for FAT32 and exFAT, and `PathStyle` (how an export writes paths).
+- `theme`: `Theme`, every colour DJ data and a player's chrome are drawn in, the shared ones
+  (`tokens`, from the repository's packages/tokens) by default, and the names a theme sets them
+  by (`theme::TOKENS`: `cues.hot`, `ui.accent`, `waveform.spectrum`...).
 - `labelled_tuple!`: a struct that serialises as a JSON array but names its elements in its
   schema.
 

@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::Plugins;
 use super::callbacks::{answer_for_plugin, known_roots};
-use super::process::{Live, Slot, printable};
+use super::process::{Live, Plugin, Slot, printable};
 use crate::api::{JobEvent, Notice, WatchAction};
 use crate::error::IoContext;
 use crate::op::Applied;
@@ -176,7 +176,9 @@ impl Slot {
     }
 
     /// Waits, for at most `within`, until the plugin's events are all sent. Those still waiting
-    /// then are dropped (and logged): sent later, they'd start it again once it has stopped.
+    /// then are dropped (and logged): sent later, they'd start it again once it has stopped. The one
+    /// being sent then is waited for (one start of the plugin, at most): it could start the plugin
+    /// after the stop that follows, which would leave it running.
     pub(crate) fn sent_events(&self, within: Duration) {
         let until = Instant::now() + within;
         let mut waiting = self.events.lock();
@@ -185,13 +187,16 @@ impl Slot {
             waiting = self.events.changed.wait_timeout(waiting, left).unwrap_or_else(PoisonError::into_inner).0;
         }
         let dropped = std::mem::take(&mut waiting.events).len();
+        let waiting = self.events.changed.wait_while(waiting, |w| w.sending).unwrap_or_else(PoisonError::into_inner);
         drop(waiting);
         if dropped > 0 {
             let said = format!("it's stopping: {dropped} of its events waiting weren't sent");
             self.host.log(&self.manifest.id, &said);
         }
     }
+}
 
+impl Plugin {
     /// A notification from the plugin: `host/notify`, from one with a feature that sends it,
     /// told to the front end once it's text the user can read, without the secrets the host
     /// filled in for it, and suggesting one of its own operations (with params neither too long

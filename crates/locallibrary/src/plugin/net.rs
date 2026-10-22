@@ -2,9 +2,11 @@
 //! its `net:` capabilities grant, at public https addresses ([`crate::net::public`]), redirects
 //! followed by the host and each one checked the same way, as `locallibrary/<version>` (with the
 //! plugin's `contact` setting, when it has one), spaced out as its manifest's `[[net]]` limits
-//! say. Its secret settings go only where a request names them (`{secret:<key>}`), filled in once
-//! it's checked, never on to another server a redirect leads to, and are left out of its log and
-//! the errors it's told (see [`State::scrub`]); what a server answers is passed on as it is.
+//! say. Its secret settings go only where a request names them (`{secret:<key>}`), and its
+//! accounts' access tokens only into the `Authorization` header that names one (`{account:<id>}`,
+//! see [`super::accounts`]), filled in once it's checked, never on to another server a redirect
+//! leads to, and left out of its log and the errors it's told (see [`State::scrub`]); what a
+//! server answers is passed on as it is.
 //! Answers are given up to [`super::Options::max_body`], or written to a file in the request's
 //! scratch folder; nothing is kept.
 
@@ -15,7 +17,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
-use loclib_plugin::{Capability, Fetch, Fetched, RpcError, SettingType};
+use loclib_plugin::{ACCOUNT_PLACEHOLDER, Capability, Fetch, Fetched, RpcError, SettingType};
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{
     AUTHORIZATION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, COOKIE, HeaderMap, HeaderName, HeaderValue,
@@ -26,7 +28,7 @@ use rustc_hash::FxHashMap;
 use serde_json::Value;
 
 use super::blobs;
-use super::process::{Live, Slot};
+use super::process::{Live, Plugin};
 use crate::export::one_line;
 use crate::net::{public, this_computer, with_causes};
 use crate::progress::CancelToken;
@@ -47,8 +49,12 @@ pub(crate) struct State {
     /// When each `[[net]]` limit lets a request go next, by its host.
     turns: Mutex<FxHashMap<String, Instant>>,
     client: OnceLock<Result<Client, String>>,
-    /// The secrets filled into its requests (and how URLs spell them) while this host runs.
+    /// The secrets filled into its requests, and its accounts' tokens (and how URLs spell
+    /// them), while this host runs.
     seen: Mutex<Vec<String>>,
+    /// Held while one of its accounts' tokens is read and refreshed, so one refresh is made at a
+    /// time.
+    pub(crate) refreshing: Mutex<()>,
 }
 
 impl State {
@@ -68,7 +74,8 @@ impl State {
         }
     }
 
-    fn saw(&self, secret: &str) {
+    /// Keeps `secret` out of what [`State::scrub`] gives.
+    pub(crate) fn saw(&self, secret: &str) {
         let encoded: String = form_urlencoded::byte_serialize(secret.as_bytes()).collect();
         let mut seen = lock(&self.seen);
         for spelt in [secret.to_string(), encoded] {
@@ -102,27 +109,32 @@ fn invalid(why: impl Into<String>) -> RpcError {
 }
 
 /// Why the plugin may not reach `url`, if it may not: its host isn't one its capabilities grant,
-/// or it isn't a public https address. With `loopback` (tests only), this computer is, over http
-/// too.
+/// or [`unreachable`] says so.
 fn refused(capabilities: &[Capability], url: &Url, loopback: bool) -> Option<String> {
     let host = url.host_str().unwrap_or_default();
     if !capabilities.iter().any(|c| c.reaches(host)) {
         return Some(format!("{host} isn't a server the plugin may talk to (no net:{host} capability)"));
     }
+    unreachable(url, loopback)
+}
+
+/// Why the host doesn't send a plugin's request to `url`, if it doesn't: it isn't a public https
+/// address. With `loopback` (tests only), this computer is, over http too.
+pub(super) fn unreachable(url: &Url, loopback: bool) -> Option<String> {
     if loopback && this_computer(url) && matches!(url.scheme(), "http" | "https") {
         return None;
     }
     public(url.as_str()).err()
 }
 
-impl Slot {
+impl Plugin {
     /// Whether `net/fetch` may reach servers on this computer: in tests, never in a release.
-    fn loopback(&self) -> bool {
+    pub(super) fn loopback(&self) -> bool {
         cfg!(debug_assertions) && self.host.options.test_loopback
     }
 
-    /// The plugin's client, which follows no redirect: [`Slot::fetch`] does, checking each.
-    fn client(&self) -> Result<&Client, RpcError> {
+    /// The plugin's client, which follows no redirect: [`Plugin::fetch`] does, checking each.
+    pub(super) fn client(&self) -> Result<&Client, RpcError> {
         let made = self.net.client.get_or_init(|| {
             let none = reqwest::redirect::Policy::none();
             Client::builder().redirect(none).timeout(TIMEOUT).build().map_err(|e| with_causes(&e))
@@ -211,6 +223,10 @@ impl Slot {
         if req.body.is_some() && req.body_blob.is_some() {
             return Err(invalid("a request sends a body or a body_blob, not both"));
         }
+        let named_account = url.query_pairs().any(|(_, v)| v.contains(ACCOUNT_PLACEHOLDER));
+        if named_account || req.body.as_deref().is_some_and(|b| b.contains(ACCOUNT_PLACEHOLDER)) {
+            return Err(invalid("an account goes only in the Authorization header: {account:<id>}"));
+        }
         if url.query_pairs().any(|(_, v)| v.contains(SECRET)) {
             let pairs: Vec<(String, String)> =
                 url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
@@ -224,6 +240,17 @@ impl Slot {
                 .map_err(|_| invalid(format!("{name:?} isn't a header's name")))?;
             // Never one the plugin sets: the host says who's asking.
             if name == USER_AGENT {
+                continue;
+            }
+            if value.contains(ACCOUNT_PLACEHOLDER) {
+                let id = value.strip_prefix(ACCOUNT_PLACEHOLDER).and_then(|v| v.strip_suffix('}'));
+                let Some(id) = id.filter(|id| name == AUTHORIZATION && !id.contains('}')) else {
+                    return Err(invalid("an account goes only in the Authorization header: {account:<id>}"));
+                };
+                let mut bearer = HeaderValue::from_str(&format!("Bearer {}", self.bearer(live, id)?))
+                    .map_err(|_| RpcError::failed("external", "the account's token can't be sent in a header"))?;
+                bearer.set_sensitive(true);
+                sent.filled.append(AUTHORIZATION, bearer);
                 continue;
             }
             let to = if value.contains(SECRET) { &mut sent.filled } else { &mut sent.plain };

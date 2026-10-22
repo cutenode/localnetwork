@@ -6,12 +6,11 @@ use std::time::Duration;
 
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
-use rustc_hash::FxHashSet;
 use tokio::sync::mpsc::UnboundedSender;
-use uuid::Uuid;
 
-use super::protocol::{self, ALPN, Catalog, CatalogSnapshot, NOT_FOUND, OK, REFUSED, Request, answer};
+use super::protocol::{self, ALPN, NOT_FOUND, OK, REFUSED, Request, answer};
 use super::{ServeEvent, ServeOptions, ServeReport, ShareCode, endpoint, runtime, short};
+use crate::catalog;
 use crate::progress::Ctx;
 use crate::store::Store;
 use crate::{Error, Result};
@@ -24,7 +23,7 @@ pub fn serve(
     ctx: &Ctx<'_>,
     on_event: &mut dyn FnMut(&ServeEvent),
 ) -> Result<ServeReport> {
-    catalog(store)?;
+    catalog::of(store)?;
     runtime()?.block_on(async {
         let endpoint = endpoint(opts.local_only, vec![ALPN.to_vec()]).await?;
         if !opts.local_only {
@@ -54,20 +53,6 @@ pub fn serve(
         let _ = router.shutdown().await;
         Ok(report)
     })
-}
-
-/// What the other computer sees of `store`.
-fn catalog(store: &Store) -> Result<Catalog> {
-    let libraries = store.libraries()?;
-    let ids: FxHashSet<Uuid> = libraries.iter().map(|l| l.id).collect();
-    let mut snapshots = Vec::new();
-    for id in store.snapshot_ids()? {
-        let info = store.load_info(&id)?;
-        if ids.contains(&info.library_id) {
-            snapshots.push(CatalogSnapshot { id, library: info.library_id, parents: info.parents });
-        }
-    }
-    Ok(Catalog { store: store.id()?, libraries, snapshots, labels: store.labels()? })
 }
 
 #[derive(Debug, Clone)]
@@ -101,7 +86,7 @@ impl ProtocolHandler for Handler {
             return Ok(());
         }
         let store = self.store.clone();
-        let catalog = tokio::task::spawn_blocking(move || catalog(&store)).await.map_err(AcceptError::from_err)?;
+        let catalog = tokio::task::spawn_blocking(move || catalog::of(&store)).await.map_err(AcceptError::from_err)?;
         match catalog {
             Ok(c) => answer(&mut send, OK, &serde_json::to_vec(&c).expect("serializes")).await,
             Err(e) => answer(&mut send, NOT_FOUND, e.to_string().as_bytes()).await,
