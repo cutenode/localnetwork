@@ -6,7 +6,9 @@ name: Web CI
 on:
   push:
     branches: [main]
+  # The default types, and ready_for_review for a draft's first run (see the changes job).
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -31,10 +33,11 @@ jobs:
       actions: read
       contents: read
       pull-requests: read
-    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
+    # The API lists at most 3000 of a pull request's files, so one that size runs everything. A
+    # draft skips the work until it's marked ready for review, as in locallibrary-ci.yml.
     outputs:
-      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true' }}
-      lighthouse: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.lighthouse == 'true' }}
+      run: ${{ !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true') }}
+      lighthouse: ${{ !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.lighthouse == 'true') }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
       # workflow passed on, so what a cancelled or failed run didn't check runs on the next push.

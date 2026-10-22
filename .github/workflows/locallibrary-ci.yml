@@ -8,7 +8,9 @@ name: locallibrary CI
 on:
   push:
     branches: [main]
+  # The default types, and ready_for_review for a draft's first run (see the changes job).
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -36,10 +38,12 @@ jobs:
       actions: read
       contents: read
       pull-requests: read
-    # The API lists at most 3000 of a pull request's files, so one that size runs everything.
+    # The API lists at most 3000 of a pull request's files, so one that size runs everything. A
+    # draft skips the work until it's marked ready for review, which leaves the runners to the
+    # pull requests about to merge.
     outputs:
-      run: ${{ github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true' }}
-      semver: ${{ github.event_name == 'pull_request' && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.semver == 'true') }}
+      run: ${{ !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.rust == 'true' || steps.filter.outputs.readmes == 'true') }}
+      semver: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.semver == 'true') }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
       # workflow passed on, so what a cancelled or failed run didn't check runs on the next push.
