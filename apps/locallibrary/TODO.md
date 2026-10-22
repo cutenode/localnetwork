@@ -246,25 +246,6 @@ Open work left by the 2026-10-11 and 2026-10-12 sessions was added on 2026-10-12
       `drive_reads_say_what_their_json_says`, and rekordbox-pdb's `edits_match_the_model` (during
       two coverage runs at once).
 
-## Performance
-
-Left from the benchmark pass (`cargo bench`, see CONTRIBUTING.md), each measured on a 10k-track
-drive but not fixed because the fix changes bytes written or needs a decision.
-
-- [ ] `Device::scan_fingerprinted` forgets the database files' keys in the hash index, which marks
-      it dirty, so `.locallibrary/index.json` is rewritten with a full fsync on every scan: about
-      20% of `check`. Skipping the write when no hash changed changes the index's bytes (its `at`
-      timestamps).
-- [ ] OneLibrary builds commit after every statement: about 16% of a conversion to OneLibrary at
-      5k tracks. One transaction would change the header's change counters (bytes 24-27 and
-      92-95).
-- [ ] OneLibrary's `remove_tracks` deletes row by row on columns without an index
-      (`cue.content_id`, `playlist_content.content_id`, `history_content.content_id`), which is
-      O(removed × rows) in pack, clean and dedupe. Not benchmarked; a different way of deleting
-      may lay pages out differently.
-- [ ] Edit plans clone the whole library before every edit (`plan_with` in `edit.rs`) to roll back
-      one that fails part way.
-
 ## DJ profile and publishing (`locallibrary profile`, `account`)
 
 - [ ] **Nobody has signed in all the way yet.** Run `locallibrary account login <your handle>`,
@@ -388,10 +369,14 @@ From the lexicon design review (R numbers).
 - [ ] OneLibrary builds commit after every statement (about 16% of a 5k-track convert). One
       transaction changes the header's change counters, which `content_hash` already ignores.
 - [ ] `merge.rs` finds each new track by scanning the source (`src_lib.track`, five call sites),
-      O(new x N). Use `Library::track_lookup` from `bnb/perf` and measure it.
-- [ ] Once `bnb/perf` and `bnb/ci-runners` are both in, make the workspace's `criterion`
-      `codspeed-criterion-compat`, as `locallibrary-bench.yml` already says it is, and connect
-      the repo in CodSpeed after the first push (the free tier needs it public).
+      O(new x N). Use `Library::track_lookup` and measure it.
+- [ ] OneLibrary's `remove_tracks` deletes row by row on columns without an index
+      (`cue.content_id`, `playlist_content.content_id`, `history_content.content_id`), which is
+      O(removed x rows) in pack, clean and dedupe. Not benchmarked; a different way of deleting
+      may lay pages out differently.
+- [ ] Edit plans clone the whole library before every edit (`plan_with` in `edit.rs`) to roll back
+      one that fails part way.
+- [ ] Connect the repo in CodSpeed after the first push (the free tier needs it public).
 - [ ] `a_click_does_what_it_points_at` (`tui/app/props.rs`) draws once more than it needs for
       kinds 9, 12 and 13, about 15% of its renders.
 
