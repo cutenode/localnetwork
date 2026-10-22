@@ -204,6 +204,63 @@ fn wavs_decode_to_their_samples(tc: TestCase) {
     assert!(start.duration_secs * rate as f64 <= got as f64 + 0.5);
 }
 
+/// An AIFF decodes to the frames its COMM chunk counts, exactly, at its own rate and to mono,
+/// whether a chunk (an ID3 tag) follows them or the file ends with them. symphonia reads 8 bytes
+/// past the samples: noise from the chunk after them, and when none follows, a length that calls
+/// the file cut short wherever its samples end within 8 bytes of a whole number of 1152-frame
+/// packets (1151 or 1152 frames of 16-bit stereo).
+#[hegel::test(test_cases = 40)]
+#[hegel::explicit_test_case(channels = 2u16, bits = 16u16, frames = 1151usize, tagged = false)]
+#[hegel::explicit_test_case(channels = 1u16, bits = 24u16, frames = 2304usize, tagged = false)]
+#[hegel::explicit_test_case(channels = 2u16, bits = 16u16, frames = 1000usize, tagged = true)]
+fn aiffs_decode_to_their_frames(tc: TestCase) {
+    let channels = tc.draw(gs::integers::<u16>().min_value(1).max_value(2));
+    let bits = tc.draw(gs::sampled_from(vec![16u16, 24]));
+    let frames = tc.draw(gs::integers::<usize>().max_value(2400));
+    let tagged = tc.draw(gs::booleans());
+    let (width, half) = (usize::from(bits / 8), 1i64 << (bits - 1));
+    let samples: Vec<i32> =
+        (0..frames * usize::from(channels)).map(|i| ((i as i64 * 7_919) % (2 * half) - half) as i32).collect();
+    let data: Vec<u8> = samples.iter().flat_map(|s| s.to_be_bytes()[4 - width..].to_vec()).collect();
+    let mut chunks = [
+        b"COMM".as_slice(),
+        &18u32.to_be_bytes(),
+        &channels.to_be_bytes(),
+        &(frames as u32).to_be_bytes(),
+        &bits.to_be_bytes(),
+        // 44.1 kHz as an 80-bit extended float.
+        &[0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0],
+        b"SSND",
+        &(data.len() as u32 + 8).to_be_bytes(),
+        &[0; 8],
+        &data,
+    ]
+    .concat();
+    if data.len() % 2 == 1 {
+        chunks.push(0);
+    }
+    if tagged {
+        chunks.extend_from_slice(b"ID3 \0\0\0\x0aID3\x03\0\0\0\0\0\0");
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.aiff");
+    std::fs::write(&path, [b"FORM".as_slice(), &(chunks.len() as u32 + 4).to_be_bytes(), b"AIFF", &chunks].concat())
+        .unwrap();
+
+    let mut heard = Vec::new();
+    let format = decode_native(&path, Damaged::Fail, &Ctx::silent(), |s: &[i32], r, c| -> Result<_> {
+        assert_eq!((r, c), (44_100, usize::from(channels)));
+        heard.extend(s.iter().map(|v| v >> (32 - bits)));
+        Ok(ControlFlow::Continue(()))
+    })
+    .unwrap();
+    assert_eq!(heard, samples);
+    assert_eq!(format.duration_secs, frames as f64 / 44_100.0);
+    let mut mono = 0;
+    decode(&path, 44_100, &Ctx::silent(), &mut |s| mono += s.len()).unwrap();
+    assert_eq!(mono, frames);
+}
+
 /// A format is told by the file's last extension alone, in any case: not by the rest of its
 /// name or its folder. rekordbox's formats are decodable; other formats and names without an
 /// extension aren't.
@@ -365,4 +422,32 @@ fn cancelling_stops_a_decode_at_the_next_check(tc: TestCase) {
     } else {
         assert!(result.is_ok() && heard == packets(frames), "{result:?} after {heard}");
     }
+}
+
+/// [`aiff_frames`] reads the frame count from the COMM chunk wherever it is among the chunks
+/// (each padded to an even length), in an AIFF or AIFC; anything else, a file cut short before
+/// it and a file that isn't there have none.
+#[hegel::test(test_cases = 200)]
+fn aiff_frames_are_found_among_any_chunks(tc: TestCase) {
+    let frames = tc.draw(gs::integers::<u32>());
+    let kind = tc.draw(gs::sampled_from(vec![*b"AIFF", *b"AIFC", *b"WAVE"]));
+    let mut bytes = [b"FORM".as_slice(), &0u32.to_be_bytes(), &kind].concat();
+    for len in tc.draw(gs::vecs(gs::integers::<u32>().max_value(9)).max_size(4)) {
+        bytes.extend_from_slice(b"FVER");
+        bytes.extend_from_slice(&len.to_be_bytes());
+        bytes.extend(std::iter::repeat_n(0x55, (len + len % 2) as usize));
+    }
+    let comm_end = bytes.len() + 14;
+    bytes.extend_from_slice(b"COMM");
+    bytes.extend_from_slice(&18u32.to_be_bytes());
+    bytes.extend_from_slice(&2u16.to_be_bytes());
+    bytes.extend_from_slice(&frames.to_be_bytes());
+    bytes.extend_from_slice(&[0, 16, 0x40, 0x0E, 0xAC, 0x44, 0, 0, 0, 0, 0, 0]);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("x.aiff");
+    let cut = tc.draw(gs::integers::<usize>().max_value(bytes.len()));
+    std::fs::write(&path, &bytes[..cut]).unwrap();
+    let found = aiff_frames(&path);
+    assert_eq!(found, (kind != *b"WAVE" && cut >= comm_end).then_some(u64::from(frames)), "cut at {cut}");
+    assert_eq!(aiff_frames(&dir.path().join("gone.aiff")), None);
 }
