@@ -63,7 +63,7 @@ Logging: the website logs with [pino](https://getpino.io) (`apps/web/src/lib/ser
 
 Every workflow the ruleset requires has the same three parts. Copy `localtoolbox-ci.yml`, the smallest:
 
-1. a `changes` job that runs [dorny/paths-filter](https://github.com/dorny/paths-filter) over the files the app depends on, including the shared ones (the lockfile, `.node-version`, the lint and format configs, the workflow itself);
+1. a `changes` job that runs [dorny/paths-filter](https://github.com/dorny/paths-filter) over the files the app depends on, including the shared ones (the lockfile, `.node-version`, the lint and format configs, the workflow itself). On a push it diffs against the last commit the workflow passed on (`.github/actions/last-passed`), so a run that a newer push cancelled, or one that failed, leaves its files to the next run;
 2. the jobs that do the work, each with `needs: changes` and skipped when nothing matched;
 3. a `passed` job named "`<tool>` CI passed", with `if: always()`, that fails if any job failed or was cancelled.
 
