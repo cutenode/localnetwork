@@ -13,6 +13,7 @@
 
 use std::f64::consts::PI;
 use std::fs::File;
+use std::io::Read;
 use std::ops::ControlFlow;
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
@@ -115,6 +116,12 @@ where
     F: FnMut(&[S], u32, usize) -> std::result::Result<ControlFlow<()>, E>,
 {
     let (mut format, track) = open(path)?;
+    // symphonia 0.5 takes an AIFF's SSND offset and block size fields for audio: it reads 8 bytes
+    // past the samples (noise from the chunk after them, usually an ID3 tag) and counts them in
+    // the track's length, which a file that ends with its samples can then fall short of. COMM's
+    // count is the length, and decoding stops there.
+    let aiff = aiff_frames(path);
+    let length = aiff.or(track.codec_params.n_frames);
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
         .map_err(|e| Error::parse(path, e))?;
@@ -132,6 +139,9 @@ where
     let mut next_ts = start;
     let missing = || Error::parse(path, "a stretch of it is damaged");
     loop {
+        if aiff == Some(frames) {
+            return Ok(with_duration(fmt, frames));
+        }
         let packet = match format.next_packet() {
             Ok(p) => p,
             Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
@@ -166,16 +176,40 @@ where
         }
         let b = buf.as_mut().expect("allocated above");
         b.copy_interleaved_ref(decoded);
-        frames += (b.samples().len() / channels) as u64;
+        let left = aiff.map_or(usize::MAX, |n| usize::try_from((n - frames) * channels as u64).unwrap_or(usize::MAX));
+        let samples = &b.samples()[..b.samples().len().min(left)];
+        frames += (samples.len() / channels) as u64;
         (fmt.sample_rate, fmt.channels) = (spec.rate, channels as u16);
-        if sink(b.samples(), spec.rate, channels)?.is_break() {
+        if sink(samples, spec.rate, channels)?.is_break() {
             return Ok(with_duration(fmt, frames));
         }
     }
-    if damaged == Damaged::Fail && track.codec_params.n_frames.is_some_and(|n| next_ts < start + n) {
+    if damaged == Damaged::Fail && length.is_some_and(|n| next_ts < start + n) {
         return Err(missing().into());
     }
     Ok(with_duration(fmt, frames))
+}
+
+/// The frames an AIFF file's COMM chunk says it holds, when `path` is one.
+pub fn aiff_frames(path: &Path) -> Option<u64> {
+    let mut file = std::io::BufReader::new(File::open(path).ok()?);
+    let mut header = [0; 12];
+    file.read_exact(&mut header).ok()?;
+    if &header[..4] != b"FORM" || !matches!(&header[8..], b"AIFF" | b"AIFC") {
+        return None;
+    }
+    loop {
+        let mut chunk = [0; 8];
+        file.read_exact(&mut chunk).ok()?;
+        let len = u32::from_be_bytes(chunk[4..].try_into().expect("4 bytes"));
+        if &chunk[..4] == b"COMM" {
+            let mut comm = [0; 6];
+            file.read_exact(&mut comm).ok()?;
+            return Some(u32::from_be_bytes(comm[2..].try_into().expect("4 bytes")).into());
+        }
+        // Chunks start on even offsets.
+        file.seek_relative(i64::from(len) + i64::from(len % 2)).ok()?;
+    }
 }
 
 /// `fmt` with the length of `frames` at its rate.
