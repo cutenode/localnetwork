@@ -37,6 +37,7 @@ jobs:
     # draft skips the work until it's marked ready for review, as in locallibrary-ci.yml.
     outputs:
       run: ${{ !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.run == 'true') }}
+      integration: ${{ !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.integration == 'true') }}
       lighthouse: ${{ !github.event.pull_request.draft && (github.event.pull_request.changed_files >= 3000 || steps.filter.outputs.lighthouse == 'true') }}
     steps:
       # A pull request's files come from the API. A push is diffed against the last commit this
@@ -54,7 +55,7 @@ jobs:
           base: ${{ steps.base.outputs.sha }}
           predicate-quantifier: some-with-excludes
           filters: |
-            run:
+            run: &run
               - 'apps/web/**'
               - 'apps/*/README.md'
               - 'apps/*/docs/*.md'
@@ -73,6 +74,16 @@ jobs:
               - '.oxfmtrc.json'
               - 'tools/oxlint/**'
               - '.github/workflows/web-ci.yml'
+            # The integration tests: all of the above but the Markdown and labels that the tool pages
+            # and src/lib/tools/docs.test.ts read, which verify, e2e and the Docker smoke test cover.
+            integration:
+              - *run
+              - '!apps/*/README.md'
+              - '!apps/*/docs/*.md'
+              - '!README.md'
+              - '!.github/CONTRIBUTING.md'
+              - '!.github/SECURITY.md'
+              - '!.github/labels.yml'
             # What the pages Lighthouse measures are built and served from: the app's code, static
             # files and Lua (HappyView answers the directory's queries), the dev network and seed
             # data it measures them on, its build and Lighthouse config, the dependencies, and the
@@ -153,7 +164,7 @@ jobs:
   integration:
     name: Integration (real spaces PDS) + coverage
     needs: changes
-    if: needs.changes.outputs.run == 'true'
+    if: needs.changes.outputs.integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
