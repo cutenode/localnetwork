@@ -612,10 +612,10 @@ fn plan_analysis(
     let dir_taken =
         |d: &str, taken: &FxHashSet<String>| siblings.iter().any(|s| taken.contains(&fold(&s.replacen(dir, d, 1))));
     let mut target_dir = dir.to_string();
-    let mut salt = 0u32;
+    let mut attempt = 0u32;
     while dir_taken(&target_dir, taken) {
-        target_dir = analysis_dir(target_audio, salt);
-        salt += 1;
+        target_dir = analysis_dir(target_audio, attempt);
+        attempt += 1;
     }
     let pairs: Vec<(String, String)> =
         siblings.iter().map(|s| (s.to_string(), s.replacen(dir, &target_dir, 1))).collect();
@@ -627,9 +627,9 @@ fn plan_analysis(
 }
 
 /// An analysis folder for the audio file `audio` (a key), as rekordbox lays them out
-/// (`PIONEER/USBANLZ/Pxxx/xxxxxxxx`): from a hash of its path, another for each `salt`.
-pub(crate) fn analysis_dir(audio: &str, salt: u32) -> String {
-    let h = Hash::of(format!("{audio}\0{salt}").as_bytes());
+/// (`PIONEER/USBANLZ/Pxxx/xxxxxxxx`): from a hash of its path, another for each `attempt`.
+pub(crate) fn analysis_dir(audio: &str, attempt: u32) -> String {
+    let h = Hash::of(format!("{audio}\0{attempt}").as_bytes());
     let b = h.as_bytes();
     let p = u16::from_be_bytes([b[0], b[1]]) & 0x0fff;
     let q = u32::from_be_bytes([b[2], b[3], b[4], b[5]]);
