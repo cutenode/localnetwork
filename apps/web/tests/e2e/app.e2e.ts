@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import headline from '../../src/lib/headline.json' with { type: 'json' };
 import { expectAccessible } from './axe.ts';
 
 /**
@@ -54,7 +55,9 @@ async function signOut(page: Page) {
 test.describe('public pages', () => {
 	test('home page lists seeded projects and links to search', async ({ page }) => {
 		await page.goto('/');
-		await expect(page.getByRole('heading', { level: 1 })).toContainText('The home for local DJs');
+		await expect(page.getByRole('heading', { level: 1 })).toHaveAccessibleName(
+			`${headline.verbs[0]} your ${headline.nouns[0]}.`
+		);
 		await expect(page.getByRole('heading', { name: 'New on the directory' })).toBeVisible();
 		await expectAccessible(page);
 		// Narrower than the desktop layout, the header's links fold into a menu, so open it the way a

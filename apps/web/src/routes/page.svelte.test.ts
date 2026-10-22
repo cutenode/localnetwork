@@ -1,6 +1,7 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import headline from '#lib/headline.json' with { type: 'json' };
 import type { ProjectView } from '#lib/types.ts';
 import type { PageData } from './$types';
 import Page from './+page.svelte';
@@ -49,7 +50,7 @@ describe('/', () => {
 		await show({ ...base, ...directory });
 		await expect
 			.element(page.getByRole('heading', { level: 1 }))
-			.toHaveTextContent('The home for local DJs and the nights they play.');
+			.toHaveAccessibleName(`${headline.verbs[0]} your ${headline.nouns[0]}.`);
 		await expect.element(page.getByRole('search', { name: 'Find DJs' })).toHaveAttribute('action', '/projects');
 		await expect.element(page.getByRole('textbox', { name: 'Sound or name' })).toHaveAttribute('name', 'q');
 		await expect.element(page.getByRole('link', { name: 'Neon Tide' })).toHaveAttribute('href', '/projects/neon-tide');
