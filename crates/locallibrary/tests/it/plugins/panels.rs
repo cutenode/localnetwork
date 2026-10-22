@@ -3,6 +3,8 @@
 //! the new kinds only from a plugin with the feature, and no question where one can't be.
 
 use base64::prelude::*;
+use hegel::TestCase;
+use hegel::generators as gs;
 use loclib_plugin::Column;
 
 use super::*;
@@ -150,4 +152,65 @@ fn a_panel_stops_when_cancelled() {
     assert!(matches!(e, Error::Cancelled), "{e}");
     assert!(at.elapsed() < Duration::from_secs(5));
     cancelling.join().unwrap();
+}
+
+/// For any answers a panel gives, from a plugin with the `views` feature or without, the host
+/// takes the view answered (an image given on as a PNG), or says how the plugin failed: a kind
+/// the feature brings from a plugin without it, a question (or one in a section), an image whose
+/// file isn't there or isn't a picture, or the plugin's own failure.
+#[hegel::test(test_cases = 12, suppress_health_check = [hegel::HealthCheck::TooSlow])]
+fn a_panels_answer_is_its_view_or_why_it_isnt(tc: TestCase) {
+    let views = tc.draw(gs::booleans());
+    let f = Fixture::panelled(if views { &[] } else { &["--without", "views"] });
+    let tree = json!({ "kind": "tree", "items": [{ "label": "a", "children": [{ "label": "b", "detail": "c" }] }] });
+    let image = json!({ "kind": "image", "blob": "a.jpg", "alt": "a" });
+    let question = json!({ "kind": "choose", "title": "Which?", "param": "x", "items": [] });
+    let needs = "the Echo plugin failed: its view needs the views feature, which it doesn't have";
+    for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
+        // The answer, and how the plugin failed (`None`: it's the view answered).
+        let (answer, why) = match tc.draw(gs::integers::<u8>().max_value(8)) {
+            0 => (json!({ "view": { "kind": "kv", "pairs": [{ "label": "id", "value": 1 }] } }), None),
+            1 => (json!({ "view": tree }), Some(needs).filter(|_| !views)),
+            2 => (
+                json!({ "view": question }),
+                Some("the Echo plugin failed: its panel said asks a question, which a panel can't"),
+            ),
+            3 => {
+                let sections = json!({ "kind": "sections", "items": [{ "title": "A", "view": question }] });
+                let why = if views { "the Echo plugin failed: a section of its view asks a question" } else { needs };
+                (json!({ "view": sections }), Some(why))
+            }
+            4 => (json!({ "view": image, "blobs": { "a.jpg": jpeg(16) } }), Some(needs).filter(|_| !views)),
+            5 => {
+                let why =
+                    if views { "the Echo plugin failed: its image: its file \"a.jpg\" isn't there" } else { needs };
+                (json!({ "view": image }), Some(why))
+            }
+            6 => {
+                let why = if views { "the Echo plugin failed: its image a.jpg: " } else { needs };
+                (json!({ "view": image, "blobs": { "a.jpg": [1, 2, 3] } }), Some(why))
+            }
+            // The plugin's own failure, or what isn't a view (which the test plugin won't send).
+            n => {
+                let answer = if n == 7 { json!({ "view": { "kind": "chart" } }) } else { json!({ "fail": "invalid" }) };
+                assert_eq!(f.said(answer).unwrap_err().code(), "invalid");
+                continue;
+            }
+        };
+        match (f.said(answer.clone()), why) {
+            (Ok(view), None) => {
+                let mut view = serde_json::to_value(view).unwrap();
+                // An image is given on as a PNG.
+                if let Some(data) = view.as_object_mut().and_then(|v| v.remove("data")) {
+                    assert!(data.as_str().unwrap().starts_with("data:image/png;base64,"), "{data}");
+                }
+                assert_eq!(view, answer["view"]);
+            }
+            (Err(e), Some(why)) => {
+                let said = failure(e);
+                assert!(said.starts_with(why), "{answer}: {said}");
+            }
+            (got, why) => panic!("{answer}: {got:?}, not {why:?}"),
+        }
+    }
 }

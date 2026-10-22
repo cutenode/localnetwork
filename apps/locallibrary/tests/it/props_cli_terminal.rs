@@ -430,18 +430,23 @@ fn colour_is_what_color_says(tc: TestCase) {
         &["undo", "--list"],
         &["account"],
     ];
+    // `profile` says when it was built, to the minute, so runs either side of a minute's turn
+    // differ there: that's left out.
+    #[cfg(unix)]
+    let unstamped =
+        |s: &str| s.lines().map(|l| l.split_once(" built ").map_or(l, |(head, _)| head)).collect::<Vec<_>>().join("\n");
     let mut coloured_any = false;
     for listing in tc.draw(gs::permutations(&listings[..])) {
         let ascii: &[&str] = if tc.draw(gs::booleans()) { &["--ascii"] } else { &[] };
         #[cfg(unix)]
-        let piped = fx.ok(&[ascii, listing].concat());
+        let piped = unstamped(&fx.ok(&[ascii, listing].concat()));
         for when in tc.draw(gs::permutations(vec!["always", "never", "auto"])) {
             let coloured = fx.ok(&[ascii, &["--color", when], listing].concat());
             // Only `always` colours (a listing with nothing styled has no colour to show).
             assert!(when == "always" || !coloured.contains("\u{1b}["), "{listing:?} {when}: {coloured:?}");
             coloured_any |= coloured.contains("\u{1b}[");
             #[cfg(unix)]
-            assert_eq!(plain(&coloured), piped, "{listing:?} {when}");
+            assert_eq!(unstamped(&plain(&coloured)), piped, "{listing:?} {when}");
         }
     }
     assert!(coloured_any);
