@@ -135,7 +135,7 @@ fn recordings_are_collected_byte_for_byte(tc: TestCase) {
         assert!(r.started.unwrap() < r.modified, "it started before it was last written");
     }
 
-    let only: Vec<String> = want.iter().filter(|_| tc.draw(gs::booleans())).cloned().collect();
+    let only: Vec<String> = tc.draw(gs::subsequences(&want));
     let tracklist = tc.draw(gs::sampled_from(vec![0u8, 1, 2]));
     let tracklist = match tracklist {
         0 => Tracklist::None,

@@ -243,7 +243,7 @@ fn draw_current(tc: &hegel::TestCase, source: &Library) -> Library {
         std::iter::once(None).chain(playlists.iter().filter(|p| p.is_folder).map(|p| Some(p.id))).collect();
     for (i, name) in ["Mine", "Ours"].iter().enumerate() {
         if tc.draw(gs::booleans()) {
-            let parent = folders[tc.draw(gs::integers::<usize>().max_value(folders.len() - 1))];
+            let parent = tc.draw(gs::sampled_from(&folders));
             let order = tc.draw(gs::integers::<u32>().max_value(7));
             playlists.push(node(100 + i as u32, parent, name, false, order, &[1]));
         }
@@ -271,7 +271,7 @@ fn restoring_a_node_brings_back_the_source_s_entries_in_place(tc: hegel::TestCas
     use hegel::generators as gs;
     let source = draw_source(&tc);
     let current = draw_current(&tc, &source);
-    let top = &source.playlists[tc.draw(gs::integers::<usize>().max_value(source.playlists.len() - 1))];
+    let top = &tc.draw(gs::sampled_from(&source.playlists));
     let on_drive: FxHashSet<&str> = current.tracks.iter().map(|t| t.file_path.as_str()).collect();
     let nodes = subtree(&source, top);
     let (mut kept, mut missing) = (0, Vec::new());
@@ -373,7 +373,7 @@ fn a_name_with_a_slash_is_refused(tc: hegel::TestCase) {
     source.playlists[i].name = name;
     // It, or anything inside it.
     let inside: Vec<u32> = subtree(&source, &source.playlists[i]).iter().map(|p| p.id).collect();
-    let pick = inside[tc.draw(gs::integers::<usize>().max_value(inside.len() - 1))];
+    let pick = tc.draw(gs::sampled_from(&inside));
     let top = source.playlists.iter().find(|p| p.id == pick).unwrap();
     let current = draw_current(&tc, &source);
     let err = restore_edits(&source, top, &current).unwrap_err();

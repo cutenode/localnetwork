@@ -159,9 +159,9 @@ fn details(tc: &TestCase) -> Details {
         (*slot, want[i]) = given(tc, pool, refused);
     }
     let dates: Vec<_> = DATES.iter().filter(|(_, d)| refused || d.is_some()).copied().collect();
-    let date = tc.draw(gs::booleans()).then(|| tc.draw(gs::sampled_from(dates)));
+    let date = tc.draw(gs::optional(gs::sampled_from(dates)));
     fields.date = date.map(|(text, _)| text.to_string());
-    let with = tc.draw(gs::booleans()).then(|| tc.draw(gs::vecs(gs::sampled_from(PARTNERS.to_vec())).max_size(3)));
+    let with = tc.draw(gs::optional(gs::vecs(gs::sampled_from(PARTNERS.to_vec())).max_size(3)));
     fields.with = with.as_ref().map(|w| w.iter().map(|(text, _)| text.to_string()).collect());
     Details {
         fields,
@@ -722,9 +722,8 @@ fn maybe_text(tc: &TestCase) -> Option<String> {
 
 #[hegel::test_helper]
 fn time(tc: &TestCase) -> DateTime<Utc> {
-    let secs = tc.draw(gs::integers::<i64>().min_value(0).max_value(4_000_000_000));
-    let nanos = tc.draw(gs::integers::<u32>().max_value(999_999_999));
-    Utc.timestamp_opt(secs, nanos).unwrap()
+    let last = DateTime::from_timestamp(4_000_000_000, 999_999_999).unwrap();
+    tc.draw(gs::default::<DateTime<Utc>>().min_value(DateTime::UNIX_EPOCH.naive_utc()).max_value(last.naive_utc()))
 }
 
 #[hegel::test_helper]
@@ -741,7 +740,7 @@ fn any_entry(tc: &TestCase) -> SetEntry {
         year: tc.draw(gs::integers::<u16>()),
         duration_secs: tc.draw(gs::integers::<u32>()),
         file: maybe_text(tc),
-        start_seconds: tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<u32>())),
+        start_seconds: tc.draw(gs::optional(gs::integers::<u32>())),
         musicbrainz: MusicBrainzIds {
             recording: tc.draw(gs::optional(gs::integers::<u128>())).map(uuid::Uuid::from_u128),
             release: tc.draw(gs::optional(gs::integers::<u128>())).map(uuid::Uuid::from_u128),
@@ -763,8 +762,11 @@ fn any_set(tc: &TestCase) -> Set {
     Set {
         id: text(tc),
         title: maybe_text(tc),
-        date: NaiveDate::from_num_days_from_ce_opt(tc.draw(gs::integers::<i32>().min_value(1).max_value(800_000)))
-            .unwrap(),
+        date: tc.draw(
+            gs::default::<NaiveDate>()
+                .min_value(NaiveDate::from_num_days_from_ce_opt(1).unwrap())
+                .max_value(NaiveDate::from_num_days_from_ce_opt(800_000).unwrap()),
+        ),
         kind: maybe_text(tc),
         venue: maybe_text(tc),
         city: maybe_text(tc),
@@ -1070,8 +1072,7 @@ fn imported_logs_are_the_sessions_the_model_predicts(tc: TestCase) {
         written.push((id, rows, file));
     }
     // Imported again under another name: the same session, renamed.
-    let which = tc.draw(gs::integers::<usize>().max_value(written.len() - 1));
-    let (id, rows, file) = written[which].clone();
+    let (id, rows, file) = tc.draw(gs::sampled_from(&written));
     assert_eq!(import(&desk, &mut logs, &file, Some("Again"), &rows).id, id);
 
     let ids: Vec<String> = logs.iter().map(|l| l.id.clone()).collect();
@@ -1475,7 +1476,7 @@ fn sets_become_playlists_on_a_drive(tc: TestCase) {
     let main = common::bigger_drive(&desk.volumes, "Main");
     let library: Library = pdb::read_library(&main.join(paths::EXPORT_PDB)).unwrap();
     let picks: Vec<Option<usize>> = (0..tc.draw(gs::integers::<usize>().min_value(1).max_value(5)))
-        .map(|_| tc.draw(gs::booleans()).then(|| tc.draw(gs::integers::<usize>().max_value(library.tracks.len() - 1))))
+        .map(|_| tc.draw(gs::optional(gs::integers::<usize>().max_value(library.tracks.len() - 1))))
         .collect();
     let title = tc.draw(gs::booleans()).then(|| "Fri/day".to_string());
     let fields = SetFields { title: title.clone(), date: Some("2026-10-03".into()), ..Default::default() };

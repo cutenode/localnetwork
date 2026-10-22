@@ -86,7 +86,7 @@ fn string_for(tc: &TestCase, fx: &Env, key: &str, format: Option<&str>) -> Strin
     let a = path(&fx.volumes.join("A")).to_string();
     let club = path(&fx.volumes.join("Club")).to_string();
     let outside = |name: &str| path(&fx.home(name)).to_string();
-    let pick = |options: Vec<String>| options[tc.draw(gs::integers::<usize>().max_value(options.len() - 1))].clone();
+    let pick = |options: Vec<String>| tc.draw(gs::sampled_from(options));
     match format {
         Some("date") => return pick(vec!["2026-10-03".into(), "2099-01-01".into(), "not a day".into()]),
         Some("date-time") => return pick(vec!["2026-10-03T21:00:00Z".into(), "yesterday".into()]),
@@ -136,7 +136,7 @@ pub(crate) fn params_for(tc: &TestCase, fx: &Env, m: &Value) -> (Value, bool) {
         return (value_for(tc, fx, &m["params"]), true);
     }
     let wrong = [json!(7), json!("drive"), json!(true)];
-    (wrong[tc.draw(gs::integers::<usize>().max_value(2))].clone(), false)
+    (tc.draw(gs::sampled_from(&wrong[..])), false)
 }
 
 /// The sidecar's output for `lines`, sent at once before its input closes, and whether it
@@ -200,16 +200,14 @@ fn every_line_gets_the_answer_the_contract_promises(tc: TestCase) {
                 (junk.to_vec(), Sent::Unanswerable)
             }
             1 => {
-                let bad_id =
-                    [json!({}), json!([1]), json!(true)][tc.draw(gs::integers::<usize>().max_value(2))].clone();
+                let bad_id = tc.draw(gs::sampled_from(&[json!({}), json!([1]), json!(true)][..]));
                 (
                     json!({"jsonrpc": "2.0", "id": bad_id, "method": "version"}).to_string().into_bytes(),
                     Sent::Unanswerable,
                 )
             }
             2 => {
-                let m =
-                    [Value::Null, json!(3), json!(["version"])][tc.draw(gs::integers::<usize>().max_value(2))].clone();
+                let m = tc.draw(gs::sampled_from(&[Value::Null, json!(3), json!(["version"])][..]));
                 let line = json!({"jsonrpc": "2.0", "id": id, "method": m}).to_string().into_bytes();
                 (line, Sent::NoMethod { id })
             }
@@ -223,11 +221,11 @@ fn every_line_gets_the_answer_the_contract_promises(tc: TestCase) {
                 (line, Sent::Request { id, method: None, refused: true })
             }
             _ => {
-                let m = methods[tc.draw(gs::integers::<usize>().max_value(methods.len() - 1))];
+                let m = tc.draw(gs::sampled_from(&methods[..]));
                 let aliases: Vec<&str> = m["aliases"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
                 let name = match aliases.is_empty() || tc.draw(gs::booleans()) {
                     true => m["name"].as_str().unwrap(),
-                    false => aliases[tc.draw(gs::integers::<usize>().max_value(aliases.len() - 1))],
+                    false => tc.draw(gs::sampled_from(&aliases[..])),
                 };
                 let (params, fits) = params_for(&tc, &fx, m);
                 let line = json!({"jsonrpc": "2.0", "id": id, "method": name, "params": params});
@@ -597,7 +595,7 @@ fn requests_in_flight_agree_with_a_model(tc: TestCase) {
             2 => {
                 let id = match running.is_empty() || tc.draw(gs::weighted_booleans(0.2)) {
                     true => fresh(&tc),
-                    false => running[tc.draw(gs::integers::<usize>().max_value(running.len() - 1))].clone(),
+                    false => tc.draw(gs::sampled_from(&running[..])),
                 };
                 let cancel_id = fresh(&tc);
                 let r = s.call(&cancel_id, "$/cancel", json!({ "id": id }));
@@ -610,7 +608,7 @@ fn requests_in_flight_agree_with_a_model(tc: TestCase) {
                 }
             }
             3 if !running.is_empty() => {
-                let id = running[tc.draw(gs::integers::<usize>().max_value(running.len() - 1))].clone();
+                let id = tc.draw(gs::sampled_from(&running[..]));
                 let r = s.call(&id, "version", json!({}));
                 assert_eq!(r["error"]["code"], -32600, "a running request's id, reused: {r}");
             }

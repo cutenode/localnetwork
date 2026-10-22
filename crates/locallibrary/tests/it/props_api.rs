@@ -262,7 +262,7 @@ impl StoreApiMachine {
             0 if !labelled.is_empty() => labelled[0].to_uppercase(),
             1 => format!("snapshot:{}", &hex[..8]),
             2 => hex.to_ascii_uppercase(),
-            3 => hex[..tc.draw(gs::integers::<usize>().min_value(4).max_value(12))].to_string(),
+            3 => hex[..tc.draw(gs::integers::<usize>().min_value(4).max_value(hex.len()))].to_string(),
             _ => id.short(),
         }
     }
@@ -916,13 +916,14 @@ impl SyncMachine {
     /// A drive holding an export (the first always does, until it's overwritten with another's).
     fn with_export(&self, tc: &TestCase) -> Option<usize> {
         let held: Vec<usize> = (0..3).filter(|i| self.held[*i].is_some()).collect();
-        (!held.is_empty()).then(|| held[tc.draw(gs::integers::<usize>().max_value(held.len() - 1))])
+        (!held.is_empty()).then(|| tc.draw(gs::sampled_from(held)))
     }
 
     /// Two different drives.
     fn pair(&self, tc: &TestCase) -> (usize, usize) {
-        let i = tc.draw(gs::integers::<usize>().max_value(2));
-        let j = (i + tc.draw(gs::integers::<usize>().min_value(1).max_value(2))) % 3;
+        let n = self.roots.len();
+        let i = tc.draw(gs::integers::<usize>().max_value(n - 1));
+        let j = (i + tc.draw(gs::integers::<usize>().min_value(1).max_value(n - 1))) % n;
         (i, j)
     }
 
@@ -1180,7 +1181,7 @@ impl SyncMachine {
     #[rule(weight = 2)]
     fn push(&mut self, tc: TestCase) {
         let Some(head) = self.head else { return };
-        let j = tc.draw(gs::integers::<usize>().max_value(2));
+        let j = tc.draw(gs::integers::<usize>().max_value(self.roots.len() - 1));
         let req = api::PushRequest {
             drive: path(&self.roots[j]),
             library: Some("Home".into()),
@@ -1400,7 +1401,8 @@ fn drives_are_found_by_path_name_and_id(tc: TestCase) {
             (1, _, _) if m.export => path(&m.root.join("PIONEER")),
             (2, Some(n), _) => swap_case(&tc, n),
             (3, _, Some(id)) => {
-                id.to_string()[..tc.draw(gs::integers::<usize>().min_value(4).max_value(12))].to_string()
+                let id = id.to_string();
+                id[..tc.draw(gs::integers::<usize>().min_value(4).max_value(id.len()))].to_string()
             }
             (4, _, _) => "Nowhere".to_string(),
             _ => swap_case(&tc, &m.volume),
@@ -1664,8 +1666,8 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     let per_drive = tc.draw(gs::booleans());
     let mut values = IndexMap::new();
     for _ in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(4)) {
-        let def = &SCHEMA[tc.draw(gs::integers::<usize>().max_value(SCHEMA.len() - 1))];
-        let choice = &def.choices[tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1))];
+        let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));
+        let choice = tc.draw(gs::sampled_from(def.choices));
         values.insert(def.key.to_string(), choice.id.to_string());
     }
     let req = api::SetSettings { values: values.clone(), drive: per_drive.then(|| path(&root)) };
@@ -1709,8 +1711,8 @@ fn the_settings_profile_is_what_drives_are_checked_against(tc: TestCase) {
     assert!(api::settings_apply_plan(&store, &write).unwrap().noop, "written again");
 
     // A value changed again, written in one go.
-    let def = &SCHEMA[tc.draw(gs::integers::<usize>().max_value(SCHEMA.len() - 1))];
-    let choice = def.choices[tc.draw(gs::integers::<usize>().max_value(def.choices.len() - 1))].id;
+    let def = tc.draw(gs::sampled_from(SCHEMA.iter().collect::<Vec<_>>()));
+    let choice = tc.draw(gs::sampled_from(def.choices)).id;
     let again = api::SetSettings { values: [(def.key.to_string(), choice.to_string())].into(), drive: None };
     api::settings_set(&store, &again).unwrap();
     let apply = api::ApplySettings { drive: path(&root), dry_run: false, create_missing: false };
@@ -1923,7 +1925,7 @@ fn art_set_on_a_drive_reads_back_and_embedded_art_comes_back_out(tc: TestCase) {
     let store = Store::open_or_init(dir.path().join("store")).unwrap();
     let ctx = Ctx::silent();
     let lib = library(&root);
-    let ids: Vec<u32> = lib.tracks.iter().map(|t| t.id).filter(|_| tc.draw(gs::booleans())).collect();
+    let ids: Vec<u32> = tc.draw(gs::subsequences(lib.tracks.iter().map(|t| t.id).collect::<Vec<_>>()));
     let set = |image: &Path, ids: &[u32]| api::SetArtwork {
         drive: path(&root),
         image: image.to_path_buf(),

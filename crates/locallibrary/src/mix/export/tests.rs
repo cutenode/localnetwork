@@ -2,40 +2,13 @@ use super::*;
 use crate::mix::{CoverSource, MixInfo, MixWaveform, Span, Transition};
 
 fn report() -> MixReport {
-    let s = |v: &str| v.to_string();
     let track = Track {
-        id: 1,
-        title: s("Demo Track 1"),
-        artist: s("Loopmasters"),
-        album: String::new(),
-        album_artist: String::new(),
-        genre: String::new(),
-        label: String::new(),
-        key: s("Fm"),
-        remixer: String::new(),
-        original_artist: String::new(),
-        composer: String::new(),
-        comment: s("private note"),
-        mix_name: String::new(),
-        isrc: String::new(),
-        bpm: 128.0,
+        key: "Fm".into(),
+        comment: "private note".into(),
         duration_secs: 172,
-        year: 0,
-        track_number: 0,
-        disc_number: 0,
         rating: 5,
-        color: None,
         play_count: 3,
-        bitrate: 320,
-        sample_rate: 44100,
-        sample_depth: 16,
-        file_size: 1,
-        file_path: s("/Contents/Loopmasters/Demo Track 1.mp3"),
-        analyze_path: String::new(),
-        date_added: String::new(),
-        release_date: String::new(),
-        artwork_id: None,
-        artwork_path: None,
+        ..loclib_model::test_util::track(1, "Loopmasters", "Demo Track 1", "/Contents/Loopmasters/Demo Track 1.mp3")
     };
     let play = Play {
         track,

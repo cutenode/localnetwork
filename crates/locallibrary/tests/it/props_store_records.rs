@@ -32,7 +32,7 @@ fn the_stores_records_match_the_model(tc: TestCase) {
     let mut parents: IndexMap<Hash, Vec<Hash>> = IndexMap::new();
     for n in 0..tc.draw(gs::integers::<usize>().min_value(1).max_value(6)) {
         let parent = match (chain.last(), tc.draw(gs::weighted_booleans(0.2))) {
-            (Some(_), true) => vec![chain[tc.draw(gs::integers::<usize>().max_value(chain.len() - 1))]],
+            (Some(_), true) => vec![tc.draw(gs::sampled_from(&chain))],
             (Some(last), false) => vec![*last],
             (None, _) => vec![],
         };
@@ -101,7 +101,7 @@ fn the_stores_records_match_the_model(tc: TestCase) {
             }
             1 => {
                 let label = tc.draw(gs::sampled_from(LABELS));
-                let on = chain[tc.draw(gs::integers::<usize>().max_value(chain.len() - 1))];
+                let on = tc.draw(gs::sampled_from(&chain));
                 let key = label.trim().to_lowercase();
                 match store.add_label(&on, label) {
                     Ok(l) => {
